@@ -5,6 +5,10 @@
  * finding its row names; and an app whose forms hold learn and deliver blocks
  * is the one finding at the app, its document taking the first block's kind.
  *
+ * The emitted learn and deliver apps also read whole with no finding at all,
+ * so a wrapper or a leaf bind left unclaimed, or a shadow that disagrees on a
+ * block's bind, cannot hide behind a filter of Connect's own codes.
+ *
  * Plausible failures: a deliver unit beside a task held; an app of both kinds
  * read as `unrecognized`; a learn module whose description holds
  * `instance('casedb')` read to anything but the one finding
@@ -16,6 +20,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { buildConnectSlugMap } from "../../../connectSlugs";
 import { buildXForm } from "../../../xform/builder";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import {
 	closeAfterStructure,
 	readContext,
@@ -25,6 +30,7 @@ import {
 } from "../../__tests__/readerInput";
 import { readApplication } from "../../appShell";
 import type { DraftForm, ReadContext } from "../../context";
+import { readHqApp } from "../../index";
 import { readStructure } from "../../structure";
 import { readForms } from "../index";
 import { XMLNS, xformSource } from "./formReading";
@@ -180,6 +186,10 @@ describe("the four blocks the emitter writes", () => {
 		});
 		const { ctx, forms, findings } = await readApp([source]);
 		expect(connectCodes(findings)).toEqual([]);
+		// Read whole, every stage claims its share of the form: no finding of any kind.
+		const whole = readHqApp(await inputFor(exportedBody(doc)));
+		expect(whole.kind === "account" ? whole.findings : []).toEqual([]);
+		expect(whole.kind).toBe("read");
 		expect(ctx.draft.connectType).toBe("learn");
 		const form = forms[0];
 		expect(
@@ -235,6 +245,9 @@ describe("the four blocks the emitter writes", () => {
 		);
 		const { ctx, forms, findings } = await readApp(sources);
 		expect(connectCodes(findings)).toEqual([]);
+		const whole = readHqApp(await inputFor(exportedBody(doc)));
+		expect(whole.kind === "account" ? whole.findings : []).toEqual([]);
+		expect(whole.kind).toBe("read");
 		expect(ctx.draft.connectType).toBe("deliver");
 		expect(forms[0]?.form.connect).toMatchObject({
 			deliver_unit: { id: "visit", name: "Visit" },

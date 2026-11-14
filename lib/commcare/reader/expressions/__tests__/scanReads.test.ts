@@ -10,9 +10,13 @@
  * learned; a tag the catalog lacks missing from `unreadTables`.
  */
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { eq, prop, sessionUser, term } from "@/lib/domain/expression/builders";
-import type { SlotContextRef } from "@/lib/domain/expression/types";
+import { slotContext } from "@/lib/domain/expression/context";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
+import type { Expression, SlotContextRef } from "@/lib/domain/expression/types";
+import { calculatedColumn } from "@/lib/domain/modules";
 import { composeModuleXPathQueryEmission } from "../../../suite/case-search/moduleXPathQuery";
 import { xpathQueryRequestValues } from "../../../suite/case-search/xpathQuery";
 import { serializeWire } from "../../../xpath/wire/serialize";
@@ -200,6 +204,79 @@ describe("the reading built on the scan", () => {
 		expect(names).toContain("zone");
 		expect(names).not.toContain("omega");
 		expect(reading.worldReads.userFields).toEqual(["region"]);
+	});
+
+	it("keeps a declared property of the case a held relation read reaches", () => {
+		const column = testUuid("scan-relation-column");
+		const app = buildDoc({
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "size", label: "Size", data_type: "int" }],
+				},
+				{ name: "patient", parent_type: "household", properties: [] },
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							calculatedColumn(column, "Village", {
+								kind: "term",
+								term: { kind: "literal", value: "" },
+							}),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+						},
+					],
+				},
+			],
+		});
+		const ref: SlotContextRef = {
+			entity: "module",
+			uuid: app.moduleOrder[0] as (typeof app.moduleOrder)[number],
+			slot: "case_list_column_expression",
+			member: { columnUuid: column },
+		};
+		const reading = readExpressions(
+			app,
+			[
+				registration(
+					app,
+					ref,
+					"instance('casedb')/casedb/case[@case_id = current()/index/parent and @case_type = 'household']/village",
+				),
+			],
+			readEnv(),
+		);
+		// The read names the patient it walks from; the property is the
+		// household's.
+		expect(reading.bound[0]).toMatchObject({
+			kind: "term",
+			term: { kind: "prop", property: "village" },
+		});
+		expect(reading.declaredProperties).toEqual([
+			{ caseType: "household", property: "village" },
+		]);
+		const household = reading.doc.caseTypes?.find(
+			(type) => type.name === "household",
+		);
+		expect(household?.properties.map((property) => property.name)).toEqual([
+			"size",
+			"village",
+		]);
+		const context = slotContext(reading.doc, ref, new Map());
+		if (context === undefined) throw new Error("The column is not held.");
+		expect(
+			checkExpression(reading.bound[0] as Expression, context).errors,
+		).toEqual([]);
 	});
 
 	it("lists a table the form declares and the catalog lacks as unread", () => {

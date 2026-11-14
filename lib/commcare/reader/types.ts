@@ -129,6 +129,19 @@ export interface ReadMenuAndFormIdentities {
 		readonly xmlns: string;
 		readonly moduleUniqueId: string;
 	}[];
+	/** Every create the document holds whose id is keyed by an answer, read from a Save to Case
+	 *  block, with the prefix its id stands under in the source. The reading mints its own app,
+	 *  form and operation identities, so `authoredCaseIdPrefix` of the document gives another
+	 *  prefix; the reader compared each block printed under this one
+	 *  (`ExpandOptions.keyedCaseIdPrefixes`, by `operationUuid`), and an export printed without
+	 *  it files a key a worker enters again under a new case. `caseType` is the type the
+	 *  operation creates in the source, which the prefix was derived with. */
+	readonly keyedCreates: readonly {
+		readonly operationUuid: Uuid;
+		readonly formUuid: Uuid;
+		readonly caseType: string;
+		readonly prefix: string;
+	}[];
 }
 
 export interface ReadDraft {
@@ -171,7 +184,8 @@ export interface ReadFacts {
 	/** Every itemset over a table the catalog does not hold, handed off, and each tag an
 	 *  expression reads that the catalog lacks, at the place `{ kind: "lookup-table", tag }`. */
 	readonly unreadTables: readonly UnreadTable[];
-	/** The generated translation keys `assembleDocument` folded. */
+	/** The generated translation keys `assembleDocument` folded, and a first-language
+	 *  `app.display.name` the application walker read as the app's name. */
 	readonly foldedTranslationKeys: number;
 	readonly forms: readonly ReadFormFacts[];
 

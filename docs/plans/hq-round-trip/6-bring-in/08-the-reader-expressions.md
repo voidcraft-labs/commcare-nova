@@ -469,9 +469,11 @@ paragraph).
   rule for a refusal outside the checker (the slot is not held and claims its default of 9.2 with
   `detail.reason` `validator:<code>`).
 
-The fuzz test judges each stored slot in the read document's own context and counts three verdicts
-without failing them, because none is the expression reader's, and requires the slots read as their
-canonical tree to outnumber the three together in every corpus. Each has its owner:
+The fuzz test requires each reading of Nova's own export to raise no finding and no reader defect,
+since every document Nova writes reads back (the fixed point), judges each stored slot in the read
+document's own context, and counts two verdicts without failing them, because neither is the
+expression reader's, and requires the slots read as their canonical tree to outnumber the two
+together in every corpus. Each has its owner:
 - **Document fact**: the read document cannot hold the slot's canonical tree as the source writes it
   (the checker refuses it there, or it prints other syntax), because what it needs is a fact no
   export carries: a property type no writer gives, which part 07's derived catalog does not hold
@@ -480,10 +482,11 @@ canonical tree to outnumber the three together in every corpus. Each has its own
 - **Dormant**: a case list or search slot of a menu that loads no case, which the export does not
   carry at all (HQ's menu holds its empty case list and default search settings) and no stage
   registers. The pair is a document's, so it is part 09's, under the same test's outcome B.
-- **Another stage's finding**: a slot no structure reader registered while a finding of the reading
-  stands at the slot's menu, matched by the menu's position, or at one of its forms or questions.
-  The finding is the misread, and the reader that raised it owns it: a reading of Nova's own export
-  with any finding fails `canonReadBack.fuzz.test.ts`.
+
+A slot no structure reader registered because another stage's finding stands at its menu is no
+third verdict: the finding is the misread, the reader that raised it owns it, and the reading
+already fails on it. `gateCoverage.test.ts` requires every reading of the corpora to bind a
+document.
 
 **E6: the starter apps' expressions.** Where: ordinary CI,
 `lib/commcare/reader/__tests__/bases.retained.test.ts` (part 14, section 10) over the retained bases
@@ -872,6 +875,11 @@ export interface ExpressionReadEnv {
 	/** The forms whose entry facts part 07 found differing, from `ctx.facts.entryFactsRefused`: a
 	 *  datum read the projection does not give raises no M1 there (above). */
 	readonly entryFactsRefused: ReadonlySet<Uuid>;
+	/** Per form: the form's own place, where a claim of the form's own declarations stands (9.3). */
+	readonly formPlaces: ReadonlyMap<Uuid, HqPlace>;
+	/** Per advanced form: the ids its computed datums give (`arbitrary_datums`), which a session
+	 *  read may name; the parse-issue and surface-use mapping read them (9.2, 9.3). */
+	readonly computedDatums: ReadonlyMap<Uuid, ReadonlySet<string>>;
 }
 export interface GeneratedValue { readonly purpose: "constraint-count"; readonly calculate: string }
 export type RecordDialectJudge = (
@@ -997,7 +1005,13 @@ miss. Its steps:
    section 10).
 4. **Level.** Each slot still unequal is compared with the withheld print (2.3), and a slot held at
    that level is rewritten to the tree the unwithheld print reads back as (2.3, last paragraph), in a
-   fresh clone. A slot unequal at both levels is `unrecognized`.
+   fresh clone. A slot unequal at both levels is `unrecognized`. A leveled tree can type a Hidden
+   Value otherwise than the tree its slot bound, and with it how another slot prints, so where any
+   leveled tree differs from what its slot held in the document the rounds were judged against,
+   steps 2 to 4 run again over a document that holds the leveled trees: every other slot is bound
+   afresh with its folds offered again, a leveled slot keeps the sites it withdrew, and the work
+   ends when leveling holds the trees that document holds (the same round limit bounds it). So the
+   reader's answer is judged against the document it returns, and is canonical in it (5.5).
 5. **Check** every held slot with `checkExpression` over that document (9.1).
 6. **Dialect.** Every held slot of the record rule set is given to `env.recordDialect`. An answer
    makes the slot not held: it claims the slot's default of 9.2 (the column "Refused, by default",
@@ -1009,7 +1023,9 @@ miss. Its steps:
    caller of the reader passes `lib/agent/authoring/recordRoundTrip.ts::recordDialectRoundTrip` as
    `ReaderInput.recordDialect` (8.4).
 7. **Report.** A slot that is not held keeps its placeholder or stays absent, in a last clone that
-   also drops any declared case property no held slot reads. `worldReads.userFields` is read off
+   also drops any declared case property no held slot reads (a relation read names the type it
+   walks from, and reads the property of the type its relation reaches, by its steps' types and the
+   catalog). `worldReads.userFields` is read off
    every bound candidate, held or not: the `field` of each name-backed `session-user` leaf, from
    session data or the worker's record alike (part 11 decides which become worker properties).
    The frame turns a claim of a HELD-NEW or REFUSED entry into a finding, so the reading has an
@@ -1305,6 +1321,11 @@ export interface FoldEnv {
 	readonly doc: BlueprintDoc;
 	/** The slot's form: each Save to Case create's case id path, to its operation. */
 	readonly operationIdPaths: ReadonlyMap<string, Uuid>;
+	/** Where the slot is a Save to Case block's expression: what the emitter prints through
+	 *  `current()` from the node the text stands in (the block's place,
+	 *  `readExpression.ts::caseOperationPlaces`), each by the key of its parsed syntax: an earlier
+	 *  create's id, to its operation, and an answer of the block's repeat, to its question. */
+	readonly place?: OperationPlaceReads;
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
 	/** The form-node projection the slot binds through (the relocation test of `form-read`). */
@@ -1375,11 +1396,11 @@ binder too (7.3). The row `literal-type` of 5.5 is the same rule over a stored t
 
 | Id | Rule sets | Shape | Proposal |
 |---|---|---|---|
-| `form-read` | both | an absolute path `/data/…` to a question or a repeat row's attribute | the same read with no stored spelling, the hashtag an author sees as `#form/…`; at one of `formReadToWire`'s two relocation sites (a `default_value` slot, or a row predicate that crosses a repeat the slot is in, `formReads.ts::crossesSourceRepeatInRowPredicate`), the same read spelled `current` |
+| `form-read` | both | an absolute path `/data/…` to a question or a repeat row's attribute; in a Save to Case block's slot, a path whose syntax is what the emitter prints through `current()` from the slot's node for an answer of the block's repeat (`FoldEnv.place`), which proposes that question's read with no spelling | the same read with no stored spelling, the hashtag an author sees as `#form/…`; at one of `formReadToWire`'s two relocation sites (a `default_value` slot, or a row predicate that crosses a repeat the slot is in, `formReads.ts::crossesSourceRepeatInRowPredicate`), the same read spelled `current` |
 | `own-case-read` | form | a path `instance('casedb')/casedb/case[@case_id = X]/<step>` where `X` is a session datum read, or the same shape again ending `/index/parent`, nested to any depth | `form-case { caseType, property }`: `caseType` the form's reachable type at the nesting depth (`reachableCaseTypes`: own 0, parent 1), `property` the step (`@case_id`, `@owner_id`, `@status` as the standard properties `rowValue` gives) |
 | `own-case-read` | record, case operation slots | the same shape at depth 0 | `prop { caseType: <the module's>, property }` with no `via`, which the operation context prints anchored on the own-case datum |
 | `worker-record-read` | both | `instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/<step>` | `formUserProperty(scope, <step>, "worker-record")`: the app's worker property of that slug by UUID, else the name-backed `session-user` leaf |
-| `operation-id` | record, case operation slots | a path that, resolved from the slot's node, equals a key of `env.operationIdPaths` | `id-of { opUuid }` |
+| `operation-id` | record, case operation slots | a path whose syntax is what the emitter prints from the slot's node for an earlier create's id (`FoldEnv.place`: one block reads another's id through `current()`), or an absolute path equal to a key of `env.operationIdPaths` | `id-of { opUuid }` |
 | `acting-user` | record, the owner slot | the absolute path `/data/meta/userID` | `acting-user` |
 | `unowned` | record, the owner slot | the string literal `'-'` as the whole expression | `unowned` |
 | `owner-at-level` | record, the owner slot | `instance('locations')/locations/location[@type = '<code>'][@<code2>_id = <owner read>]/@id` | `owner-location-at-level { levelUuid, ownerCaseType }`, the level whose code is `<code>` and the case type the owner read names |
@@ -1445,7 +1466,7 @@ own-case walk: the proposal prints the own datum, differs, and is withdrawn. It 
 | `between` | record | an `and` of a `>=` or `>` and a `<=` or `<` that share one left operand | `between` with the two bounds and their inclusiveness |
 | `switch` | record | `if(O = c1, t1, if(O = c2, t2, … f))` with two or more tests that share `O`, each `c` a literal | `switch { on: O, cases, fallback: f }` |
 | `relation-property` | record | `instance('casedb')/casedb/case[@case_id = <ctx>/index/<id>]/p`, or the same with `and @case_type = '<T>'` in the predicate, nested for further hops, where `<ctx>` is the row (`current()` or the context) | `prop { property: p, via: { kind: "ancestor", via: [{ identifier: id }, …] } }`, a step taking `throughCaseType: T` exactly where the source holds the type test. A step whose identifier is not `parent` and whose source holds no type test gets no proposal (6.3) |
-| `relation-presence` | record | `count(index/<id>) > 0 and selected(join(' ', <ids>), index/<id>)`, and its `not(…)` | `exists` or `missing` with the `via` and `where` the join's filter binds to |
+| `relation-presence` | record | each test `rowScope.ts::immediateRelationPresence` writes, and its `not(…)`: over an ancestor `count(I) > 0 and selected(join(' ', <candidates>/@case_id), I)` with `I` the origin's `index/<id>`; over subcases `count(D) > 0 and selected(join(' ', <candidates>/index/<id>), D)` with `D` the origin's id; over every relation of one index the `or` of the two, with one identifier and one type test | `exists` or `missing` over `ancestor`, `subcase` or `any-relation`, with the `where` the candidates' filter binds to. A relation the catalog does not resolve gets no proposal: the emitter refuses it, and a proposal of it would stop the form's other slots printing |
 | `relation-count` | record | `count(instance('casedb')/casedb/case[index/<id> = <anchor>][…])` and `if(<presence>, 1, 0)` | `count { via, where }` |
 
 A value written to a case's date-and-time property has spellings of its own (part 03, section 7.1),
@@ -1599,6 +1620,7 @@ trees do, so the slot is `unrecognized`, which is the truth: Nova would write th
 | `literal-pieces` | a literal outside a `concat`: itself. Inside a `concat`: each literal argument replaced by the texts of the arguments `serialize.ts::literalArguments(value, mode, true)` prints it as, then each maximal run of adjacent literal arguments joined into one literal exactly where `literalArguments` of the joined text holds that run's texts, and left as the separate pieces otherwise; a `concat` left with one part is that part. `serialize.ts` exports `literalArguments` (each argument's token and the text it holds) for this row alone; the tokens alone are quoted text, which a literal does not hold | a `concat` of the pieces the printer would split a literal into; in a `concat`, two adjacent literals, or a literal beside a literal the printer splits |
 | `input-presence` | `when-input-present` | `if(count(input), clause, match-all)`, in a record slot |
 | `instant` | a comparison of two dates and times | the lowered arithmetic built from calls |
+| `relation-type` | a relation path as `normalizeRelationEvaluationScopes.ts::canonicalizeRelationPath` gives it from the row's case type: each `parent` step typed with the catalog's `parent_type`, a subcase or any-relation path with its one destination, and an any-relation over `parent` that reaches one direction as that direction | the same read, presence or count with the path as stored: every target normalizes it before printing, and `rowScope.ts::caseById` writes the type test (run E5, outcome B) |
 
 Run E5 holds `read(print(D)) = canonicalExpression(D)` slot by slot. A pair this table lacks is that
 run's outcome B, which says what lands. A data-built instance's guard built as an `if` around the
@@ -1981,15 +2003,24 @@ export function matchSearchRows(
 	/** Emitted rows no source row equals. */
 	readonly extra: readonly number[];
 };
-/** A row read on its own, for part 07 to place: its top-level conjuncts, each a predicate. */
+/** A row read on its own, for part 07 to place: its top-level conjuncts, each a predicate, and,
+ *  held or not, the uses its CSQL makes (9.3), which part 07 claims at the row. */
 export function readSearchRowConjuncts(text: string, context: ExpressionContext, env: SearchRowEnv):
-	| {
-			readonly ok: true;
-			readonly conjuncts: readonly Expression[];
-			readonly rewrites: readonly EmissionRewriteId[];
-	  }
-	| Extract<SearchRowReading, { ok: false }>;
+	(
+		| {
+				readonly ok: true;
+				readonly conjuncts: readonly Expression[];
+				readonly rewrites: readonly EmissionRewriteId[];
+		  }
+		| Extract<SearchRowReading, { ok: false }>
+	) & { readonly uses: readonly SurfaceUse[] }; // SurfaceUse: surfaceUses.ts
 ```
+
+`uses` is `expressionSurfaceUses(source, predicate, context, { target: "search-row" })` over the row's
+parsed text (none for a row the grammar cannot read). `settleSearches` claims each at the row's
+`defaultValue` under its own key, after the row's own claims and skipping a key they hold, so every
+operator, function, metadata name, unit and presence gate of a row reaches the claim log the lane's
+parity reads.
 
 `matchSearchRows` is the recognition method one level up: it runs `composeXPathQueryEmission` over the
 proposed module and compares row trees. Each emitted row takes the first unmatched source row after
@@ -2275,7 +2306,13 @@ claim the reader returns: `place` is the pending expression's;
 `detail.reason` is the checker's `code`, or `code:reason` where the error holds a reason
 (`incompatible-values:date-datetime`), or `parse:<issue code>` for a parse refusal, or `call:<name>` for
 a function, or `relation:<identifier>` for an untyped relation step (6.3), or `name:<grammar>` for a
-name outside a grammar (9.2), or `dialect:<kind>` (2.5, step 6), or `validator:<code>` (above);
+name outside a grammar (9.2), or `dialect:<kind>` (2.5, step 6), or `validator:<code>` (above),
+or `csql:<what>` for a refusal of a search filter row's CSQL that is no checker code (7.3: an operator
+or function HQ's search refuses, `csql:operator:<op>`, `csql:function:<name>`,
+`csql:value-function-as-query:<name>`; a value computed at runtime where HQ needs a name,
+`csql:hole-as-property`, `csql:hole-as-function` and their kin; `csql:unparenthesized-call`;
+`csql:untyped-right-side`) and for a refusal of `checkCsqlRepresentability`
+(`csql:<its reason>`);
 `detail.name` is the attribute or key the expression sits in (`relevant`, `module_filter`,
 a column's header in the app's first language, a search field's name), at most 200 characters. The
 expression's text is never put in a finding or a log line: it is app content.
@@ -2365,8 +2402,8 @@ export function formRefusalEntry(code: CheckErrorCode): string;
 `formRefusalEntry` for a checker code and to M3 for a parse issue the table sends to the slot's
 default. The slot `search_input_predicate` and the case list filter's own rows take the row "a
 search filter row": both are read from `_xpath_query` rows by `readSearchFilterRow`, which answers
-its claim itself (7.1). The first row of "By parse issue" is no parse issue: `readExpression` tests
-it on the raw text before it interpolates or binds.
+its claim itself (7.1). The first row of "By parse issue" is no parse issue: `readExpressions` tests
+it on the raw text (`findings.ts::rawTextEntry`) before it interpolates or binds.
 
 **Every entry id is a declared claim.** The frame applies an `ExpressionClaim` through
 `Accounting.claimEntry`, which takes the entry by id and treats an id no registered claim holds as
@@ -2429,7 +2466,7 @@ codes of its row below) or `datum-not-supplied`.
 
 | Issue | Entry |
 |---|---|
-| in a form's display condition, the raw text (before interpolation) read by `readFormSyntax` holds a `#case` hashtag with no segments as the left of a step on the `attribute` axis (`#case/@status`, `#case/@case_id`, `#case/@case_type`, `#case/@owner_id`) | `forms-and-case-writes/form-filter-reading-case-status-case-id-case-type-owner-id` (REFUSED, not HQ-buildable: after interpolation the text would bind to a standard property, so this row is tested first, on the raw text) |
+| in a form's display condition, the raw text (before interpolation) holds a `#case` hashtag with no segments as the left of a step on the `attribute` axis, read from the grammar's error-recovering Lezer tree (a `Child` whose left is a `HashtagRef` of type `case` with no `HashtagSegment` and whose step is `AttrSpecified`), since the grammar, like HQ's parser, gives every hashtag a segment and `readFormSyntax` refuses the text whole (`#case/@status`, `#case/@case_id`, `#case/@case_type`, `#case/@owner_id`) | `forms-and-case-writes/form-filter-reading-case-status-case-id-case-type-owner-id` (REFUSED, not HQ-buildable: after interpolation the text would bind to a standard property, so this row is tested first, on the raw text) |
 | `syntax`, `unknown-hashtag`, `arity`, in a bind attribute, over ASCII text | `expressions-and-data/an-invalid-xpath-in-a-bind-attribute` (`arity` is a parse refusal in Core too: `expr/XPathFuncExpr.java::validateArgCount`, and `XPathCondFunc`'s override of it, throw `XPathSyntaxException`) |
 | `arity` anywhere else | M2: CommCare cannot run the call |
 | `syntax` in a menu's display condition | `menus-and-case-lists/module-filter-failing-hq-s-validate-xpath` |
@@ -2456,7 +2493,8 @@ codes of its row below) or `datum-not-supplied`.
 | `unknown-field`, `relative-unknown`, a path under `/data/meta`, `/data/case`, `/data/commcare_usercase` or a `subcase_<n>` | M3: a block HQ's build adds, which no Nova leaf reads but the owner's `acting-user` |
 | `unknown-field`, `relative-unknown`, `relative-above-form`, `form-root`, `unknown-level`, `unknown-location-property`, `unknown-column`, `table-path-mismatch`, any other path | M2: it reads what is not there |
 | a property name outside `AUTHORED_CASE_PROPERTY_NAME_PATTERN` | part 04's entry for the name: `forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character` (N7) where it is one, else the slot's default |
-| every other issue (`wildcard`, `ambiguous-field`, `case-alias-unbound`, `case-query-untyped`, `case-row-attribute`, `row-step-after-value`, `row-leaves-record`, `relative-no-context`, `instance-argument`, `search-results-unexcluded`, `unknown-search-input`, `unknown-hashtag` outside a bind attribute, `variable` outside a form slot, and `choice-name-not-a-select` on a question that is no select) | the slot's default (a form slot: M3) |
+| `unknown-search-input`, in a form whose menu is a child of a menu whose forms read the search and whose parent selection chooses a case from that menu's list (the test of the M8 row of "By checker code") | M8: the read names the parent menu's Search field, which the form's own menu does not hold, so the parser refuses it before the checker's `search-answer-unavailable` could arise |
+| every other issue (`wildcard`, `ambiguous-field`, `case-alias-unbound`, `case-query-untyped`, `case-row-attribute`, `row-step-after-value`, `row-leaves-record`, `relative-no-context`, `instance-argument`, `search-results-unexcluded`, `unknown-search-input` anywhere else, `unknown-hashtag` outside a bind attribute, `variable` outside a form slot, and `choice-name-not-a-select` on a question that is no select) | the slot's default (a form slot: M3) |
 
 The table places every member of `FormParseIssueCode` (`formParseIssues.ts`), and
 `findings.ts::parseIssueEntry` is an exhaustive `switch` over it, so a code added to the parser fails
@@ -2474,6 +2512,7 @@ the build until it is placed.
 | `search-answer-unavailable`, any other | `expressions-and-data/search-input-read-in-form-expressions-reached-through-a-search` |
 | `search-results-not-supplied` | `expressions-and-data/results-read-in-form-expressions-reached-through-a-search-that` |
 | `datum-not-supplied` | M1, or no claim in a form of `env.entryFactsRefused` (2.5) |
+| `case-data-unavailable` in a form's display condition, where the screen that lists the form chooses no case first (`lib/domain/menuScreens.ts::screenChoosesCaseFirst` of the form's menu's `menuScreenOf` is false) | `menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first` (REFUSED, `broken-at-runtime`: HQ's build interpolates the condition in `case` mode and the device evaluates it before any case is chosen; part 07's `settleMenus` raises the same entry only over a held tree, which this refusal leaves none of) |
 | `incompatible-values:date-datetime` in a search row, the anchor `date_opened`, `closed_on` or `last_modified` (the date literal typed by the `typed-literal` fold, 5.1, under `=`, `!=` or an ordering) | `case-search/date-only-comparison-on-date-opened-closed-on-last-modified` |
 | any code whose path ends at a worker-record leaf, in a record slot | `forms-and-case-writes/user-prop-in-module-filter-form-filter-case-list-slots-the` |
 | `arm-unavailable`, reason `project`, where the refused read is the shape of 5.3's `relation-property` with a step that is not `parent` and holds no type test | the slot's default, `detail.reason` `relation:<identifier>` (6.3) |
@@ -2512,7 +2551,7 @@ export function expressionSurfaceUses(
 | `session-path:session/context/*`, `session/user/data/*` | by the step: `session-context-userid-context-username`, `session-context-deviceid`, `session-context-appversion`, `session-context-drift`, `session-context-applanguage`, `session-user-data-field`; `window_width` by rule set, `session-context-window-width` (`outside-form-logic`) in a record slot and `session-context-window-width-in-form-logic` (`in-form-logic`) in form logic |
 | `xpath-expr:*`, `xpath-axis:*`, `xpath-test:*`, `xpath-token:*` | `xpath-location-paths`, `xpath-operators-and-literals`, `relative-paths-q-current-x`, `instance-id-current-path-roots`, or the REFUSED entry the parse issue names |
 | `hashtag:#session/` | `session-hq-shorthand-in-navigation-slots-for-the-context-and` or `session-data-datum-hq-shorthand-in-navigation-slots`, by the path after it |
-| `hashtag:#case`, `#parent`, `#host`, `#user` in an HQ JSON slot | `case-prop-case-parent-prop-case-grandparent-prop` for `#case`; the slot's own entry for the others, which the slot table gives |
+| `hashtag:#case`, `#parent`, `#host`, `#user` in an HQ JSON slot | `case-prop-case-parent-prop-case-grandparent-prop` for `#case` (`#case/`, `#case/parent`, `#case/grandparent` by the segment after it); the others make no use claim of their own, and the slot's own claim under its key, which the slot table gives (held, or its refusal), stands for them: no entry of the manifest holds `hashtag:#parent` or `hashtag:#host`, `hashtag:#user` is held only for form logic (`forms-and-case-writes/user-prop-in-xform-expressions`), each slot entry that names these reads in its `item` holds the slot's schema key and no hashtag key, and the lane takes a hashtag use only from a form's `vellum:hashtags` (`manifest_usage.py::_hashtag_uses`), so no parity asks for one |
 | `csql-op:*`, `csql-fn:*`, `csql-metadata:*`, `csql-unit:*`, `csql-key:_xpath_query` | the `case-search/` entry whose `surfaceKeys` hold the key. A key several entries share goes by the value class the use has, in the manifest's own words: a comparison's right side (`typed-right-side`, `untyped-right-side`, `blank-on-property` for `p = ''`, `relation-arms-with-typed-right-sides` under a relation function); `date` and `datetime` (`string-or-date-argument`, `epoch-number-argument`); `selected`, `selected-any` and `selected-all` (`literal-value`, `runtime-value`); `within-distance` (`static-miles-or-kilometers`, `other-unit`, `runtime-radius-or-unit`); `date_opened`, `closed_on` and `last_modified` (`non-date-value`, `project-timezone-date`, or the class of the HELD metadata entry that holds the name); `csql-key:_xpath_query` (`input-presence-choice`, `xpath-query-rows`, M7's `outside-the-record-rule-set`, and the classes of the entries part 07 adds on the key) |
 
 An id written without its area in this table is in `expressions-and-data/`. The table in code is
@@ -2787,13 +2826,13 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | `__tests__/folds.withdrawal.test.ts` | the fold loop | a guard inside `count`, and a nested `if` the slot's types refuse as a `switch`, held as anything but the tree the author wrote; a loop that does not end |
 | `__tests__/rewrites.test.ts` | `toWire`, `serializeWire` and the filter projection | a rewrite that has a switch withheld and still printed; a site reached and not reported; a relocation site that reports only when the tree stores `absolute`; an HQ-authored default inside a repeat that reads a table filtered by another question of the repeat reporting `default-reads-current`, where it reports `row-predicate-current`; any byte of today's print changed while `rewrites` is absent (held over the fuzz corpora) |
 | `lib/commcare/xform/__tests__/withheldCount.test.ts` | `planConstraintCollections`, over a validation holding `count(/data/r/item[. = 'x']) > 0` | a validation made in CommCare HQ that the reader can never see equal: with `validation-counts-moved` withheld the plan holding a calculation, changing the expression or not reporting the id; unwithheld, the plan returning no calculation |
-| `__tests__/expressionReadBack.fuzz.test.ts` | the emitter and the reader, over `expressionDocArbitrary`, `blueprintDocArbitrary` (`xformDocArbitrary.ts`), `suiteDocArbitrary`, `advancedDocArbitrary` and part 04's `namesDocArbitrary` (run E5) | a slot Nova writes and the reader does not read back; a read that is not `canonicalExpression` of what was written; a second read that differs from the first; a slot Nova wrote that the checker or the dialect judge refuses once read; the three verdicts E5 counts and leaves to their owners together outnumbering the slots read back in a corpus |
+| `__tests__/expressionReadBack.fuzz.test.ts` | the emitter and the reader, over `expressionDocArbitrary`, `blueprintDocArbitrary` (`xformDocArbitrary.ts`), `suiteDocArbitrary`, `advancedDocArbitrary` and part 04's `namesDocArbitrary` (run E5) | a slot Nova writes and the reader does not read back; a read that is not `canonicalExpression` of what was written; a second read that differs from the first; a slot Nova wrote that the checker or the dialect judge refuses once read; a reading of Nova's own export that raises a finding or a reader defect; the two verdicts E5 counts and leaves to their owners together outnumbering the slots read back in a corpus |
 | `__tests__/expressionReadBack.fixedPoint.test.ts` | the reader, the emitter and the reader again, over hand-written HQ texts | `read(emit(read(A)))` differing from `read(A)`: an absolute read in a default, an absolute read in a row predicate inside a repeat, a bare date-and-time comparison, an unguarded table read, a bare read of the screen width, a filter with `true() and`, a validation holding an inline count, a hand-written search row with fixed quotes, a search row calling `today()`, one text for each of the nine ids; `canonicalExpression(read(A))` differing from `read(A)` |
 | `__tests__/documentFacts.test.ts` | `readExpressions` over one document | a Hidden Value whose calculation binds to a date and time leaving another slot's comparison printed bare, which is what a document changed in place after its facts were read gives; the input document changed by the call |
-| `__tests__/expressionRounds.test.ts` | `readExpressions` over the largest corpus document and the three starter bases | a slot judged equal in one round and left unchecked after a later round changed a Hidden Value's type; more than four rounds; a loop that reaches `EXPRESSION_ROUND_LIMIT` |
-| `__tests__/scanReads.test.ts` | the scan and the binder over a real document | a case property declared twice, or in another order than `noteProperty` gives; a declared property no held slot reads left in the document; a `location_data` slug missing from `worldReads`; a tag the catalog lacks missing from `unreadTables` |
+| `__tests__/expressionRounds.test.ts` | `readExpressions` over the largest corpus document and the three starter bases | a slot judged equal in one round and left unchecked after a later round changed a Hidden Value's type, or after a Hidden Value was held at the second level as another tree (the reader's answer then not canonical in the document it returns); more than four rounds; a loop that reaches `EXPRESSION_ROUND_LIMIT` |
+| `__tests__/scanReads.test.ts` | the scan and the binder over a real document | a case property declared twice, or in another order than `noteProperty` gives; a declared property no held slot reads left in the document; a declared property a held relation read reaches dropped, because the read names the type it walks from; a `location_data` slug missing from `worldReads`; a tag the catalog lacks missing from `unreadTables` |
 | `__tests__/worldReads.test.ts` | `readExpressions` run twice, with the entities `worldEntitiesFromReads` gives for the first run's `worldReads` added between | `#user/role` and `session/user/data/role` still bound to the name-backed `session-user` leaf on the second run; a built-in slug missing from `userFields` (it stays name-backed by part 11's rule, and must be listed for that rule to see it); a third run that differs from the second |
-| `__tests__/slotMode.test.ts` | `expandDoc` over the corpora | a slot whose `HqXPath` carries another interpolation than `slotReadMode` gives; the case path of an advanced form taken from the menu's selection rather than its last load's datum |
+| `__tests__/slotMode.test.ts` | `expandDoc` over the corpora | a slot whose `HqXPath` carries another interpolation than `slotReadMode` gives, over every HQ JSON expression slot `expandDoc` builds (a menu's and a form's display condition, the case list filter, a calculated column, each Search field's default, hidden value, `required.test` and `validations[].test`, the search button's condition), or prints other text than the reader's print (a validation test's runtime guard aside, which the search reader takes off before it registers the test); the case path of an advanced form taken from the menu's selection rather than its last load's datum |
 | `__tests__/gateCoverage.test.ts` | the validator over the documents `readExpressions` returns, for the corpora and the starter bases | a validator finding located at an expression slot the reader filled that no claim reported |
 | `__tests__/proseValueRules.test.ts` (only where part 03's G1 gave outcome B or its G3 gave outcome C's second case; one group of cases for each rule that landed) | `readExpressions` over a real document whose label and validation message hold outputs | a `value` part the gate's rule refuses held under `questions/output-value-any-other-expression`, which acceptance's gate would then stop with no finding; a value outside the class, or a reference part, refused; the validation message rule applied to a label; the claim made by a test of the reader's own in place of the rule's exported predicate |
 | `lib/domain/expression/__tests__/instantTextOfMicros.test.ts` | pure | `instantTextOfMicros` breaking either law of 5.3; year 9999's last second in UTC, the first moment past it, and a moment 100 hours past it |
@@ -2820,7 +2859,7 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | Where | Old | New |
 |---|---|---|
 | `lib/commcare/xpath/CLAUDE.md`, "Parsing and identity" | "`sourceProjection` exists only for the raw-snapshot lift's old physical names; normal authoring always uses the current declared structure." | "`sourceProjection` is passed by the raw-snapshot lift, for its old physical names, and by the reader of CommCare HQ's apps, which passes the names the form's own source gave each node and prints through the same projection, so a path binds to the node it names whatever Nova would call it; normal authoring always uses the current declared structure." |
-| the same file, after "Every surface parses through `parseFormExpression`…" | (none) | "The reader of CommCare HQ's apps parses through it too, with `FormParseScope.reading`: the function names Core answers in place of Nova's registry, HQ's own itext and instance ids, every hashtag refused (Core's lexer has no `#`), and the folds of `lib/commcare/reader/expressions/folds.ts`, asked before a node binds. Without the hook the parser is as described here." |
+| the same file, after "Every surface parses through `parseFormExpression`…" | (none) | "`FormParseScope.reading` (`FormReadingHooks`) is present only while reading an app made in CommCare HQ. Without the hook the parser is as described here. With it, the parser asks the hook's folds before it binds a node (the folds come from `lib/commcare/reader/expressions/folds.ts`), admits only the functions Core answers (`normalize-space`, `is-blank` and `capture-link` are unknown there), refuses every hashtag (Core's lexer has none), resolves an itext id through the form's own units and an instance id through the source the form declares for it (`jr://fixture/user-groups` reads as `groups`), binds an absolute path through the projection's node names, a model-iteration repeat's `item` step included, where authoring binds it by the fields' ids, binds an absolute read of a generated sibling the form reader set aside as that sibling's calculate, keeps the `name` to `case_name` alias unless the hook turns it off, binds `current()/…` in a slot with no form whose own row is a case as that row's steps at any depth of its predicates, the case HQ writes `current()` for in a case list and Core keeps as `current()` inside every nested predicate, and binds a Search answer read in a menu's own slot." (The paragraph names each binding the hook changes, the folds' file among them, so a reader of the parser's contract meets every difference in one place.) |
 | the same file, "The tests' `instantParse.ts` recognises the parse structurally, so they read the tree rather than its text." | (stays) | adds: "The reader recognizes the lowering another way, by printing its proposal and comparing syntax trees (`lib/commcare/reader/expressions/`)." |
 | `lib/commcare/xpath/wire/CLAUDE.md`, after the first paragraph | (none) | "A caller may pass `rewrites`: the rewrites of `lib/commcare/emissionRewrites.ts` to leave out of the print, and a callback for each site the print reaches. Only the reader of CommCare HQ's apps passes it, to compare with text that never had them and to say what a first publish changes. Absent, every print is as described here." |
 | `lib/commcare/CLAUDE.md`, opening | "The only package in `lib/` that imports CommCare's vocabulary" (true); no mention of reading expressions | a new subsection "Reading expressions", three sentences: the method of section 2.1, the two levels, and the pointer to `lib/commcare/reader/expressions/` |
@@ -2836,7 +2875,7 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | `proof/README.md`, "Native proofs" | the families' tests | adds `ReaderSpellingRuntimeTest` (family `expression`), the two new cases of `test_hq_interpolation.py` with its rewritten `limits` line, and `test_csql_reader_parity.py` (family `csql`), each with one sentence of what it holds; and the two new expectations of `RowPredicateCurrentRuntimeTest` (run E4), in the sentence that describes that test |
 | `docs/research/2026-09-26-hq-round-trip/inventory/expressions-and-data.md`, `case-search.md` | the rows of the eight edited entries | the cells of section 11, and the eight new rows beside the rows they split from |
 | `docs/architecture/complex-apps.md` | no account of HQ's interpolation | a subsection "How CommCare HQ rewrites a display condition and a filter": the table of section 6.1 (slot, call, case path, dots), and "HQ replaces these as text, inside string literals too, so Nova splits a literal that holds one and reads HQ's text through the same replacement before parsing it." |
-| `docs/architecture/complex-apps.md`, case search, after the sentence that begins "A search reads `today()` as the worker's day: Nova sends Core's `today()` in a" | (none) | adds: "CommCare HQ's own `today()` in a search is the project space's day. An app brought in that uses it reads as Nova's `today`, and its first publish says the day is now the worker's." |
+| `docs/architecture/complex-apps.md`, case search, after the sentence that begins "A search reads `today()` as the worker's day: Nova sends Core's `today()` in a" | (none) | adds: "CommCare HQ's own `today()` in a search is the project space's day. An app brought in that uses it reads as Nova's `today`, and the reading reports that the day becomes the worker's (the rewrite `search-today-device-day`)." (The doc states what the reader does: it reports the rewrite. What a first publish says of it is part 09's register, which states it where it lands.) |
 | `content/docs/bringing-in-from-commcare-hq.mdx` | (new page, part 13, section 17.1) | C13 and C14 (Copy) |
 
 `lib/domain/expression/CLAUDE.md` changes in the one sentence above and in one more, which part 06

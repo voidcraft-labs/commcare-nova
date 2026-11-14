@@ -5,15 +5,15 @@
  * document stores (as the member of a canonical pair the reader returns,
  * `assemble.ts::READER_CANONICAL_CHOICES`) is read back by the whole reader from the export the
  * production emitter writes as `canonicalExpression` of the stored tree,
- * judged in the read document's own context; a second reading of the same
- * export gives the same trees and the same claims. Two outcomes are not the
- * expression reader's: a slot whose stored tree the read document cannot
- * hold as written, because what it needs is a fact of the document no export
- * carries (a property type no writer gives, which a reading derives from the
- * app), or that no export carries at all (the case list of a menu that
- * loads no case), and a slot no structure reader registered because a
- * finding of its own stands at the slot's menu. Both are counted, and together they are
- * never most of a corpus.
+ * judged in the read document's own context; the reading raises no finding
+ * and no reader defect, since every export Nova writes reads back; a second
+ * reading of the same export gives the same trees and the same claims. One
+ * outcome is not the expression reader's: a slot whose stored tree the read
+ * document cannot hold as written, because what it needs is a fact of the
+ * document no export carries (a property type no writer gives, which a
+ * reading derives from the app), or that no export carries at all (the case
+ * list of a menu that loads no case). It is counted, with the dormant slots,
+ * and together they are never most of a corpus.
  *
  * Plausible failures: a lowering the emitter writes that no fold reads back
  * (a slot left `unrecognized` for Nova's own text), a fold that keeps less
@@ -25,8 +25,6 @@ import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it } from "vitest";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import type { SlotContextRef } from "@/lib/domain/expression/types";
-import type { Uuid } from "@/lib/domain/uuid";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import {
 	corpusDocs,
@@ -39,28 +37,6 @@ import {
 /** Documents per corpus. Each corpus, read twice, takes a few seconds on a
  *  laptop; the per-corpus budget leaves room for a shared CI runner. */
 const DOCS_PER_CORPUS = 30;
-
-/** The position of the menu a slot belongs to, as a finding's place names it. */
-function menuIndexOf(doc: BlueprintDoc, ref: SlotContextRef): number {
-	if (ref.entity === "module") return doc.moduleOrder.indexOf(ref.uuid);
-	let form: Uuid | undefined = ref.uuid;
-	while (form !== undefined && doc.forms[form] === undefined)
-		form = doc.fieldParent[form] ?? undefined;
-	if (form === undefined) return -1;
-	const owner = form;
-	return doc.moduleOrder.findIndex((uuid) =>
-		(doc.formOrder[uuid] ?? []).includes(owner),
-	);
-}
-
-/** Whether a finding of the reading stands at the menu at `index`, or at a
- *  form or question of it. */
-function findingAtMenu(reading: EmissionReading, index: number): boolean {
-	return reading.closed.findings.some((finding) => {
-		const place = finding.place as { menu?: number };
-		return index >= 0 && place.menu === index;
-	});
-}
 
 /** The document as the reader returns its pair's member: two documents that
  *  print one export read back as one of them. */
@@ -86,11 +62,24 @@ describe("expressions read back from Nova's own export", () => {
 		it(`reads back every slot of the ${corpus.name} corpus`, {
 			timeout: 60_000,
 		}, async () => {
-			const census = { same: 0, documentFact: 0, dormant: 0, structure: 0 };
+			const census = { same: 0, documentFact: 0, dormant: 0 };
 			for (const doc of corpusDocs(corpus, DOCS_PER_CORPUS)) {
 				const reading = await readEmission(doc, recordDialectRoundTrip);
 				const again = await readEmission(doc, recordDialectRoundTrip);
 				expect(isDeepStrictEqual(answers(again), answers(reading))).toBe(true);
+				// Nova's own export reads: no finding and no defect of the reader.
+				expect
+					.soft(
+						reading.closed.findings.map(
+							(finding) =>
+								`${finding.code} at ${JSON.stringify(finding.place)} (${finding.detail.name ?? ""})`,
+						),
+						`findings of ${doc.appName}`,
+					)
+					.toEqual([]);
+				expect
+					.soft(reading.closed.defects, `defects of ${doc.appName}`)
+					.toEqual([]);
 				const read = canonical(doc);
 				for (const { stored, verdict } of judgeReadBack(read, reading)) {
 					if (verdict.kind === "same") {
@@ -105,13 +94,6 @@ describe("expressions read back from Nova's own export", () => {
 						census.documentFact++;
 						continue;
 					}
-					if (
-						verdict.text === undefined &&
-						findingAtMenu(reading, menuIndexOf(read, stored.ref))
-					) {
-						census.structure++;
-						continue;
-					}
 					expect
 						.soft(
 							verdict.got,
@@ -120,8 +102,6 @@ describe("expressions read back from Nova's own export", () => {
 						.toEqual(verdict.want);
 				}
 			}
-			expect(census.same).toBeGreaterThan(
-				census.documentFact + census.dormant + census.structure,
-			);
+			expect(census.same).toBeGreaterThan(census.documentFact + census.dormant);
 		});
 });

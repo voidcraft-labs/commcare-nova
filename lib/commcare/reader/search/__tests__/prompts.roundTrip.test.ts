@@ -5,7 +5,7 @@
  * advanced; a prompt Nova cannot write back read as held.
  */
 import { describe, expect, it } from "vitest";
-import type { SearchInputDef } from "@/lib/domain";
+import type { BlueprintDoc, SearchInputDef } from "@/lib/domain";
 import {
 	eq,
 	input,
@@ -14,10 +14,14 @@ import {
 	neq,
 	or,
 	prop,
+	tableColumn,
 	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { plainColumn } from "@/lib/domain/modules";
+import { proseText } from "@/lib/domain/prose";
+import { lookupWireNaming } from "../../../lookup/naming";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	codes,
@@ -25,6 +29,7 @@ import {
 	listOf,
 	readLists,
 } from "../../caseList/__tests__/listReading";
+import type { ReaderInput } from "../../types";
 
 async function roundTrip(inputs: SearchInputDef[]) {
 	const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
@@ -299,4 +304,120 @@ describe("prompts HQ's pages write that Nova does not", () => {
 		});
 		expect(codes(reading)).toContain("case-search/validations-1");
 	});
+});
+
+describe("Search fields over a table and over dates", () => {
+	const TABLE = "01890000-0000-7000-8000-000000000301" as LookupTableId;
+	const CODE = "01890000-0000-7000-8000-000000000302" as LookupColumnId;
+	const NAME = "01890000-0000-7000-8000-000000000303" as LookupColumnId;
+	const REGION = "01890000-0000-7000-8000-000000000304" as LookupColumnId;
+	const RANK = "01890000-0000-7000-8000-000000000305" as LookupColumnId;
+	const columns = [
+		{ id: CODE, wireName: "code", label: "Code", dataType: "text" as const },
+		{ id: NAME, wireName: "name", label: "Name", dataType: "text" as const },
+		{
+			id: REGION,
+			wireName: "region",
+			label: "Region",
+			dataType: "text" as const,
+		},
+		{ id: RANK, wireName: "rank", label: "Rank", dataType: "int" as const },
+	];
+	const naming = lookupWireNaming([{ id: TABLE, tag: "districts", columns }]);
+	/** The project space's table of districts, as a reading is given it. */
+	const withTable = (input: ReaderInput): ReaderInput => ({
+		...input,
+		lookup: {
+			table: (tag) =>
+				tag === "districts"
+					? {
+							tableId: TABLE,
+							column: (name) =>
+								columns.find((column) => column.wireName === name)?.id,
+						}
+					: undefined,
+			definitions: new Map([
+				[TABLE, { id: TABLE, name: "Districts", tag: "districts", columns }],
+			]),
+		},
+	});
+
+	for (const type of ["select", "multi-select"] as const)
+		it(`reads a ${type} field whose choices come from a table, sorted and filtered`, async () => {
+			const inputs: SearchInputDef[] = [
+				{
+					uuid: uuid(9),
+					// A multiple-choice field matches the property it is named after.
+					name: "notes",
+					label: "District",
+					kind: "simple",
+					type,
+					property: "notes",
+					options: {
+						kind: "lookup",
+						tableId: TABLE,
+						valueColumnId: CODE,
+						labelColumnId: NAME,
+						sortColumnId: RANK,
+						filter: eq(term(tableColumn(TABLE, REGION)), literal("north")),
+					},
+				},
+			];
+			const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: inputs,
+				search: {},
+			});
+			const reading = await readLists(doc, {
+				lookupNaming: naming,
+				input: withTable,
+			});
+			expect(codes(reading)).toEqual([]);
+			const read = comparableList(listOf(reading)) as {
+				searchInputs: unknown[];
+			};
+			expect(read.searchInputs).toEqual(asRead(inputs, reading));
+			// The choices' filter is registered under its own slot.
+			expect(reading.ctx.pending.list().map((one) => one.ref.slot)).toContain(
+				"search_input_options",
+			);
+		});
+
+	for (const dataType of ["date", "datetime"] as const)
+		it(`reads a date field over a property only the catalog types ${dataType}`, async () => {
+			const inputs: SearchInputDef[] = [
+				{
+					uuid: uuid(9),
+					name: "due",
+					label: "Due",
+					kind: "simple",
+					type: "date",
+					property: "due",
+				},
+			];
+			const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: inputs,
+				search: {},
+			});
+			const typed: BlueprintDoc = {
+				...doc,
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "due",
+								label: proseText("Due"),
+								data_type: dataType,
+							},
+						],
+					},
+				],
+			};
+			const reading = await readLists(typed);
+			expect(codes(reading)).toEqual([]);
+			const read = comparableList(listOf(reading)) as {
+				searchInputs: unknown[];
+			};
+			expect(read.searchInputs).toEqual(asRead(inputs, reading));
+		});
 });

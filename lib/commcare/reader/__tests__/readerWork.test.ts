@@ -13,7 +13,8 @@
  * link, a keyed create with its count, its condition, its guard and its
  * clock, and the owner node. Each export reads with no finding, so no block
  * the reader refuses skips the work the counters measure. Deterministic; no
- * clock.
+ * clock. Every reader module reads XPath text through `syntaxRead.ts`, so
+ * `syntaxReads` counts every such read.
  *
  * Plausible failure: a stage that walks every node, or rebuilds every
  * generated tree, once per question, which doubles twice when the form
@@ -21,6 +22,8 @@
  * recognizer is rebuilding a tree per candidate instead of once per owner.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { produce } from "immer";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -406,4 +409,39 @@ it("reads a form of 400 questions with at most twice the work of one of 200", {
 			true,
 		]);
 	}
+});
+
+/** Every module of the reader, tests left out. */
+function readerModules(dir: string): string[] {
+	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory())
+			return entry.name === "__tests__" ? [] : readerModules(path);
+		return entry.name.endsWith(".ts") ? [path] : [];
+	});
+}
+
+it("counts every text a reader module reads with the XPath grammar", () => {
+	// `syntaxReads` counts the reads made through `syntaxRead.ts`, the one module that imports the
+	// grammar's reader; a module importing it directly would read uncounted.
+	const dir = join(process.cwd(), "lib/commcare/reader");
+	const direct = readerModules(dir).flatMap((path) => {
+		const source = readFileSync(path, "utf8");
+		// Each import statement's named bindings and its module, a TypeScript import declaration's
+		// own syntax.
+		const imports = source.matchAll(
+			/^import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"([^"]+)";/gm,
+		);
+		return [...imports].some(
+			([, names = "", from = ""]) =>
+				from.endsWith("xpath/formSyntax") &&
+				names
+					.split(",")
+					.map((one) => one.trim().split(/\s+as\s+/)[0])
+					.includes("readFormSyntax"),
+		)
+			? [relative(dir, path)]
+			: [];
+	});
+	expect(direct).toEqual(["syntaxRead.ts"]);
 });

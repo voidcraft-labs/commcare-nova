@@ -54,8 +54,9 @@ path binds to the node it names whatever Nova would call it; normal authoring
 always uses the current declared structure.
 
 `FormParseScope.reading` (`FormReadingHooks`) is present only while reading an
-app made in CommCare HQ, and every edit it makes is inert without it. With it,
-the parser asks the hook's folds before it binds a node, admits only the
+app made in CommCare HQ. Without the hook the parser is as described here. With
+it, the parser asks the hook's folds before it binds a node (the folds come
+from `lib/commcare/reader/expressions/folds.ts`), admits only the
 functions Core answers (`normalize-space`, `is-blank` and `capture-link` are
 unknown there), refuses every hashtag (Core's lexer has none), resolves an
 itext id through the form's own units and an instance id through the source the

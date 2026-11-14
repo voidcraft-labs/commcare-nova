@@ -176,6 +176,15 @@ function ownNamespace(node: DataNode, parsed: ParsedXForm): boolean {
 	);
 }
 
+/** Whether Java's `String.trim()` empties a text, which is when Core drops it as no value
+ *  (`XFormParser.getXMLDocument`): every code unit at or below U+0020. A no-break space is a
+ *  value. */
+function javaTrimEmpty(text: string): boolean {
+	for (let index = 0; index < text.length; index++)
+		if (text.charCodeAt(index) > 0x20) return false;
+	return true;
+}
+
 export function joinForm(input: JoinInput): JoinedForm {
 	const { tree, cursor, accounting, formPlace, parsed } = input;
 	const roles = new Map<DataNode, NodeRole>();
@@ -319,7 +328,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				X.dataNodeXmlns,
 				placeOf(node),
 			);
-		if (node.children.length === 0 && node.text.trim() !== "")
+		if (node.children.length === 0 && !javaTrimEmpty(node.text))
 			accounting.finding(X.defaultDataValue, placeOf(node), {
 				name: node.name,
 			});
@@ -370,7 +379,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				triggerStaysLabel(verdict, control.appearance)
 			) {
 				row = fieldKindOf({ ...facts, appearance: "minimal" });
-				if (claimAppearance(cursor, control, verdict, place).inert)
+				if (claimAppearance(cursor, accounting, control, verdict, place).inert)
 					inertAppearances.push(node.path.join("/"));
 				labelAppearance = true;
 			}
@@ -380,14 +389,20 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (row === undefined) return make(node, parent, control, "hidden", true);
 		if (row.kind === undefined || row.sites === undefined) {
 			const claim = row.claim as typeof X.refusedKind.long;
-			cursor.refuse({ element: node.element }, claim, place);
+			// A bind type Vellum does not write is named by the type as written (9.1).
+			const detail =
+				claim === X.refusedKind.inputOtherType && bind?.type !== undefined
+					? { name: bind.type }
+					: undefined;
+			cursor.refuse({ element: node.element }, claim, place, detail);
 			if (control !== undefined)
-				cursor.refuseSubtree(control.element, claim, place);
+				cursor.refuseSubtree(control.element, claim, place, detail);
 			if (bind?.type !== undefined)
 				cursor.refuse(
 					{ element: bind.element, attribute: "type" },
 					claim,
 					place,
+					detail,
 				);
 			const standIn = make(node, parent, control, "hidden", true);
 			standIn.standInClaim = claim;
@@ -431,7 +446,9 @@ export function joinForm(input: JoinInput): JoinedForm {
 						{ element: control.element, attribute: "appearance" },
 						sites.appearance,
 					).value;
-			} else if (claimAppearance(cursor, control, verdict, place).inert)
+			} else if (
+				claimAppearance(cursor, accounting, control, verdict, place).inert
+			)
 				inertAppearances.push(node.path.join("/"));
 		}
 		if (control.tag === "upload") readImageDimension(control, row, place);
@@ -705,36 +722,27 @@ export function joinForm(input: JoinInput): JoinedForm {
 				read.kind === "stand-in" ? {} : stub.field,
 			);
 			field.expressions.push(...stub.expressions);
-			if (
-				wrapper.appearance !== undefined &&
-				claimAppearance(
-					cursor,
-					wrapper,
-					classifyAppearance(
-						wrapper,
-						undefined,
-						wrapper.appearance,
-						input.intents,
-					),
-					field.place,
-				).inert
-			)
-				inertAppearances.push(at.path.join("/"));
-			if (
-				control.appearance !== undefined &&
-				claimAppearance(
-					cursor,
-					control,
-					classifyAppearance(
-						control,
-						undefined,
-						control.appearance,
-						input.intents,
-					),
-					field.place,
-				).inert
-			)
-				inertAppearances.push(at.path.join("/"));
+			// The wrapper group and the repeat are one field: its path is listed once, whichever
+			// of the two carries an inert appearance.
+			let inert = false;
+			for (const appearing of [wrapper, control])
+				if (
+					appearing.appearance !== undefined &&
+					claimAppearance(
+						cursor,
+						accounting,
+						appearing,
+						classifyAppearance(
+							appearing,
+							undefined,
+							appearing.appearance,
+							input.intents,
+						),
+						field.place,
+					).inert
+				)
+					inert = true;
+			if (inert) inertAppearances.push(at.path.join("/"));
 			if (read.kind === "model-iteration") {
 				modelIterations.set(field, read);
 				roles.set(read.row, { kind: "query-row", repeat: field });

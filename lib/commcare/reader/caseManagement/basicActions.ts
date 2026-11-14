@@ -25,7 +25,11 @@ import {
 import { formField, matchAll, term } from "@/lib/domain/expression/builders";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
-import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
+import {
+	circumstanceFinding,
+	type FindingDetail,
+	type HqPlace,
+} from "@/lib/publish/hqFindings";
 import { RESERVED_CASE_PROPERTIES } from "../../constants";
 import {
 	activeActions,
@@ -642,6 +646,26 @@ export function repeatOfField(field: DraftField): DraftField | undefined {
 	return undefined;
 }
 
+/** A question path of `form`, mapped through each generated node to the
+ *  question it belongs to, as a path from the data root: two action lists
+ *  compared by the questions their paths name. Null for no path. */
+export function ownerQuestionPath(
+	form: DraftForm,
+	path: unknown,
+): string | null {
+	if (typeof path !== "string" || path === "") return null;
+	const xform = form.xform;
+	if (xform === null) return path;
+	const root = xform.parsed.dataRoot.name;
+	const relative = path.startsWith(`/${root}/`)
+		? path.slice(root.length + 2)
+		: path;
+	const node = xform.nodes.get(relative);
+	const role = node === undefined ? undefined : xform.roles.get(node);
+	if (role?.kind === "generated") return role.owner.path.join("/");
+	return relative;
+}
+
 /** A field's ids from the form's root. */
 export function fieldIds(field: DraftField): string[] {
 	const ids: string[] = [];
@@ -751,7 +775,7 @@ export function questionValue(
 
 /** HQ's own property grammar (`helpers/validators.py::validate_property`,
  *  without parents): Python's `\w` is every Unicode letter and digit. */
-const HQ_PROPERTY = /^[a-zA-Z][\p{L}\p{N}_-]*$/u;
+export const HQ_PROPERTY = /^[a-zA-Z][\p{L}\p{N}_-]*$/u;
 /** The code point ranges of a name character of CommCare Core's XPath grammar (`localName`). */
 const CORE_NAME_RANGES: readonly (readonly [number, number])[] = [
 	[0x2d, 0x2e],
@@ -896,9 +920,10 @@ export function indexTarget(
 	return known(caseType, identifier);
 }
 
-/** The steps of an index path from `caseType`, each through the type the step
- *  before reaches; undefined where a type is not fixed or two cases of the
- *  chain share one. */
+/** The steps of an index path from `caseType`, each typed with the case type
+ *  it reaches, as `relationDestination.ts::resolveRelationDestination` walks
+ *  an ancestor step; and every type of the chain, `caseType` first. Undefined
+ *  where the app fixes no type for a step. */
 export function ancestorSteps(
 	ctx: ReadContext,
 	caseType: string,
@@ -909,8 +934,8 @@ export function ancestorSteps(
 	let at = caseType;
 	for (const segment of segments) {
 		const reached = indexTarget(ctx, at, segment);
-		if (reached === undefined || types.includes(reached)) return undefined;
-		steps.push({ identifier: segment, throughCaseType: at });
+		if (reached === undefined) return undefined;
+		steps.push({ identifier: segment, throughCaseType: reached });
 		types.push(reached);
 		at = reached;
 	}
@@ -949,6 +974,41 @@ function finding(
 
 function consume<T>(admitted: Admitted<T>): T {
 	return admitted.value;
+}
+
+/** An active condition whose question names no question of the form: its
+ *  finding at the form. The condition's own key stays claimed under its row. */
+function noteConditionQuestion(r: FormReading, condition: unknown): void {
+	if (
+		conditionType(condition) === "if" &&
+		conditionField(r.form, condition) === undefined
+	)
+		finding(r.ctx, CONDITION_CLAIMS.noQuestion, r.form.place);
+}
+
+/** One entry of an update map refused under its key's class: the entry's
+ *  cursor refused whole, so its question path and mode stand under the one
+ *  finding. */
+function refuseEntry(
+	cursor: JsonCursor,
+	claim: Claim<"refuse">,
+	key: string,
+): void {
+	cursor.refuseWhole(claim, { name: key });
+}
+
+/** One entry of an update map no row names: `unrecognized` once at the form,
+ *  under `name`, with every key of the entry covered by it. */
+function unrecognizedEntry(
+	r: FormReading,
+	cursor: JsonCursor,
+	name: string,
+): void {
+	const place = r.form.place;
+	r.ctx.accounting.circumstance("unrecognized", place, { name });
+	const raised = circumstanceFinding("unrecognized", place, { name });
+	for (const key of ["question_path", "update_mode", ...cursor.undeclared()])
+		r.ctx.accounting.cover({ json: cursor, key }, raised);
 }
 
 /**
@@ -1068,7 +1128,7 @@ function readUpdateMap(
 	for (const [key, cursor] of values) {
 		if (slot === "usercase") {
 			if (key.includes("/")) {
-				finding(r.ctx, BASIC_CLAIMS.usercaseSlash, r.form.place, { name: key });
+				refuseEntry(cursor, BASIC_CLAIMS.usercaseSlash, key);
 				continue;
 			}
 		}
@@ -1085,32 +1145,27 @@ function readUpdateMap(
 					(segment) =>
 						segment === "parent" || segment === "host" || segment === "user",
 				);
-				finding(
-					r.ctx,
+				refuseEntry(
+					cursor,
 					users ? BASIC_CLAIMS.viaUser : BASIC_CLAIMS.viaOther,
-					r.form.place,
-					{
-						name: key,
-					},
+					key,
 				);
 				continue;
 			}
 			if (!loads) {
-				finding(r.ctx, BASIC_CLAIMS.viaOnOpen, r.form.place, { name: key });
+				refuseEntry(cursor, BASIC_CLAIMS.viaOnOpen, key);
 				continue;
 			}
 			const steps = ancestorSteps(r.ctx, r.caseType, indices);
 			if (steps === undefined) {
-				finding(r.ctx, BASIC_CLAIMS.ancestorUnknown, r.form.place, {
-					name: key,
-				});
+				refuseEntry(cursor, BASIC_CLAIMS.ancestorUnknown, key);
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
 		}
 		if (slot === "own" && indices.length === 0) {
 			if (property === "location_id" || property === "hq_user_id") {
-				finding(r.ctx, BASIC_CLAIMS.locationKeys, r.form.place, { name: key });
+				refuseEntry(cursor, BASIC_CLAIMS.locationKeys, key);
 				continue;
 			}
 		}
@@ -1120,13 +1175,11 @@ function readUpdateMap(
 		if (!facet && !categoryOrState) {
 			const named = propertyNameFinding(property, false);
 			if (named === "unrecognized") {
-				r.ctx.accounting.circumstance("unrecognized", r.form.place, {
-					name: "schema:UpdateCaseAction.update",
-				});
+				unrecognizedEntry(r, cursor, "schema:UpdateCaseAction.update");
 				continue;
 			}
 			if (named !== undefined) {
-				finding(r.ctx, named, r.form.place, { name: key });
+				refuseEntry(cursor, named, key);
 				continue;
 			}
 		}
@@ -1257,7 +1310,10 @@ export function readBasicActions(
 	// HQ's build writes a form's update, close and child cases only here
 	// (`xform.py::XForm._create_casexml`, `default_case_management`).
 	const defaultCaseManagement = (!multi && !registry) || opens;
-	const ownBlock = opens || (loads && !(registry && !multi));
+	// A form of a menu that selects several cases has no own block: its own
+	// case's change is a Save to Case block of each selected case
+	// (`saveToCase.ts::withSeveralCaseOwn`).
+	const ownBlock = opens || (loads && defaultCaseManagement);
 
 	const operations: ProposedOperation[] = [];
 	const conditions: BasicCaseReading["conditions"][number][] = [];
@@ -1295,6 +1351,7 @@ export function readBasicActions(
 		const condition = consume(
 			O.take("condition", conditionClaim, (value) => value),
 		);
+		noteConditionQuestion(r, condition);
 		if (conditionType(condition) === "if") {
 			const field = conditionField(form, condition);
 			openCondition = {
@@ -1469,6 +1526,7 @@ export function readBasicActions(
 						? BASIC_CLAIMS.closeBooleanTrue
 						: BASIC_CLAIMS.closeCompared;
 			const condition = consume(C.take("condition", claim, (value) => value));
+			noteConditionQuestion(r, condition);
 			if (type === "if") {
 				const field = conditionField(form, condition);
 				closeCondition = {
@@ -1689,10 +1747,12 @@ function readSubcases(
 		if (type === "never") {
 			S.refuse("condition", BASIC_CLAIMS.subcaseNever);
 			ok = false;
-		} else
+		} else {
 			consume(
 				S.take("condition", BASIC_CLAIMS.subcaseCondition, (value) => value),
 			);
+			noteConditionQuestion(r, conditionStored);
+		}
 
 		// The name and the writes.
 		const nameUpdate = consume(
@@ -1758,21 +1818,23 @@ function readSubcases(
 		);
 		for (const [key, cursor] of properties) {
 			if (key.includes("/")) {
-				finding(ctx, BASIC_CLAIMS.illegalChildKey, form.place, { name: key });
+				refuseEntry(cursor, BASIC_CLAIMS.illegalChildKey, key);
 				ok = false;
 				continue;
 			}
 			const named =
 				key === "owner_id" ? undefined : propertyNameFinding(key, true);
 			if (named === "unrecognized") {
-				ctx.accounting.circumstance("unrecognized", form.place, {
-					name: "schema:OpenSubCaseAction.case_properties",
-				});
+				unrecognizedEntry(
+					r,
+					cursor,
+					"schema:OpenSubCaseAction.case_properties",
+				);
 				ok = false;
 				continue;
 			}
 			if (named !== undefined) {
-				finding(ctx, named, form.place, { name: key });
+				refuseEntry(cursor, named, key);
 				ok = false;
 				continue;
 			}
@@ -1799,10 +1861,12 @@ function readSubcases(
 		const closeType = conditionType(closeStored);
 		if (closeType === "never")
 			S.drop("close_condition", BASIC_CLAIMS.subcaseCloseNever);
-		else
+		else {
 			consume(
 				S.take("close_condition", BASIC_CLAIMS.subcaseClose, (value) => value),
 			);
+			noteConditionQuestion(r, closeStored);
+		}
 		if (!ok || name === undefined || typeof caseType !== "string") return;
 		if (name !== undefined) r.createNames.push(name.field);
 

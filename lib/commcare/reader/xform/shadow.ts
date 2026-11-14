@@ -27,10 +27,11 @@ import {
 	VELLUM_NS,
 	XFORMS_NS,
 } from "../../xmlNamespaces";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import type { Accounting } from "../accounting";
 import { account, type Claim, defineClaims, drop, refuse } from "../claims";
 import { sameSyntax } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import type { HashtagMetadata, ParsedXForm } from "./parse";
 

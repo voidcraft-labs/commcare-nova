@@ -2,8 +2,9 @@
  * Registration from the case list, read back from Nova's emission and from
  * the shapes CommCare HQ's pages store: the hidden menu folded into its host
  * with its form last, every failing test of that shape left an ordinary
- * menu, a stored registration block read by the first rule that matches it,
- * and the label as HQ's build writes it.
+ * menu, a stored registration block read by the first rule that matches it
+ * (the earlier of two rows that hold taking it), each refusal at the host's
+ * case list, and the label as HQ's build writes it.
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
@@ -186,6 +187,21 @@ describe("the hidden registration menu", () => {
 			(app: AppJson) => {
 				const details = hiddenMenu(app).case_details as JsonObject;
 				(details.short as JsonObject).columns = [];
+			},
+		],
+		[
+			"a second form",
+			(app: AppJson) => {
+				const host = app.modules[0] as AppJson["modules"][number];
+				const [second] = host.forms;
+				host.forms = [];
+				(hiddenMenu(app).forms as JsonObject[]).push(second as JsonObject);
+			},
+		],
+		[
+			"a host whose forms do not read the search",
+			(app: AppJson) => {
+				(app.modules[0]?.search_config as JsonObject).auto_launch = false;
 			},
 		],
 	])(
@@ -400,6 +416,236 @@ describe("a stored registration block, read by the first rule that matches", () 
 		});
 	});
 });
+
+/** The stored menu whose name is `name` in the first language. */
+function menuNamed(app: AppJson, name: string): AppJson["modules"][number] {
+	const menu = app.modules.find(
+		(one) => (one.name as JsonObject | undefined)?.en === name,
+	);
+	if (menu === undefined) throw new Error(`The app holds no menu ${name}.`);
+	return menu;
+}
+
+/** The stored menu that holds the form `name`. */
+function menuHolding(app: AppJson, name: string): AppJson["modules"][number] {
+	const menu = app.modules.find((one) =>
+		one.forms.some(
+			(form) => (form.name as JsonObject | undefined)?.en === name,
+		),
+	);
+	if (menu === undefined) throw new Error(`The app holds no form ${name}.`);
+	return menu;
+}
+
+describe("the rows a block meets after its own registration", () => {
+	it("refuses a hidden menu of another case type as naming no registration of the host's type", async () => {
+		const reading = await readMenusOf(afterEmptySearch(), (app) => {
+			hiddenMenu(app).case_type = "household";
+		});
+		const codes = codesOf(reading);
+		expect(codes).toContain(
+			`${M}/case-list-form-missing-not-a-registration-form-toggle-off-or`,
+		);
+		expect(codes).not.toContain(
+			`${M}/case-list-form-on-a-search-first-host-pointing-at-a-registration`,
+		);
+	});
+
+	it("refuses a form another list offers after an empty search", async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					caseSearchConfig: { formsReadSearch: true },
+					caseListRegistrationForm: { formUuid: "reg" },
+					forms: [visit, register],
+				},
+				{
+					name: "Others",
+					caseType: "patient",
+					forms: [{ ...visit, name: "Check in" }],
+				},
+			],
+		});
+		const reading = await readMenusOf(doc, (app) => {
+			const offered = block(app);
+			menuNamed(app, "Others").case_list_form = {
+				...offered,
+				relevancy_expression: "",
+			};
+		});
+		const codes = codesOf(reading);
+		expect(codes).toContain(
+			`${M}/case-list-form-naming-a-form-another-list-offers-after-an-empty-search`,
+		);
+		expect(
+			reading.findings.find((finding) =>
+				finding.code.endsWith("offers-after-an-empty-search"),
+			)?.place,
+		).toEqual({
+			kind: "case-list",
+			menu: menuIndex(reading.app, "Others"),
+			name: "Others",
+		});
+	});
+
+	it("refuses a host under a menu that shares the first menu's case", async () => {
+		const doc = produce(
+			buildDoc({
+				modules: [
+					{ name: "Patients", caseType: "patient", forms: [visit] },
+					{
+						name: "Follow up",
+						caseType: "patient",
+						forms: [{ ...visit, name: "Check in" }],
+					},
+					{ name: "Registration", caseType: "patient", forms: [register] },
+				],
+			}),
+			(draft) => {
+				const [patients, followUp] = draft.moduleOrder;
+				const above = draft.modules[patients as string];
+				const host = draft.modules[followUp as string];
+				if (above === undefined || host === undefined) return;
+				above.formsInMenuAbove = true;
+				host.parentModuleUuid = patients;
+				// Going on with the new case returns through the first menu.
+				host.caseListRegistrationForm = {
+					kind: "always",
+					formUuid: testUuid("reg"),
+					afterSubmit: "new-case",
+				};
+			},
+		);
+		const reading = await readMenusOf(doc);
+		expect(codesOf(reading)).toContain(
+			`${M}/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case`,
+		);
+		expect(
+			reading.findings.find((finding) =>
+				finding.code.endsWith("shares-the-first-menu-s-case"),
+			)?.place,
+		).toMatchObject({ kind: "case-list", name: "Follow up" });
+	});
+
+	it("refuses a block naming a form whose menu is advanced, the host basic", async () => {
+		const ctx = await stagesOver(
+			always(),
+			(app) => {
+				const named = menuHolding(app, "Register");
+				named.doc_type = "AdvancedModule";
+				const form = named.forms[0] as JsonObject;
+				form.doc_type = "AdvancedForm";
+				form.actions = {
+					doc_type: "AdvancedFormActions",
+					load_update_cases: [],
+					open_cases: [
+						{
+							doc_type: "AdvancedOpenCaseAction",
+							case_type: "patient",
+							case_tag: "open_patient_0",
+							name_update: { question_path: "/data/name" },
+							repeat_context: "",
+							case_indices: [],
+							open_condition: {
+								doc_type: "FormActionCondition",
+								type: "always",
+							},
+						},
+					],
+				};
+			},
+			THROUGH_MENUS,
+		);
+		const codes = ctx.close().findings.map((finding) => finding.code);
+		expect(codes).toContain(
+			`${M}/case-list-form-on-an-advanced-module-or-naming-an-advanced-form`,
+		);
+		expect(codes).not.toContain(
+			`${M}/case-list-form-missing-not-a-registration-form-toggle-off-or`,
+		);
+	});
+
+	it.each([
+		[
+			"a blank form id before a host some form of which needs no case",
+			(app: AppJson) => {
+				block(app, 1).form_id = "";
+				(app.modules[1]?.forms[0] as JsonObject).requires = "none";
+			},
+			undefined,
+			`${M}/case-list-form-on-a-module-whose-forms-do-not-all-require-a-case`,
+		],
+		[
+			"a form id naming no form before a host above whose list is a tile",
+			(app: AppJson) => {
+				block(app, 1).form_id = "not-a-form";
+				const host = app.modules[1] as JsonObject;
+				host.put_in_root = true;
+				const details = host.case_details as JsonObject;
+				(details.short as JsonObject).case_tile_template = "icon_text_grid";
+			},
+			`${M}/case-list-form-missing-not-a-registration-form-toggle-off-or`,
+			`${M}/case-list-form-on-a-put-in-root-module-whose-case-list-is-a-tile`,
+		],
+		[
+			"a child host above before a form of it that needs no case",
+			(app: AppJson) => {
+				const host = app.modules[1] as AppJson["modules"][number];
+				host.put_in_root = true;
+				host.root_module_id = (app.modules[0] as JsonObject).unique_id;
+				(host.forms[0] as JsonObject).requires = "none";
+			},
+			`${M}/case-list-form-on-a-child-put-in-root-module-whose-parent-s-case`,
+			`${M}/case-list-form-on-a-module-whose-forms-do-not-all-require-a-case`,
+		],
+		[
+			"a host some form of which needs no case before a child registration",
+			(app: AppJson) => {
+				(app.modules[1]?.forms[0] as JsonObject).requires = "none";
+				(app.modules[0] as JsonObject).case_type = "household";
+				const form = app.modules[0]?.forms[0] as JsonObject;
+				const actions = form.actions as JsonObject;
+				actions.subcases = [
+					{
+						doc_type: "OpenSubCaseAction",
+						case_type: "patient",
+						case_name: "/data/name",
+						condition: { doc_type: "FormActionCondition", type: "always" },
+						repeat_context: "",
+					},
+				];
+			},
+			`${M}/case-list-form-on-a-module-whose-forms-do-not-all-require-a-case`,
+			`${M}/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case`,
+		],
+	] as const)("takes the earlier row: %s", async (_, edit, earlier, later) => {
+		const ctx = await stagesOver(always(), edit, THROUGH_MENUS);
+		const codes = ctx.close().findings.map((finding) => finding.code);
+		if (earlier !== undefined) expect(codes).toContain(earlier);
+		expect(codes).not.toContain(later);
+	});
+
+	it("raises a refused block at the host's case list", async () => {
+		const reading = await readMenusOf(always(), (app) => {
+			block(app, 1).form_id = "not-a-form";
+		});
+		expect(
+			reading.findings.find((finding) =>
+				finding.code.endsWith("missing-not-a-registration-form-toggle-off-or"),
+			)?.place,
+		).toEqual({ kind: "case-list", menu: 1, name: "Patients" });
+	});
+});
+
+/** The index of the stored menu named `name`. */
+function menuIndex(app: AppJson, name: string): number {
+	return app.modules.indexOf(menuNamed(app, name));
+}
 
 describe("the Register label", () => {
 	it("reads a label with no text in any language as HQ's words, with its record", async () => {

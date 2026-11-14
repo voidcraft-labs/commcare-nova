@@ -14,22 +14,30 @@
  */
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
+import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
 import {
 	AUTHORED_CASE_ID_VERSION,
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
+	caseSelectionCardinality,
 	type Expression,
 	isCaseOperationIdentifier,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	ownCaseOperationId,
 	type Uuid,
 } from "@/lib/domain";
-import { actingUser, term, unowned } from "@/lib/domain/expression/builders";
+import {
+	actingUser,
+	and,
+	term,
+	unowned,
+} from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { expandDoc } from "../../expander";
+import { planPlacements } from "../../placement";
 import { USERCASE_ID_FUNCTION } from "../../usercaseWire";
 import { captureUrlCalculate } from "../../xform/captureUrlNode";
 import {
@@ -39,7 +47,7 @@ import {
 } from "../../xform/caseOps";
 import { caseSaveReferencesOf } from "../../xform/caseSaveReferences";
 import { GUARD_KINDS, generatedBaseName } from "../../xform/generatedNodes";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import {
 	storedClockValue,
@@ -60,6 +68,8 @@ import { questionPlace, whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { caseReferencesOf } from "../structure";
 import { sameXPathText } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
+import type { ReadMenuAndFormIdentities } from "../types";
 import type { DraftField, ReadSaveToCaseBlock, ReadXForm } from "../xform";
 import { HOLE, isAllocatedName, matchesTemplate } from "../xform/generated";
 import { type DataNode, pathSteps } from "../xform/model";
@@ -418,17 +428,33 @@ function scopeOk(xform: ReadXForm, block: ReadSaveToCaseBlock): boolean {
 	);
 }
 
+/** Each bind of a form with the steps of its path, read once per form, since every block of the
+ *  form looks among the same binds. */
+const BIND_STEPS = new WeakMap<
+	readonly Element[],
+	readonly {
+		readonly element: Element;
+		readonly steps: readonly string[] | undefined;
+	}[]
+>();
+
 /** The binds of `form` on paths under `prefix`, by path relative to it. */
 function bindsUnder(
 	xform: ReadXForm,
 	prefix: readonly string[],
 ): Map<string, Element> {
 	const root = xform.parsed.dataRoot.name;
+	const binds = xform.parsed.binds;
+	let read = BIND_STEPS.get(binds);
+	if (read === undefined) {
+		read = binds.map((element) => ({
+			element,
+			steps: pathSteps(element.attribs.nodeset ?? element.attribs.ref ?? ""),
+		}));
+		BIND_STEPS.set(binds, read);
+	}
 	const out = new Map<string, Element>();
-	for (const element of xform.parsed.binds) {
-		const steps = pathSteps(
-			element.attribs.nodeset ?? element.attribs.ref ?? "",
-		);
+	for (const { element, steps } of read) {
 		if (steps === undefined || steps[0] !== "/" || steps[1] !== root) continue;
 		const path = steps.slice(2);
 		if (
@@ -747,8 +773,11 @@ function readBlock(
 				one.target?.join("/") === idPath.join("/"),
 		);
 		const idCalculate = calc("case/@case_id");
-		if (keyed) {
-			const keyedId = keyedKey(idCalculate);
+		// A keyed create holds its id as a bind: in a one-row repeat of its
+		// own at the form root, directly in a repeat's row.
+		const keyedId =
+			rootSetvalue === undefined ? keyedKey(idCalculate) : undefined;
+		if (keyed || keyedId !== undefined) {
 			const node = keyedId === undefined ? undefined : parse(keyedId.key);
 			const path =
 				node === undefined ? undefined : resolvePath(node, idPath, root);
@@ -1079,12 +1108,24 @@ function readTarget(
 		})
 	)
 		return { kind: "worker-record" };
-	const selected = inside(
-		text,
-		w.append(caseById(holeWire(), "casedb", caseType), [w.attr("case_id")]),
-	);
-	if (selected !== undefined)
-		return { kind: "expression", text: selected, site };
+	// The selector names the type the case holds before the submission, which
+	// an earlier retype of the form leaves apart from the block's own: the
+	// block's type first, then each type another block of the form names.
+	const types = [
+		caseType,
+		...xform.saveToCaseBlocks.flatMap((block) => {
+			const named = block.element.attribs["vellum:case_type"];
+			return named === undefined || named === caseType ? [] : [named];
+		}),
+	];
+	for (const type of new Set(types)) {
+		const selected = inside(
+			text,
+			w.append(caseById(holeWire(), "casedb", type), [w.attr("case_id")]),
+		);
+		if (selected !== undefined)
+			return { kind: "expression", text: selected, site };
+	}
 	return { kind: "session" };
 }
 
@@ -1103,26 +1144,6 @@ function guardOf(name: string, ids: ReadonlySet<string>): boolean {
 			if (isAllocatedName(name, generatedBaseName("guard", id, kind)))
 				return true;
 	return false;
-}
-
-/** The conjuncts of `text` that the inherited conditions of `conditions` restate, taken off the front. */
-function withoutInherited(
-	text: string,
-	inherited: readonly string[],
-): string | undefined {
-	const tree = parse(text);
-	if (tree === undefined || inherited.length === 0) return text;
-	const parts = conjuncts(tree);
-	let drop = 0;
-	for (const part of parts) {
-		const own = text.slice(part.from, part.to);
-		if (!inherited.some((one) => sameXPathText(one, own, { ruleSet: "form" })))
-			break;
-		drop += 1;
-	}
-	if (drop === 0) return text;
-	if (drop >= parts.length) return undefined;
-	return conjunction(text, parts.slice(drop));
 }
 
 /**
@@ -1319,43 +1340,10 @@ export function readSaveToCaseBlocks(
 			};
 		}
 	}
-	// The inherited guards: an operation that reads an earlier conditional
-	// create stands under that create's condition too.
-	const createConditions = new Map<string, string>();
-	for (const one of reading.proposals)
-		if (one.action === "create" && one.condition !== undefined)
-			createConditions.set(
-				`/${root}/${[...one.block.path, "case", "@case_id"].join("/")}`,
-				one.condition.text,
-			);
-	reading.proposals.forEach((one, i) => {
-		if (one.action === "create" || one.condition === undefined) return;
-		const inherited: string[] = [];
-		if (one.target.kind === "op") {
-			const text = createConditions.get(one.target.path);
-			if (text !== undefined) inherited.push(text);
-		}
-		for (const link of one.links)
-			if (link.target !== null && link.target.kind === "op") {
-				const text = createConditions.get(link.target.path);
-				if (text !== undefined) inherited.push(text);
-			}
-		const own = withoutInherited(one.condition.text, inherited);
-		reading.proposals[i] =
-			own === undefined
-				? withoutCondition(one)
-				: { ...one, condition: { text: own, site: one.condition.site } };
-	});
-
 	for (const failed of reading.failed) refuseBlock(xform, failed);
 	claimAccepted(ctx, xform, reading);
 	registerTexts(ctx, form, reading);
 	READINGS.set(form, reading);
-}
-
-function withoutCondition(one: ProposedBlock): ProposedBlock {
-	const { condition: _condition, ...rest } = one;
-	return rest;
 }
 
 /** A field's ids from the form's root. */
@@ -1515,6 +1503,23 @@ function claimAccepted(
 					{ element: bind.element, attribute: "relevant" },
 					claim,
 				);
+			// A selected-cases repeat's own iteration: the binds and setvalues
+			// on its attributes and its row's (`@current_index`, `@ids`,
+			// `@count`, `item/@index`, `item/@id`), which test 4 holds to the
+			// emitter's with the wrapper.
+			if (container === "selected-cases" || container === "selected-case") {
+				for (const [key, attributeBind] of bindsUnder(xform, node.path))
+					if (key.startsWith("@") && !key.includes("/"))
+						xform.cursor.derivedSubtree(attributeBind, claim);
+				for (const one of xform.setvalues)
+					if (
+						one.target !== undefined &&
+						one.target.length === node.path.length + 1 &&
+						node.path.every((step, i) => one.target?.[i] === step) &&
+						(one.target[node.path.length] as string).startsWith("@")
+					)
+						xform.cursor.derivedSubtree(one.element, claim);
+			}
 			continue;
 		}
 		if (node.children.length > 0) continue;
@@ -2015,6 +2020,34 @@ function keyedCaseIdPrefixes(ctx: ReadContext): Map<Uuid, string> {
 	return prefixes;
 }
 
+/** Each keyed create `doc` holds that was read from a block, with the prefix
+ *  its id stands under in the source, in form and proposal order. */
+export function keyedCreatesRead(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+): ReadMenuAndFormIdentities["keyedCreates"] {
+	const read: ReadMenuAndFormIdentities["keyedCreates"][number][] = [];
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms) {
+			const held = new Set(
+				(doc.forms[form.uuid]?.caseOperations ?? []).map((one) => one.uuid),
+			);
+			for (const one of READINGS.get(form)?.proposals ?? [])
+				if (
+					one.target.kind === "new" &&
+					one.target.idPrefix !== undefined &&
+					held.has(one.uuid)
+				)
+					read.push({
+						operationUuid: one.uuid,
+						formUuid: form.uuid,
+						caseType: one.caseType,
+						prefix: one.target.idPrefix,
+					});
+		}
+	return read;
+}
+
 /** The form's source Nova's emitter writes for `doc`, under the source's ids
  *  and the source's keyed case id prefixes. */
 function emittedForm(ctx: ReadContext, doc: BlueprintDoc, form: DraftForm) {
@@ -2127,6 +2160,157 @@ function withTargetOrder(doc: BlueprintDoc, formUuid: Uuid): BlueprintDoc {
 	});
 }
 
+/** An `and`'s clauses at every depth, left to right; any other tree alone. */
+function clausesOf(expression: Expression): Expression[] {
+	return expression.kind === "and"
+		? expression.clauses.flatMap(clausesOf)
+		: [expression];
+}
+
+/**
+ * `doc` with each of `ops`' conditions read apart from what it inherits. The
+ * emitter conjoins the condition of every operation a block's operation
+ * stands under (`caseOperationConditionalGuardUuids`: an earlier conditional
+ * create it reads, an earlier conditional retype whose type it needs) ahead
+ * of the operation's own, so the stored condition leads with those
+ * producers' conditions, once each, in that order; what follows is the
+ * operation's own. A condition that leads with anything else is kept whole,
+ * and test 4 judges it. `doc` itself where nothing is inherited.
+ */
+function withoutInheritedConditions(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	ops: readonly ProposedBlock[],
+): BlueprintDoc {
+	let current = doc;
+	const read = new Set(ops.map((one) => one.uuid));
+	for (const uuid of (doc.forms[formUuid]?.caseOperations ?? []).map(
+		(one) => one.uuid,
+	)) {
+		if (!read.has(uuid)) continue;
+		const operations = current.forms[formUuid]?.caseOperations ?? [];
+		const operation = operations.find((one) => one.uuid === uuid);
+		if (operation === undefined || operation.action === "own") continue;
+		const condition = operation.condition;
+		if (condition === undefined) continue;
+		let guards: ReadonlySet<Uuid> | undefined;
+		try {
+			guards = caseOperationConditionalGuardUuids(current, formUuid).get(uuid);
+		} catch {
+			guards = undefined;
+		}
+		const inherited = [...(guards ?? [])].flatMap((producer) => {
+			const stated = operations.find((one) => one.uuid === producer)?.condition;
+			return stated === undefined ? [] : clausesOf(stated);
+		});
+		if (inherited.length === 0) continue;
+		const clauses = clausesOf(condition);
+		if (
+			clauses.length < inherited.length ||
+			!inherited.every((clause, i) => sameJson(clause, clauses[i]))
+		)
+			continue;
+		const rest = clauses.slice(inherited.length);
+		current = withCandidate(current, (draft) => {
+			const held = draft.forms[formUuid]?.caseOperations?.find(
+				(one) => one.uuid === uuid,
+			) as { condition?: Expression } | undefined;
+			if (held === undefined) return;
+			const [first, second, ...more] = rest;
+			if (first === undefined) delete held.condition;
+			else
+				held.condition =
+					second === undefined ? first : and(first, second, ...more);
+		});
+	}
+	return current;
+}
+
+/**
+ * `doc` with the own arm of a follow-up or close form whose menu selects
+ * several cases, where the arm writes nothing. Its change is a Save to Case
+ * block of each selected case, and one that writes nothing is no block at
+ * all, so a reading finds none; the form holds it all the same, at the place
+ * the plan gives it, under the key that place spells. `doc` itself where the
+ * form is no such form or already holds its own arm.
+ */
+function withSeveralCaseOwn(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	form: DraftForm,
+): BlueprintDoc {
+	const stored = doc.forms[form.uuid];
+	const module = ctx.draft.modules.find((one) => one.forms.includes(form));
+	const held = module === undefined ? undefined : doc.modules[module.uuid];
+	const caseType = held?.caseType;
+	if (
+		stored === undefined ||
+		held === undefined ||
+		caseType === undefined ||
+		(stored.type !== "followup" && stored.type !== "close") ||
+		caseSelectionCardinality(held) !== "multiple" ||
+		(stored.caseOperations ?? []).some((one) => one.action === "own")
+	)
+		return doc;
+	const takenIds = new Set<string>([
+		...(stored.caseOperations ?? []).map((one) => one.id),
+		...(doc.fieldOrder[form.uuid] ?? []).flatMap((uuid) => {
+			const field = doc.fields[uuid];
+			return field === undefined ? [] : [field.id];
+		}),
+	]);
+	const id = ownCaseOperationId(caseType, takenIds);
+	const own = (uuid: Uuid): CaseOperation => ({
+		uuid,
+		id,
+		action: "own",
+		writes: [],
+	});
+	// The plan places the arm by what it holds, never by its identity, so a
+	// stand-in identity finds the place the minted one is keyed by.
+	const planned = (() => {
+		try {
+			return planPlacements(
+				withCandidate(doc, (draft) => {
+					const one = draft.forms[form.uuid];
+					if (one !== undefined)
+						one.caseOperations = [
+							own(form.uuid),
+							...(one.caseOperations ?? []),
+						] as typeof one.caseOperations;
+				}),
+				form.uuid,
+			).placements.get(form.uuid)?.placement;
+		} catch {
+			return undefined;
+		}
+	})();
+	if (planned?.kind !== "save-to-case" || planned.repeat !== undefined)
+		return doc;
+	const uuid = ctx.accounting.identity(
+		ctx.resolver.claim(
+			externalKey.caseOperation(
+				form.xmlns,
+				["save-to-case", [], planned.path],
+				"own",
+				0,
+			),
+			whereText(form.place),
+		),
+		form.place,
+		"schema:Form.actions",
+	);
+	if (uuid === undefined) return doc;
+	return withCandidate(doc, (draft) => {
+		const one = draft.forms[form.uuid];
+		if (one !== undefined)
+			one.caseOperations = [
+				{ ...own(uuid), placement: planned },
+				...(one.caseOperations ?? []),
+			] as typeof one.caseOperations;
+	});
+}
+
 /** The owner a create holds where the stored one is the acting user's id. */
 function withOwner(
 	doc: BlueprintDoc,
@@ -2156,6 +2340,10 @@ function withOwner(
  */
 export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 	const reading = READINGS.get(form);
+	if (ctx.doc !== undefined) {
+		const several = withSeveralCaseOwn(ctx, ctx.doc, form);
+		if (several !== ctx.doc) ctx.doc = several;
+	}
 	const doc = ctx.doc;
 	if (reading === undefined) {
 		judgeSaveReferences(ctx, form, []);
@@ -2169,12 +2357,15 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 		judgeSaveReferences(ctx, form, reading.failed);
 		return;
 	}
-	let failing = blocksHold(ctx, doc, form, reading);
+	// Each condition read apart from the conditions it inherits.
+	const own = withoutInheritedConditions(doc, form.uuid, reading.proposals);
+	if (own !== doc) ctx.doc = own;
+	let failing = blocksHold(ctx, own, form, reading);
 	const owners = failing.filter(
 		(one) => one.action === "create" && one.owner?.kind === "meta-user",
 	);
 	if (owners.length > 0) {
-		const candidate = withOwner(doc, form.uuid, owners, "acting-user");
+		const candidate = withOwner(own, form.uuid, owners, "acting-user");
 		const second = blocksHold(ctx, candidate, form, reading);
 		if (second.length < failing.length) {
 			ctx.doc = candidate;

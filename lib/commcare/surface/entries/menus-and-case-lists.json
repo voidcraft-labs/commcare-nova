@@ -943,7 +943,7 @@
 		],
 		"valueClass": "case-read-off-a-case-first-screen",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: a wider class than HQ's own build error (`CaseXPathValidationError`)",
+		"dispositionCell": "**REFUSED**: broken at runtime: a wider class than HQ's own build error (`CaseXPathValidationError`)",
 		"subject": "display-conditions",
 		"reasons": [
 			{
@@ -1454,7 +1454,7 @@
 		],
 		"valueClass": "on-a-put-in-root-module",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: HQ builds the endpoint with no command for the menu, so it opens the menu above and never the list",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ builds the endpoint with no command for the menu, so it opens the menu above and never the list",
 		"subject": "deep-links",
 		"reasons": [
 			{

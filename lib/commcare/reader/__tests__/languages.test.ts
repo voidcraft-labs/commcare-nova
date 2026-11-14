@@ -55,6 +55,9 @@ describe("languageIdentityForHqCode", () => {
 		["pt-br", { language: "por", region: "BR" }],
 		["zh-hans", { language: "cmn", script: "Hans" }],
 		["cmn-hanttw", { language: "cmn", script: "Hant", region: "TW" }],
+		/* CN is no region of Traditional Chinese, so the suffix adds nothing, and Chinese with
+		 * no script is no identity. */
+		["cmn-hantcn", undefined],
 		["ar", { language: "arb" }],
 		["en-zz", { language: "eng" }],
 		["xx", undefined],
@@ -80,8 +83,9 @@ describe("languageIdentityForHqCode", () => {
 
 	it("reads Swahili's bare code as its predominant member, with or without the name both members share", () => {
 		/* `swh` and `swc` both widen to Classic's `sw` and are both named
-		 * Kiswahili, so neither the minter nor the name tells them apart. */
-		expect(mintLanguageWireCode(new Set(), { language: "swc" })).toBe("sw");
+		 * Kiswahili, so the minter leaves `sw` to Swahili and writes Congo
+		 * Swahili's own code. */
+		expect(mintLanguageWireCode(new Set(), { language: "swc" })).toBe("swc-");
 		expect(languageIdentityForHqCode("sw")).toEqual({ language: "swh" });
 		expect(
 			languageIdentityForHqCode(
@@ -100,13 +104,23 @@ describe("languageIdentityForHqCode", () => {
 		{ language: "hin" },
 		{ language: "fra", region: "CA" },
 		{ language: "swh" },
+		/* Each shares its preferred spelling and its name with an identity above it in the
+		 * registry: Swahili, Iranian Persian, Papiamentu. */
+		{ language: "swc" },
+		{ language: "prs" },
+		{ language: "pap", region: "AW" },
+		{ language: "pes" },
+		{ language: "pap" },
 	])(
 		"reads the code Nova writes for %o back to it, alone and beside a language that holds its spelling",
 		(identity) => {
 			const name = resolvedLanguageDisplayLabel(identity);
 			const alone = mintLanguageWireCode(new Set(), identity);
 			expect(languageIdentityForHqCode(alone, name)).toEqual(identity);
-			const suffixed = mintLanguageWireCode(new Set([alone]), identity);
+			/* An identity that leaves its spelling to another of its name is suffixed already. */
+			const suffixed = alone.includes("-")
+				? alone
+				: mintLanguageWireCode(new Set([alone]), identity);
 			expect(languageIdentityForHqCode(suffixed, name)).toEqual(identity);
 		},
 	);

@@ -17,6 +17,7 @@ import {
 	instantTextOfMicros,
 	literalInstantMicros,
 } from "@/lib/domain/expression/instantOperand";
+import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import type { RuleSet } from "@/lib/domain/expression/profiles";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
 import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
@@ -27,6 +28,7 @@ import {
 	type FormNodeRef,
 	isRelationPath,
 	type Literal,
+	type RelationPath,
 	type RelationStep,
 	type SwitchCase,
 	type Term,
@@ -71,10 +73,22 @@ export type FoldId =
 	| "relation-presence"
 	| "relation-count";
 
+/** What the emitter prints through `current()` at the node a Save to Case
+ *  block's expression stands in, each by the key of its parsed syntax
+ *  (`formSyntaxKey`): an earlier create's id, to its operation, and an
+ *  answer of the block's repeat, to its question. */
+export interface OperationPlaceReads {
+	readonly operationIds: ReadonlyMap<string, Uuid>;
+	readonly fields: ReadonlyMap<string, Uuid>;
+}
+
 export interface FoldEnv {
 	readonly doc: BlueprintDoc;
 	/** The slot's form: each Save to Case create's case id path, to its operation. */
 	readonly operationIdPaths: ReadonlyMap<string, Uuid>;
+	/** Where the slot is a Save to Case block's expression: the reads the
+	 *  emitter prints from the node its text stands in. */
+	readonly place?: OperationPlaceReads;
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
 	/** The form-node projection the slot's paths bind through, where the slot
@@ -482,7 +496,12 @@ const typedLiteral: Fold = {
 const formRead: Fold = {
 	id: "form-read",
 	ruleSets: ["form", "record"],
-	propose(node, context, _api, env) {
+	propose(node, context, api, env) {
+		// A Save to Case block reads an answer of its own repeat from the node
+		// it stands in, through `current()`.
+		const placed = env.place?.fields.get(formSyntaxKey(core(node)));
+		if (placed !== undefined)
+			return api.term({ kind: "field", uuid: placed }, node);
 		const path = flat(node);
 		if (path?.root?.kind !== "root" || path.steps.length === 0)
 			return undefined;
@@ -618,10 +637,14 @@ const operationId: Fold = {
 	ruleSets: ["record"],
 	propose(node, context, api, env) {
 		if (!isCaseOperationSlot(context)) return undefined;
+		// Nova reads an earlier create's id from the node the block's
+		// expression stands in, through `current()`; a source may name it by
+		// its absolute path.
 		const path = flat(node);
 		const text = path === undefined ? undefined : absoluteText(path);
 		const opUuid =
-			text === undefined ? undefined : env.operationIdPaths.get(text);
+			env.place?.operationIds.get(formSyntaxKey(core(node))) ??
+			(text === undefined ? undefined : env.operationIdPaths.get(text));
 		return opUuid === undefined
 			? undefined
 			: api.remember({ kind: "id-of", opUuid }, node);
@@ -1548,6 +1571,62 @@ const relationProperty: Fold = {
 	},
 };
 
+/** One immediate relation test `rowScope.ts::immediateRelationPresence`
+ *  writes, `count(I) > 0 and selected(join(' ', <candidates>/<ids>), I)`: an
+ *  ancestor where `I` is the origin's `index/<id>` and the candidates give
+ *  their `@case_id`, a subcase where `I` is the origin's id and the
+ *  candidates give their `index/<id>`. `caseType` is the candidates' type
+ *  test, and `where` the rest of their predicate. */
+interface PresenceShape {
+	readonly kind: "ancestor" | "subcase";
+	readonly identifier: string;
+	readonly caseType?: string;
+	readonly where: FormSyntax;
+}
+function presenceShape(node: FormSyntax): PresenceShape | undefined {
+	const parts = clauses(node, "and");
+	if (parts.length !== 2) return undefined;
+	const counted = presentCount(parts[0]);
+	const selected = call(parts[1], "selected", 2);
+	const joined = call(selected?.args[0], "join", 2);
+	if (
+		counted === undefined ||
+		joined === undefined ||
+		!same(counted, selected?.args[1])
+	)
+		return undefined;
+	const candidates = casedbRow(joined.args[1] as FormSyntax);
+	const [condition, ...more] = candidates?.row.where ?? [];
+	if (candidates === undefined || condition === undefined || more.length > 0)
+		return undefined;
+	const typed = binary(condition, "and");
+	const caseType = typed === undefined ? undefined : caseTypeTest(typed.left);
+	const where = caseType === undefined ? condition : (typed as Binary).right;
+	const typedAs = caseType === undefined ? {} : { caseType };
+	const [first, second, ...rest] = candidates.rest;
+	if (first?.name === "case_id" && first.attribute && second === undefined) {
+		const index = flat(counted)?.steps.slice(-2);
+		if (
+			index?.length !== 2 ||
+			index[0]?.name !== "index" ||
+			index[0].attribute ||
+			index[1] === undefined ||
+			index[1].attribute
+		)
+			return undefined;
+		return { kind: "ancestor", identifier: index[1].name, ...typedAs, where };
+	}
+	if (
+		first?.name === "index" &&
+		!first.attribute &&
+		second !== undefined &&
+		!second.attribute &&
+		rest.length === 0
+	)
+		return { kind: "subcase", identifier: second.name, ...typedAs, where };
+	return undefined;
+}
+
 const relationPresence: Fold = {
 	id: "relation-presence",
 	ruleSets: ["record"],
@@ -1555,53 +1634,64 @@ const relationPresence: Fold = {
 		const negated = call(node, "not", 1);
 		const presence =
 			negated === undefined ? node : (negated.args[0] as FormSyntax);
-		const parts = clauses(presence, "and");
-		if (parts.length !== 2) return undefined;
-		const indexRead = presentCount(parts[0]);
-		const selected = call(parts[1], "selected", 2);
-		const joined = call(selected?.args[0], "join", 2);
-		const index = indexRead === undefined ? undefined : flat(indexRead);
-		if (
-			index === undefined ||
-			index.root !== undefined ||
-			index.steps.length !== 2 ||
-			index.steps[0]?.name !== "index" ||
-			!same(indexRead, selected?.args[1]) ||
-			joined === undefined
-		)
-			return undefined;
-		const identifier = index.steps[1]?.name as string;
-		const candidates = casedbRow(joined.args[1] as FormSyntax);
-		if (
-			candidates === undefined ||
-			candidates.rest.length !== 1 ||
-			candidates.rest[0]?.name !== "case_id"
-		)
-			return undefined;
-		const [condition, ...more] = candidates.row.where;
-		if (condition === undefined || more.length > 0) return undefined;
-		const typed = binary(condition, "and");
-		const throughCaseType =
-			typed === undefined ? undefined : caseTypeTest(typed.left);
-		const where =
-			throughCaseType === undefined ? condition : (typed as Binary).right;
+		// Over every relation of one index the emitter writes the ancestor's
+		// test or the subcases' (`immediateRelationPresence`, `any-relation`).
+		const either = binary(presence, "or");
+		const up = either === undefined ? undefined : presenceShape(either.left);
+		const down = either === undefined ? undefined : presenceShape(either.right);
+		const one = either === undefined ? presenceShape(presence) : undefined;
 		const row = activeRowScope(context);
 		const origin = row?.kind === "case" ? row.caseType : undefined;
-		const via = {
-			kind: "ancestor" as const,
-			via: [
-				{
-					identifier,
-					...(throughCaseType === undefined ? {} : { throughCaseType }),
-				},
-			] as [RelationStep],
-		};
-		const destination = destinationType(env.doc, origin, via.via);
+		let via: RelationPath;
+		let shape: PresenceShape;
+		let destination: string | undefined;
+		if (one?.kind === "ancestor") {
+			const step: RelationStep = {
+				identifier: one.identifier,
+				...(one.caseType === undefined
+					? {}
+					: { throughCaseType: one.caseType }),
+			};
+			via = { kind: "ancestor", via: [step] };
+			shape = one;
+			destination = destinationType(env.doc, origin, [step]);
+		} else if (one?.kind === "subcase") {
+			via = {
+				kind: "subcase",
+				identifier: one.identifier,
+				...(one.caseType === undefined ? {} : { ofCaseType: one.caseType }),
+			};
+			shape = one;
+			destination = one.caseType;
+		} else if (
+			up?.kind === "ancestor" &&
+			down?.kind === "subcase" &&
+			up.identifier === down.identifier &&
+			up.caseType === down.caseType
+		) {
+			via = {
+				kind: "any-relation",
+				identifier: down.identifier,
+				...(down.caseType === undefined ? {} : { ofCaseType: down.caseType }),
+			};
+			shape = down;
+			destination = down.caseType;
+		} else return undefined;
+		// A relation the catalog does not resolve is the checker's to refuse;
+		// proposed, it would stop the emitter printing the form's other slots.
+		try {
+			canonicalizeRelationPath(via, {
+				caseTypes: env.doc.caseTypes ?? [],
+				...(origin === undefined ? {} : { currentCaseType: origin }),
+			});
+		} catch {
+			return undefined;
+		}
 		const bound =
-			call(where, "true", 0) !== undefined
+			call(shape.where, "true", 0) !== undefined
 				? undefined
 				: api.bind(
-						where,
+						shape.where,
 						pushRowScope(context, {
 							kind: "case",
 							root: "casedb",

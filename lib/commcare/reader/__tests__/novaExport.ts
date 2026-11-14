@@ -22,23 +22,28 @@ export interface ExportEdits {
 	readonly expand?: ExpandOptions;
 }
 
-/** HQ's source body for `doc`'s export, with `edits` applied. */
+/**
+ * HQ's source body for `doc`'s export, with `edits` applied: every key the
+ * export carries written over HQ's shell, as HQ's import replaces each
+ * top-level key a body holds (`models/applications.py::_merge_source_into_app`),
+ * so the languages and their strings are the export's.
+ */
 export function exportedBody(
 	doc: BlueprintDoc,
 	edits: ExportEdits = {},
 ): Record<string, unknown> {
-	const emitted = expandDoc(doc, edits.expand);
+	const emitted = JSON.parse(
+		JSON.stringify(expandDoc(doc, edits.expand)),
+	) as Record<string, unknown>;
 	const attachments = Object.fromEntries(
 		Object.entries(emitted._attachments as Record<string, string>).map(
 			([name, xml]) => [name, edits.xml === undefined ? xml : edits.xml(xml)],
 		),
 	);
-	const modules = JSON.parse(JSON.stringify(emitted.modules)) as Record<
-		string,
-		unknown
-	>[];
+	const modules = emitted.modules as Record<string, unknown>[];
 	return {
 		...retainedSourceBody("shell/app-source"),
+		...emitted,
 		modules: edits.modules === undefined ? modules : edits.modules(modules),
 		_attachments: attachments,
 		...edits.root,

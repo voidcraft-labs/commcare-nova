@@ -273,4 +273,37 @@ describe("the inert appearances of a form", () => {
 		expect(codesAt(reading, "g")).toEqual([]);
 		expect(codesAt(reading, "c")).toEqual([]);
 	});
+
+	it("lists a repeat once where its wrapping group and the repeat both carry an inert value", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: '<r jr:template=""><q/></r>',
+				model: '<bind nodeset="/data/r/q" type="xsd:string"/>',
+				body: '<group appearance="compact"><repeat nodeset="/data/r" appearance="compact"><input ref="/data/r/q"/></repeat></group>',
+			}),
+		);
+		expect(reading.xform?.inertAppearances).toEqual(["r"]);
+	});
+});
+
+describe("an appearance a runtime reads that no row names", () => {
+	it("is unrecognized under the string as written, and under nothing else", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<a/>",
+				model: '<bind nodeset="/data/a" type="xsd:string"/>',
+				body: '<input ref="/data/a" appearance="full"/>',
+			}),
+		);
+		expect(
+			formFindings(reading)
+				.filter(
+					(finding) =>
+						finding.code === "unrecognized" &&
+						finding.place.kind === "question" &&
+						finding.place.path === "a",
+				)
+				.map((finding) => finding.detail.name),
+		).toEqual(["full"]);
+	});
 });

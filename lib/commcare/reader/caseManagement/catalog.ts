@@ -196,6 +196,48 @@ function isSelect(kind: unknown): boolean {
 	return kind === "single_select" || kind === "multi_select";
 }
 
+/** Each property's select type, where every writer of it a reading reads is
+ *  a select question of one kind: the type its writers agree on, which the
+ *  translations of its choices and a case list's labels of them are keyed
+ *  by. A property any other writer writes is left untyped. */
+function selectTypes(
+	writers: readonly {
+		readonly caseType: string;
+		readonly property: string;
+		readonly kind: string;
+	}[],
+): Map<string, "single_select" | "multi_select"> {
+	const kinds = new Map<string, Set<string>>();
+	for (const one of writers) {
+		const key = `${one.caseType}\u0000${one.property}`;
+		const set = kinds.get(key) ?? new Set<string>();
+		set.add(one.kind);
+		kinds.set(key, set);
+	}
+	const out = new Map<string, "single_select" | "multi_select">();
+	for (const [key, set] of kinds) {
+		const [only, ...more] = [...set];
+		if (
+			more.length === 0 &&
+			(only === "single_select" || only === "multi_select")
+		)
+			out.set(key, only);
+	}
+	return out;
+}
+
+/** Declares each property's select type `selectTypes` gives. */
+function declareSelectTypes(
+	draft: Draft<Catalog>,
+	selects: ReadonlyMap<string, "single_select" | "multi_select">,
+): void {
+	for (const type of draft)
+		for (const property of type.properties) {
+			const select = selects.get(`${type.name}\u0000${property.name}`);
+			if (select !== undefined) property.data_type = select;
+		}
+}
+
 /**
  * Step 3: the catalog of the reading, written into the draft from what the
  * structure and case readers read: every menu's case type, every child
@@ -213,8 +255,13 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 		noteType(caseTypes, typeof stored === "string" ? stored : undefined);
 	}
 	const links: ReadLink[] = [];
-	const writes: { caseType: string; property: string; field?: DraftField }[] =
-		[];
+	const writes: {
+		caseType: string;
+		property: string;
+		field?: DraftField;
+		/** A preload, which reads the property and writes nothing. */
+		read?: true;
+	}[] = [];
 	for (const module of app.modules) {
 		const menuType = module.module.caseType;
 		for (const form of module.forms) {
@@ -305,6 +352,7 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 						writes.push({
 							caseType: read.term.caseType,
 							property: read.term.property,
+							read: true,
 						});
 				}
 		}
@@ -321,6 +369,13 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 	}
 	noteParents(caseTypes, links, selections);
 	const sources: NonNullable<ReturnType<typeof OPTION_SOURCES.get>> = [];
+	const selects = selectTypes(
+		writes.flatMap((one) =>
+			one.read === true
+				? []
+				: [{ ...one, kind: one.field?.kind ?? "expression" }],
+		),
+	);
 	const next = produce(caseTypes, (draft) => {
 		for (const write of writes) {
 			noteProperty(draft, write.caseType, write.property);
@@ -340,6 +395,7 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 						optionUuid: option.uuid,
 					});
 		}
+		declareSelectTypes(draft, selects);
 	});
 	OPTION_SOURCES.set(ctx, sources);
 	ctx.writeDraft(() => {
@@ -348,7 +404,6 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 }
 
 const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
-	intDecimal: refuse(`forms-and-case-writes/writers-int-decimal`, null),
 	singleMulti: refuse(
 		`forms-and-case-writes/writers-single-select-multi-select`,
 		null,
@@ -359,9 +414,11 @@ const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
 /**
  * The writers of each property judged over the bound document
  * (`concreteCasePropertyWriterTypes`): writers that agree on one stored type
- * (`agreedStorageType`, `int` with `decimal` on `decimal` among them) are one
- * type Nova holds; writers that do not are the manifest's row for their pair,
- * one finding per property, at the first menu of its case type.
+ * (`agreedStorageType`: `int` with `decimal` on `decimal`, `text` with
+ * `single_select` on `text`) are one type Nova holds, with nothing claimed,
+ * since those entries name no key; writers that do not are the manifest's
+ * row for their pair, one finding per property, at the first menu of its
+ * case type.
  */
 export function settleWriterTypes(
 	ctx: ReadContext,
@@ -380,11 +437,9 @@ export function settleWriterTypes(
 			if (types.size < 2 || agreedStorageType(types) !== undefined) continue;
 			const pair = (a: CasePropertyDataType, b: CasePropertyDataType) =>
 				types.size === 2 && types.has(a) && types.has(b);
-			const claim = pair("int", "decimal")
-				? WRITER_CLAIMS.intDecimal
-				: pair("single_select", "multi_select")
-					? WRITER_CLAIMS.singleMulti
-					: WRITER_CLAIMS.otherPair;
+			const claim = pair("single_select", "multi_select")
+				? WRITER_CLAIMS.singleMulti
+				: WRITER_CLAIMS.otherPair;
 			const menu = app.modules.find(
 				(module) => module.module.caseType === caseType,
 			);
@@ -498,8 +553,9 @@ function typedReaders(
 /** The catalog this section's rules give over the document's own menus,
  *  operations, preloads, columns, search fields and expression reads: types
  *  in menu order; `parent_type` and `relationship` where the document's
- *  links agree; properties by `noteProperty`; `data_type` only under the
- *  four rules of the table above. */
+ *  links agree; properties by `noteProperty`; `data_type` only where a
+ *  sort or a date Search field needs it and no writer types the property,
+ *  or where every writer is a select question of one kind. */
 export function catalogAsRead(
 	doc: BlueprintDoc,
 ): NonNullable<BlueprintDoc["caseTypes"]> {
@@ -509,6 +565,8 @@ export function catalogAsRead(
 		caseType: string;
 		property: string;
 		options?: readonly { value: string; label: ProseTemplate }[];
+		/** The writing question's kind, or `expression` for any other value. */
+		kind: string;
 	}[] = [];
 	const selections: { child: string; parent: string }[] = [];
 	for (const uuid of doc.moduleOrder)
@@ -540,6 +598,7 @@ export function catalogAsRead(
 					writes.push({
 						caseType: destination,
 						property: write.property,
+						kind: field?.kind ?? "expression",
 						...(field !== undefined &&
 							isSelect(field.kind) && {
 								options: inlineOptions(
@@ -572,6 +631,7 @@ export function catalogAsRead(
 	expressionReads(doc.forms, reads);
 	expressionReads(doc.modules, reads);
 	const readers = typedReaders(doc);
+	const selects = selectTypes(writes);
 	return produce(caseTypes, (draft) => {
 		for (const write of writes) {
 			noteProperty(draft, write.caseType, write.property);
@@ -590,6 +650,7 @@ export function catalogAsRead(
 				noteProperty(draft, module.caseType, property);
 		}
 		for (const read of reads) noteProperty(draft, read.caseType, read.property);
+		declareSelectTypes(draft, selects);
 		// A type declared only where a reader keeps it and no writer types the property.
 		const declared = new Map<string, CasePropertyDataType>();
 		for (const type of doc.caseTypes ?? [])

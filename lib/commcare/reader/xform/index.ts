@@ -340,14 +340,13 @@ function readForm(
 		parsed,
 		tree,
 		cursor,
-		accounting,
 		formPlace,
 		(node) =>
 			node.role === "Repeat" ||
 			node.parent?.role === "Repeat" ||
 			inCaseRegion(node),
 	);
-	const setvalues = readSetvalues(parsed, tree, accounting);
+	const setvalues = readSetvalues(parsed, tree);
 	const instanceSources = readInstances(parsed, cursor, formPlace);
 	const controls = readControls({
 		parsed,

@@ -92,6 +92,8 @@ describe("the validator over the expressions a reading holds", () => {
 			for (const doc of corpusDocs(corpus, DOCS_PER_CORPUS)) {
 				const reading = await readEmission(doc, recordDialectRoundTrip);
 				const read = reading.doc;
+				// Every export Nova writes binds to a document.
+				expect(read, `the bound document of ${doc.appName}`).toBeDefined();
 				if (read === undefined) continue;
 				held += reading.slots.filter(
 					(slot) => slot.outcome.expression !== undefined,

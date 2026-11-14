@@ -37,6 +37,7 @@ import type { DraftField } from "../xform";
 import {
 	actionsCursorOf,
 	ancestorSteps,
+	HQ_PROPERTY,
 	inactiveClaimOf,
 	repeatOfField,
 } from "./basicActions";
@@ -261,11 +262,17 @@ export function readPreloads(
 	if (Object.keys(caseMap).length === 0) A.derived("case_preload", inactive);
 	else {
 		if (requires !== "case") {
-			const reserved = Object.values(caseMap).some(
-				(property) =>
-					typeof property !== "string" ||
-					RESERVED_CASE_PROPERTIES.has(property),
-			);
+			// HQ's validator holds every preloaded property to its grammar, index
+			// steps included, and its last step out of the reserved words
+			// (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties`).
+			const reserved = Object.values(caseMap).some((property) => {
+				if (typeof property !== "string") return true;
+				const segments = property.split("/");
+				return (
+					segments.some((segment) => !HQ_PROPERTY.test(segment)) ||
+					RESERVED_CASE_PROPERTIES.has(segments[segments.length - 1] as string)
+				);
+			});
 			if (reserved) A.refuse("case_preload", PRELOAD_CLAIMS.onSurveyReserved);
 			else A.drop("case_preload", PRELOAD_CLAIMS.onSurvey);
 		} else {
@@ -313,7 +320,13 @@ export function readPreloads(
 					continue;
 				}
 				const chain = ancestorSteps(ctx, caseType, indices);
-				const readType = chain?.types[chain.types.length - 1];
+				// A `form-case` term names its case by type, so a chain two of whose
+				// cases share one names neither.
+				const readType =
+					chain === undefined ||
+					new Set(chain.types).size !== chain.types.length
+						? undefined
+						: chain.types[chain.types.length - 1];
 				if (readType === undefined) {
 					ctx.accounting.finding(PRELOAD_CLAIMS.ancestorUnknown, field.place, {
 						name: property,

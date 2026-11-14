@@ -29,6 +29,7 @@ import {
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
 	type ProseTemplate,
 	proseTemplateIsEmpty,
@@ -42,6 +43,7 @@ import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
 import { catalogAsRead } from "./caseManagement/catalog";
+import { keyedCreatesRead } from "./caseManagement/saveToCase";
 import { account, defineClaims, derived, refuse, take } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
 import { readerDefect } from "./defects";
@@ -293,7 +295,8 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
-		/** `plainLabel` or `plainHelp` in a form holding `plainText`, and no flag. */
+		/** `plainLabel` or `plainHelp` in a form holding `plainText`, and no flag: such a form
+		 *  writes no markdown copy of any text. A question's flags and an inline choice's alike. */
 		id: "plain-flag-under-plain-text-is-absent",
 		kind: "one-wire",
 		apply: (doc) =>
@@ -305,6 +308,12 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 						if (own !== undefined) {
 							delete own.plainLabel;
 							delete own.plainHelp;
+							const source = own.optionsSource as
+								| { kind?: string; options?: SelectOption[] }
+								| undefined;
+							if (source?.kind === "inline")
+								for (const option of source.options ?? [])
+									delete option.plainLabel;
 						}
 						walk(uuid);
 					}
@@ -317,8 +326,9 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
-		/** A group, repeat or section whose label is a template with no parts, and one with no
-		 *  label: the reader returns no label. */
+		/** A group, repeat or section whose label is a template with no parts in every language,
+		 *  and one with no label: the reader returns no label. A label blank in the source and
+		 *  held in another language prints that language's text, so it stays. */
 		id: "blank-container-label-is-absent",
 		kind: "one-wire",
 		apply: (doc) =>
@@ -335,7 +345,11 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 					)
 						continue;
 					const label = (field as { label?: ProseTemplate }).label;
-					if (label !== undefined && label.parts.length === 0)
+					if (
+						label !== undefined &&
+						label.parts.length === 0 &&
+						blankEverywhere(doc, label, fieldUnit(uuid, "label"))
+					)
 						delete (fields[uuid] as Record<string, unknown>).label;
 				}
 			}),
@@ -496,6 +510,60 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 				draft.caseTypes = caseTypes as typeof draft.caseTypes;
 			});
 		},
+	},
+	{
+		/** A save to the case above whose `parent` step names the type it reaches, and one whose
+		 *  step names none: both resolve to the catalog's `parent_type` and print one update key
+		 *  (`parent/<property>`), so the reader returns every step typed. */
+		id: "write-via-steps-are-typed",
+		kind: "one-wire",
+		apply: (doc) =>
+			withCandidate(doc, (draft) => {
+				for (const [formUuid, form] of Object.entries(draft.forms)) {
+					const moduleUuid = moduleUuidOfForm(doc, formUuid as Uuid);
+					const origin =
+						moduleUuid === undefined
+							? undefined
+							: doc.modules[moduleUuid]?.caseType;
+					if (origin === undefined) continue;
+					for (const operation of form.caseOperations ?? []) {
+						if (operation.action !== "own") continue;
+						for (const write of operation.writes ?? []) {
+							let at: string | undefined = origin;
+							for (const step of write.via ?? []) {
+								if (step.throughCaseType === undefined && at !== undefined) {
+									const parent = doc.caseTypes?.find(
+										(type) => type.name === at,
+									)?.parent_type;
+									if (step.identifier === "parent" && parent !== undefined)
+										step.throughCaseType = parent;
+								}
+								at = step.throughCaseType;
+							}
+						}
+					}
+				}
+			}),
+	},
+	{
+		/** A case a form opens (a create, or a registration's own case) owned by the acting user,
+		 *  and one with no owner: every placement gives an opened case with no owner the worker
+		 *  (`xform/caseOps.ts` writes `/data/meta/userID`, `generatedNodes.ts::advancedOwnerNodeValue`
+		 *  reads none as the acting user, and HQ's build sets a basic action's owner so), so both
+		 *  print one source and the reader returns no owner. */
+		id: "opened-case-owner-acting-user-is-absent",
+		kind: "one-wire",
+		apply: (doc) =>
+			withCandidate(doc, (draft) => {
+				for (const form of Object.values(draft.forms))
+					for (const operation of form.caseOperations ?? []) {
+						const opens =
+							operation.action === "create" ||
+							(operation.action === "own" && form.type === "registration");
+						const held = operation as { owner?: { readonly kind: string } };
+						if (opens && held.owner?.kind === "acting-user") delete held.owner;
+					}
+			}),
 	},
 	{
 		/** A document holding a placement its emission derives and one holding none: holding what
@@ -1010,6 +1078,13 @@ export function assembleDocument(ctx: ReadContext): void {
 	const folds = new Map(
 		ctx.draft.foldedMenus.map((one) => [one.menu, one.formUuid] as const),
 	);
+	/* A folded registration form now stands among its host's forms, and HQ holds it in the hidden
+	 * menu it was folded from: its menu's id is that menu's. */
+	const heldIn = new Map(
+		ctx.draft.foldedMenus.map(
+			(one) => [one.formUuid, one.menu.uniqueId] as const,
+		),
+	);
 	const draft: ReadDraft = {
 		doc,
 		batch: diffDocsToMutations(emptyBlueprintDoc(ctx.input.appId), doc),
@@ -1028,9 +1103,10 @@ export function assembleDocument(ctx: ReadContext): void {
 				module.forms.map((form) => ({
 					uuid: form.uuid,
 					xmlns: form.xmlns,
-					moduleUniqueId: module.uniqueId,
+					moduleUniqueId: heldIn.get(form.uuid) ?? module.uniqueId,
 				})),
 			),
+			keyedCreates: keyedCreatesRead(ctx, doc),
 			entries: ctx.resolver.entries(),
 		},
 		declaration,

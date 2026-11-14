@@ -1960,14 +1960,13 @@ answers whether the value can exist (7.3). A class HQ's form builder cannot writ
 `not-hq-editable` class is one) is made with `set_form_source`, which is how such a form exists in
 HQ at all.
 
-Eight refusals name no surface key and are raised from an app's source, so each has a row:
+Eight refusals name no surface key and are raised from an app's source, and seven of them keep a row; the eighth, `forms-and-case-writes/writers-int-decimal`, becomes HELD in this step (part 07, sections 7 and 14), so it is none:
 
 | Entry | Disposition | Raised by | Base |
 |---|---|---|---|
 | `case-search/a-function-call-written-unparenthesized-as-the-2nd-or-later` | REFUSED | part 08, section 7 | `hq-search` |
 | `expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-does` | REFUSED | parts 06 and 11 | `hq-lookups` |
 | `expressions-and-data/any-other-function-name` | REFUSED | part 08, section 9 | `hq-expressions` |
-| `forms-and-case-writes/writers-int-decimal` | HELD-NEW | part 07, section 7 | `hq-case-management` |
 | `forms-and-case-writes/writers-single-select-multi-select` | HELD-NEW | part 07, section 7 | `hq-case-management` |
 | `forms-and-case-writes/any-other-mixed-writer-pair` | HELD-NEW | part 07, section 7 | `hq-case-management` |
 | `forms-and-case-writes/a-datetime-question-saved-straight-to-a-case` | HELD-NEW | part 07, section 3.2; part 09, section 11.4 | `hq-case-management` |

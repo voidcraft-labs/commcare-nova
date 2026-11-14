@@ -26,6 +26,8 @@ import {
 	U,
 } from "../../../__tests__/advancedPlacementFixture";
 import { planPlacements } from "../../../placement";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { readHqApp } from "../../index";
 import {
 	comparableOperations,
 	docNames,
@@ -117,6 +119,15 @@ const CASES: { name: string; options: AdvancedFixtureOptions }[] = [
 ];
 
 describe("an advanced form read back from Nova's own emission", () => {
+	// The whole reading, its acceptance over the bound document included: the
+	// plan is advanced, its loads and placements are the ones read, and the
+	// actions it writes are the stored ones.
+	for (const { name, options } of CASES)
+		it(`reads ${name} whole, with no finding`, async () => {
+			const { doc } = advancedFixture(options);
+			const outcome = readHqApp(await inputFor(exportedBody(doc)));
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		});
 	for (const { name, options } of CASES)
 		it(`reads ${name} into D's operations, each tag held`, async () => {
 			const { doc, formUuid, moduleUuid } = advancedFixture(options);

@@ -1887,7 +1887,14 @@ export function writeAdvancedOperations(
 			tag: proposal.tag,
 			...(proposal.row !== undefined && { row: true as const }),
 		};
-		const owner = ownerOf(proposal.owner);
+		// A case the action opens is the worker's where it states no owner
+		// (`generatedNodes.ts::advancedOwnerNodeValue`), so the worker's owner
+		// node reads as none (`assemble.ts`, `opened-case-owner-acting-user-is-absent`).
+		const owner =
+			proposal.owner === "acting-user" &&
+			(proposal.action === "own" || proposal.action === "create")
+				? undefined
+				: ownerOf(proposal.owner);
 		const name =
 			proposal.name === undefined ? undefined : valueExpression(proposal.name);
 		const rename =
@@ -2227,7 +2234,17 @@ export function settleAdvancedForm(
 		});
 		return;
 	}
-	if (planned.kind !== "advanced") return;
+	if (planned.kind !== "advanced") {
+		// A menu whose kind Nova cannot hold already stands as its one finding
+		// at the menu; a basic plan for any other cause is a reading Nova
+		// would write another way.
+		const menu = ctx.draft.modules.find((one) => one.forms.includes(form));
+		if (menu === undefined || !ctx.accounting.hasFindingAt(menu.place))
+			ctx.accounting.circumstance("unrecognized", form.place, {
+				name: "schema:Form.actions",
+			});
+		return;
+	}
 	const verdict = judgeLoads(
 		planned.loads,
 		reading.chosen,

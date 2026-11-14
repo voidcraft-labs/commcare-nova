@@ -9,8 +9,9 @@ import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
 import { reachableCaseTypes } from "@/lib/domain/caseTypes";
 import { activeRowScope, slotContext } from "@/lib/domain/expression/context";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import type { PendingExpression } from "../pendingExpressions";
+import { readFormSyntax } from "../syntaxRead";
 import { searchRowCsql } from "./csqlRead";
 import {
 	casedbRow,

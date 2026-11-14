@@ -832,3 +832,130 @@ describe("every print collision prints one text and canonicalizes to its row's t
 		).toEqual(VILLAGE_IS_REGION);
 	});
 });
+
+describe("relation-type: a relation path the catalog resolves prints typed", () => {
+	// A patient's parent is a household, and its subcases are visits.
+	const app = buildDoc({
+		caseTypes: [
+			{
+				name: "household",
+				properties: [{ name: "village", label: "Village" }],
+			},
+			{
+				name: "patient",
+				parent_type: "household",
+				properties: [{ name: "p", label: "P" }],
+			},
+			{
+				name: "visit",
+				parent_type: "patient",
+				properties: [{ name: "kind", label: "Kind" }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					columns: [
+						calculatedColumn(COLUMN, "Calc", {
+							kind: "term",
+							term: { kind: "literal", value: "" },
+						}),
+					],
+					searchInputs: [],
+				},
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = app.moduleOrder[0] as Uuid;
+	const filter: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_filter",
+	};
+	const calculated: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_column_expression",
+		member: { columnUuid: COLUMN },
+	};
+	const village = (through?: string): Expression =>
+		term({
+			kind: "prop",
+			caseType: "patient",
+			property: "village",
+			via: {
+				kind: "ancestor",
+				via: [
+					{
+						identifier: "parent",
+						...(through === undefined ? {} : { throughCaseType: through }),
+					},
+				],
+			},
+		});
+	const inVillage: Expression = {
+		kind: "eq",
+		left: term({ kind: "prop", caseType: "household", property: "village" }),
+		right: lit("x"),
+	};
+	const cases: readonly {
+		readonly name: string;
+		readonly slot: SlotContextRef;
+		readonly other: Expression;
+		readonly canonical: Expression;
+	}[] = [
+		{
+			name: "a parent's property read through an untyped step",
+			slot: calculated,
+			other: village(),
+			canonical: village("household"),
+		},
+		{
+			name: "a parent's presence over an untyped step",
+			slot: filter,
+			other: {
+				kind: "exists",
+				via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+				where: inVillage,
+			},
+			canonical: {
+				kind: "exists",
+				via: {
+					kind: "ancestor",
+					via: [{ identifier: "parent", throughCaseType: "household" }],
+				},
+				where: inVillage,
+			},
+		},
+		{
+			name: "a count of subcases with no type",
+			slot: calculated,
+			other: { kind: "count", via: { kind: "subcase", identifier: "parent" } },
+			canonical: {
+				kind: "count",
+				via: { kind: "subcase", identifier: "parent", ofCaseType: "visit" },
+			},
+		},
+	];
+	for (const one of cases)
+		it(one.name, () => {
+			const readEnvironment = env();
+			expect(printSlot(app, one.slot, one.other, readEnvironment)).toBe(
+				printSlot(app, one.slot, one.canonical, readEnvironment),
+			);
+			const context = contextOf(app, one.slot);
+			expect(canonicalExpression(one.other, context)).toEqual(one.canonical);
+			expect(canonicalExpression(one.canonical, context)).toEqual(
+				one.canonical,
+			);
+		});
+});

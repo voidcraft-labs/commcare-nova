@@ -111,6 +111,22 @@ describe("shadowAgrees", () => {
 		).toBe("disagrees");
 	});
 
+	it("never takes a shorter prefix where the exact one is missing", () => {
+		// Vellum looks up `#case/parent/` alone; `#case/` would expand the shadow to the real text.
+		const head: HashtagMetadata = {
+			hashtags: {},
+			transforms: { "#case/": "instance('casedb')/casedb/case/" },
+		};
+		expect(
+			shadowAgrees(
+				"instance('casedb')/casedb/case/parent/age",
+				"#case/parent/age",
+				metadata(head),
+				[],
+			),
+		).toBe("disagrees");
+	});
+
 	it("finds a hashtag with no expansion a disagreement", () => {
 		expect(shadowAgrees("/data/a", "#case/a", metadata(), [])).toBe(
 			"disagrees",

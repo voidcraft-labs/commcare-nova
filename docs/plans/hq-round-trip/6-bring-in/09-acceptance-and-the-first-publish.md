@@ -1523,6 +1523,7 @@ is a rewrite over the typed document.
 | `blank-container-label-is-absent` | one-wire | a group, repeat or section whose `label` has no parts; one with no `label` | no `label` | `addItext` answers `registered: false` for both, so neither writes a `<label>` | part 06, section 16.2 |
 | `blank-optional-text-is-absent` | one-wire | a hint, a validation message, or a help text with no media, whose template is blank in every language; none | none | `addItext` answers `registered: false`, so `hasHint`, `hasHelp` and `hasValidationMessage` are false and no element or attribute is written | this part |
 | `create-name-required-is-absent` | one-wire | a `required` condition on a question in `caseCreateNameFields` that is no Hidden Value; none | none | `builder.ts::buildFieldParts` deletes `vellum:requiredCondition` and writes `required="true()"` there whatever the slot holds | part 07, section 3.2 |
+| `write-via-steps-are-typed` | one-wire | a save to the case above whose `parent` step names the type it reaches; one whose step names none | typed | `relationDestination.ts::resolveRelationDestination` resolves an untyped `parent` step to the catalog's `parent_type`, and the emitter prints the step as its identifier alone (`parent/<property>`) | part 07, section 3.2 |
 | `default-post-submit-is-absent` | one-wire | a form with no destinations whose `postSubmit` equals `defaultPostSubmit` for its type and menu; no `postSubmit` | none | every consumer reads `lib/domain/postSubmit.ts::effectivePostSubmit`, which answers the same destination for both | part 07, section 9.1 |
 | `dormant-tile-cells` | one-wire | a tile cell `tileCellFor` gives no square for (the list's layout is not a tile, or the column is not shown in Results); none | none | `lib/domain/modules.ts::tileCellFor` gives a cell only under a tile layout and only for a column shown in Results, and every consumer calls it | part 07, section 11.5 |
 | `unsorted-hidden-tile-columns-are-off-the-list` | one-wire | in a tile list, a column hidden from Results, shown on Details and holding no order rule, with `notOnList` and without it | the one that holds `notOnList` | in a tile list a column hidden from Results with no order rule is no field of the short detail either way (`lib/domain/caseListOrder.ts`, rule 1), so neither document writes one | part 07, section 11.6 |
@@ -1532,7 +1533,7 @@ is a rewrite over the typed document.
 | `case-catalog-is-as-read` | one-wire | a document's `caseTypes` as authored; the catalog part 07 derives from the same document | the derived catalog | the emitter reads a property's type through `effectiveCaseTypes`, and part 07 declares a type exactly where a comparator or a search predicate reads one no writer gives; a label and an unread property reach no export | part 07, section 7 |
 | `purpose-notes-are-absent` | not-carried | `Module.purpose` and `Form.purpose` (`lib/domain/modules.ts`, `lib/domain/forms.ts`) | absent | purpose notes are outside the wire inventory (`lib/commcare/CLAUDE.md`, "`APP_TEXT_UNREPRESENTABLE`") | this part |
 
-Eighteen rows. Part 07's check of a form-builder save of Nova's Save to Case shapes adds none: where
+Nineteen rows. Part 07's check of a form-builder save of Nova's Save to Case shapes adds none: where
 the builder changed a block's structure the block is refused, and a canonicalization rewrites to a
 member the reader returns, which a refused block is not.
 
@@ -1862,7 +1863,7 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 19 | `registration-label-fixed` | the same | `/modules/*/case_list_form/label/*` | yes |
 | 20 | `date-and-time-saved-as-hq-stores-it` | the same | `/_attachments/*` | yes |
 | 21 | `connect-app-captures-location` | `f.doc.connectType` is set and `f.source.raw.auto_gps_capture` is not `true` | `/auto_gps_capture` | yes |
-| 22 | `translation-overrides-folded` | `f.facts.foldedTranslationKeys` is above zero (part 06, section 17.3) | `/translations/*/*`; `/modules/*/name/*`; `/modules/*/forms/*/name/*`; `/modules/*/case_list/label/*`; `/modules/*/case_list_form/label/*` | no |
+| 22 | `translation-overrides-folded` | `f.facts.foldedTranslationKeys` is above zero (part 06, section 17.3) | `/translations/*/*`; `/name`; `/modules/*/name/*`; `/modules/*/forms/*/name/*`; `/modules/*/case_list/label/*`; `/modules/*/case_list_form/label/*` | no |
 | 23 | `location-list-setting-reset` | `f.source.raw.location_fixture_restore` is `both_fixtures` or `only_flat_fixture` | `/location_fixture_restore` | no |
 | 24 | `web-apps-turned-off` | `f.source.cloudcareEnabled` and `f.choice.runsOnlyOn` is `android` | `/cloudcare_enabled` | yes |
 | 25 | `web-apps-turned-on` | not `f.source.cloudcareEnabled` and `f.choice.runsOnlyOn` is not `android` | `/cloudcare_enabled` | yes |
@@ -2603,7 +2604,7 @@ register is their home.
 | `registration-label-fixed` | A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads "Create a new Case" there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova. |
 | `date-and-time-saved-as-hq-stores-it` | A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place. |
 | `connect-app-captures-location` | Every form of this CommCare Connect app will record where it was filled in. Nova turns on Auto Capture Location for the app in CommCare HQ. |
-| `translation-overrides-folded` | A wording set in CommCare HQ's app translations for a menu's or a form's name becomes that menu's or form's own name. Workers read the same words. |
+| `translation-overrides-folded` | A wording set in CommCare HQ's app translations for the app's, a menu's or a form's name becomes that name. Workers read the same words. |
 | `location-list-setting-reset` | This app's own setting for the location list goes back to the project space's default. The app reads places the same way. |
 | `web-apps-turned-off` | Web Apps is turned off for this app in CommCare HQ, because the app is set to run on Android only. |
 | `web-apps-turned-on` | Web Apps is turned on for this app in CommCare HQ, because the app is set to run in Web Apps. |

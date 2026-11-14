@@ -215,24 +215,67 @@ const EXPRESSION_ATTRIBUTES = new Set([
 	"readonly",
 ]);
 
-/** The binds and setvalues of `form` whose path `select` takes, in order. */
+/** Each model element's path, read once per list of a form's binds or setvalues, since every
+ *  block of a form is compared against the same lists. */
+const ELEMENT_PATHS = new WeakMap<
+	readonly Element[],
+	readonly { readonly element: Element; readonly path: string[] | undefined }[]
+>();
+
+/** The binds and setvalues of `form` whose path `select` takes, in order. A list is always read
+ *  through the one path attribute of its kind (`bindPathText`, `setvalueRef`). */
 function modelElements(
 	form: FormSourceModel,
 	elements: readonly Element[],
 	pathAttribute: (element: Element) => string | undefined,
 	select: (path: readonly string[]) => boolean,
 ): { element: Element; path: string[] }[] {
-	const root = form.dataRoot.name;
-	const out: { element: Element; path: string[] }[] = [];
-	for (const element of elements) {
-		const path = dataPath(pathAttribute(element), root);
-		if (path !== undefined && select(path)) out.push({ element, path });
+	let paths = ELEMENT_PATHS.get(elements);
+	if (paths === undefined) {
+		const root = form.dataRoot.name;
+		paths = elements.map((element) => ({
+			element,
+			path: dataPath(pathAttribute(element), root),
+		}));
+		ELEMENT_PATHS.set(elements, paths);
 	}
+	const out: { element: Element; path: string[] }[] = [];
+	for (const { element, path } of paths)
+		if (path !== undefined && select(path)) out.push({ element, path });
 	return out;
 }
 
 function bindPathText(element: Element): string | undefined {
 	return element.attribs.nodeset ?? element.attribs.ref;
+}
+
+function setvalueRef(element: Element): string | undefined {
+	return element.attribs.ref;
+}
+
+/** Each wrapper's verdict, per emitted form and per set of paths judged apart: a wrapper and the
+ *  children no block owns are the same for every block a form holds under it, so each is judged
+ *  once. */
+const WRAPPER_VERDICTS = new WeakMap<
+	FormSourceModel,
+	WeakMap<ReadonlySet<string>, Map<Element, boolean>>
+>();
+
+function wrapperVerdicts(
+	emitted: FormSourceModel,
+	judgedApart: ReadonlySet<string>,
+): Map<Element, boolean> {
+	let byApart = WRAPPER_VERDICTS.get(emitted);
+	if (byApart === undefined) {
+		byApart = new WeakMap();
+		WRAPPER_VERDICTS.set(emitted, byApart);
+	}
+	let verdicts = byApart.get(judgedApart);
+	if (verdicts === undefined) {
+		verdicts = new Map();
+		byApart.set(judgedApart, verdicts);
+	}
+	return verdicts;
 }
 
 /** Two binds alike: one path, the same plain attributes, each expression
@@ -307,7 +350,6 @@ export function blockTreesEqual(
 	judgedApart: ReadonlySet<string> = new Set(),
 ): boolean {
 	const { block, form } = stored;
-	const pathOf = (element: Element) => element.attribs.ref;
 	/** The element at `path` on both sides alike with everything under it,
 	 *  and the binds and setvalues under it. */
 	const sameSubtree = (
@@ -326,8 +368,8 @@ export function blockTreesEqual(
 				(a, b) => sameBind(a, form, b, emitted),
 			) &&
 			sameLists(
-				modelElements(form, form.setvalues, pathOf, under),
-				modelElements(emitted, emitted.setvalues, pathOf, under),
+				modelElements(form, form.setvalues, setvalueRef, under),
+				modelElements(emitted, emitted.setvalues, setvalueRef, under),
 				sameSetvalue,
 			)
 		);
@@ -337,7 +379,7 @@ export function blockTreesEqual(
 		block.path.join("/"),
 		...block.wrappers.map((wrapper) => wrapper.path.join("/")),
 	]);
-	for (const wrapper of block.wrappers) {
+	const wrapperHolds = (wrapper: ReadSaveToCaseBlock["wrappers"][number]) => {
 		const emittedWrapper = elementAt(emitted, wrapper.path);
 		if (
 			emittedWrapper === undefined ||
@@ -363,19 +405,31 @@ export function blockTreesEqual(
 			(path.length === wrapper.path.length + 1 &&
 				startsWith(path, wrapper.path) &&
 				(path[path.length - 1] as string).startsWith("@"));
-		if (
-			!sameLists(
+		return (
+			sameLists(
 				modelElements(form, form.binds, bindPathText, at),
 				modelElements(emitted, emitted.binds, bindPathText, at),
 				(a, b) => sameBind(a, form, b, emitted),
-			) ||
-			!sameLists(
-				modelElements(form, form.setvalues, pathOf, at),
-				modelElements(emitted, emitted.setvalues, pathOf, at),
+			) &&
+			sameLists(
+				modelElements(form, form.setvalues, setvalueRef, at),
+				modelElements(emitted, emitted.setvalues, setvalueRef, at),
 				sameSetvalue,
 			)
-		)
-			return false;
+		);
+	};
+	// Where every path of this block is judged apart anyway, a wrapper's verdict is the same for
+	// every block under it.
+	const shared = [...ownPath].every((key) => judgedApart.has(key))
+		? wrapperVerdicts(emitted, judgedApart)
+		: undefined;
+	for (const wrapper of block.wrappers) {
+		let holds = shared?.get(wrapper.element);
+		if (holds === undefined) {
+			holds = wrapperHolds(wrapper);
+			shared?.set(wrapper.element, holds);
+		}
+		if (!holds) return false;
 	}
 	return true;
 }

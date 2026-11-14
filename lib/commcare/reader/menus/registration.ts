@@ -38,6 +38,7 @@ import { isJsonObject, sameJson } from "../jsonCursor";
 import { sameXPathText } from "../syntaxCompare";
 import {
 	appLanguageCodes,
+	caseListPlaceOf,
 	draftFormByReadId,
 	effectiveNames,
 	formChoosesCase,
@@ -548,8 +549,9 @@ export function readCaseListRegistration(
 		const cls = host.docType;
 		const json = stored[host.index] ?? {};
 		const caseType = textOf(json.case_type);
+		const listPlace = caseListPlaceOf(host);
 		const refuseBlock = (claim: Readonly<Record<MenuClass, Claim<"refuse">>>) =>
-			host.json.refuse("case_list_form", claim[cls]);
+			host.json.refuse("case_list_form", claim[cls], undefined, listPlace);
 		if (named === undefined) {
 			refuseBlock(REGISTRATION.missing);
 			continue;
@@ -587,7 +589,12 @@ export function readCaseListRegistration(
 		}
 		if (cls === "AdvancedModule" || named.module.docType === "AdvancedModule") {
 			if (cls === "AdvancedModule" && caseListModuleRulesBreak(json))
-				host.json.refuse("case_list_form", REGISTRATION.advancedRulesBroken);
+				host.json.refuse(
+					"case_list_form",
+					REGISTRATION.advancedRulesBroken,
+					undefined,
+					listPlace,
+				);
 			else refuseBlock(REGISTRATION.advanced);
 			continue;
 		}
@@ -636,6 +643,7 @@ function readHidden(
 		"case_list_form",
 		"CaseListForm",
 		REGISTRATION.hidden[host.docType],
+		caseListPlaceOf(host),
 	);
 	cursor.take("form_id", REGISTRATION.hiddenFormId, (value) => value).value;
 	cursor.take("post_form_workflow", REGISTRATION.workflow, (value) => value)
@@ -666,6 +674,7 @@ function readAlways(
 		"case_list_form",
 		"CaseListForm",
 		REGISTRATION.always[host.docType],
+		caseListPlaceOf(host),
 	);
 	cursor.take("form_id", REGISTRATION.alwaysFormId, (value) => value).value;
 	const afterSubmit =
@@ -685,7 +694,7 @@ function readAlways(
 			image: "case_list_registration_icon",
 			audio: "case_list_registration_audio_label",
 		},
-		host.place,
+		cursor.place,
 	);
 	ctx.writeDraft(() => {
 		Object.assign(host.module, {
@@ -738,10 +747,10 @@ function gateFindings(
 		if (shared !== undefined)
 			ctx.accounting.finding(
 				REGISTRATION.sharesFirstMenuCase,
-				block.host.place,
+				caseListPlaceOf(block.host),
 			);
 		else
-			ctx.accounting.circumstance("unrecognized", block.host.place, {
+			ctx.accounting.circumstance("unrecognized", caseListPlaceOf(block.host), {
 				name: `schema:${block.host.docType}.case_list_form`,
 			});
 	}
@@ -772,9 +781,11 @@ export function settleRegistrations(
 	const langs = appLanguageCodes(ctx);
 	const stored = rawModules(ctx);
 	for (const block of blocks) {
+		const listPlace = caseListPlaceOf(block.host);
 		if (
 			refused.has(block.host.uuid) ||
-			ctx.accounting.hasFindingAt(block.host.place)
+			ctx.accounting.hasFindingAt(block.host.place) ||
+			ctx.accounting.hasFindingAt(listPlace)
 		)
 			continue;
 		const host = stored[block.host.index] ?? {};
@@ -784,7 +795,7 @@ export function settleRegistrations(
 			? ours.case_list_form
 			: {};
 		const unrecognized = (name: string) =>
-			ctx.accounting.circumstance("unrecognized", block.host.place, { name });
+			ctx.accounting.circumstance("unrecognized", listPlace, { name });
 		if (source.form_id !== emitted.form_id) {
 			unrecognized("schema:CaseListForm.form_id");
 			continue;

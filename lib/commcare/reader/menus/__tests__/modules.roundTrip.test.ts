@@ -296,6 +296,33 @@ describe("names in two languages", () => {
 			]?.value,
 		).toBe("Lista");
 	});
+
+	it("reads a menu with no case type back, its list texts in both languages HQ's own", async () => {
+		const reading = await readMenusOf(inSpanish(app(), new Map()));
+		expect(codesOf(reading)).toEqual([]);
+		const survey = reading.app.modules[2]?.case_details as JsonObject;
+		// Nova writes HQ's default words in every language, a menu with no case type included.
+		expect((survey.short as JsonObject).no_items_text).toEqual({
+			en: "List is empty.",
+			es: "List is empty.",
+		});
+		expect(
+			moduleNamed(reading.doc as BlueprintDoc, "Survey").caseType,
+		).toBeUndefined();
+	});
+
+	it("refuses a menu with no case type whose empty list says other words", async () => {
+		const reading = await readMenusOf(inSpanish(app(), new Map()), (json) => {
+			const details = json.modules[2]?.case_details as JsonObject;
+			(details.short as JsonObject).no_items_text = {
+				en: "List is empty.",
+				es: "La lista está vacía.",
+			};
+		});
+		expect(codesOf(reading)).toContain(
+			`${M}/detail-no-items-text-other-than-hq-s-default-en-list-is-empty`,
+		);
+	});
 });
 
 describe("a parent selection, written early and judged late", () => {
@@ -435,6 +462,51 @@ describe("shapes CommCare HQ stores that Nova refuses", () => {
 				finding.code.endsWith("its-root-s-first-form-chooses"),
 			)?.place,
 		).toMatchObject({ kind: "form" });
+	});
+});
+
+describe("a form's display condition that reads its case", () => {
+	/** One menu holding `forms`, shown in the first menu where `above`, and
+	 *  the follow-up's stored condition reading its case. */
+	async function readingWith(
+		forms: (typeof visit | typeof register)[],
+		above: boolean,
+	) {
+		const doc = produce(
+			buildDoc({
+				modules: [{ name: "Patients", caseType: "patient", forms }],
+			}),
+			(draft) => {
+				const module = Object.values(draft.modules)[0];
+				if (module !== undefined && above) module.formsInMenuAbove = true;
+			},
+		);
+		return readMenusOf(doc, (json) => {
+			const followUp = json.modules[0]?.forms.find(
+				(form) => (form.name as JsonObject).en === "Visit",
+			);
+			if (followUp !== undefined) followUp.form_filter = "#case/notes = 'x'";
+		});
+	}
+
+	it("refuses it on the first menu, which lists a registration beside the follow-up", async () => {
+		const reading = await readingWith([register, visit], true);
+		expect(codesOf(reading)).toContain(
+			`${M}/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first`,
+		);
+		expect(
+			reading.findings.find((finding) =>
+				finding.code.endsWith("screen-that-chooses-no-case-first"),
+			)?.place,
+		).toMatchObject({ kind: "form" });
+	});
+
+	it("reads it on a menu's own screen, where every form opens a chosen case", async () => {
+		const reading = await readingWith([visit], false);
+		expect(codesOf(reading)).toEqual([]);
+		expect(
+			formNamed(reading.doc as BlueprintDoc, "Visit").displayCondition,
+		).toBeDefined();
 	});
 });
 

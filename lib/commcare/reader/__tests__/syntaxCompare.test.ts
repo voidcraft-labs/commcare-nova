@@ -57,6 +57,24 @@ describe("the closed table of spellings Core reads alike", () => {
 		expect(sameXPathText(source, print, RECORD)).toBe(false);
 	});
 
+	it("reads a step named like the operator beside it as a step", () => {
+		// Core's Lexer reads the first `mod` as a name and the second as the
+		// operator, so a property named `mod` is an operand, never a separator.
+		expect(sameXPathText("mod mod 2", "mod mod 2")).toBe(true);
+		expect(sameXPathText("mod mod 2 = 0", "mod mod 2 = 0", RECORD)).toBe(true);
+		expect(sameXPathText("div div div", "div div div", FORM)).toBe(true);
+		expect(sameXPathText("and and b", "and and b")).toBe(true);
+		expect(sameXPathText("or or or", "or or or")).toBe(true);
+		expect(sameXPathText("mod mod 2", "mod mod 3")).toBe(false);
+		const read = readFormSyntax("mod mod 2");
+		expect(read.ok && read.node).toMatchObject({
+			kind: "binary",
+			op: "mod",
+			left: { kind: "name", name: "mod" },
+			right: { kind: "number", value: 2 },
+		});
+	});
+
 	it("reads ./. as . inside a predicate only", () => {
 		expect(sameXPathText("./.", ".", FORM)).toBe(false);
 		expect(sameXPathText("x[./. = 'a']", "x[. = 'a']", FORM)).toBe(true);

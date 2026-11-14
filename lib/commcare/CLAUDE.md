@@ -51,7 +51,14 @@ stored in `localization.wireCodes`; every export reads the stored code, so
 adding or removing a language never renames another's.
 `languageWire.ts::mintLanguageWireCode` chooses a wire code once, when a
 language is added: the identity's preferred spelling where no held language
-has it, else the suffixed form. Each identity's preferred spelling is its
+has it, else the suffixed form. A spelling with no hyphen and the language's
+name are all an HQ app says of a language, so where two identities share a
+preferred spelling and a name (`swc` and `swh` are both `sw` and Kiswahili,
+`prs` and `pes` both `fas`, `pap-AW` and `pap` both `pap`), the spelling is
+the first one's in the order the reader of HQ's apps proposes them
+(`languagesOfWireBase`, `lawfulLanguageIdentities`) and the others always
+take the suffixed form (`swc-`, `prs-`, `pap-aw`), so every code Nova writes
+reads back to its identity. Each identity's preferred spelling is its
 Classic catalog row's code, reached directly or by widening a macrolanguage
 member through `classicWideningTarget` (`cmn` widens through `zho` to
 Classic's Chinese row), three-letter except the four grandfathered
@@ -206,7 +213,12 @@ reads the manifest through `surface/gates.ts` (a gate's identity),
 `surface/schemaDefaults.ts` (a declared property's default, from
 `surface.json`), `appStringKeys.ts` (HQ's generated app string patterns, from
 `surface.json`) and `surface/inventory.ts` (every inventory entry with its
-standing, for the reader). `inventory.ts` is `server-only`.
+standing, for the reader). `inventory.ts` is `server-only`. The reader also
+reads `surface.json`'s items itself, for what CommCare's own code reads:
+`reader/appShell.ts` an `Application` property's declaration and default,
+`reader/xform/parse.ts` the element names Core's form parser dispatches on,
+`reader/xform/appearances.ts` every appearance a runtime reads, and
+`reader/xform/shadow.ts` each `vellum:` shadow's surface key.
 
 A TARGET-OWNED entry is content Nova leaves at CommCare HQ's value under the
 kept test: a publish never changes it, nothing the document holds does
@@ -265,7 +277,9 @@ the allocator's name as a precondition; an edited or renamed one is the
 author's Hidden Value. A real attribute and its `vellum:` shadow must expand to
 one tree. Logic is never read as text here: each attribute is registered as a
 pending expression the expression reader binds. Two XPath texts are compared in
-one place, `reader/syntaxCompare.ts::sameXPathText`.
+one place, `reader/syntaxCompare.ts::sameXPathText`, and every reader module reads
+XPath text through `reader/syntaxRead.ts`, which counts each read in the
+reading's `ReadWork`.
 
 ### Reading expressions
 

@@ -360,6 +360,55 @@ describe("geo formats", () => {
 			`${M}more-than-one-address-column-or-more-than-one-image-or-geo`,
 		);
 	});
+
+	it("raises a geo boundary color on the list beside its address and boundary columns", async () => {
+		const reading = await readDetails((short) => {
+			Object.assign(short.columns[1] ?? {}, { format: "geo-boundary-color" });
+			addColumn(short, { format: "address", field: "phone" });
+			addColumn(short, { format: "geo-boundary", field: "dob" });
+		});
+		expect(codes(reading)).toContain(
+			`${M}12-geo-boundary-color-on-the-case-list-only-needs-an-address`,
+		);
+		expect(codes(reading)).not.toContain(
+			`${M}a-geo-column-without-the-column-it-depends-on`,
+		);
+	});
+
+	/** The menu made an advanced module, as HQ stores one. */
+	const advanced = (app: AppJson) => {
+		const module = app.modules[0];
+		if (module !== undefined) module.doc_type = "AdvancedModule";
+	};
+
+	it("raises two address columns in a detail of an advanced menu by the advanced menu's row", async () => {
+		const reading = await readDetails((short, _long, app) => {
+			advanced(app);
+			Object.assign(short.columns[1] ?? {}, { format: "address" });
+			addColumn(short, { format: "address", field: "phone" });
+		});
+		expect(codes(reading)).toContain(
+			`${M}more-than-one-address-column-in-a-detail-of-an-advanced-module`,
+		);
+		expect(codes(reading)).not.toContain(
+			`${M}more-than-one-address-column-or-more-than-one-image-or-geo`,
+		);
+	});
+
+	it("raises two geo columns of one format in a detail of an advanced menu by the advanced menu's row", async () => {
+		const reading = await readDetails((short, _long, app) => {
+			advanced(app);
+			Object.assign(short.columns[1] ?? {}, { format: "geo-points" });
+			addColumn(short, { format: "geo-points", field: "dob" });
+			addColumn(short, { format: "address", field: "phone" });
+		});
+		expect(codes(reading)).toContain(
+			`${M}more-than-one-image-or-geo-column-of-the-same-format-in-a-detail`,
+		);
+		expect(codes(reading)).not.toContain(
+			`${M}more-than-one-address-column-or-more-than-one-image-or-geo`,
+		);
+	});
 });
 
 describe("clickable icons", () => {

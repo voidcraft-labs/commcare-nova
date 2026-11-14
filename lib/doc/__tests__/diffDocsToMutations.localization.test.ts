@@ -110,6 +110,48 @@ describe("diffDocsToMutations localization", () => {
 		);
 	});
 
+	it("reaches another source with more languages from a one-language app, the old source among them", () => {
+		const before = doc();
+		const unit = collectTranslationUnits(before).find(
+			(unit) => unit.owner.kind === "app",
+		);
+		if (!unit) throw new Error("Missing app translation unit");
+		const after = produce(before, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "relabelSourceLanguage",
+					language: { language: "spa" },
+					wireCode: "es",
+				},
+				{
+					kind: "addLanguage",
+					language: { language: "eng" },
+					wireCode: "en",
+				},
+			]);
+		});
+		const english = produce(after, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "setTranslation",
+					language: "eng",
+					unitId: unit.id,
+					entry: {
+						value: "Clinic in English",
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "spa",
+					},
+				},
+			]);
+		});
+		expect(english.localization?.languageOrder).toEqual(["spa", "eng"]);
+		expect(toPersistableDoc(wireReplay(before, english))).toEqual(
+			toPersistableDoc(english),
+		);
+	});
+
 	it("round-trips translations whose units are born or removed in the same diff", () => {
 		const before = doc();
 		const formUuid = before.formOrder[before.moduleOrder[0]][0];

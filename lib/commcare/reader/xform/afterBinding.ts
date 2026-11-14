@@ -40,16 +40,17 @@ import { commCareLocalization } from "../../localization";
 import { inertLookupWireNaming } from "../../lookup/naming";
 import { fieldBindType } from "../../xform/bindType";
 import { protectConstraintMessage } from "../../xform/constraintMessage";
+import { questionDatetimeCaseValue } from "../../xform/datetimeCaseValue";
 import { formNodeProjection } from "../../xpath/formNodeProjection";
-import { readFormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { claimRegistry } from "../claims";
 import type { ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
 import { sameSyntax } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import { ownText } from "../xmlCursor";
 import { X } from "./claims";
-import { G, HOLE, matchesHoles, sameTree } from "./generated";
+import { datetimeSpelling, G, HOLE, matchesHoles, sameTree } from "./generated";
 import {
 	type DraftField,
 	expressionEnvOf,
@@ -61,6 +62,7 @@ import {
 	type LoadStep,
 	loadOrderConflicts,
 } from "./loadOrder";
+import { formPathOf } from "./model";
 import { settleCaseChoices } from "./options";
 import { formText, type ProtectedMessage } from "./prose";
 import { modelIterationVerdict } from "./repeats";
@@ -78,19 +80,52 @@ function documentOrder(doc: BlueprintDoc, formUuid: Uuid): Map<Uuid, number> {
 	return order;
 }
 
-/** A source path's field in Nova's document: the field it names, or the repeat whose node an
- *  attribute of it is. */
-function targetField(names: ReadSourceNames, target: string): Uuid | undefined {
+/**
+ * Where a query repeat's own nodes stand in Nova's data tree, between the repeat's node and its
+ * first authored child: the wrapper's ids and count (model iteration's `@ids` and `@count` on
+ * the repeat itself), then the row, then the row's id and index (model iteration's `@id` and
+ * `@index` on the row), as `builder.ts::buildQueryRepeat` and `countPlacementRow.ts` write them.
+ */
+const QUERY_NODE_OFFSET: Readonly<Record<string, number>> = {
+	"query-ids": 0.1,
+	"query-count": 0.2,
+	"query-position": 0.3,
+	"query-row": 0.5,
+	"query-id": 0.6,
+	"query-index": 0.7,
+};
+
+/** A setvalue target's place in Nova's data tree, as `builder.ts::inDataTreeOrder` places the
+ *  setvalue that sets it, from each field's place in the document; `end` where the document
+ *  holds no node for it. */
+function loadPosition(
+	names: ReadSourceNames,
+	positions: ReadonlyMap<Uuid, number>,
+	target: string,
+	end: number,
+): number {
+	const at = (uuid: Uuid, offset = 0) => {
+		const position = positions.get(uuid);
+		return position === undefined ? end : position + offset;
+	};
 	const steps = target.split("/");
 	const node = names.at([names.root, ...steps]);
-	if (node?.kind === "field") return node.uuid;
-	if (node?.kind === "repeat-attribute" || node?.kind === "query-row")
-		return node.repeat;
+	if (node?.kind === "field") return at(node.uuid);
+	if (node?.kind === "query-row")
+		return at(node.repeat, QUERY_NODE_OFFSET["query-row"]);
+	if (node?.kind === "repeat-attribute")
+		return node.attribute === "id" || node.attribute === "index"
+			? at(node.repeat, QUERY_NODE_OFFSET["query-row"])
+			: at(node.repeat);
+	if (node?.kind === "generated") {
+		const offset = QUERY_NODE_OFFSET[node.purpose];
+		return offset === undefined ? end : at(node.owner, offset);
+	}
 	if (steps.at(-1)?.startsWith("@") === true) {
 		const owner = names.at([names.root, ...steps.slice(0, -1)]);
-		if (owner?.kind === "field") return owner.uuid;
+		if (owner?.kind === "field") return at(owner.uuid);
 	}
-	return undefined;
+	return end;
 }
 
 /** The order Nova's emission writes the same setvalues in: by where each target stands in the
@@ -116,22 +151,31 @@ function readsOf(
 	if (ref === undefined) return read;
 	const expression = expressionSlotValue(doc, ref as ExpressionSlotRef);
 	if (expression === undefined) return read;
-	const pathOf = (uuid: Uuid) => names.fieldPath(uuid)?.slice(1);
+	const add = (path: readonly string[] | undefined) => {
+		if (path !== undefined) read.add(path.slice(1).join("/"));
+	};
+	// A query repeat's node is the count placement's generated node where the source holds
+	// one, and model iteration's attribute otherwise.
+	const queryNode = (
+		repeat: Uuid,
+		purpose: "query-ids" | "query-count" | "query-id" | "query-index",
+		attribute: "ids" | "count" | "id" | "index",
+	) =>
+		names.nodePath({ kind: "generated", purpose, owner: repeat }) ??
+		names.nodePath({ kind: "repeat-attribute", repeat, attribute });
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "field") {
-			const path = pathOf(term.uuid);
-			if (path !== undefined) read.add(path.join("/"));
-		} else if (term.kind === "repeat-row") {
-			const path = pathOf(term.repeat);
-			if (path === undefined) return;
-			read.add([...path, "item", `@${term.attribute}`].join("/"));
-			read.add([...path, "item", term.attribute].join("/"));
-		} else if (term.kind === "form-node" && term.node.kind === "repeat") {
-			const path = pathOf(term.node.repeat);
-			if (path === undefined) return;
-			if (term.node.role === "query-ids") read.add([...path, "@ids"].join("/"));
+		if (term.kind === "field") add(names.fieldPath(term.uuid));
+		else if (term.kind === "repeat-row")
+			add(
+				term.attribute === "id"
+					? queryNode(term.repeat, "query-id", "id")
+					: queryNode(term.repeat, "query-index", "index"),
+			);
+		else if (term.kind === "form-node" && term.node.kind === "repeat") {
+			if (term.node.role === "query-ids")
+				add(queryNode(term.node.repeat, "query-ids", "ids"));
 			if (term.node.role === "query-count")
-				read.add([...path, "@count"].join("/"));
+				add(queryNode(term.node.repeat, "query-count", "count"));
 		}
 	});
 	return read;
@@ -183,12 +227,9 @@ function checkLoadOrder(
 	if (names === undefined) return;
 	const order = effectiveLoadOrder(xform);
 	const positions = documentOrder(doc, formUuid);
-	const emitted = emittedLoadOrder(order, (step) => {
-		const uuid = targetField(names, step.target);
-		return uuid === undefined
-			? positions.size
-			: (positions.get(uuid) ?? positions.size);
-	});
+	const emitted = emittedLoadOrder(order, (step) =>
+		loadPosition(names, positions, step.target, positions.size),
+	);
 	const reads = new Map<LoadStep, Set<string>>();
 	const readsOfStep = (step: LoadStep) => {
 		const known = reads.get(step) ?? readsOf(doc, names, step);
@@ -269,6 +310,76 @@ function checkHiddenTypes(
 				: "text";
 		if (nova !== source)
 			ctx.accounting.finding(X.refusedKind.hiddenOtherType, field.place);
+	}
+}
+
+/**
+ * Each date-and-time sibling the case management stage settled as Nova's (13.2, `datetime`): the
+ * form stage proposed it by its question's kind, and here, with the document's types bound, its
+ * calculate must be the tree `questionDatetimeCaseValue` gives the question, or the earlier tree
+ * (`typedInstantValue`), whose first publish the register already holds. A Hidden Value holding
+ * text is written as a copy and one holding a typed date and time as CommCare HQ's stored text,
+ * so a sibling in the other spelling is one Nova would write differently: `unrecognized` at the
+ * question. Skipped where the question's own calculate was not held, or a finding already stands
+ * there, since its type is then not known.
+ */
+function checkDatetimeSiblings(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	xform: ReadXForm,
+	types: LookupTypeIndex,
+): void {
+	for (const [node, role] of xform.roles) {
+		// A candidate the case management stage settled as Nova's keeps its proposed role and
+		// leaves `candidates`; by stage 10 every other one is a field.
+		if (
+			(role.kind !== "generated" && role.kind !== "generated-candidate") ||
+			role.purpose !== "datetime" ||
+			role.owner === null ||
+			xform.candidates.includes(node)
+		)
+			continue;
+		const ownerRole = xform.roles.get(role.owner);
+		if (ownerRole?.kind !== "field") continue;
+		const field = ownerRole.field;
+		const uuid = field.uuid;
+		const calculate = xform.binds.get(node)?.logic.calculate;
+		const ownerPath = formPathOf(role.owner);
+		if (
+			uuid === undefined ||
+			doc.fields[uuid] === undefined ||
+			calculate === undefined ||
+			ownerPath === undefined ||
+			ctx.accounting.hasFindingAt(field.place)
+		)
+			continue;
+		const ownerBind = xform.binds.get(field.node);
+		if (
+			ownerBind?.logic.calculate !== undefined &&
+			!held(ctx, ownerBind.element, "calculate")
+		)
+			continue;
+		if (datetimeSpelling(calculate, ownerPath) === "earlier") continue;
+		const context = slotContext(
+			doc,
+			{ entity: "field", uuid, slot: "relevant" },
+			types,
+		);
+		if (context === undefined) continue;
+		ctx.accounting.noteRebuild();
+		let expected: ReturnType<typeof questionDatetimeCaseValue>;
+		try {
+			expected = questionDatetimeCaseValue(uuid, ownerPath, context);
+		} catch {
+			ctx.accounting.circumstance("unrecognized", field.place, {
+				name: "xform:model/bind@calculate",
+			});
+			continue;
+		}
+		if (!sameTree(calculate, expected))
+			ctx.accounting.circumstance("unrecognized", field.place, {
+				name: "xform:model/bind@calculate",
+			});
 	}
 }
 
@@ -565,5 +676,6 @@ export function finishForms(ctx: ReadContext): void {
 			checkModelIterations(ctx, doc, form.uuid, xform);
 			checkLoadOrder(ctx, doc, form.uuid, form.place, xform);
 			checkHiddenTypes(ctx, doc, form.place, xform);
+			checkDatetimeSiblings(ctx, doc, xform, types);
 		}
 }

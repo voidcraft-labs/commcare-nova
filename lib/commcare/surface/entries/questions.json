@@ -961,7 +961,7 @@
 		"id": "questions/item-without-value-or-an-itemset-without-label-or-without-both",
 		"area": "questions",
 		"section": "Question types",
-		"item": "`<item>` without `<value>`, or an itemset without `<label>`, or without both `<copy>` and `<value>` (one with `<copy>` alone is the `<copy>` row below)",
+		"item": "`<item>` without `<value>` or without `<label>`, or an itemset without `<label>`, or without both `<copy>` and `<value>` (one with `<copy>` alone is the `<copy>` row below)",
 		"surfaceKeys": [
 			"xform:select1/item",
 			"xform:select/item",
@@ -1329,7 +1329,7 @@
 		"id": "questions/group-group-ref-with-no-label-and-no-appearance-outside-a",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Group (`<group ref>`) with no label and no appearance, outside a Question List",
+		"item": "Group (`<group ref>`) with no label and no appearance, anywhere in a form, a group nested in a Question List included",
 		"surfaceKeys": [
 			"mug:Group",
 			"jr-control:group",
@@ -2857,7 +2857,7 @@
 		],
 		"valueClass": "advanced-data-source",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources. Typed `optionsSource: cases` now supports worker-available casedb choices; arbitrary report and fixture nodesets remain out of scope.",
+		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources; the case choices Nova writes (`optionsSource: cases`) are the row of their own shape",
 		"subject": "question-choices",
 		"owner": "xform",
 		"platforms": {

@@ -12,7 +12,14 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { Finding } from "@/lib/publish/hqFindings";
 import { buildXForm } from "../../../xform/builder";
+import {
+	readerInput,
+	retainedSourceBody,
+	sourceFromBody,
+} from "../../__tests__/readerInput";
+import { readHqApp } from "../../index";
 import { modelIterationVerdict } from "../repeats";
 import {
 	codesAt,
@@ -37,6 +44,44 @@ function counted(
 			count === undefined ? "" : ` jr:count="${count}" jr:noAddRemove="true()"`
 		}><input ref="/data/r/q"/></repeat></group>`,
 	});
+}
+
+/** The codes at the question at `path` of a form read through every stage, the bound
+ *  document's own refusals among them. */
+async function codesThroughEveryStage(
+	source: string,
+	path: string,
+): Promise<string[]> {
+	const body = {
+		...retainedSourceBody("shell/app-source"),
+		modules: [
+			{
+				doc_type: "Module",
+				unique_id: "m-reader",
+				name: { en: "Menu" },
+				case_type: "",
+				forms: [
+					{
+						doc_type: "Form",
+						unique_id: "r1",
+						xmlns: XMLNS,
+						name: { en: "Form" },
+					},
+				],
+			},
+		],
+		_attachments: { "r1.xml": source },
+	};
+	const input = readerInput(await sourceFromBody(body));
+	const outcome = readHqApp({ ...input, recordDialect: () => undefined });
+	const findings: readonly Finding[] =
+		outcome.kind === "account" ? outcome.findings : [];
+	return findings
+		.filter(
+			(finding) =>
+				finding.place.kind === "question" && finding.place.path === path,
+		)
+		.map((finding) => finding.code);
 }
 
 describe("the repeat table", () => {
@@ -166,7 +211,7 @@ describe("the repeat table", () => {
 		const select = await readForm(
 			counted("/data/n", {
 				bind: '<bind nodeset="/data/n" type="xsd:string"/>',
-				body: '<select1 ref="/data/n"><item><value>1</value></item><item><value>2</value></item></select1>',
+				body: '<select1 ref="/data/n"><item><label>One</label><value>1</value></item><item><label>Two</label><value>2</value></item></select1>',
 			}),
 		);
 		expect(codesAt(select, "r")).toEqual(["unrecognized"]);
@@ -204,6 +249,48 @@ describe("the repeat table", () => {
 		]);
 	});
 
+	it("refuses, over the bound document, a Hidden Value count that is no whole number", async () => {
+		expect(
+			await codesThroughEveryStage(
+				counted("/data/n", {
+					bind: '<bind nodeset="/data/n" calculate="1.5"/>',
+					body: "",
+				}),
+				"r",
+			),
+		).toEqual([
+			Q("jr-count-naming-a-hidden-value-whose-calculate-is-not-an-integer"),
+		]);
+	});
+
+	it("refuses, over the bound document, a single select count with a choice that is no whole number", async () => {
+		expect(
+			await codesThroughEveryStage(
+				counted("/data/n", {
+					bind: '<bind nodeset="/data/n" type="xsd:string"/>',
+					body: '<select1 ref="/data/n"><item><label>One</label><value>1</value></item><item><label>Some</label><value>some</value></item></select1>',
+				}),
+				"r",
+			),
+		).toEqual([
+			Q("jr-count-naming-any-other-question-kind-text-barcode-multi"),
+		]);
+	});
+
+	it("refuses, over the bound document, a count that reads the rows it creates", async () => {
+		expect(
+			await codesThroughEveryStage(
+				counted("/data/n", {
+					bind: '<bind nodeset="/data/n" calculate="count(/data/r) + 1"/>',
+					body: "",
+				}),
+				"r",
+			),
+		).toEqual([
+			Q("a-count-that-depends-on-the-rows-it-creates-through-calculations"),
+		]);
+	});
+
 	it("refuses add captions and drops the others where they hold text", async () => {
 		const reading = await readForm(
 			xformSource({
@@ -228,6 +315,8 @@ function queryDoc(
 		readonly relevant?: string;
 		/** A display condition on a group around the repeat. */
 		readonly groupRelevant?: string;
+		/** The asked question's default. */
+		readonly askedDefault?: string;
 	} = {},
 ): BlueprintDoc {
 	const query = f({
@@ -257,7 +346,14 @@ function queryDoc(
 						name: "Rounds",
 						type: "survey",
 						fields: [
-							f({ uuid: ASKED, kind: "text", id: "asked" }),
+							f({
+								uuid: ASKED,
+								kind: "text",
+								id: "asked",
+								...(options.askedDefault === undefined
+									? {}
+									: { default_value: options.askedDefault }),
+							}),
 							options.nested === true
 								? f({ kind: "repeat", id: "outer", children: [repeat] })
 								: repeat,
@@ -385,6 +481,17 @@ describe("modelIterationVerdict", () => {
 		);
 		expect(verdict(queryDoc({ query: "#form/asked" }))).toBe(
 			Q("model-iteration-repeat-whose-query-reads-a-form-answer-that-is"),
+		);
+	});
+
+	it("refuses one whose query reads a question whose default is set after the row ids", () => {
+		const doc = queryDoc({ query: "#form/asked", askedDefault: "'x'" });
+		expect(verdict(doc, (uuid) => uuid === ASKED)).toBe(
+			Q("model-iteration-repeat-whose-query-reads-a-form-answer-that-is"),
+		);
+		// Set before the row ids, the default is no blank answer: the shape is outside the rule.
+		expect(verdict(doc)).toBe(
+			Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
 		);
 	});
 

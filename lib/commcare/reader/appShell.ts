@@ -646,22 +646,62 @@ function readProfile(ctx: ReadContext): void {
 	});
 }
 
+/** What a key of a language's strings is, in the order of the manifest's classes. */
+type TranslationKeyKind =
+	| "language-name"
+	| "app-display-name"
+	| "homescreen-title"
+	| "runtime-ui-string"
+	| "generated"
+	| "unread";
+
+function translationKeyKind(
+	name: string,
+	languages: HqLanguages,
+): TranslationKeyKind {
+	if (languages.codes.includes(name)) return "language-name";
+	if (name === "app.display.name") return "app-display-name";
+	if (name === "homescreen.title") return "homescreen-title";
+	if (isRuntimeUiStringKey(name)) return "runtime-ui-string";
+	if (translationKeyOwner(name, languages.codes) === "generated")
+		return "generated";
+	return "unread";
+}
+
+/** A stored `app.display.name` HQ's build applies: a non-empty string (`non_empty_only`). */
+function appliedDisplayName(value: unknown): value is string {
+	return typeof value === "string" && value !== "";
+}
+
 /**
  * `translations`, language by language. In an app language's strings: a
  * language's name, derived where it is Nova's label for the language;
  * `app.display.name`, the app name's translation; the home screen title; a
  * runtime's own UI text, kept; a key of HQ's generated patterns, held for
  * the assembly; any other, read by no runtime. A language the app does not
- * hold is read by nothing.
+ * hold is read by nothing, and every key of a language the reading could not
+ * name stands under that language's finding, a generated key once the
+ * assembly meets it.
+ *
+ * HQ's build writes `app.display.name` from `name` in every language and puts
+ * a non-empty stored value over it (`app_strings.py::_create_custom_app_strings`,
+ * `SelectKnownAppStrings.app_strings_parts`), so in the first language a
+ * value that is not `name` is the name every runtime shows there. It is read
+ * as the app's name, and each other language that stores none takes `name`
+ * as its translation, which is what it shows: workers read the same words, and
+ * HQ's own `name` becomes the override's wording at the first publish, a fold
+ * counted with the generated keys'.
  */
 function readTranslations(
 	ctx: ReadContext,
 	languages: HqLanguages,
-	appName: string | undefined,
+	name: Admitted<string> | undefined,
 ): readonly HeldTranslationKey[] {
 	const held: HeldTranslationKey[] = [];
 	const codes = new Set(languages.codes);
 	const appNames = new Map<string, string>();
+	const appName = name?.value;
+	let firstLanguageName: Admitted<string> | undefined;
 	const byLanguage = ctx.app.map(
 		"translations",
 		"Application.translations",
@@ -672,49 +712,67 @@ function readTranslations(
 			strings.refuseWhole(TRANSLATION_CLAIMS.unread);
 			continue;
 		}
-		for (const name of keysOf(strings)) {
-			const value = strings.peek(name);
-			if (codes.has(name)) {
-				const refused = languages.refused.get(name);
-				const identity = languages.identityOf.get(name);
-				if (refused !== undefined || identity === undefined) {
+		const refusedLanguage = languages.refused.get(language);
+		for (const key of keysOf(strings)) {
+			const value = strings.peek(key);
+			const kind = translationKeyKind(key, languages);
+			if (kind === "generated") {
+				held.push({ language, key, value, json: strings });
+				continue;
+			}
+			if (refusedLanguage !== undefined) {
+				ctx.accounting.cover({ json: strings, key }, refusedLanguage);
+				continue;
+			}
+			switch (kind) {
+				case "language-name": {
+					const refused = languages.refused.get(key);
+					const identity = languages.identityOf.get(key);
 					if (refused !== undefined)
-						ctx.accounting.cover({ json: strings, key: name }, refused);
+						ctx.accounting.cover({ json: strings, key }, refused);
+					else if (identity === undefined) continue;
+					else if (value === resolvedLanguageDisplayLabel(identity))
+						strings.derived(key, TRANSLATION_CLAIMS.languageName);
+					else strings.account(key, TRANSLATION_CLAIMS.languageNameOther);
 					continue;
 				}
-				if (value === resolvedLanguageDisplayLabel(identity))
-					strings.derived(name, TRANSLATION_CLAIMS.languageName);
-				else strings.account(name, TRANSLATION_CLAIMS.languageNameOther);
-				continue;
+				case "app-display-name": {
+					if (typeof value !== "string") continue;
+					const read = strings.take(
+						key,
+						TRANSLATION_CLAIMS.appDisplayName,
+						(v) => v as string,
+					);
+					const text = read.value;
+					/* Blank, or in the first language equal to `name`, it is the string HQ's
+					 * build writes from `name`. */
+					if (!appliedDisplayName(text)) continue;
+					if (language !== languages.first) appNames.set(language, text);
+					else if (text !== appName) firstLanguageName = read;
+					continue;
+				}
+				case "homescreen-title":
+					strings.account(key, TRANSLATION_CLAIMS.homescreenTitle);
+					continue;
+				case "runtime-ui-string":
+					strings.account(key, TRANSLATION_CLAIMS.runtimeUiString);
+					continue;
+				case "unread":
+					strings.account(key, TRANSLATION_CLAIMS.unread);
+					continue;
 			}
-			if (name === "app.display.name") {
-				/* In the first language the app's name is `name` itself, which
-				 * Nova writes for every runtime; a different value there is one
-				 * Nova cannot hold, and the close reports it. */
-				if (language === languages.first && value !== appName) continue;
-				const read = strings.take(
-					name,
-					TRANSLATION_CLAIMS.appDisplayName,
-					(v) => (typeof v === "string" ? v : undefined),
-				).value;
-				if (read !== undefined && language !== languages.first)
-					appNames.set(language, read);
-				continue;
-			}
-			if (name === "homescreen.title") {
-				strings.account(name, TRANSLATION_CLAIMS.homescreenTitle);
-				continue;
-			}
-			if (isRuntimeUiStringKey(name)) {
-				strings.account(name, TRANSLATION_CLAIMS.runtimeUiString);
-				continue;
-			}
-			if (translationKeyOwner(name, languages.codes) === "generated") {
-				held.push({ language, key: name, value, json: strings });
-				continue;
-			}
-			strings.account(name, TRANSLATION_CLAIMS.unread);
 		}
+	}
+	if (firstLanguageName !== undefined) {
+		const override = firstLanguageName;
+		ctx.writeDraft(() => {
+			ctx.draft.appName = override;
+		});
+		if (appName !== undefined)
+			for (const code of languages.codes)
+				if (code !== languages.first && !appNames.has(code))
+					appNames.set(code, appName);
+		ctx.facts.foldedTranslationKeys += 1;
 	}
 	const translated = new Map(
 		[...appNames].flatMap(([code, text]) => {
@@ -828,11 +886,7 @@ export function readApplication(ctx: ReadContext): void {
 		(value) => value === true,
 	);
 	ctx.facts.webAppsOnInHq = cloudcare.value;
-	const generatedKeys = readTranslations(
-		ctx,
-		languages,
-		typeof rawName === "string" ? rawName : undefined,
-	);
+	const generatedKeys = readTranslations(ctx, languages, name);
 	readProfile(ctx);
 	readBuildSpec(ctx);
 	readLogos(ctx);

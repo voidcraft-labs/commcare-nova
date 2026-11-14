@@ -22,6 +22,7 @@ import {
 } from "@/lib/domain";
 import type { ItextUnit } from "@/lib/domain/expression/types";
 import { fieldKindDeclaresKey } from "@/lib/domain/fields";
+import { EMPTY_PROSE_TEMPLATE } from "@/lib/domain/prose";
 import {
 	itextUnitTranslationId,
 	snapshotTranslationUnits,
@@ -37,13 +38,13 @@ import {
 	XFORMS_NS,
 	XHTML_NS,
 } from "../../xmlNamespaces";
-import { readFormSyntax } from "../../xpath/formSyntax";
 import { InstanceSink } from "../../xpath/wire/instances";
 import type { Accounting } from "../accounting";
 import type { ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { sameXPathText } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import { translationEntryFor } from "../translations";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import type { ControlNode } from "./body";
@@ -713,11 +714,14 @@ function reference(
 	claim: Reference["claim"],
 ): Reference {
 	const ref = element.attribs.ref;
-	// A label written inline holds its own text. An element inside it (an `<output>`) is a
-	// construct no manifest entry names there, left for the close to report.
+	// A label, hint, help text or choice label written inline holds its own text, which Core
+	// shows where the element names no text id (`FormEntryPrompt.localizeText`). An element
+	// inside it (an `<output>`) is a construct no manifest entry names there, left for the
+	// close to report: neither Nova nor CommCare HQ's form builder writes one
+	// (`writer.js::createLabel` writes an inline label as escaped text).
 	if (ref === undefined)
 		return { owner, place, element, inline: ownText(element), claim };
-	const read = itextReference(ref, input.accounting);
+	const read = itextReference(ref);
 	if (read.kind === "other") return { owner, place, element, claim };
 	if (read.kind === "double-quoted")
 		input.accounting.finding(X.duplicateTextId, place);
@@ -791,34 +795,50 @@ function readValidationMessage(
 		messageName === undefined || bind === undefined
 			? undefined
 			: { element: bind.element, attribute: messageName };
+	// An alert that holds its own content and no `ref` is the message Core shows
+	// (`FormEntryPrompt.getConstraintText` reads the alert first, and `localizeText` its inner
+	// text where it names no text id), a message CommCare HQ's form builder loses on load
+	// (`javaRosa/plugin.js` reads an alert's `ref` alone). No entry names it, so it is left
+	// for the close to report, whatever the bind's message names.
+	const held =
+		alert !== undefined &&
+		alert.attribs.ref === undefined &&
+		holdsContent(alert)
+			? undefined
+			: alert;
 	const claimAlert = (c: XmlCursor) => {
-		if (alert === undefined) return;
-		c.take({ element: alert }, X.alert[tag]).value;
-		claimRef(c, alert, X.alert[`${tag}Ref`]);
+		if (held === undefined) return;
+		c.take({ element: held }, X.alert[tag]).value;
+		claimRef(c, held, X.alert[`${tag}Ref`]);
 	};
 	if (!fieldKindDeclaresKey(field.kind, "validate_msg")) {
 		if (messageNode !== undefined)
 			cursor.refuse(messageNode, X.messageOnCapture, place);
-		else if (alert !== undefined) accounting.finding(X.messageOnCapture, place);
+		else if (held !== undefined) accounting.finding(X.messageOnCapture, place);
 		claimAlert(cursor);
 		return;
 	}
-	if (messageNode !== undefined && bind?.logic.constraint === undefined) {
-		cursor.refuse(messageNode, X.messageWithoutConstraint, place);
-		claimAlert(cursor);
-		return;
+	if (bind?.logic.constraint === undefined) {
+		if (messageNode !== undefined)
+			cursor.refuse(messageNode, X.messageWithoutConstraint, place);
+		else if (held !== undefined)
+			accounting.finding(X.messageWithoutConstraint, place);
+		if (messageNode !== undefined || held !== undefined) {
+			claimAlert(cursor);
+			return;
+		}
 	}
 	const messageRef =
-		message === undefined ? undefined : itextReference(message, accounting);
+		message === undefined ? undefined : itextReference(message);
 	if (messageRef?.kind === "other" && messageNode !== undefined) {
 		cursor.refuse(messageNode, X.literalConstraintMsg, place);
 		claimAlert(cursor);
 		return;
 	}
 	const alertRef =
-		alert?.attribs.ref === undefined
+		held?.attribs.ref === undefined
 			? undefined
-			: itextReference(alert.attribs.ref, accounting);
+			: itextReference(held.attribs.ref);
 	const ids = [messageRef, alertRef]
 		.filter((one) => one !== undefined && one.kind !== "other")
 		.map((one) => (one as { id: string }).id);
@@ -839,6 +859,16 @@ function readValidationMessage(
 			claimAlert(c);
 		},
 	});
+}
+
+/** Whether an element holds content Core reads as its text: a child element, or a text node
+ *  Core keeps (`XFormParser.getXMLDocument` removes one that is whitespace only). */
+function holdsContent(element: Element): boolean {
+	return element.children.some(
+		(child) =>
+			isTag(child) ||
+			(child.type === "text" && !isConsumerWhitespace(child.data)),
+	);
 }
 
 /** A stand-in's text and its validation message, covered by the stand-in's finding. */
@@ -965,8 +995,9 @@ function readSlotText(
 	const none = { slot: undefined, blanks: 0 };
 
 	if (ref.id === undefined) {
-		// A label written inline holds its text in every language; any other reference that
-		// names no itext is left unclaimed.
+		// A text written inline (a label, a hint, a help text or a choice's label) holds its
+		// text in every language, claimed by its slot's own claim; a `ref` that is no
+		// `jr:itext` call is left unclaimed.
 		if (ref.inline === undefined) return none;
 		ref.claim(cursor, true, true);
 		const blank = isConsumerWhitespace(ref.inline);
@@ -1386,6 +1417,21 @@ export function finishText(ctx: ReadContext): void {
 					ctx.translations.set(unitId, "prose", byLanguage);
 			}
 		}
+
+	// A question whose label is blank in every language and carries no media
+	// has no `<label>` (`builder.ts::buildLabelNodes`, as HQ's form builder
+	// saves it); every question kind holds a label, so it holds the blank one.
+	for (const field of Object.values(next.fields)) {
+		const slots = field as { label?: ProseTemplate };
+		if (
+			slots.label === undefined &&
+			!CONTAINER_KINDS.has(field.kind) &&
+			fieldKindDeclaresKey(field.kind, "label")
+		) {
+			slots.label = structuredClone(EMPTY_PROSE_TEMPLATE);
+			changed = true;
+		}
+	}
 
 	if (!changed) return;
 	const units = snapshotTranslationUnits(next);

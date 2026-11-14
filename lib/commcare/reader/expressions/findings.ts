@@ -23,6 +23,7 @@ import {
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { menuScreenOf, screenChoosesCaseFirst } from "@/lib/domain/menuScreens";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { canonicalProseAtom } from "@/lib/domain/proseExpression";
@@ -31,10 +32,11 @@ import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import type { Uuid } from "@/lib/domain/uuid";
 import { inventoryIndex } from "../../surface/inventory";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
 import type { PendingExpression } from "../pendingExpressions";
+import { readFormSyntax } from "../syntaxRead";
 
 /** The name of every expression slot a registration can stand in. */
 export type SlotName = SlotContextRef["slot"];
@@ -1168,6 +1170,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"forms-and-case-writes/form-filter-reading-case-status-case-id-case-type-owner-id",
 		"schema:Form.form_filter",
 	),
+	"form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first": refuse(
+		"menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first",
+		"schema:Form.form_filter",
+	),
 	"form-filter-referencing-the-case-database-other-than-through": refuse(
 		"forms-and-case-writes/form-filter-referencing-the-case-database-other-than-through",
 		"schema:Form.form_filter",
@@ -1612,26 +1618,31 @@ export const SLOT_ENTRIES: Readonly<Record<SlotName, SlotRow>> = {
  *  one of the case's attributes through a bare `#case`: `#case/@status`,
  *  `#case/@case_id`, `#case/@case_type`, `#case/@owner_id`. HQ's build would
  *  write the hashtag as the case's path and then read a standard property, so
- *  the text is tested before it is interpolated. */
+ *  the text is tested before it is interpolated.
+ *
+ *  The grammar gives a hashtag at least one segment, as HQ's own parser
+ *  does, so no text holding such a read parses whole. The parser's
+ *  error-recovering tree still holds the shape: a `Child` step whose left is
+ *  a `HashtagRef` of the type `case` with no `HashtagSegment`, and whose step
+ *  is an attribute (`AttrSpecified`). */
 export function readsCaseAttributeThroughHashtag(text: string): boolean {
-	let read: ReturnType<typeof readFormSyntax>;
-	try {
-		read = readFormSyntax(text);
-	} catch {
-		return false;
-	}
-	if (!read.ok || read.node === undefined) return false;
 	let found = false;
-	visitSyntax(read.node, (node) => {
-		if (
-			node.kind === "child" &&
-			node.left?.kind === "hashtag" &&
-			node.left.namespace === "case" &&
-			node.left.segments.length === 0 &&
-			node.step.kind === "axis" &&
-			node.step.axis === "attribute"
-		)
-			found = true;
+	parser.parse(text).iterate({
+		enter(at) {
+			if (found) return false;
+			if (at.name !== "Child") return;
+			const node = at.node;
+			const left = node.firstChild;
+			const step = node.lastChild;
+			if (left?.name !== "HashtagRef" || step?.name !== "AttrSpecified") return;
+			const type = left.getChild("HashtagType");
+			if (
+				type !== null &&
+				text.slice(type.from, type.to) === "case" &&
+				left.getChild("HashtagSegment") === null
+			)
+				found = true;
+		},
 	});
 	return found;
 }
@@ -2128,6 +2139,18 @@ function untypedRelation(
 	return identifier;
 }
 
+/** Whether the screen that lists a form chooses a case before it lists the
+ *  form: where it does not, HQ's build interpolates the form's display
+ *  condition in `case` mode and the device evaluates it with no case chosen. */
+function formScreenChoosesCaseFirst(doc: BlueprintDoc, form: Uuid): boolean {
+	const moduleUuid = moduleUuidOfForm(doc, form);
+	return (
+		moduleUuid === undefined ||
+		doc.modules[moduleUuid] === undefined ||
+		screenChoosesCaseFirst(doc, menuScreenOf(doc, moduleUuid))
+	);
+}
+
 /** Whether the menu a form belongs to is a child of a menu whose forms read
  *  the search, and chooses its parent's case from that menu's list. */
 export function childOfInlineSearchMenu(
@@ -2241,6 +2264,16 @@ export function checkErrorEntry(
 			C["results-read-in-form-expressions-reached-through-a-search-that"].entry,
 		);
 	if (error.code === "datum-not-supplied") return answer(M1);
+	if (
+		error.code === "case-data-unavailable" &&
+		ref.entity === "form" &&
+		ref.slot === "form_display_condition" &&
+		!formScreenChoosesCaseFirst(doc, ref.uuid)
+	)
+		return answer(
+			C["form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first"]
+				.entry,
+		);
 	if (
 		searchRow &&
 		error.code === "incompatible-values" &&

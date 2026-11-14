@@ -75,6 +75,16 @@ const BINARY_OPERATORS: Readonly<Record<string, string>> = {
 	UnionExpr: "|",
 };
 
+/** The node a word operator's token makes. A symbol operator's node is named
+ *  by its own text; a word operator's is not, and a step named like the word
+ *  (`mod mod 2`) is a NameTest, never the operator. */
+const WORD_OPERATOR_TOKENS: Readonly<Record<string, string>> = {
+	div: "DivOp",
+	mod: "ModOp",
+	and: "AndOp",
+	or: "OrOp",
+};
+
 function children(node: SyntaxNode): SyntaxNode[] {
 	const result: SyntaxNode[] = [];
 	for (let child = node.firstChild; child !== null; child = child.nextSibling)
@@ -119,6 +129,7 @@ export function readFormSyntax(source: string): FormSyntaxResult {
 			);
 		return read(first);
 	}
+	/** The nodes on each side of every separator token named `separator`. */
 	function split(
 		nodes: readonly SyntaxNode[],
 		separator: string,
@@ -128,8 +139,7 @@ export function readFormSyntax(source: string): FormSyntaxResult {
 		for (const node of nodes) {
 			if (node.name === "(") depth++;
 			if (node.name === ")") depth--;
-			if (depth === 0 && (node.name === separator || text(node) === separator))
-				result.push([]);
+			if (depth === 0 && node.name === separator) result.push([]);
 			else result[result.length - 1].push(node);
 		}
 		return result;
@@ -139,7 +149,7 @@ export function readFormSyntax(source: string): FormSyntaxResult {
 		const nodes = children(node);
 		const op = BINARY_OPERATORS[node.name];
 		if (op !== undefined) {
-			const [left, right] = split(nodes, op);
+			const [left, right] = split(nodes, WORD_OPERATOR_TOKENS[op] ?? op);
 			if (left === undefined || right === undefined)
 				throw new Error("The XPath grammar omitted a binary operand.");
 			return {

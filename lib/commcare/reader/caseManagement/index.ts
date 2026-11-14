@@ -27,11 +27,14 @@ import {
 	activeActions,
 	isMultiSelectMenu,
 	menuMayLoadRegistryCase,
+	type PublishedCaseBlocks,
+	publishedCaseBlocks,
 } from "../../hq/publishedCaseBlocks";
 import { type PlacementSubject, planPlacements } from "../../placement";
 import type { DraftApp, DraftForm, ReadContext } from "../context";
+import { readerDefect } from "../defects";
 import { isJsonObject, sameJson } from "../jsonCursor";
-import { appPlace } from "../place";
+import { appPlace, whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import type { DraftField, ReadXForm } from "../xform";
@@ -46,6 +49,7 @@ import {
 } from "./advancedActions";
 import {
 	basicCaseReading,
+	ownerQuestionPath,
 	readBasicActions,
 	settleDatetimeJoins,
 	writeBasicOperations,
@@ -112,28 +116,12 @@ function object(value: unknown): JsonObject {
 	return isJsonObject(value) ? value : {};
 }
 
-/** A question path of `form`, mapped through each generated node to the
- *  question it belongs to, as a path from the data root. */
-function ownerPath(form: DraftForm, path: unknown): string | null {
-	if (typeof path !== "string" || path === "") return null;
-	const xform = form.xform;
-	if (xform === null) return path;
-	const root = xform.parsed.dataRoot.name;
-	const relative = path.startsWith(`/${root}/`)
-		? path.slice(root.length + 2)
-		: path;
-	const node = xform.nodes.get(relative);
-	const role = node === undefined ? undefined : xform.roles.get(node);
-	if (role?.kind === "generated") return role.owner.path.join("/");
-	return relative;
-}
-
 function condition(form: DraftForm, stored: unknown): unknown {
 	const value = object(stored);
 	const type = value.type ?? "never";
 	if (type !== "if") return type;
 	return {
-		question: ownerPath(form, value.question),
+		question: ownerQuestionPath(form, value.question),
 		answer: value.answer ?? null,
 		operator: value.operator ?? "=",
 	};
@@ -149,7 +137,7 @@ function updates(
 		.map(([key, update]) => {
 			const one = object(update);
 			const mode = one.update_mode === "edit" && applied ? "edit" : "always";
-			return [key, ownerPath(form, one.question_path), mode] as const;
+			return [key, ownerQuestionPath(form, one.question_path), mode] as const;
 		})
 		.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
@@ -210,7 +198,7 @@ function comparable(
 		open_case: opens
 			? {
 					condition: condition(form, open.condition),
-					name: ownerPath(form, object(open.name_update).question_path),
+					name: ownerQuestionPath(form, object(open.name_update).question_path),
 				}
 			: null,
 		update_case: updates(form, updateMap, applied),
@@ -221,9 +209,12 @@ function comparable(
 			const subcase = object(one);
 			return {
 				case_type: subcase.case_type ?? null,
-				name: ownerPath(form, object(subcase.name_update).question_path),
+				name: ownerQuestionPath(
+					form,
+					object(subcase.name_update).question_path,
+				),
 				case_properties: updates(form, subcase.case_properties, applied),
-				repeat_context: ownerPath(form, subcase.repeat_context),
+				repeat_context: ownerQuestionPath(form, subcase.repeat_context),
 				condition: condition(form, subcase.condition),
 				close_condition: condition(form, subcase.close_condition),
 			};
@@ -264,6 +255,7 @@ function settleConditions(
 			{ own: condition.own, repeat: condition.repeat?.uuid },
 			form,
 		);
+		// A question that names no question of the form is pass 1's finding.
 		if (read.kind === "finding") {
 			ok = false;
 			continue;
@@ -416,6 +408,10 @@ function settleBasicForm(
 	form: DraftForm,
 ): void {
 	if (!settleConditions(ctx, doc, form)) return;
+	// A finding at the form already stands for every key pass 1 refused there,
+	// which the draft leaves out and the stored actions hold: comparing the two
+	// would name that cause a second time.
+	if (ctx.accounting.hasFindingAt(form.place)) return;
 	const inputs = readProjectionInputs(ctx);
 	let planned: ReturnType<typeof planFormCaseWire>;
 	try {
@@ -424,7 +420,11 @@ function settleBasicForm(
 			attachmentTarget: inputs.attachmentTarget,
 		});
 	} catch {
-		unrecognized(ctx, form, "planFormCaseWire");
+		ctx.accounting.defect(
+			form.place,
+			`schema:${form.docType}.actions`,
+			readerDefect.emissionThrew(form.place, "planFormCaseWire"),
+		);
 		return;
 	}
 	if (planned.kind !== "basic") {
@@ -504,11 +504,14 @@ export function compareEntryFacts(ctx: ReadContext, app: DraftApp): void {
 	try {
 		emitted = hqEntryFacts(expandDoc(doc, readProjectionInputs(ctx)));
 	} catch {
-		ctx.accounting.circumstance("unrecognized", appPlace(), {
-			name: "expandDoc",
-		});
+		ctx.accounting.defect(
+			appPlace(),
+			"schema:Application.modules",
+			readerDefect.emissionThrew(appPlace(), "expandDoc"),
+		);
 		return;
 	}
+	let blocks: PublishedCaseBlocks | undefined;
 	// A slot a finding of a structure stage left absent is why its fact
 	// differs; that finding already sends the person there.
 	const raise = (place: DraftForm["place"], key: string) => {
@@ -533,10 +536,11 @@ export function compareEntryFacts(ctx: ReadContext, app: DraftApp): void {
 			if (facts === undefined || ours === undefined) continue;
 			const key = entryFactsDifference(facts, ours);
 			if (key === undefined) continue;
-			if (key === "loads" && !ctx.accounting.hasFindingAt(form.place)) {
-				// A load whose only difference is its tag, on a load that changes no
-				// case, is a tag Nova would not derive; any other is not the menu's chain.
-				const tagOnly =
+			if (key === "loads") {
+				// Loads that differ only in tags, each on a load for which HQ's build
+				// writes no block, carry tags Nova would not derive; any other
+				// difference is not the menu's one chain.
+				const sameButTags =
 					facts.loads.length === ours.loads.length &&
 					facts.loads.every((load, i) => {
 						const other = ours.loads[i];
@@ -548,17 +552,39 @@ export function compareEntryFacts(ctx: ReadContext, app: DraftApp): void {
 							)
 						);
 					});
-				const differing = facts.loads.find(
+				const differing = facts.loads.filter(
 					(load, i) => load.tag !== ours.loads[i]?.tag,
 				);
-				ctx.accounting.finding(
-					tagOnly ? ADVANCED_CLAIMS.underivedTag : ADVANCED_CLAIMS.notOneChain,
-					form.place,
-					{
-						name:
-							differing?.tag ?? facts.loads[facts.loads.length - 1]?.tag ?? "",
-					},
+				blocks ??= publishedCaseBlocks(ctx.input.source.raw);
+				const written = new Set(
+					(blocks.forms.get(form.xmlns)?.blocks ?? []).flatMap((block) =>
+						block.kind === "advanced" && block.action === "load"
+							? [block.tag]
+							: [],
+					),
 				);
+				const underived =
+					sameButTags &&
+					differing.length > 0 &&
+					differing.every((load) => !written.has(load.tag));
+				const claim = underived
+					? ADVANCED_CLAIMS.underivedTag
+					: ADVANCED_CLAIMS.notOneChain;
+				// One class is one finding: pass 1 may have raised it at the form.
+				const standing = ctx.accounting
+					.findings()
+					.some(
+						(one) =>
+							one.code === claim.entry &&
+							whereText(one.place) === whereText(form.place),
+					);
+				if (!standing)
+					ctx.accounting.finding(claim, form.place, {
+						name:
+							differing[0]?.tag ??
+							facts.loads[facts.loads.length - 1]?.tag ??
+							"",
+					});
 			} else if (key === "moduleKind") {
 				if (!ctx.accounting.hasFindingAt(module.place))
 					ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, module.place);

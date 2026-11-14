@@ -21,7 +21,7 @@
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { planDatetimeSplits } from "@/lib/doc/datetimeSplit";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -35,6 +35,8 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { PLATFORM_FEATURE_FIXTURES } from "@/lib/domain/__tests__/platformFeatureFixtures";
+import { caseOperationFixture } from "../../__tests__/caseOperationFixture";
+import { expandDoc } from "../../expander";
 import { placementsToHold } from "../../placementHolds";
 import { assembleDocument, READER_CANONICAL_CHOICES } from "../assemble";
 import { catalogAsRead } from "../caseManagement/catalog";
@@ -137,6 +139,68 @@ describe("the assembly", () => {
 		expect(draft.facts.forms.map((one) => one.xmlns)).toEqual(
 			draft.identities.forms.map((one) => one.xmlns),
 		);
+	});
+
+	it("names a folded registration form under the hidden menu HQ holds it in", async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					caseSearchConfig: { formsReadSearch: true },
+					caseListRegistrationForm: { formUuid: "reg" },
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "notes",
+									caseWrite: { caseType: "patient", property: "notes" },
+								}),
+							],
+						},
+						{
+							uuid: "reg",
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const body = exportedBody(doc);
+		const ctx = await beforeAssembly(body);
+		assembleDocument(ctx);
+		const draft = ctx.assembled;
+		if (draft === undefined)
+			throw new Error(JSON.stringify(ctx.close().findings));
+		// HQ holds each form in the menu its JSON lists it under: the registration in the hidden menu.
+		const held = (body.modules as Record<string, unknown>[]).flatMap((menu) =>
+			(menu.forms as Record<string, unknown>[]).map((form) => ({
+				xmlns: form.xmlns,
+				moduleUniqueId: menu.unique_id,
+			})),
+		);
+		expect(held).toHaveLength(2);
+		expect(new Set(held.map((one) => one.moduleUniqueId)).size).toBe(2);
+		expect(
+			draft.identities.forms.map(({ xmlns, moduleUniqueId }) => ({
+				xmlns,
+				moduleUniqueId,
+			})),
+		).toEqual(held);
 	});
 
 	it("gives no draft for a document the schema refuses, and says so", async () => {
@@ -471,6 +535,73 @@ describe("the reader's canonical choices", () => {
 		]);
 	});
 
+	it("drops every plain flag in a form whose text formatting is off, a choice's alike, and keeps one elsewhere", () => {
+		const selectForm = (name: string) => ({
+			name,
+			type: "survey" as const,
+			fields: [
+				f({
+					kind: "single_select",
+					id: "pick",
+					label: "Pick",
+					help: "Help",
+					options: [
+						{ value: "a", label: "A" },
+						{ value: "b", label: "B" },
+					],
+				}),
+			],
+		});
+		const doc = produce(
+			buildDoc({
+				modules: [
+					{
+						name: "Survey",
+						forms: [selectForm("Plain"), selectForm("Formatted")],
+					},
+				],
+			}),
+			(draft) => {
+				for (const form of Object.values(draft.forms))
+					if (form.name === "Plain") form.plainText = true;
+				for (const field of Object.values(draft.fields)) {
+					const pick = field as unknown as Record<string, unknown> & {
+						optionsSource: { options: Record<string, unknown>[] };
+					};
+					pick.plainLabel = true;
+					pick.plainHelp = true;
+					const [first] = pick.optionsSource.options;
+					if (first !== undefined) first.plainLabel = true;
+				}
+			},
+		);
+		const read = choice("plain-flag-under-plain-text-is-absent").apply(doc);
+		const flagsIn = (formName: string) => {
+			const form = Object.entries(read.forms).find(
+				([, one]) => one.name === formName,
+			)?.[0] as Uuid;
+			const pick = read.fields[
+				read.fieldOrder[form]?.[0] as Uuid
+			] as unknown as {
+				plainLabel?: true;
+				plainHelp?: true;
+				optionsSource: { options: { plainLabel?: true }[] };
+			};
+			return [
+				pick.plainLabel,
+				pick.plainHelp,
+				...pick.optionsSource.options.map((one) => one.plainLabel),
+			];
+		};
+		expect(flagsIn("Plain")).toEqual([
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		]);
+		expect(flagsIn("Formatted")).toEqual([true, true, true, undefined]);
+	});
+
 	it("drops a required condition on the question that names a created case", () => {
 		const doc = produce(caseApp(), (draft) => {
 			const name = Object.values(draft.fields).find(
@@ -487,6 +618,37 @@ describe("the reader's canonical choices", () => {
 		expect(note).toEqual(
 			Object.values(doc.fields).find((one) => one.id === "note"),
 		);
+	});
+
+	it("reads an opened case's acting-user owner as none, the two printing one source, and keeps an update's", () => {
+		const doc = caseOperationFixture("sequence");
+		const operations = () =>
+			Object.values(doc.forms).flatMap((form) => form.caseOperations ?? []);
+		const create = operations().find((one) => one.action === "create");
+		expect(create).toMatchObject({ owner: { kind: "acting-user" } });
+		const read = choice("opened-case-owner-acting-user-is-absent").apply(doc);
+		const readCreate = Object.values(read.forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.find((one) => one.uuid === create?.uuid);
+		expect(readCreate).not.toHaveProperty("owner");
+		expect(expandDoc(read)).toEqual(expandDoc(doc));
+		const updating = produce(doc, (draft) => {
+			const update = Object.values(draft.forms)
+				.flatMap((form) => form.caseOperations ?? [])
+				.find((one) => one.action === "update") as
+				| { owner?: unknown }
+				| undefined;
+			if (update === undefined) throw new Error("The fixture has no update.");
+			update.owner = { kind: "acting-user" };
+		});
+		const kept = choice("opened-case-owner-acting-user-is-absent").apply(
+			updating,
+		);
+		expect(
+			Object.values(kept.forms)
+				.flatMap((form) => form.caseOperations ?? [])
+				.find((one) => one.action === "update"),
+		).toMatchObject({ owner: { kind: "acting-user" } });
 	});
 
 	it("holds the catalog the reader derives, and every placement the emission derives", () => {

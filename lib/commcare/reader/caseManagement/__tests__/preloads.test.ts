@@ -436,3 +436,55 @@ describe("a case preload, read as the question's default", () => {
 		);
 	});
 });
+
+describe("a case preload on a form that requires no case", () => {
+	async function onSurvey(preload: Record<string, string>) {
+		return readCases(
+			buildDoc({
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								name: "Feedback",
+								type: "survey",
+								fields: [f({ kind: "text", id: "q", uuid: Q })],
+							},
+						],
+					},
+				],
+			}),
+			{
+				edit: (app) => {
+					const actions = app.modules[0]?.forms[0]?.actions as Record<
+						string,
+						unknown
+					>;
+					actions.case_preload = {
+						doc_type: "PreloadAction",
+						preload,
+						condition: { type: "always", doc_type: "FormActionCondition" },
+					};
+				},
+			},
+		);
+	}
+	const REFUSED =
+		"forms-and-case-writes/case-preload-on-a-requires-none-form-naming-a-reserved-or";
+	const INERT =
+		"forms-and-case-writes/case-preload-active-on-a-requires-none-form-naming-valid";
+
+	it("drops a map whose properties HQ's grammar holds, its index steps included", async () => {
+		const reading = await onSurvey({ "/data/q": "parent/dob" });
+		expect(reading.findings.map((one) => one.code)).not.toContain(REFUSED);
+		expect(entriesOf(reading)).toContain(INERT);
+	});
+
+	it("refuses a property outside HQ's grammar and one whose last step is a reserved word", async () => {
+		for (const property of ["dob+1", "parent/2nd", "parent/case_id"]) {
+			const reading = await onSurvey({ "/data/q": property });
+			expect(reading.findings.map((one) => one.code)).toContain(REFUSED);
+		}
+	});
+});

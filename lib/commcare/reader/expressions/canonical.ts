@@ -8,7 +8,10 @@
  * slot. Nothing here parses or prints.
  */
 import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
-import type { ExpressionContext } from "@/lib/domain/expression/context";
+import {
+	activeRowScope,
+	type ExpressionContext,
+} from "@/lib/domain/expression/context";
 import { formNodeGraph } from "@/lib/domain/expression/formNodes";
 import {
 	comparisonOperands,
@@ -19,18 +22,21 @@ import {
 	literalInstantText,
 } from "@/lib/domain/expression/instantOperand";
 import { mapExpressionChildren } from "@/lib/domain/expression/mapAst";
+import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
 } from "@/lib/domain/expression/simplify";
 import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
-import type {
-	CheckPath,
-	Expression,
-	FormNodeRef,
-	Literal,
-	SwitchCase,
-	Term,
+import {
+	type CheckPath,
+	type Expression,
+	type FormNodeRef,
+	isRelationPath,
+	type Literal,
+	type RelationPath,
+	type SwitchCase,
+	type Term,
 } from "@/lib/domain/expression/types";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain/forms";
 import { userPropertySlugVerdict } from "../../validator/userPropertySlug";
@@ -898,6 +904,52 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 					: undefined;
 			if (input?.kind !== "input") return undefined;
 			return { kind: "when-input-present", input, clause: node.then };
+		},
+	},
+	{
+		// A relation step or path the catalog resolves prints with the type it
+		// reaches, as every target normalizes it first
+		// (`normalizeRelationEvaluationScopes.ts::canonicalizeRelationPath`):
+		// an untyped `parent` step names its catalog parent, a subcase or any
+		// relation its one destination, and an any-relation over `parent`
+		// that reaches only one direction is that direction.
+		id: "relation-type",
+		rewrite(node, context) {
+			const row = activeRowScope(context);
+			const rowType = row?.kind === "case" ? row.caseType : undefined;
+			const typed = (
+				via: RelationPath,
+				origin: string | undefined,
+			): RelationPath | undefined => {
+				if (via.kind === "self") return undefined;
+				try {
+					const canonical = canonicalizeRelationPath(via, {
+						caseTypes: context.facts.caseTypes,
+						...(origin === undefined ? {} : { currentCaseType: origin }),
+					}).via;
+					return sameTree(canonical, via) ? undefined : canonical;
+				} catch {
+					// A path the catalog cannot resolve is the checker's to refuse.
+					return undefined;
+				}
+			};
+			const term = termOf(node);
+			if (term?.kind === "prop" && term.via !== undefined) {
+				const via = typed(term.via, rowType ?? term.caseType);
+				return via === undefined
+					? undefined
+					: { kind: "term", term: { ...term, via } };
+			}
+			if (
+				(node.kind === "exists" ||
+					node.kind === "missing" ||
+					node.kind === "count") &&
+				isRelationPath(node.via)
+			) {
+				const via = typed(node.via, rowType);
+				return via === undefined ? undefined : { ...node, via };
+			}
+			return undefined;
 		},
 	},
 ];

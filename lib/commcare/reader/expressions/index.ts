@@ -16,6 +16,7 @@ import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { slotContext } from "@/lib/domain/expression/context";
+import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import {
 	type CheckError,
 	checkExpression,
@@ -25,6 +26,7 @@ import {
 	type Expression,
 	type ItextUnit,
 	isProseSlotRef,
+	type RelationPath,
 	type SlotContextRef,
 	type Term,
 	XML_ELEMENT_NAME_PATTERN,
@@ -42,6 +44,7 @@ import {
 	FORM_REFERENCE_SLOTS,
 	MODULE_REFERENCE_SLOTS,
 } from "@/lib/domain/referenceSlots";
+import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { checkCsqlRepresentability } from "../../csql/representability";
@@ -54,9 +57,10 @@ import {
 	formDisplayCondition,
 	moduleDisplayCondition,
 } from "../../validator/rules/displayConditions";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { noteProperty } from "../caseManagement/catalog";
 import type { PendingExpression } from "../pendingExpressions";
+import { readFormSyntax } from "../syntaxRead";
 import type { ReadSourceNames } from "../xform";
 import { readSearchFilterRow } from "./csqlRead";
 import {
@@ -609,6 +613,7 @@ export function readExpressions(
 			refused.delete(index);
 		}
 	};
+	const bindable: number[] = [];
 	pending.forEach((registration, index) => {
 		if (!live[index]) return;
 		if (registration.mode.target === "search-row") {
@@ -632,97 +637,132 @@ export function readExpressions(
 			rawRefusals.set(index, raw);
 			return;
 		}
-		bindAt(base, index);
+		bindable.push(index);
 	});
+	// The trees step 4 holds at the second level, which every slot is judged
+	// against once they differ from what the slot bound.
+	let settled = new Map<number, Expression>();
 	const treesOf = (): Map<number, Expression> =>
-		new Map([...bindings].map(([index, bound]) => [index, bound.candidate]));
-	let current = written(base, pending, sites, treesOf());
+		new Map([
+			...[...bindings].map(
+				([index, bound]) => [index, bound.candidate] as const,
+			),
+			...settled,
+		]);
+	let current = base;
 	let judgments = new Map<number, SlotJudgment>();
 	let rounds = 0;
+	let outcomes = new Map<number, Outcome>();
+	let rewrites: ExpressionReading["rewrites"][number][] = [];
+	let leveled = new Map<number, Expression>();
 	for (;;) {
-		rounds++;
-		judgments = new Map(
-			[...bindings].map(([index, bound]) => [
-				index,
-				judgeSlot(current, pending[index] as PendingExpression, env, bound),
-			]),
-		);
-		const withdrawing = [...judgments].flatMap(([index, judgment]) =>
-			judgment.kind === "bound" &&
-			!judgment.equal &&
-			judgment.withdraw !== undefined
-				? [[index, judgment.withdraw] as const]
-				: [],
-		);
-		if (withdrawing.length === 0 || rounds >= EXPRESSION_ROUND_LIMIT) break;
-		for (const [index, site] of withdrawing) {
-			withdrawn[index]?.add(site);
-			bindAt(current, index);
-		}
-		current = written(base, pending, sites, treesOf());
-	}
-
-	// 4. Level: a slot still unequal is compared with the print that leaves
-	// every rewrite out, and held at that level as the tree Nova's own print
-	// reads back as.
-	const outcomes = new Map<number, Outcome>();
-	const circumstances: ExpressionReading["circumstances"][number][] = [];
-	const rewrites: ExpressionReading["rewrites"][number][] = [];
-	const leveled = new Map<number, Expression>();
-	for (const [index, judgment] of judgments) {
-		const registration = pending[index] as PendingExpression;
-		const bound = bindings.get(index) as BoundSlot;
-		if (judgment.kind === "unprintable") continue;
-		if (judgment.kind === "refused") continue;
-		if (judgment.equal) {
-			outcomes.set(index, { kind: "held", tree: judgment.candidate });
-			continue;
-		}
-		const reached = new Set<EmissionRewriteId>();
-		const withheld = judgeSlot(current, registration, env, bound, {
-			withhold: WITHHOLD_ALL,
-			reached: (id) => reached.add(id),
+		const start =
+			settled.size === 0 ? base : written(base, pending, sites, settled);
+		// A leveled slot keeps the sites it withdrew; every other slot is
+		// offered its folds again over the leveled document.
+		withdrawn.forEach((taken, index) => {
+			if (!settled.has(index)) taken.clear();
 		});
-		if (withheld.kind === "bound" && withheld.equal) {
-			const tree = readBack(current, registration, env, bound.candidate);
-			leveled.set(index, tree);
-			outcomes.set(index, { kind: "held", tree });
-			for (const id of EMISSION_REWRITE_IDS)
-				if (reached.has(id) && EMISSION_REWRITES[id].behavior === "changes")
-					rewrites.push({
-						id,
-						place: registration.place,
-						key: registration.key,
-					});
-			continue;
+		for (const index of bindable) bindAt(start, index);
+		current = written(base, pending, sites, treesOf());
+		for (;;) {
+			rounds++;
+			judgments = new Map(
+				[...bindings].map(([index, bound]) => [
+					index,
+					judgeSlot(current, pending[index] as PendingExpression, env, bound),
+				]),
+			);
+			const withdrawing = [...judgments].flatMap(([index, judgment]) =>
+				judgment.kind === "bound" &&
+				!judgment.equal &&
+				judgment.withdraw !== undefined
+					? [[index, judgment.withdraw] as const]
+					: [],
+			);
+			if (withdrawing.length === 0 || rounds >= EXPRESSION_ROUND_LIMIT) break;
+			for (const [index, site] of withdrawing) {
+				withdrawn[index]?.add(site);
+				bindAt(current, index);
+			}
+			current = written(base, pending, sites, treesOf());
 		}
-		const relation =
-			slotContext(current, registration.ref, types)?.ruleSet === "record"
-				? untypedRelationStep(judgment.candidate)
-				: undefined;
-		if (relation !== undefined) {
-			// HQ's `#host` join: the relation Nova holds it as is not built yet,
-			// so the slot is not yet held, under its own entry.
+
+		// 4. Level: a slot still unequal is compared with the print that leaves
+		// every rewrite out, and held at that level as the tree Nova's own print
+		// reads back as.
+		outcomes = new Map<number, Outcome>();
+		rewrites = [];
+		leveled = new Map<number, Expression>();
+		for (const [index, judgment] of judgments) {
+			const registration = pending[index] as PendingExpression;
+			const bound = bindings.get(index) as BoundSlot;
+			if (judgment.kind === "unprintable") continue;
+			if (judgment.kind === "refused") continue;
+			if (judgment.equal) {
+				outcomes.set(index, { kind: "held", tree: judgment.candidate });
+				continue;
+			}
+			const reached = new Set<EmissionRewriteId>();
+			const withheld = judgeSlot(current, registration, env, bound, {
+				withhold: WITHHOLD_ALL,
+				reached: (id) => reached.add(id),
+			});
+			if (withheld.kind === "bound" && withheld.equal) {
+				const tree = readBack(current, registration, env, bound.candidate);
+				leveled.set(index, tree);
+				outcomes.set(index, { kind: "held", tree });
+				for (const id of EMISSION_REWRITE_IDS)
+					if (reached.has(id) && EMISSION_REWRITES[id].behavior === "changes")
+						rewrites.push({
+							id,
+							place: registration.place,
+							key: registration.key,
+						});
+				continue;
+			}
+			const relation =
+				slotContext(current, registration.ref, types)?.ruleSet === "record"
+					? untypedRelationStep(judgment.candidate)
+					: undefined;
+			if (relation !== undefined) {
+				// HQ's `#host` join: the relation Nova holds it as is not built yet,
+				// so the slot is not yet held, under its own entry.
+				outcomes.set(index, {
+					kind: "refused",
+					resolution: {
+						kind: "entry",
+						entryId: slotDefault(current, registration.ref, () => M3),
+						reason: XML_ELEMENT_NAME_PATTERN.test(relation)
+							? `relation:${relation}`
+							: "name:index-identifier",
+					},
+				});
+				continue;
+			}
 			outcomes.set(index, {
 				kind: "refused",
 				resolution: {
-					kind: "entry",
-					entryId: slotDefault(current, registration.ref, () => M3),
-					reason: XML_ELEMENT_NAME_PATTERN.test(relation)
-						? `relation:${relation}`
-						: "name:index-identifier",
+					kind: "unrecognized",
+					reason: `differs:${(judgment.difference ?? judgment.source).kind}`,
 				},
 			});
-			continue;
 		}
-		outcomes.set(index, {
-			kind: "refused",
-			resolution: {
-				kind: "unrecognized",
-				reason: `differs:${(judgment.difference ?? judgment.source).kind}`,
-			},
-		});
+		// A tree held at the second level can type a Hidden Value otherwise
+		// than the tree its slot bound, and with it how another slot prints:
+		// every slot is bound and judged again against a document holding the
+		// leveled trees, until leveling holds the trees that document holds.
+		const again =
+			leveled.size !== settled.size ||
+			[...leveled].some(
+				([index, tree]) =>
+					JSON.stringify(tree) !==
+					JSON.stringify(settled.get(index) ?? bindings.get(index)?.candidate),
+			);
+		if (!again || rounds >= EXPRESSION_ROUND_LIMIT) break;
+		settled = leveled;
 	}
+	const circumstances: ExpressionReading["circumstances"][number][] = [];
 	const checked =
 		leveled.size === 0
 			? current
@@ -774,11 +814,8 @@ export function readExpressions(
 				kind: "refused",
 				resolution:
 					display === undefined
-						? // With no print, the trees differ at the source's root.
-							{
-								kind: "unrecognized",
-								reason: `differs:${judgment.source.kind}`,
-							}
+						? // The emitter wrote no print to compare the source with.
+							{ kind: "unrecognized", reason: "differs:print" }
 						: {
 								kind: "entry",
 								entryId: slotDefault(checked, registration.ref, () => M3),
@@ -1007,16 +1044,30 @@ export function readExpressions(
 		...searchTrees,
 	])
 		walkExpressionTerms(tree, (term) => {
-			if (term.kind === "session-user") userFields.add(term.field);
+			// A field CommCare HQ writes on every worker's own case
+			// (`callcenter/sync_usercase.py::_get_user_case_fields`) is no
+			// worker property: the read stays the name-backed leaf.
+			if (
+				term.kind === "session-user" &&
+				!(
+					term.source === "worker-record" &&
+					USERCASE_BUILT_IN_KEYS.includes(term.field)
+				)
+			)
+				userFields.add(term.field);
 		});
+	// A relation read names the type it walks from; the property it reads is
+	// the type's the relation reaches.
 	const reads = new Set<string>();
 	for (const tree of [...held.values(), ...searchTrees])
 		walkExpressionTerms(tree, (term) => {
-			if (
-				(term.kind === "prop" || term.kind === "form-case") &&
-				term.caseType !== undefined
-			)
-				reads.add(JSON.stringify([term.caseType, term.property]));
+			if (term.kind !== "prop" && term.kind !== "form-case") return;
+			const caseType =
+				term.kind === "prop" && term.via !== undefined
+					? relationDestination(base, term.caseType, term.via)
+					: term.caseType;
+			if (caseType !== undefined)
+				reads.add(JSON.stringify([caseType, term.property]));
 		});
 	const unread = declaredProperties.filter(
 		(read) => !reads.has(JSON.stringify([read.caseType, read.property])),
@@ -1050,6 +1101,24 @@ export function readExpressions(
 		ownerless: ownerless.sort((a, b) => a - b),
 		rounds,
 	};
+}
+
+/** The case type a relation read reaches from `origin`, by its steps' own
+ *  types and the catalog; undefined where the catalog does not resolve it. */
+function relationDestination(
+	doc: BlueprintDoc,
+	origin: string | undefined,
+	via: RelationPath,
+): string | undefined {
+	if (via.kind === "self") return origin;
+	try {
+		return canonicalizeRelationPath(via, {
+			caseTypes: doc.caseTypes ?? [],
+			...(origin === undefined ? {} : { currentCaseType: origin }),
+		}).destinationCaseType;
+	} catch {
+		return undefined;
+	}
 }
 
 /** A registration's text as the one grammar reads it, before HQ's

@@ -28,6 +28,7 @@ import {
 import { bindExpressions } from "./provisional";
 import { readSearches, settleSearches } from "./search";
 import { readStructure } from "./structure";
+import { countingSyntaxReads } from "./syntaxRead";
 import type { ReaderInput, ReaderOptions, ReadOutcome } from "./types";
 import { mintFields, readForms } from "./xform";
 import { finishForms } from "./xform/afterBinding";
@@ -78,7 +79,9 @@ export function readHqApp(
 			`The reader was given ${input.modules.length} aligned menus for a source that holds ${input.source.modules.length}. Pass the menus of the same reading the source came from.`,
 		);
 	const ctx = createReadContext(input, options, inventoryIndex());
-	for (const stage of STAGES) stage(ctx);
+	countingSyntaxReads(ctx.accounting, () => {
+		for (const stage of STAGES) stage(ctx);
+	});
 	const { findings, work, claims, defects } = ctx.close();
 	if (findings.length > 0)
 		return {

@@ -5,10 +5,12 @@
  * filter, an advanced field's condition, a simple field's derived match); a
  * row Nova does not write is unmatched and a row Nova writes that the source
  * lacks is extra; a row whose root is `and` reads as its conjuncts and
- * matches the run of rows Nova writes for them, in Nova's order. The
- * failures this catches: Nova's own rows not matched exact, a filter's clause
- * that reads a Search field reported as a field's row, and a conjunction read
- * as one predicate.
+ * matches the run of rows Nova writes for them, in Nova's order; a row read
+ * on its own names, held or refused, each use its CSQL makes under the entry
+ * whose value class takes it. The failures this catches: Nova's own rows not
+ * matched exact, a filter's clause that reads a Search field reported as a
+ * field's row, a conjunction read as one predicate, and a row whose operators,
+ * functions and metadata names reach no claim.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -34,6 +36,11 @@ import {
 	rowContext,
 	rowEnv,
 } from "./csqlVectors";
+
+const TYPED_RIGHT_SIDE =
+	"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v";
+const DATE_ONLY =
+	"case-search/date-only-comparison-on-date-opened-closed-on-last-modified";
 
 const village = prop("patient", "village");
 const age = prop("patient", "age");
@@ -135,11 +142,54 @@ describe("a row read on its own", () => {
 			rowContext(doc),
 			rowEnv(doc),
 		);
-		expect(reading).toEqual({
+		expect(reading).toMatchObject({
 			ok: true,
 			conjuncts: [eq(village, term(literal("a"))), gt(age, term(literal(3)))],
 			rewrites: [],
 		});
+	});
+
+	it("names each use a held row's CSQL makes under the entry whose value class takes it", () => {
+		const doc = csqlVectorDoc();
+		const reading = readSearchRowConjuncts(
+			csqlRow("village = 'a' and age > 3"),
+			rowContext(doc),
+			rowEnv(doc),
+		);
+		expect(reading.ok).toBe(true);
+		expect(reading.uses).toEqual(
+			expect.arrayContaining([
+				{ key: "csql-op:and", entryId: "case-search/and-or-parentheses" },
+				{ key: "csql-op:=", entryId: TYPED_RIGHT_SIDE },
+				{ key: "csql-op:>", entryId: TYPED_RIGHT_SIDE },
+			]),
+		);
+	});
+
+	it("names the uses of a refused row too, a system date against a date by the project's day", () => {
+		const doc = csqlVectorDoc();
+		const reading = readSearchRowConjuncts(
+			csqlRow("date_opened > '2024-01-01'"),
+			rowContext(doc),
+			rowEnv(doc),
+		);
+		expect(reading).toMatchObject({
+			ok: false,
+			claim: { entryId: DATE_ONLY, key: "csql-metadata:date_opened" },
+		});
+		expect(reading.uses).toEqual(
+			expect.arrayContaining([
+				{ key: "csql-op:>", entryId: TYPED_RIGHT_SIDE },
+				{ key: "csql-metadata:date_opened", entryId: DATE_ONLY },
+			]),
+		);
+	});
+
+	it("names no use of a row the grammar cannot read", () => {
+		const doc = csqlVectorDoc();
+		expect(
+			readSearchRowConjuncts("village = ", rowContext(doc), rowEnv(doc)).uses,
+		).toEqual([]);
 	});
 
 	it("answers a refusal as the row's own reading does", () => {

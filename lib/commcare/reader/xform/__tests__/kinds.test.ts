@@ -16,7 +16,11 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
-import { proseText } from "@/lib/domain";
+import {
+	type LookupColumnId,
+	type LookupTableId,
+	proseText,
+} from "@/lib/domain";
 import { type FieldKind, fieldKinds } from "@/lib/domain/fields";
 import { buildXForm } from "../../../xform/builder";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
@@ -24,8 +28,10 @@ import { readHqApp } from "../../index";
 import { FIELD_KIND_ROWS, type FieldKindFacts, fieldKindOf } from "../kinds";
 import {
 	codesAt,
+	formFindings,
 	readFields,
 	readForm,
+	unrecognizedAt,
 	XMLNS,
 	xformSource,
 } from "./formReading";
@@ -426,9 +432,110 @@ describe("a data node with element children and no control", () => {
 	});
 });
 
+describe("text on a question's data node", () => {
+	it("is a default data value unless Java's trim empties it, so a no-break space is one", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<a>\u00a0</a><b> \t\n </b>",
+				model:
+					'<bind nodeset="/data/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/>',
+				body: '<input ref="/data/a"/><input ref="/data/b"/>',
+			}),
+		);
+		expect(codesAt(reading, "a")).toContain(
+			Q("default-data-value-datavalue-instance-text"),
+		);
+		expect(codesAt(reading, "b")).not.toContain(
+			Q("default-data-value-datavalue-instance-text"),
+		);
+	});
+});
+
+describe("a question refused by its bind type", () => {
+	it("names a bind type Vellum does not write on an input, and only that", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<a/>",
+				model: '<bind nodeset="/data/a" type="xsd:gYear"/>',
+				body: '<input ref="/data/a"/>',
+			}),
+		);
+		expect(
+			formFindings(reading)
+				.filter(
+					(finding) =>
+						finding.code ===
+						Q("input-whose-bind-type-vellum-does-not-write-xsd-decimal-xsd"),
+				)
+				.map((finding) => finding.detail.name),
+		).toEqual(["xsd:gYear"]);
+	});
+});
+
+describe("a select's choices", () => {
+	it("refuses a choice's value without quoting it", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<c/>",
+				model: '<bind nodeset="/data/c" type="xsd:string"/>',
+				body: `<select1 ref="/data/c"><item><label>A</label><value>a b</value></item><item><label>B</label><value>it's"x"</value></item></select1>`,
+			}),
+		);
+		const refused = formFindings(reading).filter((finding) =>
+			[
+				Q("choice-value-with-whitespace-empty-or-duplicated"),
+				Q("choice-value-holding-both-an-apostrophe-and-a-double-quote"),
+			].includes(finding.code),
+		);
+		expect(refused.map((finding) => finding.code).sort()).toEqual([
+			Q("choice-value-holding-both-an-apostrophe-and-a-double-quote"),
+			Q("choice-value-with-whitespace-empty-or-duplicated"),
+		]);
+		expect(refused.map((finding) => finding.detail.name)).toEqual([
+			undefined,
+			undefined,
+		]);
+	});
+
+	it("names only the ref whose column a lookup table lacks, once", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<city/>",
+				model:
+					'<instance id="cities" src="jr://fixture/item-list:cities"/><bind nodeset="/data/city" type="xsd:string"/>',
+				body: `<select1 ref="/data/city"><itemset nodeset="instance('cities')/cities_list/cities"><label ref="name"/><value ref="code"/></itemset></select1>`,
+			}),
+			{
+				lookup: {
+					table: (tag) =>
+						tag === "cities"
+							? {
+									tableId: "table-cities" as LookupTableId,
+									column: (name) =>
+										name === "name"
+											? ("column-name" as LookupColumnId)
+											: undefined,
+								}
+							: undefined,
+					definitions: new Map(),
+				},
+			},
+		);
+		expect(unrecognizedAt(reading, "city")).toEqual([
+			"xform:itemset/value@ref",
+		]);
+	});
+});
+
 describe("a select whose choices are the worker's cases, read whole", () => {
 	/** The findings a whole reading of a document of one such select leaves at its question. */
-	async function questionFindings(filter: string | undefined) {
+	async function questionFindings(
+		filter: string | undefined,
+		options: {
+			readonly labelProperty?: string;
+			readonly xml?: (xml: string) => string;
+		} = {},
+	) {
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -457,7 +564,7 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 									optionsSource: {
 										kind: "cases",
 										caseType: "clinic",
-										labelProperty: "case_name",
+										labelProperty: options.labelProperty ?? "case_name",
 										...(filter === undefined ? {} : { filter }),
 									},
 								} as FieldSpec),
@@ -467,7 +574,14 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 				},
 			],
 		});
-		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		const outcome = readHqApp(
+			await inputFor(
+				exportedBody(
+					doc,
+					options.xml === undefined ? {} : { xml: options.xml },
+				),
+			),
+		);
 		return {
 			outcome,
 			atQuestion: (outcome.kind === "account" ? outcome.findings : [])
@@ -494,6 +608,22 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 				Q("itemset-over-casedb-in-nova-s-case-choices-shape")
 			],
 		).toBeGreaterThan(0);
+	});
+
+	it("holds a label Nova writes as a child step, and refuses one that reads the attribute of that name", async () => {
+		const held = await questionFindings(undefined, { labelProperty: "region" });
+		expect(held.atQuestion).toEqual([]);
+		const label = '<label ref="region"/>';
+		const attribute = await questionFindings(undefined, {
+			labelProperty: "region",
+			xml: (xml) => {
+				expect(xml).toContain(label);
+				return xml.replace(label, '<label ref="@region"/>');
+			},
+		});
+		expect(attribute.atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
 	});
 });
 

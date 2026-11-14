@@ -30,6 +30,7 @@ import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import type { Expression, SlotContextRef } from "@/lib/domain/expression/types";
 import { simpleSearchInputDef } from "@/lib/domain/modules";
 import type { ProseTemplate } from "@/lib/domain/prose";
+import { expressionSlotKey } from "@/lib/domain/referenceSlots";
 import { parseIssueEntry } from "../findings";
 import { readExpressions } from "../index";
 import { readExpression } from "../readExpression";
@@ -548,25 +549,43 @@ describe("a Save to Case block's expressions, read where Nova writes them", () =
 	// (the form's chosen case through its own datum, which is
 	// `case_id_<type>` in a child menu), an earlier create's id and an
 	// answer of the block's repeat through `current()`. Printed at the
-	// form's level they would differ. A text that reads through
-	// `current()` binds only where the scope names the bind it stands in,
-	// and a presence test of the cases below is no fold's, so those are
-	// left out here.
+	// form's level they would differ. Every text binds, the reads through
+	// `current()` and the presence tests of related cases included, and each
+	// slot reads back as the canonical tree the document stores, unless the
+	// read document cannot hold that tree (a fact of the case catalog no
+	// export carries, such as a type's parent).
 	for (const scenario of operationScenarios)
-		it(`holds every case operation expression of the ${scenario} program that reads no relative node`, async () => {
+		it(`holds every case operation expression of the ${scenario} program`, async () => {
 			const doc = caseOperationFixture(scenario);
 			const reading = await readEmission(doc, recordDialectRoundTrip);
-			const absolute = reading.slots.filter(
-				(slot) =>
-					caseOperationSlot(slot.registration.ref) &&
-					!slot.registration.text.includes("current()") &&
-					!slot.registration.text.includes("selected("),
+			const slots = reading.slots.filter((slot) =>
+				caseOperationSlot(slot.registration.ref),
 			);
-			for (const slot of absolute)
+			for (const slot of slots)
 				expect(
-					slot.outcome.expression,
+					slot.outcome.claim?.detail.reason ?? "",
 					`${slot.registration.ref.slot}: ${slot.registration.text}`,
-				).toBeDefined();
+				).not.toMatch(/^(parse|differs):/u);
+			// The slots the export writes a text for; a stored tree whose
+			// print is no text (an owner of the acting user, written as the
+			// block's default) is a choice of the reading's assembly.
+			const written = new Set(
+				slots.map((slot) => expressionSlotKey(slot.registration.ref)),
+			);
+			const judged = judgeReadBack(doc, reading).filter(
+				(one) =>
+					caseOperationSlot(one.stored.ref) && written.has(one.stored.key),
+			);
+			for (const one of judged)
+				expect(
+					one.verdict.kind,
+					`${JSON.stringify(one.stored.ref)}: ${JSON.stringify(one.verdict)}`,
+				).not.toBe("differs");
+			expect(
+				reading.closed.findings.filter((finding) =>
+					(finding.detail as { reason?: string }).reason?.startsWith("parse:"),
+				),
+			).toEqual([]);
 		});
 
 	it("reads a value of the child menu's chosen case through its own datum", async () => {
@@ -888,6 +907,113 @@ describe("a form slot read by the whole expression stage", () => {
 		);
 		const label = reading.doc.fields[q2] as { label?: ProseTemplate };
 		expect(label.label?.parts[1]?.kind).not.toBe("value");
+	});
+
+	describe("a form's display condition that reads the case", () => {
+		/** A menu that lists a registration beside a follow-up, so its screen
+		 *  chooses no case before it lists them. */
+		function formsFirstDoc() {
+			return buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "age", label: "Age", data_type: "int" }],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "name",
+										label: "Name",
+										caseWrite: { caseType: "patient", property: "case_name" },
+									}),
+								],
+							},
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+							},
+						],
+					},
+				],
+			});
+		}
+		const visitOf = (doc: BlueprintDoc): SlotContextRef => {
+			const moduleUuid = doc.moduleOrder[0] as (typeof doc.moduleOrder)[number];
+			const visit = (doc.formOrder[moduleUuid] ?? []).find(
+				(form) => doc.forms[form]?.name === "Visit",
+			);
+			if (visit === undefined) throw new Error("No visit form.");
+			return { entity: "form", uuid: visit, slot: "form_display_condition" };
+		};
+
+		for (const attribute of ["status", "case_id", "case_type", "owner_id"])
+			it(`refuses #case/@${attribute}, which HQ's build cannot read, before it interpolates the text`, () => {
+				const doc = visitDoc();
+				const ref: SlotContextRef = {
+					entity: "form",
+					uuid: onlyForm(doc),
+					slot: "form_display_condition",
+				};
+				const reading = readExpressions(
+					doc,
+					[registration(doc, ref, `#case/@${attribute} = 'x'`)],
+					readEnv(),
+				);
+				expect(reading.bound[0]).toBeUndefined();
+				expect(reading.circumstances).toEqual([]);
+				expect(
+					refusalOf(reading).map((claim) => [
+						claim.entryId,
+						claim.detail.reason,
+					]),
+				).toEqual([
+					[
+						"forms-and-case-writes/form-filter-reading-case-status-case-id-case-type-owner-id",
+						"parse:case-attribute-hashtag",
+					],
+				]);
+			});
+
+		it("reads a case property through #case as no attribute read", () => {
+			const doc = visitDoc();
+			const ref: SlotContextRef = {
+				entity: "form",
+				uuid: onlyForm(doc),
+				slot: "form_display_condition",
+			};
+			const reading = readExpressions(
+				doc,
+				[registration(doc, ref, "#case/age > 3")],
+				readEnv(),
+			);
+			expect(entriesOf(reading)).not.toContain(
+				"forms-and-case-writes/form-filter-reading-case-status-case-id-case-type-owner-id",
+			);
+			expect(reading.bound[0]).toBeDefined();
+		});
+
+		it("refuses a read of the case on a screen that chooses no case first as broken in CommCare HQ", () => {
+			const doc = formsFirstDoc();
+			const reading = readExpressions(
+				doc,
+				[registration(doc, visitOf(doc), "#case/age > 3")],
+				readEnv(),
+			);
+			expect(reading.bound[0]).toBeUndefined();
+			expect(refusalOf(reading).map((claim) => claim.entryId)).toEqual([
+				"menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first",
+			]);
+		});
 	});
 
 	describe("a read of a Search field in a form that opens through no inline search", () => {

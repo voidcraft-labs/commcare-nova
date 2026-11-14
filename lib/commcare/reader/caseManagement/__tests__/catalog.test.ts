@@ -8,7 +8,10 @@
  * property's choices from the select questions that write it, first label
  * kept; a property written through the date-and-time join is declared with
  * no type and reads `datetime` through `effectiveCaseTypes`, as the join's
- * Hidden Value types it. `catalogAsRead(D)` states the same catalog of a
+ * Hidden Value types it. Writers of one property whose types agree on one
+ * stored type (`int` with `decimal`, `text` with a single choice) read with
+ * no finding, and a pair no type joins raises its manifest row.
+ * `catalogAsRead(D)` states the same catalog of a
  * Nova-born document, whatever labels, unneeded types and unread properties D's own catalog
  * holds. The plausible failures: a declared type that a writer contradicts
  * (the gate would refuse the document), a parent named where two links
@@ -27,6 +30,7 @@ import {
 	type CaseOperation,
 	type Column,
 	plainColumn,
+	type Uuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
@@ -37,6 +41,10 @@ import {
 	term,
 } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
+import { expandDoc } from "../../../expander";
+import { runValidation } from "../../../validator/runner";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { readHqApp } from "../../index";
 import { readMenusOf } from "../../menus/__tests__/menuReading";
 import { catalogAsRead, noteProperty } from "../catalog";
 import { readCases } from "./caseReading";
@@ -163,16 +171,61 @@ describe("the case catalog of a reading", () => {
 		const read = reading.ctx.draft.caseTypes;
 		expect(plain(read)).toEqual(plain(catalogAsRead(doc)));
 		const patient = read?.find((type) => type.name === "patient");
-		// Labels are the names, no type is declared that no reader needs, and
-		// a property nothing writes or reads is gone.
-		expect(patient?.properties.map((property) => property.name)).toEqual([
-			"condition_level",
-			"weight",
-		]);
+		// Labels are the names, a property select questions alone write takes
+		// their type, no other type is declared that no reader needs, and a
+		// property nothing writes or reads is gone.
 		expect(
-			patient?.properties.every((property) => property.data_type === undefined),
-		).toBe(true);
+			patient?.properties.map((property) => [
+				property.name,
+				property.data_type,
+			]),
+		).toEqual([
+			["condition_level", "single_select"],
+			["weight", undefined],
+		]);
 		expect(patient?.properties[0]?.label).toEqual(proseText("condition_level"));
+	});
+
+	it("types a property select questions alone write, so a case list that shows its choices emits and reads back", async () => {
+		const base = patients();
+		const moduleUuid = base.moduleOrder[0] as Uuid;
+		const module = base.modules[moduleUuid];
+		if (module === undefined) throw new Error("The app holds a menu.");
+		const doc: BlueprintDoc = {
+			...base,
+			modules: {
+				...base.modules,
+				[moduleUuid]: {
+					...module,
+					caseListConfig: caseListConfigOf([
+						plainColumn(
+							testUuid("catalog-status-column"),
+							"condition_level",
+							"Status",
+						),
+					]),
+				},
+			},
+		};
+		// The canonical catalog is one Nova emits: the column's choice labels
+		// are keyed by the property's declared select type.
+		expect(() =>
+			expandDoc({ ...doc, caseTypes: catalogAsRead(doc) }),
+		).not.toThrow();
+		// The reading's own emission of its catalog is total: nothing of it is
+		// `unrecognized` (an emission that threw would name `expandDoc`).
+		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		expect(
+			(outcome.kind === "account" ? outcome.findings : []).filter(
+				(finding) => finding.code === "unrecognized",
+			),
+		).toEqual([]);
+		if (outcome.kind === "read")
+			expect(
+				outcome.draft.doc.caseTypes
+					?.find((type) => type.name === "patient")
+					?.properties.find((one) => one.name === "condition_level")?.data_type,
+			).toBe("single_select");
 	});
 
 	it("merges the choices of every select that writes a property, the first label kept", () => {
@@ -283,6 +336,103 @@ describe("the case catalog of a reading", () => {
 			(one) => one.name === "rank",
 		);
 		expect(rank?.data_type).toBe("int");
+	});
+});
+
+describe("the writers of one property", () => {
+	/** A menu of `patient` whose registration forms each save a name and one
+	 *  question to a property. */
+	function writers(
+		pairs: readonly {
+			kind: "int" | "decimal" | "text" | "single_select" | "multi_select";
+			property: string;
+		}[],
+	): BlueprintDoc {
+		return buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfigOf([
+						plainColumn(testUuid("writers-name"), "case_name", "Name"),
+					]),
+					forms: pairs.map((pair, index) => ({
+						name: `Register ${index + 1}`,
+						type: "registration" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: `name_${index + 1}`,
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+							f({
+								kind: pair.kind,
+								id: `answer_${index + 1}`,
+								...((pair.kind === "single_select" ||
+									pair.kind === "multi_select") && {
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												value: "well",
+												label: proseText("Well"),
+												uuid: testUuid(`writer-well-${index}`),
+											},
+										],
+									},
+								}),
+								caseWrite: { caseType: "patient", property: pair.property },
+							}),
+						],
+					})),
+				},
+			],
+		});
+	}
+	const WRITER_ENTRIES = new Set([
+		"forms-and-case-writes/writers-single-select-multi-select",
+		"forms-and-case-writes/any-other-mixed-writer-pair",
+	]);
+	const writerFindings = (reading: { findings: readonly { code: string }[] }) =>
+		reading.findings
+			.map((finding) => finding.code)
+			.filter((code) => WRITER_ENTRIES.has(code));
+
+	it("holds writers that agree on one stored type, int with decimal and text with a single choice, with no finding", async () => {
+		const doc = writers([
+			{ kind: "int", property: "weight" },
+			{ kind: "decimal", property: "weight" },
+			{ kind: "text", property: "level" },
+			{ kind: "single_select", property: "level" },
+		]);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const reading = await readMenusOf(doc);
+		expect(reading.findings).toEqual([]);
+		if (reading.doc === undefined)
+			throw new Error("The writers read into a document.");
+		const patient = effectiveCaseTypes(reading.doc).find(
+			(type) => type.name === "patient",
+		);
+		const typeOf = (name: string) =>
+			patient?.properties.find((one) => one.name === name)?.data_type;
+		expect(typeOf("weight")).toBe("decimal");
+		expect(typeOf("level")).toBe("text");
+	});
+
+	it("raises the row for a pair no one stored type joins: a single with a multiple choice, and any other", async () => {
+		const reading = await readMenusOf(
+			writers([
+				{ kind: "single_select", property: "level" },
+				{ kind: "multi_select", property: "level" },
+				{ kind: "int", property: "weight" },
+				{ kind: "text", property: "weight" },
+			]),
+		);
+		expect(writerFindings(reading).sort()).toEqual([
+			"forms-and-case-writes/any-other-mixed-writer-pair",
+			"forms-and-case-writes/writers-single-select-multi-select",
+		]);
 	});
 });
 

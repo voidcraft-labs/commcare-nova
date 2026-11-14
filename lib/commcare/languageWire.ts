@@ -14,7 +14,13 @@ import {
 	languageTag,
 	parseLanguageTag,
 } from "@/lib/domain";
-import { classicWideningTarget } from "@/lib/domain/languageRegistry";
+import {
+	classicWideningTarget,
+	identityIssues,
+	languageCodeVerdict,
+	regionChoices,
+	scriptChoices,
+} from "@/lib/domain/languageRegistry";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { classicLanguageRow } from "./classicLanguages";
 
@@ -47,12 +53,99 @@ function preferredWireSpelling(identity: AppLanguageIdentity): string {
 }
 
 /**
+ * The languages a code with no hyphen names, the one it reads as first: an
+ * individual living language, a Set 1 alias's language, or a
+ * macrolanguage's members, the predominant member first as the registry
+ * lists them. Empty where it names no living language.
+ */
+export function languagesOfWireBase(base: string): readonly string[] {
+	const verdict = languageCodeVerdict(base);
+	switch (verdict.kind) {
+		case "individual-living":
+			return [base];
+		case "set1-alias":
+			return verdict.resolved === undefined ? [] : [verdict.resolved];
+		case "macrolanguage":
+			return (verdict.members ?? []).map((member) => member.code);
+		case "non-living":
+		case "unknown":
+			return [];
+	}
+}
+
+/** Every lawful identity of a language: bare, then by each script it is written in, each with its regions. */
+export function lawfulLanguageIdentities(
+	language: string,
+): readonly AppLanguageIdentity[] {
+	const scripts = [
+		undefined,
+		...scriptChoices(language).map((choice) => choice.script),
+	];
+	const identities: AppLanguageIdentity[] = [];
+	for (const script of scripts) {
+		const regions = [
+			undefined,
+			...regionChoices(language, script).map((choice) => choice.region),
+		];
+		for (const region of regions) {
+			const identity: AppLanguageIdentity = {
+				language,
+				...(script === undefined ? {} : { script }),
+				...(region === undefined ? {} : { region }),
+			};
+			if (identityIssues(identity).length === 0) identities.push(identity);
+		}
+	}
+	return identities;
+}
+
+/** The name an app's strings hold for a language: the registry's label for its identity. */
+function wireLanguageName(identity: AppLanguageIdentity): string {
+	return resolvedLanguageDisplayLabel(identity) ?? languageTag(identity);
+}
+
+const spellingHoldersMemo = new Map<string, ReadonlyMap<string, LanguageTag>>();
+
+/**
+ * For a preferred spelling, each name to the one identity that holds the
+ * spelling alone under that name: of the identities the spelling's languages
+ * name whose preferred spelling it is, the first to give the name, the
+ * languages in the order `languagesOfWireBase` gives them and each
+ * language's identities in `lawfulLanguageIdentities`' order.
+ */
+function preferredSpellingHolders(
+	preferred: string,
+): ReadonlyMap<string, LanguageTag> {
+	const memo = spellingHoldersMemo.get(preferred);
+	if (memo !== undefined) return memo;
+	const holders = new Map<string, LanguageTag>();
+	for (const language of languagesOfWireBase(preferred)) {
+		for (const candidate of lawfulLanguageIdentities(language)) {
+			if (preferredWireSpelling(candidate) !== preferred) continue;
+			const name = wireLanguageName(candidate);
+			if (!holders.has(name)) holders.set(name, languageTag(candidate));
+		}
+	}
+	spellingHoldersMemo.set(preferred, holders);
+	return holders;
+}
+
+/**
  * The code a language takes when it joins an app whose languages hold `held`:
- * its preferred spelling while no language holds that, else
- * `language-<script><region>` lowered into Classic's single allowed suffix
- * segment. The suffix always carries a hyphen, which no preferred spelling
- * does, and two identities sharing a language differ in script or region, so
- * the code never collides with one `held` names.
+ * its preferred spelling while no language holds that and no other identity
+ * holds the spelling alone under the same name, else `language-<script><region>`
+ * lowered into Classic's single allowed suffix segment. The suffix always
+ * carries a hyphen, which no preferred spelling does, and two identities
+ * sharing a language differ in script or region, so the code never collides
+ * with one `held` names.
+ *
+ * A code with no hyphen and the name the app holds for it are all an HQ app
+ * says of a language. Two identities of one preferred spelling and one name
+ * (Congo Swahili and Swahili are both `sw` and Kiswahili; Dari and Iranian
+ * Persian both `fas` and فارسی; Aruban Papiamentu and Papiamentu both `pap`
+ * and Papiamentu) would be one language to a reader, so the spelling stays
+ * the first one's (`preferredSpellingHolders`) and the others take the
+ * suffixed form, which names their language, script and region.
  *
  * Producers mint through `lib/doc/languageMutations.ts`, which carries the
  * code on the mutation that adds the language; the reducer stores it and the
@@ -64,7 +157,11 @@ export function mintLanguageWireCode(
 	identity: AppLanguageIdentity,
 ): string {
 	const preferred = preferredWireSpelling(identity);
-	if (!held.has(preferred)) return preferred;
+	const holder = preferredSpellingHolders(preferred).get(
+		wireLanguageName(identity),
+	);
+	const holdsAlone = holder === undefined || holder === languageTag(identity);
+	if (!held.has(preferred) && holdsAlone) return preferred;
 	const suffixed = `${identity.language}-${(identity.script ?? "").toLowerCase()}${(identity.region ?? "").toLowerCase()}`;
 	if (held.has(suffixed)) {
 		throw new Error(

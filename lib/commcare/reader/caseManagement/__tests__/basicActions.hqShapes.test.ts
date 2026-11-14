@@ -5,6 +5,7 @@ import type { BlueprintDoc, CaseOperation, Expression } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
 import {
 	type AppJson,
@@ -416,7 +417,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			});
 			expect(
 				ownWrites(reading).find((one) => one.property === "size")?.via,
-			).toEqual([{ identifier: "parent", throughCaseType: "patient" }]);
+			).toEqual([{ identifier: "parent", throughCaseType: "household" }]);
 		});
 
 		it("reads `host/p` as a write through the host a stored index of that name fixes", async () => {
@@ -437,7 +438,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			});
 			expect(
 				ownWrites(reading).find((one) => one.property === "size")?.via,
-			).toEqual([{ identifier: "host", throughCaseType: "patient" }]);
+			).toEqual([{ identifier: "host", throughCaseType: "household" }]);
 			// The household's child case stores a `reference_id` Nova refuses at its own form; the
 			// visit's write through it raises nothing.
 			const visitFindings = reading.findings.filter(
@@ -812,5 +813,210 @@ describe("a basic form's actions accepted by re-emission, leaving out what the b
 				`${F}/update-through-the-date-and-time-join-of-a-date-and-a-time`
 			],
 		).toBeUndefined();
+	});
+});
+
+describe("one cause, one finding, at a basic form's case actions", () => {
+	/** Every finding a whole reading raises at the first form's case actions. */
+	function atActions(reading: Awaited<ReturnType<typeof readMenusOf>>) {
+		return codesOf(reading).filter(
+			(code) =>
+				code.startsWith(`${F}/`) ||
+				code.startsWith("unrecognized:schema:FormActions.") ||
+				code.startsWith("unrecognized:schema:ConditionalCaseUpdate.") ||
+				code === "unrecognized:schema:Form.actions",
+		);
+	}
+
+	it("refuses a key `location_id` once, with no difference raised at the form's actions", async () => {
+		const reading = await readMenusOf(app([visit]), (json) => {
+			const update = actionsOf(json as AppJson).update_case.update as Record<
+				string,
+				unknown
+			>;
+			update.location_id = { question_path: "/data/other" };
+		});
+		expect(atActions(reading)).toEqual([
+			`${F}/update-keys-location-id-hq-user-id`,
+		]);
+	});
+
+	it("refuses a write through an index no link fixes once", async () => {
+		const reading = await readMenusOf(app([visit]), (json) => {
+			const update = actionsOf(json as AppJson).update_case.update as Record<
+				string,
+				unknown
+			>;
+			update["host/size"] = { question_path: "/data/other" };
+		});
+		expect(atActions(reading)).toEqual([
+			`${F}/index-path-through-a-case-type-the-app-does-not-fix`,
+		]);
+	});
+
+	it("refuses a child case's extension and its key holding `/` each once", async () => {
+		const reading = await readMenusOf(app([visit]), (json) => {
+			actionsOf(json as AppJson).subcases = [
+				{
+					doc_type: "OpenSubCaseAction",
+					case_type: "patient",
+					name_update: { question_path: "/data/other" },
+					case_properties: { "parent/x": { question_path: "/data/notes" } },
+					condition: { type: "always" },
+					close_condition: { type: "never" },
+					relationship: "extension",
+				},
+			] as never;
+		});
+		expect([...atActions(reading)].sort()).toEqual(
+			[
+				`${F}/subcases-relationship-extension`,
+				`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
+			].sort(),
+		);
+	});
+
+	it("refuses a conditional registration whose question the form no longer has", async () => {
+		const reading = await readMenusOf(app([registration]), (json) => {
+			(
+				actionsOf(json as AppJson).open_case as Record<string, unknown>
+			).condition = {
+				type: "if",
+				question: "/data/gone",
+				answer: "yes",
+				operator: "=",
+				doc_type: "FormActionCondition",
+			};
+		});
+		expect(atActions(reading)).toEqual([
+			`${F}/update-path-naming-no-question-in-the-form-in-an-active-action`,
+		]);
+	});
+
+	it("refuses a child case's close on a question the form no longer has", async () => {
+		const reading = await readMenusOf(app([visit]), (json) => {
+			actionsOf(json as AppJson).subcases = [
+				{
+					doc_type: "OpenSubCaseAction",
+					case_type: "patient",
+					name_update: { question_path: "/data/other" },
+					case_properties: {},
+					condition: { type: "always" },
+					close_condition: {
+						type: "if",
+						question: "/data/gone",
+						answer: null,
+						operator: "boolean_true",
+					},
+					relationship: "child",
+				},
+			] as never;
+		});
+		expect(atActions(reading)).toEqual([
+			`${F}/update-path-naming-no-question-in-the-form-in-an-active-action`,
+		]);
+	});
+});
+
+describe("a save to the case above, read back from Nova's own emission", () => {
+	const VISIT = testUuid("via-visit");
+	const SIZE = testUuid("via-size");
+
+	/** Members chosen under their household, whose visit saves the household's size. */
+	function membersOfHouseholds(step: {
+		identifier: "parent";
+		throughCaseType?: string;
+	}): BlueprintDoc {
+		const built = buildDoc(
+			{
+				caseTypes: [
+					{
+						name: "household",
+						properties: [{ name: "size", label: "Size", data_type: "int" }],
+					},
+					{ name: "member", parent_type: "household", properties: [] },
+				],
+				modules: [
+					{
+						uuid: "via-households",
+						name: "Households",
+						caseType: "household",
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "name",
+										caseWrite: { caseType: "household", property: "case_name" },
+									}),
+								],
+							},
+						],
+					},
+					{
+						name: "Members",
+						caseType: "member",
+						parentCaseModuleUuid: "via-households",
+						forms: [
+							{
+								uuid: "via-visit",
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "int", id: "size", uuid: SIZE })],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				doc.forms[VISIT] = {
+					...doc.forms[VISIT],
+					caseOperations: [
+						{
+							uuid: testUuid("via-own"),
+							id: "member",
+							action: "own",
+							writes: [
+								{
+									property: "size",
+									value: term(formField(SIZE)),
+									via: [step],
+								},
+							],
+						} as CaseOperation,
+					],
+				} as never;
+			},
+		);
+		return built;
+	}
+
+	function viaOf(doc: BlueprintDoc | undefined): unknown {
+		const visitForm = Object.values(doc?.forms ?? {}).find(
+			(form) => form.name === "Visit",
+		);
+		return visitForm?.caseOperations?.find((one) => one.action === "own")
+			?.writes?.[0]?.via;
+	}
+
+	it("reads the step typed with the household it reaches, and raises nothing", async () => {
+		for (const step of [
+			{ identifier: "parent" as const },
+			{ identifier: "parent" as const, throughCaseType: "household" },
+		]) {
+			const doc = membersOfHouseholds(step);
+			const reading = await readMenusOf(doc);
+			expect(codesOf(reading)).toEqual([]);
+			expect(viaOf(reading.doc)).toEqual([
+				{ identifier: "parent", throughCaseType: "household" },
+			]);
+			// The canonical row returns the same member of the pair from the authored document.
+			const canon = READER_CANONICAL_CHOICES.find(
+				(one) => one.id === "write-via-steps-are-typed",
+			);
+			expect(viaOf(canon?.apply(doc))).toEqual(viaOf(reading.doc));
+		}
 	});
 });

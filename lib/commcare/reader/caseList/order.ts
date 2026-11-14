@@ -228,32 +228,44 @@ export function readSortElements(
 		}
 		const sort = columnSort(direction, priority, blanks);
 
-		// The column the element lands on.
+		// The column the element lands on; none where the element's `field` is refused.
 		let target: number | undefined;
 		let sortOnly = false;
 		const calculated = CALCULATED_FIELD.exec(text);
 		if (calculated !== null) {
-			const n = Number(calculated[1]);
-			target = joined.columns.findIndex(
-				(column) =>
-					column.short === n && column.proposal.column.kind === "calculated",
-			);
-			if (target === -1) {
+			// HQ joins `_cc_calculated_<n>` to stored short column `n` where that column is an
+			// expression column, whatever its format, and sorts the first column whose `field` is
+			// that column's (`util.py::get_sort_and_sort_only_columns`).
+			const stored = shortColumns[Number(calculated[1])];
+			const expression =
+				stored?.peek("useXpathExpression") === true
+					? joinText(stored)
+					: undefined;
+			const landing =
+				expression === undefined
+					? undefined
+					: joined.listOrder.find((index) => {
+							const column = joined.columns[index];
+							return (
+								column?.short !== undefined &&
+								joinText(shortColumns[column.short]) === expression
+							);
+						});
+			if (landing === undefined) {
 				cursor.refuse("field", O.fieldCalculatedMissing);
 				ok = false;
-				return;
+			} else {
+				target = landing;
+				cursor.take("field", O.fieldCalculated, String).value;
 			}
-			cursor.take("field", O.fieldCalculated, String).value;
+		} else if (!PROPERTY.test(text)) {
+			cursor.refuse(
+				"field",
+				O.fieldInvalid,
+				text === "" ? undefined : { name: text.slice(0, 200) },
+			);
+			ok = false;
 		} else {
-			if (!PROPERTY.test(text)) {
-				cursor.refuse(
-					"field",
-					O.fieldInvalid,
-					text === "" ? undefined : { name: text.slice(0, 200) },
-				);
-				ok = false;
-				return;
-			}
 			const shortIndex = joined.listOrder.find((index) => {
 				const column = joined.columns[index];
 				return (
@@ -307,9 +319,9 @@ export function readSortElements(
 				}
 			}
 		}
-		const column = joined.columns[target];
-		if (column === undefined) return;
-		column.sort = sort;
+		// Every other key of the element is claimed whether or not it lands on a column.
+		const column = target === undefined ? undefined : joined.columns[target];
+		if (column !== undefined) column.sort = sort;
 
 		// The comparator: derived, or numeric where the plan derives it (judged in the settle).
 		const type = cursor.peek("type");
@@ -344,7 +356,7 @@ export function readSortElements(
 		const display = languageMap(cursor.peek("display"));
 		if (Object.values(display).every((one) => one.trim() === ""))
 			cursor.derived("display", O.display);
-		else if (sortOnly) {
+		else if (sortOnly || column === undefined) {
 			cursor.refuse("display", O.displaySortOnly);
 			ok = false;
 		} else if (column.proposal.invisible || column.visibleInList === false) {
@@ -354,7 +366,7 @@ export function readSortElements(
 
 		const calculation = cursor.peek("sort_calculation");
 		if (typeof calculation === "string" && calculation.trim() !== "") {
-			const own = column.proposal.expression?.text;
+			const own = column?.proposal.expression?.text;
 			if (own !== undefined && sameXPathText(own, calculation)) {
 				cursor.derived("sort_calculation", O.calculationEqual);
 				sameState(
@@ -366,7 +378,7 @@ export function readSortElements(
 			} else if (text === "") {
 				cursor.refuse("sort_calculation", O.calculationAuthored);
 				ok = false;
-			} else if (column.proposal.column.kind === "date") {
+			} else if (column?.proposal.column.kind === "date") {
 				cursor.derived("sort_calculation", O.calculationBesideOwnSort);
 			} else {
 				cursor.refuse("sort_calculation", O.calculationOther);
