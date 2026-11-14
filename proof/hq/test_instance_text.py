@@ -69,7 +69,18 @@ CASEDB = "instance('casedb')"
 # The pattern -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("row", VECTORS, ids=[ascii(row["text"]) for row in VECTORS])
+def _vector_id(text):
+    """A vector's text as a test id: each character pytest would escape, and the backslash itself, by its code point.
+
+    pytest escapes an id again on every collection of one process, so an id holding a backslash differs between the
+    lane server's collection and a forked worker's, and the lane refuses a collection that depends on the process.
+    """
+    return "".join(
+        character if " " <= character <= "~" and character != "\\" else f"U+{ord(character):04X}" for character in text
+    )
+
+
+@pytest.mark.parametrize("row", VECTORS, ids=[_vector_id(row["text"]) for row in VECTORS])
 def test_hqs_pattern_reads_each_vector_as_the_fixture_says(hq, row):
     from corehq.apps.app_manager.suite_xml.post_process.instances import get_instance_names
     from corehq.apps.app_manager.xform import WrappedNode
