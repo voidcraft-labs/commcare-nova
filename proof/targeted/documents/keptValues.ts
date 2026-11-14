@@ -17,7 +17,9 @@
  * - one runtime UI text, `home.start`, in each language, on the UI
  *   translations page (`views/apps.py::edit_app_ui_translations`);
  * - secure submissions and "Auto Capture Location" on the settings page
- *   (`views/apps.py::edit_app_attr`), which move the profile's `PostURL` to
+ *   (`views/settings.py::edit_commcare_settings`, which stores each through
+ *   `views/apps.py::edit_app_attr` with `all`; the page shows secure
+ *   submissions to a previewer only), which move the profile's `PostURL` to
  *   the secure receiver (`ApplicationBase.post_url`) and add location
  *   capture to every form's meta block (`xform.py::XForm._add_meta_2`).
  *
