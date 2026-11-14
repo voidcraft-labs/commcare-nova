@@ -142,6 +142,8 @@ const english = {
 	integerRange:
 		"The number needs to be between -2,147,483,648 and 2,147,483,647.",
 	numberTooLarge: "The number is too large to save.",
+	numberKeypadAnswer:
+		"This answer takes digits, with an optional + or - in front and an optional decimal part.",
 	date: "“{value}” isn't a date. Pick one from the calendar.",
 	time: "“{value}” isn't a time yet. Enter a clock time like 2:30 PM.",
 	missingTime: "Enter a clock time: this question needs both.",
@@ -459,6 +461,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	number: "Esta pregunta necesita un número.",
 	integerRange: "El número debe estar entre -2,147,483,648 y 2,147,483,647.",
 	numberTooLarge: "El número es demasiado grande para guardarlo.",
+	numberKeypadAnswer:
+		"Esta respuesta admite dígitos, con un + o un - opcional al principio y una parte decimal opcional.",
 	date: "«{value}» no es una fecha. Elija una en el calendario.",
 	time: "«{value}» no es una hora. Introduzca una hora como 14:30.",
 	missingTime: "Introduzca una hora: esta pregunta necesita ambas.",

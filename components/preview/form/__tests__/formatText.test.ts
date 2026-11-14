@@ -26,6 +26,30 @@ describe("the line under a text with Format text off", () => {
 			"Web Apps formats every choice, so workers see its formatting either way.",
 		);
 	});
+
+	it("says only Android shows a help text as typed", () => {
+		expect(formatTextOffLine("help", BOTH)).toBe(
+			"On Android, workers see this help as you typed it. Web Apps formats every help text.",
+		);
+		expect(formatTextOffLine("help", ANDROID)).toBe(
+			"Workers see this help as you typed it, without formatting.",
+		);
+		expect(formatTextOffLine("help", WEB_APPS)).toBe(
+			"Web Apps formats every help text, so workers see its formatting either way.",
+		);
+	});
+
+	it("says what the form's switch does on each declaration", () => {
+		expect(formatTextOffLine("form", BOTH)).toBe(
+			"Off shows every label exactly as typed, and every choice and help text too on Android. Web Apps still formats those two. It also keeps CommCare HQ's form builder from adding formatting.",
+		);
+		expect(formatTextOffLine("form", ANDROID)).toBe(
+			"Off shows every label, choice and help text exactly as typed, and keeps CommCare HQ's form builder from adding formatting.",
+		);
+		expect(formatTextOffLine("form", WEB_APPS)).toBe(
+			"Off shows every label exactly as typed. Web Apps still formats choices and help text. It also keeps CommCare HQ's form builder from adding formatting.",
+		);
+	});
 });
 
 describe("what pressing Format text does", () => {

@@ -14,8 +14,10 @@ import {
 	type CaseListOrderProperty,
 	type Column,
 	calculatedColumn,
+	caseListColumnRuns,
 	caseListOrderPlan,
 	caseListOrdersByMapping,
+	columnSort,
 	dateColumn,
 	idMappingColumn,
 	idMappingEntry,
@@ -328,6 +330,40 @@ describe("authored rules", () => {
 			[1, "integer", "last"],
 			[3, "decimal", "first"],
 		]);
+	});
+
+	it("carry each rule's own blanks, whatever its direction", () => {
+		const result = plan([
+			plainColumn(id("name"), "case_name", "Name", {
+				sort: columnSort("asc", 0, "last"),
+			}),
+			plainColumn(id("age"), "age", "Age", {
+				sort: columnSort("desc", 1, "first"),
+			}),
+			plainColumn(id("weight"), "weight", "Weight", {
+				sort: columnSort("desc", 2),
+			}),
+		]);
+		expect(
+			result.fields.map((field) => [field.rule?.direction, field.rule?.blanks]),
+		).toEqual([
+			["asc", "last"],
+			["desc", "first"],
+			["desc", "last"],
+		]);
+	});
+
+	it("leave the implicit rule of an unsorted list ascending with blanks first", () => {
+		const result = plan([
+			plainColumn(id("name"), "case_name", "Name"),
+			plainColumn(id("age"), "age", "Age"),
+		]);
+		expect(result.fields[0]?.rule).toMatchObject({
+			implicit: true,
+			direction: "asc",
+			blanks: "first",
+			written: false,
+		});
 	});
 
 	it("over a calculated column compare by the expression's resolved type, positionally", () => {
@@ -652,5 +688,79 @@ describe("whether the list orders by a mapping table", () => {
 				id("map"),
 			),
 		).toBe(false);
+	});
+});
+
+describe("a column that is not on the list", () => {
+	const OFF = { visibleInList: false, notOnList: true } as const;
+	const shownName = plainColumn(id("name"), "case_name", "Name");
+	const village = (slots: Parameters<typeof plainColumn>[3] = {}) =>
+		plainColumn(id("village"), "site", "Village", slots);
+
+	it.each([
+		["with no tile", undefined],
+		["in a tile list", {}],
+	] as const)(
+		"is no field and gives no carrier in a list %s, where a hidden one is a field or a carrier",
+		(_layout, tile) => {
+			const off = plan([shownName, village(OFF)], { tile });
+			expect(off.fields.map((field) => field.column.uuid)).toEqual([
+				id("name"),
+			]);
+			expect(off.carriers).toEqual([]);
+			expect(off.authored).toEqual([]);
+
+			/* The same column hidden and still on the list: a field of a list
+			 * with no tile, and in a tile list a carrier where it orders. */
+			const hidden = plan([shownName, village({ ...HIDDEN, sort: asc() })], {
+				tile,
+			});
+			expect(
+				hidden.fields.length + hidden.carriers.length,
+				"the hidden column is carried",
+			).toBe(2);
+		},
+	);
+
+	it("gives no rule even where it holds one the gate refuses, and the list keeps its implicit rule", () => {
+		const off = plan([shownName, village({ ...OFF, sort: asc() })]);
+		expect(off.carriers).toEqual([]);
+		expect(off.authored).toEqual([]);
+		expect(summary(off)).toEqual([
+			{ column: id("name"), wire: "property", key: "property", order: 1 },
+		]);
+		expect(off.fields[0]?.rule?.implicit).toBe(true);
+	});
+});
+
+describe("caseListColumnRuns", () => {
+	const off = (slots: { visibleInDetail?: false } = {}) =>
+		plainColumn(id("village"), "site", "Village", {
+			visibleInList: false,
+			notOnList: true,
+			...slots,
+		});
+
+	it.each([
+		["with no tile", undefined],
+		["in a tile list", {}],
+	] as const)(
+		"runs a column that is not on the list where Details shows it, and nowhere else, %s",
+		(_layout, tile) => {
+			const config = { tile };
+			expect(caseListColumnRuns(off(), config)).toBe(true);
+			expect(caseListColumnRuns(off({ visibleInDetail: false }), config)).toBe(
+				false,
+			);
+		},
+	);
+
+	it("runs every column on the list of a list with no tile, hidden from both screens included", () => {
+		const hidden = plainColumn(id("village"), "site", "Village", {
+			visibleInList: false,
+			visibleInDetail: false,
+		});
+		expect(caseListColumnRuns(hidden, {})).toBe(true);
+		expect(caseListColumnRuns(hidden, { tile: {} })).toBe(false);
 	});
 });

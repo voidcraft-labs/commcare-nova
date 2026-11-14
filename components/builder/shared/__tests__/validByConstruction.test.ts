@@ -28,11 +28,13 @@ import {
 	ANY_CONSTRAINT,
 	type ComparisonKind,
 	checkExpression,
+	comparisonObjectConstraint,
 	comparisonOperatorsFor,
 	compatibleTypesFor,
 	type Expression,
 	type ExpressionSlotRef,
 	eq,
+	expressionContextAtPath,
 	gt,
 	gte,
 	input,
@@ -49,9 +51,11 @@ import {
 	neq,
 	prop,
 	type ScalarType,
+	serverOnlySearchSlot,
 	slotContext,
 	type Term,
 	term,
+	valueList,
 } from "@/lib/domain/expression";
 import {
 	chosenCaseId,
@@ -76,6 +80,7 @@ import {
 	expressionCardSchemas,
 	isAuthorableExpressionKind,
 } from "../expressionEditorSchemas";
+import { planPreservedExpressionReplacement } from "../expressionReplacement";
 import { defaultExpressionForSlot } from "../primitives/ExpressionPicker";
 import {
 	caseRowTypeAdmission,
@@ -430,7 +435,7 @@ describe("valid by construction — Date closed", () => {
 	});
 });
 
-describe("valid by construction — Negative of, Where you are now, a held list", () => {
+describe("valid by construction — Negative of, Where you are now, a list of values", () => {
 	const VALUE_CARRIERS = [
 		"calculated-column",
 		"case-filter",
@@ -444,9 +449,10 @@ describe("valid by construction — Negative of, Where you are now, a held list"
 		for (const carrier of VALUE_CARRIERS) {
 			const ctx = expressionEditorFixture(carrier, CHOICE_VOCABULARY).context;
 			const context = ctx.expressionContext;
-			// A held `value-list` renders and is offered by no menu.
+			// A list of values is offered where only CommCare's server search
+			// reads the slot, and nowhere else.
 			expect(isAuthorableExpressionKind("value-list", ctx), carrier).toBe(
-				false,
+				serverOnlySearchSlot(context.profile),
 			);
 			// "Where you are now" has a handler only in a calculated column.
 			expect(isAuthorableExpressionKind("here", ctx), carrier).toBe(
@@ -487,8 +493,85 @@ describe("valid by construction — Negative of, Where you are now, a held list"
 		}
 	});
 
-	it("gives every stored kind a card, the held list's display-only", () => {
+	it("offers a list of values in an advanced Search field's condition", () => {
+		const ctx = expressionEditorFixture(
+			"search-predicate",
+			CHOICE_VOCABULARY,
+		).context;
+		expect(isAuthorableExpressionKind("value-list", ctx)).toBe(true);
+		expect(isAuthorableExpressionKind("value-list")).toBe(false);
+	});
+
+	it("seeds a list of values the gate admits beside is and isn't, and refuses beside an ordering", () => {
+		const ctx = expressionEditorFixture(
+			"search-predicate",
+			CHOICE_VOCABULARY,
+		).context;
+		const context = ctx.expressionContext;
+		const schema = expressionCardSchemas["value-list"];
+		for (const t of REAL_TYPES) {
+			const subject = term(prop("ct", `p_${t}`));
+			for (const kind of Object.keys(COMPARISON_BUILDERS) as ComparisonKind[]) {
+				if (!comparisonOperatorsFor(t).has(kind)) continue;
+				// The value menu seeds the kind for the slot it stands in.
+				const seed = defaultExpressionForSlot(
+					schema,
+					ctx,
+					comparisonObjectConstraint(kind, t),
+					"value",
+				);
+				expect(seed.kind).toBe("value-list");
+				const verdict = expressionEditVerdict(
+					COMPARISON_BUILDERS[kind](subject, seed),
+					context,
+				);
+				// A list stands opposite "is" or "isn't" on any property but a
+				// date and time, which CommCare's search matches by its text.
+				expect(verdict.ok, `${kind} on ${t}`).toBe(
+					(kind === "eq" || kind === "neq") && t !== "datetime",
+				);
+				if (kind !== "eq" && kind !== "neq" && !verdict.ok)
+					expect(verdict.reason).toContain(
+						"A list of values can be compared only as equal or not equal to a case value.",
+					);
+			}
+		}
+	});
+
+	it("refuses a list of values outside a Search field's condition in the checker's words", () => {
+		const context = expressionEditorFixture("case-filter", CHOICE_VOCABULARY)
+			.context.expressionContext;
+		const verdict = expressionEditVerdict(
+			eq(term(prop("ct", "p_text")), valueList(term(literal("a")))),
+			context,
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok)
+			expect(verdict.reason).toContain("you can use in(value, 'a', 'b')");
+	});
+
+	it("keeps a value when it becomes a list of values", () => {
+		const ctx = expressionEditorFixture(
+			"search-predicate",
+			CHOICE_VOCABULARY,
+		).context;
+		const current = term(literal("north"));
+		// The value menu judges the value where it stands: the right side of
+		// the field's comparison.
+		const operand = expressionContextAtPath(
+			eq(term(prop("ct", "p_text")), current),
+			ctx.expressionContext,
+			["right"],
+		);
+		if (operand === undefined) throw new Error("Missing operand context.");
+		expect(
+			planPreservedExpressionReplacement(current, "value-list", operand),
+		).toEqual(valueList(current));
+	});
+
+	it("gives every stored kind a card, the list of values its editor", () => {
 		expect(expressionCardSchemas["value-list"].component).toBe(ValueListCard);
+		expect(expressionCardSchemas["value-list"].label).toBe("A list of values");
 		expect(expressionCardSchemas.negate.label).toBe("Negative of");
 		expect(expressionCardSchemas.here.label).toBe("Where you are now");
 	});

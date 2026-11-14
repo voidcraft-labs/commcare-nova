@@ -605,30 +605,47 @@ it("asks about the flat location list for an app whose form sets an owner from a
 	});
 });
 
-it("asks about CommCare Supply for a form holding the session's supply point text, and reads a confirmation on record as confirmed", async () => {
+it("asks about CommCare Supply for an advanced menu whose case list is its own menu item, and reads a confirmation on record as confirmed", async () => {
 	await h.seedAppWithBlueprint(
-		buildDoc({
-			appName: "Stock",
-			modules: [
-				{
-					name: "Stock",
-					forms: [
-						{
-							name: "Stock count",
-							type: "survey",
-							fields: [
-								{
-									id: "note",
-									kind: "label",
-									label:
-										"Your place is instance('commcaresession')/session/data/supply_point_id",
-								},
+		buildDoc(
+			{
+				appName: "Supplies",
+				caseTypes: [
+					{
+						name: "household",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+				modules: [
+					{
+						uuid: "supply-households",
+						name: "Households",
+						caseType: "household",
+						caseListMenuItem: {},
+						caseListConfig: {
+							columns: [
+								plainColumn(testUuid("supply-column"), "case_name", "Name"),
 							],
+							searchInputs: [],
 						},
-					],
-				},
-			],
-		}),
+						forms: [
+							{
+								name: "Household visit",
+								type: "followup",
+								fields: [{ id: "visit_note", kind: "text" }],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				const households = testUuid("supply-households");
+				doc.modules[households] = {
+					...doc.modules[households],
+					heldKind: "advanced",
+				};
+			},
+		),
 		{ id: APP, owner: "creator", projectId: PROJECT },
 	);
 	await h.seedProjectMember(ACTOR, PROJECT, "viewer");
@@ -638,7 +655,7 @@ it("asks about CommCare Supply for a form holding the session's supply point tex
 		label: COMMTRACK_OFF.label,
 		consequence: COMMTRACK_OFF.consequence,
 		reasons: [
-			"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.",
+			"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.",
 		],
 		where_missing: COMMTRACK_OFF.whereMissing,
 	};

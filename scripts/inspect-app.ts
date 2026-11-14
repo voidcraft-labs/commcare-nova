@@ -279,8 +279,9 @@ async function main() {
 		const flags = [
 			mod.caseType && `case: ${mod.caseType}`,
 			mod.caseListMenuItem !== undefined && "case list in menu",
+			mod.formsInMenuAbove === true && "forms show in the menu above",
 			mod.caseListRegistrationForm !== undefined &&
-				`case list registration: ${doc.forms[mod.caseListRegistrationForm.formUuid]?.name ?? mod.caseListRegistrationForm.formUuid}`,
+				`${mod.caseListRegistrationForm.kind === "always" ? `case list offers (${mod.caseListRegistrationForm.afterSubmit})` : "case list registration after an empty search"}: ${doc.forms[mod.caseListRegistrationForm.formUuid]?.name ?? mod.caseListRegistrationForm.formUuid}`,
 		]
 			.filter(Boolean)
 			.join(", ");

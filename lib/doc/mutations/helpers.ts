@@ -52,6 +52,25 @@ export function cascadeDeleteForm(
 }
 
 /**
+ * Delete every module's case list registration slot that names a removed
+ * form, under either arm: the form's own module's `after-empty-search` slot
+ * and any other module's `always` arm. A removal the planners admitted
+ * leaves no such slot standing (the dependents refusal of
+ * `caseListRegistrationDependents.ts`); a replayed or concurrent removal
+ * still leaves no dangling identity.
+ */
+export function dropCaseListRegistrationsNaming(
+	draft: Draft<BlueprintDoc>,
+	removedFormUuids: ReadonlySet<string>,
+): void {
+	for (const mod of Object.values(draft.modules)) {
+		const slot = mod.caseListRegistrationForm;
+		if (slot !== undefined && removedFormUuids.has(slot.formUuid))
+			delete mod.caseListRegistrationForm;
+	}
+}
+
+/**
  * Locate a field's parent (either a form or a group/repeat).
  * Returns the parent uuid and the field's current index within
  * that parent, or `undefined` if the field isn't in any order map.

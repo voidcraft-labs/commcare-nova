@@ -60,19 +60,23 @@ import {
 	requireExpressionContext,
 } from "@/lib/commcare/expressionContext";
 import {
-	caseListFormReturnFrame,
+	caseListFormReturnFrames,
 	caseListSessionDatums,
 	caseListStepDatumId,
 	entryDatumIdResolver,
 	entryDatumIds,
 	entryFrameDatums,
+	entryNewCaseDatumId,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
+	formCommandId,
 	formLinkProjectionContext,
 	inlineSearchFor,
+	menuIdOf,
 	moduleCaseTypeForActions,
 	moduleDestinationFrameChildren,
 	moduleIndexOf,
+	owningModuleOf,
 	parentMenuDestinationFrameChildren,
 	parentSelectModuleUuid,
 	previousFrameChildren,
@@ -130,12 +134,16 @@ import { setFormVersion } from "@/lib/commcare/xform/formVersion";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
+	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
+	caseListRegistrationReturnOf,
+	caseListsOffering,
 	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	makeTranslationUnitId,
 	moduleHasCaseListMenuItem,
 	moduleParent,
+	moduleShowsFormsInMenuAbove,
 	projectedModulePreorder,
 	type Uuid,
 	type WireStringSource,
@@ -144,8 +152,8 @@ import {
 	caseListFormLabelUnit,
 	caseListMenuItemLabelUnit,
 	emissionPlan,
-	type SyntheticModule,
 } from "./emissionPlan";
+import { w } from "./xpath/wire/builders";
 import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
@@ -189,58 +197,55 @@ export interface CompileOptions {
 	emptyCaseListText?: boolean;
 }
 
-/** The entry's new-case datum for `caseType` (`case_id_new_<type>_0`). */
+/** The entry's new-case datum for `caseType`, which a form offered after an
+ *  empty search always has. */
 function newCaseDatumId(
 	datums: readonly SessionDatum[],
 	caseType: string,
 ): string {
-	const datum = datums.find(
-		(candidate) =>
-			candidate.nodeset === undefined &&
-			candidate.caseType === caseType &&
-			candidate.id.startsWith("case_id_new_"),
-	);
-	if (datum === undefined) {
+	const id = entryNewCaseDatumId(datums, caseType);
+	if (id === undefined) {
 		throw new Error(
 			`Cannot build the no-matches return frame: the registration entry has no new-case datum for "${caseType}"`,
 		);
 	}
-	return datum.id;
+	return id;
 }
 
 /**
  * The Register action of a host module, HQ's
- * `DetailContributor.get_datums_for_action`: every datum of the target
- * entry in order, a function datum as its function and a selection datum
- * as the session value of the host's FIRST menu form's datum of the same
- * case type (`case-list-form-suite-parent-child-basic.xml`). HQ matches
- * against that one form and drops a selection datum it cannot match, so a
- * host without menu forms offers function datums alone.
+ * `DetailContributor.get_case_list_form_action`: the target form's own
+ * command (`m{M}-f{K}`, in the hidden module of a form offered after an empty
+ * search), then every datum of the target entry in order
+ * (`get_datums_for_action`), a function datum as its function and a
+ * selection datum as the session value of the host's FIRST menu form's datum
+ * of the same case type (`case-list-form-suite-parent-child-basic.xml`). HQ
+ * matches against that one form and drops a selection datum it cannot match,
+ * so a host without menu forms offers function datums alone. The label's
+ * locale is the host's `case_list_form.m{H}`; the slot's media rides only on
+ * the arm that holds it.
  */
 function registerActionFor(
 	doc: BlueprintDoc,
 	linkContext: FormLinkProjectionContext,
-	noMatches: SyntheticModule,
+	hostModuleUuid: Uuid,
+	target: { readonly moduleUuid: Uuid; readonly formUuid: Uuid },
 ): RegisterActionContext {
-	const target = entryFrameDatums(
+	const targetDatums = entryFrameDatums(
 		doc,
 		linkContext,
-		noMatches.moduleUuid,
-		noMatches.formUuid,
+		target.moduleUuid,
+		target.formUuid,
 	);
-	const [firstMenuForm] = linkContext.formOrder[noMatches.hostModuleUuid] ?? [];
+	const [firstMenuForm] = linkContext.formOrder[hostModuleUuid] ?? [];
 	const source =
 		firstMenuForm === undefined
 			? []
-			: entryFrameDatums(
-					doc,
-					linkContext,
-					noMatches.hostModuleUuid,
-					firstMenuForm,
-				);
+			: entryFrameDatums(doc, linkContext, hostModuleUuid, firstMenuForm);
+	const slot = alwaysOfferedRegistrationOf(doc, hostModuleUuid);
 	return {
-		commandId: `m${moduleIndexOf(linkContext, noMatches.moduleUuid)}-f0`,
-		datums: target.flatMap((datum) => {
+		commandId: formCommandId(linkContext, target.moduleUuid, target.formUuid),
+		datums: targetDatums.flatMap((datum) => {
 			if (!datum.requiresSelection) {
 				return datum.function === undefined
 					? []
@@ -254,8 +259,37 @@ function registerActionFor(
 				? [{ id: datum.id, value: sessionDataRef(matches[0].id) }]
 				: [];
 		}),
-		relevant: NO_MATCHES_RELEVANCY,
+		...(slot === undefined && { relevant: NO_MATCHES_RELEVANCY }),
+		labelLocaleId: `case_list_form.m${moduleIndexOf(linkContext, hostModuleUuid)}`,
+		...(slot?.icon !== undefined && { icon: slot.icon }),
+		...(slot?.audioLabel !== undefined && { audioLabel: slot.audioLabel }),
 	};
+}
+
+/**
+ * The form a host's case list always offers, where the emitter can write
+ * its action: the host has a case list, keeps its own screen, and the form
+ * stands in a menu of the projection. Elsewhere the slot is a validator
+ * finding, and the emitter, being total, writes no action.
+ */
+function alwaysOfferedTarget(
+	doc: BlueprintDoc,
+	linkContext: FormLinkProjectionContext,
+	hostModuleUuid: Uuid,
+): { readonly moduleUuid: Uuid; readonly formUuid: Uuid } | undefined {
+	const slot = alwaysOfferedRegistrationOf(doc, hostModuleUuid);
+	const host = doc.modules[hostModuleUuid];
+	if (
+		slot === undefined ||
+		host === undefined ||
+		!host.caseType ||
+		moduleShowsFormsInMenuAbove(host)
+	)
+		return undefined;
+	const moduleUuid = owningModuleOf(linkContext, slot.formUuid);
+	return moduleUuid === undefined
+		? undefined
+		: { moduleUuid, formUuid: slot.formUuid };
 }
 
 /**
@@ -543,24 +577,29 @@ export function compileCcz(
 		//
 		// Both detail titles reference cchq.case. The compiler registers the
 		// value in every locale table; Core has no built-in mapping for this id.
-		// The Register action a host whose forms read the search mounts on its case list
-		// (`DetailContributor.add_register_action`): the no-matches form's
-		// command in its hidden module, the target entry's computed datums,
-		// and `return_to`, relevant only when the inline search found nothing.
+		// The Register action a host mounts on its case list
+		// (`DetailContributor.add_register_action`): the offered form's
+		// command, the target entry's computed datums, and `return_to`. A
+		// form offered after an empty search opens from its hidden module and
+		// is relevant only when the inline search found nothing; a form the
+		// list always offers opens from its own menu.
+		const registerTarget =
+			noMatches !== undefined
+				? { moduleUuid: noMatches.moduleUuid, formUuid: noMatches.formUuid }
+				: alwaysOfferedTarget(doc, linkContext, moduleUuid);
 		const registerAction =
-			noMatches === undefined
+			registerTarget === undefined
 				? undefined
-				: registerActionFor(doc, linkContext, noMatches);
-		if (noMatches !== undefined) {
+				: registerActionFor(doc, linkContext, moduleUuid, registerTarget);
+		if (registerTarget !== undefined) {
 			appStrings[`case_list_form.m${mIdx}`] =
-				authoredDoc.modules[noMatches.hostModuleUuid]?.caseListRegistrationForm
-					?.label ??
-				doc.forms[noMatches.formUuid]?.name ??
+				authoredDoc.modules[moduleUuid]?.caseListRegistrationForm?.label ??
+				doc.forms[registerTarget.formUuid]?.name ??
 				"";
 			appStringUnits[`case_list_form.m${mIdx}`] = caseListFormLabelUnit(
 				authoredDoc,
-				noMatches.hostModuleUuid,
-				noMatches.formUuid,
+				moduleUuid,
+				registerTarget.formUuid,
 			);
 		}
 
@@ -578,6 +617,7 @@ export function compileCcz(
 							emptyCaseListText,
 							...(assets && { assets }),
 							...(lookupNaming && { lookupNaming }),
+							...(registerAction !== undefined && { registerAction }),
 						})
 					: undefined;
 			const searchLong =
@@ -850,19 +890,48 @@ export function compileCcz(
 							}),
 						})
 					: undefined;
-			// The no-matches form's return frame: after submit, back to the
-			// host's Results showing the case it registered. An explicit
-			// `firstMenu` returns to the app's first menu instead.
-			const returnFrame =
-				synthetic === undefined || form.postSubmit === "firstMenu"
-					? undefined
-					: caseListFormReturnFrame(
-							doc,
-							linkContext,
-							synthetic.hostModuleUuid,
-							newCaseDatumId(projectedSessionDatums, synthetic.caseType),
-							synthetic.caseType,
-						);
+			// The return frames of a registration a case list offers. A
+			// no-matches form returns to its host's Results showing the case it
+			// registered; an explicit `firstMenu` returns to the app's first menu
+			// instead. A form case lists always offer carries each host's frames,
+			// in module order, where its own after-submit writes no frame.
+			const returnFrames =
+				synthetic !== undefined
+					? form.postSubmit === "firstMenu"
+						? []
+						: caseListFormReturnFrames(
+								doc,
+								linkContext,
+								synthetic.hostModuleUuid,
+								newCaseDatumId(projectedSessionDatums, synthetic.caseType),
+								synthetic.caseType,
+								"case-list",
+							)
+					: caseListsOffering(doc, formUuid).flatMap((hostUuid) => {
+							const returnTo = caseListRegistrationReturnOf(doc, hostUuid);
+							const hostCaseType = doc.modules[hostUuid]?.caseType;
+							if (
+								returnTo === undefined ||
+								returnTo.kind === "own" ||
+								!hostCaseType ||
+								alwaysOfferedTarget(doc, linkContext, hostUuid) === undefined
+							)
+								return [];
+							const newCaseId = entryNewCaseDatumId(
+								projectedSessionDatums,
+								hostCaseType,
+							);
+							return newCaseId === undefined
+								? []
+								: caseListFormReturnFrames(
+										doc,
+										linkContext,
+										hostUuid,
+										newCaseId,
+										hostCaseType,
+										returnTo.kind,
+									);
+						});
 			const commandInstances = new InstanceSink();
 			const menuCommand = xel(
 				"command",
@@ -880,7 +949,7 @@ export function compileCcz(
 				postSubmit,
 				caseType: caseType || undefined,
 				...(post !== undefined && { post }),
-				...(returnFrame !== undefined && { returnFrame }),
+				...(returnFrames.length > 0 && { returnFrames }),
 				...(projectedLinks !== undefined && { formLinks: projectedLinks }),
 				/* The previous frame is read only when `previous` is the
 				 * destination (plain, or as a built-in otherwise). */
@@ -959,6 +1028,7 @@ export function compileCcz(
 			// resolves `<locale id>` against.
 			const formNav = buildNavMenuNode(
 				`forms.m${mIdx}f${fIdx}`,
+				`forms.m${mIdx}f${fIdx}`,
 				form.icon,
 				form.audioLabel,
 				assets,
@@ -1006,6 +1076,7 @@ export function compileCcz(
 			// as `case_list.media_*`.
 			const caseListNav = buildNavMenuNode(
 				`case_lists.m${mIdx}`,
+				`case_lists.m${mIdx}`,
 				mod.caseListMenuItem?.icon,
 				mod.caseListMenuItem?.audioLabel,
 				assets,
@@ -1048,11 +1119,27 @@ export function compileCcz(
 			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));
 		}
 
-		// Module home-tile media: the `<menu>`'s display gains the icon /
-		// audio-label media locales when the module carries them; an
-		// un-mediafied menu emits the bare `<text><locale id="modules.m{N}"/></text>`
-		// child.
+		// The module's `<menu>`, as HQ's build writes it
+		// (`suite_xml/sections/menus.py::_generate_menu`). A menu that shows
+		// its forms in the menu above takes the id of the menu that lists them
+		// (`menuIdOf`) and no `root`; a submenu that keeps its screen names its
+		// parent's id as `root`, which is `root` under a parent that shows its
+		// forms above. A submenu shown in a parent that keeps its screen shows
+		// the parent's name (`suite_xml/utils.py::get_module_locale_id`) and
+		// keeps its own media locales; its condition is its own and its
+		// parent's, each in parentheses (`XPath.paren(force=True)`), or the
+		// parent's alone where it has none.
+		const parentUuid = moduleParent(doc, moduleUuid) ?? undefined;
+		const above = moduleShowsFormsInMenuAbove(mod);
+		const parentKeepsScreen =
+			parentUuid !== undefined &&
+			!moduleShowsFormsInMenuAbove(doc.modules[parentUuid]);
+		const textLocaleModuleIndex =
+			above && parentUuid !== undefined && parentKeepsScreen
+				? sortedModuleUuids.indexOf(parentUuid)
+				: mIdx;
 		const moduleNav = buildNavMenuNode(
+			`modules.m${textLocaleModuleIndex}`,
 			`modules.m${mIdx}`,
 			mod.icon,
 			mod.audioLabel,
@@ -1061,20 +1148,37 @@ export function compileCcz(
 		);
 		Object.assign(appStrings, moduleNav.strings);
 
+		const parentRelevant =
+			above && parentUuid !== undefined
+				? emitModuleDisplayCondition(
+						doc.modules[parentUuid],
+						moduleExpressionContexts(
+							doc,
+							parentUuid,
+							lookupNaming,
+						)({
+							slot: "module_display_condition",
+						}),
+						lookupNaming,
+					)
+				: undefined;
+		const menuRelevant =
+			parentRelevant === undefined
+				? moduleRelevant
+				: moduleRelevant === undefined
+					? parentRelevant
+					: w.and(w.paren(moduleRelevant), w.paren(parentRelevant));
 		const moduleInstances = new InstanceSink();
 		const moduleMenu = xel(
 			"menu",
 			{
 				attributes: {
-					...(moduleParent(doc, moduleUuid) !== null &&
-					moduleParent(doc, moduleUuid) !== undefined
-						? {
-								root: `m${sortedModuleUuids.indexOf(moduleParent(doc, moduleUuid) as Uuid)}`,
-							}
+					...(!above && parentUuid !== undefined
+						? { root: menuIdOf(doc, linkContext, parentUuid) }
 						: {}),
-					id: `m${mIdx}`,
+					id: menuIdOf(doc, linkContext, moduleUuid),
 				},
-				xpath: moduleRelevant === undefined ? {} : { relevant: moduleRelevant },
+				xpath: menuRelevant === undefined ? {} : { relevant: menuRelevant },
 			},
 			{ mode: { target: "suite" }, instances: moduleInstances },
 			[moduleNav.node],

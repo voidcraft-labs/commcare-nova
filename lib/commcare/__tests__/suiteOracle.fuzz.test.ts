@@ -4,6 +4,11 @@ import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { advancedDocArbitrary } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
+	countMenuScreens,
+	emptyMenuScreensCensus,
+	menuScreenDocArbitrary,
+} from "./menuScreenDocArbitrary";
+import {
 	countNames,
 	emptyNamesCensus,
 	expectNamesCensus,
@@ -105,4 +110,31 @@ it("compiles workflows whose case types and Search fields fill Nova's name gramm
 		{ seed: 20261113, numRuns: 80 },
 	);
 	expectNamesCensus(census, 80);
+});
+
+// The menu-screens corpus: menus that show their forms in the menu above,
+// top-level and nested, with links and entry points into them. Every oracle
+// checks the HQ import, the local suite's shared menu ids and conjoined
+// conditions, and every binding; the census fails by name if the generator
+// stops drawing a shape.
+it("compiles menu-screens samples whose menus show their forms in the menu above", {
+	timeout: 60_000,
+}, () => {
+	const census = emptyMenuScreensCensus();
+	assertGenerated(
+		fc.property(menuScreenDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			countMenuScreens(census, doc);
+		}),
+		{ seed: 20261115, numRuns: 200 },
+	);
+	expect(census.total).toBe(200);
+	expect(census.above / census.total).toBeGreaterThan(0.6);
+	expect(census.topLevelAbove / census.total).toBeGreaterThan(0.4);
+	expect(census.submenuAboveInParentWithScreen / census.total).toBeGreaterThan(
+		0.05,
+	);
+	expect(census.submenuUnderParentAbove / census.total).toBeGreaterThan(0.05);
+	expect(census.link / census.total).toBeGreaterThan(0.1);
+	expect(census.entryPoint / census.total).toBeGreaterThan(0.1);
 });

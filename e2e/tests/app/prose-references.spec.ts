@@ -324,3 +324,130 @@ test("hashtag suggestions select namespaces and references without ending the dr
 		main.getByRole("button", { name: "Your name", exact: true }),
 	).toBeVisible();
 });
+
+test("inserts, edits and removes calculated values in a hint and shows their results", {
+	tag: "@seed:sections",
+}, async ({ page, scenario, request }) => {
+	const { formSections } = seedFor(scenario, "sections");
+	await openBuilder(page, formSections.route);
+	await page
+		.getByRole("button", { name: "Your name", exact: true })
+		.first()
+		.click();
+	const properties = page.getByRole("dialog", {
+		name: "Properties",
+		exact: true,
+	});
+	await properties.getByRole("button", { name: "Hint", exact: true }).click();
+	const hint = properties.getByRole("textbox", { name: "Hint", exact: true });
+	await expect(hint).toBeFocused();
+	const popover = page.getByRole("dialog", {
+		name: "Calculated value",
+		exact: true,
+	});
+	const formula = popover.locator(".cm-content");
+	/** Opens the value popover from the picker and writes `text` into a new value. */
+	const insertValue = async (text: string) => {
+		await properties
+			.getByRole("button", { name: "Insert reference", exact: true })
+			.click();
+		await page.getByRole("button", { name: /^Calculated value/ }).click();
+		await expect(popover).toBeVisible();
+		await expect(formula).toBeFocused();
+		await page.keyboard.type(text);
+		await popover.getByRole("button", { name: "Insert", exact: true }).click();
+		await expect(popover).toHaveCount(0);
+	};
+	/** Selects the `index`th value chip and opens it for editing. */
+	const openValue = async (index: number) => {
+		await hint.locator("[data-prose-value]").nth(index).click();
+		await properties
+			.getByRole("button", { name: "Edit calculated value", exact: true })
+			.click();
+		await expect(popover).toBeVisible();
+	};
+
+	// An empty formula inserts nothing.
+	await properties
+		.getByRole("button", { name: "Insert reference", exact: true })
+		.click();
+	await page.getByRole("button", { name: /^Calculated value/ }).click();
+	await expect(
+		popover.getByRole("button", { name: "Insert", exact: true }),
+	).toBeDisabled();
+	await page.keyboard.press("Escape");
+	await expect(popover).toHaveCount(0);
+
+	await insertValue("string-length(#form/about_you/your_name)");
+	await hint.press("End");
+	await hint.pressSequentially(" letters, ");
+	await insertValue("concat(#form/about_you/your_name, '!')");
+	await expect(hint.locator("[data-prose-value]")).toHaveCount(2);
+	await expect(hint.locator("[data-prose-value]").first()).toHaveAttribute(
+		"title",
+		"string-length(#form/about_you/your_name)",
+	);
+
+	// Each value opens on its own formula.
+	await openValue(0);
+	await expect(formula).toHaveText("string-length(#form/about_you/your_name)");
+	await page.keyboard.press("Escape");
+	await openValue(1);
+	await expect(formula).toHaveText("concat(#form/about_you/your_name, '!')");
+	await page.keyboard.press("ControlOrMeta+a");
+	await page.keyboard.press("Backspace");
+	await expect(formula).toHaveText("");
+	await page.keyboard.type("concat(#form/about_you/your_name, '?')");
+	await popover.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(hint.locator("[data-prose-value]").nth(1)).toHaveAttribute(
+		"title",
+		"concat(#form/about_you/your_name, '?')",
+	);
+
+	// A formula that only reads the answer lands as the answer's reference.
+	await openValue(1);
+	await page.keyboard.press("ControlOrMeta+a");
+	await page.keyboard.press("Backspace");
+	await expect(formula).toHaveText("");
+	await page.keyboard.type("#form/about_you/your_name");
+	await popover.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(hint.locator("[data-prose-value]")).toHaveCount(1);
+	await expect(
+		hint.locator('[data-ref-raw="#form/about_you/your_name"]'),
+	).toBeVisible();
+
+	await hint.press("Enter");
+	await expect
+		.poll(async () =>
+			(
+				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
+					.blueprint.fields[source].hint as { parts: { kind: string }[] }
+			).parts.map((part) => part.kind),
+		)
+		.toEqual(["value", "text", "field-ref"]);
+
+	// The running form shows each value's result.
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	await page
+		.getByRole("main")
+		.getByRole("textbox", { name: "Your name" })
+		.fill("Asha");
+	await expect(
+		page.getByRole("main").getByText("4 letters, Asha", { exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Back to edit", exact: true }).click();
+
+	// Remove takes the value out of the text.
+	await openValue(0);
+	await popover.getByRole("button", { name: "Remove", exact: true }).click();
+	await expect(hint.locator("[data-prose-value]")).toHaveCount(0);
+	await hint.press("Enter");
+	await expect
+		.poll(async () =>
+			(
+				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
+					.blueprint.fields[source].hint as { parts: { kind: string }[] }
+			).parts.map((part) => part.kind),
+		)
+		.toEqual(["text", "field-ref"]);
+});

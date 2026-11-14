@@ -584,6 +584,67 @@ describe("each privilege's reasons", () => {
 		]);
 	});
 
+	it("names a form whose only read of the worker's record is a label's calculated value", () => {
+		const region = testUuid("plan-privileges-worker-region");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Team",
+					forms: [
+						{
+							name: "Greet team",
+							type: "survey",
+							fields: [
+								f({
+									kind: "label",
+									id: "team",
+									label: {
+										parts: [
+											{
+												kind: "value",
+												expression: {
+													kind: "concat",
+													parts: [
+														{
+															kind: "term",
+															term: {
+																kind: "session-user-property",
+																userPropertyUuid: region,
+																source: "worker-record",
+															},
+														},
+														{
+															kind: "term",
+															term: { kind: "literal", value: " team" },
+														},
+													],
+												},
+											},
+										],
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.userProperties = {
+			[region]: { uuid: region, slug: "region", label: "Region" },
+		};
+		doc.userPropertyOrder = [region];
+		expect(
+			formsUsingWorkerRecord(doc).map(({ name, reads, writes }) => ({
+				name,
+				reads,
+				writes,
+			})),
+		).toEqual([{ name: "Greet team", reads: true, writes: false }]);
+		expect(reasonsOf(doc, "user_case")).toEqual([
+			"Greet team reads worker information.",
+		]);
+	});
+
 	it("names a lookup table read and each form that offers cases as a question's choices", () => {
 		const doc = buildDoc({
 			caseTypes: [
@@ -1018,8 +1079,6 @@ describe("CommCare Supply", () => {
 		);
 	const menuReason =
 		"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.";
-	const formReason =
-		"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.";
 
 	it("names an advanced menu whose case list is its own menu item", () => {
 		const doc = supplyDoc({ held: true });
@@ -1034,8 +1093,12 @@ describe("CommCare Supply", () => {
 		);
 	});
 
-	it("names a form whose label holds the text", () => {
+	it("names no form whose label holds the text, which the source writes with the label's bracket as an output", () => {
+		/* A label's `instance(` before a quote mark is written with its
+		 * bracket as a literal output (`xform/builder.ts::literalLabelNodes`),
+		 * so no stretch of the source holds the text. */
 		const doc = supplyDoc({
+			held: true,
 			fields: [
 				f({
 					kind: "label",
@@ -1045,7 +1108,13 @@ describe("CommCare Supply", () => {
 			],
 		});
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		expect(commtrackReasons(doc, undefined)).toEqual([formReason]);
+		const source = Object.values(
+			expandDoc(doc, { attachmentTarget: null })._attachments,
+		).find((xml) => xml.includes("/data/note"));
+		expect(source).toContain(
+			'Your place is instance<output value="&apos;(&apos;"/>&apos;commcaresession&apos;)/session/data/supply_point_id',
+		);
+		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
 	});
 
 	it("names no form for a calculated value's literal holding the text, which the source writes split at its instance call", () => {
@@ -1073,20 +1142,6 @@ describe("CommCare Supply", () => {
 		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
 	});
 
-	it("names the menu before the form, in document order", () => {
-		const doc = supplyDoc({
-			held: true,
-			fields: [
-				f({
-					kind: "label",
-					id: "note",
-					label: proseText(SUPPLY_POINT_SESSION_TEXT),
-				}),
-			],
-		});
-		expect(commtrackReasons(doc, undefined)).toEqual([menuReason, formReason]);
-	});
-
 	it("reads the emission under the Project's lookup naming, whose column types lower a table's value compared with a date", () => {
 		/* The Search filter compares a case's date with a table's value read
 		 * as a date, which lowers by that column's type
@@ -1105,16 +1160,15 @@ describe("CommCare Supply", () => {
 		doc.fieldOrder[formUuid] = [...(doc.fieldOrder[formUuid] ?? []), note];
 		rebuildFieldParent(doc);
 		expect(runValidation(doc, functionLookupContext)).toEqual([]);
-		const reason = `${doc.forms[formUuid].name} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`;
-		expect(commtrackReasons(doc, functionLookupNaming)).toEqual([reason]);
+		expect(commtrackReasons(doc, functionLookupNaming)).toEqual([]);
 		expect(
 			requiredConfirmations(
 				doc,
 				{ lookupTables: true, places: false },
 				null,
 				functionLookupNaming,
-			).find((need) => need.kind === "commtrack-off")?.reasons,
-		).toEqual([reason]);
+			).find((need) => need.kind === "commtrack-off"),
+		).toBeUndefined();
 	});
 
 	it("names no form whose label holds a near miss", () => {

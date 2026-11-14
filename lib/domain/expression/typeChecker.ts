@@ -950,10 +950,17 @@ function admission(
 		if (refused !== undefined) return refused;
 	}
 	if (
-		(expression.kind === "value-list" &&
-			!(ctx.ruleSet === "record" && serverOnlySearchSlot(profile))) ||
-		(ctx.ruleSet === "record" &&
-			["itext", "choice-name", "selected-cases"].includes(expression.kind))
+		expression.kind === "value-list" &&
+		!(ctx.ruleSet === "record" && serverOnlySearchSlot(profile))
+	)
+		return refusal(
+			"arm-unavailable",
+			"A list of values works only in a Search field's condition, where CommCare's search compares a case value with each value of the list. To match any of several fixed values here, you can use in(value, 'a', 'b').",
+			expression.kind,
+		);
+	if (
+		ctx.ruleSet === "record" &&
+		["itext", "choice-name", "selected-cases"].includes(expression.kind)
 	)
 		return refusal(
 			"arm-unavailable",

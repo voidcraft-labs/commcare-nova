@@ -422,6 +422,9 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		"record-type": [0, 0],
 		"chosen-case": [1, 1],
 		"chosen-case-property": [2, 2],
+		// Several values a case value is compared with by `=` or `!=`, in a
+		// slot CommCare's server search alone reads.
+		list: [1, -1],
 	}).map(([name, [minArgs, maxArgs]]): [string, FunctionArity] => [
 		name,
 		{ minArgs, maxArgs },

@@ -3,19 +3,30 @@
 import { useMemo } from "react";
 import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { CommitOutcome, Field, FieldPatchFor } from "@/lib/domain";
-import { ownerHoldsPlainLabel } from "@/lib/references/LabelContent";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
+import {
+	type CommitOutcome,
+	type Field,
+	type FieldPatchFor,
+	labelShowsAsTyped,
+} from "@/lib/domain";
 
-/** The Format text toggle a label's inline editor shows. */
+/** The Format text toggle a label's inline editor or a help text's editor
+ *  shows. */
 export interface FormatTextControl {
-	/** The text holds `plainLabel`: it shows exactly as stored. */
+	/** The text shows exactly as stored: it holds its own setting
+	 *  (`plainLabel`, `plainHelp`), or its form's text formatting is off. */
 	readonly plain: boolean;
+	/** The form's text formatting is off (`Form.plainText`): the toggle shows
+	 *  off and changes nothing, and the text's own setting is kept for when
+	 *  the form's switch goes back on. */
+	readonly formOff: boolean;
 	/** The builder shows the source language, which owns the setting. Under
 	 *  another worker language the toggle shows the source's state read-only. */
 	readonly isSource: boolean;
-	/** Write `plainLabel` (`true` turns formatting off, `null` turns it on)
-	 *  as one `updateField`, one undo step. */
-	write(plainLabel: true | null): CommitOutcome;
+	/** Write the text's own setting (`true` turns formatting off, `null` turns
+	 *  it on) as one `updateField`, one undo step. */
+	write(plain: true | null): CommitOutcome;
 }
 
 /**
@@ -28,18 +39,23 @@ export function useLabelFormatText(
 ): FormatTextControl | undefined {
 	const { updateField } = useBlueprintMutations();
 	const isSource = useShowsSourceLanguage();
+	const textForm = useFieldTextForm(field?.uuid);
 	const uuid = field?.uuid;
 	const kind = field?.kind;
-	const plain = ownerHoldsPlainLabel(field);
+	const plain =
+		field !== undefined &&
+		labelShowsAsTyped(textForm, "plainLabel" in field ? field : {});
+	const formOff = textForm.plainText === true;
 	return useMemo(() => {
 		if (uuid === undefined || kind === undefined || kind === "hidden") {
 			return undefined;
 		}
 		return {
 			plain,
+			formOff,
 			isSource,
 			write: (plainLabel) =>
 				updateField(uuid, kind, { plainLabel } as FieldPatchFor<typeof kind>),
 		};
-	}, [uuid, kind, plain, isSource, updateField]);
+	}, [uuid, kind, plain, formOff, isSource, updateField]);
 }

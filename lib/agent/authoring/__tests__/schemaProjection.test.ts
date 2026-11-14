@@ -7,6 +7,12 @@ import {
 	formLogicSchema,
 	valueSchema,
 } from "@/lib/domain/expression/types";
+import { addFieldsInputSchema } from "../../tools/addFields";
+import { updateCasePropertyInputSchema } from "../../tools/caseProperties";
+import { editFieldInputSchema } from "../../tools/editField";
+import { updateTranslationsInputSchema } from "../../tools/localization";
+import { setFieldOptionsSourceInputSchema } from "../../tools/setFieldOptionsSource";
+import { setFormSectionsInputSchema } from "../../tools/setFormSections";
 import { authoringJsonSchema, authoringSchema } from "../schema";
 
 const jsonOptions = {
@@ -310,5 +316,41 @@ describe("authoring schema graph projection", () => {
 		]);
 		for (const [name, schema] of namesBefore)
 			expect(z.globalRegistry._idmap.get(name)).toBe(schema);
+	});
+});
+
+/** Every `description` a served schema holds, anywhere in its graph. */
+function descriptions(value: unknown, found: string[] = []): string[] {
+	if (Array.isArray(value)) for (const item of value) descriptions(item, found);
+	else if (value !== null && typeof value === "object")
+		for (const [key, item] of Object.entries(value)) {
+			if (key === "description" && typeof item === "string") found.push(item);
+			else descriptions(item, found);
+		}
+	return found;
+}
+
+describe("the wording positions a model is served", () => {
+	it("teach {{= formula}} at every wording position, a case property's label among them", () => {
+		for (const [name, schema] of [
+			["addFields", addFieldsInputSchema],
+			["editField", editFieldInputSchema],
+			["setFieldOptionsSource", setFieldOptionsSourceInputSchema],
+			["setFormSections", setFormSectionsInputSchema],
+			["updateCaseProperty", updateCasePropertyInputSchema],
+		] as const) {
+			const wording = descriptions(authoringJsonSchema(schema)).filter(
+				(description) => description.startsWith("Markdown."),
+			);
+			expect(wording.length, name).toBeGreaterThan(0);
+			for (const description of wording)
+				expect(description, name).toContain("{{= formula}}");
+		}
+		const translated = descriptions(
+			authoringJsonSchema(updateTranslationsInputSchema),
+		).filter((description) => description.startsWith("Translated text."));
+		expect(translated.length).toBeGreaterThan(0);
+		for (const description of translated)
+			expect(description).toContain("{{= formula}}");
 	});
 });

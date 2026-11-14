@@ -13,6 +13,7 @@ import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	type CaseType,
+	hqInstantText,
 	type OrganizationCollections,
 	orderedLocationProperties,
 	orderedOrganizationLevels,
@@ -728,12 +729,13 @@ export function locationsXPathInstance(
 	});
 }
 
-/** `json_format_datetime`: UTC, six fraction digits, `Z`. */
+/** `json_format_datetime`: UTC, six fraction digits, `Z` (`hqInstantText`). */
 function hqDatetimeText(value: string | null): string {
 	if (value === null) return "";
-	const instant = new Date(value);
-	if (Number.isNaN(instant.getTime())) return "";
-	return `${instant.toISOString().slice(0, 23)}000Z`;
+	const instant = new Date(value).getTime();
+	if (Number.isNaN(instant)) return "";
+	const year = new Date(instant).getUTCFullYear();
+	return year < 0 || year > 9999 ? "" : hqInstantText(instant);
 }
 
 /** `json_format_date` of the UTC instant: its UTC calendar day. */

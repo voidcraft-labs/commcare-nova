@@ -34,9 +34,11 @@ import {
 	type CheckError,
 	checkExpression,
 } from "@/lib/domain/expression/typeChecker";
-import type { SlotContextRef } from "@/lib/domain/expression/types";
 import {
-	expressionAt,
+	isProseSlotRef,
+	type SlotContextRef,
+} from "@/lib/domain/expression/types";
+import {
 	type ProseRead,
 	prosePartTerm,
 	proseReadSlotRef,
@@ -44,6 +46,7 @@ import {
 } from "@/lib/domain/expressionSource";
 import {
 	type ExpressionCarrierRef,
+	expressionSlotKey,
 	expressionSlotValues,
 } from "@/lib/domain/referenceSlots";
 import { projectFormExpression } from "./expressionText";
@@ -311,6 +314,15 @@ function moveWords(doc: BlueprintDoc, moved: Uuid, slot: SlotContextRef) {
 	};
 }
 
+function priorValueKey(
+	ref: SlotContextRef,
+	path: readonly (string | number)[],
+): string {
+	return isProseSlotRef(ref)
+		? `${expressionSlotKey(ref)}\0${JSON.stringify(path)}`
+		: expressionSlotKey(ref);
+}
+
 function noPath(
 	doc: BlueprintDoc,
 	moved: Uuid,
@@ -475,13 +487,26 @@ function firstRefusal(
 	for (const carrier of carriers) {
 		const owner = expressionOwner(candidate, carrier);
 		if (owner === undefined) continue;
-		for (const { ref, expression } of expressionSlotValues(candidate, owner)) {
+		// Each value's tree before the move: an expression slot's by its key,
+		// a calculated value in prose by its key and its path, since a prose
+		// slot holds any number of them.
+		const prior = new Map(
+			expressionSlotValues(doc, owner).map((value) => [
+				priorValueKey(value.ref, value.path),
+				value.expression,
+			]),
+		);
+		for (const { ref, expression, path } of expressionSlotValues(
+			candidate,
+			owner,
+		)) {
+			const priorExpression = prior.get(priorValueKey(ref, path));
 			const context = slotContext(candidate, ref, lookup);
 			const beforeContext = slotContext(doc, ref, lookup);
 			if (beforeContext === undefined) continue;
 			if (context === undefined) return contextLost(doc, moved, ref);
 			if (context.ruleSet === "form") {
-				const beforeExpression = expressionAt(doc, ref) ?? expression;
+				const beforeExpression = priorExpression ?? expression;
 				const before = projectFormExpression(
 					doc,
 					ref,
@@ -502,7 +527,7 @@ function firstRefusal(
 			}
 			const before = new Set(
 				checkExpression(
-					expressionAt(doc, ref) ?? expression,
+					priorExpression ?? expression,
 					beforeContext,
 				).errors.map((issue) => findingKey(issue)),
 			);

@@ -19,7 +19,7 @@ export const caseListRegistrationInputSchema = z.strictObject({
 });
 
 export const CASE_LIST_REGISTRATION_DESCRIPTION =
-	"Makes this registration form its menu's registration from the case list: the results offer it after a search finds nothing, and it is on no menu. This turns on formsReadSearch for the menu, so the form's fields can read #search/<name>. After submit it returns to the results, or to the first menu when post_submit is firstMenu, which a menu choosing several cases requires. It takes no links, otherwise, display condition or hiddenFromMenu.";
+	"Makes this registration form its menu's registration from the case list: the results offer it after a search finds nothing, and it is on no menu. This turns on formsReadSearch for the menu, so the form's fields can read #search/<name>. After submit it returns to the results, or to the first menu when post_submit is firstMenu, which a menu choosing several cases requires. It takes no links, otherwise, display condition or hiddenFromMenu. To offer a form that stays on its own menu from a case list at any time, use register_from_case_list on update_module.";
 
 /** The stored label for what the SA gave: null and omission both use the
  * form's name. */

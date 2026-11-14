@@ -644,9 +644,12 @@ export function formLogicFinding(
 				};
 				const entries =
 					repeat === undefined ? "a repeat" : `the repeat "${repeat.id}"`;
-				// Text shows a reference as written, so it can't count or join.
+				// Text shows a reference as written, so it can't count or join; a
+				// calculated value is a formula, which can.
 				const prose =
-					ctx !== undefined && PROSE_SLOTS.has(ctx.slot.slot as string);
+					ctx !== undefined &&
+					PROSE_SLOTS.has(ctx.slot.slot as string) &&
+					expression?.kind === "term";
 				if (prose) details = { ...details, prose: "true" };
 				message = prose
 					? `${owner.slotSubject} shows an answer from every entry of ${entries}, where it can show only one. CommCare stops the form when there's more than one. You can move this question into the repeat, or show a hidden value that counts or joins the entries.`

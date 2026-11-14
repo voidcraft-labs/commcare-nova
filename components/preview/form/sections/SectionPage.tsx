@@ -17,14 +17,13 @@ import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useId, useRef } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { fpath } from "@/lib/doc/fieldPath";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
+import { labelShowsAsTyped } from "@/lib/domain/plainText";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
 import type { FormScreenPage as SectionPageModel } from "@/lib/preview/engine/formEngine";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
-import {
-	LabelContent,
-	ownerHoldsPlainLabel,
-} from "@/lib/references/LabelContent";
+import { LabelContent } from "@/lib/references/LabelContent";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
 import { SectionHeading, sectionKicker } from "./SectionHeading";
@@ -47,6 +46,7 @@ export function SectionPage({
 	const { language } = useBuilderLanguage();
 	const field = usePresentationField(page.uuid);
 	const state = useEngineState(page.uuid);
+	const textForm = useFieldTextForm(page.uuid);
 	const headingId = useId();
 	const headingRef = useRef<HTMLElement | null>(null);
 	const setHeading = useCallback((element: HTMLElement | null) => {
@@ -94,7 +94,7 @@ export function SectionPage({
 									label={field.label}
 									resolvedLabel={state.resolvedLabel}
 									isEditMode={false}
-									plainLabel={ownerHoldsPlainLabel(field)}
+									plainLabel={labelShowsAsTyped(textForm, field)}
 									className="text-lg font-semibold leading-7 text-nova-text"
 								/>
 							) : (

@@ -73,6 +73,7 @@ DOCUMENTS = (
     "nested-menu-registration-children",
     "standard-case-reads",
     "targeted-advanced-module",
+    "targeted-plain-help",
     "targeted-sync-on-form-entry",
     "tile-boxed",
 )

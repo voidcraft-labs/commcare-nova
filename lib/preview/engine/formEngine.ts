@@ -48,7 +48,7 @@ import type {
 	FormType,
 	LanguageTag,
 	LookupOptionsSource,
-	ProseReferencePart,
+	ProseAtomPart,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -164,6 +164,7 @@ import {
 	type PreviewLookupData,
 	predicateLookupsCovered,
 } from "./lookupEvaluation";
+import { numberKeypadStores, numberKeypadTyped } from "./numberKeypad";
 import { defaultPreviewDevice, type PreviewDevice } from "./previewDevice";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { resolveCurrentPage } from "./sectionPaging";
@@ -1198,11 +1199,18 @@ export class FormEngine {
 	/** Set a value and trigger recalculation cascade. Only changed paths
 	 *  are written to the store — Zustand's shallow merge keeps unchanged
 	 *  paths' references stable, so their subscribers skip re-rendering. */
-	setValue(path: string, value: string): void {
-		if (this.asyncRuntime) this.stagedValues.set(path, value);
-		else {
-			this.beginRequest();
-			this.instance.set(path, value);
+	setValue(path: string, typed: string): void {
+		/* A Text question with a number keypad plays the platform's keypad:
+		 * Android's box holds only the keys it offers, and Web Apps keeps the
+		 * earlier answer in the instance when its pattern refuses the typed one,
+		 * sends nothing, and shows its message (`answerShapeError`). */
+		const { shown: value, stores } = this.keypadAnswer(path, typed);
+		if (stores) {
+			if (this.asyncRuntime) this.stagedValues.set(path, value);
+			else {
+				this.beginRequest();
+				this.instance.set(path, value);
+			}
 		}
 
 		const updates: EngineStoreState = {};
@@ -1213,9 +1221,12 @@ export class FormEngine {
 
 		/* Cascade: re-evaluate what the answer reaches, narrowed to it as
 		 * Core narrows it. Only paths whose state actually changed are
-		 * included in the update. */
-		const affected = this.cascadeWork([{ anchor: path }]);
-		this.evaluateWorkInto(affected, updates);
+		 * included in the update. An answer the platform refused changed
+		 * nothing the form reads. */
+		if (stores) {
+			const affected = this.cascadeWork([{ anchor: path }]);
+			this.evaluateWorkInto(affected, updates);
+		}
 
 		/* Re-validate the changed field itself */
 		const latestState = updates[path] ?? current;
@@ -1230,8 +1241,27 @@ export class FormEngine {
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
+		if (!stores) return;
 		this.settleLiveRepeats();
 		if (!this.asyncRuntime) this.reenterActiveScreen();
+	}
+
+	/** What a typed answer leaves for a Text question with a number keypad:
+	 * the text the box shows and whether the instance stores it, by the
+	 * platform's `numberKeypad` rule (`numberKeypad.ts`). Every other question
+	 * shows and stores what was typed. */
+	private keypadAnswer(
+		path: string,
+		typed: string,
+	): { readonly shown: string; readonly stores: boolean } {
+		const field = this.findField(path);
+		if (field?.kind !== "text" || field.keypad === undefined)
+			return { shown: typed, stores: true };
+		const shown = numberKeypadTyped(this.rules.numberKeypad, typed);
+		return {
+			shown,
+			stores: numberKeypadStores(this.rules.numberKeypad, shown),
+		};
 	}
 
 	/**
@@ -3608,7 +3638,8 @@ export class FormEngine {
 			const value = snapshot.values.get(path);
 			const current = currentState[path];
 			if (value !== undefined && current) {
-				this.instance.set(path, value);
+				if (this.keypadAnswer(path, value).stores)
+					this.instance.set(path, value);
 				updates[path] = {
 					...current,
 					value,
@@ -3771,11 +3802,10 @@ export class FormEngine {
 				case "output": {
 					const field = this.findField(path);
 					if (field === undefined) break;
-					const resolve =
-						(slot: ProseSlotRef) => async (part: ProseReferencePart) =>
-							xpathToString(
-								await evaluateAsync(this.expressions.prose(part, slot), path),
-							);
+					const resolve = (slot: ProseSlotRef) => async (part: ProseAtomPart) =>
+						xpathToString(
+							await evaluateAsync(this.expressions.prose(part, slot), path),
+						);
 					const nextLabel = await resolveLabelAsync(
 						fieldProseTemplate(field, "label"),
 						resolve(fieldProseSlot(field, "label")),
@@ -4044,7 +4074,7 @@ export class FormEngine {
 					if (f) {
 						const resolve =
 							(slot: ProseSlotRef) =>
-							(part: ProseReferencePart): string =>
+							(part: ProseAtomPart): string =>
 								xpathToString(
 									evaluate(this.expressions.prose(part, slot), ctx),
 								);
@@ -4371,7 +4401,14 @@ export class FormEngine {
 	 */
 	private answerShapeError(path: string, value: string): string | undefined {
 		if (value === "") return undefined;
-		const kind = this.findField(path)?.kind;
+		const field = this.findField(path);
+		const kind = field?.kind;
+		if (
+			field?.kind === "text" &&
+			field.keypad !== undefined &&
+			!numberKeypadStores(this.rules.numberKeypad, value)
+		)
+			return runtimeMessage(this.presentationLanguage, "numberKeypadAnswer");
 		if (kind === "int" || kind === "decimal") {
 			const parsed = readNumericAnswer(kind, value, this.presentationLanguage);
 			return parsed.ok ? undefined : parsed.error;

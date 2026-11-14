@@ -7,8 +7,8 @@
 
 import {
 	canonicalProseTemplate,
+	type ProseAtomPart,
 	type ProsePart,
-	type ProseReferencePart,
 	type ProseTemplate,
 	prosePartSchema,
 } from "@/lib/domain";
@@ -23,7 +23,7 @@ export interface ProseTiptapNode {
 
 export function proseTemplateToTiptapContent(
 	value: ProseTemplate,
-	labelFor?: (part: ProseReferencePart) => string,
+	labelFor?: (part: ProseAtomPart) => string,
 ): ProseTiptapNode {
 	const paragraphs: Array<{
 		type: "paragraph";

@@ -11,7 +11,10 @@
 // `formLinkDependents.ts`).
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { caseListRegistrationFormOf, entityTargetKey } from "@/lib/domain";
+import {
+	afterEmptySearchRegistrationFormOf,
+	entityTargetKey,
+} from "@/lib/domain";
 import { findContainingForm } from "./mutations/helpers";
 import { referencingSlotsOf } from "./referenceIndex";
 
@@ -74,7 +77,7 @@ export function planSearchTakeawayDependents(
 	moduleUuid: Uuid,
 	takeaway: SearchTakeaway,
 ): SearchReadDependentsPlan {
-	const formUuid = caseListRegistrationFormOf(doc, moduleUuid);
+	const formUuid = afterEmptySearchRegistrationFormOf(doc, moduleUuid);
 	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
 	if (form === undefined) return { kind: "none" };
 	const mod = doc.modules[moduleUuid];

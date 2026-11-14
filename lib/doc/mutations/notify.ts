@@ -1,4 +1,4 @@
-import { showActiveProjectToast } from "@/lib/ui/toastStore";
+import { showActiveProjectToast, type ToastAction } from "@/lib/ui/toastStore";
 
 /**
  * Show the error toast for an edit the validity gate rejected — the
@@ -15,8 +15,15 @@ import { showActiveProjectToast } from "@/lib/ui/toastStore";
  * `ValidationError.message`; this surface never does). Pure presentation:
  * no validator types cross into this emitter.
  */
-export function notifyRejectedCommit(lines: string[]): void {
-	showActiveProjectToast("error", "Change not applied", undefined, { lines });
+export function notifyRejectedCommit(
+	lines: string[],
+	/** A next step the refusal offers, as a button on the toast. */
+	action?: ToastAction,
+): void {
+	showActiveProjectToast("error", "Change not applied", undefined, {
+		lines,
+		...(action !== undefined && { action }),
+	});
 }
 
 /** Announce automatic value preservation only after its batch commits. */

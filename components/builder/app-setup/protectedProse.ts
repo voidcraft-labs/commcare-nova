@@ -1,8 +1,8 @@
 import {
 	canonicalProseTemplate,
 	type LocalizedValue,
+	type ProseAtomPart,
 	type ProsePart,
-	type ProseReferencePart,
 	type ProseTemplate,
 } from "@/lib/domain";
 
@@ -10,11 +10,11 @@ import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 interface ProtectedToken {
 	readonly token: string;
-	readonly part: ProseReferencePart;
+	readonly part: ProseAtomPart;
 	readonly label: string;
 }
 
-function sameReference(left: ProseReferencePart, right: ProseReferencePart) {
+function sameReference(left: ProseAtomPart, right: ProseAtomPart) {
 	return canonicalJsonText(left) === canonicalJsonText(right);
 }
 
@@ -30,7 +30,7 @@ function protectedTokens(
 	let prefix = "NOVA_REF";
 	while (literalText.includes(`[[${prefix}_`)) prefix += "_";
 	return source.parts
-		.filter((part): part is ProseReferencePart => part.kind !== "text")
+		.filter((part): part is ProseAtomPart => part.kind !== "text")
 		.map((part, index) => ({
 			token: `[[${prefix}_${index + 1}]]`,
 			part,

@@ -42,7 +42,9 @@ import { customTile, tileHiddenOrder } from "./documents/customTile";
 import { datetimeEquality } from "./documents/datetimeEquality";
 import { datetimeOperands } from "./documents/datetimeOperands";
 import { datetimeOrdering } from "./documents/datetimeOrdering";
+import { datetimeSaved } from "./documents/datetimeSaved";
 import { datetimeSplit } from "./documents/datetimeSplit";
+import { detailOnlyColumn } from "./documents/detailOnlyColumn";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import {
 	expressionPropertyRenames,
@@ -61,6 +63,12 @@ import {
 	reservedNodeNames,
 	surveyMenu,
 } from "./documents/formShapes";
+import { formsInMenuAbove } from "./documents/formsInMenuAbove";
+import { formsInMenuAboveNested } from "./documents/formsInMenuAboveNested";
+import {
+	formsInMenuAboveOneCase,
+	formsInMenuAboveRegistrationOnly,
+} from "./documents/formsInMenuAbovePrefixes";
 import { gpsQuestion } from "./documents/gpsQuestion";
 import { heldPlacement } from "./documents/heldPlacement";
 import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
@@ -92,8 +100,15 @@ import {
 	tileSessionReads,
 } from "./documents/nativeSessionReads";
 import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
+import { numberKeypad } from "./documents/numberKeypad";
+import { plainHelp } from "./documents/plainHelp";
 import { platformDeclaration } from "./documents/platformDeclaration";
 import { previewAndroidRenders } from "./documents/previewAndroidRenders";
+import { proseValue } from "./documents/proseValue";
+import {
+	registerFromCaseList,
+	registerFromCaseListWebApps,
+} from "./documents/registerFromCaseList";
 import {
 	queryRepeatPlacements,
 	queryRepeatPlaces,
@@ -112,6 +127,7 @@ import {
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
 import { searchFieldNames } from "./documents/searchFieldNames";
+import { searchNoTitle } from "./documents/searchNoTitle";
 import {
 	searchWorkflow,
 	searchWorkflowAndroid,
@@ -119,6 +135,7 @@ import {
 } from "./documents/searchWorkflows";
 import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
+import { sortBlanks } from "./documents/sortBlanks";
 import { sharedPropertySort } from "./documents/sortKeys";
 import {
 	parentFormPreviousFrame,
@@ -216,6 +233,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	supplyPointText,
 	fieldListFlags,
 	plainLabels,
+	plainHelp,
 	searchWorkflow,
 	searchWorkflowInline,
 	searchWorkflowAndroid,
@@ -232,6 +250,18 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	caseWriteNames,
 	connectDeliverHyphenIds,
 	connectLearnHyphenIds,
+	numberKeypad,
+	detailOnlyColumn,
+	proseValue,
+	searchNoTitle,
+	sortBlanks,
+	datetimeSaved,
+	formsInMenuAbove,
+	formsInMenuAboveNested,
+	formsInMenuAboveRegistrationOnly,
+	formsInMenuAboveOneCase,
+	registerFromCaseList,
+	registerFromCaseListWebApps,
 ];
 
 /** Every targeted document, in a fixed order. */

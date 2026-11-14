@@ -126,6 +126,27 @@ describe("addFields — identifier guard through admitted input and canonical wo
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 	});
 
+	it("stores a number keypad and a help text shown as typed, which it answers ok for", async () => {
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const result = await h.runTool(addFieldsTool, {
+			...ADDRESS,
+			fields: [
+				{ ...textItem("phone"), keypad: "numbers" },
+				{
+					...textItem("notes"),
+					help: proseText("Use *short* words"),
+					plain_help: true,
+				},
+			],
+		});
+
+		expect(result.result).toHaveProperty("ok", true);
+		const byId = (id: string) =>
+			Object.values(h.currentDoc().fields).find((field) => field?.id === id);
+		expect(byId("phone")).toMatchObject({ keypad: "numbers" });
+		expect(byId("notes")).toMatchObject({ plainHelp: true });
+	});
+
 	it("accepts a legal batch and persists it", async () => {
 		const h = makeToolWorkspaceHarness(makeDoc());
 		const result = await h.runTool(addFieldsTool, {

@@ -10,6 +10,7 @@ import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDevi
 import {
 	previewMenuCaseContext,
 	previewModuleVisibility,
+	previewRunningModuleScreen,
 } from "@/lib/preview/menuProjection";
 import { locationToPreviewScreen } from "@/lib/preview/screenProjection";
 import type { Location } from "@/lib/routing/types";
@@ -88,18 +89,8 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 		continuesExistingTask,
 	]);
 
-	return useMemo(
-		() =>
-			locationToPreviewScreen(
-				loc,
-				moduleOrder,
-				menuSource.modules,
-				formOrder,
-				moduleVisibility,
-				requiredCaseAdmissionModuleUuid,
-				continuesExistingTask,
-			),
-		[
+	return useMemo(() => {
+		const screen = locationToPreviewScreen(
 			loc,
 			moduleOrder,
 			menuSource.modules,
@@ -107,6 +98,25 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 			moduleVisibility,
 			requiredCaseAdmissionModuleUuid,
 			continuesExistingTask,
-		],
-	);
+		);
+		/* A route that names a menu with no screen of its own (a stored
+		 * location, a typed URL) runs the screen that lists its forms. Edit
+		 * mode keeps such a menu as the container of its forms, and a menu
+		 * entered for its parent case selection keeps its own redirect. */
+		return mode === "preview" &&
+			screen.type === "module" &&
+			screen.moduleUuid !== requiredCaseAdmissionModuleUuid
+			? previewRunningModuleScreen(menuSource.doc, screen.moduleUuid)
+			: screen;
+	}, [
+		loc,
+		mode,
+		moduleOrder,
+		menuSource.modules,
+		menuSource.doc,
+		formOrder,
+		moduleVisibility,
+		requiredCaseAdmissionModuleUuid,
+		continuesExistingTask,
+	]);
 }

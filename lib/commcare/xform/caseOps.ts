@@ -84,6 +84,7 @@ import type {
 	FormExpressionSlotRef,
 	PropertyRef,
 } from "@/lib/domain/expression/types";
+import { walkExpressionNodes } from "@/lib/domain/expression/walk";
 import { caseTypeDepthMap } from "../caseTypeDepths";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
@@ -92,6 +93,7 @@ import {
 	joinedSelectedCaseIds,
 	sessionInstance,
 } from "../xpath/wire/instances";
+import { typedInstantValue } from "../xpath/wire/instant";
 import {
 	buildAncestorJoinNodeset,
 	caseById,
@@ -103,10 +105,7 @@ import {
 	type CountPlacementRowNames,
 	countPlacementRowPieces,
 } from "./countPlacementRow";
-import {
-	datetimeCaseValueExpression,
-	datetimeCaseValuePath,
-} from "./datetimeCaseValue";
+import { datetimeCaseValue, datetimeCaseValuePath } from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
 import { formCasePropertyRead } from "./formCaseRead";
 import type { FormExpressionEmission } from "./formExpressions";
@@ -1142,6 +1141,37 @@ export function buildCaseOperations(
 					emitExpression(expression, targetPath, slot),
 				),
 			);
+		/** A typed leaf of a date-and-time write that reads the clock, read
+		 *  once into a Hidden Value of the operation's group, with no control
+		 *  and no `type`, whose calculate is the leaf's typed text; the row
+		 *  reads that node through `current()`. Every other leaf reads none. */
+		let clockReads = 0;
+		const clockNode = (
+			leaf: Expression,
+			readerPath: FormPath,
+			slot: FormExpressionSlotRef,
+		): WireExpr | undefined => {
+			if (!holdsClockRead(leaf)) return undefined;
+			clockReads += 1;
+			const name = generatedNodes.instant(operation.uuid, clockReads);
+			const nodePath = group.path.child(name);
+			group.children.push(el(name, {}));
+			binds.push(
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: nodePath.toWire(),
+							calculate: typedInstantValue(
+								emitExpression(leaf, nodePath, slot),
+							),
+						},
+					},
+					context,
+				),
+			);
+			return originalContextWirePath(readerPath, nodePath);
+		};
 
 		// A rename is the own case's name on a form that loads it.
 		const rename = own
@@ -1445,7 +1475,7 @@ export function buildCaseOperations(
 						captureLinkAt(link.field, operationBindings(writePath)) ??
 						w.str("");
 				} else {
-					const emitted = emitExpression(write.value, writePath, {
+					const valueSlot: FormExpressionSlotRef = {
 						entity: "form",
 						uuid: formUuid,
 						slot: "case_operation_write_value",
@@ -1453,13 +1483,24 @@ export function buildCaseOperations(
 							operationUuid: operation.uuid,
 							property: write.property,
 						},
-					});
+					};
 					// HQ's form builder writes a row's bind with no `type`, so a
-					// datetime leaf stays untyped and the value carries its own clock.
+					// datetime leaf stays untyped, and the value is the text CommCare
+					// HQ stores for its moment. A typed leaf that reads the clock is
+					// read once into a node of its own, which the row reads.
 					value =
 						destination?.data_type === "datetime"
-							? datetimeCaseValueExpression(emitted)
-							: emitted;
+							? datetimeCaseValue(
+									write.value,
+									{
+										target: "xform",
+										types: expressions.context(valueSlot),
+										form: expressions.projection,
+										bindings: operationBindings(writePath),
+									},
+									(leaf) => clockNode(leaf, writePath, valueSlot),
+								)
+							: emitExpression(write.value, writePath, valueSlot);
 				}
 				// `external_id` is a fixed text column whatever its declared type,
 				// so its value is normalized and checked by the text guard, which
@@ -2754,4 +2795,13 @@ function emitAnchoredProperty(
 			"A scalar record property cannot traverse a collection relation. The on-device compatibility gate must reject this expression before emission.",
 		);
 	return w.append(base, [casePropertyStep(property.property)]);
+}
+
+/** Whether an expression reads the device's clock, `now()`. */
+function holdsClockRead(expression: Expression): boolean {
+	let found = false;
+	walkExpressionNodes(expression, (node) => {
+		if (node.kind === "now") found = true;
+	});
+	return found;
 }

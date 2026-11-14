@@ -60,6 +60,13 @@ export const createFormInputSchema = moduleAddressSchema
 			.describe(
 				'Where the user goes after submitting: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (this module\'s first screen), "parentMenu" (the parent module, with its selection kept) or "previous" (the preceding selection or task shown by the resolved navigation result). Omit for the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, its forms read the search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. A form that is its menu\'s registration from the case list returns to the results after submit, or goes to "firstMenu" when that is set, which a menu choosing several cases requires.',
 			),
+		plain_text: z
+			.boolean()
+			.nullable()
+			.optional()
+			.describe(
+				"true turns text formatting off for the whole form, whatever a text's own plain_label or plain_help says: every label shows as typed, and every choice and help text shows as typed on Android (Web Apps formats those two either way). false or null turns it back on.",
+			),
 		case_list_registration: caseListRegistrationInputSchema
 			.optional()
 			.describe(CASE_LIST_REGISTRATION_DESCRIPTION),
@@ -92,6 +99,7 @@ export const createFormTool = {
 			type,
 			purpose,
 			post_submit,
+			plain_text,
 			case_list_registration,
 		} = input;
 		try {
@@ -139,6 +147,7 @@ export const createFormTool = {
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
+				...(plain_text === true && { plainText: true }),
 			});
 			// The registration from the case list is the module's slot, set on
 			// the document that holds the new form; it turns on Forms read the

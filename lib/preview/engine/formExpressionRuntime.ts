@@ -10,7 +10,6 @@ import {
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
 import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { proseReferenceExpression } from "@/lib/commcare/xform/proseExpression";
 import {
 	type FormNodeProjection,
 	formNodeProjection,
@@ -37,7 +36,8 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { expressionAt } from "@/lib/domain/expressionSource";
-import type { ProseReferencePart } from "@/lib/domain/prose";
+import type { ProseAtomPart } from "@/lib/domain/prose";
+import { proseAtomExpression } from "@/lib/domain/proseExpression";
 import type { PreviewLookupData } from "./lookupEvaluation";
 import { previewQueryWrapperName } from "./queryWrapperName";
 
@@ -179,10 +179,10 @@ export interface FormExpressionRuntime {
 	expression(slot: ExpressionSlotRef): Expression | undefined;
 	/** The slot's printed text, printed once per runtime. */
 	source(slot: ExpressionSlotRef): string | undefined;
-	/** One prose reference's printed text, the value the XForm's `<output>`
-	 * for it reads (`xform/formExpressions.ts::prose`), printed once per
-	 * runtime. */
-	prose(part: ProseReferencePart, slot: ProseSlotRef): string;
+	/** One prose atom's printed text (a reference's read or a calculated
+	 * value's expression), the value the XForm's `<output>` for it reads
+	 * (`xform/formExpressions.ts::prose`), printed once per runtime. */
+	prose(part: ProseAtomPart, slot: ProseSlotRef): string;
 	lower(expression: Expression, slot: SlotContextRef): string;
 }
 
@@ -273,7 +273,7 @@ export function formExpressionRuntime(
 			const key = JSON.stringify([slot, part]);
 			const cached = proseTexts.get(key);
 			if (cached !== undefined) return cached;
-			const text = lower(proseReferenceExpression(part), slot);
+			const text = lower(proseAtomExpression(part), slot);
 			proseTexts.set(key, text);
 			return text;
 		},

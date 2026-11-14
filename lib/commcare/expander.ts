@@ -66,6 +66,7 @@ import {
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
+	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	declaresWebApps,
@@ -74,6 +75,7 @@ import {
 	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
 	moduleParent,
+	moduleShowsFormsInMenuAbove,
 	projectedModulePreorder,
 	type Uuid,
 } from "@/lib/domain";
@@ -559,6 +561,11 @@ export function expandDoc(
 					);
 		shell.module_filter =
 			moduleFilter === undefined ? null : hqXPath(moduleFilter, "no-case");
+		// A menu that shows its forms in the menu above is HQ's `put_in_root`.
+		// Its own filter, name and media are written as they are: HQ's build
+		// derives the menu id, the parent's name and the conjoined condition
+		// from the flag (`suite_xml/sections/menus.py::_generate_menu`).
+		if (moduleShowsFormsInMenuAbove(mod)) shell.put_in_root = true;
 
 		if (noMatches !== undefined) {
 			const formId = formUniqueIdOf.get(noMatches.formUuid);
@@ -579,6 +586,40 @@ export function expandDoc(
 				),
 				post_form_workflow: "case_list",
 				relevancy_expression: hqXPath(NO_MATCHES_RELEVANCY),
+			};
+		}
+		// A registration the case list always offers names the form where it
+		// stands, in another menu: no hidden module, no relevancy (HQ writes
+		// `relevancy_expression` only under `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`).
+		// HQ's two return values are `case_list` ("Go back to case list") and
+		// `default` ("Proceed with registered case").
+		const alwaysOffered = alwaysOfferedRegistrationOf(doc, moduleUuid);
+		const alwaysOfferedFormId =
+			alwaysOffered === undefined
+				? undefined
+				: formUniqueIdOf.get(alwaysOffered.formUuid);
+		if (alwaysOffered !== undefined && alwaysOfferedFormId !== undefined) {
+			const media = buildNavMediaDicts(
+				alwaysOffered.icon,
+				alwaysOffered.audioLabel,
+				assets,
+				"expandDoc case list registration media",
+				localization.languages,
+			);
+			shell.case_list_form = {
+				doc_type: "CaseListForm",
+				form_id: alwaysOfferedFormId,
+				label: localization.textMap(
+					caseListFormLabelUnit(
+						authoredDoc,
+						moduleUuid,
+						alwaysOffered.formUuid,
+					),
+				),
+				post_form_workflow:
+					alwaysOffered.afterSubmit === "case-list" ? "case_list" : "default",
+				media_image: media.media_image,
+				media_audio: media.media_audio,
 			};
 		}
 

@@ -77,6 +77,7 @@ import {
 	datetimeCoerceValue,
 	type InstantEmission,
 	instantOperandWire,
+	storedDatetimeValue,
 } from "./instant";
 import {
 	buildAncestorJoinNodeset,
@@ -161,6 +162,32 @@ const comparison: Record<
 > = { eq: "=", neq: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=" };
 /** Lower admitted domain expressions once. Serializers own every lexical choice. */
 export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return emitExpression(normalized, context);
+}
+/**
+ * A date and time written to a case, as the text CommCare HQ stores
+ * (`instant.ts::storedDatetimeValue`): `expr` classified leaf by leaf in its
+ * slot, each leaf printed as `toWire` prints it. `clock` names the node that
+ * reads a typed leaf holding `now()` once.
+ */
+export function storedDatetimeWire(
+	expr: Expression,
+	ctx: WireBuildContext,
+	clock?: (leaf: Expression) => WireExpr | undefined,
+): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return storedDatetimeValue(
+		instantOperand(normalized, context.types, { memo: instantMemo(context) }),
+		instantEmission(context),
+		clock,
+	);
+}
+/** The context `toWire` emits in, and the expression normalized in it. */
+function prepareWire(
+	expr: Expression,
+	ctx: WireBuildContext,
+): { readonly normalized: Expression; readonly context: Context } {
 	const bindings = ctx.bindings ?? {};
 	const context: Context = {
 		...ctx,
@@ -203,7 +230,7 @@ export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 					if (override !== undefined) overrides.set(replacement, override);
 				},
 	);
-	return emitExpression(normalized, { ...context, overrides });
+	return { normalized, context: { ...context, overrides } };
 }
 /** The classification memo of the context `ctx` types in. */
 function instantMemo(ctx: Context): InstantOperandMemo {

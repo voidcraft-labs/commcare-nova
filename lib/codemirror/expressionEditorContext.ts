@@ -52,8 +52,9 @@ import {
 } from "@/lib/domain/expression/typeChecker";
 import type {
 	DatumRef,
-	ExpressionSlotRef,
+	Expression,
 	FormNodeRef,
+	SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { operationCaseType, orderedCaseOperations } from "@/lib/domain/forms";
 import { userPropertiesOf } from "@/lib/domain/users";
@@ -147,7 +148,7 @@ export interface RelativeStep extends NamedRead {
 /** Editable expressions always carry their actual slot, its parse scope and
  * the one check the linter and the save gate share. */
 export interface ExpressionEditorContext {
-	readonly slot: ExpressionSlotRef;
+	readonly slot: SlotContextRef;
 	readonly scope: FormParseScope;
 	readonly reference: FormReferenceContext;
 	readonly reads: ExpressionReads;
@@ -180,15 +181,20 @@ const CONTAINER_KINDS = new Set(["group", "section", "repeat"]);
 /** Derive editing semantics from the actual owner and slot, never a form default. */
 export function buildExpressionEditorContext(
 	doc: BlueprintDoc,
-	slot: ExpressionSlotRef,
+	slot: SlotContextRef,
 	lookupContext: LookupValidationContext,
-	options: { readonly form?: FormStructure } = {},
+	options: {
+		readonly form?: FormStructure;
+		/** In a prose slot, the calculated value being edited, which its text
+		 *  binds against; absent for a new value. */
+		readonly current?: Expression;
+	} = {},
 ): ExpressionEditorContext | undefined {
 	const context = slotContext(
 		doc,
 		slot,
 		lookupTypeIndex(lookupContext),
-		options,
+		options.form === undefined ? {} : { form: options.form },
 	);
 	const form = context?.form;
 	if (context === undefined || form === undefined) return undefined;

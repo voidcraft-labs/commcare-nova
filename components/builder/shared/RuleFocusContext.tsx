@@ -139,7 +139,7 @@ export function expressionFocusTitle(value: Expression): string {
 		case "case-list-search-text":
 			return "Case list search text";
 		case "value-list":
-			return "Values";
+			return "A list of values";
 		default:
 			return "Saved expression";
 	}
@@ -192,7 +192,7 @@ export function expressionFocusDescription(value: Expression): string {
 		case "case-list-search-text":
 			return "What the worker typed into the case list's search box";
 		case "value-list":
-			return `${value.items.length} saved values`;
+			return `${value.items.length} ${value.items.length === 1 ? "value" : "values"}`;
 		default:
 			return "This saved expression is preserved";
 	}

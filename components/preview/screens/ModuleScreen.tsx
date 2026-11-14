@@ -13,7 +13,6 @@ import {
 	useLocalizedValues,
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { previewParentCaseResumeLocation } from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Skeleton } from "@/components/shadcn/skeleton";
@@ -24,28 +23,22 @@ import {
 	useCaseFirstModuleUuids,
 	useIsBareCaseListModule,
 	useIsCaseFirstModule,
-	useOrderedMenuForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	formLaunch,
+	type MenuScreenEntry,
 	makeTranslationUnitId,
 	moduleFormsReadSearch,
-	moduleIsBareCaseList,
 	moduleLanding,
 	moduleParent,
 	moduleScreenLanding,
 	reachableCaseTypes,
 } from "@/lib/domain";
-import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { caseListMenuItemSelection } from "@/lib/preview/caseListMenuItemRoute";
 import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
-import {
-	formDisplayVisibility,
-	navigationSelectedCase,
-} from "@/lib/preview/engine/displayConditionEvaluation";
-import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
+import { navigationSelectedCase } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { previousTaskFormSelectors } from "@/lib/preview/engine/previousTask";
@@ -56,12 +49,17 @@ import { useClaimSearchedCases } from "@/lib/preview/hooks/useClaimSearchedCases
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
+	authoringScreenEntries,
+	menuScreenEntryKey,
 	moduleHasChildren,
 	OFF_THE_MENU_SUMMARY,
 	previewCaseListMenuEntry,
+	previewHiddenScreenEntries,
 	previewMenuCaseContext,
-	previewMenuModuleUuids,
-	previewModuleVisibility,
+	previewModuleOwnVisibility,
+	previewModuleScreenIsBareCaseList,
+	previewScreenEntries,
+	previewScreenEntryVisibility,
 } from "@/lib/preview/menuProjection";
 import {
 	claimableCaseIds,
@@ -84,6 +82,7 @@ import {
 } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { useWorkerMessage } from "../shared/WorkerText";
+import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
 import { openModuleLanding } from "./moduleLanding";
 
 interface ModuleScreenProps {
@@ -117,9 +116,6 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const moduleUuid = screen.moduleUuid;
 
 	const mod = useModuleEntity(moduleUuid);
-	/* The menu lists menu forms only: a no-matches registration form opens
-	 * from Results after an empty search, never from here. */
-	const forms = useOrderedMenuForms(moduleUuid);
 	const language = useBuilderLanguage();
 	const message = useWorkerMessage();
 	const localizedValues = useLocalizedValues();
@@ -138,123 +134,140 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		() => previewSessionValues(identity, withNavigationWidth(device)),
 		[identity, device],
 	);
-	const childUuids = useMemo(
-		() => previewMenuModuleUuids(menuSource, moduleUuid),
-		[menuSource, moduleUuid],
+	/* The screen lists its own forms, the forms and case lists of every
+	 * submenu that shows its forms here, and the tiles of submenus that keep
+	 * their screen; edit mode keeps the menu the container of its own forms. */
+	const entries = useMemo(
+		() =>
+			mode === "edit"
+				? authoringScreenEntries(menuSource.doc, {
+						kind: "menu",
+						moduleUuid,
+					})
+				: previewScreenEntries(menuSource.doc, { kind: "menu", moduleUuid }),
+		[menuSource.doc, mode, moduleUuid],
+	);
+	const rowEntries = useMemo(
+		() => entries.filter((entry) => entry.kind !== "menu"),
+		[entries],
+	);
+	const tileEntries = useMemo(
+		() => entries.filter((entry) => entry.kind === "menu"),
+		[entries],
 	);
 	const children = useMemo(
-		() => childUuids.flatMap((uuid) => menuSource.modules[uuid] ?? []),
-		[childUuids, menuSource.modules],
+		() =>
+			tileEntries.flatMap(
+				(entry) => menuSource.modules[entry.moduleUuid] ?? [],
+			),
+		[tileEntries, menuSource.modules],
 	);
-	const hasChildren = children.length > 0;
+	/* A submenu that shows its forms here is still this menu's child: it
+	 * needs the case chosen here before its forms open. */
+	const hasChildren = moduleHasChildren(menuSource, moduleUuid);
 	const menuCaseContext = useMemo(
 		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
 		[menuSource, moduleUuid, menuCaseSelections],
 	);
 	const selectedMenuCase = menuCaseContext.selectedCase;
 	const selectedMenuChoices = selectedMenuCase?.cases ?? [];
-	const onlySelectedMenuCase =
-		selectedMenuChoices.length === 1 ? selectedMenuChoices[0] : undefined;
 	const requiredParentCase = menuCaseContext.requiredParentCase;
-	const selectedMenuCaseId = onlySelectedMenuCase?.caseId;
 	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 
-	/* The running preview gates the form menu exactly as a device would
-	 * (`<command relevant>`), over the device's cases with the menu's chosen
-	 * case under its session datum. Forms-first conditions read the session
-	 * only (the validator admits property reads only in the case-first flow,
-	 * whose menu lives on the case-list screen). Edit mode shows everything. */
-	const formVisibility = useMemo(
+	/* The running preview gates the screen exactly as a device would
+	 * (`<menu relevant>`, `<command relevant>`), over the device's cases with
+	 * each form's menu's chosen case under its session datum. Forms-first
+	 * conditions read the session only (the validator admits property reads
+	 * only on a case-first screen). Edit mode shows everything. */
+	const ownModuleVisibility = useMemo(
 		() =>
-			new Map(
-				forms.map((form) => [
-					form.uuid,
-					mode === "edit"
-						? ("shown" as const)
-						: formDisplayVisibility({
-								condition: form.displayCondition,
-								hiddenFromMenu: form.hiddenFromMenu === true,
-								session,
-								types: previewExpressionContext(
-									menuSource.doc,
-									{
-										entity: "form",
-										uuid: form.uuid,
-										slot: "form_display_condition",
-									},
-									lookup.kind === "data" ? lookup.data : undefined,
-								),
-								selectedCase:
-									selectedMenuCaseId === undefined
-										? undefined
-										: navigationSelectedCase(
-												menuSource.doc,
-												moduleUuid,
-												form.uuid,
-												selectedMenuCaseId,
-											),
-								deviceCases,
-								lookup,
-							}),
-				]),
-			),
+			previewModuleOwnVisibility(menuSource.doc, {
+				authoring: mode === "edit",
+				session,
+				lookup,
+				deviceCases,
+			}),
+		[lookup, menuSource, mode, session, deviceCases],
+	);
+	const entryVisibility = useMemo(
+		() =>
+			previewScreenEntryVisibility({
+				doc: menuSource.doc,
+				entries,
+				ownModuleVisibility,
+				authoring: mode === "edit",
+				session,
+				lookup,
+				deviceCases,
+				selectedCaseOf: (entry) => {
+					const chosen = previewMenuCaseContext(
+						menuSource,
+						entry.moduleUuid,
+						menuCaseSelections,
+					).selectedCase?.cases;
+					return chosen?.length === 1
+						? navigationSelectedCase(
+								menuSource.doc,
+								entry.moduleUuid,
+								entry.formUuid,
+								chosen[0].caseId,
+							)
+						: undefined;
+				},
+			}),
 		[
-			forms,
+			entries,
+			ownModuleVisibility,
+			menuSource,
+			menuCaseSelections,
 			mode,
 			session,
 			lookup,
-			menuSource.doc,
-			moduleUuid,
-			selectedMenuCaseId,
 			deviceCases,
 		],
 	);
-	const hiddenForms = useMemo(
-		() =>
-			forms
-				.filter((form) => formVisibility.get(form.uuid) === "hidden")
-				.map((form) => ({
-					key: form.uuid,
-					name:
-						(localizedValues.get(
-							makeTranslationUnitId("form", form.uuid, "name"),
-						) as string | undefined) ?? form.name,
-					summary:
-						form.hiddenFromMenu === true
-							? OFF_THE_MENU_SUMMARY
-							: summarizeFilter(form.displayCondition, { projectProse }),
-				})),
-		[forms, formVisibility, projectProse, localizedValues],
-	);
-	const moduleVisibility = useMemo(() => {
-		return previewModuleVisibility(menuSource.doc, {
-			authoring: mode === "edit",
-			session,
-			lookup,
-			deviceCases,
-		});
-	}, [lookup, menuSource, mode, session, deviceCases]);
-	const hiddenChildren = useMemo(
-		() =>
-			children
-				.filter((child) => moduleVisibility.get(child.uuid) === "hidden")
-				.map((child) => ({
-					key: child.uuid,
-					name:
-						(localizedValues.get(
-							makeTranslationUnitId("module", child.uuid, "name"),
-						) as string | undefined) ?? child.name,
-					summary:
-						child.hiddenFromMenu === true
-							? OFF_THE_MENU_SUMMARY
-							: summarizeFilter(child.displayCondition, {
-									...(child.caseType
-										? { currentCaseType: child.caseType }
-										: {}),
-									projectProse,
+	const hiddenItemsOf = useCallback(
+		(listed: readonly MenuScreenEntry[]) =>
+			previewHiddenScreenEntries({
+				doc: menuSource.doc,
+				entries: listed,
+				visibility: entryVisibility,
+				ownModuleVisibility,
+				name: (entry) =>
+					(localizedValues.get(
+						entry.kind === "form"
+							? makeTranslationUnitId("form", entry.formUuid, "name")
+							: makeTranslationUnitId("module", entry.moduleUuid, "name"),
+					) as string | undefined) ??
+					(entry.kind === "form"
+						? menuSource.forms[entry.formUuid]?.name
+						: menuSource.modules[entry.moduleUuid]?.name) ??
+					"",
+				summary: (owner) =>
+					owner.hiddenFromMenu === true
+						? OFF_THE_MENU_SUMMARY
+						: summarizeFilter(owner.displayCondition, {
+								...(owner.caseType !== undefined && {
+									currentCaseType: owner.caseType,
 								}),
-				})),
-		[children, localizedValues, moduleVisibility, projectProse],
+								projectProse,
+							}),
+			}),
+		[
+			menuSource,
+			entryVisibility,
+			ownModuleVisibility,
+			localizedValues,
+			projectProse,
+		],
+	);
+	const hiddenRows = useMemo(
+		() => hiddenItemsOf(rowEntries),
+		[hiddenItemsOf, rowEntries],
+	);
+	const hiddenChildren = useMemo(
+		() => hiddenItemsOf(tileEntries),
+		[hiddenItemsOf, tileEntries],
 	);
 
 	/* The home screen already routes both redirecting shapes; this covers landing
@@ -354,17 +367,18 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	 * under a selected parent, the entry's other case datums. The form opens
 	 * once it has landed, so its device holds them. */
 	const openFormWithMenuCase = async (
+		formModuleUuid: Uuid,
 		formUuid: Uuid,
 		cases: NonNullable<typeof selectedMenuCase>["cases"],
 	) => {
-		if (!moduleUuid) return;
+		const formModule = menuSource.modules[formModuleUuid];
 		const claimIds =
-			mod !== undefined && moduleFormsReadSearch(mod)
+			formModule !== undefined && moduleFormsReadSearch(formModule)
 				? claimableCaseIds([
 						...cases,
 						...parentSelectClaimChoices(
 							menuSource.doc,
-							moduleUuid,
+							formModuleUuid,
 							menuCaseSelections,
 						),
 					])
@@ -389,23 +403,26 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 				...(caseName !== undefined && { caseName }),
 			})),
 		});
-		navigate.openForm(moduleUuid, formUuid);
+		navigate.openForm(formModuleUuid, formUuid);
 	};
 
-	/* The module's case list as its own entry, after the forms. In a
-	 * case-first menu it is listed once the case is chosen, and choosing it
+	/* A menu's case list as its own entry, after its menu's forms. On a
+	 * case-first screen it is listed once the case is chosen, and choosing it
 	 * then is the selection: Web Apps steps back to this menu, Android goes
 	 * to the phone's home screen. Edit mode lists it after the forms and
 	 * opens the case list. */
-	const caseListEntry = previewCaseListMenuEntry(menuSource.doc, moduleUuid, {
-		isCaseFirst: mode !== "edit" && isCaseFirst,
-		hasSelectedCase: selectedMenuCase !== undefined,
-	});
-	const chooseCaseListEntry = () => {
-		if (caseListEntry === undefined) return;
+	const caseListEntryOf = (entryModuleUuid: Uuid) =>
+		previewCaseListMenuEntry(menuSource.doc, entryModuleUuid, {
+			isCaseFirst: mode !== "edit" && isCaseFirst,
+			hasSelectedCase: selectedMenuCase !== undefined,
+		});
+	const chooseCaseListEntry = (
+		entryModuleUuid: Uuid,
+		caseListEntry: NonNullable<ReturnType<typeof caseListEntryOf>>,
+	) => {
 		if (caseListEntry.action === "open-case-list") {
 			setPreviewCaseTarget(undefined);
-			navigate.openCaseList(moduleUuid);
+			navigate.openCaseList(entryModuleUuid);
 			return;
 		}
 		if (caseListMenuItemSelection(platformRules).kind === "device-home") {
@@ -495,7 +512,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 				)}
 
 			<div className="space-y-2">
-				{forms.map((form, fIdx) => {
+				{rowEntries.map((entry, fIdx) => {
 					if (
 						mode !== "edit" &&
 						hasChildren &&
@@ -504,28 +521,56 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 					) {
 						return null;
 					}
+					const key = menuScreenEntryKey(entry);
+					const visibility = entryVisibility.get(key) ?? "shown";
+					if (visibility === "hidden") return null;
+					if (visibility === "pending") {
+						return (
+							<Skeleton key={key} className="h-[58px] w-full rounded-lg" />
+						);
+					}
+					if (entry.kind === "case-list") {
+						const caseListEntry = caseListEntryOf(entry.moduleUuid);
+						if (caseListEntry === undefined) return null;
+						return (
+							<PreviewCaseListRow
+								key={key}
+								entry={caseListEntry}
+								index={fIdx}
+								label={
+									(localizedValues.get(caseListEntry.labelUnitId) as
+										| string
+										| undefined) ?? caseListEntry.label
+								}
+								onClick={() =>
+									chooseCaseListEntry(entry.moduleUuid, caseListEntry)
+								}
+							/>
+						);
+					}
+					if (entry.kind !== "form") return null;
+					const form = menuSource.forms[entry.formUuid];
+					if (form === undefined) return null;
+					const formModuleUuid = entry.moduleUuid;
 					const localizedFormName =
 						(localizedValues.get(
 							makeTranslationUnitId("form", form.uuid, "name"),
 						) as string | undefined) ?? form.name;
-					const visibility = formVisibility.get(form.uuid) ?? "shown";
-					if (visibility === "hidden") return null;
-					if (visibility === "pending") {
-						return (
-							<Skeleton
-								key={form.uuid}
-								className="h-[58px] w-full rounded-lg"
-							/>
-						);
-					}
-					const icon = formTypeIcons[form.type];
 
 					const handleClick = () => {
-						if (!moduleUuid) return;
+						const formModule = menuSource.modules[formModuleUuid];
 						const launch = formLaunch({
 							formType: form.type,
-							moduleHasCaseType: hasCase,
+							moduleHasCaseType: formModule?.caseType !== undefined,
 						});
+						/* The case chosen on this screen, as the form's own menu
+						 * reads it: its own selection, the same-type selection of
+						 * this menu, or this menu's case as its parent case. */
+						const formMenuCase = previewMenuCaseContext(
+							menuSource,
+							formModuleUuid,
+							menuCaseSelections,
+						).selectedCase;
 						const continuedWorld =
 							taskContinuation?.moduleUuid === moduleUuid
 								? taskContinuation.caseDatabase
@@ -537,7 +582,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 								menuCaseSelections,
 							);
 							setTaskContinuation({
-								moduleUuid,
+								moduleUuid: formModuleUuid,
 								formUuid: form.uuid,
 								returnModuleUuid: moduleUuid,
 								selectingModuleUuids,
@@ -546,30 +591,38 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							setPreviewCaseTarget({
 								formUuid: form.uuid,
 								...(launch.kind === "select-case-first"
-									? selectedMenuCase && { cases: selectedMenuCase.cases }
+									? formMenuCase && { cases: formMenuCase.cases }
 									: { cases: [] }),
 								caseDatabase: continuedWorld,
 								caseData:
-									selectedMenuCase?.cases.length === 1
+									formMenuCase?.cases.length === 1
 										? caseDatabaseToFormPreloads(
 												continuedWorld,
-												selectedMenuCase.cases[0].caseId,
-												reachableCaseTypes(mod?.caseType, menuSource.caseTypes),
+												formMenuCase.cases[0].caseId,
+												reachableCaseTypes(
+													formModule?.caseType,
+													menuSource.caseTypes,
+												),
 											)
 										: undefined,
 							});
 							const [first, ...remaining] = selectingModuleUuids;
-							if (first === undefined) navigate.openForm(moduleUuid, form.uuid);
+							if (first === undefined)
+								navigate.openForm(formModuleUuid, form.uuid);
 							else {
-								if (remaining.length > 0 || first !== moduleUuid)
+								if (remaining.length > 0 || first !== formModuleUuid)
 									setPreviewParentCaseRequest({
 										selectingModuleUuid: first,
 										returnModuleUuids:
-											remaining.length > 0 ? remaining : [moduleUuid],
+											remaining.length > 0 ? remaining : [formModuleUuid],
 										resumeLocation:
 											remaining.length > 0
-												? { kind: "cases", moduleUuid }
-												: { kind: "form", moduleUuid, formUuid: form.uuid },
+												? { kind: "cases", moduleUuid: formModuleUuid }
+												: {
+														kind: "form",
+														moduleUuid: formModuleUuid,
+														formUuid: form.uuid,
+													},
 										cancelLocation: { kind: "module", moduleUuid },
 									});
 								navigate.openCaseList(first);
@@ -577,98 +630,41 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							return;
 						}
 						if (launch.kind === "select-case-first") {
-							if (selectedMenuCase) {
-								void openFormWithMenuCase(form.uuid, selectedMenuCase.cases);
+							if (formMenuCase) {
+								void openFormWithMenuCase(
+									formModuleUuid,
+									form.uuid,
+									formMenuCase.cases,
+								);
 							} else {
 								setPreviewCaseTarget({ formUuid: form.uuid });
-								navigate.openCaseList(moduleUuid);
+								navigate.openCaseList(formModuleUuid);
 							}
 						} else {
-							navigate.openForm(moduleUuid, form.uuid);
+							navigate.openForm(formModuleUuid, form.uuid);
 						}
 					};
 
 					return (
-						<motion.button
-							key={form.uuid}
-							initial={{ opacity: 0, y: 12 }}
-							animate={{ opacity: 1, y: 0 }}
-							transition={{
-								delay: fIdx * 0.06,
-								duration: 0.3,
-								ease: [0.16, 1, 0.3, 1],
-							}}
+						<PreviewFormRow
+							key={key}
+							form={form}
+							index={fIdx}
+							label={localizedFormName}
 							onClick={handleClick}
-							className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
-						>
-							{form.icon ? (
-								// Form menu-tile icon: CommCare shows it on the form's
-								// command in the module menu.
-								<ProjectMediaImage
-									assetId={form.icon}
-									alt=""
-									className="size-7 rounded-lg object-cover shrink-0"
-								/>
-							) : (
-								<Icon
-									icon={icon}
-									width="18"
-									height="18"
-									className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
-								/>
-							)}
-							<div className="flex-1 min-w-0">
-								<div className="text-sm font-medium text-nova-text">
-									{localizedFormName}
-								</div>
-							</div>
-						</motion.button>
+						/>
 					);
 				})}
-				{caseListEntry !== undefined && (
-					<motion.button
-						type="button"
-						data-case-list-menu-entry
-						initial={{ opacity: 0, y: 12 }}
-						animate={{ opacity: 1, y: 0 }}
-						transition={{
-							delay: forms.length * 0.06,
-							duration: 0.3,
-							ease: [0.16, 1, 0.3, 1],
-						}}
-						onClick={chooseCaseListEntry}
-						className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
-					>
-						{caseListEntry.icon ? (
-							<ProjectMediaImage
-								assetId={caseListEntry.icon}
-								alt=""
-								className="size-7 rounded-lg object-cover shrink-0"
-							/>
-						) : (
-							<Icon
-								icon={tablerListDetails}
-								width="18"
-								height="18"
-								className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
-							/>
-						)}
-						<div className="flex-1 min-w-0">
-							<div className="text-sm font-medium text-nova-text">
-								{(localizedValues.get(caseListEntry.labelUnitId) as
-									| string
-									| undefined) ?? caseListEntry.label}
-							</div>
-						</div>
-					</motion.button>
-				)}
 			</div>
-			<HiddenItemsReveal items={hiddenForms} />
+			<HiddenItemsReveal items={hiddenRows} />
 
 			{children.length > 0 && (
 				<div className="space-y-2">
 					{children.map((child, index) => {
-						const visibility = moduleVisibility.get(child.uuid) ?? "shown";
+						const visibility =
+							entryVisibility.get(
+								menuScreenEntryKey({ kind: "menu", moduleUuid: child.uuid }),
+							) ?? "shown";
 						if (visibility === "hidden") return null;
 						if (visibility === "pending") {
 							return (
@@ -713,7 +709,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 										child.uuid,
 										moduleLanding({
 											isCaseFirst: caseFirstModules.has(child.uuid),
-											isBareCaseList: moduleIsBareCaseList(
+											isBareCaseList: previewModuleScreenIsBareCaseList(
 												menuSource.doc,
 												child.uuid,
 											),

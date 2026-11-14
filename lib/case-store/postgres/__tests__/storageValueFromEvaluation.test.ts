@@ -10,10 +10,10 @@ describe("storageValueFromEvaluation", () => {
 		expect(storageValueFromEvaluation(parsedByPg, "date")).toBe("2026-07-24");
 	});
 
-	it("canonicalizes a timestamptz to the stored ISO instant", () => {
+	it("writes a timestamptz as the text CommCare HQ stores for its moment", () => {
 		const instant = new Date("2026-07-24T05:12:11.400Z");
 		expect(storageValueFromEvaluation(instant, "datetime")).toBe(
-			"2026-07-24T05:12:11.400Z",
+			"2026-07-24T05:12:11.400000Z",
 		);
 	});
 
@@ -29,20 +29,29 @@ describe("storageValueFromEvaluation", () => {
 		);
 	});
 
-	it("stamps a naive datetime answer with the submitting viewer's zone", () => {
-		// A string (rather than a pg `Date`) is a form answer's wall clock,
-		// and the device stamps the zone it was entered in. Without a zone
-		// the caller gets the deterministic UTC reading.
+	it("reads a naive datetime answer in the submitting viewer's zone, and stores its moment as CommCare HQ does", () => {
+		// A string (rather than a pg `Date`) is a form answer's wall clock in
+		// the zone it was entered in; the case holds the UTC text a phone
+		// writes for that moment. Without a zone the caller gets the
+		// deterministic UTC reading.
 		expect(
 			storageValueFromEvaluation(
 				"2026-07-24T05:12:11",
 				"datetime",
 				"America/New_York",
 			),
-		).toBe("2026-07-24T05:12:11.000-04:00");
+		).toBe("2026-07-24T09:12:11.000000Z");
 		expect(storageValueFromEvaluation("2026-07-24T05:12:11", "datetime")).toBe(
-			"2026-07-24T05:12:11.000Z",
+			"2026-07-24T05:12:11.000000Z",
 		);
+		// Text a phone or CommCare HQ already stored is written as it is.
+		expect(
+			storageValueFromEvaluation(
+				"2026-07-24T09:12:11.123456Z",
+				"datetime",
+				"Asia/Kolkata",
+			),
+		).toBe("2026-07-24T09:12:11.123456Z");
 	});
 
 	it("keeps numerics typed and coerces pg's numeric-string decimals", () => {

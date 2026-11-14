@@ -21,9 +21,9 @@
 
 import { v5 as uuidv5 } from "uuid";
 import {
+	afterEmptySearchRegistrationFormOf,
 	asUuid,
 	type BlueprintDoc,
-	caseListRegistrationFormOf,
 	type Form,
 	type Module,
 	makeTranslationUnitId,
@@ -100,7 +100,7 @@ export function emissionPlan(doc: BlueprintDoc): EmissionPlan {
 
 	for (const hostUuid of doc.moduleOrder) {
 		const host = doc.modules[hostUuid];
-		const registration = caseListRegistrationFormOf(doc, hostUuid);
+		const registration = afterEmptySearchRegistrationFormOf(doc, hostUuid);
 		const menuForms: Uuid[] = [];
 		for (const formUuid of doc.formOrder[hostUuid] ?? []) {
 			const form = doc.forms[formUuid];

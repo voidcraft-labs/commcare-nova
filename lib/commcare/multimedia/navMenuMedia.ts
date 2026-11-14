@@ -80,58 +80,98 @@ export interface NavMenuNode {
 
 /**
  * Build the first child of a `<menu>` / `<command>` — a bare
- * `<text><locale id="<base>"/></text>` when the carrier has no media,
- * or a `<display>` wrapping that text plus `<text form="image|audio">`
- * media locales when it does. Returns the node alongside the
- * app_strings entries (`<base>.icon` / `<base>.audio` → jr:// path) the
- * compiler must merge into its string table.
+ * `<text><locale id="<textLocaleId>"/></text>` when the carrier has no
+ * media, or a `<display>` wrapping that text plus `<text form="image|audio">`
+ * media locales when it does. Returns the node alongside the app_strings
+ * entries (`<mediaLocaleBase>.icon` / `<mediaLocaleBase>.audio` → jr://
+ * path) the compiler must merge into its string table.
  *
- * `baseLocaleId` is the carrier's existing text locale id
- * (`modules.m{N}` / `forms.m{N}f{F}` / the case-list locale); the media
- * locales suffix it with `.icon` / `.audio`, matching CCHQ's
- * `id_strings` scheme.
+ * `textLocaleId` is the locale of the text shown (`modules.m{N}` /
+ * `forms.m{N}f{F}` / the case-list locale); `mediaLocaleBase` is the
+ * carrier's own locale, which its media locales suffix with `.icon` /
+ * `.audio`, matching CCHQ's `id_strings` scheme. The two differ only for a
+ * submenu that shows its forms in a parent keeping its screen: its `<menu>`
+ * shows the parent's name and keeps its own media locales
+ * (`suite_xml/utils.py::get_module_locale_id`,
+ * `id_strings.py::module_icon_locale`).
  */
 export function buildNavMenuNode(
-	baseLocaleId: string,
+	textLocaleId: string,
+	mediaLocaleBase: string,
 	icon: IconRef | undefined,
 	audioLabel: MediaAssetId | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
 ): NavMenuNode {
-	const mainText = el("text", {}, [el("locale", { id: baseLocaleId })]);
-
-	const iconRef =
-		manifest && icon ? requireAssetRef(icon, manifest, where) : undefined;
-	const audioRef =
-		manifest && audioLabel
-			? requireAssetRef(audioLabel, manifest, where)
-			: undefined;
-
-	if (!iconRef && !audioRef) {
+	const mainText = el("text", {}, [el("locale", { id: textLocaleId })]);
+	const media = mediaTextsOf(
+		mediaLocaleBase,
+		icon,
+		audioLabel,
+		manifest,
+		where,
+	);
+	if (media.texts.length === 0) {
 		// No media — the carrier keeps the bare `<text>` child Nova has
 		// always emitted; no `<display>` wrapper, no extra app_strings.
 		return { node: mainText, strings: {} };
 	}
+	return {
+		node: el("display", {}, [mainText, ...media.texts]),
+		strings: media.strings,
+	};
+}
 
+/**
+ * The `<display>` of a case list action, the Register button: HQ's
+ * `LocalizedAction` with `for_action_menu=True`
+ * (`suite_xml/xml_models.py::TextOrDisplay`), which always wraps its text in
+ * `<display>`, since an action has no bare `<text>` form. `labelLocaleId`
+ * (`case_list_form.m{N}`) is also the base its media locales suffix
+ * (`id_strings.py::case_list_form_icon_locale`, `case_list_form_audio_locale`).
+ */
+export function buildActionDisplay(
+	labelLocaleId: string,
+	icon: IconRef | undefined,
+	audioLabel: MediaAssetId | undefined,
+	manifest: AssetManifest | undefined,
+	where: string,
+): NavMenuNode {
+	const media = mediaTextsOf(labelLocaleId, icon, audioLabel, manifest, where);
+	return {
+		node: el("display", {}, [
+			el("text", {}, [el("locale", { id: labelLocaleId })]),
+			...media.texts,
+		]),
+		strings: media.strings,
+	};
+}
+
+/** The `<text form="image|audio">` children a carrier's media writes, with
+ *  the app strings their locales resolve against. None without a manifest. */
+function mediaTextsOf(
+	mediaLocaleBase: string,
+	icon: IconRef | undefined,
+	audioLabel: MediaAssetId | undefined,
+	manifest: AssetManifest | undefined,
+	where: string,
+): { readonly texts: Element[]; readonly strings: Record<string, string> } {
 	const strings: Record<string, string> = {};
-	const mediaTexts: Element[] = [];
-	if (iconRef) {
-		const iconLocale = `${baseLocaleId}.icon`;
-		strings[iconLocale] = iconRef;
-		mediaTexts.push(
+	const texts: Element[] = [];
+	if (manifest === undefined) return { texts, strings };
+	if (icon) {
+		const iconLocale = `${mediaLocaleBase}.icon`;
+		strings[iconLocale] = requireAssetRef(icon, manifest, where);
+		texts.push(
 			el("text", { form: "image" }, [el("locale", { id: iconLocale })]),
 		);
 	}
-	if (audioRef) {
-		const audioLocale = `${baseLocaleId}.audio`;
-		strings[audioLocale] = audioRef;
-		mediaTexts.push(
+	if (audioLabel) {
+		const audioLocale = `${mediaLocaleBase}.audio`;
+		strings[audioLocale] = requireAssetRef(audioLabel, manifest, where);
+		texts.push(
 			el("text", { form: "audio" }, [el("locale", { id: audioLocale })]),
 		);
 	}
-
-	return {
-		node: el("display", {}, [mainText, ...mediaTexts]),
-		strings,
-	};
+	return { texts, strings };
 }

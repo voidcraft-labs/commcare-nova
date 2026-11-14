@@ -3,7 +3,7 @@ import { caseWriteIdOf, caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { caseOperationSchema, type Form } from "@/lib/domain";
-import { cascadeDeleteForm } from "./helpers";
+import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 import { postSubmitBefore, reconcilePostSubmitWithMenuShape } from "./modules";
 
 /**
@@ -186,18 +186,19 @@ export function applyFormMutation(
 		}
 		case "removeForm": {
 			if (draft.forms[mut.uuid] === undefined) return;
-			// Find which module owns this form, remove from its order. A module
-			// whose case list offered this form stops offering it in the same
-			// step, so its slot never names a form that is gone.
+			// Find which module owns this form, remove from its order. Every
+			// module whose case list offered this form, its own and any other,
+			// stops offering it in the same step, so no slot names a form that
+			// is gone.
 			for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
 				const idx = formList.indexOf(mut.uuid);
 				if (idx !== -1) {
 					formList.splice(idx, 1);
 					draft.formOrder[modUuid as keyof typeof draft.formOrder] = formList;
-					clearCaseListRegistrationNaming(draft, modUuid, mut.uuid);
 					break;
 				}
 			}
+			dropCaseListRegistrationsNaming(draft, new Set([mut.uuid]));
 			cascadeDeleteForm(draft as unknown as BlueprintDoc, mut.uuid);
 			return;
 		}
@@ -219,9 +220,10 @@ export function applyFormMutation(
 			// sequence at the named placement. Same-module and cross-module are one
 			// path: the source removal is a no-op when the source IS the target,
 			// because `spliceAfter` removes the uuid before re-inserting it.
-			// A form that leaves its module leaves that module's case list too: it
-			// becomes a menu form of its destination. A same-module reorder keeps
-			// the slot.
+			// A form that leaves its module leaves that module's case list too
+			// where the module offered it after an empty search: it becomes a
+			// menu form of its destination. A same-module reorder keeps the slot,
+			// and a list that always offers the form follows it by identity.
 			for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
 				if (modUuid === mut.toModuleUuid) continue;
 				const idx = formList.indexOf(mut.uuid);
@@ -543,15 +545,15 @@ export function applyFormMutation(
 	}
 }
 
-/** Delete `moduleUuid`'s case list registration slot when it names
+/** Delete `moduleUuid`'s `after-empty-search` slot when it names
  * `formUuid`, the form leaving the module. */
 function clearCaseListRegistrationNaming(
 	draft: Draft<BlueprintDoc>,
 	moduleUuid: string,
 	formUuid: string,
 ): void {
-	const mod = draft.modules[moduleUuid];
-	if (mod?.caseListRegistrationForm?.formUuid === formUuid) {
-		delete mod.caseListRegistrationForm;
+	const slot = draft.modules[moduleUuid]?.caseListRegistrationForm;
+	if (slot?.kind === "after-empty-search" && slot.formUuid === formUuid) {
+		delete draft.modules[moduleUuid]?.caseListRegistrationForm;
 	}
 }

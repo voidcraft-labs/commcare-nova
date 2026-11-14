@@ -15,17 +15,19 @@ import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageCo
 import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
 import {
-	caseListRegistrationFormOf,
+	afterEmptySearchRegistrationFormOf,
 	childModuleUuids,
 	type Form,
+	type MenuScreenSource,
 	type Module,
 	menuFormUuidsOf,
+	moduleHasOwnScreen,
 	moduleIsBareCaseListDestination,
-	moduleIsCaseFirst,
 	moduleSiblingUuids,
 	projectLocalizedForm,
 	projectLocalizedModule,
 	resolveAppLanguage,
+	screenChoosesCaseFirst,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import {
@@ -176,7 +178,7 @@ export function useOrderedMenuForms(moduleUuid: Uuid | undefined): Form[] {
 	const registration = useBlueprintDoc((s) =>
 		moduleUuid === undefined
 			? undefined
-			: caseListRegistrationFormOf(s, moduleUuid),
+			: afterEmptySearchRegistrationFormOf(s, moduleUuid),
 	);
 	return useMemo(
 		() => forms.filter((form) => form.uuid !== registration),
@@ -200,15 +202,28 @@ export function useMenuFormCounts(): Readonly<Record<string, number>> {
 	);
 }
 
+/** Whether the module's own screen chooses a case before a form: every
+ *  entry it lists, the forms of a submenu that shows its forms there
+ *  included, opens the same case (`menuScreens.ts::screenChoosesCaseFirst`).
+ *  A module with no screen of its own is never case first. */
+function moduleScreenIsCaseFirst(
+	doc: MenuScreenSource,
+	moduleUuid: Uuid,
+): boolean {
+	return (
+		moduleHasOwnScreen(doc, moduleUuid) &&
+		screenChoosesCaseFirst(doc, { kind: "menu", moduleUuid })
+	);
+}
+
 /**
  * Whether a module's running-app navigation is case-first (the case list is
- * the module's landing, then a form menu) vs forms-first. See
- * `isCaseFirstModule` — true iff the module has a case type and every menu
- * form is case-loading (followup/close). `undefined` uuid → false.
+ * the module's landing, then a form menu) vs forms-first: the answer of the
+ * module's own screen (`moduleScreenIsCaseFirst`). `undefined` uuid → false.
  */
 export function useIsCaseFirstModule(moduleUuid: Uuid | undefined): boolean {
 	return useBlueprintDoc((doc) =>
-		moduleUuid ? moduleIsCaseFirst(doc, moduleUuid) : false,
+		moduleUuid ? moduleScreenIsCaseFirst(doc, moduleUuid) : false,
 	);
 }
 
@@ -235,20 +250,20 @@ export function useIsBareCaseListModule(moduleUuid: Uuid | undefined): boolean {
  * Recomputed only when the module/form maps change.
  */
 export function useCaseFirstModuleUuids(): Set<Uuid> {
-	const { moduleOrder, modules, formOrder, forms } = useBlueprintDocShallow(
-		(s) => ({
+	const { moduleOrder, modules, formOrder, forms, caseTypes } =
+		useBlueprintDocShallow((s) => ({
 			moduleOrder: s.moduleOrder,
 			modules: s.modules,
 			formOrder: s.formOrder,
 			forms: s.forms,
-		}),
-	);
+			caseTypes: s.caseTypes,
+		}));
 	return useMemo(() => {
 		const caseFirst = new Set<Uuid>();
-		const doc = { modules, forms, formOrder };
+		const doc = { modules, forms, formOrder, moduleOrder, caseTypes };
 		for (const moduleUuid of moduleOrder) {
-			if (moduleIsCaseFirst(doc, moduleUuid)) caseFirst.add(moduleUuid);
+			if (moduleScreenIsCaseFirst(doc, moduleUuid)) caseFirst.add(moduleUuid);
 		}
 		return caseFirst;
-	}, [moduleOrder, modules, formOrder, forms]);
+	}, [moduleOrder, modules, formOrder, forms, caseTypes]);
 }

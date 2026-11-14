@@ -196,10 +196,9 @@
 			"xform:model/bind@type"
 		],
 		"valueClass": "phone-number",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `text` with `Field.appearance: numeric` (Appearances)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a Text question with `keypad: \"numbers\"`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (regex-validated) / RUNS",
@@ -3384,7 +3383,7 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (in-envelope: untyped `if(p = '', '', format-date(coalesce(p, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))`)",
+			"cell": "— (in-envelope: untyped, the moment as CommCare HQ stores it, `datetimeCaseValue`)",
 			"markers": []
 		},
 		"gates": []
@@ -3682,6 +3681,43 @@
 			"markers": []
 		},
 		"gates": ["toggle/COMMCARE_CONNECT"]
+	},
+	{
+		"id": "questions/connect-block-text-read-as-an-instance",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect learn module's or task's name or description, or a deliver unit's name, holding `instance('…')`",
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"mug:ConnectDeliverUnit",
+			"mug:ConnectTask",
+			"vellum-plugin:commcareConnect"
+		],
+		"valueClass": "text-read-as-an-instance",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ's build reads the text as an instance read (`xform.py::XForm.add_missing_instances`) and no spelling of plain text keeps it out. It stops the build for a name it has no source for, and adds the source to the built form for a name it has one for, which stops the form from opening where that is a fixture the device does not hold. For `casedb` and `commcaresession` the built form only gains a declaration nothing reads; Nova refuses those with the rest (`FORM_TEXT_READ_AS_INSTANCE`), so that one rule covers the text and a form declares only what its formulas read.",
+		"subject": "instance-text",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`xform.py::XForm.add_missing_instances`: \"is missing some instance declarations that can't be automatically added\"",
+				"condition": "a name CommCare HQ has no source for"
+			},
+			{
+				"kind": "broken-at-runtime",
+				"named": "the built form declares the source (`XForm.add_instance`), Core opens every declared source with the form (`FormDef.initialize`), and a fixture the device does not hold raises `FixtureInitializationException` (`CommCareInstanceInitializer.loadFixtureRoot`)",
+				"condition": "a fixture name CommCare HQ has a source for"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
@@ -5549,10 +5585,9 @@
 		"item": "`vellum:ignore` containing `markdown` on `h:html` (Vellum's \"Disable Text Formatting\")",
 		"surfaceKeys": ["vellum-markup:h:html@vellum:ignore"],
 		"valueClass": "markdown",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.plainText`: with it, Vellum writes no markdown forms and drops every existing one on each save, so dropping it would let later Vellum edits add markdown forms (`javaRosa/plugin.js`); the validator refuses a markdown label form in such a form",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.plainText`: the form writes no markdown form on any text",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -7766,7 +7801,7 @@
 		"id": "questions/markdown-form-equal-to-the-default-text",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "`markdown` form equal to the default text",
+		"item": "`markdown` form equal to the default text, on a label, a choice or a help text",
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
@@ -7825,7 +7860,7 @@
 		"id": "questions/markdown-form-differing-from-the-default-text",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "`markdown` form differing from the default text",
+		"item": "`markdown` form differing from the default text, on a label, a choice or a help text",
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
@@ -7855,7 +7890,7 @@
 		"id": "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "a label with a `markdown` form in some languages only (as HQ's bulk translation upload adds, `upload_form.py::_add_or_remove_translations`)",
+		"item": "a text with a `markdown` form in some languages only (as HQ's bulk translation upload adds, `upload_form.py::_add_or_remove_translations`)",
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
@@ -8272,6 +8307,37 @@
 		"gates": []
 	},
 	{
+		"id": "questions/help-text-with-no-markdown-form",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "help text with no `markdown` form",
+		"surfaceKeys": [
+			"xform:model/itext/translation/text",
+			"itext-form:android/markdown"
+		],
+		"valueClass": "help-without-markdown-form",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `plainHelp`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (the help still shows as formatted text) / RUNS (as written)",
+			"webApps": {
+				"reading": "different",
+				"note": "the help still shows as formatted text"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "as written"
+			}
+		},
+		"emission": {
+			"cell": "help itext without a markdown form",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/help-text-on-a-capture-question-or-a-label",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
@@ -8446,29 +8512,45 @@
 		"id": "questions/validation-message-markdown-form",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "validation message markdown form",
+		"item": "validation message `markdown` form, equal to the default text or differing from it",
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
 			"itext-form:hq/markdown"
 		],
 		"valueClass": "validation-message",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: same text (neither runtime renders markdown there)",
-		"slotChanges": [],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no runtime reads it (`FormEntryPrompt.getConstraintText` asks for no form), and Nova writes none",
 		"platforms": {
-			"kind": "each",
-			"cell": "IGNORED / IGNORED",
-			"webApps": {
-				"reading": "ignored"
-			},
-			"android": {
-				"reading": "ignored"
-			}
+			"kind": "not-applicable",
+			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "copy",
-			"markers": []
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/hint-markdown-form",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "hint `markdown` form, equal to the default text or differing from it",
+		"surfaceKeys": [
+			"itext-form:android/markdown",
+			"itext-form:core/markdown",
+			"itext-form:hq/markdown"
+		],
+		"valueClass": "hint",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no runtime reads it (`FormEntryPrompt.getHintText` asks for no form; Web Apps formats the default text), and Nova writes none",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -8784,10 +8866,9 @@
 		"item": "`<output value=\"<any other expression>\">`",
 		"surfaceKeys": ["xform:model/itext/translation/text/value/output@value"],
 		"valueClass": "any-other-expression",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: prose expression part (`Expression`)",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a prose `value` part, where the expression passes the slot's check",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

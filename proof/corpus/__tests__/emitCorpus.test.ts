@@ -102,6 +102,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema, effectiveAppLocalization } from "@/lib/domain";
+import { commtrackAdvanced } from "../../targeted/documents/advancedModules";
 import { hqSideState } from "../../targeted/documents/hqSideState";
 import { lookupReservedTags } from "../../targeted/documents/lookupReservedTags";
 import { sameTypeChild } from "../../targeted/documents/sameTypeChild";
@@ -109,7 +110,6 @@ import {
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "../../targeted/documents/searchApps";
-import { supplyPointText } from "../../targeted/documents/supplyPointText";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import { type CorpusDocument, lookupContextOf } from "../documents";
@@ -725,9 +725,10 @@ describe("the corpus emitter", () => {
 			...arithmetic,
 			projectSettings: { commtrack: true },
 		};
-		// The supply-point text asks CommCare Supply off.
+		// An advanced menu whose case list is its own menu item asks CommCare
+		// Supply off.
 		const refused: CorpusDocument = {
-			...supplyPointText(),
+			...commtrackAdvanced(),
 			projectSettings: { commtrack: true },
 		};
 		await expect(

@@ -24,8 +24,8 @@ import {
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type CaseListConfig,
-	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
+	searchScreenTitleText,
 	type WireStringSource,
 } from "@/lib/domain";
 import type { DatumRef } from "@/lib/domain/expression/types";
@@ -373,16 +373,16 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// default is shared with preview and HQ JSON, so every runtime renders the
 	// same friendly screen copy.
 	const titleLocaleId = `case_search.${moduleId}.inputs`;
-	// The schema's `searchScreenTitle: z.string().min(1).optional()`
-	// guarantees the slot is either `undefined` or a non-empty string,
-	// so `undefined` is the sole "no override" sentinel. The Nova default
-	// mirrors the HQ-JSON projection's symmetric fallback at
-	// `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument` so
-	// the same authored input lands the same locale string regardless
-	// of which path (local suite XML vs CCHQ-regenerated suite) the
-	// runtime sees.
-	const titleDisplay =
-		caseSearchConfig.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
+	// `searchScreenTitleText` gives the authored title, Nova's default where
+	// none is authored, or null for a search with no title, the same reading
+	// as the HQ-JSON projection
+	// (`lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`). A
+	// search with no title still writes the `<title>` element over a blank
+	// locale value, which every language's table writes as a non-breaking
+	// space (`localeFile.ts::serializeLocaleFileValue`), as HQ's build writes
+	// the blank `title_label` (`models/case_search.py::get_search_title_label`).
+	// The Web Apps client trims it and draws no heading.
+	const titleDisplay = searchScreenTitleText(caseSearchConfig) ?? "";
 
 	// Every search writes `<description>`, blank where no subtitle is
 	// authored: HQ's Case List save writes the description for the page's

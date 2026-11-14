@@ -2815,7 +2815,10 @@ not on the list runs where Details shows it, and nowhere otherwise. Translations
 
 **Preview.** Preview's list filter and its order read the plan's fields (part 01, section 6.4), so
 a column that is not on the list is matched by no filter text and orders nothing, and the case's
-Details shows it. No code of Preview's names the slot.
+Details shows it. One reader of Preview's asks the list state itself: the rule that decides whether
+a running list evaluates `here()` (`lib/preview/engine/viewerLocation.ts::columnsReadHere`) asks
+`columnOnList`, since a calculated column that is not on the list is no field the list evaluates,
+as `caseListColumnRuns` says for the compiler's walks.
 
 **The builder.** The workspace keeps one gesture for each fact. **Hide from Results** still
 writes `visibleInList: false` alone, so a hidden field is searched as before. A field hidden from
@@ -2843,7 +2846,10 @@ back onto it in only one way in each:
   stays true of every hidden item.
 
 Each write is the column's granular update, as a visibility change is today, so no mutation kind
-is added.
+is added: `updateColumn`'s `visibilityPatch` on Results carries the column's whole list state, an
+optional `notOnList` beside `visible: false` (`true` takes it off the list, `false` keeps it on,
+absent keeps what it holds), and `visible: true` clears both slots. `notOnList` is no part of a
+column's content payload, so a peer's relabel never writes over a list state.
 
 **The Solutions Architect and MCP.** Each column arm of `addCaseListColumns` and
 `updateCaseListColumn` (`lib/agent/tools/case-list-config/shared.ts::columnInputSlots`) gains
@@ -2853,7 +2859,9 @@ with it. `updateCaseListColumn` replaces the whole column (its header: "The repl
 column body"), so a replacement that leaves `notOnList` out puts the column back on the list, and
 the input needs no `null`. A call to either tool that sends `notOnList: true` beside
 `visibleInList: true` is refused before staging with the sentence of "Copy", and one beside a
-`sort` with the gate's. The reads say the state. `lib/agent/summarizeBlueprint.ts` ends the
+`sort` with the gate's. `configureCaseList` and `updateModule`'s `case_list_columns` take the same
+column arms, so they gain the input and refuse the two pairings the same way
+(`shared.ts::columnListStateRefusal`). The reads say the state. `lib/agent/summarizeBlueprint.ts` ends the
 column's line under `details:` with `(not on the list)`, and lists a column that is on no screen
 under `saved_off_screen` only where the list still carries it, so that heading's "the list's
 search matches these" stays true; a column on no screen and not on the list is listed under
@@ -3570,10 +3578,10 @@ canonical member:
 | the order plan's test in `lib/domain/__tests__/`: a `notOnList` column is no field and gives no carrier in a list with and without a tile; `caseListColumnRuns` is true for it where Details shows it and false where neither screen does | `caseListOrderPlan` over built configs | the column written into the short detail, where a worker's filter matches it |
 | `lib/commcare/validator/rules/case-list/__tests__/columnNotOnList.test.ts`: each reason of `CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`; a `notOnList` column hidden from Details too is admitted; and `caseListOrderChoiceRefusal` over a `notOnList` column with a rule answers the code's builder line in a list with no tile, and nothing for the same column without `notOnList` in a tile list | `runValidation` and `lib/doc/commitVerdicts.ts::caseListOrderChoiceRefusal` over built documents | a column both shown and off the list reaching an emitter; a choice the Add menu offers that the gate then refuses, or one it withholds with Nova's line for its own failure |
 | `lib/commcare/__tests__/caseListOrderParity.test.ts` (existing, one document added): the HQ JSON and the local suite hold no short field for the column, both hold its long field, and Preview's order plan is the same plan | the three readers of the plan over one document | one export path carrying the column and the other not |
-| Preview's list filter test (part 01, section 6.4), one vector added: filter text equal to the column's value matches no case, and matches once the column is hidden and on the list | Preview's filter over the plan's fields | Preview matching what no device matches |
+| Preview's list filter test, `components/preview/shared/__tests__/listFilterOffTheList.test.ts`: filter text equal to the column's value matches no case, and matches once the column is hidden and on the list | Preview's filter over the plan Preview builds (`previewCaseListOrderPlan`) | Preview matching what no device matches |
 | `lib/agent/tools/case-list-config/__tests__/addCaseListColumns.test.ts`, `updateCaseListColumn.test.ts` and `caseListReadProjection.test.ts` (existing, cases added): in each of the two tools `notOnList: true` writes `visibleInList: false` with it, and with `visibleInList: true` or a `sort` the call is refused before staging; an update whose replacement leaves `notOnList` out puts the column back on the list; the summary ends the column's line `(not on the list)` and lists a column on no screen under `saved_off_the_list:` | the shared tools over a private workspace | a tool that can write the pairing the gate refuses, or a read that tells the model a column is searched when it is not |
 | `components/builder/case-list-config/__tests__/workspaceProjection.test.ts` (existing, cases added): `takeColumnOffList`, `keepColumnOnList`, and showing a `notOnList` column on Results clears the slot | pure | a field shown on Results that the list still leaves out |
-| `e2e/tests/browser/case-workspace-surface.spec.ts` (existing, one journey added): hiding a field from Results, turning **List search matches this** off, running Preview and filtering by the field's value finds no case; with a sort on the field the switch is disabled with its reason; Default order's Add menu shows a field that is off the list disabled with its line; and in a tile list the same menu offers such a field, and choosing it leaves the field hidden with its rule | Playwright over the seeded builder | a switch that changes nothing a worker meets; a field no gesture can bring back onto a tile list |
+| `e2e/tests/browser/case-workspace-surface.spec.ts` (existing, two journeys added, the second over a new peer scenario `tile-off-list`): hiding a field from Results and turning **List search matches this** off writes `notOnList`; with a sort on the field the switch is disabled with its reason; Default order's Add menu shows a field that is off the list disabled with its line; and in a tile list the same menu offers such a field, and choosing it leaves the field hidden with its rule. The browser spec's component peer runs no Preview, so the half "filtering Preview's list by the field's value finds no case" is held at Preview's own filter over the plan's fields (the row above, `components/preview/shared/__tests__/listFilterOffTheList.test.ts`) | Playwright over the workspace's component peer | a switch that changes nothing a worker meets; a field no gesture can bring back onto a tile list |
 | the proof lane's corpus gains the targeted document `targeted-detail-only-column` (part 14, 14-proof.md, section 12.1, counts it in the corpus): on every pull request HQ's build of it and Core read a detail with a column its list lacks, and the lane's proofs hold Nova's two exports to each other; Formplayer, the Web Apps client and Android read the same state before the merge on the base `hq-case-lists`, in the dispatch over the bases (part 14, section 6.2 and P2), and this document in every scheduled lane with the readers after it | CommCare's own code at the pins | a wire shape for the state that a reader of CommCare's refuses or reads as a list field |
 
 No `*.postgres.test.ts` belongs to the reader: it has no table. Proof 6 over the corpus (part 14)

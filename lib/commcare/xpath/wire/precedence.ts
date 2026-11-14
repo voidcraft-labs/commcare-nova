@@ -46,6 +46,8 @@ export function wireGrouping(expr: WireExpr): WireGrouping {
 			return operatorGrouping(expr.op);
 		case "neg":
 			return { precedence: 7 };
+		case "paren":
+			return ATOMIC_GROUPING;
 		case "num":
 			return expr.value < 0 ? { precedence: 7 } : ATOMIC_GROUPING;
 		case "path":

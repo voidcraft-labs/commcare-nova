@@ -94,23 +94,25 @@ import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import { useWorkerModule } from "@/lib/doc/hooks/useWorkerModule";
 import type { Uuid } from "@/lib/doc/types";
 import {
+	afterEmptySearchRegistrationFormOf,
 	CASE_LOADING_FORM_TYPES,
 	CASE_SEARCH_BUTTON_LABEL,
 	type CaseListConfig,
 	type CaseProperty,
 	type Column,
-	caseListRegistrationFormOf,
-	DEFAULT_CASE_SEARCH_TITLE,
+	childModuleUuids,
 	effectiveCaseSearchConfig,
 	makeTranslationUnitId,
+	menuScreenOf,
 	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
-	moduleIsBareCaseList,
-	moduleIsCaseFirst,
 	moduleSearchWorkflow,
 	orderedColumns,
 	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
+	screenChoosesCaseFirst,
+	screenIsBareCaseList,
+	searchScreenTitleText,
 	visibleSearchInputs,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
@@ -126,6 +128,7 @@ import {
 	caseListStep,
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
+import { previewRegisterAction } from "@/lib/preview/caseListRegistration";
 import {
 	caseSelectionRowAction,
 	parentCaseConstraint as selectedParentConstraint,
@@ -200,7 +203,6 @@ import {
 	previewCaseDescendantModuleUuids,
 	previewCaseListMenuEntry,
 	previewMenuCaseContext,
-	previewMenuModuleUuids,
 } from "@/lib/preview/menuProjection";
 import {
 	addVisiblePreviewCaseChoices,
@@ -231,6 +233,7 @@ import {
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
 	usePreviewPersonaUuid,
+	usePreviewPlatform,
 	usePreviewPlatformRules,
 	usePreviewSearchState,
 	usePreviewTaskContinuation,
@@ -293,6 +296,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	/* The platform Preview plays decides the search and list rules below
 	 * (`lib/preview/platform.ts`). */
 	const platformRules = usePreviewPlatformRules();
+	const platform = usePreviewPlatform();
 	const setPreviewAtDeviceHome = useSetPreviewAtDeviceHome();
 	const canEdit = useCanEdit();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -345,7 +349,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const registrationFormUuid =
 		moduleUuid === undefined
 			? undefined
-			: caseListRegistrationFormOf(menuSource.doc, moduleUuid);
+			: afterEmptySearchRegistrationFormOf(menuSource.doc, moduleUuid);
 	const registrationForm = useMemo(
 		() => orderedForms.find((form) => form.uuid === registrationFormUuid),
 		[orderedForms, registrationFormUuid],
@@ -379,11 +383,19 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		moduleUuid !== undefined &&
 		menuSource.modules[moduleUuid] !== undefined &&
 		moduleHasCaseListMenuItem(menuSource.modules[moduleUuid]);
+	/* Case first and the bare case list are facts of the screen that lists
+	 * this list's menu: its own, or for a menu that shows its forms in the
+	 * menu above, the screen above (`menuScreens.ts`). */
+	const listingScreen =
+		moduleUuid === undefined
+			? undefined
+			: menuScreenOf(menuSource.doc, moduleUuid);
 	const moduleCaseFirst =
-		moduleUuid !== undefined && moduleIsCaseFirst(menuSource.doc, moduleUuid);
+		listingScreen !== undefined &&
+		screenChoosesCaseFirst(menuSource.doc, listingScreen);
 	const bareCaseList =
-		moduleUuid !== undefined &&
-		moduleIsBareCaseList(menuSource.doc, moduleUuid);
+		listingScreen !== undefined &&
+		screenIsBareCaseList(menuSource.doc, listingScreen);
 	/** This list was opened from the module's case list menu entry: a bare
 	 *  case list (the menu is its list), or a forms-first menu's entry, the
 	 *  one way such a menu reaches its list with no form chosen. A
@@ -1625,17 +1637,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: message(pageLocalFilter ? "showingResults" : "resultsFound", {
 					count: visibleResultCount,
 				});
+	const sourceSearchTitle = searchScreenTitleText(searchConfig);
 	const { title, subtitle } = searchScreenHeading(platformRules, {
 		title:
-			(localizedValues.get(
-				makeTranslationUnitId(
-					"module",
-					moduleUuid ?? "missing",
-					"search-title",
-				),
-			) as string | undefined) ??
-			searchConfig?.searchScreenTitle ??
-			DEFAULT_CASE_SEARCH_TITLE,
+			sourceSearchTitle === null
+				? null
+				: ((localizedValues.get(
+						makeTranslationUnitId(
+							"module",
+							moduleUuid ?? "missing",
+							"search-title",
+						),
+					) as string | undefined) ?? sourceSearchTitle),
 		subtitle:
 			(localizedValues.get(
 				makeTranslationUnitId(
@@ -1688,38 +1701,39 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				hidden: hiddenInputIdentity,
 			})
 		: undefined;
-	/* The Register action on an empty search: the case list registration
-	 * form opens carrying this search's attempt, which is what admits it
-	 * there. Offered only in the running app, on a completed search that
-	 * found nothing. */
-	const registrationLabel =
-		moduleUuid === undefined
+	/* The Register action the list offers, for either arm
+	 * (`previewRegisterAction`). Offered only in the running app. The
+	 * `after-empty-search` form opens carrying this search's attempt, which
+	 * is what admits it there, on a completed search that found nothing. The
+	 * `always` form opens in its own menu whenever this list shows, carrying
+	 * the launch that decides where it returns. */
+	const registerAction = useMemo(
+		() =>
+			moduleUuid === undefined
+				? undefined
+				: previewRegisterAction(menuSource.doc, moduleUuid, platform),
+		[menuSource.doc, moduleUuid, platform],
+	);
+	const registerLabel =
+		registerAction === undefined
 			? undefined
-			: menuSource.modules[moduleUuid]?.caseListRegistrationForm?.label;
+			: ((localizedValues.get(registerAction.labelUnitId) as
+					| string
+					| undefined) ?? registerAction.label);
 	const noMatchesAction = useMemo(() => {
 		if (
 			!previewing ||
 			moduleUuid === undefined ||
+			registerAction?.arm !== "after-empty-search" ||
+			registerLabel === undefined ||
 			registrationForm === undefined ||
 			!noMatchesActionAvailable(searchState)
 		) {
 			return undefined;
 		}
 		const attempt = searchState.attempt;
-		const label =
-			registrationLabel !== undefined
-				? ((localizedValues.get(
-						makeTranslationUnitId(
-							"module",
-							moduleUuid,
-							"case-list-registration-label",
-						),
-					) as string | undefined) ?? registrationLabel)
-				: ((localizedValues.get(
-						makeTranslationUnitId("form", registrationForm.uuid, "name"),
-					) as string | undefined) ?? registrationForm.name);
 		return {
-			label,
+			label: registerLabel,
 			onClick: () => {
 				setOpenCase(null);
 				setFormMenuCase(null);
@@ -1734,10 +1748,41 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	}, [
 		previewing,
 		moduleUuid,
+		registerAction,
+		registerLabel,
 		registrationForm,
-		registrationLabel,
 		searchState,
-		localizedValues,
+		setPreviewCaseTarget,
+		navigate,
+	]);
+	const alwaysRegisterAction = useMemo(() => {
+		if (
+			!previewing ||
+			moduleUuid === undefined ||
+			registerAction?.arm !== "always" ||
+			registerLabel === undefined
+		)
+			return undefined;
+		const { formUuid, formModuleUuid, icon } = registerAction;
+		return {
+			label: registerLabel,
+			icon,
+			onClick: () => {
+				setOpenCase(null);
+				setFormMenuCase(null);
+				setMultiFormMenuOpen(false);
+				setPreviewCaseTarget({
+					formUuid,
+					caseListRegistrationLaunch: { hostModuleUuid: moduleUuid },
+				});
+				navigate.openForm(formModuleUuid, formUuid);
+			},
+		};
+	}, [
+		previewing,
+		moduleUuid,
+		registerAction,
+		registerLabel,
 		setPreviewCaseTarget,
 		navigate,
 	]);
@@ -1901,7 +1946,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			cases,
 		});
 		const staleSelectionModuleUuids = new Set([
-			...previewMenuModuleUuids(menuSource, moduleUuid),
+			...childModuleUuids(menuSource, moduleUuid),
 			...previewCaseDescendantModuleUuids(menuSource, mod.caseType),
 		]);
 		for (const staleModuleUuid of staleSelectionModuleUuids) {
@@ -2262,34 +2307,42 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				className={`${split && step === "browse" ? "w-72 shrink-0" : "w-full max-w-lg"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
 			>
 				<div>
-					<div className="flex min-h-11 min-w-0 items-center gap-2">
-						<Icon
-							icon={tablerSearch}
-							width="16"
-							height="16"
-							className="shrink-0 text-nova-text-secondary"
-						/>
-						<div
-							data-search-pane-title
-							className="min-w-0 flex-1 whitespace-normal break-words font-display tracking-tighter text-[15px] font-semibold leading-snug text-nova-text [overflow-wrap:anywhere]"
-						>
-							{title}
+					{/* A search with no title draws no heading; the row stays only
+					 *  for its clear action. */}
+					{(title !== null || queryActive || draftActive) && (
+						<div className="flex min-h-11 min-w-0 items-center gap-2">
+							{title !== null && (
+								<>
+									<Icon
+										icon={tablerSearch}
+										width="16"
+										height="16"
+										className="shrink-0 text-nova-text-secondary"
+									/>
+									<div
+										data-search-pane-title
+										className="min-w-0 flex-1 whitespace-normal break-words font-display tracking-tighter text-[15px] font-semibold leading-snug text-nova-text [overflow-wrap:anywhere]"
+									>
+										{title}
+									</div>
+								</>
+							)}
+							{/* Clear what was typed: lives WITH the search (where you'd
+							 *  reach to start over) and only appears when there's an active
+							 *  query to clear. */}
+							{(queryActive || draftActive) && (
+								<Button
+									type="button"
+									variant="ghost"
+									onClick={clearSearch}
+									className="ml-auto shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent"
+								>
+									<Icon icon={tablerX} width="13" height="13" />
+									{message("clearSearch")}
+								</Button>
+							)}
 						</div>
-						{/* Clear what was typed: lives WITH the search (where you'd
-						 *  reach to start over) and only appears when there's an active
-						 *  query to clear. */}
-						{(queryActive || draftActive) && (
-							<Button
-								type="button"
-								variant="ghost"
-								onClick={clearSearch}
-								className="ml-auto shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent"
-							>
-								<Icon icon={tablerX} width="13" height="13" />
-								{message("clearSearch")}
-							</Button>
-						)}
-					</div>
+					)}
 					{subtitle !== undefined && (
 						<div className="preview-markdown mt-1 text-sm text-nova-text-secondary">
 							<PreviewMarkdown>{subtitle}</PreviewMarkdown>
@@ -2310,7 +2363,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				{accessPhase === "authorized" && hasSearchInputs && (
 					<SearchInputForm
 						key={`${scopeEpoch}:${moduleUuid}`}
-						landmarkLabel={title}
+						landmarkLabel={title ?? undefined}
 						scopeKey={moduleUuid}
 						searchInputs={config?.searchInputs ?? []}
 						filter={config?.filter}
@@ -2749,6 +2802,26 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				>
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
 					{message("searchAgain")}
+				</Button>
+			)}
+			{alwaysRegisterAction !== undefined && step !== "search" && (
+				<Button
+					type="button"
+					variant="outline"
+					data-case-list-register
+					onClick={alwaysRegisterAction.onClick}
+					className="mb-4 max-w-full"
+				>
+					{alwaysRegisterAction.icon !== undefined ? (
+						<ProjectMediaImage
+							assetId={alwaysRegisterAction.icon}
+							alt=""
+							className="size-6 shrink-0 rounded-md object-cover"
+						/>
+					) : (
+						<Icon icon={tablerPlus} width="16" height="16" />
+					)}
+					{alwaysRegisterAction.label}
 				</Button>
 			)}
 			{zeroInputSearchActionIsRelevant && step === "browse" && (

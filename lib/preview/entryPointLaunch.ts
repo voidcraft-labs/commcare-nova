@@ -1,7 +1,9 @@
 import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	type BlueprintDoc,
+	conditionModulesOf,
 	moduleFormsReadSearch,
+	moduleHasOwnScreen,
 	type Uuid,
 } from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
@@ -23,7 +25,11 @@ import type {
 	EntryPointLaunchResult,
 	EntryPointSelection,
 } from "./entryPointLaunchTypes";
-import { previewMenuCaseContext } from "./menuProjection";
+import {
+	previewContributorGatingModules,
+	previewMenuCaseContext,
+	previewScreenPath,
+} from "./menuProjection";
 import type { PreviewPlatformRules } from "./platform";
 
 /** What Preview says when a form off the menu is launched from an entry point
@@ -32,15 +38,29 @@ import type { PreviewPlatformRules } from "./platform";
 export const FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL =
 	"This form is off the menu, and in Web Apps an entry point opens it only when the entry point ignores display conditions. You can set it to ignore them.";
 
-/** Whether `moduleUuid` or a module above it is off the menu: a module off
- * the menu takes its child modules off with it, so no menu reaches either. */
-function moduleIsUnderOffTheMenu(doc: BlueprintDoc, moduleUuid: Uuid): boolean {
-	let current: Uuid | null | undefined = moduleUuid;
-	while (current) {
-		if (doc.modules[current]?.hiddenFromMenu === true) return true;
-		current = moduleParent(doc, current);
-	}
-	return false;
+/** Whether a module's form and case list entries are off the menu: a module
+ * whose condition they carry (`menuScreens.ts::conditionModulesOf`, the module
+ * and, where it shows its forms above, its parent) is off the menu, or the
+ * module keeps its screen under a parent that keeps its screen and is off the
+ * menu, so no menu reaches the module's own screen. */
+export function moduleEntriesOffTheMenu(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): boolean {
+	if (
+		conditionModulesOf(doc, moduleUuid).some(
+			(uuid) => doc.modules[uuid]?.hiddenFromMenu === true,
+		)
+	)
+		return true;
+	const parentUuid = moduleParent(doc, moduleUuid);
+	return (
+		moduleHasOwnScreen(doc, moduleUuid) &&
+		parentUuid !== undefined &&
+		parentUuid !== null &&
+		moduleHasOwnScreen(doc, parentUuid) &&
+		doc.modules[parentUuid]?.hiddenFromMenu === true
+	);
 }
 
 /** Pure admission over one authorized device snapshot. No selection can fall
@@ -184,12 +204,24 @@ export function prepareEntryPointLaunch(args: {
 		if (
 			item.target.kind === "form" &&
 			(args.doc.forms[item.target.formUuid]?.hiddenFromMenu === true ||
-				moduleIsUnderOffTheMenu(args.doc, item.target.moduleUuid))
+				moduleEntriesOffTheMenu(args.doc, item.target.moduleUuid))
 		)
 			return refuse(FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL);
-		let moduleUuid: Uuid | undefined | null = item.target.moduleUuid;
-		while (moduleUuid) {
+		/* The menus a worker passes to reach the destination: for a form or a
+		 * case list, those on the way to the screen that lists it and those
+		 * whose condition its row carries; for a menu, those on the way to its
+		 * own screen. */
+		const gatingModules =
+			item.target.kind === "module" &&
+			moduleHasOwnScreen(args.doc, item.target.moduleUuid)
+				? previewScreenPath(args.doc, {
+						kind: "menu",
+						moduleUuid: item.target.moduleUuid,
+					})
+				: previewContributorGatingModules(args.doc, item.target.moduleUuid);
+		for (const moduleUuid of gatingModules) {
 			const mod = args.doc.modules[moduleUuid];
+			if (mod === undefined) continue;
 			if (
 				moduleDisplayVisibility({
 					condition: mod.displayCondition,
@@ -211,7 +243,6 @@ export function prepareEntryPointLaunch(args: {
 				return refuse(
 					"This destination is hidden for the selected Preview worker.",
 				);
-			moduleUuid = moduleParent(args.doc, moduleUuid);
 		}
 		if (item.target.kind === "form") {
 			const selection = previewMenuCaseContext(

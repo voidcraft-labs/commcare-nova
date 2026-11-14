@@ -9,12 +9,13 @@
  * become authored text, and where the after-submit reads as the form's
  * `destinations`, in the order they run, and its `otherwise` (a built-in
  * `{ kind: "destination", destination }` or `{ kind: "link", linkUuid,
- * target, datums? }`).
+ * target, datums? }`). `offeredOnCaseListsOf` names the modules whose case
+ * lists always offer the form (`caseListsOffering`).
  */
 
 import type { z } from "zod";
 import { formRecordName } from "@/lib/doc/formRecordName";
-import type { Uuid } from "@/lib/domain";
+import { caseListsOffering, type Uuid } from "@/lib/domain";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import {
 	type OperationSemantics,
@@ -46,6 +47,8 @@ export type GetFormResult =
 			navigation: ReturnType<typeof formNavigation>;
 			answerWrites: ReturnType<typeof formAnswerWrites>;
 			operationSemantics: OperationSemantics;
+			/** The modules whose case lists always offer the form. */
+			offeredOnCaseListsOf: Uuid[];
 			recordName?: ReturnType<typeof formRecordName>;
 	  };
 
@@ -79,6 +82,7 @@ export const getFormTool = {
 				navigation: formNavigation(doc, formUuid),
 				answerWrites: formAnswerWrites(doc, moduleUuid, formUuid),
 				operationSemantics: operationSemantics(doc, formUuid),
+				offeredOnCaseListsOf: caseListsOffering(doc, formUuid),
 				...(recordName && { recordName }),
 			},
 		};

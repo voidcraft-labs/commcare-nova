@@ -1,11 +1,17 @@
 import type { AppTestScope } from "@/lib/db/appTests";
+import type { Uuid } from "@/lib/domain";
 import { afterSubmitFrameLanding, appHomeLanding } from "../afterSubmitRouting";
 import {
 	afterSubmitPath,
 	completeAfterSubmit,
 	completeAfterSubmitWithOwnFrame,
 } from "../afterSubmitStack";
-import { caseListRegistrationPostSubmit } from "../caseListRegistration";
+import {
+	alwaysOfferedRegistrationReturn,
+	caseListRegistrationPostSubmit,
+	registeredCaseOnDevice,
+	selectionsAfterRegistrationReturn,
+} from "../caseListRegistration";
 import { validateCaptureSubmissionProjection } from "../engine/captureSubmissionValidation";
 import {
 	buildSubmissionOperationProgram,
@@ -160,6 +166,79 @@ export async function submitAppTest(
 									searchAnswers: screen.searchAnswers,
 									registeredCaseId: result.primaryCaseIds[0],
 								},
+				},
+				identity,
+				effects: result,
+				validation: undefined,
+			};
+		}
+		/* A form the record list always offers, opened from its Register
+		 * action, returns where that list's frame lands, as the browser's form
+		 * does (`alwaysOfferedRegistrationReturn`); its own after-submit, or
+		 * an opening any other way, routes as any form does. */
+		const launch = screen.caseListRegistrationLaunch;
+		const hostCaseType =
+			launch === undefined
+				? undefined
+				: context.doc.modules[launch.hostModuleUuid]?.caseType;
+		const createdCase =
+			mutation.kind === "registration" &&
+			launch !== undefined &&
+			result.primaryCaseIds[0] !== undefined
+				? registeredCaseOnDevice(
+						result.caseDatabasePatch,
+						result.primaryCaseIds[0],
+						hostCaseType,
+					)
+				: undefined;
+		const registrationLanding = alwaysOfferedRegistrationReturn(
+			context.doc,
+			screen.formUuid,
+			launch,
+			createdCase?.caseId,
+		);
+		if (registrationLanding !== undefined && launch !== undefined) {
+			const selections = selectionsAfterRegistrationReturn(
+				state.selections,
+				registrationLanding,
+				launch.hostModuleUuid,
+				hostCaseType ?? "",
+				createdCase,
+			);
+			const landingScreen = registrationLanding.screen;
+			const afterSubmitStack = completeAfterSubmitWithOwnFrame(
+				state.afterSubmitStack,
+				submittedPath,
+				landingScreen.kind === "first-menu"
+					? []
+					: afterSubmitPath(
+							context.doc,
+							{ moduleUuid: landingScreen.moduleUuid },
+							Object.entries(selections).map(([moduleUuid, selection]) => ({
+								moduleUuid: moduleUuid as Uuid,
+								caseIds: selection.cases.map((row) => row.caseId),
+							})),
+						),
+				context.rules.afterSubmitFrames,
+			);
+			const returned: AppTestSessionState = {
+				...state,
+				selections,
+				deviceCases,
+				afterSubmitStack,
+				history: [],
+			};
+			return {
+				state: {
+					...returned,
+					screen:
+						landingScreen.kind === "first-menu"
+							? { kind: "home" as const }
+							: enterAppTestMenu(
+									{ ...context, identity },
+									returned,
+									landingScreen.moduleUuid,
+								),
 				},
 				identity,
 				effects: result,

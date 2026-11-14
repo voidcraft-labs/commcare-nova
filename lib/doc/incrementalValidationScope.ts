@@ -27,14 +27,24 @@
  * edit that can change them takes it here: a held kind, a form's links, and
  * in a form with links an operation added, removed or reordered, or an
  * operation's links, repeat and target.
+ *
+ * Whether a screen asks for a case before its forms reads every module that
+ * lists forms there (`lib/domain/menuScreens.ts::screenChoosesCaseFirst`), so
+ * one menu's edit can move a verdict in another menu on the same screen.
+ * Turning a menu's forms in the menu above on or off changes which screen
+ * lists what and takes the absolute gate; every other footprint grows by the
+ * modules that share a touched module's screen, before and after the batch,
+ * with their forms.
  */
 
 import { formHoldsPlacement } from "@/lib/doc/heldIdentity";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
-	caseListRegistrationFormOf,
+	afterEmptySearchRegistrationFormOf,
 	formLinkEntries,
+	menuScreenContributors,
+	menuScreenOf,
 	orderedCaseOperations,
 } from "@/lib/domain";
 import { modulesSelectingThrough } from "@/lib/domain/entryDatumSupplies";
@@ -225,13 +235,43 @@ export function incrementalValidationScope(
 		inferenceFingerprint(doc) !== inferenceFingerprint(nextDoc)
 	)
 		return undefined;
-	return scope;
+	addScreenContributors(doc, nextDoc, scope);
+	return {
+		...(scope.moduleUuids.size > 0 && { moduleUuids: scope.moduleUuids }),
+		...(scope.formUuids.size > 0 && { formUuids: scope.formUuids }),
+	};
+}
+
+/** Each touched module's screen, before and after the batch: where another
+ *  module lists its forms there too, every such module and its forms join
+ *  the footprint, since the screen's case-first answer reads them all. A
+ *  screen only the touched module lists on is that module's own answer,
+ *  which the footprint already covers. */
+function addScreenContributors(
+	doc: BlueprintDoc,
+	nextDoc: BlueprintDoc,
+	scope: MutableScope,
+): void {
+	for (const moduleUuid of [...scope.moduleUuids]) {
+		for (const side of [doc, nextDoc]) {
+			if (side.modules[moduleUuid] === undefined) continue;
+			const contributors = menuScreenContributors(
+				side,
+				menuScreenOf(side, moduleUuid),
+			);
+			if (contributors.length < 2) continue;
+			for (const contributor of contributors) {
+				if (nextDoc.modules[contributor] === undefined) continue;
+				addWholeModule(nextDoc, contributor, scope);
+			}
+		}
+	}
 }
 
 function mutationFootprint(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
-): IncrementalValidationScope | undefined {
+): MutableScope | undefined {
 	if (mutations.length === 0) return undefined;
 	const scope: MutableScope = {
 		moduleUuids: new Set(),
@@ -273,7 +313,7 @@ function mutationFootprint(
 			case "updateSearchInput":
 			case "removeSearchInput": {
 				scope.moduleUuids.add(mutation.moduleUuid);
-				const registrationForm = caseListRegistrationFormOf(
+				const registrationForm = afterEmptySearchRegistrationFormOf(
 					doc,
 					mutation.moduleUuid,
 				);
@@ -312,6 +352,12 @@ function mutationFootprint(
 				scope.moduleUuids.add(mutation.uuid);
 				break;
 			case "updateModule": {
+				/* Showing a menu's forms in the menu above, or giving it its own
+				 * screen again, moves its forms, its case list entry and its
+				 * submenus to another screen, which every screen's case-first
+				 * answer, every link and entry point into it, and the first
+				 * menu's shared case read. */
+				if (Object.hasOwn(mutation.patch, "formsInMenuAbove")) return undefined;
 				/* A module case-type/mode change alters the session requirements seen
 				 * by form links elsewhere in the app. Turning Forms read the search
 				 * on or off gives or takes its search instance from a submenu or a
@@ -461,8 +507,5 @@ function mutationFootprint(
 		}
 	}
 
-	return {
-		...(scope.moduleUuids.size > 0 && { moduleUuids: scope.moduleUuids }),
-		...(scope.formUuids.size > 0 && { formUuids: scope.formUuids }),
-	};
+	return scope;
 }

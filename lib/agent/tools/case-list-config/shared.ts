@@ -43,6 +43,7 @@
 
 import { z } from "zod";
 import { RESERVED_SEARCH_INPUT_NAMES } from "@/lib/commcare/suite/case-search/reservedInputNames";
+import { columnNotOnListMessage } from "@/lib/commcare/validator/rules/case-list/columnNotOnList";
 import {
 	advancedDateRangeSearchInputSchema,
 	advancedScalarSearchInputSchema,
@@ -52,7 +53,8 @@ import {
 	caseTileGroupingSchema,
 	caseTileLayoutSchema,
 	columnSchema,
-	columnSortSchema,
+	columnSort,
+	columnSortShape,
 	hiddenSearchInputSchema,
 	SEARCH_INPUT_TYPES,
 	type SearchInputDef,
@@ -163,16 +165,27 @@ const newColumnIdentity = {
 const VISIBLE_IN_LIST_DESCRIPTION =
 	"Leave it out to show the column on Results; false hides it there. The list's search still matches a hidden column. In a list with a case tile a hidden column is not on the tile, and the search matches it only where it carries sort.";
 
+/* What every arm says of a column that is not on the list, attached to each
+ * arm's own `notOnList`. */
+const NOT_ON_LIST_DESCRIPTION =
+	"true keeps the column off the list: only Details shows it, and the list neither searches nor sorts by it. It hides the column on Results too. Leave it out for a column on the list.";
+
+/** The refusal of a column sent both shown on Results and off the list. */
+export const NOT_ON_LIST_SHOWN_REFUSAL =
+	"A column can't be shown on Results and off the list at once. Leave out notOnList to show it, or leave out visibleInList to keep it off the list.";
+
 /**
  * A column arm's `sort` slot carrying that arm's own description. Each arm
- * builds a fresh optional around the shared `columnSortSchema` rather than
- * describing the domain arm's `sort`: a description on that one shared
- * optional is a clone of it, which emits as a reference to the shared
- * optional wrapped around a reference to the sort, and the provider keeps only
- * the inner reference.
+ * builds a fresh optional around the rule's keys rather than describing the
+ * domain arm's `sort`: a description on that one shared optional is a clone
+ * of it, which emits as a reference to the shared optional wrapped around a
+ * reference to the sort, and the provider keeps only the inner reference.
+ * The input takes the keys with no refinement: an explicit `blanks` equal to
+ * the direction's own is stored as its absence (`stampColumnUuid`, through
+ * `columnSort`), never refused.
  */
 const columnSortInput = (description: string) =>
-	columnSortSchema.optional().describe(description);
+	z.strictObject(columnSortShape).optional().describe(description);
 
 /**
  * A column arm's tile cell as an input: the domain cell with its three
@@ -188,13 +201,15 @@ const columnTileInputSchema = tileCellSchema
 	})
 	.optional();
 
-/** The slots every arm takes beside its own: identity, Results visibility, and
- *  a tile cell whose presentation the input may leave out. */
+/** The slots every arm takes beside its own: identity, Results visibility,
+ *  whether the list carries the column at all, and a tile cell whose
+ *  presentation the input may leave out. */
 const columnInputSlots = {
 	...newColumnIdentity,
 	visibleInList: plainColumnArm.shape.visibleInList.describe(
 		VISIBLE_IN_LIST_DESCRIPTION,
 	),
+	notOnList: z.literal(true).optional().describe(NOT_ON_LIST_DESCRIPTION),
 	tile: columnTileInputSchema,
 };
 
@@ -625,6 +640,23 @@ export type SearchInputUpdateInput = z.infer<
 // — keeping the rationale and the workaround in one place.
 
 /**
+ * Why a column a tool was sent can't be written, where it pairs `notOnList`
+ * with a state the list can't hold: shown on Results, or an order rule (the
+ * gate's own sentence, `CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`). A call that
+ * sends one is refused before staging.
+ */
+export function columnListStateRefusal(
+	column: ColumnInput | ColumnUpdateInput,
+): string | undefined {
+	if (column.notOnList !== true) return undefined;
+	if (column.visibleInList === true) return NOT_ON_LIST_SHOWN_REFUSAL;
+	if (column.sort !== undefined) {
+		return columnNotOnListMessage(stampColumnUuid(column, newUuid()), "sorted");
+	}
+	return undefined;
+}
+
+/**
  * Stamp the supplied uuid onto a kind-discriminated input column. The
  * cast is required because TS does not preserve per-arm narrowing
  * across a spread on a discriminated union — the structural identity
@@ -645,7 +677,21 @@ export function stampColumnUuid(
 	const { columnUuid: _declaredUuid, ...body } = column as ColumnInput;
 	return {
 		...body,
+		/* A column off the list is hidden on Results too, so `notOnList`
+		 * writes `visibleInList: false` with it. One sent shown as well is
+		 * `columnListStateRefusal`'s, and left as sent for the gate. */
+		...(body.notOnList === true &&
+			body.visibleInList === undefined && { visibleInList: false }),
 		...(body.tile !== undefined && { tile: tileCellFromInput(body.tile) }),
+		/* A rule is stored in its one form: `blanks` equal to the
+		 * direction's own is left out. */
+		...(body.sort !== undefined && {
+			sort: columnSort(
+				body.sort.direction,
+				body.sort.priority,
+				body.sort.blanks,
+			),
+		}),
 		uuid,
 	} as Column;
 }

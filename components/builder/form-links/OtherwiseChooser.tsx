@@ -42,7 +42,10 @@ import {
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
-import { usePostSubmitDestinationChoices } from "@/lib/doc/hooks/useFormLinkFacts";
+import {
+	useMenuAboveWithheldDestinations,
+	usePostSubmitDestinationChoices,
+} from "@/lib/doc/hooks/useFormLinkFacts";
 import {
 	type FormLinkWriteReports,
 	useFormLinks,
@@ -69,7 +72,11 @@ import {
 } from "./afterSubmitCopy";
 import { LinkTargetPickerContent } from "./LinkTargetPicker";
 import { linkLead } from "./linkSentence";
-import { OTHERWISE_UNREACHABLE_REASON, planRefusal } from "./refusalCopy";
+import {
+	menuAboveWithheldReason,
+	OTHERWISE_UNREACHABLE_REASON,
+	planRefusal,
+} from "./refusalCopy";
 import {
 	retargetLink,
 	seedEveryTimeLink,
@@ -141,7 +148,11 @@ export function OtherwiseChooser({
 	const docApi = useBlueprintDocApi();
 	const { inline } = useBlueprintMutations();
 	const postSubmitChoices = usePostSubmitDestinationChoices(formUuid);
-	const parentName = useModule(useModule(moduleUuid)?.parentModuleUuid)?.name;
+	const ownModule = useModule(moduleUuid);
+	const parentName = useModule(ownModule?.parentModuleUuid)?.name;
+	/* A built-in a menu that shows its forms above withholds stays listed,
+	 * disabled with why. */
+	const menuAboveWithheld = useMenuAboveWithheldDestinations(formUuid);
 	const sentence = useLinkSentenceContext(formUuid);
 	const [openLocal, setOpenLocal] = useState(false);
 	const open = openProp ?? openLocal;
@@ -413,6 +424,21 @@ export function OtherwiseChooser({
 								/>
 							);
 						})}
+						{menuAboveWithheld.map((withheld) => (
+							<ChoiceRow
+								key={withheld.destination}
+								icon={DESTINATION_ICON[withheld.destination]}
+								title={destinationLabel(withheld.destination, parentName)}
+								detail={destinationDetail(withheld.destination)}
+								active={false}
+								disabledReason={menuAboveWithheldReason(
+									withheld.reason,
+									ownModule?.name ?? "",
+									parentName ?? "",
+								)}
+								onClick={() => {}}
+							/>
+						))}
 						<ChoiceRow
 							icon={tablerArrowRampRight}
 							title={OTHER_TARGET_CHOICE_LABEL}

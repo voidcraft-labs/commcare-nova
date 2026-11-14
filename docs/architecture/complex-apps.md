@@ -1538,12 +1538,63 @@ depends on the order HQ returns its results in is refused
 (`search-results-order`), and Preview supplies the set the search returned,
 capped at HQ's 500.
 
+#### A search with no title
+
+`searchScreenTitle: { kind: "none" }` is a search with no title; absent means
+"Search". CommCare HQ's Case List page writes `title_label` for every language
+on every save, blank where nothing was typed
+(`views/modules.py::_gather_and_update_search_properties`); the app string is
+that text or empty (`models/case_search.py::CaseSearch.get_search_title_label`),
+written into the locale file as a non-breaking space
+(`commcare_translations.py::dumps`); and the suite's `<title>` names that locale
+at CommCare 2.53 and later (`feature_support.py::enable_case_search_title_translation`).
+Web Apps trims it and draws the heading only where something is left
+(`formplayer/menus/views/query.js::templateContext`), and Android draws no
+search title at all. So Nova writes `title_label` blank for every language and
+the `<title>` over a blank locale.
+
+#### Where blanks sort
+
+A sort rule's `blanks` is `first` or `last`, stored only where it differs from
+the direction's own, first ascending and last descending. CommCare HQ's sort
+rows offer the choice with that default (`sort_rows.js`;
+`views/modules.py::_init_new_sort_element`) and copy it to the suite's
+`<sort blanks>` (`detail_screen.py::sort_node`). Core reads `first` or `last`,
+falls back to the direction otherwise
+(`DetailFieldParser.java::parseBlanksPreference`), and places a blank by that
+alone, whatever the direction (`EntitySorter.java::getCmp`). Both platforms read
+it alike.
+
+#### A date and time on a case
+
+A date and time saved to a case is text, and CommCare HQ rewrites every such
+text of a submission to UTC with six fraction digits and `Z`
+(`corehq/form_processor/utils/xform.py::adjust_datetimes`,
+`dimagi/utils/parsing.py::json_format_datetime`). A phone keeps what it wrote: a
+restore sends a case back only where a change came from another sync
+(`get_modified_case_ids.sql`). A list orders such a property as text
+(`EntitySorter.java::getCmp`), so Nova writes CommCare HQ's own text on the
+phone (`lib/commcare/xform/datetimeCaseValue.ts::datetimeCaseValue`): Core
+prints a typed date and time in the device's zone with its offset
+(`DateUtils.java::getOffsetInStandardFormat`), and
+`instant.ts::storedInstantOfText` moves that text to UTC, taking the day before
+or after from the written date's own fields, since a day number counts from a
+JVM-zone epoch that is UTC's on Web Apps. Stored text is written as it is,
+because Core's parse of text with an offset keeps the written date and moves
+only the clock (`DateUtils.java::parseTimeAndStore`). Core reads a sort text
+through `string()` (`Text.java::ensureCacheIsParsed`), which prints a number
+past `int` range in a form its number comparator refuses
+(`FunctionUtils.java::toString`, `toNumeric`), so a moment cannot be a number
+key. Preview and Nova's case store write the same text
+(`lib/domain/temporalValues.ts::caseDatetimeValue`), and a list ordered by the
+property orders by the moment whichever spelling a row holds.
+
 #### Register when nothing matches
 
 A menu whose forms read the search may offer one registration form from its
 case list, shown only after a search completes with nothing found
 (`Module.caseListRegistrationForm = { kind: "after-empty-search", formUuid, label? }`,
-`lib/domain/menuForms.ts::caseListRegistrationFormOf`). The form is the
+`lib/domain/menuForms.ts::afterEmptySearchRegistrationFormOf`). The form is the
 module's own case type, leaves the menu (no link may target it, it carries no display condition
 and no after-submit choice, every menu projection consults `menuFormUuidsOf`),
 and its fields read the search's answers through `#search/<name>`
@@ -1619,6 +1670,51 @@ dynamic_search` and the `USH_INLINE_SEARCH` / `USH_SEARCH_FILTER` toggles are
 gone (`models/case_search.py::CaseSearch`; `models/modules.py::CaseListForm`):
 `case_list_form.{form_id, label, relevancy_expression, post_form_workflow}` and
 `inline_search / auto_launch / default_search` are the live fields.
+
+#### Register from the case list
+
+The `always` arm of `Module.caseListRegistrationForm` names a registration form of the
+module's case type that stays on its own menu, and the module's case list offers it at any
+time (`lib/domain/menuForms.ts::alwaysOfferedRegistrationOf`). It is CommCare HQ's
+`case_list_form` with a `form_id` (`models/modules.py::CaseListForm`), the Case List page's
+"Registration Form Accessible from Case List". Nova writes the block for a form that stays on
+its menu, with no synthetic module and no `relevancy_expression`.
+
+**The action.** CommCare HQ's build adds the action to the module's short details when
+`case_list_form.form_id` is set and the module does not show its forms above
+(`details.py::build_detail`), and only where the form holds exactly one registration of the
+list's type, counted over its `open_case` and every root subcase of that type together
+(`Form.is_registration_form`, `Form.get_registration_actions`). The action pushes the form's
+command, its computed datums and `return_to`, the host's menu id
+(`details.py::get_case_list_form_action`). The short detail is shared, so the action shows
+wherever that list shows.
+
+**The return.** Where the form has no after-submit of its own, CommCare HQ writes return
+frames that fire only under that `return_to` (`workflow.py::CaseListFormWorkflow`).
+`case_list` returns to the host's screen with no case chosen. `default` lands in the host's
+menu with the new case chosen, or on the host's screen where the form created none. Where the
+form has its own after-submit, CommCare HQ writes no return frame and the worker goes there
+from the list too; the arm's `afterSubmit` stays stored and applies again once the form's own
+returns to Home (`menuForms.ts::caseListRegistrationReturnOf`).
+
+**What is refused**, each by
+`lib/commcare/validator/rules/case-search/caseListRegistration.ts`: a form that is missing
+(`CASE_LIST_REGISTRATION_FORM_NOT_FOUND`); a form that is no registration form of the host's
+type, or holds more than one registration of it (`CASE_LIST_REGISTRATION_NOT_REGISTRATION`);
+a host that shows its forms above (`CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE`); a host
+some form of which needs no case (`CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST`); and a host
+or a named form in an advanced menu (`CASE_LIST_REGISTRATION_ADVANCED_MENU`).
+
+**A label with no text.** Where a block made in CommCare HQ holds a label that yields no text
+in a language, HQ's build writes "Create a new Case" there
+(`app_strings.py::_create_case_list_form_app_strings`): in every language where no language
+holds text, and in each language whose value is an empty string. A label Nova writes always
+holds text: the slot's `label`, else the form's name.
+
+**The button by platform.** Web Apps draws the action's text alone
+(`cloudcare/partials/case_list/list.html`); commcare-android draws its image and a button
+that plays its audio (`views/EntityActionViewUtils.java`). The platform row
+`case-list-registration-media` states it.
 
 ### Case tiles
 
@@ -2650,15 +2746,77 @@ invalid page, the open page a session slot shared across the flip
 shows the same form as titled groups on one screen, as Web Apps does
 (`content/docs/form-sections.mdx`).
 
+### Question display and text
+
+**The Phone Number question.** A Text question holding `keypad: "numbers"` is the form builder's
+Phone Number or Numeric ID question (`src/mugs/types/text.js::PhoneNumber`): `<input
+appearance="numeric">` with bind `xsd:string`, read back as that question exactly when the bind is
+a string and the appearance is the whole string `numeric`
+(`parser.js::buildControlNodeAdaptorMap`), and typed `PhoneNumber` by CommCare HQ's question
+summary (`xform.py::VELLUM_TYPES`). The answer is text on every reader, so a leading zero and a
+plus sign are kept. Core keeps the appearance and reads nothing from it. Web Apps draws its phone
+entry where `numeric` is one of the appearance's tokens and stores an answer only where it matches
+`^[+-]?\d*(\.\d+)?$` (`form_ui.js::getMatchingStyles`, `entries.js::getEntry`). Android builds its
+string-number widget where the whole appearance equals `numeric` or `numbers`, with a keypad of
+the digits, a period, a dash, a plus and a space (`WidgetFactory.java::buildBasicWidget`). The
+platform row `number-keypad` states the difference, and `lib/commcare/xform/appearance.ts` is the
+one writer of a control's appearance.
+
+**A calculated value in text.** A prose part `{ kind: "value", expression }` is an `<output
+value>` holding any form-rule expression. Core reads each output of a text as an expression of
+its own (`XFormParser.java::parseOutput`), evaluates it at the question's node
+(`FormDef.java::fillTemplateString`) and prints the result by XPath's string rule
+(`XPathConditional.java::evalReadable`): a date as its ISO day, a number as XPath prints it, yes
+or no as `true` or `false`. Formplayer and Android show Core's text. A value that only reads one
+reference is stored as that reference, so one meaning has one stored form. In a validation
+message a value is composed as it stands, with no `count` guard: Core's `count` takes a node-set
+alone (`XPathCountFunc.java::evalBody`), and Core answers an error raised while it composes a
+message with the expression's own text. The form builder shows an output whose text matches its
+date pattern as a date chip and any other output as written, and keeps both on save
+(`richText.js::extractXPathInfo`, `outputToBubble`).
+
+**Text CommCare HQ reads as an instance.** CommCare HQ's build renders the whole form to one
+string and searches it for instance reads by a text pattern, `instance(`, a quoted name and a
+closing bracket, labels, titles, attributes and data nodes included
+(`xform.py::XForm.add_missing_instances`,
+`suite_xml/post_process/instances.py::get_instance_names`). For a name the form does not declare
+it adds the instance where it has a source for the name and refuses the build otherwise, and an
+added fixture the device does not hold stops the form from opening
+(`CommCareInstanceInitializer.java::loadFixtureRoot`). So literal label text that holds
+`instance('x')` is written with its bracket as a literal output, `<output value="'('"/>`, after
+the word (`lib/commcare/hqInstanceScan.ts::instanceScanCuts`, the cut the serializer already makes
+inside a string literal). A worker reads the same characters, and the text stays one `text` part
+in the document. A form's name and a Connect block's name and description are plain text in the
+form's source, which CommCare Connect and the form builder read as the element's own text
+(commcare-connect `opportunity/app_xml.py::get_element_text`; Vellum `src/commcareConnect.js`), so
+no spelling keeps the scan out there and the gate refuses the text
+(`FORM_TEXT_READ_AS_INSTANCE`, over `lib/commcare/xform/sourceTexts.ts::formSourceTexts`).
+
+**Text shown as typed.** Who reads a text's formatted copy (`<value form="markdown">`) differs
+by text and by platform. A label: Android and Web Apps both format where the copy exists and show
+the text as typed otherwise (`QuestionWidget.java`; `caption_markdown`). An inline choice: Android
+the same, while Web Apps formats every choice. A help text: Android formats where the copy exists
+(`QuestionWidget.java::createHelpLayout`), and Web Apps formats the default text always
+(`form_ui.js::Question.prototype.fromJS`). A hint: Android shows it as typed always
+(`QuestionWidget.java::addHintText`), and Web Apps formats the default text always. A validation
+message: as typed on both (`FormEntryPrompt.java::getConstraintText`). So `plainLabel`,
+`plainHelp` and a form's `plainText` each leave the copy out, a hint and a validation message
+never write one, and a form holding `plainText` carries `vellum:ignore="markdown"` on `h:html`,
+the form builder's Disable Text Formatting (`core.js::showFormPropertiesModal`). The form builder
+writes a copy only where it loaded one or the text looked like formatting
+(`javaRosa/plugin.js::contributeToModelXML`, `loadXML`), so a text Nova writes without one stays
+without one through a save there.
+
 ### One-tier nested menus
 
 A module may sit at the app's root or one level beneath another root module.
 `Module.parentModuleUuid` is the Nova-native parent reference, and
 `moduleOrder` is the one canonical depth-first preorder: each root is followed
-by its contiguous child block. Every module remains independently runnable
-with its own native Form or case list, and every Form still has exactly one
-owning module. Nova does not author linked forms, shadow modules, deeper menu
-trees, or HQ's unrelated `put_in_root` behavior. The domain gate enforces the
+by its contiguous child block. Every Form still has exactly one owning module.
+A module may show its forms in the menu above (`Module.formsInMenuAbove`, HQ's
+`put_in_root`): its forms list on that screen and it has none of its own. Nova
+does not author linked forms, shadow modules or deeper menu trees. The domain
+gate enforces the
 one-tier topology; `lib/domain/CLAUDE.md` and `lib/doc/CLAUDE.md` own the
 topology, mutation, replay, and deletion contracts.
 
@@ -2688,6 +2846,54 @@ run the same case workflow. Child conditions remain their own menu conditions;
 containment supplies the parent gate. `lib/commcare/CLAUDE.md` owns the lowering
 and its pinned HQ fixture provenance, and `content/docs/nested-menus.mdx` is the
 user-facing guide.
+
+#### Forms in the menu above
+
+`Module.formsInMenuAbove` is CommCare HQ's `put_in_root` (`ModuleBase.put_in_root`, offered
+while the add-on `menu_mode` is on). The module's forms and its case list entry list on the
+screen above, the app's first menu for a top-level module and its parent's screen for a
+submenu, and the module has no entry and no screen of its own. `lib/domain/menuScreens.ts` is
+the one statement of which screen lists what. CommCare HQ's build does fourteen things with
+the setting, and Nova writes or refuses each:
+
+| # | What HQ does | Source | Nova |
+|---|---|---|---|
+| 1 | A menu's id is `m<N>`; above, it is its parent's id, and `root` with no parent or a parent that is above too | `id_strings.py::menu_id` | `menuScreens.ts::menuScreenOf`; `formLinkProjection.ts::menuIdOf` |
+| 2 | An above menu's `<menu>` has that id and no `root` attribute; a menu not above has `root="<menu_id(P)>"`, which is `root` under an above parent | `menus.py::get_module_contributions`, `_generate_menu` | `compiler.ts`; such a submenu lists on the first menu (`menuTileScreenOf`) |
+| 3 | An above submenu's `<menu>` takes P's name where P is not above, and keeps its own image and audio locales | `suite_xml/utils.py::_should_use_root_display`; `_generate_menu` | `compiler.ts`; the menu's own name and media are shown nowhere |
+| 4 | An above submenu's condition is `(own) and (P's)`, or P's alone where it has none; nothing else is conjoined | `_generate_menu` | `compiler.ts`; `menuScreens.ts::conditionModulesOf` |
+| 5 | The case list of an above menu gets no Register action and no Search action | `details.py::build_detail` | `FORMS_IN_MENU_ABOVE_WITH_SEARCH`, `CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE` |
+| 6 | The build refuses an above menu with an endpoint or with inline search | `validators.py::validate_display_only_forms` | `FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION`, `FORMS_IN_MENU_ABOVE_WITH_SEARCH` |
+| 7 | The build refuses the after-submit `module` in an above menu and `parent_module` under an above parent; the form page offers neither; the link editor never lists an above menu as a target, and lists its forms | `validators.py::FormBaseValidator`; `views/forms.py::get_form_view_context`, `_get_linkable_forms_context` | two reasons of `POST_SUBMIT_NOT_OFFERED`; `menuTargetOffered` |
+| 8 | A frame's module command is the menu id; where that is `root` there is none, and the common datums are those of every form of every above menu in the app, ahead of the form's command | `workflow.py::WorkflowHelper.get_frame_children`, `_root_module_datums` | `formLinkProjection.ts`; a frame that would open with a chosen case is refused at its source (`firstMenuSharedCase`) |
+| 9 | `previous` in an above submenu of a parent that keeps its screen names the parent's command twice | `get_frame_children(…, include_root_module=True)` | `formLinkProjection.ts`, written as HQ writes it |
+| 10 | A form's display condition that reads the case is a build error in an above menu, unless P has the same case type and all P's forms need a case | `menus.py::_get_commands`; `ModuleBase.root_requires_same_case` | `FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE` over `screenChoosesCaseFirst` (stricter: Core evaluates a command's condition when it lists the screen, before any case where the screen lists forms first) |
+| 11 | From CommCare 2.54 each `<menu>`'s instances are declared on that `<menu>`; below it they are folded into every entry of every menu of the id | `instances.py::InstancesHelper._add_menu_instances`, `_menu_xpaths_by_command`; `feature_support.py::supports_menu_instances` | declared on each `<menu>` from its own printed condition, as HQ does at Nova's floor of 2.57 |
+| 12 | A case list endpoint is built with no command for an above menu | `endpoints.py::_make_session_endpoint` | refused (`FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION`, arm `case-list-entry-point`) |
+| 13 | The editor withdraws registration from the case list on an above menu | `views/modules.py::_case_list_form_not_allowed_reasons` | `CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE` |
+| 14 | The form page offers `previous` in an above menu, and for a form listed on the first menu its frame is the root datums, the form's command and its own datums with the last popped: the form's command alone where the root datums are empty, the root datums and no command otherwise | `views/forms.py::get_form_view_context`; `workflow.py::EndOfFormNavigationWorkflow._get_static_stack_frame` | not offered there (`menu-forms-on-first-menu`) |
+
+**Which screen chooses a case first.** Core lists a screen by walking every `<menu>` in suite
+order (`MenuLoader.getMenuDisplayables`), so the forms of a menu that shows above appear in
+place, in module order. For the command a worker chose, Core asks what every entry behind it
+needs first (`CommCareSession.getNeededData`, `getDataNeededByAllEntries`): every entry of
+every menu with that id, a case list entry among them. The case list shows before any form
+only when each entry needs the same case choice first. So
+`menuScreens.ts::screenChoosesCaseFirst` answers for a screen and never for a module alone:
+the app's first menu lists forms first, since no command is chosen yet; a screen that is a
+bare case list opens on its list; a screen holding a form that opens without a case lists
+forms first; and so does a screen whose contributors choose different cases.
+`lib/commcare/__tests__/screenCaseFirstParity.test.ts` holds that answer to the first datum
+the wire gives every entry.
+
+**No chosen case ahead of a command.** Core keeps what a frame collected (`syncState`), and an
+entry's next question is its first datum whose id the session lacks (`getFirstMissingDatum`).
+A frame that held a chosen case and no command would leave that case on the first menu, where
+the next form that asks under the same datum id would take it without asking. Formplayer
+rebuilds its session from empty (`MenuSessionFactory.rebuildSessionFromFrame`), so Web Apps
+keeps nothing there. Nova writes no such frame: the previous screen is not offered to a form
+listed on the first menu, and a link, an entry point or a Register return that would open
+with the first menu's shared case is refused at its source.
 
 ### Multi-select case workflows
 

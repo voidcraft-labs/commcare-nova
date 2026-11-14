@@ -91,6 +91,8 @@ Details** at the bottom of its properties when you only want it off that
 screen. Hiding is reversible. An item hidden from Results stays part of the
 list, so the list's search still matches its value; a tile works a little
 differently (see [Lay results out as a tile](#lay-results-out-as-a-tile)).
+You can turn **List search matches this** off for a hidden field, and then
+only Details shows it and Default order can't sort by it.
 **Delete information** removes that display
 setup from both screens and Default order, if used, but never deletes the case
 property or saved case data. Results must keep at least one item so people can
@@ -320,6 +322,10 @@ the stored value, and the column that holds the label, exactly as a
 lookup-backed question does. Nova does not offer a typed-in list of choices on
 the Search screen, so a fixed yes/no choice is a two-row table you own. A
 multiple-choice field finds cases whose value is any of the chosen answers.
+
+A search field's rule can also compare a case value with a list of values. A
+case matches when its value is any one of them, and a value in the list can be
+one you type or a search field's answer.
 
 **Sort choices by** picks the column whose text orders the choices, and starts
 as the label column. The choices are listed in that column's order character
@@ -587,6 +593,19 @@ because the imported rule cannot be recovered from the builder afterward.
 This is a Results-availability setting, not a Search action: it applies whether
 people browse Results directly or arrive through Search, and it never adds a
 Search action by itself.
+
+### Register from the list
+
+A case list can offer a registration form at any time, so people look for a
+case before adding a new one. In Results, under **Register from this list**,
+choose a registration form from another menu. It stays on its own menu too. You
+can choose where people go after registering from the list: **Back to this
+list**, or **Continue with the new case**, which goes on to this menu's forms
+for it. Back to this list returns to the list, where the new case now shows, or
+to the menu's forms where people choose a form first there. A form that has its
+own After submit goes there instead. Nova offers this on a list whose menu's
+forms all open an existing case. In Nova's tools this is
+`register_from_case_list` on the menu.
 
 ### The case list in the menu
 

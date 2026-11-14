@@ -1,10 +1,32 @@
 "use client";
 
-import type { Expression, ExpressionOfKind } from "@/lib/domain/expression";
-import { numericConstraint } from "@/lib/domain/expression";
-import { appendKindSlot, type EditorPath } from "../../path";
+import { Icon } from "@iconify/react/offline";
+import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
+import tablerListSearch from "@iconify-icons/tabler/list-search";
+import tablerPlus from "@iconify-icons/tabler/plus";
+import { useId, useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	ANY_CONSTRAINT,
+	type Expression,
+	type ExpressionOfKind,
+	literal,
+	numericConstraint,
+	type SlotConstraint,
+	term,
+	valueList,
+} from "@/lib/domain/expression";
+import type { ExpressionEditContext } from "../../expressionEditorSchemas";
+import { appendKindSlot, appendSlotIndex, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
-import { expressionFocusTitle } from "../../RuleFocusContext";
+import {
+	ReorderableRow,
+	type ReorderKeyboardKey,
+	reorderByKeyboard,
+	useReorderableList,
+} from "../../useReorderableList";
+import { useStableListIdentity } from "../../useStableListIdentity";
+import { reseedValueForConstraint } from "../reseed";
 
 interface GeneralValueCardProps<
 	K extends "negate" | "here" | "case-list-search-text" | "value-list",
@@ -49,39 +71,213 @@ export function CaseListSearchTextCard(
 	);
 }
 
-/** A list a value is compared with, held for an imported search
- * (`unwrap-list`). No step authors one, so the card is display
- * only: it shows the items and re-emits the list unchanged. */
-export function ValueListCard({ value }: GeneralValueCardProps<"value-list">) {
+/** The registry's list of values: one empty text value, which the value
+ *  menu seeds for the slot the list stands in
+ *  (`ExpressionPicker.tsx::defaultExpressionForSlot`). */
+export function valueListDefault(
+	_ctx: ExpressionEditContext,
+): ExpressionOfKind<"value-list"> {
+	return valueList(term(literal("")));
+}
+
+interface ValueListCardProps extends GeneralValueCardProps<"value-list"> {
+	/** The slot the list stands in: every value is compared with the same
+	 *  case value, so each row takes this constraint. */
+	readonly constraint?: SlotConstraint;
+}
+
+/** Several values a case value is compared with by "is" or "isn't", any one
+ * of which matches: offered where only CommCare's server search reads the
+ * slot. Each value is edited in its own row, as `ConcatCard` edits its parts:
+ * reordered by drag or from the handle with the keyboard, removed by its own
+ * action except the last, and one appended by "Add a value". */
+export function ValueListCard({
+	value,
+	onChange,
+	path,
+	constraint = ANY_CONSTRAINT,
+}: ValueListCardProps) {
+	const containerKey = useId();
+	const [moveAnnouncement, setMoveAnnouncement] = useState("");
+	const rowIdentity = useStableListIdentity(value.items);
+
+	const apply = (
+		items: readonly Expression[],
+	): ExpressionOfKind<"value-list"> => {
+		const [first, ...rest] = items;
+		return valueList(first, ...rest);
+	};
+
+	const { pendingDrop } = useReorderableList({
+		containerKey,
+		containerKind: "value-list",
+		items: value.items,
+		itemKeys: rowIdentity.keys,
+		onReorder: (next, move) => {
+			rowIdentity.stage(next, {
+				kind: "move",
+				fromIndex: move.fromIndex,
+				toIndex: move.toIndex,
+			});
+			onChange(apply(next));
+		},
+	});
+
+	const updateItem = (index: number, next: Expression) => {
+		const updated = value.items.map((item, itemIndex) =>
+			itemIndex === index ? next : item,
+		);
+		rowIdentity.stage(updated, { kind: "replace" });
+		onChange(apply(updated));
+	};
+
+	const removeItem = (index: number) => {
+		// A list holds one value or more; the last row has no remove action.
+		if (value.items.length === 1) return;
+		const filtered = value.items.filter((_, i) => i !== index);
+		rowIdentity.stage(filtered, {
+			kind: "splice",
+			index,
+			deleteCount: 1,
+			insertCount: 0,
+		});
+		onChange(apply(filtered));
+	};
+
+	const append = () => {
+		const seed = term(literal(""));
+		const next = [
+			...value.items,
+			constraint.accepts === "any"
+				? seed
+				: reseedValueForConstraint(seed, constraint.accepts),
+		];
+		rowIdentity.stage(next, {
+			kind: "splice",
+			index: value.items.length,
+			deleteCount: 0,
+			insertCount: 1,
+		});
+		onChange(apply(next));
+	};
+
+	const moveItem = (index: number, key: ReorderKeyboardKey) => {
+		const result = reorderByKeyboard(value.items, index, key);
+		const towardStart = key === "ArrowUp" || key === "Home";
+		if (result === undefined) {
+			setMoveAnnouncement(
+				`Value ${index + 1} is already at the ${towardStart ? "beginning" : "end"}`,
+			);
+			return;
+		}
+		rowIdentity.stage(result.items, {
+			kind: "move",
+			fromIndex: result.move.fromIndex,
+			toIndex: result.move.toIndex,
+		});
+		onChange(apply(result.items));
+		setMoveAnnouncement(
+			`Value ${index + 1} moved ${towardStart ? "earlier" : "later"}`,
+		);
+	};
+
 	return (
-		<div className="space-y-1.5">
+		<div className="space-y-2" data-value-list>
+			<p
+				role="status"
+				aria-live="polite"
+				aria-atomic="true"
+				className="sr-only"
+			>
+				{moveAnnouncement}
+			</p>
 			<div className="text-[13px] font-medium text-nova-text-secondary">
 				Any of these values
 			</div>
-			<ul className="flex flex-wrap gap-1.5">
-				{value.items.map((item, index) => (
-					<li
-						// Display-only and never reordered: the position is the identity.
-						// biome-ignore lint/suspicious/noArrayIndexKey: a read-only list
-						key={index}
-						className="inline-flex min-h-8 items-center rounded-lg border border-white/[0.06] bg-nova-deep/40 px-2.5 text-sm text-nova-text"
-					>
-						{valueListItemLabel(item)}
-					</li>
-				))}
-			</ul>
-			<p className="text-[12px] leading-4 text-nova-text-muted">
-				This list came with the app and is kept as it is. To edit its values,
-				you can change the condition to “Is any of”.
-			</p>
+			{value.items.map((item, i) => (
+				<ReorderableRow
+					key={rowIdentity.keys[i]}
+					index={i}
+					itemKey={rowIdentity.keys[i]}
+					containerKey={containerKey}
+					containerKind="value-list"
+					pendingDrop={pendingDrop}
+					preview={<ValueListItemDragPreview index={i} />}
+				>
+					{({
+						wrapperRef,
+						setHandleEl,
+						closestEdge,
+						previewPortal,
+						beingMoved,
+					}) => (
+						<div
+							ref={wrapperRef}
+							data-removal-focus-row
+							data-value-list-item={i}
+							className={`relative ${beingMoved ? "opacity-50" : ""}`}
+						>
+							{closestEdge !== null && (
+								<div
+									aria-hidden="true"
+									className="absolute left-0 right-0 h-0.5 bg-nova-violet rounded-full"
+									style={{
+										top: closestEdge === "top" ? -3 : undefined,
+										bottom: closestEdge === "bottom" ? -3 : undefined,
+									}}
+								/>
+							)}
+							<ExpressionPicker
+								value={item}
+								onChange={(next) => updateItem(i, next)}
+								path={appendSlotIndex(path, "items", i)}
+								constraint={constraint}
+								variant="nested"
+								dragHandleRef={setHandleEl}
+								onMove={(key) => moveItem(i, key)}
+								reorderLabel={`Move value ${i + 1} of ${value.items.length}`}
+								onRemove={
+									value.items.length === 1 ? undefined : () => removeItem(i)
+								}
+								removeLabel={`Remove value ${i + 1}`}
+							/>
+							{previewPortal}
+						</div>
+					)}
+				</ReorderableRow>
+			))}
+			<Button
+				type="button"
+				variant="ghost"
+				onClick={append}
+				data-removal-focus-fallback
+				className="nova-add-slot w-full"
+			>
+				<Icon icon={tablerPlus} width="14" height="14" />
+				<span>Add a value</span>
+			</Button>
 		</div>
 	);
 }
 
-/** How a display-only list item reads: a fixed value as written, anything
- * else by what it is. */
-export function valueListItemLabel(item: Expression): string {
-	if (item.kind === "term" && item.term.kind === "literal")
-		return item.term.value === null ? "No value" : String(item.term.value);
-	return expressionFocusTitle(item);
+/** The drag preview of one value, in place of the browser's snapshot of the
+ *  grip icon. */
+function ValueListItemDragPreview({ index }: { readonly index: number }) {
+	return (
+		<div className="inline-flex items-center gap-1.5 rounded-lg border border-nova-violet/40 bg-nova-surface/95 px-3 py-1.5 text-sm text-nova-text shadow-lg backdrop-blur-sm">
+			<Icon
+				icon={tablerGripVertical}
+				width="14"
+				height="14"
+				className="text-nova-text-muted"
+			/>
+			<Icon
+				icon={tablerListSearch}
+				width="14"
+				height="14"
+				className="text-nova-violet-bright"
+			/>
+			<span className="max-w-[240px] truncate">Value {index + 1}</span>
+		</div>
+	);
 }

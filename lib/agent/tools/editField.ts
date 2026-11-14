@@ -224,12 +224,16 @@ function editPatchToFieldPatch(
 		// every `optionUuid` creation slot before collision/admission.
 		patch.optionsSource = preparedOptionsSource;
 	}
-	// The display flags: true sets the stored `fieldList` / `plainLabel`,
-	// false or null clears it (the domain stores only `true`).
+	// The display flags: true sets the stored `fieldList` / `plainLabel` /
+	// `plainHelp`, false or null clears it (the domain stores only `true`).
 	if (updates.field_list !== undefined)
 		patch.fieldList = updates.field_list === true ? true : null;
 	if (updates.plain_label !== undefined)
 		patch.plainLabel = updates.plain_label === true ? true : null;
+	if (updates.plain_help !== undefined)
+		patch.plainHelp = updates.plain_help === true ? true : null;
+	// The keypad is stored under its own name; null returns the full keyboard.
+	if (updates.keypad !== undefined) patch.keypad = updates.keypad;
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).

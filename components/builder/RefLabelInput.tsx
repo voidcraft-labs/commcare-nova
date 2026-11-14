@@ -37,9 +37,11 @@ import {
 	type ProseTemplate,
 	proseTemplateIsEmpty,
 } from "@/lib/domain";
+import type { ProseSlotRef } from "@/lib/domain/expression/types";
 import { displayId } from "@/lib/references/config";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import {
+	ProseSlotScope,
 	useCurrentFormUuid,
 	useLiveFormUuidGetter,
 	useReferenceProvider,
@@ -70,6 +72,9 @@ interface RefLabelInputProps {
 	selectAll?: boolean;
 	/** Content rendered right-aligned in the label row (e.g. a toggle). */
 	labelRight?: React.ReactNode;
+	/** The text's prose slot, where a calculated value is parsed, checked and
+	 *  printed. A text with no slot (a case property's label) holds none. */
+	proseSlot?: ProseSlotRef;
 }
 
 // ── Serialization ───────────────────────────────────────────────────────
@@ -84,6 +89,8 @@ function parseValueToContent(
 	formUuid: string | undefined,
 ): JSONContent {
 	return proseTemplateToTiptapContent(value, (part) => {
+		// A calculated value's chip prints its formula in the node view.
+		if (part.kind === "value") return "";
 		const resolved = provider?.resolvePart(part, formUuid);
 		// Display labels are projections only; the part carries identity.
 		return resolved == null ? "" : displayId(resolved);
@@ -114,6 +121,7 @@ export function RefLabelInput({
 	autoFocus,
 	selectAll,
 	labelRight,
+	proseSlot,
 }: RefLabelInputProps) {
 	const labelId = useId();
 	const [focused, setFocused] = useState(false);
@@ -416,24 +424,34 @@ export function RefLabelInput({
 					commitRef.current();
 			}}
 		>
-			<span
-				id={labelId}
-				className="text-xs text-nova-text-muted mb-1 flex items-center gap-1.5"
-			>
-				{fieldLabel}
-				<SavedCheck
-					visible={saved && !focused}
-					size={12}
-					className="shrink-0"
-				/>
-				{focused && multiline && <SaveShortcutHint />}
+			{/* The label row: the label names the editor, and `labelRight` (a
+			    control of its own) sits beside it outside that name. */}
+			<div className="mb-1 flex items-center gap-1.5">
+				<span
+					id={labelId}
+					className="text-xs text-nova-text-muted flex min-w-0 flex-1 items-center gap-1.5"
+				>
+					{fieldLabel}
+					<SavedCheck
+						visible={saved && !focused}
+						size={12}
+						className="shrink-0"
+					/>
+					{focused && multiline && <SaveShortcutHint />}
+				</span>
 				{labelRight}
-			</span>
-			<div className={wrapperCls} data-field-id={dataFieldId}>
-				<EditorContent editor={editor} />
 			</div>
+			<ProseSlotScope slot={proseSlot}>
+				<div className={wrapperCls} data-field-id={dataFieldId}>
+					<EditorContent editor={editor} />
+				</div>
+			</ProseSlotScope>
 			{editor && (
-				<ProseReferencePicker editor={editor} onLeaveEditor={commit} />
+				<ProseReferencePicker
+					editor={editor}
+					onLeaveEditor={commit}
+					proseSlot={proseSlot}
+				/>
 			)}
 		</div>
 	);

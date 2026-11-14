@@ -138,10 +138,12 @@ export function proseReadSlotRef(
 }
 
 /** The value a prose reference part reads, as the term the checker types.
- *  Literal text reads nothing. */
+ *  Literal text reads nothing, and a calculated value is no one term: the
+ *  expression enumeration checks it in its prose slot. */
 export function prosePartTerm(part: ProsePart): Term | undefined {
 	switch (part.kind) {
 		case "text":
+		case "value":
 			return undefined;
 		case "field-ref":
 			return { kind: "field", uuid: part.uuid };

@@ -115,7 +115,7 @@ export function completeAfterSubmit<Route>(
 }
 
 /** One completion whose frame its caller routes itself (the return frame of
- *  a case list registration form, `caseListFormReturnFrame`): the frame is
+ *  a case list registration form, `caseListFormReturnFrames`): the frame is
  *  pushed and pops like any other, so it is the snapshot over what stays
  *  pending, and the state left is returned. */
 export function completeAfterSubmitWithOwnFrame<Route>(

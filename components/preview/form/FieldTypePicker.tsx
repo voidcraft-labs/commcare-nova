@@ -6,6 +6,7 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import tablerFolder from "@iconify-icons/tabler/folder";
 import tablerForms from "@iconify-icons/tabler/forms";
+import tablerPhone from "@iconify-icons/tabler/phone";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { Fragment, useCallback, useContext, useEffect } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
@@ -34,7 +35,11 @@ import {
 	MENU_POSITIONER_CLS,
 	MENU_SUBMENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { NEW_FIELD_BUILDERS, newPageRepeat } from "./newFieldDefaults";
+import {
+	NEW_FIELD_BUILDERS,
+	newPageRepeat,
+	newPhoneNumber,
+} from "./newFieldDefaults";
 import {
 	type SectionGestureItem,
 	sectionGestureItems,
@@ -56,13 +61,42 @@ import {
  * `sectionGestureItems` computes for the gap instead, and the gap at the
  * root of a sectioned form offers nothing but a new page. */
 
+/** One row of the picker: a kind, or a kind born with a preset of its own
+ *  settings. A preset is one stored thing: the Phone number row inserts a
+ *  Text question holding `keypad: "numbers"`. */
+type FieldPickerItem = {
+	readonly kind: FieldKind;
+	readonly preset?: "phone-number";
+};
+
+/** Each preset's row: its name, icon and the base of its new question's id. */
+const PRESET_ROWS = {
+	"phone-number": {
+		label: "Phone number",
+		icon: tablerPhone,
+		idBase: "phone_number",
+	},
+} as const satisfies Record<
+	NonNullable<FieldPickerItem["preset"]>,
+	{ label: string; icon: IconifyIcon; idBase: string }
+>;
+
+/** A row's React key. */
+function itemKey(item: FieldPickerItem): string {
+	return item.preset ?? item.kind;
+}
+
+function kindItems(kinds: readonly FieldKind[]): readonly FieldPickerItem[] {
+	return kinds.map((kind) => ({ kind }));
+}
+
 interface InsertionCategory {
 	/** Human label shown on the submenu trigger. */
 	label: string;
 	/** Representative icon for the category trigger row. */
 	icon: IconifyIcon;
-	/** Field kinds surfaced inside the submenu. */
-	types: readonly FieldKind[];
+	/** The rows surfaced inside the submenu. */
+	types: readonly FieldPickerItem[];
 }
 
 /** The container kinds offered as plain kinds: the boxed ones. A page is
@@ -77,17 +111,23 @@ const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
 	{
 		label: "Input",
 		icon: tablerForms,
-		types: ["text", "int", "decimal", "secret"],
+		types: [
+			{ kind: "text" },
+			{ kind: "text", preset: "phone-number" },
+			{ kind: "int" },
+			{ kind: "decimal" },
+			{ kind: "secret" },
+		],
 	},
 	{
 		label: "Date & Time",
 		icon: tablerCalendar,
-		types: ["date", "time", "datetime"],
+		types: kindItems(["date", "time", "datetime"]),
 	},
 	{
 		label: "Choice",
 		icon: tablerCircleDot,
-		types: ["single_select", "multi_select"],
+		types: kindItems(["single_select", "multi_select"]),
 	},
 	{
 		// Barcode rides here rather than under Input: it is a scan, not
@@ -95,39 +135,50 @@ const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
 		// is the scanned text, not an attachment.
 		label: "Attachments and scanning",
 		icon: tablerPhoto,
-		types: ["image", "audio", "video", "file", "signature", "barcode"],
+		types: kindItems([
+			"image",
+			"audio",
+			"video",
+			"file",
+			"signature",
+			"barcode",
+		]),
 	},
-	{ label: "Structure", icon: tablerFolder, types: BOXED_CONTAINER_KINDS },
+	{
+		label: "Structure",
+		icon: tablerFolder,
+		types: kindItems(BOXED_CONTAINER_KINDS),
+	},
 ];
 
 /** The Structure submenu's label: the page gestures ride in it. */
 const STRUCTURE_LABEL = "Structure";
 
 /** Standalone kinds rendered as level-1 items (no submenu needed). */
-const INSERTION_TOP_LEVEL: readonly FieldKind[] = [
+const INSERTION_TOP_LEVEL: readonly FieldPickerItem[] = kindItems([
 	"geopoint",
 	"label",
 	"hidden",
-];
+]);
 
-/** A fresh `new_<kind>` id no field of the app holds yet. CommCare requires
- *  unique ids across the entire form, not just siblings, so it scans the
- *  full field entity map. */
+/** A fresh `new_<base>` id no field of the app holds yet, the base a kind
+ *  or a preset's id base. CommCare requires unique ids across the entire
+ *  form, not just siblings, so it scans the full field entity map. */
 function uniqueFieldId(
 	doc: {
 		readonly fields: Readonly<Record<string, { id: string } | undefined>>;
 	},
-	kind: FieldKind,
+	base: string,
 ): string {
 	const existingIds = new Set<string>();
 	for (const f of Object.values(doc.fields)) {
 		if (f) existingIds.add(f.id);
 	}
-	let newId = `new_${kind}`;
+	let newId = `new_${base}`;
 	if (existingIds.has(newId)) {
 		let counter = 2;
-		while (existingIds.has(`new_${kind}_${counter}`)) counter++;
-		newId = `new_${kind}_${counter}`;
+		while (existingIds.has(`new_${base}_${counter}`)) counter++;
+		newId = `new_${base}_${counter}`;
 	}
 	return newId;
 }
@@ -230,13 +281,17 @@ export function FieldTypePickerPopup({
 	 *  reactive subscriptions to entity maps that would fire on every
 	 *  unrelated field edit. */
 	const handleSelect = useCallback(
-		(kind: FieldKind) => {
+		(item: FieldPickerItem) => {
 			if (!docStore) return;
+			const { kind, preset } = item;
 
 			/* Collect all existing field IDs to generate a unique name.
 			 * CommCare requires unique IDs across the entire form, not just
 			 * siblings, so we scan the full field entity map. */
-			const newId = uniqueFieldId(docStore.getState(), kind);
+			const newId = uniqueFieldId(
+				docStore.getState(),
+				preset === undefined ? kind : PRESET_ROWS[preset].idBase,
+			);
 
 			// Build the kind's starter field through the typed per-kind builder
 			// map: each kind's shape is checked against its own schema, so an
@@ -252,9 +307,14 @@ export function FieldTypePickerPopup({
 				docStore !== null &&
 				landingFieldListOf(docStore.getState(), parentUuid) !== undefined;
 			const newField =
-				kind === "repeat" && onOneScreen
-					? newPageRepeat(newId, `New ${fieldRegistry.repeat.label}`)
-					: NEW_FIELD_BUILDERS[kind](newId, `New ${fieldRegistry[kind].label}`);
+				preset === "phone-number"
+					? newPhoneNumber(newId, "New Phone Number")
+					: kind === "repeat" && onOneScreen
+						? newPageRepeat(newId, `New ${fieldRegistry.repeat.label}`)
+						: NEW_FIELD_BUILDERS[kind](
+								newId,
+								`New ${fieldRegistry[kind].label}`,
+							);
 
 			const outcome = addField(parentUuid, newField, { atIndex });
 			/* A rejected insert (the commit gate refused the batch: the
@@ -346,17 +406,17 @@ export function FieldTypePickerPopup({
 											sideOffset={4}
 										>
 											<Menu.Popup className={MENU_POPUP_CLS}>
-												{cat.types.map((type) => (
-													<Fragment key={type}>
+												{cat.types.map((item) => (
+													<Fragment key={itemKey(item)}>
 														<TypeMenuItem
-															type={type}
+															item={item}
 															onSelect={handleSelect}
-															disabledReason={kindRefusal(type)}
+															disabledReason={kindRefusal(item.kind)}
 														/>
 														{/* Where a declared platform can't ask a date and
 														 *  time as one question, it is offered as two. */}
-														{type === "datetime" &&
-															kindRefusal(type) !== undefined && (
+														{item.kind === "datetime" &&
+															kindRefusal(item.kind) !== undefined && (
 																<TwoQuestionsMenuItem
 																	onSelect={handleTwoQuestions}
 																/>
@@ -388,12 +448,12 @@ export function FieldTypePickerPopup({
 							<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
 
 							{/* ── Top-level items (no submenu) ── */}
-							{INSERTION_TOP_LEVEL.map((type) => (
+							{INSERTION_TOP_LEVEL.map((item) => (
 								<TypeMenuItem
-									key={type}
-									type={type}
+									key={itemKey(item)}
+									item={item}
 									onSelect={handleSelect}
-									disabledReason={kindRefusal(type)}
+									disabledReason={kindRefusal(item.kind)}
 								/>
 							))}
 						</>
@@ -458,25 +518,28 @@ function GestureMenuItem({
 	);
 }
 
-/* ── Reusable menu item for a single field kind ─────────────────────── */
+/* ── Reusable menu item for a single picker row ─────────────────────── */
 
 function TypeMenuItem({
-	type,
+	item,
 	onSelect,
 	disabledReason,
 }: {
-	type: FieldKind;
-	onSelect: (type: FieldKind) => void;
+	item: FieldPickerItem;
+	onSelect: (item: FieldPickerItem) => void;
 	/** Why the kind is withheld, shown on a second line, as a page gesture's. */
 	disabledReason?: string;
 }) {
-	const { icon, label } = fieldRegistry[type];
+	const { icon, label } =
+		item.preset === undefined
+			? fieldRegistry[item.kind]
+			: PRESET_ROWS[item.preset];
 	const disabled = disabledReason !== undefined;
 	return (
 		<Menu.Item
 			disabled={disabled}
 			className={disabled ? MENU_ITEM_DISABLED_CLS : MENU_ITEM_CLS}
-			onClick={disabled ? undefined : () => onSelect(type)}
+			onClick={disabled ? undefined : () => onSelect(item)}
 		>
 			<Icon
 				icon={icon}
