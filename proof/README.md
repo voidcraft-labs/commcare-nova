@@ -1270,7 +1270,15 @@ reads it. Per document, under its id:
   the retained HQ reads copy (`proof/hq-reads/<document>/ownership.json`) and
   no observation reads. A control retained before the shell create holds
   the legacy layout: no `layout` key, one full `create` that is state A's whole
-  app, and `assumedSourceProfile` in place of `assumedSource`.
+  app, and `assumedSourceProfile` in place of `assumedSource`. The control
+  `targeted-hq-side-state` names that profile with an empty
+  `custom_properties` under `maximum` (its B and its B-edit): a person's
+  save of the app settings page there (`views/settings.py::edit_commcare_settings`)
+  runs `edit_commcare_profile`, which sets the key to `{}` under
+  `CUSTOM_PROPERTIES`, and the publish the control keeps read the profile
+  only for the custom properties Nova owns (`custom_properties ?? {}`,
+  `lib/commcare/targetProfile.ts::projectUpdatedAppProfileForTarget` as it
+  was captured), so it sent the same bytes over either profile.
   `proof/checks/corpus.py::Export.content` reads state A's app, workbook and
   media from either, so no reader of them asks which layout a directory holds;
   the few that must know ask the marker (`Export.two_imports`), and any other

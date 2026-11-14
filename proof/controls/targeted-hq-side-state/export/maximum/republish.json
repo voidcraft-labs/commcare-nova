@@ -15,5 +15,7 @@
 	},
 	"lookups": "lookups.body",
 	"placeholderAppId": "nova-proof-placeholder-app",
-	"assumedSourceProfile": {}
+	"assumedSourceProfile": {
+		"custom_properties": {}
+	}
 }

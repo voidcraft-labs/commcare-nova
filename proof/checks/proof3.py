@@ -236,7 +236,8 @@ CASE_ACTIONS = ("create", "update", "index", "close", "attachment", "commtrack",
 
 @dataclass(frozen=True)
 class PropertyReaders:
-    """Where the manifest holds one profile property as app content, and the runtime code that reads it."""
+    """Where the manifest holds one runtime-read profile property, as app content or as a setting the project
+    space keeps, and the runtime code that reads it."""
 
     setting: str
     android: str | None = None
@@ -253,8 +254,12 @@ _MAIN = "commcare-android app/src/org/commcare/preferences/MainConfigurablePrefe
 _FORMPLAYER = "formplayer org/commcare/formplayer/util/FormplayerPropertyManager.java"
 _BANNER = "commcare-android app/src/org/commcare/views/CustomBanner.java::getBannerURI"
 
-# The profile properties the manifest holds as app content (HELD or HELD-NEW)
-# that a runtime reads, by the key HQ's profile writes them under, each with
+# The profile properties a runtime reads that the manifest holds as app
+# content (HELD or HELD-NEW) or as a setting the project space keeps
+# (TARGET-OWNED: a publish never changes it, and the local archive made for
+# the project space writes it as HQ's build there does,
+# lib/commcare/keptProfile.ts, or its download says it cannot, as for an
+# Android logo), by the key HQ's profile writes them under, each with
 # its setting (a surface key, or the entry naming it) and its readers. Logos
 # are written under ANDROID_LOGO_PROPERTY_MAPPING's keys
 # (app_manager/models/applications.py::Application.create_profile), and the two
@@ -1231,7 +1236,10 @@ def stated_values(hq_side) -> list:
     keeps as HQ's build there does (``lib/commcare/compiler.ts::compileCcz`` over the deployment's ``TargetFacts``):
     Auto Capture Location, a UI translation and each kept profile setting (``intent.NOVA_PROFILE_CONSTANTS`` and
     ``intent.LOCAL_KEPT_UNSTATED``) are no difference. A profile setting outside them is HQ's build's alone: the
-    local archive's profile lacks it."""
+    local archive's profile lacks it. An Android logo is kept too, but the local archive cannot write one
+    (``lib/commcare/surface/keptAtHq.ts``, ``kept_android_logos_absent``); HQ's side holds one only through a logo
+    upload, which no ``proof/observe/hqside.py::SAVES`` kind makes, so a kind that makes one is stated here as the
+    ``brand-banner-*`` property it gives HQ's profile."""
     from proof.checks.intent import LOCAL_KEPT_UNSTATED, NOVA_PROFILE_CONSTANTS, hq_profile_text
 
     kept = {*NOVA_PROFILE_CONSTANTS, *LOCAL_KEPT_UNSTATED}
