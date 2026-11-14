@@ -2737,10 +2737,14 @@ export class EngineController {
 		 * different instance. FormScreen also makes controls inert for this
 		 * window; this imperative guard closes the event/render race. */
 		if (this.atomicRevisionsPending > 0) return undefined;
-		engine.setValue(path, value);
-		this.pendingValuePaths.add(path);
+		const stored = engine.setValue(path, value);
+		/* An answer the platform's number keypad refused is shown with its
+		 * message and changes nothing the form reads, so it stages nothing and
+		 * opens no request (Web Apps' `PhoneEntry` sends Formplayer nothing). */
+		if (stored) this.pendingValuePaths.add(path);
 		this.syncPathsToStore([path]);
-		if (this.xpathRuntime === undefined) return Promise.resolve(true);
+		if (!stored || this.xpathRuntime === undefined)
+			return Promise.resolve(true);
 		return this.runAsyncRevision(
 			"value-change",
 			formUuid,

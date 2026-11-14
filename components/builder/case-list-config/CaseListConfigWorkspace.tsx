@@ -1940,6 +1940,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				openSearchCondition({ kind: "input", uuid, slot }),
 			onEditSearchButtonCondition: editSearchButtonCondition,
 			searchSettingsHasError: searchButtonConditionBroken,
+			searchUnavailableReason,
 			onHideColumn: hideColumnFromSurface,
 			onDeleteColumn: deleteColumn,
 			onRemoveInput: removeInput,
@@ -2571,6 +2572,8 @@ interface ResolveInspectorArgs {
 	) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
+	/** Why this menu takes no Search (it shows its forms in the menu above). */
+	readonly searchUnavailableReason: string | undefined;
 	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
 	readonly onDeleteColumn: (
 		surface: CaseDisplaySurface,
@@ -2760,6 +2763,9 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						hasSearchAction={effectiveSearch !== undefined}
 						onEditDisplayCondition={args.onEditSearchButtonCondition}
 						searchSettingsHasError={args.searchSettingsHasError}
+						{...(args.searchUnavailableReason !== undefined && {
+							searchUnavailableReason: args.searchUnavailableReason,
+						})}
 					/>
 				),
 			};

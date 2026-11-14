@@ -2757,8 +2757,10 @@ summary (`xform.py::VELLUM_TYPES`). The answer is text on every reader, so a lea
 plus sign are kept. Core keeps the appearance and reads nothing from it. Web Apps draws its phone
 entry where `numeric` is one of the appearance's tokens and stores an answer only where it matches
 `^[+-]?\d*(\.\d+)?$` (`form_ui.js::getMatchingStyles`, `entries.js::getEntry`). Android builds its
-string-number widget where the whole appearance equals `numeric` or `numbers`, with a keypad of
-the digits, a period, a dash, a plus and a space (`WidgetFactory.java::buildBasicWidget`). The
+string-number widget where the whole appearance equals `numeric` or `numbers`
+(`WidgetFactory.java::buildBasicWidget`): the keypad offers digits, a period, a dash, a plus and a
+space; a + or - only starts the answer, and it takes one period, as the lane's Android reader
+shows (`proof/android/test_form_reads.py`). The
 platform row `number-keypad` states the difference, and `lib/commcare/xform/appearance.ts` is the
 one writer of a control's appearance.
 
@@ -2892,8 +2894,9 @@ A frame that held a chosen case and no command would leave that case on the firs
 the next form that asks under the same datum id would take it without asking. Formplayer
 rebuilds its session from empty (`MenuSessionFactory.rebuildSessionFromFrame`), so Web Apps
 keeps nothing there. Nova writes no such frame: the previous screen is not offered to a form
-listed on the first menu, and a link, an entry point or a Register return that would open
-with the first menu's shared case is refused at its source.
+listed on the first menu, a submenu whose screen would open with the first menu's shared case
+is not offered as its forms' own module after submit, and a link, an entry point or a Register
+return that would open with that case is refused at its source.
 
 ### Multi-select case workflows
 

@@ -359,6 +359,58 @@ describe("a submenu that shows its forms in a parent that keeps its screen", () 
 		});
 	});
 
+	it("asks for the case first on a screen of case lists alone, and not on one of menus alone", () => {
+		// Core asks for a case first wherever every entry the screen lists needs
+		// the same case, case lists included; a screen that lists no entry asks
+		// for a command.
+		const doc = buildDoc(
+			{
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: proseText("Name") }],
+					},
+				],
+				modules: [
+					{
+						uuid: "lists",
+						name: "Lists",
+						caseType: "patient",
+						caseListMenuItem: {},
+						forms: [],
+					},
+					{
+						uuid: "more",
+						name: "More",
+						caseType: "patient",
+						caseListMenuItem: {},
+						forms: [],
+					},
+					{ uuid: "hub", name: "Hub", forms: [] },
+					{
+						uuid: "visits",
+						name: "Visits",
+						caseType: "patient",
+						forms: [followup("v-visit")],
+					},
+				],
+			},
+			(draft) => arranged(draft, { more: "lists", visits: "hub" }, ["more"]),
+		);
+		const lists = screenOf(testUuid("lists"));
+		expect(menuScreenEntries(doc, lists)).toEqual([
+			caseList("lists"),
+			caseList("more"),
+		]);
+		expect(screenCaseFirstBlocker(doc, lists)).toBeUndefined();
+		expect(screenChoosesCaseFirst(doc, lists)).toBe(true);
+
+		const hub = screenOf(testUuid("hub"));
+		expect(menuScreenEntries(doc, hub)).toEqual([tile("visits")]);
+		expect(screenCaseFirstBlocker(doc, hub)).toBeUndefined();
+		expect(screenChoosesCaseFirst(doc, hub)).toBe(false);
+	});
+
 	it("reads a prepared form's type in place of the stored one", () => {
 		const doc = build({ forms: [followup("e-visit")] });
 		expect(

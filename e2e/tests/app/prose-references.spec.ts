@@ -451,3 +451,112 @@ test("inserts, edits and removes calculated values in a hint and shows their res
 		)
 		.toEqual(["text", "field-ref"]);
 });
+
+test("inserts, edits and removes calculated values in a label on the canvas", {
+	tag: "@seed:sections",
+}, async ({ page, scenario, request }) => {
+	const { formSections } = seedFor(scenario, "sections");
+	await openBuilder(page, formSections.route);
+	const main = page.getByRole("main");
+	await main.getByRole("button", { name: "Your name", exact: true }).click();
+	const label = main.getByRole("textbox", { name: "Label", exact: true });
+	await replaceRichText(label, "Hello ");
+	const popover = page.getByRole("dialog", {
+		name: "Calculated value",
+		exact: true,
+	});
+	const formula = popover.locator(".cm-content");
+	const values = label.locator("[data-prose-value]");
+	/** Opens the value popover from the canvas toolbar's picker and inserts `text`. */
+	const insertValue = async (text: string) => {
+		await page
+			.getByRole("button", { name: "Insert reference", exact: true })
+			.click();
+		await page.getByRole("button", { name: /^Calculated value/ }).click();
+		await expect(popover).toBeVisible();
+		await expect(formula).toBeFocused();
+		await page.keyboard.type(text);
+		await popover.getByRole("button", { name: "Insert", exact: true }).click();
+		await expect(popover).toHaveCount(0);
+		// Focus moving into the popover and back does not end the label's edit.
+		await expect(label).toBeFocused();
+	};
+	/** Selects the `index`th value chip of the label and opens it for editing. */
+	const openValue = async (index: number) => {
+		await values.nth(index).click();
+		await page
+			.getByRole("button", { name: "Edit calculated value", exact: true })
+			.click();
+		await expect(popover).toBeVisible();
+	};
+
+	await insertValue("string-length(#form/about_you/your_name)");
+	await label.press("End");
+	await label.pressSequentially(" letters, ");
+	await insertValue("concat(#form/about_you/your_name, '!')");
+	await expect(values).toHaveCount(2);
+
+	// Two values in one label each open on their own formula.
+	await openValue(0);
+	await expect(formula).toHaveText("string-length(#form/about_you/your_name)");
+	await page.keyboard.press("Escape");
+	await expect(popover).toHaveCount(0);
+	await openValue(1);
+	await expect(formula).toHaveText("concat(#form/about_you/your_name, '!')");
+	await page.keyboard.press("ControlOrMeta+a");
+	await page.keyboard.press("Backspace");
+	await expect(formula).toHaveText("");
+	await page.keyboard.type("concat(#form/about_you/your_name, '?')");
+	await popover.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(popover).toHaveCount(0);
+	await expect(values.nth(1)).toHaveAttribute(
+		"title",
+		"concat(#form/about_you/your_name, '?')",
+	);
+	await expect(values.nth(0)).toHaveAttribute(
+		"title",
+		"string-length(#form/about_you/your_name)",
+	);
+
+	await label.press("ControlOrMeta+Enter");
+	await expect(label).toHaveCount(0);
+	await expect
+		.poll(async () =>
+			(
+				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
+					.blueprint.fields[source].label as { parts: { kind: string }[] }
+			).parts.map((part) => part.kind),
+		)
+		.toEqual(["text", "value", "text", "value"]);
+	// The closed label draws each value as its chip.
+	await expect(main.locator("[data-prose-value]")).toHaveCount(2);
+
+	// The running form shows each value's result in the label.
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	await main.getByRole("textbox", { name: /^Hello / }).fill("Asha");
+	await expect(
+		main.getByText("Hello 4 letters, Asha?", { exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Back to edit", exact: true }).click();
+
+	// Remove takes one value out of the label and keeps the other.
+	await main
+		.locator("button[data-text-editable]")
+		.filter({ has: page.locator("[data-prose-value]") })
+		.click();
+	await expect(label).toBeFocused();
+	await openValue(0);
+	await popover.getByRole("button", { name: "Remove", exact: true }).click();
+	await expect(popover).toHaveCount(0);
+	await expect(values).toHaveCount(1);
+	await label.press("ControlOrMeta+Enter");
+	await expect(label).toHaveCount(0);
+	await expect
+		.poll(async () =>
+			(
+				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
+					.blueprint.fields[source].label as { parts: { kind: string }[] }
+			).parts.map((part) => part.kind),
+		)
+		.toEqual(["text", "value"]);
+});

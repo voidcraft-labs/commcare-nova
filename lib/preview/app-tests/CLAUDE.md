@@ -158,7 +158,15 @@ menu's entry opened, or a bare case list's landing) routes a chosen case by
 Android its Details answer `continue` with Done, which returns to the list; the
 menu observation lists the entry after the forms (`caseListEntry`), and the
 `records` action chooses it, which in a case-first menu with its case chosen is
-the selection itself. A next-task failure preserves an
+the selection itself. A home or menu screen also lists, in place, the forms and
+case list entries of each menu that shows its forms there
+(`navigation.ts::appTestScreenForms`, `appTestScreenCaseLists`, over
+`menuProjection.ts::previewScreenEntries`): its observation carries them as `forms` and
+`caseLists`, each naming the menu it belongs to (`menuUuid`), the menu's own
+entry staying `caseListEntry`. The `form` action opens a listed form from its
+own menu, and the `records` action takes an optional `moduleUuid` naming the
+menu whose case list to open, needed where the screen lists several and
+omitted on a menu for its own. A next-task failure preserves an
 already successful test submission.
 An action rejected before submission leaves no partial effects.
 

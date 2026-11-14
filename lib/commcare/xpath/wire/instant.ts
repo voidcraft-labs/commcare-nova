@@ -435,15 +435,22 @@ function literalStoredText(
 /** CommCare HQ's spelling of a UTC midnight. */
 const STORED_MIDNIGHT = "T00:00:00.000000Z";
 
+/** Date text's UTC midnight as CommCare HQ stores it, blank when it is. */
+function dayTextMidnight(value: WireExpr): WireExpr {
+	return blankGuard(value, w.call("concat", [value, w.str(STORED_MIDNIGHT)]));
+}
+
 /**
  * A date and time as the text a case holds, CommCare HQ's spelling of its
  * moment (`storedInstantOfText`), distributed over `if`, `coalesce` and
  * `switch` as `datetimeCoerceValue` is, each leaf by what a device holds: a
  * typed moment, a value of unknown type holding a date and a `casedb` system
- * date through `storedInstantValue`; stored text, a value of unknown type
- * holding text and a blank as itself, since stored text is already a stored
- * moment and Core parses nothing; a literal folded to its stored text; a
- * coerced date or day number as its UTC midnight. `clock` reads a typed leaf
+ * date (a `Date` at the device's midnight) through `storedInstantValue`;
+ * stored text, a value of unknown type holding text and a blank as itself,
+ * since stored text is already a stored moment and Core parses nothing; a
+ * literal folded to its stored text; a coerced date or day number, and a
+ * search result's `date_opened` (text holding the UTC day), as its UTC
+ * midnight. `clock` reads a typed leaf
  * whose tree holds `now()` from the node that holds it (`if(N = '', '',
  * storedInstantOfText(N))`), because each print of a value evaluates it
  * again and `now()` reads the clock each time. A clock-lost value is
@@ -496,8 +503,11 @@ export function storedDatetimeValue(
 		case "literal-instant":
 			return w.str(literalStoredText(operand));
 		case "typed":
-		case "day-only":
 			return typed(operand.value);
+		case "day-only":
+			return operand.held === "date"
+				? typed(operand.value)
+				: dayTextMidnight(emit.value(operand.value));
 		case "unknown":
 			return operand.held === "date"
 				? typed(operand.value)
@@ -509,13 +519,8 @@ export function storedDatetimeValue(
 			const value = emit.value(operand.value);
 			return blankGuard(value, typedDateMidnight(value, STORED_MIDNIGHT));
 		}
-		case "coerced-date-text": {
-			const value = emit.value(operand.value);
-			return blankGuard(
-				value,
-				w.call("concat", [value, w.str(STORED_MIDNIGHT)]),
-			);
-		}
+		case "coerced-date-text":
+			return dayTextMidnight(emit.value(operand.value));
 		case "coerced-text":
 			return coercedTextInstant(emit.value(operand.value), STORED_MIDNIGHT);
 		case "epoch-days": {

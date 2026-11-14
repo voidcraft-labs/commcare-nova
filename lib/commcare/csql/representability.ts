@@ -79,7 +79,10 @@ export interface CsqlRepresentabilityIssue {
 	readonly message: string;
 	/**
 	 * For `system-datetime-value`: the system date read (`property`) and
-	 * what was asked of it (`shape`, `is-blank` or `null-value`).
+	 * what was asked of it (`shape`, `is-blank` or `null-value`). For
+	 * `value-list-placement`: why the list can't stand there (`placement`,
+	 * `moment` or `anchor`, `pushValueListPlacement`) and the property the
+	 * list is compared with (`property`), where there is one.
 	 */
 	readonly details?: Readonly<Record<string, string>>;
 }
@@ -412,9 +415,15 @@ function checkComparison(
 	if (kind !== "eq" && kind !== "neq" && containsValueList(other))
 		pushValueListPlacement(valuePath, issues);
 	else if (containsValueList(other) && readsMoment(anchor, walk.context))
-		pushValueListPlacement(valuePath, issues, MOMENT_LIST_MESSAGE);
+		pushValueListPlacement(valuePath, issues, MOMENT_LIST_MESSAGE, {
+			placement: "moment",
+			...anchorProperty(anchor),
+		});
 	else if (containsValueList(other) && !admitsValueList(anchor))
-		pushValueListPlacement(valuePath, issues);
+		pushValueListPlacement(valuePath, issues, ANCHOR_LIST_MESSAGE, {
+			placement: "anchor",
+			...anchorProperty(anchor),
+		});
 	return true;
 }
 
@@ -553,13 +562,19 @@ function checkValue(node: Expression, path: Path, walk: Walk): void {
 		case "value-list":
 			// A fixed item is JSON inside one CSQL literal, its quotes escaped
 			// (`print.ts`), so any text is representable; an item the device
-			// works out is held to the `list-item` obligation.
-			for (const child of expressionChildren(node, path))
-				if (
-					child.kind === "expression" &&
-					positionOf(walk, child.path) === "runtime"
-				)
+			// works out is held to the `list-item` obligation. A case read
+			// keeps the value position, and HQ's list holds no case read.
+			for (const child of expressionChildren(node, path)) {
+				if (child.kind !== "expression") continue;
+				if (positionOf(walk, child.path) === "runtime")
 					check(child.value, child.path, walk);
+				else if (
+					child.value.kind === "term" &&
+					(child.value.term.kind === "prop" ||
+						child.value.term.kind === "case-row-type")
+				)
+					pushPropertyOnValueSide(child.path, issues);
+			}
 			return;
 		default:
 			children(node, path, walk);
@@ -757,16 +772,40 @@ function readsMoment(anchor: Expression, context: ExpressionContext): boolean {
 const MOMENT_LIST_MESSAGE =
 	"A list of values can't be compared with a date and time. CommCare's search matches each listed value by its exact text, not by the moment it names, so compare the property with each value in its own condition instead.";
 
+/** The property a comparison's anchor reads, for a finding's details. */
+function anchorProperty(anchor: Expression): Readonly<Record<string, string>> {
+	return anchor.kind === "term" && anchor.term.kind === "prop"
+		? { property: anchor.term.property }
+		: {};
+}
+
 function containsValueList(node: Expression): boolean {
 	return node.kind === "value-list";
 }
 
+const ANCHOR_LIST_MESSAGE =
+	"A list of values can be compared only with a case property the app holds or with the case type, not with the case's status, a system date or a count. You can compare the value with each listed value in its own condition instead.";
+
+/**
+ * A list somewhere CommCare's search can't compare one. `placement` says
+ * why, for the builder's line: `moment` opposite a date and time, `anchor`
+ * opposite a value that is no property of the app's own or the case type
+ * (the case's status, a system date, a count), with the `property` read where
+ * there is one; absent, the verb is neither "is" nor "isn't", or the list is
+ * no comparison's value at all.
+ */
 function pushValueListPlacement(
 	path: Path,
 	issues: CsqlRepresentabilityIssue[],
 	message = "A list of values can be compared only as equal or not equal to a case value.",
+	details?: Readonly<Record<string, string>>,
 ): void {
-	issues.push({ reason: "value-list-placement", path, message });
+	issues.push({
+		reason: "value-list-placement",
+		path,
+		message,
+		...(details !== undefined ? { details } : {}),
+	});
 }
 
 /**

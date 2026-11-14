@@ -5,6 +5,12 @@
  * whole, with `null` to clear, so one mutation sets the form, the button's
  * text and media, and where a worker goes after registering.
  *
+ * The two arms share the one slot, so neither replaces the other in passing:
+ * offering a form on the list is refused while the host offers its own form
+ * after an empty search, and the reverse is refused while the list offers a
+ * form (`afterEmptySearchOfferBlocked`, which every writer of the
+ * `after-empty-search` arm asks first).
+ *
  * Whether the gate admits a choice is not decided here: every choice carries
  * the batch that would offer it, and the surface reads the gate's verdict of
  * that batch (`hooks/useOfferedBatchRefusals.ts`), so the picker and the
@@ -75,6 +81,29 @@ export function alwaysOfferedRegistrationMutations(
 				patch: { caseListRegistrationForm: slot },
 			},
 		],
+	};
+}
+
+/**
+ * The refusal of the other direction of the switch: naming a form the host
+ * offers after an empty search (`caseListRegistrationForm.ts`) while its list
+ * always offers another menu's form. The two arms share one slot, so the
+ * offer would replace the list's Register button, its media and where it
+ * returns. Undefined where the host holds no `always` arm. `message` is the
+ * agent's sentence, `userMessage` the builder's.
+ */
+export function afterEmptySearchOfferBlocked(
+	doc: BlueprintDoc,
+	hostUuid: Uuid,
+): { readonly message: string; readonly userMessage: string } | undefined {
+	const always = alwaysOfferedRegistrationOf(doc, hostUuid);
+	if (always === undefined) return undefined;
+	const host = doc.modules[hostUuid]?.name ?? "";
+	const form = doc.forms[always.formUuid]?.name ?? "";
+	const lead = `"${host}" already offers "${form}" from its case list. You can stop offering that`;
+	return {
+		message: `${lead} (register_from_case_list null on update_module), and then offer a form after a search finds nothing.`,
+		userMessage: `${lead}, and then offer a form after a search finds nothing.`,
 	};
 }
 

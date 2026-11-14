@@ -2,15 +2,18 @@ import { expect, it } from "vitest";
 import { z } from "zod";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import {
+	echoLookupDefinitions,
 	LOOKUP_SELECT_DOC,
 	lookupSelectDoc,
 } from "@/lib/agent/__tests__/fixtures";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
+import { translationUnitsById } from "@/lib/domain";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { log } from "@/lib/logger";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { AuthoringInputError, ReadProjectionError } from "../errors";
 import { projectAuthoringReadInContext, type ReadToolName } from "../output";
 
@@ -20,9 +23,37 @@ import { projectAuthoringReadInContext, type ReadToolName } from "../output";
  * answers in authored form. Named forms start from production canonical scaffolds; authored
  * field and configuration calls then pass the commit gate before reads.
  */
+const services = {
+	id: lookupTableIdSchema.parse("0198c0de-0000-7000-8000-0000000000b1"),
+	name: "Services",
+	tag: "services",
+	definitionRevision: parseLookupRevision("0"),
+	columns: [
+		["0198c0de-0000-7000-8000-0000000000b2", "code"],
+		["0198c0de-0000-7000-8000-0000000000b3", "name"],
+	].map(([id, name]) => ({
+		id: lookupColumnIdSchema.parse(id),
+		wireName: name,
+		label: name,
+		dataType: "text" as const,
+	})),
+};
+
+/** A calculated value reading the Services table, which every read of its
+ *  text prints back as `{{= formula}}`. */
+const serviceName =
+	"{{= instance('services')/services_list/services[code = 'one'][1]/name}}";
+
 async function populatedApp() {
 	const h = makeAuthoringHarness(
-		{},
+		{
+			lookupCatalog: async () => ({
+				projectId: "project-test",
+				projectRevision: parseLookupRevision("1"),
+				definitions: [services],
+			}),
+			lookupDefinitions: echoLookupDefinitions([services]),
+		},
 		namedFormFixture(
 			[
 				{
@@ -102,13 +133,16 @@ async function populatedApp() {
 				optionsSource: {
 					kind: "inline",
 					options: [
-						{ value: "food", label: "Food" },
+						// A calculated value in a choice label.
+						{ value: "food", label: "Food {{= concat('for ', #form/name)}}" },
 						{ value: "water", label: "Water" },
 					],
 				},
 			},
 			{ kind: "hidden", id: "double_age", calculate: "#form/age * 2" },
 			{ kind: "label", id: "summary", label: "Registering {{name}}" },
+			// A calculated value in a label, reading a data table.
+			{ kind: "label", id: "service", label: `Service name: ${serviceName}` },
 		],
 	});
 	await ok("updateForm", {
@@ -253,7 +287,7 @@ const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 		{ caseType: "client", property: "age" },
 		{ caseType: "visit", property: "source_id" },
 	],
-	searchBlueprint: [{ query: "name" }],
+	searchBlueprint: [{ query: "name" }, { query: "Food" }],
 	getModule: [{ moduleUuid: "Clients" }, { moduleUuid: "Learning" }],
 	getForm: [
 		{ moduleUuid: "Clients", formUuid: "Register" },
@@ -263,6 +297,8 @@ const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 	getField: [
 		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "head" },
 		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "summary" },
+		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "service" },
+		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "needs" },
 	],
 	getCaseOperations: [{ moduleUuid: "Clients", formUuid: "Visit" }],
 };
@@ -280,6 +316,86 @@ it("reads every part of a populated app as authored content", async () => {
 			expect(printed, label).not.toContain('"parts":');
 		}
 	}
+});
+
+it("prints a calculated value as {{= formula}} in every read that shows its text, and reviews a translation holding one", async () => {
+	const h = await populatedApp();
+	const label = `Service name: ${serviceName}`;
+	const choice = "Food {{= concat('for ', #form/name)}}";
+
+	const form = JSON.stringify(
+		await h.call("getForm", { moduleUuid: "Clients", formUuid: "Register" }),
+	);
+	expect(form).toContain(JSON.stringify(label));
+	expect(form).toContain(JSON.stringify(choice));
+
+	const found = JSON.stringify(
+		await h.call("searchBlueprint", { query: "Service name" }),
+	);
+	expect(found).toContain(JSON.stringify(label));
+
+	const unit = [...translationUnitsById(h.currentDoc()).values()].find(
+		(unit) => unit.role === "field-label" && unit.context.fieldId === "service",
+	);
+	if (unit === undefined) throw new Error("The service label has no unit.");
+	const entry = z.object({
+		id: z.string(),
+		source: z.string(),
+		sourceFingerprint: z.string(),
+		revision: z.string().optional(),
+		effective: z.string().optional(),
+		status: z.string(),
+	});
+	const read = async () => {
+		const items = z
+			.object({ items: z.array(entry) })
+			.parse(
+				await h.call("getTranslatableContent", {
+					language: { language: "fra" },
+					query: "Service name",
+					limit: 10,
+				}),
+			)
+			.items.filter((item) => item.id === unit.id);
+		expect(items).toHaveLength(1);
+		return items[0];
+	};
+	const source = await read();
+	expect(source.source).toBe(label);
+
+	const translated = `Nom du service : ${serviceName}`;
+	expect(
+		await h.call("updateTranslations", {
+			language: { language: "fra" },
+			updates: [
+				{
+					operation: "set",
+					unitId: unit.id,
+					expectedSourceFingerprint: source.sourceFingerprint,
+					value: translated,
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	const pending = await read();
+	expect(pending).toMatchObject({
+		effective: translated,
+		status: "needs-review",
+	});
+	if (pending.revision === undefined)
+		throw new Error("The translation has no review revision.");
+	expect(
+		await h.call("updateTranslations", {
+			language: { language: "fra" },
+			updates: [
+				{ operation: "review", unitId: unit.id, revision: pending.revision },
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(await read()).toMatchObject({
+		effective: translated,
+		status: "ready",
+	});
 });
 
 it("reads menu icons in the form setMenuMedia accepts, so a read can be written back", async () => {

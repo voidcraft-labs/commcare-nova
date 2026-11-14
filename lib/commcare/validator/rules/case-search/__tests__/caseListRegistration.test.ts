@@ -596,6 +596,37 @@ function alwaysDoc(shape: AlwaysShape = {}): BlueprintDoc {
 	);
 }
 
+/** Intake alone, offering its own "Register patient" when a search finds
+ *  nothing. */
+function afterEmptySearchIntakeDoc(): BlueprintDoc {
+	return buildDoc({
+		appName: "Clinic",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+			{
+				name: "kid",
+				parent_type: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				uuid: INTAKE,
+				name: "Intake",
+				caseType: "patient",
+				caseListConfig: searchList(),
+				caseSearchConfig: { formsReadSearch: true },
+				caseListMenuItem: {},
+				caseListRegistrationForm: { formUuid: REG },
+				forms: [intakeForm()],
+			},
+		],
+	});
+}
+
 /** Every case list registration finding: code, reason and message. */
 function registrationFindings(doc: BlueprintDoc) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
@@ -1105,6 +1136,40 @@ describe("caseListRegistrationApp: the after-empty-search arm", () => {
 		]);
 	});
 
+	it("counts no child of another type, no child in a repeat and no child Save to Case holds", () => {
+		const sameType = afterEmptySearchIntakeDoc();
+		addCreate(sameType, REG, "patient");
+		expect(
+			registrationFindings(sameType).map((finding) => [
+				finding.code,
+				finding.moduleUuid,
+				finding.reason,
+			]),
+		).toEqual([
+			[
+				"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+				INTAKE,
+				"several-registrations",
+			],
+		]);
+		const otherType = afterEmptySearchIntakeDoc();
+		addCreate(otherType, REG, "kid");
+		const inRepeat = afterEmptySearchIntakeDoc();
+		addCreate(inRepeat, REG, "patient", { repeat: KIDS_F });
+		const held = afterEmptySearchIntakeDoc();
+		addCreate(held, REG, "patient", { held: true });
+		for (const doc of [otherType, inRepeat, held]) {
+			expect(
+				rootBasicSubcaseCreates(doc, REG).filter(
+					(create) => create.caseType === "patient",
+				),
+			).toEqual([]);
+			expect(
+				registrationFindings(doc).map((finding) => finding.reason),
+			).not.toContain("several-registrations");
+		}
+	});
+
 	it("gives no always-arm finding to the form it offers on no menu", () => {
 		const doc = docWith();
 		expect(
@@ -1145,6 +1210,40 @@ describe("caseListRegistrationApp: the after-empty-search arm", () => {
 		expect(full.map((error) => error.code)).toContain(
 			"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
 		);
+		expect(scoped).toEqual(
+			full.filter((error) => errorWithinScope(error, scope)),
+		);
+	});
+
+	it("reports the return of a host that selects several cases to a run scoped away from it, as the filtered full run does", () => {
+		const doc = docWith(
+			{ forms: [visitForm(), registerForm()] },
+			{
+				uuid: OTHER_MODULE,
+				name: "Intake",
+				forms: [
+					{
+						uuid: OTHER_FORM,
+						name: "Intake survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		);
+		doc.modules[MODULE].caseListConfig = {
+			...searchList(),
+			selection: { kind: "multiple", maximum: 5 },
+		};
+		const scope = {
+			moduleUuids: new Set([OTHER_MODULE]),
+			formUuids: new Set([OTHER_FORM]),
+		};
+		const full = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		const scoped = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { scope });
+		expect(full.map((error) => error.code)).toEqual([
+			"CASE_LIST_REGISTRATION_MULTIPLE_RETURN",
+		]);
 		expect(scoped).toEqual(
 			full.filter((error) => errorWithinScope(error, scope)),
 		);

@@ -32,7 +32,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
@@ -87,6 +87,9 @@ export interface SearchPanelInspectorBodyProps {
 	readonly onEditDisplayCondition: (focusNewCondition?: boolean) => void;
 	/** The Search-action condition is invalid and needs repair. */
 	readonly searchSettingsHasError?: boolean;
+	/** Why this menu takes no Search at all (it shows its forms in the menu
+	 *  above): stated first, with every control below it disabled. */
+	readonly searchUnavailableReason?: string;
 }
 
 /** What the Search screen's platform note can state. Search first's and
@@ -107,7 +110,9 @@ export function SearchPanelInspectorBody({
 	hasSearchAction,
 	onEditDisplayCondition,
 	searchSettingsHasError = false,
+	searchUnavailableReason,
 }: SearchPanelInspectorBodyProps) {
+	const unavailableReasonId = useId();
 	const expressionContext = useExpressionSlotContext(
 		moduleUuid === undefined
 			? undefined
@@ -149,92 +154,113 @@ export function SearchPanelInspectorBody({
 
 	return (
 		<>
-			{hasVisibleSearchScreen ? (
-				<>
-					<div data-search-show-title={showsTitle ? "true" : "false"}>
-						<ToggleRow
-							label="Show a title"
-							description="A heading above the search fields in Web Apps"
-							checked={showsTitle}
-							onChange={setShowTitle}
-						/>
-					</div>
-
-					{showsTitle && (
-						<OptionalTextRow
-							label="Title"
-							hint="Shown above the search fields"
-							// The worker sees this real default, so the author should edit
-							// that same value rather than infer it from disposable
-							// placeholder copy.
-							value={searchScreenTitleText(value) ?? DEFAULT_CASE_SEARCH_TITLE}
-							onCommit={setTitle}
-						/>
-					)}
-
-					<OptionalMarkdownRow
-						label="Subtitle"
-						hint="Shown below the title"
-						value={value?.searchScreenSubtitle}
-						onCommit={setSubtitle}
-					/>
-
-					<p className="px-1 text-[13px] leading-relaxed text-nova-text-muted">
-						The search button reads “{CASE_SEARCH_BUTTON_LABEL}” in every
-						language.
-					</p>
-				</>
-			) : (
-				<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
-					{!searchActionIsActive
-						? "People can browse the case list without filling in a Search screen. Add Search from Results when they need a separate continue action."
-						: workflow === "skipToResults"
-							? RESULTS_ON_OPEN_LINE
-							: workflow === "searchFirst"
-								? BUTTON_ONLY_SEARCH_SCREEN_LINE
-								: "There's nothing to fill in. Search is available from the case list, so workers can continue without entering search information."}
+			{searchUnavailableReason !== undefined && (
+				<p
+					id={unavailableReasonId}
+					data-search-unavailable
+					className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
+				>
+					{searchUnavailableReason}
 				</p>
 			)}
-
-			{searchActionIsActive &&
-				moduleUuid !== undefined &&
-				value !== undefined && (
-					<SearchWorkflowSetting moduleUuid={moduleUuid} value={value} />
-				)}
-
-			<PlatformNoteRow features={noteFeatures} className="px-1" />
-
-			<AdvancedSearchSettings
-				active={advancedIsActive}
-				attention={searchSettingsHasError}
-				label="More settings"
-				defaultOpen={false}
+			<fieldset
+				disabled={searchUnavailableReason !== undefined}
+				aria-describedby={
+					searchUnavailableReason === undefined
+						? undefined
+						: unavailableReasonId
+				}
+				className="m-0 min-w-0 space-y-4 border-0 p-0"
 			>
-				{formsReadSearch &&
-				value?.searchButtonDisplayCondition === undefined ? (
-					<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
-						{FORMS_READ_SEARCH_NO_BUTTON_LINE}
-					</p>
+				{hasVisibleSearchScreen ? (
+					<>
+						<div data-search-show-title={showsTitle ? "true" : "false"}>
+							<ToggleRow
+								label="Show a title"
+								description="A heading above the search fields in Web Apps"
+								checked={showsTitle}
+								onChange={setShowTitle}
+							/>
+						</div>
+
+						{showsTitle && (
+							<OptionalTextRow
+								label="Title"
+								hint="Shown above the search fields"
+								// The worker sees this real default, so the author should edit
+								// that same value rather than infer it from disposable
+								// placeholder copy.
+								value={
+									searchScreenTitleText(value) ?? DEFAULT_CASE_SEARCH_TITLE
+								}
+								onCommit={setTitle}
+							/>
+						)}
+
+						<OptionalMarkdownRow
+							label="Subtitle"
+							hint="Shown below the title"
+							value={value?.searchScreenSubtitle}
+							onCommit={setSubtitle}
+						/>
+
+						<p className="px-1 text-[13px] leading-relaxed text-nova-text-muted">
+							The search button reads “{CASE_SEARCH_BUTTON_LABEL}” in every
+							language.
+						</p>
+					</>
 				) : (
-					<ConditionSlotSetting
-						expressionContext={expressionContext}
-						title="When Search is available"
-						description="Offer the Search action only when a condition matches"
-						value={value?.searchButtonDisplayCondition}
-						onChange={setDisplayCondition}
-						onEdit={onEditDisplayCondition}
-						alwaysSummary="Search is always available"
-						clearLabel="Always allow Search"
-						clearTitle="Always allow Search?"
-						clearConsequence="The current condition will be removed, and Search will be available whenever this case list can search. You can undo this change."
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						knownInputs={knownInputs}
-						// The Search action's relevance resolves before any case is
-						// selected, so the seed compares a session value.
-					/>
+					<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
+						{!searchActionIsActive
+							? "People can browse the case list without filling in a Search screen. Add Search from Results when they need a separate continue action."
+							: workflow === "skipToResults"
+								? RESULTS_ON_OPEN_LINE
+								: workflow === "searchFirst"
+									? BUTTON_ONLY_SEARCH_SCREEN_LINE
+									: "There's nothing to fill in. Search is available from the case list, so workers can continue without entering search information."}
+					</p>
 				)}
-			</AdvancedSearchSettings>
+
+				{searchActionIsActive &&
+					moduleUuid !== undefined &&
+					value !== undefined && (
+						<SearchWorkflowSetting moduleUuid={moduleUuid} value={value} />
+					)}
+
+				<PlatformNoteRow features={noteFeatures} className="px-1" />
+
+				<AdvancedSearchSettings
+					active={advancedIsActive}
+					attention={searchSettingsHasError}
+					label="More settings"
+					defaultOpen={false}
+				>
+					{formsReadSearch &&
+					value?.searchButtonDisplayCondition === undefined ? (
+						<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
+							{FORMS_READ_SEARCH_NO_BUTTON_LINE}
+						</p>
+					) : (
+						<ConditionSlotSetting
+							expressionContext={expressionContext}
+							title="When Search is available"
+							description="Offer the Search action only when a condition matches"
+							value={value?.searchButtonDisplayCondition}
+							onChange={setDisplayCondition}
+							onEdit={onEditDisplayCondition}
+							alwaysSummary="Search is always available"
+							clearLabel="Always allow Search"
+							clearTitle="Always allow Search?"
+							clearConsequence="The current condition will be removed, and Search will be available whenever this case list can search. You can undo this change."
+							caseTypes={caseTypes}
+							currentCaseType={currentCaseType}
+							knownInputs={knownInputs}
+							// The Search action's relevance resolves before any case is
+							// selected, so the seed compares a session value.
+						/>
+					)}
+				</AdvancedSearchSettings>
+			</fieldset>
 		</>
 	);
 }

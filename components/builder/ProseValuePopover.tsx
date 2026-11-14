@@ -131,15 +131,14 @@ function ProseValueEditor({
 
 	const save = useCallback(
 		(text: string) => {
-			if (!text.trim()) return { ok: false as const, messages: [EMPTY] };
 			let part: ProseAtomPart;
 			try {
 				part = parse(text);
 			} catch (error) {
-				return {
-					ok: false as const,
-					messages: [error instanceof Error ? error.message : UNREADABLE],
-				};
+				// The parse refuses with its own sentences, an empty formula
+				// included; anything else thrown is a defect.
+				if (!(error instanceof Error)) throw error;
+				return { ok: false as const, messages: [error.message] };
 			}
 			committedRef.current = true;
 			onCommit(part);
@@ -187,7 +186,3 @@ function ProseValueEditor({
 		</>
 	);
 }
-
-const EMPTY = "Write a formula before you insert it.";
-const UNREADABLE =
-	"This formula couldn't be read. You can check it and try again.";

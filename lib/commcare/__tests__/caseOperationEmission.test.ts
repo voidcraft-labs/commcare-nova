@@ -505,6 +505,10 @@ it.each(operationScenarios)(
 					expect(
 						children(operations).filter((element) => element.name === name),
 					).toHaveLength(1);
+					// No control in the body names it, at any depth.
+					const controls = controlRefs(model);
+					expect(controls.length).toBeGreaterThan(0);
+					expect(controls.filter((ref) => ref.includes(name))).toEqual([]);
 				}
 				// A literal folds to the text CommCare HQ stores for its moment, and
 				// a value that reads no clock takes no node.
@@ -570,6 +574,21 @@ function sourceOf(doc: BlueprintDoc, moduleIndex = 0) {
 	const html = parsed.model.parent?.parent;
 	if (!html || !isTag(html)) throw new Error("Missing form root");
 	return { ...parsed, body: child(html, "h:body") };
+}
+/** Every `ref`, `nodeset` and `bind` the form's body names, at any depth. */
+function controlRefs(model: Element): string[] {
+	const html = model.parent?.parent;
+	if (!html || !isTag(html)) throw new Error("Missing form root");
+	const refs: string[] = [];
+	const visit = (element: Element) => {
+		for (const key of ["ref", "nodeset", "bind"]) {
+			const value = element.attribs[key];
+			if (value !== undefined) refs.push(value);
+		}
+		for (const inner of children(element)) visit(inner);
+	};
+	visit(child(html, "h:body"));
+	return refs;
 }
 const bindsOf = (model: Element) =>
 	children(model).filter((element) => element.name === "bind");

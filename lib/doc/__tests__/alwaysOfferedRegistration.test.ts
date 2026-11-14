@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
+	afterEmptySearchOfferBlocked,
 	alwaysOfferedRegistrationChoices,
 	alwaysOfferedRegistrationMutations,
 } from "@/lib/doc/alwaysOfferedRegistration";
@@ -190,6 +191,22 @@ describe("alwaysOfferedRegistrationMutations", () => {
 		});
 		expect(alwaysOfferedRegistrationChoices(doc, PATIENTS)).toEqual([]);
 	});
+
+	it("is not replaced by a form offered after an empty search", () => {
+		expect(afterEmptySearchOfferBlocked(patientsDoc(), PATIENTS)).toBe(
+			undefined,
+		);
+		const doc = committed(
+			patientsDoc(),
+			planned(patientsDoc(), PATIENTS, OFFER),
+		);
+		expect(afterEmptySearchOfferBlocked(doc, PATIENTS)).toEqual({
+			message: `"Patients" already offers "Register patient" from its case list. You can stop offering that (register_from_case_list null on update_module), and then offer a form after a search finds nothing.`,
+			userMessage: `"Patients" already offers "Register patient" from its case list. You can stop offering that, and then offer a form after a search finds nothing.`,
+		});
+		// The list that offers nothing keeps no refusal.
+		expect(afterEmptySearchOfferBlocked(doc, VISITS)).toBe(undefined);
+	});
 });
 
 describe("alwaysOfferedRegistrationChoices", () => {
@@ -298,7 +315,7 @@ describe("planCaseListRegistrationDependentsOnRemove", () => {
 			],
 			message: `Form "Register patient" is the registration "Patients" and "Visits" offer from their case lists (register_from_case_list on update_module). You can set that to null on each menu that offers it, and then remove the form.`,
 			userMessage:
-				"Register patient is offered on the case lists of Patients and Visits. You can stop offering it on each, and then remove it.",
+				"Register patient is offered on the case lists of Patients and Visits. You can stop offering it there, and then remove it.",
 		});
 	});
 

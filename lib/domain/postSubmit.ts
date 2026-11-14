@@ -4,7 +4,8 @@
 // slot is optional; the default depends on the form type AND on the owning
 // module's shape (forms that read the search, several-case selection, its
 // parent's selection, whether it is off the menu, whether it or its parent
-// shows its forms in the menu above), so every consumer reads it here
+// shows its forms in the menu above, whether it opens through the first
+// menu with a chosen case), so every consumer reads it here
 // rather than pairing `form.postSubmit ?? defaultPostSubmit(form.type)` by
 // hand. The offered set is the one statement of which destinations a form
 // may hold, and, less `app_home`, which built-in otherwise; the validator,
@@ -20,10 +21,14 @@ import {
 	type PostSubmitMenuShape,
 } from "./forms";
 import { moduleIsBareCaseList } from "./menuForms";
+import { firstMenuOpensOneCase } from "./menuScreens";
 import { caseSelectionCardinality, moduleFormsReadSearch } from "./modules";
 import type { Uuid } from "./uuid";
 
-type PostSubmitDoc = Pick<BlueprintDoc, "forms" | "modules" | "formOrder">;
+type PostSubmitDoc = Pick<
+	BlueprintDoc,
+	"forms" | "modules" | "formOrder" | "moduleOrder"
+>;
 
 /** The module that owns `formUuid`, or `undefined` for an unknown form. */
 export function moduleUuidOfForm(
@@ -52,6 +57,7 @@ export const POST_SUBMIT_NOT_OFFERED_REASONS = [
 	"menu-forms-in-menu-above",
 	"parent-forms-in-menu-above",
 	"menu-forms-on-first-menu",
+	"menu-opens-with-first-menu-case",
 ] as const;
 export type PostSubmitNotOfferedReason =
 	(typeof POST_SUBMIT_NOT_OFFERED_REASONS)[number];
@@ -70,6 +76,7 @@ const WITHHELD_BY: Readonly<
 	"menu-forms-in-menu-above": ["module"],
 	"parent-forms-in-menu-above": ["parentMenu"],
 	"menu-forms-on-first-menu": ["previous"],
+	"menu-opens-with-first-menu-case": ["module"],
 };
 
 /** The facts of a form's module the offered set reads. */
@@ -86,7 +93,7 @@ export interface PostSubmitModuleFacts extends PostSubmitMenuShape {
 
 /** The menu shape of `moduleUuid`, as the after-submit rules read it. */
 export function postSubmitModuleFacts(
-	doc: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">,
+	doc: PostSubmitDoc,
 	moduleUuid: Uuid,
 ): PostSubmitModuleFacts | undefined {
 	const mod = doc.modules[moduleUuid];
@@ -111,6 +118,14 @@ export function postSubmitModuleFacts(
 			mod.formsInMenuAbove === true &&
 			(parent === undefined || parent.formsInMenuAbove === true),
 		parentFormsInMenuAbove: parent?.formsInMenuAbove === true,
+		// HQ builds the frame to the screen of a menu that keeps it under a
+		// top-level menu above as the root lists' common prefix then the
+		// menu's command (`workflow.py::_frame_children_for_module`), which
+		// opens with the case every form listed from a menu above opens.
+		opensWithFirstMenuCase:
+			mod.formsInMenuAbove !== true &&
+			parent?.formsInMenuAbove === true &&
+			firstMenuOpensOneCase(doc),
 	};
 }
 
@@ -129,6 +144,7 @@ function reasonsThatHold(
 		"menu-forms-in-menu-above": facts.formsInMenuAbove === true,
 		"parent-forms-in-menu-above": facts.parentFormsInMenuAbove,
 		"menu-forms-on-first-menu": facts.formsOnFirstMenu === true,
+		"menu-opens-with-first-menu-case": facts.opensWithFirstMenuCase === true,
 	};
 	return POST_SUBMIT_NOT_OFFERED_REASONS.filter((reason) => holds[reason]);
 }
@@ -153,7 +169,8 @@ export function postSubmitDestinationsOfferedFor(
  * The destinations `formUuid` is offered, in `POST_SUBMIT_DESTINATIONS`
  * order. `app_home` and `firstMenu` always; `module` unless the parent
  * selects several cases, the module is a bare case list, the module is off
- * the menu, or it shows its forms in the menu above; `previous` unless the
+ * the menu, it shows its forms in the menu above, or it opens through the
+ * first menu with the case every form listed there opens; `previous` unless the
  * module or its parent selects several cases, the module's forms read the
  * search, the module is off the menu, or its forms list on the app's first
  * menu; `parentMenu` when the module has a parent that neither selects

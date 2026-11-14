@@ -13,17 +13,18 @@
  *
  * The emitted source passes the XForm oracle and is read back through
  * `parseXml`, so a value written without its instance, a value outside the
- * composed message, a `count()` around a value or none around a reference
- * fails here.
+ * composed message, a `count()` around a value or none around a reference,
+ * and a label's literal `instance(` written joined fails here.
  */
 
 import type { Element } from "domhandler";
-import { isTag } from "domhandler";
+import { isTag, isText } from "domhandler";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain";
 import { expandDoc } from "../../expander";
+import { instanceScanCuts } from "../../hqInstanceScan";
 import { validateXForm } from "../../validator/xformOracle";
 import { parseXml } from "../../xmlParse";
 
@@ -38,6 +39,8 @@ function elements(root: Element): Element[] {
 }
 
 const FORMATTED_VISIT = "format-date(date(#form/visit), '%e %b %Y')";
+/** Literal text CommCare HQ's build would read as an instance, were it joined. */
+const WORDS = "This text reads instance('casedb') as words.";
 
 function visitSource(): { xml: string; all: Element[] } {
 	const doc = buildDoc({
@@ -95,6 +98,11 @@ function visitSource(): { xml: string; all: Element[] } {
 								uuid: testUuid("prose-value-name"),
 								id: "name",
 								label: proseText("Name"),
+							}),
+							f({
+								kind: "label",
+								id: "words",
+								label: proseText(WORDS),
 							}),
 						],
 					},
@@ -159,5 +167,36 @@ describe("a calculated value in a text", () => {
 		expect(message).toContain("count(/data/name) > 1");
 		expect(message).toContain("format-date(date(/data/visit), '%e %b %Y')");
 		expect(message).not.toContain("count(format-date");
+	});
+
+	it("writes a label's literal instance( with its bracket as an output, so no text node joins it", () => {
+		const { all } = visitSource();
+		const words = all.filter(
+			(element) =>
+				element.name === "value" &&
+				element.attribs.form === undefined &&
+				element.children.some(
+					(child) => isText(child) && child.data.includes("as words."),
+				),
+		);
+		expect(
+			words.map((element) =>
+				element.children.map((child) =>
+					isText(child)
+						? child.data
+						: isTag(child) && child.name === "output"
+							? `<output value=${child.attribs.value}>`
+							: "?",
+				),
+			),
+		).toEqual([
+			["This text reads instance", "<output value='('>", "'casedb') as words."],
+		]);
+		const texts = all.flatMap((element) =>
+			element.children.flatMap((child) => (isText(child) ? [child.data] : [])),
+		);
+		expect(texts.filter((data) => instanceScanCuts(data).length > 0)).toEqual(
+			[],
+		);
 	});
 });

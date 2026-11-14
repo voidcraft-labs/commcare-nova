@@ -52,7 +52,6 @@ import type {
 	CasePropertyDataType,
 	CaseType,
 	Column,
-	ColumnSort,
 	SortBlanks,
 	SortDirection,
 	Uuid,
@@ -77,7 +76,11 @@ import { useCanEdit } from "@/lib/session/hooks";
 import { AuthoredDragPreviewLabel } from "./canvas/canvasChrome";
 import { seedColumnForProperty } from "./seeds";
 import { blanksAfterDirectionChange } from "./sortBlanksChoice";
-import { resolveSortedColumns } from "./sortPriority";
+import {
+	columnsAfterRuleSequence,
+	orderChoiceColumn,
+	resolveSortedColumns,
+} from "./sortPriority";
 
 export interface CaseOrderingComposerProps {
 	/** The module whose list this orders: the Add menu asks the gate's order
@@ -186,18 +189,9 @@ export function CaseOrderingComposer({
 				unsortedByProperty.set(name, column);
 			}
 		}
-		/* A field that is off the list comes back onto it in one way in each
-		 * layout. In a list with no tile its List search matches this switch
-		 * is the way, so the choice keeps `notOnList` and the gate's `sorted`
-		 * line says where the switch is. In a tile list there is no switch: the
-		 * choice drops `notOnList`, so choosing it leaves the field hidden with
-		 * its rule, a tile list's hidden sorted column. */
 		const tiled = config.tile !== undefined;
-		const offered = (column: Column): Column => {
-			if (!tiled || column.notOnList !== true) return column;
-			const { notOnList: _notOnList, ...onTheList } = column;
-			return onTheList as Column;
-		};
+		const offered = (column: Column): Column =>
+			orderChoiceColumn(column, tiled);
 		/* A choice an order rule would refuse stays in the menu, disabled, with
 		 * the refusal's own line as its reason: the column `addRule` would
 		 * commit, carrying the rule it would take, is put to the gate's order
@@ -287,35 +281,7 @@ export function CaseOrderingComposer({
 
 	const applyRuleSequence = useCallback(
 		(nextRules: readonly Column[]) => {
-			const sortByUuid = new Map<string, ColumnSort>();
-			nextRules.forEach((column, index) => {
-				sortByUuid.set(
-					column.uuid,
-					columnSort(
-						column.sort?.direction ?? "asc",
-						index,
-						column.sort?.blanks,
-					),
-				);
-			});
-			const nextColumns = [...value];
-			const knownUuids = new Set(value.map((column) => column.uuid));
-			for (const column of nextRules) {
-				if (knownUuids.has(column.uuid)) continue;
-				knownUuids.add(column.uuid);
-				nextColumns.push(column);
-			}
-			onChange(
-				nextColumns.map((column) => {
-					const nextSort = sortByUuid.get(column.uuid);
-					if (nextSort !== undefined) {
-						return { ...column, sort: nextSort } as Column;
-					}
-					if (column.sort === undefined) return column;
-					const { sort: _sort, ...withoutSort } = column;
-					return withoutSort as Column;
-				}),
-			);
+			onChange(columnsAfterRuleSequence(value, nextRules));
 		},
 		[onChange, value],
 	);

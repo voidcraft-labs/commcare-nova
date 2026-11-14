@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { caseTypeSchema } from "../blueprint";
 import { dateCoerce, formField, term } from "../expression/builders";
 import type { Expression } from "../expression/types";
 import {
@@ -126,5 +127,36 @@ describe("where a calculated value is admitted", () => {
 				parts: [{ kind: "text", text: "Village" }],
 			}).success,
 		).toBe(true);
+	});
+
+	it("refuses a value in a case type's property label, hint and choice label", () => {
+		const value = {
+			parts: [
+				{ kind: "text", text: "Seen " },
+				{ kind: "value", expression: FORMATTED_DATE },
+			],
+		};
+		const parsed = caseTypeSchema.safeParse({
+			name: "household",
+			properties: [
+				{
+					name: "visit",
+					label: value,
+					hint: value,
+					options: [{ value: "yes", label: value }],
+				},
+			],
+		});
+		expect(parsed.success).toBe(false);
+		expect(
+			parsed.error?.issues.map((issue) => [issue.path, issue.message]),
+		).toEqual([
+			[["properties", 0, "label", "parts", 1], CATALOG_PROSE_VALUE_MESSAGE],
+			[["properties", 0, "hint", "parts", 1], CATALOG_PROSE_VALUE_MESSAGE],
+			[
+				["properties", 0, "options", 0, "label", "parts", 1],
+				CATALOG_PROSE_VALUE_MESSAGE,
+			],
+		]);
 	});
 });

@@ -6,11 +6,14 @@
  * reaches every one of them whatever their own setting, and a text's own
  * setting is kept (the readers never change it). `formSwitchedTexts` lists
  * every label, inline choice and help text of one form in every language the
- * app holds, and no hint, validation message or other form's text.
+ * app holds, and no hint, validation message, other form's text, or text whose
+ * own setting already shows it as typed.
  *
  * Plausible failures: the form's switch not reaching a text, a text's own
  * setting ignored while the switch is off, the inventory missing a choice or
- * a translation, or listing a hint or another form's label.
+ * a translation, listing a hint or another form's label, or listing a text the
+ * switch does not change (the builder would then ask before turning
+ * formatting off where no worker would see anything change).
  */
 
 import { describe, expect, it } from "vitest";
@@ -117,6 +120,44 @@ describe("formSwitchedTexts", () => {
 					.flatMap((text) => [text, text])
 					.map(proseText),
 			),
+		);
+	});
+
+	it("leaves out a text whose own setting already shows it as typed", () => {
+		const doc = twoFormDoc();
+		const formUuid = doc.formOrder[doc.moduleOrder[0] ?? ""]?.[0];
+		const pick = Object.values(doc.fields).find((field) => field.id === "pick");
+		if (
+			formUuid === undefined ||
+			pick === undefined ||
+			pick.kind !== "single_select"
+		)
+			throw new Error("The fixture has no select.");
+		const source = pick.optionsSource;
+		if (source.kind !== "inline") throw new Error("The select is not inline.");
+		const plain = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[pick.uuid]: {
+					...pick,
+					plainLabel: true,
+					plainHelp: true,
+					optionsSource: {
+						...source,
+						options: source.options.map((option) =>
+							option.value === "a"
+								? { ...option, plainLabel: true as const }
+								: option,
+						),
+					},
+				},
+			},
+		} as BlueprintDoc;
+		// Workers already see these three texts' symbols, so turning the form's
+		// formatting off changes only the choice that still formats.
+		expect(texts(formSwitchedTexts(plain, formUuid))).toEqual(
+			texts([proseText("B"), proseText("B")]),
 		);
 	});
 

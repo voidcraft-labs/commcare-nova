@@ -17,6 +17,7 @@ import { readSourceTool } from "../lib/agent/tools/media/readSource";
  *     tool-input acceptance is the same across models).
  *   - Pass a schema name to test only that schema; omit to test every
  *     registered schema. Known names: `evaluateForm`, `startAppTest`,
+ *     `continueAppTest`,
  *     `createLocation`,
  *     `updateLocation`, `addFields`, `addAutomations`, `updateAutomation`,
  *     `addCaseOperations`, `updateCaseOperation`, `getCaseOperations`,
@@ -47,7 +48,10 @@ import type { z } from "zod";
 import { authoringToolSchema } from "../lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "../lib/agent/sharedToolRegistry";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
-import { startAppTestTool } from "../lib/agent/tools/appTests";
+import {
+	continueAppTestTool,
+	startAppTestTool,
+} from "../lib/agent/tools/appTests";
 import {
 	addAutomationsTool,
 	updateAutomationTool,
@@ -155,6 +159,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: startAppTestTool.inputSchema,
 		prompt:
 			'Use startAppTest with two sessions, "web" on web-apps and "phone" on android, whose purpose is checking that a registered patient appears in the follow-up list.',
+	},
+	{
+		name: "continueAppTest",
+		description: continueAppTestTool.description,
+		schema: continueAppTestTool.inputSchema,
+		prompt:
+			'Use continueAppTest on test 11111111-1111-4111-8111-111111111111 at expectedStep 3 with one action that opens the records of the menu 22222222-2222-4222-8222-222222222222 (kind "records" naming its moduleUuid), which shows its forms on the app\'s first menu.',
 	},
 	{
 		name: "createLocation",

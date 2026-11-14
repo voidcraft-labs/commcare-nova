@@ -30,8 +30,12 @@
  * and CommCare keeps that case on the first menu when a worker steps back
  * (`CommCareSession.syncState`, `getFirstMissingDatum`), for the next form
  * that asks for a case under that datum id to open on. Nova writes no such
- * frame, so the link, the built-in `module` destination and the entry point
- * whose frame would open that way are refused at their source.
+ * frame, so the link and the entry point whose frame would open that way are
+ * refused at their source, judged on the frames the wire builds. The built-in
+ * `module` destination of a submenu that keeps its screen under a top-level
+ * menu above is judged by the reason the offered set withholds it for
+ * (`menu-opens-with-first-menu-case`, `lib/domain/postSubmit.ts`), so the
+ * pickers, the default and this rule read one answer.
  */
 
 import {
@@ -49,6 +53,7 @@ import {
 	menuScreenOf,
 	moduleFormsReadSearch,
 	moduleShowsFormsInMenuAbove,
+	postSubmitNotOfferedReason,
 	projectedModulePreorder,
 	type ResolvedFormLinkTarget,
 	resolveFormLinkTarget,
@@ -401,16 +406,18 @@ function targetName(doc: BlueprintDoc, target: ResolvedFormLinkTarget): string {
 }
 
 /**
- * Every after-submit link, and every built-in `module` destination, whose
- * frame would open through the first menu with its shared case ahead of the
- * first command. An app rule, because the shared case reads every menu that
- * shows its forms above.
+ * Every after-submit link whose frame would open through the first menu with
+ * its shared case ahead of the first command, and every built-in `module`
+ * destination, stored, default or the otherwise, that the offered set
+ * withholds first because its module opens with that case
+ * (`menu-opens-with-first-menu-case`). An app rule, because both read every
+ * menu that shows its forms above.
  */
 export function firstMenuSharedCaseFrames(
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	if (sharedCaseProjection(doc) === undefined) return [];
 	const errors: ValidationError[] = [];
+	const linksJudged = sharedCaseProjection(doc) !== undefined;
 	for (const moduleUuid of projectedModulePreorder(doc)) {
 		const mod = doc.modules[moduleUuid];
 		if (mod === undefined) continue;
@@ -423,66 +430,90 @@ export function firstMenuSharedCaseFrames(
 				formUuid,
 				formName: form.name,
 			};
-			for (const {
-				entry,
-				target,
-				aboveModuleUuid,
-			} of linksSharingFirstMenuCase(doc, formUuid)) {
-				const aboveName = doc.modules[aboveModuleUuid]?.name ?? "";
-				const name = targetName(doc, target);
-				errors.push(
-					validationError(
-						"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
-						"form",
-						`The link from "${form.name}" to "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the link, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${aboveName}" its own screen again (forms_in_menu_above null), or remove the link.`,
-						location,
-						{
-							linkUuid: entry.link.uuid,
-							role: entry.role,
-							targetName: name,
-							aboveModuleUuid,
-							aboveModuleName: aboveName,
-						},
-					),
-				);
-			}
-			// A built-in `module` destination opens the form's own menu, after
-			// submit or as the otherwise. An `after-empty-search` registration
-			// form's navigation is the case list registration rules' to judge.
-			if (afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid)
-				continue;
-			const slot =
-				form.otherwise?.kind === "destination" &&
-				form.otherwise.destination === "module"
-					? ("otherwise" as const)
-					: effectivePostSubmit(doc, formUuid) === "module"
-						? ("post-submit" as const)
-						: undefined;
-			if (slot === undefined) continue;
-			const shared = frameSharesFirstMenuCase(doc, {
-				kind: "module",
-				moduleUuid,
-			});
-			if (shared === undefined) continue;
-			const aboveName = doc.modules[shared.aboveModuleUuid]?.name ?? "";
-			const when =
-				slot === "otherwise" ? "when no destination runs" : "after submit";
-			errors.push(
-				validationError(
-					"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
-					"form",
-					`"${form.name}" goes to its module ${when}, and "${mod.name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${mod.name}", and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${aboveName}" its own screen again (forms_in_menu_above null), or send "${form.name}" somewhere else ${when}.`,
-					location,
-					{
-						slot,
-						destination: "module",
-						targetName: mod.name,
-						aboveModuleUuid: shared.aboveModuleUuid,
-						aboveModuleName: aboveName,
-					},
-				),
+			if (linksJudged)
+				for (const {
+					entry,
+					target,
+					aboveModuleUuid,
+				} of linksSharingFirstMenuCase(doc, formUuid)) {
+					const aboveName = doc.modules[aboveModuleUuid]?.name ?? "";
+					const name = targetName(doc, target);
+					errors.push(
+						validationError(
+							"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
+							"form",
+							`The link from "${form.name}" to "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the link, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${aboveName}" its own screen again (forms_in_menu_above null), or remove the link.`,
+							location,
+							{
+								linkUuid: entry.link.uuid,
+								role: entry.role,
+								targetName: name,
+								aboveModuleUuid,
+								aboveModuleName: aboveName,
+							},
+						),
+					);
+				}
+			const moduleFinding = moduleDestinationSharesFirstMenuCase(
+				doc,
+				form,
+				location,
 			);
+			if (moduleFinding !== undefined) errors.push(moduleFinding);
 		}
 	}
 	return errors;
+}
+
+/**
+ * The finding of a form's built-in `module` destination, after submit
+ * (stored or default) or as the otherwise, where the offered set withholds
+ * it first because the module opens through the first menu with its shared
+ * case. An `after-empty-search` registration form's navigation is the case
+ * list registration rules' to judge.
+ */
+function moduleDestinationSharesFirstMenuCase(
+	doc: BlueprintDoc,
+	form: Form,
+	location: {
+		readonly moduleUuid: Uuid;
+		readonly moduleName: string;
+		readonly formUuid: Uuid;
+		readonly formName: string;
+	},
+): ValidationError | undefined {
+	const { moduleUuid, formUuid } = location;
+	if (afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid)
+		return undefined;
+	const slot =
+		form.otherwise?.kind === "destination" &&
+		form.otherwise.destination === "module"
+			? ("otherwise" as const)
+			: effectivePostSubmit(doc, formUuid) === "module"
+				? ("post-submit" as const)
+				: undefined;
+	if (
+		slot === undefined ||
+		postSubmitNotOfferedReason(doc, formUuid, "module") !==
+			"menu-opens-with-first-menu-case"
+	)
+		return undefined;
+	const aboveModuleUuid = aboveModuleOf(doc, moduleUuid);
+	const aboveName = doc.modules[aboveModuleUuid]?.name ?? "";
+	const menuName = location.moduleName;
+	const when =
+		slot === "otherwise" ? "when no destination runs" : "after submit";
+	return validationError(
+		"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
+		"form",
+		`"${form.name}" goes to its module ${when}, and "${menuName}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${menuName}", and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${aboveName}" its own screen again (forms_in_menu_above null), or send "${form.name}" somewhere else ${when}.`,
+		location,
+		{
+			slot,
+			destination: "module",
+			targetName: menuName,
+			aboveModuleUuid,
+			aboveModuleName: aboveName,
+		},
+	);
 }

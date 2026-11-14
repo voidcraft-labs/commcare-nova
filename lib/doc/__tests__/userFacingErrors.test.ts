@@ -1063,6 +1063,34 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		},
 	);
 
+	it.each([
+		[
+			{ placement: "moment", property: "last_seen" },
+			'The condition for search field "Lookup" compares "last_seen" with a list of values. CommCare\'s search matches each listed value by its exact text, not by the moment it names. You can compare "last_seen" with each value in its own condition instead.',
+		],
+		[
+			{ placement: "anchor", property: "status" },
+			'The condition for search field "Lookup" compares "Case status (open or closed)" with a list of values. CommCare\'s search can compare a list of values only with case information your app saves, or with the case type. You can compare "Case status (open or closed)" with each value in its own condition instead.',
+		],
+		[
+			{ placement: "anchor" },
+			'The condition for search field "Lookup" compares this value with a list of values. CommCare\'s search can compare a list of values only with case information your app saves, or with the case type. You can compare it with each value in its own condition instead.',
+		],
+	])(
+		"names why a list of values can't stand beside is: %o",
+		(details, copy) => {
+			expect(
+				userFacingError(
+					finding("CASE_LIST_CSQL_NOT_REPRESENTABLE", {
+						reason: "value-list-placement",
+						inputLabel: "Lookup",
+						...details,
+					}),
+				),
+			).toBe(copy);
+		},
+	);
+
 	it("names the setting that reads Date closed where a device evaluates it", () => {
 		expect(
 			userFacingError(

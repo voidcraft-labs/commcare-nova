@@ -147,21 +147,6 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 				: previewScreenEntries(menuSource.doc, { kind: "menu", moduleUuid }),
 		[menuSource.doc, mode, moduleUuid],
 	);
-	const rowEntries = useMemo(
-		() => entries.filter((entry) => entry.kind !== "menu"),
-		[entries],
-	);
-	const tileEntries = useMemo(
-		() => entries.filter((entry) => entry.kind === "menu"),
-		[entries],
-	);
-	const children = useMemo(
-		() =>
-			tileEntries.flatMap(
-				(entry) => menuSource.modules[entry.moduleUuid] ?? [],
-			),
-		[tileEntries, menuSource.modules],
-	);
 	/* A submenu that shows its forms here is still this menu's child: it
 	 * needs the case chosen here before its forms open. */
 	const hasChildren = moduleHasChildren(menuSource, moduleUuid);
@@ -261,13 +246,9 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 			projectProse,
 		],
 	);
-	const hiddenRows = useMemo(
-		() => hiddenItemsOf(rowEntries),
-		[hiddenItemsOf, rowEntries],
-	);
-	const hiddenChildren = useMemo(
-		() => hiddenItemsOf(tileEntries),
-		[hiddenItemsOf, tileEntries],
+	const hiddenEntries = useMemo(
+		() => hiddenItemsOf(entries),
+		[hiddenItemsOf, entries],
 	);
 
 	/* The home screen already routes both redirecting shapes; this covers landing
@@ -431,6 +412,73 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		}
 	};
 
+	/* A submenu that keeps its own screen, as a tile in its place. */
+	const renderTile = (
+		entry: Extract<MenuScreenEntry, { kind: "menu" }>,
+		index: number,
+	) => {
+		const child = menuSource.modules[entry.moduleUuid];
+		if (child === undefined) return null;
+		const key = menuScreenEntryKey(entry);
+		const visibility = entryVisibility.get(key) ?? "shown";
+		if (visibility === "hidden") return null;
+		if (visibility === "pending") {
+			return <Skeleton key={key} className="h-[58px] w-full rounded-lg" />;
+		}
+		const childName =
+			(localizedValues.get(
+				makeTranslationUnitId("module", child.uuid, "name"),
+			) as string | undefined) ?? child.name;
+		const childCase = previewMenuCaseContext(
+			menuSource,
+			child.uuid,
+			menuCaseSelections,
+		);
+		return (
+			<motion.button
+				key={key}
+				type="button"
+				initial={{ opacity: 0, y: 12 }}
+				animate={{ opacity: 1, y: 0 }}
+				transition={{ delay: index * 0.06, duration: 0.3 }}
+				onClick={() => {
+					setPreviewCaseTarget(undefined);
+					if (childCase.requiredParentCase) {
+						setPreviewParentCaseRequest({
+							selectingModuleUuid: childCase.requiredParentCase.moduleUuid,
+							returnModuleUuids: [child.uuid],
+							cancelLocation: { kind: "module", moduleUuid },
+						});
+						navigate.openModule(childCase.requiredParentCase.moduleUuid);
+						return;
+					}
+					openModuleLanding(
+						navigate,
+						child.uuid,
+						moduleLanding({
+							isCaseFirst: caseFirstModules.has(child.uuid),
+							isBareCaseList: previewModuleScreenIsBareCaseList(
+								menuSource.doc,
+								child.uuid,
+							),
+							hasChildren: moduleHasChildren(menuSource, child.uuid),
+							hasSelectedCase: childCase.selectedCase !== undefined,
+						}),
+					);
+				}}
+				className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
+			>
+				<Icon
+					icon={tablerGridDots}
+					width="18"
+					height="18"
+					className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
+				/>
+				<div className="text-sm font-medium text-nova-text">{childName}</div>
+			</motion.button>
+		);
+	};
+
 	if (!mod) return null;
 	/* Suppress the form-menu flash while the redirect above navigates away. */
 	if (
@@ -511,8 +559,12 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 					</button>
 				)}
 
+			{/* One list in the projection's order, as a device lists the
+			 *  screen: a submenu's tile stands where its module stands among
+			 *  the forms of the menus that show them here. */}
 			<div className="space-y-2">
-				{rowEntries.map((entry, fIdx) => {
+				{entries.map((entry, fIdx) => {
+					if (entry.kind === "menu") return renderTile(entry, fIdx);
 					if (
 						mode !== "edit" &&
 						hasChildren &&
@@ -548,7 +600,6 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							/>
 						);
 					}
-					if (entry.kind !== "form") return null;
 					const form = menuSource.forms[entry.formUuid];
 					if (form === undefined) return null;
 					const formModuleUuid = entry.moduleUuid;
@@ -656,85 +707,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 					);
 				})}
 			</div>
-			<HiddenItemsReveal items={hiddenRows} />
-
-			{children.length > 0 && (
-				<div className="space-y-2">
-					{children.map((child, index) => {
-						const visibility =
-							entryVisibility.get(
-								menuScreenEntryKey({ kind: "menu", moduleUuid: child.uuid }),
-							) ?? "shown";
-						if (visibility === "hidden") return null;
-						if (visibility === "pending") {
-							return (
-								<Skeleton
-									key={child.uuid}
-									className="h-[58px] w-full rounded-lg"
-								/>
-							);
-						}
-						const childName =
-							(localizedValues.get(
-								makeTranslationUnitId("module", child.uuid, "name"),
-							) as string | undefined) ?? child.name;
-						const childCase = previewMenuCaseContext(
-							menuSource,
-							child.uuid,
-							menuCaseSelections,
-						);
-						return (
-							<motion.button
-								key={child.uuid}
-								type="button"
-								initial={{ opacity: 0, y: 12 }}
-								animate={{ opacity: 1, y: 0 }}
-								transition={{ delay: index * 0.06, duration: 0.3 }}
-								onClick={() => {
-									setPreviewCaseTarget(undefined);
-									if (childCase.requiredParentCase) {
-										setPreviewParentCaseRequest({
-											selectingModuleUuid:
-												childCase.requiredParentCase.moduleUuid,
-											returnModuleUuids: [child.uuid],
-											cancelLocation: { kind: "module", moduleUuid },
-										});
-										navigate.openModule(
-											childCase.requiredParentCase.moduleUuid,
-										);
-										return;
-									}
-									openModuleLanding(
-										navigate,
-										child.uuid,
-										moduleLanding({
-											isCaseFirst: caseFirstModules.has(child.uuid),
-											isBareCaseList: previewModuleScreenIsBareCaseList(
-												menuSource.doc,
-												child.uuid,
-											),
-											hasChildren: moduleHasChildren(menuSource, child.uuid),
-											hasSelectedCase: childCase.selectedCase !== undefined,
-										}),
-									);
-								}}
-								className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
-							>
-								<Icon
-									icon={tablerGridDots}
-									width="18"
-									height="18"
-									className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
-								/>
-								<div className="text-sm font-medium text-nova-text">
-									{childName}
-								</div>
-							</motion.button>
-						);
-					})}
-				</div>
-			)}
-			<HiddenItemsReveal items={hiddenChildren} />
+			<HiddenItemsReveal items={hiddenEntries} />
 		</ContentFrame>
 	);
 }

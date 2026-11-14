@@ -1020,10 +1020,12 @@ describe("CommCare Supply", () => {
 		caseListConfig([{ field: "case_name", header: "Name" }]);
 	/** A household app: Households holds its case list as its menu item
 	 *  beside a follow-up form, its kind held advanced where `held` says, and
-	 *  Visits holds a survey with the fields given. */
+	 *  Visits holds a survey, Stock count unless `formName` says otherwise,
+	 *  with the fields given. */
 	const supplyDoc = (options: {
 		readonly held?: boolean;
 		readonly menuItem?: boolean;
+		readonly formName?: string;
 		readonly fields?: readonly FieldSpec[];
 	}): BlueprintDoc =>
 		buildDoc(
@@ -1058,7 +1060,7 @@ describe("CommCare Supply", () => {
 						name: "Visits",
 						forms: [
 							{
-								name: "Stock count",
+								name: options.formName ?? "Stock count",
 								type: "survey" as const,
 								fields: [
 									f({ kind: "text", id: "count" }),
@@ -1079,6 +1081,14 @@ describe("CommCare Supply", () => {
 		);
 	const menuReason =
 		"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.";
+	const formReason = (name: string) =>
+		`${name} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`;
+	/** The codes of the gate's findings: a form's name holding the text is
+	 *  refused, so only a document the gate refuses gives a form reason. */
+	const findingCodes = (
+		doc: BlueprintDoc,
+		context = LOOKUP_CONTEXT_UNAVAILABLE,
+	) => runValidation(doc, context).map(({ code }) => code);
 
 	it("names an advanced menu whose case list is its own menu item", () => {
 		const doc = supplyDoc({ held: true });
@@ -1115,6 +1125,21 @@ describe("CommCare Supply", () => {
 			'Your place is instance<output value="&apos;(&apos;"/>&apos;commcaresession&apos;)/session/data/supply_point_id',
 		);
 		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
+	});
+
+	it("names a form whose source holds the text, after the menu, from a document the gate refuses", () => {
+		/* A form's name is plain text in the source (`<h:title>` and the data
+		 * root's `name`), the one place no output can cut it, and the gate
+		 * refuses it there (`FORM_TEXT_READ_AS_INSTANCE`). The emission is
+		 * read all the same, so this branch is what stands if some later
+		 * spelling writes the text whole. */
+		const name = `Stock at ${SUPPLY_POINT_SESSION_TEXT}`;
+		const doc = supplyDoc({ held: true, formName: name });
+		expect(findingCodes(doc)).toEqual(["FORM_TEXT_READ_AS_INSTANCE"]);
+		expect(commtrackReasons(doc, undefined)).toEqual([
+			menuReason,
+			formReason(name),
+		]);
 	});
 
 	it("names no form for a calculated value's literal holding the text, which the source writes split at its instance call", () => {
@@ -1160,28 +1185,35 @@ describe("CommCare Supply", () => {
 		doc.fieldOrder[formUuid] = [...(doc.fieldOrder[formUuid] ?? []), note];
 		rebuildFieldParent(doc);
 		expect(runValidation(doc, functionLookupContext)).toEqual([]);
+		/* The label is cut, so the admitted document gives no reason. */
 		expect(commtrackReasons(doc, functionLookupNaming)).toEqual([]);
+		/* A name holding the text, which the gate refuses, is read through
+		 * the same emission. A copy again, for the derivations kept above. */
+		const name = `Count at ${SUPPLY_POINT_SESSION_TEXT}`;
+		const named = structuredClone(doc);
+		named.forms[formUuid] = { ...named.forms[formUuid], name };
+		expect(findingCodes(named, functionLookupContext)).toEqual([
+			"FORM_TEXT_READ_AS_INSTANCE",
+		]);
+		expect(commtrackReasons(named, functionLookupNaming)).toEqual([
+			formReason(name),
+		]);
 		expect(
 			requiredConfirmations(
-				doc,
+				named,
 				{ lookupTables: true, places: false },
 				null,
 				functionLookupNaming,
-			).find((need) => need.kind === "commtrack-off"),
-		).toBeUndefined();
+			).find((need) => need.kind === "commtrack-off")?.reasons,
+		).toEqual([formReason(name)]);
 	});
 
-	it("names no form whose label holds a near miss", () => {
+	it("names no form whose name holds a near miss", () => {
+		/* The name is written whole, unlike a label, so the source holds the
+		 * near miss and the substring test is what answers. */
 		const doc = supplyDoc({
-			fields: [
-				f({
-					kind: "label",
-					id: "note",
-					label: proseText(
-						"Your place is instance('commcaresession')/session/data/supply_point",
-					),
-				}),
-			],
+			formName:
+				"Stock at instance('commcaresession')/session/data/supply_point",
 		});
 		expect(commtrackReasons(doc, undefined)).toEqual([]);
 	});

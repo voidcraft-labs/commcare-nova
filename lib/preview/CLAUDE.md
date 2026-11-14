@@ -1489,7 +1489,10 @@ visited-screen history. The wire owner's `previousEntryFrameChildren` also
 feeds `previousTaskProjection.ts`, which exposes stable destination and
 selection identities without wire names. `engine/previousTask.ts` resolves
 only those retained ordered selections against the submitting entry plus its
-receipt. Forms-first reopens the exact form's missing record selector;
+receipt, and lands the frame where `engine/frameLanding.ts::screenOfFrame`
+lands every frame (`previousTask.ts::previousTaskDestination`, over
+`previousTaskProjection.ts::previousTaskFrame`), so a menu that shows its forms
+above lands on the screen that lists them. Forms-first reopens the exact form's missing record selector;
 case-first returns to the module menu with its selected records and updated
 values. Computed slots remain runtime values, never invented selections of a
 newly created record. Browser and App Tests use this same resolver for both a
