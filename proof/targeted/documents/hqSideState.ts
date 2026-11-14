@@ -13,7 +13,8 @@
  *   which Nova's next update carries back as HQ held it, so
  *   `app_strings.txt` keeps it (defect 4, translations);
  * - "Auto Capture Location" on the settings page
- *   (`views/apps.py::edit_app_attr`), a key Nova's update leaves out for an
+ *   (`views/settings.py::edit_commcare_settings`, through
+ *   `views/apps.py::edit_app_attr`), a key Nova's update leaves out for an
  *   app that is not a Connect app, so HQ keeps it and each form's meta keeps
  *   its location (`xform.py::XForm._add_meta_2`; defect 4,
  *   `auto_gps_capture`), which the local archive of an app that is not a

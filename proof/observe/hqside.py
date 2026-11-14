@@ -10,8 +10,17 @@ HQ's URLconf and answered by the view it names, decorators and all.
 - ``uiTranslations``: for each language, the texts A holds for it with the person's beside them, posted as the UI
   translations page posts them (``translations/js/bootstrap5/translations.js``: ``doc_id``, ``lang`` and
   ``translations``, each JSON) to ``views/apps.py::edit_app_ui_translations``;
-- ``appAttributes``: each attribute posted as a setting's own save posts it (``{"hq": {attribute: value}}``) to
-  ``views/apps.py::edit_app_attr``;
+- ``appAttributes``: each attribute the person changes on the app settings page, where HQ lists it as an ``hq``
+  setting (``static/app_manager/json/commcare-app-settings.yml``), posted as that page posts it
+  (``{"hq": {...}}``) to ``views/settings.py::edit_commcare_settings`` (the page's save,
+  ``views/apps.py::get_app_view_context``' ``urls.save``). That view runs ``edit_commcare_profile`` (which, under
+  ``CUSTOM_PROPERTIES``, resets ``custom_properties`` to ``{}``) and then ``views/apps.py::edit_app_attr`` with
+  ``attr`` ``all``, which stores each attribute the body names under ``hq``. An attribute's own URL is no save the
+  page makes, and ``edit_app_attr`` answers it with 400 for every attribute outside its short list,
+  ``secure_submissions`` among them. The page's body names every setting it holds, and both views store only the
+  settings a body names, so a body naming the person's change stores what the page's save stores of it. The page
+  shows some of these settings to a previewer only (``preview: true``, ``commcare_settings.js``' ``visible``:
+  ``secure_submissions`` is one), so the person who saves one is a previewer;
 - ``buildProfiles``: the profiles posted as the language profiles page posts them (``{"profiles": [...]}``) to
   ``views/releases.py::LanguageProfilesView``;
 - ``lookupTable``: the table A holds under its tag as a person keeps it. A mobile worker, a group and a location
@@ -121,22 +130,19 @@ def ui_translations(unit, app_id, translations):
 
 
 def app_attributes(unit, app_id, attributes):
-    """Each app attribute saved as the settings page's save of it sends it."""
-    found = []
-    for attribute, value in sorted(attributes.items()):
-        body, content_type = _json_body({"hq": {attribute: value}})
-        found.append(
-            _answer(
-                unit,
-                "POST",
-                "edit_app_attr",
-                [unit.domain, app_id, attribute],
-                body,
-                content_type,
-                f"app attribute {attribute}",
-            )
+    """The app attributes saved as the app settings page saves them: one save, every attribute under ``hq``."""
+    body, content_type = _json_body({"hq": dict(sorted(attributes.items()))})
+    return [
+        _answer(
+            unit,
+            "POST",
+            "edit_commcare_settings",
+            [unit.domain, app_id],
+            body,
+            content_type,
+            f"app attributes {sorted(attributes)}",
         )
-    return found
+    ]
 
 
 def build_profiles(unit, app_id, profiles):

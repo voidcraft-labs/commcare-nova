@@ -387,7 +387,8 @@ archive, and proof 2 over `profile.ccpr` and each `app_strings.txt`.
 | HQ's build shows a difference no row of section 5 names | Where the archive misses something a row of section 5 already promises, it corrects the archive. Otherwise it puts the key to the kept test of section 4. Where no publish writes the key, nothing the document holds does something different under it, and the archive can write HQ's value from the stored source or state the difference in an advisory, its entry becomes TARGET-OWNED with a `KEPT_AT_HQ` row (`mirrors` or `states`). Where clause 2 or clause 3 fails, the value is content Nova has no place for: its entry moves to not-yet with owner `settings-nova-comes-to-own`, and the list of kept settings in `content/docs/publishing.mdx` (9.7) loses the setting where it names it. |
 
 `custom_base_url` is not in this document. It is shown on the base `hq-kept-settings` (part 14, section
-6.2), which posts it through `views/apps.py::edit_app_attr`, and a Vitest over
+6.2), which posts it through the app settings page's save (`views/settings.py::edit_commcare_settings`,
+which stores it through `views/apps.py::edit_app_attr` with `all`; the attribute's own URL answers 400), and a Vitest over
 `profileServerProperties` holds the vectors, one of them a base URL with a path (section 10).
 
 **Run 2: Core's fuzzy match, natively.** Where: the work's own CI, in the proof lane every pull
@@ -1206,8 +1207,9 @@ setting from `app.profile`, and four keys from elsewhere.
 `receiver_secure_post_with_app_id` (`receiverwrapper/urls.py`: `secure/<app_id>/`) over
 `receiver_post_with_app_id`. Writers: HQ's new-app views copy the project space's setting
 (`views/apps.py::new_app`, `default_new_app`), its security page rewrites every app when the setting
-changes (`domain/forms.py::PrivacySecurityForm.save`), and its app settings save takes the key
-(`views/apps.py::edit_app_attr`). The import that makes Nova's app copies nothing, so that app starts
+changes (`domain/forms.py::PrivacySecurityForm.save`), and its app settings page's save takes the key
+(`views/settings.py::edit_commcare_settings`, through `views/apps.py::edit_app_attr` with `all`; the page shows it
+to a previewer only, `preview: true`, and `edit_app_attr` answers the attribute's own URL with 400). The import that makes Nova's app copies nothing, so that app starts
 at `False`. Nova never sends the key. Clause 2: a URL, nothing a form asks or stores. Clause 3: the
 `.ccz` writes `PostURL` (6.3). Lifecycle: alive. Kept.
 
@@ -1219,7 +1221,8 @@ stored (credentials, the host's own letters, an explicit default port) reach a U
 and a fragment on the base are dropped. The suite's own request URLs do not follow it: the claim, search and case fixture
 URLs are `absolute_reverse` (`remote_requests.py`, `entries.py`). Excluded from an update. Lifecycle:
 flag-gated (`CUSTOM_APP_BASE_URL`) on the Settings page; `views/apps.py::edit_app_attr` takes the key
-whatever the flag. Kept; the `.ccz` mirrors the three profile URLs on the base's scheme and netloc.
+whatever the flag, under `all` (the page's save, `views/settings.py::edit_commcare_settings`), never at the
+attribute's own URL, which answers 400. Kept; the `.ccz` mirrors the three profile URLs on the base's scheme and netloc.
 
 **`build_spec`.** Excluded from an update and deleted on a create, so the server's default build stands
 and a person sets it in HQ. Nova reads its version at publish and stops below 2.57

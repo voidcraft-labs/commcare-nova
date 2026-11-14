@@ -18,9 +18,12 @@ the target.
 ``targeted-hq-side-state`` and ``targeted-hq-side-lookup`` are each published as Nova's first publish leaves
 them (a workbook where the document has lookup tables, then the create) and their saves made over it: the first
 holds the UI translation, location capture, build profile, add-ons and app settings saves, and its next publish is
-applied over them; the second holds the lookup table a person keeps, over which Nova's next publish stops. A
-project space without ``BUILD_PROFILES`` is the refusal: HQ's language profiles page refuses the save, and the
-harness says so rather than going on.
+applied over them; the second holds the lookup table a person keeps, over which Nova's next publish stops.
+``targeted-kept-values`` holds every value a ``.ccz`` made for the project space mirrors, secure submissions among
+them, which HQ takes only through the app settings page's one save (``views/settings.py::edit_commcare_settings``)
+and answers with 400 at the attribute's own URL (``views/apps.py::edit_app_attr``). A project space without
+``BUILD_PROFILES`` is the refusal: HQ's language profiles page refuses the save, and the harness says so rather
+than going on.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from proof.hq.check import hq_check
 
 STATE = "targeted-hq-side-state"
 LOOKUP = "targeted-hq-side-lookup"
+KEPT = "targeted-kept-values"
 
 
 def _document(name):
@@ -42,8 +46,8 @@ def _document(name):
     # without it is a broken emission, which fails here by name where a skip would pass for saves nothing made.
     assert name in documents, (
         f"The corpus this run reads holds no {name}, a targeted document every emission writes"
-        " (proof/targeted/documents/hqSideState.ts, hqSideLookup.ts), so HQ-side saves were held on nothing. Emit"
-        " the corpus again (proof/corpus/emit.ts) and read its log for why the document was left out."
+        " (proof/targeted/documents/hqSideState.ts, hqSideLookup.ts, keptValues.ts), so HQ-side saves were held on"
+        " nothing. Emit the corpus again (proof/corpus/emit.ts) and read its log for why the document was left out."
     )
     return documents[name]
 
@@ -93,6 +97,44 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
             "add_ons": saves["addOns"],
             "properties": saves["profileProperties"],
             "build_profiles": {"mandarin-only": ["zho"]},
+        }
+        assert kept(operations.held_app(unit, app_id)) == saved
+
+        refusal, lookups = publish.update(unit, app_id, export.republish, "B")
+        assert _landed(refusal, lookups), (refusal, lookups)
+        assert kept(operations.held_app(unit, app_id)) == saved
+
+
+def test_every_value_a_local_archive_mirrors_lands_in_hq_and_novas_next_publish_keeps_it(hq, core_runner):
+    from proof.hq import operations
+    from proof.observe import hqside, publish
+
+    document = _document(KEPT)
+    export = document.exports["minimum"]
+    saves = document.hq_side
+    assert saves["appAttributes"]["secure_submissions"] is True, saves["appAttributes"]
+    with hq_check(export.configuration.hq()) as (unit, _):
+        app_id = _created(unit, export)
+        held = hqside.save(unit, _ops(unit), app_id, saves)
+        assert sorted(held) == sorted(set(saves) - set(hqside.STATEMENTS))
+        assert saves["republish"] == "proceeds"
+
+        def kept(app):
+            return {
+                "translations": {
+                    lang: {key: app.translations.get(lang, {}).get(key) for key in texts}
+                    for lang, texts in saves["uiTranslations"].items()
+                },
+                "attributes": {key: getattr(app, key) for key in saves["appAttributes"]},
+                "properties": {key: app.profile["properties"].get(key) for key in saves["profileProperties"]},
+                "features": {key: app.profile["features"].get(key) for key in saves["profileFeatures"]},
+            }
+
+        saved = {
+            "translations": saves["uiTranslations"],
+            "attributes": saves["appAttributes"],
+            "properties": saves["profileProperties"],
+            "features": saves["profileFeatures"],
         }
         assert kept(operations.held_app(unit, app_id)) == saved
 

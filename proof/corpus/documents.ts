@@ -159,8 +159,9 @@ export interface TargetedEdit {
  * - `uiTranslations`: on the app's UI translations page, each language's
  *   texts by key, saved beside the texts A holds for that language
  *   (`views/apps.py::edit_app_ui_translations`);
- * - `appAttributes`: on the app's settings page, each attribute's value
- *   (`views/apps.py::edit_app_attr`);
+ * - `appAttributes`: on the app's settings page, each attribute's value,
+ *   in the page's one save (`views/settings.py::edit_commcare_settings`,
+ *   which stores each through `views/apps.py::edit_app_attr` with `all`);
  * - `buildProfiles`: on the app's language profiles page, each profile's
  *   id, name and language codes (`views/releases.py::LanguageProfilesView`);
  * - `lookupTable`: the table Nova's publish uploaded under `tag`, as a
