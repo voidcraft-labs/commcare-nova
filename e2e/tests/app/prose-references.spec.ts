@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test";
 import AdmZip from "adm-zip";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
@@ -6,6 +7,26 @@ import { replaceRichText } from "../../lib/richText";
 
 const source = FORM_SECTIONS_SEED.aboutYou.nameFieldUuid;
 test.use({ actionTimeout: 15_000 });
+
+/** A calculated value's formula reads `shown`, its question drawn as the
+ * question's chip standing for `#form/about_you/your_name`. */
+async function expectFormula(formula: Locator, shown: string) {
+	await expect(formula).toHaveText(shown);
+	const chip = formula.locator("[data-ref-raw]");
+	await expect(chip).toHaveCount(1);
+	await expect(chip).toHaveAttribute(
+		"data-ref-raw",
+		"#form/about_you/your_name",
+	);
+	await expect(chip).toHaveText("Your name");
+}
+
+/** The formula is empty: CodeMirror draws its placeholder only over an empty
+ * document, and the editor holds nothing beside it. */
+async function expectEmptyFormula(formula: Locator) {
+	await expect(formula.locator(".cm-placeholder")).toBeVisible();
+	await expect(formula).toHaveText("A formula's result shows here");
+}
 
 test("inspector explicitly converts literal references, preserves drafts and saves identities", {
 	tag: "@seed:sections",
@@ -390,13 +411,13 @@ test("inserts, edits and removes calculated values in a hint and shows their res
 
 	// Each value opens on its own formula.
 	await openValue(0);
-	await expect(formula).toHaveText("string-length(#form/about_you/your_name)");
+	await expectFormula(formula, "string-length(Your name)");
 	await page.keyboard.press("Escape");
 	await openValue(1);
-	await expect(formula).toHaveText("concat(#form/about_you/your_name, '!')");
+	await expectFormula(formula, "concat(Your name, '!')");
 	await page.keyboard.press("ControlOrMeta+a");
 	await page.keyboard.press("Backspace");
-	await expect(formula).toHaveText("");
+	await expectEmptyFormula(formula);
 	await page.keyboard.type("concat(#form/about_you/your_name, '?')");
 	await popover.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(hint.locator("[data-prose-value]").nth(1)).toHaveAttribute(
@@ -408,7 +429,7 @@ test("inserts, edits and removes calculated values in a hint and shows their res
 	await openValue(1);
 	await page.keyboard.press("ControlOrMeta+a");
 	await page.keyboard.press("Backspace");
-	await expect(formula).toHaveText("");
+	await expectEmptyFormula(formula);
 	await page.keyboard.type("#form/about_you/your_name");
 	await popover.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(hint.locator("[data-prose-value]")).toHaveCount(1);
@@ -498,14 +519,14 @@ test("inserts, edits and removes calculated values in a label on the canvas", {
 
 	// Two values in one label each open on their own formula.
 	await openValue(0);
-	await expect(formula).toHaveText("string-length(#form/about_you/your_name)");
+	await expectFormula(formula, "string-length(Your name)");
 	await page.keyboard.press("Escape");
 	await expect(popover).toHaveCount(0);
 	await openValue(1);
-	await expect(formula).toHaveText("concat(#form/about_you/your_name, '!')");
+	await expectFormula(formula, "concat(Your name, '!')");
 	await page.keyboard.press("ControlOrMeta+a");
 	await page.keyboard.press("Backspace");
-	await expect(formula).toHaveText("");
+	await expectEmptyFormula(formula);
 	await page.keyboard.type("concat(#form/about_you/your_name, '?')");
 	await popover.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(popover).toHaveCount(0);
@@ -531,9 +552,12 @@ test("inserts, edits and removes calculated values in a label on the canvas", {
 	// The closed label draws each value as its chip.
 	await expect(main.locator("[data-prose-value]")).toHaveCount(2);
 
-	// The running form shows each value's result in the label.
+	// The running form shows each value's result in the label, and the
+	// label names the question's input: before an answer the values work
+	// out over an empty name. The input's name opens with the question's
+	// position, so the label is matched inside it.
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
-	await main.getByRole("textbox", { name: /^Hello / }).fill("Asha");
+	await main.getByRole("textbox", { name: "Hello 0 letters, ?" }).fill("Asha");
 	await expect(
 		main.getByText("Hello 4 letters, Asha?", { exact: true }),
 	).toBeVisible();

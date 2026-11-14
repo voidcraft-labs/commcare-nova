@@ -29,20 +29,16 @@ function savedWith(page: Page, appId: string, parts: readonly string[]) {
 	});
 }
 
-/** Open the insertion menu at the last gap of the form that offers questions
- *  (the root gaps of a sectioned form offer a new section alone). */
+/** Open the insertion menu at the end of the form's last section. The form's
+ *  last gap is the root's, after every section, and offers a new section
+ *  alone; the gap before it closes the last section and offers questions. */
 async function openQuestionMenu(page: Page) {
 	const gaps = page.locator("[data-insertion-point] > button");
 	await expect(gaps.first()).toBeAttached();
+	await gaps.nth((await gaps.count()) - 2).click();
 	const input = page.getByRole("menuitem", { name: "Input", exact: true });
-	for (let index = (await gaps.count()) - 1; index >= 0; index--) {
-		await gaps.nth(index).click();
-		await expect(page.getByRole("menu").first()).toBeVisible();
-		if ((await input.count()) > 0) return input;
-		await page.keyboard.press("Escape");
-		await expect(page.getByRole("menu")).toHaveCount(0);
-	}
-	throw new Error("No insertion gap in the form offers questions.");
+	await expect(input).toBeVisible();
+	return input;
 }
 
 test("the Phone number entry, its keypad switch, and each platform's keypad in Preview", {

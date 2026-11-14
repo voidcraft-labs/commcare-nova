@@ -3,7 +3,8 @@
 // cast keeps the written date and moves only the clock, so the stored text is
 // read in the device's own date and clock first
 // (`lib/commcare/xpath/wire/instant.ts::deviceInstantText`), and Preview
-// evaluates the same printed tree. A Hidden Value calculated as the stored
+// evaluates the same printed tree. A starting value written as a literal
+// moment is read the same way. A Hidden Value calculated as the stored
 // value holds its text as it is. Core's own reading in every device zone is
 // the lane's `StoredInstantRuntimeTest`.
 
@@ -86,6 +87,40 @@ function revisit() {
 	return input;
 }
 
+/** A survey whose date-and-time question starts on a written moment: a
+ * literal with an offset no device zone here shares. */
+const WRITTEN = "2024-01-15T14:30:00.000-05:00";
+
+function written() {
+	const doc = buildDoc({
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						uuid: FORM,
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								id: "recorded_at",
+								kind: "datetime",
+								label: "Recorded at",
+								default_value: `'${WRITTEN}'`,
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const input = buildEngineInput(doc, FORM, null);
+	if (!input) throw new Error("Missing form input");
+	return input;
+}
+
 function inZone(zone: string, run: () => void): void {
 	const original = process.env.TZ;
 	try {
@@ -144,6 +179,20 @@ describe("a date-and-time question starting on a stored moment", () => {
 			});
 		},
 	);
+
+	// The written literal is classed an instant (`instant.ts::mayHoldInstantText`),
+	// so it is read in the device's own date and clock before the cast, as a
+	// stored value is: in Kolkata and Kiritimati the moment falls on January 16,
+	// and a cast of the written text would open a whole day earlier.
+	it.each(ZONES)("opens on a written moment in %s", (zone) => {
+		const input = written();
+		inZone(zone, () => {
+			const engine = new FormEngine(input);
+			expect(engine.getState("/data/recorded_at").value).toBe(
+				instantDatetimeValue(Date.parse(WRITTEN), zone),
+			);
+		});
+	});
 
 	it("opens blank on a case with no value", () => {
 		const engine = new FormEngine(
