@@ -967,6 +967,44 @@ describe("compileExpression — round-trip — coercion arms", () => {
 		expect(rows).toEqual([{ matches: true }]);
 	});
 
+	test("date-coerce of a date and time is the viewer's day of the moment where a device reads it, and the written day in HQ's search", async ({
+		db,
+	}) => {
+		// A device reads the stored text in its own date and clock before
+		// `date()` parses it (`instant.ts::deviceInstantText`), so 03:30 UTC on
+		// 2 January is 1 January in New York and 2 January in Kolkata; HQ's
+		// search takes the day as written.
+		const day = async (overrides: Partial<ExpressionCompileContext>) => {
+			const compiled = compileExpression(
+				dateCoerce(term(datetimeLiteral("2026-01-02T03:30:00Z"))),
+				makeCtx(db, overrides),
+			);
+			const rows = await db
+				.selectFrom(sql`(values (1))`.as("v"))
+				.select(sql<string>`(${compiled})::text`.as("day"))
+				.execute();
+			return rows[0]?.day;
+		};
+		expect(
+			await day({
+				reading: "casedb",
+				bindings: { viewerTimeZone: "America/New_York" },
+			}),
+		).toBe("2026-01-01");
+		expect(
+			await day({
+				reading: "casedb",
+				bindings: { viewerTimeZone: "Asia/Kolkata" },
+			}),
+		).toBe("2026-01-02");
+		expect(
+			await day({
+				reading: "search",
+				bindings: { viewerTimeZone: "America/New_York" },
+			}),
+		).toBe("2026-01-02");
+	});
+
 	test("double casts a numeric string to numeric", async ({ db }) => {
 		// `42.5::numeric > 42` rules out a regression that emitted
 		// `::int` (which would truncate) or `::text` (which would

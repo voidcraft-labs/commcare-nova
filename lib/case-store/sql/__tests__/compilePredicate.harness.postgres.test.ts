@@ -41,6 +41,7 @@ import {
 	switchCase,
 	switchExpr,
 	term,
+	timeLiteral,
 	whenInput,
 	within,
 } from "@/lib/domain/expression/builders";
@@ -51,6 +52,7 @@ import {
 import { inferRecordQuery } from "@/lib/domain/expression/typeChecker";
 import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
+import { storageValueFromEvaluation } from "../../postgres/submissionEnvelope";
 import {
 	compilePredicate,
 	type PredicateCompileContext,
@@ -2058,7 +2060,7 @@ test("a list of values matches each item as the exact text the case holds, a num
 	db,
 }) => {
 	await seedProperties(db, [
-		["five", { age: 5, visit_time: "10:00:00", tags: ["urgent", "home"] }],
+		["five", { age: 5, tags: ["urgent", "home"] }],
 		["thirty", { age: 30 }],
 		["empty", { nickname: "" }],
 		["absent", {}],
@@ -2085,12 +2087,6 @@ test("a list of values matches each item as the exact text the case holds, a num
 		await matchedIds(db, eq(prop("patient", "age"), list("5", 30))),
 	).toEqual(["five", "thirty"]);
 	expect(
-		await matchedIds(db, eq(prop("patient", "visit_time"), list("10:00"))),
-	).toEqual([]);
-	expect(
-		await matchedIds(db, eq(prop("patient", "visit_time"), list("10:00:00"))),
-	).toEqual(["five"]);
-	expect(
 		await matchedIds(db, eq(prop("patient", "tags"), list("urgent home"))),
 	).toEqual(["five"]);
 	// A blank item finds the blank value, absent or empty, on a number too.
@@ -2106,6 +2102,76 @@ test("a list of values matches each item as the exact text the case holds, a num
 	expect(
 		await matchedIds(db, neq(prop("patient", "age"), list("abc"))),
 	).toEqual(["absent", "empty", "five", "thirty"]);
+});
+
+test("a list of values matches a time by the wall clock Nova stores and a date by the text a device writes, as a single value does", async ({
+	db,
+}) => {
+	// Each row holds what Nova's writer stores for the text a device writes
+	// (`TimeData.uncast`'s `HH:MM:SS.mmm`, `DateData.uncast`'s
+	// `yyyy-MM-dd`), the time with its `Z` storage tag; one row is the
+	// pre-millisecond writer's spelling and one an imported time's own offset.
+	const stored = (value: string, type: "time" | "date") =>
+		storageValueFromEvaluation(value, type);
+	expect(stored("10:00:00.000", "time")).toBe("10:00:00.000Z");
+	await seedProperties(db, [
+		[
+			"ten",
+			{
+				visit_time: stored("10:00:00.000", "time"),
+				dob: stored("2026-02-01", "date"),
+			},
+		],
+		["half-past", { visit_time: "10:30:00Z" }],
+		["imported", { visit_time: stored("11:00:00.000+05:00", "time") }],
+		["absent", {}],
+	]);
+	const list = (...values: string[]): Expression => ({
+		kind: "value-list",
+		items: values.map((value) => term(literal(value))) as [
+			Expression,
+			...Expression[],
+		],
+	});
+	const visitTime = prop("patient", "visit_time");
+	// The text a device writes, and so the text CommCare HQ's terms match.
+	expect(await matchedIds(db, eq(visitTime, list("10:00:00.000")))).toEqual([
+		"ten",
+	]);
+	expect(
+		await matchedIds(db, eq(visitTime, list("10:30:00.000", "11:00:00.000"))),
+	).toEqual(["half-past", "imported"]);
+	// A single value's equality reads the same typed time, so the two agree.
+	for (const item of ["10:00:00.000", "10:30:00.000", "11:00:00.000"])
+		expect(await matchedIds(db, eq(visitTime, timeLiteral(item)))).toEqual(
+			await matchedIds(db, eq(visitTime, list(item))),
+		);
+	// Every spelling of the same clock finds the case, where HQ's exact term
+	// finds only the device's own spelling.
+	expect(
+		await matchedIds(db, eq(visitTime, list("10:00", "10:00:00.000Z"))),
+	).toEqual(["ten"]);
+	// An item that reads as no time matches no time, and its negation keeps
+	// every case; a blank item finds the case that holds none.
+	expect(await matchedIds(db, eq(visitTime, list("ten o'clock")))).toEqual([]);
+	expect(await matchedIds(db, neq(visitTime, list("ten o'clock")))).toEqual([
+		"absent",
+		"half-past",
+		"imported",
+		"ten",
+	]);
+	expect(await matchedIds(db, eq(visitTime, list("", "10:00:00.000")))).toEqual(
+		["absent", "ten"],
+	);
+	expect(await matchedIds(db, neq(visitTime, list("10:00:00.000")))).toEqual([
+		"absent",
+		"half-past",
+		"imported",
+	]);
+	// A date is the text a device writes and Nova stores, exactly.
+	const dob = prop("patient", "dob");
+	expect(await matchedIds(db, eq(dob, list("2026-02-01")))).toEqual(["ten"]);
+	expect(await matchedIds(db, eq(dob, list("2026-2-1")))).toEqual([]);
 });
 
 test("a choice between clauses takes the else branch when its condition reads nothing", async ({

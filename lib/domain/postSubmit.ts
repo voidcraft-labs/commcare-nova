@@ -91,10 +91,31 @@ export interface PostSubmitModuleFacts extends PostSubmitMenuShape {
 	readonly parentFormsInMenuAbove: boolean;
 }
 
-/** The menu shape of `moduleUuid`, as the after-submit rules read it. */
+/**
+ * One pass's reading of `menuScreens.ts::firstMenuOpensOneCase`: worked out
+ * at the first form that needs it, then the same answer for the rest of the
+ * pass. A pass holds one only while no write it makes changes the menus, the
+ * forms' types or which menu holds which form, which is all the fact reads;
+ * a reducer's own pass writes only after-submit slots. Nothing keeps it past
+ * the pass, so it never outlives a reducer's write to the same draft.
+ */
+export type FirstMenuCaseRead = () => boolean;
+
+export function firstMenuCaseRead(doc: PostSubmitDoc): FirstMenuCaseRead {
+	let value: boolean | undefined;
+	return () => {
+		value ??= firstMenuOpensOneCase(doc);
+		return value;
+	};
+}
+
+/** The menu shape of `moduleUuid`, as the after-submit rules read it.
+ *  `firstMenuCase` is the pass's reading of the shared first-menu case; a
+ *  call with none reads it afresh. */
 export function postSubmitModuleFacts(
 	doc: PostSubmitDoc,
 	moduleUuid: Uuid,
+	firstMenuCase: FirstMenuCaseRead = firstMenuCaseRead(doc),
 ): PostSubmitModuleFacts | undefined {
 	const mod = doc.modules[moduleUuid];
 	if (mod === undefined) return undefined;
@@ -125,7 +146,7 @@ export function postSubmitModuleFacts(
 		opensWithFirstMenuCase:
 			mod.formsInMenuAbove !== true &&
 			parent?.formsInMenuAbove === true &&
-			firstMenuOpensOneCase(doc),
+			firstMenuCase(),
 	};
 }
 
@@ -180,8 +201,9 @@ export function postSubmitDestinationsOfferedFor(
 export function postSubmitDestinationsOffered(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
+	firstMenuCase?: FirstMenuCaseRead,
 ): PostSubmitDestination[] {
-	const facts = factsOfForm(doc, formUuid);
+	const facts = factsOfForm(doc, formUuid, firstMenuCase);
 	if (facts === undefined) return ["app_home", "firstMenu"];
 	return postSubmitDestinationsOfferedFor(facts);
 }
@@ -194,9 +216,10 @@ export function postSubmitDestinationsOffered(
 export function otherwiseDestinationsOffered(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
+	firstMenuCase?: FirstMenuCaseRead,
 ): OtherwiseDestination[] {
 	const offered = new Set<PostSubmitDestination>(
-		postSubmitDestinationsOffered(doc, formUuid),
+		postSubmitDestinationsOffered(doc, formUuid, firstMenuCase),
 	);
 	return OTHERWISE_DESTINATIONS.filter((destination) =>
 		offered.has(destination),
@@ -224,8 +247,9 @@ export function postSubmitNotOfferedReason(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
 	destination: PostSubmitDestination,
+	firstMenuCase?: FirstMenuCaseRead,
 ): PostSubmitNotOfferedReason | undefined {
-	const facts = factsOfForm(doc, formUuid);
+	const facts = factsOfForm(doc, formUuid, firstMenuCase);
 	if (facts === undefined) return undefined;
 	return reasonsThatHold(facts).find((reason) =>
 		WITHHELD_BY[reason].includes(destination),
@@ -236,10 +260,14 @@ export function postSubmitNotOfferedReason(
 export function defaultPostSubmitOf(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
+	firstMenuCase?: FirstMenuCaseRead,
 ): PostSubmitDestination | undefined {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return undefined;
-	return defaultPostSubmit(form.type, factsOfForm(doc, formUuid) ?? {});
+	return defaultPostSubmit(
+		form.type,
+		factsOfForm(doc, formUuid, firstMenuCase) ?? {},
+	);
 }
 
 /**
@@ -251,18 +279,20 @@ export function defaultPostSubmitOf(
 export function effectivePostSubmit(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
+	firstMenuCase?: FirstMenuCaseRead,
 ): PostSubmitDestination | undefined {
 	const form = doc.forms[formUuid];
 	if (form === undefined || form.formLinks !== undefined) return undefined;
-	return form.postSubmit ?? defaultPostSubmitOf(doc, formUuid);
+	return form.postSubmit ?? defaultPostSubmitOf(doc, formUuid, firstMenuCase);
 }
 
 function factsOfForm(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
+	firstMenuCase?: FirstMenuCaseRead,
 ): PostSubmitModuleFacts | undefined {
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	return moduleUuid === undefined
 		? undefined
-		: postSubmitModuleFacts(doc, moduleUuid);
+		: postSubmitModuleFacts(doc, moduleUuid, firstMenuCase);
 }

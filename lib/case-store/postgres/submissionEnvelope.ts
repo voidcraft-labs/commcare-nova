@@ -73,7 +73,7 @@ import type { Expression as DomainExpression } from "@/lib/domain/expression/typ
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	caseDatetimeValue,
-	hqInstantText,
+	caseInstantText,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
 import {
@@ -774,8 +774,11 @@ export function storageValueFromEvaluation(
 			// with six fraction digits and `Z`, the text a phone writes too. A
 			// `Date` came back from a pg `timestamptz` and already denotes an
 			// exact instant; only a string can still be the naive wall clock
-			// a form answer carries, read in the viewer's zone.
-			if (value instanceof Date) return hqInstantText(value.getTime());
+			// a form answer carries, read in the viewer's zone. A moment whose
+			// UTC year has no four digits (a literal's offset or a date added
+			// to past 9999) keeps an offset that gives it one, as the device's
+			// own spelling of such a literal does.
+			if (value instanceof Date) return caseInstantText(value.getTime());
 			return caseDatetimeValue(String(value), zone);
 		}
 		case "time": {

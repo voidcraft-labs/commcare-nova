@@ -41,7 +41,11 @@ import { applyAppMutation } from "./app";
 import { applyAutomationMutation } from "./automations";
 import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
-import { applyModuleMutation } from "./modules";
+import {
+	applyModuleMutation,
+	reconcileFirstMenuCaseChange,
+	watchFirstMenuCase,
+} from "./modules";
 import { applyOrganizationMutation } from "./organization";
 import { applyHoldPlacements } from "./placements";
 import { applyUserMutation } from "./users";
@@ -108,9 +112,15 @@ function dispatchMutation(
 		case "removeSearchInput":
 		case "moveSearchInput":
 		case "setCaseListMeta":
-		case "setCaseListMenuItem":
+		case "setCaseListMenuItem": {
+			// A write of a menu or a form can turn whether every form listed
+			// from a menu above opens one chosen case, which the after-submit
+			// destinations of the submenus under those menus read.
+			const watch = watchFirstMenuCase(draft);
 			applyModuleMutation(draft, mut);
+			reconcileFirstMenuCaseChange(draft, watch);
 			return;
+		}
 		case "addForm":
 		case "removeForm":
 		case "moveForm":
@@ -121,9 +131,13 @@ function dispatchMutation(
 		case "removeFormLink":
 		case "moveFormLink":
 		case "setFormOtherwise":
-		case "setFormMedia":
+		case "setFormMedia": {
+			// As for a menu's write above.
+			const watch = watchFirstMenuCase(draft);
 			applyFormMutation(draft, mut);
+			reconcileFirstMenuCaseChange(draft, watch);
 			return;
+		}
 		case "addField":
 		case "removeField":
 		case "moveField":

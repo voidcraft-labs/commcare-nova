@@ -151,4 +151,22 @@ describe("the value a row may keep beside its siblings", () => {
 			"This value holds both an apostrophe and a double quote. Keeping one kind works.",
 		);
 	});
+
+	it("refuses a value CommCare HQ reads as a data source, offering the gate's repair", () => {
+		// The value is the text of the choice's <value> in the form's source,
+		// where HQ's build reads instance('…') as a data source; the box keeps
+		// the value as typed, so the refusal stands beneath the row.
+		const draft = [
+			option("Clinic", "instance_abc"),
+			option("Other clinic", "instance('abc')"),
+			option("Spaced", "instance(\u001c'abc')"),
+			option("Word", "instance"),
+		];
+		expect(optionValueRefusal(draft, 1)).toBe(
+			'CommCare HQ reads this value as a data source when it builds the form, not as a choice. "instance_abc_2" works.',
+		);
+		expect(optionValueRefusal(draft, 2)).toMatch(/^CommCare HQ reads/);
+		expect(optionValueRefusal(draft, 0)).toBeUndefined();
+		expect(optionValueRefusal(draft, 3)).toBeUndefined();
+	});
 });

@@ -61,6 +61,7 @@ import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
 import type {
 	PreviewAfterSubmitStack,
+	PreviewCaseListRegistrationEntry,
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
@@ -267,6 +268,13 @@ export interface BuilderSessionState {
 	 *  the form. Cleared on every preview-mode toggle (see `setPreviewing`)
 	 *  so previewing a form fresh never reloads a stale case. */
 	previewCaseTarget: PreviewCaseTarget | undefined;
+	/** The form entry a case list's Register action opened, while the
+	 *  running app stays on that launch's path (`PreviewShell` ends it at any
+	 *  other location, `FormScreen` at its submission). Cleared with the
+	 *  case target everywhere it is. */
+	previewCaseListRegistrationEntry:
+		| PreviewCaseListRegistrationEntry
+		| undefined;
 	previewTaskContinuation: PreviewTaskContinuation | undefined;
 	/** The after-submit frames a submission left pending: ephemeral like
 	 *  `previewTaskContinuation`, and cleared everywhere it is, and when
@@ -696,6 +704,11 @@ export interface BuilderSessionState {
 	 *  case list feeds and the selected case. No-ops when shallow-equal so
 	 *  repeated sets don't notify subscribers. */
 	setPreviewCaseTarget: (target: PreviewCaseTarget | undefined) => void;
+	/** Set (or end) the Register launch's form entry. No-ops when the same
+	 *  launch is set again. */
+	setPreviewCaseListRegistrationEntry: (
+		entry: PreviewCaseListRegistrationEntry | undefined,
+	) => void;
 	setPreviewTaskContinuation: (
 		task: PreviewTaskContinuation | undefined,
 	) => void;
@@ -886,6 +899,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewing: false,
 				activeFieldId: undefined,
 				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
+				previewCaseListRegistrationEntry: undefined as
+					| PreviewCaseListRegistrationEntry
+					| undefined,
 				previewTaskContinuation: undefined as
 					| PreviewTaskContinuation
 					| undefined,
@@ -1096,6 +1112,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							...(confirmedProjectChanged
 								? {
 										previewCaseTarget: undefined,
+										previewCaseListRegistrationEntry: undefined,
 										previewTaskContinuation: undefined,
 										previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 										previewEntryPointLaunch: undefined,
@@ -1302,6 +1319,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewCaseTarget: launch.formTarget,
+						previewCaseListRegistrationEntry: undefined,
 						previewMenuCaseSelections: launch.menuSelections,
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
@@ -1340,6 +1358,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						set({
 							previewing: true,
 							previewCaseTarget: undefined,
+							previewCaseListRegistrationEntry: undefined,
 							previewTaskContinuation: undefined,
 							previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 							previewEntryPointLaunch: undefined,
@@ -1376,6 +1395,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewAtDeviceHome: false,
 						previewDeviceSyncedAt: undefined,
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
@@ -1405,6 +1425,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewPersonaUuid: personaUuid,
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
@@ -1428,6 +1449,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewPlatform: platform,
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
@@ -1480,6 +1502,18 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return;
 					}
 					set({ previewCaseTarget: target });
+				},
+				setPreviewCaseListRegistrationEntry(
+					entry: PreviewCaseListRegistrationEntry | undefined,
+				) {
+					const current = get().previewCaseListRegistrationEntry;
+					if (
+						current?.hostModuleUuid === entry?.hostModuleUuid &&
+						current?.moduleUuid === entry?.moduleUuid &&
+						current?.formUuid === entry?.formUuid
+					)
+						return;
+					set({ previewCaseListRegistrationEntry: entry });
 				},
 				setPreviewTaskContinuation(task: PreviewTaskContinuation | undefined) {
 					set({ previewTaskContinuation: task });
@@ -1536,6 +1570,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							: EMPTY_AFTER_SUBMIT_STACK;
 					if (
 						current.previewCaseTarget === undefined &&
+						current.previewCaseListRegistrationEntry === undefined &&
 						current.previewTaskContinuation === undefined &&
 						current.previewAfterSubmitStack === afterSubmitStack &&
 						current.previewSelectedCase === undefined &&
@@ -1546,6 +1581,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return;
 					set({
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: afterSubmitStack,
 						previewSelectedCase: undefined,
@@ -1904,6 +1940,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: false,
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,

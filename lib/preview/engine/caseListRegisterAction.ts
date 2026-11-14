@@ -86,6 +86,15 @@ export function previewRegisterAction(
 	};
 }
 
+/** Where a Register return leaves a worker. */
+export interface RegistrationReturnLanding extends FrameLanding {
+	/** The menus whose search the frame runs again over the registered case
+	 *  alone (`CaseListFormReturnFrame.newCaseSearchModuleUuids`): each one's
+	 *  Results, and its forms' read of what the search found, hold that one
+	 *  case, or none where the form created no case. */
+	readonly newCaseSearchModuleUuids: readonly Uuid[];
+}
+
 /**
  * Where a worker lands after submitting a form the Register action of an
  * `always` arm opened. Undefined is ordinary routing: no launch, a launch
@@ -94,14 +103,15 @@ export function previewRegisterAction(
  * where HQ then writes no return frame. Otherwise it lands where the frame
  * whose guard holds lands (`screenOfFrame`): the one frame of `case-list`;
  * for `new-case` the first where the submission created a case, else the
- * second.
+ * second; with the menus whose search that frame keys to the registered
+ * case.
  */
 export function alwaysOfferedRegistrationReturn(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	launch: PreviewCaseListRegistrationLaunch | undefined,
 	createdCaseId: string | undefined,
-): FrameLanding | undefined {
+): RegistrationReturnLanding | undefined {
 	if (launch === undefined) return undefined;
 	const hostUuid = launch.hostModuleUuid;
 	if (alwaysOfferedRegistrationOf(doc, hostUuid)?.formUuid !== formUuid)
@@ -134,7 +144,12 @@ export function alwaysOfferedRegistrationReturn(
 		returnTo.kind === "new-case" && createdCaseId === undefined
 			? frames[1]
 			: frames[0];
-	return frame === undefined ? undefined : screenOfFrame(ctx, frame.target);
+	return frame === undefined
+		? undefined
+		: {
+				...screenOfFrame(ctx, frame.target),
+				newCaseSearchModuleUuids: frame.newCaseSearchModuleUuids,
+			};
 }
 
 /** The case a registration created, as the device holds it after the

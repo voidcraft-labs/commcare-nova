@@ -120,6 +120,11 @@ export function caseListRegistrationAdmission(args: {
 	if (searchState.matchCount !== 0) {
 		return { kind: "refused", reason: "has-matches" };
 	}
+	/* A search a registration's return keyed to its case is no search that
+	 * found nothing, so a launch from before that return is stale. */
+	if (searchState.registeredCaseId !== undefined) {
+		return { kind: "refused", reason: "stale-launch" };
+	}
 	return { kind: "admitted", answers: searchState.answers };
 }
 

@@ -17,6 +17,15 @@ describe("storageValueFromEvaluation", () => {
 		);
 	});
 
+	it("stores a timestamptz whose UTC year has five digits at the offset that keeps its year, never throwing", () => {
+		// The typed literal '9999-12-31T23:59:59-05:00' a case operation
+		// writes, which Postgres returns as an instant in the year 10000.
+		const instant = new Date(Date.parse("+010000-01-01T04:59:59.000Z"));
+		expect(storageValueFromEvaluation(instant, "datetime")).toBe(
+			"9999-12-31T23:59:59.000-05:00",
+		);
+	});
+
 	it("tags an offset-less pg time for storage, keeping explicit offsets", () => {
 		// The wire's time answer is a wall clock with three fractional
 		// digits and no zone (`TimeData::uncast`); the `Z` is the tag the

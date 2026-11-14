@@ -57,9 +57,16 @@ export interface RegisterFromListFacts {
 		| undefined;
 }
 
+/** Keyed on the menus, the forms and the case types, which every fact here
+ *  reads, so a question's edit inside a form re-renders nothing. */
 export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
-	const doc = useBlueprintDoc((state) => state);
+	const modules = useBlueprintDoc((state) => state.modules);
+	const moduleOrder = useBlueprintDoc((state) => state.moduleOrder);
+	const forms = useBlueprintDoc((state) => state.forms);
+	const formOrder = useBlueprintDoc((state) => state.formOrder);
+	const caseTypes = useBlueprintDoc((state) => state.caseTypes);
 	return useMemo(() => {
+		const doc = { modules, moduleOrder, forms, formOrder, caseTypes };
 		const host = doc.modules[hostUuid];
 		const stored = alwaysOfferedRegistrationOf(doc, hostUuid);
 		const afterEmptySearch = afterEmptySearchRegistrationFormOf(doc, hostUuid);
@@ -96,7 +103,7 @@ export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
 						}
 					: undefined,
 		};
-	}, [doc, hostUuid]);
+	}, [modules, moduleOrder, forms, formOrder, caseTypes, hostUuid]);
 }
 
 /** The case lists that always offer the form, in module order, each with its

@@ -336,8 +336,9 @@ source, decoded, holds the text
 `instance('commcaresession')/session/data/supply_point_id`, which HQ's build
 gates to workers assigned a supply point. That half is a guard over the
 emission: an itext text's `instance(` is written with its bracket as an
-output, a literal is split there, and a form's name and Connect texts holding
-it are refused, so no admitted document's source holds the text.
+output, a literal is split there, a form's name and Connect texts holding
+it are refused, and so is a choice's value by its own grammar, so no admitted
+document's source holds the text.
 
 A download checks no project space, so its compatibility is `not_checked`: the HQ import file has no target, and a `.ccz` is made for a project space the app is already published to, whose publish made the check.
 Upstream drift reaches the probe through the weekly pin pull request
@@ -532,7 +533,7 @@ replaces literal NBSP throughout the XML, so NBSP inside ordinary prose uses
 that protected spelling too. Other prose retains its authored text nodes. Entity-looking spellings stay
 literal through admission, editing, Preview and emission; only the XML
 serializer escapes them. Platform Markdown rendering happens after XML is read.
-The character classifier mirrors these consumers, not JavaScript `trim()`. Literal text that CommCare HQ's build would read as an instance (`hqInstanceScan.ts`) is written with its bracket as a literal output, so no label can add an instance or fail a build. Plain text in a form's source has no such spelling and is refused ("CommCare Connect").
+The character classifier mirrors these consumers, not JavaScript `trim()`. Literal text that CommCare HQ's build would read as an instance (`hqInstanceScan.ts`) is written with its bracket as a literal output, so no label can add an instance or fail a build. Plain text in a form's source has no such spelling and is refused ("CommCare Connect"); a choice's value, the text of an `<item>`'s `<value>`, is refused by its own grammar (`lib/domain/selectOptionValue.ts`, problem `instance-read`, over `lib/domain/hqInstanceRead.ts`).
 
 Plain literal validation messages emit the compatible bind `jr:constraintMsg`
 reference and a body `<alert>` pointing at the same itext entry. Empty messages
@@ -1010,7 +1011,17 @@ because each print of a value evaluates it again. HQ's form builder writes a
 row's bind with no `type`, and Core's `Recalculate.wrapData` would wrap an
 untyped calculated Date as the day alone, which is why the value is text.
 Every `@date_modified` bind stays `xsd:dateTime`, the builder's own spelling.
-Values a phone saved before keep their text. The case-operation native corpus
+Values a phone saved before keep their text. A question's `nova_datetime_`
+sibling classifies its question as a field read
+(`datetimeCaseValue.ts::questionDatetimeCaseValue`), so a Hidden Value whose
+calculate copies stored text writes that text as it is. Core's parse of text
+keeps the written date and moves only the clock, so wherever a device parses
+stored text as a typed date and time (a starting value cast into a node bound
+`xsd:dateTime`, a preload among them, through
+`fromExpression.ts::startingDatetimeWire`; `format-date` and `date()` in every
+target) the text is read in the device's own date and clock first
+(`instant.ts::deviceInstantText`), and Preview evaluates the same print, so a
+form opened on a case's value and saved unchanged writes the same text back. The case-operation native corpus
 checks the stored text on both local CCZ and HQ-regenerated forms
 (`CaseOperationRuntimeTest`, and `StoredInstantRuntimeTest` in every device
 zone).
@@ -1106,8 +1117,10 @@ spelling instead, `xform/datetimeCaseValue.ts::datetimeCaseValue`), a day number
 (blank, a yes/no), keeps Core's `date()`, a day, the bytes it had before; a
 literal that names no moment is refused there by the checker
 (`unreadable-datetime`), in every slot whose expressions reach `toWire`.
-`date-coerce` is unchanged,
-`date(x)`. On a device `date_opened` and `last_modified` from `casedb` are
+`date-coerce` is `date(x)`, and
+it and `format-date` read an operand that can hold date-and-time text through
+`instant.ts::deviceInstantText`, so Core's parse gives the device's day of the
+moment. On a device `date_opened` and `last_modified` from `casedb` are
 days (`CaseChildElement` holds them as `DateData`): ordered against a
 day-aligned operand, or against each other, they compare by day with
 unchanged bytes (`date_opened >= date('2026-01-01')`), and the checker refuses
@@ -1643,7 +1656,16 @@ finding, not a partial emission. The `always` arm writes the block for a form
 that stays on its own menu, with no synthetic module and no
 `relevancy_expression`, the Register action on both short details, and one
 return frame for `case-list` or two for `new-case`, only where the form's own
-after-submit is Home.
+after-submit is Home. `formLinkProjection.ts::caseListFormReturnFrames` builds
+them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
+a submenu host's parent's `get_frame_children`, then the host's, each pass
+matched on its own and each adding to the cut frame up to its first matched
+selection; in `new-case` the host pass drops every id the frame carrying the
+new case already holds (`ids_on_stack`), while `case-list` keeps them, as
+HQ's `case-list-form-suite-parent-child-submodule-basic.xml` shows
+(`registerFromListEmission.test.ts`). Each frame names the menus whose search
+its query keys to the new case (`newCaseSearchModuleUuids`), which Preview
+and App Tests record as that search.
 
 - **Host module.** HQ JSON `case_list_form: { form_id, label,
   post_form_workflow: "case_list", relevancy_expression:

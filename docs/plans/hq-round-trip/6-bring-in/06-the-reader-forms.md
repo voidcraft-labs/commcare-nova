@@ -2288,7 +2288,9 @@ section or is one of the kind rows of 9.1.
 **Inline choices.** An option's value is its `value` element's text, as written. By
 `selectOptionValue.ts::selectOptionValueProblem` and the values already read on this question: empty,
 holding whitespace, or equal to an earlier one is `refuse(choice-value-with-whitespace-empty-or-duplicated)`;
-holding both quote marks is `refuse(choice-value-holding-both-an-apostrophe-and-a-double-quote)`; holding
+holding both quote marks is `refuse(choice-value-holding-both-an-apostrophe-and-a-double-quote)`; read
+by CommCare HQ's build as an instance (problem `instance-read`, part 03, section 5.1) is
+`refuse(choice-value-read-as-an-instance)`, `detail.name` the text `instanceScanRead` answered; holding
 one kind of quote mark is `take(choice-value-containing-or)`. Its label is 12. The options keep the
 body's order. One option is a select (part 04, 7.1).
 

@@ -57,6 +57,16 @@ the attempt pins the form to the search it was offered on. Both clear with the
 case facts: entering or leaving Preview, a persona change, `reset()`, and a
 confirmed Project boundary.
 
+`previewCaseListRegistrationEntry` is the launch a case list's Register action
+made of a form the list always offers: the host, and the form and menu it
+opened. It is its own fact, never part of `previewCaseTarget`, because the
+target is rewritten by every screen on the way (a parent case selection clears
+it), while the launch belongs to the one form entry it opened. `PreviewShell`
+ends it at any location off the launch's path
+(`lib/preview/caseListRegistrationEntry.ts::caseListRegistrationEntryContinues`),
+`FormScreen` when its submission lands, and it clears with the case facts and
+on Home.
+
 Preview plays one platform the app runs on at a time, and four running facts
 carry it. `previewPlatform` is the platform the author chose under **Runs on**,
 `undefined` for the default; it survives a flip out of Preview and back (a flip

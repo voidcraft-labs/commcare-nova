@@ -164,7 +164,11 @@ import {
 	type PreviewLookupData,
 	predicateLookupsCovered,
 } from "./lookupEvaluation";
-import { numberKeypadStores, numberKeypadTyped } from "./numberKeypad";
+import {
+	numberKeypadStores,
+	numberKeypadTyped,
+	withKeypadRefused,
+} from "./numberKeypad";
 import { defaultPreviewDevice, type PreviewDevice } from "./previewDevice";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { resolveCurrentPage } from "./sectionPaging";
@@ -1220,8 +1224,14 @@ export class FormEngine {
 
 		const updates: EngineStoreState = {};
 		const current = this.store.getState()[path];
-		if (current && current.value !== value) {
-			updates[path] = { ...current, value, edited: true };
+		if (
+			current &&
+			(current.value !== value || (current.keypadRefused === true) !== !stores)
+		) {
+			updates[path] = withKeypadRefused(
+				{ ...current, value, edited: true },
+				!stores,
+			);
 		}
 
 		/* Cascade: re-evaluate what the answer reaches, narrowed to it as
@@ -1238,7 +1248,7 @@ export class FormEngine {
 		 * here on the worker runtime too, where no request follows. */
 		const latestState = updates[path] ?? current;
 		if (latestState && !stores) {
-			const refusal = this.answerShapeError(path, value);
+			const refusal = this.answerShapeError(path, latestState);
 			if (latestState.valid || latestState.errorMessage !== refusal)
 				updates[path] = {
 					...latestState,
@@ -1791,7 +1801,7 @@ export class FormEngine {
 	 *  edit) shares. */
 	private computeDefault(field: Field, path: string): string | undefined {
 		if (this.asyncRuntime) return undefined;
-		const defaultValue = this.expressionSource(field, "default_value");
+		const defaultValue = this.startingValueSource(field);
 		if (!defaultValue) return undefined;
 		const result = evaluate(defaultValue, this.createEvalContext(path));
 		const value = this.startingValueText(field, path, result, "starting-value");
@@ -2599,6 +2609,21 @@ export class FormEngine {
 		slot: FieldExpressionSlotRef["slot"],
 	): string | undefined {
 		return this.expressions.source({ entity: "field", uuid: field.uuid, slot });
+	}
+
+	/** A field's starting value as the XForm's `<setvalue>` prints it: under
+	 * a date-and-time bind, date-and-time text is read in the device's own
+	 * date and clock before the cast (`answerCast.ts`), as Core's cast keeps
+	 * the written date and moves only the clock. */
+	private startingValueSource(field: Field): string | undefined {
+		const slot = {
+			entity: "field",
+			uuid: field.uuid,
+			slot: "default_value",
+		} as const;
+		return this.bindTypeOf(field) === "xsd:dateTime"
+			? this.expressions.startingDatetimeSource(slot)
+			: this.expressions.source(slot);
 	}
 
 	/** A `required` that is the constant match-all. Requiredness decides by
@@ -3628,7 +3653,7 @@ export class FormEngine {
 				values.set(path, state.value);
 				/* A number keypad's refused answer is shown and not stored: the
 				 * instance keeps the earlier answer, which the rebuild keeps too. */
-				if (!this.keypadAnswer(path, state.value).stores)
+				if (state.keypadRefused === true)
 					held.set(path, this.instance.get(path) ?? "");
 			}
 			if (state.touched) touched.add(path);
@@ -3663,17 +3688,20 @@ export class FormEngine {
 			const value = snapshot.values.get(path);
 			const current = currentState[path];
 			if (value !== undefined && current) {
-				if (this.keypadAnswer(path, value).stores)
-					this.instance.set(path, value);
-				else {
-					const held = snapshot.held?.get(path);
-					if (held !== undefined) this.instance.set(path, held);
-				}
-				updates[path] = {
-					...current,
-					value,
-					edited: snapshot.edited?.has(path),
-				};
+				/* A refused answer stays refused while this engine's keypad
+				 * would refuse it too; the instance keeps the earlier answer. */
+				const held = snapshot.held?.get(path);
+				const refused =
+					held !== undefined && !this.keypadAnswer(path, value).stores;
+				this.instance.set(path, refused ? held : value);
+				updates[path] = withKeypadRefused(
+					{
+						...current,
+						value,
+						edited: snapshot.edited?.has(path),
+					},
+					refused,
+				);
 			}
 		}
 
@@ -4298,7 +4326,7 @@ export class FormEngine {
 		updates: EngineStoreState,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		const shapeError = this.answerShapeError(path, state.value);
+		const shapeError = this.answerShapeError(path, state);
 		if (shapeError !== undefined) {
 			if (state.valid || state.errorMessage !== shapeError) {
 				updates[path] = { ...state, valid: false, errorMessage: shapeError };
@@ -4373,7 +4401,7 @@ export class FormEngine {
 		updates: EngineStoreState,
 	): void {
 		if (this.asyncRuntime) return;
-		const shapeError = this.answerShapeError(path, state.value);
+		const shapeError = this.answerShapeError(path, state);
 		if (shapeError !== undefined) {
 			if (state.valid || state.errorMessage !== shapeError) {
 				updates[path] = { ...state, valid: false, errorMessage: shapeError };
@@ -4427,17 +4455,22 @@ export class FormEngine {
 	 * Check typed answers before authored rules, on blur and at submission.
 	 * Empty answers belong to requiredness. Readable temporal values may use
 	 * older storage spellings; numeric text must describe the entire answer.
+	 * A number keypad's message answers only what the worker typed and the
+	 * platform refused (`keypadRefused`): a starting value or a preloaded case
+	 * value is never checked against the keypad, as neither runtime checks
+	 * one (Web Apps' `PhoneEntry` checks only in `onPreProcess`, which a
+	 * seeded answer never reaches).
 	 */
-	private answerShapeError(path: string, value: string): string | undefined {
+	private answerShapeError(
+		path: string,
+		state: Pick<FieldState, "value" | "keypadRefused">,
+	): string | undefined {
+		const { value } = state;
 		if (value === "") return undefined;
+		if (state.keypadRefused === true)
+			return runtimeMessage(this.presentationLanguage, "numberKeypadAnswer");
 		const field = this.findField(path);
 		const kind = field?.kind;
-		if (
-			field?.kind === "text" &&
-			field.keypad !== undefined &&
-			!numberKeypadStores(this.rules.numberKeypad, value)
-		)
-			return runtimeMessage(this.presentationLanguage, "numberKeypadAnswer");
 		if (kind === "int" || kind === "decimal") {
 			const parsed = readNumericAnswer(kind, value, this.presentationLanguage);
 			return parsed.ok ? undefined : parsed.error;
@@ -4511,7 +4544,7 @@ export class FormEngine {
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<string | undefined> {
-		const source = this.expressionSource(field, "default_value");
+		const source = this.startingValueSource(field);
 		if (!source) return undefined;
 		const value = this.startingValueText(
 			field,
@@ -4634,7 +4667,7 @@ export class FormEngine {
 		const snapshots = new Map<string, RepeatInitializationSnapshot>();
 		for (const { node, path } of fields) {
 			const field = node.field;
-			const source = this.expressionSource(field, "default_value");
+			const source = this.startingValueSource(field);
 			const previous = this.store.getState()[path];
 			if (
 				source !== undefined &&

@@ -108,7 +108,8 @@ function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
  * The catalog copy of a select property's choices shares the inline
  * options' grammar (`lib/domain/selectOptionValue.ts`): a catalog value is
  * the same stored answer token, so whitespace, both quote marks in one
- * value, and emptiness break the same way they do on the device. `SELECT_OPTION_VALUE_INVALID`
+ * value, a value CommCare HQ reads as a data source, and emptiness break the
+ * same way they do in a form. `SELECT_OPTION_VALUE_INVALID`
  * (`field.ts`) is the per-field twin.
  */
 function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
@@ -137,7 +138,9 @@ function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
 						? "is empty"
 						: problem === "whitespace"
 							? `is ${shown}, which contains a space`
-							: `is ${shown}, which holds both an apostrophe and a double quote`;
+							: problem === "both-quotes"
+								? `is ${shown}, which holds both an apostrophe and a double quote`
+								: `is ${shown}, which CommCare HQ reads as a data source a form reads`;
 				errors.push(
 					validationError(
 						"CASE_PROPERTY_OPTION_VALUE_INVALID",
@@ -145,7 +148,9 @@ function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
 						`Choice ${index + 1}${shownLabel ? ` ("${shownLabel}")` : ""} of case property "${caseType.name}.${property.name}" has a value that ${what}. ${
 							problem === "both-quotes"
 								? SELECT_OPTION_VALUE_BOTH_QUOTES
-								: `A choice's value is the answer the app stores and compares, not the wording, so it cannot hold spaces and cannot be empty. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`
+								: problem === "instance-read"
+									? `A choice's value is written as it stands into the source of every form that offers it, and CommCare HQ's build reads instance('…') there as a data source. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`
+									: `A choice's value is the answer the app stores and compares, not the wording, so it cannot hold spaces and cannot be empty. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`
 						}`,
 						{},
 						{

@@ -194,6 +194,11 @@ export function compileExpression(
 					ctx.reading,
 					ctx.bindings.viewerTimeZone,
 				);
+			if (
+				ctx.reading !== "search" &&
+				readingTemporalType(expr.value, ctx) === "datetime"
+			)
+				return compileDeviceDay(expr.value, ctx);
 			return compileCast(expr.value, "date", ctx);
 		case "datetime-coerce":
 			if (isNumericOperand(expr.value, ctx))
@@ -400,6 +405,29 @@ export function compileToday(
 
 function compileNow(): AliasableExpression<unknown> {
 	return eb.fn<Date>("now");
+}
+
+/**
+ * `date()` of a date and time where a device evaluates it: the device's own
+ * day of the moment, in the viewer's zone. A device reads date-and-time text
+ * through `deviceInstantText` before `date()` parses it
+ * (`lib/commcare/xpath/wire/instant.ts`), so CommCare HQ's UTC text and an
+ * offset Nova stored earlier both give the day the device's clock shows, as
+ * a typed date and time does. HQ's case search (`search`) takes the written
+ * day, as its own `date()` does.
+ */
+function compileDeviceDay(
+	value: DomainExpression,
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown> {
+	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
+	return eb.cast(
+		javaLocalTimestamp(
+			zone,
+			compilePinnedInstant(compileExpression(value, ctx), zone),
+		),
+		"date",
+	);
 }
 
 /** Postgres cast wrapper for `date-coerce` / `double`. */

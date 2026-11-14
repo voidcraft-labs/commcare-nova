@@ -66,7 +66,12 @@ the stored instants, and `closed_on` is readable only there
 (`compileTerm.ts::reservedColumnFor`); under any other reading it is an
 invariant, because the checker admits it only in an advanced search predicate. The reading follows self, parent and
 nested predicate reads, and it decides how a number becomes a date ("Day
-numbers").
+numbers") and how a date and time becomes one: under `casedb` and `results`,
+`date-coerce` of a date and time is the viewer's day of its instant
+(`compileExpression.ts::compileDeviceDay`), the day a device gives once it
+reads the text in its own date and clock
+(`lib/commcare/xpath/wire/instant.ts::deviceInstantText`), as `format-date`
+renders it; under `search` it is the written day, as HQ's search reads it.
 
 Temporal result inference (`resolveCaseListTemporalType`, which takes the
 reading) does not revalidate an admitted expression against different property
@@ -163,15 +168,23 @@ HQ's exact `terms` on the text a case holds (`compileTerm.ts::compileStoredText`
 choices joined by spaces), each item bound as the text the device sends and
 none dropped; a `''` item matches the property absent or empty, and `!=` is
 the two-valued negation (`compilePredicate.ts::compileValueListEquality`). A
-number property is the one respelling: Nova stores the number, not the text a
-device wrote (`submissionEnvelope.ts::storageValueFromEvaluation`), so its
-stored text is the canonical spelling (`formatNumeric`), and each item that
-reads as a number is compared as the text Nova would store for it (`'1.10'`
-as `'1.1'`, as HQ finds the case a device wrote `1.10` for). The divergence
-left: HQ matches only the exact spelling, so where the item or the device's
-text is not the canonical one (a case a device wrote `05`, an item `'5.0'`
-for a case written `5`), HQ finds nothing while Nova finds every spelling of
-the same number.
+number property and a time property are the two respellings, because Nova
+stores neither as the text a device wrote
+(`submissionEnvelope.ts::storageValueFromEvaluation`). A number's stored text
+is its canonical spelling (`formatNumeric`), and each item that reads as a
+number is compared as the text Nova would store for it (`'1.10'` as `'1.1'`,
+as HQ finds the case a device wrote `1.10` for). A time is stored as its wall
+clock with the `Z` storage tag (`10:00:00.000Z`; `10:00:00Z` from before the
+millisecond rule), where a device writes the bare `HH:MM:SS.mmm` that HQ
+holds, so each item that reads as a time is compared as the typed `time` a
+single value's equality compares (`'10:00:00.000'` finds that case, as HQ
+does), and an item that reads as no time matches no time. A date needs no
+respelling: a device writes `yyyy-MM-dd` and Nova stores that text. The
+divergence left: HQ matches only the exact spelling, so where the item or the
+device's text is not the canonical one (a case a device wrote `05`, an item
+`'5.0'` for a case written `5`, an item `'10:00'` for a time written
+`10:00:00.000`), HQ finds nothing while Nova finds every spelling of the
+same number or clock.
 A blank item is the other: HQ reads a list with a terms query and never as
 its missing-property check (`es/case_search.py::case_property_query` takes
 the `case_property_missing` branch only for a bare `''`), so it finds a case

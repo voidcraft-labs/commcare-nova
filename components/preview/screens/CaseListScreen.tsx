@@ -215,6 +215,7 @@ import {
 	type RuntimeMessage,
 	runtimeMessage,
 } from "@/lib/preview/runtimeMessages";
+import { parentCaseSelectorLocation } from "@/lib/preview/screenProjection";
 import {
 	claimableCaseIds,
 	deviceCasesHoldingClaims,
@@ -239,6 +240,7 @@ import {
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
 	useSetPreviewAtDeviceHome,
+	useSetPreviewCaseListRegistrationEntry,
 	useSetPreviewCaseTarget,
 	useSetPreviewMenuCaseSelection,
 	useSetPreviewParentCaseRequest,
@@ -339,6 +341,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const menuForms = useOrderedMenuForms(moduleUuid);
 	const previewCaseTarget = usePreviewCaseTarget();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
+	const setPreviewCaseListRegistrationEntry =
+		useSetPreviewCaseListRegistrationEntry();
 	const caseLoadingForms = useMemo(
 		() => menuForms.filter((f) => CASE_LOADING_FORM_TYPES.has(f.type)),
 		[menuForms],
@@ -1771,9 +1775,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				setOpenCase(null);
 				setFormMenuCase(null);
 				setMultiFormMenuOpen(false);
-				setPreviewCaseTarget({
+				/* A registration form opens with no case; the launch is its
+				 * own fact, naming the entry it opens, so it ends with that
+				 * entry rather than with whatever next sets the case target. */
+				setPreviewCaseTarget(undefined);
+				setPreviewCaseListRegistrationEntry({
+					hostModuleUuid: moduleUuid,
+					moduleUuid: formModuleUuid,
 					formUuid,
-					caseListRegistrationLaunch: { hostModuleUuid: moduleUuid },
 				});
 				navigate.openForm(formModuleUuid, formUuid);
 			},
@@ -1784,6 +1793,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		registerAction,
 		registerLabel,
 		setPreviewCaseTarget,
+		setPreviewCaseListRegistrationEntry,
 		navigate,
 	]);
 	/* The module's search context in the session and this screen's run
@@ -2012,7 +2022,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			) {
 				navigate.replace(previewParentCaseRequest.resumeLocation);
 			} else if (nextModuleUuid && remainingModuleUuids.length > 0) {
-				navigate.replace({ kind: "module", moduleUuid: nextModuleUuid });
+				navigate.replace(parentCaseSelectorLocation(nextModuleUuid));
 			} else if (nextModuleUuid) {
 				navigate.openModule(nextModuleUuid);
 			} else {

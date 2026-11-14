@@ -64,7 +64,10 @@ Labels render through `lib/references/LabelContent.tsx` (a question's, a
 display label's and a section title with the platform's `labelMarkdown` rule),
 hints by `rules.hint`, validation messages as plain text. A help text holding
 `plainHelp`, or in a form holding `plainText`, follows `rules.plainHelp`.
-A Text question with a number keypad follows `rules.numberKeypad`.
+A Text question with a number keypad follows `rules.numberKeypad`. Its
+message answers only a typed answer the platform refused
+(`FieldState.keypadRefused`); a starting value or a preloaded case value is
+never checked against the keypad, as neither runtime checks one.
 A question, group, repeat or section label whose owner holds `plainLabel`, or
 whose form holds `plainText` (`lib/domain/plainText.ts::labelShowsAsTyped`),
 writes no markdown form, and both runtimes show such a label as written, so
@@ -454,8 +457,13 @@ FormEngine and non-writing form evaluator retain their boolean validation APIs.
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
 those selectors in case-type order, then replaces the selector with that exact
-original location. Selector URLs are replace-driven and their ephemeral request
-clears on cancel, browser Back, or unrelated navigation. Menu nesting never
+original location. A selector is entered at its case list
+(`screenProjection.ts::parentCaseSelectorLocation`), never at its menu, so a
+selector whose forms show in the menu above, which has no screen of its own,
+still chooses its case; a selector that needs a parent case of its own enters
+through its module screen (`previewRunningScreenForLocation` keeps it). Selector
+URLs are replace-driven and their ephemeral request clears on cancel, browser
+Back, or any location other than the selector's case list. Menu nesting never
 implies case ancestry: the required selector comes from `CaseType.parent_type`
 and may be a structurally unrelated module. Once selected, a direct same-type
 child Form binds the exact inherited menu case; a different-type child lookup
@@ -479,7 +487,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 - **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission. Both synchronous and worker-backed blur obey this rule; a required warning already shown by submission remains until the answer changes.
 - **Typed answers are checked before authored validation.** `answerShapeError` checks numeric and temporal answers on blur and at submission. Empty values belong to requiredness. Integer answers use signed decimal digits in the signed 32-bit range; decimal answers accept finite decimal and exponent notation. The numeric widget preserves incomplete text so an optional malformed answer cannot become an empty value through native input sanitization. Numeric case-write projection uses the same full-answer parser and never truncates a prefix. Temporal checks accept every spelling `isReadableTemporalValue` can canonicalize, including older stored values. Errors stay beside the owning question instead of surfacing later as a case-property refusal. Submit retains answer focus during a mouse press so blur validation cannot move the button out from under its release; activation then blurs the current control so local coordinate drafts and clock normalization commit before submission captures answers. A refusal reveals and focuses the first invalid question. Keyboard activation remains native.
-- **A setvalue casts as Core casts, and refuses as Core refuses.** Every value Preview writes into a typed node outside a calculate (a starting value, a preload among them, a repeat insert's defaults) goes through `engine/answerCast.ts`: `coreAnswerType` from the XForm emitter's own bind-type function (`lib/commcare/xform/bindType.ts::fieldBindType`, so a Hidden Value binds by its writer destination), `setvalueText` (`Recalculate.wrapData(...).uncast()`) and `castAnswerText`, the port of `SetValueAction`'s cast (decimals through `xpath/javaDouble.ts`, Java's `Double.parseDouble` grammar). Blank text never casts. A cast that succeeds stores Core's held text for a date and a date and time (the held instant's canonical text); a time keeps its written clock, because Nova's stored time carries a `Z` storage tag meaning UTC and holding the converted clock would move a saved time by the viewer's offset; a whole number and a number hold Core's held text, never the written one, because a later setvalue's uncast and the submission both carry it (`IntegerData`/`DecimalData` uncast, Java's print of the parsed value: `007` and `+7` hold `7`, `٧` holds `7`, `-0` into a whole number holds `0`; into a number `5` holds `5.0`, ` 1e3` holds `1000.0`, `0x1p3` holds `8.0`, `-0` holds `-0.0`); a location keeps the written text. One that fails at activation makes the entry `refused` (`EngineController.recordRefusal`): a terminal state beside the missing-selected-record state, with no controls and a route back (**Choose another record** and **Back to the list** for a preload, **Back** for a starting value), cleared when the document or the case data next changes. At a repeat insert the row is not added, and the repeat shows why in place; after the document changes (an edited starting value, or a rebuild restoring the entry) each user-controlled repeat's refused insert is tried again and rolled back, so the note stays only while the insert would still be refused. A refusal never reaches `faultReporter`. App Tests and `engine/evaluateForm.ts` report the same refusal as `FormRefusedError` (`form-refused`, a `FormEvaluationInputError`, with the sentence Preview shows). A calculate never casts, so it never refuses.
+- **A setvalue casts as Core casts, and refuses as Core refuses.** Every value Preview writes into a typed node outside a calculate (a starting value, a preload among them, a repeat insert's defaults) goes through `engine/answerCast.ts`: `coreAnswerType` from the XForm emitter's own bind-type function (`lib/commcare/xform/bindType.ts::fieldBindType`, so a Hidden Value binds by its writer destination), `setvalueText` (`Recalculate.wrapData(...).uncast()`) and `castAnswerText`, the port of `SetValueAction`'s cast; a starting value into a date-and-time bind is the tree the XForm's `<setvalue>` prints, its stored text read in the device's own date and clock first (`formEngine.ts::startingValueSource`, `lib/commcare/xpath/wire/instant.ts::deviceInstantText`), because the cast keeps the written date and moves only the clock (decimals through `xpath/javaDouble.ts`, Java's `Double.parseDouble` grammar). Blank text never casts. A cast that succeeds stores Core's held text for a date and a date and time (the held instant's canonical text); a time keeps its written clock, because Nova's stored time carries a `Z` storage tag meaning UTC and holding the converted clock would move a saved time by the viewer's offset; a whole number and a number hold Core's held text, never the written one, because a later setvalue's uncast and the submission both carry it (`IntegerData`/`DecimalData` uncast, Java's print of the parsed value: `007` and `+7` hold `7`, `٧` holds `7`, `-0` into a whole number holds `0`; into a number `5` holds `5.0`, ` 1e3` holds `1000.0`, `0x1p3` holds `8.0`, `-0` holds `-0.0`); a location keeps the written text. One that fails at activation makes the entry `refused` (`EngineController.recordRefusal`): a terminal state beside the missing-selected-record state, with no controls and a route back (**Choose another record** and **Back to the list** for a preload, **Back** for a starting value), cleared when the document or the case data next changes. At a repeat insert the row is not added, and the repeat shows why in place; after the document changes (an edited starting value, or a rebuild restoring the entry) each user-controlled repeat's refused insert is tried again and rolled back, so the note stays only while the insert would still be refused. A refusal never reaches `faultReporter`. App Tests and `engine/evaluateForm.ts` report the same refusal as `FormRefusedError` (`form-refused`, a `FormEvaluationInputError`, with the sentence Preview shows). A calculate never casts, so it never refuses.
 - **Default text remains text.** A default evaluating to `"false"` is a nonempty answer in both synchronous and worker execution; only the empty string means no default value. XPath numeric coercion and `selected()` use Java ASCII-control trimming, so nonbreaking spaces remain significant.
 - **`reset()` is a full reinitialization** — rebuild instance, replay scoped initialization actions, re-cascade. Returns to the exact initial state.
 - **`resetValidation()` clears touched state + errors only** — called when leaving test mode so fields start clean on re-entry.
@@ -1637,9 +1645,18 @@ what a case list draws: the action shows whenever the host's list shows
 (before its forms, from its case list entry, as another menu's parent
 choice), with the arm's icon and spoken label on Android alone
 (`platform.ts::PreviewPlatformRules.caseListActionMedia`, `"shown"` or
-`"text-only"`). Choosing it opens the form in its own menu with
-`PreviewCaseTarget.caseListRegistrationLaunch = { hostModuleUuid }`
-(`lib/session/types.ts`, ephemeral). After submit,
+`"text-only"`). Choosing it opens the form in its own menu and sets the
+session's `previewCaseListRegistrationEntry = { hostModuleUuid, moduleUuid,
+formUuid }` (`lib/session/types.ts::PreviewCaseListRegistrationEntry`,
+ephemeral), its own fact rather than part of the case target, which other
+screens rewrite. It belongs to the one form entry that launch opened:
+`PreviewShell` ends it at every location off the launch's path
+(`caseListRegistrationEntry.ts::caseListRegistrationEntryContinues`: the
+launched form's own locations, and the case list of a parent case selection
+resuming that form, are on it), whatever moved there, and `FormScreen` ends
+it when the submission lands; the form reads it only where it names that form
+in that menu. So the same form reached later by any route, the app tree and
+browser history included, is an ordinary form. After submit,
 `alwaysOfferedRegistrationReturn` decides the landing before ordinary routing
 (`FormScreen.dispatchAfterSubmit`, `app-tests/submission.ts`): undefined, which
 is ordinary routing, where there is no launch, where the host no longer offers
@@ -1648,12 +1665,19 @@ the form, or where the form's own after-submit is in force
 holds of `formLinkProjection.ts::caseListFormReturnFrames` (the one frame of
 `case-list`; for `new-case` the first where the submission created a case,
 else the second), landed by `screenOfFrame` as every frame is, the created
-case set as the host's selection where the frame carries it. So `case-list`
+case set as the host's selection where the frame carries it. Where the frame
+keys a menu's search to the registered case (a host whose forms read the
+search, `CaseListFormReturnFrame.newCaseSearchModuleUuids`), that menu's search
+state is `recordRegisteredCase` of it, one match where the form created the
+case and none where it did not, so Results and the forms' `results:inline`
+read that case alone, as the frame's `case_fixture` query does; App Tests carry
+the same `registeredCaseId` on that menu's records screen. So `case-list`
 lands on the host's screen with no case chosen, `new-case` with a created
 case lands there with that case chosen, and a bare case list lands on its list
 under either value. The form opened any other way is an ordinary form. App
 Tests reach the action as a worker does: a records read of the host returns
-the form as `registration`, and the form screen carries the launch.
+the form as `registration`, and the form screen carries the launch; Back to a
+form opens a fresh entry without it (`app-tests/navigation.ts::appTestBackScreen`).
 
 ## Menus that show their forms above
 
@@ -1669,7 +1693,9 @@ then by each form's own condition. Whether a screen opens on a case list is
 case-first screen opens on the host's case list and lists every entry once the
 case is chosen; any other screen lists its entries at once, and a form that
 opens a case then opens its own menu's case list. A route naming a menu with no
-screen resolves to `menuScreenOf` of it (`hooks/usePreviewScreenForLocation.ts`).
+screen resolves to `menuScreenOf` of it
+(`screenProjection.ts::previewRunningScreenForLocation`), and the breadcrumb
+trail names no such menu (`lib/routing/previewBreadcrumbs.ts`).
 After submit a frame lands where `engine/frameLanding.ts::screenOfFrame` says:
 the screen of its last menu command (the first menu where it holds none),
 with its selections applied to the menus that supply them, then the form its

@@ -136,13 +136,16 @@ export function searchesAwaitingDeviceValues(
 }
 
 /**
- * The no-matches form registered a case: the wire returns to Results
- * showing exactly that case (`CaseListFormWorkflow`'s `case_fixture`
- * frame), so the completed search now holds one match.
+ * A case list registration form registered a case: the wire returns with
+ * the module's search keyed to exactly that case (`CaseListFormWorkflow`'s
+ * `case_fixture` query), so the completed search now holds it alone: one
+ * match where the form created it, none where its open condition kept it
+ * off the device, since the query then finds no case of that id.
  */
 export function recordRegisteredCase(
 	state: PreviewSearchState | undefined,
 	caseId: string,
+	created = true,
 ): PreviewSearchState {
 	const base =
 		state !== undefined && state.kind !== "not-searched"
@@ -159,16 +162,21 @@ export function recordRegisteredCase(
 	return {
 		kind: "completed",
 		...base,
-		matchCount: 1,
+		matchCount: created ? 1 : 0,
 		registeredCaseId: caseId,
 	};
 }
 
-/** Whether Results may offer the no-matches registration form. */
+/** Whether Results may offer the no-matches registration form: a search
+ *  the worker ran found nothing. A search keyed to a registered case is the
+ *  return of a registration, never a search that found nothing. */
 export function noMatchesActionAvailable(
 	state: PreviewSearchState | undefined,
 ): state is Extract<PreviewSearchState, { kind: "completed" }> {
 	return (
-		state !== undefined && state.kind === "completed" && state.matchCount === 0
+		state !== undefined &&
+		state.kind === "completed" &&
+		state.matchCount === 0 &&
+		state.registeredCaseId === undefined
 	);
 }

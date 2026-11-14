@@ -2070,8 +2070,16 @@ came with the app and is kept as it is goes.
   they can hold: `in` holds fixed values and choices, and a list also holds a value the device works
   out, a Search answer among them.
 
-**Preview, Postgres and the wire** change nothing: each holds the arm today, and a list written in
-Nova prints the `unwrap-list('[…]')` a brought-in one prints.
+**Preview and the wire** change nothing: each holds the arm today, and a list written in Nova prints
+the `unwrap-list('[…]')` a brought-in one prints. **Postgres** changes one arm. Now that an author
+can write a list opposite a time property, `compileValueListEquality` compares a time as a time:
+Nova stores a time with the `Z` storage tag (`temporalValues.ts::storageTimeValue`) where a device
+writes the bare `HH:MM:SS.mmm` HQ's terms match, so the stored text never equalled the item. Each
+item that reads as a time is compared as the typed `time` a single value's equality compares,
+`'10:00:00.000'` finds the case a device wrote it for as HQ does, and an item that reads as no time
+matches nothing. A number keeps its respelling, a date and a text their exact text, and the
+divergence left is the number's: HQ matches one spelling where Nova finds every spelling of the
+same clock (`lib/case-store/sql/CLAUDE.md`).
 
 **The device-data queries stay not-yet.** A search value that queries `casedb`, a table or the place
 list, other than the chosen case's property (which `chosen-case-property` spells), claims the new

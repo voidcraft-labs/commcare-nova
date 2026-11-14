@@ -54,6 +54,7 @@ import type { AppTestContext } from "./context";
 import { appTestCellProjector, appTestDetails } from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
+	appTestBackScreen,
 	appTestCanContinue,
 	appTestCaseListMenuEntry,
 	appTestEntryScreen,
@@ -688,15 +689,7 @@ export async function advanceAppTest(
 			if (!prior) throw new AppTestActionError("There is no previous screen.");
 			next = {
 				...state,
-				screen:
-					prior.kind === "form"
-						? {
-								...prior,
-								entry: undefined,
-								entryCases: state.deviceCases,
-								searchResults: undefined,
-							}
-						: prior,
+				screen: appTestBackScreen(prior, state.deviceCases),
 				history: state.history.slice(0, -1),
 			};
 			break;

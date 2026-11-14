@@ -132,6 +132,25 @@ describe("previewSearchState", () => {
 		expect(noMatchesActionAvailable(registered)).toBe(false);
 	});
 
+	it("records a registration that created no case as no match, and offers no registration on it", () => {
+		const searched = settleSearch(beginSearch(undefined, answers, "s1"), 1, {
+			kind: "completed",
+			matchCount: 3,
+		});
+		const registered = recordRegisteredCase(searched, "case-new", false);
+		expect(registered).toEqual({
+			kind: "completed",
+			attempt: 1,
+			submission: "s1",
+			answers,
+			matchCount: 0,
+			registeredCaseId: "case-new",
+		});
+		// The search is keyed to the registered case, not one that found
+		// nothing.
+		expect(noMatchesActionAvailable(registered)).toBe(false);
+	});
+
 	it("records a registration with no search context as a fresh completed attempt", () => {
 		expect(recordRegisteredCase(undefined, "case-new")).toEqual({
 			kind: "completed",

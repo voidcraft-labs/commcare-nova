@@ -85,6 +85,10 @@ import type {
 import { isConditionArm } from "@/lib/domain/expression/types";
 import { walkPropertyRefs } from "@/lib/domain/expression/walk";
 import {
+	isReadableTemporalValue,
+	wireTimeOfDay,
+} from "@/lib/domain/temporalValues";
+import {
 	type CompilePredicateThunk,
 	compileExpression,
 	compileTemporalValues,
@@ -441,18 +445,28 @@ function compileEquality(
  * with a list, `corehq/apps/es/filters.py::term`), or on a system property's
  * field (`corehq/apps/case_search/xpath_functions/comparison.py::_create_system_query`).
  * So each item is compared as text with the text the case holds, exactly:
- * `'10:00'` is not a stored `'10:00:00'`, and `'2026-2-1'` is not a stored
- * `'2026-02-01'`.
+ * `'Red'` is not a stored `'red'`, and `'2026-2-1'` is not a stored
+ * `'2026-02-01'`, which is the text a device writes for a date and the text
+ * Nova stores for it.
  *
- * A number property is the one exception, because Nova doesn't store the
- * text a device wrote for one: it stores the number
- * (`submissionEnvelope.ts::storageValueFromEvaluation`), whose text is its
- * canonical spelling (`formatNumeric`). An item matches the text Nova would
- * have stored had the device written that item, so `'1.10'` finds the case
- * a device wrote `1.10` for, as HQ's term does. What stays apart: HQ
- * matches only the exact spelling, so where the item or the device's text
- * is not canonical (`05` written, `'5.0'` asked), HQ misses the case and
- * Nova finds it (`lib/case-store/sql/CLAUDE.md`).
+ * A number property and a time property are the two exceptions, because
+ * Nova doesn't store the text a device wrote for either
+ * (`submissionEnvelope.ts::storageValueFromEvaluation`). It stores a number
+ * as the number, whose text is its canonical spelling (`formatNumeric`), so
+ * an item matches the text Nova would have stored had the device written
+ * that item: `'1.10'` finds the case a device wrote `1.10` for, as HQ's term
+ * does. It stores a time as its wall clock with the `Z` storage tag
+ * (`temporalValues.ts::storageTimeValue`) where a device writes the bare
+ * `HH:MM:SS.mmm` (Core's `TimeData.uncast`), and rows from before the
+ * millisecond rule hold `HH:MM:SS` with the tag, so an item that reads as a
+ * time matches the case whose time is that wall clock, read as the typed
+ * `time` a single value's equality reads (`compileOrderedComparison`):
+ * `'10:00:00.000'` finds the case a device wrote `10:00:00.000` for, as HQ's
+ * term does, and an item that reads as no time matches no time. What stays
+ * apart: HQ matches only the exact spelling, so where the item or the
+ * device's text is not canonical (`05` written, `'5.0'` asked; `'10:00'` or
+ * `'10:00:00.000Z'` asked for a time a device wrote `10:00:00.000`), HQ
+ * misses the case and Nova finds it (`lib/case-store/sql/CLAUDE.md`).
  *
  * A `''` item matches a blank value. HQ indexes every property a case holds,
  * blank ones included, and a device's blank answer writes `''`; Nova stores
@@ -499,17 +513,35 @@ function compileValueListEquality(
 	}
 	const stored = compileStoredText(anchor.term, ctx);
 	const dataType = storedTextDataType(anchor.term, ctx);
-	const numeric = dataType === "int" || dataType === "decimal";
-	const filled = [
-		...new Set(
-			[...texts]
-				.filter((text) => text !== "")
-				.map((text) => (numeric ? storedNumberText(text) : text)),
-		),
-	];
+	const filled = [...texts].filter((text) => text !== "");
 	const matches: Expression<SqlBool>[] = [];
-	if (filled.length > 0) matches.push(eb(stored, "in", filled));
+	if (dataType === "time") {
+		const clocks = [
+			...new Set(
+				filled
+					.filter((text) => isReadableTemporalValue("time", text))
+					.map(wireTimeOfDay),
+			),
+		];
+		if (clocks.length > 0)
+			matches.push(
+				eb(
+					compileTerm(anchor.term, ctx),
+					"in",
+					clocks.map((clock) => eb.cast(eb.val(clock), "time")),
+				),
+			);
+	} else {
+		const numeric = dataType === "int" || dataType === "decimal";
+		const spelled = [
+			...new Set(
+				filled.map((text) => (numeric ? storedNumberText(text) : text)),
+			),
+		];
+		if (spelled.length > 0) matches.push(eb(stored, "in", spelled));
+	}
 	if (texts.has("")) matches.push(blankText(stored));
+	if (matches.length === 0) return eb.lit(false) as Expression<SqlBool>;
 	return matches.length === 1
 		? (matches[0] as Expression<SqlBool>)
 		: eb.or(matches);

@@ -52,6 +52,7 @@ import {
 	previewScreenEntryVisibility,
 } from "@/lib/preview/menuProjection";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { parentCaseSelectorLocation } from "@/lib/preview/screenProjection";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useBuilderIsReady,
@@ -297,7 +298,10 @@ function ModuleListHome() {
 									if (launch.kind === "select-case-first") {
 										setPreviewCaseTarget({ formUuid: form.uuid });
 										navigate.openCaseList(entry.moduleUuid);
-									} else navigate.openForm(entry.moduleUuid, form.uuid);
+									} else {
+										setPreviewCaseTarget(undefined);
+										navigate.openForm(entry.moduleUuid, form.uuid);
+									}
 								}}
 							/>
 						);
@@ -357,8 +361,10 @@ function ModuleListHome() {
 										returnModuleUuids: [mod.uuid],
 										cancelLocation: { kind: "home" },
 									});
-									navigate.openModule(
-										menuCaseContext.requiredParentCase.moduleUuid,
+									navigate.push(
+										parentCaseSelectorLocation(
+											menuCaseContext.requiredParentCase.moduleUuid,
+										),
 									);
 									return;
 								}

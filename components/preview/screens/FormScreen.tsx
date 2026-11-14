@@ -172,6 +172,7 @@ import {
 	useBuilderIsReady,
 	useCanEdit,
 	useEditMode,
+	usePreviewCaseListRegistrationEntry,
 	usePreviewCaseTarget,
 	usePreviewDevice,
 	usePreviewEntryPointLaunch,
@@ -192,7 +193,7 @@ import { recordRegisteredCase } from "@/lib/session/previewSearchState";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type {
 	PreviewCaseChoice,
-	PreviewCaseListRegistrationLaunch,
+	PreviewCaseListRegistrationEntry,
 } from "@/lib/session/types";
 import { showToast } from "@/lib/ui/toastStore";
 import {
@@ -387,9 +388,9 @@ interface SubmissionContextSnapshot {
 	readonly moduleCaseType: string | undefined;
 	/** The form's after-submit links from the revision paired with the write. */
 	readonly links: readonly FormLink[] | undefined;
-	/** The case list whose Register action opened this form, when one did. */
+	/** The Register launch that opened this entry of the form, when one did. */
 	readonly caseListRegistrationLaunch:
-		| PreviewCaseListRegistrationLaunch
+		| PreviewCaseListRegistrationEntry
 		| undefined;
 }
 
@@ -527,11 +528,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 		previewCaseTarget?.formUuid === formUuid
 			? previewCaseTarget.searchLaunch
 			: undefined;
-	/* The case list whose Register action opened this form, which decides
-	 * where it returns (`alwaysOfferedRegistrationReturn`). */
+	/* The case list whose Register action opened this entry of this form,
+	 * which decides where it returns (`alwaysOfferedRegistrationReturn`). The
+	 * launch names the form it opened and ends at any location off its path,
+	 * so this form reached any other way reads none. */
+	const registrationEntry = usePreviewCaseListRegistrationEntry();
 	const caseListRegistrationLaunch =
-		previewCaseTarget?.formUuid === formUuid
-			? previewCaseTarget.caseListRegistrationLaunch
+		registrationEntry?.moduleUuid === moduleUuid &&
+		registrationEntry.formUuid === formUuid
+			? registrationEntry
 			: undefined;
 	const noMatchesAdmission = useMemo(
 		() =>
@@ -1332,6 +1337,16 @@ export function FormScreen({ screen }: FormScreenProps) {
 		readonly announceWrite: () => void;
 	}): Promise<void> => {
 		const { submitted, result, isCurrent, settleAttempt } = args;
+		/* The write has landed, so the Register launch that opened this
+		 * entry is spent: whatever opens next, this form again included, is
+		 * no longer that launch. The submitted snapshot keeps it for the
+		 * return decided below. */
+		if (
+			submitted.caseListRegistrationLaunch !== undefined &&
+			session.getState().previewCaseListRegistrationEntry ===
+				submitted.caseListRegistrationLaunch
+		)
+			session.getState().setPreviewCaseListRegistrationEntry(undefined);
 		/* Forget page memory only when this completed entry actually leaves.
 		 * The next engine resolves its first visible page from fresh answers;
 		 * choosing a page now would use the submitted entry's conditionality. */
@@ -1497,6 +1512,21 @@ export function FormScreen({ screen }: FormScreenProps) {
 					setPreviewMenuCaseSelection(moduleUuid as Uuid, undefined);
 			for (const [moduleUuid, selection] of Object.entries(next))
 				setPreviewMenuCaseSelection(moduleUuid as Uuid, selection);
+			/* Where the frame runs a menu's search again keyed to the
+			 * registered case (a host whose forms read the search), that
+			 * search now holds that case alone: its Results list it, or
+			 * nothing where the form created no case, and its forms read it
+			 * as what the search found. */
+			if (result.kind === "registration")
+				for (const moduleUuid of registrationLanding.newCaseSearchModuleUuids)
+					setPreviewSearchState(
+						moduleUuid,
+						recordRegisteredCase(
+							session.getState().previewSearchStates[moduleUuid],
+							result.caseId,
+							createdCase !== undefined,
+						),
+					);
 			setPreviewSelectedCase(undefined);
 			/* The return frame is pushed and opens like any other frame, so
 			 * what was pending stays only while the worker is on its path. */

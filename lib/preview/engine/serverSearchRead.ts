@@ -139,8 +139,11 @@ export async function serverRecordsRead(
 	const rules = previewPlatformRules(world.device.platform);
 	const session = previewSessionValues(world.identity, world.device);
 	/* Results stay hidden while the case list is on its Search screen with
-	 * nothing submitted: no results query has run there. */
+	 * nothing submitted: no results query has run there. A registration's
+	 * return runs its own query, keyed to the registered case, and shows
+	 * its Results whatever the Search screen holds. */
 	const resultVisible =
+		request.registeredCaseId !== undefined ||
 		search.hasSubmitted ||
 		caseListStep({
 			workflow: search.workflow,

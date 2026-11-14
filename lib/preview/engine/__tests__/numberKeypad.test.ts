@@ -127,6 +127,53 @@ describe("a number keypad in Web Apps", () => {
 		expect(engine.getState("/data/held").value).toBe("0712");
 	});
 
+	it("never checks a starting value the worker did not type, as Web Apps seeds it without checking", () => {
+		const input = engineFixtureInput(
+			[
+				{
+					id: "phone",
+					kind: "text",
+					label: "Phone",
+					keypad: "numbers",
+					default_value: "'555 123-4567'",
+				},
+				{ id: "held", kind: "hidden", calculate: "#form/phone" },
+			],
+			{ formUuid: testUuid("keypad-seeded-form"), formType: "survey" },
+		);
+		const engine = engineOn(webAppsDevice(), input);
+		engine.touch("/data/phone");
+		expect(engine.getState("/data/phone")).toMatchObject({
+			value: "555 123-4567",
+			valid: true,
+		});
+		expect(engine.validateAll()).toBe(true);
+		expect(engine.getState("/data/held").value).toBe("555 123-4567");
+
+		/* Typing over it is checked; typing the seeded text back is checked
+		 * too, as Web Apps checks every answer the worker enters. */
+		engine.setValue("/data/phone", "555 123-4568");
+		engine.touch("/data/phone");
+		expect(engine.getState("/data/phone")).toMatchObject({
+			valid: false,
+			errorMessage: REFUSAL,
+		});
+		expect(engine.getState("/data/held").value).toBe("555 123-4567");
+		engine.updateSchema(input);
+		expect(engine.getState("/data/phone")).toMatchObject({
+			value: "555 123-4568",
+			valid: false,
+			errorMessage: REFUSAL,
+		});
+		engine.setValue("/data/phone", "555 123-4567");
+		engine.touch("/data/phone");
+		expect(engine.getState("/data/phone")).toMatchObject({
+			valid: false,
+			errorMessage: REFUSAL,
+		});
+		expect(engine.validateAll()).toBe(false);
+	});
+
 	it("leaves a Text question without the keypad alone", () => {
 		const engine = engineOn(webAppsDevice());
 		engine.setValue("/data/plain", "12 34");

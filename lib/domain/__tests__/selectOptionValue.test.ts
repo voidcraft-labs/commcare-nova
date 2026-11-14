@@ -26,6 +26,12 @@ describe("selectOptionValueSchema", () => {
 		["a-b.c", true],
 		["a\u00a0b", false],
 		["a\u2028b", false],
+		["instance('abc')", false],
+		['instance("item-list:villages")', false],
+		["instance(\u0085'a')", false],
+		["instance", true],
+		["instance_abc", true],
+		["instance('abc", true],
 	] as const)(
 		"classifies %j against the same independently stated grammar",
 		(value, accepted) => {
@@ -45,6 +51,14 @@ describe("selectOptionValueSchema", () => {
 		]);
 		expect(SELECT_OPTION_VALUE_PATTERN.test("a b")).toBe(false);
 		expect(SELECT_OPTION_VALUE_PATTERN.test("")).toBe(false);
+	});
+
+	it("refuses beside its pattern a value CommCare HQ's build reads as a data source", () => {
+		expect(SELECT_OPTION_VALUE_PATTERN.test("instance('abc')")).toBe(true);
+		const refused = selectOptionValueSchema.safeParse("instance('abc')");
+		expect(refused.error?.issues.map((issue) => issue.message)).toEqual([
+			"CommCare HQ reads a choice value written like instance('…') as a data source when it builds the form, so the app couldn't be built as written. A value without the brackets and quote marks, such as instance_abc, works.",
+		]);
 	});
 });
 
@@ -73,6 +87,17 @@ describe("selectOptionValueProblem", () => {
 		expect(selectOptionValueProblem('say "hi"')).toBe("whitespace");
 		expect(selectOptionValueProblem(" ")).toBe("whitespace");
 		expect(selectOptionValueProblem(`a'b"c`)).toBe("both-quotes");
+		expect(selectOptionValueProblem("instance('casedb')")).toBe(
+			"instance-read",
+		);
+		expect(
+			repairSelectOptionValue(
+				"instance('casedb')",
+				"Cases",
+				"option_1",
+				new Set(),
+			),
+		).toBe("instance_casedb");
 	});
 
 	it("admits a value holding one kind of quote mark", () => {

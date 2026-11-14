@@ -12,6 +12,8 @@ import {
 	defaultPostSubmitOf,
 	effectivePostSubmit,
 	emptyCaseListConfig,
+	type FirstMenuCaseRead,
+	firstMenuCaseRead,
 	isOwnerOnlyCaseSearchConfig,
 	type OtherwiseDestination,
 	otherwiseDestinationsOffered,
@@ -261,15 +263,9 @@ export function applyModuleMutation(
 		case "updateModule": {
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
-			// Whether a menu shows its forms above is read by every submenu
-			// that keeps its screen under a top-level menu above: whether every
-			// form listed from such a menu opens one chosen case decides
-			// whether those submenus' forms are offered their own module.
 			const before = postSubmitBefore(
 				draft,
-				Object.hasOwn(mut.patch, "formsInMenuAbove")
-					? Object.values(draft.formOrder).flat()
-					: formsOfModuleAndChildren(draft, mut.uuid),
+				formsOfModuleAndChildren(draft, mut.uuid),
 			);
 			// Apply the patch key-by-key: a `null` (the wire representation of a
 			// clear — JSON drops `undefined`, so a cleared optional slot crosses
@@ -652,13 +648,72 @@ export function applyModuleMutation(
 export function postSubmitBefore(
 	draft: Draft<BlueprintDoc>,
 	formUuids: readonly Uuid[],
+	firstMenuCase: FirstMenuCaseRead = firstMenuCaseRead(draft),
 ): ReadonlyMap<Uuid, PostSubmitDestination | undefined> {
 	const before = new Map<Uuid, PostSubmitDestination | undefined>();
 	for (const formUuid of formUuids) {
 		if (draft.forms[formUuid] === undefined) continue;
-		before.set(formUuid, effectivePostSubmit(draft, formUuid));
+		before.set(formUuid, effectivePostSubmit(draft, formUuid, firstMenuCase));
 	}
 	return before;
+}
+
+/** The forms whose offered set reads whether every form listed from a menu
+ *  above opens one chosen case (`menu-opens-with-first-menu-case`): the
+ *  forms of each menu that keeps its screen under a menu above. */
+function formsReadingFirstMenuCase(draft: Draft<BlueprintDoc>): Uuid[] {
+	const forms: Uuid[] = [];
+	for (const moduleUuid of draft.moduleOrder) {
+		const mod = draft.modules[moduleUuid];
+		if (mod === undefined || mod.formsInMenuAbove === true) continue;
+		const parentUuid = mod.parentModuleUuid;
+		if (
+			parentUuid === undefined ||
+			draft.modules[parentUuid]?.formsInMenuAbove !== true
+		)
+			continue;
+		forms.push(...(draft.formOrder[moduleUuid] ?? []));
+	}
+	return forms;
+}
+
+/** Whether every form listed from a menu above opens one chosen case ahead
+ *  of a write, with the after-submit of each form whose offered set reads
+ *  it; `undefined` where no form reads it. */
+export interface FirstMenuCaseWatch {
+	readonly opensOneCase: boolean;
+	readonly before: ReadonlyMap<Uuid, PostSubmitDestination | undefined>;
+}
+
+export function watchFirstMenuCase(
+	draft: Draft<BlueprintDoc>,
+): FirstMenuCaseWatch | undefined {
+	const forms = formsReadingFirstMenuCase(draft);
+	if (forms.length === 0) return undefined;
+	const read = firstMenuCaseRead(draft);
+	return { opensOneCase: read(), before: postSubmitBefore(draft, forms, read) };
+}
+
+/**
+ * After a write, where whether every form listed from a menu above opens one
+ * chosen case is no longer what `watch` read before it, reconcile every form
+ * whose offered set reads that fact (`reconcilePostSubmitWithMenuShape`).
+ * The fact reads the menus, the forms' types and which menu holds which
+ * form (`menuScreens.ts::firstMenuOpensOneCase`), so any write of a menu or
+ * a form can turn it: removing or adding a form of a menu above, changing a
+ * form's type or a menu's case type, moving a form or a menu. Keyed on the
+ * fact itself, so no reducer arm has to know it reads it. A form the arm
+ * reconciled already holds a destination it is offered, and reconciling it
+ * again from the same `before` changes nothing.
+ */
+export function reconcileFirstMenuCaseChange(
+	draft: Draft<BlueprintDoc>,
+	watch: FirstMenuCaseWatch | undefined,
+): void {
+	if (watch === undefined) return;
+	const read = firstMenuCaseRead(draft);
+	if (read() === watch.opensOneCase) return;
+	reconcilePostSubmitWithMenuShape(draft, watch.before, read);
 }
 
 /** The forms of a module and of each of its child modules: the forms whose
@@ -711,8 +766,10 @@ function nearestOfferedOtherwise(
  * the offered set or the default reads (`lib/domain/postSubmit.ts`): whether
  * the menu's forms read the search, the selection mode, the module's
  * `hiddenFromMenu`, whether the menu is a bare case list, the module's parent,
- * or the form's module. So a change of menu shape never dead-ends at the
- * gate. `before` maps each form to reconcile to its effective after-submit
+ * the form's module, or whether every form listed from a menu above opens
+ * one chosen case (`reconcileFirstMenuCaseChange`). So a change of menu
+ * shape never dead-ends at the gate. A pass reads that last fact once,
+ * `firstMenuCase`, since its own writes are after-submit slots alone. `before` maps each form to reconcile to its effective after-submit
  * destination ahead of the write (`undefined` for a form with destinations);
  * after the write, for each:
  *
@@ -737,13 +794,18 @@ function nearestOfferedOtherwise(
 export function reconcilePostSubmitWithMenuShape(
 	draft: Draft<BlueprintDoc>,
 	before: ReadonlyMap<Uuid, PostSubmitDestination | undefined>,
+	firstMenuCase: FirstMenuCaseRead = firstMenuCaseRead(draft),
 ): void {
 	for (const [formUuid, destination] of before) {
 		const form = draft.forms[formUuid];
 		if (!form) continue;
 		const otherwise = form.otherwise;
 		if (otherwise?.kind === "destination") {
-			const offered = otherwiseDestinationsOffered(draft, formUuid);
+			const offered = otherwiseDestinationsOffered(
+				draft,
+				formUuid,
+				firstMenuCase,
+			);
 			if (!offered.includes(otherwise.destination)) {
 				otherwise.destination = nearestOfferedOtherwise(
 					otherwise.destination,
@@ -752,7 +814,11 @@ export function reconcilePostSubmitWithMenuShape(
 			}
 		}
 		if (destination === undefined || form.formLinks !== undefined) continue;
-		const offered = postSubmitDestinationsOffered(draft, formUuid);
+		const offered = postSubmitDestinationsOffered(
+			draft,
+			formUuid,
+			firstMenuCase,
+		);
 		if (form.postSubmit !== undefined) {
 			if (!offered.includes(form.postSubmit)) {
 				form.postSubmit = nearestOffered(form.postSubmit, offered);
@@ -760,7 +826,7 @@ export function reconcilePostSubmitWithMenuShape(
 			continue;
 		}
 		if (!offered.includes(destination)) continue;
-		if (defaultPostSubmitOf(draft, formUuid) !== destination) {
+		if (defaultPostSubmitOf(draft, formUuid, firstMenuCase) !== destination) {
 			form.postSubmit = destination;
 		}
 	}

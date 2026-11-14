@@ -18,9 +18,15 @@
 
 import { expect, it } from "vitest";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
+import { echoLookupDefinitions } from "@/lib/agent/__tests__/fixtures";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import { type BlueprintDoc, translationUnitsById } from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import type { ProseTemplate } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { proseSlotAt } from "../proseSlots";
 
 function visitApp() {
@@ -292,4 +298,61 @@ it("answers the prose slot of a translated field text, and none for a text no fo
 			doc,
 		),
 	).toBeUndefined();
+});
+
+it("reads a data table in a formula written with a space after its opening braces, as it reads one without", async () => {
+	// The text's parse takes `{{ =` as a calculated value, so the Project's
+	// data tables must be loaded for it as for `{{=`: a call that only adds
+	// wording names no table any other way.
+	const services = {
+		id: lookupTableIdSchema.parse("0198c0de-0000-7000-8000-0000000000b1"),
+		name: "Services",
+		tag: "services",
+		definitionRevision: parseLookupRevision("0"),
+		columns: [
+			["0198c0de-0000-7000-8000-0000000000b2", "code"],
+			["0198c0de-0000-7000-8000-0000000000b3", "name"],
+		].map(([id, name]) => ({
+			id: lookupColumnIdSchema.parse(id),
+			wireName: name,
+			label: name,
+			dataType: "text" as const,
+		})),
+	};
+	const h = makeAuthoringHarness(
+		{
+			lookupCatalog: async () => ({
+				projectId: "project-test",
+				projectRevision: parseLookupRevision("1"),
+				definitions: [services],
+			}),
+			lookupDefinitions: echoLookupDefinitions([services]),
+		},
+		namedFormFixture([
+			{
+				name: "Clients",
+				caseType: "client",
+				forms: [{ name: "Visit", type: "followup" }],
+			},
+		]),
+	);
+	const result = await h.call("addFields", {
+		moduleUuid: "Clients",
+		formUuid: "Visit",
+		fields: [
+			{
+				kind: "text",
+				id: "service",
+				label:
+					"Service: {{ = instance('services')/services_list/services[code = 'one'][1]/name }}",
+			},
+		],
+	});
+	expect(result).toMatchObject({ ok: true });
+	const service = fieldNamed(h.currentDoc(), "service");
+	if (service.kind !== "text") throw new Error("service is no text question");
+	expect(partsOf(service.label)).toEqual([
+		{ kind: "text", text: "Service: " },
+		expect.objectContaining({ kind: "value" }),
+	]);
 });

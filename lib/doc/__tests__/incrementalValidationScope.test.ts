@@ -1676,6 +1676,47 @@ describe("menus that list forms on one screen", () => {
 		);
 	});
 
+	it("takes the whole-document gate where a batch turns whether every form above opens one case", () => {
+		// Two top-level menus show their forms on the first menu and "Under
+		// A" keeps its screen beneath the first. Letting B's list choose
+		// several cases gives B's form another first selection than A's, so
+		// the forms above no longer open one case, which Under A's forms'
+		// after-submit reads.
+		const A = testUuid("scope-first-menu-a");
+		const B = testUuid("scope-first-menu-b");
+		const UNDER_A = testUuid("scope-first-menu-under-a");
+		const menu = (uuid: string, name: string) => ({
+			uuid,
+			name,
+			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					name: `${name} visit`,
+					type: "followup" as const,
+					fields: [f({ kind: "text", id: "note", label: "Note" })],
+				},
+			],
+		});
+		const doc = buildDoc(
+			{
+				appName: "First menu",
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [menu(A, "A"), menu(UNDER_A, "Under A"), menu(B, "B")],
+			},
+			(draft) => {
+				draft.modules[A].formsInMenuAbove = true;
+				draft.modules[B].formsInMenuAbove = true;
+				draft.modules[UNDER_A].parentModuleUuid = A;
+			},
+		);
+		const batch: Mutation[] = [
+			{ kind: "setCaseListMeta", uuid: B, patch: { selection: MULTIPLE_FIVE } },
+		];
+		expect(incrementalValidationScope(doc, batch)).toBeUndefined();
+		expectCommitParity(doc, batch);
+	});
+
 	it("agrees with the whole-document verdict over the menu-screens corpus", {
 		timeout: 60_000,
 	}, () => {

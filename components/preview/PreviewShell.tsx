@@ -51,6 +51,7 @@ import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-c
 import { Spinner } from "@/components/shadcn/spinner";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { caseListRegistrationEntryContinues } from "@/lib/preview/caseListRegistrationEntry";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useEntryPointLaunchLifecycle } from "@/lib/preview/hooks/useEntryPointLaunch";
@@ -63,11 +64,13 @@ import type { AppSetupSection } from "@/lib/routing/types";
 import {
 	useClearPreviewNavigation,
 	useEditMode,
+	usePreviewCaseListRegistrationEntry,
 	usePreviewCaseTarget,
 	usePreviewDevice,
 	usePreviewParentCaseRequest,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
+	useSetPreviewCaseListRegistrationEntry,
 	useSetPreviewing,
 	useSetPreviewParentCaseRequest,
 	useSetPreviewPersonaUuid,
@@ -218,10 +221,34 @@ export function PreviewShell() {
 	useEffect(() => {
 		if (previewParentCaseRequest === undefined) return;
 		const atActiveSelector =
-			(loc.kind === "module" || loc.kind === "cases") &&
+			loc.kind === "cases" &&
 			loc.moduleUuid === previewParentCaseRequest.selectingModuleUuid;
 		if (!atActiveSelector) setPreviewParentCaseRequest(undefined);
 	}, [loc, previewParentCaseRequest, setPreviewParentCaseRequest]);
+
+	/* A case list's Register launch belongs to the one form entry it opened.
+	 * It ends here at any location off that launch's path, whatever moved
+	 * there (a menu, the app tree, a finding, a breadcrumb, browser history),
+	 * so a later entry of the same form is an ordinary form; the parent case
+	 * selection that admits the launched form is on its path. */
+	const caseListRegistrationEntry = usePreviewCaseListRegistrationEntry();
+	const setCaseListRegistrationEntry = useSetPreviewCaseListRegistrationEntry();
+	useEffect(() => {
+		if (
+			caseListRegistrationEntry !== undefined &&
+			!caseListRegistrationEntryContinues(
+				caseListRegistrationEntry,
+				loc,
+				previewParentCaseRequest,
+			)
+		)
+			setCaseListRegistrationEntry(undefined);
+	}, [
+		caseListRegistrationEntry,
+		loc,
+		previewParentCaseRequest,
+		setCaseListRegistrationEntry,
+	]);
 
 	const clearPreviewNavigation = useClearPreviewNavigation();
 	useLayoutEffect(() => {

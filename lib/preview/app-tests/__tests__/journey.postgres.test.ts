@@ -15,8 +15,10 @@ import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import { appTestNamespace } from "@/lib/case-store/appTestNamespace";
 import {
+	admitNoMatchesDoc,
 	FOLLOWUP_FORM,
 	HOST_MODULE,
+	NAME_INPUT,
 	noMatchesDoc,
 	REGISTER_FORM,
 } from "@/lib/commcare/__tests__/noMatchesWireFixture";
@@ -24,7 +26,12 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { readAppTestSteps } from "@/lib/db/appTests";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
+import {
+	collectTranslationUnits,
+	makeTranslationUnitId,
+	NEW_APP_SETTINGS,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
 import { sectionEntryDoc } from "../../engine/__tests__/fixtures/sectionEntry";
@@ -301,6 +308,138 @@ it.each([false, true])(
 		}
 	},
 );
+
+it("returns a Register from a list whose forms read the search to that search keyed to the new case", async () => {
+	/* The Patients list always offers Registration's form, Back to this list.
+	 * The return frame runs Patients' search again over the registered case
+	 * alone (HQ's `case_fixture` query), so Results list that case and not
+	 * the earlier search's matches, which the new name does not match. */
+	const offered = testUuid("journey-offered-registration");
+	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
+	const doc = buildDoc({
+		appName: "Registry",
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				uuid: HOST_MODULE,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...list,
+					searchInputs: [
+						simpleSearchInputDef(
+							NAME_INPUT,
+							"patient_name",
+							"Patient name",
+							"text",
+							"case_name",
+						),
+					],
+				},
+				caseSearchConfig: { formsReadSearch: true },
+				forms: [
+					{
+						uuid: FOLLOWUP_FORM,
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: offered,
+						name: "Register patient",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[HOST_MODULE].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: offered,
+		afterSubmit: "case-list",
+	};
+	admitNoMatchesDoc(doc);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Register from a searched list",
+			scenario: {
+				records: [
+					{ id: "maya-1", caseType: "patient", name: "Maya" },
+					{ id: "maya-2", caseType: "patient", name: "Maya" },
+				],
+			},
+		},
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `step-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid: HOST_MODULE });
+	expect(
+		await step({
+			kind: "search",
+			answers: [{ name: "patient_name", value: "Maya" }],
+		}),
+	).toMatchObject({
+		screen: "results",
+		results: { kind: "rows", rows: [expect.anything(), expect.anything()] },
+		registration: { uuid: offered },
+	});
+	await step({ kind: "form", formUuid: offered });
+	await step({
+		kind: "answer",
+		answers: [{ path: "case_name", value: "Zed" }],
+	});
+	const saved = await step({ kind: "submit" });
+	expect(saved).toMatchObject({
+		savedInTest: true,
+		screen: "results",
+		results: {
+			kind: "rows",
+			rows: [expect.objectContaining({ case_name: "Zed" })],
+		},
+	});
+	expect(
+		(saved.results as { rows: readonly unknown[] } | undefined)?.rows,
+	).toHaveLength(1);
+});
 
 // A start, fourteen persisted worker actions (two of them submissions) and two
 // evidence reads, each its own durable transaction. Give the journey the same

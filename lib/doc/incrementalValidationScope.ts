@@ -35,6 +35,12 @@
  * lists what and takes the absolute gate; every other footprint grows by the
  * modules that share a touched module's screen, before and after the batch,
  * with their forms.
+ *
+ * Whether every form listed from a menu above opens one chosen case
+ * (`lib/domain/menuScreens.ts::firstMenuOpensOneCase`) is document-wide too:
+ * the after-submit destinations of every submenu under a menu above, and
+ * every frame built through the first menu, read it. A batch that turns it
+ * takes the absolute gate, whatever edit did it.
  */
 
 import { formHoldsPlacement } from "@/lib/doc/heldIdentity";
@@ -42,6 +48,7 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	afterEmptySearchRegistrationFormOf,
+	firstMenuOpensOneCase,
 	formLinkEntries,
 	menuScreenContributors,
 	menuScreenOf,
@@ -232,7 +239,8 @@ export function incrementalValidationScope(
 	if (scope === undefined) return undefined;
 	if (
 		nextDoc !== doc &&
-		inferenceFingerprint(doc) !== inferenceFingerprint(nextDoc)
+		(inferenceFingerprint(doc) !== inferenceFingerprint(nextDoc) ||
+			firstMenuOpensOneCase(doc) !== firstMenuOpensOneCase(nextDoc))
 	)
 		return undefined;
 	addScreenContributors(doc, nextDoc, scope);

@@ -22,6 +22,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { FormLinkRemovalTarget } from "./formLinkDependents";
+import type { Mutation } from "./types";
 
 /** One case list that would stop offering a removed form. */
 export interface CaseListRegistrationDependent {
@@ -114,4 +115,30 @@ export function planCaseListRegistrationDependentsOnRemove(
 		})
 		.join(" ");
 	return { kind: "blocked", dependents, message, userMessage };
+}
+
+/**
+ * The batch behind "Stop offering it" on that refusal, read from `doc` when
+ * the person presses it: each named list's offer cleared where the list
+ * still offers the form the refusal named. A list given another form since
+ * offers one the refusal never named, and keeps it.
+ */
+export function stopOfferingDependentsMutations(
+	doc: Pick<BlueprintDoc, "modules">,
+	dependents: readonly CaseListRegistrationDependent[],
+): Mutation[] {
+	const mutations: Mutation[] = [];
+	const cleared = new Set<Uuid>();
+	for (const { hostModuleUuid, formUuid } of dependents) {
+		if (cleared.has(hostModuleUuid)) continue;
+		if (alwaysOfferedRegistrationOf(doc, hostModuleUuid)?.formUuid !== formUuid)
+			continue;
+		cleared.add(hostModuleUuid);
+		mutations.push({
+			kind: "updateModule",
+			uuid: hostModuleUuid,
+			patch: { caseListRegistrationForm: null },
+		});
+	}
+	return mutations;
 }

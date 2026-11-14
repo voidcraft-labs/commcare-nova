@@ -6,8 +6,8 @@ each a complete Nova feature that is useful with no reader: the **Phone Number q
 **text shown as typed** on a help text and on a whole form. With the first it fixes the shape of the
 typed question display vocabulary that step 7's group `question-display` joins without a migration.
 It also fixes three defects of today's Nova. Two share one cause, text CommCare HQ's build reads as
-an instance: in a label (section 5), and in a form's name or a CommCare Connect block's name or
-description (5.1). The third is the text a phone writes for a date and time saved to a case, which
+an instance: in a label (section 5), and in a form's name, a CommCare Connect block's name or
+description, or a choice's value (5.1). The third is the text a phone writes for a date and time saved to a case, which
 is not the text CommCare HQ stores, so a list ordered by it misplaces the cases that phone saved
 (7.1). Each concept is planned across the domain, the validator, the emitters, Preview,
 the builder, the Solutions Architect and MCP, the platform table, the surface manifest, the public
@@ -34,7 +34,7 @@ and not yet run" that settles it.
 | 2 | the question display vocabulary: its shape, its registry, the one writer of `appearance` |
 | 3 | the Phone Number question |
 | 4 | a calculated value in prose: the part, its check, emission, Preview, translations, the builder |
-| 5 | text CommCare HQ's build reads as an instance: a label (5), and a form's name and a Connect block's text (5.1) |
+| 5 | text CommCare HQ's build reads as an instance: a label (5), and a form's name, a Connect block's text and a choice's value (5.1) |
 | 6 | a search with no title |
 | 7 | a sort rule's blanks first or last (7), and a date and time saved to a case as CommCare HQ stores it (7.1) |
 | 8 | text shown as typed: help, a whole form, and what hints and validation messages write |
@@ -96,7 +96,10 @@ and not yet run" that settles it.
 15. **A form's name and a Connect block's name and description can't hold text CommCare HQ's build
     reads as an instance** (5.1). They are plain text in the form's source, where no spelling keeps
     the scan out, so the gate refuses it (`FORM_TEXT_READ_AS_INSTANCE`) and offers a space before the
-    bracket. A label keeps any characters, because itext can be protected.
+    bracket. A choice's value is plain text there too, and data no writer may spell another way, so
+    its own grammar refuses it (`SELECT_OPTION_VALUE_INVALID`, problem `instance-read`), in the
+    builder's editor and the tools' schemas as at the gate, and offers the value's slug. A label keeps
+    any characters, because itext can be protected.
 16. **A search with no title is `searchScreenTitle: { kind: "none" }`** (6). Absent keeps meaning
     "Search", so no document changes. It writes a blank title in every language, as CommCare HQ's Case
     List page does, and no translation unit.
@@ -112,9 +115,9 @@ and not yet run" that settles it.
     formatted copy, so every label shows as typed on both platforms and every choice and help text on
     Android (Web Apps formats those two whatever the form holds, 8.1). The form writes
     `vellum:ignore="markdown"`, and each text's own setting is kept for when the switch goes back on.
-21. **One rule of this part narrows the gate for a stored document: 5.1's.** Every other new refusal
-    is of a shape no stored document holds (a new key's value, a new prose arm). For 5.1 a read-only
-    scan of every saved app found none holding the text when it ran. The session runs it once more
+21. **One section of this part narrows the gate for a stored document: 5.1, with its two refusals.**
+    Every other new refusal is of a shape no stored document holds (a new key's value, a new prose
+    arm). For 5.1 a read-only scan of every saved app found none holding the text when it ran. The session runs it once more
     before the merge and once more when the deploy has ended, and the deploy's own probe covers the
     time between (5.1, "What existing apps see").
 22. **This part's changes reach served tool inputs, descriptions and the guide** (9.5 lists them), so
@@ -333,6 +336,11 @@ decisions rest on:
   keeps the written date and moves only the clock (`DateUtils.java::parseTimeAndStore`), so today's
   wrapper lands a copied value a day off wherever the device's date for that moment differs from
   the written one. Over CommCare HQ's UTC text that is common. 7.1 writes stored text as it is.
+- **Found in review (stored text read back on a device):** the same parse reads a date-and-time
+  question's starting value, `format-date` and `date()`, so a question opened on a case's UTC text
+  showed the moment a day away and saving the form unchanged moved the case's value by that day,
+  on the phone that wrote it and in Preview. 7.1, "Stored text read on a device", reads such text
+  in the device's own date and clock first.
 
 ---
 
@@ -483,16 +491,25 @@ before 1970, midnight itself, and the UTC day after or before a device's across 
 fourteen hours), opens the case family's sequence form from the local archive and from CommCare
 HQ's build, sets each vector as the question's answer and as the recorded clock `now()` reads,
 submits, applies the submission through `CaseXmlParser` and reads the case's properties. The copy
-row and the `if` row are `targeted-datetime-saved`'s, read by proofs 2 to 4 and by this class once
-that document's forms are in the family. `proof/hq/test_stored_datetime.py` hands each vector's
+row and the `if` row are `targeted-datetime-saved`'s, read by proofs 2 to 4. The producer emits that
+document whole (its forms, its suite and its HQ import body, which `proof/native/steps/case_emission.py`
+builds again, `WHOLE_DOCUMENTS`), and the class opens its "Revisit" form from its suite, on a visit
+whose `seen_at` holds each vector's text, in the same zones (west of UTC in New York, east of it in
+Kolkata and Kiritimati), submits it with nothing answered and reads `seen_at` (the question's
+starting value, saved back through Case Management) and `seen_kept` (a Hidden Value's copy).
+`proof/hq/test_stored_datetime.py` hands each vector's
 text, and the earlier device-offset text of the same instant in three zones
 (`proof/hq/fixtures/stored-instant-vectors.json`, held to the vectors in Vitest), to CommCare HQ's
 own `adjust_datetimes`.
-- *A: every stored value equals its vector's text in every zone, the copy is exact, and
-  `adjust_datetimes` returns the vector's text for both spellings.* Nothing more lands.
-- *B: a value differs in some zone.* The piece of `storedInstantOfText` that the difference names
-  (the day, the hour and minute, or the copied seconds) is corrected to give the vector's text
-  there, and the vector kept. Nothing merges with a vector unequal.
+- *A: every stored value equals its vector's text in every zone, the copy is exact, the form
+  opened and saved unchanged keeps `seen_at` (but for the first of a repeated hour, which Core's
+  cast reads as the second, the class's stated expectation) and its Hidden Value copy is the
+  vector's text, and `adjust_datetimes` returns the vector's text for both spellings.* Nothing
+  more lands.
+- *B: a value differs in some zone.* The piece of `storedInstantOfText`, or for a starting value
+  of `deviceInstantText`, that the difference names (the day, the hour and minute, the offset, or
+  the copied seconds and milliseconds) is corrected to give the vector's text there, and the vector
+  kept. Nothing merges with a vector unequal.
 - *C: `adjust_datetimes` changes the text Nova wrote* (the reading of `json_format_datetime` is
   wrong). The spelling is the one CommCare HQ returns: `storedInstantOfText`, `hqInstantText`,
   `HQ_DATETIME_PATTERN`'s use in 7.1 and the vectors take it, and 7.1's two examples are corrected.
@@ -886,7 +903,11 @@ export function numberKeypadStores(rule: PreviewPlatformRules["numberKeypad"], r
 `keypad`, calls both: under `"keys"` the stored and shown text is `numberKeypadTyped`; under
 `"pattern"` an answer that does not match is not written to the instance, the question's state is
 invalid with `runtimeMessage(language, "numberKeypadAnswer")` (through `answerShapeError`, so it
-blocks Submit and shows on blur), and the earlier answer stays in the instance. This is not what
+blocks Submit and shows on blur), and the earlier answer stays in the instance. The state records
+that refusal (`FieldState.keypadRefused`, carried through a rebuild's snapshot), and `answerShapeError`
+gives the keypad's message only while it stands: a starting value or a preloaded case value is never
+checked against the pattern, since `PhoneEntry` checks only in `onPreProcess`, which a seeded answer
+never reaches (`entries.js`, `EntrySingleAnswer` seeds `rawAnswer` before it subscribes). This is not what
 `readNumericAnswer` does for a whole number, which writes the typed text to the instance and marks the
 state invalid; `PhoneEntry` sends Formplayer nothing it refuses, so the keypad's refusal changes nothing
 the form reads. `TextField.tsx` sets `inputMode="tel"`
@@ -1322,19 +1343,19 @@ or that a worker reads the same characters, which is the lane's reading of `targ
 - The cut also takes CommCare HQ's CommCare Supply substring test off a label: a label holding
   `instance('commcaresession')/session/data/supply_point_id` no longer holds that text in the source,
   so `lib/commcare/planPrivileges.ts::commtrackReasons` names no form for it, and its tests say so.
-  With a literal cut by the serializer and a form's name and Connect text refused (5.1), no admitted
-  document's source holds the text; the form half of that rule stays as a reading of the emission.
+  With a literal cut by the serializer and a form's name, Connect text and choice value refused (5.1),
+  no admitted document's source holds the text; the form half of that rule stays as a reading of the emission.
 
 An output's own text needs no guard: a `value` part's instances are declared (4.4), and the string
 literals inside it are cut by the serializer. The split changes no behavior and nothing declares it
 (part 09, section 11.4). `proof/hq/test_instance_text.py` builds both spellings through HQ's own
 build as an ordinary test with one expectation ("Tests").
 
-### 5.1 Text with no protected spelling: a form's name, and a Connect block's name and description
+### 5.1 Text with no protected spelling: a form's name, a Connect block's name and description, and a choice's value
 
-A label can be protected because an itext value takes an `<output>`. Two kinds of authored text sit in
-a form's source where no element can stand between `instance` and its bracket, and HQ's scan reads
-both.
+A label can be protected because an itext value takes an `<output>`. Three kinds of authored text sit
+in a form's source where no element can stand between `instance` and its bracket, and HQ's scan reads
+each.
 
 **What happens today.** `lib/commcare/xform/builder.ts::buildXFormSource` writes three kinds of
 authored text outside itext and outside an expression:
@@ -1348,9 +1369,9 @@ authored text outside itext and outside an expression:
 - The form's name in the app's default language (`lib/domain/formWireName.ts::formWireName`), as the
   text of `<h:title>` and as the data root's `name` attribute
   (`lib/commcare/xform/dataRootAttributes.ts::xformDataRootRuntimeAttributes`).
-- A choice's value, as the text of an `<item>`'s `<value>`. It can hold no quote mark
-  (`lib/domain/selectOptionValue.ts::SELECT_OPTION_VALUE_PATTERN`, `SELECT_OPTION_VALUE_INVALID`), so
-  HQ's pattern cannot match it. It needs nothing.
+- A choice's value, as the text of an `<item>`'s `<value>`. Its grammar
+  (`lib/domain/selectOptionValue.ts::selectOptionValueProblem`) refuses whitespace and a value holding
+  both quote marks, and admits one kind of quote mark, so `instance('abc')` is a value it admits.
 
 That list is complete. It was made by reading every `text(…)` call and every attribute that holds an
 authored string in `builder.ts` and `xform/constraintMessage.ts`. The other text a form's source
@@ -1358,10 +1379,10 @@ holds is itext, which section 5 protects, and the pieces of a composed validatio
 `constraintMessage.ts::asciiJson` already writes with every apostrophe as `\u0027` and every double
 quote as `\"`, so no quote mark follows a bracket there.
 
-Nothing checks the first two. `lib/commcare/validator/rules/xmlText.ts::authoredXmlText` reads them
-only for characters XML cannot hold. So a learn module described as
-`Shows how instance('casedb') works`, or a form named `instance('abc') practice`, is admitted, saved
-and emitted as typed. `docs/research/2026-09-26-hq-round-trip/harness-findings.md` holds the defect
+Nothing checks any of the three for the scan. `lib/commcare/validator/rules/xmlText.ts::authoredXmlText`
+reads them only for characters XML cannot hold. So a learn module described as
+`Shows how instance('casedb') works`, a form named `instance('abc') practice`, or a choice whose value
+is `instance('abc')`, is admitted, saved and emitted as typed. `docs/research/2026-09-26-hq-round-trip/harness-findings.md` holds the defect
 as finding 77.
 
 **What HQ does with it.** HQ's scan is section 5's: one string, the whole rendered form, read by
@@ -1422,8 +1443,16 @@ A form's title is plain text in the same way, and HQ's form builder writes the f
 title and the `name` attribute on every save (`lib/domain/formWireName.ts`, its comment), so any
 spelling Nova chose there would be undone.
 
-**The fix.** Nova refuses the text at the gate, in the two places and nowhere else, and says the one
-change that keeps it as text: a space before the bracket. `instance ('casedb')` reads the same to a
+A choice's value is data, not prose. It is what a submission saves and what every rule naming the
+choice compares with; Core reads it as the `<value>` element's text
+(commcare-core `xform/parse/XFormParser.java::parseItem`, `getXMLText`) and HQ's form builder as the
+same (Vellum `parser.js`, `$cEl.children('value').text()`), so a child element there changes the
+value, and a space before the bracket is a value the grammar refuses (a select's answer is a
+space-separated list of values).
+
+**The fix.** Nova refuses the text at the gate, in a form's name and a Connect block's text, and says
+the one change that keeps it as text: a space before the bracket. A choice's value is refused by its
+own grammar instead (below, "A choice's value"), which offers the value's slug. `instance ('casedb')` reads the same to a
 person, and HQ's pattern, which needs `instance(` unbroken, finds nothing in it.
 
 This is right for the worker because every form HQ builds from a Nova app then declares only what
@@ -1439,8 +1468,11 @@ to know. And holding those two would need Nova to copy HQ's list of known names 
 source that no formula reads, in the document, the local archive and the oracles that hold the two
 equal, all to carry prose. Nothing needs it.
 
-**The predicate.** `lib/commcare/hqInstanceScan.ts` (the file of section 5) gains one export beside
-`instanceScanCuts`:
+**The predicate.** New file `lib/domain/hqInstanceRead.ts` holds HQ's whole pattern and its
+whitespace class, which `lib/commcare/hqInstanceScan.ts` (the file of section 5) builds
+`instanceScanCuts` from and re-exports the predicate beside. It is the domain's because a choice's
+value grammar, which the builder's editor applies, reads it too, and `components/**` may not import
+`lib/commcare`:
 
 ```ts
 /** The first text in `value` that CommCare HQ's build reads as an instance, or `undefined`. */
@@ -1513,15 +1545,39 @@ The scoped gate needs no change. A rename keeps its form in the footprint
 `updateForm` of that form, and every language mutation, which is what can change the default
 language's name, takes the whole-document gate there.
 
+**A choice's value.** A value is no text `formSourceTexts` lists: its refusal is its own grammar's,
+because a value has one grammar the three editors apply before the gate
+(`lib/domain/selectOptionValue.ts`). `selectOptionValueProblem` answers a fourth problem,
+`instance-read`, where `instanceScanRead` answers the value. So:
+
+- the validator's `SELECT_OPTION_VALUE_INVALID` (a question's inline choices, at the field with the
+  option's uuid) and `CASE_PROPERTY_OPTION_VALUE_INVALID` (a case property's catalog, whose values a
+  question that writes the property offers) refuse it with `problem: "instance-read"` and
+  `suggestedValue`, `repairSelectOptionValue`'s slug (`instance('abc')` offers `instance_abc`), and
+  `lib/doc/userFacingErrors.ts::optionValueProblemPhrase` says it for the builder;
+- `selectOptionValueSchema`, the leaf every tool's `value` slot composes, refines it with
+  `SELECT_OPTION_VALUE_INSTANCE_READ`, beside the both-quotes refinement. A refinement is no keyword
+  of the served JSON Schema, so it moves no served byte, `MODEL_CONTEXT_VERSION` and the billed
+  schema check included;
+- the builder's options editor refuses it beneath its row as it is typed
+  (`components/builder/editor/fields/optionsDraftModel.ts::optionValueRefusal`), with the same
+  repair, so the value box never holds a value its commit would bounce.
+
+No schema changes: the stored `selectOptionSchema` stays permissive, so every stored document
+loads. The scoped gate needs no change: an option edit is an `updateField` of its question, and a
+catalog edit an app-wide mutation whose rules run on every commit.
+
 **Surfaces.**
 
-- *The builder.* No component changes. Every editor of these texts commits through the gate and
+- *The builder.* No component changes for a form's name or a Connect block's text (a choice's value
+  is refused in its options editor, above). Every editor of these texts commits through the gate and
   shows a refusal beside the field with the draft kept
   (`lib/ui/hooks/useCommitField.ts`, through `components/builder/detail/formSettings/InlineField.tsx`
   for a block's name and description and the form title's editor for a name; the Connect manager
   shows the gate's lines under its drafts, `ConnectManagerDialog.tsx`, `rejectionMessages`). A
   translated name goes through the same gate. The person reads the builder sentence of "Copy".
-- *The Solutions Architect and MCP.* No tool, schema or description changes. `configureConnect`,
+- *The Solutions Architect and MCP.* No tool, served schema or description changes; a choice's value
+  is refused by the `value` slot's refinement, above, in the message it carries. `configureConnect`,
   `updateForm`, `createForm` and a rename all commit through the shared gate
   (`lib/agent/tools/common.ts::guardedMutate`) and answer with the validator's message, which names
   the form, the text and the spelling that works. No guide sentence is added: the text is rare, and
@@ -1535,26 +1591,38 @@ language's name, takes the whole-document gate there.
   Preview reads a form's name from the same `formWireName`, which the gate has already judged.
 - *The platform table, Postgres, the reference index.* Unchanged: this is no platform difference, no
   stored case data and no reference.
-- *`../nova-plugin`.* Swept for a sentence about what a Connect name or a form's name may hold: its
-  skills say nothing of either.
+- *`../nova-plugin`.* Swept for a sentence about what a Connect name, a form's name or a choice's
+  value may hold: its skills say nothing of any.
 
-**The manifest.** Two new REFUSED entries, each landing with the rule and its inventory row, and one
-new subject for both, `instance-text` (part 01, section 2.2, and its sentence in section 9.2). Each
-takes the refused arm's fixed `platforms` and `emission` values and `gates: []`.
+**The manifest.** Three new REFUSED entries, each landing with its refusal and its inventory row, and
+one new subject for all three, `instance-text` (part 01, section 2.2, and its sentence in section
+9.2). Each takes the refused arm's fixed `platforms` and `emission` values and `gates: []`.
 
 | `id` | File and section | `surfaceKeys` | `valueClass` | `item` |
 |---|---|---|---|---|
 | `questions/connect-block-text-read-as-an-instance` | `entries/questions.json`, "Question types", beside `questions/connect-task` | `mug:ConnectLearnModule`, `mug:ConnectDeliverUnit`, `mug:ConnectTask`, `vellum-plugin:commcareConnect` | `text-read-as-an-instance` | "a Connect learn module's or task's name or description, or a deliver unit's name, holding `instance('…')`" |
 | `forms-and-case-writes/form-name-read-as-an-instance` | `entries/forms-and-case-writes.json`, "Form fields", beside `forms-and-case-writes/name-lang` | `schema:Form.name`, `schema:AdvancedForm.name` | `default-language-name-read-as-an-instance` | "`name{lang}` in the app's default language holding `instance('…')`" |
+| `questions/choice-value-read-as-an-instance` | `entries/questions.json`, "Question types", beside `questions/choice-value-with-whitespace-empty-or-duplicated` | `xform:select1/item/value`, `xform:select/item/value` | `read-as-an-instance` | "choice value holding `instance('…')`" |
 
-Both hold `subject: "instance-text"` and the same two reasons and cell:
+All three hold `subject: "instance-text"` and the same two reasons. The first two hold the cell below;
+the third holds "**REFUSED**: HQ's build reads the value as an instance read
+(`xform.py::XForm.add_missing_instances`), and a choice's value is data no writer spells another way.
+It stops the build for a name it has no source for, and adds the source to the built form for a name
+it has one for, which stops the form from opening where that is a fixture the device does not hold.
+Nova refuses the value by its own grammar (`SELECT_OPTION_VALUE_INVALID`, problem `instance-read`).":
 
 - `{ kind: "not-hq-buildable", named: "`xform.py::XForm.add_missing_instances`: \"is missing some instance declarations that can't be automatically added\"", condition: "a name CommCare HQ has no source for" }`
 - `{ kind: "broken-at-runtime", named: "the built form declares the source (`XForm.add_instance`), Core opens every declared source with the form (`FormDef.initialize`), and a fixture the device does not hold raises `FixtureInitializationException` (`CommCareInstanceInitializer.loadFixtureRoot`)", condition: "a fixture name CommCare HQ has a source for" }`
 - `dispositionCell`: "**REFUSED**: HQ's build reads the text as an instance read (`xform.py::XForm.add_missing_instances`) and no spelling of plain text keeps it out. It stops the build for a name it has no source for, and adds the source to the built form for a name it has one for, which stops the form from opening where that is a fixture the device does not hold. For `casedb` and `commcaresession` the built form only gains a declaration nothing reads; Nova refuses those with the rest (`FORM_TEXT_READ_AS_INSTANCE`), so that one rule covers the text and a form declares only what its formulas read."
 
 `forms-and-case-writes/name-lang` and the four held Connect entries stay as they are: each new entry
-holds a value class of its own, so every pair on a shared key is disjoint.
+holds a value class of its own, so every pair on a shared key is disjoint. The HELD
+`questions/choice-value-containing-or` narrows its `item` to "choice value containing `'`, `"` or
+`` ` ``, and not both `'` and `"`, nor read as `instance('…')`", and its inventory row with it. A
+choice's value is a use of its key in every select Nova emits, beside that allowing entry, so the
+lane's manifest check reads each one: `proof/checks/manifest_value_classes.py::choice_value_read_as_an_instance`
+takes a value where HQ's pattern, its name widened as `instanceScanRead`'s is, reads it, with its
+shapes in `test_manifest_value_classes.py`.
 `questions/h-title-and-data-name-whatever-their-text` stays too: a reader takes a form's name from
 `Form.name`, never from the title. Both entries exist before the reader does, so the reader adds
 neither and claims each (part 06, sections 7.4 and 15).
@@ -1612,19 +1680,22 @@ holds nothing new for the lane's proofs to read.
 text widget and its description a text area, each only required), and HQ builds the app where it has
 a source for the name. Brought in, such an app gets one finding at the form, the sentence of the
 subject `instance-text` with the text it found, and comes in once a space stands before the bracket
-(part 06, sections 7.4 and 15).
+(part 06, sections 7.4 and 15). HQ's form builder accepts a choice value holding it too (Vellum
+`mugs/types/select.js` refuses only whitespace and a repeated value); brought in, that choice is
+`refuse(choice-value-read-as-an-instance)` (part 06, "Inline choices").
 
 *An app published from Nova.* Nothing at CommCare HQ changes: the rule changes no emitted byte of an
 admitted document.
 
-*An app saved in Nova.* The gate is absolute, so a saved app holding the text would stop at its next
-edit. No saved app held it when a read-only scan of every saved app ran during planning. It looked
+*An app saved in Nova.* The gate is absolute, so a saved app holding the text, or a choice whose value
+is such a text, would stop at its next edit. No saved app held it when a read-only scan of every saved app ran during planning. It looked
 for `instance(` followed by a quote mark in every saved form row, translation and other
 entity row, which is more than this rule refuses. `scripts/scan-instance-text.ts` is that scan in
 the repository's form: read-only, over every stored app, loaded by
 `lib/db/apps.ts::loadSchemaAdmittedAppForInspection` (the loader for a scan that looks for what a
 new rule refuses: it applies the stored schema and skips today's gate), it asks `instanceScanRead`
-of every `formSourceTexts` entry and prints the id of each app that holds such a text, and app ids
+of every `formSourceTexts` entry, and `selectOptionValueProblem` of every inline choice's value and
+every catalog option's value, and prints the id of each app that holds such a text, and app ids
 alone: no name, no form and never the text. It writes nothing.
 
 A scan is a fact about the moment it ran, and the revision that serves until the deploy finishes
@@ -1878,14 +1949,23 @@ export function datetimeCaseValue(
 	clock?: (leaf: Expression) => WireExpr | undefined,
 ): WireExpr; // xpath/wire/fromExpression.ts::storedDatetimeWire, which classifies the
             // write in its slot and prints each leaf through instant.ts::storedDatetimeValue
-/** The sibling's value: a question read is a typed leaf. */
-export function questionDatetimeCaseValue(path: FormPath): WireExpr;
+/** The sibling's value: its question classified as a field read in the question's own form
+ *  (`types`), printed at its node. */
+export function questionDatetimeCaseValue(
+	fieldUuid: Uuid,
+	path: FormPath,
+	types: ExpressionContext,
+): WireExpr;
 ```
 
 Both sites hand it the value's classification
 (`lib/domain/expression/instantOperand.ts::instantOperand`, which the instant lowering and the
 checker already read): a Save to Case row its write's value, the sibling node its question as a
-field read. It distributes over `if`, `coalesce` and `switch` as `instant.ts::datetimeCoerceValue`
+field read. A date-and-time question, and a Hidden Value Core holds as a typed `Date` (a starting
+value cast under `xsd:dateTime`, or a calculate that gives a `Date`), is a `typed` leaf; a Hidden
+Value whose calculate gives text, a copy of a case's stored value among them, is a `text` leaf
+(`Recalculate.java::wrapData` keeps a string as it is under any bind), so its sibling copies the
+text, as a Save to Case row does. It distributes over `if`, `coalesce` and `switch` as `instant.ts::datetimeCoerceValue`
 does, and prints each leaf by what a device holds:
 
 | Leaf (`InstantLeaf.class`) | Printed |
@@ -2012,20 +2092,31 @@ one cast:
 /** A moment as CommCare HQ stores it: UTC, `YYYY-MM-DDTHH:MM:SS.ffffffZ`. */
 export function hqInstantText(instantMs: number): string;
 /** The text a date and time takes on a case: the instant `storageDatetimeValue(text, zone)` names,
- *  as `hqInstantText`. Total: text the grammar cannot read comes back trimmed, for the schema to
- *  refuse. */
+ *  as `hqInstantText`. Total: text the grammar cannot read, or whose date is no day of the calendar
+ *  (`2026-02-30`, which `Date.parse` would roll into March), comes back as `storageDatetimeValue`
+ *  spells it, for the schema to refuse. */
 export function caseDatetimeValue(text: string, zone: string): string;
+/** A moment as the text a case holds: `hqInstantText` where its UTC year has four digits, else
+ *  its wall clock at the whole-hour offset nearest UTC that gives it one (the literal
+ *  `9999-12-31T23:59:59-05:00` is `9999-12-31T23:59:59.000-05:00`, the device's own spelling of
+ *  it). Total. */
+export function caseInstantText(instantMs: number): string;
 ```
 
 - The three writers of a date-and-time case property call `caseDatetimeValue` where they call
   `storageDatetimeValue` today: `lib/case-store/postgres/submissionEnvelope.ts` (the `datetime` arm
-  of its storage cast, whose `Date` branch prints `hqInstantText` in place of `toISOString()`),
+  of its storage cast, whose `Date` branch prints `caseInstantText` in place of `toISOString()`,
+  so a moment past 9999 in UTC is stored as a device stores it rather than failing the
+  submission),
   `lib/case-store/postgres/store.ts` (the cast a property's change of type runs) and
   `components/builder/data-review/dataReviewModel.ts` (a value saved in Data review).
 - A form answer stays as it is. `lib/preview/engine/formEngine.ts` and `answerCast.ts` keep
   `instantDatetimeValue`: an answer in the instance is what Core's `DateTimeData` holds, the
-  viewer's own clock, and a question that opens on a case's value already casts the stored text to
-  it (`answerCast.ts`, the `datetime` arm), whichever spelling the case holds.
+  viewer's own clock. A question that opens on a case's value reads the stored text as a device
+  does, through "Stored text read on a device" below: Preview evaluates the tree the XForm's
+  `<setvalue>` prints (`formEngine.ts::startingValueSource`, over
+  `formExpressionRuntime.ts::startingDatetimeSource`), and `answerCast.ts` casts its result as
+  Core's cast does.
 - A plain column and the case detail show the stored text
   (`lib/preview/engine/caseDataBindingClient.ts::caseRowDisplayValue`), so Preview shows
   `...000000Z`, as a phone does.
@@ -2040,6 +2131,68 @@ export function caseDatetimeValue(text: string, zone: string): string;
 - **Comparisons.** Unchanged. `compileStoredInstant` reads either spelling as its instant
   (`lib/case-store/sql/dataTypeTokens.ts::STORED_INSTANT_TEXT_PATTERN` admits any fraction and
   `Z`), and Preview's evaluator and the device lowering parse the text zone-free.
+
+**Stored text read on a device.** Core's parse of date-and-time text keeps the written date and
+moves only the clock to the device's zone (`DateUtils.java::parseDateTime`, `parseTimeAndStore`),
+so CommCare HQ's UTC text, parsed where the device's date for the moment is not the UTC one,
+names a moment a day away. Writing stored text as it is makes a copy exact; every place a device
+parses it as a typed date and time reads it first in the device's own date and clock.
+`xpath/wire/instant.ts` gains
+
+```ts
+/** Instant text as text Core's parse reads back to the same moment on the device evaluating it. */
+export function deviceInstantText(t: WireExpr): WireExpr;
+/** Whether any leaf of the operand can hold date-and-time text with a written offset. */
+export function mayHoldInstantText(operand: InstantOperand): boolean;
+```
+
+`deviceInstantText(t)` is `t` itself where `t` has no `T` at its eleventh character or no offset
+after its minutes (a blank, a date, a wall clock Core reads in the device's zone). Otherwise, with
+whole-number arithmetic over the written fields: `U`, the moment's minute from the written date's
+UTC midnight, is the written clock less the written offset; `C`, the device's clock, is Core's own,
+`format-date(t, '%H')` and `'%M'`, which print the clock the parse moved; the whole days `d`
+between the written date and the device's are those that bring `C - U` nearest the offset Core
+prints for the parsed value (`'%Z'`, read to the hour), which differs from the device's offset for
+the moment by a daylight saving turn at most while the candidates differ by a day, and the
+device's offset is `O = C - U + 1440 d`; the device's date is the written one moved by `d`, from the
+written year, month and day (never a day number: it counts from the JVM's epoch, UTC's on Web
+Apps, and `date(n)` misses a day in a zone whose offset moved by more than twelve hours since
+1970). The text is that date, `C`, the written seconds and milliseconds followed by a `5`, and the
+offset `+00:O`: Core reads an offset's hours and minutes as signed integers and adds them
+(`parseTimeAndStore`), so `O` is printed once, as minutes with its own sign. The written offset is
+read as `Z`, `±HH` or `±HH:MM`, the spellings Core, CommCare HQ and Nova write. The date, `C` and `O`
+name the moment whatever `C` is, so a clock Core moved across an hour its zone skips on the written
+date still names it. The `5` is for Core's own reading of seconds: `parseRawTime` reads them as a
+double and truncates the milliseconds, so `59.999` alone reads as 998 and `59.9995` as 999. XPath
+holds no value, so each compound term prints at each use; the terms are chosen for few prints of
+`t`, 126, and a starting value over a case read prints about 22 KB in the form's source. Its
+callers, each through `fromExpression.ts`, read the value's classification
+(`mayHoldInstantText`, a form literal typed by its shape) and wrap only a value that can hold such
+text:
+
+- *A starting value cast into a node bound `xsd:dateTime`* (a date-and-time question's, a preload
+  among them, and a Hidden Value's that writes a date-and-time property):
+  `startingDatetimeWire`, which `xform/builder.ts` prints into the `<setvalue>` through
+  `formExpressions.ts::startingDatetime` and Preview prints through
+  `formExpressionRuntime.ts::startingDatetimeSource`. `SetValueAction` casts through
+  `DateTimeData.cast`, so the question opens on the moment the case holds, and saving the form
+  unchanged writes the same text back through its sibling.
+- *`format-date` and `date()`* in every target `toWire` prints: both parse text through
+  `FunctionUtils.toDate`, so `format-date(#case/seen_at, '%d %b %H:%M')` printed the UTC date beside
+  the device's clock. Nova's case store reads them the same way where a device evaluates them:
+  `compileFormatDate` already renders the viewer's wall clock and date of the instant, and
+  `date-coerce` of a date and time under the `casedb` and `results` readings becomes the viewer's day
+  of the instant (`compileExpression.ts::compileDeviceDay`); under `search` it keeps the written day,
+  as HQ's search does.
+- *Comparisons* need nothing: the instant lowering parses text zone-free (`instantMicros`).
+- *A calculate under `xsd:dateTime`* needs nothing: `Recalculate.wrapData` keeps a string as it is,
+  and the sibling copies it.
+
+A date column CommCare HQ's build writes for a case list (`format-date(date(...))`) is HQ's and
+keeps the written day. Two limits are Core's and hold for every text it casts: its cast ends by
+setting the device's date and clock on a calendar (`DateUtils.getDate`), which reads a clock the
+zone repeats as its later occurrence, so a moment in the first of such an hour opens as the second;
+and a device keeps milliseconds, so stored text finer than that is saved back at the millisecond.
 
 **Rows Nova already stores.** A row saved before this step holds the viewer's offset
 (`2026-01-02T12:30:00.000+03:00`). It is not rewritten, and no scan or migrate script is planned for
@@ -2073,13 +2226,17 @@ change, and no stored row or document is rewritten.
 question has no entry in Web Apps, the platform row `datetime-question`): a registration form
 whose date and time question saves to a property through Case Management, a follow-up whose Save
 to Case rows write the question's answer, `now()`, a copy of the saved property, and an `if` that
-chooses between a typed answer and the stored text, and a list ordered by the property ascending.
+chooses between a typed answer and the stored text, a follow-up "Revisit" whose date-and-time
+question starts on the saved property and saves it back through Case Management and whose Hidden
+Value calculated as the saved property saves it to another, and a list ordered by the property
+ascending.
 Its restore holds three cases whose values are in CommCare HQ's spelling, and `expected.json` holds
 one `caseList` expectation on `local` fixing their order. The lane's proofs read the forms on both
 paths and through two saves in CommCare HQ's form builder, which must keep the long calculate.
 What a phone then stores is G6's: `StoredInstantRuntimeTest` opens this document's forms, from the
 local archive and from CommCare HQ's build, submits them in every device zone and reads the stored
-case. Its other checks are in "Tests".
+case; "Revisit" it opens on a visit holding each vector's text and submits unchanged. Its other
+checks are in "Tests".
 
 ---
 
@@ -2644,6 +2801,11 @@ match, so it reads true where the text is the default language's translation of 
 | The validator's message, a Connect site | `The <site> in "<form>" holds <match>. CommCare HQ reads instance( followed by a quoted name and a closing bracket as a data source wherever it appears in a form, and CommCare Connect reads this text exactly as the form holds it, so CommCare HQ would add that data source to the form or stop its build. A space before the bracket keeps it as text: instance ('...').` |
 | `lib/doc/userFacingErrors.ts`, `form-name` | `The name of "<form>" holds <match>, which CommCare HQ reads as a data source and not as text. A space before the bracket keeps it as text.` |
 | `lib/doc/userFacingErrors.ts`, a Connect site | `The <site> in "<form>" holds <match>, which CommCare HQ reads as a data source and not as text. A space before the bracket keeps it as text.` |
+| The validator's message, `SELECT_OPTION_VALUE_INVALID`, problem `instance-read` | `Option <n> ("<label>") of field "<field>" in "<form>" has the value "<value>", which CommCare HQ reads as a data source the form reads: the value sits in the form's source as written, and HQ's build reads instance('…') there wherever it stands. Use "<suggestion>" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.` |
+| The validator's message, `CASE_PROPERTY_OPTION_VALUE_INVALID`, problem `instance-read` | `Choice <n> ("<label>") of case property "<type>.<property>" has a value that is "<value>", which CommCare HQ reads as a data source a form reads. A choice's value is written as it stands into the source of every form that offers it, and CommCare HQ's build reads instance('…') there as a data source. Use "<suggestion>" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.` |
+| `lib/doc/userFacingErrors.ts`, the problem phrase both choice codes share | `has the stored value "<value>", which CommCare HQ reads as a data source when it builds the form`, and the codes' shared sentence names the rule as "can't read as a data source" |
+| `selectOptionValueSchema`'s refinement, `SELECT_OPTION_VALUE_INSTANCE_READ` | `CommCare HQ reads a choice value written like instance('…') as a data source when it builds the form, so the app couldn't be built as written. A value without the brackets and quote marks, such as instance_abc, works.` |
+| The options editor, beneath the row (`optionValueRefusal`) | `CommCare HQ reads this value as a data source when it builds the form, not as a choice. "<suggestion>" works.` |
 
 7.1 adds no string a person reads in Nova but the public sentence of "Contracts and docs".
 
@@ -2728,7 +2890,9 @@ and the served readers in the lane dispatch over the step's new targeted documen
 | `lib/commcare/__tests__/hqInstanceScan.test.ts` (the file above), over `proof/hq/fixtures/hq-instance-scan-vectors.json` | `instanceScanRead` as a function of its input, against rows HQ's own function answers in the lane | a text HQ reads that Nova admits; the offered spelling (`instance ('casedb')`) refused; text typed as `&apos;` refused |
 | `lib/commcare/validator/__tests__/formTextInstanceRead.test.ts` (new) | the commit gate over real documents (`lib/doc/commitVerdicts.ts::mutationCommitVerdict`): a rename, a Connect edit through `updateForm`, a `setTranslation` of the default language's name, and a `setDefaultLanguage` that makes a language holding the text the default | a site the rule does not read; the default language's translated name slipping past; a name in another language refused; a finding with the wrong `site`; a scoped run that misses what the whole-document run finds |
 | `lib/commcare/xform/__tests__/sourceTexts.test.ts` (new) | the emitted form through `parseXml`, for a learn form and a deliver form whose every authored text is its own marker | a text node outside `<itext>`, or an attribute outside a formula, that holds an authored marker and is not a `formSourceTexts` entry (the defect returning at a new place in the emitter); an entry the emitter no longer writes |
-| `lib/doc/__tests__/userFacingErrors.test.ts` | the message table | the builder sentence naming the wrong text for a site, or showing no match |
+| `lib/doc/__tests__/userFacingErrors.test.ts` | the message table | the builder sentence naming the wrong text for a site, or showing no match; a choice value's phrase missing its value |
+| `lib/domain/__tests__/selectOptionValue.test.ts`, `lib/commcare/validator/__tests__/selectOptionValue.test.ts`, `components/builder/editor/fields/__tests__/optionsDraftModel.test.ts` | the grammar, the schema leaf, both validator rules over real documents, and the options editor's draft model | a choice value HQ reads as an instance admitted by one editor and refused by another; the word `instance` or its slug refused; a repair the grammar refuses or a sibling holds |
+| `proof/checks/test_manifest_value_classes.py`, `questions/choice-value-read-as-an-instance` | the lane's reader of a choice value use | a value HQ reads taken as held; a value it does not read taken as refused |
 | lane: `proof/hq/test_instance_text.py`, the vectors and the six build controls, in the pull request run | HQ's own `get_instance_names` and `Application.create_all_files` | HQ's pattern reading more than Nova refuses; the reading of `add_missing_instances` being wrong; the offered spelling being read as an instance |
 
 No Playwright case is added for 5.1. What the builder shows for a refused edit is the editors' own
@@ -2738,12 +2902,14 @@ behavior, which this rule does not change, and the sentence is held at the table
 
 | Test | Boundary | Catches |
 |---|---|---|
-| `lib/domain/__tests__/temporalValues.test.ts`, over the new `hqInstantText.vectors.ts` | `hqInstantText` and `caseDatetimeValue` as functions of their input; a property test that the order of two texts is the order of their instants, for every four-digit year | a spelling CommCare HQ does not store (three fraction digits, an offset); two moments whose text orders them the other way; a six-digit `Z` value the grammar refuses to read back; unreadable text changed rather than returned |
-| `lib/commcare/__tests__/datetimeCaseValue.test.ts`, `xpath/wire/__tests__/instant.test.ts` | the wire tree by structure, and `storedInstantSource` over it | a typed leaf printed in the device's offset; stored text wrapped in `format-date`; a branch of an `if`, `coalesce` or `switch` printed by another branch's class; a literal not folded; `storedInstantSource` not the inverse of `storedInstantValue`; a tree with more than 56 prints of `T` |
+| `lib/domain/__tests__/temporalValues.test.ts`, over the new `hqInstantText.vectors.ts` | `hqInstantText`, `caseDatetimeValue` and `caseInstantText` as functions of their input; a property test that the order of two texts is the order of their instants, for every four-digit year | a spelling CommCare HQ does not store (three fraction digits, an offset); two moments whose text orders them the other way; a six-digit `Z` value the grammar refuses to read back; unreadable text changed rather than returned; a day the month lacks rolled into the next month; a moment past 9999 in UTC throwing |
+| `lib/case-store/postgres/__tests__/storageValueFromEvaluation.test.ts` | the envelope's storage cast as a function | a `timestamptz` in the year 10000 failing the submission with an untyped error |
+| `lib/preview/xpath/__tests__/storedInstant.test.ts`, `lib/preview/engine/__tests__/datetimeStartingValue.test.ts` | Preview's evaluation of `deviceInstantText` and its form engine's starting value, in six and four device zones, over the vectors and the offset spelling Nova stored before | a starting value or a `format-date` reading the written UTC date with the device's clock; a millisecond lost to Core's truncation; a Hidden Value's copy parsed; the repeated hour read other than as Core's cast reads it |
+| `lib/commcare/__tests__/datetimeCaseValue.test.ts`, `xpath/wire/__tests__/instant.test.ts` | the wire tree by structure, and `storedInstantSource` over it | a typed leaf printed in the device's offset; stored text wrapped in `format-date` as a case write; a sibling that parses a Hidden Value's stored text; `format-date` or `date()` of stored text not read through `deviceInstantText`, or of a typed moment read through it; a branch of an `if`, `coalesce` or `switch` printed by another branch's class; a literal not folded; `storedInstantSource` not the inverse of `storedInstantValue`; a tree with more than 56 prints of `T` |
 | `lib/commcare/__tests__/caseOperationEmission.test.ts`, `generatedNodes.test.ts` | the emitted form through `xformOracle` and `parseXml` | a row whose value holds `now()` printed inline; a `nova_instant_` node with a control or a `type`, or outside its operation's `nova_operations` group; a second node for a value with no clock read; the sibling `nova_datetime_` in the earlier spelling |
 | `lib/case-store/postgres/__tests__/submissionEnvelope.postgres.test.ts`, `lib/preview/engine/__tests__/caseListOrder.postgres.test.ts` | real Postgres, through the submission executor and Preview's store read | a submitted date and time stored with the viewer's offset; rows of one property in both spellings and three offsets ordered by their text and not their moment; the order moving with the session's time zone |
 | `components/builder/data-review/__tests__/dataReviewModel.test.ts` | the state model | a value saved in Data review stored with an offset |
-| lane: `targeted-datetime-saved`, `proof/native/core/StoredInstantRuntimeTest.java`, `proof/hq/test_stored_datetime.py` | proofs 2 to 4, Core in every device zone, CommCare HQ's own `adjust_datetimes` (G6) | the form builder changing the calculate on a save; a zone in which a phone stores another text than CommCare HQ; a copy that moves a day; CommCare HQ rewriting what Nova wrote |
+| lane: `targeted-datetime-saved`, `proof/native/core/StoredInstantRuntimeTest.java`, `proof/hq/test_stored_datetime.py` | proofs 2 to 4, Core in every device zone, CommCare HQ's own `adjust_datetimes` (G6) | the form builder changing the calculate or the starting value on a save; a zone in which a phone stores another text than CommCare HQ; a copy that moves a day; a form opened on a stored moment and saved unchanged moving it, west or east of UTC; CommCare HQ rewriting what Nova wrote |
 | `proof/native/core/CaseOperationRuntimeTest.java` (its recorded-clock matrix) | Core over the case-operation corpus | its expectations still naming the device's offset for a stored value |
 
 ---
@@ -2891,7 +3057,18 @@ paragraph:
 > the written date's own fields, since a day number counts from a JVM-zone epoch that is UTC's on
 > Web Apps. Stored text is written as it is,
 > because Core's parse of text with an offset keeps the written date and moves only the clock
-> (`DateUtils.java::parseTimeAndStore`). Core reads a sort text through `string()`
+> (`DateUtils.java::parseTimeAndStore`): a Save to Case row and a question's `nova_datetime_`
+> sibling each classify their value (`instantOperand.ts`), and a Hidden Value whose calculate copies
+> stored text holds that text. For the same reason, wherever Core parses stored text as a typed date
+> and time on a device (a starting value cast into a node bound `xsd:dateTime`, a preload among
+> them, `format-date` and `date()`), the text is first read in the device's own date and clock
+> (`instant.ts::deviceInstantText`, whole-number arithmetic from the written fields and Core's own
+> clock and `%Z` for the parsed value), so a form opened on a case's value and saved unchanged writes
+> the same text back, and Preview, which evaluates the same printed tree, opens on the same moment.
+> Core's cast ends by setting the device's date and clock on a calendar, so a moment in the first of
+> an hour the zone repeats reads as the second whatever text names it. Nova's case store reads
+> `date()` of a date and time as the viewer's day of the moment where a device evaluates it, as it
+> reads `format-date`. Core reads a sort text through `string()`
 > (`Text.java::ensureCacheIsParsed`), which prints a number past `int` range in a form its number
 > comparator refuses (`FunctionUtils.java::toString`, `toNumeric`), so a moment cannot be a number
 > key. Preview and Nova's case store write the same text
@@ -3032,7 +3209,7 @@ alternatives it weighed and did not take. Each item is this plan's decision, wit
   `expressionSource.ts` (`prosePartTerm`), `translationUnits.ts`, `localizedBlueprintProjection.ts`,
   `workerRecordRequirements.ts`, `platforms.ts`, `platformUses.ts`, `index.ts` (the barrel),
   `__tests__/platformFeatureFixtures.ts`; `temporalValues.ts` (`hqInstantText`,
-  `caseDatetimeValue`) and `expression/instantOperand.ts` (`literalStoredInstantText`) for 7.1.
+  `caseDatetimeValue`, `caseInstantText`) and `expression/instantOperand.ts` (`literalStoredInstantText`) for 7.1.
 - The doc store: `lib/doc/referenceIndex.ts`, `mutations/referenceRewrites.ts`,
   `casePropertyRenames.ts`, `caseTypeRetirement.ts`, `formSectionVerdicts.ts`, `expressionText.ts`
   (`parseProseAtom`, the widened scope), `projectBuilderLanguageMutations.ts` (the refusal's
@@ -3045,8 +3222,12 @@ alternatives it weighed and did not take. Each item is this plan's decision, wit
   `validator/index.ts` (the prose loops), `validator/rules/form.ts` (`formTextReadAsInstance`),
   `validator/errors.ts` and `validator/gate.ts` (`FORM_TEXT_READ_AS_INSTANCE`). For 7.1:
   `xform/datetimeCaseValue.ts` (`datetimeCaseValue` in place of its two expression functions),
-  `xpath/wire/instant.ts` (`storedInstantOfText`, `storedInstantValue`, `storedInstantSource`),
-  `xform/caseOps.ts` and `xform/builder.ts` (the two call sites, the clock node),
+  `xpath/wire/instant.ts` (`storedInstantOfText`, `storedInstantValue`, `storedInstantSource`,
+  `deviceInstantText`, `mayHoldInstantText`), `xpath/wire/fromExpression.ts`
+  (`startingDatetimeWire`, `format-date` and `date()` through `deviceInstantText`),
+  `xform/formExpressions.ts` (`startingDatetime`),
+  `xform/caseOps.ts` and `xform/builder.ts` (the two call sites, the clock node, the starting value
+  under `xsd:dateTime`),
   `xform/generatedNodes.ts` (the purpose `instant`). Under G1 outcome B
   or G3 outcome C's second case, also `validator/rules/field.ts`, `errors.ts`, `gate.ts` and
   `lib/doc/userFacingErrors.ts` for that rule.
@@ -3059,10 +3240,13 @@ alternatives it weighed and did not take. Each item is this plan's decision, wit
   `__tests__/platformCells.ts` (two rows gained, two removed); `e2e/lib/previewPlatformScenarios.ts`,
   `e2e/lib/preview-platforms-client.tsx`, `e2e/tests/browser/preview-platforms.spec.ts`,
   `e2e/tests/app/prose-references.spec.ts`. For 7.1: `lib/preview/columnDisplay.ts`
-  (`hqDatetimeText` becomes `hqInstantText`).
+  (`hqDatetimeText` becomes `hqInstantText`), `engine/formEngine.ts` (`startingValueSource`) and
+  `engine/formExpressionRuntime.ts` (`startingDatetimeSource`); `proof/native/core/SuiteFormRun.java`
+  (a seeded case adjusted per run), `proof/native/producers/emit-case-evidence.ts` and
+  `proof/native/steps/case_emission.py` (`targeted-datetime-saved` emitted whole).
 - The case store, for 7.1: `lib/case-store/postgres/submissionEnvelope.ts` and
   `lib/case-store/postgres/store.ts` (the two casts), `lib/case-store/sql/compileExpression.ts`
-  (`compileDeviceTextExpression`); `components/builder/data-review/dataReviewModel.ts`.
+  (`compileDeviceTextExpression`, `compileDeviceDay`); `components/builder/data-review/dataReviewModel.ts`.
 - The editors: `lib/tiptap/commcareRefNode.ts`, `proseTemplateCodec.ts`, `proseReferenceEditing.ts`,
   `CommcareRefView.tsx`; `lib/references/provider.ts` (`projectTemplate`), `LabelContent.tsx`;
   `lib/codemirror/expressionEditorContext.ts`; `components/builder/ProseReferencePicker.tsx`,

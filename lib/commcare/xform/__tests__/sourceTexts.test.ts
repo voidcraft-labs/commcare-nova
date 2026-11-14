@@ -9,8 +9,10 @@
  * a group's label, and a validation message both plain and composed with a
  * reference. A message attribute is read as a formula only where it parses as
  * one, so a message written there as words is seen. A choice's
- * value is the one other plain text the source holds, and it can hold no
- * quote mark, so it is listed here and not an entry. Plausible failures: the
+ * value is the one other plain text the source holds, and its own grammar
+ * refuses one CommCare HQ reads as an instance
+ * (`lib/domain/selectOptionValue.ts`, `instance-read`), so it is listed here
+ * and not an entry. Plausible failures: the
  * emitter writing an authored text at a new place outside itext (the defect
  * returning where the rule does not look), and an entry the emitter no
  * longer writes.

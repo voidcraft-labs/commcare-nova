@@ -22,6 +22,7 @@ import {
 	useRegisterFromList,
 	useSetAlwaysOfferedRegistration,
 } from "@/lib/doc/hooks/useRegisterFromList";
+import { useExpressionScopeRevision } from "@/lib/doc/hooks/useXPathSlots";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type {
 	AlwaysOfferedRegistration,
@@ -34,9 +35,11 @@ import {
 	afterEmptySearchNotice,
 	afterRegisteringHelpers,
 	REGISTER_FROM_LIST_COPY as COPY,
+	type HeldRegisterRefusal,
 	ownAfterSubmitNote,
 	registerChoiceLabel,
 	registerFromListEmptyState,
+	shownRegisterRefusal,
 	slotWith,
 } from "./registerFromListModel";
 
@@ -68,7 +71,14 @@ export function RegisterFromListSetting({
 	const facts = useRegisterFromList(moduleUuid);
 	const headingId = useId();
 	const pickerId = useId();
-	const [refusal, setRefusal] = useState<string | undefined>(undefined);
+	/* The document and lookup definitions a refusal was given over: the
+	 * workspace keeps this setting mounted from one case list to the next,
+	 * and an undo or a peer's edit can take a refusal's cause away. */
+	const revision = useExpressionScopeRevision();
+	const [heldRefusal, setHeldRefusal] = useState<
+		HeldRegisterRefusal | undefined
+	>(undefined);
+	const refusal = shownRegisterRefusal(heldRefusal, moduleUuid, revision);
 
 	const plan = useCallback(
 		(doc: BlueprintDoc) => {
@@ -88,7 +98,10 @@ export function RegisterFromListSetting({
 	const { stored, choices } = facts;
 	const commit = (slot: AlwaysOfferedRegistration | null): void => {
 		const outcome = setSlot(slot);
-		setRefusal(outcome.ok ? undefined : outcome.messages[0]);
+		const message = outcome.ok ? undefined : outcome.messages[0];
+		setHeldRefusal(
+			message === undefined ? undefined : { message, moduleUuid, revision },
+		);
 	};
 	const change = (
 		update: Partial<Omit<AlwaysOfferedRegistration, "kind" | "formUuid">>,

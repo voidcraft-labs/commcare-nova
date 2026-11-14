@@ -46,8 +46,10 @@ import {
 	type EntryPointTarget,
 	effectiveCaseSearchConfig,
 	effectivePostSubmit,
+	type FirstMenuCaseRead,
 	type Form,
 	type FormLinkEntry,
+	firstMenuCaseRead,
 	formLinkEntries,
 	type Module,
 	menuScreenOf,
@@ -418,6 +420,7 @@ export function firstMenuSharedCaseFrames(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const linksJudged = sharedCaseProjection(doc) !== undefined;
+	const firstMenuCase = firstMenuCaseRead(doc);
 	for (const moduleUuid of projectedModulePreorder(doc)) {
 		const mod = doc.modules[moduleUuid];
 		if (mod === undefined) continue;
@@ -458,6 +461,7 @@ export function firstMenuSharedCaseFrames(
 				doc,
 				form,
 				location,
+				firstMenuCase,
 			);
 			if (moduleFinding !== undefined) errors.push(moduleFinding);
 		}
@@ -481,6 +485,7 @@ function moduleDestinationSharesFirstMenuCase(
 		readonly formUuid: Uuid;
 		readonly formName: string;
 	},
+	firstMenuCase: FirstMenuCaseRead,
 ): ValidationError | undefined {
 	const { moduleUuid, formUuid } = location;
 	if (afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid)
@@ -489,12 +494,12 @@ function moduleDestinationSharesFirstMenuCase(
 		form.otherwise?.kind === "destination" &&
 		form.otherwise.destination === "module"
 			? ("otherwise" as const)
-			: effectivePostSubmit(doc, formUuid) === "module"
+			: effectivePostSubmit(doc, formUuid, firstMenuCase) === "module"
 				? ("post-submit" as const)
 				: undefined;
 	if (
 		slot === undefined ||
-		postSubmitNotOfferedReason(doc, formUuid, "module") !==
+		postSubmitNotOfferedReason(doc, formUuid, "module", firstMenuCase) !==
 			"menu-opens-with-first-menu-case"
 	)
 		return undefined;

@@ -983,7 +983,7 @@ export function diffDocsToMutations(
 			: produce(prev, (draft) => {
 					applyMutations(draft, admitMutationBatch(structural));
 				});
-	const residual = postSubmitResidual(replayed, next, structural);
+	const residual = postSubmitResidual(replayed, next);
 	structural.push(...residual);
 	const localizationBase =
 		residual.length === 0
@@ -1000,35 +1000,23 @@ export function diffDocsToMutations(
 	return structural;
 }
 
-/** The mutation kinds whose reducers reconcile after-submit destinations
- * (`mutations/modules.ts::reconcilePostSubmitWithMenuShape`). */
-const POST_SUBMIT_RECONCILING_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
-	"updateModule",
-	"setCaseListMeta",
-	"setCaseListMenuItem",
-	"moveModule",
-	"moveForm",
-]);
-
 /**
  * A menu-shape write reconciles its forms' after-submit destinations and
  * built-in otherwise as it replays, and the form patches in the batch can run
- * before it (the `setCaseListMeta` and module-order kinds run late). So every
- * form whose destination differs, in the batch's replay (`replayed`), from the
- * target gets one final `updateForm`, and every form whose otherwise differs
- * one final `setFormOtherwise`, which land the target's slots exactly. A batch
- * with no reconciling write leaves every slot as its own patches set it, so it
- * needs no residual.
+ * before it (the `setCaseListMeta` and module-order kinds run late). Any write
+ * of a menu or a form can reconcile, through whether every form listed from
+ * a menu above opens one chosen case
+ * (`mutations/modules.ts::reconcileFirstMenuCaseChange`). So every form whose
+ * destination differs, in the batch's replay (`replayed`), from the target
+ * gets one final `updateForm`, and every form whose otherwise differs one
+ * final `setFormOtherwise`, which land the target's slots exactly. A slot no
+ * reconciliation touched is the one the batch's own patches set, which is
+ * the target's, so it adds nothing.
  */
 function postSubmitResidual(
 	replayed: BlueprintDoc,
 	next: BlueprintDoc,
-	batch: readonly Mutation[],
 ): Mutation[] {
-	if (
-		!batch.some((mutation) => POST_SUBMIT_RECONCILING_KINDS.has(mutation.kind))
-	)
-		return [];
 	const out: Mutation[] = [];
 	for (const [formUuid, form] of Object.entries(next.forms)) {
 		const replayedForm = replayed.forms[formUuid];

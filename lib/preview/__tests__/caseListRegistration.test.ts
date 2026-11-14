@@ -15,6 +15,7 @@ import {
 	menuScreenOf,
 	moduleIsBareCaseListDestination,
 	moduleScreenLanding,
+	NEW_APP_SETTINGS,
 	type PostSubmitDestination,
 	screenChoosesCaseFirst,
 	simpleSearchInputDef,
@@ -213,6 +214,16 @@ describe("caseListRegistrationAdmission", () => {
 				searchState: completed(0, 2),
 			}),
 		).toEqual({ kind: "refused", reason: "stale-launch" });
+		// A registration's return keyed the search to a case it did not
+		// create: no search found nothing there, so the launch is stale.
+		expect(
+			caseListRegistrationAdmission({
+				...entry,
+				moduleUuid: MODULE,
+				launch: { moduleUuid: MODULE, attempt: 1 },
+				searchState: { ...completed(0), registeredCaseId: "case-new" },
+			}),
+		).toEqual({ kind: "refused", reason: "stale-launch" });
 	});
 
 	it("names the next step in every refusal", () => {
@@ -352,10 +363,30 @@ function offeringDoc(
 		/** Another menu chooses its visit's parent patient from the host's
 		 *  list. */
 		readonly parentChoice?: boolean;
+		/** The host's forms read its search, which runs as each opens. */
+		readonly formsReadSearch?: boolean;
 	} = {},
 ): BlueprintDoc {
-	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
+	const columns = caseListConfig([{ field: "case_name", header: "Name" }]);
+	const list =
+		options.formsReadSearch === true
+			? {
+					...columns,
+					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("host-search-name"),
+							"name",
+							"Name",
+							"text",
+							"case_name",
+						),
+					],
+				}
+			: columns;
 	const doc = buildDoc({
+		...(options.formsReadSearch === true && {
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" as const },
+		}),
 		caseTypes: [
 			{ name: "patient", properties: [] },
 			...(options.parentChoice === true
@@ -368,6 +399,9 @@ function offeringDoc(
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: list,
+				...(options.formsReadSearch === true && {
+					caseSearchConfig: { formsReadSearch: true },
+				}),
 				...(options.bare === true
 					? { caseListMenuItem: {} }
 					: {
@@ -535,6 +569,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 		).toEqual({
 			screen: { kind: "menu", moduleUuid: HOST },
 			selectingModuleUuids: [HOST],
+			newCaseSearchModuleUuids: [],
 		});
 	});
 
@@ -549,6 +584,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 		).toEqual({
 			screen: { kind: "menu", moduleUuid: HOST },
 			selectingModuleUuids: [],
+			newCaseSearchModuleUuids: [],
 		});
 	});
 
@@ -564,6 +600,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 			).toEqual({
 				screen: { kind: "menu", moduleUuid: HOST },
 				selectingModuleUuids: [],
+				newCaseSearchModuleUuids: [],
 			});
 	});
 
@@ -579,6 +616,7 @@ describe("alwaysOfferedRegistrationReturn", () => {
 		expect(landing).toEqual({
 			screen: { kind: "menu", moduleUuid: HOST },
 			selectingModuleUuids: [],
+			newCaseSearchModuleUuids: [],
 		});
 		if (landing === undefined || landing.screen.kind !== "menu")
 			throw new Error("the return lands on the host");
@@ -604,6 +642,30 @@ describe("alwaysOfferedRegistrationReturn", () => {
 		).toEqual({
 			screen: { kind: "menu", moduleUuid: HOST },
 			selectingModuleUuids: [],
+			newCaseSearchModuleUuids: [],
+		});
+	});
+
+	it("keys the host's search to the registered case where its forms read the search", () => {
+		const doc = offeringDoc("new-case", { formsReadSearch: true });
+		for (const created of ["new-case-id", undefined])
+			expect(
+				alwaysOfferedRegistrationReturn(doc, OFFERED, launch, created),
+			).toMatchObject({
+				screen: { kind: "menu", moduleUuid: HOST },
+				newCaseSearchModuleUuids: [HOST],
+			});
+		expect(
+			alwaysOfferedRegistrationReturn(
+				offeringDoc("case-list", { formsReadSearch: true }),
+				OFFERED,
+				launch,
+				"new-case-id",
+			),
+		).toEqual({
+			screen: { kind: "menu", moduleUuid: HOST },
+			selectingModuleUuids: [],
+			newCaseSearchModuleUuids: [HOST],
 		});
 	});
 

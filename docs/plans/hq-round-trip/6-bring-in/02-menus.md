@@ -839,9 +839,12 @@ only forms`). Without the third, a follow-up form in a submenu that keeps its sc
 menu above, where `previous` is withheld (its forms read the search, it selects several cases) and
 every form above opens one case, would default to the `module` section 5.5 refuses, and adding that
 form would be refused. Every other form's default is unchanged, since the facts are absent without
-the slot. Turning a menu's slot on or off reconciles the after-submit of every form of the app
-(`mutations/modules.ts::reconcilePostSubmitWithMenuShape`), because the fourth reason of a submenu
-reads every menu above.
+the slot. The fourth reason of a submenu reads every menu above, and any write of a menu or a form
+can turn it (removing a form listed from a menu above, a form's type, a menu's case type, turning a
+menu's slot on or off), so the reducers read `firstMenuOpensOneCase` before and after each such write
+and, where it turned, reconcile the after-submit of every form of a submenu under a menu above
+(`mutations/modules.ts::reconcileFirstMenuCaseChange`, over `reconcilePostSubmitWithMenuShape`), and
+the scoped gate takes the whole document for a batch that turns it.
 
 ### 5.2 No search, no registration from its case list
 
@@ -943,7 +946,8 @@ aboveModuleUuid: Uuid }` (section 9); and `lib/doc/entryPointReview.ts` returns 
 sentence, so the builder shows the target or the control disabled with it. A batch that would
 strand an admitted link (taking the last registration form off the first menu, so every form left
 there opens one case) is refused with the link's sentence, as a batch that removes a link's target
-is.
+is. A built-in `module` destination it strands is not refused: the reducer moves it to the nearest
+offered (section 5.1).
 
 ### 5.6 What stays step 7's, with the reason
 
@@ -1069,8 +1073,11 @@ One consequence where the menu id is a parent's, HQ's bytes:
 
 `ctx.commandTargets` records, for a module command, the module whose screen the id names (P for an
 above submenu), so `previousTaskProjection.ts` and Preview resolve a command to a screen that exists.
-`caseListFormReturnFrame`, `entryPointProjection.ts`, `parentMenuDestinationFrameChildren` and
+`entryPointProjection.ts`, `parentMenuDestinationFrameChildren` and
 `moduleDestinationFrameChildren` call the changed functions and need no edit of their own.
+`caseListFormReturnFrames` builds HQ's two passes over them (section 11.5): the parent's
+`get_frame_children`, then the host's, the host pass dropping in the frame that carries the new case
+every id the parent pass put there.
 `FORM_LINK_DATUMS_INCOMPLETE`, `FORM_LINK_DATUM_UNUSED` and `FORM_LINK_DATUM_TARGET_COLLISION` keep
 judging the projected frame of every link section 5.5 admits. A computed datum of the root prefix
 carries its function and needs no match, and a frame that would open with the shared case is refused
@@ -1085,10 +1092,11 @@ before any match is read, so no link is matched against a case type another menu
   with no new mutation kind. `lib/doc/displayConditionMutations.ts` gains
   `setModuleFormsInMenuAboveMutation(moduleUuid, on: boolean): Mutation`
   (`patch: { formsInMenuAbove: on ? true : null }`), the one writer the builder and the tool call.
-- **The diff.** `lib/doc/diffDocsToMutations.ts` needs no edit: its module patch is
+- **The diff.** `lib/doc/diffDocsToMutations.ts`'s module patch is
   `propertyPatch(p, n, MODULE_PATCH_SKIP)`, which compares every key outside the skip set, and
   `formsInMenuAbove` is outside it. `formsInMenuAboveMutations.test.ts` holds that the diff carries
-  the slot both ways.
+  the slot both ways. Its after-submit residual runs over every replay, since any write of a menu or
+  a form can reconcile through the first menu's shared case.
 - **After submit.** `lib/doc/mutations/modules.ts::reconcilePostSubmitWithMenuShape` already runs for
   every `updateModule`, whatever its patch names, over the module's forms and its submenus' forms. The
   three new reasons reach it through `postSubmitDestinationsOffered` and the default through
@@ -1096,6 +1104,8 @@ before any match is read, so no link is matched against a case type another menu
   `previous` that left the offered set moves to the nearest offered (`firstMenu` here); an absent
   slot whose destination left takes the new default; an absent slot whose destination is still
   offered while the default moved is pinned to it. `moveModule` already reconciles the moved module.
+  Whether every form listed from a menu above opens one chosen case is reconciled where it turns,
+  whatever write turned it (section 5.1).
 - **The scoped gate.** `lib/doc/incrementalValidationScope.ts`: an `updateModule` whose patch names
   `formsInMenuAbove` takes the whole-document gate. For every other scoped batch, each touched module
   adds every contributor of `menuScreenOf` of that module, before and after the batch, with their
@@ -1179,8 +1189,13 @@ rows.
 
 A route that names a menu with no screen (a stored location, a typed URL) resolves to `menuScreenOf`
 of that menu in the running app (`lib/preview/hooks/usePreviewScreenForLocation.ts`), with no message:
-the worker sees the screen that lists its forms. A form route is unchanged. The breadcrumb of a form
-in such a menu names the screen it lists on, never the menu.
+the worker sees the screen that lists its forms. A form route is unchanged. Preview's trail names no
+such menu on any screen, a submenu's own screen under it included, and the breadcrumb of a form in
+such a menu names the screen it lists on, never the menu. Such a menu keeps its case list, so a parent
+case selection whose selector is such a menu still chooses its case there: every parent case
+selection enters its selector at the selector's case list
+(`lib/preview/screenProjection.ts::parentCaseSelectorLocation`), never at its menu, and a selector
+that needs a parent case of its own keeps its module screen while it starts that selection.
 
 ### 8.5 After submit
 
@@ -1561,6 +1576,10 @@ and no `relevancy_expression`. No synthetic module is made: the form is emitted 
   	/** The frame's children before matching, cut where `children` is cut: what
   	 *  `screenOfFrame` reads (section 8.5). Never emitted. */
   	readonly target: readonly FrameChild[];
+  	/** The menus whose search the frame's query runs keyed to the new case
+  	 *  (`FrameDatum.query.searchModuleUuid`, the menu supplying the datum the
+  	 *  query feeds). What Preview reads; never emitted. */
+  	readonly newCaseSearchModuleUuids: readonly Uuid[];
   }
   export function caseListFormReturnFrames(
   	doc: BlueprintDoc,
@@ -1578,7 +1597,16 @@ and no `relevancy_expression`. No synthetic module is made: the form is emitted 
   the first with the extra clause
   `count(instance('casedb')/casedb/case[@case_id = S/<new case datum>]) > 0` (built with
   `xpath/wire/rowScope.ts::caseById`) and every child, the matched selection reading the new case's
-  id; the second with `… = 0` and the children up to it. `session.ts::deriveEntryDefinition`'s
+  id; the second with `… = 0` and the children up to it. The children come in HQ's two passes
+  (`CaseListFormWorkflow.get_stack_frames_for_case_list_form_target`, `_add_stack_children_for_target`):
+  for a host with a parent, the parent's `get_frame_children`, then the host's, each read only for a
+  module with forms or a case list menu entry. Each pass is matched on its own
+  (`_get_datums_matched_to_source`): a selection of the host's case type reads the new case and a
+  query feeding one is keyed to it; and each pass adds to the cut frame up to its first matched
+  selection, as `CaseListFormStackFrames.add_children` breaks within one call. In `new-case` the host
+  pass drops every child whose id the first frame already holds (`ids_on_stack`); `case-list` has
+  no such frame and keeps them, as HQ's fixture `case-list-form-suite-parent-child-submodule-basic.xml`
+  shows for a submenu host under a menu that chooses a case first. `session.ts::deriveEntryDefinition`'s
   `returnFrame` becomes `returnFrames: readonly { readonly ifClause: WireExpr; readonly children:
   readonly MatchedChild[] }[]`, written in order after the entry's own workflow frames.
 - *Where they go.* In the offered form's own entry, and only where `caseListRegistrationReturnOf`
@@ -1628,10 +1656,20 @@ export function alwaysOfferedRegistrationReturn(
   (Android `shown`, `views/EntityActionViewUtils.java`; Web Apps `text-only`,
   `cloudcare/partials/case_list/list.html`). `CaseListScreen.tsx` draws the action from this one
   function.
-- Choosing it opens the form with a launch marker on the session's case target,
-  `PreviewCaseListRegistrationLaunch { readonly hostModuleUuid: Uuid }` (`lib/session/types.ts`,
-  beside `PreviewSearchLaunch`, as `PreviewCaseTarget.caseListRegistrationLaunch?`; ephemeral, never
-  stored).
+- Choosing it opens the form with a launch marker, `PreviewCaseListRegistrationLaunch { readonly
+  hostModuleUuid: Uuid }` (`lib/session/types.ts`, beside `PreviewSearchLaunch`; ephemeral, never
+  stored), held as its own session fact, `previewCaseListRegistrationEntry`, a
+  `PreviewCaseListRegistrationEntry` that also names the form and its menu, never on the case target,
+  which other screens rewrite. The marker belongs to the one form entry that launch opened, as HQ's
+  `return_to` belongs to the frame the case list's action pushes
+  (`workflow.py::CaseListFormWorkflow.get_if_clause`): it lasts while the location runs that form or
+  is the case list of a parent case selection resuming it
+  (`lib/preview/caseListRegistrationEntry.ts::caseListRegistrationEntryContinues`, applied by
+  `PreviewShell` at every location), and ends at every other location, whatever moved there (a menu,
+  the app tree, a finding, a breadcrumb, browser history), and at its submission. The same form
+  reached later by any route is an ordinary form. App Tests hold the marker on the form screen the
+  action opens, and Back to a form opens a fresh entry without it
+  (`app-tests/navigation.ts::appTestBackScreen`).
 - `alwaysOfferedRegistrationReturn` decides the landing after submit, and
   `FormScreen.dispatchAfterSubmit` and `lib/preview/app-tests/submission.ts` call it before ordinary
   routing. It returns undefined, which is ordinary routing, where there is no launch, where the
@@ -1640,9 +1678,16 @@ export function alwaysOfferedRegistrationReturn(
   `caseListFormReturnFrames` for the launch's host under `formLinkProjectionContext(doc, {
   entryMetadataOnly: true })`, takes the frame whose guard holds (the one frame for `case-list`; for
   `new-case` the first where `createdCaseId` is defined, else the second) and returns
-  `afterSubmitRouting.ts::screenOfFrame(ctx, frame.target)`, as every other frame lands. The caller
-  sets the host's selection to the created case where `selectingModuleUuids` holds the host, keeps
-  the current selection of every other menu it holds, and clears the rest. So:
+  `afterSubmitRouting.ts::screenOfFrame(ctx, frame.target)`, as every other frame lands, with the
+  frame's `newCaseSearchModuleUuids`. The caller sets the host's selection to the created case where
+  `selectingModuleUuids` holds the host, keeps the current selection of every other menu it holds,
+  and clears the rest. Where the frame keys a menu's search to the new case (a host whose forms read
+  the search), the caller records that search on the menu as the registered case alone
+  (`recordRegisteredCase(state, caseId, created)`: one match where the form created the case, none
+  where it did not), so its Results and its forms' `results:inline` hold exactly what the frame's
+  `case_fixture` query fetches, never the earlier search's matches. App Tests carry the same
+  `registeredCaseId` on that menu's records screen, the landing's own or the one Back returns to.
+  So:
   - `case-list` lands on the host's screen with no case chosen: its case list where the screen
     chooses a case first, its forms where it lists forms first (a submenu that shows its forms in the
     host holds a form that opens without a case);
@@ -2855,7 +2900,7 @@ CommCare HQ, and the alternatives weighed and not taken, each with its evidence.
   `previewScreenEntries` (section 8.1).
 - `lib/preview/entryPointLaunch.ts::moduleIsUnderOffTheMenu` becomes `moduleEntriesOffTheMenu`
   (section 8.2).
-- `lib/commcare/formLinkProjection.ts::caseListFormReturnFrame` is kept as the body of the
-  `case-list` arm of `caseListFormReturnFrames`, which every caller now calls (section 11.5).
+- `lib/commcare/formLinkProjection.ts::caseListFormReturnFrame` is replaced by
+  `caseListFormReturnFrames`, built in HQ's two passes, which every caller now calls (section 11.5).
 - `lib/commcare/session.ts::deriveEntryDefinition`'s `returnFrame` becomes `returnFrames`
   (section 11.5).

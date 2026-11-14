@@ -4033,6 +4033,13 @@ def _data_binds_and_itext():
         body="""<select1 ref="/data/s"><item><value>a b</value></item><item><value>ok</value></item></select1>
           <select ref="/data/m"><item><value>x</value></item><item><value>x</value></item></select>""",
     )
+    instance_choices = form(
+        data="<s/><m/>",
+        body="""<select1 ref="/data/s"><item><value>instance('abc')</value></item>
+          <item><value>instance_abc</value></item></select1>
+          <select ref="/data/m"><item><value>instance( "item-list:v")</value></item>
+          <item><value>instance</value></item></select>""",
+    )
     repeats = form(
         data='<r jr:template=""/><c jr:template=""/><fl><r2 jr:template=""/></fl><u jr:template=""/><n/>',
         model='<bind nodeset="/data/n" type="xsd:int"/>',
@@ -4272,6 +4279,12 @@ def _data_binds_and_itext():
             refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
             accepted("form", choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
             refused("form", choices, "xform:select/item/value", "select[1]/item[2]/value[1]"),
+        ),
+        "questions/choice-value-read-as-an-instance": (
+            refused("form", instance_choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
+            accepted("form", instance_choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
+            refused("form", instance_choices, "xform:select/item/value", "select[1]/item[1]/value[1]"),
+            accepted("form", instance_choices, "xform:select/item/value", "select[1]/item[2]/value[1]"),
         ),
         "questions/jr-noaddremove-without-jr-count": (
             refused("form", repeats, "xform:repeat@jr:noAddRemove", "group[1]/repeat[1]/@jr:noAddRemove"),

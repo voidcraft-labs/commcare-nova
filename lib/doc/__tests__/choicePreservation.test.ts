@@ -8,7 +8,12 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
-import { type BlueprintDoc, expressionSlotValues } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	collectTranslationUnits,
+	expressionSlotValues,
+	type ProseTemplate,
+} from "@/lib/domain";
 import { eq, literal, term } from "@/lib/domain/expression/builders";
 import type { Choice } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
@@ -233,6 +238,122 @@ describe("choice preservation during field edits", () => {
 		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		expect(planned.preservedChoiceCount).toBe(2);
 		expect(choices(verdict.nextDoc)).toBe(0);
+	});
+
+	it("keeps a choice a calculated value in text reads, in a label, a choice label and the label's current translation", () => {
+		// A label, hint, help text, validation message or choice label holds
+		// form logic in its calculated values, and the commit gate checks them
+		// as it checks a condition: a choice left naming a select with no inline
+		// choices would refuse the whole conversion.
+		const other = testUuid("preserve-other-select");
+		const otherOption = testUuid("preserve-other-option");
+		const shown = (lead: string): ProseTemplate => ({
+			parts: [
+				{ kind: "text", text: lead },
+				{ kind: "value", expression: condition },
+			],
+		});
+		const base = fixture();
+		const doc = produce(base, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "updateField",
+					uuid: READER,
+					targetKind: "text",
+					patch: { label: shown("Status ") },
+				},
+				{
+					kind: "addField",
+					parentUuid: FORM,
+					field: {
+						uuid: other,
+						id: "follow_up",
+						kind: "single_select",
+						label: { parts: [{ kind: "text", text: "Follow up" }] },
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{ uuid: otherOption, value: "soon", label: shown("Soon ") },
+							],
+						},
+					},
+				},
+				{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+			]);
+		});
+		const unit = collectTranslationUnits(doc).find(
+			(each) =>
+				each.role === "field-label" &&
+				each.owner.kind === "field" &&
+				each.owner.fieldUuid === READER,
+		);
+		if (unit === undefined)
+			throw new Error("The label has no translation unit.");
+		const translated = produce(doc, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "setTranslation",
+					language: "spa",
+					unitId: unit.id,
+					entry: {
+						value: {
+							parts: [
+								{ kind: "value", expression: condition },
+								{ kind: "text", text: " estado" },
+							],
+						},
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+					},
+				},
+			]);
+		});
+		assertAdmittedDoc(translated);
+
+		const planned = withChoicePreservation(translated, [convert]);
+		expect(planned.preservedChoiceCount).toBe(4);
+		const verdict = mutationCommitVerdict(
+			translated,
+			planned.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		if (!verdict.ok) return;
+		expect(choices(verdict.nextDoc)).toBe(0);
+		const literal_ = eq(literal("yes"), literal("yes"));
+		expect(verdict.nextDoc.fields[READER]).toMatchObject({
+			label: {
+				parts: [
+					{ kind: "text", text: "Status " },
+					{ kind: "value", expression: literal_ },
+				],
+			},
+		});
+		expect(verdict.nextDoc.fields[other]).toMatchObject({
+			optionsSource: {
+				options: [
+					{ label: { parts: [{}, { kind: "value", expression: literal_ }] } },
+				],
+			},
+		});
+		// The translation still holds the label's calculated value, so it stays
+		// current rather than falling back to the source text.
+		const after = collectTranslationUnits(verdict.nextDoc).find(
+			(each) => each.id === unit.id,
+		);
+		const entry = verdict.nextDoc.localization?.translations.spa?.[unit.id];
+		expect(entry?.sourceFingerprint).toBe(after?.sourceFingerprint);
+		expect(entry).toMatchObject({
+			review: "reviewed",
+			value: {
+				parts: [
+					{ kind: "value", expression: literal_ },
+					{ kind: "text", text: " estado" },
+				],
+			},
+		});
 	});
 
 	it("leaves inline-source changes and field deletion to their ordinary admission rules", () => {

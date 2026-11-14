@@ -1442,7 +1442,14 @@ function buildFieldParts(
 					xpath: {
 						"vellum:ref": nodePath.toWire("hashtag"),
 						ref: nodePath.toWire(),
-						value: lower(defaultValue, "default_value"),
+						value:
+							bindType === "xsd:dateTime"
+								? expressions.startingDatetime(defaultValue, {
+										entity: "field",
+										uuid: fieldUuid,
+										slot: "default_value",
+									})
+								: lower(defaultValue, "default_value"),
 					},
 				},
 				context,
@@ -1532,7 +1539,15 @@ function buildFieldParts(
 							fieldUuid,
 							nodePath,
 						).toWire(),
-						calculate: questionDatetimeCaseValue(nodePath),
+						calculate: questionDatetimeCaseValue(
+							fieldUuid,
+							nodePath,
+							expressions.context({
+								entity: "field",
+								uuid: fieldUuid,
+								slot: "relevant",
+							}),
+						),
 						relevant: w.gt(w.call("count", [nodePath.toWire()]), w.num(0)),
 					},
 				},
