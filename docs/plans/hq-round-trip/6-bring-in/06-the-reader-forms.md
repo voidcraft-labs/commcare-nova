@@ -522,6 +522,13 @@ export interface ReadMenuAndFormIdentities {
 	readonly forms: readonly {
 		readonly uuid: Uuid; readonly xmlns: string; readonly moduleUniqueId: string;
 	}[];
+	/** Every create keyed by an answer the document holds, read from a Save to Case block, with
+	 *  the prefix its id stands under in the source and the case type it was derived with (part 07,
+	 *  2.4; `caseManagement/saveToCase.ts::keyedCreatesRead`). */
+	readonly keyedCreates: readonly {
+		readonly operationUuid: Uuid; readonly formUuid: Uuid; readonly caseType: string;
+		readonly prefix: string;
+	}[];
 }
 
 export interface ReadDraft {
@@ -615,10 +622,10 @@ Part 07's functions take the draft as a second argument (`readMenus(ctx, app)`);
 | 4 | a menu's own shape: its case type, kind and nesting, which every form's reading needs | part 07, `menus/index.ts::readMenus` |
 | 5 | case management and the case catalog; settles the generated candidates of 13.3 | part 07, `caseManagement/index.ts::readCaseManagement` |
 | 5b | mint each form's fields in document order, then register their expressions (11.1); then write the case operations and the catalog, which name those fields' UUIDs | `xform/index.ts::mintFields`, then part 07's `caseManagement/index.ts::writeCaseOperations` |
-| 6 | case lists and search, every XPath registered as pending; then the entry facts compared and the links' expressions registered, which need every entry's structure and nothing bound | part 07, `caseList/index.ts::readCaseLists`, `search/index.ts::readSearches`, then part 07's `caseManagement/index.ts::compareEntryFacts` and `menus/afterSubmit.ts::registerLinkExpressions` |
+| 6 | case lists and search, every XPath registered as pending, and the property types a numeric sort and a date Search field declare written into the draft's catalog, so every expression binds against them; then each child menu's form whose new case its root's first selection takes; then the entry facts compared and the links' expressions registered, which need every entry's structure and nothing bound | part 07, `caseList/index.ts::readCaseLists`, `search/index.ts::readSearches`, then part 07's `menus/index.ts::readRootSelectionsTaken` (after the case operations and every menu's structure are in the drafts, and before the entry facts are compared, so the finding stands at the form where the facts would otherwise part), `caseManagement/index.ts::compareEntryFacts` and `menus/afterSubmit.ts::registerLinkExpressions` |
 | 7 | the provisional document, then every pending expression bound against it | `provisional.ts::bindExpressions`, which builds `provisional.ts::provisionalDocument`, calls part 08's `readExpressions` twice with `worldEntitiesFromReads` between and applies the second answer |
 | 8 | what part 07 decides over the bound document | part 07, `settleCaseManagement`, `settleCaseLists`, `settleSearches`, `settleMenus`, in that order |
-| 9 | text: translations from the bound outputs | `xform/prose.ts::finishText` |
+| 9 | text: translations from the bound outputs; then each case catalog option's translations, taken from the choice it was read from, which exist only once the text is read | `xform/prose.ts::finishText`, then part 07's `caseManagement/catalog.ts::noteCatalogOptionTranslations` |
 | 10 | what the bound document decides for a form: repeat counts, model iteration, load order, a Hidden Value's bind type | `xform/afterBinding.ts::finishForms` |
 | 11 | the declaration's verdict, the late claims, the close, and the draft where no finding stands | `assemble.ts::assembleDocument` |
 
@@ -1435,9 +1442,13 @@ is absent (`ApplicationBase.wrap`).
    identity the base names is proposed to `mintLanguageWireCode(∅, identity)` and kept where it
    answers the code), else the rule above; and where the app holds a name for the code in its
    first language's `translations` (Nova writes every language's name there on each publish), the
-   one such identity whose `resolvedLanguageDisplayLabel` is that name is the identity. So an app
-   Nova published reads back to the identities it held. A name no identity gives leaves the
-   language alone.
+   one such identity whose `resolvedLanguageDisplayLabel` is that name is the identity. Three pairs
+   of lawful identities share a preferred spelling and a name (`swc` and `swh` are `sw` and
+   Kiswahili, `prs` and `pes` are `fas` and فارسی, `pap-AW` and `pap` are `pap` and Papiamentu), so
+   `mintLanguageWireCode` writes a spelling with no hyphen for the first identity of each name in
+   the order this rule proposes them and the suffixed form for the others (`swc-`, `prs-`,
+   `pap-aw`). So an app Nova published reads back to the identities it held, every one of the
+   registry's. A name no identity gives leaves the language alone.
 3. **What cannot be named.** A code that gives no language, an identity `identityIssues` refuses, and a
    second code that gives an identity an earlier code already took are each the new entry of the table
    below, raised with `Accounting.finding` and the code in `detail.name`.
@@ -1495,7 +1506,7 @@ once, by part 01's 4.4 classes in this order:
 | The key | Claim |
 |---|---|
 | equal to an app language's code | the language's display name: `derived(translations-lang-code-language-display-names-equal-to-the-label)` where the value equals Nova's label for that identity (`resolvedLanguageDisplayLabel`), else `account(translations-lang-code-any-other-value-or-absent-where-hq-s)`, which part 01 keeps at CommCare HQ's value (its 7.2). The first claim is `derived` because the value is read into nothing: Nova derives its label from the language's identity |
-| `app.display.name` | `take(translations-app-display-name)`: in a language after the first, the app name's translation in that language, through `ctx.translations`; in the first language, where it equals `name`. In the first language one that differs from `name` is left unclaimed and closes as `unrecognized`: the source language holds no translation of the name, Nova writes no `app.display.name` there (`expander.ts::appLevelValues`), reading it into `appName` would change HQ's own name at the first publish and reading past it would change the name a device shows, and no entry names that override |
+| `app.display.name` | `take(translations-app-display-name)`: in a language after the first, a non-empty value is the app name's translation in that language, through `ctx.translations`; a blank one is the string HQ's build writes from `name` (`non_empty_only`) and is read into nothing. In the first language, a blank value or one equal to `name` is read into nothing; any other is the name every runtime shows in that language, because HQ's build writes `app.display.name` from `name` and puts a stored non-empty value over it (`app_strings.py::_create_custom_app_strings`, `SelectKnownAppStrings.app_strings_parts`), and HQ stores one there itself from a UI translations upload (`ui_translations.py::process_ui_translation_upload` adds a row naming no known UI string). It is read as `appName`, and each later language that stores no non-empty `app.display.name` takes `name` as the app name's translation, which is the string it shows; a fold as 16.5's source-language folds are, counted in `ReadFacts.foldedTranslationKeys`, so HQ's own `name` becomes the override's wording at the first publish (`translation-overrides-folded`) and no runtime shows a different word |
 | `homescreen.title` | `account(translations-homescreen-title)` |
 | a runtime's own UI text (`appStringKeys.ts::isRuntimeUiStringKey`) | `account(translations-key-in-a-runtime-s-ui-string-catalog-core-android)`; HQ's catalog fill for such a key, `account(translations-catalog-key-hq-fills-with-its-own-text-in-a)` |
 | one of HQ's generated patterns (`translationKeyOwner` gives `generated`) | held back to stage 11, and classified or covered there (16.5) |
@@ -1503,6 +1514,9 @@ once, by part 01's 4.4 classes in this order:
 
 A language key of `translations` that is none of the app's codes is `account`ed whole under
 `translations-key-no-runtime-reads`: HQ builds no strings for it (part 01, 7.1).
+A language key that is a code 6.3 raised a finding for is read by no class of the table: each
+key inside it stands under that code's finding (`Accounting.cover`), a generated one at stage 11
+(16.5, step 1).
 
 ### 6.6 `profile`
 
@@ -2378,7 +2392,7 @@ section or is one of the kind rows of 9.1.
 | The select holds | Result |
 |---|---|
 | both items and an itemset, or neither | `refuse(select-with-both-items-and-an-itemset-or-no-choices)` |
-| an `item` with no `value`, or an `itemset` with no `label` or with neither `value` nor `copy` | `refuse(item-without-value-or-an-itemset-without-label-or-without-both)` |
+| an `item` with no `value` or with no `label` (Core's `XFormParser.parseItem` refuses either, "`<item>` without proper `<label>`"), or an `itemset` with no `label` or with neither `value` nor `copy` | `refuse(item-without-value-or-an-itemset-without-label-or-without-both)`; the entry's `item` reads "`<item>` without `<value>` or without `<label>`, …", and its inventory row with it |
 | an `itemset` with `copy` | `refuseSubtree(itemset-copy)` |
 | an `itemset` with `sort` | `refuseSubtree(itemset-sort-ref)` |
 
@@ -2748,6 +2762,9 @@ never content: the `text@id` attribute is `drop(itext-ids-other-than-a-pragma-ke
 | the argument is written between double quotes (the string node's first source character) | `refuse(duplicate-text-id-in-one-translation-jr-itext-with-double-quotes)` |
 | the id is in no translation of the first language | the same entry |
 | a `label` with text and no `ref` | `take(inline-label-text-label-no-itext)`: that text, in the source language |
+| a `hint`, a `help` or an `item`'s `label` with text and no `ref` | that text, in the source language, under the slot's own `take` (`hint-text`, `help-text-markdown-form`, `choice-label-with-no-markdown-form`): Core shows an element's inner text where it names no text id (`FormEntryPrompt.localizeText`) |
+| an `alert` with content and no `ref` | left unclaimed, whatever the bind's `jr:constraintMsg` names: Core shows that text as the message (`FormEntryPrompt.getConstraintText` reads the alert first), the form builder keeps an alert's `ref` alone (`javaRosa/plugin.js::parseItextRef`), and no entry names it |
+| an `alert` naming a text on a bind with no `constraint` | `refuse(validation-message-without-a-validation-condition)`, as the bind's `jr:constraintMsg` is |
 | a bind's `jr:constraintMsg` that is no `jr:itext` call and no protected message (13.2) | `refuse(literal-jr-constraintmsg-text-no-itext)` |
 | a `jr:constraintMsg` and an `alert` naming two ids | left unclaimed |
 | one id referenced by two slots or two questions | each slot reads the text as its own: Nova holds a text per slot, and writes two entries of equal text, which HQ's build merges again (`XForm.normalize_itext`) |
@@ -3097,8 +3114,10 @@ export function generatedBaseName(
   `builder.ts::buildQueryRepeat`) over the proposed owner's path. Four of the first five are exported
   today, and part 03 exports `datetimeCaseValue` in place of `datetimeCaseValueCalculate`
   (`03-questions-and-text.md`, section 7.1).
-  `builder.ts` exports the ones that are private there ("Files"), bodies unchanged, and neither
-  `caseOps.ts` nor `countPlacementRow.ts` is touched. Rebuilding that tree for every candidate is
+  `builder.ts` exports the ones that are private there ("Files"), bodies unchanged, and
+  `countPlacementRow.ts` is not touched. `caseOps.ts` gains no rule of this part: the two
+  arguments it gains serve part 07's keyed create (its 2.4) and part 08's binding of a case
+  operation's slot where its block prints it ("Files"). Rebuilding that tree for every candidate is
   the one cost of this design that grows with a form's questions times its generated nodes, and
   `ReadWork.rebuilds` counts it (2.2). Where `readerWork.test.ts` finds `rebuilds` growing faster
   than the form, the fix is a memo of the expected tree by purpose and path shape, in
@@ -3157,6 +3176,17 @@ it was (`DraftField.scalarCheck`). The fold is made in stage 3, before part 07 h
 `trimmed` candidate, so part 07 holds it afterwards: its `settleCaseManagement` compares the record
 with `caseScalarTextGuards` of the bound document and raises `unrecognized` where they differ (its
 3.5). Where neither tree matches, the whole `constraint` is the author's.
+
+**The date-and-time spelling, settled once types are bound.** Stage 3 has no types, so it proposes a
+`datetime` sibling by its question's kind (`generated.ts::datetimeSpellingOf`): a date-and-time
+question takes `storedInstantValue(q)` or the earlier tree, and a Hidden Value either of those or a
+copy of itself. Which of the two a Hidden Value takes is `questionDatetimeCaseValue`'s choice over the
+question's inferred type, so stage 10 (`afterBinding.ts::checkDatetimeSiblings`) rebuilds the tree
+for every sibling part 07 settled as Nova's, with the bound document's `slotContext` of the
+question, and compares it through `sameTree`. The earlier tree passes as it is (its register row is
+already recorded); any other difference is `unrecognized` at the question, `detail.name`
+`xform:model/bind@calculate`. The check is skipped where the question's own calculate was not held
+or a finding already stands at it, since its type is then not known.
 
 **The count placement's row guard, query repeat and model iteration use the same comparison**: 10.3
 names their trees.
@@ -4044,7 +4074,7 @@ touches a database, and none renders a component. Each names the failure it woul
 | `reader/__tests__/placeVectors.test.ts`, with `proof/checks/test_place_vectors.py` | `elementWhere`, `qualifiedName` and the pointer escape against `proof/checks/fixtures/place-vectors.json`, which the Python test holds to `_element_path`, `qualified`, `pointer_token` and, for one vector that is a default `xmlns`, the `/namespace()` place `xform_vocabulary` records | the two sides spelling one place two ways, which would make part 14's parity join miss |
 | `reader/__tests__/appShell.test.ts` | `readApplication` over `proof/hq-reads/shell/app-source.json`, `shell/app-source-after-app-settings-save.json`, `hq-built/app-source.json`, `navigation-base/app-source-after-ui-translations-save.json` | an `Application` key HQ's own pages write that the walker leaves unclaimed; a setting accounted under the wrong value class; and, over hand-built sources, a logo entry with no `m_id` admitted, and a language's display name that differs from Nova's label raised as a finding where the manifest keeps it |
 | `reader/__tests__/appShellTotality.test.ts` | the same sources with one unknown key planted at the root, in `profile.properties` and in `translations` | an unknown key admitted; the wrong undeclared entry |
-| `reader/__tests__/languages.test.ts` | `readLanguages` over a table of code lists | `en` beside `eng` held twice; a macrolanguage code minted to no identity; a code HQ's grammar refuses held; `pt-br`, `zh-hans` and `cmn-hantcn` read without their region or script, since the suffix is lower case |
+| `reader/__tests__/languages.test.ts` | `readLanguages` over a table of code lists | `en` beside `eng` held twice; a macrolanguage code minted to no identity; a code HQ's grammar refuses held; `pt-br`, `zh-hans` and `cmn-hanttw` read without their region or script, since the suffix is lower case (`cmn-hantcn` names no identity: CN is no region `regionChoices` offers for `cmn-Hant`, so the suffix adds nothing and `cmn` with no script fails `identityIssues`); a code Nova writes for any lawful identity read back to another, `swc`, `prs` and `pap-AW` among them |
 | `reader/__tests__/structure.test.ts` | `readStructure` over hand-built menus and forms | a mirror menu read key by key into dozens of findings; two forms of one `xmlns` both minted; with a report menu and a shadow form in one app, that both findings are in one account; and a form named `instance('casedb') practice` read to anything but the one finding `form-name-read-as-an-instance` |
 | `reader/__tests__/generatedTranslationKeys.test.ts` | the classifier over hand-built tables, one case per rule of part 01's 7.1 and the two-key fold; `generatedKeyOwner` and `repositionGeneratedKey` over a key for every pattern of `GENERATED_APP_STRING_PATTERNS`; the keys `custom_assertion.m0.f1.3`, `custom_assertion.m0.3` and `custom_assertion.root.3`, each read as the app's and classified inert against a table built for a document with two menus | an override of a constant string called inert; one fold applied twice; a pattern whose key names no owner or the wrong one; a key repositioned at any number but its menu's and form's; a `custom_assertion` key read as a menu's or a form's, or given any verdict but inert (16.5) |
 | `reader/__tests__/generatedKeysInAccount.test.ts` | `readHqApp` over hand-built sources, with `appStrings` a hand-built function: a mirror menu standing before a plain menu whose name holds an override; a key on a menu whose case list holds a finding; a key under a language code the reading cannot name; `appStrings` answering `null` beside a finding, and with none; an option label's override in two menus, one of them a mirror | a key whose menu read whole left out of an account that holds another menu's finding; a key judged against the string of the menu that now stands at its number; a covered key reported, as a finding or as `unrecognized`; a key left unclaimed where there is no table; a clean read whose document the gate refuses returned and not thrown (C9); a `not-yet` raised for a key the source does not make one |
@@ -4057,7 +4087,7 @@ touches a database, and none renders a component. Each names the failure it woul
 | `reader/xform/__tests__/appearances.test.ts`, `appearanceRows.test.ts` | `classifyAppearance` over the examples each entry's `item` gives (`minimal` with a trailing space, `combobox2`, `x2-per-row`, `minimal foo`, `Numeric`, `compact-3`) and the four held tokens; the table against the manifest's section | an inert claim for a string a runtime reads; an entry no rule reaches (C7); a row whose entry is HELD; one of the five refused classes with no lane reader misread, which nothing in Python would catch; a control missing from `inertAppearances`, or one listed whose appearance made a finding |
 | `reader/xform/__tests__/itext.test.ts` | hand-built itext: renamed ids, one id shared by two questions, each form of 12.2, each pragma row, a value blank in a second language beside first-language text, a value blank in the first language beside another's text, a text blank in every language, a missing language (the media of a text, equal and differing by language, is `media.test.ts`'s) | a text found by its id's spelling; a `markdown` copy on a hint refused; a flag set on a blank text; a held blank refused, written as a translation or left out of `blankTranslations`; a first-language blank held |
 | `reader/xform/__tests__/prose.test.ts` | text of every character class (whitespace runs, NBSP, `instance(`, `<`, `&`, quotes) emitted through a one-label document and read back, property-based | the literal-output inverse losing or adding a character |
-| `reader/xform/__tests__/generated.test.ts` | for each purpose of `GENERATED_RULES`, a document that makes the emitter write the node, read back; then the same source with one token of the node's calculate changed, and with the node renamed | a purpose with no rule; an edited node folded; a renamed node folded |
+| `reader/xform/__tests__/generated.test.ts` | for each purpose of `GENERATED_RULES`, a document that makes the emitter write the node, read back; then the same source with one token of the node's calculate changed, and with the node renamed; a Hidden Value holding text and one holding a typed date and time, each read whole, then with its `datetime` sibling in the other's spelling | a purpose with no rule; an edited node folded; a renamed node folded; a sibling Nova would spell otherwise accepted |
 | `reader/xform/__tests__/authoredNovaName.test.ts` | a document whose author named a question `nova_trimmed_x` beside a question `x` that names a case | the author's question folded into Nova's node |
 | `reader/xform/__tests__/shadow.test.ts` | pairs of real and shadow text with head metadata: agreeing through `#form/`, through a `hashtags` entry, through a prefix; disagreeing; unexpandable; under `vellum:ignore="richText"`; a hashtag the map holds as `null`, used twice over one subtree and twice over two; a prefix that is a longer key's beginning; the three `requiredCondition` rows | a disagreement read as agreement; an inert shadow refused; a form HQ's form builder reads through a `null` hashtag sent back to be fixed; the longest key taken where Vellum takes the exact prefix |
 | `reader/xform/__tests__/repeats.test.ts` | each row of 10.3 by hand, and both placements emitted and read | a count repeat over a Hidden Value read as a generated count; a wrapper missing a setvalue held |
@@ -4087,7 +4117,7 @@ an app at the byte bound is short (part 12's test at the bound).
 | `lib/commcare/xform/captureUrlNode.ts`, the header of `AttachmentUrlTarget` | "because `lib/commcare` is a one-way emission boundary: the deployment layer may read the wire package, never the other way round." | "because `lib/commcare` imports nothing of the deployment layer: the deployment layer may read the wire package, never the other way round." |
 | `lib/commcare/xpath/index.ts`, the header comment | "the package's \"one-way emission boundary\" rule is scoped to wire-format emission (XForm XML, HqApplication JSON)," | "the package's import rule (`biome.json`) is scoped to the wire formats (XForm XML, HqApplication JSON)," |
 | `biome.json`, the four messages of the rule on `@/lib/commcare` | each opens "lib/commcare is the one-way CommCare emission boundary." | each opens "lib/commcare is the CommCare boundary, the one package that speaks CommCare's wire vocabulary." Part 09's edit of the same four strings adds a consumer and leaves this sentence as written here |
-| `lib/commcare/CLAUDE.md`, "The surface manifest" | "Server code reads gate entries through `surface/gates.ts`, never `surface.json`, so a server bundle carries the gate entries alone." | "Server code reads the manifest through `surface/gates.ts` (a gate's identity), `surface/schemaDefaults.ts` (a declared property's default, from `surface.json`), `appStringKeys.ts` (HQ's generated app string patterns, from `surface.json`) and `surface/inventory.ts` (every inventory entry with its standing, for the reader) and `surface/revision.ts` (`isDeclaredSurfaceKey`, part 12's). `inventory.ts` is `server-only`." |
+| `lib/commcare/CLAUDE.md`, "The surface manifest" | "Server code reads gate entries through `surface/gates.ts`, never `surface.json`, so a server bundle carries the gate entries alone." | "Server code reads the manifest through `surface/gates.ts` (a gate's identity), `surface/schemaDefaults.ts` (a declared property's default, from `surface.json`), `appStringKeys.ts` (HQ's generated app string patterns, from `surface.json`) and `surface/inventory.ts` (every inventory entry with its standing, for the reader) and `surface/revision.ts` (`isDeclaredSurfaceKey`, part 12's). `inventory.ts` is `server-only`. The reader also reads `surface.json`'s items itself, for what CommCare's own code reads: `reader/appShell.ts` an `Application` property's declaration and default, `reader/xform/parse.ts` the element names Core's form parser dispatches on, `reader/xform/appearances.ts` every appearance a runtime reads, and `reader/xform/shadow.ts` each `vellum:` shadow's surface key." |
 | `lib/commcare/CLAUDE.md`, "CommCare HQ project-space compatibility" | "Server code reads gate entries through `surface/gates.ts`, never the generated `surface.json`." | "Server code reads gate entries through `surface/gates.ts`." (the readers are listed under "The surface manifest") |
 | `lib/commcare/CLAUDE.md`, new section "### The reader" after "The surface manifest" | none | "`reader/index.ts::readHqApp` is the one function that turns an HQ app into a document. It is pure and reads only its arguments. Admission is an accounting: every JSON key at a value other than HQ's default and every XML element and attribute must be claimed against a manifest entry (`reader/claims.ts::defineClaims`), the entry's standing decides whether the value is read, dropped or a finding, and whatever is left unclaimed is the circumstance `unrecognized`. A claim is data, held to the manifest by `reader/__tests__/claimsBindManifest.test.ts`, so a manifest edit and the reader cannot drift. A reader stage reads nothing it does not claim. Two uses are handed off instead of claimed, a media path with no file and an itemset over a table the catalog lacks, because project data's rules name their entry; the caller settles each and acceptance holds none is left. The stages run in the order of `reader/index.ts::STAGES`: structure and forms, menus, case management, lists and search, then every expression bound against a provisional document that is built whether or not a finding stands, then the settle passes and assembly. An `unrecognized` finding names a surface key, or the app's own value where what was unclaimed is a value (an appearance); what the reader itself got wrong is a `ReaderDefect`, logged and never shown." |
 | the same section, second paragraph | none | "A form is read as HQ's form builder reads it (`reader/xform/`): data tree, binds, setvalues, then the control tree, joined by path. A field's kind comes from one table (`xform/kinds.ts`). Text is found by what references it, never by an itext id. A node Nova generates is recognized by rebuilding it with the emitter's own function and comparing parsed trees (`xform/generated.ts`), with the allocator's name as a precondition; an edited or renamed one is the author's Hidden Value. A real attribute and its `vellum:` shadow must expand to one tree. Logic is never read as text here: each attribute is registered as a pending expression the expression reader binds. Two XPath texts are compared in one place, `reader/syntaxCompare.ts::sameXPathText`." |
@@ -4309,6 +4339,7 @@ One list: every file this part makes, changes or moves, with what it holds. Path
 | `lib/commcare/hq/publishedCaseBlocks.ts`, `lib/commcare/xform/deviceForm.ts` | import the namespace helpers and `VELLUM_NS`; `deviceForm.ts`'s own `VELLUM_NAMESPACE` goes. No behavior change |
 | `lib/doc/platformDeclaration.ts` | adds `planDeclarationChoices`, `DeclarationChoice`, `DeclarationChoices` (16.3) |
 | `lib/commcare/xform/generatedNodes.ts` | adds `generatedBaseName` (13.1), which the allocator then calls. No behavior change |
+| `lib/commcare/xform/caseOps.ts` | `authoredCaseIdCalculation` takes an optional `prefix`, the scope's own by default; `buildCaseOperations` takes `places?: CaseOperationPlaces`, where it records, by `caseOperationPlaceKey(slot)`, the bindings of the node each case operation slot is first printed whole at (part 08 binds a slot's text there), and `keyedCaseIdPrefixes?: ReadonlyMap<Uuid, string>`, the prefix a keyed create's id is printed under by operation (part 07, 2.4), which `builder.ts` and `expander.ts` pass through from `ExpandOptions`. With neither argument no emitted byte changes |
 | `lib/commcare/xform/builder.ts` | exports `buildQueryRepeat`, `buildRepeatBody`, `buildOwnerNodes`, `buildConnectBlocks`, `whitespaceOutput` and `inDataTreeOrder`, private today, and two trees `buildFieldParts` builds inline today, cut out as named functions it then calls: `constraintCountRelevant(question: FormPath): WireExpr` (the `count(q) > 0` of a constraint count's bind) and `questionScalarCheck(blank: "allow" \| "reject"): WireExpr` (`caseScalarTextValueGuard(caseScalarTextValueCalculation(.), blank)`) (13.1); imports `isConsumerWhitespace`. No emitted byte changes, which the existing expander and oracle suites hold |
 | `lib/commcare/xmlParse.ts` | `XmlParseFailureKind`, `XmlParseError`, and the `kind` of `tryParseXml`'s failure arm (8.2) |
 | `lib/commcare/xform/captureUrlNode.ts`, `lib/commcare/xpath/index.ts` | a comment each ("Contracts"); no code changes |

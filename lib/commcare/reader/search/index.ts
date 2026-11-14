@@ -17,16 +17,18 @@ import type {
 	CaseSearchConfig,
 	OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
-import { readFormSyntax } from "../../xpath/formSyntax";
 import { withCandidate } from "../candidate";
 import { noteProperty } from "../caseManagement/catalog";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftModule, ReadContext } from "../context";
 import { searchRowProperties } from "../expressions/scanReads";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { provisionalDocument } from "../provisional";
+import { readFormSyntax } from "../syntaxRead";
 import { type PromptReading, readSearchPrompts } from "./prompts";
 import {
 	classifySearchRows,
+	dateFieldDeclarations,
 	MARKERS_HELD,
 	ROWS_HELD,
 	type SearchRow,
@@ -76,6 +78,14 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	),
 	sortKey: refuse(
 		`${S}default-properties-entry-keyed-commcare-sort-x-commcare-custom`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	runtimeKey: refuse(
+		`${S}a-commcare-sort-x-commcare-custom-related-case-property-or-case`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	relatedTwice: refuse(
+		`${S}an-x-commcare-custom-related-case-property-entry-together-with`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
 	caseTypeKey: refuse(
@@ -130,8 +140,38 @@ function isZeroInputText(text: unknown): boolean {
 	);
 }
 
-/** The finding for a default filter keyed by anything but a row or a zero-input marker. */
-function keyFinding(key: string, ownersExpression: boolean) {
+/** Whether a default filter's value is a literal, the one value a request key can be typed by. */
+function isLiteralValue(text: string): boolean {
+	const read = readFormSyntax(text);
+	return (
+		read.ok && (read.node?.kind === "string" || read.node?.kind === "number")
+	);
+}
+
+/** The keys whose value names properties or case types, chosen at runtime where it is computed
+ *  (`case_search/models.py::_parse_commcare_sort_properties`, `utils.py::get_expanded_case_results`,
+ *  `utils.py::CaseSearchQueryBuilder._get_initial_search_es`). */
+const NAMING_KEYS = new Set([
+	"commcare_sort",
+	"x_commcare_custom_related_case_property",
+	"case_type",
+]);
+
+/**
+ * The finding for a default filter keyed by anything but a row or a zero-input marker. The two
+ * refusals of a request key come before the rows that hold the key: a value computed at runtime,
+ * and the related-case property arriving beside `custom_related_case_property`, which HQ's request
+ * then carries twice (`case_search/models.py::CaseSearchRequestConfig`).
+ */
+function keyFinding(
+	key: string,
+	value: string,
+	ownersExpression: boolean,
+	relatedPropertySet: boolean,
+) {
+	if (NAMING_KEYS.has(key) && !isLiteralValue(value)) return C.runtimeKey;
+	if (key === "x_commcare_custom_related_case_property" && relatedPropertySet)
+		return C.relatedTwice;
 	if (key === "commcare_blacklisted_owner_ids")
 		return ownersExpression ? C.ownersTwice : C.ownersKey;
 	if (key === "case_type") return C.caseTypeKey;
@@ -183,6 +223,7 @@ function readDefaultFilters(
 		markersOnly ? C.markers : C.rows,
 	);
 	const ownersExpression = cursor.used("blacklisted_owner_ids_expression");
+	const relatedPropertySet = cursor.used("custom_related_case_property");
 	const rows: SearchRow[] = [];
 	const names = new Set<string>();
 	let ok = true;
@@ -219,9 +260,11 @@ function readDefaultFilters(
 			return;
 		}
 		if (property !== "_xpath_query") {
-			row.refuse("property", keyFinding(property, ownersExpression), {
-				name: property.slice(0, 200),
-			});
+			row.refuse(
+				"property",
+				keyFinding(property, value, ownersExpression, relatedPropertySet),
+				{ name: property.slice(0, 200) },
+			);
 			names.add(property);
 			ok = false;
 			return;
@@ -240,7 +283,8 @@ function readDefaultFilters(
 	return { ok, rows, names, zeroInput, markersOnly };
 }
 
-/** Step 6, pass 1: every menu's search, read from its `search_config`. */
+/** Step 6, pass 1: every menu's search, read from its `search_config`, and the type each date
+ *  Search field declares written into the draft's catalog before any expression binds. */
 export function readSearches(ctx: ReadContext, app: DraftApp): void {
 	const readings = READINGS.get(ctx) ?? new Map<Uuid, SearchReading>();
 	READINGS.set(ctx, readings);
@@ -342,6 +386,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				prompts.length === declared,
 		});
 	}
+	declareDateFieldsBeforeBinding(ctx, app, readings);
 }
 
 /** The types the catalog gives a menu's case type's properties: declared, else its writers'. */
@@ -352,32 +397,124 @@ function propertyTypes(doc: BlueprintDoc, caseType: string | undefined) {
 	);
 }
 
-/** A date range field over a property no writer types declares it `date`: the gate asks a date
- *  range field for a date property (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`). */
-function declareDateRangeProperties(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-): BlueprintDoc {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined) return doc;
-	const properties = propertyTypes(doc, mod.caseType);
-	const untyped = (mod.caseListConfig?.searchInputs ?? []).flatMap((input) =>
-		input.kind === "simple" &&
-		input.type === "date-range" &&
-		input.via === undefined &&
-		properties.find((property) => property.name === input.property)
-			?.data_type === undefined
-			? [input.property]
-			: [],
-	);
-	if (untyped.length === 0) return doc;
-	return withCandidate(doc, (draft) => {
-		const type = draft.caseTypes?.find((one) => one.name === mod.caseType);
-		for (const name of untyped) {
-			const property = type?.properties.find((one) => one.name === name);
-			if (property !== undefined) property.data_type = "date";
+/** The date types declared before the expression stage, per reading: each case type and
+ *  property declared, with the type. */
+const EARLY_DATE_DECLARATIONS = new WeakMap<
+	ReadContext,
+	readonly {
+		readonly caseType: string;
+		readonly property: string;
+		readonly dataType: "date" | "datetime";
+	}[]
+>();
+
+/**
+ * The types the Search fields give properties no writer types, written into the draft's catalog
+ * before the expression stage, so every slot that reads such a property (a search's own rows, a
+ * filter comparing it with a date) binds against the type the field declares. A date range field
+ * over such a property declares it `date`, since the gate asks a date range field for a date
+ * property (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`); a field whose row is its derivation
+ * declares the type under which the row reads as that derivation (`rows.ts::dateFieldDeclarations`).
+ * A Hidden Value writer is typed only once its expression is bound, so the settle takes back each
+ * declaration a writer then types (`settleSearches`). The first menu to declare a property decides
+ * its type.
+ */
+function declareDateFieldsBeforeBinding(
+	ctx: ReadContext,
+	app: DraftApp,
+	readings: ReadonlyMap<Uuid, SearchReading>,
+): void {
+	const doc = provisionalDocument(ctx);
+	const declarations: {
+		caseType: string;
+		property: string;
+		dataType: "date" | "datetime";
+	}[] = [];
+	const declare = (
+		caseType: string,
+		property: string,
+		dataType: "date" | "datetime",
+	) => {
+		if (
+			!declarations.some(
+				(one) => one.caseType === caseType && one.property === property,
+			)
+		)
+			declarations.push({ caseType, property, dataType });
+	};
+	for (const module of app.modules) {
+		const reading = readings.get(module.uuid);
+		const mod = doc.modules[module.uuid];
+		const caseType = mod?.caseType;
+		if (reading === undefined || !reading.whole || caseType === undefined)
+			continue;
+		const properties = propertyTypes(doc, caseType);
+		for (const input of mod?.caseListConfig?.searchInputs ?? [])
+			if (
+				input.kind === "simple" &&
+				input.type === "date-range" &&
+				input.via === undefined &&
+				properties.find((property) => property.name === input.property)
+					?.data_type === undefined
+			)
+				declare(caseType, input.property, "date");
+		for (const { property, dataType } of dateFieldDeclarations(
+			ctx,
+			doc,
+			module,
+			reading,
+		))
+			declare(caseType, property, dataType);
+	}
+	EARLY_DATE_DECLARATIONS.set(ctx, declarations);
+	const catalog = app.caseTypes;
+	if (declarations.length === 0 || catalog === undefined || catalog === null)
+		return;
+	const next = produce(catalog, (draft) => {
+		for (const { caseType, property, dataType } of declarations) {
+			const declared = draft
+				.find((one) => one.name === caseType)
+				?.properties.find((one) => one.name === property);
+			if (declared !== undefined) declared.data_type = dataType;
 		}
 	});
+	ctx.writeDraft(() => {
+		app.caseTypes = next;
+	});
+}
+
+/** `doc` without each early declaration a writer of the bound document types: the writer's type
+ *  is the property's, as it is in the document the reading's source was emitted from. */
+function takeBackWriterTypedDeclarations(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	const early = EARLY_DATE_DECLARATIONS.get(ctx) ?? [];
+	if (early.length === 0) return doc;
+	const removing = (
+		draft: BlueprintDoc,
+		keep: (one: (typeof early)[number]) => boolean,
+	) => {
+		for (const one of early) {
+			if (keep(one)) continue;
+			const declared = draft.caseTypes
+				?.find((type) => type.name === one.caseType)
+				?.properties.find((property) => property.name === one.property);
+			if (declared?.data_type === one.dataType) delete declared.data_type;
+		}
+	};
+	const without = withCandidate(doc, (draft) =>
+		removing(draft as BlueprintDoc, () => false),
+	);
+	return withCandidate(doc, (draft) =>
+		removing(
+			draft as BlueprintDoc,
+			(one) =>
+				propertyTypes(without, one.caseType).find(
+					(property) => property.name === one.property,
+				)?.data_type === undefined,
+		),
+	);
 }
 
 /** A simple field whose property the app's writers type as something its type does not admit
@@ -410,6 +547,7 @@ export function settleSearches(ctx: ReadContext, app: DraftApp): void {
 	if (ctx.doc === undefined) return;
 	const readings = READINGS.get(ctx);
 	if (readings === undefined) return;
+	ctx.doc = takeBackWriterTypedDeclarations(ctx, ctx.doc);
 	for (const module of app.modules) {
 		const reading = readings.get(module.uuid);
 		if (
@@ -425,8 +563,6 @@ export function settleSearches(ctx: ReadContext, app: DraftApp): void {
 			zeroInput: reading.zeroInput,
 			markersOnly: reading.markersOnly,
 		});
-		if (ctx.doc !== undefined)
-			ctx.doc = declareDateRangeProperties(ctx.doc, module.uuid);
 		fieldOverAnotherType(ctx, reading);
 		settleSearchSettings(ctx, module, reading.cursor, reading.prompts);
 	}

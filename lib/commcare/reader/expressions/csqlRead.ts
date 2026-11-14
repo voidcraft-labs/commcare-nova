@@ -53,7 +53,7 @@ import { caseListStepDatumId } from "../../formLinkProjection";
 import { lookupWireNaming } from "../../lookup/naming";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
 	CSQL_VALUE_FUNCTIONS,
@@ -62,6 +62,7 @@ import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import type { PendingExpression } from "../pendingExpressions";
 import { firstDifference, sameSyntax } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import {
 	checkErrorEntry,
 	claimKey,

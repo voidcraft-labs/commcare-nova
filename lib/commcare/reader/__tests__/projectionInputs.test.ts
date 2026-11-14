@@ -2,7 +2,8 @@
  * What every projection the reader compares is given (`readProjectionInputs`).
  *
  * Contract: over a source whose menu ids, form ids and `xmlns` are none of
- * Nova's derivations, whose form saves a capture's link and reads a table, the
+ * Nova's derivations, whose form saves a capture's link and reads a table, and
+ * whose Search field offers a table's rows, the
  * reading expanded with its inputs prints the source's ids, the source's
  * project space in the link, and the source's tag and field names; built once
  * per reading; each resolved asset at the path the source spells. The
@@ -12,15 +13,31 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, CaseOperation, Form } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseOperation,
+	Form,
+	SearchInputDef,
+} from "@/lib/domain";
 import { term } from "@/lib/domain/expression";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { plainColumn } from "@/lib/domain/modules";
 import { expandDoc } from "../../expander";
 import { lookupWireNaming } from "../../lookup/naming";
+import { assembleDocument } from "../assemble";
+import { patients, uuid } from "../caseList/__tests__/fixtures";
 import { readCases } from "../caseManagement/__tests__/caseReading";
+import { STAGES } from "../index";
 import { appPlace } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
+import type { ReaderInput } from "../types";
+import {
+	readContext,
+	readerInput,
+	retainedSourceBody,
+	sourceFromBody,
+} from "./readerInput";
 
 const TABLE = "01890000-0000-7000-8000-000000000201" as LookupTableId;
 const NAME = "01890000-0000-7000-8000-000000000202" as LookupColumnId;
@@ -104,6 +121,51 @@ function app() {
 	});
 }
 
+/** The project space's table of districts, as a reading is given it, under the tag and field
+ *  names the source spells. */
+function districtTables(input: ReaderInput): ReaderInput {
+	return {
+		...input,
+		lookup: {
+			table: (tag) =>
+				tag === "hq_districts"
+					? {
+							tableId: TABLE,
+							column: (name) => (name === "district_name" ? NAME : undefined),
+						}
+					: undefined,
+			definitions: new Map([
+				[
+					TABLE,
+					{
+						id: TABLE,
+						name: "Districts",
+						tag: "hq_districts",
+						columns: [
+							{
+								id: NAME,
+								wireName: "district_name",
+								label: "Name",
+								dataType: "text",
+							},
+						],
+					},
+				],
+			]),
+		},
+	};
+}
+
+const DISTRICTS_NAMING = lookupWireNaming([
+	{
+		id: TABLE,
+		tag: "hq_districts",
+		columns: [
+			{ id: NAME, wireName: "district_name", label: "Name", dataType: "text" },
+		],
+	},
+]);
+
 /** Re-keys every menu and form of the emitted app with ids none of Nova's derivations gives. */
 function foreignIds(app: {
 	modules: Array<
@@ -147,55 +209,12 @@ describe("what every projection the reader compares is given", () => {
 	});
 
 	it("expands the reading with the source's ids, its project space in a capture's link and its table's tag", async () => {
-		const naming = lookupWireNaming([
-			{
-				id: TABLE,
-				tag: "hq_districts",
-				columns: [
-					{
-						id: NAME,
-						wireName: "district_name",
-						label: "Name",
-						dataType: "text",
-					},
-				],
-			},
-		]);
+		const naming = DISTRICTS_NAMING;
 		const target = { origin: "https://india.commcarehq.org", domain: "clinic" };
 		const reading = await readCases(capturingApp(), {
 			edit: foreignIds,
 			expand: { lookupNaming: naming, attachmentTarget: target },
-			input: (input) => ({
-				...input,
-				lookup: {
-					table: (tag) =>
-						tag === "hq_districts"
-							? {
-									tableId: TABLE,
-									column: (name) =>
-										name === "district_name" ? NAME : undefined,
-								}
-							: undefined,
-					definitions: new Map([
-						[
-							TABLE,
-							{
-								id: TABLE,
-								name: "Districts",
-								tag: "hq_districts",
-								columns: [
-									{
-										id: NAME,
-										wireName: "district_name",
-										label: "Name",
-										dataType: "text",
-									},
-								],
-							},
-						],
-					]),
-				},
-			}),
+			input: districtTables,
 		});
 		expect(reading.ctx.input.target).toEqual(target);
 		const doc = provisionalDocument(reading.ctx);
@@ -244,5 +263,53 @@ describe("what every projection the reader compares is given", () => {
 		expect(asset?.wirePath).toBe("commcare/image/clinic-logo.png");
 		expect(asset?.extension).toBe(".png");
 		expect(asset?.mimeType).toBe("image/png");
+	});
+
+	it("prints a Search field over a table under the source's tag and field names", async () => {
+		const district: SearchInputDef = {
+			uuid: uuid(9),
+			name: "district",
+			label: "District",
+			kind: "simple",
+			type: "select",
+			property: "district",
+			options: {
+				kind: "lookup",
+				tableId: TABLE,
+				valueColumnId: NAME,
+				labelColumnId: NAME,
+			},
+		};
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [district],
+			search: {},
+		});
+		const emitted = expandDoc(doc, { lookupNaming: DISTRICTS_NAMING });
+		const app = JSON.parse(
+			JSON.stringify({
+				...retainedSourceBody("shell/app-source"),
+				modules: emitted.modules,
+				_attachments: emitted._attachments,
+			}),
+		) as Record<string, unknown>;
+		foreignIds(app as Parameters<typeof foreignIds>[0]);
+		const ctx = readContext(
+			districtTables(readerInput(await sourceFromBody(app))),
+		);
+		for (const stage of STAGES.slice(0, STAGES.indexOf(assembleDocument)))
+			stage(ctx);
+		const read = ctx.doc ?? provisionalDocument(ctx);
+		const searchInputs = Object.values(read.modules)[0]?.caseListConfig
+			?.searchInputs;
+		expect(searchInputs?.[0]).toMatchObject({
+			kind: "simple",
+			type: "select",
+			options: { kind: "lookup", tableId: TABLE },
+		});
+		const printed = expandDoc(read, readProjectionInputs(ctx));
+		const search = JSON.stringify(printed.modules[0]?.search_config);
+		expect(search).toContain("hq_districts");
+		expect(search).toContain("district_name");
+		expect(printed.modules[0]?.unique_id).toBe("hq-menu-0");
 	});
 });

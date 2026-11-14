@@ -18,9 +18,9 @@ import {
 } from "@/lib/domain/questionId";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { questionScalarCheck } from "../../xform/builder";
-import { readFormSyntax } from "../../xpath/formSyntax";
 import type { Claim } from "../claims";
 import type { DefaultEvent, ReadMode } from "../pendingExpressions";
+import { readFormSyntax } from "../syntaxRead";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import { sameTree } from "./generated";

@@ -9,15 +9,19 @@ import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
-import type { HqPlace } from "@/lib/publish/hqFindings";
+import { circumstanceFinding, type HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
+import { w } from "../../xpath/wire/builders";
+import { casePropertyStep } from "../../xpath/wire/rowScope";
 import type { Accounting } from "../accounting";
 import { readerDefect } from "../defects";
+import { readFormSyntax } from "../syntaxRead";
 import type { ReaderLookupCatalog, UnreadTable } from "../types";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import type { ControlNode } from "./body";
 import { X } from "./claims";
+import { sameTree } from "./generated";
 import type { DraftField } from "./index";
 import type { ParsedXForm } from "./parse";
 
@@ -125,16 +129,15 @@ function readItems(
 			? "children"
 			: selectOptionValueProblemAmong(text, seen);
 		if (problem === "children") continue;
+		// Only the instance read names what it read; a refused value is never quoted.
 		if (problem === "both-quotes")
-			cursor.refuseSubtree(value, X.choiceValueBothQuotes, place, {
-				name: text,
-			});
+			cursor.refuseSubtree(value, X.choiceValueBothQuotes, place);
 		else if (problem === "instance-read")
 			cursor.refuseSubtree(value, X.choiceValueInstance, place, {
 				name: instanceScanRead(text) ?? text,
 			});
 		else if (problem !== undefined)
-			cursor.refuseSubtree(value, X.choiceValueRefused, place, { name: text });
+			cursor.refuseSubtree(value, X.choiceValueRefused, place);
 		else {
 			const quoted = text.includes("'") || text.includes('"');
 			const taken = cursor.take(
@@ -240,7 +243,6 @@ function readItemset(
 		return undefined;
 	}
 	const nodeset = plain(itemset, "nodeset") ?? "";
-	accounting.noteSyntaxRead();
 	const read = readFormSyntax(nodeset);
 	const chain =
 		read.ok && read.node !== undefined ? instanceChain(read.node) : undefined;
@@ -319,11 +321,12 @@ function readItemset(
 			],
 		] as const) {
 			if (column === undefined) {
-				accounting.defect(
-					place,
-					`xform:itemset/${ref}@ref`,
-					readerDefect.itemsetColumn(place, ref),
-				);
+				// The one finding names the ref; the element and its `ref` stand behind it.
+				const name = `xform:itemset/${ref}@ref`;
+				accounting.defect(place, name, readerDefect.itemsetColumn(place, ref));
+				const raised = circumstanceFinding("unrecognized", place, { name });
+				accounting.cover({ element }, raised);
+				accounting.cover({ element, attribute: "ref" }, raised);
 				continue;
 			}
 			cursor.take({ element }, siteElement).value;
@@ -390,10 +393,11 @@ function caseTypeTest(predicate: FormSyntax): string | undefined {
 }
 
 /**
- * Settles a case choices proposal once its filter is bound: the itemset Nova's own emitter
- * rebuilds from the proposal equals the source's (`same`) and is held, or it is an itemset of
- * another shape. `filtered` is whether the expression stage holds the nodeset with its filter;
- * one with none is claimed here.
+ * Settles a case choices proposal once its filter is bound: where the nodeset Nova's own emitter
+ * rebuilds from the proposal equals the source's (`same`) and the label ref is the one it prints
+ * for the property, the itemset is held; otherwise it is an itemset of another shape. `filtered`
+ * is whether the expression stage holds the nodeset with its filter; one with none is claimed
+ * here.
  */
 export function settleCaseChoices(
 	cursor: XmlCursor,
@@ -404,7 +408,17 @@ export function settleCaseChoices(
 	filtered: boolean,
 ): void {
 	const { itemset, select } = proposal;
-	if (!same) {
+	// The label ref Nova writes for the property: an attribute for a case's own attributes, a
+	// child step for every other property (`builder.ts::buildFieldParts`). A source label that
+	// reads the other node of the same name is no case choices of Nova's.
+	const label = xformsChildren(itemset, parsed, "label")[0];
+	const labelSame =
+		label !== undefined &&
+		sameTree(
+			plain(label, "ref") ?? "",
+			w.context([casePropertyStep(proposal.labelProperty)]),
+		);
+	if (!same || !labelSame) {
 		cursor.refuseSubtree(itemset, X.otherItemset, place);
 		return;
 	}

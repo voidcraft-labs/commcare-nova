@@ -22,6 +22,8 @@ import { projectCaseListForHq } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { withCandidate } from "../candidate";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
+import { readerDefect } from "../defects";
+import { dotInterpolate } from "../hqInterpolation";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
@@ -30,6 +32,7 @@ import {
 	appCodes,
 	attributeOf,
 	HQ_PROPERTY_RENAMES,
+	imageMapPropertyText,
 	languageMap,
 } from "./columns";
 import {
@@ -239,8 +242,19 @@ function columnDifference(
 		const other = enumB[index] as JsonObject;
 		const keyA = typeof item.key === "string" ? item.key : "";
 		const keyB = typeof other.key === "string" ? other.key : "";
+		// HQ's build puts an image map key's dots to the column's property before it reads it
+		// (`models/case_list.py::MappingItem.key_as_condition`), so the two keys are compared so.
+		const property =
+			a.property === undefined ? undefined : imageMapPropertyText(a.property);
 		const sameKey =
-			format === "enum-image" ? sameXPathText(keyA, keyB) : keyA === keyB;
+			format !== "enum-image"
+				? keyA === keyB
+				: property === undefined
+					? sameXPathText(keyA, keyB)
+					: sameXPathText(
+							dotInterpolate(keyA, property),
+							dotInterpolate(keyB, property),
+						);
 		if (!sameKey) return "schema:MappingItem.key";
 		if (!sameTexts(codes, item.value, other.value))
 			return "schema:MappingItem.value";
@@ -259,7 +273,21 @@ function sortDifference(
 	reading: CaseListReading,
 	stored: readonly JsonObject[],
 	ours: readonly JsonObject[],
+	columns: { readonly stored: unknown; readonly ours: unknown },
 ): string | undefined {
+	// The text a positional element joins by: the `field` of the short column it names
+	// (`util.py::get_sort_and_sort_only_columns`).
+	const positionalText = (field: unknown, detail: unknown) => {
+		const match =
+			typeof field === "string" ? CALCULATED_FIELD.exec(field) : null;
+		const column =
+			match === null || !Array.isArray(detail)
+				? undefined
+				: detail[Number(match[1])];
+		return isJsonObject(column) && typeof column.field === "string"
+			? column.field
+			: undefined;
+	};
 	const kept = reading.sort.defaulted
 		? []
 		: reading.sort.kept.map((index) => stored[index] as JsonObject);
@@ -267,7 +295,25 @@ function sortDifference(
 	if (ours.length !== expected) return "schema:Detail.sort_elements";
 	for (const [position, element] of kept.entries()) {
 		const other = ours[position] as JsonObject;
-		if (element.field !== other.field) {
+		const storedText = positionalText(element.field, columns.stored);
+		const ourText = positionalText(other.field, columns.ours);
+		if (
+			element.field !== other.field &&
+			storedText !== undefined &&
+			ourText !== undefined
+		) {
+			// Two positional elements over one expression text land on the first column holding
+			// it, so the two sort one way.
+			if (!sameXPathText(storedText, ourText))
+				return "schema:SortElement.field";
+			const index = reading.sort.kept[position] as number;
+			sameState(
+				ctx,
+				ORDER_CLAIMS.fieldCalculated.entry,
+				`${reading.short.pointer}/sort_elements/${index}/field`,
+				"list-settings-respelled",
+			);
+		} else if (element.field !== other.field) {
 			// HQ's build reads its five renamed words as the properties Nova names
 			// (`detail_screen.py::CASE_PROPERTY_MAP`), so the two spellings sort one way.
 			const renamed = (field: unknown) =>
@@ -380,6 +426,7 @@ function listDifference(
 		reading,
 		objects(reading.short.peek("sort_elements")),
 		objects(pair.short.sort_elements),
+		{ stored: reading.short.peek("columns"), ours: pair.short.columns },
 	);
 	if (sortKey !== undefined) return sortKey;
 	const storedFilter = reading.short.peek("filter");
@@ -472,6 +519,21 @@ function numericSortDeclarations(
  * bound document's writers, a Hidden Value's among them, still give the property no type.
  */
 export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
+	// A calculated column shown on both screens is registered from one detail; the other
+	// detail's `field` holds the same tree (the join's equality), so the expression stage's
+	// claim of the registration holds it too.
+	for (const reading of caseListReadings(ctx).values())
+		for (const twin of reading.twins) {
+			const claim = ctx.pending.outcome(twin.registration).claim;
+			if (claim !== undefined)
+				ctx.accounting.claimEntry(
+					twin.site,
+					claim.entryId,
+					claim.key,
+					twin.place,
+					claim.detail,
+				);
+		}
 	if (ctx.doc === undefined) return;
 	const early = EARLY_SORT_DECLARATIONS.get(ctx) ?? [];
 	if (early.length > 0)
@@ -497,7 +559,12 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		try {
 			difference = listDifference(ctx, doc, mod, reading);
 		} catch {
-			difference = "projectCaseListForHq";
+			ctx.accounting.defect(
+				place,
+				"schema:Module.case_details",
+				readerDefect.emissionThrew(place, "projectCaseListForHq"),
+			);
+			continue;
 		}
 		if (difference !== undefined && !ctx.accounting.hasFindingAt(place))
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });

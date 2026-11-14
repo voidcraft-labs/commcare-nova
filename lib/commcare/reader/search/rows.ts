@@ -14,6 +14,7 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { RelationPath } from "@/lib/domain/expression/types";
 import type {
@@ -31,6 +32,7 @@ import { withCandidate } from "../candidate";
 import { sameState } from "../caseList/details";
 import { defineClaims, refuse } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { searchRowProperties } from "../expressions/scanReads";
 import {
 	emittedSearchConjuncts,
 	matchSearchRows,
@@ -344,6 +346,94 @@ function simpleDerivation(
 	return undefined;
 }
 
+/** A type a date Search field's derivation gives a property no writer types. */
+export interface DateFieldDeclaration {
+	readonly property: string;
+	readonly dataType: "date" | "datetime";
+}
+
+/**
+ * The types the menu's excluded date and date range fields give the properties their rows read and
+ * `doc` leaves untyped, worked out before any expression binds: such a row reads back as the
+ * field's derivation only over a typed property, so each untyped property it reads is tried as
+ * `date`, then `datetime`, as `simpleDerivation` tries them, and the first type under which a
+ * conjunct of the row is the field's derivation is the property's. A row that reads as no
+ * derivation under either declares nothing.
+ */
+export function dateFieldDeclarations(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	module: DraftModule,
+	input: RowsInput,
+): DateFieldDeclaration[] {
+	const caseType = doc.modules[module.uuid]?.caseType;
+	const out: DateFieldDeclaration[] = [];
+	if (caseType === undefined || input.zeroInput) return out;
+	const typed = new Set(
+		(
+			effectiveCaseTypes(doc).find((type) => type.name === caseType)
+				?.properties ?? []
+		).flatMap((property) =>
+			property.data_type === undefined ? [] : [property.name],
+		),
+	);
+	const naming = readProjectionInputs(ctx).lookupNaming;
+	const lookup = ctx.input.lookup.definitions;
+	for (const prompt of input.prompts) {
+		if (
+			!prompt.exclude ||
+			(prompt.type !== "date" && prompt.type !== "date-range")
+		)
+			continue;
+		for (const row of input.rows) {
+			const untyped = searchRowProperties(row.text).filter(
+				(name) => !typed.has(name) && !out.some((one) => one.property === name),
+			);
+			if (untyped.length === 0) continue;
+			for (const dataType of ["date", "datetime"] as const) {
+				const candidate = withCandidate(doc, (draft) => {
+					const type = draft.caseTypes?.find((one) => one.name === caseType);
+					for (const name of untyped) {
+						const property = type?.properties.find((one) => one.name === name);
+						if (property !== undefined) property.data_type = dataType;
+					}
+				});
+				const context = moduleExpressionContexts(
+					candidate,
+					module.uuid,
+					naming,
+				)({ slot: "case_list_filter" });
+				const read = readSearchRowConjuncts(row.text, context, {
+					doc: candidate,
+					lookup,
+				});
+				const derived = read.ok
+					? read.conjuncts.find(
+							(conjunct) =>
+								derivedField(
+									candidate,
+									module.uuid,
+									caseType,
+									prompt.input,
+									conjunct,
+								) !== undefined,
+						)
+					: undefined;
+				if (derived === undefined) continue;
+				for (const ref of propertyRefs(derived))
+					if (
+						ref.via === undefined &&
+						untyped.includes(ref.property) &&
+						!out.some((one) => one.property === ref.property)
+					)
+						out.push({ property: ref.property, dataType });
+				break;
+			}
+		}
+	}
+	return out;
+}
+
 /** Whether an advanced form of the app names the menu as its load's `details_module`. */
 function loadNamesMenu(ctx: ReadContext, module: DraftModule): boolean {
 	for (const other of ctx.draft.modules)
@@ -454,33 +544,50 @@ export function classifySearchRows(
 			naming,
 		)({ slot: "case_list_filter" });
 		const read = readSearchRowConjuncts(row.text, context, { ...env, doc });
+		const site = { json: row.cursor, key: "defaultValue" };
+		// The keys the row's own claims hold; each use its CSQL makes under
+		// another key is claimed after them, held or not, under the entry
+		// whose value class takes it.
+		const claimed = new Set(["schema:DefaultCaseSearchProperty.defaultValue"]);
+		const claimUses = () => {
+			for (const use of read.uses)
+				if (!claimed.has(use.key)) {
+					claimed.add(use.key);
+					ctx.accounting.claimEntry(site, use.entryId, use.key, place, {
+						name: "_xpath_query",
+					});
+				}
+		};
 		if (!read.ok) {
 			// The row's own key, and the key the refusing entry is answered
 			// under where that is another of its own (an operator, a function).
-			if ("claim" in read)
+			if ("claim" in read) {
+				claimed.add(read.claim.key);
 				for (const key of new Set([
 					"schema:DefaultCaseSearchProperty.defaultValue",
 					read.claim.key,
 				]))
 					ctx.accounting.claimEntry(
-						{ json: row.cursor, key: "defaultValue" },
+						site,
 						read.claim.entryId,
 						key,
 						place,
 						read.claim.detail,
 					);
-			else
+			} else
 				ctx.accounting.circumstance("unrecognized", place, {
 					name: "schema:DefaultCaseSearchProperty.defaultValue",
 				});
+			claimUses();
 			continue;
 		}
 		ctx.accounting.claimEntry(
-			{ json: row.cursor, key: "defaultValue" },
+			site,
 			ROWS_HELD,
 			"schema:DefaultCaseSearchProperty.defaultValue",
 			place,
 		);
+		claimUses();
 		for (const conjunct of read.conjuncts) {
 			const record = (placement: ConjunctPlacement) =>
 				conjuncts.push({ row: row.index, predicate: conjunct, placement });

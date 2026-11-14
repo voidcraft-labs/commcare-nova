@@ -198,6 +198,7 @@ export function readContainers(input: ReadContainersInput): void {
 			else if (
 				claimAppearance(
 					cursor,
+					accounting,
 					control,
 					classifyAppearance(
 						control,

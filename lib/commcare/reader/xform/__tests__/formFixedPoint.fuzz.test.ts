@@ -204,11 +204,14 @@ it("reads back every form of the fuzz documents to its fields", {
 				pathOfAsset.set(assetId, path);
 				if (!assetOfPath.has(path)) assetOfPath.set(path, assetId);
 			}
-			const emitted = expandDoc(doc, { assets: manifest });
+			// HQ's import replaces every top-level key the body carries
+			// (`models/applications.py::_merge_source_into_app`), so the
+			// languages and their strings are the export's own.
 			const body = {
 				...retainedSourceBody("shell/app-source"),
-				modules: JSON.parse(JSON.stringify(emitted.modules)),
-				_attachments: emitted._attachments,
+				...(JSON.parse(
+					JSON.stringify(expandDoc(doc, { assets: manifest })),
+				) as Record<string, unknown>),
 			};
 			const input = await inputFor(body, {
 				media: {

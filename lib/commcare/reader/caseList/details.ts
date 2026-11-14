@@ -339,10 +339,12 @@ export interface JoinedDetails {
 /** Two proposals of one Nova column: kind, field or expression tree, header in every language,
  *  and the kind's own slots. */
 function sameProposal(a: ColumnProposal, b: ColumnProposal): boolean {
-	const { header: ha, ...restA } = a.column as Record<string, unknown>;
-	const { header: hb, ...restB } = b.column as Record<string, unknown>;
-	void ha;
-	void hb;
+	const slots = (proposal: ColumnProposal) =>
+		Object.fromEntries(
+			Object.entries(proposal.column).filter(([key]) => key !== "header"),
+		);
+	const restA = slots(a);
+	const restB = slots(b);
 	if (a.column.kind === "calculated" || b.column.kind === "calculated") {
 		if (a.column.kind !== b.column.kind) return false;
 		const ta = a.expression?.text;
@@ -365,6 +367,30 @@ function fieldOf(proposal: ColumnProposal): string | undefined {
 		: undefined;
 }
 
+/** Whether a long column is over the field an `invisible` short column reads: one property, or,
+ *  for a calculated field, one expression tree. */
+function sameHiddenField(
+	hidden: ColumnProposal,
+	candidate: ColumnProposal,
+): boolean {
+	if (
+		hidden.column.kind === "calculated" ||
+		candidate.column.kind === "calculated"
+	) {
+		const a = hidden.expression?.text;
+		const b = candidate.expression?.text;
+		return (
+			hidden.column.kind === candidate.column.kind &&
+			a !== undefined &&
+			b !== undefined &&
+			sameXPathText(a, b)
+		);
+	}
+	return (
+		fieldOf(candidate) !== undefined && fieldOf(candidate) === fieldOf(hidden)
+	);
+}
+
 /**
  * The short and the long detail's columns as one set of columns. Each short column joins the
  * first long column not yet joined whose proposal is equal; an `invisible` short column joins the
@@ -385,8 +411,7 @@ export function joinDetailColumns(
 			const candidate = long[l];
 			if (candidate === undefined || joinedLong.has(l)) continue;
 			const match = proposal.invisible
-				? fieldOf(candidate) !== undefined &&
-					fieldOf(candidate) === fieldOf(proposal)
+				? sameHiddenField(proposal, candidate)
 				: sameProposal(proposal, candidate);
 			if (match) {
 				partner = l;
@@ -434,6 +459,14 @@ export function joinDetailColumns(
 	return { columns, listOrder, detailOrder };
 }
 
+/** A calculated column's `field` in the detail its expression was not registered from: the same
+ *  tree, so the expression stage's claim of the registration holds it too. */
+export interface ColumnFieldTwin {
+	readonly registration: number;
+	readonly site: { readonly json: JsonCursor; readonly key: "field" };
+	readonly place: HqPlace;
+}
+
 /** What the second pass compares for one menu's case list. */
 export interface CaseListReading {
 	readonly module: DraftModule;
@@ -446,6 +479,8 @@ export interface CaseListReading {
 	readonly joined: JoinedDetails;
 	/** The registration of the list filter, where the short detail holds one. */
 	readonly filter?: number;
+	/** The `field` of each calculated column's other detail, held by its registration's claim. */
+	readonly twins: readonly ColumnFieldTwin[];
 	/** Whether every column and key was read: false where a finding stands on the list. */
 	readonly whole: boolean;
 	/** The stored columns of each detail an inert row dropped, by index: no build writes them. */
@@ -592,6 +627,33 @@ function menuOffersSearch(module: DraftModule): boolean {
 	);
 }
 
+/**
+ * Claims a detail's two texts, the words an empty list shows and the words of its continue
+ * button: inert where every language holds HQ's own default, a finding otherwise. Nova writes
+ * the default in every language of every menu, a menu with no case type included. Whether the
+ * detail is still whole.
+ */
+function readDetailTexts(detail: JsonCursor): boolean {
+	let ok = true;
+	const texts = (
+		key: string,
+		fallback: string,
+		inert: Claim<"drop">,
+		other: Claim<"refuse">,
+	) => {
+		const map = languageMap(detail.peek(key));
+		if (Object.values(map).every((text) => text === fallback))
+			detail.drop(key, inert);
+		else {
+			detail.refuse(key, other);
+			ok = false;
+		}
+	};
+	texts("no_items_text", NO_ITEMS_DEFAULT, D.noItemsDefault, D.noItemsOther);
+	texts("select_text", SELECT_DEFAULT, D.selectDefault, D.selectOther);
+	return ok;
+}
+
 /** Claims the keys of a detail that hold no setting Nova reads: the inert ones and each finding. */
 function readDetailKeys(
 	ctx: ReadContext,
@@ -651,22 +713,7 @@ function readDetailKeys(
 		detail.refuse("custom_variables_dict", D.customVariables);
 		ok = false;
 	}
-	const texts = (
-		key: string,
-		fallback: string,
-		inert: Claim<"drop">,
-		other: Claim<"refuse">,
-	) => {
-		const map = languageMap(detail.peek(key));
-		if (Object.values(map).every((text) => text === fallback))
-			detail.drop(key, inert);
-		else {
-			detail.refuse(key, other);
-			ok = false;
-		}
-	};
-	texts("no_items_text", NO_ITEMS_DEFAULT, D.noItemsDefault, D.noItemsOther);
-	texts("select_text", SELECT_DEFAULT, D.selectDefault, D.selectOther);
+	ok = readDetailTexts(detail) && ok;
 	const stored = detail.peek("tabs");
 	const tabs = Array.isArray(stored) ? stored.filter(isJsonObject) : [];
 	if (tabs.length > 0) {
@@ -818,10 +865,12 @@ export function readCaseDetails(
 	const short = pair.object("short", "Detail", D.short, listPlace);
 	const long = pair.object("long", "Detail", D.long, detailPlace);
 	if (module.module.caseType === undefined) {
-		// A menu with no case type shows neither screen: each detail's columns and its screen word.
+		// A menu with no case type shows neither screen: each detail's columns, its screen word
+		// and its two texts, which read by the rule of a menu with a case type.
 		for (const detail of [short, long]) {
 			detail.drop("columns", D.surveyColumns);
 			detail.drop("display", D.display);
+			readDetailTexts(detail);
 		}
 		return;
 	}
@@ -883,11 +932,10 @@ export function readCaseDetails(
 	};
 	const proposalsOf = (readings: readonly ColumnReading[]) =>
 		readings.map((one) => (one === "dropped" ? undefined : one));
+	const shortProposals = proposalsOf(shortReadings);
+	const longProposals = proposalsOf(longReadings);
 
-	const joined = joinDetailColumns(
-		proposalsOf(shortReadings),
-		proposalsOf(longReadings),
-	);
+	const joined = joinDetailColumns(shortProposals, longProposals);
 	const sort = readSortElements(ctx, module, short, joined, shortCursors);
 	whole &&= sort.ok;
 	const tile = readTile(
@@ -961,6 +1009,7 @@ export function readCaseDetails(
 	};
 	const tags = applicationReading(ctx)?.languages.tagOf;
 	const first = appCodes(ctx)[0];
+	const twins: ColumnFieldTwin[] = [];
 	joined.columns.forEach((column, index) => {
 		const uuid = uuids[index] as Uuid;
 		const built = {
@@ -976,7 +1025,7 @@ export function readCaseDetails(
 		} as Column;
 		const expression = column.proposal.expression;
 		if (built.kind === "calculated" && expression !== undefined) {
-			ctx.pending.register(
+			const registration = ctx.pending.register(
 				{
 					ref: {
 						entity: "module",
@@ -991,6 +1040,18 @@ export function readCaseDetails(
 				},
 				expression.at,
 			);
+			// The column's other detail holds the same expression tree (the join's equality), so
+			// its `field` is held as the registered one is.
+			const twin =
+				column.proposal.json === shortProposals[column.short ?? -1]?.json
+					? longProposals[column.long ?? -1]
+					: shortProposals[column.short ?? -1];
+			if (twin !== undefined && twin.json !== column.proposal.json)
+				twins.push({
+					registration,
+					site: { json: twin.json, key: "field" },
+					place: twin.json.place,
+				});
 			(built as { expression: unknown }).expression =
 				pendingPlaceholder("value");
 		}
@@ -1058,6 +1119,7 @@ export function readCaseDetails(
 		uuids,
 		joined,
 		...(filter !== undefined && { filter }),
+		twins,
 		whole,
 		dropped,
 	});

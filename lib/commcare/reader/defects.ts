@@ -38,6 +38,7 @@ export const READER_DEFECT_CODES = [
 	"translation",
 	"expression-not-written-back",
 	"no-case-datum",
+	"emission-threw",
 ] as const;
 export type ReaderDefectCode = (typeof READER_DEFECT_CODES)[number];
 
@@ -75,6 +76,13 @@ function oneOf<T extends string>(
 function positionSlot(n: number): string {
 	return Number.isSafeInteger(n) && n >= 0 ? String(n) : "unknown-position";
 }
+
+/** The emitters a reader stage runs over what it read, by name. */
+export const EMITTERS = [
+	"expandDoc",
+	"planFormCaseWire",
+	"projectCaseListForHq",
+] as const;
 
 const PARSE_ISSUE_CODES = Object.keys({
 	syntax: true,
@@ -259,6 +267,13 @@ export const readerDefect = {
 			`Nova read an expression from CommCare HQ and could not write the same expression back, at ${placeKey(place)}: ${reasonSlot(reason)}. Nova treats the spellings in \`lib/commcare/reader/syntaxCompare.ts\` as one; this one needs a row there with a native vector, or a manifest entry that names it.`,
 		);
 	},
+	/** Nova's own emitter, run over what the reader built, threw: the reader built a document the
+	 *  emitter cannot write, which is the reader's to fix. */
+	emissionThrew(place: HqPlace, emitter: string): ReaderDefectWhy {
+		return why(
+			`Nova read part of an app from CommCare HQ and its own writer could not write that part back, at ${placeKey(place)}: ${oneOf(emitter, EMITTERS, "another-emitter")} threw. The reader built something Nova's documents never hold; check what the stages before it made of this place.`,
+		);
+	},
 	noCaseDatum(place: HqPlace): ReaderDefectWhy {
 		return why(
 			`Nova couldn't find the session value that holds the case this form opens with, at ${placeKey(place)}, so it can't read the form's display condition as CommCare HQ builds it. CommCare HQ treats the form as one that opens on a case and Nova's reading of its menu and case operations does not; check what the case management reader made of this form.`,
@@ -280,4 +295,5 @@ export const READER_DEFECT_CONSTRUCTORS = {
 	translation: "translation",
 	"expression-not-written-back": "expressionNotWrittenBack",
 	"no-case-datum": "noCaseDatum",
+	"emission-threw": "emissionThrew",
 } as const satisfies Record<ReaderDefectCode, keyof typeof readerDefect>;

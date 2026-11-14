@@ -2692,8 +2692,11 @@ So a persona standing in a managed place gets that very place in CommCare HQ.
   (`session/user/data/<slug>`, or the worker's record): `{ uuid, slug, label: slug }`, `uuid` that
   of `resolver.claim(externalKey.userProperty(slug), whereText({ kind: "app" }))`. Each distinct
   slug is claimed once, so every claim answers `ok: true`. A slug outside
-  `USER_PROPERTY_SLUG_PATTERN`, over its length, or in `BUILT_IN_USER_PROPERTY_SLUGS` is not this
-  part's to mint: the reader keeps it in the name-backed `session-user` arm where that arm admits
+  `USER_PROPERTY_SLUG_PATTERN`, over its length, or in `BUILT_IN_USER_PROPERTY_SLUGS`, and a read
+  of the worker's record of a field CommCare HQ writes on every worker's case
+  (`lib/domain/usercase.ts::USERCASE_BUILT_IN_KEYS`, from
+  `callcenter/sync_usercase.py::_get_user_case_fields`, which `readExpressions` leaves out of
+  `userFields`), is not this part's to mint: the reader keeps it in the name-backed `session-user` arm where that arm admits
   it, and gives its own finding where it does not (part 08, section 9.2; part 04, section 2.5). The
   arm admits a session read only of a built-in key (the checker's `undeclared-worker-field`, issue
   #913): a project space defines a custom field only where someone defined it, Core refuses a read

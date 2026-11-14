@@ -18,9 +18,10 @@ import {
 	splitName,
 	XFORMS_NS,
 } from "../../xmlNamespaces";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import type { Accounting } from "../accounting";
 import type { HqLanguages } from "../languages";
+import { readFormSyntax } from "../syntaxRead";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { DraftField } from "./index";
@@ -227,11 +228,7 @@ export type ItextReference =
 	| { readonly kind: "other" };
 
 /** The id a `ref` or a `jr:constraintMsg` names, read with the XPath grammar. */
-export function itextReference(
-	text: string,
-	accounting?: Accounting,
-): ItextReference {
-	accounting?.noteSyntaxRead();
+export function itextReference(text: string): ItextReference {
 	const read = readFormSyntax(text);
 	const node = read.ok ? read.node : undefined;
 	if (

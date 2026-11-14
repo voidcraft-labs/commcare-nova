@@ -6,17 +6,21 @@
  * "Search"; a setting the emitter writes back differently read as held.
  */
 import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { SearchInputDef } from "@/lib/domain";
 import {
 	literal,
 	neq,
+	prop,
 	sessionContext,
 	term,
 } from "@/lib/domain/expression/builders";
 import { NO_SEARCH_SCREEN_TITLE, plainColumn } from "@/lib/domain/modules";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
+	type AppJson,
 	codes,
+	listOf,
 	readLists,
 	searchOf,
 } from "../../caseList/__tests__/listReading";
@@ -110,6 +114,22 @@ describe("a search's settings", () => {
 		expect(registered).not.toContain("case_list_filter");
 	});
 
+	it("reads an owner exclusion beside an authored list filter, the filter without the clause", async () => {
+		const filter = neq(term(prop("patient", "notes")), term(literal("none")));
+		const reading = await readLists(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [field],
+				search: { excludedOwnerIds: term(literal("abc")) },
+				list: { filter },
+			}),
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(listOf(reading).filter).toEqual(filter);
+		expect(searchOf(reading)).toMatchObject({
+			excludedOwnerIds: term(literal("abc")),
+		});
+	});
+
 	it("holds the whole menu's search with every setting it holds", async () => {
 		const hidden: SearchInputDef = {
 			uuid: uuid(10),
@@ -187,6 +207,168 @@ describe("a search's settings", () => {
 			});
 			expect(codes(reading)).toContain(entry);
 		});
+
+	/** Two searching menus of patients, the second under the first, each with its own field. */
+	function twoMenus() {
+		const menu = (name: string, n: number) => ({
+			name,
+			caseType: "patient",
+			forms: [
+				{
+					name: `${name} visit`,
+					type: "followup" as const,
+					fields: [
+						f({
+							kind: "text",
+							id: "notes",
+							caseWrite: { caseType: "patient", property: "notes" },
+						}),
+					],
+				},
+			],
+			caseListConfig: {
+				columns: [plainColumn(uuid(n), "case_name", "Name")],
+				searchInputs: [{ ...field, uuid: uuid(n + 1) }],
+			},
+		});
+		const first = menu("Patients", 20);
+		return buildDoc({
+			modules: [
+				{
+					...first,
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+						...first.forms,
+					],
+				},
+				menu("Visits", 30),
+			],
+		});
+	}
+
+	/** The second menu names the first: as its root menu, or as its parent selection. */
+	const links: [string, (app: AppJson) => void][] = [
+		[
+			"its root menu",
+			(app) => {
+				const [first, second] = app.modules;
+				if (first !== undefined && second !== undefined)
+					second.root_module_id = first.unique_id;
+			},
+		],
+		[
+			"the menu its parent selection names",
+			(app) => {
+				const [first, second] = app.modules;
+				if (first !== undefined && second !== undefined)
+					second.parent_select = {
+						active: true,
+						module_id: first.unique_id,
+						relationship: "parent",
+					};
+			},
+		],
+	];
+	const clash =
+		"case-search/a-module-whose-effective-results-instance-results-instance-name";
+	const inert =
+		"case-search/an-effective-results-instance-equal-to-a-module-s-that-does-not";
+
+	/** The first menu's search made inline: it searches as its forms open. */
+	const inline = (app: AppJson) => {
+		const config = app.modules[0]?.search_config;
+		if (config !== undefined) {
+			config.inline_search = true;
+			config.auto_launch = true;
+		}
+	};
+	const named = (app: AppJson, name: string) => {
+		for (const module of app.modules) module.search_config.instance_name = name;
+	};
+
+	for (const [how, link] of links) {
+		it(`raises a results instance equal to the inline search of ${how}, with no name`, async () => {
+			const reading = await readLists(twoMenus(), {
+				edit: (app) => {
+					link(app);
+					inline(app);
+				},
+				firstPassOnly: true,
+			});
+			expect(codes(reading)).toContain(clash);
+		});
+
+		it(`raises a named results instance equal to the inline search of ${how}`, async () => {
+			const reading = await readLists(twoMenus(), {
+				edit: (app) => {
+					link(app);
+					inline(app);
+					named(app, "found");
+				},
+				firstPassOnly: true,
+			});
+			expect(codes(reading)).toContain(clash);
+		});
+
+		it(`raises the clash with ${how} on a menu that offers no search`, async () => {
+			const reading = await readLists(twoMenus(), {
+				edit: (app) => {
+					link(app);
+					inline(app);
+					const config = app.modules[1]?.search_config;
+					if (config !== undefined) {
+						config.properties = [];
+						config.default_properties = [];
+					}
+				},
+				firstPassOnly: true,
+			});
+			expect(codes(reading)).toContain(clash);
+		});
+
+		it(`claims a named results instance equal to the search of ${how} that is not inline, and raises nothing for it`, async () => {
+			const reading = await readLists(twoMenus(), {
+				edit: (app) => {
+					link(app);
+					named(app, "found");
+				},
+				firstPassOnly: true,
+			});
+			// The first menu's name clashes with no menu, so its own row refuses it; the second's
+			// equals the first's, whose search is not inline.
+			const second = reading.ctx
+				.close()
+				.findings.filter(
+					(one) => one.place.kind === "search" && one.place.menu === 1,
+				)
+				.map((one) =>
+					one.code === "unrecognized"
+						? `unrecognized:${(one.detail as { name?: string }).name ?? ""}`
+						: one.code,
+				);
+			expect(second).not.toContain(clash);
+			expect(second).not.toContain(inert);
+			expect(second).not.toContain(
+				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			);
+			expect(second).not.toContain(
+				"unrecognized:schema:CaseSearch.instance_name",
+			);
+			expect(codes(reading)).toContain(
+				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			);
+		});
+	}
 });
 
 describe("a search's default filters", () => {
@@ -215,5 +397,66 @@ describe("a search's default filters", () => {
 		expect(
 			reading.ctx.facts.sameStateRewrites.map((one) => one.register),
 		).toContain("search-filter-rows-recut");
+	});
+
+	/** The patients' search with one more default filter, keyed and valued as given, and the
+	 *  search's related-case property where one is given. */
+	const keyed = (property: string, defaultValue: string, related?: string) =>
+		readLists(doc(), {
+			edit: (app) => {
+				const config = app.modules[0]?.search_config;
+				if (config === undefined) return;
+				const rows = Array.isArray(config.default_properties)
+					? config.default_properties
+					: [];
+				config.default_properties = [
+					...rows,
+					{ doc_type: "DefaultCaseSearchProperty", property, defaultValue },
+				];
+				if (related !== undefined)
+					config.custom_related_case_property = related;
+			},
+			firstPassOnly: true,
+		});
+	const runtime =
+		"case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case";
+	const sortKey =
+		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom";
+	const typeKey = "case-search/default-properties-entry-keyed-case-type";
+
+	for (const key of [
+		"commcare_sort",
+		"x_commcare_custom_related_case_property",
+		"case_type",
+	])
+		it(`raises a \`${key}\` filter whose value is computed at runtime by its refusal, not by the key's own row`, async () => {
+			const reading = await keyed(
+				key,
+				"instance('commcaresession')/session/data/choice",
+			);
+			expect(codes(reading)).toContain(runtime);
+			expect(codes(reading)).not.toContain(sortKey);
+			expect(codes(reading)).not.toContain(typeKey);
+		});
+
+	it("raises a literal sort key and a literal case type by their own rows", async () => {
+		const sort = await keyed("commcare_sort", "'+name'");
+		expect(codes(sort)).toContain(sortKey);
+		expect(codes(sort)).not.toContain(runtime);
+		const type = await keyed("case_type", "'patient'");
+		expect(codes(type)).toContain(typeKey);
+		expect(codes(type)).not.toContain(runtime);
+	});
+
+	it("raises the related-case property arriving both as a filter and as the search's own setting", async () => {
+		const reading = await keyed(
+			"x_commcare_custom_related_case_property",
+			"'parent/name'",
+			"name",
+		);
+		expect(codes(reading)).toContain(
+			"case-search/an-x-commcare-custom-related-case-property-entry-together-with",
+		);
+		expect(codes(reading)).not.toContain(sortKey);
 	});
 });

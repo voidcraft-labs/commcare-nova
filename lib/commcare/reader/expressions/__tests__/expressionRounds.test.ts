@@ -26,6 +26,7 @@ import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import type { PendingExpression } from "../../pendingExpressions";
 import { sameXPathText } from "../../syntaxCompare";
+import { canonicalExpression } from "../canonical";
 import {
 	EXPRESSION_ROUND_LIMIT,
 	type ExpressionReadEnv,
@@ -211,9 +212,12 @@ describe("a later round that changes a Hidden Value's type", () => {
 		};
 		// HQ's guard falls back to 0 where Nova's falls back to '', so the
 		// proposal prints otherwise and is withdrawn in the second round, and
-		// the Hidden Value is no date and time from then on. The comparison is
-		// Nova's own print where the Hidden Value is one: equal in the first
-		// round, and printed otherwise once the type changed.
+		// the Hidden Value is no date and time for the rounds after it. The
+		// comparison is Nova's own print where the Hidden Value is one: equal
+		// in the first round, and printed otherwise once the type changed.
+		// The Hidden Value's guard is a rewrite, so it is held at the second
+		// level as the date and time Nova's print reads back as, and the
+		// comparison, judged again over it, is the comparison once more.
 		const pending = [
 			registration(
 				asProposed,
@@ -229,10 +233,84 @@ describe("a later round that changes a Hidden Value's type", () => {
 		const reading = readExpressions(provisional, pending, env);
 		expect(reading.rounds).toBeGreaterThan(1);
 		expect(reading.rounds).toBeLessThanOrEqual(4);
-		// The comparison no longer reads as one once the Hidden Value is no
-		// date and time, so it is held as the arithmetic its text spells.
-		expect(reading.bound[1]).toBeDefined();
-		expect(reading.bound[1]).not.toEqual(before);
+		expect(reading.bound[0]).toEqual(visitTime);
+		expect(reading.bound[1]).toEqual(before);
+		expectHeldPrintsItsText(reading, pending, env);
+	});
+
+	it("judges every slot again once a Hidden Value is held at the second level", () => {
+		const provisional = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "q1", label: "Q1" }),
+								f({ kind: "datetime", id: "start", label: "Start" }),
+								f({ kind: "hidden", id: "h" }),
+								f({ kind: "text", id: "q2", label: "Q2" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const q1 = fieldNamed(provisional, "q1");
+		const start = fieldNamed(provisional, "start");
+		const hidden = fieldNamed(provisional, "h");
+		const q2 = fieldNamed(provisional, "q2");
+		const calculate: SlotContextRef = {
+			entity: "field",
+			uuid: hidden,
+			slot: "calculate",
+		};
+		const relevant: SlotContextRef = {
+			entity: "field",
+			uuid: q2,
+			slot: "relevant",
+		};
+		const visitTime: Expression = {
+			kind: "table-lookup",
+			tableId: TABLE,
+			resultColumnId: WHEN,
+			where: {
+				kind: "eq",
+				left: term({ kind: "table-column", tableId: TABLE, columnId: NAME }),
+				right: term({ kind: "field", uuid: q1 }),
+			},
+		};
+		const asNova = hydratePersistedBlueprint(toPersistableDoc(provisional));
+		(asNova.fields[hidden] as { calculate?: Expression }).calculate = visitTime;
+		const before: Expression = {
+			kind: "lt",
+			left: term({ kind: "field", uuid: hidden }),
+			right: term({ kind: "field", uuid: start }),
+		};
+		// The Hidden Value's text reads the table with no guard, which Nova's
+		// print adds: it is held at the second level, as the date and time
+		// Nova's print reads back as. The comparison is Nova's own print of
+		// it over a date and time, lowered to arithmetic, which reads as the
+		// comparison only once the Hidden Value is held so.
+		const pending = [
+			registration(provisional, calculate, `${ROWS}[name = /data/q1]/when`),
+			registration(asNova, relevant, printSlot(asNova, relevant, before, env)),
+		];
+		const reading = readExpressions(provisional, pending, env);
+		expect(reading.rewrites.map((one) => one.key)).toEqual([pending[0]?.key]);
+		expect(reading.bound[0]).toBeDefined();
+		expect(reading.bound[1]).toEqual(before);
+		expect(reading.rounds).toBeLessThan(EXPRESSION_ROUND_LIMIT);
+		// The reader's answer is canonical in the document it returns.
+		pending.forEach((one, index) => {
+			const tree = reading.bound[index];
+			const context = slotContext(reading.doc, one.ref, lookupTypes(env));
+			if (tree === undefined || context === undefined)
+				throw new Error(`The slot ${one.key} is not held.`);
+			expect(canonicalExpression(tree, context)).toEqual(tree);
+		});
 		expectHeldPrintsItsText(reading, pending, env);
 	});
 });

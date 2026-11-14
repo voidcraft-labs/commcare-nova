@@ -404,7 +404,7 @@ export function claimModelChildren(
 			const id = plain(child, "id");
 			if (id !== undefined && sent.has(id))
 				cursor.refuseSubtree(child, X.sendSubmission, formPlace);
-			else if (submissionCoreAccepts(child, tree, accounting))
+			else if (submissionCoreAccepts(child, tree))
 				cursor.dropSubtree(child, X.submissionAccepted);
 			else cursor.refuseSubtree(child, X.submissionRefused, formPlace);
 			continue;
@@ -426,11 +426,7 @@ export function claimModelChildren(
 }
 
 /** Core's rule for a submission, as the entry's item states it. */
-function submissionCoreAccepts(
-	element: Element,
-	tree: DataTree,
-	accounting: Accounting,
-): boolean {
+function submissionCoreAccepts(element: Element, tree: DataTree): boolean {
 	const id = plain(element, "id");
 	const resource = plain(element, "resource");
 	const targetref = plain(element, "targetref");
@@ -444,6 +440,6 @@ function submissionCoreAccepts(
 	if (mode !== undefined && mode !== "synchronous") return false;
 	const ref = plain(element, "ref");
 	return [targetref, ...(ref === undefined ? [] : [ref])].every(
-		(path) => readNodePath(path, tree, null, accounting).kind === "node",
+		(path) => readNodePath(path, tree, null).kind === "node",
 	);
 }

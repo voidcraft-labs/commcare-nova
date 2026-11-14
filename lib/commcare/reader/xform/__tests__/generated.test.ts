@@ -29,13 +29,7 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
 import { type BlueprintDoc, type LanguageTag, proseText } from "@/lib/domain";
-import {
-	actingUser,
-	and,
-	eq,
-	formField,
-	literal,
-} from "@/lib/domain/expression/builders";
+import { and, eq, formField, literal } from "@/lib/domain/expression/builders";
 import { caseCaptureFixture } from "../../../__tests__/caseCaptureFixture";
 import {
 	caseOperationFixture,
@@ -48,7 +42,10 @@ import { serializeXml } from "../../../serializeXml";
 import { FormPath } from "../../../xform/formPath";
 import { generatedBaseName } from "../../../xform/generatedNodes";
 import { parseXml } from "../../../xmlParse";
-import { typedInstantValue } from "../../../xpath/wire/instant";
+import {
+	storedInstantValue,
+	typedInstantValue,
+} from "../../../xpath/wire/instant";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import {
@@ -787,6 +784,104 @@ describe("a case write's siblings, proposed for the case management stage", () =
 		expect(reading.ctx.facts.sameStateRewrites).toEqual([]);
 	});
 
+	/** A follow-up whose Hidden Value `seen`, calculated by `calculate`, saves a date and time,
+	 *  beside a registration whose date-and-time question saves the same property, so the
+	 *  property's type is one a reading of the app can tell. */
+	const hiddenSeenApp = (calculate: string): BlueprintDoc =>
+		buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{
+							name: "seen_at",
+							label: proseText("Seen"),
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									kind: "datetime",
+									id: "first_seen",
+									caseWrite: { caseType: "patient", property: "seen_at" },
+								}),
+							],
+						},
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "seen",
+									calculate,
+									caseWrite: { caseType: "patient", property: "seen_at" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it.each([
+		["a copy of a case's stored text", "#patient/seen_at", "stored"],
+		["a typed date and time", "now()", "copy"],
+	] as const)(
+		"reads a Hidden Value holding %s whole, and its date-and-time sibling in the other spelling as one Nova would write differently",
+		async (_, calculate, other) => {
+			const doc = hiddenSeenApp(calculate);
+			const clean = readHqApp(await inputFor(exportedBody(doc)));
+			expect(clean.kind === "account" ? clean.findings : []).toEqual([]);
+			const seen = FormPath.root().child("seen").toWire();
+			const spelled = serializeWire(
+				other === "stored" ? storedInstantValue(seen) : seen,
+				{ target: "xform", constraint: false },
+			).text;
+			const edited = readHqApp(
+				await inputFor(
+					exportedBody(doc, {
+						xml: (xml) =>
+							xml.includes('nodeset="/data/nova_datetime_seen"')
+								? bindEdited(
+										xml,
+										"/data/nova_datetime_seen",
+										"calculate",
+										spelled,
+									)
+								: xml,
+					}),
+				),
+			);
+			expect(
+				(edited.kind === "account" ? edited.findings : []).map((one) => [
+					one.code,
+					(one.place as { path?: string }).path,
+					one.detail.name,
+				]),
+			).toEqual([["unrecognized", "seen", "xform:model/bind@calculate"]]);
+		},
+	);
+
 	it("proposes a capture's link node, and reads one for another project space as the person's", async () => {
 		const doc = caseCaptureFixture("registration");
 		const source = sourceHolding(doc, "nova_url_thepicture");
@@ -904,8 +999,11 @@ describe("a case write's siblings, proposed for the case management stage", () =
 			["/data#episode", "nova_owner_episode"],
 		]);
 		expect(fields.filter((id) => id.startsWith("nova_owner_"))).toEqual([]);
-		expect(owner("episode")).toEqual(actingUser());
-		expect(owner("consent")).toEqual(actingUser());
+		// An opened case owned by the worker prints as one with no owner
+		// (`generatedNodes.ts::advancedOwnerNodeValue`), so the folded node reads
+		// as no owner (`opened-case-owner-acting-user-is-absent`).
+		expect(owner("episode")).toBeUndefined();
+		expect(owner("consent")).toBeUndefined();
 	});
 
 	it.each([
@@ -1024,6 +1122,8 @@ describe("the case region's purposes", () => {
 			"nova_keyed_create_visit/create_visit/case/@case_id",
 			"calculate",
 			(value: string | undefined) => (value ?? "").replace("<= 205", "<= 204"),
+			"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+			"nova_operations/nova_keyed_create_visit/create_visit",
 		],
 		[
 			"a keyed create",
@@ -1032,6 +1132,8 @@ describe("the case region's purposes", () => {
 			"nova_guard_create_visit_text/case/@case_id",
 			"calculate",
 			(value: string | undefined) => (value ?? "").replace("<= 255", "<= 254"),
+			"questions/savetocase-block-outside-nova-s-own-block-shape",
+			"nova_operations/nova_keyed_create_visit/create_visit",
 		],
 		[
 			"a conditional update",
@@ -1040,10 +1142,12 @@ describe("the case region's purposes", () => {
 			"nova_condition_rename_patient",
 			"readonly",
 			() => "true()",
+			"questions/savetocase-block-outside-nova-s-own-block-shape",
+			"nova_operations/nova_condition_rename_patient/rename_patient",
 		],
 	] as const)(
 		"reads %s whole, and with %s edited as no block of Nova's",
-		async (_, __, build, nodesetEnd, attribute, edit) => {
+		async (_, __, build, nodesetEnd, attribute, edit, code, block) => {
 			const doc = build();
 			const clean = readHqApp(await inputFor(exportedBody(doc)));
 			expect(clean.kind === "account" ? clean.findings : []).toEqual([]);
@@ -1061,6 +1165,13 @@ describe("the case region's purposes", () => {
 			);
 			expect(edits).toBe(1);
 			expect(edited.kind).toBe("account");
+			// The edited block is refused at its own path: never read as Nova's, never let pass.
+			expect(
+				(edited.kind === "account" ? edited.findings : []).map((one) => [
+					one.code,
+					(one.place as { path?: string }).path,
+				]),
+			).toContainEqual([code, block]);
 		},
 	);
 

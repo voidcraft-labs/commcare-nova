@@ -4736,10 +4736,30 @@
 		"item": "writers `int` ⊔ `decimal`",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation among the questions that write one case property (an integer and a decimal writer), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: writer-type join `decimal` (Nova's field rule refuses mixed writers today)",
-		"subject": "writer-types",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: joined on `decimal`, the one type both writers' values are stored as (`ruleSets.ts::agreedStorageType`; an integer fits decimal storage)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "n/a",
+			"markers": ["n/a"]
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/writers-text-single-select",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "writers `text` ⊔ `single_select`",
+		"surfaceKeys": [],
+		"noSurfaceKey": "A relation among the questions that write one case property (a text and a single-select writer), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: joined on `text`, the one type both writers' values are stored as (`ruleSets.ts::agreedStorageType`; a choice is stored as its value's text)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4777,7 +4797,7 @@
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "any other mixed writer pair",
+		"item": "any other mixed writer pair: writers of one property whose types agree on no one stored type (`agreedStorageType`)",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation among the questions that write one case property (writers of two other types), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD-NEW",
@@ -7192,7 +7212,7 @@
 		"id": "forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or where two cases of the chain share one type",
+		"item": "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",

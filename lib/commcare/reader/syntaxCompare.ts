@@ -30,7 +30,8 @@
  * it before any expression is bound.
  */
 import type { RuleSet } from "@/lib/domain/expression/profiles";
-import { type FormSyntax, readFormSyntax } from "../xpath/formSyntax";
+import type { FormSyntax } from "../xpath/formSyntax";
+import { readFormSyntax } from "./syntaxRead";
 
 export interface CompareOptions {
 	/** `record` applies S1; `form` never does. */
@@ -70,18 +71,31 @@ export function firstDifference(
 	);
 }
 
-/** Two texts that parse to the same tree. Used by the list and menu readers. */
+/** Two texts that parse to the same tree. Used by the list and menu readers.
+ *  A text the syntax reader cannot read compares unlike anything, as
+ *  `hqInterpolation.ts::syntaxOf` answers it. */
 export function sameXPathText(
 	a: string,
 	b: string,
 	options: CompareOptions = RECORD,
 ): boolean {
-	const left = readFormSyntax(a);
-	const right = readFormSyntax(b);
+	const left = readSyntax(a);
+	const right = readSyntax(b);
+	if (left === undefined || right === undefined) return false;
 	if (!left.ok || !right.ok) return false;
 	if (left.node === undefined || right.node === undefined)
 		return left.node === right.node;
 	return sameSyntax(left.node, right.node, options);
+}
+
+function readSyntax(
+	text: string,
+): ReturnType<typeof readFormSyntax> | undefined {
+	try {
+		return readFormSyntax(text);
+	} catch {
+		return undefined;
+	}
 }
 
 /** A tree normalized by the table. The source side alone takes the local

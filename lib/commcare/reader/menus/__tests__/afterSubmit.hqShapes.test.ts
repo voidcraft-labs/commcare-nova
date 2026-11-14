@@ -5,7 +5,8 @@
  * conjunct of the author's, a link that carries a case with no guard, the
  * workflow word `default`, and the two link shapes HQ's build or a running
  * app refuses: `form` with no link, and a link that leaves its destination's
- * case empty.
+ * case empty; and each workflow word HQ's build refuses, told apart from a
+ * word HQ's page does not offer.
  */
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -310,5 +311,70 @@ describe("links HQ's build or a running app refuses", () => {
 		expect(
 			formNamed(reading.doc as BlueprintDoc, "Check household").postSubmit,
 		).toBe("firstMenu");
+	});
+
+	describe("a workflow word HQ's build refuses, never one HQ's page does not offer", () => {
+		const BUILD =
+			"forms-and-case-writes/post-form-workflow-hq-s-build-refuses-module-in-a-put-in-root";
+		const NOT_OFFERED =
+			"forms-and-case-writes/any-other-post-form-workflow-outside-the-offered-set-previous";
+		/** `edit`, then the household form's word set to `word`, read. */
+		async function wordReading(word: string, edit: (json: AppJson) => void) {
+			return readMenusOf(app(), (json) => {
+				edit(json);
+				(json.modules[1]?.forms[0] as JsonObject).post_form_workflow = word;
+			});
+		}
+		/** The household menu a child of the patient menu. */
+		const nest = (json: AppJson) => {
+			(json.modules[1] as JsonObject).root_module_id =
+				json.modules[0]?.unique_id;
+		};
+		const expectBuildRefusal = (codes: readonly string[]) => {
+			expect(codes).toContain(BUILD);
+			expect(codes).not.toContain(NOT_OFFERED);
+		};
+
+		it("refuses `parent_module` on a menu with no root (form link to missing root)", async () => {
+			expectBuildRefusal(codesOf(await wordReading("parent_module", () => {})));
+		});
+
+		it("refuses `parent_module` to a root that shows its forms above", async () => {
+			const reading = await wordReading("parent_module", (json) => {
+				nest(json);
+				(json.modules[0] as JsonObject).put_in_root = true;
+			});
+			expectBuildRefusal(codesOf(reading));
+		});
+
+		it("refuses `previous_screen` where only the menu selects several cases", async () => {
+			const reading = await wordReading("previous_screen", (json) => {
+				nest(json);
+				const details = json.modules[1]?.case_details as JsonObject;
+				(details.short as JsonObject).multi_select = true;
+			});
+			expectBuildRefusal(codesOf(reading));
+		});
+
+		it("refuses `previous_screen` on a form that asks for a case in a menu whose forms read the search", async () => {
+			const reading = await wordReading("previous_screen", (json) => {
+				const config = json.modules[1]?.search_config as JsonObject;
+				config.inline_search = true;
+				config.auto_launch = true;
+				config.default_properties = [
+					{
+						doc_type: "DefaultCaseSearchProperty",
+						property: "_xpath_query",
+						defaultValue: "true()",
+					},
+				];
+			});
+			expectBuildRefusal(codesOf(reading));
+		});
+
+		it("builds `previous_screen` where the menu and its root select alike", async () => {
+			const reading = await wordReading("previous_screen", nest);
+			expect(codesOf(reading)).not.toContain(BUILD);
+		});
 	});
 });

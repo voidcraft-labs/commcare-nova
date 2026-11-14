@@ -12,12 +12,13 @@ import { literalShape } from "@/lib/domain/expression/ruleSets";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { inventoryIndex } from "../../surface/inventory";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
 	CSQL_VALUE_FUNCTIONS,
 } from "../../xpath/functionCapabilities";
 import type { ReadMode } from "../pendingExpressions";
+import { readFormSyntax } from "../syntaxRead";
 import { searchRowCsql } from "./csqlRead";
 import { EXPRESSION_CLAIMS, visitSyntax } from "./findings";
 

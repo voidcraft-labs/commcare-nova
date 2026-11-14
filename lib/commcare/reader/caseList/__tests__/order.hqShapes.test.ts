@@ -7,12 +7,14 @@
  * Each same-state reading records its first-publish row.
  */
 import { describe, expect, it } from "vitest";
+import type { BlueprintDoc } from "@/lib/domain";
 import { columnSort, plainColumn } from "@/lib/domain/modules";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { patients, uuid } from "./fixtures";
 import {
 	codes,
 	comparableList,
+	emittedApp,
 	listOf,
 	readLists as readListsOf,
 } from "./listReading";
@@ -80,13 +82,22 @@ describe("CommCare HQ's sort elements", () => {
 				const short = app.modules[0]?.case_details.short;
 				if (short !== undefined) short.sort_elements = [];
 			},
-			firstPassOnly: true,
 		});
+		// Read through the settle: Nova's projection writes the one element HQ's build defaults to,
+		// which the comparison accepts as the source's empty list.
+		expect(codes(reading)).toEqual([]);
 		const read = comparableList(listOf(reading)) as {
 			list: Record<string, unknown>[];
 		};
 		expect(read.list[0]?.sort).toEqual(columnSort("asc", 0));
 		expect(registers(reading)).toContain("list-settings-respelled");
+		const written = await emittedApp(reading.ctx.doc as BlueprintDoc);
+		expect(
+			written.modules[0]?.case_details.short.sort_elements.map((one) => [
+				one.field,
+				one.direction,
+			]),
+		).toEqual([["notes", "ascending"]]);
 	});
 
 	it("reads the later of two elements with one field and drops the earlier", async () => {

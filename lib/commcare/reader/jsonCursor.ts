@@ -33,7 +33,14 @@ export interface JsonCursor {
 	): Admitted<T>;
 	derived(key: string, claim: Claim<"derived">): void;
 	drop(key: string, claim: Claim<"drop">): void;
-	refuse(key: string, claim: Claim<"refuse">, detail?: FindingDetail): void;
+	/** `place` is where the finding stands where it is not this object's own:
+	 *  a key of a menu that a person edits on its case list's page. */
+	refuse(
+		key: string,
+		claim: Claim<"refuse">,
+		detail?: FindingDetail,
+		place?: HqPlace,
+	): void;
 	account(key: string, claim: Claim<"account">, detail?: FindingDetail): void;
 	/** Claim the container key and descend. The children are accounted on their own cursors. */
 	object(
@@ -195,17 +202,26 @@ export class JsonCursorImpl implements JsonCursor {
 		this.plain(key, claim);
 	}
 
-	refuse(key: string, claim: Claim<"refuse">, detail?: FindingDetail): void {
-		this.plain(key, claim, detail);
+	refuse(
+		key: string,
+		claim: Claim<"refuse">,
+		detail?: FindingDetail,
+		place?: HqPlace,
+	): void {
+		this.plain(key, claim, detail, place);
 	}
 
 	account(key: string, claim: Claim<"account">, detail?: FindingDetail): void {
 		this.plain(key, claim, detail);
 	}
 
-	private plain(key: string, claim: Claim, detail?: FindingDetail): void {
-		if (this.used(key))
-			this.ledger.claim(this.site(key), claim, this.place, detail);
+	private plain(
+		key: string,
+		claim: Claim,
+		detail?: FindingDetail,
+		place: HqPlace = this.place,
+	): void {
+		if (this.used(key)) this.ledger.claim(this.site(key), claim, place, detail);
 	}
 
 	/** A child cursor no key reaches: it holds nothing to account. */

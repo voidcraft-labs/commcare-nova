@@ -97,7 +97,7 @@ import type {
 	FormReadingHooks,
 } from "../../xpath/formParseScope";
 import { canonicalInstanceId } from "../../xpath/formPathBinding";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { JAVAROSA_NATIVE_FUNCTIONS } from "../../xpath/functionCapabilities";
 import { toWire, type WireTermBindings } from "../../xpath/wire/fromExpression";
 import { InstanceSink } from "../../xpath/wire/instances";
@@ -111,8 +111,15 @@ import {
 } from "../hqInterpolation";
 import type { PendingExpression, ReadMode } from "../pendingExpressions";
 import { type CompareOptions, firstDifference } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import type { ReadSourceNames, SourceNodeRef } from "../xform";
-import { EXPRESSION_FOLDS, type FoldEnv, recordOnlyArm } from "./folds";
+import {
+	core,
+	EXPRESSION_FOLDS,
+	type FoldEnv,
+	type OperationPlaceReads,
+	recordOnlyArm,
+} from "./folds";
 import type { ExpressionReadEnv } from "./index";
 
 // ── The mode a slot prints in ────────────────────────────────────────
@@ -341,6 +348,10 @@ function scopeWith(
 		form !== undefined && names !== undefined
 			? sourceNodeProjection(doc, form, names)
 			: undefined;
+	const place =
+		form !== undefined && caseOperationSlot(pending.ref)
+			? operationPlaceReads(doc, form, pending.ref, env)
+			: undefined;
 	const structure = form === undefined ? undefined : formStructure(doc, form);
 	const projection =
 		sourceProjection ??
@@ -359,6 +370,7 @@ function scopeWith(
 				withdrawn,
 				sites,
 				...(projection === undefined ? {} : { projection }),
+				...(place === undefined ? {} : { place }),
 			}),
 		// Core's casedb answers a `name` step with a blank node
 		// (`CaseChildElement.getChildrenWithName`), so in an app's text it is
@@ -395,6 +407,7 @@ function proposeFold(
 		readonly withdrawn: ReadonlySet<string>;
 		readonly sites: FoldSites;
 		readonly projection?: FormNodeProjection;
+		readonly place?: OperationPlaceReads;
 	},
 ): Expression | undefined {
 	if (options.sites.plain.has(node)) return undefined;
@@ -410,6 +423,7 @@ function proposeFold(
 			...(options.projection === undefined
 				? {}
 				: { projection: options.projection }),
+			...(options.place === undefined ? {} : { place: options.place }),
 			bindPlain(at, context) {
 				options.sites.plain.add(at);
 				try {
@@ -634,6 +648,93 @@ function caseOperationPlaces(
 	}
 	if (places instanceof Error) throw places;
 	return places;
+}
+
+/** What the emitter prints through `current()` at the node a Save to Case
+ *  block's expression stands in (its place, `caseOperationPlaces`), parsed
+ *  and keyed by syntax; undefined where no block holds the slot. */
+const placeReads = new WeakMap<WireTermBindings, OperationPlaceReads>();
+function operationPlaceReads(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	ref: Extract<SlotContextRef, { entity: "form" }>,
+	env: ExpressionReadEnv,
+): OperationPlaceReads | undefined {
+	const naming = namingOf(env);
+	let bindings: WireTermBindings | undefined;
+	try {
+		bindings = caseOperationPlaces(
+			doc,
+			formUuid,
+			naming,
+			formEmission(doc, formUuid, naming, {}).emission,
+		).get(caseOperationPlaceKey(ref));
+	} catch {
+		// The emitter builds no block for this form, so nothing is printed
+		// from a block's node.
+		return undefined;
+	}
+	if (bindings === undefined) return undefined;
+	let reads = placeReads.get(bindings);
+	if (reads === undefined) {
+		let keys = currentRootedKeys.get(doc);
+		if (keys === undefined) {
+			keys = new Map();
+			currentRootedKeys.set(doc, keys);
+		}
+		reads = {
+			operationIds: currentRootedReads(bindings.operationIds, keys),
+			fields: currentRootedReads(bindings.formFields, keys),
+		};
+		placeReads.set(bindings, reads);
+	}
+	return reads;
+}
+
+/** The syntax key of each text a block's place prints, or undefined where the
+ *  text is not read from `current()`, per document: every place of a form
+ *  prints its reads at its own depth, so places at one depth print the same
+ *  texts, and each is read with the grammar once. */
+const currentRootedKeys = new WeakMap<
+	BlueprintDoc,
+	Map<string, string | undefined>
+>();
+
+/** Each of `wires` the emitter prints from `current()`, by the key of its
+ *  parsed syntax. A path from any other root (the form's, an instance's)
+ *  prints no `current()`, so it is neither printed nor read. */
+function currentRootedReads(
+	wires: ReadonlyMap<Uuid, WireExpr> | undefined,
+	keys: Map<string, string | undefined>,
+): ReadonlyMap<string, Uuid> {
+	const keyed = new Map<string, Uuid>();
+	for (const [uuid, wire] of wires ?? []) {
+		if (wire.k === "path" && wire.root.k !== "current") continue;
+		const text = serializeWire(wire, {
+			target: "xform",
+			constraint: false,
+		}).text;
+		let key = keys.get(text);
+		if (!keys.has(text)) {
+			key = currentRootedKey(text);
+			keys.set(text, key);
+		}
+		if (key !== undefined) keyed.set(key, uuid);
+	}
+	return keyed;
+}
+
+/** The key of `text`'s parsed syntax where it is read from `current()`. */
+function currentRootedKey(text: string): string | undefined {
+	const read = readFormSyntax(text);
+	const node = read.ok ? read.node : undefined;
+	if (node === undefined) return undefined;
+	let root = core(node);
+	while (root.kind === "child" && root.left !== undefined)
+		root = core(root.left);
+	return root.kind === "call" && root.name === "current"
+		? formSyntaxKey(core(node))
+		: undefined;
 }
 
 /** The predicate a generated nodeset holds on its row step, as the

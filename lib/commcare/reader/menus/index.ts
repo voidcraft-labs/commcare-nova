@@ -15,6 +15,7 @@ import { firstMenuSharedCaseFrames } from "../../validator/rules/formsInMenuAbov
 import { rootSelectionTakesNewCase } from "../../validator/rules/parentSelection";
 import { type Claim, defineClaims, refuse } from "../claims";
 import type { DraftApp, ReadContext } from "../context";
+import { readerDefect } from "../defects";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
@@ -30,6 +31,7 @@ import {
 	appLanguageCodes,
 	caseListLabelAsBuilt,
 	caseListMenus,
+	caseListPlaceOf,
 	labelMap,
 	rawModules,
 	readModules,
@@ -40,10 +42,14 @@ import { readCaseListRegistration, settleRegistrations } from "./registration";
 
 export { registerLinkExpressions } from "./afterSubmit";
 
+const SHARED_FIRST_MENU_CASE =
+	"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case";
+
 const CLAIMS = defineClaims("menus", {
-	sharedFirstMenuCase: refuse(
-		"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
-		"schema:Form.form_links",
+	sharedFirstMenuCase: refuse(SHARED_FIRST_MENU_CASE, "schema:Form.form_links"),
+	sharedFirstMenuCaseAdvanced: refuse(
+		SHARED_FIRST_MENU_CASE,
+		"schema:AdvancedForm.form_links",
 	),
 	newCaseTakesRootCase: refuse(
 		"menus-and-case-lists/child-menu-form-creating-a-case-of-the-type-its-root-s-first-form-chooses",
@@ -126,9 +132,11 @@ export function settleMenus(ctx: ReadContext, app: DraftApp): void {
 	try {
 		expansion = expandDoc(doc, readProjectionInputs(ctx));
 	} catch {
-		ctx.accounting.circumstance("unrecognized", appPlace(), {
-			name: "expandDoc",
-		});
+		ctx.accounting.defect(
+			appPlace(),
+			"schema:Application.modules",
+			readerDefect.emissionThrew(appPlace(), "expandDoc"),
+		);
 		return;
 	}
 	const modules = expansion.modules as unknown as readonly JsonObject[];
@@ -159,7 +167,12 @@ export function settleMenus(ctx: ReadContext, app: DraftApp): void {
 			.flatMap((module) => module.forms)
 			.find((one) => one.uuid === error.location.formUuid);
 		if (form !== undefined)
-			ctx.accounting.finding(CLAIMS.sharedFirstMenuCase, form.place);
+			ctx.accounting.finding(
+				form.docType === "AdvancedForm"
+					? CLAIMS.sharedFirstMenuCaseAdvanced
+					: CLAIMS.sharedFirstMenuCase,
+				form.place,
+			);
 	}
 }
 
@@ -202,7 +215,14 @@ function acceptMenus(
 			!sameJson(inLanguages(source.media_audio, langs), ours.media_audio)
 		)
 			unrecognized(`schema:${module.docType}.media_audio`);
-		if (listed.has(module)) {
+		if (
+			listed.has(module) &&
+			!ctx.accounting.hasFindingAt(caseListPlaceOf(module))
+		) {
+			const listUnrecognized = (name: string) =>
+				ctx.accounting.circumstance("unrecognized", caseListPlaceOf(module), {
+					name,
+				});
 			const sourceList = isJsonObject(source.case_list) ? source.case_list : {};
 			const ourList = isJsonObject(ours.case_list) ? ours.case_list : {};
 			if (
@@ -218,7 +238,7 @@ function acceptMenus(
 					),
 				)
 			)
-				unrecognized("schema:CaseList.label");
+				listUnrecognized("schema:CaseList.label");
 			const item = own?.caseListMenuItem;
 			if (
 				item?.icon !== undefined &&
@@ -227,7 +247,7 @@ function acceptMenus(
 					ourList.media_image,
 				)
 			)
-				unrecognized("schema:CaseList.media_image");
+				listUnrecognized("schema:CaseList.media_image");
 			if (
 				item?.audioLabel !== undefined &&
 				!sameJson(
@@ -235,7 +255,7 @@ function acceptMenus(
 					ourList.media_audio,
 				)
 			)
-				unrecognized("schema:CaseList.media_audio");
+				listUnrecognized("schema:CaseList.media_audio");
 		}
 		for (const form of module.forms) {
 			if (ctx.accounting.hasFindingAt(form.place)) continue;

@@ -126,7 +126,7 @@ export function readControls(input: ReadControlsInput): ReadControls {
 					? "nodeset"
 					: undefined;
 		if (ref !== undefined) {
-			const read = readNodePath(ref, tree, base, input.accounting);
+			const read = readNodePath(ref, tree, base);
 			if (read.kind !== "node" || read.attribute !== undefined) {
 				cursor.refuseSubtree(element, X.controlNoNode, formPlace, {
 					name: ref,

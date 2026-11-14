@@ -66,6 +66,18 @@ export const SPELLING_VECTORS: readonly SpellingVector[] = [
 		a: "'a' = \"a\"",
 		b: "\"a\" = 'a'",
 	},
+	{
+		row: "L3",
+		name: "a value holding a single mark",
+		a: `"it's" = concat('it', "'", 's')`,
+		b: `"it's" = concat("it", "'", "s")`,
+	},
+	{
+		row: "L3",
+		name: "a value holding a double mark",
+		a: `'say "hi"' = concat('say ', '"', 'hi', '"')`,
+		b: `'say "hi"' = concat("say ", '"', "hi", '"')`,
+	},
 	{ row: "L4", name: "a whole number and its decimal", a: "1", b: "1.0" },
 	{ row: "L4", name: "a leading zero", a: "01", b: "1" },
 	{ row: "L4", name: "a fraction with no whole part", a: ".5", b: "0.5" },

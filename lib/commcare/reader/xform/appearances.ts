@@ -9,7 +9,7 @@
  * manifest's Appearances rows.
  */
 
-import type { HqPlace } from "@/lib/publish/hqFindings";
+import { circumstanceFinding, type HqPlace } from "@/lib/publish/hqFindings";
 import { inventoryIndex } from "../../surface/inventory";
 import surface from "../../surface/surface.json";
 import {
@@ -18,6 +18,7 @@ import {
 } from "../../xform/appearance";
 import { fieldKindBindType } from "../../xform/bindType";
 import { UPLOAD_MEDIATYPE_BY_CAPTURE_KIND } from "../../xform/captureUpload";
+import type { Accounting } from "../accounting";
 import { account, type Claim, defineClaims, refuse } from "../claims";
 import type { XmlCursor } from "../xmlCursor";
 import { type ControlNode, isFieldListAppearance } from "./body";
@@ -1300,18 +1301,26 @@ export function isInertAppearanceClaim(claim: Claim): boolean {
 
 /**
  * Applies a verdict's claim to a control's `appearance` attribute, its finding carrying the string
- * as written. Answers whether the claim's entry is inert, which `ReadFormFacts.inertAppearances`
- * lists, and nothing for a verdict that claims nothing.
+ * as written. A value no rule takes (rule 5) is `unrecognized` under that string, never under the
+ * attribute's surface key, and the attribute stands behind that one finding. Answers whether the
+ * claim's entry is inert, which `ReadFormFacts.inertAppearances` lists.
  */
 export function claimAppearance(
 	cursor: XmlCursor,
+	accounting: Accounting,
 	control: ControlNode,
 	verdict: AppearanceVerdict,
 	place: HqPlace,
 ): { readonly inert: boolean } {
 	const value = control.appearance;
-	if (verdict.kind !== "claim" || value === undefined) return { inert: false };
+	if (value === undefined || verdict.kind === "held") return { inert: false };
 	const node = { element: control.element, attribute: "appearance" };
+	if (verdict.kind === "unclaimed") {
+		const detail = { name: value };
+		accounting.circumstance("unrecognized", place, detail);
+		accounting.cover(node, circumstanceFinding("unrecognized", place, detail));
+		return { inert: false };
+	}
 	const claim = verdict.claim;
 	if (isUse(claim, "refuse"))
 		cursor.refuse(node, claim, place, { name: value });

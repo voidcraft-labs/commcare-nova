@@ -669,7 +669,7 @@ Appendix A lists the entries of each.
 | `menu-badges` | Menu badges | a badge on a menu or form | 2 / 0 / 0 |
 | `menu-display` | Grid menus | grid menus | 3 / 0 / 0 |
 | `menu-settings` | Menu settings | a menu setting | 0 / 0 / 1 |
-| `menu-structure` | How menus are nested | how menus are nested | 1 / 1 / 2 |
+| `menu-structure` | How menus are nested | how menus are nested | 1 / 1 / 3 |
 | `mirror-menus` | Mirror menus | a mirror menu | 4 / 1 / 3 |
 | `missing-media-files` | Missing media files | a media file the app points at that CommCare HQ doesn't have | 0 / 0 / 2 |
 | `mobile-reports` | Mobile reports | mobile reports | 0 / 4 / 0 |
@@ -1094,7 +1094,7 @@ removes both.
 | `application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s` | TARGET-OWNED | 7.2 |
 | `menus-and-case-lists/put-in-root-display-only-forms`, `case-list-form-pointing-at-a-registration-form-in-another-module`, `case-list-form-media-image-media-audio` | HELD | part 02's concepts (3.5) |
 | `questions/phone-number-xsd-string-appearance-numeric`, `questions/output-value-any-other-expression`, `questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable`, `case-search/title-label-or-blank-hq-s-default`, `menus-and-case-lists/blanks-first-last` | HELD | part 03's concepts (3.5) |
-| `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time`, `forms-and-case-writes/loadupdateaction-preload-question-property`, `case-search/several-xpath-query-rows` | HELD | part 07's readers (3.5; part 07, section 14) |
+| `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time`, `forms-and-case-writes/loadupdateaction-preload-question-property`, `forms-and-case-writes/writers-int-decimal`, `case-search/several-xpath-query-rows` | HELD | part 07's readers (3.5; part 07, sections 7 and 14) |
 | `expressions-and-data/media-path-jr-file` (HELD), `a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` (INERT) | | part 11's media reading (3.5) |
 
 Where the schema's rule lands before one of these flips (2.6), the entry carries the subject and owner
@@ -4303,7 +4303,7 @@ A.1's area blocks leave them out.
 - `worker-record` → `forms-and-case-management`:
   `update-key-whose-index-segments-include-user-each-parent-host-or`
 - `writer-types` → `forms-and-case-management`:
-  `update-through-the-date-and-time-join-of-a-date-and-a-time` †, `writers-int-decimal`,
+  `update-through-the-date-and-time-join-of-a-date-and-a-time` †, `writers-int-decimal` †,
   `writers-single-select-multi-select`, `any-other-mixed-writer-pair`,
   `a-datetime-question-saved-straight-to-a-case`
 
@@ -4818,7 +4818,7 @@ run G3 under its outcome C. It takes its subject by 2.2's rule and the owner its
 
 Each entry below becomes REFUSED in this step and holds `subject` from then on. Every one is
 `fix-in-hq`; the cause beside it is what `fixCauseOf` gives its reasons, which chooses its sentence
-(8.4). There are 14.
+(8.4). There are 15.
 
 - `case-list-registration`, `fix-in-hq` (`breaks-when-run`; part 02, `02-menus.md`, section 14):
   `menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host` (not added
@@ -4837,6 +4837,8 @@ Each entry below becomes REFUSED in this step and holds `subject` from then on. 
 - `instance-text`, `fix-in-hq` (`either`; part 03, `03-questions-and-text.md`, section 5.1):
   `questions/connect-block-text-read-as-an-instance`,
   `forms-and-case-writes/form-name-read-as-an-instance`
+- `menu-structure`, `fix-in-hq` (`breaks-when-run`; part 07, section 8.2):
+  `menus-and-case-lists/child-menu-form-creating-a-case-of-the-type-its-root-s-first-form-chooses`
 - `missing-media-files`, `fix-in-hq` (`breaks-when-run`; part 11, `11-project-data.md`, section
   13.1): `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`
 - `question-logic`, `fix-in-hq` (`hq-refuses`; part 06, section 11.3):

@@ -22,11 +22,12 @@ import {
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { hqXPath, hqXPathText } from "../../hqJson/xpath";
 import {
+	imageMapEnumKey,
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
 } from "../../suite/case-list/columns";
 import { casePropertyPath } from "../../suite/wire";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { applicationReading } from "../appShell";
@@ -39,10 +40,12 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { dotInterpolate } from "../hqInterpolation";
 import { HQ_PAGE_LABELS } from "../hqPageLabels";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { pendingPlaceholder, type ReadMode } from "../pendingExpressions";
 import { sameXPathText } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import { readMediaMap } from "../xform/media";
 
 const A = "menus-and-case-lists/";
@@ -839,26 +842,34 @@ export function readDetailColumn(
 			: undefined;
 
 	// A calculated field: an expression column, an attribute, or one of Nova's two projections.
+	// An `invisible` short column outside a custom tile reads its expression as a `plain` one does,
+	// and stands on the list hidden: Nova writes a hidden calculated or attribute-backed field so.
+	const hiddenOnList =
+		format === "invisible" && screen === "short" && !options.inTile;
 	if (field.xpath) {
 		const tree = parse(field.text);
 		const attribute = oneAttribute(tree);
+		const formatClaim = hiddenOnList ? C.invisible : C.plain;
 		if (
-			format === "plain" &&
+			(format === "plain" || hiddenOnList) &&
 			attribute !== undefined &&
 			ATTRIBUTE_PROPERTIES.has(attribute)
 		) {
 			column.take("useXpathExpression", C.fieldAttribute, Boolean).value;
 			column.take("field", C.fieldAttributeField, String).value;
-			column.take("format", C.plain, String).value;
-			return proposal({
-				kind: "plain",
-				field: attribute,
-				...base,
-			} as ColumnProposal["column"]);
+			column.take("format", formatClaim, String).value;
+			return proposal(
+				{
+					kind: "plain",
+					field: attribute,
+					...base,
+				} as ColumnProposal["column"],
+				{ invisible: hiddenOnList },
+			);
 		}
-		if (format === "plain") {
+		if (format === "plain" || hiddenOnList) {
 			column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
-			column.take("format", C.plain, String).value;
+			column.take("format", formatClaim, String).value;
 			return proposal(
 				{
 					kind: "calculated",
@@ -873,6 +884,7 @@ export function readDetailColumn(
 						place,
 						key: "schema:DetailColumn.field",
 					},
+					invisible: hiddenOnList,
 				},
 			);
 		}
@@ -1129,18 +1141,35 @@ function readIdMapping(
 	);
 }
 
-/** `selected(., '<value>')` as HQ's key, the one condition shape an image map's key holds. */
-function selectedValue(key: string): string | undefined {
-	const node = parse(key);
+/** The text of a column's property as HQ's build substitutes it into each image map key
+ *  (`detail_screen.py::Enum._template_xpath`, `models/case_list.py::MappingItem.key_as_condition`). */
+export function imageMapPropertyText(field: string): string {
+	return hqXPathText(hqXPath(casePropertyPath(field)));
+}
+
+/**
+ * The value an image map's key selects, where the key is the condition Nova writes for some value:
+ * the key and Nova's key for that value, each with its dots put to the column's property as HQ's
+ * build puts them (`dot_interpolate`), are one tree. The value is proposed from the interpolated
+ * key's own `selected(…, '<value>')` and confirmed by printing Nova's key back.
+ */
+function selectedValue(key: string, property: string): string | undefined {
+	const interpolated = dotInterpolate(key, property);
+	const node = parse(interpolated);
 	if (
 		node?.kind !== "call" ||
 		node.name !== "selected" ||
 		node.args.length !== 2
 	)
 		return undefined;
-	const [subject, value] = node.args;
-	if (subject?.kind !== "self" || value?.kind !== "string") return undefined;
-	return value.value;
+	const value = node.args[1];
+	if (value?.kind !== "string") return undefined;
+	return sameXPathText(
+		interpolated,
+		dotInterpolate(imageMapEnumKey(value.value), property),
+	)
+		? value.value
+		: undefined;
 }
 
 function readImageMap(
@@ -1158,7 +1187,7 @@ function readImageMap(
 			column.refuse("format", C.enumImageOther, { name: field });
 			return undefined;
 		}
-		const value = selectedValue(entry.key);
+		const value = selectedValue(entry.key, imageMapPropertyText(field));
 		if (value === undefined) {
 			const plain = parse(entry.key);
 			column.refuse(

@@ -59,8 +59,12 @@ import { sameSyntax } from "../syntaxCompare";
 import {
 	draftFormByReadId,
 	draftModuleById,
+	formChoosesCase,
+	rawForms,
 	rawModuleById,
 	rawModules,
+	selectsSeveral,
+	usesInlineSearch,
 } from "./modules";
 
 const F = "forms-and-case-writes";
@@ -128,13 +132,10 @@ const AFTER_SUBMIT = {
 		"any-other-post-form-workflow-outside-the-offered-set-previous",
 		"post_form_workflow",
 	),
-	previousOnFirstMenu: refuse(
-		`${F}/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu`,
-		"schema:Form.post_form_workflow",
-	),
-	notOfferedFinding: refuse(
-		`${F}/any-other-post-form-workflow-outside-the-offered-set-previous`,
-		"schema:Form.post_form_workflow",
+	previousOnFirstMenu: perClass(
+		refuse,
+		"post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
+		"post_form_workflow",
 	),
 	fallbackModuleOrPrevious: perClass(
 		take,
@@ -312,6 +313,53 @@ function readingsOf(ctx: ReadContext): ReadAfterSubmit[] {
 
 // ── Pass 1 ──────────────────────────────────────────────────────────────
 
+/** HQ's `is_multi_select`: an advanced menu never selects several cases,
+ *  whatever its stored list holds, and a mirror menu selects as its source. */
+function multiSelect(ctx: ReadContext, module: JsonObject): boolean {
+	if (module.doc_type === "AdvancedModule") return false;
+	if (module.doc_type === "ShadowModule") {
+		const source = rawModuleById(ctx, module.source_module_id);
+		return source !== undefined && multiSelect(ctx, source);
+	}
+	return selectsSeveral(module);
+}
+
+/**
+ * Whether HQ's build refuses a form of `menu` the stored word
+ * (`helpers/validators.py::FormBaseValidator.validate_for_module`): `module`
+ * in a menu that shows its forms above, `parent_module` with no root or to a
+ * root that shows its forms above (`form link to display only forms`,
+ * `form link to missing root`), and `previous_screen` where exactly one of the
+ * menu and its root selects several cases (`mismatch multi select form
+ * links`) or on a form that asks for a case in a menu whose forms read the
+ * search (`workflow previous inline search`). A root id that names no menu is
+ * the menu's own finding, so it refuses no word here.
+ */
+function refusedByBuild(
+	ctx: ReadContext,
+	menu: JsonObject,
+	form: JsonObject,
+	word: Word,
+): boolean {
+	const rootId = menu.root_module_id;
+	const hasRoot = typeof rootId === "string" && rootId !== "";
+	const root = rawModuleById(ctx, rootId);
+	switch (word) {
+		case "module":
+			return menu.put_in_root === true;
+		case "parent_module":
+			return !hasRoot || root?.put_in_root === true;
+		case "previous_screen":
+			return (
+				(root !== undefined &&
+					multiSelect(ctx, menu) !== multiSelect(ctx, root)) ||
+				(formChoosesCase(form) && usesInlineSearch(menu))
+			);
+		default:
+			return false;
+	}
+}
+
 /**
  * Pass 1, from `readMenus`: each form's workflow word claimed by the row its
  * word names. The links and the otherwise are read once every entry's
@@ -355,7 +403,9 @@ export function readAfterSubmit(ctx: ReadContext, app: DraftApp): void {
 					AFTER_SUBMIT.wordNotOffered[cls],
 					label === undefined ? undefined : { name: label },
 				);
-			} else if (word === "module" && menu.put_in_root === true)
+			} else if (
+				refusedByBuild(ctx, menu, rawForms(menu)[form.index] ?? {}, word)
+			)
 				json.refuse("post_form_workflow", AFTER_SUBMIT.wordRefusedByBuild[cls]);
 			else read = word;
 			if (read !== undefined)
@@ -1194,13 +1244,13 @@ export function acceptAfterSubmit(
 	];
 	if (!formLinkActionsBuildable(doc, form.uuid, entries)) {
 		ctx.accounting.circumstance("unrecognized", form.place, {
-			name: "formLinkActionsBuildable",
+			name: `schema:${form.docType}.form_links`,
 		});
 		return;
 	}
 	if (emitted === undefined) {
 		ctx.accounting.circumstance("unrecognized", form.place, {
-			name: "schema:Form.form_links",
+			name: `schema:${form.docType}.form_links`,
 		});
 		return;
 	}
@@ -1218,13 +1268,20 @@ function settleWord(
 	const destination = WORDS[word];
 	const facts = postSubmitModuleFacts(doc, reading.module.uuid);
 	if (word === "previous_screen" && facts?.formsOnFirstMenu === true) {
-		ctx.accounting.finding(AFTER_SUBMIT.previousOnFirstMenu, form.place);
+		ctx.accounting.finding(
+			AFTER_SUBMIT.previousOnFirstMenu[form.docType],
+			form.place,
+		);
 		return;
 	}
 	if (!postSubmitDestinationsOffered(doc, form.uuid).includes(destination)) {
-		ctx.accounting.finding(AFTER_SUBMIT.notOfferedFinding, form.place, {
-			name: HQ_PAGE_LABELS.workflow[word],
-		});
+		ctx.accounting.finding(
+			AFTER_SUBMIT.wordNotOffered[form.docType],
+			form.place,
+			{
+				name: HQ_PAGE_LABELS.workflow[word],
+			},
+		);
 		return;
 	}
 	if (destination === defaultPostSubmitOf(doc, form.uuid)) return;
@@ -1246,7 +1303,7 @@ function compareLinks(
 	const differs = (name: string) =>
 		ctx.accounting.circumstance("unrecognized", form.place, { name });
 	if (emitted.post_form_workflow !== "form") {
-		differs("schema:Form.post_form_workflow");
+		differs(`schema:${form.docType}.post_form_workflow`);
 		return;
 	}
 	const storedFallback = form.json.peek("post_form_workflow_fallback");
@@ -1256,7 +1313,7 @@ function compareLinks(
 			? storedFallback !== ourFallback
 			: ourFallback !== null
 	) {
-		differs("schema:Form.post_form_workflow_fallback");
+		differs(`schema:${form.docType}.post_form_workflow_fallback`);
 		return;
 	}
 	const ours = Array.isArray(emitted.form_links)
@@ -1272,7 +1329,7 @@ function compareLinks(
 		...(otherwise === undefined ? [] : [otherwise]),
 	];
 	if (ours.length !== order.length) {
-		differs("schema:Form.form_links");
+		differs(`schema:${form.docType}.form_links`);
 		return;
 	}
 	const adjusted = new Map<ReadLink, FormSyntax[]>();

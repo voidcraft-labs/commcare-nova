@@ -16,6 +16,7 @@ import type {
 import type { CaseSearchConfig } from "@/lib/domain/modules";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { expandDoc } from "../../../expander";
+import type { LookupWireNaming } from "../../../lookup/naming";
 import {
 	readContext,
 	readerInput,
@@ -49,6 +50,8 @@ export interface ListReadingOptions {
 	/** Emit with a manifest of every asset the document names, and read each file back as its
 	 *  asset, as a bring-in's media index answers. */
 	readonly media?: boolean;
+	/** The names Nova's emission prints each table read under, where the document reads one. */
+	readonly lookupNaming?: LookupWireNaming;
 }
 
 export interface ListReading {
@@ -68,11 +71,12 @@ function imagePaths(doc: BlueprintDoc): Map<string, string> {
 export async function emittedApp(
 	doc: BlueprintDoc,
 	media = false,
+	lookupNaming?: LookupWireNaming,
 ): Promise<AppJson> {
-	const emitted = expandDoc(
-		doc,
-		media ? { assets: manifestFor(doc) } : undefined,
-	);
+	const emitted = expandDoc(doc, {
+		...(media && { assets: manifestFor(doc) }),
+		...(lookupNaming !== undefined && { lookupNaming }),
+	});
 	return JSON.parse(
 		JSON.stringify({
 			...retainedSourceBody("shell/app-source"),
@@ -86,7 +90,11 @@ export async function readLists(
 	doc: BlueprintDoc,
 	options: ListReadingOptions = {},
 ): Promise<ListReading> {
-	const app = await emittedApp(doc, options.media === true);
+	const app = await emittedApp(
+		doc,
+		options.media === true,
+		options.lookupNaming,
+	);
 	options.edit?.(app);
 	const paths = options.media === true ? imagePaths(doc) : new Map();
 	const base = {

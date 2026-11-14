@@ -149,6 +149,10 @@ describe("each line is its template, from closed slots", () => {
 				readerDefect.noCaseDatum(place),
 				`Nova couldn't find the session value that holds the case this form opens with, at ${key}, so it can't read the form's display condition as CommCare HQ builds it. CommCare HQ treats the form as one that opens on a case and Nova's reading of its menu and case operations does not; check what the case management reader made of this form.`,
 			],
+			[
+				readerDefect.emissionThrew(place, MARKER),
+				`Nova read part of an app from CommCare HQ and its own writer could not write that part back, at ${key}: another-emitter threw. The reader built something Nova's documents never hold; check what the stages before it made of this place.`,
+			],
 		];
 		for (const [line, template] of lines) {
 			expect(line).toBe(template);
@@ -194,8 +198,18 @@ describe("each line is its template, from closed slots", () => {
 		).toContain("at app: unknown-reason.");
 	});
 
-	it("names twelve codes", () => {
-		expect(READER_DEFECT_CODES).toHaveLength(12);
+	it("names an emitter only from its closed list", () => {
+		const place = appPlace();
+		expect(readerDefect.emissionThrew(place, "expandDoc")).toContain(
+			"at app: expandDoc threw.",
+		);
+		expect(readerDefect.emissionThrew(place, "MARKER")).toContain(
+			"at app: another-emitter threw.",
+		);
+	});
+
+	it("names thirteen codes", () => {
+		expect(READER_DEFECT_CODES).toHaveLength(13);
 	});
 });
 

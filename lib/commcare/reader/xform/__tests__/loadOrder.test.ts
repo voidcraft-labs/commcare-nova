@@ -7,6 +7,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { BlueprintDoc } from "@/lib/domain";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { readHqApp } from "../../index";
 import { emittedLoadOrder } from "../afterBinding";
 import {
 	effectiveLoadOrder,
@@ -97,5 +101,95 @@ describe("effectiveLoadOrder", () => {
 				({ reader, read: set }) => [reader.target, set.target],
 			),
 		).toEqual([["b", "a"]]);
+	});
+});
+
+/** A survey whose count-placement query repeat `visits`, inside the repeat `outer`, holds a
+ *  question `note` whose default is the row's id. */
+function rowIdDefaultDoc(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Rounds",
+						type: "survey",
+						fields: [
+							f({
+								kind: "repeat",
+								id: "outer",
+								children: [
+									f({
+										kind: "repeat",
+										id: "visits",
+										repeat_mode: "query_bound",
+										data_source: { ids_query: "'a b'" },
+										children: [
+											f({
+												kind: "text",
+												id: "note",
+												default_value: "current()/../@id",
+											}),
+										],
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** The `<setvalue>` element of a source whose `ref` ends in `/<name>`. */
+function setvalueNaming(xml: string, name: string): string {
+	for (let start = xml.indexOf("<setvalue"); start !== -1; ) {
+		const end = xml.indexOf("/>", start) + 2;
+		const element = xml.slice(start, end);
+		if (element.includes(`/${name}"`)) return element;
+		start = xml.indexOf("<setvalue", end);
+	}
+	throw new Error(`The source holds no setvalue that sets ${name}.`);
+}
+
+/** The codes of every finding of a whole reading of `body`. */
+async function readingCodes(
+	body: Readonly<Record<string, unknown>>,
+): Promise<string[]> {
+	const outcome = readHqApp(await inputFor(body));
+	return outcome.kind === "account"
+		? outcome.findings.map((finding) => finding.code)
+		: [];
+}
+
+describe("a count-placement row's own load-time values", () => {
+	const LOAD_ORDER =
+		"questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes";
+
+	it("places the row's id before an authored row default that reads it, as Nova writes them", async () => {
+		const doc = rowIdDefaultDoc();
+		const body = exportedBody(doc);
+		const xml = Object.values(
+			body._attachments as Record<string, string>,
+		)[0] as string;
+		// Nova writes the row's id first in the row, then the default that reads it.
+		expect(
+			xml.indexOf(setvalueNaming(xml, "nova_query_id_visits")),
+		).toBeLessThan(xml.indexOf(setvalueNaming(xml, "note")));
+		expect(await readingCodes(body)).not.toContain(LOAD_ORDER);
+	});
+
+	it("refuses a row default standing before the row's own id, where it reads that id", async () => {
+		const doc = rowIdDefaultDoc();
+		const body = exportedBody(doc, {
+			xml: (xml) => {
+				const id = setvalueNaming(xml, "nova_query_id_visits");
+				const note = setvalueNaming(xml, "note");
+				return xml.replace(note, "").replace(id, `${note}${id}`);
+			},
+		});
+		expect(await readingCodes(body)).toContain(LOAD_ORDER);
 	});
 });

@@ -188,11 +188,10 @@ export const X = {
 	title: under("take", Q("h-title-and-data-name-whatever-their-text"), {
 		title: "xform:title",
 	}),
-	dataName: one(
-		"derived",
-		Q("h-title-and-data-name-whatever-their-text"),
-		"xform:model/instance/*@name",
-	),
+	// The same entry as `title`, under a second use and key: registered by that key.
+	dataName: under("derived", Q("h-title-and-data-name-whatever-their-text"), {
+		name: "xform:model/instance/*@name",
+	}).name,
 	uiVersionOne: one(
 		"derived",
 		Q("data-root-uiversion-of-1"),

@@ -122,6 +122,21 @@ describe("mintLanguageWireCode", () => {
 			}
 		}
 	});
+
+	it("leaves a spelling to the first of two identities that share it and their name", () => {
+		/* Congo Swahili and Swahili are both `sw` and Kiswahili, Dari and Iranian Persian both
+		 * `fas` and فارسی, Aruban Papiamentu and Papiamentu both `pap` and Papiamentu: a code
+		 * and a name are all an HQ app says of a language. */
+		expect(mintedInOrder(["swc"])).toEqual({ swc: "swc-" });
+		expect(mintedInOrder(["swh"])).toEqual({ swh: "sw" });
+		expect(mintedInOrder(["prs"])).toEqual({ prs: "prs-" });
+		expect(mintedInOrder(["pes"])).toEqual({ pes: "fas" });
+		expect(mintedInOrder(["pap-AW"])).toEqual({ "pap-AW": "pap-aw" });
+		expect(mintedInOrder(["pap"])).toEqual({ pap: "pap" });
+		// A region whose name differs keeps the spelling.
+		expect(mintedInOrder(["pap-CW"])).toEqual({ "pap-CW": "pap" });
+		expect(mintedInOrder(["swh", "swc"])).toEqual({ swh: "sw", swc: "swc-" });
+	});
 });
 
 describe("planLanguageWire", () => {

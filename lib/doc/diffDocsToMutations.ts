@@ -1072,8 +1072,11 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	const before = effectiveAppLocalization(prev.localization);
 	const after = effectiveAppLocalization(next.localization);
 
+	// A one-language app takes another source by relabelling it, and then
+	// gains every other language the target holds, the old source's tag
+	// among them, through the additions below.
 	if (before.sourceLanguage !== after.sourceLanguage) {
-		if (before.languageOrder.length !== 1 || after.languageOrder.length !== 1) {
+		if (before.languageOrder.length !== 1) {
 			throw new LocalizationEndpointNotRepresentableError();
 		}
 		out.push({

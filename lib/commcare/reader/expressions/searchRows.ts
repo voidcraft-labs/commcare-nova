@@ -26,16 +26,18 @@ import {
 	type XPathQueryClause,
 	xpathQueryRequestValues,
 } from "../../suite/case-search/xpathQuery";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { sameSyntax } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import {
 	readSearchFilterRow,
 	type SearchRowEnv,
 	type SearchRowReading,
 	searchRowLevel,
 } from "./csqlRead";
+import { expressionSurfaceUses, type SurfaceUse } from "./surfaceUses";
 
 function parsed(text: string): FormSyntax | undefined {
 	try {
@@ -235,20 +237,34 @@ function splitRun(
 	return undefined;
 }
 
-/** A row read on its own, for the search reader to place: its top-level conjuncts, each a predicate. */
+/** A row read on its own, for the search reader to place: its top-level conjuncts, each a predicate,
+ *  and, held or not, the uses its CSQL makes (each operator, function, metadata name and unit, and
+ *  the presence gate), each with the entry whose value class takes it, for the caller to claim at
+ *  the row. A row the grammar cannot read makes no use. */
 export function readSearchRowConjuncts(
 	text: string,
 	context: ExpressionContext,
 	env: SearchRowEnv,
-):
+): (
 	| {
 			readonly ok: true;
 			readonly conjuncts: readonly Expression[];
 			readonly rewrites: readonly EmissionRewriteId[];
 	  }
-	| Extract<SearchRowReading, { ok: false }> {
+	| Extract<SearchRowReading, { ok: false }>
+) & { readonly uses: readonly SurfaceUse[] } {
 	const reading = readSearchFilterRow(text, context, env);
-	if (!reading.ok) return reading;
+	const source = parsed(text);
+	const uses =
+		source === undefined
+			? []
+			: expressionSurfaceUses(
+					source,
+					reading.ok ? reading.predicate : undefined,
+					context,
+					{ target: "search-row" },
+				);
+	if (!reading.ok) return { ...reading, uses };
 	return {
 		ok: true,
 		conjuncts:
@@ -256,5 +272,6 @@ export function readSearchRowConjuncts(
 				? reading.predicate.clauses
 				: [reading.predicate],
 		rewrites: reading.rewrites,
+		uses,
 	};
 }

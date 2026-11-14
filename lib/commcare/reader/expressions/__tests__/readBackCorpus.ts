@@ -191,7 +191,11 @@ function asNamed(
 		const uuid = node.userPropertyUuid as Uuid;
 		const minted = read.userProperties?.[uuid];
 		if (minted !== undefined && doc.userProperties?.[uuid] === undefined)
-			return { kind: "session-user", field: minted.slug };
+			return {
+				kind: "session-user",
+				field: minted.slug,
+				...(node.source === undefined ? {} : { source: node.source }),
+			};
 	}
 	return Object.fromEntries(
 		Object.entries(node).map(([key, item]) => [key, asNamed(item, read, doc)]),

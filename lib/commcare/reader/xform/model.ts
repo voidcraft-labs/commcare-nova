@@ -14,9 +14,9 @@ import {
 	splitName,
 	VELLUM_NS,
 } from "../../xmlNamespaces";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
-import type { Accounting } from "../accounting";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import type { Claim } from "../claims";
+import { readFormSyntax } from "../syntaxRead";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ParsedXForm } from "./parse";
@@ -111,11 +111,7 @@ export type NodePathRead =
 
 /** The text's steps, `/` first for an absolute path; undefined where the text is no chain of
  *  name steps, `.` and `..`, with at most one final attribute step. */
-export function pathSteps(
-	text: string,
-	accounting?: Accounting,
-): readonly string[] | undefined {
-	accounting?.noteSyntaxRead();
+export function pathSteps(text: string): readonly string[] | undefined {
 	const read = readFormSyntax(text);
 	if (!read.ok || read.node === undefined) return undefined;
 	const steps: string[] = [];
@@ -164,9 +160,8 @@ export function readNodePath(
 	text: string,
 	tree: DataTree,
 	base: DataNode | null,
-	accounting?: Accounting,
 ): NodePathRead {
-	const steps = pathSteps(text, accounting);
+	const steps = pathSteps(text);
 	if (steps === undefined) return { kind: "not-a-path" };
 	let at: DataNode | null = base;
 	let rest = steps;
@@ -353,7 +348,6 @@ export function readBinds(
 	parsed: ParsedXForm,
 	tree: DataTree,
 	cursor: XmlCursor,
-	accounting: Accounting,
 	formPlace: HqPlace,
 	ownsAttribute: (node: DataNode) => boolean,
 ): ReadBinds {
@@ -362,7 +356,7 @@ export function readBinds(
 	for (const element of parsed.binds) {
 		const path = bindPath(element);
 		if (path === undefined) continue;
-		const read = readNodePath(path.text, tree, null, accounting);
+		const read = readNodePath(path.text, tree, null);
 		if (read.kind === "not-a-path") continue;
 		if (read.kind === "none") {
 			cursor.dropSubtree(element, X.bindNoNode);
@@ -429,12 +423,10 @@ type BindFactsLogicKey = keyof BindFacts["logic"];
 export function readSetvalues(
 	parsed: ParsedXForm,
 	tree: DataTree,
-	accounting: Accounting,
 ): readonly SetvalueFacts[] {
 	return parsed.setvalues.map((element) => {
 		const ref = plainAttribute(element, "ref");
-		const read =
-			ref === undefined ? undefined : readNodePath(ref, tree, null, accounting);
+		const read = ref === undefined ? undefined : readNodePath(ref, tree, null);
 		return {
 			element,
 			event: plainAttribute(element, "event") ?? "",

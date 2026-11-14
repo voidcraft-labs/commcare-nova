@@ -28,7 +28,9 @@ import type {
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	and,
+	dateLiteral,
 	eq,
+	gt,
 	input,
 	literal,
 	neq,
@@ -461,6 +463,56 @@ describe("the kinds of the conjuncts of `_xpath_query`", () => {
 			).toBe(dataType);
 		});
 
+	// No writer types `seen`: the catalog's own declaration does, and the reading declares it again
+	// before the rows bind.
+	for (const [type, dataType] of [
+		["date", "date"],
+		["date", "datetime"],
+		["date-range", "date"],
+	] as const)
+		it(`reads a ${type} field over a property only the catalog declares ${dataType}`, async () => {
+			const field = {
+				uuid: BORN,
+				name: "seen",
+				label: "Seen",
+				kind: "simple",
+				type,
+				property: "seen",
+				...(type === "date-range" && { mode: { kind: "range" } }),
+			} as SearchInputDef;
+			// A date range field is HQ's own match and writes no row: a list filter that orders the
+			// property against a day reads it instead, restated by the search.
+			const filter =
+				type === "date-range"
+					? gt(prop("patient", "seen"), dateLiteral("2026-01-01"))
+					: undefined;
+			const reading = await readLists(
+				typed(
+					patients([plainColumn(uuid(1), "case_name", "Name")], {
+						searchInputs: [field],
+						search: {},
+						...(filter !== undefined && { list: { filter } }),
+					}),
+					{ seen: dataType },
+				),
+			);
+			expect(codes(reading)).toEqual([]);
+			expect(authored(placements(), reading, [field])).toEqual([
+				type === "date-range"
+					? { kind: "B", clause: 0 }
+					: { kind: "C", input: BORN, property: "seen" },
+			]);
+			expect(authored(listOf(reading).searchInputs, reading, [field])).toEqual([
+				field,
+			]);
+			expect(listOf(reading).filter).toEqual(filter);
+			expect(
+				effectiveCaseTypes(reading.ctx.doc as BlueprintDoc)
+					.find((one) => one.name === "patient")
+					?.properties.find((one) => one.name === "seen")?.data_type,
+			).toBe(dataType);
+		});
+
 	it("raises a conjunct that reads a bare prompt outside its guard", async () => {
 		// Nova never writes it (`composeXPathQueryEmission` refuses a read outside its guard); a
 		// person can, in a row of their own.
@@ -540,6 +592,40 @@ describe("a menu whose forms do not read the search", () => {
 			entry:
 				"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		});
+	});
+
+	it("claims each use a row's CSQL makes, held or refused, under the entry whose value class takes it", async () => {
+		const typedRightSide =
+			"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v";
+		const dateOnly =
+			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified";
+		const reading = await readLists(oneOfEach(), {
+			edit: (app) => {
+				const rows = rowsOf(app);
+				const first = rows[0];
+				if (first !== undefined)
+					rows.push({
+						...first,
+						defaultValue: `"date_opened > '2024-01-01'"`,
+					});
+			},
+		});
+		expect(codes(reading)).toContain(dateOnly);
+		const uses = [...reading.ctx.close().claims.records()].flatMap((record) =>
+			record.key?.startsWith("csql-") === true
+				? [{ key: record.key, entry: record.entry }]
+				: [],
+		);
+		expect(uses).toEqual(
+			expect.arrayContaining([
+				// The held rows' `notes = 'open'` and `notes != …`.
+				{ key: "csql-op:=", entry: typedRightSide },
+				{ key: "csql-op:!=", entry: typedRightSide },
+				// The refused row's comparison and the system date it reads.
+				{ key: "csql-op:>", entry: typedRightSide },
+				{ key: "csql-metadata:date_opened", entry: dateOnly },
+			]),
+		);
 	});
 });
 

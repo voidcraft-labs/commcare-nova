@@ -37,7 +37,7 @@ import {
 	splitName,
 	VELLUM_NS,
 } from "../../xmlNamespaces";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { InstanceSink } from "../../xpath/wire/instances";
 import {
@@ -55,6 +55,7 @@ import {
 	take,
 } from "../claims";
 import { sameSyntax, sameXPathText } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import type { ReaderInput } from "../types";
 import type { XmlCursor } from "../xmlCursor";
 import type { ControlNode } from "./body";

@@ -23,11 +23,11 @@ import {
 	splitName,
 	VELLUM_NS,
 } from "../../xmlNamespaces";
-import { readFormSyntax } from "../../xpath/formSyntax";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { Accounting } from "../accounting";
 import type { Claim } from "../claims";
 import { sameXPathText } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import type { XmlCursor } from "../xmlCursor";
 import type { ControlNode } from "./body";
 import { X } from "./claims";
@@ -367,7 +367,7 @@ export function readRepeat(
 		return { kind: "user_controlled", node };
 	}
 	const text = repeat.element.attribs[count] ?? "";
-	const read = readNodePath(text, tree, node.parent, input.accounting);
+	const read = readNodePath(text, tree, node.parent);
 	if (read.kind === "not-a-path")
 		return refuseAll(
 			secondaryInstancePath(text) ? X.countNamingNoNode : X.countNotAPath,
@@ -561,11 +561,13 @@ export function modelIterationVerdict(
 	if (form === undefined) return { kind: "held" };
 	const needs = queryRepeatPlacementNeeds(form, repeatUuid);
 	if (needs.length === 0) return { kind: "held" };
-	/** A question with a control and no default, which is blank when the form loads. */
+	/** An answer certainly blank where the setvalues run: a node whose only load-time value is set
+	 *  after the wrapper's `@ids`, whatever its kind, or a question with a control and no default. */
 	const blankAtLoad = (uuid: Uuid): boolean => {
 		const field = doc.fields[uuid];
 		if (field === undefined) return false;
-		if (field.kind === "hidden") return setAfterIds(uuid);
+		if (setAfterIds(uuid)) return true;
+		if (field.kind === "hidden") return false;
 		return (
 			field.kind !== "group" &&
 			field.kind !== "repeat" &&

@@ -696,6 +696,72 @@ describe("a record slot read by the whole expression stage", () => {
 		}
 	});
 
+	it("reads Nova's presence tests of subcases and of every relation of an index back", () => {
+		// A household list, whose patients are its subcases.
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "village", label: "Village" }],
+				},
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [{ name: "age", label: "Age", data_type: "int" }],
+				},
+			],
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					caseListConfig: { columns: [], searchInputs: [] },
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+						},
+					],
+				},
+			],
+		});
+		const ref = {
+			entity: "module",
+			uuid: moduleOf(doc),
+			slot: "case_list_filter",
+		} as const;
+		const adult: Expression = {
+			kind: "gte",
+			left: {
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "age" },
+			},
+			right: { kind: "term", term: { kind: "literal", value: 18 } },
+		};
+		const subcases = {
+			kind: "subcase",
+			identifier: "parent",
+			ofCaseType: "patient",
+		} as const;
+		const everyLink = {
+			kind: "any-relation",
+			identifier: "link",
+			ofCaseType: "patient",
+		} as const;
+		for (const tree of [
+			{ kind: "exists", via: subcases },
+			{ kind: "exists", via: subcases, where: adult },
+			{ kind: "missing", via: subcases, where: adult },
+			{ kind: "exists", via: everyLink },
+			{ kind: "missing", via: everyLink, where: adult },
+		] as const satisfies readonly Expression[]) {
+			const read = readBackOf(doc, ref, tree);
+			expect(read.circumstances, JSON.stringify(tree)).toEqual([]);
+			expect(read.claims, JSON.stringify(tree)).toEqual([]);
+			expect(read.tree).toEqual(tree);
+		}
+	});
+
 	it("folds numbers into an in and a switch as it folds text", () => {
 		const doc = patientsDoc();
 		const filter = {

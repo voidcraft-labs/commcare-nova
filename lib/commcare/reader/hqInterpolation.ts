@@ -18,7 +18,8 @@ import {
 } from "../formLinkProjection";
 import type { HqInterpolation } from "../hqJson/xpath";
 import { sessionDatumRequiresSelection } from "../session";
-import { type FormSyntax, readFormSyntax } from "../xpath/formSyntax";
+import type { FormSyntax } from "../xpath/formSyntax";
+import { readFormSyntax } from "./syntaxRead";
 
 export interface HqInterpolationSlot {
 	/** HQ's `case_xpath`; absent where HQ passes none. */

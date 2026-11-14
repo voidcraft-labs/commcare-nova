@@ -94,15 +94,14 @@ describe("the order rules of generated case lists", () => {
 		// Each run is one expansion and one reading through the stages; 25 runs took a few seconds.
 		timeout: 60_000,
 	}, async () => {
-		// A document the reader cannot hold whole reads to an account, whose list is no reading of
-		// the source; the property holds over every document it reads.
+		// Every document Nova writes reads back whole: no finding stands on any of them.
 		let compared = 0;
 		await fc.assert(
 			fc.asyncProperty(
 				suiteDocArbitrary.filter(hasSort),
 				async (doc: BlueprintDoc) => {
 					const reading = await readLists(doc, { media: true });
-					if (reading.findings.length > 0) return;
+					expect(codes(reading)).toEqual([]);
 					doc.moduleOrder.forEach((moduleUuid, menu) => {
 						// A menu with no case list of its own is written with HQ's one Name column.
 						const config = doc.modules[moduleUuid]?.caseListConfig;

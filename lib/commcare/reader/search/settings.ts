@@ -16,11 +16,7 @@ import {
 import { projectCaseListForHq } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { normalizeSpace } from "../../suite/wire";
-import {
-	type FormSyntax,
-	formSyntaxKey,
-	readFormSyntax,
-} from "../../xpath/formSyntax";
+import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
@@ -28,10 +24,12 @@ import { appCodes, firstText, languageMap } from "../caseList/columns";
 import { sameState } from "../caseList/details";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { readerDefect } from "../defects";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { readProjectionInputs } from "../projectionInputs";
 import { sameXPathText } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import type { PromptReading } from "./prompts";
 import { searchPlace } from "./workflow";
 
@@ -204,6 +202,9 @@ function instanceClash(
 
 /** HQ's model default for the search button's text. */
 const BUTTON_DEFAULT = "Search All Cases";
+
+/** A candidate whose projection threw, which no difference names. */
+const EMITTER_THREW = "emitter-threw";
 
 function parse(text: string): FormSyntax | undefined {
 	const read = readFormSyntax(text);
@@ -731,7 +732,7 @@ export function settleSearchSettings(
 		try {
 			difference = searchDifference(ctx, doc, mod, cursor);
 		} catch {
-			difference = "projectCaseListForHq";
+			difference = EMITTER_THREW;
 		}
 		if (difference === undefined) {
 			ctx.doc = doc;
@@ -748,6 +749,12 @@ export function settleSearchSettings(
 		);
 		return;
 	}
-	if (first !== undefined && !ctx.accounting.hasFindingAt(place))
+	if (first === EMITTER_THREW)
+		ctx.accounting.defect(
+			place,
+			"schema:Module.search_config",
+			readerDefect.emissionThrew(place, "projectCaseListForHq"),
+		);
+	else if (first !== undefined && !ctx.accounting.hasFindingAt(place))
 		ctx.accounting.circumstance("unrecognized", place, { name: first });
 }

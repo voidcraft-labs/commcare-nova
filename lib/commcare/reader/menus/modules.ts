@@ -24,6 +24,7 @@ import {
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import type { HqPlace } from "@/lib/publish/hqFindings";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import {
@@ -526,6 +527,16 @@ export function effectiveNames(
 	);
 }
 
+/** Where a finding about a menu's case list stands: its case list menu item
+ *  and the registration its list offers among them. */
+export function caseListPlaceOf(module: DraftModule): HqPlace {
+	return {
+		kind: "case-list",
+		menu: module.index,
+		name: module.place.kind === "menu" ? module.place.name : "",
+	};
+}
+
 /** HQ's `module_offers_search`: a search with a field or a default filter. */
 export function offersSearch(module: JsonObject): boolean {
 	const config = isJsonObject(module.search_config) ? module.search_config : {};
@@ -868,7 +879,12 @@ function readCaseListMenuItem(
 			: formless
 				? [MENU.caseListFormless, MENU.caseListFormlessShow]
 				: [MENU.caseListWithForms, MENU.caseListWithFormsShow];
-	const cursor = json.object("case_list", "CaseList", container);
+	const cursor = json.object(
+		"case_list",
+		"CaseList",
+		container,
+		caseListPlaceOf(module),
+	);
 	cursor.take("show", show, (value) => value).value;
 	const langs = appLanguageCodes(ctx);
 	const stored_ = labelMap(caseList.label);
@@ -898,7 +914,7 @@ function readCaseListMenuItem(
 		ctx,
 		cursor,
 		{ image: "case_list_icon", audio: "case_list_audio_label" },
-		module.place,
+		cursor.place,
 	);
 	readingOf(ctx).caseLists.add(module);
 	ctx.writeDraft(() => {

@@ -16,7 +16,6 @@ import {
 } from "@/lib/domain";
 import {
 	identityIssues,
-	languageCodeVerdict,
 	regionChoices,
 	scriptChoices,
 } from "@/lib/domain/languageRegistry";
@@ -28,7 +27,11 @@ import {
 	type ManifestFinding,
 	type Subject,
 } from "@/lib/publish/hqFindings";
-import { mintLanguageWireCode } from "../languageWire";
+import {
+	languagesOfWireBase,
+	lawfulLanguageIdentities,
+	mintLanguageWireCode,
+} from "../languageWire";
 import { inventoryIndex } from "../surface/inventory";
 import { type Claim, defineClaims, refuse, take } from "./claims";
 import type { ReadContext } from "./context";
@@ -66,27 +69,6 @@ export interface HqLanguages {
 	readonly first: string | undefined;
 }
 
-/**
- * The languages a base names, the one it reads as first: an individual
- * living language, a Set 1 alias's language, or a macrolanguage's members,
- * the predominant member first as the registry lists them. Empty where it
- * names no living language.
- */
-function baseLanguages(base: string): readonly string[] {
-	const verdict = languageCodeVerdict(base);
-	switch (verdict.kind) {
-		case "individual-living":
-			return [base];
-		case "set1-alias":
-			return verdict.resolved === undefined ? [] : [verdict.resolved];
-		case "macrolanguage":
-			return (verdict.members ?? []).map((member) => member.code);
-		case "non-living":
-		case "unknown":
-			return [];
-	}
-}
-
 /** A two-letter suffix as the region it spells, where the language offers it. */
 function regionOf(
 	language: string,
@@ -111,30 +93,6 @@ function scriptOf(language: string, letters: string): string | undefined {
 		: undefined;
 }
 
-/** Every lawful identity of a language: bare, by each script it is written in, by each region. */
-function identitiesOf(language: string): readonly AppLanguageIdentity[] {
-	const scripts = [
-		undefined,
-		...scriptChoices(language).map((choice) => choice.script),
-	];
-	const identities: AppLanguageIdentity[] = [];
-	for (const script of scripts) {
-		const regions = [
-			undefined,
-			...regionChoices(language, script).map((choice) => choice.region),
-		];
-		for (const region of regions) {
-			const identity: AppLanguageIdentity = {
-				language,
-				...(script === undefined ? {} : { script }),
-				...(region === undefined ? {} : { region }),
-			};
-			if (identityIssues(identity).length === 0) identities.push(identity);
-		}
-	}
-	return identities;
-}
-
 /**
  * The identity an HQ language code names, or undefined where Nova's registry
  * names none. The code splits at its first hyphen into a base and a suffix.
@@ -154,8 +112,9 @@ function identitiesOf(language: string): readonly AppLanguageIdentity[] {
  * There `displayName`, the name the app holds for the code in its first
  * language's strings, chooses: the one identity Nova writes the code for (or,
  * where it writes it for none, the one the base names) whose name Nova gives
- * is that name. Nova writes every language's name there on each publish, so
- * an app Nova published reads back to the identities it held. Where no
+ * is that name. Nova writes every language's name there on each publish, and
+ * writes a code with no suffix for at most one identity of each name, so an
+ * app Nova published reads back to the identities it held. Where no
  * identity's name is that one, the code names the language alone.
  */
 export function languageIdentityForHqCode(
@@ -165,8 +124,8 @@ export function languageIdentityForHqCode(
 	const hyphen = code.indexOf("-");
 	const base = hyphen < 0 ? code : code.slice(0, hyphen);
 	const suffix = hyphen < 0 ? "" : code.slice(hyphen + 1);
-	const languages = baseLanguages(base);
-	const candidates = languages.flatMap(identitiesOf);
+	const languages = languagesOfWireBase(base);
+	const candidates = languages.flatMap(lawfulLanguageIdentities);
 	/* The identities Nova itself writes this code for while no other language
 	 * holds it: the production minter, asked of each. */
 	const spelled = candidates.filter(

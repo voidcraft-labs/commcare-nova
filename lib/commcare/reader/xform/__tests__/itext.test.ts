@@ -425,6 +425,79 @@ describe("labels written inline and choices that show nothing", () => {
 	});
 });
 
+describe("a validation message an alert holds", () => {
+	/** A text question `q` validated as non-blank, its bind's message `message`, its alert `alert`. */
+	function validated(options: {
+		readonly constraint?: boolean;
+		readonly message?: string;
+		readonly alert: string;
+	}) {
+		const constraint =
+			options.constraint === false ? "" : ` constraint=". != ''"`;
+		const message =
+			options.message === undefined
+				? ""
+				: ` jr:constraintMsg="${options.message}"`;
+		return xformSource({
+			data: "<q/>",
+			model: `<bind nodeset="/data/q" type="xsd:string"${constraint}${message}/>${itext(
+				{
+					en: `<text id="q"><value>Q</value></text><text id="m"><value>Say something</value></text>`,
+				},
+			)}`,
+			body: `<input ref="/data/q"><label ref="jr:itext('q')"/>${options.alert}</input>`,
+		});
+	}
+
+	/** The `unrecognized` names of the question's alert: the stage under test claims nothing
+	 *  else of the question's logic, which the expression stage claims. */
+	function alertUnclaimed(reading: FormReading): string[] {
+		return unrecognizedAt(reading, "q").filter((name) =>
+			name.includes("alert"),
+		);
+	}
+
+	it("reads an alert's itext reference as the message", async () => {
+		const reading = await readForm(
+			validated({ alert: `<alert ref="jr:itext('m')"/>` }),
+		);
+		expect(field(reading, "q").validate_msg).toEqual(
+			proseText("Say something"),
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(alertUnclaimed(reading)).toEqual([]);
+	});
+
+	it("leaves an alert written inline for the close, and reads no message from it", async () => {
+		const reading = await readForm(
+			validated({ alert: "<alert>Not blank, please</alert>" }),
+		);
+		expect(field(reading, "q").validate_msg).toBeUndefined();
+		expect(alertUnclaimed(reading)).toEqual(["xform:alert"]);
+	});
+
+	it("leaves an alert written inline for the close beside the bind's message", async () => {
+		const reading = await readForm(
+			validated({
+				message: "jr:itext('m')",
+				alert: "<alert>Not blank, please</alert>",
+			}),
+		);
+		expect(alertUnclaimed(reading)).toEqual(["xform:alert"]);
+	});
+
+	it("refuses an alert's message on a bind with no condition", async () => {
+		const reading = await readForm(
+			validated({ constraint: false, alert: `<alert ref="jr:itext('m')"/>` }),
+		);
+		expect(codes(reading)).toEqual([
+			Q("validation-message-without-a-validation-condition"),
+		]);
+		expect(field(reading, "q").validate_msg).toBeUndefined();
+		expect(alertUnclaimed(reading)).toEqual([]);
+	});
+});
+
 describe("texts read only by an expression", () => {
 	it("refuses a text a repeat's count or an itemset reads through jr:itext, and drops one nothing reads", async () => {
 		const reading = await readForm(

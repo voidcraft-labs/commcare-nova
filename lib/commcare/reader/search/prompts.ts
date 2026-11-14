@@ -21,7 +21,7 @@ import {
 } from "@/lib/domain/modules";
 import { SEARCH_RUNTIME_VALIDATION_MESSAGES } from "@/lib/domain/searchRuntimeValidationMessages";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { applicationReading } from "../appShell";
 import { appCodes, firstText, languageMap } from "../caseList/columns";
 import {
@@ -36,6 +36,7 @@ import type { DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
+import { readFormSyntax } from "../syntaxRead";
 import { searchPlace } from "./workflow";
 
 const S = "case-search/";

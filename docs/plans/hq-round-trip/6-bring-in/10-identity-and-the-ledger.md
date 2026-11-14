@@ -747,6 +747,19 @@ rule.
   `uuid: syntheticModuleUuid(formUuid)`, so the publish writes HQ's id for the hidden menu it emits.
 - Rows are sorted by kind, then UUID. The table's two unique indexes hold what the reader has already
   held: one `unique_id` per kind and one `xmlns` per deployment.
+- **A keyed create's id prefix.** A create keyed by an answer writes its id under
+  `nova-case-v1:<UUIDv5(app, form, operation, type)>:` (`lib/domain/caseOperationIdentity.ts`), and
+  the reading mints its own app, form and operation UUIDs, so the document's derivation gives
+  another prefix than the one the project space's cases stand under. `read.keyedCreates` (part 07,
+  2.4) holds each one the document keeps, with the source's prefix and case type. The adoption
+  records one row per entry in `app_deployment_keyed_case_ids` (`deployment_id`,
+  `nova_operation_uuid`, `case_type`, `case_id_prefix`; primary key the first two; inserted and
+  deleted with the identity rows, 3.2, never updated). A publish to the adopted deployment passes
+  `ExpandOptions.keyedCaseIdPrefixes` from the rows whose `case_type` is still the operation's, so
+  a key a worker enters again after the first publish reaches the case it reached before; an
+  operation whose type was changed, every operation made in Nova and every other project space take
+  the derivation, as an id with no identity row does. Without the rows the first publish would
+  change which case such a key reaches, which no first-publish register entry declares.
 
 Real form ids exist nowhere but HQ's application resource (`ApplicationResource.dehydrate_module`
 returns `form.unique_id`; `Application.scrub_source` re-mints it in every source read), which needs

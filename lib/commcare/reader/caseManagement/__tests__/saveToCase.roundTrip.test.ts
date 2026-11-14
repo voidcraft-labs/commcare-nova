@@ -15,28 +15,40 @@
  * wrapper read as part of the value (the emitter would then wrap it twice
  * and every Nova-born block would fail its re-emission), a keyed create's
  * id compared under the reading's own prefix rather than the source's, so
- * that every Nova-born keyed create reads as outside Nova's shape, and an
+ * that every Nova-born keyed create reads as outside Nova's shape, the
+ * source's prefix not handed out with its operation in
+ * `draft.identities.keyedCreates` (a publish would then file a key a worker
+ * enters again under a new case), and an
  * app Nova published before refused, or brought in with no word of what its
  * first publish changes.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import {
+	authoredCaseIdPrefix,
+	type BlueprintDoc,
+	type CaseOperation,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	actingUser,
+	datetimeLiteral,
 	eq,
 	formField,
 	literal,
 	now,
 	or,
+	prop,
 	term,
 	unowned,
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { saveToCaseShapesApp } from "../../../../../proof/targeted/documents/saveToCaseShapes";
+import { caseOperationFixture } from "../../../__tests__/caseOperationFixture";
 import { planPlacements } from "../../../placement";
 import { serializeXml } from "../../../serializeXml";
+import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import {
 	saveToCaseBlockShape,
 	writtenSaveToCaseBlocks,
@@ -47,12 +59,70 @@ import { w } from "../../../xpath/wire/builders";
 import { typedInstantValue } from "../../../xpath/wire/instant";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { READER_CANONICAL_CHOICES } from "../../assemble";
+import { matchingResolver } from "../../identity";
+import { externalIdentityMap } from "../../identityMap";
 import { readHqApp } from "../../index";
 import { sameXPathText } from "../../syntaxCompare";
 import { saveToCaseReading } from "../saveToCase";
 import { type CaseReading, readCases } from "./caseReading";
 
 const OUTSIDE = "questions/savetocase-block-outside-nova-s-own-block-shape";
+
+/** Each form's case changes by what they are, the expression trees aside
+ *  (the expression stage's own tests hold those): the form's type and the
+ *  place of its own close, and each operation's identity, action, case type,
+ *  target, placement, written properties, links and which slots it holds. */
+function caseChanges(doc: BlueprintDoc) {
+	return Object.fromEntries(
+		Object.values(doc.forms).map((form) => [
+			form.name,
+			{
+				type: form.type,
+				ownClosePlacement: form.ownClosePlacement,
+				operations: (form.caseOperations ?? []).map((operation) => {
+					const one = operation as CaseOperation & {
+						readonly caseType?: string;
+						readonly target?: { readonly kind: string; idFrom?: Uuid };
+						readonly links?: readonly {
+							readonly identifier: string;
+							readonly target: { readonly kind: string } | null;
+						}[];
+						readonly condition?: unknown;
+						readonly name?: unknown;
+						readonly owner?: { readonly kind: string };
+						readonly rename?: unknown;
+						readonly retype?: string;
+						readonly forEach?: unknown;
+					};
+					return {
+						uuid: one.uuid,
+						id: one.id,
+						action: one.action,
+						caseType: one.caseType,
+						target: one.target?.kind,
+						idFrom: one.target?.idFrom,
+						placement: one.placement,
+						writes: (one.writes ?? []).map((write) => ({
+							property: write.property,
+							condition: write.condition !== undefined,
+						})),
+						links: (one.links ?? []).map((link) => ({
+							identifier: link.identifier,
+							target: link.target?.kind ?? null,
+						})),
+						condition: one.condition !== undefined,
+						name: one.name !== undefined,
+						owner: one.owner?.kind,
+						rename: one.rename !== undefined,
+						retype: one.retype,
+						forEach: one.forEach,
+					};
+				}),
+			},
+		]),
+	);
+}
 
 /** Every text registered for the expression stage, by slot and member. */
 function registered(
@@ -131,6 +201,61 @@ describe("every Save to Case shape Nova's emitter writes", () => {
 					);
 		}
 	});
+
+	it("reads the whole app back to its own case changes, with no finding: the several-case form, the row block and the keyed create among them", async () => {
+		const doc = saveToCaseShapesApp();
+		const outcome = readHqApp(
+			await inputFor(exportedBody(doc), {
+				resolver: matchingResolver(
+					"app-1",
+					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+				),
+			}),
+		);
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const want = READER_CANONICAL_CHOICES.reduce(
+			(current, choice) => choice.apply(current),
+			doc,
+		);
+		expect(caseChanges(outcome.draft.doc)).toEqual(caseChanges(want));
+	});
+
+	it.each([
+		// An earlier create's id read through `current()` at the root and in a repeat.
+		"sequence",
+		"repeat",
+		"query",
+		// A consumer of a conditional create, and of a conditional retype of the
+		// session's case and of a case an expression names: the emitter leads each
+		// consumer's condition with the producer's, which is read off again.
+		"conditional",
+		"retype",
+		"expression-retype",
+		// A keyed create in its own one-row repeat, and directly in a repeat's row.
+		"key",
+		"key-query",
+	] as const)(
+		"reads the %s case changes back whole, with no finding",
+		async (scenario) => {
+			const doc = caseOperationFixture(scenario);
+			const outcome = readHqApp(
+				await inputFor(exportedBody(doc), {
+					resolver: matchingResolver(
+						"app-1",
+						externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+					),
+				}),
+			);
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			if (outcome.kind !== "read") throw new Error("The export did not read.");
+			const want = READER_CANONICAL_CHOICES.reduce(
+				(current, choice) => choice.apply(current),
+				doc,
+			);
+			expect(caseChanges(outcome.draft.doc)).toEqual(caseChanges(want));
+		},
+	);
 
 	it("registers each value inside the emitter's trim, and reads an owner of the acting user as absent first", async () => {
 		const doc = saveToCaseShapesApp();
@@ -239,7 +364,137 @@ function withRowCalculate(property: string, calculate: string) {
 	};
 }
 
+const WHEN = testUuid("stc-when");
+
+/** A follow-up whose blocks create patients, with a text and a date-and-time
+ *  question, and `operations` after its own arm. */
+function stampsApp(operations: CaseOperation[]): BlueprintDoc {
+	return buildDoc(
+		{
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "visited_at",
+							label: proseText("Visited at"),
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: "stc-stamps",
+							name: "Stamps",
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "seen", uuid: SEEN }),
+								f({ kind: "datetime", id: "when", uuid: WHEN }),
+							],
+						},
+					],
+				},
+			],
+		},
+		(built) => {
+			const uuid = testUuid("stc-stamps");
+			const form = built.forms[uuid];
+			built.forms[uuid] = {
+				...form,
+				caseOperations: [...(form?.caseOperations ?? []), ...operations],
+			} as never;
+		},
+	);
+}
+
+/** A create of a patient named by the text question, with `writes`. */
+function stampedCreate(
+	id: string,
+	writes: CaseOperation["writes"],
+): CaseOperation {
+	return {
+		uuid: testUuid(`stc-${id}`),
+		id,
+		action: "create",
+		caseType: "patient",
+		target: { kind: "new" },
+		name: term(formField(SEEN)),
+		writes,
+	} as CaseOperation;
+}
+
 describe("a value read through its wrapper", () => {
+	it("reads a date-and-time write of a question's answer, of a case's stored text, of the clock and of a literal, and an external id inside its trim, back to the authored value", async () => {
+		const doc = stampsApp([
+			stampedCreate("from_answer", [
+				{ property: "visited_at", value: term(formField(WHEN)) },
+			]),
+			stampedCreate("from_stored", [
+				{ property: "visited_at", value: term(prop("patient", "visited_at")) },
+			]),
+			stampedCreate("from_clock", [{ property: "visited_at", value: now() }]),
+			stampedCreate("with_external_id", [
+				{ property: "external_id", value: term(formField(SEEN)) },
+			]),
+		]);
+		// Re-emission holds each block whole: a wrapper read as part of the
+		// value would be written around it twice.
+		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		// The clock's node is the write's own, never a question of the reading.
+		expect(
+			Object.values(outcome.draft.doc.fields).filter((field) =>
+				field.id.startsWith("nova_instant_"),
+			),
+		).toEqual([]);
+		// What the expression stage binds is the authored value alone.
+		const reading = await readCases(doc);
+		const values = registered(reading).filter(
+			(one) => one.slot === "case_operation_write_value",
+		);
+		const writtenValue = (operationId: string) => {
+			const operation = reading.forms
+				.flatMap((form) => form.form.caseOperations ?? [])
+				.find((one) => one.id === operationId);
+			return values.find(
+				(one) =>
+					(one.member as { operationUuid?: Uuid } | undefined)
+						?.operationUuid === operation?.uuid,
+			)?.text;
+		};
+		const same = (text: string | undefined, want: string) =>
+			text !== undefined && sameXPathText(text, want, { ruleSet: "form" });
+		expect(same(writtenValue("from_answer"), "/data/when")).toBe(true);
+		expect(same(writtenValue("from_clock"), "now()")).toBe(true);
+		expect(same(writtenValue("with_external_id"), "/data/seen")).toBe(true);
+		const storedTree = readFormSyntax(writtenValue("from_stored") ?? "");
+		expect(storedTree.ok && storedTree.node?.kind !== "call").toBe(true);
+		// A literal is written in CommCare HQ's spelling, and read as that
+		// literal, with no wrapper around it.
+		const literal = await readCases(
+			stampsApp([
+				stampedCreate("from_literal", [
+					{
+						property: "visited_at",
+						value: term(datetimeLiteral("2026-03-04T05:06:07Z")),
+					},
+				]),
+			]),
+		);
+		const literalText = registered(literal).find(
+			(one) => one.slot === "case_operation_write_value",
+		)?.text;
+		const literalTree = readFormSyntax(literalText ?? "");
+		expect(literalTree.ok && literalTree.node?.kind).toBe("string");
+		expect(literal.findings.map((one) => one.code)).not.toContain(OUTSIDE);
+	});
+
 	it("reads a date and time saved as CommCare HQ stores it back to the clock it reads, and records nothing", async () => {
 		const reading = await readCases(visitApp([ownVisited]));
 		const value = registered(reading).find(
@@ -335,16 +590,42 @@ describe("a value read through its wrapper", () => {
 			target: { kind: "new", idFrom: SEEN },
 			name: term(formField(SEEN)),
 		};
-		const outcome = readHqApp(await inputFor(exportedBody(visitApp([keyed]))));
+		const source = visitApp([keyed]);
+		const outcome = readHqApp(await inputFor(exportedBody(source)));
 		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
 		if (outcome.kind !== "read") throw new Error("The export did not read.");
 		const doc = outcome.draft.doc;
 		const seen = Object.values(doc.fields).find((field) => field.id === "seen");
-		const create = Object.values(doc.forms)
-			.flatMap((form) => form.caseOperations ?? [])
-			.find((operation) => operation.action === "create");
+		const [formUuid, form] = Object.entries(doc.forms).find(([, one]) =>
+			(one.caseOperations ?? []).some((op) => op.action === "create"),
+		) ?? [undefined, undefined];
+		const create = form?.caseOperations?.find((op) => op.action === "create");
 		expect(create?.target).toEqual({ kind: "new", idFrom: seen?.uuid });
 		expect(create?.placement).toMatchObject({ kind: "save-to-case" });
+		// The reading's own identities derive another prefix; the one the source's ids stand
+		// under is handed out with the operation it belongs to.
+		const sourcePrefix = authoredCaseIdPrefix({
+			appId: source.appId,
+			formUuid: PATIENT_FORM,
+			operationUuid: keyed.uuid,
+			caseType: "photo",
+		});
+		expect(
+			authoredCaseIdPrefix({
+				appId: doc.appId,
+				formUuid: formUuid as Uuid,
+				operationUuid: create?.uuid as Uuid,
+				caseType: "photo",
+			}),
+		).not.toBe(sourcePrefix);
+		expect(outcome.draft.identities.keyedCreates).toEqual([
+			{
+				operationUuid: create?.uuid,
+				formUuid,
+				caseType: "photo",
+				prefix: sourcePrefix,
+			},
+		]);
 	});
 
 	it("reads an owner of the acting user's id as absent, and of no owner as unowned", async () => {
