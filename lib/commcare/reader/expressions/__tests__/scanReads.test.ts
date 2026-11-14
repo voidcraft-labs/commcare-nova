@@ -104,6 +104,42 @@ describe("the scan of an app's expressions", () => {
 		]);
 	});
 
+	it("declares a property a query of every case reads on the slot's own type, and a case keyed on the own case's id on that case's", () => {
+		const app = doc();
+		const relevant: SlotContextRef = {
+			entity: "field",
+			uuid: fieldNamed(app, "q1"),
+			slot: "relevant",
+		};
+		const scanned = scanReads(
+			[
+				registration(
+					app,
+					relevant,
+					"count(instance('casedb')/casedb/case[tag = 'x']) > 0",
+				),
+				registration(
+					app,
+					relevant,
+					`instance('casedb')/casedb/case[@case_id = ${OWN}/@case_id]/score = 'y'`,
+				),
+				// Typed by a read above, so the query of every case names no
+				// other type.
+				registration(
+					app,
+					relevant,
+					"count(instance('casedb')/casedb/case[score = 'z']) > 0",
+				),
+			],
+			app,
+			readEnv(),
+		);
+		expect(scanned.caseProperties).toEqual([
+			{ caseType: "patient", property: "score" },
+			{ caseType: "patient", property: "tag" },
+		]);
+	});
+
 	it("collects place property slugs and table tags", () => {
 		const app = doc();
 		const form = onlyForm(app);

@@ -6,7 +6,12 @@
  * column back on the list, hidden. The rules are accepted when the plan of
  * the read columns writes the stored elements (`caseList/index.ts`).
  */
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { columnSort, type SortDirection } from "@/lib/domain/modules";
+import { caseListOrderOptions } from "../../suite/case-list/orderPlanOptions";
+import { withCandidate } from "../candidate";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import type { JsonCursor } from "../jsonCursor";
@@ -273,8 +278,26 @@ export function readSortElements(
 					joinText(shortColumns[column.short]) === text
 				);
 			});
-			if (shortIndex !== undefined) {
-				target = shortIndex;
+			// A rule on a shown link over any property but `case_id` is an element over that
+			// property (`caseListOrder.ts`, rule 4, exception i): HQ's build appends the field it
+			// sorts by, and the link keeps the rule.
+			const linked =
+				shortIndex !== undefined
+					? undefined
+					: joined.listOrder.find((index) => {
+							const column = joined.columns[index];
+							const body = column?.proposal.column;
+							const property = HQ_PROPERTY_RENAMES[text] ?? text;
+							return (
+								column?.short !== undefined &&
+								column.visibleInList !== false &&
+								body?.kind === "link" &&
+								body.field === property &&
+								property !== "case_id"
+							);
+						});
+			if (shortIndex !== undefined || linked !== undefined) {
+				target = shortIndex ?? linked;
 				cursor.take("field", O.fieldDisplayed, String).value;
 			} else {
 				sortOnly = true;
@@ -387,4 +410,59 @@ export function readSortElements(
 		}
 	});
 	return { ok, kept, numeric, defaulted: false };
+}
+
+/**
+ * The reader's canonical choice `order-rules-on-the-columns-they-land-on`. HQ joins an order
+ * rule's element to the first field with its text (`caseListOrder.ts`, rule 5), and the reader
+ * reads the element there. A rule the validator admits on another column (a later column over
+ * the same text, or a column hidden from Results over the property a shown field orders by)
+ * orders by the same key (`sortPropertyOwnership.ts`) and prints the element the landing field's
+ * own rule prints, so the document returned holds each rule on the column it lands on. In a tile
+ * list a column hidden from Results that this leaves with no rule is read off the list
+ * (`unsorted-hidden-tile-columns-are-off-the-list`, which follows this choice).
+ */
+export function rulesOnTheColumnsTheyLandOn(doc: BlueprintDoc): BlueprintDoc {
+	const moves: { module: Uuid; from: Uuid; to: Uuid }[] = [];
+	const types = effectiveCaseTypes(doc);
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
+		const config = mod?.caseListConfig;
+		if (
+			mod === undefined ||
+			config === undefined ||
+			!config.columns.some((column) => column.sort !== undefined)
+		)
+			continue;
+		const properties =
+			types.find((type) => type.name === mod.caseType)?.properties ?? [];
+		let plan: ReturnType<typeof caseListOrderPlan>;
+		try {
+			plan = caseListOrderPlan(
+				config,
+				properties,
+				caseListOrderOptions(mod, doc, true),
+			);
+		} catch {
+			continue;
+		}
+		for (const rule of plan.authored) {
+			if (typeof rule.landsOn !== "number") continue;
+			const to = plan.fields[rule.landsOn]?.column;
+			if (to !== undefined && to.uuid !== rule.column)
+				moves.push({ module: moduleUuid, from: rule.column, to: to.uuid });
+		}
+	}
+	if (moves.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const move of moves) {
+			const config = draft.modules[move.module]?.caseListConfig;
+			const from = config?.columns.find((column) => column.uuid === move.from);
+			const to = config?.columns.find((column) => column.uuid === move.to);
+			if (config === undefined || from === undefined || to === undefined)
+				continue;
+			to.sort = from.sort;
+			delete from.sort;
+		}
+	});
 }

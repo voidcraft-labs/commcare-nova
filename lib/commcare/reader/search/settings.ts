@@ -21,7 +21,8 @@ import { w } from "../../xpath/wire/builders";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import { appCodes, firstText, languageMap } from "../caseList/columns";
-import { sameState } from "../caseList/details";
+import { caseListReadings, sameState } from "../caseList/details";
+import { withReadTexts } from "../caseList/readTexts";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
@@ -249,27 +250,76 @@ function isOwnerClause(node: FormSyntax | undefined): boolean {
 	);
 }
 
+/** Whether the menu's stored search names excluded owners. */
+function storesOwners(config: unknown): boolean {
+	const owners = isJsonObject(config)
+		? config.blacklisted_owner_ids_expression
+		: undefined;
+	return typeof owners === "string" && owners.trim() !== "";
+}
+
+/** Whether the menu's stored search offers a search (`workflow.ts::offersSearch` over the raw
+ *  config): a field or a filter row. */
+function offersOverRaw(config: unknown): boolean {
+	if (!isJsonObject(config)) return false;
+	const { properties, default_properties: defaults } = config;
+	return (
+		(Array.isArray(properties) && properties.length > 0) ||
+		(Array.isArray(defaults) && defaults.length > 0)
+	);
+}
+
 /**
- * The case list filter's text less the owner clause, where the menu's search holds an owner
- * exclusion and the filter's last top-level conjunct is the clause Nova writes for it. The rest
- * is the authored filter, registered on its own; the projection of the whole menu then holds the
- * two together.
+ * Where the menu's owner exclusion is written: `config`, where its search stores the list
+ * (`blacklisted_owner_ids_expression`) beside the list filter's clause; `filter`, where the menu
+ * offers no search and stores no list, so the clause is the exclusion's only spelling
+ * (`hqJson/caseList.ts` writes the search's settings only for a search the menu offers, and the
+ * filter's clause from the menu's own exclusion whether or not it does); none otherwise.
+ */
+function ownerSource(module: DraftModule): "config" | "filter" | undefined {
+	const config = module.json.peek("search_config");
+	if (storesOwners(config)) return "config";
+	return offersOverRaw(config) ? undefined : "filter";
+}
+
+/** The owner clause of a list filter: the whole filter, or its last top-level conjunct. */
+function ownerClauseOf(
+	node: FormSyntax | undefined,
+): { readonly clause: FormSyntax; readonly rest?: FormSyntax } | undefined {
+	if (node === undefined) return undefined;
+	if (isOwnerClause(node)) return { clause: node };
+	if (node.kind === "binary" && node.op === "and" && isOwnerClause(node.right))
+		return { clause: node.right, rest: node.left };
+	return undefined;
+}
+
+/**
+ * The case list filter's text less the owner clause, where the menu holds an owner exclusion
+ * (`ownerSource`) and the filter's last top-level conjunct is the clause Nova writes for it. The
+ * rest is the authored filter, registered on its own; the projection of the whole menu then holds
+ * the two together.
  */
 export function listFilterWithoutOwnerClause(
 	module: DraftModule,
 	text: string,
 ): string {
-	const config = module.json.peek("search_config");
-	const owners = isJsonObject(config)
-		? config.blacklisted_owner_ids_expression
-		: undefined;
-	if (typeof owners !== "string" || owners.trim() === "") return text;
-	const node = parse(text);
-	if (node === undefined) return text;
-	if (isOwnerClause(node)) return "";
-	if (node.kind === "binary" && node.op === "and" && isOwnerClause(node.right))
-		return text.slice(node.left.from, node.left.to);
-	return text;
+	if (ownerSource(module) === undefined) return text;
+	const found = ownerClauseOf(parse(text));
+	if (found === undefined) return text;
+	return found.rest === undefined
+		? ""
+		: text.slice(found.rest.from, found.rest.to);
+}
+
+/** The excluded owners' list inside the list filter's owner clause, less the `normalize-space`
+ *  wrapper, as text of the filter. */
+function ownerListInFilter(text: string): string | undefined {
+	const found = ownerClauseOf(parse(text));
+	const clause = unwrap(found?.clause);
+	if (clause?.kind !== "binary") return undefined;
+	const blank = unwrap(clause.left);
+	if (blank?.kind !== "binary") return undefined;
+	return withoutNormalizeSpace(text.slice(blank.left.from, blank.left.to));
 }
 
 /** The two `replace` calls `suite/wire.ts::normalizeSpace` writes, re-emitted around a blank list. */
@@ -319,17 +369,13 @@ function withoutNormalizeSpace(text: string): string {
 	return text.slice(inner.from, inner.to);
 }
 
-/** Whether the stored list filter holds the owner clause. */
-function filterHoldsOwnerClause(module: DraftModule): boolean {
+/** The stored list filter, where it holds the owner clause. */
+function filterWithOwnerClause(module: DraftModule): string | undefined {
 	const details = module.json.peek("case_details");
 	const short = isJsonObject(details) ? details.short : undefined;
 	const filter = isJsonObject(short) ? short.filter : undefined;
-	if (typeof filter !== "string" || filter.trim() === "") return false;
-	const node = parse(filter);
-	return (
-		isOwnerClause(node) ||
-		(node?.kind === "binary" && node.op === "and" && isOwnerClause(node.right))
-	);
+	if (typeof filter !== "string" || filter.trim() === "") return undefined;
+	return ownerClauseOf(parse(filter)) === undefined ? undefined : filter;
 }
 
 /** What the settings pass keeps for the settle. */
@@ -386,8 +432,9 @@ export function readSearchSettings(
 	};
 	const clash = instanceClash(ctx, module);
 	let owners: number | undefined;
+	const filter = filterWithOwnerClause(module);
 	if (cursor.used("blacklisted_owner_ids_expression")) {
-		if (!filterHoldsOwnerClause(module)) {
+		if (filter === undefined) {
 			cursor.refuse("blacklisted_owner_ids_expression", T.ownerWithoutClause);
 			ok = false;
 		} else {
@@ -397,6 +444,39 @@ export function readSearchSettings(
 			);
 			if (owners !== undefined)
 				config.excludedOwnerIds = pendingPlaceholder("value");
+		}
+	} else if (
+		!offers &&
+		filter !== undefined &&
+		ownerSource(module) === "filter"
+	) {
+		// A menu that offers no search writes its exclusion as the list filter's clause alone,
+		// so the list is read from there. Where the clause is the whole filter its claims land on
+		// the filter; beside an authored operand, whose own registration claims the filter's
+		// grammar there, they land on the menu's `case_details`, which holds the filter, so no
+		// use of the grammar is claimed twice at one node.
+		const short = caseListReadings(ctx).get(module.uuid)?.short;
+		const text = ownerListInFilter(filter);
+		const site =
+			listFilterWithoutOwnerClause(module, filter) === ""
+				? { json: short, key: "filter" }
+				: { json: module.json, key: "case_details" };
+		if (short !== undefined && site.json !== undefined && text !== undefined) {
+			owners = ctx.pending.register(
+				{
+					ref: {
+						entity: "module",
+						uuid: module.uuid,
+						slot: "excluded_owner_ids",
+					},
+					text,
+					mode: { target: "hq-json", interpolation: "case" },
+					place,
+					key: "schema:CaseSearch.blacklisted_owner_ids_expression",
+				},
+				{ json: site.json, key: site.key },
+			);
+			config.excludedOwnerIds = pendingPlaceholder("value");
 		}
 	}
 	if (!offers) {
@@ -580,7 +660,18 @@ function promptDifference(
 		return "schema:Itemset.instance_id";
 	for (const key of ["nodeset", "label", "value", "sort"] as const)
 		if (!sameXPathValue(itemA[key], itemB[key])) return `schema:Itemset.${key}`;
-	const reqA = isJsonObject(stored.required) ? stored.required : undefined;
+	// HQ's model default, a blank test with no text, is no requirement: its build writes none
+	// (`remote_requests.py`, `if prop.required.test`) and the reading reads none.
+	const reqA =
+		isJsonObject(stored.required) &&
+		!(
+			BLANK(stored.required.test) &&
+			Object.values(languageMap(stored.required.text)).every(
+				(one) => one === "",
+			)
+		)
+			? stored.required
+			: undefined;
 	const reqB = isJsonObject(ours.required) ? ours.required : undefined;
 	if ((reqA === undefined) !== (reqB === undefined))
 		return "schema:CaseSearchProperty.required";
@@ -615,8 +706,12 @@ function searchDifference(
 ): string | undefined {
 	const inputs = readProjectionInputs(ctx);
 	const ours = printed(
-		projectCaseListForHq(mod, doc, inputs.assets, inputs.lookupNaming)
-			.searchConfig,
+		projectCaseListForHq(
+			mod,
+			withReadTexts(doc, ctx.translations),
+			inputs.assets,
+			inputs.lookupNaming,
+		).searchConfig,
 	) as JsonObject;
 	const codes = appCodes(ctx);
 	for (const key of ["auto_launch", "default_search", "inline_search"] as const)

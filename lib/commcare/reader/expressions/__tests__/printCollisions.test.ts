@@ -47,7 +47,12 @@ import { parseFormExpression } from "../../../xpath/expressionAst";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { canonicalExpression } from "../canonical";
 import type { ExpressionReadEnv } from "../index";
-import { lookupTypes, printSlot, readingScope } from "../readExpression";
+import {
+	lookupTypes,
+	printSlot,
+	readingScope,
+	slotPrint,
+} from "../readExpression";
 import { fieldNamed, readEnv, registration } from "./expressionReadFixture";
 
 const COLUMN = testUuid("collision-column");
@@ -419,6 +424,48 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			},
 		},
 		{
+			id: "one-case-switch",
+			slot: calculated,
+			other: () => ({
+				kind: "switch",
+				on: prop("p"),
+				cases: [
+					// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+					{ when: { kind: "literal", value: "a" }, then: lit("x") },
+				],
+				fallback: lit("z"),
+			}),
+			canonical: {
+				kind: "if",
+				cond: { kind: "eq", left: prop("p"), right: lit("a") },
+				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+				then: lit("x"),
+				else: lit("z"),
+			},
+		},
+		{
+			id: "null-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "if",
+				cond: {
+					kind: "eq",
+					left: prop("p"),
+					right: term({ kind: "literal", value: null }),
+				},
+				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+				then: lit("x"),
+				else: lit("z"),
+			}),
+			canonical: {
+				kind: "if",
+				cond: { kind: "eq", left: prop("p"), right: lit("") },
+				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+				then: lit("x"),
+				else: lit("z"),
+			},
+		},
+		{
 			id: "blank",
 			slot: relevant,
 			other: () => ({
@@ -538,8 +585,11 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			},
 		},
 		{
+			// A list's filter is restated in its search's CSQL, which prints
+			// the literal as written; a calculated column runs on the device
+			// alone.
 			id: "instant-literal",
-			slot: filter,
+			slot: calculated,
 			other: () => ({
 				kind: "gt",
 				left: prop("seen"),
@@ -831,9 +881,56 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			),
 		).toEqual(VILLAGE_IS_REGION);
 	});
+
+	it("coerced-literal-type in a Search field's condition", () => {
+		const searchRows = (predicate: Expression) => {
+			const searchDoc = doc(predicate);
+			const menu = searchDoc.moduleOrder[0] as Uuid;
+			const config = searchDoc.modules[menu]?.caseListConfig;
+			if (config === undefined) throw new Error("The menu has no case list.");
+			return xpathQueryRequestValues(
+				config,
+				composeModuleXPathQueryEmission(searchDoc, menu, {
+					searchInputInstanceId: "search-input:results",
+				}),
+			).map(
+				(value) =>
+					serializeWire(value, { target: "hq-json", interpolation: "none" })
+						.text,
+			);
+		};
+		const onDay = (dataType?: "date"): Expression => ({
+			kind: "when-input-present",
+			input: { kind: "input", searchInputUuid: REGION },
+			clause: {
+				kind: "eq",
+				left: prop("dob"),
+				right: {
+					kind: "date-coerce",
+					value: term({
+						kind: "literal",
+						value: "2024-02-28",
+						...(dataType === undefined ? {} : { data_type: dataType }),
+					}),
+				},
+			},
+		});
+		expect(searchRows(onDay())).toEqual(searchRows(onDay("date")));
+		expect(
+			canonicalExpression(
+				onDay(),
+				contextOf(app, {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "search_input_predicate",
+					member: { searchInputUuid: REGION },
+				}),
+			),
+		).toEqual(onDay("date"));
+	});
 });
 
-describe("relation-type: a relation path the catalog resolves prints typed", () => {
+describe("relation-type and relation-scope: a relation the catalog resolves prints typed, one related row a test", () => {
 	// A patient's parent is a household, and its subcases are visits.
 	const app = buildDoc({
 		caseTypes: [
@@ -937,6 +1034,19 @@ describe("relation-type: a relation path the catalog resolves prints typed", () 
 			},
 		},
 		{
+			name: "a comparison of a parent's property, one related row's test",
+			slot: filter,
+			other: { kind: "eq", left: village("household"), right: lit("x") },
+			canonical: {
+				kind: "exists",
+				via: {
+					kind: "ancestor",
+					via: [{ identifier: "parent", throughCaseType: "household" }],
+				},
+				where: inVillage,
+			},
+		},
+		{
 			name: "a count of subcases with no type",
 			slot: calculated,
 			other: { kind: "count", via: { kind: "subcase", identifier: "parent" } },
@@ -958,4 +1068,490 @@ describe("relation-type: a relation path the catalog resolves prints typed", () 
 				one.canonical,
 			);
 		});
+});
+
+describe("relation-hops and relation-where-match-all: a device's presence test, hop by hop", () => {
+	// A patient's parent is a household, whose parent is a village.
+	const app = buildDoc({
+		caseTypes: [
+			{ name: "village", properties: [{ name: "zone", label: "Zone" }] },
+			{
+				name: "household",
+				parent_type: "village",
+				properties: [{ name: "size", label: "Size" }],
+			},
+			{
+				name: "patient",
+				parent_type: "household",
+				properties: [{ name: "p", label: "P" }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: { columns: [], searchInputs: [] },
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = app.moduleOrder[0] as Uuid;
+	const filter: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_filter",
+	};
+	const household = { identifier: "parent", throughCaseType: "household" };
+	const village = { identifier: "parent", throughCaseType: "village" };
+	const inZone: Expression = {
+		kind: "eq",
+		left: term({ kind: "prop", caseType: "village", property: "zone" }),
+		right: lit("x"),
+	};
+	const cases: readonly {
+		readonly name: string;
+		readonly other: Expression;
+		readonly canonical: Expression;
+	}[] = [
+		{
+			name: "a walk of two hops is the presence nested hop by hop",
+			other: {
+				kind: "exists",
+				via: { kind: "ancestor", via: [household, village] },
+				where: inZone,
+			},
+			canonical: {
+				kind: "exists",
+				via: { kind: "ancestor", via: [household] },
+				where: {
+					kind: "exists",
+					via: { kind: "ancestor", via: [village] },
+					where: inZone,
+				},
+			},
+		},
+		{
+			name: "a missing walk of two hops nests its presence",
+			other: {
+				kind: "missing",
+				via: { kind: "ancestor", via: [household, village] },
+			},
+			canonical: {
+				kind: "missing",
+				via: { kind: "ancestor", via: [household] },
+				where: { kind: "exists", via: { kind: "ancestor", via: [village] } },
+			},
+		},
+		{
+			name: "a presence whose candidates match all has no condition",
+			other: {
+				kind: "exists",
+				via: { kind: "ancestor", via: [household] },
+				where: { kind: "match-all" },
+			},
+			canonical: {
+				kind: "exists",
+				via: { kind: "ancestor", via: [household] },
+			},
+		},
+	];
+	for (const one of cases)
+		it(one.name, () => {
+			const readEnvironment = env();
+			expect(printSlot(app, filter, one.other, readEnvironment)).toBe(
+				printSlot(app, filter, one.canonical, readEnvironment),
+			);
+			const context = contextOf(app, filter);
+			expect(canonicalExpression(one.other, context)).toEqual(one.canonical);
+			expect(canonicalExpression(one.canonical, context)).toEqual(
+				one.canonical,
+			);
+		});
+});
+
+describe("own-case-id: the session value a registration's case comes in", () => {
+	const app = buildDoc({
+		caseTypes: [{ name: "patient", properties: [{ name: "p", label: "P" }] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: { columns: [], searchInputs: [] },
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						fields: [
+							f({ kind: "text", id: "case_name", label: "Name" }),
+							f({ kind: "hidden", id: "h" }),
+						],
+					},
+				],
+			},
+		],
+	});
+	const calculate = {
+		entity: "field",
+		uuid: fieldNamed(app, "h"),
+		slot: "calculate",
+	} as SlotContextRef;
+	it("prints as the read of the new case's id and canonicalizes to it", () => {
+		const minted = term({ kind: "session-datum", datum: { kind: "new-case" } });
+		const ownId = term({
+			kind: "form-case",
+			caseType: "patient",
+			property: "case_id",
+		});
+		const readEnvironment = env();
+		expect(printSlot(app, calculate, minted, readEnvironment)).toBe(
+			printSlot(app, calculate, ownId, readEnvironment),
+		);
+		const context = contextOf(app, calculate);
+		expect(canonicalExpression(minted, context)).toEqual(ownId);
+		expect(canonicalExpression(ownId, context)).toEqual(ownId);
+	});
+});
+
+describe("choice-literal, case-type-literal and field-spelling: choices and case types named as text, and a read the case operations bind", () => {
+	const built = buildDoc({
+		caseTypes: [{ name: "patient", properties: [{ name: "p", label: "P" }] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: { columns: [], searchInputs: [] },
+				forms: [
+					{
+						name: "Discharge",
+						type: "close",
+						fields: [
+							f({
+								kind: "single_select",
+								id: "flag",
+								label: "Flag",
+								options: [
+									{ value: "yes", label: "Yes" },
+									{ value: "no", label: "No" },
+								],
+							}),
+							f({
+								kind: "multi_select",
+								id: "tags",
+								label: "Tags",
+								options: [
+									{ value: "a", label: "A" },
+									{ value: "b", label: "B" },
+								],
+							}),
+							f({ kind: "text", id: "note", label: "Note" }),
+							f({
+								kind: "repeat",
+								id: "rounds",
+								label: "Rounds",
+								repeat_mode: "user_controlled",
+								children: [
+									f({
+										kind: "single_select",
+										id: "departed",
+										label: "Departed",
+										options: [
+											{ value: "yes", label: "Yes" },
+											{ value: "no", label: "No" },
+										],
+									}),
+								],
+							}),
+						],
+						closeCondition: "#form/flag = 'yes'",
+					},
+				],
+			},
+		],
+	});
+	const formUuid = built.formOrder[built.moduleOrder[0] as Uuid]?.[0] as Uuid;
+	// The own close kept in a Save to Case block of its own, which the case
+	// operation emitter prints with every question bound to its path.
+	const app: BlueprintDoc = {
+		...built,
+		forms: {
+			...built.forms,
+			[formUuid]: {
+				...(built.forms[formUuid] as BlueprintDoc["forms"][Uuid]),
+				ownClosePlacement: {
+					kind: "save-to-case",
+					path: ["nova_operations", "nova_condition_close", "nova_close"],
+				},
+			},
+		},
+	};
+	const uuidOf = (id: string) => fieldNamed(app, id);
+	const optionOf = (id: string, value: string): Uuid => {
+		const field = app.fields[uuidOf(id)] as {
+			optionsSource?: {
+				kind: string;
+				options?: { uuid: Uuid; value: string }[];
+			};
+		};
+		const option = field.optionsSource?.options?.find(
+			(one) => one.value === value,
+		);
+		if (option === undefined) throw new Error(`No choice ${value} on ${id}.`);
+		return option.uuid;
+	};
+	const read = (id: string, spelling?: "relative" | "absolute"): Expression =>
+		term({
+			kind: "field",
+			uuid: uuidOf(id),
+			...(spelling === undefined ? {} : { spelling }),
+		});
+	const choice = (id: string, ...values: string[]): Expression =>
+		term({
+			kind: "choice",
+			field: uuidOf(id),
+			options: values.map((value) => optionOf(id, value)) as [Uuid, ...Uuid[]],
+		});
+	const relevant: SlotContextRef = {
+		entity: "field",
+		uuid: uuidOf("note"),
+		slot: "relevant",
+	};
+	const flagDefault: SlotContextRef = {
+		entity: "field",
+		uuid: uuidOf("flag"),
+		slot: "default_value",
+	};
+	const close: SlotContextRef = {
+		entity: "form",
+		uuid: formUuid,
+		slot: "form_close_condition",
+	};
+	const departedYes = (spelling?: "relative"): Expression => ({
+		kind: "gt",
+		left: {
+			kind: "count",
+			via: term({
+				kind: "field",
+				uuid: uuidOf("departed"),
+				filters: [
+					{
+						step: { kind: "field", uuid: uuidOf("departed") },
+						where: [
+							{
+								kind: "eq",
+								left: read("departed", spelling),
+								right: choice("departed", "yes"),
+							},
+						],
+					},
+				],
+			}),
+		},
+		right: lit(0),
+	});
+	const cases: readonly {
+		readonly name: string;
+		readonly slot: SlotContextRef;
+		readonly other: Expression;
+		readonly canonical: Expression;
+	}[] = [
+		{
+			name: "a single select compared with its choice's value",
+			slot: relevant,
+			other: { kind: "eq", left: read("flag"), right: lit("yes") },
+			canonical: {
+				kind: "eq",
+				left: read("flag"),
+				right: choice("flag", "yes"),
+			},
+		},
+		{
+			name: "a multiple select compared with its choices' values",
+			slot: relevant,
+			other: { kind: "neq", left: lit("a b"), right: read("tags") },
+			canonical: {
+				kind: "neq",
+				left: choice("tags", "a", "b"),
+				right: read("tags"),
+			},
+		},
+		{
+			name: "a choice tested by selected",
+			slot: relevant,
+			other: {
+				kind: "multi-select-contains",
+				property: read("tags"),
+				values: [{ kind: "literal", value: "b" }],
+				quantifier: "any",
+			},
+			canonical: {
+				kind: "multi-select-contains",
+				property: read("tags"),
+				values: [
+					{
+						kind: "choice",
+						field: uuidOf("tags"),
+						options: [optionOf("tags", "b")],
+					},
+				],
+				quantifier: "any",
+			},
+		},
+		{
+			name: "a select's starting value",
+			slot: flagDefault,
+			other: lit("no"),
+			canonical: choice("flag", "no"),
+		},
+		{
+			name: "the form's own close compared with a choice's value",
+			slot: close,
+			other: { kind: "eq", left: read("flag"), right: lit("yes") },
+			canonical: {
+				kind: "eq",
+				left: read("flag"),
+				right: choice("flag", "yes"),
+			},
+		},
+		{
+			name: "a text compared with the case's own type",
+			slot: {
+				entity: "module",
+				uuid: app.moduleOrder[0] as Uuid,
+				slot: "case_list_filter",
+			},
+			other: {
+				kind: "eq",
+				left: term({ kind: "case-row-type" }),
+				right: lit("patient"),
+			},
+			canonical: {
+				kind: "eq",
+				left: term({ kind: "case-row-type" }),
+				right: term({ kind: "case-type", caseType: "patient" }),
+			},
+		},
+		{
+			name: "a read in a repeat's filter the case operations bind, spelled relative",
+			slot: close,
+			other: departedYes("relative"),
+			canonical: departedYes(),
+		},
+	];
+	for (const one of cases)
+		it(one.name, () => {
+			const readEnvironment = env();
+			expect(printSlot(app, one.slot, one.other, readEnvironment)).toBe(
+				printSlot(app, one.slot, one.canonical, readEnvironment),
+			);
+			const context = contextOf(app, one.slot);
+			const print = slotPrint(app, one.slot, readEnvironment);
+			expect(canonicalExpression(one.other, context, print)).toEqual(
+				one.canonical,
+			);
+			expect(canonicalExpression(one.canonical, context, print)).toEqual(
+				one.canonical,
+			);
+		});
+
+	it("keeps a relative read where the close prints from no block, which prints it apart", () => {
+		const plain = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: { columns: [], searchInputs: [] },
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "rounds",
+									label: "Rounds",
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											kind: "single_select",
+											id: "departed",
+											label: "Departed",
+											options: [{ value: "yes", label: "Yes" }],
+										}),
+									],
+								}),
+								f({ kind: "text", id: "note", label: "Note" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const departed = fieldNamed(plain, "departed");
+		const option = (
+			plain.fields[departed] as {
+				optionsSource?: { options?: { uuid: Uuid }[] };
+			}
+		).optionsSource?.options?.[0]?.uuid as Uuid;
+		const counted = (spelling?: "relative"): Expression => ({
+			kind: "gt",
+			left: {
+				kind: "count",
+				via: term({
+					kind: "field",
+					uuid: departed,
+					filters: [
+						{
+							step: { kind: "field", uuid: departed },
+							where: [
+								{
+									kind: "eq",
+									left: term({
+										kind: "field",
+										uuid: departed,
+										...(spelling === undefined ? {} : { spelling }),
+									}),
+									right: term({
+										kind: "choice",
+										field: departed,
+										options: [option],
+									}),
+								},
+							],
+						},
+					],
+				}),
+			},
+			right: lit(0),
+		});
+		const noteRelevant: SlotContextRef = {
+			entity: "field",
+			uuid: fieldNamed(plain, "note"),
+			slot: "relevant",
+		};
+		const readEnvironment = env();
+		expect(slotPrint(plain, noteRelevant, readEnvironment)).toEqual({});
+		expect(
+			printSlot(plain, noteRelevant, counted("relative"), readEnvironment),
+		).not.toBe(printSlot(plain, noteRelevant, counted(), readEnvironment));
+		const context = contextOf(plain, noteRelevant);
+		expect(canonicalExpression(counted("relative"), context)).toEqual(
+			counted("relative"),
+		);
+	});
+
+	it("leaves a text no choice holds, and one spelled apart from the choices' print", () => {
+		const context = contextOf(app, relevant);
+		for (const other of [
+			{ kind: "eq", left: read("flag"), right: lit("maybe") },
+			{ kind: "eq", left: read("tags"), right: lit("a  b") },
+		] as const satisfies readonly Expression[])
+			expect(canonicalExpression(other, context)).toEqual(other);
+	});
 });

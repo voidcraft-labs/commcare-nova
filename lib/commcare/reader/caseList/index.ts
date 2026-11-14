@@ -11,10 +11,12 @@ import type {
 	BlueprintDoc,
 	CaseOperation,
 	CasePropertyDataType,
+	Expression,
 	Module,
 	Uuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { defaultSortBlanks } from "@/lib/domain/modules";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
@@ -42,6 +44,7 @@ import {
 	sameState,
 } from "./details";
 import { CALCULATED_FIELD, ORDER_CLAIMS } from "./order";
+import { withReadTexts } from "./readTexts";
 
 export { joinDetailColumns } from "./details";
 
@@ -137,17 +140,17 @@ function declareNumericSortsBeforeBinding(
 		const caseType = module.module.caseType;
 		if (reading === undefined || caseType === undefined || !reading.whole)
 			continue;
-		for (const [property, dataType] of numericSortDeclarations(
+		for (const [owner, property, dataType] of numericSortDeclarations(
 			doc,
 			caseType,
 			reading,
 		))
 			if (
 				!declarations.some(
-					(one) => one.caseType === caseType && one.property === property,
+					(one) => one.caseType === owner && one.property === property,
 				)
 			)
-				declarations.push({ caseType, property, dataType });
+				declarations.push({ caseType: owner, property, dataType });
 	}
 	EARLY_SORT_DECLARATIONS.set(ctx, declarations);
 	const catalog = app.caseTypes;
@@ -369,7 +372,7 @@ function listDifference(
 	const inputs = readProjectionInputs(ctx);
 	const projected = projectCaseListForHq(
 		mod,
-		doc,
+		withReadTexts(doc, ctx.translations),
 		inputs.assets,
 		inputs.lookupNaming,
 	);
@@ -479,35 +482,70 @@ function declareNumericSorts(
 	const untyped = numericSortDeclarations(doc, caseType, reading);
 	if (untyped.length === 0) return doc;
 	return withCandidate(doc, (draft) => {
-		const type = draft.caseTypes?.find((one) => one.name === caseType);
-		for (const [property, dataType] of untyped) {
-			const declared = type?.properties.find((one) => one.name === property);
+		for (const [owner, property, dataType] of untyped) {
+			const declared = draft.caseTypes
+				?.find((one) => one.name === owner)
+				?.properties.find((one) => one.name === property);
 			if (declared !== undefined) declared.data_type = dataType;
 		}
 	});
 }
 
+/** The case type and property a calculated column's expression reads where it is that one read
+ *  alone, on the menu's case or on a case a relation reaches. */
+function calculatedRead(
+	doc: BlueprintDoc,
+	caseType: string,
+	expression: Expression,
+): [string, string] | undefined {
+	if (expression.kind !== "term" || expression.term.kind !== "prop")
+		return undefined;
+	const { property, via } = expression.term;
+	const destination = resolveRelationDestination(
+		via,
+		caseType,
+		effectiveCaseTypes(doc),
+	);
+	return destination.ok ? [destination.caseType, property] : undefined;
+}
+
 /** Each property a menu's `int` or `double` sort element orders by that `doc`'s writers give no
- *  type, with the type the element declares. */
+ *  type, with its case type and the type the element declares: a property element's own, or the
+ *  one property a calculated column the element lands on reads alone, since Nova derives the
+ *  comparator from the property's type (`caseListOrder.ts`, rule 8). */
 function numericSortDeclarations(
 	doc: BlueprintDoc,
 	caseType: string,
 	reading: CaseListReading,
-): [string, CasePropertyDataType][] {
+): [string, string, CasePropertyDataType][] {
 	const stored = objects(reading.short.peek("sort_elements"));
-	const wanted = new Map<string, CasePropertyDataType>();
+	const columns = doc.modules[reading.module.uuid]?.caseListConfig?.columns;
+	const wanted = new Map<string, [string, string, CasePropertyDataType]>();
 	for (const [index, type] of reading.sort.numeric) {
 		const field = stored[index]?.field;
-		if (typeof field !== "string" || CALCULATED_FIELD.test(field)) continue;
-		const property = HQ_PROPERTY_RENAMES[field] ?? field;
-		if (isStandardCaseListProperty(property)) continue;
-		wanted.set(property, type === "int" ? "int" : "decimal");
+		if (typeof field !== "string") continue;
+		const dataType = type === "int" ? "int" : "decimal";
+		let read: [string, string] | undefined;
+		if (CALCULATED_FIELD.test(field)) {
+			const priority = reading.sort.kept.indexOf(index);
+			const column = columns?.find(
+				(one) => one.kind === "calculated" && one.sort?.priority === priority,
+			);
+			read =
+				column?.kind === "calculated"
+					? calculatedRead(doc, caseType, column.expression)
+					: undefined;
+		} else read = [caseType, HQ_PROPERTY_RENAMES[field] ?? field];
+		if (read === undefined || isStandardCaseListProperty(read[1])) continue;
+		wanted.set(`${read[0]}\u0000${read[1]}`, [read[0], read[1], dataType]);
 	}
 	if (wanted.size === 0) return [];
-	const typed = effectiveCaseTypes(doc).find((one) => one.name === caseType);
-	return [...wanted].filter(
-		([property]) =>
-			typed?.properties.find((one) => one.name === property)?.data_type ===
+	const typed = effectiveCaseTypes(doc);
+	return [...wanted.values()].filter(
+		([owner, property]) =>
+			typed
+				.find((one) => one.name === owner)
+				?.properties.find((one) => one.name === property)?.data_type ===
 			undefined,
 	);
 }

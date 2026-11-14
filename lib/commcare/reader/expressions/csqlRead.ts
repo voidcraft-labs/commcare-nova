@@ -63,6 +63,12 @@ import type { WireExpr } from "../../xpath/wire/tree";
 import type { PendingExpression } from "../pendingExpressions";
 import { firstDifference, sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
+import { typedRelations } from "./canonical";
+import {
+	agreedComparedTypes,
+	type ComparedType,
+	comparedTypes,
+} from "./comparedTypes";
 import {
 	checkErrorEntry,
 	claimKey,
@@ -80,6 +86,9 @@ export type SearchRowReading =
 			readonly predicate: Expression;
 			readonly level: "exact" | "guards";
 			readonly rewrites: readonly EmissionRewriteId[];
+			/** The types the row's comparisons give properties its catalog
+			 *  holds untyped, which the predicate is read and checked under. */
+			readonly types?: readonly ComparedType[];
 	  }
 	| {
 			readonly ok: false;
@@ -170,6 +179,35 @@ function sameNode(a: FormSyntax, b: FormSyntax): boolean {
 	return sameSyntax(a, b, { ruleSet: "record" });
 }
 
+/** `if(number(V) = 0, 0, V)`: V. A bare bound's device value is spliced in
+ *  under that choice, which writes every zero as the bare `0` CSQL reads
+ *  (`csql/emitter.ts::subcaseCountBound`); the binding's print says
+ *  whether Nova writes it so. */
+function bareZeroBound(node: FormSyntax): FormSyntax | undefined {
+	const choice = callOf(node, "if", 3);
+	if (choice === undefined) return undefined;
+	const [condition, zero, value] = choice.args as [
+		FormSyntax,
+		FormSyntax,
+		FormSyntax,
+	];
+	const test = bare(condition);
+	if (test.kind !== "binary" || test.op !== "=") return undefined;
+	const number = callOf(test.left, "number", 1);
+	const right = bare(test.right);
+	const literal = bare(zero);
+	if (
+		number === undefined ||
+		right.kind !== "number" ||
+		right.value !== 0 ||
+		literal.kind !== "number" ||
+		literal.value !== 0 ||
+		!sameNode(number.args[0] as FormSyntax, value)
+	)
+		return undefined;
+	return value;
+}
+
 /** `contains(V, '<mark>')`, as the quote cascade spells it: V. */
 function containsQuote(node: FormSyntax, mark: string): FormSyntax | undefined {
 	const test = callOf(node, "contains", 2);
@@ -232,7 +270,7 @@ function skeleton(wrapper: FormSyntax, root = true): readonly SkeletonPart[] {
 				sameNode(single, quoted) &&
 				stringOf(inner.args[1]) === "match-none()"
 			)
-				return skeleton(elseArg, root);
+				return around(elseArg, quoted);
 			const singleQuoted = callOf(thenArg, "concat", 3);
 			const doubleQuoted = callOf(elseArg, "concat", 3);
 			if (
@@ -259,6 +297,25 @@ function skeleton(wrapper: FormSyntax, root = true): readonly SkeletonPart[] {
 		];
 	}
 	return [{ kind: "hole", node, quoted: false }];
+}
+
+/** The skeleton of the double-quoted branch of a quote cascade: its text,
+ *  with each argument that is the cascade's value as a hole between the
+ *  quote marks the text already holds, whatever the value's own shape. */
+function around(
+	branch: FormSyntax,
+	value: FormSyntax,
+): readonly SkeletonPart[] {
+	if (sameNode(branch, value))
+		return [{ kind: "hole", node: value, quoted: false }];
+	const node = bare(branch);
+	if (node.kind === "call" && node.name === "concat")
+		return node.args.flatMap((arg) =>
+			sameNode(arg, value)
+				? [{ kind: "hole" as const, node: value, quoted: false }]
+				: skeleton(arg, false),
+		);
+	return skeleton(branch, false);
 }
 
 /** Each run of text and holes as one CSQL text, a hole or a choice as a
@@ -656,12 +713,19 @@ class CsqlBinder {
 		if (leftAt.kind === "call" && leftAt.name === "subcase-count") {
 			const count = this.subcaseCount(leftAt, rowType);
 			const right = bare(rightNode);
-			if (right.kind !== "number")
+			if (right.kind !== "number") {
+				// A Search field's answer bounds the count as the number it
+				// converts to, `double(input)`, the bound Nova's authoring writes.
+				const bound = this.value(rightNode, count, false, rowType);
 				return {
 					kind,
 					left: count,
-					right: this.value(rightNode, count, false, rowType),
+					right:
+						bound.kind === "term" && bound.term.kind === "input"
+							? { kind: "double", value: bound }
+							: bound,
 				};
+			}
 			return {
 				kind,
 				left: count,
@@ -748,18 +812,18 @@ class CsqlBinder {
 			right.kind !== "binary" ||
 			left.op !== ">=" ||
 			right.op !== "<=" ||
-			!sameNode(left.left, right.left) ||
-			!sameNode(left.right, right.right)
+			!sameNode(left.left, right.left)
 		)
 			return undefined;
 		const anchor = this.anchor(bare(left.left), rowType);
 		if (scalarDataType(typeOf(anchor, this.state.context)?.data) !== "datetime")
 			return undefined;
-		return {
-			kind: "eq",
-			left: anchor,
-			right: this.value(left.right, anchor, false, rowType),
-		};
+		// The value is printed twice, each a hole of its own where it holds a
+		// device value, so the two are compared bound.
+		const lower = this.value(left.right, anchor, false, rowType);
+		const upper = this.value(right.right, anchor, false, rowType);
+		if (JSON.stringify(lower) !== JSON.stringify(upper)) return undefined;
+		return { kind: "eq", left: anchor, right: lower };
 	}
 
 	/** The steps of `a/b/@case_id`, where the anchor is an ancestor's id. */
@@ -856,11 +920,14 @@ class CsqlBinder {
 	): Expression {
 		const at = bare(node);
 		const marker = markerAt(at, this.markers);
-		if (marker !== undefined) {
-			if (marker.kind !== "hole")
-				refuseWith(RUNTIME_NAMES, "csql:choice-as-value");
-			return bindDevice(marker.node, this.state);
-		}
+		// A choice where a value stands is the device's own `if(…)`, a value,
+		// unless it is the choice that writes a bare bound's zero.
+		if (marker !== undefined)
+			return bindDevice(
+				(marker.kind === "choice" ? bareZeroBound(marker.node) : undefined) ??
+					marker.node,
+				this.state,
+			);
 		switch (at.kind) {
 			case "string":
 				return this.stringValue(at.value, opposite, ordering);
@@ -891,6 +958,15 @@ class CsqlBinder {
 		ordering: boolean,
 	): Expression {
 		const pieces = this.splitMarkers(value);
+		// A text compared with the case's own type names a case type, as the
+		// form parser binds it (`expressionAst.ts::choiceFor`).
+		if (
+			pieces.length === 1 &&
+			pieces[0]?.kind === "text" &&
+			opposite?.kind === "term" &&
+			opposite.term.kind === "case-row-type"
+		)
+			return term({ kind: "case-type", caseType: value });
 		if (pieces.length === 1 && pieces[0]?.kind === "text")
 			return term(
 				shapedLiteral(value, opposite, this.state.context, ordering) as Literal,
@@ -927,9 +1003,10 @@ class CsqlBinder {
 			}
 			if (first.index > 0)
 				out.push({ kind: "text", text: rest.slice(0, first.index) });
-			const part = this.markers.get(first.marker);
-			if (part?.kind !== "hole")
-				refuseWith(RUNTIME_NAMES, "csql:choice-in-string");
+			// A choice inside a string is the device's own `if(…)`, a value.
+			const part = this.markers.get(
+				first.marker,
+			) as Assembled["markers"][number]["part"];
 			out.push({ kind: "hole", node: part.node });
 			rest = rest.slice(first.index + first.marker.length);
 		}
@@ -957,12 +1034,25 @@ class CsqlBinder {
 			case "datetime":
 			case "double": {
 				if (args.length !== 1) unrecognizedRow();
-				const inner = this.value(
-					args[0] as FormSyntax,
-					undefined,
-					false,
-					rowType,
-				);
+				const bareArg = bare(args[0] as FormSyntax);
+				const shape =
+					at.name !== "double" &&
+					bareArg.kind === "string" &&
+					this.splitMarkers(bareArg.value).every((one) => one.kind === "text")
+						? literalShape(bareArg.value)
+						: undefined;
+				// A date or a date and time literal Nova stores typed by its
+				// shape prints the same text as the untyped one.
+				const inner =
+					shape !== undefined &&
+					bareArg.kind === "string" &&
+					(shape.type === "date" || shape.type === "datetime")
+						? term({
+								kind: "literal",
+								value: bareArg.value,
+								data_type: shape.type,
+							})
+						: this.value(args[0] as FormSyntax, undefined, false, rowType);
 				return {
 					kind:
 						at.name === "date"
@@ -982,9 +1072,26 @@ class CsqlBinder {
 					!(DATE_ADD_INTERVALS as readonly string[]).includes(interval)
 				)
 					unrecognizedRow();
+				// A date or a date and time literal Nova stores typed prints
+				// the same text as the untyped one, and only the typed one is
+				// a date to add to.
+				const base = bare(args[0] as FormSyntax);
+				const baseShape =
+					base.kind === "string" &&
+					this.splitMarkers(base.value).every((one) => one.kind === "text")
+						? literalShape(base.value)
+						: undefined;
 				return {
 					kind: "date-add",
-					date: this.value(args[0] as FormSyntax, undefined, false, rowType),
+					date:
+						base.kind === "string" &&
+						(baseShape?.type === "date" || baseShape?.type === "datetime")
+							? term({
+									kind: "literal",
+									value: base.value,
+									data_type: baseShape.type,
+								})
+							: this.value(args[0] as FormSyntax, undefined, false, rowType),
 					interval: interval as DateAddInterval,
 					quantity: this.value(
 						args[2] as FormSyntax,
@@ -1083,12 +1190,9 @@ class CsqlBinder {
 			case "within-distance": {
 				if (args.length !== 4) unrecognizedRow();
 				const property = this.propertyArgument(args[0] as FormSyntax, rowType);
-				const center = this.value(
-					args[1] as FormSyntax,
-					undefined,
-					false,
-					rowType,
-				);
+				const center =
+					this.geopointCenter(args[1] as FormSyntax) ??
+					this.value(args[1] as FormSyntax, undefined, false, rowType);
 				const distanceNode = bare(args[2] as FormSyntax);
 				const unitText = stringOf(args[3]);
 				return {
@@ -1120,6 +1224,29 @@ class CsqlBinder {
 			default:
 				unrecognizedRow();
 		}
+	}
+
+	/** A center the device works out, as Nova writes it: the value between
+	 *  quote marks, read through the emitter's geopoint normalization
+	 *  (`wire/geopoint.ts::normalizeGeopoint`, `replace(replace(translate(V,
+	 *  …), …), …)`), proposed as V. The row's print proves it. */
+	geopointCenter(node: FormSyntax): Expression | undefined {
+		const text = stringOf(node);
+		if (text === undefined) return undefined;
+		const pieces = this.splitMarkers(text);
+		const [only] = pieces;
+		if (pieces.length !== 1 || only?.kind !== "hole") return undefined;
+		const spaces = callOf(only.node, "replace", 3);
+		const ends =
+			spaces === undefined
+				? undefined
+				: callOf(spaces.args[0] as FormSyntax, "replace", 3);
+		const commas =
+			ends === undefined
+				? undefined
+				: callOf(ends.args[0] as FormSyntax, "translate", 3);
+		const value = commas?.args[0];
+		return value === undefined ? undefined : bindDevice(value, this.state);
 	}
 
 	propertyArgument(node: FormSyntax, rowType: string | undefined): PropertyRef {
@@ -1480,7 +1607,9 @@ function candidateText(
 			continue;
 		}
 		guarded = true;
-		mark(segment.value);
+		// The device value as the row splices it in, a bare bound's zero
+		// choice around it included.
+		mark(segment.xpath);
 	}
 	return { text, holes, today, guarded };
 }
@@ -1632,7 +1761,9 @@ export function readSearchFilterRow(
 	const source = read.node;
 	const parts = skeleton(source);
 	const prefix = markerPrefix(constantTexts(parts));
-	const emission = emissionContext(context, env);
+	const typing = comparedRowTypes(parts, context, env, text);
+	const rowContext = withComparedTypes(context, typing);
+	const emission = emissionContext(rowContext, env);
 	let firstRefusal: Refusal | undefined;
 	// Where the source's wrapper first differs from Nova's own wrapper of a
 	// reading, for the defect line of a row left unrecognized.
@@ -1645,19 +1776,31 @@ export function readSearchFilterRow(
 			reason: `differs:${differing.kind}`,
 		}) as const;
 	for (const proposals of [true, false]) {
-		const { bound, today } = bindCsql(parts, context, env, { text, proposals });
-		if ("unrecognized" in bound) return unrecognized();
-		if (!("kind" in bound))
-			return { ok: false, claim: rowClaim(bound, source) };
-		const refusal = refusalOf(bound, context, env, text);
+		const { bound: raw, today } = bindCsql(parts, rowContext, env, {
+			text,
+			proposals,
+		});
+		if ("unrecognized" in raw) return unrecognized();
+		if (!("kind" in raw)) return { ok: false, claim: rowClaim(raw, source) };
+		// A relation typed as the catalog resolves it, the canonical member of
+		// the paths that print one row.
+		const bound = typedRelations(raw, rowContext);
+		const refusal = refusalOf(bound, rowContext, env, text);
 		if (refusal !== undefined) {
 			firstRefusal ??= refusal;
 			continue;
 		}
+		const types = typing.length === 0 ? {} : { types: typing };
 		let tree: CsqlNode;
 		try {
 			if (exact(source, bound, emission))
-				return { ok: true, predicate: bound, level: "exact", rewrites: [] };
+				return {
+					ok: true,
+					predicate: bound,
+					level: "exact",
+					rewrites: [],
+					...types,
+				};
 			tree = emitCsqlTree(bound, emission);
 		} catch {
 			continue;
@@ -1674,13 +1817,63 @@ export function readSearchFilterRow(
 		if (level.guarded || !(today && level.today))
 			rewrites.push("search-value-guards");
 		if (today && level.today) rewrites.push("search-today-device-day");
-		return { ok: true, predicate: bound, level: "guards", rewrites };
+		return { ok: true, predicate: bound, level: "guards", rewrites, ...types };
 	}
 	// A binding that passed the checker and printed back unequal leaves the
 	// row Nova's to explain, whatever another binding was refused for.
 	if (firstRefusal !== undefined && !differs)
 		return { ok: false, claim: rowClaim(firstRefusal, source) };
 	return unrecognized();
+}
+
+/** The types a row's comparisons give the properties its catalog holds
+ *  untyped (`comparedTypes`), over the trees it binds to with and without
+ *  the proposals: one type a property, or `decimal` where whole numbers and
+ *  decimals meet. */
+function comparedRowTypes(
+	parts: readonly SkeletonPart[],
+	context: ExpressionContext,
+	env: SearchRowEnv,
+	text: string,
+): ComparedType[] {
+	const untyped = (caseType: string, property: string): boolean => {
+		const declared = context.facts.caseTypes
+			.find((type) => type.name === caseType)
+			?.properties.find((one) => one.name === property);
+		return declared !== undefined && declared.data_type === undefined;
+	};
+	const found: ComparedType[] = [];
+	for (const proposals of [true, false]) {
+		const { bound } = bindCsql(parts, context, env, { text, proposals });
+		if ("kind" in bound) found.push(...comparedTypes(bound, context, untyped));
+	}
+	return agreedComparedTypes(found);
+}
+
+/** `context` over a catalog that holds each of `types`. */
+function withComparedTypes(
+	context: ExpressionContext,
+	types: readonly ComparedType[],
+): ExpressionContext {
+	if (types.length === 0) return context;
+	return {
+		...context,
+		facts: {
+			...context.facts,
+			caseTypes: context.facts.caseTypes.map((type) => ({
+				...type,
+				properties: type.properties.map((property) => {
+					const typed = types.find(
+						(one) =>
+							one.caseType === type.name && one.property === property.name,
+					);
+					return typed === undefined
+						? property
+						: { ...property, data_type: typed.dataType };
+				}),
+			})),
+		},
+	};
 }
 
 /** The level at which Nova's emission of `predicate` in `context` writes the

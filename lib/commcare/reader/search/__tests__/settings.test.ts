@@ -130,6 +130,27 @@ describe("a search's settings", () => {
 		});
 	});
 
+	it("reads the owner exclusion of a menu that offers no search from the list filter's clause alone", async () => {
+		const filter = neq(term(prop("patient", "notes")), term(literal("none")));
+		const owners = term(sessionContext("userid"));
+		for (const list of [{}, { filter }]) {
+			const reading = await readLists(
+				patients([plainColumn(uuid(1), "case_name", "Name")], {
+					search: { searchActionEnabled: false, excludedOwnerIds: owners },
+					list,
+				}),
+			);
+			expect(codes(reading)).toEqual([]);
+			expect(searchOf(reading)).toEqual({
+				searchActionEnabled: false,
+				excludedOwnerIds: owners,
+			});
+			expect(listOf(reading).filter).toEqual(
+				"filter" in list ? filter : undefined,
+			);
+		}
+	});
+
 	it("holds the whole menu's search with every setting it holds", async () => {
 		const hidden: SearchInputDef = {
 			uuid: uuid(10),

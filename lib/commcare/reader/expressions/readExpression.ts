@@ -37,6 +37,7 @@ import { searchAnswersOf } from "../../emissionPlan";
 import type { RewriteControl } from "../../emissionRewrites";
 import { moduleExpressionContexts } from "../../expressionContext";
 import {
+	caseListStepDatumId,
 	entryDatumIdResolver,
 	entryDatumIds,
 	type FormLinkProjectionContext,
@@ -113,6 +114,7 @@ import type { PendingExpression, ReadMode } from "../pendingExpressions";
 import { type CompareOptions, firstDifference } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReadSourceNames, SourceNodeRef } from "../xform";
+import type { SlotPrint } from "./canonical";
 import {
 	core,
 	EXPRESSION_FOLDS,
@@ -273,9 +275,13 @@ export function sourceNodeProjection(
 		for (const ref of sourceRefsOf(structure, node)) {
 			const path = names.nodePath(ref);
 			const name = path?.at(-1);
+			// A source path spells an attribute's segment with its `@`.
 			if (name !== undefined)
 				return ref.kind === "repeat-attribute"
-					? { name, attribute: true }
+					? {
+							name: name.startsWith("@") ? name.slice(1) : name,
+							attribute: true,
+						}
 					: { name };
 		}
 		return own;
@@ -333,6 +339,7 @@ function scopeWith(
 	env: ExpressionReadEnv,
 	withdrawn: ReadonlySet<string>,
 	sites: FoldSites,
+	root?: FormSyntax,
 ): FormParseScope {
 	const form = slotForm(doc, pending.ref);
 	const names = form === undefined ? undefined : env.sourceNames.get(form);
@@ -371,6 +378,7 @@ function scopeWith(
 				sites,
 				...(projection === undefined ? {} : { projection }),
 				...(place === undefined ? {} : { place }),
+				...(root === undefined ? {} : { root }),
 			}),
 		// Core's casedb answers a `name` step with a blank node
 		// (`CaseChildElement.getChildrenWithName`), so in an app's text it is
@@ -408,6 +416,7 @@ function proposeFold(
 		readonly sites: FoldSites;
 		readonly projection?: FormNodeProjection;
 		readonly place?: OperationPlaceReads;
+		readonly root?: FormSyntax;
 	},
 ): Expression | undefined {
 	if (options.sites.plain.has(node)) return undefined;
@@ -424,6 +433,7 @@ function proposeFold(
 				? {}
 				: { projection: options.projection }),
 			...(options.place === undefined ? {} : { place: options.place }),
+			...(options.root === undefined ? {} : { root: options.root }),
 			bindPlain(at, context) {
 				options.sites.plain.add(at);
 				try {
@@ -691,6 +701,33 @@ function operationPlaceReads(
 	return reads;
 }
 
+/** What the emitter's print of a slot binds beside its context: where a
+ *  Save to Case block's node holds the slot, the questions its place binds,
+ *  each read of which prints as that binding whatever its spelling. */
+export function slotPrint(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+	env: ExpressionReadEnv,
+): SlotPrint {
+	if (!caseOperationSlot(ref)) return {};
+	const naming = namingOf(env);
+	let bindings: WireTermBindings | undefined;
+	try {
+		bindings = caseOperationPlaces(
+			doc,
+			ref.uuid,
+			naming,
+			formEmission(doc, ref.uuid, naming, {}).emission,
+		).get(caseOperationPlaceKey(ref));
+	} catch {
+		// The emitter builds no block for this form.
+		return {};
+	}
+	return bindings?.formFields === undefined
+		? {}
+		: { boundFields: new Set(bindings.formFields.keys()) };
+}
+
 /** The syntax key of each text a block's place prints, or undefined where the
  *  text is not read from `current()`, per document: every place of a form
  *  prints its reads at its own depth, so places at one depth print the same
@@ -799,13 +836,15 @@ export function printSlot(
 					),
 				);
 			case "case_list_filter":
+				// The case a menu above chose, under its id before HQ aligns a
+				// child entry with its root menu, as the emitter writes it.
 				return hq(
 					projectCaseListFilter(
 						expression,
 						undefined,
 						expressions,
 						naming,
-						() => undefined,
+						caseListStepDatumId(doc, ref.uuid, "chainId"),
 						rewrites,
 					),
 				);
@@ -1255,7 +1294,7 @@ export function bindSlot(
 		spans: new Map(),
 		plain: new Set(),
 	};
-	const scope = scopeWith(doc, pending, env, withdrawn, sites);
+	const scope = scopeWith(doc, pending, env, withdrawn, sites, prepared.syntax);
 	const parsed = parseFormExpression(prepared.text, scope);
 	if (!parsed.ok)
 		return { kind: "refused", cause: { kind: "parse", issues: parsed.issues } };

@@ -342,6 +342,130 @@ describe("the kinds of the conjuncts of `_xpath_query`", () => {
 		]);
 	});
 
+	it("reads a list clause that waits for an excluded field with no condition of its own back into the list filter", async () => {
+		// The clause is stored before another field's condition, which Nova writes after the list
+		// filter's rows: read as the excluded field's condition it would come out behind that row.
+		const plainExcluded: SearchInputDef = {
+			uuid: PHONE,
+			name: "phone",
+			label: "Phone",
+			kind: "advanced",
+			type: "text",
+			predicate: { kind: "match-all" },
+		};
+		const inputs = [number, plainExcluded];
+		const reading = await readLists(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: inputs,
+				search: {},
+				list: { filter: and(notesIs("open"), notesDiffer(PHONE)) },
+			}),
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(authored(placements(), reading, inputs)).toEqual([
+			{ kind: "B", clause: 0 },
+			{ kind: "D", from: "filter" },
+			{ kind: "D", from: "field", input: NUMBER },
+		]);
+		expect(authored(listOf(reading).filter, reading, inputs)).toEqual(
+			and(notesIs("open"), notesDiffer(PHONE)),
+		);
+		expect(authored(listOf(reading).searchInputs, reading, inputs)).toEqual(
+			inputs,
+		);
+		expect(registers(reading)).not.toContain("search-filter-rows-recut");
+	});
+
+	it("reads a list clause shaped as a field's derivation back into the list filter, in its place", async () => {
+		// The first clause is what a simple field over `phone` derives; Nova writes a derivation
+		// after the list filter's rows and the fields' conditions, so read as one, or as the
+		// field's own condition, it would come out behind the second clause and `number`'s row.
+		const plainExcluded: SearchInputDef = {
+			uuid: PHONE,
+			name: "phone",
+			label: "Phone",
+			kind: "advanced",
+			type: "text",
+			predicate: { kind: "match-all" },
+		};
+		const filter = and(
+			whenInput(input(PHONE), eq(prop("patient", "phone"), input(PHONE))),
+			notesDiffer(PHONE),
+		);
+		const inputs = [number, plainExcluded];
+		const reading = await readLists(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: inputs,
+				search: {},
+				list: { filter },
+			}),
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(authored(placements(), reading, inputs)).toEqual([
+			{ kind: "D", from: "filter" },
+			{ kind: "D", from: "filter" },
+			{ kind: "D", from: "field", input: NUMBER },
+		]);
+		expect(authored(listOf(reading).filter, reading, inputs)).toEqual(filter);
+		expect(authored(listOf(reading).searchInputs, reading, inputs)).toEqual(
+			inputs,
+		);
+		expect(registers(reading)).not.toContain("search-filter-rows-recut");
+	});
+
+	it("declares the type a row compares an untyped property with before it binds", async () => {
+		// Only the catalog types `last_seen`, which HQ keeps no type of; the field's condition
+		// compares it with a date and time, which Nova prints as the moment's two bounds.
+		const SEEN = uuid(12);
+		const since: SearchInputDef = {
+			uuid: SEEN,
+			name: "since",
+			label: "Since",
+			kind: "advanced",
+			type: "date",
+			predicate: whenInput(
+				input(SEEN),
+				eq(prop("patient", "last_seen"), {
+					kind: "datetime-coerce",
+					value: {
+						kind: "term",
+						term: { kind: "input", searchInputUuid: SEEN },
+					},
+				} as Expression),
+			),
+		};
+		const doc = produce(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [since],
+				search: {},
+			}),
+			(draft) => {
+				draft.caseTypes = [
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "last_seen",
+								label: proseText("last_seen"),
+								data_type: "datetime",
+							},
+						],
+					},
+				];
+			},
+		);
+		const reading = await readLists(doc);
+		expect(codes(reading)).toEqual([]);
+		expect(authored(placements(), reading, [since])).toEqual([
+			{ kind: "D", from: "field", input: SEEN },
+		]);
+		expect(
+			effectiveCaseTypes(reading.ctx.doc as BlueprintDoc)
+				.find((type) => type.name === "patient")
+				?.properties.find((one) => one.name === "last_seen")?.data_type,
+		).toBe("datetime");
+	});
+
 	it("gives each conjunct of a row `c_list and c_field` its own place", async () => {
 		// A field Nova matches by its own row: a phone number that starts with what was typed.
 		const field: SearchInputDef = {
@@ -571,6 +695,35 @@ describe("a menu whose forms do not read the search", () => {
 		});
 		expect(codes(reading)).toContain(
 			"case-search/case-list-filter-clause-the-search-does-not-restate",
+		);
+	});
+
+	it("gives each row of fields whose conditions read no field its own field", async () => {
+		const rule = (at: number, name: string, value: string): SearchInputDef => ({
+			uuid: uuid(at),
+			name,
+			label: name,
+			kind: "advanced",
+			type: "text",
+			predicate: notesIs(value),
+		});
+		const inputs = [
+			rule(20, "open", "open"),
+			rule(21, "held", "held"),
+			rule(22, "late", "late"),
+		];
+		const reading = await readLists(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: inputs,
+				search: {},
+			}),
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(authored(placements(), reading, inputs)).toEqual(
+			inputs.map((one) => ({ kind: "D", from: "field", input: one.uuid })),
+		);
+		expect(authored(listOf(reading).searchInputs, reading, inputs)).toEqual(
+			inputs,
 		);
 	});
 

@@ -3169,10 +3169,14 @@ attributes listed, shadows aside.
 
 **The scalar check on `q`.** A question with a recognized `trimmed` sibling carries, on its own
 `constraint`, the check `caseScalarTextValueGuard(caseScalarTextValueCalculation(.), allow | reject)`,
-alone or as the last operand of an `and` (`builder.ts::buildFieldParts`, `scalarCheck`). `logic.ts`
-compares that operand with both trees. Where one matches, the `validate` registered is the source text
-of the left operand (none where the check stands alone), and the draft field records which of the two
-it was (`DraftField.scalarCheck`). The fold is made in stage 3, before part 07 has settled the
+alone or conjoined after the author's validation, `w.and(validation, check)` (`builder.ts::buildFieldParts`,
+`scalarCheck`). `w.and` flattens and the printer writes no grouping between operands of one `and`, so
+the `reject` check's own two operands print as the last two of the chain, which the grammar reads as
+`((validation and nonblank) and within)`: no single right operand holds the check. `logic.ts` therefore
+reads the emitter's print of `w.and(atom, check)` for each tree, walks the source down the same left
+spine of `and`s comparing each right operand with the print's, and takes the node at the foot as the
+author's. Where one matches, the `validate` registered is that node's source text (none where the check
+stands alone), and the draft field records which of the two it was (`DraftField.scalarCheck`). The fold is made in stage 3, before part 07 has settled the
 `trimmed` candidate, so part 07 holds it afterwards: its `settleCaseManagement` compares the record
 with `caseScalarTextGuards` of the bound document and raises `unrecognized` where they differ (its
 3.5). Where neither tree matches, the whole `constraint` is the author's.

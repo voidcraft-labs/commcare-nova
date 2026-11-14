@@ -22,6 +22,7 @@ import {
 	checkExpression,
 } from "@/lib/domain/expression/typeChecker";
 import {
+	CASE_TYPE_PATTERN,
 	datumRefKey,
 	type Expression,
 	type ItextUnit,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/domain/expression/types";
 import {
 	walkExpression,
+	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
@@ -44,7 +46,10 @@ import {
 	FORM_REFERENCE_SLOTS,
 	MODULE_REFERENCE_SLOTS,
 } from "@/lib/domain/referenceSlots";
-import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
+import {
+	USERCASE_BUILT_IN_KEYS,
+	USERCASE_CASE_TYPE,
+} from "@/lib/domain/usercase";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { checkCsqlRepresentability } from "../../csql/representability";
@@ -62,6 +67,11 @@ import { noteProperty } from "../caseManagement/catalog";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReadSourceNames } from "../xform";
+import {
+	agreedComparedTypes,
+	type ComparedType,
+	comparedTypes,
+} from "./comparedTypes";
 import { readSearchFilterRow } from "./csqlRead";
 import {
 	checkErrorEntry,
@@ -571,12 +581,32 @@ export function readExpressions(
 	const missing = scanned.caseProperties.filter(
 		(read) => !known.has(JSON.stringify([read.caseType, read.property])),
 	);
-	const base = cloned(doc, (draft) => {
+	const scannedBase = cloned(doc, (draft) => {
 		const catalog = draft.caseTypes;
 		if (catalog === undefined || catalog === null) return;
+		// A walk up `index/parent` to a type it tests names that type and
+		// the parent of the type it leaves, where the catalog says neither.
+		const named = (name: string) =>
+			CASE_TYPE_PATTERN.test(name) && name !== USERCASE_CASE_TYPE;
+		for (const link of scanned.parentLinks) {
+			if (!named(link.child) || !named(link.parent)) continue;
+			const known = catalog.find((type) => type.name === link.child);
+			if (known?.parent_type !== undefined) continue;
+			if (known === undefined)
+				catalog.push({ name: link.child, properties: [] });
+			if (!catalog.some((type) => type.name === link.parent))
+				catalog.push({ name: link.parent, properties: [] });
+			const child = catalog.find((type) => type.name === link.child);
+			if (child === undefined) continue;
+			child.parent_type = link.parent;
+			child.relationship = "child";
+		}
 		for (const read of missing)
 			noteProperty(catalog, read.caseType, read.property);
 	});
+	// 1b. Type: a property the catalog holds untyped that a record slot
+	// compares with a value of a known type is of that type.
+	const base = withComparedTypes(scannedBase, pending, live, sites, env);
 	const declaredProperties = missing.filter((read) =>
 		(base.caseTypes ?? []).some(
 			(type) =>
@@ -1103,6 +1133,128 @@ export function readExpressions(
 	};
 }
 
+/** `doc` with each property its catalog holds untyped typed as the record
+ *  slots compare it (`comparedTypes`): every registration bound with every
+ *  fold on, and every Search field's condition the search reader wrote,
+ *  which no registration holds. */
+function withComparedTypes(
+	doc: BlueprintDoc,
+	pending: readonly PendingExpression[],
+	live: readonly boolean[],
+	sites: readonly (Site | undefined)[],
+	env: ExpressionReadEnv,
+): BlueprintDoc {
+	const types = lookupTypes(env);
+	const effective = effectiveCaseTypes(doc);
+	const untyped = (caseType: string, property: string): boolean => {
+		const declared = (doc.caseTypes ?? [])
+			.find((type) => type.name === caseType)
+			?.properties.some((one) => one.name === property);
+		const typed = effective
+			.find((type) => type.name === caseType)
+			?.properties.find((one) => one.name === property)?.data_type;
+		return declared === true && typed === undefined;
+	};
+	const found: ComparedType[] = [];
+	const compare = (tree: Expression, ref: SlotContextRef) => {
+		const context = slotContext(doc, ref, types);
+		if (context?.ruleSet === "record")
+			found.push(...comparedTypes(tree, context, untyped));
+	};
+	pending.forEach((registration, index) => {
+		if (!live[index]) return;
+		const context = slotContext(doc, registration.ref, types);
+		if (context?.ruleSet !== "record") return;
+		if (registration.mode.target === "search-row") {
+			const row = readSearchFilterRow(registration.text, context, {
+				doc,
+				lookup: env.lookup,
+			});
+			if (row.ok) found.push(...(row.types ?? []));
+			return;
+		}
+		if (sites[index] === undefined) return;
+		const bound = bindSlot(doc, registration, env, new Set());
+		if (bound.kind !== "bound") return;
+		compare(bound.bound.candidate, registration.ref);
+		// Two properties the catalog holds untyped, compared, print as
+		// written; as dates and times a device compares them as moments. Where
+		// only that print is the source's, they are dates and times.
+		const pairs = untypedPairs(bound.bound.candidate, untyped);
+		if (pairs.length === 0) return;
+		const asMoments = pairs.map((one) => ({
+			...one,
+			dataType: "datetime" as const,
+		}));
+		const equal = (at: BlueprintDoc) => {
+			const judgment = judgeSlot(at, registration, env, bound.bound);
+			return judgment.kind === "bound" && judgment.equal;
+		};
+		if (!equal(doc) && equal(withTypes(doc, asMoments)))
+			found.push(...asMoments);
+	});
+	for (const moduleUuid of doc.moduleOrder)
+		for (const input of doc.modules[moduleUuid]?.caseListConfig?.searchInputs ??
+			[])
+			if (input.kind === "advanced")
+				compare(input.predicate, {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "search_input_predicate",
+					member: { searchInputUuid: input.uuid },
+				} as SlotContextRef);
+	return withTypes(doc, agreedComparedTypes(found));
+}
+
+/** `doc` with each of `types` declared on its property. */
+function withTypes(
+	doc: BlueprintDoc,
+	types: readonly ComparedType[],
+): BlueprintDoc {
+	if (types.length === 0) return doc;
+	return cloned(doc, (draft) => {
+		for (const one of types) {
+			const declared = draft.caseTypes
+				?.find((type) => type.name === one.caseType)
+				?.properties.find((property) => property.name === one.property);
+			if (declared !== undefined) declared.data_type = one.dataType;
+		}
+	});
+}
+
+/** The properties of each comparison whose two sides are properties the
+ *  catalog holds untyped. */
+function untypedPairs(
+	tree: Expression,
+	untyped: (caseType: string, property: string) => boolean,
+): { caseType: string; property: string }[] {
+	const out: { caseType: string; property: string }[] = [];
+	const property = (side: Expression) =>
+		side.kind === "term" &&
+		side.term.kind === "prop" &&
+		side.term.caseType !== undefined &&
+		(side.term.via === undefined || side.term.via.kind === "self") &&
+		untyped(side.term.caseType, side.term.property)
+			? { caseType: side.term.caseType, property: side.term.property }
+			: undefined;
+	const visit = (node: Expression): void => {
+		if (
+			node.kind === "eq" ||
+			node.kind === "neq" ||
+			node.kind === "gt" ||
+			node.kind === "gte" ||
+			node.kind === "lt" ||
+			node.kind === "lte"
+		) {
+			const left = property(node.left);
+			const right = property(node.right);
+			if (left !== undefined && right !== undefined) out.push(left, right);
+		}
+	};
+	walkExpressionNodes(tree, visit);
+	return out;
+}
+
 /** The case type a relation read reaches from `origin`, by its steps' own
  *  types and the catalog; undefined where the catalog does not resolve it. */
 function relationDestination(
@@ -1186,6 +1338,9 @@ function surfaceUseFactsOf(
 				: form !== undefined && childOfInlineSearchMenu(doc, form)
 					? "child-of-inline"
 					: "other",
+		instanceSources:
+			(form === undefined ? undefined : env.instanceSources.get(form)) ??
+			new Map(),
 	};
 }
 

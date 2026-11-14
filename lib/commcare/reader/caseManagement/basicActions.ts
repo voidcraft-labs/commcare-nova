@@ -507,6 +507,8 @@ export interface BasicCaseReading {
 	 * claimed for an operation the document does not hold.
 	 */
 	readonly bareOwn?: () => ProposedOperation | undefined;
+	/** The id `bareOwn`'s operation takes. */
+	readonly bareOwnId?: string;
 }
 
 const READINGS = new WeakMap<DraftForm, BasicCaseReading>();
@@ -1544,6 +1546,7 @@ export function readBasicActions(
 	// the blocks are read, so its key is claimed when the operations are written.
 	let ownUuid: Uuid | undefined;
 	let bareOwn: BasicCaseReading["bareOwn"];
+	let bareOwnId: string | undefined;
 	const ownPlace: CaseOperationPlaceKey = ["basic", "own"];
 	if (
 		caseType !== "" &&
@@ -1555,6 +1558,7 @@ export function readBasicActions(
 		ownWrites.length === 0
 	) {
 		const id = operationId(caseType);
+		bareOwnId = id;
 		bareOwn = () => {
 			const uuid = mint(r, ownPlace, "own", ordinal(ownPlace, "own"));
 			return uuid === undefined
@@ -1676,7 +1680,7 @@ export function readBasicActions(
 		...(openCondition !== undefined && { openCondition }),
 		...(closeCondition !== undefined && { closeCondition }),
 		conditions,
-		...(bareOwn !== undefined && { bareOwn }),
+		...(bareOwn !== undefined && { bareOwn, bareOwnId }),
 	});
 }
 

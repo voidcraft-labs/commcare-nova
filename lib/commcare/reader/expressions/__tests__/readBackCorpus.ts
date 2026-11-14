@@ -42,7 +42,7 @@ import type {
 	ExpressionReadEnv,
 	RecordDialectJudge,
 } from "../index";
-import { judgeSlot, preparedSource } from "../readExpression";
+import { judgeSlot, preparedSource, slotPrint } from "../readExpression";
 
 /** One corpus: a document arbitrary of the emitter's own tests, sampled at a fixed seed. */
 export interface ReadBackCorpus {
@@ -283,9 +283,13 @@ export function judgeReadBack(
 		const context =
 			read === undefined ? undefined : slotContext(read, stored.ref, new Map());
 		const want =
-			context === undefined
+			context === undefined || read === undefined
 				? stored.expression
-				: canonicalExpression(stored.expression, context);
+				: canonicalExpression(
+						stored.expression,
+						context,
+						slotPrint(read, stored.ref, reading.env),
+					);
 		if (
 			registration === undefined &&
 			stored.ref.entity === "module" &&

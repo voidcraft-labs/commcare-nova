@@ -27,6 +27,7 @@ import {
 } from "@/lib/domain/standardCaseProperties";
 import { asUuid } from "@/lib/domain/uuid";
 import {
+	type EntryDatumId,
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
@@ -357,17 +358,36 @@ function instancePath(
 	const id = readInstanceId(binder, root.args[0].value, whole);
 	const steps = path.steps;
 	const form = context.form;
-	const entryDatums = () =>
-		form === undefined
-			? []
-			: entryDatumIds(
-					binder.scope.doc,
-					formLinkProjectionContext(binder.scope.doc, {
-						entryMetadataOnly: true,
-					}),
-					form.moduleUuid,
-					form.formUuid,
-				);
+	const entryDatums = (): readonly EntryDatumId[] => {
+		if (form !== undefined)
+			return entryDatumIds(
+				binder.scope.doc,
+				formLinkProjectionContext(binder.scope.doc, {
+					entryMetadataOnly: true,
+				}),
+				form.moduleUuid,
+				form.formUuid,
+			);
+		// A reading of an app made in CommCare HQ binds a menu's own slot
+		// through the datums its case list's entry holds before the menu's
+		// own choice: the cases chosen in the menus above it.
+		const slot = context.slot;
+		if (binder.scope.reading === undefined || slot.entity !== "module")
+			return [];
+		const rows = entryDatumIds(
+			binder.scope.doc,
+			formLinkProjectionContext(binder.scope.doc, {
+				entryMetadataOnly: true,
+			}),
+			slot.uuid,
+		);
+		const own = rows.findLastIndex((row) =>
+			row.refs.some(
+				(ref) => ref.kind === "selected-case" && ref.module === slot.uuid,
+			),
+		);
+		return own === -1 ? rows : rows.slice(0, own);
+	};
 	if (id === "commcaresession") {
 		if (
 			!plain(steps[0], "session") ||
@@ -414,7 +434,14 @@ function instancePath(
 			return binder.remember({ kind: "case-list-search-text" }, whole);
 		if (branch?.name === "data" && steps.length === 3) {
 			const datums = entryDatums();
-			const datum = datums.find((datum) => datum.id === leaf.name);
+			// A menu's slot prints a chosen case under its id from before HQ
+			// aligns a child entry with its root menu, where the two differ
+			// (`formLinkProjection.ts::caseListStepDatumId`).
+			const datum =
+				datums.find((datum) => datum.id === leaf.name) ??
+				(form === undefined
+					? datums.find((datum) => datum.chainId === leaf.name)
+					: undefined);
 			if (datum === undefined || datum.refs.length === 0)
 				refuse(
 					"unknown-datum",
@@ -667,11 +694,19 @@ function instancePath(
 	}
 	const rowContext = pushRowScope(context, row);
 	const projected = steps.slice(consumed);
+	const last = predicates.at(-1);
+	// A reading of an app made in CommCare HQ binds a record slot's first
+	// row's column with no filter as the lookup of every row, which Nova
+	// prints with no filter (`fromExpression.ts`, `table-lookup`).
+	const firstOfAll =
+		predicates.length === 1 &&
+		binder.scope.reading !== undefined &&
+		context.ruleSet === "record";
 	if (
 		base.kind === "table-rows" &&
-		predicates.length === 2 &&
-		predicates[1].kind === "number" &&
-		predicates[1].value === 1 &&
+		(predicates.length === 2 || firstOfAll) &&
+		last?.kind === "number" &&
+		last.value === 1 &&
 		projected.length === 1
 	) {
 		const value = rowValue(binder, projected, rowContext, whole);
@@ -681,7 +716,10 @@ function instancePath(
 					kind: "table-lookup",
 					tableId: base.tableId,
 					resultColumnId: value.columnId,
-					where: binder.bind(predicates[0], rowContext),
+					where:
+						predicates.length === 2
+							? binder.bind(predicates[0], rowContext)
+							: { kind: "match-all" },
 				},
 				whole,
 			);

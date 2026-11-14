@@ -31,6 +31,7 @@ import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
+import type { ComparedType } from "./comparedTypes";
 import {
 	readSearchFilterRow,
 	type SearchRowEnv,
@@ -250,6 +251,9 @@ export function readSearchRowConjuncts(
 			readonly ok: true;
 			readonly conjuncts: readonly Expression[];
 			readonly rewrites: readonly EmissionRewriteId[];
+			/** The types the row's comparisons give properties the catalog
+			 *  holds untyped, under which the conjuncts read and print back. */
+			readonly types: readonly ComparedType[];
 	  }
 	| Extract<SearchRowReading, { ok: false }>
 ) & { readonly uses: readonly SurfaceUse[] } {
@@ -272,6 +276,7 @@ export function readSearchRowConjuncts(
 				? reading.predicate.clauses
 				: [reading.predicate],
 		rewrites: reading.rewrites,
+		types: reading.types ?? [],
 		uses,
 	};
 }

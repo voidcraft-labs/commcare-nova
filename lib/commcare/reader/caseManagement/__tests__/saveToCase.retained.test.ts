@@ -63,9 +63,6 @@ async function blocksAndFindings(read: string) {
 	return { blocks, outside, outcome };
 }
 
-const isGuard = (place: BlockPlace) =>
-	(place.path.split("/").at(-1) ?? "").startsWith("nova_guard_");
-
 describe("Save to Case blocks of an earlier shape, as CommCare HQ served them", () => {
 	it("raises the new entry once at each block of targeted-migration-extension-children, every one of an earlier shape", async () => {
 		const { blocks, outside, outcome } = await blocksAndFindings(
@@ -77,32 +74,27 @@ describe("Save to Case blocks of an earlier shape, as CommCare HQ served them", 
 		expect(outside).toHaveLength(blocks.length);
 	});
 
-	it("raises the new entry at each block of targeted-migration-case-writes whose shape Nova no longer writes, and at no other", async () => {
+	it("raises the new entry at no block of targeted-migration-case-writes, every one of a shape Nova still writes", async () => {
 		const { blocks, outside, outcome } = await blocksAndFindings(
 			"targeted-migration-case-writes",
 		);
-		expect(outcome.kind).toBe("account");
-		// One block the emitter now writes otherwise: the several-case update. The follow-up's
-		// update, the conditional update, the create in a repeat (its answers and the earlier
-		// create's id read through `current()`) and the closes it writes today as it wrote them
-		// then, and each guard is its operation's. The keyed create is read too: its id is
-		// compared under the prefix the source's calculate holds, which names the app Nova
-		// exported then.
+		// The follow-up's update, the conditional update, the create in a repeat (its answers and
+		// the earlier create's id read through `current()`), the closes and the several-case
+		// form's shared update of every selected case are written today as they were then, and
+		// each guard is its operation's. The keyed create is read too: its id is compared under
+		// the prefix the source's calculate holds, which names the app Nova exported then.
 		const keyed = "nova_operations/nova_keyed_add_referral/add_referral";
+		const shared =
+			"nova_selected_cases/item/nova_operations/nova_condition_update_selected_cases/nova_update_selected_cases";
 		expect(blocks).toContainEqual({ menu: 1, form: 0, path: keyed });
-		expect(
-			(outcome.kind === "account" ? outcome.findings : []).filter(
-				(finding) => (finding.place as { path?: string }).path === keyed,
-			),
-		).toEqual([]);
-		expect(outside).toEqual([
-			{
-				menu: 2,
-				form: 0,
-				path: "nova_selected_cases/item/nova_operations/nova_condition_update_selected_cases/nova_update_selected_cases",
-			},
-		]);
-		for (const place of outside) expect(blocks).toContainEqual(place);
-		expect(outside.filter(isGuard)).toEqual([]);
+		expect(blocks).toContainEqual({ menu: 2, form: 0, path: shared });
+		const findings = outcome.kind === "account" ? outcome.findings : [];
+		for (const path of [keyed, shared])
+			expect(
+				findings.filter(
+					(finding) => (finding.place as { path?: string }).path === path,
+				),
+			).toEqual([]);
+		expect(outside).toEqual([]);
 	});
 });

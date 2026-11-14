@@ -22,15 +22,22 @@ import {
 	type PostSubmitDestination,
 	postSubmitDestinationsOffered,
 	postSubmitModuleFacts,
+	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
 import type { FormLinkDatumName } from "@/lib/domain/expression/types";
 import { emissionPlan } from "../../emissionPlan";
 import {
 	entryDatumIds,
+	entryFrameDatums,
+	type FormLinkProjectionContext,
 	formLinkActionsBuildable,
 	formLinkProjectionContext,
+	matchFrameToSource,
 	owningModuleOf,
+	projectAfterSubmit,
+	sessionDataRef,
+	targetFrameChildren,
 } from "../../formLinkProjection";
 import { entryPlanContext, runFormRules } from "../../validator/rules/form";
 import type { FormSyntax } from "../../xpath/formSyntax";
@@ -275,13 +282,10 @@ interface ReadLink {
 	/** The stored `xpath`. */
 	readonly xpath: string;
 	/** The carried values, with their stored text. */
-	readonly datums: readonly {
-		readonly name: FormLinkDatumName;
-		readonly xpath: string;
-		readonly cursor: JsonCursor;
+	readonly datums: readonly (StoredDatum & {
 		/** The value's registration. */
 		readonly index: number;
-	}[];
+	})[];
 	/** The condition's registration, where a condition is left after the guards. */
 	readonly condition?: number;
 	readonly role: "destination" | "otherwise";
@@ -577,11 +581,17 @@ interface StoredLink {
 	readonly value: JsonObject;
 	readonly target: FormLinkTarget;
 	readonly key: FormLinkTargetKey;
-	readonly datums: readonly {
-		readonly name: FormLinkDatumName;
-		readonly xpath: string;
-		readonly cursor: JsonCursor;
-	}[];
+	readonly datums: readonly StoredDatum[];
+}
+
+/** One carried value of a stored link: its selection, its text and the node it is read from. */
+interface StoredDatum {
+	readonly name: FormLinkDatumName;
+	readonly xpath: string;
+	readonly cursor: JsonCursor;
+	/** A value Nova's emission writes only as its held-case guard, read from the link's `xpath`
+	 *  (`collapsedDatums`): the link stores `datums: []`. */
+	readonly collapsed?: true;
 }
 
 /** One stored link's target and carried values, claimed; undefined where it reads to nothing the
@@ -706,6 +716,141 @@ function readLinkTarget(
 	return { cursor, value, target, key, datums };
 }
 
+/**
+ * The selections a link into a menu whose forms read the search carries by automatic matching,
+ * each with the source datum that fills it, in the target's order; undefined where the target's
+ * frame holds no query, where automatic matching leaves a selection empty, or where a selection
+ * resolves to no menu's chosen case. Nova's emission writes manual carried values equal to these
+ * as no carried values at all (`formLinkProjection.ts::projectManualSearchLink`).
+ */
+function automaticSearchSelections(
+	planned: BlueprintDoc,
+	projection: FormLinkProjectionContext,
+	sourceModuleUuid: Uuid,
+	formUuid: Uuid,
+	target: FormLinkTarget,
+):
+	| readonly { readonly name: FormLinkDatumName; readonly sourceId: string }[]
+	| undefined {
+	const resolved = resolveFormLinkTarget(planned, formUuid, target);
+	if (resolved === undefined || resolved.type !== "form") return undefined;
+	const frame = targetFrameChildren(planned, projection, resolved);
+	if (
+		!frame.some(
+			(child) => child.type === "datum" && child.datum.query !== undefined,
+		)
+	)
+		return undefined;
+	const automatic = matchFrameToSource(
+		frame,
+		entryFrameDatums(
+			planned,
+			projection,
+			owningModuleOf(projection, formUuid) ?? sourceModuleUuid,
+			formUuid,
+		),
+	);
+	if (automatic.unmatched.length > 0 || automatic.matched.length === 0)
+		return undefined;
+	const rows = entryDatumIds(
+		planned,
+		projection,
+		owningModuleOf(projection, resolved.formUuid) ?? resolved.moduleUuid,
+		resolved.formUuid,
+	);
+	const out: { name: FormLinkDatumName; sourceId: string }[] = [];
+	for (const { id, sourceId } of automatic.matched) {
+		const row = rows.find((one) => one.id === id || one.chainId === id);
+		const name = row?.refs.find((one) => one.kind === "selected-case");
+		if (name === undefined) return undefined;
+		out.push({ name, sourceId });
+	}
+	return out;
+}
+
+/** `link` carrying one value onto `name`, as the domain shape `guardedLinkDatums` reads. */
+function carryingOnto(
+	target: FormLinkTarget,
+	names: readonly FormLinkDatumName[],
+): Pick<FormLink, "target" | "datums"> {
+	return {
+		target,
+		datums: names.map((name) => ({
+			name,
+			xpath: pendingPlaceholder("value"),
+		})) as [FormLinkDatum, ...FormLinkDatum[]],
+	};
+}
+
+/**
+ * The carried values of a stored link that holds none, where Nova's emission writes them only as
+ * their guards. A link into a menu whose forms read the search, whose carried values are the ones
+ * automatic matching gives, is written with no carried values and with their held-case guards
+ * (`formLinkProjection.ts::projectManualSearchLink`, `formLinkCarriedCaseGuards`). So where every
+ * selection automatic matching fills (`automaticSearchSelections`) is guarded and the stored
+ * `xpath` ends with exactly their guards in some order, the link carries those values in the
+ * guards' order. Undefined where any of that fails: the link carries nothing, and a
+ * guard-shaped conjunct is its condition's.
+ */
+function collapsedDatums(
+	snapshot: BlueprintDoc,
+	planned: BlueprintDoc,
+	projection: FormLinkProjectionContext,
+	reading: ReadAfterSubmit,
+	link: StoredLink,
+): readonly StoredDatum[] | undefined {
+	if (link.datums.length > 0 || link.target.type === "module") return undefined;
+	const { form, module } = reading;
+	const selections = automaticSearchSelections(
+		planned,
+		projection,
+		module.uuid,
+		form.uuid,
+		link.target,
+	);
+	if (selections === undefined) return undefined;
+	const candidates = selections.map(({ name, sourceId }) => ({
+		name,
+		xpath: serializeWire(sessionDataRef(sourceId), {
+			target: "hq-json",
+			interpolation: "none",
+		}).text,
+	}));
+	if (
+		guardedLinkDatums(
+			snapshot,
+			form.uuid,
+			carryingOnto(
+				link.target,
+				candidates.map((one) => one.name),
+			),
+		).length !== candidates.length
+	)
+		return undefined;
+	const parsed = syntaxOf(textOf(link.value.xpath), undefined);
+	if (!parsed.ok) return undefined;
+	const parts = conjuncts(parsed.syntax);
+	if (parts.length < candidates.length) return undefined;
+	const left = [...candidates];
+	const ordered: StoredDatum[] = [];
+	for (const part of parts.slice(parts.length - candidates.length)) {
+		const at = left.findIndex((one) => {
+			const [guard] =
+				expectedGuards(
+					snapshot,
+					form.uuid,
+					carryingOnto(link.target, [one.name]),
+					[one.xpath],
+				) ?? [];
+			return guard !== undefined && sameSyntax(part, guard);
+		});
+		const [one] = at < 0 ? [] : left.splice(at, 1);
+		if (one === undefined) return undefined;
+		ordered.push({ ...one, cursor: link.cursor, collapsed: true });
+	}
+	return ordered;
+}
+
 /** Whether the last stored link is the otherwise in its second shape: its `xpath` negates every
  *  other link's non-blank `xpath` in stored order, then holds exactly its own guards. */
 function lastIsOtherwise(
@@ -814,7 +959,25 @@ export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 				read = undefined;
 			}
 			if (read === undefined) whole = false;
-			else stored.push(read);
+			else {
+				let collapsed: readonly StoredDatum[] | undefined;
+				try {
+					collapsed = collapsedDatums(
+						snapshot,
+						plan.doc,
+						projection,
+						reading,
+						read,
+					);
+				} catch {
+					// A frame the projection cannot walk is proposed nothing; the
+					// one expansion of the settle reports what it cannot print.
+					collapsed = undefined;
+				}
+				stored.push(
+					collapsed === undefined ? read : { ...read, datums: collapsed },
+				);
+			}
 		});
 		reading.whole = whole;
 		if (whole) {
@@ -825,7 +988,8 @@ export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 		for (const link of stored) {
 			link.cursor.derived("xpath", AFTER_SUBMIT.xpath);
 			for (const datum of link.datums)
-				datum.cursor.derived("xpath", AFTER_SUBMIT.datumXpath);
+				if (datum.collapsed !== true)
+					datum.cursor.derived("xpath", AFTER_SUBMIT.datumXpath);
 		}
 		if (form.json.used("post_form_workflow_fallback"))
 			form.json.drop(
@@ -1397,11 +1561,13 @@ function compareLinks(
 		const ourDatums = Array.isArray(our.datums)
 			? our.datums.filter(isJsonObject)
 			: [];
-		if (ourDatums.length !== link.datums.length) {
+		// Carried values read from their guards are written as none.
+		const written = link.datums.filter((one) => one.collapsed !== true);
+		if (ourDatums.length !== written.length) {
 			differs("schema:FormLink.datums");
 			return;
 		}
-		for (const [at, datum] of link.datums.entries()) {
+		for (const [at, datum] of written.entries()) {
 			const theirs = ourDatums[at] as JsonObject;
 			const storedName = textOf(
 				(Array.isArray(stored.peek("datums"))
@@ -1421,6 +1587,138 @@ function compareLinks(
 			}
 		}
 	}
+}
+
+/** A form's links as Nova's emission projects them: each link's target, `xpath` and carried
+ *  values, printed as `expander.ts::toHqFormLink` prints them, and the fallback. */
+function printedLinks(doc: BlueprintDoc, formUuid: Uuid): string {
+	const plan = emissionPlan(doc);
+	const projection = formLinkProjectionContext(plan.doc, {
+		expressionDoc: doc,
+	});
+	const projected = projectAfterSubmit(plan.doc, projection, formUuid);
+	const print = (wire: Parameters<typeof serializeWire>[0] | undefined) =>
+		wire === undefined
+			? ""
+			: serializeWire(wire, { target: "hq-json", interpolation: "none" }).text;
+	return JSON.stringify({
+		links: (projected?.links ?? []).map((link) => ({
+			target: link.target,
+			xpath: print(link.xpath),
+			datums: link.datums.map((datum) => [datum.name, print(datum.xpath)]),
+		})),
+		fallback:
+			projected?.fallback.kind === "built-in"
+				? [projected.fallback.destination, print(projected.fallback.xpath)]
+				: null,
+	});
+}
+
+/** Every order of `items`. */
+function orders<T>(items: readonly T[]): T[][] {
+	if (items.length <= 1) return [[...items]];
+	return items.flatMap((item, at) =>
+		orders([...items.slice(0, at), ...items.slice(at + 1)]).map((rest) => [
+			item,
+			...rest,
+		]),
+	);
+}
+
+/** The document with the link at `index` of `formUuid` carrying its guarded values by hand
+ *  in place of its condition's last clauses, where Nova's emission of the two is one; undefined
+ *  where no such reading prints the same. */
+function carriedFromGuards(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	index: number,
+): BlueprintDoc | undefined {
+	const link = doc.forms[formUuid]?.formLinks?.[index];
+	const condition = link?.condition;
+	if (link === undefined || condition === undefined) return undefined;
+	const moduleUuid = doc.moduleOrder.find((uuid) =>
+		(doc.formOrder[uuid] ?? []).includes(formUuid),
+	);
+	if (moduleUuid === undefined) return undefined;
+	const plan = emissionPlan(doc);
+	const projection = formLinkProjectionContext(plan.doc, {
+		expressionDoc: doc,
+	});
+	const selections = automaticSearchSelections(
+		plan.doc,
+		projection,
+		moduleUuid,
+		formUuid,
+		link.target,
+	);
+	if (selections === undefined) return undefined;
+	const clauses = condition.kind === "and" ? condition.clauses : [condition];
+	if (clauses.length < selections.length) return undefined;
+	const rest = clauses.slice(0, clauses.length - selections.length);
+	const sourceRows = entryDatumIds(
+		plan.doc,
+		projection,
+		owningModuleOf(projection, formUuid) ?? moduleUuid,
+		formUuid,
+	);
+	const carried: FormLinkDatum[] = [];
+	for (const { name, sourceId } of selections) {
+		const supplier = sourceRows.find((row) => row.id === sourceId)?.refs[0];
+		if (supplier === undefined) return undefined;
+		carried.push({
+			name,
+			xpath: {
+				kind: "term",
+				term: { kind: "session-datum", datum: supplier },
+			},
+		});
+	}
+	const printed = printedLinks(doc, formUuid);
+	for (const order of orders(carried)) {
+		const candidate = withCandidate(doc, (draft) => {
+			const one = draft.forms[formUuid]?.formLinks?.[index];
+			if (one === undefined) return;
+			if (rest.length === 0) delete one.condition;
+			else
+				one.condition = (
+					rest.length === 1
+						? rest[0]
+						: { kind: "and", clauses: rest as [Expression, ...Expression[]] }
+				) as typeof one.condition;
+			one.datums = order as typeof one.datums;
+		});
+		if (printedLinks(candidate, formUuid) === printed) return candidate;
+	}
+	return undefined;
+}
+
+/**
+ * The reader's canonical choice `search-link-guards-are-carried-values`: a link into a menu
+ * whose forms read the search that carries no value, and whose condition ends with the held-case
+ * guards of the values automatic matching would carry, prints the same `form_links` as the link
+ * that carries those values by hand, which Nova writes as no carried values and their guards
+ * (`collapsedDatums`). The reader returns the link that carries them. A condition's last clauses
+ * are taken for the guards only where Nova's emission of the two links is one.
+ */
+export function searchLinkGuardsAreCarriedValues(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	let current = doc;
+	for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
+		const links = doc.forms[formUuid]?.formLinks ?? [];
+		for (const [index, link] of links.entries()) {
+			if (link.datums !== undefined || link.condition === undefined) continue;
+			let next: BlueprintDoc | undefined;
+			try {
+				next = carriedFromGuards(current, formUuid, index);
+			} catch {
+				// A document Nova's emission cannot project prints no links to compare.
+				next = undefined;
+			}
+			if (next !== undefined) current = next;
+		}
+	}
+	return current;
 }
 
 /**

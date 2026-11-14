@@ -68,6 +68,17 @@ const CASES: { name: string; options: AdvancedFixtureOptions }[] = [
 		},
 	},
 	{
+		// Its own load writes and closes nothing, and its own arm is still the form's first change.
+		name: "a follow-up whose own load changes nothing",
+		options: {
+			formType: "followup",
+			menu: "members",
+			operations: (): CaseOperation[] => [
+				{ uuid: OP("own"), id: "member", action: "own" },
+			],
+		},
+	},
+	{
 		name: "a follow-up that updates the parent it chose",
 		options: {
 			formType: "followup",
@@ -109,6 +120,51 @@ const CASES: { name: string; options: AdvancedFixtureOptions }[] = [
 							identifier: "parent",
 							targetType: "household",
 							target: { kind: "op", opUuid: OP("own") },
+							relationship: "child",
+						},
+					],
+				},
+			],
+		},
+	},
+	{
+		// Two indexed open actions in one repeat: HQ's build nests each under its own
+		// `case_<tag>`, so neither shares the row's block.
+		name: "a registration with two indexed creates in one repeat",
+		options: {
+			formType: "registration",
+			operations: (): CaseOperation[] => [
+				{ uuid: OP("own"), id: "household", action: "own", name: read("name") },
+				{
+					uuid: OP("kid"),
+					id: "member",
+					action: "create",
+					caseType: "member",
+					target: { kind: "new" },
+					name: read("kid_name"),
+					forEach: { repeat: U("kids") },
+					links: [
+						{
+							identifier: "parent",
+							targetType: "household",
+							target: { kind: "op", opUuid: OP("own") },
+							relationship: "child",
+						},
+					],
+				},
+				{
+					uuid: OP("kid-visit"),
+					id: "visit",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: read("kid_name"),
+					forEach: { repeat: U("kids") },
+					links: [
+						{
+							identifier: "member",
+							targetType: "member",
+							target: { kind: "op", opUuid: OP("kid") },
 							relationship: "child",
 						},
 					],

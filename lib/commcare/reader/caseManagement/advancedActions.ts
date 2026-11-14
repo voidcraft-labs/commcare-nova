@@ -1146,24 +1146,20 @@ export function readAdvancedActions(
 		if (last) {
 			type = closes ? "close" : "followup";
 			if (closes) closeCondition = condition(closeStored);
-			if (
-				properties.writes.length > 0 ||
-				properties.name !== undefined ||
-				properties.owner !== undefined
-			) {
-				const uuid = mint(r, placement, "own", ordinal(placement, "own"));
-				if (uuid !== undefined)
-					operations.unshift({
-						uuid,
-						id: operationId(menuType),
-						action: "own",
-						tag: placement,
-						...(properties.name !== undefined && { name: properties.name }),
-						...(properties.owner !== undefined && { owner: properties.owner }),
-						writes: properties.writes,
-						links: [],
-					});
-			}
+			// A follow-up or close form always carries its own arm, the first change, whether or
+			// not its load writes anything (`CASE_OWN_OPERATION`).
+			const uuid = mint(r, placement, "own", ordinal(placement, "own"));
+			if (uuid !== undefined)
+				operations.unshift({
+					uuid,
+					id: operationId(menuType),
+					action: "own",
+					tag: placement,
+					...(properties.name !== undefined && { name: properties.name }),
+					...(properties.owner !== undefined && { owner: properties.owner }),
+					writes: properties.writes,
+					links: [],
+				});
 			return;
 		}
 		let updateUuid: Uuid | undefined;
@@ -1219,18 +1215,29 @@ export function readAdvancedActions(
 		}),
 	);
 	const opUuidOfOpen = new Map<number, Uuid>();
+	// HQ's build nests a repeat's open actions under `case_<tag>` only where two or more of
+	// them carry indices (`xform.py::_create_casexml_advanced`, `get_action_path`, over
+	// `AdvancedFormActions.count_subcases_per_repeat_context`); otherwise every open action of
+	// the repeat writes its block at the row's one `case`.
 	const repeatsWithIndices = new Map<string, number>();
+	const repeatsWithOpens = new Map<string, number>();
 	storedOpens.forEach((open) => {
 		if (!isJsonObject(open)) return;
 		const context =
 			typeof open.repeat_context === "string" ? open.repeat_context : "";
+		if (context === "") return;
+		repeatsWithOpens.set(context, (repeatsWithOpens.get(context) ?? 0) + 1);
 		const indices = Array.isArray(open.case_indices) ? open.case_indices : [];
-		if (context !== "" && indices.length > 0)
+		if (indices.length > 0)
 			repeatsWithIndices.set(
 				context,
 				(repeatsWithIndices.get(context) ?? 0) + 1,
 			);
 	});
+	/** Whether the open actions of a repeat share the row's one block. */
+	const sharesRowBlock = (context: string) =>
+		(repeatsWithOpens.get(context) ?? 0) > 1 &&
+		(repeatsWithIndices.get(context) ?? 0) < 2;
 	const ownOpenIndex =
 		chosen.length === 0
 			? storedOpens.findIndex(
@@ -1320,7 +1327,7 @@ export function readAdvancedActions(
 			name === undefined ? undefined : repeatOfField(name.field);
 		let repeat: DraftField | undefined;
 		if (context !== "") {
-			if ((repeatsWithIndices.get(context) ?? 0) > 1) {
+			if (sharesRowBlock(context)) {
 				O.refuse("repeat_context", ADVANCED_CLAIMS.openSharedRepeat);
 				r.ok = false;
 			} else if (
@@ -1695,6 +1702,30 @@ function readAutoSelectLoad(
 		r.ok = false;
 		return undefined;
 	}
+	// The index: none on an auto-selected load. HQ's page stores one with a blank tag, which
+	// indexes nothing (`advanced/actions.js`, `case_index.tag('')`).
+	const index = isJsonObject(load.case_index) ? load.case_index : {};
+	if (typeof index.tag === "string" && index.tag !== "") {
+		L.refuse("case_index", C.caseIndexOnFirst);
+		r.ok = false;
+		return undefined;
+	}
+	if (L.used("case_index"))
+		consume(L.take("case_index", C.caseIndex, (value) => value));
+	if (
+		load.show_product_stock === true ||
+		(typeof load.product_program === "string" && load.product_program !== "")
+	) {
+		L.refuse("show_product_stock", C.productStock);
+		if (L.used("product_program")) L.refuse("product_program", C.productStock);
+		r.ok = false;
+		return undefined;
+	}
+	if (L.used("show_product_stock"))
+		L.drop("show_product_stock", C.productStockOff);
+	if (L.used("product_program")) L.drop("product_program", C.productProgramOff);
+	// A close that never runs is read as no close, claimed as another selection's is.
+	consume(L.take("close_condition", C.otherClose, (value) => value));
 	consume(L.take("auto_select", C.usercase, (value) => value));
 	consume(L.take("case_tag", C.tag, (value) => value));
 	consume(L.take("case_type", C.caseType, (value) => value));

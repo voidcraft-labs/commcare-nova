@@ -29,10 +29,13 @@ import {
 	authoredCaseIdPrefix,
 	type BlueprintDoc,
 	type CaseOperation,
+	NEW_APP_SETTINGS,
+	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
 import {
 	actingUser,
+	concat,
 	datetimeLiteral,
 	eq,
 	formField,
@@ -44,6 +47,7 @@ import {
 	unowned,
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
+import { caseListOf } from "../../../../../proof/targeted/build";
 import { saveToCaseShapesApp } from "../../../../../proof/targeted/documents/saveToCaseShapes";
 import { caseOperationFixture } from "../../../__tests__/caseOperationFixture";
 import { planPlacements } from "../../../placement";
@@ -735,5 +739,121 @@ describe("the worker's record and the own arm in a block", () => {
 		// Read through every stage, the block the emitter writes back is the stored one.
 		const outcome = readHqApp(await inputFor(exportedBody(doc)));
 		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+	});
+});
+
+const SHARED_FORM = testUuid("stc-shared");
+const NEW_NAME = testUuid("stc-new-name");
+const VILLAGE = testUuid("stc-village");
+const CONFIRM = testUuid("stc-confirm");
+
+/** A follow-up of a menu that chooses several patients, whose own arm is one
+ *  shared update of every chosen patient: a new name from a question (read
+ *  through its trimmed value), an answer saved as it is only when confirmed,
+ *  a computed value and the acting user as owner. */
+function sharedUpdateApp(): BlueprintDoc {
+	const own: CaseOperation = {
+		uuid: testUuid("stc-shared-own"),
+		id: "patient",
+		action: "own",
+		name: term(formField(NEW_NAME)),
+		owner: actingUser(),
+		writes: [
+			{
+				property: "village",
+				value: term(formField(VILLAGE)),
+				condition: eq(term(formField(CONFIRM)), literal("yes")),
+			},
+			{
+				property: "label",
+				value: concat(term(formField(VILLAGE)), term(literal("!"))),
+			},
+		],
+	};
+	return buildDoc(
+		{
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "village", label: proseText("Village"), data_type: "text" },
+						{ name: "label", label: proseText("Label"), data_type: "text" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListOf(
+						[plainColumn(testUuid("stc-shared-name"), "case_name", "Name")],
+						{ selection: { kind: "multiple", maximum: 10 } },
+					),
+					forms: [
+						{
+							uuid: "stc-shared",
+							name: "Update chosen",
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "new_name", uuid: NEW_NAME }),
+								f({ kind: "text", id: "village", uuid: VILLAGE }),
+								f({ kind: "text", id: "confirm", uuid: CONFIRM }),
+							],
+						},
+					],
+				},
+			],
+		},
+		(built) => {
+			built.forms[SHARED_FORM] = {
+				...built.forms[SHARED_FORM],
+				caseOperations: [own],
+			} as never;
+		},
+	);
+}
+
+describe("a several-case form's shared update of every chosen case", () => {
+	it("reads back as the form's own arm, each row's presence taken off and the trimmed name read as its question", async () => {
+		const doc = sharedUpdateApp();
+		const outcome = readHqApp(
+			await inputFor(exportedBody(doc), {
+				resolver: matchingResolver(
+					"app-1",
+					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+				),
+			}),
+		);
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const want = READER_CANONICAL_CHOICES.reduce(
+			(current, choice) => choice.apply(current),
+			doc,
+		);
+		expect(caseChanges(outcome.draft.doc)).toEqual(caseChanges(want));
+		// The trimmed value the name reads is generated, not a question of the form.
+		expect(
+			(outcome.draft.doc.fieldOrder[SHARED_FORM] ?? []).map(
+				(uuid) => outcome.draft.doc.fields[uuid]?.id,
+			),
+		).toEqual(["new_name", "village", "confirm"]);
+		// Only the confirmation is a condition the expression stage reads: each
+		// row's presence and the group's are the emitter's own.
+		const reading = await readCases(doc);
+		const conditions = registered(reading).filter(
+			(one) => one.slot === "case_operation_write_condition",
+		);
+		expect(conditions).toHaveLength(1);
+		expect(
+			sameXPathText(conditions[0]?.text ?? "", "/data/confirm = 'yes'", {
+				ruleSet: "form",
+			}),
+		).toBe(true);
+		expect(
+			registered(reading).filter(
+				(one) => one.slot === "case_operation_condition",
+			),
+		).toEqual([]);
 	});
 });

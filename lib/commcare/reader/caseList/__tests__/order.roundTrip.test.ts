@@ -1,9 +1,11 @@
 /**
  * Contract: the plan of the read columns writes the stored `sort_elements`, so every order rule
- * Nova emits reads back on its column, with blanks stored only where they are not the direction's
- * own, and a list Nova writes as the source holds it records no first-publish rewrite. The failure
- * it catches: a rule joined to the second column of one text; blanks stored where they are the
- * direction's own; a rewrite declared for a list the first publish writes unchanged.
+ * Nova emits reads back on its column, after the reader's canonical choices (a rule HQ joins to
+ * another column prints that column's own rule, `order-rules-on-the-columns-they-land-on`), with
+ * blanks stored only where they are not the direction's own, and a list Nova writes as the source
+ * holds it records no first-publish rewrite. The failure it catches: a rule joined to the second
+ * column of one text; blanks stored where they are the direction's own; a rewrite declared for a
+ * list the first publish writes unchanged.
  */
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
@@ -23,6 +25,7 @@ import {
 	type SortBlanks,
 	type SortDirection,
 } from "@/lib/domain/modules";
+import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { patients, uuid } from "./fixtures";
 import { codes, comparableList, listOf, readLists } from "./listReading";
 
@@ -102,9 +105,13 @@ describe("the order rules of generated case lists", () => {
 				async (doc: BlueprintDoc) => {
 					const reading = await readLists(doc, { media: true });
 					expect(codes(reading)).toEqual([]);
+					const want = READER_CANONICAL_CHOICES.reduce(
+						(current, choice) => choice.apply(current),
+						doc,
+					);
 					doc.moduleOrder.forEach((moduleUuid, menu) => {
 						// A menu with no case list of its own is written with HQ's one Name column.
-						const config = doc.modules[moduleUuid]?.caseListConfig;
+						const config = want.modules[moduleUuid]?.caseListConfig;
 						if (
 							config === undefined ||
 							moduleCaseTypeForActions(doc, moduleUuid) === ""

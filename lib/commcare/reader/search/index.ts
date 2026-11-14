@@ -5,23 +5,29 @@
  * each `_xpath_query` conjunct placed (`rows.ts`), and the whole menu's
  * search written back by the production projection (`settings.ts`).
  */
-import { produce } from "immer";
+import { type Draft, produce } from "immer";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type Uuid,
 } from "@/lib/domain";
+import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import type {
 	CaseSearchConfig,
 	OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { withCandidate } from "../candidate";
 import { noteProperty } from "../caseManagement/catalog";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftModule, ReadContext } from "../context";
-import { searchRowProperties } from "../expressions/scanReads";
+import {
+	searchRowProperties,
+	searchRowRelations,
+} from "../expressions/scanReads";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { provisionalDocument } from "../provisional";
 import { readFormSyntax } from "../syntaxRead";
@@ -31,6 +37,7 @@ import {
 	dateFieldDeclarations,
 	MARKERS_HELD,
 	ROWS_HELD,
+	rowComparedTypes,
 	type SearchRow,
 } from "./rows";
 import { readSearchSettings, settleSearchSettings } from "./settings";
@@ -283,6 +290,29 @@ function readDefaultFilters(
 	return { ok, rows, names, zeroInput, markersOnly };
 }
 
+/** A row's `parent` link in the catalog, where the child has no parent there: both types named,
+ *  the child given the parent by a `child` link, as the expression stage's scan declares a walk
+ *  it reads (`expressions/index.ts::readExpressions`). */
+function declareParent(
+	catalog: Draft<NonNullable<BlueprintDoc["caseTypes"]>>,
+	link: { readonly child: string; readonly parent: string },
+): void {
+	const named = (name: string) =>
+		CASE_TYPE_PATTERN.test(name) && name !== USERCASE_CASE_TYPE;
+	if (!named(link.child) || !named(link.parent)) return;
+	if (
+		catalog.find((type) => type.name === link.child)?.parent_type !== undefined
+	)
+		return;
+	for (const name of [link.child, link.parent])
+		if (!catalog.some((type) => type.name === name))
+			catalog.push({ name, properties: [] });
+	const child = catalog.find((type) => type.name === link.child);
+	if (child === undefined) return;
+	child.parent_type = link.parent;
+	child.relationship = "child";
+}
+
 /** Step 6, pass 1: every menu's search, read from its `search_config`, and the type each date
  *  Search field declares written into the draft's catalog before any expression binds. */
 export function readSearches(ctx: ReadContext, app: DraftApp): void {
@@ -350,11 +380,27 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 					: [],
 			),
 		];
-		if (properties.length > 0 && app.caseTypes != null)
+		// A row's relation functions name the related cases' types: a `parent` hop is a parent link
+		// the catalog gives the child where it gives none, and each property a relation's filter
+		// reads is a property of the related type. Rows bind at the settle, outside the expression
+		// stage's scan, so they are declared here.
+		const relations = filters.rows.map((row) =>
+			searchRowRelations(row.text, caseType),
+		);
+		const related =
+			relations.some(
+				(one) => one.links.length > 0 || one.properties.length > 0,
+			) || properties.length > 0;
+		if (related && app.caseTypes != null)
 			ctx.writeDraft(() => {
 				app.caseTypes = produce(app.caseTypes ?? [], (draft) => {
 					for (const property of properties)
 						noteProperty(draft, caseType, property);
+					for (const { links, properties: reads } of relations) {
+						for (const link of links) declareParent(draft, link);
+						for (const read of reads)
+							noteProperty(draft, read.caseType, read.property);
+					}
 				});
 			});
 		const workflow = readSearchWorkflow(ctx, module, cursor);
@@ -397,14 +443,14 @@ function propertyTypes(doc: BlueprintDoc, caseType: string | undefined) {
 	);
 }
 
-/** The date types declared before the expression stage, per reading: each case type and
- *  property declared, with the type. */
-const EARLY_DATE_DECLARATIONS = new WeakMap<
+/** The types declared before the expression stage, per reading: each case type and property
+ *  declared, with the type. */
+const EARLY_DECLARATIONS = new WeakMap<
 	ReadContext,
 	readonly {
 		readonly caseType: string;
 		readonly property: string;
-		readonly dataType: "date" | "datetime";
+		readonly dataType: CasePropertyDataType;
 	}[]
 >();
 
@@ -414,8 +460,9 @@ const EARLY_DATE_DECLARATIONS = new WeakMap<
  * filter comparing it with a date) binds against the type the field declares. A date range field
  * over such a property declares it `date`, since the gate asks a date range field for a date
  * property (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`); a field whose row is its derivation
- * declares the type under which the row reads as that derivation (`rows.ts::dateFieldDeclarations`).
- * A Hidden Value writer is typed only once its expression is bound, so the settle takes back each
+ * declares the type under which the row reads as that derivation (`rows.ts::dateFieldDeclarations`);
+ * and a property a row compares with a value of a known type takes that type, under which the row
+ * reads back (`rows.ts::rowComparedTypes`). A Hidden Value writer is typed only once its expression is bound, so the settle takes back each
  * declaration a writer then types (`settleSearches`). The first menu to declare a property decides
  * its type.
  */
@@ -428,12 +475,12 @@ function declareDateFieldsBeforeBinding(
 	const declarations: {
 		caseType: string;
 		property: string;
-		dataType: "date" | "datetime";
+		dataType: CasePropertyDataType;
 	}[] = [];
 	const declare = (
 		caseType: string,
 		property: string,
-		dataType: "date" | "datetime",
+		dataType: CasePropertyDataType,
 	) => {
 		if (
 			!declarations.some(
@@ -465,8 +512,10 @@ function declareDateFieldsBeforeBinding(
 			reading,
 		))
 			declare(caseType, property, dataType);
+		for (const one of rowComparedTypes(ctx, doc, module, reading))
+			declare(one.caseType, one.property, one.dataType);
 	}
-	EARLY_DATE_DECLARATIONS.set(ctx, declarations);
+	EARLY_DECLARATIONS.set(ctx, declarations);
 	const catalog = app.caseTypes;
 	if (declarations.length === 0 || catalog === undefined || catalog === null)
 		return;
@@ -489,7 +538,7 @@ function takeBackWriterTypedDeclarations(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 ): BlueprintDoc {
-	const early = EARLY_DATE_DECLARATIONS.get(ctx) ?? [];
+	const early = EARLY_DECLARATIONS.get(ctx) ?? [];
 	if (early.length === 0) return doc;
 	const removing = (
 		draft: BlueprintDoc,

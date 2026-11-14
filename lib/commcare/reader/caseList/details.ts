@@ -7,13 +7,27 @@
  * pass compares is kept in the reading (`caseListReading`).
  */
 import { produce } from "immer";
-import type { CaseListConfig, Column, ColumnSort, Uuid } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	type Column,
+	type ColumnSort,
+	casePropertyOptionTranslationUnitId,
+	type Uuid,
+} from "@/lib/domain";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { caseListColumnTextShows } from "@/lib/domain/modules";
+import { proseText } from "@/lib/domain/prose";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { applicationReading } from "../appShell";
 import { noteProperty } from "../caseManagement/catalog";
-import { type Claim, defineClaims, drop, refuse, take } from "../claims";
+import {
+	type Claim,
+	defineClaims,
+	derived,
+	drop,
+	refuse,
+	take,
+} from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
@@ -26,6 +40,7 @@ import {
 	type ColumnOptions,
 	type ColumnProposal,
 	type ColumnReading,
+	firstText,
 	languageMap,
 	readDetailColumn,
 	type SelectProperty,
@@ -159,6 +174,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 	selectOther: refuse(
 		`${A}detail-select-text-non-default`,
 		"schema:Detail.select_text",
+	),
+	ownerClauseFilter: derived(
+		`${A}detail-filter-value-lifts-into-predicate`,
+		"schema:Detail.filter",
 	),
 	tabs: refuse(`${A}plain-tab-header-starting-index`, "schema:Detail.tabs"),
 	tabsDataChild: refuse(
@@ -846,6 +865,69 @@ function readSelection(
 }
 
 /**
+ * The kind and choices of each property a plain column shows by its choices' labels, where the
+ * catalog holds no choices for it: no select question of the app writes it, so the column's label
+ * projection is all that states them. Each choice's label is its text in the first language, and
+ * its other languages go to the translation sink. A property whose catalog holds choices, or
+ * another type, keeps them, and the comparison of the whole menu holds the column against them.
+ */
+function declareShownChoices(
+	ctx: ReadContext,
+	caseType: string,
+	joined: JoinedDetails,
+): void {
+	const shown = joined.columns.flatMap((column) => {
+		const body = column.proposal.column;
+		const choices = column.proposal.choices;
+		return body.kind === "plain" && choices !== undefined
+			? [{ property: body.field, choices }]
+			: [];
+	});
+	const catalog = ctx.draft.caseTypes;
+	if (shown.length === 0 || catalog == null) return;
+	const declared: typeof shown = [];
+	const next = produce(catalog, (draft) => {
+		const type = draft.find((one) => one.name === caseType);
+		for (const { property, choices } of shown) {
+			const entry = type?.properties.find((one) => one.name === property);
+			if (
+				entry === undefined ||
+				(entry.options ?? []).length > 0 ||
+				(entry.data_type !== undefined && entry.data_type !== choices.dataType)
+			)
+				continue;
+			entry.data_type = choices.dataType;
+			entry.options = choices.options.map((option) => ({
+				value: option.value,
+				label: proseText(firstText(ctx, option.labels)),
+			}));
+			declared.push({ property, choices });
+		}
+	});
+	if (declared.length === 0) return;
+	ctx.writeDraft(() => {
+		ctx.draft.caseTypes = next;
+	});
+	const tags = applicationReading(ctx)?.languages.tagOf;
+	const first = appCodes(ctx)[0];
+	if (tags === undefined) return;
+	for (const { property, choices } of declared)
+		for (const option of choices.options)
+			ctx.translations.set(
+				casePropertyOptionTranslationUnitId(caseType, property, option.value),
+				"prose",
+				new Map(
+					Object.entries(option.labels).flatMap(([code, text]) => {
+						const tag = tags.get(code);
+						return tag === undefined || code === first
+							? []
+							: [[tag, proseText(text)] as const];
+					}),
+				),
+			);
+}
+
+/**
  * Reads one menu's two details into its case list: every key claimed, the columns joined, the
  * order and the tile read, each column minted, every expression registered and every text handed
  * to the translation sink. The config is written into the menu's draft.
@@ -970,6 +1052,7 @@ export function readCaseDetails(
 					noteProperty(draft, caseType, property);
 			});
 		});
+	if (caseType !== undefined) declareShownChoices(ctx, caseType, joined);
 
 	// Each column's identity: by (kind, field, n), n its ordinal among equal pairs in list order.
 	const seen = new Map<string, number>();
@@ -1085,7 +1168,10 @@ export function readCaseDetails(
 	const storedFilter = short.peek("filter");
 	if (typeof storedFilter === "string" && storedFilter.trim() !== "") {
 		const text = listFilterWithoutOwnerClause(module, storedFilter);
-		if (text !== "") {
+		// A filter that is the owner clause alone is the search's owner exclusion, which the settle
+		// holds by the projection's filter.
+		if (text === "") short.derived("filter", D.ownerClauseFilter);
+		else {
 			filter = ctx.pending.register(
 				{
 					ref: {
