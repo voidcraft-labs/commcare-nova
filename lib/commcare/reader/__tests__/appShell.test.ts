@@ -14,9 +14,10 @@
  * admitted, a slot of another name the uploader wrote refused, one node of
  * `logo_refs` both handed off and claimed, and a display name raised as a
  * finding where the manifest keeps it (or kept where the manifest refuses
- * it), a first-language `app.display.name` HQ's build shows over `name` left
- * unrecognized or read without the other languages' translation of `name`,
- * and a key of a language the reading could not name held instead of covered
+ * it), a first-language `app.display.name` other than `name` taken as the
+ * source where a later language stores none, a source-language one HQ's build
+ * shows over `name` left unrecognized or read without the other languages'
+ * translation of `name`, and a key of a language the reading could not name held instead of covered
  * by that language's finding.
  */
 
@@ -388,7 +389,7 @@ describe("readApplication's language names", () => {
 	});
 });
 
-describe("readApplication's app name in the first language", () => {
+describe("readApplication's app name and the source language it tells", () => {
 	/** Two languages, each named by Nova's label, with the first language's strings given. */
 	function twoLanguages(first: Readonly<Record<string, string>>) {
 		const body = retainedSourceBody("shell/app-source");
@@ -406,9 +407,10 @@ describe("readApplication's app name in the first language", () => {
 		};
 	}
 
-	it("reads a first-language app.display.name HQ's build shows over name as the app's name, and name as the other language's", async () => {
-		/* HQ's UI translations upload stores such a row in any language, and HQ's build puts
-		 * it over `name` there. */
+	it("takes the second language as the source where only the first stores an app.display.name other than name", async () => {
+		/* Nova writes the source language's name as `name` and `app.display.name` only in a
+		 * language whose name differs, so the language holding none is the source, and a
+		 * reading in it prints every stored key back. */
 		const { body, name } = twoLanguages({ "app.display.name": "Clinic" });
 		const { ctx, closed } = await readShell(body);
 		expect(
@@ -417,12 +419,44 @@ describe("readApplication's app name in the first language", () => {
 		expect(entriesAt(closed, "/translations/en/app.display.name")).toEqual([
 			`${A}/translations-app-display-name`,
 		]);
+		expect(ctx.draft.localization?.sourceLanguage).toBe("fra");
+		expect(ctx.draft.localization?.defaultLanguage).toBe("eng");
+		expect(ctx.draft.appName?.value).toBe(name);
+		expect(ctx.translations.units()).toEqual([
+			{
+				unit: makeTranslationUnitId("app", "name"),
+				kind: "text",
+				byLanguage: new Map([["eng", "Clinic"]]),
+			},
+		]);
+		expect(ctx.facts.foldedTranslationKeys).toBe(0);
+	});
+
+	it("reads a first-language app.display.name HQ's build shows over name as the app's name where every language stores one", async () => {
+		/* HQ's UI translations upload stores such a row in any language, and HQ's build puts
+		 * it over `name` there. No language then holds the name as `name`, so the source is the
+		 * first, and its value folds into the app's name. */
+		const { body } = twoLanguages({ "app.display.name": "Clinic" });
+		const { ctx, closed } = await readShell({
+			...body,
+			translations: {
+				...body.translations,
+				fra: { ...body.translations.fra, "app.display.name": "Clinique" },
+			},
+		});
+		expect(
+			closed.findings.filter((finding) => APP_PLACES.has(finding.place.kind)),
+		).toEqual([]);
+		expect(entriesAt(closed, "/translations/en/app.display.name")).toEqual([
+			`${A}/translations-app-display-name`,
+		]);
+		expect(ctx.draft.localization?.sourceLanguage).toBe("eng");
 		expect(ctx.draft.appName?.value).toBe("Clinic");
 		expect(ctx.translations.units()).toEqual([
 			{
 				unit: makeTranslationUnitId("app", "name"),
 				kind: "text",
-				byLanguage: new Map([["fra", name]]),
+				byLanguage: new Map([["fra", "Clinique"]]),
 			},
 		]);
 		expect(ctx.facts.foldedTranslationKeys).toBe(1);

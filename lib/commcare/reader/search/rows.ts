@@ -20,10 +20,12 @@ import { literalInstantMicros } from "@/lib/domain/expression/instantOperand";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { RelationPath } from "@/lib/domain/expression/types";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import type {
 	SearchInputMode,
 	SimpleSearchInputDef,
 } from "@/lib/domain/modules";
+import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -448,25 +450,34 @@ export function dateFieldDeclarations(
 }
 
 /**
- * The types the comparisons of the menu's rows give the properties `doc` leaves untyped, worked
- * out before any expression binds. A row compares a property with a value of its own type, and
- * Nova prints the comparison by that type (a date and time's equality as the moment's two
- * bounds), so the row reads back only over a catalog that holds it
- * (`expressions/csqlRead.ts::readSearchFilterRow`, which reads under them and reports them). Each
- * row is read in the case list filter's slot, else in the slot of the first excluded advanced
- * field that admits it, as the classification reads it.
+ * What the menu's rows read that the document must hold before any expression binds, each row
+ * read in the case list filter's slot, else in the slot of the first excluded advanced field that
+ * admits it, as the classification reads it:
+ *
+ * - `types`: the types the rows' comparisons give the properties `doc` leaves untyped. A row
+ *   compares a property with a value of its own type, and Nova prints the comparison by that type
+ *   (a date and time's equality as the moment's two bounds), so the row reads back only over a
+ *   catalog that holds it (`expressions/csqlRead.ts::readSearchFilterRow`, which reads under them
+ *   and reports them).
+ * - `userFields`: each name of the worker's own data a row reads that CommCare HQ does not write
+ *   on every worker's case itself, as the expression stage lists a slot's
+ *   (`expressions/index.ts::readExpressions`). A row binds at the settle, after the worker
+ *   properties are minted from the expression stage's reads, so it names its own; a property
+ *   minted for it reads the row back as a read of that property.
  */
-export function rowComparedTypes(
+export function rowEarlyReads(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 	module: DraftModule,
 	input: RowsInput,
-): ComparedType[] {
-	if (input.zeroInput || doc.modules[module.uuid] === undefined) return [];
+): { types: ComparedType[]; userFields: string[] } {
+	const out: ComparedType[] = [];
+	const userFields: string[] = [];
+	if (input.zeroInput || doc.modules[module.uuid] === undefined)
+		return { types: out, userFields };
 	const naming = readProjectionInputs(ctx).lookupNaming;
 	const env = { doc, lookup: ctx.input.lookup.definitions };
 	const contexts = moduleExpressionContexts(doc, module.uuid, naming);
-	const out: ComparedType[] = [];
 	for (const row of input.rows) {
 		let read = readSearchRowConjuncts(
 			row.text,
@@ -482,9 +493,25 @@ export function rowComparedTypes(
 				read = again;
 				break;
 			}
-		if (read.ok) out.push(...read.types);
+		if (!read.ok) continue;
+		out.push(...read.types);
+		for (const conjunct of read.conjuncts)
+			walkExpressionTerms(conjunct, (term) => {
+				// A field CommCare HQ writes on every worker's own case
+				// (`callcenter/sync_usercase.py::_get_user_case_fields`) is no
+				// worker property: the read stays the name-backed leaf.
+				if (
+					term.kind === "session-user" &&
+					!(
+						term.source === "worker-record" &&
+						USERCASE_BUILT_IN_KEYS.includes(term.field)
+					) &&
+					!userFields.includes(term.field)
+				)
+					userFields.push(term.field);
+			});
 	}
-	return out;
+	return { types: out, userFields };
 }
 
 /** Whether an advanced form of the app names the menu as its load's `details_module`. */
@@ -588,32 +615,56 @@ function withInstantSpellings(
 	});
 }
 
-/** `doc` with the list filter's top-level clause `clause` replaced by `respelled`; undefined where
- *  the filter holds no such clause. */
-function withListClause(
+/** `doc` with the run `run` of consecutive top-level clauses of the list filter replaced by the one
+ *  clause `respelled`; undefined where the filter holds no such run. */
+function withListClauses(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
-	clause: Expression,
+	run: readonly Expression[],
 	respelled: Expression,
 ): BlueprintDoc | undefined {
 	const filter = doc.modules[moduleUuid]?.caseListConfig?.filter;
-	if (filter === undefined) return undefined;
+	if (filter === undefined || run.length === 0) return undefined;
 	const clauses = topLevel(filter);
-	const at = clauses.findIndex((one) => sameJson(one, clause));
+	const at = clauses.findIndex((_, start) =>
+		run.every((one, offset) => {
+			const held = clauses[start + offset];
+			return held !== undefined && sameJson(held, one);
+		}),
+	);
 	if (at === -1) return undefined;
+	const next = [
+		...clauses.slice(0, at),
+		respelled,
+		...clauses.slice(at + run.length),
+	];
 	return withCandidate(doc, (draft) => {
 		const config = draft.modules[moduleUuid]?.caseListConfig;
 		if (config === undefined) return;
 		config.filter =
-			filter.kind === "and"
-				? {
+			next.length === 1
+				? respelled
+				: {
 						kind: "and",
-						clauses: clauses.map((one, index) =>
-							index === at ? respelled : one,
-						) as unknown as [Expression, ...Expression[]],
-					}
-				: respelled;
+						clauses: next as unknown as [Expression, ...Expression[]],
+					};
 	});
+}
+
+/** The first run of at least two consecutive clauses, of `count`, each `open`, that `restates`
+ *  answers a document for, with that document; undefined where none does. */
+function restatedRun(
+	count: number,
+	open: (index: number) => boolean,
+	restates: (start: number, end: number) => BlueprintDoc | undefined,
+): { start: number; end: number; doc: BlueprintDoc } | undefined {
+	for (let start = 0; start < count; start++)
+		for (let end = start + 2; end <= count && open(end - 1); end++) {
+			if (!open(start)) break;
+			const doc = restates(start, end);
+			if (doc !== undefined) return { start, end, doc };
+		}
+	return undefined;
 }
 
 function setFilter(
@@ -885,31 +936,66 @@ export function classifySearchRows(
 			let clause = listClauses.findIndex(
 				(one, index) => unmatched(index) && sameJson(one, conjunct),
 			);
-			if (clause === -1 && read.conjuncts.length === 1) {
+			// The run `run` of list clauses restated in `spelling`: the list filter with the run in that
+			// spelling prints the stored filter and the row.
+			const respelledBy = (
+				run: readonly Expression[],
+				spelling: Expression,
+			): BlueprintDoc | undefined => {
 				const filterText = listFilterText(ctx, doc, module.uuid);
-				clause = listClauses.findIndex((one, index) => {
-					if (!unmatched(index) || filterText === undefined) return false;
-					// The row's own clause, then the list's with the row's spelling of each date and time.
+				if (filterText === undefined) return undefined;
+				const respelled = withListClauses(doc, module.uuid, run, spelling);
+				if (respelled === undefined) return undefined;
+				const text = listFilterText(ctx, respelled, module.uuid);
+				if (text === undefined || !sameXPathText(text, filterText))
+					return undefined;
+				const rows = matchSearchRows(respelled, module.uuid, [row.text], {
+					...env,
+					doc: respelled,
+				});
+				return rows.matched.some((match) => match.from === "filter")
+					? respelled
+					: undefined;
+			};
+			// One clause in the row's own spelling, then the list's with the row's spelling of each date
+			// and time; with `unchanged`, the list's own, where the document as it stands writes the row.
+			const respelledClause = (unchanged: boolean) =>
+				listClauses.findIndex((one, index) => {
+					if (!unmatched(index)) return false;
 					for (const spelling of [
 						conjunct,
 						withInstantSpellings(one, conjunct),
 					]) {
-						const respelled = withListClause(doc, module.uuid, one, spelling);
+						if (sameJson(spelling, one) !== unchanged) continue;
+						const respelled = respelledBy([one], spelling);
 						if (respelled === undefined) continue;
-						const text = listFilterText(ctx, respelled, module.uuid);
-						if (text === undefined || !sameXPathText(text, filterText))
-							continue;
-						const rows = matchSearchRows(respelled, module.uuid, [row.text], {
-							...env,
-							doc: respelled,
-						});
-						if (!rows.matched.some((match) => match.from === "filter"))
-							continue;
 						doc = respelled;
 						return true;
 					}
 					return false;
 				});
+			if (clause === -1 && read.conjuncts.length === 1)
+				clause = respelledClause(false);
+			// B over a run: one conjunct the device prints as several top-level clauses (a choice list
+			// tested for every value, `selected(tags, 'a') and selected(tags, 'b')`), which the device's
+			// filter splits and the row holds as one. The run takes the row's clause where the list filter
+			// with the run replaced by it prints the stored filter and the row. It is tried before a clause
+			// the unchanged document restates, since that document writes the row whichever clause of the
+			// run is named.
+			if (clause === -1 && read.conjuncts.length === 1) {
+				const run = restatedRun(
+					listClauses.length,
+					(index) => unmatched(index),
+					(start, end) => respelledBy(listClauses.slice(start, end), conjunct),
+				);
+				if (run !== undefined) {
+					doc = run.doc;
+					for (let index = run.start; index < run.end; index++)
+						restated.add(index);
+					record({ kind: "B", clause: run.start });
+					continue;
+				}
+				clause = respelledClause(true);
 			}
 			if (clause !== -1) {
 				restated.add(clause);

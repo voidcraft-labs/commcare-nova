@@ -70,9 +70,12 @@ export interface ItextReading extends ItextTable {
 	/** Each language's `value` elements of every form, in document order: what the form-name
 	 *  table claims. */
 	allValues(id: string): ReadonlyMap<LanguageTag, readonly Element[]>;
-	/** The source language's tag: the app's first language. */
+	/** The source language's tag (`HqLanguages.source`): the language whose text a slot holds. */
 	readonly source: LanguageTag | undefined;
-	/** The app's languages in HQ's order, each with its tag where the reading named it. */
+	/** The default language's tag, the first the reading named: the language whose text the
+	 *  form builder writes over a blank value on every save. */
+	readonly defaultLanguage: LanguageTag | undefined;
+	/** The tags of the languages the reading named, in HQ's order. */
 	readonly languages: readonly LanguageTag[];
 }
 
@@ -134,12 +137,13 @@ export function readItext(input: ReadItextInput): ItextReading {
 	const ids: string[] = [];
 	const seenLanguages = new Set<string>();
 	const tags = languages.codes
+		.filter((code) => !languages.refused.has(code))
 		.map((code) => languages.tagOf.get(code))
 		.filter((tag): tag is LanguageTag => tag !== undefined);
 	const source =
-		languages.first === undefined
+		languages.source === undefined
 			? undefined
-			: languages.tagOf.get(languages.first);
+			: languages.tagOf.get(languages.source);
 
 	const translations =
 		input.itext === undefined
@@ -215,6 +219,7 @@ export function readItext(input: ReadItextInput): ItextReading {
 			else known.push(owner);
 		},
 		source,
+		defaultLanguage: tags[0],
 		languages: tags,
 	};
 }

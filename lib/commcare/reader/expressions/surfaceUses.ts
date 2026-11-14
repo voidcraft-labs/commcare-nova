@@ -18,7 +18,6 @@ import {
 	CSQL_QUERY_FUNCTIONS,
 	CSQL_VALUE_FUNCTIONS,
 } from "../../xpath/functionCapabilities";
-import type { ReadMode } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
 import { searchRowCsql } from "./csqlRead";
 import { EXPRESSION_CLAIMS, visitSyntax } from "./findings";
@@ -678,19 +677,20 @@ function withinDistanceClass(
 }
 
 /** The surface keys an expression's syntax uses, with the entry that takes
- *  each use. `source` is the text as the registration holds it, before HQ's
- *  interpolation, read by the one grammar; `candidate` the tree held, where
- *  the slot is held; `facts` what the slot's reading and its owner say of a
- *  use's class. */
+ *  each use. `source` is the text as the registration or the search filter
+ *  row holds it, before HQ's interpolation, read by the one grammar;
+ *  `language` whether it is form XPath or a search filter row's CSQL;
+ *  `candidate` the tree held, where the slot is held; `facts` what the slot's
+ *  reading and its owner say of a use's class. */
 export function expressionSurfaceUses(
 	source: FormSyntax,
 	candidate: Expression | undefined,
 	context: ExpressionContext,
-	mode: ReadMode,
+	language: "xpath" | "csql",
 	facts: SurfaceUseFacts = NO_FACTS,
 ): readonly SurfaceUse[] {
 	const uses = new Uses();
-	if (mode.target === "search-row") csqlUses(source, candidate, uses);
+	if (language === "csql") csqlUses(source, candidate, uses);
 	else xpathUses(source, candidate, context, facts, uses);
 	return uses.list();
 }

@@ -26,7 +26,6 @@ import {
 	languageTag,
 	localizedValueSchema,
 	moduleIconRefSchema,
-	moduleUuidOfForm,
 	proseTemplateSchema,
 	resolveFormLinkTarget,
 	translationEntrySchema,
@@ -51,7 +50,11 @@ import {
 } from "@/lib/domain/expression/types";
 import { referenceNames } from "@/lib/domain/referenceNames";
 import { log } from "@/lib/logger";
-import { type AuthoringScopeOptions, authoringValueScope } from "./bindings";
+import {
+	type AuthoringScopeOptions,
+	authoringValueScope,
+	readScopeOptions,
+} from "./bindings";
 import { ReadProjectionError } from "./errors";
 import { effectiveFieldBehavior } from "./fieldBehavior";
 import {
@@ -670,21 +673,7 @@ export function projectAuthoringRead(args: {
 	if ("error" in data) return data;
 	if (!isReadToolName(toolName)) return data;
 	function scope(formUuid?: Uuid, moduleUuid?: Uuid): AuthoringScopeOptions {
-		const module =
-			moduleUuid ?? (formUuid ? moduleUuidOfForm(doc, formUuid) : undefined);
-		return {
-			doc,
-			tables,
-			formUuid,
-			moduleUuid: module,
-			currentCaseType: module ? doc.modules[module]?.caseType : undefined,
-			operations: formUuid
-				? (doc.forms[formUuid]?.caseOperations ?? []).map((operation) => ({
-						uuid: operation.uuid,
-						name: operation.id,
-					}))
-				: undefined,
-		};
+		return readScopeOptions(doc, tables, formUuid, moduleUuid);
 	}
 	const project: ReadProjection["project"] = (schema, value, options) =>
 		encodeAuthoringValues(

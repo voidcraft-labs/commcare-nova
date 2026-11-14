@@ -5,6 +5,13 @@
  * tile list, are no part of any wire Nova writes, so they are claimed and
  * dropped (`modules.ts::tileCellFor`).
  */
+import {
+	type BlueprintDoc,
+	type Column,
+	orderedColumns,
+	plainColumn,
+	type Uuid,
+} from "@/lib/domain";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import {
 	type CaseListConfig,
@@ -14,8 +21,11 @@ import {
 	type TileVerticalAlign,
 } from "@/lib/domain/modules";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../../suite/case-list/tileStyle";
+import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
+import { withCandidate } from "../candidate";
 import { defineClaims, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { externalKey, mintEntityUuid } from "../identity";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import type { JoinedDetails } from "./details";
 
@@ -312,4 +322,147 @@ export function readTile(
 		if (cursor !== undefined) dropCells(cursor);
 	}
 	return { ok, config, cells };
+}
+
+/**
+ * The reader's canonical choice `tile-columns-shown-nowhere-are-as-read`. In a tile list a column
+ * hidden from Results and from Details is no field of either detail (`caseListOrder.ts`, rule 2),
+ * so nothing of it is in any export but the order rule it holds: a plain column's header, and its
+ * place in the list's order, are written nowhere, and a column whose rule is written nowhere (an
+ * unsorted one, a calculated one, one over `case_id`) leaves no trace at all. The reader returns a
+ * plain such column with no header, after the list's other columns in the order of its rule
+ * (`order.ts::readSortElements` adds it there), and no column for one that leaves no trace. A
+ * sorted column of another kind (a date, a phone number, an id mapping and so on) is written the
+ * same element a plain column over its property writes, since the element's comparator is the
+ * property's type and not the column's kind (`caseListOrder.ts::caseListOrderPlan`), so the reader
+ * returns it as that plain column too, with nothing but its field, its order rule and its two
+ * hidden flags. Its identity is then the one a re-read gives a plain column at its place in the
+ * list's order: the identity of the document's own plain column under that key where it holds
+ * one, else minted under the app's id. It reads the rules where
+ * `order-rules-on-the-columns-they-land-on` puts them.
+ */
+export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const changed = doc.moduleOrder.filter((uuid) => {
+		const config = doc.modules[uuid]?.caseListConfig;
+		return (
+			config?.tile !== undefined &&
+			config.columns.some((column) => shownNowhere(column))
+		);
+	});
+	if (changed.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const uuid of changed) {
+			const config = draft.modules[uuid]?.caseListConfig;
+			if (config === undefined) continue;
+			const traceless = new Set(
+				config.columns
+					.filter((column) => shownNowhere(column) && !ruleWritten(column))
+					.map((column) => column.uuid),
+			);
+			config.columns = config.columns.filter(
+				(column) => !traceless.has(column.uuid),
+			);
+			config.detailColumnOrder = config.detailColumnOrder.filter(
+				(one) => !traceless.has(one),
+			);
+			const carried = config.columns
+				.filter((column) => shownNowhere(column))
+				.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
+			for (const column of carried)
+				if (column.kind === "plain") column.header = "";
+			const last = new Set(carried.map((column) => column.uuid));
+			config.listColumnOrder = [
+				...config.listColumnOrder.filter(
+					(one) => !traceless.has(one) && !last.has(one),
+				),
+				...carried.map((column) => column.uuid),
+			];
+			const source = doc.modules[uuid]?.caseListConfig;
+			if (source !== undefined)
+				carriersAsPlainColumns(config, plainColumnKeys(source), (field, n) =>
+					mintEntityUuid(
+						doc.appId,
+						externalKey.caseListColumn(
+							DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
+							"plain",
+							field,
+							n,
+						),
+					),
+				);
+		}
+	});
+}
+
+/** The identity of each plain column of `config`, by its field and its ordinal among plain
+ *  columns of that field in the list's order: the key a reading claims a plain column under. */
+function plainColumnKeys(config: CaseListConfig): ReadonlyMap<string, Uuid> {
+	const keys = new Map<string, Uuid>();
+	const counts = new Map<string, number>();
+	for (const column of orderedColumns(config, "list")) {
+		if (column.kind !== "plain") continue;
+		const n = counts.get(column.field) ?? 0;
+		counts.set(column.field, n + 1);
+		keys.set(JSON.stringify([column.field, n]), column.uuid);
+	}
+	return keys;
+}
+
+/**
+ * Each sorted column shown nowhere of `config` that is not plain, written as the plain column a
+ * reading gives it: its field, its rule and its two hidden flags, under the identity the reading
+ * claims for it, which is `known`'s for its key where no other column holds that identity, else
+ * `mint`'s. `config` holds its final order.
+ */
+function carriersAsPlainColumns(
+	config: CaseListConfig,
+	known: ReadonlyMap<string, Uuid>,
+	mint: (field: string, n: number) => Uuid,
+): void {
+	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
+	const counts = new Map<string, number>();
+	const renamed = new Map<Uuid, Uuid>();
+	for (const uuid of config.listColumnOrder) {
+		const column = byUuid.get(uuid);
+		if (column === undefined || column.kind === "calculated") continue;
+		const plain = column.kind === "plain" || shownNowhere(column);
+		if (!plain) continue;
+		const n = counts.get(column.field) ?? 0;
+		counts.set(column.field, n + 1);
+		if (column.kind === "plain") continue;
+		const held = known.get(JSON.stringify([column.field, n]));
+		renamed.set(
+			uuid,
+			held !== undefined && !byUuid.has(held) ? held : mint(column.field, n),
+		);
+	}
+	if (renamed.size === 0) return;
+	config.columns = config.columns.map((column) => {
+		const next = renamed.get(column.uuid);
+		if (next === undefined || column.kind === "calculated") return column;
+		return {
+			...plainColumn(next, column.field, ""),
+			visibleInList: false,
+			visibleInDetail: false,
+			...(column.sort !== undefined && { sort: column.sort }),
+		};
+	});
+	const rename = (one: Uuid) => renamed.get(one) ?? one;
+	config.listColumnOrder = config.listColumnOrder.map(rename);
+	config.detailColumnOrder = config.detailColumnOrder.map(rename);
+}
+
+/** A column hidden from Results and from Details. */
+function shownNowhere(column: Column): boolean {
+	return column.visibleInList === false && column.visibleInDetail === false;
+}
+
+/** Whether a tile list writes a column's own order rule, which in a tile list hidden from Results
+ *  is a sort element over its property (`caseListOrder.ts`, rule 4, exception iii). */
+function ruleWritten(column: Column): boolean {
+	return (
+		column.sort !== undefined &&
+		column.kind !== "calculated" &&
+		column.field !== "case_id"
+	);
 }

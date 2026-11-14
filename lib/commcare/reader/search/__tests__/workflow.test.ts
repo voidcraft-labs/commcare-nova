@@ -73,7 +73,9 @@ describe("a search's workflow", () => {
 		it(`reads ${name}, and the wire shape gives the booleans back`, async () => {
 			const reading = await read(booleans, false);
 			expect(codes(reading)).toEqual([]);
-			const config = searchOf(reading) as Record<string, unknown>;
+			// A search with a field and nothing set holds no settings object
+			// (`emptySearchSettingsBesideFieldsAreAbsent`), which is search first.
+			const config = (searchOf(reading) ?? {}) as Record<string, unknown>;
 			expect({
 				workflow: config.workflow,
 				formsReadSearch: config.formsReadSearch,

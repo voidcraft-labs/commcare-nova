@@ -266,7 +266,7 @@ export function readSearchRowConjuncts(
 					source,
 					reading.ok ? reading.predicate : undefined,
 					context,
-					{ target: "search-row" },
+					"csql",
 				);
 	if (!reading.ok) return { ...reading, uses };
 	return {

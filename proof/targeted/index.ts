@@ -137,6 +137,7 @@ import {
 } from "./documents/searchWorkflows";
 import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
+import { severalCaseClose } from "./documents/severalCaseClose";
 import { sortBlanks } from "./documents/sortBlanks";
 import { sharedPropertySort } from "./documents/sortKeys";
 import {
@@ -268,6 +269,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	registerFromCaseListWebApps,
 	tileGroupFilter,
 	keptValues,
+	severalCaseClose,
 ];
 
 /** Every targeted document, in a fixed order. */

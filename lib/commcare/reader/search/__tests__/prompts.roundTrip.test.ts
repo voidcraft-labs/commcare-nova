@@ -4,6 +4,7 @@
  * into the wrong slot; a required message stored where it is the default; a simple field read as
  * advanced; a prompt Nova cannot write back read as held.
  */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc, SearchInputDef } from "@/lib/domain";
 import {
@@ -21,6 +22,7 @@ import {
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { expandDoc } from "../../../expander";
 import { lookupWireNaming } from "../../../lookup/naming";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
@@ -30,6 +32,7 @@ import {
 	readLists,
 } from "../../caseList/__tests__/listReading";
 import type { ReaderInput } from "../../types";
+import { exactSearchModeIsAbsent } from "../prompts";
 
 async function roundTrip(inputs: SearchInputDef[]) {
 	const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
@@ -380,6 +383,129 @@ describe("Search fields over a table and over dates", () => {
 			expect(reading.ctx.pending.list().map((one) => one.ref.slot)).toContain(
 				"search_input_options",
 			);
+		});
+
+	// The emitter prints the label column as the sort of a field with no sort column of its own,
+	// so a reading that took the printed sort as the field's own would hold a sort column the
+	// document never held.
+	it("reads a field ordered by its label column with no sort column of its own", async () => {
+		const inputs: SearchInputDef[] = [
+			{
+				uuid: uuid(9),
+				name: "notes",
+				label: "District",
+				kind: "simple",
+				type: "select",
+				property: "notes",
+				options: {
+					kind: "lookup",
+					tableId: TABLE,
+					valueColumnId: CODE,
+					labelColumnId: NAME,
+				},
+			},
+		];
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: inputs,
+			search: {},
+		});
+		const reading = await readLists(doc, {
+			lookupNaming: naming,
+			input: withTable,
+		});
+		const prompt = reading.app.modules[0]?.search_config.properties as {
+			itemset: { sort: string };
+		}[];
+		expect(prompt[0]?.itemset.sort).toBe("name");
+		expect(codes(reading)).toEqual([]);
+		const read = comparableList(listOf(reading)) as {
+			searchInputs: unknown[];
+		};
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
+	});
+
+	// Every print reads a simple field's mode through its widget's default, so naming exact
+	// matching and naming no mode print one source, and the reader returns no mode.
+	for (const type of [
+		"text",
+		"barcode",
+		"date",
+		"select",
+		"multi-select",
+	] as const)
+		it(`reads a ${type} field that names exact matching as naming no mode`, async () => {
+			const property = type === "date" ? "dob" : "notes";
+			const base = {
+				uuid: uuid(9),
+				name: property,
+				label: "Field",
+				kind: "simple" as const,
+				property,
+			};
+			const field = (exact: boolean): SearchInputDef =>
+				type === "select" || type === "multi-select"
+					? {
+							...base,
+							type,
+							options: {
+								kind: "lookup",
+								tableId: TABLE,
+								valueColumnId: CODE,
+								labelColumnId: NAME,
+							},
+							...(exact && { mode: { kind: "exact" as const } }),
+						}
+					: {
+							...base,
+							type,
+							...(exact && { mode: { kind: "exact" as const } }),
+						};
+			const listed = patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [field(true)],
+				search: {},
+			});
+			// A date field searches a property typed a date.
+			const named: BlueprintDoc =
+				type === "date"
+					? {
+							...listed,
+							caseTypes: [
+								{
+									name: "patient",
+									properties: [
+										{
+											name: "dob",
+											label: proseText("Born"),
+											data_type: "date",
+										},
+									],
+								},
+							],
+						}
+					: listed;
+			const none = produce(named, (draft) => {
+				for (const module of Object.values(draft.modules))
+					module.caseListConfig?.searchInputs.splice(0, 1, field(false));
+			});
+			const exported = (doc: BlueprintDoc) =>
+				JSON.stringify(expandDoc(doc, { lookupNaming: naming }));
+			expect(exported(named)).toBe(exported(none));
+			const chosen = exactSearchModeIsAbsent(named);
+			expect(
+				chosen.modules[chosen.moduleOrder[0] ?? ""]?.caseListConfig
+					?.searchInputs,
+			).toEqual([field(false)]);
+			expect(exactSearchModeIsAbsent(chosen)).toBe(chosen);
+			expect(exactSearchModeIsAbsent(none)).toBe(none);
+			const reading = await readLists(named, {
+				lookupNaming: naming,
+				input: withTable,
+			});
+			expect(codes(reading)).toEqual([]);
+			const read = comparableList(listOf(reading)) as {
+				searchInputs: unknown[];
+			};
+			expect(read.searchInputs).toEqual(asRead([field(false)], reading));
 		});
 
 	for (const dataType of ["date", "datetime"] as const)

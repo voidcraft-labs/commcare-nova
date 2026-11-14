@@ -21,6 +21,10 @@ import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { isContainerKindName } from "@/lib/domain/fields";
 import { uniqueSlug } from "@/lib/domain/idSlug";
+import {
+	effectiveAppLocalization,
+	makeTranslationUnitId,
+} from "@/lib/domain/localization";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import {
 	circumstanceFinding,
@@ -29,6 +33,7 @@ import {
 } from "@/lib/publish/hqFindings";
 import { inventoryIndex } from "../surface/inventory";
 import type { ClaimSite } from "./accounting";
+import { withCandidate } from "./candidate";
 import type { ReadContext } from "./context";
 import { readerDefect } from "./defects";
 import {
@@ -43,6 +48,7 @@ import {
 } from "./expressions/surfaceUses";
 import { pendingPlaceholder } from "./pendingExpressions";
 import { appPlace, whereText } from "./place";
+import { searchRowUserFields } from "./search";
 import { worldEntitiesFromReads } from "./worldEntities";
 import { type DraftField, expressionEnvOf, type ReadXForm } from "./xform";
 
@@ -121,6 +127,58 @@ function mintedId(
 	const id = uniqueSlug(name, fallback, taken);
 	taken.add(id);
 	return id;
+}
+
+/**
+ * `doc` with each menu's and form's id as a reading mints it: no export carries either, so a menu
+ * takes `menu`'s slug of its name in the source language, or else in the first language that
+ * holds one (`menus/modules.ts::writeMenuIds`), and a form `form`'s slug of its name in the source
+ * language (`mintedId`), each suffixed past the ids of its kind before it in menu and form order.
+ */
+export function menuAndFormIdsAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const { languageOrder } = effectiveAppLocalization(doc.localization);
+	const source = doc.localization?.sourceLanguage;
+	const menuIds = new Set<string>();
+	const formIds = new Set<string>();
+	const menus = new Map<Uuid, string>();
+	const forms = new Map<Uuid, string>();
+	for (const moduleUuid of projectedModulePreorder(doc)) {
+		const module = doc.modules[moduleUuid];
+		if (module === undefined) continue;
+		const unit = makeTranslationUnitId("module", moduleUuid, "name");
+		const name =
+			module.name !== ""
+				? module.name
+				: (languageOrder
+						.filter((language) => language !== source)
+						.map((language) => {
+							const value =
+								doc.localization?.translations[language]?.[unit]?.value;
+							return typeof value === "string" ? value : "";
+						})
+						.find((text) => text !== "") ?? "");
+		const id = uniqueSlug(name, "menu", menuIds);
+		menuIds.add(id);
+		if (id !== module.id) menus.set(moduleUuid, id);
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (form === undefined) continue;
+			const formId = uniqueSlug(form.name, "form", formIds);
+			formIds.add(formId);
+			if (formId !== form.id) forms.set(formUuid, formId);
+		}
+	}
+	if (menus.size === 0 && forms.size === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const [uuid, id] of menus) {
+			const module = draft.modules[uuid];
+			if (module !== undefined) module.id = id;
+		}
+		for (const [uuid, id] of forms) {
+			const form = draft.forms[uuid];
+			if (form !== undefined) form.id = id;
+		}
+	});
 }
 
 /** The document the drafts give, unfrozen. */
@@ -497,14 +555,21 @@ export function applyExpressionReading(
 /**
  * Stage 7: every pending expression bound against the provisional document. The first run of
  * the expression reader is kept only for what it learns the app reads of the worker and of
- * places, which the drafts then hold; the second, over the document that holds them, is the
- * reading, and the one applied.
+ * places, which the drafts then hold, together with the worker properties the searches' filter
+ * rows read, which the search stage names (`searchRowUserFields`); the second, over the
+ * document that holds them, is the reading, and the one applied.
  */
 export function bindExpressions(ctx: ReadContext): void {
 	const env = expressionEnvOf(ctx);
 	const pending = ctx.pending.list();
 	const first = readExpressions(provisionalDocument(ctx), pending, env);
-	const world = worldEntitiesFromReads(first.worldReads, ctx.resolver);
+	const world = worldEntitiesFromReads(
+		{
+			...first.worldReads,
+			userFields: [...first.worldReads.userFields, ...searchRowUserFields(ctx)],
+		},
+		ctx.resolver,
+	);
 	if (world.userProperties.length > 0 || world.locationProperties.length > 0)
 		ctx.writeDraft(() => {
 			ctx.draft.userProperties = world.userProperties;

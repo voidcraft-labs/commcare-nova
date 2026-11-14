@@ -134,7 +134,10 @@ import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
 import { fieldBindType } from "./bindType";
-import { protectConstraintMessage } from "./constraintMessage";
+import {
+	bindCarriesConstraint,
+	protectConstraintMessage,
+} from "./constraintMessage";
 import { isConsumerWhitespace } from "./consumerWhitespace";
 import { countPlacementRowPieces } from "./countPlacementRow";
 import {
@@ -1314,6 +1317,12 @@ function buildFieldParts(
 		: readFieldMedia(field, "label_media");
 	const helpMedia = readFieldMedia(field, "help_media");
 	const canValidate = fieldKindCarriesValidation(field.kind);
+	// A case name or an external id is checked at the question a worker
+	// answers, on the kinds `caseScalarTextGuardIsChecked` names; Preview's
+	// form engine checks the same ones.
+	const scalarGuard = caseScalarText.guards.get(fieldUuid);
+	const checksScalar =
+		scalarGuard !== undefined && caseScalarTextGuardIsChecked(field.kind);
 	// A label or a help text shown as typed writes no markdown form; a hint
 	// and a validation message never write one.
 	const labelMarkdown = !labelShowsAsTyped(
@@ -1342,7 +1351,12 @@ function buildFieldParts(
 		field.kind !== "hidden" &&
 		addItext(`${itextKey}-help`, help, helpMedia, false, false, helpMarkdown)
 			.registered;
-	const validationMessage = canValidate
+	// A message no constraint can fail is never shown, so none is written.
+	const validationMessage = bindCarriesConstraint(
+		field.kind,
+		validate,
+		scalarGuard,
+	)
 		? addItext(
 				`${itextKey}-constraintMsg`,
 				validateMsg,
@@ -1365,12 +1379,6 @@ function buildFieldParts(
 		slot: "required" | "relevant" | "calculate" | "default_value" | "validate",
 	) =>
 		expressions.lower(expression, { entity: "field", uuid: fieldUuid, slot });
-	// A case name or an external id is checked at the question a worker
-	// answers, on the kinds `caseScalarTextGuardIsChecked` names; Preview's
-	// form engine checks the same ones.
-	const scalarGuard = caseScalarText.guards.get(fieldUuid);
-	const checksScalar =
-		scalarGuard !== undefined && caseScalarTextGuardIsChecked(field.kind);
 	const bindAttributes: Record<string, string> = {};
 	const bindXPath: NonNullable<WireElementSpec<"bind">["xpath"]> = {
 		"vellum:nodeset": nodePath.toWire("hashtag"),

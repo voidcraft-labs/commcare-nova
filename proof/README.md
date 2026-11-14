@@ -1472,7 +1472,21 @@ points with and without `ignoreDisplayConditions`, which
 `targeted-multi-select-destinations` holds one follow-up for each
 after-submit destination a menu offers (`module`, `firstMenu`, `parentMenu`
 and `previous`), in menus that select several cases and under them, which
-the same three tests read. `targeted-empty-list-no-english` is the
+the same three tests read. `targeted-several-case-close` holds three close
+forms in a menu that selects several samples, each closing every chosen
+sample with a close-only block in that sample's row of the selected cases:
+one whose close condition holds (the block in the row's
+`nova_condition_close` group), one whose condition does not hold, and one
+with no condition (the block directly in the row's `nova_operations` group),
+beside a menu that selects one sample, whose close form carries the value
+check. The lane's walk chooses one case from a list at a time, so
+`proof/formplayer/test_several_case_close.py` chooses two of the three
+samples together, as the Web Apps client sends a selection of several, and
+reads HQ's own records after each form: where the condition does not hold,
+the instance holds no case block, and each chosen sample stays open with no
+transaction of the form and its dates unmoved; where it holds, and where
+there is none, each chosen sample is closed by the form; and the sample
+left unchosen is untouched in every run. `targeted-empty-list-no-english` is the
 Web Apps driver's: an app written in Spanish alone, whose empty-list message
 `proof/webapps/test_empty_list.py` reads in Web Apps before and after HQ's
 module settings save (finding 41), and whose second menu lists no case, so

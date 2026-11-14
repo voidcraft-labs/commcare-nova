@@ -25,7 +25,7 @@ import {
 } from "../../__tests__/readerInput";
 import { assembleDocument } from "../../assemble";
 import type { ReadContext } from "../../context";
-import { STAGES } from "../../index";
+import { knownCaseTypesOf, STAGES } from "../../index";
 import { bindExpressions } from "../../provisional";
 import type { ReaderInput, ReaderMediaResolution } from "../../types";
 
@@ -107,6 +107,7 @@ export async function readLists(
 			},
 		}),
 		recordDialect: recordDialectRoundTrip,
+		knownCaseTypes: knownCaseTypesOf(doc),
 	};
 	const ctx = readContext(
 		options.input === undefined ? base : options.input(base),

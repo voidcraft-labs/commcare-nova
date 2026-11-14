@@ -16,6 +16,7 @@ import {
 import {
 	instantTextOfMicros,
 	literalInstantMicros,
+	literalStoredInstantText,
 } from "@/lib/domain/expression/instantOperand";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import type { RuleSet } from "@/lib/domain/expression/profiles";
@@ -487,9 +488,33 @@ const protectedLiteral: Fold = {
 	},
 };
 
+/** A case write's whole value spelled as the text CommCare HQ stores for a
+ *  moment, UTC with six fraction digits and `Z`, as the date-and-time
+ *  literal Nova holds for it: its canonical text (`instantTextOfMicros`),
+ *  which the emitter writes to a date-and-time property as that stored text
+ *  (`xform/caseOps.ts`, through `datetimeCaseValue`) and to any other as
+ *  itself, so the print decides. Every writer of the property is bound
+ *  against one provisional document, so the write is typed by its own
+ *  spelling, never by the property's other writers. */
+function storedInstantWrite(
+	context: ExpressionContext,
+	text: string,
+): string | undefined {
+	const expectation = context.profile.expectation;
+	if (
+		expectation.kind !== "assignment" ||
+		context.slot.slot !== "case_operation_write_value" ||
+		literalStoredInstantText(text) !== text
+	)
+		return undefined;
+	const micros = literalInstantMicros(text);
+	return micros === undefined ? undefined : instantTextOfMicros(micros);
+}
+
 /** A slot's whole value as one literal, typed by its own shape where the
- *  slot expects a date or a date and time: the typed literal prints the same
- *  bytes, and only it is the value the slot expects. */
+ *  slot expects a date or a date and time, or a case write holds a moment as
+ *  CommCare HQ stores it: the typed literal prints the same bytes, and only
+ *  it is the value the slot expects. */
 function slotLiteral(
 	node: FormSyntax,
 	context: ExpressionContext,
@@ -500,6 +525,12 @@ function slotLiteral(
 	if (at.kind !== "string" || env.root === undefined) return undefined;
 	const root = core(env.root);
 	if (root.from !== at.from || root.to !== at.to) return undefined;
+	const stored = storedInstantWrite(context, at.value);
+	if (stored !== undefined)
+		return api.term(
+			{ kind: "literal", value: stored, data_type: "datetime" },
+			node,
+		);
 	const expectation = context.profile.expectation;
 	if (
 		expectation.kind !== "value" ||

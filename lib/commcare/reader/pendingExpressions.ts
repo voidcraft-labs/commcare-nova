@@ -6,8 +6,8 @@ import type { ClaimSite } from "./accounting";
 import type { ExpressionClaim } from "./expressions";
 
 /** How an expression's text is printed and compared: the XForm attribute it
- *  was read from, an HQ JSON slot under the interpolation HQ's build applies
- *  to it, or one row of a search's `_xpath_query`. */
+ *  was read from, or an HQ JSON slot under the interpolation HQ's build
+ *  applies to it. */
 export type ReadMode =
 	/** `constraint`: the attribute is a validation condition, where the printer writes a
 	 *  predicate's own node as `.` and elsewhere as `./.` (`xpath/wire/CLAUDE.md`, "Printing"). */
@@ -15,8 +15,7 @@ export type ReadMode =
 	| {
 			readonly target: "hq-json";
 			readonly interpolation: HqInterpolation;
-	  }
-	| { readonly target: "search-row" };
+	  };
 
 /** One expression a structure reader found, registered for the expression
  *  stage, which binds every registration against the finished structure. */

@@ -134,6 +134,136 @@ function sameTree(a: unknown, b: unknown): boolean {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
 
+type Selection = Extract<Expression, { kind: "multi-select-contains" }>;
+
+/** A test of one value, `selected(q, v)`, its fixed value named as the
+ *  choices of the question `q` reads where it names them: the form parser
+ *  binds such a test so (`expressionAst.ts::choiceFor`). */
+function choiceSelection(
+	node: Selection,
+	context: ExpressionContext,
+): Selection | undefined {
+	if (node.values.length !== 1) return undefined;
+	const [only] = node.values;
+	if (only?.kind !== "literal" || node.property.kind === "prop")
+		return undefined;
+	const choice = choiceOf(
+		{ kind: "term", term: only },
+		node.property as Expression,
+		context,
+	);
+	return choice?.kind === "term"
+		? { ...node, values: [choice.term] as Selection["values"] }
+		: undefined;
+}
+
+/** Whether the slot's tree prints as CSQL: a Search field's condition, and a
+ *  list filter its search restates, where the reader takes the restating
+ *  row's spelling of a clause that prints the list's filter alike
+ *  (`search/rows.ts`). */
+function printsCsql(context: ExpressionContext): boolean {
+	return (
+		context.slot.slot === "search_input_predicate" ||
+		(context.slot.slot === "case_list_filter" &&
+			context.profile.targets.has("CS"))
+	);
+}
+
+/** A value a selection test prints as text: a literal or a choice. */
+function fixedValue(value: Selection["values"][number]): boolean {
+	return value.kind === "literal" || value.kind === "choice";
+}
+
+/** `node`, an `or` or an `and` of one-value selection tests of one case
+ *  property, as the one selection CSQL prints in the same bytes, parenthesized
+ *  (`csql/emitter.ts::selection`): each fixed value `selected`, and a value
+ *  worked out on the device `selected-any` in an `or` and `selected-all` in
+ *  an `and`. The search row reader reads such a parenthesized join as that
+ *  selection (`csqlRead.ts::CsqlBinder.selectionGroup`). */
+function joinedSelection(node: Expression): Selection | undefined {
+	if ((node.kind !== "or" && node.kind !== "and") || node.clauses.length < 2)
+		return undefined;
+	const quantifier = node.kind === "or" ? "any" : "all";
+	const values: Selection["values"][number][] = [];
+	let property: Selection["property"] | undefined;
+	for (const clause of node.clauses) {
+		if (
+			clause.kind !== "multi-select-contains" ||
+			clause.property.kind !== "prop" ||
+			clause.values.length !== 1 ||
+			(property !== undefined && !sameTree(property, clause.property))
+		)
+			return undefined;
+		const [value] = clause.values;
+		if (
+			value === undefined ||
+			(fixedValue(value)
+				? clause.quantifier !== "any"
+				: clause.quantifier !== quantifier)
+		)
+			return undefined;
+		property = clause.property;
+		values.push(value);
+	}
+	const [first, ...rest] = values;
+	return property === undefined || first === undefined
+		? undefined
+		: {
+				kind: "multi-select-contains",
+				property,
+				values: [first, ...rest],
+				quantifier,
+			};
+}
+
+/** `node`, an `or` of two or more equalities of one operand with a literal,
+ *  as the membership of those literals. */
+function joinedMembership(node: Expression): Expression | undefined {
+	if (node.kind !== "or" || node.clauses.length < 2) return undefined;
+	const first = node.clauses[0];
+	if (first?.kind !== "eq") return undefined;
+	const values: Literal[] = [];
+	for (const clause of node.clauses) {
+		if (clause.kind !== "eq" || !sameTree(clause.left, first.left))
+			return undefined;
+		const literal = termOf(clause.right);
+		if (literal?.kind !== "literal") return undefined;
+		values.push(literal);
+	}
+	const [head, ...rest] = values;
+	return head === undefined
+		? undefined
+		: { kind: "in", left: first.left, values: [head, ...rest] };
+}
+
+/** `node` as the one Nova node CSQL prints in the same bytes, parenthesized:
+ *  a selection (`joinedSelection`) or a membership (`csql/emitter.ts::membership`
+ *  joins its equalities with `or` inside parentheses). The search row reader
+ *  reads such a parenthesized join as that node
+ *  (`csqlRead.ts::CsqlBinder.parenthesizedJoin`). */
+function parenthesizedJoin(node: Expression): Expression | undefined {
+	return joinedSelection(node) ?? joinedMembership(node);
+}
+
+/** A clause of an `and` with every `or` the CSQL printer parenthesizes
+ *  there, its own or a branch's of a choice the device makes (a Search
+ *  field's presence, an `if`), which print at the `and`'s precedence, as the
+ *  one node it prints the bytes of (`parenthesizedJoin`). */
+function joinsInConjunction(node: Expression): Expression {
+	if (node.kind === "or") return parenthesizedJoin(node) ?? node;
+	if (node.kind === "when-input-present") {
+		const clause = joinsInConjunction(node.clause);
+		return clause === node.clause ? node : { ...node, clause };
+	}
+	if (node.kind === "if") {
+		const then = joinsInConjunction(node.then);
+		const otherwise = joinsInConjunction(node.else);
+		if (then === node.then && otherwise === node.else) return node;
+		return { ...node, then, else: otherwise };
+	}
+	return node;
+}
+
 function stringLiteral(node: Expression | undefined): string | undefined {
 	const term = node === undefined ? undefined : termOf(node);
 	return term?.kind === "literal" && typeof term.value === "string"
@@ -613,6 +743,35 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// A case write of a date and time writes a date-and-time literal as
+		// the text CommCare HQ stores for its moment (`xform/caseOps.ts`,
+		// through `datetimeCaseValue`), so every spelling of one moment
+		// prints alike there; the reader gives the moment's canonical text.
+		id: "stored-instant-literal",
+		rewrite(node, context, at) {
+			const expectation = context.profile.expectation;
+			if (
+				!at.root ||
+				context.slot.slot !== "case_operation_write_value" ||
+				expectation.kind !== "assignment" ||
+				!expectation.destinations.includes("datetime")
+			)
+				return undefined;
+			const literal = termOf(node);
+			if (
+				literal?.kind !== "literal" ||
+				literal.data_type !== "datetime" ||
+				typeof literal.value !== "string"
+			)
+				return undefined;
+			const micros = literalInstantMicros(literal.value);
+			return relitText(
+				node,
+				micros === undefined ? undefined : instantTextOfMicros(micros),
+			);
+		},
+	},
+	{
 		// A device compares a date-and-time literal as the integer it folds
 		// to, so every spelling of one moment prints alike there. A search's
 		// condition, and a list filter its search restates, print the literal
@@ -721,24 +880,38 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// A device prints `in` as the `or` of its equalities, which joins an
+		// `or` around it as that many clauses (`wire/builders.ts::w.or`), so an
+		// `in` in an `or` prints its equalities there. CSQL parenthesizes it.
+		id: "membership-in-disjunction",
+		rewrite(node, context) {
+			if (
+				context.ruleSet !== "record" ||
+				printsCsql(context) ||
+				node.kind !== "or" ||
+				!node.clauses.some((clause) => clause.kind === "in")
+			)
+				return undefined;
+			const clauses = node.clauses.flatMap((clause): Expression[] =>
+				clause.kind === "in"
+					? clause.values.map((value) => ({
+							kind: "eq",
+							left: clause.left,
+							right: { kind: "term", term: value },
+						}))
+					: [clause],
+			);
+			return { kind: "or", clauses: clauses as typeof node.clauses };
+		},
+	},
+	{
+		// A device prints `in` as the `or` of its equalities, and so CSQL does
+		// inside parentheses, which `csql-parenthesized-join` takes; an `or` CSQL
+		// prints bare reads back as itself.
 		id: "membership",
 		rewrite(node, context) {
-			if (context.ruleSet !== "record" || node.kind !== "or") return undefined;
-			if (node.clauses.length < 2) return undefined;
-			const first = node.clauses[0];
-			if (first?.kind !== "eq") return undefined;
-			const values: Literal[] = [];
-			for (const clause of node.clauses) {
-				if (clause.kind !== "eq" || !sameTree(clause.left, first.left))
-					return undefined;
-				const literal = termOf(clause.right);
-				if (literal?.kind !== "literal") return undefined;
-				values.push(literal);
-			}
-			const [head, ...rest] = values;
-			return head === undefined
-				? undefined
-				: { kind: "in", left: first.left, values: [head, ...rest] };
+			if (context.ruleSet !== "record" || printsCsql(context)) return undefined;
+			return joinedMembership(node);
 		},
 	},
 	{
@@ -788,19 +961,8 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 					? undefined
 					: { ...node, left: left ?? node.left, right: right ?? node.right };
 			}
-			if (node.kind === "multi-select-contains" && node.values.length === 1) {
-				const [only] = node.values;
-				if (only?.kind !== "literal" || node.property.kind === "prop")
-					return undefined;
-				const choice = choiceOf(
-					{ kind: "term", term: only },
-					node.property as Expression,
-					context,
-				);
-				return choice?.kind === "term"
-					? { ...node, values: [choice.term] as typeof node.values }
-					: undefined;
-			}
+			if (node.kind === "multi-select-contains")
+				return choiceSelection(node, context);
 			const slot = context.slot;
 			if (at.root && slot.entity === "field" && slot.slot === "default_value")
 				return choiceOf(
@@ -809,6 +971,64 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 					context,
 				);
 			return undefined;
+		},
+	},
+	{
+		// A device tests a selection one value at a time, `selected(p, v)`
+		// whatever the quantifier, joined by `or` for any and `and` for all
+		// (`fromExpression.ts`), and reads each test back as a selection of
+		// any one value. CSQL prints a fixed value `selected(p, 'v')` whatever
+		// the quantifier (`csql/emitter.ts::selection`), and a selection of
+		// several values in parentheses, which a search row reads back whole.
+		id: "selection-per-value",
+		rewrite(node, context) {
+			if (node.kind !== "multi-select-contains") return undefined;
+			if (printsCsql(context)) {
+				const [only] = node.values;
+				return node.values.length === 1 &&
+					only !== undefined &&
+					fixedValue(only) &&
+					node.quantifier === "all"
+					? { ...node, quantifier: "any" }
+					: undefined;
+			}
+			const tests = node.values.map((value): Expression => {
+				const test: Selection = {
+					kind: "multi-select-contains",
+					property: node.property,
+					values: [value],
+					quantifier: "any",
+				};
+				return choiceSelection(test, context) ?? test;
+			});
+			const [first, ...rest] = tests;
+			if (first === undefined) return undefined;
+			if (rest.length === 0)
+				return node.quantifier === "any" ? undefined : first;
+			return {
+				kind: node.quantifier === "any" ? "or" : "and",
+				clauses: [first, ...rest],
+			};
+		},
+	},
+	{
+		// CSQL parenthesizes a selection of several values and a membership,
+		// and so it does an `or` in an `and`: there an `or` of one-value tests
+		// of one property prints the bytes of the selection of those values,
+		// and an `or` of equalities of one operand the bytes of its membership,
+		// which a search row reads back. The slot's own `and` is no such
+		// parent: each of its clauses is a row of its own
+		// (`suite/case-search/xpathQuery.ts::composeXPathQueryClauses`). A
+		// related case's condition is in parentheses of its own, so a
+		// selection there prints two pairs and an `or` one.
+		id: "csql-parenthesized-join",
+		rewrite(node, context, at) {
+			if (!printsCsql(context) || node.kind !== "and" || at.root)
+				return undefined;
+			const clauses = node.clauses.map(joinsInConjunction);
+			return clauses.every((clause, index) => clause === node.clauses[index])
+				? undefined
+				: { ...node, clauses: clauses as typeof node.clauses };
 		},
 	},
 	{

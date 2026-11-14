@@ -1482,12 +1482,18 @@ const SAVE_TO_CASE_REFUSED =
 const SAVE_TO_CASE_ROWS =
 	C["savetocase-property-rows-calculation-condition-lifting-into"].entry;
 
+/** A slot a reader registers an expression for: every slot but a Search
+ *  field's own condition, which is a search filter row that
+ *  `csqlRead.ts::readSearchFilterRow` reads where the search is settled,
+ *  answering its own claim. */
+export type RegisteredSlotName = Exclude<SlotName, "search_input_predicate">;
+
 /** The "Held" and "Refused, by default" columns, by slot name. `held` and
  *  `refused` take the document because a row can choose by the slot's owner
  *  (a repeat's placement, a question in a repeat, an operation's action) or by
  *  the bound tree. `held` answers undefined for a row that has no slot entry;
  *  `refused` answers `"form-default"` where the column reads "M2 or M3". */
-export const SLOT_ENTRIES: Readonly<Record<SlotName, SlotRow>> = {
+export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	relevant: formSlot(C["bind-relevant"].entry),
 	validate: formSlot(C["bind-constraint"].entry),
 	required: {
@@ -1607,10 +1613,17 @@ export const SLOT_ENTRIES: Readonly<Record<SlotName, SlotRow>> = {
 	),
 	search_input_required_when: fixed(C["required-test-text"].entry, M6),
 	search_input_validation_rule: fixed(C["validations-0-test-text"].entry, M6),
-	// A search filter row: `case-search/several-xpath-query-rows` holds the key,
-	// and a refusal no row of the checker's table names is M7.
-	search_input_predicate: fixed(undefined, M7),
 };
+
+/** The row of a registration's slot. No reader registers a Search field's own
+ *  condition: it is a search filter row, read at the search's settle. */
+export function slotEntries(slot: SlotName): SlotRow {
+	if (slot === "search_input_predicate")
+		throw new Error(
+			"A Search field's own condition was registered with the expression stage, but it is a search filter row, which `csqlRead.ts::readSearchFilterRow` reads where the search is settled. Read it there instead of registering it.",
+		);
+	return SLOT_ENTRIES[slot];
+}
 
 // ── The raw text of a form's display condition ───────────────────────
 
@@ -2211,20 +2224,27 @@ function comparesSystemDate(
 	return found;
 }
 
+/** What a checker error is about: the slot, and whether the text is a search
+ *  filter row, which `csqlRead.ts` reads as CSQL, rather than a registration. */
+export interface CheckedText {
+	readonly ref: SlotContextRef;
+	readonly searchRow?: true;
+}
+
 /** "By checker code", before the slot's default: the entry, or
  *  `"slot-default"`, with the `detail.reason`. `candidate` is the tree the
  *  error is about; without it the slot's stored tree is read. */
 export function checkErrorEntry(
 	error: CheckError,
 	doc: BlueprintDoc,
-	pending: PendingExpression,
+	checked: CheckedText,
 	candidate?: Expression,
 ): { readonly entryId: string | "slot-default"; readonly reason: string } {
 	const reason =
 		error.reason === undefined ? error.code : `${error.code}:${error.reason}`;
 	const answer = (entryId: string, why = reason) => ({ entryId, reason: why });
-	const ref = pending.ref;
-	const searchRow = pending.mode.target === "search-row";
+	const ref = checked.ref;
+	const searchRow = checked.searchRow === true;
 	const tree =
 		candidate ??
 		(isProseSlotRef(ref) ? undefined : expressionSlotValue(doc, ref));

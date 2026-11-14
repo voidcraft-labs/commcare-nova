@@ -59,7 +59,8 @@ describe("a search's settings", () => {
 	it("reads Nova's default title as no title slot", async () => {
 		const reading = await readLists(doc());
 		expect(codes(reading)).toEqual([]);
-		expect(searchOf(reading)).not.toHaveProperty("searchScreenTitle");
+		// With nothing else set, the search holds no settings object at all.
+		expect(searchOf(reading)).toBeUndefined();
 	});
 
 	it("reads a blank title as a search with no title", async () => {

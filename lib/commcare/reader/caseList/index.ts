@@ -35,6 +35,7 @@ import {
 	attributeOf,
 	HQ_PROPERTY_RENAMES,
 	imageMapPropertyText,
+	labelShownProperty,
 	languageMap,
 } from "./columns";
 import {
@@ -43,7 +44,7 @@ import {
 	readCaseDetails,
 	sameState,
 } from "./details";
-import { CALCULATED_FIELD, ORDER_CLAIMS } from "./order";
+import { CALCULATED_FIELD, implicitRuleColumn, ORDER_CLAIMS } from "./order";
 import { withReadTexts } from "./readTexts";
 
 export { joinDetailColumns } from "./details";
@@ -93,6 +94,25 @@ function selectFieldsOf(form: DraftForm): Set<Uuid> {
 	return out;
 }
 
+/** The properties of `caseType` a column of any menu of that type shows by its choices' labels,
+ *  read from the stored details (`columns.ts::labelShownProperty`). */
+function labelShownProperties(app: DraftApp, caseType: string): Set<string> {
+	const out = new Set<string>();
+	for (const module of app.modules) {
+		if (module.module.caseType !== caseType) continue;
+		const pair = module.json.peek("case_details");
+		for (const screen of ["short", "long"] as const) {
+			const detail = isJsonObject(pair) ? pair[screen] : undefined;
+			const columns = isJsonObject(detail) ? detail.columns : undefined;
+			for (const column of Array.isArray(columns) ? columns : []) {
+				const property = labelShownProperty(column);
+				if (property !== undefined) out.add(property);
+			}
+		}
+	}
+	return out;
+}
+
 /** Step 6, pass 1: every menu's case list, read from its two details, and the type each numeric
  *  sort declares written into the draft's catalog before any expression binds. */
 export function readCaseLists(ctx: ReadContext, app: DraftApp): void {
@@ -102,7 +122,15 @@ export function readCaseLists(ctx: ReadContext, app: DraftApp): void {
 			caseType === undefined
 				? new Set<string>()
 				: selectProperties(app, caseType);
-		readCaseDetails(ctx, module, (property) => selects.has(property));
+		const shown =
+			caseType === undefined
+				? new Set<string>()
+				: labelShownProperties(app, caseType);
+		readCaseDetails(ctx, module, {
+			selectProperty: (property) =>
+				selects.has(property) && shown.has(property),
+			labelShown: (property) => shown.has(property),
+		});
 	}
 	declareNumericSortsBeforeBinding(ctx, app);
 }
@@ -306,7 +334,10 @@ function sortDifference(
 			ourText !== undefined
 		) {
 			// Two positional elements over one expression text land on the first column holding
-			// it, so the two sort one way.
+			// it, so the two sort one way. The reading names another position only where a rule
+			// on the column the stored element names orders by another key than the column it
+			// lands on, which no document Nova admits holds, and is read on the column it lands
+			// on (`order.ts::readSortElements`): the first publish writes that column's position.
 			if (!sameXPathText(storedText, ourText))
 				return "schema:SortElement.field";
 			const index = reading.sort.kept[position] as number;
@@ -350,6 +381,16 @@ function sortDifference(
 		const numeric = reading.sort.numeric.get(index);
 		if (numeric !== undefined && other.type !== numeric)
 			ctx.accounting.finding(ORDER_CLAIMS.typeNumeric, place);
+		// A date comparison over a property whose type is not of the date class HQ's build writes as
+		// it writes a text one (`detail_screen.py::FormattedDetailColumn.sort_node`), and the first
+		// publish writes Nova's word for it.
+		if (element.type === "date" && other.type === "plain")
+			sameState(
+				ctx,
+				ORDER_CLAIMS.typeDerived.entry,
+				`${reading.short.pointer}/sort_elements/${index}/type`,
+				"sort-rule-kept-as-hidden-column",
+			);
 	}
 	return undefined;
 }
@@ -551,6 +592,37 @@ function numericSortDeclarations(
 }
 
 /**
+ * `doc` without the one rule its menu's list read, where that rule is the one a list with no rule
+ * writes (`order.ts::implicitRuleColumn`) and the stored element compares no number and no date:
+ * the list with no rule prints the stored element, and the reader returns it
+ * (`implicit-order-rule-is-absent`). A stored `date` element is the rule's own, which the list
+ * with no rule never writes.
+ */
+function withoutImplicitRule(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	reading: CaseListReading,
+): BlueprintDoc {
+	if (reading.sort.defaulted || reading.sort.kept.length !== 1) return doc;
+	const index = reading.sort.kept[0] as number;
+	const type = objects(reading.short.peek("sort_elements"))[index]?.type;
+	if (type === "int" || type === "double" || type === "date") return doc;
+	const moduleUuid = reading.module.uuid;
+	const rule = implicitRuleColumn(
+		doc,
+		moduleUuid,
+		readProjectionInputs(ctx).assets !== undefined,
+	);
+	if (rule === undefined) return doc;
+	return withCandidate(doc, (draft) => {
+		const one = draft.modules[moduleUuid]?.caseListConfig?.columns.find(
+			(candidate) => candidate.uuid === rule.column,
+		);
+		if (one !== undefined) delete one.sort;
+	});
+}
+
+/**
  * Step 8, pass 2: each menu's case list accepted where the projection writes its stored details
  * back. A difference no row names is `unrecognized` at the list, under its surface key. The
  * declarations made before binding are taken back first, so each is made again only where the
@@ -589,6 +661,7 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		if (reading === undefined || caseType === undefined || !reading.whole)
 			continue;
 		ctx.doc = declareNumericSorts(ctx.doc, caseType, reading);
+		ctx.doc = withoutImplicitRule(ctx, ctx.doc, reading);
 		const doc = ctx.doc;
 		const mod = doc.modules[module.uuid];
 		if (mod === undefined) continue;

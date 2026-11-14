@@ -152,7 +152,13 @@ describe("worldEntitiesFromReads", () => {
 				label: "rank",
 			},
 		]);
+		// In the order of the slugs, whichever was read first.
 		expect(locationProperties).toEqual([
+			{
+				uuid: mintEntityUuid("app-1", externalKey.locationProperty("beds")),
+				slug: "beds",
+				label: "beds",
+			},
 			{
 				uuid: mintEntityUuid(
 					"app-1",
@@ -160,11 +166,6 @@ describe("worldEntitiesFromReads", () => {
 				),
 				slug: "catchment",
 				label: "catchment",
-			},
-			{
-				uuid: mintEntityUuid("app-1", externalKey.locationProperty("beds")),
-				slug: "beds",
-				label: "beds",
 			},
 		]);
 	});

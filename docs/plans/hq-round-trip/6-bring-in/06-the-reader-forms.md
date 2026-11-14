@@ -104,9 +104,11 @@ adds no `scripts/test-schema.ts` entry. Nothing in it changes what an app test r
 17. **Text is read by reference, never by id** (12.1): a control's or bind's `jr:itext('id')` names the
     entry, whatever the id's spelling, and Nova writes its own ids back. An entry only an expression
     reads is the manifest's existing refusal.
-18. **A translation equal to its source text is no translation** (12.5). The source language is HQ's
-    first language. This is one of the reader's canonical choices (16.2), seven of them this part's
-    rows, each a document pair Nova writes identically.
+18. **A translation equal to its source text is no translation** (12.5). The source language is the
+    first of HQ's languages whose text at the app's name and at Nova's own sentences is the source's
+    (6.3, item 4), HQ's first language where nothing tells the languages apart or none passes. This is
+    one of the reader's canonical choices (16.2), eighteen of them this part's rows, each a document
+    pair Nova writes identically or content no export carries.
 19. **A generated node is recognized by rebuilding it** (13): the reader proposes the owner, builds the
     node's bind with the production emitter's own function, and compares parsed trees. The name must be
     the allocator's base or a suffixed form of it. A node a person changed in HQ fails the comparison
@@ -465,6 +467,26 @@ export interface ReaderInput {
 	 *  it answered; absent where the source holds no `update_mode: "edit"` and no probe was made.
 	 *  Part 07 reads it (its section 3); nothing of this part does. */
 	readonly saveOnlyEditedApplied?: boolean;
+	/** What Nova already holds about this app's case types that no export carries: the case
+	 *  type each index of a type reaches, answered by (case type, identifier): the catalog's
+	 *  parent for `parent`, and for any other identifier the type every typed step of the
+	 *  document through it from that type agrees on (a save through `host`, a read through a
+	 *  custom index), none where they disagree. Consulted only where the app itself fixes none
+	 *  (no child link, no parent selection, no open action's index; part 07, section 7). Absent
+	 *  for an app Nova has never held: a first reading passes none. Acceptance's re-read, proof 6 over a Nova-born
+	 *  document and part 15's two readings pass the document's own,
+	 *  `caseManagement/knownCaseTypes.ts::knownCaseTypesOf(doc)`. */
+	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+}
+
+export interface ReaderKnownCaseTypes {
+	targetOf(caseType: string, identifier: string): KnownIndexTarget | undefined;
+}
+
+export interface KnownIndexTarget {
+	readonly caseType: string;
+	/** The catalog's relationship, for its parent alone. */
+	readonly relationship?: CaseType["relationship"];
 }
 
 export interface ReaderOptions {
@@ -625,7 +647,7 @@ Part 07's functions take the draft as a second argument (`readMenus(ctx, app)`);
 | 6 | case lists and search, every XPath registered as pending, and the property types a numeric sort and a date Search field declare written into the draft's catalog, so every expression binds against them; then each child menu's form whose new case its root's first selection takes; then the entry facts compared and the links' expressions registered, which need every entry's structure and nothing bound | part 07, `caseList/index.ts::readCaseLists`, `search/index.ts::readSearches`, then part 07's `menus/index.ts::readRootSelectionsTaken` (after the case operations and every menu's structure are in the drafts, and before the entry facts are compared, so the finding stands at the form where the facts would otherwise part), `caseManagement/index.ts::compareEntryFacts` and `menus/afterSubmit.ts::registerLinkExpressions` |
 | 7 | the provisional document, then every pending expression bound against it | `provisional.ts::bindExpressions`, which builds `provisional.ts::provisionalDocument`, calls part 08's `readExpressions` twice with `worldEntitiesFromReads` between and applies the second answer |
 | 8 | what part 07 decides over the bound document | part 07, `settleCaseManagement`, `settleCaseLists`, `settleSearches`, `settleMenus`, in that order |
-| 9 | text: translations from the bound outputs; then each case catalog option's translations, taken from the choice it was read from, which exist only once the text is read | `xform/prose.ts::finishText`, then part 07's `caseManagement/catalog.ts::noteCatalogOptionTranslations` |
+| 9 | text: translations from the bound outputs (a case property's choice labels and their translations are the case list's, written in stage 6 by part 07's `caseList/details.ts::declareShownChoices` from the column that shows them) | `xform/prose.ts::finishText` |
 | 10 | what the bound document decides for a form: repeat counts, model iteration, load order, a Hidden Value's bind type | `xform/afterBinding.ts::finishForms` |
 | 11 | the declaration's verdict, the late claims, the close, and the draft where no finding stands | `assemble.ts::assembleDocument` |
 
@@ -1452,14 +1474,48 @@ is absent (`ApplicationBase.wrap`).
 3. **What cannot be named.** A code that gives no language, an identity `identityIssues` refuses, and a
    second code that gives an identity an earlier code already took are each the new entry of the table
    below, raised with `Accounting.finding` and the code in `detail.name`.
-4. **The result.** `localization = { sourceLanguage: tag(langs[0]), defaultLanguage: tag(langs[0]),
-   languageOrder, translations: { [tag]: {} } for each language after the first, wireCodes: { [tag]: code } }`
+4. **The result.** `localization = { sourceLanguage: tag(source), defaultLanguage: tag(langs[0]),
+   languageOrder, translations: { [tag]: {} } for each language but the source, wireCodes: { [tag]: code } }`
    (the schema holds a map for every target language), left absent where it is English alone coded
    `en`, the one spelling a document holds for that state (`isEnglishOnlyLocalization`), with `tag` from
    `localization.ts::languageTag`. HQ's first language is the default every runtime starts in
-   (`Application.default_language`), and Nova's source language is the one whose text the document's own
-   slots hold, so both are `langs[0]`. The list is claimed `take(langs-order-langs-0-default)`, key
-   `schema:Application.langs`. The code-spelling entry,
+   (`Application.default_language`), so `defaultLanguage` is `langs[0]`. Nova's source language is the
+   one whose text the document's own slots hold. `sourceLanguage` is the first language, in `langs`
+   order, that a reading with it as the source prints back at every place Nova's emitter writes the
+   source's text apart from a translation (`languages.ts::readingSourceCode`, read from the stored
+   app before any text is read; the candidates are tried in order, as part 07's (R3) tries its
+   candidates). There are two such places, and the reader's `CLAUDE.md` lists them with the places
+   that only look like one:
+   - **the app's name**: Nova writes the source language's name as `name`, and `app.display.name`
+     (with `homescreen.title`) only in a language whose name differs (`expander.ts::appLevelValues`),
+     so a language storing a non-empty `app.display.name` other than `name` is not the source;
+   - **Nova's own sentences**: a system unit's source text is Nova's sentence
+     (`lib/domain/translationUnits.ts`: a Search field's runtime guard,
+     `system/search-validation/<key>`, and the message of a required Search field with none of its
+     own, `system/search-required/default`), which a document holds in no other text in its source
+     language, so the source's text is the sentence for every one the app's searches print
+     (`search/systemSentences.ts::systemSentenceHolders`).
+
+   Every other text Nova writes is one projection of each language's text (`localization.ts`), the
+   same bytes whichever language holds it as the source, so comparing these two places is the whole
+   test and no candidate is read whole. Where nothing in the app tells the languages apart every
+   language passes and the source is `langs[0]`; it is `langs[0]` too where none passes (a Search
+   field's own required message that prints as Nova's sentence in a language other than the source
+   leaves no language holding the sentence for every field). An earlier language passes only where its
+   text at both places is the source's, so a document sourced in it prints the same export, and the
+   first that passes, not a sole one, is taken: a document whose first language translates a guard or
+   the app's name and whose second is untranslated holds two candidates, and the first of them reads
+   it back (07, section 12.2; the canonical row `source-language-is-as-read`, part 09, section 9,
+   sources a Nova-born document the same way). The source language's map is the one `translations`
+   leaves out.
+
+   This replaces a rule that read Nova's sentences alone and sourced every other app in
+   `langs[0]`: a document sourced in its second language whose first translates the app's name prints
+   its source's name as `name`, and the same document sourced in its first prints another `name` and
+   another `app.display.name`, so that rule's canonical row paired two documents that print two
+   exports.
+
+   The list is claimed `take(langs-order-langs-0-default)`, key `schema:Application.langs`. The code-spelling entry,
    `langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin`, shares that key and is claimed
    where a form spells a code: on each `translation@lang` the itext reader reads (12.1), key
    `xform:model/itext/translation@lang`.
@@ -1506,7 +1562,7 @@ once, by part 01's 4.4 classes in this order:
 | The key | Claim |
 |---|---|
 | equal to an app language's code | the language's display name: `derived(translations-lang-code-language-display-names-equal-to-the-label)` where the value equals Nova's label for that identity (`resolvedLanguageDisplayLabel`), else `account(translations-lang-code-any-other-value-or-absent-where-hq-s)`, which part 01 keeps at CommCare HQ's value (its 7.2). The first claim is `derived` because the value is read into nothing: Nova derives its label from the language's identity |
-| `app.display.name` | `take(translations-app-display-name)`: in a language after the first, a non-empty value is the app name's translation in that language, through `ctx.translations`; a blank one is the string HQ's build writes from `name` (`non_empty_only`) and is read into nothing. In the first language, a blank value or one equal to `name` is read into nothing; any other is the name every runtime shows in that language, because HQ's build writes `app.display.name` from `name` and puts a stored non-empty value over it (`app_strings.py::_create_custom_app_strings`, `SelectKnownAppStrings.app_strings_parts`), and HQ stores one there itself from a UI translations upload (`ui_translations.py::process_ui_translation_upload` adds a row naming no known UI string). It is read as `appName`, and each later language that stores no non-empty `app.display.name` takes `name` as the app name's translation, which is the string it shows; a fold as 16.5's source-language folds are, counted in `ReadFacts.foldedTranslationKeys`, so HQ's own `name` becomes the override's wording at the first publish (`translation-overrides-folded`) and no runtime shows a different word |
+| `app.display.name` | `take(translations-app-display-name)`: in a language other than the source (6.3, item 4: Nova writes `name` in the source language, and a language storing a non-empty value other than `name` is taken as the source only where no language passes that item's test), a non-empty value is the app name's translation in that language, through `ctx.translations`; a blank one is the string HQ's build writes from `name` (`non_empty_only`) and is read into nothing. In the source language, a blank value or one equal to `name` is read into nothing; any other is the name every runtime shows in that language, because HQ's build writes `app.display.name` from `name` and puts a stored non-empty value over it (`app_strings.py::_create_custom_app_strings`, `SelectKnownAppStrings.app_strings_parts`), and HQ stores one there itself from a UI translations upload (`ui_translations.py::process_ui_translation_upload` adds a row naming no known UI string). It is read as `appName`, and each other language that stores no non-empty `app.display.name` takes `name` as the app name's translation, which is the string it shows; a fold as 16.5's source-language folds are, counted in `ReadFacts.foldedTranslationKeys`, so HQ's own `name` becomes the override's wording at the first publish (`translation-overrides-folded`) and no runtime shows a different word |
 | `homescreen.title` | `account(translations-homescreen-title)` |
 | a runtime's own UI text (`appStringKeys.ts::isRuntimeUiStringKey`) | `account(translations-key-in-a-runtime-s-ui-string-catalog-core-android)`; HQ's catalog fill for such a key, `account(translations-catalog-key-hq-fills-with-its-own-text-in-a)` |
 | one of HQ's generated patterns (`translationKeyOwner` gives `generated`) | held back to stage 11, and classified or covered there (16.5) |
@@ -2760,9 +2816,10 @@ never content: the `text@id` attribute is `drop(itext-ids-other-than-a-pragma-ke
 | The reference | Result |
 |---|---|
 | the argument is written between double quotes (the string node's first source character) | `refuse(duplicate-text-id-in-one-translation-jr-itext-with-double-quotes)` |
-| the id is in no translation of the first language | the same entry |
+| the id is in no translation of the first language, or of the source language where that is another (6.3, item 4) | the same entry |
 | a `label` with text and no `ref` | `take(inline-label-text-label-no-itext)`: that text, in the source language |
-| a `hint`, a `help` or an `item`'s `label` with text and no `ref` | that text, in the source language, under the slot's own `take` (`hint-text`, `help-text-markdown-form`, `choice-label-with-no-markdown-form`): Core shows an element's inner text where it names no text id (`FormEntryPrompt.localizeText`) |
+| a `hint` or an `item`'s `label` with text and no `ref` | that text, in the source language, under the slot's own `take` (`hint-text`, `choice-label-with-no-markdown-form`): Core shows an element's inner text where it names no text id (`FormEntryPrompt.localizeText`), and the form builder keeps it (`parser.js::populateControlMug` reads a hint's and a label's inner text, and `writer.js::createHint` and the label's itext write it back) |
+| a `help` with content and no `ref` | left unclaimed, as an `alert` written inline is: Core shows that text (`FormEntryPrompt.localizeText`), the form builder keeps a help's `ref` alone (`javaRosa/plugin.js::parseItextRef`, and `createHelp` writes a help only through its text), so its next save loses the text, and no entry names it. A `help` with no `ref` and no content reads as a blank help text under `help-text-markdown-form` |
 | an `alert` with content and no `ref` | left unclaimed, whatever the bind's `jr:constraintMsg` names: Core shows that text as the message (`FormEntryPrompt.getConstraintText` reads the alert first), the form builder keeps an alert's `ref` alone (`javaRosa/plugin.js::parseItextRef`), and no entry names it |
 | an `alert` naming a text on a bind with no `constraint` | `refuse(validation-message-without-a-validation-condition)`, as the bind's `jr:constraintMsg` is |
 | a bind's `jr:constraintMsg` that is no `jr:itext` call and no protected message (13.2) | `refuse(literal-jr-constraintmsg-text-no-itext)` |
@@ -2849,7 +2906,11 @@ Rules that complete the table:
   missing `text` or `value` is no blank: it reads as untranslated. Two cases the pair leaves: a
   blank `value` in another language of a text refused this way is claimed under the same refusal,
   one finding at the question; and a text whose values are blank in every language is the default
-  row of the table, read as a blank text.
+  row of the table, read as a blank text. A hint, a help text or a validation message blank in
+  every language reads as no text: `builder.ts::buildFieldParts` prints an unset one as the
+  template of no parts, so the entry such a text has is a help text's media alone, which the media
+  stage reads into `help_media` (12.4). Part 09's row `blank-optional-text-is-absent`
+  (`prose.ts::blankOptionalTextAbsent`) returns that member.
 
 **Manifest edits.** Three entries, each with its inventory row.
 
@@ -2879,9 +2940,12 @@ Rules that complete the table:
   `emission` `{ cell: "\u2014", markers: [] }`; `gates` `[]`.
 
 Part 09's Departure 17 argues the held half at source: Nova's first publish fills a blank from the
-default language as the form builder does on save, and a reading's source language is its first
-language (6.3). The first-language half stays refused because no first-language text exists to
-fill from, and the form builder would fill it from whichever language holds text.
+default language as the form builder does on save. The first-language half stays refused because no
+first-language text exists to fill from, and the form builder would fill it from whichever language
+holds text. Both halves are keyed to the first language, the one the form builder fills from, also
+where the reading's source language is another (6.3, item 4): there a blank source value beside the
+first language's text is the held blank, and the slot holds the first language's text, which Nova's
+first publish writes there (`prose.ts::readSlotText`, `SlotText.own`).
 
 The three media rows of part 01's 3.5 for questions and forms take the wording it gives them.
 
@@ -3017,7 +3081,9 @@ A text unit (a menu's or a form's name, a localized map of part 07's) is given t
 is read. A prose unit is given in stage 9, once its templates exist. Stage 9 (`finishText`) runs
 after part 08 bound the outputs, builds each language's `ProseTemplate`, and writes `ctx.doc`:
 
-- the source language's template is the slot's own value (`langs[0]`, 6.3), already in the document
+- the source language's template is the slot's own value (the reading's source language, 6.3, item 4:
+  the first language whose text at the app's name and at Nova's own sentences is the source's,
+  `langs[0]` where nothing tells the languages apart or none passes), already in the document
   since stage 7, each bound output where its placeholder stood;
 - an `<output>` of another language is never bound on its own. It takes the part of the source
   output it equals: `finishText` pairs each of the language's outputs with a source output of the
@@ -3386,6 +3452,13 @@ to one tree, `drop(vellum-requiredcondition-expr-vellum-requiredcondition-equal-
 Each block's subtree and binds are claimed under its entry. A block whose wrapper name differs from its
 `id` is left unclaimed.
 
+The emitter writes the default `connectDefaults.ts` gives an unset `user_score`, `entity_id` or
+`entity_name` (`effectiveAssessmentUserScore`, `effectiveDeliverEntities`), so an unset slot and one
+holding that default print one calculate. Once the slots are bound, stage 10
+(`afterBinding.ts::finishForms`) unsets each slot whose tree is its default
+(`afterBinding.ts::connectDefaultsUnset`), the member part 09's row `connect-defaults-are-unset`
+returns.
+
 | The form holds | Result |
 |---|---|
 | a block with `ConnectWorkAreaUpdate` | `refuseSubtree(connect-work-area-update)` |
@@ -3509,15 +3582,26 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[];
 | Id | Kind | The pair | The reader returns |
 |---|---|---|---|
 | `root-question-lists-are-sections` | `one-wire` | a root of sections, and a root of `fieldList` groups with no condition and no worker-added repeat | sections (10.2) |
+| `blank-itext-takes-the-filled-text` | `one-wire` | a text of an itext role (`translationFill.ts::TRANSLATION_FILL_ROLES`) blank in some language where another holds text, and the same text with each blank value replaced by the text the form builder fills it with (`translationFill.ts::filledProse`: the default language's, else the first in order that holds one), the source slot included, a filled translation equal to the source dropped, and each other translation of a source that moved kept against the new source | the filled text (`prose.ts::blankItextFilled`): the export writes every language's filled text, and the reading reads the filled text in each language (12.2, 12.5) |
 | `translation-equal-to-source-is-absent` | `one-wire` | a translation equal to its source text, and none | none (12.5) |
-| `plain-flag-on-blank-text-is-absent` | `one-wire` | `plainLabel` or `plainHelp` on a text blank in every language whose slot carries no media (a question's label or help text, an inline choice's label), and no flag | no flag (12.2; part 03's first) |
+| `plain-flag-on-blank-text-is-absent` | `one-wire` | `plainLabel` or `plainHelp` on a text blank in every language whose slot carries no media (a question's label or help text; an inline choice's label is no member, since its item always takes an entry whose markdown copy the flag decides), and no flag | no flag (12.2; part 03's first) |
 | `plain-flag-under-plain-text-is-absent` | `one-wire` | `plainLabel` or `plainHelp` in a form holding `plainText`, and no flag | no flag (12.2; part 03's second) |
 | `blank-container-label-is-absent` | `one-wire` | a group, repeat or section whose `label` is a template with no parts, and one with no `label` | no `label` |
+| `validation-message-with-no-condition-is-absent` | `not-carried` | a `validate_msg` on a question whose bind carries no `constraint` (no `validate`, and no check of a case name or an external id it supplies), with its translations | no `validate_msg` and no translation of it: no runtime shows a message no constraint can fail (Core's `FormEntryController.answerQuestion` answers `ANSWER_CONSTRAINT_VIOLATED` only from `FormDef.evaluateConstraint`, which passes a node with no constraint), so the emitter writes none (`xform/constraintMessage.ts::bindCarriesConstraint`), and a source that holds one is `refuse(validation-message-without-a-validation-condition)` (12.1) |
 | `translation-provenance-is-read-as-reviewed` | `not-carried` | a current translation entry with any `origin`, `review` and `translatedFrom`, and the same `value` as a human-reviewed translation of the current source | `origin: "human"`, `review: "reviewed"`, `translatedFrom` the source language, the current source's fingerprint (12.5) |
 | `out-of-date-translation-is-absent` | `one-wire` | a translation entry whose `sourceFingerprint` is not the current source's, and none | none: Nova writes the source text for it (`lib/domain/CLAUDE.md`, "Missing and out-of-date entries fall back to the canonical source"), so the wire holds no trace of it |
+| `blank-optional-text-is-absent` | `one-wire` | a hint, a validation message or a help text blank in every language, with its translations, with or without media, and none | none: `addItext` takes an unset text as the template of no parts, so both print one source (no entry, or a help text's media alone) (12.2, `prose.ts::blankOptionalTextAbsent`) |
+| `connect-defaults-are-unset` | `one-wire` | a Connect assessment's score or a deliver unit's entity id or name holding the default `connectDefaults.ts` gives an unset one, and unset | unset: `effectiveAssessmentUserScore` and `effectiveDeliverEntities` print an unset slot as that default, so both print one calculate (15, `afterBinding.ts::connectDefaultsUnset`) |
+| `source-language-is-as-read` | `one-wire` | a document whose source language is not the one a reading of its export takes (6.3, item 4, over the name and strings `expandAppShell` and the search settings `projectCaseListForHq` write for it: `languages.ts::sourceLanguageAsRead`), and the same document sourced in that language with every unit's text in every language unchanged (`languages.ts::resourcedDocument`; where that language's text for the required message of a Search field with none of its own is not Nova's sentence, which a system unit's source must be, each such field holds its printed texts as a message of its own) | sourced in the language a reading takes: the first language, in `langs` order, whose text is the source's at both places 6.3, item 4 reads (the app's name, Nova's own sentences), `langs[0]` where nothing tells the languages apart or none passes; a document whose export tells its own source keeps it (6.3, item 4) |
+| `purpose-notes-are-absent` | `not-carried` | a menu's or a form's `purpose`, and none | none: purpose notes are outside the wire inventory |
+| `app-logo-is-absent` | `not-carried` | the app's `logo`, and none | none: a publish writes no `logo_refs`, so a logo reaches CommCare HQ only when a person adds it there (6.1) |
+| `menu-and-form-ids-as-read` | `not-carried` | a menu's and a form's `id` as authored, and the id a reading mints | the slug of the source language's name (a menu's, where blank, the first language's that holds one), suffixed past the ids of its kind before it in reading order (`provisional.ts::menuAndFormIdsAsRead`) |
+| `worker-fields-read-by-name-are-properties` | `one-wire` | a worker field read by name that no worker property names, and the same read beside a property of that slug | the property, labelled with its slug, under the UUID a re-read mints under the app's own id (`worldEntities.ts::namedWorkerReadsAreProperties`) |
+| `world-properties-as-read` | `not-carried` | the worker and location properties as authored, and as `worldEntitiesFromReads` gives them from what the logic reads | each one read, labelled with its slug, in the order of the slugs, and none that nothing reads (`worldEntities.ts::worldPropertiesAsRead`) |
+| `organization-levels-as-read` | `not-carried` | the levels as authored, and as `levelsFromHq` reads the list a publish sets up | the read levels: holding workers, descendant cases all or none, their own branch's address book, no description, parent before child (`worldEntities.ts::levelsAsRead`) |
 
-The last two are why a Nova-born document in several languages reads back to itself under part
-09's `canonDocument`.
+The provenance and out-of-date rows are why a Nova-born document in several languages reads back to
+itself under part 09's `canonDocument`.
 Provenance, review state and a stale entry never reach the wire: a Nova-born document holds
 `origin: "ai"` or `"copied"`, `review: "needs-review"`, a `translatedFrom` that may name a language
 since removed (`localization.ts::translationEntrySchema`) and entries waiting on review, and 12.5
@@ -3531,9 +3615,9 @@ a source, has that condition.
 Part 07 adds its own rows to the list and states each where it reads the pair (its "Tests", the
 paragraph on the canonical choices). One of them, `unheld-placements-are-held`, covers the query
 repeat placements this part reads too (16.1, step 6). Part 08 adds none: its `expression-print-collisions` is
-`canonicalExpression`, which `canon.ts` wraps (part 09, section 9). `blank-translation-is-absent`
-is not a row of this list: it is part 09's `canon.ts`'s own, though the forms stage reads a held
-blank translation as absent from the start (12.2).
+`canonicalExpression`, which `canon.ts` wraps (part 09, section 9). `blank-itext-takes-the-filled-text`
+is this part's row, because the forms stage reads each language's filled text as the export writes
+it (12.2), a blank translation beside the source's text as no translation from the start.
 
 ### 16.3 The declaration the content allows
 
@@ -4079,6 +4163,7 @@ touches a database, and none renders a component. Each names the failure it woul
 | `reader/__tests__/appShell.test.ts` | `readApplication` over `proof/hq-reads/shell/app-source.json`, `shell/app-source-after-app-settings-save.json`, `hq-built/app-source.json`, `navigation-base/app-source-after-ui-translations-save.json` | an `Application` key HQ's own pages write that the walker leaves unclaimed; a setting accounted under the wrong value class; and, over hand-built sources, a logo entry with no `m_id` admitted, and a language's display name that differs from Nova's label raised as a finding where the manifest keeps it |
 | `reader/__tests__/appShellTotality.test.ts` | the same sources with one unknown key planted at the root, in `profile.properties` and in `translations` | an unknown key admitted; the wrong undeclared entry |
 | `reader/__tests__/languages.test.ts` | `readLanguages` over a table of code lists | `en` beside `eng` held twice; a macrolanguage code minted to no identity; a code HQ's grammar refuses held; `pt-br`, `zh-hans` and `cmn-hanttw` read without their region or script, since the suffix is lower case (`cmn-hantcn` names no identity: CN is no region `regionChoices` offers for `cmn-Hant`, so the suffix adds nothing and `cmn` with no script fails `identityIssues`); a code Nova writes for any lawful identity read back to another, `swc`, `prs` and `pap-AW` among them |
+| `reader/__tests__/readingSource.test.ts` | `readHqApp` over the localization fixtures' exports, and `READER_CANONICAL_CHOICES` over the same documents | a reading sourced in its first language where that language translates the app's name or one of Nova's own sentences (the reading folds the name, or the search does not print back); the canonical row `source-language-is-as-read` re-sourcing a document the reading keeps (the bilingual fixture, whose Spanish translates the app's name, and the prompts fixture, whose Spanish translates Nova's sentences, both source `eng`, default `spa`), or keeping one the reading re-sources (the optional fixture and the prompts fixture with no sentence translated, read in `spa`, each pair printing one export); a source of three languages where the first translates the app's name or a guard and the second does not, read in the second; `resourcedDocument` changing any language's text of any unit, or leaving a document the gate refuses |
 | `reader/__tests__/structure.test.ts` | `readStructure` over hand-built menus and forms | a mirror menu read key by key into dozens of findings; two forms of one `xmlns` both minted; with a report menu and a shadow form in one app, that both findings are in one account; and a form named `instance('casedb') practice` read to anything but the one finding `form-name-read-as-an-instance` |
 | `reader/__tests__/generatedTranslationKeys.test.ts` | the classifier over hand-built tables, one case per rule of part 01's 7.1 and the two-key fold; `generatedKeyOwner` and `repositionGeneratedKey` over a key for every pattern of `GENERATED_APP_STRING_PATTERNS`; the keys `custom_assertion.m0.f1.3`, `custom_assertion.m0.3` and `custom_assertion.root.3`, each read as the app's and classified inert against a table built for a document with two menus | an override of a constant string called inert; one fold applied twice; a pattern whose key names no owner or the wrong one; a key repositioned at any number but its menu's and form's; a `custom_assertion` key read as a menu's or a form's, or given any verdict but inert (16.5) |
 | `reader/__tests__/generatedKeysInAccount.test.ts` | `readHqApp` over hand-built sources, with `appStrings` a hand-built function: a mirror menu standing before a plain menu whose name holds an override; a key on a menu whose case list holds a finding; a key under a language code the reading cannot name; `appStrings` answering `null` beside a finding, and with none; an option label's override in two menus, one of them a mirror | a key whose menu read whole left out of an account that holds another menu's finding; a key judged against the string of the menu that now stands at its number; a covered key reported, as a finding or as `unrecognized`; a key left unclaimed where there is no table; a clean read whose document the gate refuses returned and not thrown (C9); a `not-yet` raised for a key the source does not make one |

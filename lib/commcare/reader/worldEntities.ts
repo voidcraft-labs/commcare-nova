@@ -2,12 +2,17 @@
  * The entities of the world an app runs in that a reading brings with it:
  * the project space's organization levels, and the worker and place
  * information its logic reads. Pure: each takes what was read and the
- * reading's identity resolver, and returns entities and findings.
+ * reading's identity resolver, and returns entities and findings. Beside
+ * them, the reader's canonical choices over the same entities, each the
+ * reading's own function run over what a document's export gives it.
  */
 
 import {
+	type BlueprintDoc,
 	BUILT_IN_USER_PROPERTY_SLUGS,
 	type LocationProperty,
+	levelDescendantCases,
+	levelOwnsCases,
 	locationPropertySchema,
 	type OrganizationLevel,
 	organizationLevelSchema,
@@ -15,11 +20,19 @@ import {
 	type Uuid,
 	userPropertySchema,
 } from "@/lib/domain";
+import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import type { HqLocationType } from "../hq/locations";
 import { userPropertySlugVerdict } from "../validator/userPropertySlug";
+import { withCandidate } from "./candidate";
 import type { ExpressionReading } from "./expressions";
-import { externalKey, type IdentityResolver } from "./identity";
+import {
+	externalKey,
+	type IdentityMapEntry,
+	type IdentityResolver,
+	matchingResolver,
+	mintEntityUuid,
+} from "./identity";
 import { whereText } from "./place";
 
 const ORGANIZATION = { kind: "organization" } as const;
@@ -129,9 +142,20 @@ export function levelsFromHq(
 	return { levels: out, findings };
 }
 
-/** Each distinct name of `names`, in the order first met. */
+/** Whether a name read of the worker's own data is one a reading holds as a worker property: a
+ *  slug Nova can hold and none CommCare supplies itself. */
+function holdsWorkerProperty(slug: string): boolean {
+	return (
+		!BUILT_IN_USER_PROPERTY_SLUGS.has(slug) &&
+		userPropertySlugVerdict(slug, new Set()).ok &&
+		userPropertySchema.shape.slug.safeParse(slug).success &&
+		userPropertySchema.shape.label.safeParse(slug).success
+	);
+}
+
+/** Each distinct name of `names`, in code-unit order. */
 function distinct(names: readonly string[]): readonly string[] {
-	return [...new Set(names)];
+	return [...new Set(names)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /**
@@ -142,7 +166,8 @@ function distinct(names: readonly string[]): readonly string[] {
  * as a place's `location_data`. Each is labelled with its slug, has no
  * choices and is not required: CommCare HQ serves no definition of either
  * to an API key. Every other name is left out, and the second pass words
- * it. Each list is in the order of its slugs.
+ * it. Each list is in the code-unit order of its slugs, whichever slot read
+ * one first.
  */
 export function worldEntitiesFromReads(
 	worldReads: ExpressionReading["worldReads"],
@@ -153,13 +178,7 @@ export function worldEntitiesFromReads(
 } {
 	const userProperties: UserProperty[] = [];
 	for (const slug of distinct(worldReads.userFields)) {
-		if (BUILT_IN_USER_PROPERTY_SLUGS.has(slug)) continue;
-		if (!userPropertySlugVerdict(slug, new Set()).ok) continue;
-		if (
-			!userPropertySchema.shape.slug.safeParse(slug).success ||
-			!userPropertySchema.shape.label.safeParse(slug).success
-		)
-			continue;
+		if (!holdsWorkerProperty(slug)) continue;
 		const claim = resolver.claim(
 			externalKey.userProperty(slug),
 			whereText(APP),
@@ -179,4 +198,207 @@ export function worldEntitiesFromReads(
 		locationProperties.push({ uuid: claim.uuid, slug, label: slug });
 	}
 	return { userProperties, locationProperties };
+}
+
+// ── The reader's canonical choices over the world ────────────────────────
+
+/** The levels CommCare HQ lists for `doc` once a publish has set them up: each level's code, name
+ *  and parent's code, in the document's order, sharing cases where it owns them and viewing
+ *  descendants where its workers' cases reach below. */
+export function levelsAsPublished(doc: BlueprintDoc): HqLocationType[] {
+	const levels = doc.organizationLevels ?? {};
+	return (doc.organizationLevelOrder ?? []).flatMap((uuid) => {
+		const level = levels[uuid];
+		if (level === undefined) return [];
+		return [
+			{
+				id: level.uuid,
+				name: level.name,
+				code: level.code,
+				parentCode:
+					level.parentLevelUuid === undefined
+						? null
+						: (levels[level.parentLevelUuid]?.code ?? null),
+				administrative: false,
+				sharesCases: levelOwnsCases(level),
+				viewDescendants: levelDescendantCases(level).kind !== "none",
+			},
+		];
+	});
+}
+
+/** A resolver that answers each of `doc`'s own levels, worker properties and location properties
+ *  by its UUID, and mints the rest as a re-read of the app minted them. */
+function heldResolver(doc: BlueprintDoc): IdentityResolver {
+	const entries: IdentityMapEntry[] = [
+		...Object.values(doc.organizationLevels ?? {}).map((one) => ({
+			...externalKey.organizationLevel(one.code),
+			uuid: one.uuid,
+		})),
+		...Object.values(doc.userProperties ?? {}).map((one) => ({
+			...externalKey.userProperty(one.slug),
+			uuid: one.uuid,
+		})),
+		...Object.values(doc.locationProperties ?? {}).map((one) => ({
+			...externalKey.locationProperty(one.slug),
+			uuid: one.uuid,
+		})),
+	];
+	return matchingResolver(doc.appId, entries);
+}
+
+/**
+ * `doc` with its levels as a reading gives them (`levelsFromHq` over `levelsAsPublished`): the
+ * export carries no level, and a reading reads a level's code, name and parent, whether it shares
+ * cases and whether it views descendants from CommCare HQ's list, so each level holds workers, its
+ * descendant cases are all or none, its address book is its own branch, it has no description,
+ * and the levels stand parent before child.
+ */
+export function levelsAsRead(doc: BlueprintDoc): BlueprintDoc {
+	if (doc.organizationLevels === undefined) return doc;
+	const { levels } = levelsFromHq(levelsAsPublished(doc), heldResolver(doc));
+	if (JSON.stringify(levels) === JSON.stringify(orderedLevels(doc))) return doc;
+	return withCandidate(doc, (draft) => {
+		if (levels.length === 0) {
+			delete draft.organizationLevels;
+			delete draft.organizationLevelOrder;
+			return;
+		}
+		draft.organizationLevels = Object.fromEntries(
+			levels.map((level) => [level.uuid, level]),
+		) as typeof draft.organizationLevels;
+		draft.organizationLevelOrder = levels.map((level) => level.uuid);
+	});
+}
+
+function orderedLevels(doc: BlueprintDoc): OrganizationLevel[] {
+	return (doc.organizationLevelOrder ?? []).flatMap((uuid) => {
+		const level = doc.organizationLevels?.[uuid];
+		return level === undefined ? [] : [level];
+	});
+}
+
+/** What `doc`'s logic reads of the worker and of places, as a reading meets it: each worker field
+ *  by name, each worker property by its slug, and each location property by its slug. A read of
+ *  a field CommCare HQ writes on every worker's own case is no worker field. */
+function worldReadsOf(doc: BlueprintDoc): {
+	readonly byName: readonly string[];
+	readonly userFields: readonly string[];
+	readonly locationDataSlugs: readonly string[];
+} {
+	const byName: string[] = [];
+	const userFields: string[] = [];
+	const locationDataSlugs: string[] = [];
+	const worker = (slug: string, source: unknown, named: boolean) => {
+		if (source === "worker-record" && USERCASE_BUILT_IN_KEYS.includes(slug))
+			return;
+		userFields.push(slug);
+		if (named) byName.push(slug);
+	};
+	const walk = (value: unknown): void => {
+		if (Array.isArray(value)) {
+			for (const item of value) walk(item);
+			return;
+		}
+		if (value === null || typeof value !== "object") return;
+		const node = value as Record<string, unknown>;
+		if (node.kind === "session-user" && typeof node.field === "string")
+			worker(node.field, node.source, true);
+		else if (node.kind === "user-ref" && typeof node.property === "string")
+			worker(node.property, "worker-record", true);
+		else if (
+			node.kind === "session-user-property" ||
+			node.kind === "user-property-ref"
+		) {
+			const held = doc.userProperties?.[node.userPropertyUuid as Uuid];
+			if (held !== undefined)
+				worker(
+					held.slug,
+					node.kind === "user-property-ref" ? "worker-record" : node.source,
+					false,
+				);
+		} else if (node.kind === "location-field") {
+			const field = node.field as { property?: Uuid } | undefined;
+			const held =
+				field?.property === undefined
+					? undefined
+					: doc.locationProperties?.[field.property];
+			if (held !== undefined) locationDataSlugs.push(held.slug);
+		}
+		for (const item of Object.values(node)) walk(item);
+	};
+	walk([doc.modules, doc.forms, doc.fields]);
+	return { byName, userFields, locationDataSlugs };
+}
+
+/**
+ * `doc` with a worker property for each field its logic reads by name that no property of its
+ * names: the name-backed read and the read of a property of that slug print one source, and a
+ * reading mints the property, labelled with its slug, under the UUID a re-read of the app gives
+ * it. The reads themselves are judged slot by slot, as every expression is.
+ */
+export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
+	const held = new Set(
+		Object.values(doc.userProperties ?? {}).map((one) => one.slug),
+	);
+	const minted = distinct(worldReadsOf(doc).byName).filter(
+		(slug) => !held.has(slug) && holdsWorkerProperty(slug),
+	);
+	if (minted.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		const properties = { ...(draft.userProperties ?? {}) };
+		const order = [...(draft.userPropertyOrder ?? [])];
+		for (const slug of minted) {
+			const uuid = mintEntityUuid(doc.appId, externalKey.userProperty(slug));
+			properties[uuid] = { uuid, slug, label: slug };
+			order.push(uuid);
+		}
+		draft.userProperties = properties as typeof draft.userProperties;
+		draft.userPropertyOrder = order;
+	});
+}
+
+/**
+ * `doc` with its worker and location properties as a reading gives them
+ * (`worldEntitiesFromReads` over what its logic reads): no export carries a property, only the
+ * slug a read prints, so each property its logic reads is labelled with its slug and has no
+ * choices and no requirement, one nothing reads is absent, and they stand in the order of their
+ * slugs.
+ */
+export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const { userFields, locationDataSlugs } = worldReadsOf(doc);
+	const { userProperties, locationProperties } = worldEntitiesFromReads(
+		{ userFields, locationDataSlugs },
+		heldResolver(doc),
+	);
+	const same = <T extends { readonly uuid: Uuid }>(
+		read: readonly T[],
+		record: Record<Uuid, T> | undefined,
+		order: readonly Uuid[] | undefined,
+	) =>
+		JSON.stringify(read) ===
+		JSON.stringify((order ?? []).map((uuid) => record?.[uuid]));
+	if (
+		same(userProperties, doc.userProperties, doc.userPropertyOrder) &&
+		same(locationProperties, doc.locationProperties, doc.locationPropertyOrder)
+	)
+		return doc;
+	return withCandidate(doc, (draft) => {
+		delete draft.userProperties;
+		delete draft.userPropertyOrder;
+		delete draft.locationProperties;
+		delete draft.locationPropertyOrder;
+		if (userProperties.length > 0) {
+			draft.userProperties = Object.fromEntries(
+				userProperties.map((one) => [one.uuid, one]),
+			) as BlueprintDoc["userProperties"];
+			draft.userPropertyOrder = userProperties.map((one) => one.uuid);
+		}
+		if (locationProperties.length > 0) {
+			draft.locationProperties = Object.fromEntries(
+				locationProperties.map((one) => [one.uuid, one]),
+			) as BlueprintDoc["locationProperties"];
+			draft.locationPropertyOrder = locationProperties.map((one) => one.uuid);
+		}
+	});
 }

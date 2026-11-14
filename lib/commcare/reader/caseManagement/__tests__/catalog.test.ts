@@ -34,20 +34,25 @@ import {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
+	ancestorPath,
 	eq,
 	formField,
 	literal,
 	or,
+	prop,
+	relationStep,
 	term,
 } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { expandDoc } from "../../../expander";
 import { runValidation } from "../../../validator/runner";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { readHqApp } from "../../index";
 import { readMenusOf } from "../../menus/__tests__/menuReading";
 import { catalogAsRead, noteProperty } from "../catalog";
-import { readCases } from "./caseReading";
+import { knownCaseTypesOf } from "../knownCaseTypes";
+import { findingCodes, readCases } from "./caseReading";
 
 const STATUS = testUuid("catalog-status");
 
@@ -212,20 +217,17 @@ describe("the case catalog of a reading", () => {
 		expect(() =>
 			expandDoc({ ...doc, caseTypes: catalogAsRead(doc) }),
 		).not.toThrow();
-		// The reading's own emission of its catalog is total: nothing of it is
-		// `unrecognized` (an emission that threw would name `expandDoc`).
+		// The reading's own emission of its catalog is total, and the column
+		// reads as the choices it shows: no finding at all (an emission that
+		// threw would name `expandDoc`).
 		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
 		expect(
-			(outcome.kind === "account" ? outcome.findings : []).filter(
-				(finding) => finding.code === "unrecognized",
-			),
-		).toEqual([]);
-		if (outcome.kind === "read")
-			expect(
-				outcome.draft.doc.caseTypes
-					?.find((type) => type.name === "patient")
-					?.properties.find((one) => one.name === "condition_level")?.data_type,
-			).toBe("single_select");
+			outcome.draft.doc.caseTypes
+				?.find((type) => type.name === "patient")
+				?.properties.find((one) => one.name === "condition_level")?.data_type,
+		).toBe("single_select");
 	});
 
 	it("merges the choices of every select that writes a property, the first label kept", () => {
@@ -337,6 +339,64 @@ describe("the case catalog of a reading", () => {
 		);
 		expect(rank?.data_type).toBe("int");
 	});
+
+	// The sort element names one `date` comparison for every type of the date
+	// class (`hqJson/caseList.ts::sortElementType`), and another for an untyped
+	// property: the canonical catalog keeps the class, as the date class's one
+	// type, so the document and its canonical member print one export, which
+	// a whole reading gives back.
+	it.each(["date", "datetime", "time"] as const)(
+		"keeps the date class a sorted column's element names for a property only the catalog types %s",
+		async (dataType) => {
+			const doc = buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{ name: "case_name", label: proseText("Name") },
+							{ name: "seen", label: proseText("Seen"), data_type: dataType },
+						],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: caseListConfigOf([
+							plainColumn(testUuid("seen-name"), "case_name", "Name"),
+							plainColumn(testUuid("seen-column"), "seen", "Seen", {
+								sort: { direction: "desc", priority: 1 },
+							}),
+						]),
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "text", id: "note" })],
+							},
+						],
+					},
+				],
+			});
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+			const canonical = READER_CANONICAL_CHOICES.reduce(
+				(current, choice) => choice.apply(current),
+				doc,
+			);
+			const typeOf = (one: BlueprintDoc) =>
+				one.caseTypes
+					?.find((type) => type.name === "patient")
+					?.properties.find((property) => property.name === "seen")?.data_type;
+			expect(typeOf(canonical)).toBe("date");
+			expect(expandDoc(canonical)).toEqual(expandDoc(doc));
+			const outcome = readHqApp(await inputFor(exportedBody(doc)));
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			if (outcome.kind !== "read") throw new Error("The export did not read.");
+			expect(plain(outcome.draft.doc.caseTypes ?? null)).toEqual(
+				plain(canonical.caseTypes ?? null),
+			);
+		},
+	);
 });
 
 describe("the writers of one property", () => {
@@ -515,6 +575,364 @@ describe("the date-and-time join", () => {
 	});
 });
 
+/** A follow-up of patients that saves the district of the patient's parent (an update key
+ *  `parent/district`), its catalog naming the parent `household` while nothing in the app does:
+ *  no form opens a patient under a household and no menu chooses a household first. With
+ *  `clinics`, a menu of clinics whose form opens a patient as a clinic's child, and the catalog
+ *  names that parent. */
+function parentWrite(clinics = false): BlueprintDoc {
+	const parent = clinics ? "clinic" : "household";
+	const nameColumn = (key: string) =>
+		caseListConfigOf([
+			plainColumn(testUuid(`${key}-name`), "case_name", "Name"),
+		]);
+	return buildDoc(
+		{
+			caseTypes: [
+				{
+					name: parent,
+					properties: [
+						{
+							name: "district",
+							label: proseText("District"),
+							data_type: "text",
+						},
+					],
+				},
+				{
+					name: "patient",
+					parent_type: parent,
+					relationship: "child",
+					properties: [],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: nameColumn("patients"),
+					forms: [
+						{
+							uuid: "parent-write-check",
+							name: "Check",
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "district", uuid: testUuid("district") }),
+							],
+						},
+					],
+				},
+				{
+					name: clinics ? "Clinics" : "Households",
+					caseType: parent,
+					caseListConfig: nameColumn(parent),
+					forms: clinics
+						? [
+								{
+									uuid: "parent-write-enrol",
+									name: "Enrol",
+									type: "followup",
+									fields: [
+										f({
+											kind: "text",
+											id: "patient_name",
+											uuid: testUuid("patient-name"),
+										}),
+									],
+								},
+							]
+						: [],
+					...(!clinics && { caseListMenuItem: {} }),
+				},
+			],
+		},
+		(built) => {
+			const forms = Object.values(built.forms);
+			const check = forms.find((form) => form.name === "Check");
+			if (check !== undefined)
+				check.caseOperations = [
+					{
+						uuid: testUuid("parent-write-own"),
+						id: "patient",
+						action: "own",
+						writes: [
+							{
+								property: "district",
+								value: term(formField(testUuid("district"))),
+								via: [{ identifier: "parent" }],
+							},
+						],
+					},
+				];
+			const enrol = forms.find((form) => form.name === "Enrol");
+			if (enrol !== undefined)
+				enrol.caseOperations = [
+					{
+						uuid: testUuid("parent-write-enrol-patient"),
+						id: "patient",
+						action: "create",
+						caseType: "patient",
+						target: { kind: "new" },
+						name: term(formField(testUuid("patient-name"))),
+						links: [
+							{
+								identifier: "parent",
+								targetType: "clinic",
+								target: { kind: "session" },
+								relationship: "child",
+							},
+						],
+					},
+				];
+		},
+	);
+}
+
+const ANCESTOR_UNKNOWN =
+	"forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix";
+
+/** The steps of the patient's `district` write a reading gives. */
+function districtVia(reading: Awaited<ReturnType<typeof readCases>>) {
+	for (const form of reading.forms)
+		for (const operation of form.form.caseOperations ?? [])
+			for (const write of operation.writes ?? [])
+				if (write.property === "district") return write.via;
+	return undefined;
+}
+
+describe("a parent Nova holds that no export carries", () => {
+	it("is the finding on a first reading, which is told no parent", async () => {
+		const doc = parentWrite();
+		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		expect(
+			(outcome.kind === "account" ? outcome.findings : []).map(
+				(finding) => finding.code,
+			),
+		).toContain(ANCESTOR_UNKNOWN);
+	});
+
+	it("reads back the write through it when the reading is told the document's parents", async () => {
+		const doc = parentWrite();
+		const outcome = readHqApp(
+			await inputFor(exportedBody(doc), {
+				knownCaseTypes: knownCaseTypesOf(doc),
+			}),
+		);
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const patient = outcome.draft.doc.caseTypes?.find(
+			(type) => type.name === "patient",
+		);
+		expect(patient).toMatchObject({
+			parent_type: "household",
+			relationship: "child",
+		});
+		expect(plain(outcome.draft.doc.caseTypes)).toEqual(
+			plain(catalogAsRead(doc)),
+		);
+		const reading = await readCases(doc);
+		expect(districtVia(reading)).toEqual([
+			{ identifier: "parent", throughCaseType: "household" },
+		]);
+	});
+
+	it("never overrides the parent a link of the app names", async () => {
+		const doc = parentWrite(true);
+		const reading = await readCases(doc, {
+			input: (read) => ({
+				...read,
+				knownCaseTypes: {
+					targetOf: (caseType, identifier) =>
+						caseType === "patient" && identifier === "parent"
+							? { caseType: "household", relationship: "child" }
+							: undefined,
+				},
+			}),
+		});
+		expect(findingCodes(reading)).not.toContain(ANCESTOR_UNKNOWN);
+		expect(
+			reading.ctx.draft.caseTypes?.find((type) => type.name === "patient"),
+		).toMatchObject({ parent_type: "clinic", relationship: "child" });
+		expect(
+			reading.ctx.draft.caseTypes?.some((type) => type.name === "household"),
+		).toBe(false);
+		expect(districtVia(reading)).toEqual([
+			{ identifier: "parent", throughCaseType: "clinic" },
+		]);
+	});
+});
+
+/** `parentWrite` with the patient's `district` saved through its `host` index
+ *  instead, typed `household` in the step itself, and no parent in the
+ *  catalog. With `alsoRead`, a Hidden Value of the form reads a household
+ *  property through the patient's index named so, typed by its own step. */
+function hostWrite(alsoRead?: {
+	readonly identifier: string;
+	readonly reaches: string;
+}): BlueprintDoc {
+	const doc = parentWrite();
+	const check = Object.values(doc.forms).find((form) => form.name === "Check");
+	if (check === undefined) throw new Error("The app holds Check.");
+	const caseTypes = (doc.caseTypes ?? []).map((type) =>
+		type.name === "patient"
+			? { name: type.name, properties: type.properties }
+			: type,
+	);
+	return {
+		...doc,
+		caseTypes,
+		forms: {
+			...doc.forms,
+			[check.uuid]: {
+				...check,
+				caseOperations: [
+					{
+						uuid: testUuid("parent-write-own"),
+						id: "patient",
+						action: "own",
+						writes: [
+							{
+								property: "district",
+								value: term(formField(testUuid("district"))),
+								via: [relationStep("host", "household")],
+							},
+						],
+					},
+				],
+			},
+		},
+		...(alsoRead !== undefined && {
+			fields: {
+				...doc.fields,
+				[testUuid("district")]: {
+					...(doc.fields[
+						testUuid("district")
+					] as BlueprintDoc["fields"][string]),
+					default_value: term(
+						prop(
+							"patient",
+							"district",
+							ancestorPath(relationStep(alsoRead.identifier, alsoRead.reaches)),
+						),
+					),
+				} as BlueprintDoc["fields"][string],
+			},
+		}),
+	};
+}
+
+describe("an index Nova types in a step that no export carries", () => {
+	it("is the finding on a first reading of a save through host, and reads back when told the document's steps", async () => {
+		const doc = hostWrite();
+		const first = readHqApp(await inputFor(exportedBody(doc)));
+		expect(
+			(first.kind === "account" ? first.findings : []).map(
+				(finding) => finding.code,
+			),
+		).toContain(ANCESTOR_UNKNOWN);
+		expect(knownCaseTypesOf(doc).targetOf("patient", "host")).toEqual({
+			caseType: "household",
+		});
+		const reading = await readCases(doc);
+		expect(findingCodes(reading)).not.toContain(ANCESTOR_UNKNOWN);
+		expect(districtVia(reading)).toEqual([
+			{ identifier: "host", throughCaseType: "household" },
+		]);
+	});
+
+	it("answers a custom index by the type the step reading through it names, and nothing for parent beyond the catalog", () => {
+		const known = knownCaseTypesOf(
+			hostWrite({ identifier: "clinic_link", reaches: "household" }),
+		);
+		expect(known.targetOf("patient", "clinic_link")).toEqual({
+			caseType: "household",
+		});
+		expect(known.targetOf("patient", "parent")).toBeUndefined();
+		expect(known.targetOf("household", "host")).toBeUndefined();
+	});
+
+	it("answers nothing where two steps through one index disagree, and the reading keeps its finding", async () => {
+		const known = knownCaseTypesOf(
+			hostWrite({ identifier: "host", reaches: "clinic" }),
+		);
+		expect(known.targetOf("patient", "host")).toBeUndefined();
+		const reading = await readCases(hostWrite(), {
+			input: (read) => ({ ...read, knownCaseTypes: known }),
+		});
+		expect(findingCodes(reading)).toContain(ANCESTOR_UNKNOWN);
+	});
+});
+
+/** A follow-up whose Hidden Value `seen`, calculated by `calculate`, is the one writer of the
+ *  patient's `seen_at`, which the catalog declares a date and time. */
+function hiddenSeen(calculate: string): BlueprintDoc {
+	return buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "seen_at", label: proseText("Seen"), data_type: "datetime" },
+				],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfigOf([
+					plainColumn(testUuid("seen-name"), "case_name", "Name"),
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "hidden",
+								id: "seen",
+								calculate,
+								caseWrite: { caseType: "patient", property: "seen_at" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+describe("a Hidden Value bound as a date and time", () => {
+	it("types the property it alone writes from its bind, where its value gives no type", async () => {
+		const doc = hiddenSeen("#patient/seen_at");
+		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const seen = outcome.draft.doc.caseTypes
+			?.find((type) => type.name === "patient")
+			?.properties.find((one) => one.name === "seen_at");
+		expect(seen?.data_type).toBe("datetime");
+		expect(plain(outcome.draft.doc.caseTypes)).toEqual(
+			plain(catalogAsRead(doc)),
+		);
+	});
+
+	it("declares nothing where its value types the property", async () => {
+		const doc = hiddenSeen("now()");
+		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const seen = outcome.draft.doc.caseTypes
+			?.find((type) => type.name === "patient")
+			?.properties.find((one) => one.name === "seen_at");
+		expect(seen).toBeDefined();
+		expect(seen?.data_type).toBeUndefined();
+		expect(plain(outcome.draft.doc.caseTypes)).toEqual(
+			plain(catalogAsRead(doc)),
+		);
+	});
+});
+
 describe("noteProperty", () => {
 	it("places a property in name order, once, and leaves out a standard one and an unknown type", () => {
 		const catalog: NonNullable<BlueprintDoc["caseTypes"]> = [
@@ -535,4 +953,122 @@ describe("noteProperty", () => {
 			},
 		]);
 	});
+});
+
+/**
+ * A simple Search field that reads a property of a related case. Contract:
+ * the property is a property of the case type the field's relation reaches,
+ * which the search's own filter prints a read of, so the canonical catalog
+ * names it there, as the reading does, with the type a date field's
+ * derivation prints by. The plausible failures: the canonical catalog left
+ * without the property while a reading of the export holds it, so the
+ * document and its reading never compare equal; and a date field's related
+ * property left untyped, so the canonical member cannot be printed at all.
+ */
+describe("a Search field that reads a related case", () => {
+	/** A patient menu whose Search field reads the household's `village`,
+	 *  a text field, or a date field over a property of `dataType`. */
+	function villageSearch(dataType?: "date" | "datetime"): BlueprintDoc {
+		return buildDoc({
+			caseTypes: [
+				{
+					name: "household",
+					properties: [
+						{
+							name: "village",
+							label: proseText("Village"),
+							...(dataType !== undefined && { data_type: dataType }),
+						},
+					],
+				},
+				{
+					name: "patient",
+					parent_type: "household",
+					relationship: "child",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					uuid: testUuid("village-menu"),
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfigOf([
+							plainColumn(testUuid("village-name"), "case_name", "Name"),
+						]),
+						searchInputs: [
+							{
+								uuid: testUuid("village-input"),
+								name: "village",
+								label: "Village",
+								kind: "simple",
+								type: dataType === undefined ? "text" : "date",
+								property: "village",
+								via: ancestorPath(relationStep("parent", "household")),
+							},
+						],
+					},
+					caseSearchConfig: {},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	/** The canonical member of `doc` holds `village` as `expected` states it,
+	 *  the gate admits it, both print one export, and a whole reading of the
+	 *  export gives the canonical catalog with no finding. */
+	async function holdsAsRead(
+		doc: BlueprintDoc,
+		expected: NonNullable<BlueprintDoc["caseTypes"]>[number]["properties"],
+	) {
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const canonical = READER_CANONICAL_CHOICES.reduce(
+			(current, choice) => choice.apply(current),
+			doc,
+		);
+		expect(
+			canonical.caseTypes?.find((type) => type.name === "household")
+				?.properties,
+		).toEqual(expected);
+		expect(runValidation(canonical, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(expandDoc(canonical)).toEqual(expandDoc(doc));
+		const outcome = readHqApp(
+			await inputFor(exportedBody(doc), {
+				knownCaseTypes: knownCaseTypesOf(doc),
+			}),
+		);
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		expect(plain(outcome.draft.doc.caseTypes ?? null)).toEqual(
+			plain(canonical.caseTypes ?? null),
+		);
+	}
+
+	it("names the property on the type the relation reaches, as a reading of the export does", async () => {
+		// The label reaches no export, so the canonical member labels the
+		// property by its name.
+		await holdsAsRead(villageSearch(), [
+			{ name: "village", label: proseText("village") },
+		]);
+	});
+
+	// A date field's derivation prints the boundaries the related property's
+	// type gives (`dateSearch.ts::exactDateSearchPredicate`), so the canonical
+	// member keeps that type, which a reading declares too.
+	it.each(["date", "datetime"] as const)(
+		"keeps the %s type of the related property a date field reads",
+		async (dataType) => {
+			await holdsAsRead(villageSearch(dataType), [
+				{ name: "village", label: proseText("village"), data_type: dataType },
+			]);
+		},
+	);
 });

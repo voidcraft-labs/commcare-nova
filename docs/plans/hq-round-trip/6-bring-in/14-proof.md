@@ -1371,7 +1371,12 @@ A `LaneReadInput` with `identity: "mint"` and no `projectData`, or with `identit
    media by the path each asset was published at (`assetWirePath.ts::wirePathFor`, or
    `HqAuthoredFacts.mediaPaths` where the document holds one); and `appStrings` from part 09's
    `lib/deployment/reading/appStrings.ts::readingAppStrings` over the gate's context for that
-   lookup catalog (its section 15.1). Nova's publish of the document
+   lookup catalog (its section 15.1); and `knownCaseTypes`, for a Nova-born document, the case
+   type each index of the document's case types reaches (`knownCaseTypesOf(doc)`,
+   `reader/caseManagement/knownCaseTypes.ts`; part 07, section 7), since its export holds
+   `parent/<property>` or `host/<property>` with the ancestor's type nowhere where only its catalog
+   or its typed steps name it, and none for a base authored in HQ, whose reading is a first reading. Nova's
+   publish of the document
    created those in HQ from the same data, or, for a base, left HQ's as they were. No acceptance
    runs: the read back is itself the fixed point, and `offered` comes from the draft's
    `declaration.choices`.

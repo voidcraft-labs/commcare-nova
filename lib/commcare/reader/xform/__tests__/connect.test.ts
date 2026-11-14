@@ -17,7 +17,14 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { BlueprintDoc } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 import type { Finding } from "@/lib/publish/hqFindings";
+import {
+	DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
+	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+} from "../../../connectDefaults";
 import { buildConnectSlugMap } from "../../../connectSlugs";
 import { buildXForm } from "../../../xform/builder";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
@@ -32,6 +39,7 @@ import { readApplication } from "../../appShell";
 import type { DraftForm, ReadContext } from "../../context";
 import { readHqApp } from "../../index";
 import { readStructure } from "../../structure";
+import { connectDefaultsUnset } from "../afterBinding";
 import { readForms } from "../index";
 import { XMLNS, xformSource } from "./formReading";
 
@@ -260,6 +268,120 @@ describe("the four blocks the emitter writes", () => {
 			.map((one) => ("slot" in one.ref ? one.ref.slot : ""))
 			.filter((slot) => slot.startsWith("deliver_"));
 		expect(slots).toEqual(["deliver_entity_id", "deliver_entity_name"]);
+	});
+});
+
+describe("a slot the emitter fills from its default", () => {
+	/** Each form's Connect config, in menu and form order. */
+	const connectsOf = (doc: BlueprintDoc): unknown[] =>
+		doc.moduleOrder.flatMap((moduleUuid) =>
+			(doc.formOrder[moduleUuid] ?? []).map(
+				(formUuid) => doc.forms[formUuid]?.connect,
+			),
+		);
+
+	/** The Connect config of each form of a whole reading of the document's export, held to the
+	 *  document with its defaults unset: that document prints the same bytes, and the reading
+	 *  returns its member. */
+	async function readConnect(doc: BlueprintDoc): Promise<unknown[]> {
+		const unset = connectDefaultsUnset(doc);
+		expect(JSON.stringify(exportedBody(unset))).toBe(
+			JSON.stringify(exportedBody(doc)),
+		);
+		expect(connectDefaultsUnset(unset)).toBe(unset);
+		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const read = connectsOf(outcome.draft.doc);
+		expect(read).toEqual(connectsOf(unset));
+		return read;
+	}
+
+	it("reads unset where the document left it unset or wrote the default, and keeps an authored value", async () => {
+		const score = (value: number): Expression => ({
+			kind: "term",
+			term: { kind: "literal", value },
+		});
+		const learn = (id: string, userScore: Expression | undefined) => ({
+			name: "Lesson",
+			type: "survey" as const,
+			connect: {
+				assessment: {
+					id,
+					...(userScore !== undefined && { user_score: userScore }),
+				},
+			},
+			fields: [f({ kind: "int", id: "points" })],
+		});
+		const learnDoc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Learn",
+					forms: [
+						learn("quiz_one", undefined),
+						learn("quiz_two", DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION),
+						learn("quiz_three", score(80)),
+					],
+				},
+			],
+		});
+		const [unset, defaulted, authored] = (await readConnect(
+			learnDoc,
+		)) as Record<string, Record<string, unknown>>[];
+		expect(unset?.assessment).toEqual({ id: "quiz_one" });
+		expect(defaulted?.assessment).toEqual({ id: "quiz_two" });
+		expect(authored?.assessment).toEqual({
+			id: "quiz_three",
+			user_score: score(80),
+		});
+
+		const shown: Expression = {
+			kind: "term",
+			term: { kind: "literal", value: "Visit" },
+		};
+		const deliver = (
+			id: string,
+			entities: { entity_id?: Expression; entity_name?: Expression } = {},
+		) => ({
+			name: "Visit",
+			type: "survey" as const,
+			connect: { deliver_unit: { id, name: "Visit", ...entities } },
+			fields: [f({ kind: "text", id: "who" })],
+		});
+		const deliverDoc = buildDoc({
+			connectType: "deliver",
+			modules: [
+				{ name: "One", forms: [deliver("visit_one")] },
+				{
+					name: "Two",
+					forms: [
+						deliver("visit_two", {
+							entity_id: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+							entity_name: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+						}),
+					],
+				},
+				{
+					name: "Three",
+					forms: [
+						deliver("visit_three", {
+							entity_id: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+							entity_name: shown,
+						}),
+					],
+				},
+			],
+		});
+		const delivered = (await readConnect(deliverDoc)) as Record<
+			string,
+			Record<string, unknown>
+		>[];
+		expect(delivered.map((connect) => connect?.deliver_unit)).toEqual([
+			{ id: "visit_one", name: "Visit" },
+			{ id: "visit_two", name: "Visit" },
+			{ id: "visit_three", name: "Visit", entity_name: shown },
+		]);
 	});
 });
 

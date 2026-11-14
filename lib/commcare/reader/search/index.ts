@@ -21,23 +21,28 @@ import type {
 } from "@/lib/domain/modules";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { withCandidate } from "../candidate";
+import { caseListReadings } from "../caseList/details";
+import { dateSortDeclarations } from "../caseList/order";
 import { noteProperty } from "../caseManagement/catalog";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftModule, ReadContext } from "../context";
 import {
+	scanReads,
 	searchRowProperties,
 	searchRowRelations,
 } from "../expressions/scanReads";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import { readFormSyntax } from "../syntaxRead";
+import { expressionEnvOf } from "../xform";
 import { type PromptReading, readSearchPrompts } from "./prompts";
 import {
 	classifySearchRows,
 	dateFieldDeclarations,
 	MARKERS_HELD,
 	ROWS_HELD,
-	rowComparedTypes,
+	rowEarlyReads,
 	type SearchRow,
 } from "./rows";
 import { readSearchSettings, settleSearchSettings } from "./settings";
@@ -406,13 +411,22 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const workflow = readSearchWorkflow(ctx, module, cursor);
 		const settings = readSearchSettings(ctx, module, cursor, true, config);
 		const search: OrdinaryCaseSearchConfig = { ...config, ...(workflow ?? {}) };
+		// Search fields turn the search on with Nova's own settings, as a settings object that holds
+		// none does (`effectiveCaseSearchConfig`), so a search with fields and no setting is read
+		// with no settings object (`emptySearchSettingsBesideFieldsAreAbsent`).
+		const settled =
+			prompts.length > 0 &&
+			module.module.caseListConfig !== undefined &&
+			Object.values(search).every((value) => value === undefined)
+				? undefined
+				: search;
 		ctx.writeDraft(() => {
 			const list = module.module.caseListConfig as CaseListConfig | undefined;
 			if (list !== undefined)
 				list.searchInputs = prompts.map((prompt) => prompt.input);
-			(
-				module.module as { caseSearchConfig?: CaseSearchConfig }
-			).caseSearchConfig = search;
+			const target = module.module as { caseSearchConfig?: CaseSearchConfig };
+			if (settled === undefined) delete target.caseSearchConfig;
+			else target.caseSearchConfig = settled;
 		});
 		const declared = Array.isArray(cursor.peek("properties"))
 			? (cursor.peek("properties") as unknown[]).length
@@ -462,7 +476,10 @@ const EARLY_DECLARATIONS = new WeakMap<
  * property (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`); a field whose row is its derivation
  * declares the type under which the row reads as that derivation (`rows.ts::dateFieldDeclarations`);
  * and a property a row compares with a value of a known type takes that type, under which the row
- * reads back (`rows.ts::rowComparedTypes`). A Hidden Value writer is typed only once its expression is bound, so the settle takes back each
+ * reads back (`rows.ts::rowEarlyReads`). The same reading of the rows names the worker's own data
+ * they read (`searchRowUserFields`). Last, a case list's `date` order element declares the date
+ * class for a property nothing else types and no expression reads (`declareDateSorts`). A Hidden
+ * Value writer is typed only once its expression is bound, so the settle takes back each
  * declaration a writer then types (`settleSearches`). The first menu to declare a property decides
  * its type.
  */
@@ -477,6 +494,7 @@ function declareDateFieldsBeforeBinding(
 		property: string;
 		dataType: CasePropertyDataType;
 	}[] = [];
+	const userFields: string[] = [];
 	const declare = (
 		caseType: string,
 		property: string,
@@ -512,10 +530,15 @@ function declareDateFieldsBeforeBinding(
 			reading,
 		))
 			declare(caseType, property, dataType);
-		for (const one of rowComparedTypes(ctx, doc, module, reading))
+		const early = rowEarlyReads(ctx, doc, module, reading);
+		for (const one of early.types)
 			declare(one.caseType, one.property, one.dataType);
+		for (const field of early.userFields)
+			if (!userFields.includes(field)) userFields.push(field);
 	}
+	declareDateSorts(ctx, app, doc, declare);
 	EARLY_DECLARATIONS.set(ctx, declarations);
+	ROW_USER_FIELDS.set(ctx, userFields);
 	const catalog = app.caseTypes;
 	if (declarations.length === 0 || catalog === undefined || catalog === null)
 		return;
@@ -530,6 +553,55 @@ function declareDateFieldsBeforeBinding(
 	ctx.writeDraft(() => {
 		app.caseTypes = next;
 	});
+}
+
+/**
+ * The type a case list's `date` order element declares for a property nothing else types and no
+ * expression reads (`caseList/order.ts::dateSortDeclarations`), after every Search field's and
+ * row's own. The element is one print of the date class's three types, so the declaration is the
+ * first of them; an expression that reads the property binds under the member the source was
+ * written for, a date compared with a day, a date and time with a moment, so a property any
+ * pending expression reads (`expressions/scanReads.ts::scanReads`) takes no declaration here.
+ */
+function declareDateSorts(
+	ctx: ReadContext,
+	app: DraftApp,
+	doc: BlueprintDoc,
+	declare: (
+		caseType: string,
+		property: string,
+		dataType: CasePropertyDataType,
+	) => void,
+): void {
+	const mediaOn = readProjectionInputs(ctx).assets !== undefined;
+	const found = app.modules.flatMap((module) => {
+		const list = caseListReadings(ctx).get(module.uuid);
+		return list === undefined || !list.whole
+			? []
+			: dateSortDeclarations(doc, module.uuid, list.sort, mediaOn);
+	});
+	if (found.length === 0) return;
+	const read = new Set(
+		scanReads(ctx.pending.list(), doc, expressionEnvOf(ctx)).caseProperties.map(
+			(one) => JSON.stringify([one.caseType, one.property]),
+		),
+	);
+	for (const one of found)
+		if (!read.has(JSON.stringify([one.caseType, one.property])))
+			declare(one.caseType, one.property, one.dataType);
+}
+
+/** The names of the worker's own data each reading's search rows read, per reading. */
+const ROW_USER_FIELDS = new WeakMap<ReadContext, readonly string[]>();
+
+/**
+ * The names of the worker's own data the reading's search filter rows read, in the order first
+ * read (`rows.ts::rowEarlyReads`), known once the searches' first pass has run. A row binds at the
+ * settle, outside the expression stage's slots, so the worker properties minted from that stage's
+ * reads must take these too, or the row would read the name back as no property of the app.
+ */
+export function searchRowUserFields(ctx: ReadContext): readonly string[] {
+	return ROW_USER_FIELDS.get(ctx) ?? [];
 }
 
 /** `doc` without each early declaration a writer of the bound document types: the writer's type

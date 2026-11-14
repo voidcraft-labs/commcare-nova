@@ -8,8 +8,15 @@
  */
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
+import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
-import { columnSort, type SortDirection } from "@/lib/domain/modules";
+import {
+	columnSort,
+	defaultSortBlanks,
+	type SortDirection,
+	sortBlanks,
+} from "@/lib/domain/modules";
+import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import { caseListOrderOptions } from "../../suite/case-list/orderPlanOptions";
 import { withCandidate } from "../candidate";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
@@ -17,7 +24,7 @@ import type { DraftModule, ReadContext } from "../context";
 import type { JsonCursor } from "../jsonCursor";
 import { sameXPathText } from "../syntaxCompare";
 import { HQ_PROPERTY_RENAMES, languageMap } from "./columns";
-import { type JoinedDetails, sameState } from "./details";
+import { type JoinedColumn, type JoinedDetails, sameState } from "./details";
 
 const A = "menus-and-case-lists/";
 
@@ -134,6 +141,8 @@ export interface SortReading {
 	readonly kept: readonly number[];
 	/** Each kept element's stored `type` where it is `int` or `double`, by element index. */
 	readonly numeric: ReadonlyMap<number, string>;
+	/** The index of each kept element whose stored `type` is `date`. */
+	readonly dates: ReadonlySet<number>;
 	/** Whether the source held no element and an `invisible` first column took HQ's default. */
 	readonly defaulted: boolean;
 }
@@ -143,6 +152,50 @@ export interface SortReading {
 function joinText(column: JsonCursor | undefined): string | undefined {
 	const field = column?.peek("field");
 	return typeof field === "string" ? field : undefined;
+}
+
+/**
+ * The key an expression column orders by under a rule, as `caseListOrder.ts::caseListOrderPlan`
+ * keys it (`ruledKeyOf`), spelled so that two columns with one join text have one class exactly
+ * where `caseListSortKeysMatch` matches their keys: a calculated column by its value, a shown
+ * link by its text, a shown interval by the text it shows, a shown ID mapping or image map by
+ * its property and its entries' values in order (an image map shows its images under the media
+ * manifest the ownership rule's plan assumes, `sortPropertyOwnership.ts`), a shown plain column
+ * Nova prints as its choices' labels by the labels, and every other column by the property's raw
+ * value. The join text is one already, so a calculated or link class needs nothing more.
+ */
+function orderKeyClass(column: JoinedColumn | undefined): string | undefined {
+	if (column === undefined) return undefined;
+	const body = column.proposal.column;
+	const shown = column.visibleInList !== false;
+	if (body.kind === "calculated") return "calculated";
+	if (!shown) return `property ${body.field}`;
+	switch (body.kind) {
+		case "link":
+			return "link-text";
+		case "interval":
+			return `interval-text ${JSON.stringify(body.text)}`;
+		case "id-mapping":
+		case "image-map":
+			return `mapping-position ${JSON.stringify([
+				body.field,
+				body.mapping.map((entry) => entry.value),
+			])}`;
+		case "plain":
+			return column.proposal.choices !== undefined
+				? `option-label ${body.field}`
+				: `property ${body.field}`;
+		default:
+			return `property ${body.field}`;
+	}
+}
+
+/** Whether a rule on one of two columns with one join text orders by the other's key, so the
+ *  ownership rule admits it on the column it is not landing on. */
+function sameOrderKey(own: number, landing: number, joined: JoinedDetails) {
+	if (own === landing) return true;
+	const a = orderKeyClass(joined.columns[own]);
+	return a !== undefined && a === orderKeyClass(joined.columns[landing]);
 }
 
 const PROPERTY = /^[a-zA-Z][\w_-]*$/;
@@ -162,6 +215,7 @@ export function readSortElements(
 	const stored = short.peek("sort_elements");
 	const elements = Array.isArray(stored) ? stored : [];
 	const numeric = new Map<number, string>();
+	const dates = new Set<number>();
 	if (elements.length === 0) {
 		short.derived("sort_elements", O.none);
 		const first = joined.columns.find((column) => column.short === 0);
@@ -179,9 +233,9 @@ export function readSortElements(
 				`${short.pointer}/sort_elements`,
 				"list-settings-respelled",
 			);
-			return { ok: true, kept: [], numeric, defaulted: true };
+			return { ok: true, kept: [], numeric, dates, defaulted: true };
 		}
-		return { ok: true, kept: [], numeric, defaulted: false };
+		return { ok: true, kept: [], numeric, dates, defaulted: false };
 	}
 	const cursors = short.list("sort_elements", "SortElement", O.elements);
 	// A later element with one `field` replaces an earlier one.
@@ -239,13 +293,24 @@ export function readSortElements(
 		const calculated = CALCULATED_FIELD.exec(text);
 		if (calculated !== null) {
 			// HQ joins `_cc_calculated_<n>` to stored short column `n` where that column is an
-			// expression column, whatever its format, and sorts the first column whose `field` is
-			// that column's (`util.py::get_sort_and_sort_only_columns`).
-			const stored = shortColumns[Number(calculated[1])];
+			// expression column, whatever its format, and raises for any other `n`; it sorts the
+			// first column whose `field` is that column's (`util.py::get_sort_and_sort_only_columns`).
+			// Nova prints the position of the column a rule is authored on (`caseListOrder.ts`,
+			// rule 4), so the rule is read on column `n` itself wherever its key there is the key
+			// of the column it lands on, which is where `sortPropertyOwnership.ts` admits it there
+			// (`sameOrderKey` compares the keys as that rule does). Where they differ, which no
+			// document Nova admits holds, it is read on the column it lands on, whose own position
+			// the first publish writes (`caseList/index.ts`).
+			const named = Number(calculated[1]);
+			const stored = shortColumns[named];
 			const expression =
 				stored?.peek("useXpathExpression") === true
 					? joinText(stored)
 					: undefined;
+			const own =
+				expression === undefined
+					? -1
+					: joined.columns.findIndex((column) => column.short === named);
 			const landing =
 				expression === undefined
 					? undefined
@@ -256,11 +321,11 @@ export function readSortElements(
 								joinText(shortColumns[column.short]) === expression
 							);
 						});
-			if (landing === undefined) {
+			if (own === -1 || landing === undefined) {
 				cursor.refuse("field", O.fieldCalculatedMissing);
 				ok = false;
 			} else {
-				target = landing;
+				target = sameOrderKey(own, landing, joined) ? own : landing;
 				cursor.take("field", O.fieldCalculated, String).value;
 			}
 		} else if (!PROPERTY.test(text)) {
@@ -346,7 +411,9 @@ export function readSortElements(
 		const column = target === undefined ? undefined : joined.columns[target];
 		if (column !== undefined) column.sort = sort;
 
-		// The comparator: derived, or numeric where the plan derives it (judged in the settle).
+		// The comparator: derived, numeric where the plan derives it, or a date where the property
+		// is of the date class (each judged in the settle; `dateSortDeclarations` names the
+		// property a date element types where nothing else types it).
 		const type = cursor.peek("type");
 		if (type === "distance") {
 			cursor.refuse("type", O.typeDistance);
@@ -367,13 +434,7 @@ export function readSortElements(
 			numeric.set(index, type);
 		} else {
 			cursor.derived("type", O.typeDerived);
-			if (type === "date")
-				sameState(
-					ctx,
-					O.typeDerived.entry,
-					`${cursor.pointer}/type`,
-					"sort-rule-kept-as-hidden-column",
-				);
+			if (type === "date") dates.add(index);
 		}
 
 		const display = languageMap(cursor.peek("display"));
@@ -409,18 +470,210 @@ export function readSortElements(
 			}
 		}
 	});
-	return { ok, kept, numeric, defaulted: false };
+	return { ok, kept, numeric, dates, defaulted: false };
+}
+
+/** The property types whose raw value Nova's sort element names a `date` comparison
+ *  (`hqJson/caseList.ts::sortElementType`). */
+const DATE_CLASS: ReadonlySet<CasePropertyDataType | undefined> = new Set<
+	CasePropertyDataType | undefined
+>(["date", "datetime", "time"]);
+
+/** The type a `date` sort element declares for a property nothing else types: the element is
+ *  the one print of every type of the date class, so the reader returns the first of them. */
+export const DATE_SORT_DECLARED_TYPE: CasePropertyDataType = "date";
+
+/**
+ * Each property of the menu's case type a stored `date` sort element orders by raw value and
+ * nothing in `doc` types, with the type the element declares. The element is joined to its rule
+ * through the order plan of the list as read: the plan's rule at the element's place keys by the
+ * raw value of a property, which `hqJson/caseList.ts::sortElementType` writes as a `date`
+ * comparison only where that property is of the date class, so the declaration is what makes the
+ * projection write the stored element back.
+ */
+export function dateSortDeclarations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	sort: SortReading,
+	mediaOn: boolean,
+): {
+	readonly caseType: string;
+	readonly property: string;
+	readonly dataType: CasePropertyDataType;
+}[] {
+	if (sort.dates.size === 0) return [];
+	const mod = doc.modules[moduleUuid];
+	const config = mod?.caseListConfig;
+	const caseType = mod?.caseType;
+	if (mod === undefined || config === undefined || caseType === undefined)
+		return [];
+	const properties =
+		effectiveCaseTypes(doc).find((type) => type.name === caseType)
+			?.properties ?? [];
+	let plan: ReturnType<typeof caseListOrderPlan>;
+	try {
+		plan = caseListOrderPlan(
+			config,
+			properties,
+			caseListOrderOptions(mod, doc, mediaOn),
+		);
+	} catch {
+		return [];
+	}
+	// The written rules in their elements' order, with what each orders by.
+	const written = [
+		...plan.fields.flatMap((field) =>
+			field.rule?.written === true && !field.rule.implicit
+				? [{ order: field.rule.order, key: field.key }]
+				: [],
+		),
+		...plan.carriers.flatMap((carrier) =>
+			carrier.rule.written && !carrier.rule.implicit
+				? [
+						{
+							order: carrier.rule.order,
+							key: { kind: "property", property: carrier.property } as const,
+						},
+					]
+				: [],
+		),
+	];
+	const out: {
+		caseType: string;
+		property: string;
+		dataType: CasePropertyDataType;
+	}[] = [];
+	sort.kept.forEach((index, position) => {
+		if (!sort.dates.has(index)) return;
+		const key = written.find((one) => one.order === position + 1)?.key;
+		if (key?.kind !== "property" || isStandardCaseListProperty(key.property))
+			return;
+		const property = properties.find((one) => one.name === key.property);
+		if (
+			property === undefined ||
+			property.data_type !== undefined ||
+			out.some((one) => one.property === key.property)
+		)
+			return;
+		out.push({
+			caseType,
+			property: key.property,
+			dataType: DATE_SORT_DECLARED_TYPE,
+		});
+	});
+	return out;
+}
+
+/**
+ * The column whose rule is the one a list with no rule takes, where `mod`'s list holds one rule
+ * and it is that one: an unsorted list whose first field is hidden from Results orders by its
+ * first shown field, ascending with blanks first, and writes that element
+ * (`caseListOrder.ts`, rule 7). A list whose one rule is that rule on that field writes the same
+ * element, its `type` aside, which HQ's build reads one way for a text and a date comparison
+ * alike (`detail_screen.py::FormattedDetailColumn.sort_node`); a whole-number or decimal
+ * comparison is no such rule. `dated` says the rule's element names a date comparison, the
+ * raw value of a property of the date class, where the implicit rule's names a text one.
+ */
+export function implicitRuleColumn(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	mediaOn: boolean,
+): { readonly column: Uuid; readonly dated: boolean } | undefined {
+	const mod = doc.modules[moduleUuid];
+	const config = mod?.caseListConfig;
+	if (mod === undefined || config === undefined) return undefined;
+	const sorted = config.columns.filter((column) => column.sort !== undefined);
+	const only = sorted[0];
+	if (
+		sorted.length !== 1 ||
+		only?.sort === undefined ||
+		only.sort.direction !== "asc" ||
+		sortBlanks(only.sort) !== defaultSortBlanks("asc")
+	)
+		return undefined;
+	const properties =
+		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
+			?.properties ?? [];
+	const planOf = (list: typeof config) => {
+		try {
+			return caseListOrderPlan(
+				list,
+				properties,
+				caseListOrderOptions(mod, doc, mediaOn),
+			);
+		} catch {
+			return undefined;
+		}
+	};
+	const authored = planOf(config);
+	const unsorted = planOf({
+		...config,
+		columns: config.columns.map((column) => {
+			if (column.uuid !== only.uuid) return column;
+			const { sort: _sort, ...rest } = column;
+			return rest as typeof column;
+		}),
+	});
+	const ruled = authored?.fields.find((field) => field.rule !== undefined);
+	const implicit = unsorted?.fields.find(
+		(field) => field.rule?.implicit === true && field.rule.written,
+	);
+	if (
+		authored === undefined ||
+		unsorted === undefined ||
+		authored.carriers.length > 0 ||
+		ruled?.column.uuid !== only.uuid ||
+		ruled.comparator !== "text" ||
+		implicit?.column.uuid !== only.uuid
+	)
+		return undefined;
+	const key = ruled.key;
+	const dated =
+		key?.kind === "property" &&
+		DATE_CLASS.has(
+			properties.find((property) => property.name === key.property)?.data_type,
+		);
+	return { column: only.uuid, dated };
+}
+
+/**
+ * The reader's canonical choice `implicit-order-rule-is-absent`: a list whose one rule is the rule
+ * a list with no rule writes (`implicitRuleColumn`), and whose element names the text comparison
+ * the implicit rule's names, prints what that list prints, and the reader returns the list with no
+ * rule. A rule whose element names a date comparison prints another `type`, and stays. It reads
+ * the rules where `order-rules-on-the-columns-they-land-on` puts them.
+ */
+export function implicitOrderRuleIsAbsent(doc: BlueprintDoc): BlueprintDoc {
+	const drops = doc.moduleOrder.flatMap((moduleUuid) => {
+		const rule = implicitRuleColumn(doc, moduleUuid, true);
+		return rule === undefined || rule.dated
+			? []
+			: [{ moduleUuid, column: rule.column }];
+	});
+	if (drops.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const { moduleUuid, column } of drops) {
+			const one = draft.modules[moduleUuid]?.caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === column,
+			);
+			if (one !== undefined) delete one.sort;
+		}
+	});
 }
 
 /**
  * The reader's canonical choice `order-rules-on-the-columns-they-land-on`. HQ joins an order
  * rule's element to the first field with its text (`caseListOrder.ts`, rule 5), and the reader
- * reads the element there. A rule the validator admits on another column (a later column over
- * the same text, or a column hidden from Results over the property a shown field orders by)
- * orders by the same key (`sortPropertyOwnership.ts`) and prints the element the landing field's
- * own rule prints, so the document returned holds each rule on the column it lands on. In a tile
- * list a column hidden from Results that this leaves with no rule is read off the list
- * (`unsorted-hidden-tile-columns-are-off-the-list`, which follows this choice).
+ * reads a property element there. A rule whose element is a property element that the validator
+ * admits on another column (a later column over the same property, or a column hidden from
+ * Results over the property a shown field orders by) orders by the same key
+ * (`sortPropertyOwnership.ts`) and prints the element the landing field's own rule prints, so the
+ * document returned holds each such rule on the column it lands on. A positional element,
+ * `_cc_calculated_<n>`, names the position of the column its rule is authored on (rule 4), so
+ * the two placements print two exports: the row leaves that rule where it is, and the reader
+ * reads it on column `n` (`readSortElements`). In a tile list a column hidden from Results that
+ * this leaves with no rule is read off the list (`unsorted-hidden-tile-columns-are-off-the-list`,
+ * which follows this choice).
  */
 export function rulesOnTheColumnsTheyLandOn(doc: BlueprintDoc): BlueprintDoc {
 	const moves: { module: Uuid; from: Uuid; to: Uuid }[] = [];
@@ -448,8 +701,14 @@ export function rulesOnTheColumnsTheyLandOn(doc: BlueprintDoc): BlueprintDoc {
 		}
 		for (const rule of plan.authored) {
 			if (typeof rule.landsOn !== "number") continue;
-			const to = plan.fields[rule.landsOn]?.column;
-			if (to !== undefined && to.uuid !== rule.column)
+			// The landing field's rule is this rule: its element is this rule's element.
+			const landing = plan.fields[rule.landsOn];
+			const to = landing?.column;
+			if (
+				to !== undefined &&
+				to.uuid !== rule.column &&
+				landing?.rule?.element.kind === "property"
+			)
 				moves.push({ module: moduleUuid, from: rule.column, to: to.uuid });
 		}
 	}

@@ -58,7 +58,11 @@ import {
 	settleDatetimeJoins,
 	writeBasicOperations,
 } from "./basicActions";
-import { readCaseCatalog, settleWriterTypes } from "./catalog";
+import {
+	readCaseCatalog,
+	settleWriterTypes,
+	takeBackWriterTypedDateTimes,
+} from "./catalog";
 import {
 	conditionFinding,
 	readActionCondition,
@@ -469,6 +473,8 @@ function settleBasicForm(
 export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 	for (const module of app.modules)
 		for (const form of module.forms) settleDatetimeJoins(ctx, form);
+	if (ctx.doc !== undefined)
+		ctx.doc = takeBackWriterTypedDateTimes(ctx, ctx.doc);
 	const doc = ctx.doc;
 	if (doc === undefined) {
 		// No document to emit: each form's blocks stand as pass 1 read them,

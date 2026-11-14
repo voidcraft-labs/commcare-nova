@@ -462,6 +462,22 @@ it("leaves an earlier retype intact when the ordinary final action only closes",
 				.children.filter(isTag)
 				.map((e) => e.name),
 		).toEqual(["close"]);
+		// A close with no condition stands in the row's operations group with
+		// no condition group around it, and its `close` carries no bind: its
+		// block binds its id and its two timestamps alone.
+		const blockBinds = form.model.children
+			.filter(isTag)
+			.filter(
+				(e) =>
+					e.name === "bind" &&
+					e.attribs.nodeset?.startsWith(`${scope}/nova_close_selected_cases/`),
+			)
+			.map((e) => e.attribs.nodeset);
+		expect(blockBinds.sort()).toEqual(
+			["@case_id", "@date_modified", "@user_id"]
+				.map((leaf) => `${scope}/nova_close_selected_cases/case/${leaf}`)
+				.sort(),
+		);
 		selectedIdentity(form, "archive_selected");
 		selectedIdentity(form, "nova_close_selected_cases");
 	}
@@ -479,10 +495,45 @@ it("closes every selected case on a condition the Case Management tab cannot sta
 		"never",
 	);
 	for (const form of output.forms) {
-		expect(form.bind(`${scope}/nova_close_selected_cases/case/close`)).toEqual({
-			nodeset: `${scope}/nova_close_selected_cases/case/close`,
+		// The block stands in the row's condition group, the only element of
+		// the row's operations group, so a case the condition leaves open is
+		// sent no block.
+		expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual([
+			"nova_condition_close",
+		]);
+		const group = child(form.operations, "nova_condition_close");
+		expect(group.children.filter(isTag).map((e) => e.name)).toEqual([
+			"nova_close_selected_cases",
+		]);
+		expect(
+			child(child(group, "nova_close_selected_cases"), "case")
+				.children.filter(isTag)
+				.map((e) => e.name),
+		).toEqual(["close"]);
+		// The condition is the group's relevance, and nothing in the block
+		// carries a bind of its own but its id and its two timestamps.
+		expect(form.bind(`${scope}/nova_condition_close`)).toEqual({
+			nodeset: `${scope}/nova_condition_close`,
 			relevant: `/data/outcome = "it's done"`,
 		});
-		selectedIdentity(form, "nova_close_selected_cases");
+		const blockBinds = form.model.children
+			.filter(isTag)
+			.filter(
+				(e) =>
+					e.name === "bind" &&
+					e.attribs.nodeset?.startsWith(
+						`${scope}/nova_condition_close/nova_close_selected_cases/`,
+					),
+			)
+			.map((e) => e.attribs.nodeset);
+		expect(blockBinds.sort()).toEqual(
+			["@case_id", "@date_modified", "@user_id"]
+				.map(
+					(leaf) =>
+						`${scope}/nova_condition_close/nova_close_selected_cases/case/${leaf}`,
+				)
+				.sort(),
+		);
+		selectedIdentity(form, "nova_condition_close/nova_close_selected_cases");
 	}
 });

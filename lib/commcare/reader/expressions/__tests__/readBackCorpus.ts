@@ -29,12 +29,12 @@ import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { type ClosedAccounting, createReadContext } from "../../context";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { STAGES } from "../../index";
+import { knownCaseTypesOf, STAGES } from "../../index";
 import type {
 	PendingExpression,
 	PendingOutcome,
 } from "../../pendingExpressions";
-import type { ReaderLookupCatalog, ReadFacts } from "../../types";
+import type { ReaderInput, ReaderLookupCatalog, ReadFacts } from "../../types";
 import { expressionEnvOf } from "../../xform";
 import { canonicalExpression } from "../canonical";
 import type {
@@ -111,20 +111,24 @@ export function readEmission(
 }
 
 /** Every stage of a reading over `body`, an export of `doc` a test may have
- *  changed, under `doc`'s identities. */
+ *  changed, under `doc`'s identities; `told` is what else the reader is told
+ *  of the source project space. */
 export async function readBody(
 	body: Readonly<Record<string, unknown>>,
 	doc: BlueprintDoc,
 	recordDialect: RecordDialectJudge,
 	tables?: ReadTables,
+	told: Pick<ReaderInput, "saveOnlyEditedApplied"> = {},
 ): Promise<EmissionReading> {
 	const input = await inputFor(body, {
 		resolver: matchingResolver(
 			"app-1",
 			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 		),
+		knownCaseTypes: knownCaseTypesOf(doc),
 		recordDialect,
 		...(tables === undefined ? {} : { lookup: tables.catalog }),
+		...told,
 	});
 	const ctx = createReadContext(input, { claims: "full" }, inventoryIndex());
 	for (const stage of STAGES) stage(ctx);

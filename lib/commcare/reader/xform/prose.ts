@@ -10,9 +10,13 @@
 
 import type { ChildNode, Element } from "domhandler";
 import { isTag } from "domhandler";
+import type { Draft } from "immer";
 import {
 	type BlueprintDoc,
 	canonicalProseTemplate,
+	caseScalarTextGuards,
+	effectiveAppLocalization,
+	expressionSlotValue,
 	type LanguageTag,
 	type ProsePart,
 	type ProseTemplate,
@@ -22,14 +26,26 @@ import {
 } from "@/lib/domain";
 import type { ItextUnit } from "@/lib/domain/expression/types";
 import { fieldKindDeclaresKey } from "@/lib/domain/fields";
-import { EMPTY_PROSE_TEMPLATE } from "@/lib/domain/prose";
+import {
+	makeTranslationUnitId,
+	translationSourceFingerprint,
+} from "@/lib/domain/localization";
+import { EMPTY_PROSE_TEMPLATE, proseTemplateIsEmpty } from "@/lib/domain/prose";
+import {
+	filledProse,
+	TRANSLATION_FILL_ROLES,
+	translationFillSource,
+} from "@/lib/domain/translationFill";
 import {
 	itextUnitTranslationId,
 	snapshotTranslationUnits,
+	type TranslationUnit,
 	translationValueIntegrityIssue,
 } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { placedBasic } from "../../placement";
 import { buildLabelNodes } from "../../xform/builder";
+import { bindCarriesConstraint } from "../../xform/constraintMessage";
 import { isConsumerWhitespace } from "../../xform/consumerWhitespace";
 import {
 	elementNamespace,
@@ -40,6 +56,7 @@ import {
 } from "../../xmlNamespaces";
 import { InstanceSink } from "../../xpath/wire/instances";
 import type { Accounting } from "../accounting";
+import { withCandidate } from "../candidate";
 import type { ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { pendingPlaceholder } from "../pendingExpressions";
@@ -355,9 +372,12 @@ export interface SlotText {
 	readonly id: string | undefined;
 	/** Whether this slot is the first that references its id: it claims the text. */
 	readonly first: boolean;
+	/** The language whose value the slot holds: the source language, or the default language
+	 *  where the source's value is blank beside the default's text (the form builder's fill). */
+	readonly own: LanguageTag;
 	/** Each app language's default value, the source language's among them. */
 	readonly values: ReadonlyMap<LanguageTag, ReadValue>;
-	/** The source language's outputs registered for the expression stage, in part order. */
+	/** The outputs of the slot's own value registered for the expression stage, in part order. */
 	readonly registered: readonly SourceOutput[];
 	/** Whether the slot holds media Nova reads (a question's label and help, a choice). */
 	readonly media:
@@ -407,6 +427,210 @@ export function formText(xform: ReadXForm): FormText | undefined {
  *  `ReadFormFacts.blankTranslations`. */
 export function formBlankTranslations(xform: ReadXForm): number {
 	return FORM_TEXTS.get(xform)?.blankTranslations ?? 0;
+}
+
+/**
+ * The document without each validation message no export holds: the message of a question whose
+ * bind carries no constraint, with its translations. The emitter writes no message there
+ * (`constraintMessage.ts::bindCarriesConstraint`), since no runtime shows one, so the reading of
+ * the export has none.
+ */
+export function messagesWithNoConditionAbsent(doc: BlueprintDoc): BlueprintDoc {
+	const unwritten: Uuid[] = [];
+	for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
+		const guards = caseScalarTextGuards(doc, formUuid, {
+			placedBasic: placedBasic(doc, formUuid),
+		});
+		const walk = (parent: Uuid) => {
+			for (const uuid of doc.fieldOrder[parent] ?? []) {
+				const field = doc.fields[uuid];
+				if (
+					field !== undefined &&
+					(field as { validate_msg?: unknown }).validate_msg !== undefined &&
+					!bindCarriesConstraint(
+						field.kind,
+						expressionSlotValue(doc, {
+							entity: "field",
+							uuid,
+							slot: "validate",
+						}),
+						guards.get(uuid),
+					)
+				)
+					unwritten.push(uuid);
+				walk(uuid);
+			}
+		};
+		walk(formUuid);
+	}
+	if (unwritten.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const uuid of unwritten) {
+			delete (draft.fields[uuid] as { validate_msg?: unknown }).validate_msg;
+			const unit = makeTranslationUnitId("field", uuid, "validate_msg");
+			for (const entries of Object.values(
+				draft.localization?.translations ?? {},
+			))
+				delete entries[unit];
+		}
+	});
+}
+
+/** The text slots a question may leave unset, each printed as nothing where it is blank. */
+const OPTIONAL_TEXT: ReadonlySet<ItextOwner["slot"]> = new Set([
+	"hint",
+	"help",
+	"validate_msg",
+]);
+
+/**
+ * The document without each hint, help text and validation message blank in every language, and
+ * without its translations. `builder.ts::buildFieldParts` gives an unset text the template of no
+ * parts, so the two print one source: no entry for a blank text, and for a help text with media
+ * the entry of its media alone. A reading reads such a text as unset (`readSlotText`).
+ */
+export function blankOptionalTextAbsent(doc: BlueprintDoc): BlueprintDoc {
+	const translations = Object.values(doc.localization?.translations ?? {});
+	const blank: { uuid: Uuid; slot: ItextOwner["slot"] }[] = [];
+	for (const [uuid, field] of Object.entries(doc.fields) as [
+		Uuid,
+		BlueprintDoc["fields"][Uuid],
+	][])
+		for (const slot of OPTIONAL_TEXT) {
+			const template = (field as Record<string, unknown>)[slot] as
+				| ProseTemplate
+				| undefined;
+			if (template === undefined || !proseTemplateIsEmpty(template)) continue;
+			const unit = makeTranslationUnitId("field", uuid, slot);
+			if (
+				translations.every((entries) => {
+					const entry = entries[unit];
+					return (
+						entry === undefined ||
+						proseTemplateIsEmpty(entry.value as ProseTemplate)
+					);
+				})
+			)
+				blank.push({ uuid, slot });
+		}
+	if (blank.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const { uuid, slot } of blank) {
+			delete (draft.fields[uuid] as Record<string, unknown>)[slot];
+			const unit = makeTranslationUnitId("field", uuid, slot);
+			for (const entries of Object.values(
+				draft.localization?.translations ?? {},
+			))
+				delete entries[unit];
+		}
+	});
+}
+
+/** Two prose values alike, as JSON. */
+function sameProse(a: unknown, b: unknown): boolean {
+	return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** The slot of a question's text, by its translation role. */
+const FILL_SLOT_OF: Readonly<Record<string, TextSlot>> = {
+	"field-label": "label",
+	"field-hint": "hint",
+	"field-help": "help",
+	"field-validation-message": "validate_msg",
+};
+
+/** Writes a form text's source value into its slot: a question's label, hint, help text or
+ *  validation message, or a choice's label. */
+function writeSourceProse(
+	draft: Draft<BlueprintDoc>,
+	unit: TranslationUnit,
+	value: ProseTemplate,
+): void {
+	const owner = unit.owner;
+	if (owner.kind === "select-option") {
+		const field = draft.fields[owner.fieldUuid] as
+			| { optionsSource?: { options?: { uuid: Uuid; label: unknown }[] } }
+			| undefined;
+		const option = field?.optionsSource?.options?.find(
+			(one) => one.uuid === owner.optionUuid,
+		);
+		if (option !== undefined) option.label = value;
+		return;
+	}
+	if (owner.kind !== "field") return;
+	const slot = FILL_SLOT_OF[unit.role];
+	const field = draft.fields[owner.fieldUuid] as
+		| Record<string, unknown>
+		| undefined;
+	if (slot !== undefined && field !== undefined) field[slot] = value;
+}
+
+/**
+ * The document with each blank value of a form's text in a language replaced by the text a
+ * worker reads there, the form builder's fill (`translationFill.ts::filledProse`): a blank source
+ * value takes the filled text into its slot, and a blank translation the filled text, which is
+ * then no translation where it equals the source. The export writes every language's filled text
+ * (`builder.ts`), so both documents print one source, and a reading of it reads the filled text in
+ * every language. A text blank in every language is left as it is; each other translation of a
+ * text whose source changed is kept, fingerprinted to the new source and read as reviewed, as the
+ * reading gives it.
+ */
+export function blankItextFilled(doc: BlueprintDoc): BlueprintDoc {
+	const localization = doc.localization;
+	if (localization === undefined) return doc;
+	const order = effectiveAppLocalization(localization).languageOrder;
+	const source = localization.sourceLanguage;
+	const changes: {
+		readonly unit: TranslationUnit;
+		readonly filled: ReadonlyMap<LanguageTag, ProseTemplate>;
+	}[] = [];
+	for (const unit of snapshotTranslationUnits(doc).values()) {
+		if (!TRANSLATION_FILL_ROLES.has(unit.role)) continue;
+		if (
+			!order.some(
+				(language) => translationFillSource(doc, unit, language) !== undefined,
+			)
+		)
+			continue;
+		changes.push({
+			unit,
+			filled: new Map(
+				order.map((language) => [language, filledProse(doc, unit, language)]),
+			),
+		});
+	}
+	if (changes.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const { unit, filled } of changes) {
+			const next = filled.get(source);
+			if (next === undefined) continue;
+			if (!sameProse(next, unit.source)) writeSourceProse(draft, unit, next);
+			const sourceFingerprint = translationSourceFingerprint("prose", next);
+			for (const [language, value] of filled) {
+				if (language === source) continue;
+				const entries = draft.localization?.translations[language];
+				if (entries === undefined) continue;
+				if (sameProse(value, next)) {
+					delete entries[unit.id];
+					continue;
+				}
+				const held = entries[unit.id];
+				if (
+					held !== undefined &&
+					sameProse(held.value, value) &&
+					held.sourceFingerprint === sourceFingerprint
+				)
+					continue;
+				entries[unit.id] = {
+					value,
+					sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: source,
+				} as Draft<TranslationEntry>;
+			}
+		}
+	});
 }
 
 export interface ReadTextInput {
@@ -612,6 +836,17 @@ export function readText(input: ReadTextInput): FormText {
 						cursor.refuseSubtree(child.element, X.helpOnCapture[tag], place);
 						continue;
 					}
+					// A help text that holds its own content and no `ref` is the text Core shows
+					// (`FormEntryPrompt.localizeText` reads the inner text where the element names
+					// no text id), a text CommCare HQ's form builder loses on load
+					// (`javaRosa/plugin.js` reads a help element's `ref` alone, and `createHelp`
+					// writes a help only through its text). No entry names it, so it is left for the
+					// close to report, as an alert written inline is.
+					if (
+						child.element.attribs.ref === undefined &&
+						holdsContent(child.element)
+					)
+						continue;
 					references.push(
 						reference(
 							input,
@@ -714,8 +949,9 @@ function reference(
 	claim: Reference["claim"],
 ): Reference {
 	const ref = element.attribs.ref;
-	// A label, hint, help text or choice label written inline holds its own text, which Core
-	// shows where the element names no text id (`FormEntryPrompt.localizeText`). An element
+	// A label, hint or choice label written inline holds its own text, which Core shows where
+	// the element names no text id (`FormEntryPrompt.localizeText`); a help text reaches here
+	// written inline only where it holds no content, and reads as blank. An element
 	// inside it (an `<output>`) is a construct no manifest entry names there, left for the
 	// close to report: neither Nova nor CommCare HQ's form builder writes one
 	// (`writer.js::createLabel` writes an inline label as escaped text).
@@ -1001,10 +1237,13 @@ function readSlotText(
 		if (ref.inline === undefined) return none;
 		ref.claim(cursor, true, true);
 		const blank = isConsumerWhitespace(ref.inline);
-		setTemplate(
-			owner,
-			canonicalProseTemplate(blank ? [] : [{ kind: "text", text: ref.inline }]),
-		);
+		if (!(blank && OPTIONAL_TEXT.has(owner.slot)))
+			setTemplate(
+				owner,
+				canonicalProseTemplate(
+					blank ? [] : [{ kind: "text", text: ref.inline }],
+				),
+			);
 		// An inline label holds no markdown copy in any language: shown as typed (12.2).
 		if (!blank && !input.plainText) setPlain(owner);
 		// A choice whose inline label is blank holds no media either: it shows nothing, the
@@ -1019,10 +1258,19 @@ function readSlotText(
 		return none;
 	}
 	const id = ref.id;
-	const source = itext.source;
+	const { source, defaultLanguage } = itext;
 	const values = itext.values(id);
+	// The text must hold the source language's value, which the slot holds, and the default
+	// language's, which the form builder fills a blank from.
 	const sourceForms = source === undefined ? undefined : values?.get(source);
-	if (source === undefined || sourceForms === undefined) {
+	const defaultForms =
+		defaultLanguage === undefined ? undefined : values?.get(defaultLanguage);
+	if (
+		source === undefined ||
+		defaultLanguage === undefined ||
+		sourceForms === undefined ||
+		defaultForms === undefined
+	) {
 		ref.claim(cursor, false, false);
 		accounting.finding(X.duplicateTextId, place);
 		if (first)
@@ -1030,7 +1278,7 @@ function readSlotText(
 				cursor.refuseSubtree(text, X.duplicateTextId, place);
 		return none;
 	}
-	if (!sourceForms.has("default")) {
+	if (!sourceForms.has("default") || !defaultForms.has("default")) {
 		ref.claim(cursor, false, false);
 		if (first)
 			for (const text of itext.texts(id).values())
@@ -1060,8 +1308,16 @@ function readSlotText(
 	const plain = markdown.size === 0;
 	ref.claim(cursor, plain, false);
 
-	const sourceValue = read.get(source) as ReadValue;
-	const sourceBlank = valueIsBlank(sourceValue);
+	// The blank rules are the form builder's, which fills a blank value from the default
+	// language on every save: a blank there beside another language's text is refused, and a
+	// blank in any other language beside the default's text is held, filled from it. So a blank
+	// source value beside the default's text reads as the default's text.
+	const defaultBlank = valueIsBlank(read.get(defaultLanguage) as ReadValue);
+	const own =
+		valueIsBlank(read.get(source) as ReadValue) && !defaultBlank
+			? defaultLanguage
+			: source;
+	const ownValue = read.get(own) as ReadValue;
 	const blankEverywhere = [...read.values()].every(valueIsBlank);
 	let blanks = 0;
 	let refused = false;
@@ -1076,13 +1332,13 @@ function readSlotText(
 		for (const text of itext.texts(id).values())
 			cursor.take({ element: text }, textClaim).value;
 
-		const firstBlankRefused = sourceBlank && !blankEverywhere;
+		const firstBlankRefused = defaultBlank && !blankEverywhere;
 		if (firstBlankRefused) refused = true;
 		for (const [language, value] of read) {
 			const blank = valueIsBlank(value);
 			if (firstBlankRefused && blank)
 				cursor.refuse({ element: value.element }, X.blankFirstLanguage, place);
-			else if (language !== source && blank && !sourceBlank) {
+			else if (language !== defaultLanguage && blank && !defaultBlank) {
 				cursor.take({ element: value.element }, X.blankTranslation).value;
 				blanks += 1;
 			} else cursor.take({ element: value.element }, X.itext.value).value;
@@ -1101,9 +1357,12 @@ function readSlotText(
 		!input.plainText
 	)
 		setPlain(owner);
-	setTemplate(owner, placeholderTemplate(sourceValue.parts));
+	// A hint, a help text or a validation message blank in every language prints as none does
+	// (`builder.ts::buildFieldParts` writes its entry only for its media), so it reads as none.
+	if (!(blankEverywhere && OPTIONAL_TEXT.has(owner.slot)))
+		setTemplate(owner, placeholderTemplate(ownValue.parts));
 	const registered: SourceOutput[] = [];
-	for (const part of sourceValue.parts)
+	for (const part of ownValue.parts)
 		if (part.kind === "output") registered.push(part.output);
 	if (first) {
 		for (const output of registered) claimSourceOutput(cursor, output);
@@ -1115,6 +1374,7 @@ function readSlotText(
 			place,
 			id,
 			first,
+			own,
 			values: read.size === 0 ? empty : read,
 			registered,
 			media: mediaHolding(owner),
@@ -1344,11 +1604,11 @@ export function finishText(ctx: ReadContext): void {
 				if (localization === undefined || source === undefined) continue;
 				const atoms = template.parts.filter((part) => part.kind !== "text");
 				const unitId = itextUnitTranslationId(unit);
-				const sourceValue = slot.values.get(source);
+				const sourceValue = slot.values.get(slot.own);
 				const sourceBlank =
 					sourceValue === undefined || valueIsBlank(sourceValue);
 				for (const [language, value] of slot.values) {
-					if (language === source) continue;
+					if (language === slot.own) continue;
 					const targets = localization.translations[language];
 					if (targets === undefined) continue;
 					// A value left blank beside the source's text is no translation (12.2): it is

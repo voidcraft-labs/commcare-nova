@@ -10,47 +10,44 @@
  * document with no finding and no reader defect; each form's fields equal
  * the document's after the reader's canonical choices (path, kind, repeat
  * mode, `fieldList`, the keypad, the plain flags, the choices and their
- * values, the media of each slot and each text in each language); and every
- * expression slot holds the canonical tree of what the document stored,
- * as `readBackCorpus.ts::judgeReadBack` judges it.
+ * values, the media of each slot and each text in each language); the whole
+ * document equals it too, every expression slot masked to whether it holds
+ * one, every media asset written as its path, and none of what no export
+ * carries and the reader is never told (the app's id, personas, worker types,
+ * automations), the platform declaration being among the reading's choices;
+ * and every expression slot holds the canonical tree of what the document
+ * stored, as `readBackCorpus.ts::judgeReadBack` judges it.
  *
  * Plausible failures: a shape one of Nova's documents writes that no reader
  * stage claims (an `unrecognized` finding on Nova's own export), a HELD-NEW
  * or REFUSED entry a reader stage raises for a shape Nova writes, a slot the
- * emitter writes that the reader reads as something else, and a reader
- * defect raised over Nova's own bytes. The test names every document that
+ * emitter writes that the reader reads as something else, a slot or a fact
+ * the reading adds where the document holds none or drops where it holds
+ * one, and a reader defect raised over Nova's own bytes. The test names every document that
  * does not read back, with its first finding or difference.
  */
 import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
-import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
-import {
-	type BlueprintDoc,
-	blueprintDocSchema,
-	type Field,
-	type LanguageTag,
-	levelDescendantCases,
-	levelOwnsCases,
-	type Media,
-	type MediaKind,
-	type Uuid,
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import type {
+	BlueprintDoc,
+	Field,
+	LanguageTag,
+	Media,
+	MediaKind,
+	Uuid,
 } from "@/lib/domain";
 import {
 	effectiveAppLocalization,
 	makeTranslationUnitId,
 } from "@/lib/domain/localization";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
 import { filledProse } from "@/lib/domain/translationFill";
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 import type { CorpusDocument } from "@/proof/corpus/documents";
-import { publishFindings } from "@/proof/corpus/editBatches";
-import { producerDocuments } from "@/proof/corpus/producers";
-import { targetedDocuments } from "@/proof/targeted/index";
 import { expandDoc } from "../../expander";
-import type { HqLocationType } from "../../hq/locations";
 import { lookupWireNaming } from "../../lookup/naming";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { READER_CANONICAL_CHOICES } from "../assemble";
@@ -60,18 +57,23 @@ import {
 } from "../expressions/__tests__/readBackCorpus";
 import { matchingResolver } from "../identity";
 import { externalIdentityMap } from "../identityMap";
-import { readHqApp } from "../index";
+import { knownCaseTypesOf, readHqApp } from "../index";
 import { whereText } from "../place";
 import type {
 	ReaderInput,
 	ReaderLookupCatalog,
 	ReaderMediaResolution,
 } from "../types";
+import { levelsAsPublished } from "../worldEntities";
 import { inputFor } from "./novaExport";
+import {
+	hydrated,
+	publishExpansion,
+	publishedCorpus,
+	publishRefuses,
+} from "./publishedDocuments";
 import { retainedSourceBody } from "./readerInput";
 
-const ORIGIN = "https://india.commcarehq.org";
-const DOMAIN = "clinic";
 const JR_FILE = "jr://file/";
 const TEXT_SLOTS = ["label", "hint", "help", "validate_msg"] as const;
 const MEDIA_SLOTS = ["label_media", "help_media"] as const;
@@ -202,6 +204,101 @@ function firstDifference(want: unknown, got: unknown, at = ""): string {
 	return `${at}: want ${JSON.stringify(want)?.slice(0, 300)}, got ${JSON.stringify(got)?.slice(0, 300)}`;
 }
 
+/** What stands in an expression slot of the whole-document comparison: the
+ *  slot holds an expression, which `judgeReadBack` judges tree by tree. */
+const EXPRESSION_PRESENT = "<expression>";
+
+/**
+ * The whole document as the comparison reads it: the persisted shape as JSON,
+ * every expression slot of a field, a form or a menu masked to its presence,
+ * every media asset written as the path the export gives it, and none of what
+ * no export carries and the reader is never told (the app's id, its personas,
+ * worker types and automations with their orders) nor the platform
+ * declaration, which a reading proposes among choices.
+ */
+function wholeDocument(
+	doc: BlueprintDoc,
+	pathOfAsset: ReadonlyMap<string, string>,
+): Record<string, unknown> {
+	const plain = JSON.parse(JSON.stringify(toPersistableDoc(doc))) as Record<
+		string,
+		unknown
+	>;
+	for (const key of [
+		"appId",
+		"personas",
+		"personaOrder",
+		"userTypes",
+		"userTypeOrder",
+		"automations",
+		"automationOrder",
+	])
+		delete plain[key];
+	delete (plain.appSettings as { runsOnlyOn?: unknown } | undefined)
+		?.runsOnlyOn;
+	const readable = plain as unknown as Pick<
+		BlueprintDoc,
+		"fields" | "forms" | "modules"
+	>;
+	const owners = [
+		["field", Object.keys(readable.fields)],
+		["form", Object.keys(readable.forms)],
+		["module", Object.keys(readable.modules)],
+	] as const;
+	for (const [entity, uuids] of owners)
+		for (const uuid of uuids)
+			rewriteExpressionSlotValues(
+				readable,
+				{ entity, uuid: uuid as Uuid },
+				(value) => (value === undefined ? value : EXPRESSION_PRESENT),
+			);
+	const asPaths = (value: unknown): unknown => {
+		if (typeof value === "string") return pathOfAsset.get(value) ?? value;
+		if (Array.isArray(value)) return value.map(asPaths);
+		if (value !== null && typeof value === "object")
+			return Object.fromEntries(
+				Object.entries(value).map(([key, inner]) => [key, asPaths(inner)]),
+			);
+		return value;
+	};
+	return asPaths(plain) as Record<string, unknown>;
+}
+
+/** Every place two values differ, each as a path and both sides. */
+function everyDifference(
+	want: unknown,
+	got: unknown,
+	at = "",
+	out: string[] = [],
+): string[] {
+	if (isDeepStrictEqual(want, got)) return out;
+	if (
+		want !== null &&
+		got !== null &&
+		typeof want === "object" &&
+		typeof got === "object" &&
+		Array.isArray(want) === Array.isArray(got) &&
+		(!Array.isArray(want) || want.length === (got as unknown[]).length)
+	) {
+		const keys = new Set([
+			...Object.keys(want as object),
+			...Object.keys(got as object),
+		]);
+		for (const key of keys)
+			everyDifference(
+				(want as Record<string, unknown>)[key],
+				(got as Record<string, unknown>)[key],
+				`${at}/${key}`,
+				out,
+			);
+		return out;
+	}
+	out.push(
+		`${at}: want ${JSON.stringify(want)?.slice(0, 200)}, got ${JSON.stringify(got)?.slice(0, 200)}`,
+	);
+	return out;
+}
+
 /** The project space's tables, by tag, for a reading. */
 function lookupCatalog(document: CorpusDocument): ReaderLookupCatalog {
 	const definitions = document.lookup?.definitions ?? [];
@@ -220,32 +317,14 @@ function lookupCatalog(document: CorpusDocument): ReaderLookupCatalog {
 	};
 }
 
-/**
- * The project space's levels: the document's own, as HQ holds them once a
- * publish has set them up, each sharing cases where it owns them and
- * viewing descendants where its workers' cases reach below.
- */
-function levelsOf(doc: BlueprintDoc): HqLocationType[] {
-	const levels = doc.organizationLevels ?? {};
-	return Object.values(levels).map((level) => ({
-		id: level.uuid,
-		name: level.name,
-		code: level.code,
-		parentCode:
-			level.parentLevelUuid === undefined
-				? null
-				: (levels[level.parentLevelUuid]?.code ?? null),
-		administrative: false,
-		sharesCases: levelOwnsCases(level),
-		viewDescendants: levelDescendantCases(level).kind !== "none",
-	}));
-}
-
-/** The stored document as Nova's load boundary hydrates it. */
-function hydrated(document: CorpusDocument): BlueprintDoc {
-	const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(document.doc));
-	ensureReferenceIndex(doc);
-	return doc;
+/** Whether some case operation of the document saves a write only when the
+ *  worker changed its answer. */
+function savesOnlyChangedAnswers(doc: BlueprintDoc): boolean {
+	return Object.values(doc.forms).some((form) =>
+		(form.caseOperations ?? []).some((operation) =>
+			(operation.writes ?? []).some((write) => write.onlyIfChanged === true),
+		),
+	);
 }
 
 /** Why one document does not read back, or nothing where it does. */
@@ -253,7 +332,7 @@ async function readBack(
 	document: CorpusDocument,
 	doc: BlueprintDoc,
 ): Promise<string | null> {
-	const manifest = manifestFor(doc);
+	const { options, manifest, naming } = publishExpansion(document, doc);
 	const assetOfPath = new Map<string, string>();
 	const pathOfAsset = new Map<string, string>();
 	for (const [assetId, asset] of manifest) {
@@ -262,15 +341,7 @@ async function readBack(
 		if (!assetOfPath.has(path)) assetOfPath.set(path, assetId);
 	}
 	const pathOf = (assetId: string) => pathOfAsset.get(assetId) ?? assetId;
-	const naming =
-		document.lookup === undefined
-			? undefined
-			: lookupWireNaming(document.lookup.definitions);
-	const emitted = expandDoc(doc, {
-		attachmentTarget: { origin: ORIGIN, domain: DOMAIN },
-		...(manifest.size > 0 && { assets: manifest }),
-		...(naming !== undefined && { lookupNaming: naming }),
-	});
+	const emitted = expandDoc(doc, options);
 	// HQ's import replaces every top-level key the body carries
 	// (`models/applications.py::_merge_source_into_app`).
 	const body = {
@@ -278,12 +349,20 @@ async function readBack(
 		...(JSON.parse(JSON.stringify(emitted)) as Record<string, unknown>),
 	};
 	const catalog = lookupCatalog(document);
-	const levels = levelsOf(doc);
+	// The project space holds the document's own levels, as a publish sets
+	// them up, and a re-read mints what the document does not hold under the
+	// app's own id.
+	const levels = levelsAsPublished(doc);
 	const overrides: Partial<ReaderInput> = {
 		resolver: matchingResolver(
-			"app-1",
+			doc.appId,
 			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 		),
+		knownCaseTypes: knownCaseTypesOf(doc),
+		// A publish of a document that saves an answer only where the worker
+		// changed it reaches a project space that applies "save only if
+		// changed", which a bring-in's probe of that project space reads.
+		...(savesOnlyChangedAnswers(doc) && { saveOnlyEditedApplied: true }),
 		recordDialect: recordDialectRoundTrip,
 		lookup: catalog,
 		organization: { levelCodes: levels.map((level) => level.code), levels },
@@ -316,6 +395,19 @@ async function readBack(
 		fieldFacts(outcome.draft.doc, pathOf),
 	);
 	if (fields !== "") return `fields differ at ${fields}`;
+	const whole = everyDifference(
+		wholeDocument(want, pathOfAsset),
+		wholeDocument(outcome.draft.doc, pathOfAsset),
+	);
+	if (whole.length > 0)
+		return `${whole.length} place(s) of the document differ: ${whole.slice(0, 6).join("; ")}`;
+	const { declaration } = outcome.draft;
+	const runsOnlyOn = doc.appSettings.runsOnlyOn;
+	if (
+		declaration.kind !== "choices" ||
+		!declaration.choices.some((choice) => choice.runsOnlyOn === runsOnlyOn)
+	)
+		return `the reading offers no declaration for ${runsOnlyOn ?? "both platforms"}`;
 	const reading = await readBody(body, doc, recordDialectRoundTrip, {
 		naming: naming ?? lookupWireNaming([]),
 		catalog,
@@ -334,15 +426,14 @@ it("reads back every targeted and producer document the proof lane publishes", {
 	// generous for a shared runner.
 	timeout: 300_000,
 }, async () => {
-	const documents = [...targetedDocuments(), ...producerDocuments()];
 	const failures: string[] = [];
 	let read = 0;
-	for (const document of documents) {
+	for (const document of publishedCorpus()) {
 		let why: string | null;
 		try {
 			const doc = hydrated(document);
 			// A document Nova's publish refuses never reaches CommCare HQ.
-			if (publishFindings(doc, document.lookup).length > 0) continue;
+			if (publishRefuses(document, doc)) continue;
 			read++;
 			why = await readBack(document, doc);
 		} catch (error) {

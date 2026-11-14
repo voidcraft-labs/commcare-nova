@@ -467,7 +467,7 @@ Both are `lib/commcare/reader/index.ts::readHqApp` (part 06, `06-the-reader-form
 | `modules` | `alignedFromSource(source)` | part 05's alignment, with each form's real id and CommCare HQ's question summary |
 | `media` | section 7.6's index for the base | section 7.6's index for now |
 | `resolver` | `matchingResolver(appId, map)`, a fresh one | `matchingResolver(appId, map)`, a fresh one |
-| `appId`, `target`, `lookup`, `organization`, `appStrings`, `recordDialect`, `saveOnlyEditedApplied` | the same values, built once | the same values |
+| `appId`, `target`, `lookup`, `organization`, `appStrings`, `recordDialect`, `saveOnlyEditedApplied`, `knownCaseTypes` | the same values, built once | the same values |
 
 `map` is `externalIdentityMap(D_ref, identity)` (part 10, section 2.5): `D_ref` is section 6.1's
 reference document and `identity` is `targetWireIdentity(overrides)` over
@@ -514,8 +514,10 @@ holds:
 reader gives the same document for the source as read and for
 `sourceFromBaseline(normalizeHqAppSource(raw).normalized)`.
 
-**Where the base reading is an account.** A baseline of an app Nova published reads clean unless
-the Project's data changed under it since (a table or a level the app reads was removed, a column
+**Where the base reading is an account.** A baseline of an app Nova published reads clean, given
+`knownCaseTypes` (2.3: an export holds `parent/<property>` or `host/<property>` with the ancestor's
+type nowhere where only the document's catalog or its typed steps name it), unless the Project's data changed under
+it since (a table or a level the app reads was removed, a column
 or a tag renamed), or a deploy changed what Nova holds. Either way there is no base. The review
 answers `unavailable`, with the reason `base-needs-project-data` where every finding of the base
 reading is at a lookup table or the organization, and `base-unreadable` otherwise (9.5 words the
@@ -534,6 +536,13 @@ two apart, because only the second is Nova's to fix).
   way, because the base does not read it.
 - **Levels.** CommCare HQ's levels as part 11 reads them. The map holds each level by its code, so
   a level keeps its UUID, and both readings are handed the same levels, so no change set names one.
+- **Case types' index targets.** The case type each index of the app's case types reaches as Nova
+  holds it, `knownCaseTypesOf(D_ref)` (`reader/caseManagement/knownCaseTypes.ts`; part 07, section
+  7): the catalog's parent for `parent`, the type the document's typed steps agree on for any other
+  index. A reading consults one only where CommCare HQ's app fixes no type for that index (no child
+  link, no parent selection, no open action's index), so a type the change in CommCare HQ gives by
+  a link wins, and both readings bind a `parent/<property>` or `host/<property>` write, preload or
+  read to the same ancestor.
 - **Everything else** of `ReaderInput` is built once for the request, as part 12's `gatherFromHq`
   builds it (its section 3.3, step 6.1).
 
@@ -1205,6 +1214,19 @@ under canon. The third closes a case the kernel would refuse.
   the change set keeps it. The catalog is compared as the reader derives it
   (`case-catalog-is-as-read`), so the kept declaration reaches no export and breaks neither the
   take check nor P4.
+- *An operation's name and order.* A take keeps an operation's own name (its id, the name a person
+  gives a case change) and the document's order of its case changes where the reading holds the
+  canonical member (`basic-slot-operation-ids-are-derived`,
+  `case-management-operations-in-reading-order`): no export carries either where Case Management
+  keeps the operation, so `B` and `T` hold the same derived ids and order wherever CommCare HQ
+  changed nothing, no mutation names them, and Nova's own stay. An operation CommCare HQ's change
+  adds takes the reading's id and place. Where the first take check fails over a form and the form
+  takes the reader's spelling first (2.5, step 9), these two rows are part of that spelling, so a
+  respelled form's operations would take the derived ids and order; that is the one place a take
+  could replace a name a person gave, and `respelled` names the form. Its test is a case of
+  `lib/deployment/hqChanges/__tests__/plan.test.ts`: a document whose basic own arm, child case and
+  advanced actions hold ids and an order other than the derived ones, and a change in CommCare HQ
+  elsewhere in the form, keeps every id and the order after the take.
 
 ### 5.3 Every case where the property bends, and what happens
 
@@ -1231,7 +1253,7 @@ under canon. The third closes a case the kernel would refuse.
 | **Something Nova's publish never sends and the publish's comparison does not read** (the logo, a build profile) | It stops no publish, so no review is made for it. It comes in only in a review some other change caused, and only if no publish and no Refresh re-read the baseline since. Otherwise CommCare HQ keeps its value and Nova its own, and neither writes over the other, as with a logo today. |
 | **The app's name** | Changed in CommCare HQ: the publish's comparison reads it (`diffHqAppSource`, the `name` part), so it stops a publish and is taken. Changed in Nova: an unpublished change like any other, since every publish sends the name ("Executed during planning"); it is on Nova's list as "The app's name". |
 | **The declaration and the split** | A reading holds no `runsOnlyOn` and offers choices (part 06, section 16.3). Both readings are taken under the app's own declaration. Where `D_ref` holds the questions a date and time split made (the split's first minted UUID is in the document, `lib/domain/datetimeSplitIdentity.ts`), both readings are put under the split choice's mutations before they are compared, so an app brought in with the split and not yet published compares like with like. Where the reading now offers the app's declaration only with a split (CommCare HQ added a date and time question to an app that runs in Web Apps), the reading is taken under it, and `publishChanges` carries the register's own line for the split (part 09, section 11.2), because the next publish makes that change in CommCare HQ. Where it offers the app's declaration not at all, `held` with `runs-elsewhere` (9.5, H2). |
-| **The languages reordered, a new first language included** | A reading's source language is its first language (part 06, section 6.3), so a new first language is a new source language, and `diffLocalization` throws `LocalizationEndpointNotRepresentableError` for that in an app with more than one language and for any other reorder: the mutation dialect has no such change (`relabelSourceLanguage`, `addLanguage`, `removeLanguage` and `setDefaultLanguage` exist, and nothing orders languages). `held` with `languages-reordered` (9.5, H1). A language added last, or one removed, is an ordinary change. One added at any other place is held too, because `diffLocalization` appends each added language and then finds the order differs. An order of languages a person can set is model Nova does not hold, and the step 7 outline names it (`../7-rest-of-model.md`, "Settings Nova comes to own"). |
+| **The languages reordered, a new first language included** | A reading's source language is its first language unless the app's name or Nova's own sentences tell another (part 06, section 6.3, item 4), so a new first language can be a new source language, and `diffLocalization` throws `LocalizationEndpointNotRepresentableError` for that in an app with more than one language and for any other reorder: the mutation dialect has no such change (`relabelSourceLanguage`, `addLanguage`, `removeLanguage` and `setDefaultLanguage` exist, and nothing orders languages). `held` with `languages-reordered` (9.5, H1). A language added last, or one removed, is an ordinary change. One added at any other place is held too, because `diffLocalization` appends each added language and then finds the order differs. An order of languages a person can set is model Nova does not hold, and the step 7 outline names it (`../7-rest-of-model.md`, "Settings Nova comes to own"). |
 | **A case property renamed in Nova since the reference** | "Use CommCare HQ's version" is not offered until it is renamed back (6.3). Publishing over and stopping stay. |
 | **Changes brought in from another project space** | The app is one document and its deployments are several. Changes brought in from project space A are, for project space B, changes made in Nova since B's last publish: B's review lists them under Nova, with the member who brought them in named (6.2), and B's "Use CommCare HQ's version" removes them. That is what the words say, and no line is marked by its source. |
 | **Lookup tables managed in CommCare HQ** | No part of the app's change set. At a publish, rows are refreshed and a change to what the app reads stops, under part 11's own rule (its section 8.1), before any of this runs (2.3). |
@@ -2443,7 +2465,7 @@ jsdom: the panel's states are a model, tested as a model, and drawn under Playwr
 | `lib/doc/__tests__/documentChanges.test.ts` | pure | the grain of 6.2; each changed question listed once, under one of the four lists, by its id with its groups' ids before it; names from the right side; every schema key placed; a media slot counted in `mediaFiles`; `count` is zero exactly where there are no differences, over the diff fuzz corpora |
 | `lib/publish/__tests__/hqChangesCopy.test.ts`, `documentChangeCopy.test.ts` | pure | every sentence of sections 6.2 and 9 exactly, singular and plural, each `since` kind; the Nova side's form line names every question and the CommCare HQ side's counts them; no em dash, no ellipsis in a button |
 | `lib/deployment/hqChanges/__tests__/plan.fuzz.test.ts` | pure, production reducers and the production reader | below, "The round trip over generated documents" |
-| `lib/deployment/hqChanges/__tests__/plan.test.ts` | pure | each arm of `HqChangePlan`; each row of 5.3 that has a decided outcome, built from production builders: a removed read of a worker property keeps the property and every persona's value; a newly read slug Nova holds binds to it and adds nothing; a reworded source keeps the translation as `needs-review` (two readings built by hand, since Nova's own emission of a reworded text prints the source for its translations); a change both sides made alike is off Nova's list and gives an empty batch; a rename since the reference gives the lists and no batch; a rename of the app in Nova is on Nova's list; a gate refusal caused by an automation clears after an edit to the automation, and the next plan is applied to the head; a property the changed app stops naming keeps its declaration and its label, and one only a save gave is in `removedCaseProperties`; a `setCaseProperty` moves the type and keeps the label; a case type the changed app drops is retired and is in `removedCaseTypes`; with the changes applied to the published document, a property the head declared since stays in the target and the batch holds no `removeCaseProperty`; for each of the four rows 5.3 names (a condition added to a one-screen group, a list switched to a tile over a dormant cell, formatting turned on over dormant flags, a menu's forms reordered around a registration form) the first take check fails, the touched form or menu takes the reader's spelling, the change is taken, `respelled` names it and nothing outside it moved; `touchedBy` over each mutation family |
+| `lib/deployment/hqChanges/__tests__/plan.test.ts` | pure | each arm of `HqChangePlan`; each row of 5.3 that has a decided outcome, built from production builders: a removed read of a worker property keeps the property and every persona's value; a newly read slug Nova holds binds to it and adds nothing; a reworded source keeps the translation as `needs-review` (two readings built by hand, since Nova's own emission of a reworded text prints the source for its translations); a change both sides made alike is off Nova's list and gives an empty batch; a rename since the reference gives the lists and no batch; a rename of the app in Nova is on Nova's list; a gate refusal caused by an automation clears after an edit to the automation, and the next plan is applied to the head; a property the changed app stops naming keeps its declaration and its label, and one only a save gave is in `removedCaseProperties`; a `setCaseProperty` moves the type and keeps the label; a case type the changed app drops is retired and is in `removedCaseTypes`; with the changes applied to the published document, a property the head declared since stays in the target and the batch holds no `removeCaseProperty`; for each of the four rows 5.3 names (a condition added to a one-screen group, a list switched to a tile over a dormant cell, formatting turned on over dormant flags, a menu's forms reordered around a registration form) the first take check fails, the touched form or menu takes the reader's spelling, the change is taken, `respelled` names it and nothing outside it moved; a change in CommCare HQ to a form whose Case Management operations hold ids and an order other than the derived ones keeps every id and the order (5.2, "An operation's name and order"); `touchedBy` over each mutation family |
 | `lib/deployment/hqChanges/__tests__/reference.postgres.test.ts` | real Postgres | a recorded hold after the publish and an accepted move are in the reference, and the plan is applied to the head; a `blueprint-migration` row that applies is in the reference; one that does not answers `nova-updated`; a rename and its rename back give no `renamesSince`; the worker setup and the logo are the head's, the name is the published document's, and a worker property's slug renamed since is the published one; a Project move after the publish with no person's change before it is in the reference, the plan is applied to the head and Nova's list is empty; a Project move that follows a person's change answers `app-moved`; two properties left holding one slug bind the slug to the published one, and the bring-in answers `gate` with the duplicate-slug finding; `usablePair` over every origin, a null revision, a `push` row whose revision is not the mapping's, a revision behind a fold baseline, a revision of 0 beside a mapping whose `pushed_revision` is 0 (unusable, by test 4 alone), and a null `foldSeq` |
 | `lib/deployment/hqChanges/__tests__/baselineSource.test.ts` | pure, the reader | W1's property over every retained read |
 | `lib/doc/__tests__/diffDocsToMutations.provenance.test.ts` | pure | the third arm emits a removed and an added property and never a rename; a source guard holds its callers to `plan.ts` |

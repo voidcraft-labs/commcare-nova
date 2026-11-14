@@ -22,6 +22,7 @@
  * app Nova published before refused, or brought in with no word of what its
  * first publish changes.
  */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -29,6 +30,7 @@ import {
 	authoredCaseIdPrefix,
 	type BlueprintDoc,
 	type CaseOperation,
+	type CaseTarget,
 	NEW_APP_SETTINGS,
 	plainColumn,
 	type Uuid,
@@ -66,7 +68,7 @@ import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { readHqApp } from "../../index";
+import { knownCaseTypesOf, readHqApp } from "../../index";
 import { sameXPathText } from "../../syntaxCompare";
 import { saveToCaseReading } from "../saveToCase";
 import { type CaseReading, readCases } from "./caseReading";
@@ -214,6 +216,7 @@ describe("every Save to Case shape Nova's emitter writes", () => {
 					"app-1",
 					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 				),
+				knownCaseTypes: knownCaseTypesOf(doc),
 			}),
 		);
 		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
@@ -223,6 +226,56 @@ describe("every Save to Case shape Nova's emitter writes", () => {
 			doc,
 		);
 		expect(caseChanges(outcome.draft.doc)).toEqual(caseChanges(want));
+	});
+
+	it("claims a block in a repeat under its own entry, and one writing a hyphenated property under that one's", async () => {
+		// A create in a repeat's row, and a create at the root that writes a
+		// property whose name holds a hyphen.
+		const repeated = caseOperationFixture("repeat");
+		const base = saveToCaseShapesApp();
+		const hyphenated = produce(base, (draft) => {
+			for (const [formUuid, form] of Object.entries(draft.forms)) {
+				const { placements } = planPlacements(base, formUuid as Uuid);
+				const create = (form.caseOperations ?? []).find((one) => {
+					const target: CaseTarget | undefined = one.target;
+					return (
+						one.action === "create" &&
+						one.forEach === undefined &&
+						target?.kind === "new" &&
+						target.idFrom === undefined &&
+						placements.get(one.uuid)?.placement.kind === "save-to-case"
+					);
+				});
+				if (create === undefined) continue;
+				create.writes = [
+					...(create.writes ?? []),
+					{ property: "blood-type", value: term(literal("o")) },
+				];
+				return;
+			}
+			throw new Error("The app holds no root create in a block.");
+		});
+		const counts = async (doc: BlueprintDoc) => {
+			const outcome = readHqApp(
+				await inputFor(exportedBody(doc), {
+					resolver: matchingResolver(
+						"app-1",
+						externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+					),
+					knownCaseTypes: knownCaseTypesOf(doc),
+				}),
+			);
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			return outcome.claims.counts;
+		};
+		expect(
+			(await counts(repeated))["questions/savetocase-inside-a-repeat"],
+		).toBeGreaterThan(0);
+		expect(
+			(await counts(hyphenated))[
+				"questions/savetocase-property-names-with-hyphens-a-z-w-case-insensitive"
+			],
+		).toBe(1);
 	});
 
 	it.each([
@@ -249,6 +302,7 @@ describe("every Save to Case shape Nova's emitter writes", () => {
 						"app-1",
 						externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 					),
+					knownCaseTypes: knownCaseTypesOf(doc),
 				}),
 			);
 			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
@@ -823,6 +877,7 @@ describe("a several-case form's shared update of every chosen case", () => {
 					"app-1",
 					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 				),
+				knownCaseTypes: knownCaseTypesOf(doc),
 			}),
 		);
 		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);

@@ -15,12 +15,15 @@ import { planDeclarationChoices } from "@/lib/doc/platformDeclaration";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	type BlueprintDoc,
+	type CaseOperation,
 	caseCreateNameFields,
 	type Field,
 	type LanguageTag,
 	type LocalizedValue,
 	type Media,
 	makeTranslationUnitId,
+	operationCaseType,
+	ownCaseOperationId,
 	type SelectOption,
 	type TranslationUnitId,
 	translationSourceFingerprintsEqual,
@@ -39,13 +42,25 @@ import {
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import { syntheticModuleUuid } from "../emissionPlan";
-import { placedBasic } from "../placement";
+import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
-import { rulesOnTheColumnsTheyLandOn } from "./caseList/order";
+import {
+	columnsOfAMenuThatListsNoCasesOffTheDetail,
+	columnsOffAScreenLast,
+} from "./caseList/details";
+import {
+	implicitOrderRuleIsAbsent,
+	rulesOnTheColumnsTheyLandOn,
+} from "./caseList/order";
+import { tileColumnsShownNowhereAsRead } from "./caseList/tile";
 import { catalogAsRead } from "./caseManagement/catalog";
-import { keyedCreatesRead } from "./caseManagement/saveToCase";
+import { caseManagementOperationsAsRead } from "./caseManagement/operationOrder";
+import {
+	keyedCreatesRead,
+	updateBesideBareOwnAsOwnArm,
+} from "./caseManagement/saveToCase";
 import { account, defineClaims, derived, refuse, take } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
 import { readerDefect } from "./defects";
@@ -56,18 +71,37 @@ import {
 	type HeldGeneratedKey,
 	repositionGeneratedKey,
 } from "./generatedTranslationKeys";
+import { resourcedDocument, sourceLanguageAsRead } from "./languages";
 import {
 	defaultPostSubmitAbsent,
 	searchLinkGuardsAreCarriedValues,
 } from "./menus/afterSubmit";
 import { registrationFormLast } from "./menus/registration";
 import { appPlace, placeOrder } from "./place";
-import { provisionalDocument } from "./provisional";
+import { menuAndFormIdsAsRead, provisionalDocument } from "./provisional";
+import { joinedGuardsSplitAsRead } from "./search/guardSplit";
+import { exactSearchModeIsAbsent } from "./search/prompts";
 import { derivedConditionsAreSimpleFields } from "./search/rows";
+import {
+	defaultSearchTitleIsAbsent,
+	emptySearchSettingsBesideFieldsAreAbsent,
+} from "./search/settings";
+import { requiredMessagesAsRead } from "./search/systemSentences";
 import type { TranslationSink } from "./translations";
 import { translationEntryFor } from "./translations";
 import type { ReadDraft, ReadFacts } from "./types";
-import { formBlankTranslations } from "./xform/prose";
+import {
+	levelsAsRead,
+	namedWorkerReadsAreProperties,
+	worldPropertiesAsRead,
+} from "./worldEntities";
+import { connectDefaultsUnset } from "./xform/afterBinding";
+import {
+	blankItextFilled,
+	blankOptionalTextAbsent,
+	formBlankTranslations,
+	messagesWithNoConditionAbsent,
+} from "./xform/prose";
 
 const A = "application-and-settings";
 const TRANSLATIONS = "schema:Application.translations";
@@ -163,11 +197,6 @@ function fieldUnit(field: Uuid, slot: "label" | "help"): TranslationUnitId {
 	return makeTranslationUnitId("field", field, slot);
 }
 
-/** The unit id of an inline choice's label, as the translation inventory names it. */
-function optionUnit(field: Uuid, option: Uuid): TranslationUnitId {
-	return makeTranslationUnitId("field", field, "option", option);
-}
-
 /** Whether a slot's media writes a form of its itext entry: an image, an audio or a video. */
 function carriesMedia(media: Media | undefined): boolean {
 	return (
@@ -225,6 +254,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
+		/** A form's text blank in one language beside another language's text, and the text a
+		 *  worker reads there in its place: the export writes every language's filled text, so the
+		 *  reader returns the second (`xform/prose.ts::blankItextFilled`). It runs before every
+		 *  other translation row, which then reads the filled values. */
+		id: "blank-itext-takes-the-filled-text",
+		kind: "one-wire",
+		apply: blankItextFilled,
+	},
+	{
 		/** A translation equal to its source text, and none: the reader returns none. */
 		id: "translation-equal-to-source-is-absent",
 		kind: "one-wire",
@@ -242,9 +280,10 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		},
 	},
 	{
-		/** `plainLabel` or `plainHelp` on a text blank in every language whose slot carries no
-		 *  media, and no flag: Nova writes no itext entry for such a text. A question's label and
-		 *  help text and an inline choice's label alike. */
+		/** `plainLabel` or `plainHelp` on a question's label or help text blank in every language
+		 *  whose slot carries no media, and no flag: Nova writes no itext entry for such a text
+		 *  (`xform/builder.ts::buildFieldParts`). An inline choice's label is no member: its item
+		 *  always takes an entry, whose markdown copy the flag decides, blank or not. */
 		id: "plain-flag-on-blank-text-is-absent",
 		kind: "one-wire",
 		apply: (doc) =>
@@ -276,26 +315,6 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 						)
 					)
 						delete own.plainHelp;
-					const source = slots.optionsSource as
-						| { kind?: string; options?: readonly SelectOption[] }
-						| undefined;
-					if (source?.kind !== "inline") continue;
-					const options = (own.optionsSource as { options: SelectOption[] })
-						.options;
-					source.options?.forEach((option, index) => {
-						const held = options[index];
-						if (
-							held !== undefined &&
-							option.plainLabel === true &&
-							flagPrintsNothing(
-								doc,
-								option.label,
-								option.media,
-								optionUnit(uuid, option.uuid),
-							)
-						)
-							delete held.plainLabel;
-					});
 				}
 			}),
 	},
@@ -360,6 +379,14 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
+		/** A validation message of a question whose bind carries no constraint (no validation
+		 *  condition and no check of a case name or an external id), and none: no runtime shows
+		 *  such a message, so no export writes it, and the reader returns none. */
+		id: "validation-message-with-no-condition-is-absent",
+		kind: "not-carried",
+		apply: messagesWithNoConditionAbsent,
+	},
+	{
 		/** A current translation entry with any provenance, and the same value as a human-reviewed
 		 *  translation of the current source: the reader returns the second. */
 		id: "translation-provenance-is-read-as-reviewed",
@@ -416,6 +443,85 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 					delete draft.localization?.translations[language]?.[unit];
 			});
 		},
+	},
+	{
+		/** A hint, a validation message, or a help text blank in every language, and none: the
+		 *  emitter gives an unset text the template of no parts, so both print one source (no
+		 *  entry, or a help text's media alone), and the reader returns none
+		 *  (`xform/prose.ts::blankOptionalTextAbsent`). */
+		id: "blank-optional-text-is-absent",
+		kind: "one-wire",
+		apply: blankOptionalTextAbsent,
+	},
+	{
+		/** A Connect assessment's score or a deliver unit's entity id or name holding the default
+		 *  an unset one takes, and unset: the emitter writes one calculate for both, and the reader
+		 *  returns unset (`xform/afterBinding.ts::connectDefaultsUnset`). */
+		id: "connect-defaults-are-unset",
+		kind: "one-wire",
+		apply: connectDefaultsUnset,
+	},
+	{
+		/** A document whose source language is not the one a reading of its export takes, and the
+		 *  same document sourced in that language, every unit's text in every language unchanged:
+		 *  the reader returns the second (`languages.ts::resourcedDocument`). The language a
+		 *  reading takes (`languages.ts::sourceLanguageAsRead`, over `readingSourceCode`) is the
+		 *  first whose text is the source's at every place Nova's emitter writes a source text
+		 *  apart from a translation (the app's name as `name` beside `app.display.name`, and Nova's
+		 *  own sentences), so the two print one export: a document whose export tells its source,
+		 *  as one whose app name a language before the source translates, keeps its own. */
+		id: "source-language-is-as-read",
+		kind: "one-wire",
+		apply: (doc) => {
+			const source = sourceLanguageAsRead(doc);
+			return source === undefined ? doc : resourcedDocument(doc, source);
+		},
+	},
+	{
+		/** In a language other than the source, a Search guard's text joined after fields' own
+		 *  validation messages, split where the reading splits the joined texts, and split anywhere
+		 *  else that prints the same bytes: the reader returns the first
+		 *  (`search/guardSplit.ts::joinedGuardsSplitAsRead`). It reads the source language the row
+		 *  before it settles. */
+		id: "joined-search-guards-split-as-read",
+		kind: "one-wire",
+		apply: joinedGuardsSplitAsRead,
+	},
+	{
+		/** A required Search field with no message of its own beside one whose own message is
+		 *  Nova's sentence in the source language, and the two with the message swapped: both print
+		 *  one text in every language, and the reader returns the document whose first such field,
+		 *  in menu and field order, holds none (`search/systemSentences.ts::requiredMessagesAsRead`).
+		 *  It reads the source language `source-language-is-as-read` settles. */
+		id: "required-messages-as-read",
+		kind: "one-wire",
+		apply: requiredMessagesAsRead,
+	},
+	{
+		/** A search titled "Search", Nova's default, and one with no title of its own: both print
+		 *  the default title in every language, and the reader returns no title
+		 *  (`search/settings.ts::defaultSearchTitleIsAbsent`). */
+		id: "default-search-title-is-absent",
+		kind: "one-wire",
+		apply: defaultSearchTitleIsAbsent,
+	},
+	{
+		/** A menu with Search fields holding a settings object that sets nothing, and holding none:
+		 *  both search with Nova's own settings and print one `search_config`, and the reader
+		 *  returns none (`search/settings.ts::emptySearchSettingsBesideFieldsAreAbsent`). It reads
+		 *  what `default-search-title-is-absent` leaves. */
+		id: "empty-search-settings-beside-fields-are-absent",
+		kind: "one-wire",
+		apply: emptySearchSettingsBesideFieldsAreAbsent,
+	},
+	{
+		/** A simple Search field naming as its mode the one its widget takes when it names none
+		 *  (exact matching, for a text, date, barcode or choice widget), and the same field naming
+		 *  no mode: every print reads the widget's default, so both print one source, and the
+		 *  reader returns no mode (`search/prompts.ts::exactSearchModeIsAbsent`). */
+		id: "exact-search-mode-is-absent",
+		kind: "one-wire",
+		apply: exactSearchModeIsAbsent,
 	},
 	{
 		/** A registration a list offers after an empty search, anywhere among its menu's forms,
@@ -510,11 +616,30 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
-		/** An order rule HQ joins to another column prints the element that column's own rule
-		 *  prints; the reader returns each rule on the column it lands on (`caseList/order.ts`). */
+		/** An order rule whose element is a property element, which HQ joins to another column,
+		 *  prints the element that column's own rule prints; the reader returns each such rule on
+		 *  the column it lands on (`caseList/order.ts::rulesOnTheColumnsTheyLandOn`). A positional
+		 *  element names the column its rule is on, so that rule stays where it is. */
 		id: "order-rules-on-the-columns-they-land-on",
 		kind: "one-wire",
 		apply: rulesOnTheColumnsTheyLandOn,
+	},
+	{
+		/** A list whose one rule is the rule a list with no rule writes, and the list with no rule:
+		 *  both print one sort element, and the reader returns no rule
+		 *  (`caseList/order.ts::implicitOrderRuleIsAbsent`). */
+		id: "implicit-order-rule-is-absent",
+		kind: "one-wire",
+		apply: implicitOrderRuleIsAbsent,
+	},
+	{
+		/** In a tile list a column hidden from Results and from Details, as authored, and as a
+		 *  reading gives it: only its order rule reaches an export, so the reader returns a plain
+		 *  such column with no header, last in the order of its rule, and none for one whose rule
+		 *  is written nowhere (`caseList/tile.ts::tileColumnsShownNowhereAsRead`). */
+		id: "tile-columns-shown-nowhere-are-as-read",
+		kind: "not-carried",
+		apply: tileColumnsShownNowhereAsRead,
 	},
 	{
 		/** In a tile list a column hidden from Results with no order rule is no field, with or
@@ -536,6 +661,22 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 							column.notOnList = true;
 				}
 			}),
+	},
+	{
+		/** A column of a menu that lists no cases, shown on Details or not: such a menu is written
+		 *  the empty pair, whose detail holds no column, so the reader returns each column off the
+		 *  detail (`caseList/details.ts::columnsOfAMenuThatListsNoCasesOffTheDetail`). */
+		id: "columns-of-a-menu-that-lists-no-cases-are-off-the-detail",
+		kind: "not-carried",
+		apply: columnsOfAMenuThatListsNoCasesOffTheDetail,
+	},
+	{
+		/** A column off the detail or off the list, anywhere in that screen's order, and the same
+		 *  column after the screen's own columns: neither detail holds a place for a column it does
+		 *  not show, so the reader returns each such column last, in the other screen's order. */
+		id: "columns-off-a-screen-last-in-its-order",
+		kind: "one-wire",
+		apply: columnsOffAScreenLast,
 	},
 	{
 		/** A document's catalog as authored, and the catalog the reader derives from the same
@@ -605,6 +746,35 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
+		/** An update of the session's case beside a follow-up's own arm that changes nothing, named
+		 *  with the id a reading gives that bare own arm, and the form's own arm in a block of that
+		 *  name: both print the block beside a basic block that writes nothing, and the reader
+		 *  returns the own arm (`caseManagement/saveToCase.ts::updateBesideBareOwnAsOwnArm`). */
+		id: "update-beside-a-bare-own-arm-is-the-own-arm",
+		kind: "one-wire",
+		apply: updateBesideBareOwnAsOwnArm,
+	},
+	{
+		/** A case operation a slot of Case Management keeps (the own arm, a child case and the close
+		 *  that shares its place, the worker's record) under any id, and under the id
+		 *  `basicSlotOperationIdsAsRead` gives it: HQ's form actions name no operation, and the
+		 *  emitter names no node by such an operation's id, so both print one source and the reader
+		 *  returns the derived id. */
+		id: "basic-slot-operation-ids-are-derived",
+		kind: "one-wire",
+		apply: basicSlotOperationIdsAsRead,
+	},
+	{
+		/** A form's case operations in any order Case Management's lists and Save to Case's
+		 *  blocks print alike, and an advanced action's operation under any id, and the same
+		 *  in the order and under the ids a reading gives them: HQ's form actions keep their
+		 *  own list order and name no operation, so both print one source and the reader
+		 *  returns its own (`caseManagement/operationOrder.ts`). */
+		id: "case-management-operations-in-reading-order",
+		kind: "one-wire",
+		apply: caseManagementOperationsAsRead,
+	},
+	{
 		/** A document holding a placement its emission derives and one holding none: holding what
 		 *  the emission derives changes no byte (`lib/commcare/__tests__/heldPlacementEmission.test.ts`), and a
 		 *  reading holds every placement it reads, a query repeat's included, so the reader returns
@@ -619,7 +789,133 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			});
 		},
 	},
+	{
+		/** A menu's or a form's purpose note, and none: purpose notes are outside the wire
+		 *  inventory, so the reader returns none. */
+		id: "purpose-notes-are-absent",
+		kind: "not-carried",
+		apply: (doc) => {
+			const noted = (record: Record<Uuid, { purpose?: string }>) =>
+				Object.values(record).some((one) => one.purpose !== undefined);
+			if (!noted(doc.modules) && !noted(doc.forms)) return doc;
+			return withCandidate(doc, (draft) => {
+				for (const module of Object.values(draft.modules))
+					delete module.purpose;
+				for (const form of Object.values(draft.forms)) delete form.purpose;
+			});
+		},
+	},
+	{
+		/** An app's logo, and none: a publish writes no `logo_refs`, and a logo reaches an app on
+		 *  CommCare HQ only when a person adds it there, so the reader returns none. */
+		id: "app-logo-is-absent",
+		kind: "not-carried",
+		apply: (doc) =>
+			doc.logo === undefined
+				? doc
+				: withCandidate(doc, (draft) => {
+						delete draft.logo;
+					}),
+	},
+	{
+		/** A menu's and a form's id as authored, and the id a reading mints: no export carries
+		 *  either, so the reader returns the slug of each one's name in reading order
+		 *  (`provisional.ts::menuAndFormIdsAsRead`). It reads the names the source language row
+		 *  settles and the form order `registration-form-last` gives. */
+		id: "menu-and-form-ids-as-read",
+		kind: "not-carried",
+		apply: menuAndFormIdsAsRead,
+	},
+	{
+		/** A worker field the logic reads by name that no worker property names, and the same read
+		 *  beside a worker property of that slug, labelled with it: both print one source, and the
+		 *  reader returns the second, minting the property as a re-read of the app does
+		 *  (`worldEntities.ts::namedWorkerReadsAreProperties`). */
+		id: "worker-fields-read-by-name-are-properties",
+		kind: "one-wire",
+		apply: namedWorkerReadsAreProperties,
+	},
+	{
+		/** A worker or location property as authored, and as a reading gives it: no export carries
+		 *  either, only the slug a read prints, so the reader returns each property the logic reads
+		 *  labelled with its slug, with no choices and no requirement, in the order of the slugs,
+		 *  and none that nothing reads (`worldEntities.ts::worldPropertiesAsRead`). It runs after
+		 *  `worker-fields-read-by-name-are-properties`. */
+		id: "world-properties-as-read",
+		kind: "not-carried",
+		apply: worldPropertiesAsRead,
+	},
+	{
+		/** The organization's levels as authored, and as a reading of CommCare HQ's list gives
+		 *  them: the export carries no level, and the list says only each level's code, name,
+		 *  parent, whether it shares cases and whether it views descendants, so the reader returns
+		 *  levels that hold workers, reach all or none of their descendant cases, see their own
+		 *  branch and stand parent before child (`worldEntities.ts::levelsAsRead`). */
+		id: "organization-levels-as-read",
+		kind: "not-carried",
+		apply: levelsAsRead,
+	},
 ];
+
+/**
+ * `doc` with each case operation a slot of Case Management keeps named as a reading names it:
+ * `ownCaseOperationId` of its case type, in the order the reading meets the slots (the own arm,
+ * then each child case in `subcases` order followed by the close that shares its place, then the
+ * worker's record), free among the ids the form's other operations hold, which their blocks carry.
+ */
+function basicSlotOperationIdsAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const renames = new Map<Uuid, Map<Uuid, string>>();
+	for (const [formUuid, { placements }] of appPlacements(doc)) {
+		const operations = doc.forms[formUuid]?.caseOperations ?? [];
+		const basic = (uuid: Uuid) =>
+			placements.get(uuid)?.placement.kind === "basic";
+		const ordered: CaseOperation[] = [];
+		const own = operations.find(
+			(one) => one.action === "own" && basic(one.uuid),
+		);
+		if (own !== undefined) ordered.push(own);
+		for (const subcase of planBasicSubcases(doc, formUuid)) {
+			const create = operations.find(
+				(one) => one.uuid === subcase.operationUuid,
+			);
+			if (create === undefined || !basic(create.uuid)) continue;
+			ordered.push(create);
+			for (const close of operations)
+				if (
+					close.action === "close" &&
+					placements.get(close.uuid)?.sharesWith === create.uuid
+				)
+					ordered.push(close);
+		}
+		const worker = operations.find((one) => {
+			const placement = placements.get(one.uuid)?.placement;
+			return placement?.kind === "basic" && placement.slot === "usercase";
+		});
+		if (worker !== undefined) ordered.push(worker);
+
+		const named = new Set(ordered.map((one) => one.uuid));
+		const taken = new Set(
+			operations.filter((one) => !named.has(one.uuid)).map((one) => one.id),
+		);
+		const ids = new Map<Uuid, string>();
+		for (const operation of ordered) {
+			const caseType = operationCaseType(doc, formUuid, operation);
+			if (caseType === undefined || caseType === "") continue;
+			const id = ownCaseOperationId(caseType, taken);
+			taken.add(id);
+			if (id !== operation.id) ids.set(operation.uuid, id);
+		}
+		if (ids.size > 0) renames.set(formUuid, ids);
+	}
+	if (renames.size === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const [formUuid, ids] of renames)
+			for (const operation of draft.forms[formUuid]?.caseOperations ?? []) {
+				const id = ids.get(operation.uuid);
+				if (id !== undefined) operation.id = id;
+			}
+	});
+}
 
 // ── Translations ─────────────────────────────────────────────────────────
 
