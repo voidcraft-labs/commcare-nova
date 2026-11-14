@@ -437,6 +437,82 @@ def test_the_expected_data_dictionary_follows_the_slots_hqs_refresh_reads():
     }
 
 
+def test_an_advanced_modules_open_actions_are_expected_in_no_slot():
+    """tasks.py::_refresh_data_dictionary_from_app reads an advanced form's ``load_update_cases`` and never its
+    ``open_cases``: a registration's own case and a create, which take open actions in a module HQ holds as
+    advanced, write no row (targeted-case-type-names' ``region``), while a follow-up's own case and the worker's
+    record, which take loads, do. The plausible failure: holding an advanced registration's own case to the row
+    a basic one writes, which HQ's refresh never writes for an app made in HQ's own editors either."""
+    register = _form("0.0", "case", "registration", fields={"case": {"region", "zone"}}, operations={"visit": {"x"}})
+    register.opened_writes = {"case": {"region"}, "visit": {"x"}}
+    follow_up = _form("0.1", "case", fields={"case": {"seen"}, "commcare-user": {"mood"}})
+    read = intent.Intent(app_name="Cases", modules=[("case", [register, follow_up])])
+    # ``zone`` is also written by an operation that opens nothing, so its row stands.
+    assert intent.expected_dictionary(read, SAVE_TO_CASE, frozenset({0})) == {
+        "case": {"zone", "seen"},
+        "commcare-user": {"mood"},
+    }
+    # The same writes in a basic module are each in a slot the refresh reads.
+    assert intent.expected_dictionary(read, SAVE_TO_CASE) == {
+        "case": {"region", "zone", "seen"},
+        "visit": {"x"},
+        "commcare-user": {"mood"},
+    }
+
+
+def test_the_writes_only_an_opening_operation_states_are_told_apart():
+    """A registration's own case and every create open a case; a write another operation of the form also makes
+    to that case type is not the opening operation's alone."""
+    document = {
+        "doc": {
+            "appName": "Cases",
+            "modules": {"m": {"uuid": "m", "caseType": "case"}},
+            "forms": {
+                "f": {
+                    "uuid": "f",
+                    "type": "registration",
+                    "caseOperations": [
+                        {"uuid": "own", "id": "case", "action": "own", "writes": [_write("region"), _write("zone")]},
+                        {
+                            "uuid": "child",
+                            "id": "visit",
+                            "action": "create",
+                            "caseType": "visit",
+                            "target": {"kind": "new"},
+                            "writes": [_write("x")],
+                        },
+                        {
+                            "uuid": "other",
+                            "id": "other",
+                            "action": "update",
+                            "caseType": "case",
+                            "target": {"kind": "session"},
+                            "writes": [_write("zone")],
+                        },
+                    ],
+                }
+            },
+            "fields": {},
+            "formOrder": {"m": ["f"]},
+            "fieldOrder": {"f": []},
+        },
+        "wire": {"modules": [{"uuid": "m", "forms": ["f"]}]},
+    }
+    read = intent.document_intent(document).modules[0][1][0]
+    assert read.opened_writes == {"case": {"region"}, "visit": {"x"}}
+    # A follow-up's own case is a load's, which opens nothing.
+    document["doc"]["forms"]["f"]["type"] = "followup"
+    assert intent.document_intent(document).modules[0][1][0].opened_writes == {"visit": {"x"}}
+    # A control retained without the field reads as one whose forms open nothing.
+    held = intent.intent_json(intent.document_intent(document))
+    del held["modules"][0][1][0]["openedWrites"]
+    assert intent.intent_from_json(held).modules[0][1][0].opened_writes == {}
+
+
+def _write(prop):
+    return {"property": prop, "value": {"kind": "term", "term": {"kind": "literal", "value": "v"}}}
+
+
 def _registration_then_save_to_case(own=None, *, form=None, others=()):
     """A Patients menu whose registration saves ``age`` to its own case (``own`` overrides the own arm), then a
     follow-up that saves ``weight`` to the patient through Save to Case (a value no question gives as it is)."""

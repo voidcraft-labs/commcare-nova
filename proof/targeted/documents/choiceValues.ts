@@ -24,12 +24,15 @@
  *
  * Fixed values: the form, opened as its menu's registration, holds the
  * single select's answer `say"hi"` and the multi-select's `o'clock
- * half"past` as answered.
+ * half"past` as answered. Core's evaluation takes a select's answer as each
+ * chosen choice's 1-based position, as Web Apps sends it
+ * (`JsonActionUtils.getAnswerData`), so the requests name `2` and `1 2`.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn, proseText } from "@/lib/domain";
+import { plainColumn, proseText, type Uuid } from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
+import type { Expectation } from "../expected";
 import { answerHeld, type HeldSession } from "./echo";
 
 const ID = "targeted-choice-values";
@@ -55,6 +58,37 @@ const options = (
 		value,
 		label,
 	}));
+
+/**
+ * The select at `path` answered with `chosen`, each named by its 1-based
+ * position among `values`, holds the chosen values joined by a space.
+ */
+function choicesHeld(
+	id: string,
+	form: Uuid,
+	path: string,
+	values: readonly { value: string }[],
+	chosen: readonly string[],
+	session: HeldSession,
+): Expectation {
+	const positions = chosen.map((value) => {
+		const position = values.findIndex((option) => option.value === value);
+		if (position < 0) {
+			throw new Error(
+				`The select at ${path} has no choice ${JSON.stringify(value)}.`,
+			);
+		}
+		return String(position + 1);
+	});
+	const held = answerHeld(id, form, path, chosen.join(" "), "local", session);
+	return {
+		...held,
+		request: {
+			...held.request,
+			answers: [{ path, value: positions.join(" ") }],
+		},
+	};
+}
 
 export function choiceValues() {
 	const form = uuid("register");
@@ -207,20 +241,20 @@ export function choiceValues() {
 		doc,
 		expected: {
 			intent: [
-				answerHeld(
+				choicesHeld(
 					"answer-held",
 					form,
 					"/data/answer",
-					'say"hi"',
-					"local",
+					ANSWER_OPTIONS,
+					['say"hi"'],
 					session,
 				),
-				answerHeld(
+				choicesHeld(
 					"times-held",
 					form,
 					"/data/times",
-					`o'clock half"past`,
-					"local",
+					TIME_OPTIONS,
+					["o'clock", 'half"past'],
 					session,
 				),
 			],
