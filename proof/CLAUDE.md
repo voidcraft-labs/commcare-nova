@@ -386,9 +386,9 @@ harness keeps, each with its reason.
   - **Weekly** (`proof-audit.yml`): both profiles whole and fresh, the run
     that proves the store's keys and replaces the snapshot, beside the
     comparisons over a 24-document sample that turns each week (its seed
-    the run's ISO year and week, so every document is compared within
-    fifteen weeks, and a dispatch that names the seed runs the same sample
-    again). The whole run without the readers also holds the committed
+    the run's ISO year and week, so every document is compared within the
+    corpus's size over 24 weeks, rounded up, and a dispatch that names the
+    seed runs the same sample again). The whole run without the readers also holds the committed
     sensitivity effects to its own flips both ways, so an effect no flip
     shows any longer fails the week by name.
   The lane with every reader costs about 550 worker-hours whole, against

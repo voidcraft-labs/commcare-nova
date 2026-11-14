@@ -42,7 +42,7 @@ name: Proof audit
 # both ways (python3 -m proof.checks.sensitivity held): an effect the gates
 # file names that no flip shows any longer fails it by name. Three more runs hold the
 # queue builder's 24-document sample, which turns each week so every document
-# is compared within fifteen weeks (a sampled run holds each register entry
+# is compared within the corpus's size over 24 weeks, rounded up (a sampled run holds each register entry
 # naming a document the sample left out on its control alone, and its verdict
 # says so, with the seed that chose the sample): a baseline; Nova's emission and HQ unseeded (their draws
 # and clocks left real), compared with the baseline, which must change
