@@ -59,8 +59,9 @@ export interface ProfileServerProperty {
  * the project space's app submits securely, read from the deployment's
  * `TargetFacts`, and the plain one otherwise. The three URLs stand on the
  * project space's custom base URL where it holds one, as
- * `ApplicationBase.url_base` moves all three: `customBaseUrl` is that URL's
- * origin, which is what HQ's `urljoin` of it with a root path keeps.
+ * `ApplicationBase.url_base` moves all three: `customBaseUrl` is what HQ's
+ * `urljoin` of that URL with a root path keeps of it, its scheme and its
+ * netloc exactly as stored.
  * `cc_user_domain` joins the domain to HQ's `HQ_ACCOUNT_ROOT`, which is
  * `commcarehq.org` on every server Nova publishes to, and lower-cases the
  * whole, as HQ's own does. With no facts, no project space was read, and the

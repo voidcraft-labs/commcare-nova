@@ -26,6 +26,7 @@ import { expandDoc } from "../expander";
 import { targetProfileProperties } from "../keptProfile";
 import { commCareLocalization } from "../localization";
 import {
+	hqProfileValueText,
 	KEPT_PROFILE_PROPERTY_KEYS,
 	type TargetFacts,
 	targetFactsFromSource,
@@ -498,12 +499,16 @@ const CHOICES: Readonly<Record<string, readonly string[]>> = {
 	"unsent-time-limit": ["-1", "1", "5", "7", "14", "30"],
 };
 
-/** A stored setting: one of its choices, or a value HQ's build reads as none. */
+/**
+ * A stored setting: one of its choices, a value HQ's build writes as text of
+ * its own (`True`, a number), or a value it writes nothing for.
+ */
 const storedSetting = (key: string) =>
 	fc.option(
 		fc.oneof(
-			fc.constantFrom(...(CHOICES[key] ?? [])),
-			fc.constantFrom<string | null>("", null),
+			fc.constantFrom<unknown>(...(CHOICES[key] ?? [])),
+			fc.constantFrom<unknown>(true, 10),
+			fc.constantFrom<unknown>("", null, false, 0, ["yes"], {}),
 		),
 		{ nil: undefined },
 	);
@@ -545,9 +550,10 @@ describe("a publish and the archive for one project space", () => {
 						({ key }) => key !== "cc-log-entity-detail-enabled",
 					);
 					expect(archived).toHaveLength(17);
+					/* What HQ's build of the published profile writes for each key. */
 					const stated = published.properties as Record<string, unknown>;
 					for (const { key, value } of archived) {
-						expect(stated[key], key).toBe(value);
+						expect(hqProfileValueText(stated[key]), key).toBe(value);
 					}
 				},
 			),

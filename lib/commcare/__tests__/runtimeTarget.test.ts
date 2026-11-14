@@ -125,12 +125,18 @@ describe("profileServerProperties with what the project space keeps", () => {
 
 	/* Each stored `custom_base_url` is read as `targetFactsFromSource` reads
 	 * it, and the URLs are worked from HQ's `urljoin(url_base, "/a/…")`,
-	 * which keeps the base's scheme, host and port alone. */
+	 * which keeps the base's scheme, lower-cased, and its netloc as stored. */
 	it.each([
 		["https://example.org", "https://example.org"],
 		["https://example.org/", "https://example.org"],
 		["https://example.org/hq/", "https://example.org"],
 		["https://example.org:8443/x", "https://example.org:8443"],
+		[
+			"https://relay:s3cret@proxy.example.org/hq/",
+			"https://relay:s3cret@proxy.example.org",
+		],
+		["https://Proxy.Example.org:443/", "https://Proxy.Example.org:443"],
+		["HTTPS://example.org", "https://example.org"],
 	])("puts the three URLs of a custom base URL %s on %s", (stored, origin) => {
 		const read = targetFactsFromSource(
 			{ custom_base_url: stored, secure_submissions: true },

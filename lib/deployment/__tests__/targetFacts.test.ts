@@ -7,8 +7,13 @@
 
 import { describe, expect, it } from "vitest";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
-import { KEPT_LABEL_IDS, type KeptLabelId } from "@/lib/publish/keptValues";
 import {
+	KEPT_LABEL_IDS,
+	type KeptLabelId,
+	keptChanged,
+} from "@/lib/publish/keptValues";
+import {
+	deploymentKeptOf,
 	keptAdvisoryFacts,
 	keptListFor,
 	targetFactsFromBaseline,
@@ -188,6 +193,36 @@ describe("keptListFor", () => {
 		const listed = keptListFor(all);
 		expect(listed).toHaveLength(KEPT_LABEL_IDS.length);
 		expect([...listed].sort()).toEqual([...KEPT_LABEL_IDS].sort());
+	});
+});
+
+describe("deploymentKeptOf", () => {
+	const signIn = (seconds: string): TargetFacts => ({
+		...DEFAULTS,
+		profileProperties: {
+			...DEFAULTS.profileProperties,
+			"cc-login-duration-seconds": seconds,
+		},
+	});
+
+	it("gives the labels and the date, and a digest the date does not move", () => {
+		const kept = deploymentKeptOf(signIn("43200"));
+		expect(kept.labels).toEqual(keptListFor(signIn("43200")));
+		expect(kept.observedAt).toBe(OBSERVED_AT);
+		const later = deploymentKeptOf({
+			...signIn("43200"),
+			observedAt: "2026-11-12T09:00:00.000Z",
+		});
+		expect(later.valuesDigest).toBe(kept.valuesDigest);
+		expect(keptChanged(kept, later)).toBe(false);
+	});
+
+	it("tells a value moved under a label listed before and after", () => {
+		const day = deploymentKeptOf(signIn("43200"));
+		const hour = deploymentKeptOf(signIn("3600"));
+		expect(hour.labels).toEqual(day.labels);
+		expect(hour.labels).toContain("sign-in-duration");
+		expect(keptChanged(day, hour)).toBe(true);
 	});
 });
 

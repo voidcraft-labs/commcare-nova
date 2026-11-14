@@ -34,9 +34,11 @@ export type CalculatedTemporalType = "date" | "datetime";
 
 /**
  * Context that changes a column's human display without changing its stored
- * value. Results rendering and Quick Filter both consume this exact object so
- * option labels, calculated temporal semantics, and the current interval date
- * can never drift between what a worker sees and what they can search for.
+ * value. Results rendering and the Quick Filter's reading of a field
+ * (`lib/preview/engine/caseListFilterFields.ts`) both consume this exact
+ * object, so option labels, calculated temporal semantics, and the current
+ * interval date never drift between what a worker sees and what a device's
+ * search reads.
  */
 export type ColumnDisplayContext = {
 	/** Worker platform labels; omitted by authoring callers. */
@@ -72,9 +74,11 @@ export function resolveCalculatedTemporalType(
 }
 
 /**
- * Pure semantic projection for a case-list cell. This is the sole source for
- * both visible cell text and Quick Filter matching; consumers never scrape a
- * React node or fall back to a different raw-value coercion.
+ * Pure semantic projection for a case-list cell, the sole source of visible
+ * cell text; consumers never scrape a React node or fall back to a different
+ * raw-value coercion. The Quick Filter reads it for every kind whose cell
+ * shows the text a device's entity holds
+ * (`lib/preview/engine/caseListFilterFields.ts::columnDeviceText`).
  */
 export function projectColumnDisplay(
 	column: Column,
@@ -98,8 +102,8 @@ export function projectColumnDisplay(
 				text: caseListDisplayValue(row, column.field, context.reading),
 			};
 		case "link": {
-			// Quick Filter follows the actual cell: authored wording for a web
-			// link, the visible raw fallback otherwise, and nothing for blank data.
+			// The cell: authored wording for a web link, the visible raw
+			// fallback otherwise, and nothing for blank data.
 			const value = caseListDisplayValue(row, column.field, context.reading);
 			/* The column's display expression: blank in, blank out, else
 			 * `[text](value)` (`linkColumnDisplayXpath`). */
@@ -171,6 +175,34 @@ function caseListDisplaySourceValue(
 			? date.toISOString().slice(0, 10)
 			: hqInstantText(date.getTime());
 	return XPathDate.localDateOf(date.getTime()).toISOString();
+}
+
+/**
+ * The text a device holds for a case property: the value a column reads
+ * (`caseListDisplaySourceValue`), with a multi select's tokens joined by one
+ * space, as a form writes them, and blank for a value the row lacks. A
+ * hidden field's template and HQ's appended order carrier both hold it.
+ */
+export function caseListRawText(
+	row: CaseRowWithCalculated,
+	field: string,
+	reading?: Extract<CaseReading, "casedb" | "results">,
+): string {
+	const source = caseListDisplaySourceValue(row, field, reading);
+	if (source === null || source === undefined) return "";
+	if (Array.isArray(source))
+		return source
+			.map((token) =>
+				token === null
+					? ""
+					: typeof token === "object"
+						? JSON.stringify(token)
+						: String(token),
+			)
+			.join(" ");
+	if (source instanceof Date) return source.toISOString();
+	if (typeof source === "object") return JSON.stringify(source);
+	return String(source);
 }
 
 function caseListDisplayValue(

@@ -127,6 +127,18 @@ describe("classifyHqFailure, first match", () => {
 		});
 	});
 
+	it("reads the plan sentence as the plan for a member, and as lost membership where the list refused the key", () => {
+		/* A project space that is gone answers the same sentence: its default
+		 * plan has no API access, and the plan is checked before the caller. */
+		const answer = refusal(HQ_API_ACCESS_REFUSAL);
+		expect(
+			classifyHqFailure(answer, "application", { member: true }).kind,
+		).toBe("plan-lacks-api-access");
+		expect(
+			classifyHqFailure(answer, "application", { member: false }).kind,
+		).toBe("not-a-member");
+	});
+
 	it("holds an edge's plan sentence to the edge, never the plan", () => {
 		expect(
 			classifyHqFailure(

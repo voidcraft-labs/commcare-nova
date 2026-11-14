@@ -226,8 +226,10 @@ describe("the table list's sentence", () => {
 });
 
 describe("the build profile refusal", () => {
-	const SEVERAL =
-		"Application profiles of the app on “clinic” include languages this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.";
+	const TAB =
+		"That tab shows only where the project space's plan includes application profiles.";
+	const SEVERAL = `Application profiles of the app on “clinic” include languages this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. ${TAB} Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.`;
+	const AT_PREFLIGHT = { duringPush: false, hqLangs: ["en"] };
 
 	it("names each profile on a line, a nameless one included, and says when a profile is left with none of the app's languages", () => {
 		expect(
@@ -248,7 +250,7 @@ describe("the build profile refusal", () => {
 						emptied: true,
 					},
 				],
-				false,
+				AT_PREFLIGHT,
 			),
 		).toEqual({
 			code: "hq_build_profile_language_missing",
@@ -266,7 +268,7 @@ describe("the build profile refusal", () => {
 			buildProfileLanguageFailure(
 				DOMAIN,
 				[{ id: "n", name: "North", missing: ["fra", "hau"], emptied: false }],
-				false,
+				AT_PREFLIGHT,
 			).message,
 		).toBe(SEVERAL);
 	});
@@ -276,10 +278,48 @@ describe("the build profile refusal", () => {
 			buildProfileLanguageFailure(
 				DOMAIN,
 				[{ id: "n", name: "North", missing: ["fra"], emptied: false }],
-				true,
+				{ duringPush: true, hqLangs: ["en"] },
 			).message,
 		).toBe(
-			"An application profile of the app on “clinic” includes a language this app no longer has, which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.",
+			`An application profile of the app on “clinic” includes a language this app no longer has, which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. ${TAB} Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.`,
 		);
+	});
+
+	/* HQ's Languages tab takes a language it removes out of every profile on
+	 * any plan, but it can remove only a language the app there still lists:
+	 * a profile left naming a code the app no longer lists there is changed
+	 * on the Application Profiles tab alone. */
+	it("offers the Languages tab exactly where the app on CommCare HQ still lists every missing language", () => {
+		expect(
+			buildProfileLanguageFailure(
+				DOMAIN,
+				[{ id: "n", name: "North", missing: ["fra"], emptied: false }],
+				{ duringPush: false, hqLangs: ["en", "fra"] },
+			).message,
+		).toBe(
+			`An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. ${TAB} On any plan, you can instead remove the language on the Languages tab of the app's settings there, which takes it out of every profile. Nova may then show you that change before it publishes. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.`,
+		);
+		expect(
+			buildProfileLanguageFailure(
+				DOMAIN,
+				[
+					{ id: "n", name: "North", missing: ["fra"], emptied: false },
+					{ id: "s", name: "South", missing: ["hau"], emptied: true },
+				],
+				{ duringPush: false, hqLangs: ["en", "fra", "hau"] },
+			).message,
+		).toBe(
+			`Application profiles of the app on “clinic” include languages this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. ${TAB} On any plan, you can instead remove those languages on the Languages tab of the app's settings there, which takes them out of every profile. Nova may then show you that change before it publishes. Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.`,
+		);
+		expect(
+			buildProfileLanguageFailure(
+				DOMAIN,
+				[
+					{ id: "n", name: "North", missing: ["fra"], emptied: false },
+					{ id: "s", name: "South", missing: ["hau"], emptied: true },
+				],
+				{ duringPush: false, hqLangs: ["en", "fra"] },
+			).message,
+		).toBe(SEVERAL);
 	});
 });

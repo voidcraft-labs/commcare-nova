@@ -45,7 +45,10 @@ import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
+	HQ_MALFORMED_ANSWER,
+	hqTextFacts,
 	isEdgeRefusal,
+	isHqCount,
 	isValidDomainSlug,
 	logAndReturnError,
 	retryAfterMs,
@@ -167,11 +170,10 @@ async function listDomainsMatching(
 			!isUserDomainsResponse(data) ||
 			(total !== undefined && total !== data.meta.total_count)
 		)
-			return { success: false, status: 502, cause: "malformed" };
+			return HQ_MALFORMED_ANSWER;
 		total = data.meta.total_count;
 		for (const row of data.objects) {
-			if (seen.has(row.domain_name))
-				return { success: false, status: 502, cause: "malformed" };
+			if (seen.has(row.domain_name)) return HQ_MALFORMED_ANSWER;
 			seen.add(row.domain_name);
 			domains.push({
 				name: row.domain_name,
@@ -179,14 +181,12 @@ async function listDomainsMatching(
 			});
 		}
 		if (data.meta.next === null || data.meta.next === undefined)
-			return domains.length === total
-				? domains
-				: { success: false, status: 502, cause: "malformed" };
+			return domains.length === total ? domains : HQ_MALFORMED_ANSWER;
 		let next: URL;
 		try {
 			next = new URL(data.meta.next, url);
 		} catch {
-			return { success: false, status: 502, cause: "malformed" };
+			return HQ_MALFORMED_ANSWER;
 		}
 		if (
 			data.meta.next === "" ||
@@ -201,7 +201,7 @@ async function listDomainsMatching(
 				(key) => key !== "limit" && key !== "offset" && key !== "feature_flag",
 			)
 		)
-			return { success: false, status: 502, cause: "malformed" };
+			return HQ_MALFORMED_ANSWER;
 		url = next.toString();
 	}
 	return { success: false, status: 508, cause: "malformed" };
@@ -222,9 +222,7 @@ function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
 	}
 	const meta = candidate.meta as Record<string, unknown>;
 	return (
-		typeof meta.total_count === "number" &&
-		Number.isSafeInteger(meta.total_count) &&
-		meta.total_count >= 0 &&
+		isHqCount(meta.total_count) &&
 		(meta.limit === undefined ||
 			meta.limit === null ||
 			typeof meta.limit === "number") &&
@@ -709,8 +707,14 @@ async function runBoundedCompatibilityProbe<T>(
  * The rows are not checked: HQ passes each app's `name` and `version`
  * through as stored, discovery stops on the first error of any project
  * space, and one app Nova cannot type must not fail the save of a key that
- * reaches hundreds. A slug Nova cannot put in a URL is a project space the
- * key does not reach, never an error that stops discovery.
+ * reaches hundreds. For the same reason a list longer than the envelope
+ * read's bound is access: `readHqJson` answers `too-large` only for a 2xx
+ * body that does not open as a page, and `views/cli.py::list_apps` answers
+ * 2xx with JSON only as its envelope (`@json_error` answers its errors
+ * with their own status), so the list of a project space with many apps
+ * proves the key reaches it without Nova holding it. A slug Nova cannot put
+ * in a URL is a project space the key does not reach, never an error that
+ * stops discovery.
  */
 export async function testDomainAccess(
 	creds: CommCareCredentials,
@@ -724,6 +728,7 @@ export async function testDomainAccess(
 			result.edgeRefusal !== true
 		)
 			return false;
+		if (result.cause === "too-large") return true;
 		return result;
 	}
 	return true;
@@ -925,20 +930,25 @@ export async function importApp(
 			log.error("[commcare] import returned non-JSON", undefined, { domain });
 			return signal.aborted
 				? { success: false, status: 503, cause: "timeout" }
-				: { success: false, status: 502, cause: "malformed" };
+				: HQ_MALFORMED_ANSWER;
 		}
 		if (typeof data !== "object" || data === null || Array.isArray(data)) {
-			return { success: false, status: 502, cause: "malformed" };
+			return HQ_MALFORMED_ANSWER;
 		}
 		const acknowledgement = data as Record<string, unknown>;
 
 		/* HQ can return HTTP 200 with success:false for application-level
-		 * import failures (malformed JSON, schema violations). The response
-		 * body is already consumed so we log the parsed result directly. */
+		 * import failures (malformed JSON, schema violations). Its `error`
+		 * can quote the app (`AppEditingError` names a form or a question),
+		 * so the line names that text's shape and length, never the text. */
 		if (acknowledgement.success === false) {
+			const error = hqTextFacts(
+				typeof acknowledgement.error === "string" ? acknowledgement.error : "",
+			);
 			log.error("[commcare] import rejected by HQ", undefined, {
 				domain,
-				data,
+				error: error.shape,
+				errorBytes: error.bytes,
 			});
 			return { success: false, status: 422 };
 		}
@@ -948,10 +958,7 @@ export async function importApp(
 			typeof appId !== "string" ||
 			!/^[A-Za-z0-9_-]+$/.test(appId) ||
 			(updateAppId !== undefined && appId !== updateAppId) ||
-			(version !== undefined &&
-				(typeof version !== "number" ||
-					!Number.isSafeInteger(version) ||
-					version < 0)) ||
+			(version !== undefined && !isHqCount(version)) ||
 			(warnings !== undefined &&
 				(!Array.isArray(warnings) ||
 					!warnings.every((warning) => typeof warning === "string")))
@@ -961,7 +968,7 @@ export async function importApp(
 			log.error("[commcare] import acknowledgement is malformed", undefined, {
 				domain,
 			});
-			return { success: false, status: 502, cause: "malformed" };
+			return HQ_MALFORMED_ANSWER;
 		}
 
 		return {
@@ -1207,9 +1214,7 @@ export interface HqAppVersions {
 }
 
 function finiteIntOrNull(value: unknown): number | null {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-		? value
-		: null;
+	return isHqCount(value) ? value : null;
 }
 
 /**
@@ -1241,7 +1246,7 @@ export async function readAppVersions(
 	if ("success" in result) return result;
 	const data = result.data;
 	if (typeof data !== "object" || data === null || Array.isArray(data))
-		return { success: false, status: 502, cause: "malformed" };
+		return HQ_MALFORMED_ANSWER;
 	const record = data as Record<string, unknown>;
 	const currentVersion = finiteIntOrNull(record.currentVersion);
 	if (
@@ -1251,7 +1256,7 @@ export async function readAppVersions(
 		(record.latestReleasedBuild !== null &&
 			finiteIntOrNull(record.latestReleasedBuild) === null)
 	)
-		return { success: false, status: 502, cause: "malformed" };
+		return HQ_MALFORMED_ANSWER;
 	return {
 		currentVersion,
 		latestBuildVersion: finiteIntOrNull(record.latestBuild),

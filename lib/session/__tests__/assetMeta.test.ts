@@ -12,24 +12,39 @@
 import { describe, expect, it } from "vitest";
 import { createBuilderSessionStore } from "../store";
 
-const IMG = { kind: "image", status: "ready", sizeBytes: 1024 } as const;
+const IMG = {
+	kind: "image",
+	status: "ready",
+	sizeBytes: 1024,
+	contentHash: "a1",
+	extension: ".png",
+} as const;
 
 describe("asset metadata registry", () => {
 	it("merges observed rows keyed by id, later observations overwriting", () => {
 		const store = createBuilderSessionStore();
 		store.getState().recordAssetMeta([
 			{ id: "a", ...IMG },
-			{ id: "b", kind: "audio", status: "ready", sizeBytes: 2048 },
+			{
+				id: "b",
+				kind: "audio",
+				status: "ready",
+				sizeBytes: 2048,
+				contentHash: "b2",
+				extension: ".mp3",
+			},
 		]);
-		store
-			.getState()
-			.recordAssetMeta([
-				{ id: "a", kind: "image", status: "ready", sizeBytes: 4096 },
-			]);
+		store.getState().recordAssetMeta([{ id: "a", ...IMG, sizeBytes: 4096 }]);
 
 		const meta = store.getState().assetMeta;
-		expect(meta.a).toEqual({ kind: "image", status: "ready", sizeBytes: 4096 });
-		expect(meta.b).toEqual({ kind: "audio", status: "ready", sizeBytes: 2048 });
+		expect(meta.a).toEqual({ ...IMG, sizeBytes: 4096 });
+		expect(meta.b).toEqual({
+			kind: "audio",
+			status: "ready",
+			sizeBytes: 2048,
+			contentHash: "b2",
+			extension: ".mp3",
+		});
 	});
 
 	it("skips the write when every incoming row is already recorded verbatim", () => {

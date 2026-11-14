@@ -2,7 +2,12 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { type HqReadDeadline, withHqRequestDeadline } from "./deadline";
-import type { CommCareApiError, CommCareCredentials } from "./http";
+import {
+	type CommCareApiError,
+	type CommCareCredentials,
+	HQ_MALFORMED_ANSWER,
+	isHqCount,
+} from "./http";
 import { readHqJson } from "./readJson";
 
 export function isHqObject(value: unknown): value is Record<string, unknown> {
@@ -47,9 +52,7 @@ export interface HqPastLimit {
 /** A page's `meta.total_count` where it is a count; null otherwise. */
 function namedTotal(meta: Readonly<Record<string, unknown>>): number | null {
 	const total = meta.total_count;
-	return typeof total === "number" && Number.isSafeInteger(total) && total >= 0
-		? total
-		: null;
+	return isHqCount(total) ? total : null;
 }
 
 /** Inventory authorizes remote replacement. Only a complete list from the
@@ -115,7 +118,7 @@ export async function readHqCollection(
 				(body.meta.next !== null && typeof body.meta.next !== "string")
 			) {
 				log.error(`[commcare] ${label} is malformed`, undefined, {});
-				return { success: false, status: 502, cause: "malformed" };
+				return HQ_MALFORMED_ANSWER;
 			}
 			onMeta?.(body.meta);
 			rows.push(...body.objects);
@@ -134,7 +137,7 @@ export async function readHqCollection(
 							undefined,
 							{ total, rows: rows.length },
 						);
-						return { success: false, status: 502, cause: "malformed" };
+						return HQ_MALFORMED_ANSWER;
 					}
 					return { kind: "past-limit", totalCount: null };
 				}
@@ -144,7 +147,7 @@ export async function readHqCollection(
 			try {
 				next = new URL(body.meta.next, url);
 			} catch {
-				return { success: false, status: 502, cause: "malformed" };
+				return HQ_MALFORMED_ANSWER;
 			}
 			if (
 				body.meta.next === "" ||
@@ -159,7 +162,7 @@ export async function readHqCollection(
 					undefined,
 					{},
 				);
-				return { success: false, status: 502, cause: "malformed" };
+				return HQ_MALFORMED_ANSWER;
 			}
 			url = next.toString();
 		}

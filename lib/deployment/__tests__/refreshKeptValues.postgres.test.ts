@@ -9,10 +9,14 @@
  * 401, a 403 and a 500 are bare statuses, and a timeout is the peer never
  * answering inside the read's deadline.
  *
+ * Refresh from CommCare HQ as the card asks it (`refreshKeptValuesAction`)
+ * answers a refresh whose write landed as landed when the kept list cannot
+ * be read after it: the store's facts read is the one seam replaced.
+ *
  * What a mocked test cannot show: the writer's two guards hold against a
- * publish's baseline that lands while HQ is answering, because both writes
- * take the same row lock; and the write reaches the deployment lane's
- * channel in its own transaction.
+ * publish's baseline or another refresh's that lands while HQ is answering,
+ * because every write takes the same row lock; and the write reaches the
+ * deployment lane's channel in its own transaction.
  */
 
 import { gzipSync } from "node:zlib";
@@ -26,8 +30,11 @@ import {
 	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
+import { getSession } from "@/lib/auth-utils";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { log } from "@/lib/logger";
+import { refreshKeptValuesAction } from "../actions";
 import { DeploymentError } from "../errors";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { deploymentKept, refreshKeptValues } from "../service";
@@ -42,6 +49,11 @@ import {
 import type { AppBaselineWrite, AppOwnership } from "../types";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
+vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
+vi.mock("../store", async (original) => {
+	const store = await original<typeof import("../store")>();
+	return { ...store, readTargetFacts: vi.fn(store.readTargetFacts) };
+});
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
@@ -427,6 +439,18 @@ describe("refreshKeptValues", () => {
 			);
 		});
 
+		it("answers browser-only for a page meant for a person where the app's source was asked", async () => {
+			expect(
+				await answered((peer) =>
+					request(peer).reply(
+						200,
+						"<!DOCTYPE html><html><body>Sign in</body></html>",
+						{ headers: { "content-type": "text/html" } },
+					),
+				),
+			).toBe("browser-only");
+		});
+
 		it("answers unavailable for a 500", async () => {
 			expect(await answered((peer) => request(peer).reply(500, ""))).toBe(
 				"unavailable",
@@ -483,11 +507,12 @@ describe("refreshKeptValues", () => {
 		});
 	});
 
-	it("does not replace a publish's read-back that equals the old baseline, when the refresh was asked before it", async () => {
+	it("keeps a publish's read-back that equals the read, when the refresh was asked before it, and answers refreshed", async () => {
 		await seedApp();
 		await published(baselineOf(liveSource()));
 		/* The publish imported after the refresh's request was sent, so its
-		 * read-back carries the later date, byte for byte the same source. */
+		 * read-back carries the later date, byte for byte the same source:
+		 * what the refresh read is what the baseline holds. */
 		const readBack = baselineOf(liveSource(), {
 			observedAt: new Date(Date.now() + 60_000).toISOString(),
 		});
@@ -496,10 +521,65 @@ describe("refreshKeptValues", () => {
 				await published(readBack);
 				return { statusCode: 200, data: JSON.stringify(liveSource()) };
 			});
-			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("superseded");
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
 		});
 		expect((await baselineRow())?.observed_at).toEqual(
 			new Date(readBack.observedAt),
+		);
+	});
+
+	it.each([
+		["an unchanged project space", liveSource],
+		["a kept setting turned on in CommCare HQ", fuzzyOnSource],
+	] as const)(
+		"answers refreshed to two refreshes of %s, the one asked later landing first, and keeps the later read",
+		async (_name, current) => {
+			await seedApp();
+			await published(baselineOf(liveSource()));
+			const answer = { statusCode: 200, data: JSON.stringify(current()) };
+			const kinds = await withHttpPeer(async (peer) => {
+				const later: { kind?: string } = {};
+				/* The first refresh's request is answered only after a second
+				 * refresh, asked while the first waits, has read and landed. */
+				request(peer).reply(async () => {
+					later.kind = (await refreshKeptValues(SCOPE, TARGET)).kind;
+					return answer;
+				});
+				request(peer).reply(() => answer);
+				const earlier = await refreshKeptValues(SCOPE, TARGET);
+				return [earlier.kind, later.kind];
+			});
+			expect(kinds).toEqual(["refreshed", "refreshed"]);
+			const stored = baselineOf(current());
+			const row = await baselineRow();
+			expect(row?.source_digest).toBe(stored.sourceDigest);
+			/* The later read's date stands: the earlier one does not move it back. */
+			expect(row?.observed_at.getTime()).toBeGreaterThan(
+				Date.parse(PUBLISHED_AT),
+			);
+			const deployment = await readDeployment(SCOPE, TARGET);
+			if (deployment === null) throw new Error("Expected the deployment");
+			expect((await deploymentKept(SCOPE, deployment))?.observedAt).toBe(
+				row?.observed_at.toISOString(),
+			);
+		},
+	);
+
+	it("answers superseded where another refresh landed a different read while CommCare HQ was answering", async () => {
+		await seedApp();
+		await published(baselineOf(liveSource()));
+		await withHttpPeer(async (peer) => {
+			/* The second refresh reads fuzzy search turned on; the first,
+			 * asked before it, is answered with the app as it was. */
+			request(peer).reply(async () => {
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+				return { statusCode: 200, data: JSON.stringify(liveSource()) };
+			});
+			serveSource(peer, fuzzyOnSource());
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("superseded");
+		});
+		expect((await baselineRow())?.source_digest).toBe(
+			baselineOf(fuzzyOnSource()).sourceDigest,
 		);
 	});
 
@@ -560,5 +640,49 @@ describe("refreshKeptValues", () => {
 			).rejects.toMatchObject({ code: "not_found" });
 			expect(sent(peer)).toBe(0);
 		});
+	});
+});
+
+describe("refreshKeptValuesAction", () => {
+	it("answers a refresh whose write landed as landed when its kept list cannot be read after it, and logs the fault by its class and code alone", async () => {
+		await seedApp();
+		await published(baselineOf(liveSource()));
+		vi.mocked(getSession).mockResolvedValue({ user: { id: ACTOR } } as never);
+		/* A fault whose message quotes what it was reading: no log line may
+		 * carry it. */
+		const words = "Mother's Visit Checklist";
+		vi.mocked(readTargetFacts).mockRejectedValueOnce(
+			Object.assign(new Error(`could not read “${words}”`), {
+				code: "57P01",
+			}),
+		);
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, fuzzyOnSource());
+			const result = await refreshKeptValuesAction({ appId: APP, ...TARGET });
+			if (!result.success) throw new Error(result.message);
+			expect(result.data.kind).toBe("refreshed");
+			if (result.data.kind !== "refreshed") return;
+			expect(result.data.deployment.kept).toBe("unread");
+		});
+		/* The write the answer reports did land. */
+		expect(
+			(await readTargetFacts(SCOPE, TARGET))?.profileProperties[
+				"cc-fuzzy-search-enabled"
+			],
+		).toBe("yes");
+		expect(log.error).toHaveBeenCalledWith(
+			"[deployment] kept list unavailable after a write landed",
+			undefined,
+			{
+				appId: APP,
+				domain: TARGET.domain,
+				after: "kept-refresh",
+				errorName: "Error",
+				errorCode: "57P01",
+			},
+		);
+		expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
+			words,
+		);
 	});
 });

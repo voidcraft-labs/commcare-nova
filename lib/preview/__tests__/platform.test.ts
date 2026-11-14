@@ -50,7 +50,7 @@ describe("the list filter and the required mark", () => {
 	it("splits on single spaces, keeps the list's order and skips an empty box in Web Apps", () => {
 		expect(previewPlatformRules("web-apps").listFilter).toEqual({
 			terms: "single-spaces",
-			fuzzyOrder: "list-order",
+			fuzzyOrder: "closest-among-ties",
 			emptyText: "skipped",
 		});
 		expect(previewPlatformRules("web-apps").requiredMark).toBe("always");

@@ -71,7 +71,7 @@ export function hqLocaleFileValue(value: string): string {
  * U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F
  * and U+3000.
  */
-function isPythonSpace(code: number): boolean {
+export function isPythonSpace(code: number): boolean {
 	return (
 		(code >= 0x09 && code <= 0x0d) ||
 		(code >= 0x1c && code <= 0x20) ||

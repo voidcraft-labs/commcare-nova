@@ -21,13 +21,10 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import {
-	previewProjectSpaceFor,
-	previewTargetFactsFor,
-} from "@/lib/deployment/previewSpace";
+import { previewDeploymentAnswerFor } from "@/lib/deployment/previewSpace";
 import {
 	currentResourceIdentities,
-	deploymentKept,
+	landedDeploymentKept,
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
@@ -50,13 +47,15 @@ vi.mock("@/lib/db/settings", () => ({ getCommCareSettings: vi.fn() }));
 vi.mock("@/lib/deployment/service", () => ({
 	publishAppToHq: vi.fn(),
 	currentResourceIdentities: vi.fn(async () => new Map<string, string>()),
-	deploymentKept: vi.fn(async () => null),
+	landedDeploymentKept: vi.fn(async () => null),
 }));
 /* The route asks the server what Preview may name; only the server can
  * see whether the app is now live on more than one space. */
 vi.mock("@/lib/deployment/previewSpace", () => ({
-	previewProjectSpaceFor: vi.fn(async () => "acme"),
-	previewTargetFactsFor: vi.fn(async () => null),
+	previewDeploymentAnswerFor: vi.fn(async () => ({
+		projectSpace: "acme",
+		targetFacts: null,
+	})),
 }));
 
 const SESSION = { user: { id: "u1" } };
@@ -235,19 +234,40 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 	it("answers with the kept list of the record the publish left", async () => {
 		const kept = {
 			labels: ["fuzzy-search"] as const,
+			valuesDigest: "a".repeat(64),
 			observedAt: "2026-11-01T09:00:00.000Z",
 		};
-		vi.mocked(deploymentKept).mockResolvedValueOnce(kept);
+		vi.mocked(landedDeploymentKept).mockResolvedValueOnce(kept);
 
 		const body = (await (
 			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }))
 		).json()) as { kept: unknown };
 
 		expect(body.kept).toEqual(kept);
-		expect(deploymentKept).toHaveBeenCalledWith(
+		expect(landedDeploymentKept).toHaveBeenCalledWith(
 			expect.objectContaining({ appId: "app-1", projectId: "proj-1" }),
 			deploymentView("uploaded"),
+			"publish",
 		);
+	});
+
+	it("answers a landed publish as landed when the reads after it fault, leaving out what it could not read", async () => {
+		/* The import went through. A store fault reading the kept list or
+		 * what Preview may name must not turn that into "Upload failed",
+		 * which would send the person to publish again. */
+		vi.mocked(landedDeploymentKept).mockResolvedValueOnce("unread");
+		vi.mocked(previewDeploymentAnswerFor).mockResolvedValueOnce(null);
+
+		const res = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
+		);
+		const body = (await res.json()) as Record<string, unknown>;
+
+		expect(res.status).toBe(201);
+		expect(body.success).toBe(true);
+		expect(Object.hasOwn(body, "kept")).toBe(false);
+		expect(Object.hasOwn(body, "preview_project_space")).toBe(false);
+		expect(Object.hasOwn(body, "preview_target_facts")).toBe(false);
 	});
 
 	it("names a lookup table an earlier publish left behind", async () => {
@@ -358,9 +378,11 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		// The browser cannot see whether this app is now live on a second
 		// project space, which is when `commcare_project` has two real
 		// answers and Nova must name neither.
-		vi.mocked(previewProjectSpaceFor).mockResolvedValue(null as never);
 		const facts = { fuzzyListSearch: true, markRequiredQuestions: false };
-		vi.mocked(previewTargetFactsFor).mockResolvedValue(facts);
+		vi.mocked(previewDeploymentAnswerFor).mockResolvedValue({
+			projectSpace: null,
+			targetFacts: facts,
+		});
 
 		const res = await POST(
 			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),

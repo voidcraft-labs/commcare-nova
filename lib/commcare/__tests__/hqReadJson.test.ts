@@ -9,7 +9,11 @@ import {
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { log } from "@/lib/logger";
-import { HQ_REFUSED_BODY_MAX_CHARS } from "../hq/http";
+import {
+	HQ_API_ACCESS_REFUSAL,
+	HQ_REFUSED_BODY_MAX_CHARS,
+	HQ_REFUSED_BODY_READ_MAX_BYTES,
+} from "../hq/http";
 import { readHqCollection } from "../hq/readCollection";
 import { readHqJson } from "../hq/readJson";
 import { HQ_READ_SENDS } from "../hq/throttle";
@@ -49,6 +53,7 @@ describe("a 2xx answer Nova cannot use", () => {
 			intercept(peer).reply(200, JSON.stringify({ id: "x".repeat(64) }));
 			intercept(peer).reply(200, "\n  <!DOCTYPE html><html>Sign in</html>");
 			intercept(peer).reply(200, "{ not json");
+			intercept(peer).reply(200, `<html>${"x".repeat(64)}</html>`);
 			expect(
 				await readHqJson(CREDS, URL, "application", { maxBytes: 32 }),
 			).toEqual({ success: false, status: 502, cause: "too-large" });
@@ -62,6 +67,11 @@ describe("a 2xx answer Nova cannot use", () => {
 				status: 502,
 				cause: "malformed",
 			});
+			/* A page is a page at any length: only data is too long. */
+			expect(
+				await readHqJson(CREDS, URL, "application", { maxBytes: 32 }),
+			).toEqual({ success: false, status: 502, cause: "browser-page" });
+			expect(log.error).toHaveBeenCalledOnce();
 			expect(log.error).toHaveBeenCalledWith(
 				"[commcare] application is longer than Nova reads",
 				undefined,
@@ -107,10 +117,143 @@ describe("refusedBody", () => {
 				refusedBody: page.slice(0, HQ_REFUSED_BODY_MAX_CHARS),
 			});
 			expect(log.warn).toHaveBeenCalledWith("[commcare] application refused", {
+				domain: "clinic",
 				status: 403,
-				body: page.slice(0, 200),
+				edgeRefusal: true,
+				body: "page",
+				bodyBytes: page.length,
+				bodyCutOff: false,
 			});
 		});
+	});
+});
+
+describe("a refused answer", () => {
+	it("is logged by its status and its body's shape, never its text", async () => {
+		const refusal = retainedReadingRead("application-no-api-access");
+		await withHttpPeer(async (peer) => {
+			replyRetained(intercept(peer), refusal);
+			await readHqJson(CREDS, URL, "application", { keepRefusedBody: true });
+			expect(log.warn).toHaveBeenCalledWith("[commcare] application refused", {
+				domain: "clinic",
+				status: 401,
+				edgeRefusal: false,
+				body: "json",
+				bodyBytes: new TextEncoder().encode(retainedBodyText(refusal)).length,
+				bodyCutOff: false,
+			});
+			expect(JSON.stringify(vi.mocked(log.warn).mock.calls)).not.toContain(
+				HQ_API_ACCESS_REFUSAL,
+			);
+		});
+	});
+
+	it("tells an edge's page past the byte bound by its first bytes, and keeps no refusedBody", async () => {
+		const page = `<html><head><title>403 Forbidden</title></head><body>${"x".repeat(HQ_REFUSED_BODY_READ_MAX_BYTES)}</body></html>`;
+		await withHttpPeer(async (peer) => {
+			intercept(peer).reply(403, page);
+			expect(
+				await readHqJson(CREDS, URL, "application", { keepRefusedBody: true }),
+			).toEqual({ success: false, status: 403, edgeRefusal: true });
+			expect(log.warn).toHaveBeenCalledWith(
+				"[commcare] application refused",
+				expect.objectContaining({ body: "page", bodyCutOff: true }),
+			);
+		});
+	});
+
+	it("reads no further than the byte bound, though the read asks to keep nothing", async () => {
+		const streaming = Promise.withResolvers<void>();
+		await withSocketHttpPeer(
+			"india.commcarehq.org",
+			(_request, response) => {
+				response.writeHead(500, { "content-type": "text/html" });
+				/* More than the bound, and never ended: only a read that stops at
+				 * the bound answers before the deadline. */
+				response.write(
+					`<html><body>${"x".repeat(HQ_REFUSED_BODY_READ_MAX_BYTES)}`,
+					() => streaming.resolve(),
+				);
+			},
+			async () => {
+				expect(await readHqJson(CREDS, URL, "application")).toEqual({
+					success: false,
+					status: 500,
+					edgeRefusal: false,
+				});
+				await streaming.promise;
+			},
+		);
+	});
+
+	it("is a timeout, logged, where the deadline cuts its body off", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const reached = Promise.withResolvers<void>();
+		let pending: ReturnType<typeof readHqJson> | undefined;
+		try {
+			await withSocketHttpPeer(
+				"india.commcarehq.org",
+				(_request, response) => {
+					response.writeHead(401, { "content-type": "application/json" });
+					response.write('{"error": "Your current', () => reached.resolve());
+				},
+				async () => {
+					pending = readHqJson(CREDS, URL, "application", {
+						keepRefusedBody: true,
+						deadlineMs: 60_000,
+					});
+					await reached.promise;
+					await new Promise<void>((resolve) => setImmediate(resolve));
+					await vi.advanceTimersByTimeAsync(60_000);
+					expect(await pending).toEqual({
+						success: false,
+						status: 503,
+						cause: "timeout",
+					});
+					expect(log.warn).toHaveBeenCalledWith(
+						"[commcare] application unavailable",
+						expect.anything(),
+					);
+					expect(log.warn).not.toHaveBeenCalledWith(
+						"[commcare] application refused",
+						expect.anything(),
+					);
+				},
+			);
+		} finally {
+			await pending;
+		}
+	});
+
+	it("is no answer, logged nowhere, where cancel stops its body", async () => {
+		const reached = Promise.withResolvers<void>();
+		const cancel = new AbortController();
+		let pending: ReturnType<typeof readHqJson> | undefined;
+		try {
+			await withSocketHttpPeer(
+				"india.commcarehq.org",
+				(_request, response) => {
+					response.writeHead(403, { "content-type": "application/json" });
+					response.write('{"error": ', () => reached.resolve());
+				},
+				async () => {
+					pending = readHqJson(CREDS, URL, "application", {
+						keepRefusedBody: true,
+						cancel: cancel.signal,
+					});
+					await reached.promise;
+					cancel.abort();
+					expect(await pending).toEqual({
+						success: false,
+						status: 503,
+						cause: "network",
+					});
+					expect(log.warn).not.toHaveBeenCalled();
+				},
+			);
+		} finally {
+			await pending;
+		}
 	});
 });
 

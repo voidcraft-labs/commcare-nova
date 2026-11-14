@@ -103,7 +103,10 @@ const FORBIDDEN_BY_REQUEST: Readonly<
  * then the reader's own cause, then HQ's status. `member` is whether the
  * same credential's `list_apps` answered for this project space moments
  * before; it tells a 403's lost membership from a missing permission, and a
- * caller that has not asked leaves it out.
+ * 401's plan sentence from a project space the key cannot reach or that is
+ * gone. A caller that has not asked leaves it out, and reads the plan
+ * sentence as the plan: every such caller reads a project space a publish or
+ * a list answered for.
  */
 export function classifyHqFailure(
 	error: CommCareApiError,
@@ -125,7 +128,16 @@ export function classifyHqFailure(
 	if (error.cause === "malformed") return of("answer-unreadable");
 	if (status === 401) {
 		const sentence = apiRefusalSentence(error);
-		if (sentence === "plan") return of("plan-lacks-api-access");
+		/* `HqBaseResource.dispatch` checks the plan before it asks who is
+		 * calling, and a project space that does not exist has the default
+		 * plan, which has no API access. So the plan sentence is about the
+		 * plan only for a member: a caller that knows the list refused its
+		 * key says so, and the sentence is then lost membership or a project
+		 * space that is gone. */
+		if (sentence === "plan")
+			return of(
+				options.member === false ? "not-a-member" : "plan-lacks-api-access",
+			);
 		if (sentence === "cut-off") return of("api-cut-off");
 		return of("key-not-accepted");
 	}
@@ -181,7 +193,12 @@ export function hqReadCircumstance(failure: HqFailure): ReadCircumstance {
 		case "permission":
 			return PERMISSION_CIRCUMSTANCE[failure.permission];
 		/* A table, row, level or place gone during the read changed under it;
-		 * the next read reads the lists afresh. */
+		 * the next read reads the lists afresh. A project space that is gone
+		 * gives no 404 to a key: its function views answer 403 and its
+		 * resources the plan sentence (`domain/decorators.py::_login_or_challenge`,
+		 * `HqBaseResource.dispatch`), so a 404 on a list of the project space
+		 * itself is a route CommCare HQ no longer serves, which is an answer
+		 * Nova could not read. */
 		case "not-found":
 			return APP_REQUESTS.has(failure.request) ? "app-gone" : "hq-unavailable";
 		/* `too-large` words the app itself; a long list is no app. */

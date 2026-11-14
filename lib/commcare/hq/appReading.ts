@@ -24,6 +24,7 @@ import {
 	type HqApplication,
 	type HqApplicationModule,
 	type HqQuestionSummary,
+	type HqSummaryErrorShape,
 	hqApplicationModules,
 	readHqApplication,
 } from "./application";
@@ -38,7 +39,12 @@ import {
 	type HqFailure,
 	type HqRequestKind,
 } from "./failure";
-import type { CommCareApiError, CommCareCredentials } from "./http";
+import {
+	apiRefusalSentence,
+	type CommCareApiError,
+	type CommCareCredentials,
+	HQ_MALFORMED_ANSWER,
+} from "./http";
 
 /** The deadline of each of the two reads of a bring-in whose body is the app. */
 export const HQ_APP_BODY_DEADLINE_MS = 60_000;
@@ -68,14 +74,15 @@ export type HqAlignedModule =
 			readonly forms: readonly HqAlignedForm[];
 	  }
 	/**
-	 * HQ could not summarize the menu at this position; its forms have no real ids. `message` is
-	 * HQ's own text, the `str()` of whatever exception it met: for the log, never for a person.
+	 * HQ could not summarize the menu at this position; its forms have no real ids. `shape` says
+	 * what HQ's text was like and holds none of it: the text quotes the app, so no log line, no
+	 * finding and no person reads it.
 	 */
 	| {
 			readonly kind: "not-summarized";
 			readonly uniqueId: string | null;
 			readonly docType: string;
-			readonly message: string;
+			readonly shape: HqSummaryErrorShape;
 	  };
 
 export type HqFormAlignment =
@@ -116,7 +123,7 @@ export function alignHqForms(
 				kind: "not-summarized",
 				uniqueId: menu.uniqueId,
 				docType: menu.docType,
-				message: entry.message,
+				shape: entry.shape,
 			});
 			continue;
 		}
@@ -217,13 +224,6 @@ export type HqAppReading =
 	| { readonly kind: "gone" }
 	| { readonly kind: "failed"; readonly failure: HqFailure };
 
-/** An answer Nova could not use, as the failure of `request`. */
-const UNREADABLE: CommCareApiError = {
-	success: false,
-	status: 502,
-	cause: "malformed",
-};
-
 function failed(
 	error: CommCareApiError,
 	request: HqRequestKind,
@@ -242,14 +242,18 @@ function failed(
 /**
  * Read the app `appId` of `domain` for a bring-in, as one bracketed attempt.
  *
- * The application resource goes first: it is the API access check. A 404 or
- * a 403 that is not the edge's asks the app list once, the one read that
- * needs membership alone. On a 403 the list answering proves membership, so
- * the 403 is a permission; the list refusing is lost membership. On a 404 the
- * list holding the app makes it `remote` (the list's view holds remote apps,
- * which the resource does not admit); otherwise the source read says only
- * whether HQ holds it as deleted. A build's id is `gone`: no working app of
- * the project space has it.
+ * The application resource goes first: it is the API access check. A 404, a
+ * 403, or a 401 holding the plan sentence, that is not the edge's asks the
+ * app list once, the one read that needs membership alone. On a 403 or that
+ * 401 the list answering proves membership, so the 403 is a permission and
+ * the 401 the plan; the list refusing is lost membership, or a project space
+ * that is gone, whose resources answer the plan sentence because
+ * `HqBaseResource.dispatch` checks the default plan of a project space that
+ * does not exist before it asks who is calling. On a 404 the list holding the
+ * app makes it `remote` (the list's view holds remote apps, which the
+ * resource does not admit); otherwise the source read says only whether HQ
+ * holds it as deleted, and a deleted document that may be a build is `gone`.
+ * A build's id is `gone`: no working app of the project space has it.
  */
 export async function readHqAppForReading(
 	creds: CommCareCredentials,
@@ -268,7 +272,11 @@ export async function readHqAppForReading(
 	const application = await readHqApplication(creds, domain, appId, bodyRead);
 	if ("success" in application) {
 		const hqOwn = application.edgeRefusal !== true;
-		if (application.status === 403 && hqOwn) {
+		const asksMembership =
+			application.status === 403 ||
+			(application.status === 401 &&
+				apiRefusalSentence(application) === "plan");
+		if (asksMembership && hqOwn) {
 			const listed = await listHqApps(creds, domain, { cancel });
 			if (!("success" in listed))
 				return failed(application, "application", true);
@@ -290,7 +298,9 @@ export async function readHqAppForReading(
 				admit: "any",
 			});
 			if (!("success" in source)) {
-				if (source.kind === "gone" && source.deleted)
+				/* A deleted build is no app of the project space either: only a
+				 * document that cannot be a build is a deleted app to restore. */
+				if (source.kind === "gone" && source.deleted && !source.mayBeBuild)
 					return { kind: "deleted" };
 				/* It came back between two reads. */
 				if (source.kind === "source") return { kind: "changed" };
@@ -301,7 +311,8 @@ export async function readHqAppForReading(
 	}
 	if (application.builtFromAppId !== null) return { kind: "gone" };
 	const summaries = hqApplicationModules(application);
-	if ("malformedAt" in summaries) return failed(UNREADABLE, "application");
+	if ("malformedAt" in summaries)
+		return failed(HQ_MALFORMED_ANSWER, "application");
 
 	/* 2. The source. The resource answering proved membership. */
 	const read = await readHqAppSource(creds, domain, appId, {
@@ -312,11 +323,11 @@ export async function readHqAppForReading(
 	if (read.kind === "unsupported")
 		return read.docType === "LinkedApplication"
 			? { kind: "linked" }
-			: failed(UNREADABLE, "app-source");
+			: failed(HQ_MALFORMED_ANSWER, "app-source");
 	if (read.kind === "gone") return { kind: read.deleted ? "deleted" : "gone" };
 	const { source } = read;
 	if (source.name === null || source.multimediaMap === null)
-		return failed(UNREADABLE, "app-source");
+		return failed(HQ_MALFORMED_ANSWER, "app-source");
 
 	/* 3. The save counter, compared for equality only: one save can raise it
 	 * by more than one. */
@@ -334,7 +345,7 @@ export async function readHqAppForReading(
 			appId,
 			at: alignment.at,
 		});
-		return failed(UNREADABLE, "application");
+		return failed(HQ_MALFORMED_ANSWER, "application");
 	}
 	const unsummarized = notSummarizedMenus(alignment.modules);
 	if (unsummarized.kind !== "none") {
@@ -343,12 +354,15 @@ export async function readHqAppForReading(
 				menu.kind === "not-summarized" &&
 				SUMMARIZED_MENU_DOC_TYPES.has(menu.docType)
 			)
+				/* HQ's text quotes the app, so the line holds its shape alone. */
 				log.error("[commcare] application module not summarized", undefined, {
 					domain,
 					request: "application",
 					appId,
 					position,
-					message: menu.message,
+					docType: menu.docType,
+					opens: menu.shape.opens,
+					length: menu.shape.length,
 				});
 		}
 	}

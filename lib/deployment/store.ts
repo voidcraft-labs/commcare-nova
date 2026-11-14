@@ -933,7 +933,8 @@ export async function recordCreatedRemoteApp(
 }
 
 /**
- * Replace a deployment's app baseline with a fresh read that compared equal to it.
+ * Replace a deployment's app baseline with a fresh read that compared equal
+ * to it, and answer whether the baseline now holds what the read saw.
  *
  * The read was compared outside any transaction, so the write states its
  * precondition against the row as it stands under the lock: the stored
@@ -946,6 +947,15 @@ export async function recordCreatedRemoteApp(
  * read-back equals the old baseline byte for byte. The read's `observedAt`
  * is taken before its request was sent, so it never outdates a publish that
  * imported after that moment.
+ *
+ * A stored baseline that already holds this read's digest is `current`
+ * whatever moved it there: another refresh that read the same, or a publish
+ * whose read-back is this read, so two refreshes of an unchanged project
+ * space both answer as refreshed, whichever lands first. It is written again
+ * only where this read is the later, which moves the date and nothing else.
+ * `superseded` therefore names a newer read that differs from this one, a
+ * publish's or another refresh's, or a publish that moved the app or could
+ * not read it back.
  *
  * The stored origin and ownership are kept: they say how the app came to be
  * there and what Nova's upload owned in it, which a read without a publish
@@ -965,7 +975,7 @@ export async function recordRefreshedAppBaseline(
 		>;
 	},
 ): Promise<{
-	readonly outcome: "written" | "superseded";
+	readonly outcome: "current" | "superseded";
 	readonly deployment: DeploymentWithResources;
 }> {
 	return withDeploymentRow(
@@ -995,19 +1005,36 @@ export async function recordRefreshedAppBaseline(
 			const ownership =
 				stored === undefined ? null : appOwnershipFromRow(stored.ownership);
 			const origin = stored?.origin;
+			const superseded = async () => ({
+				outcome: "superseded" as const,
+				deployment: await loadWithinTransaction(tx, row.id),
+			});
 			if (
 				stored === undefined ||
 				stored.remote_app_id !== input.remoteAppId ||
 				(origin !== "push" && origin !== "cutover") ||
-				stored.source_digest !== input.comparedDigest ||
-				stored.observed_at.getTime() > Date.parse(input.read.observedAt) ||
 				ownership === null ||
 				liveMapping?.remote_id !== input.remoteAppId
 			) {
-				return {
-					outcome: "superseded",
-					deployment: await loadWithinTransaction(tx, row.id),
-				};
+				return superseded();
+			}
+			const readAt = Date.parse(input.read.observedAt);
+			/* The stored baseline already holds what this read saw: another
+			 * refresh that read the same landed first, or a publish whose
+			 * read-back is byte for byte this read. The row is current either
+			 * way, and only a later date moves it. */
+			if (stored.source_digest === input.read.sourceDigest) {
+				if (stored.observed_at.getTime() >= readAt) {
+					return {
+						outcome: "current",
+						deployment: await loadWithinTransaction(tx, row.id),
+					};
+				}
+			} else if (
+				stored.source_digest !== input.comparedDigest ||
+				stored.observed_at.getTime() > readAt
+			) {
+				return superseded();
 			}
 			await writeAppBaseline(tx, row.id, scope, {
 				origin,
@@ -1021,7 +1048,7 @@ export async function recordRefreshedAppBaseline(
 			});
 			await notifyAppDeployments(tx, scope.appId);
 			return {
-				outcome: "written",
+				outcome: "current",
 				deployment: await loadWithinTransaction(tx, row.id),
 			};
 		},

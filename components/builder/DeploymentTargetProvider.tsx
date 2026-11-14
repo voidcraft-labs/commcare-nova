@@ -27,6 +27,7 @@
 import {
 	createContext,
 	type ReactNode,
+	useCallback,
 	useContext,
 	useEffect,
 	useMemo,
@@ -34,6 +35,7 @@ import {
 } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
+import type { PreviewDeploymentAnswer } from "@/lib/deployment/types";
 
 interface DeploymentTargetValue {
 	readonly projectSpace: string | null;
@@ -86,24 +88,32 @@ export function useDeploymentProjectSpace(): string | null {
 	return useContext(DeploymentTargetContext).projectSpace;
 }
 
-/** Apply a publish or refresh response's answer without waiting for the
- * stream frame to arrive back. */
-export function useSetDeploymentProjectSpace(): (
-	domain: string | null,
-) => void {
-	return useContext(DeploymentTargetContext).setProjectSpace;
-}
-
 /** What the one reached project space keeps of the settings Preview plays,
  * or `null` where Preview holds no facts. */
 export function useDeploymentTargetFacts(): PreviewTargetFacts | null {
 	return useContext(DeploymentTargetContext).targetFacts;
 }
 
-/** Apply a publish or refresh response's facts without waiting for the
- * stream frame to arrive back. */
-export function useSetDeploymentTargetFacts(): (
-	facts: PreviewTargetFacts | null,
+/**
+ * Apply a publish or refresh response's answer, the project space and its
+ * facts together, without waiting for the stream frame to arrive back.
+ *
+ * A response whose `preview` is `null` carries no answer (the server could
+ * not read it just now), so the tab keeps what it holds and the stream's
+ * deployment lane, which the response's write poked, brings the new one.
+ */
+export function useApplyPreviewDeploymentAnswer(): (
+	answer: PreviewDeploymentAnswer | null,
 ) => void {
-	return useContext(DeploymentTargetContext).setTargetFacts;
+	const { setProjectSpace, setTargetFacts } = useContext(
+		DeploymentTargetContext,
+	);
+	return useCallback(
+		(answer: PreviewDeploymentAnswer | null) => {
+			if (answer === null) return;
+			setProjectSpace(answer.projectSpace);
+			setTargetFacts(answer.targetFacts);
+		},
+		[setProjectSpace, setTargetFacts],
+	);
 }

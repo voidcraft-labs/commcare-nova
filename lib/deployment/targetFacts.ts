@@ -17,7 +17,8 @@ import {
 } from "@/lib/commcare/targetFacts";
 import type { KeptAdvisoryFacts } from "@/lib/publish/exportAdvisories";
 import type { KeptLabelId } from "@/lib/publish/keptValues";
-import type { AppBaseline } from "./types";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import type { AppBaseline, DeploymentKept } from "./types";
 
 /**
  * The facts a stored baseline holds, or null for a shell's.
@@ -98,6 +99,21 @@ export function keptListFor(facts: TargetFacts): readonly KeptLabelId[] {
 		if (LISTED_WHEN[row.label](facts)) labels.push(row.label);
 	}
 	return labels;
+}
+
+/**
+ * The kept list these facts give: the labels `keptListFor` names, the date of
+ * the read, and a digest of every value the facts hold but that date. Two
+ * lists with the same labels can stand for different values (a sign-in that
+ * lasts an hour where it lasted a day, a second screen reworded), and the
+ * digest is what tells them apart (`keptChanged`).
+ */
+export function deploymentKeptOf(facts: TargetFacts): DeploymentKept {
+	return {
+		labels: keptListFor(facts),
+		valuesDigest: canonicalJsonDigest({ ...facts, observedAt: null }),
+		observedAt: facts.observedAt,
+	};
 }
 
 /** What a `.ccz` made from these facts cannot follow. */

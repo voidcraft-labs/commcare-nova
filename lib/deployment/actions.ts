@@ -1,7 +1,6 @@
 "use server";
 
 import { getSession } from "@/lib/auth-utils";
-import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { declaresAndroid } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -14,11 +13,13 @@ import {
 	getEntryPointLinkSchema,
 } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
-import { previewProjectSpaceFor, previewTargetFactsFor } from "./previewSpace";
+import { previewDeploymentAnswerFor } from "./previewSpace";
 import { leftBehindResources } from "./resources";
 import {
 	currentResourceIdentities,
 	deploymentKept,
+	type KeptReadAfter,
+	landedDeploymentKept,
 	refreshDeployment,
 	refreshKeptValues,
 	setupArtifactFor,
@@ -38,6 +39,7 @@ import {
 	type DeploymentWithResources,
 	deploymentAppIdSchema,
 	deploymentTargetSchema,
+	type PreviewDeploymentAnswer,
 	provisionWorkersSchema,
 	withdrawDeploymentConfirmationSchema,
 } from "./types";
@@ -98,10 +100,17 @@ export interface DeploymentView {
  * expression answer two ways depending on which side evaluated it, so the
  * same response that changes the record hands the client the new answer.
  * The facts follow the same rule for the same reason.
+ *
+ * `preview` is `null` where Nova could not read the answer just now: the
+ * refresh's write has landed, so the tab keeps what it holds, and the
+ * stream's deployment lane, which that write poked, brings the new answer.
+ * `kept` is `unread` for the same reason (`service.ts::landedDeploymentKept`):
+ * the card keeps the list it shows (`keptListModel.ts::refreshedViewToShow`),
+ * and the next read of the records reads it again.
  */
-export interface RefreshedDeploymentView extends DeploymentView {
-	readonly previewProjectSpace: string | null;
-	readonly previewTargetFacts: PreviewTargetFacts | null;
+export interface RefreshedDeploymentView extends Omit<DeploymentView, "kept"> {
+	readonly kept: DeploymentKept | null | "unread";
+	readonly preview: PreviewDeploymentAnswer | null;
 }
 
 export type DeploymentActionResult<T> =
@@ -243,6 +252,7 @@ export async function refreshDeploymentAction(
 				refreshed.deployment,
 				refreshed.artifact,
 				doc,
+				"check-status",
 			),
 		};
 	} catch (error) {
@@ -252,28 +262,28 @@ export async function refreshDeploymentAction(
 
 /**
  * A record as a refresh hands it back: the record, its setup notes, what it
- * left behind, its kept list, and what Preview may now name and play.
+ * left behind, its kept list, and what Preview may now name and play. The
+ * refresh's write has landed by now, so neither the kept list nor Preview's
+ * answer can turn it into a failure: each answers that it could not be read.
  */
 async function refreshedView(
 	scope: DeploymentScope,
 	deployment: DeploymentWithResources,
 	artifact: SetupArtifact,
 	doc: CommittedDoc["doc"],
+	after: KeptReadAfter,
 ): Promise<RefreshedDeploymentView> {
-	const [identities, kept, previewProjectSpace, previewTargetFacts] =
-		await Promise.all([
-			currentResourceIdentities(scope, doc),
-			deploymentKept(scope, deployment),
-			previewProjectSpaceFor(scope),
-			previewTargetFactsFor(scope),
-		]);
+	const [identities, kept, preview] = await Promise.all([
+		currentResourceIdentities(scope, doc),
+		landedDeploymentKept(scope, deployment, after),
+		previewDeploymentAnswerFor(scope),
+	]);
 	return {
 		deployment,
 		artifact,
 		leftBehind: leftBehindResources(deployment, identities),
 		kept,
-		previewProjectSpace,
-		previewTargetFacts,
+		preview,
 	};
 }
 
@@ -281,7 +291,7 @@ async function refreshedView(
 export type KeptRefreshView =
 	| {
 			readonly kind: "refreshed" | "superseded";
-			/** With `previewProjectSpace` and `previewTargetFacts`, as Check status returns them. */
+			/** With `preview`, as Check status returns it. */
 			readonly deployment: RefreshedDeploymentView;
 	  }
 	| {
@@ -290,6 +300,8 @@ export type KeptRefreshView =
 				| "no-baseline"
 				| "app-gone"
 				| "unreadable"
+				| "too-large"
+				| "browser-only"
 				| "key-not-accepted"
 				| "no-permission"
 				| "unavailable";
@@ -341,6 +353,7 @@ export async function refreshKeptValuesAction(input: {
 					outcome.deployment,
 					artifact,
 					doc,
+					"kept-refresh",
 				),
 			},
 		};

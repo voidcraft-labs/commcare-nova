@@ -153,13 +153,38 @@ describe("readHqAppSource", () => {
 		});
 	});
 
-	it.each([
-		["source-missing", false],
-		["source-deleted", true],
-	] as const)("reads %s as gone, deleted %s", async (name, deleted) => {
+	it("reads source-missing as gone", async () => {
 		await withHttpPeer(async (peer) => {
-			serve(peer, name);
-			expect(await read()).toEqual({ kind: "gone", deleted });
+			serve(peer, "source-missing");
+			expect(await read()).toEqual({ kind: "gone", deleted: false });
+		});
+	});
+
+	it("reads source-deleted as gone and deleted, a working app by its empty build date", async () => {
+		await withHttpPeer(async (peer) => {
+			serve(peer, "source-deleted");
+			expect(await read()).toEqual({
+				kind: "gone",
+				deleted: true,
+				mayBeBuild: false,
+			});
+		});
+	});
+
+	it("reads a deleted document with a build date as one that may be a build", async () => {
+		/* A build holds one, and so does a working app reverted to a build. */
+		await withHttpPeer(async (peer) => {
+			serveAnswer(
+				peer,
+				changed(retainedPublishRead("source-deleted"), (body) => {
+					body.built_on = "2026-10-05T10:02:19.000000Z";
+				}),
+			);
+			expect(await read()).toEqual({
+				kind: "gone",
+				deleted: true,
+				mayBeBuild: true,
+			});
 		});
 	});
 

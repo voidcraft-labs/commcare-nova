@@ -26,6 +26,7 @@ import {
 	artifactLocations,
 	currentResourceIdentities,
 	deploymentKept,
+	landedDeploymentKept,
 	refreshDeployment,
 	refreshKeptValues,
 	setupArtifactFor,
@@ -36,14 +37,18 @@ import {
 	readDeploymentsForApp,
 	readTargetFacts,
 } from "@/lib/deployment/store";
-import { keptListFor } from "@/lib/deployment/targetFacts";
+import { deploymentKeptOf } from "@/lib/deployment/targetFacts";
 import {
 	deploymentAppIdSchema,
 	deploymentServerSchema,
 	deploymentTargetSchema,
 } from "@/lib/deployment/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { keptRefreshSentence } from "@/lib/publish/keptValues";
+import {
+	keptChanged,
+	keptListUnreadSentence,
+	keptRefreshSentence,
+} from "@/lib/publish/keptValues";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -201,7 +206,13 @@ export function registerRefreshDeployment(
 					...describeDeployment(
 						refreshed.deployment,
 						await currentResourceIdentities(scope, doc),
-						await deploymentKept(scope, refreshed.deployment),
+						/* The check's write has landed, so a list Nova could not
+						 * read just now leaves `kept` out rather than failing it. */
+						await landedDeploymentKept(
+							scope,
+							refreshed.deployment,
+							"check-status",
+						),
 					),
 					setup_artifact: refreshed.artifact,
 				});
@@ -239,21 +250,37 @@ async function refreshKeptValuesResult(
 			app_id: scope.appId,
 			kept_refresh: outcome.kind,
 			message: keptRefreshSentence(
-				{ kind: outcome.kind, listChanged: false },
+				{ kind: outcome.kind, changed: false },
 				context,
 			),
 		};
 	}
-	const kept = await deploymentKept(scope, outcome.deployment);
-	const labelsBefore = before === null ? [] : keptListFor(before);
-	const labelsAfter = kept?.labels ?? [];
-	const listChanged =
-		labelsBefore.length !== labelsAfter.length ||
-		labelsBefore.some((label, index) => label !== labelsAfter[index]);
+	/* The refresh's write has landed, so a list Nova could not read just now
+	 * leaves `kept` out and says so, rather than failing the answer. */
+	const kept = await landedDeploymentKept(
+		scope,
+		outcome.deployment,
+		"kept-refresh",
+	);
+	/* The card's rule: anything kept differs from the list before the
+	 * refresh, a value under a label listed on both sides included. */
+	const message =
+		kept === "unread"
+			? keptListUnreadSentence(context.date)
+			: keptRefreshSentence(
+					{
+						kind: outcome.kind,
+						changed: keptChanged(
+							before === null ? null : deploymentKeptOf(before),
+							kept,
+						),
+					},
+					context,
+				);
 	return {
 		app_id: scope.appId,
 		kept_refresh: outcome.kind,
-		message: keptRefreshSentence({ kind: outcome.kind, listChanged }, context),
+		message,
 		...describeDeployment(
 			outcome.deployment,
 			await currentResourceIdentities(scope, doc),
