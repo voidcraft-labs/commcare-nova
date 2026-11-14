@@ -46,7 +46,7 @@
  * the two placement witnesses.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { planPlacements } from "@/lib/commcare/placement";
@@ -77,6 +77,10 @@ import { sameTypeChild } from "../documents/sameTypeChild";
 import { supplyPointText } from "../documents/supplyPointText";
 import type { Expected } from "../expected";
 import { TARGETED_DOCUMENTS, targetedDocuments } from "../index";
+
+// Each test builds one or more targeted documents through Nova's planner and
+// the whole commit gate, seconds apiece on a shared CI runner.
+vi.setConfig({ testTimeout: 30_000 });
 
 function formsOf(doc: { readonly forms: Record<string, unknown> }) {
 	return new Set(Object.keys(doc.forms));

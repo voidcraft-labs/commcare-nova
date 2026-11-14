@@ -326,6 +326,8 @@ function lower(doc: BlueprintDoc, { kind, pick }: Op): Mutation[] {
 }
 
 describe("reference-index maintenance across admitted mutation sequences", () => {
+	// Every generated batch is committed and its index rebuilt from nothing:
+	// seconds on a shared CI runner.
 	it("equals a fresh build after every generated batch and changes edges in every generated family", async () => {
 		const changed = new Map<Kind, number>(kinds.map((kind) => [kind, 0]));
 		const initial = seedDoc();
@@ -362,5 +364,5 @@ describe("reference-index maintenance across admitted mutation sequences", () =>
 				changed.get(kind),
 				`no actual edge transition for ${kind}`,
 			).toBeGreaterThan(0);
-	});
+	}, 30_000);
 });
