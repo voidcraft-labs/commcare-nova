@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import AdmZip from "adm-zip";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
@@ -7,6 +7,22 @@ import { replaceRichText } from "../../lib/richText";
 
 const source = FORM_SECTIONS_SEED.aboutYou.nameFieldUuid;
 test.use({ actionTimeout: 15_000 });
+
+/** Runs `body` with every CSS animation and transition at a tenth of its
+ * speed, as on a busy machine. Choosing Calculated value then closes the
+ * reference picker so slowly that it hands focus back to the text after the
+ * formula has taken it, which is the order a loaded runner meets by chance. */
+async function withSlowTransitions(page: Page, body: () => Promise<void>) {
+	const cdp = await page.context().newCDPSession(page);
+	try {
+		await cdp.send("Animation.enable");
+		await cdp.send("Animation.setPlaybackRate", { playbackRate: 0.1 });
+		await body();
+	} finally {
+		await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
+		await cdp.detach();
+	}
+}
 
 /** A calculated value's formula reads `shown`, its question drawn as the
  * question's chip standing for `#form/about_you/your_name`. */
@@ -367,14 +383,25 @@ test("inserts, edits and removes calculated values in a hint and shows their res
 		exact: true,
 	});
 	const formula = popover.locator(".cm-content");
-	/** Opens the value popover from the picker and writes `text` into a new value. */
-	const insertValue = async (text: string) => {
+	const picker = page.getByRole("dialog", {
+		name: "Insert reference",
+		exact: true,
+	});
+	/** Opens the value popover from the picker. The formula takes focus
+	 *  while the picker closes, and once the picker is gone focus must still
+	 *  be in the formula, or what the person types lands in the hint. */
+	const openNewValue = async () => {
 		await properties
 			.getByRole("button", { name: "Insert reference", exact: true })
 			.click();
 		await page.getByRole("button", { name: /^Calculated value/ }).click();
 		await expect(popover).toBeVisible();
+		await expect(picker).toHaveCount(0);
 		await expect(formula).toBeFocused();
+	};
+	/** Writes `text` into a new value. */
+	const insertValue = async (text: string) => {
+		await openNewValue();
 		await page.keyboard.type(text);
 		await popover.getByRole("button", { name: "Insert", exact: true }).click();
 		await expect(popover).toHaveCount(0);
@@ -388,21 +415,20 @@ test("inserts, edits and removes calculated values in a hint and shows their res
 		await expect(popover).toBeVisible();
 	};
 
-	// An empty formula inserts nothing.
-	await properties
-		.getByRole("button", { name: "Insert reference", exact: true })
-		.click();
-	await page.getByRole("button", { name: /^Calculated value/ }).click();
-	await expect(
-		popover.getByRole("button", { name: "Insert", exact: true }),
-	).toBeDisabled();
-	await page.keyboard.press("Escape");
-	await expect(popover).toHaveCount(0);
+	await withSlowTransitions(page, async () => {
+		// An empty formula inserts nothing.
+		await openNewValue();
+		await expect(
+			popover.getByRole("button", { name: "Insert", exact: true }),
+		).toBeDisabled();
+		await page.keyboard.press("Escape");
+		await expect(popover).toHaveCount(0);
 
-	await insertValue("string-length(#form/about_you/your_name)");
-	await hint.press("End");
-	await hint.pressSequentially(" letters, ");
-	await insertValue("concat(#form/about_you/your_name, '!')");
+		await insertValue("string-length(#form/about_you/your_name)");
+		await hint.press("End");
+		await hint.pressSequentially(" letters, ");
+		await insertValue("concat(#form/about_you/your_name, '!')");
+	});
 	await expect(hint.locator("[data-prose-value]")).toHaveCount(2);
 	await expect(hint.locator("[data-prose-value]").first()).toHaveAttribute(
 		"title",
@@ -492,13 +518,19 @@ test("inserts, edits and removes calculated values in a label on the canvas", {
 	});
 	const formula = popover.locator(".cm-content");
 	const values = label.locator("[data-prose-value]");
-	/** Opens the value popover from the canvas toolbar's picker and inserts `text`. */
+	const picker = page.getByRole("dialog", {
+		name: "Insert reference",
+		exact: true,
+	});
+	/** Opens the value popover from the canvas toolbar's picker and inserts
+	 *  `text`, once the picker is gone and focus is still in the formula. */
 	const insertValue = async (text: string) => {
 		await page
 			.getByRole("button", { name: "Insert reference", exact: true })
 			.click();
 		await page.getByRole("button", { name: /^Calculated value/ }).click();
 		await expect(popover).toBeVisible();
+		await expect(picker).toHaveCount(0);
 		await expect(formula).toBeFocused();
 		await page.keyboard.type(text);
 		await popover.getByRole("button", { name: "Insert", exact: true }).click();
@@ -515,10 +547,12 @@ test("inserts, edits and removes calculated values in a label on the canvas", {
 		await expect(popover).toBeVisible();
 	};
 
-	await insertValue("string-length(#form/about_you/your_name)");
-	await label.press("End");
-	await label.pressSequentially(" letters, ");
-	await insertValue("concat(#form/about_you/your_name, '!')");
+	await withSlowTransitions(page, async () => {
+		await insertValue("string-length(#form/about_you/your_name)");
+		await label.press("End");
+		await label.pressSequentially(" letters, ");
+		await insertValue("concat(#form/about_you/your_name, '!')");
+	});
 	await expect(values).toHaveCount(2);
 
 	// Two values in one label each open on their own formula.

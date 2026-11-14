@@ -37,6 +37,25 @@ import {
 	type ReferenceAutocompleteHandle,
 } from "./ReferenceAutocomplete";
 
+/** Whether the closing picker hands focus back to the text. Base UI asks as
+ * the picker leaves the page, some time after it closed, and by then focus
+ * may have moved on: the Calculated value row opens a formula that takes
+ * focus at once, and a click or a Tab lands on another control. Focus still
+ * in the picker, or dropped with it, goes back to the text; focus anywhere
+ * else is where the person is working, and it stays there. */
+function pickerReturnsFocus(
+	editor: Editor,
+	popup: HTMLElement | null,
+	active: Element | null,
+): boolean {
+	if (editor.isDestroyed) return false;
+	return (
+		active === null ||
+		active === document.body ||
+		popup?.contains(active) === true
+	);
+}
+
 /** Shared by both prose editors. The selection stays in ProseMirror while
  * focus visits the picker; a changed document refuses the stale range. A
  * text with a prose slot also inserts and edits calculated values, in the
@@ -66,6 +85,7 @@ export function ProseReferencePicker({
 	const [valueOpen, setValueOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
+	const popupRef = useRef<HTMLDivElement>(null);
 	const [query, setQuery] = useState("");
 	const [error, setError] = useState("");
 	const [activeId, setActiveId] = useState<string>();
@@ -205,7 +225,12 @@ export function ProseReferencePicker({
 					// The search is where the picker starts, also when the
 					// Calculated value row stands above it as the first tabbable.
 					initialFocus={searchRef}
-					finalFocus={() => (editor.isDestroyed ? false : editor.view.dom)}
+					finalFocus={() =>
+						pickerReturnsFocus(editor, popupRef.current, document.activeElement)
+							? editor.view.dom
+							: false
+					}
+					ref={popupRef}
 				>
 					<PopoverTitle>{label}</PopoverTitle>
 					<p className="text-xs text-nova-text-muted">
