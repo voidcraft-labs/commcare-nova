@@ -1,5 +1,6 @@
 /** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
+import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
@@ -193,6 +194,15 @@ export const updateFormTool = {
 				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
 			if (case_list_registration != null) {
+				/* The menu's case list holds one registration offer: one that
+				 * always offers another menu's form is not replaced in passing. */
+				const armBlocked = afterEmptySearchOfferBlocked(doc, module.uuid);
+				if (armBlocked !== undefined)
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						result: { error: armBlocked.message },
+					};
 				/* A registration from the case list returns to the results or
 				 * explicitly to the app's first menu, and is on no menu. */
 				const effectivePostSubmit =

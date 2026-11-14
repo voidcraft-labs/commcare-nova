@@ -225,6 +225,17 @@ async function prepareInput<S extends z.ZodType>(args: {
 				linkUuid: uuidSchema.parse(randomUUID()),
 			};
 	}
+	/* A page named by no sectionUuid is a new page; it takes its identity
+	 * here, so a calculated value in its title is parsed in that page's own
+	 * label slot (`proseSlots.ts`) and the planner creates the page under it. */
+	if (toolName === "setFormSections" && Array.isArray(input.sections))
+		input.sections = records
+			.parse(input.sections)
+			.map((section) =>
+				section.sectionUuid == null
+					? { ...section, sectionUuid: uuidSchema.parse(randomUUID()) }
+					: section,
+			);
 	allocateCreationIdentities(toolName, input, (spec, item) => {
 		if (spec.entityKind !== "option" || typeof item.value !== "string")
 			return undefined;

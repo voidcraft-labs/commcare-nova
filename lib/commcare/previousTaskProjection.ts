@@ -9,6 +9,8 @@ import {
 import { emissionPlan } from "./emissionPlan";
 import {
 	entryFrameDatums,
+	type FormLinkProjectionContext,
+	type FrameChild,
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	moduleFrameChildren,
@@ -162,6 +164,27 @@ export function readPreviousTaskProjection(
 	return { kind: "resolved", projection: projectPreviousTask(doc, formUuid) };
 }
 
+/** The submitting entry's preceding frame before matching, with the context
+ * it was built under, so a reader lands it as every frame lands
+ * (Preview's `screenOfFrame`). */
+export function previousTaskFrame(
+	sourceDoc: BlueprintDoc,
+	formUuid: Uuid,
+): {
+	readonly context: FormLinkProjectionContext;
+	readonly children: readonly FrameChild[];
+} {
+	const doc = emissionPlan(sourceDoc).doc;
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	if (!moduleUuid || !doc.forms[formUuid])
+		throw new Error("The preceding task's form is unavailable.");
+	const context = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	return {
+		context,
+		children: previousEntryFrameChildren(doc, context, moduleUuid, formUuid),
+	};
+}
+
 /** Computed frame values count as present, but are not selected records.
  * The final command and missing selections use owner provenance, never IDs
  * reverse-engineered from a command spelling or a case type. */
@@ -169,17 +192,10 @@ export function projectPreviousTask(
 	sourceDoc: BlueprintDoc,
 	formUuid: Uuid,
 ): PreviousTaskProjection {
-	const doc = emissionPlan(sourceDoc).doc;
+	const { context, children } = previousTaskFrame(sourceDoc, formUuid);
+	const doc = context.expressionDoc;
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	if (!moduleUuid || !doc.forms[formUuid])
-		throw new Error("The preceding task's form is unavailable.");
-	const context = formLinkProjectionContext(doc, { entryMetadataOnly: true });
-	const children = previousEntryFrameChildren(
-		doc,
-		context,
-		moduleUuid,
-		formUuid,
-	);
+	if (!moduleUuid) throw new Error("The preceding task's form is unavailable.");
 	const ownSelectionId = selectedCaseDatumId(
 		doc,
 		context,

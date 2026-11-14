@@ -29,6 +29,7 @@ import {
 const parent = testUuid("post-submit-parent");
 const menu = testUuid("post-submit-menu");
 const form = testUuid("post-submit-form");
+const parentForm = testUuid("post-submit-parent-form");
 
 interface Shape {
 	readonly multiSelect?: boolean;
@@ -45,6 +46,9 @@ interface Shape {
 		readonly multiSelect?: boolean;
 		readonly offTheMenu?: boolean;
 		readonly formsInMenuAbove?: boolean;
+		/** The parent holds a follow-up form, so where it shows its forms
+		 *  above every form listed from it opens one chosen case. */
+		readonly opensOneCase?: boolean;
 	};
 	readonly formType?: FormType;
 	readonly postSubmit?: PostSubmitDestination;
@@ -83,7 +87,7 @@ function moduleOf(
  * fields the offered set reads. */
 function docOf(
 	shape: Shape,
-): Pick<BlueprintDoc, "forms" | "modules" | "formOrder"> {
+): Pick<BlueprintDoc, "forms" | "modules" | "formOrder" | "moduleOrder"> {
 	const own: Module = {
 		...moduleOf("post-submit-menu", "Visits", shape),
 		...(shape.parent !== undefined && { parentModuleUuid: parent }),
@@ -106,8 +110,22 @@ function docOf(
 				[parent]: moduleOf("post-submit-parent", "Households", shape.parent),
 			}),
 		},
-		formOrder: { [menu]: [form], ...(shape.parent && { [parent]: [] }) },
+		moduleOrder: shape.parent === undefined ? [menu] : [parent, menu],
+		formOrder: {
+			[menu]: [form],
+			...(shape.parent && {
+				[parent]: shape.parent.opensOneCase ? [parentForm] : [],
+			}),
+		},
 		forms: {
+			...(shape.parent?.opensOneCase && {
+				[parentForm]: {
+					uuid: parentForm,
+					id: "household_visit",
+					name: "Household visit",
+					type: "followup" as const,
+				},
+			}),
 			[form]: {
 				uuid: form,
 				id: "visit",
@@ -237,6 +255,22 @@ describe("postSubmitDestinationsOffered", () => {
 		]);
 	});
 
+	// HQ builds the frame to the screen of a submenu that keeps it under a
+	// top-level menu above as the root lists' common prefix then the
+	// submenu's command (`workflow.py::_frame_children_for_module`), which
+	// opens with the case every form listed from a menu above opens.
+	it("withholds module from a submenu under a parent above whose forms open one case", () => {
+		const shape: Shape = {
+			parent: { formsInMenuAbove: true, opensOneCase: true },
+		};
+		expect(offered(shape)).toEqual(["app_home", "firstMenu", "previous"]);
+		expect(postSubmitNotOfferedReason(docOf(shape), form, "module")).toBe(
+			"menu-opens-with-first-menu-case",
+		);
+		// A parent above with no form opening a case shares none.
+		expect(offered({ parent: { formsInMenuAbove: true } })).toContain("module");
+	});
+
 	it("lists a submenu above under a parent above on the first menu", () => {
 		expect(
 			offered({ formsInMenuAbove: true, parent: { formsInMenuAbove: true } }),
@@ -318,6 +352,12 @@ describe("otherwiseDestinationsOffered", () => {
 			{ formsInMenuAbove: true },
 			"menu-forms-on-first-menu",
 			["firstMenu"],
+		],
+		[
+			"a parent above whose forms open one case",
+			{ parent: { formsInMenuAbove: true, opensOneCase: true } },
+			"menu-opens-with-first-menu-case",
+			["firstMenu", "previous"],
 		],
 	])(
 		"under %s withholds what its reason withholds",
@@ -403,6 +443,29 @@ describe("defaultPostSubmit", () => {
 		expect(defaultPostSubmit("survey", { formsOnFirstMenu: true })).toBe(
 			"app_home",
 		);
+		expect(
+			defaultPostSubmit("followup", {
+				formsReadSearch: true,
+				opensWithFirstMenuCase: true,
+			}),
+		).toBe("firstMenu");
+		expect(
+			defaultPostSubmit("followup", { opensWithFirstMenuCase: true }),
+		).toBe("previous");
+	});
+
+	it("sends the follow-up of a submenu that opens with the first menu's case to the first menu", () => {
+		// `previous` is withheld by the forms reading the search and `module`
+		// by the case HQ would put ahead of the submenu's command.
+		const doc = docOf({
+			formsReadSearch: true,
+			parent: { formsInMenuAbove: true, opensOneCase: true },
+		});
+		expect(defaultPostSubmitOf(doc, form)).toBe("firstMenu");
+		expect(postSubmitDestinationsOffered(doc, form)).toEqual([
+			"app_home",
+			"firstMenu",
+		]);
 	});
 
 	it("sends the follow-up of a submenu above that selects several cases to the first menu", () => {
@@ -431,6 +494,7 @@ describe("defaultPostSubmit", () => {
 						multiSelect: fc.boolean(),
 						offTheMenu: fc.boolean(),
 						formsInMenuAbove: fc.boolean(),
+						opensOneCase: fc.boolean(),
 					}),
 					{ nil: undefined },
 				),

@@ -5,6 +5,7 @@
 // `lib/preview/xpath/__tests__/storedInstant.test.ts`.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { questionDatetimeCaseValue } from "@/lib/commcare/xform/datetimeCaseValue";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import {
@@ -15,8 +16,12 @@ import {
 	ifExpr,
 	literal,
 	now,
+	prop,
+	switchCase,
+	switchExpr,
 	term,
 } from "@/lib/domain/expression/builders";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
 import { instantFixture } from "../xpath/wire/__tests__/instantFixture";
 import { w } from "../xpath/wire/builders";
@@ -34,8 +39,37 @@ const fx = instantFixture({
 	day: "date-text",
 	lost: "clock-lost",
 	open: "unknown",
+	n: "int",
 });
 const read = (id: string) => fx.lowerForm(fx.field(id));
+
+/** The form's context where its entry carries the inline search's query, so
+ * it reads what the search found (`results:inline`). */
+const searched: ExpressionContext = {
+	...fx.form,
+	supplies: {
+		...fx.form.supplies,
+		searchResults: { module: testUuid("instant-module") },
+	},
+};
+/** One search result's `date_opened`, read as one value: text holding the
+ * UTC day. */
+const resultOpened: Expression = {
+	kind: "project",
+	of: {
+		kind: "cases",
+		source: "search-results",
+		where: [eq(prop("visit", "case_id"), literal("a"))],
+	},
+	value: prop("visit", "date_opened"),
+};
+/** The form's own case's `date_opened` from `casedb`, a `Date` at the
+ * device's midnight. */
+const caseOpened = term({
+	kind: "form-case",
+	caseType: "visit",
+	property: "date_opened",
+});
 
 describe("datetimeCaseValue", () => {
 	it("writes a typed moment as CommCare HQ's text of it, never in the device's offset", () => {
@@ -101,6 +135,52 @@ describe("datetimeCaseValue", () => {
 		expect(chosen.args[2]).toEqual(read("copy"));
 		expect(fx.storeForm(coalesce(fx.field("copy"), fx.field("dt")))).toEqual(
 			w.call("coalesce", [read("copy"), storedInstantValue(read("dt"))]),
+		);
+	});
+
+	it("prints each branch of a switch by its own leaf, the fallback last", () => {
+		const chosen = fx.storeForm(
+			switchExpr(
+				fx.field("n"),
+				[switchCase(literal(1), fx.field("dt"))],
+				fx.field("copy"),
+			),
+		);
+		expect(chosen).toMatchObject({ k: "call", fn: "if" });
+		if (chosen.k !== "call") throw new Error("Expected the if.");
+		expect(chosen.args[1]).toEqual(storedInstantValue(read("dt")));
+		expect(chosen.args[2]).toEqual(read("copy"));
+	});
+
+	it("writes a casedb system date, a Date at the device's midnight, as the text of that moment", () => {
+		expect(fx.storeForm(caseOpened)).toEqual(
+			storedInstantValue(fx.lowerForm(caseOpened)),
+		);
+	});
+
+	it("writes a search result's date_opened, text holding the UTC day, at that day's UTC midnight", () => {
+		const opened = fx.lowerForm(resultOpened, "xform", searched);
+		const written = fx.storeForm(resultOpened, undefined, searched);
+		expect(written).toEqual(
+			w.call("if", [
+				w.eq(opened, w.str("")),
+				w.str(""),
+				w.call("concat", [opened, w.str("T00:00:00.000000Z")]),
+			]),
+		);
+		// Read as a device's local midnight, the day would move by its offset.
+		expect(written).not.toEqual(storedInstantValue(opened));
+		// The two system dates keep apart as branches of one value.
+		const both = fx.storeForm(
+			coalesce(resultOpened, caseOpened),
+			undefined,
+			searched,
+		);
+		expect(both).toEqual(
+			w.call("coalesce", [
+				written,
+				storedInstantValue(fx.lowerForm(caseOpened, "xform", searched)),
+			]),
 		);
 	});
 

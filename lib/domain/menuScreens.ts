@@ -16,7 +16,10 @@
 // is the answer wherever a case must be chosen before a form is listed.
 
 import type { BlueprintDoc } from "./blueprint";
-import { entrySelections } from "./entryDatumSupplies";
+import {
+	type EntrySelectionSource,
+	entrySelections,
+} from "./entryDatumSupplies";
 import { CASE_LOADING_FORM_TYPES } from "./forms";
 import { menuFormUuidsOf, type PreparedMenuForm } from "./menuForms";
 import { projectedModulePreorder } from "./moduleHierarchy";
@@ -262,8 +265,11 @@ export function screenCaseFirstBlocker(
 
 /**
  * Whether a worker chooses a case before a form on the screen: nothing keeps
- * it forms first, and it lists a form at all. On a screen with one
- * contributor this is `menuForms.ts::moduleIsCaseFirst` of that module.
+ * it forms first, and it lists an entry Core opens, a form or a case list. A
+ * screen that lists only menus asks for a command, since Core finds no entry
+ * to ask a case of (`CommCareSession.getNeededData`, `STATE_COMMAND_ID` where
+ * the current command has no entries). On a screen with one contributor this
+ * is `menuForms.ts::moduleIsCaseFirst` of that module.
  */
 export function screenChoosesCaseFirst(
 	doc: MenuScreenSource,
@@ -271,7 +277,52 @@ export function screenChoosesCaseFirst(
 	prepared?: PreparedMenuForm,
 ): boolean {
 	if (screenCaseFirstBlocker(doc, screen, prepared) !== undefined) return false;
-	return menuScreenContributors(doc, screen).some(
-		(moduleUuid) => menuFormUuidsOf(doc, moduleUuid, prepared).length > 0,
-	);
+	return menuScreenContributors(doc, screen).some((moduleUuid) => {
+		const mod = doc.modules[moduleUuid];
+		return (
+			menuFormUuidsOf(doc, moduleUuid, prepared).length > 0 ||
+			(mod !== undefined && moduleHasCaseListMenuItem(mod))
+		);
+	});
+}
+
+/**
+ * Whether every form of every menu that shows its forms above opens one
+ * chosen case, the same one: each form's entry chooses a case first, and
+ * every first choice is one selection (`entrySelections`' key, which two
+ * entries share exactly where the wire gives them one datum id). There HQ's
+ * build puts that case ahead of every frame it builds through the first menu
+ * (`workflow.py::WorkflowHelper._root_module_datums`), so a submenu that
+ * keeps its screen under a top-level menu above opens with it. Where the
+ * wire's root lists also differ in a value ahead of the case (a value a
+ * submenu carries from its parent's first form, an advanced menu's own case
+ * names) HQ's frame holds no shared case, and this answer still holds: it is
+ * the domain's reading of the shape, and holds wherever the wire's does.
+ *
+ * Each call reads a view of its own, so the selection projection's per-document
+ * cache never outlives a reducer's write to the same draft.
+ */
+export function firstMenuOpensOneCase(doc: EntrySelectionSource): boolean {
+	const view: EntrySelectionSource = {
+		modules: doc.modules,
+		moduleOrder: doc.moduleOrder,
+		forms: doc.forms,
+		formOrder: doc.formOrder,
+	};
+	let shared: string | undefined;
+	for (const moduleUuid of projectedModulePreorder(view)) {
+		if (!moduleShowsFormsInMenuAbove(view.modules[moduleUuid])) continue;
+		for (const formUuid of view.formOrder[moduleUuid] ?? []) {
+			if (view.forms[formUuid] === undefined) continue;
+			const key = entrySelections(view, {
+				kind: "form",
+				module: moduleUuid,
+				form: formUuid,
+			})[0]?.key;
+			if (key === undefined || (shared !== undefined && key !== shared))
+				return false;
+			shared = key;
+		}
+	}
+	return shared !== undefined;
 }

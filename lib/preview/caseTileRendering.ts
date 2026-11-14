@@ -35,7 +35,12 @@
 //      own box.
 
 import type { CSSProperties } from "react";
-import { type CaseTileLayout, type Column, tileCellFor } from "@/lib/domain";
+import {
+	type CaseTileLayout,
+	type Column,
+	columnOnList,
+	tileCellFor,
+} from "@/lib/domain";
 import {
 	type TileCellProjection,
 	type TileGridProjection,
@@ -60,7 +65,9 @@ export interface TileResultsColumn {
  * sorted into Results order: the order plan's rule 1
  * (`lib/domain/caseListOrder.ts`). In a list with a tile layout these are
  * the columns shown on Results, each with the cell `tileCellFor` gives it;
- * a list with no tile layout carries every column, a hidden one at width 0.
+ * a list with no tile layout carries every column that is on the list, a
+ * hidden one at width 0. A column that is not on the list (`columnOnList`)
+ * is no field in either layout.
  * `caseList.ts::applyTileLayoutToShortDetail` and the local short detail
  * walk the same fields, so the three agree on which columns a tile's short
  * detail holds.
@@ -70,6 +77,7 @@ export function tileResultsColumns(
 	layout: CaseTileLayout | undefined,
 ): readonly TileResultsColumn[] {
 	return listOrderedColumns.flatMap<TileResultsColumn>((column) => {
+		if (!columnOnList(column)) return [];
 		const hidden = column.visibleInList === false;
 		if (layout !== undefined && hidden) return [];
 		// `tileCellFor` is the ONE decision about whether a column holds a

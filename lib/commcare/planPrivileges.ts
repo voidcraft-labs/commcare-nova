@@ -417,10 +417,15 @@ export function formEntrySyncReasons(doc: BlueprintDoc): string[] {
  * (`xform/supplyPointText.ts::formSourceHoldsSupplyPointText`). The sources
  * are the app's own emission under `lookupNaming`, the naming of the
  * Project's definitions the publish or the import file emits under
- * (`undefined` for an app that reads no table), with no attachment target,
- * so the text is found wherever it lands: prose in every language, option
- * labels and literals alike. The naming carries each column's type, which
- * lowers a comparison of a table's value. HQ's third trigger, a last load's
+ * (`undefined` for an app that reads no table), with no attachment target.
+ * The naming carries each column's type, which lowers a comparison of a
+ * table's value. No admitted document's source holds the text: an itext
+ * text's `instance(` is written with its bracket as an output
+ * (`xform/builder.ts::literalLabelNodes`), a literal is split there
+ * (`xpath/wire/serialize.ts::literalPieces`), and a form's name and its
+ * Connect texts are refused at the gate (`FORM_TEXT_READ_AS_INSTANCE`). So
+ * the form half reads the emission as a guard, and names a form only where
+ * some spelling writes the text whole. HQ's third trigger, a last load's
  * `show_product_stock`, is never a reason: Nova always writes it false.
  * Empty for an app with neither.
  */

@@ -658,7 +658,10 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
 			village: "Riverside",
 			phoneNumber: "",
 			dateOfBirth: "1959-08-11",
-			lastVisit: "2026-06-21",
+			// No last visit: the list's default order (Last visit, newest first)
+			// puts her last, and a rule's Blank values control moves her.
+			lastVisit: null,
+			visitStarted: "2026-06-21",
 			carePriority: "priority",
 		},
 	] as const;
@@ -674,9 +677,9 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
 			village: row.village,
 			phone_number: row.phoneNumber,
 			date_of_birth: row.dateOfBirth,
-			last_visit: row.lastVisit,
+			...(row.lastVisit === null ? {} : { last_visit: row.lastVisit }),
 			care_priority: row.carePriority,
-			visit_started: row.lastVisit,
+			visit_started: "visitStarted" in row ? row.visitStarted : row.lastVisit,
 			next_dose: SEEDED_NEXT_DOSE,
 		},
 	}));

@@ -12,8 +12,13 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	type CaseListRegistrationReturn,
+	menuScreenOf,
+	moduleIsBareCaseListDestination,
+	moduleScreenLanding,
 	type PostSubmitDestination,
+	screenChoosesCaseFirst,
 	simpleSearchInputDef,
+	type Uuid,
 } from "@/lib/domain";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
@@ -28,6 +33,10 @@ import {
 	previewRegisterAction,
 	selectionsAfterRegistrationReturn,
 } from "../caseListRegistration";
+import {
+	moduleHasChildren,
+	previewCaseFirstModuleUuids,
+} from "../menuProjection";
 
 const MODULE = testUuid("mod-patients");
 const OTHER = testUuid("mod-other");
@@ -337,11 +346,22 @@ function offeringDoc(
 	options: {
 		readonly bare?: boolean;
 		readonly formPostSubmit?: PostSubmitDestination;
+		/** A submenu of the host shows a survey in the host's screen, so the
+		 *  host's screen lists forms first. */
+		readonly formsFirst?: boolean;
+		/** Another menu chooses its visit's parent patient from the host's
+		 *  list. */
+		readonly parentChoice?: boolean;
 	} = {},
 ): BlueprintDoc {
 	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
 	const doc = buildDoc({
-		caseTypes: [{ name: "patient", properties: [] }],
+		caseTypes: [
+			{ name: "patient", properties: [] },
+			...(options.parentChoice === true
+				? [{ name: "visit", parent_type: "patient", properties: [] }]
+				: []),
+		],
 		modules: [
 			{
 				uuid: "host",
@@ -363,6 +383,45 @@ function offeringDoc(
 							],
 						}),
 			},
+			...(options.formsFirst === true
+				? [
+						{
+							uuid: "host-surveys",
+							name: "Surveys",
+							forms: [
+								{
+									uuid: "host-survey",
+									name: "Survey",
+									type: "survey" as const,
+									fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
+								},
+							],
+						},
+					]
+				: []),
+			...(options.parentChoice === true
+				? [
+						{
+							uuid: "visits",
+							name: "Visits",
+							caseType: "visit",
+							parentCaseModuleUuid: "host",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									uuid: "visit-followup",
+									name: "Follow up visit",
+									type: "followup" as const,
+									fields: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
+								},
+							],
+						},
+					]
+				: []),
 			{
 				uuid: "offered-menu",
 				name: "Registration",
@@ -398,7 +457,25 @@ function offeringDoc(
 		icon: ICON,
 		afterSubmit,
 	};
+	if (options.formsFirst === true) {
+		const surveys = testUuid("host-surveys");
+		doc.modules[surveys].parentModuleUuid = HOST;
+		doc.modules[surveys].formsInMenuAbove = true;
+	}
 	return doc;
+}
+
+/** Where a module route opens in the running app, as `ModuleScreen` asks
+ *  it of the domain's landing rule, with no case chosen in the module. */
+function runningModuleLanding(doc: BlueprintDoc, moduleUuid: Uuid) {
+	return moduleScreenLanding({
+		hasModule: true,
+		hasChildren: moduleHasChildren(doc, moduleUuid),
+		hasSelectedCase: false,
+		isBareCaseList: moduleIsBareCaseListDestination(doc, moduleUuid),
+		isCaseFirst: previewCaseFirstModuleUuids(doc).has(moduleUuid),
+		mode: "preview",
+	}).kind;
 }
 
 const launch = { hostModuleUuid: HOST };
@@ -429,6 +506,20 @@ describe("previewRegisterAction", () => {
 			label: "Register",
 		});
 		expect(previewRegisterAction(doc, OTHER, "web-apps")).toBeUndefined();
+	});
+
+	it("offers the action on the host's list where another menu chooses its parent case there", () => {
+		const doc = offeringDoc("case-list", { parentChoice: true });
+		const selecting = doc.modules[testUuid("visits")]?.parentCaseModuleUuid;
+		expect(selecting).toBe(HOST);
+		if (selecting === undefined) throw new Error("the menu chooses a parent");
+		for (const platform of ["web-apps", "android"] as const)
+			expect(previewRegisterAction(doc, selecting, platform)).toMatchObject({
+				arm: "always",
+				formUuid: OFFERED,
+				formModuleUuid: OFFERED_MENU,
+				label: "New patient",
+			});
 	});
 });
 
@@ -474,6 +565,32 @@ describe("alwaysOfferedRegistrationReturn", () => {
 				screen: { kind: "menu", moduleUuid: HOST },
 				selectingModuleUuids: [],
 			});
+	});
+
+	it("returns Back to this list on the host's forms where its screen lists forms first", () => {
+		const doc = offeringDoc("case-list", { formsFirst: true });
+		expect(screenChoosesCaseFirst(doc, menuScreenOf(doc, HOST))).toBe(false);
+		const landing = alwaysOfferedRegistrationReturn(
+			doc,
+			OFFERED,
+			launch,
+			"new-case-id",
+		);
+		expect(landing).toEqual({
+			screen: { kind: "menu", moduleUuid: HOST },
+			selectingModuleUuids: [],
+		});
+		if (landing === undefined || landing.screen.kind !== "menu")
+			throw new Error("the return lands on the host");
+		// The host's forms, never its case list.
+		expect(runningModuleLanding(doc, landing.screen.moduleUuid)).toBe(
+			"form-menu",
+		);
+		// Where the host's screen chooses a case first, the same return opens
+		// its case list.
+		expect(runningModuleLanding(offeringDoc("case-list"), HOST)).toBe(
+			"open-case-list",
+		);
 	});
 
 	it("carries no selection onto a bare case list, whose frame is its command alone", () => {
@@ -533,6 +650,23 @@ describe("selectionsAfterRegistrationReturn", () => {
 				caseType: "patient",
 				cases: [{ caseId: "new-case-id", caseName: "Ada" }],
 			},
+		});
+	});
+
+	it("chooses a new case with no name by its id alone, naming it nothing", () => {
+		expect(
+			selectionsAfterRegistrationReturn(
+				{},
+				{
+					screen: { kind: "menu", moduleUuid: HOST },
+					selectingModuleUuids: [HOST],
+				},
+				HOST,
+				"patient",
+				{ caseId: "new-case-id", caseName: "" },
+			),
+		).toEqual({
+			[HOST]: { caseType: "patient", cases: [{ caseId: "new-case-id" }] },
 		});
 	});
 

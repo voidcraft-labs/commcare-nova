@@ -781,7 +781,7 @@ export const epochDays: CsqlScenario = {
 		),
 };
 
-// A list of values, held for import: HQ's exact any-of.
+// A list of values in a Search field's condition: HQ's exact any-of.
 
 const ITEM = "item";
 const valueListCases: readonly CsqlCase[] = [

@@ -5,7 +5,8 @@
  * (`temporalValues.test.ts`), Preview's evaluation of the phone's stored
  * text holds `storedInstantOfText` to them
  * (`lib/preview/xpath/__tests__/storedInstant.test.ts`), and the proof
- * lane's expression family writes them as `stored-instants.json` for Core in
+ * lane's case family writes them as `stored-instants.json`
+ * (`proof/native/producers/emit-case-evidence.ts`) for Core in
  * every device zone (`proof/native/core/StoredInstantRuntimeTest.java`) and
  * for HQ's own `adjust_datetimes` (`proof/hq/test_stored_datetime.py`).
  *

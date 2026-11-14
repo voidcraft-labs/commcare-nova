@@ -1,5 +1,6 @@
 import {
 	type PreviousTaskProjection,
+	previousTaskFrame,
 	projectModuleTaskSelectionUuids,
 	projectPreviousTask,
 	projectTaskFormSelections,
@@ -9,6 +10,7 @@ import { moduleUuidOfForm } from "@/lib/domain";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { previewMenuCaseContext } from "../menuProjection";
 import { caseRowToFormPreload } from "./caseDataBindingClient";
+import { screenOfFrame } from "./frameLanding";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 export interface PreviousTask {
@@ -110,8 +112,32 @@ export function resolvePreviousTask(args: {
 		};
 	}
 	return {
-		destination: plan.destination,
+		destination: previousTaskDestination(args.doc, args.formUuid, plan),
 		selections,
 		caseDatabase: args.caseDatabase,
 	};
+}
+
+/** Where the preceding task lands, read as every frame lands
+ * (`screenOfFrame`): the screen of the frame's last menu command, Home where
+ * it holds none, or the form its form command names, reopened at the
+ * selectors the projection names. */
+export function previousTaskDestination(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	plan: PreviousTaskProjection,
+): PreviousTaskProjection["destination"] {
+	const { context, children } = previousTaskFrame(doc, formUuid);
+	const landing = screenOfFrame(context, children);
+	if (landing.formUuid !== undefined) {
+		if (
+			plan.destination.kind !== "record-selection" ||
+			plan.destination.formUuid !== landing.formUuid
+		)
+			throw new Error("The preceding task's destination is unavailable.");
+		return plan.destination;
+	}
+	return landing.screen.kind === "first-menu"
+		? { kind: "home" }
+		: { kind: "menu", moduleUuid: landing.screen.moduleUuid };
 }

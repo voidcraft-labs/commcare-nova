@@ -172,7 +172,16 @@ left: HQ matches only the exact spelling, so where the item or the device's
 text is not the canonical one (a case a device wrote `05`, an item `'5.0'`
 for a case written `5`), HQ finds nothing while Nova finds every spelling of
 the same number.
-Value lists are held for import only, so no authored search meets this. A
+A blank item is the other: HQ reads a list with a terms query and never as
+its missing-property check (`es/case_search.py::case_property_query` takes
+the `case_property_missing` branch only for a bare `''`), so it finds a case
+whose property a device wrote blank and not one that never held the property.
+Nova stores both as the key's absence, so a `''` item, fixed or a runtime
+value that is blank, finds both, the same blank `= ''` reads everywhere in
+Nova. A Search field's condition authors lists in the builder, the record
+dialect and MCP, so an authored search meets both divergences; a list item
+that is the field's own answer, read inside its `when-input-present`, is never
+blank. A
 `within-distance` whose radius or unit is a value (a browse list's filter can
 hold one; a CSQL slot's fold makes both literal) compiles as a `CASE` over the
 nine units' meter factors (`lib/domain/expression/distance.ts::METERS_PER_DISTANCE_UNIT`),

@@ -157,11 +157,13 @@ export interface MenuAboveWithheldDestination {
 	readonly reason:
 		| "menu-forms-in-menu-above"
 		| "parent-forms-in-menu-above"
-		| "menu-forms-on-first-menu";
+		| "menu-forms-on-first-menu"
+		| "menu-opens-with-first-menu-case";
 }
 
 const MENU_ABOVE_WITHHELD: readonly MenuAboveWithheldDestination[] = [
 	{ destination: "module", reason: "menu-forms-in-menu-above" },
+	{ destination: "module", reason: "menu-opens-with-first-menu-case" },
 	{ destination: "parentMenu", reason: "parent-forms-in-menu-above" },
 	{ destination: "previous", reason: "menu-forms-on-first-menu" },
 ];
@@ -181,8 +183,9 @@ export const MENU_ABOVE_WITHHELD_BY_KEY: ReadonlyMap<
 /**
  * The built-in destinations `module`, `parentMenu` and `previous` the form's
  * menu withholds first because it, or its parent, shows its forms in the
- * menu above (`postSubmitNotOfferedReason`), which a chooser shows disabled
- * with the reason. A destination withheld first for another reason stays
+ * menu above, or because it opens through the first menu with the case every
+ * form listed there opens (`postSubmitNotOfferedReason`), which a chooser
+ * shows disabled with the reason. A destination withheld first for another reason stays
  * out, as every withheld destination is.
  */
 export function menuAboveWithheldDestinations(

@@ -174,6 +174,94 @@ function served(name: string) {
 	return tool;
 }
 
+/** Whether a served tool takes `input` as its whole input, validated in the
+ *  schema's declared dialect: `true`, or what the validator refused. */
+function takes(name: string, input: Json) {
+	const schema = served(name).inputSchema as Json;
+	const Validator =
+		typeof schema.$schema === "string" && schema.$schema.includes("draft-07")
+			? Ajv
+			: Ajv2020;
+	const validate = new Validator({
+		strict: false,
+		validateFormats: false,
+	}).compile(schema);
+	return validate(input) || validate.errors;
+}
+
+it("serves a question's keypad and text settings, a search with no title, where blanks sort and the calculated value in text", () => {
+	const module = {
+		work_id: "00000000-0000-4000-8000-000000000001",
+		request_id: "questions-and-text",
+		moduleUuid: "11111111-1111-4111-8111-111111111111",
+	};
+	const form = { ...module, formUuid: "22222222-2222-4222-8222-222222222222" };
+	const field = { ...form, fieldUuid: "33333333-3333-4333-8333-333333333333" };
+
+	const phone = {
+		kind: "text",
+		id: "phone",
+		label: "Phone {{= format-date(today(), '%e %b %Y')}}",
+		help: "Use *digits*",
+		keypad: "numbers",
+		plain_help: true,
+	};
+	expect(takes("add_fields", { ...form, fields: [phone] })).toBe(true);
+	expect(
+		takes("add_fields", { ...form, fields: [{ ...phone, keypad: "letters" }] }),
+	).not.toBe(true);
+	expect(
+		takes("edit_field", {
+			...field,
+			updates: { kind: "text", keypad: null, plain_help: null },
+		}),
+	).toBe(true);
+
+	for (const [name, input] of [
+		["create_form", { ...module, name: "Visit", type: "survey" }],
+		["update_form", form],
+	] as const) {
+		expect(takes(name, { ...input, plain_text: true }), name).toBe(true);
+		expect(takes(name, { ...input, plain_text: "yes" }), name).not.toBe(true);
+	}
+
+	expect(
+		takes("set_case_search_display", {
+			...module,
+			searchScreenTitle: { kind: "none" },
+			searchScreenSubtitle: null,
+			searchButtonDisplayCondition: null,
+		}),
+	).toBe(true);
+	expect(
+		takes("set_case_search_display", {
+			...module,
+			searchScreenTitle: { kind: "untitled" },
+			searchScreenSubtitle: null,
+			searchButtonDisplayCondition: null,
+		}),
+	).not.toBe(true);
+
+	const column = (blanks: string) => ({
+		...module,
+		columns: [
+			{
+				kind: "plain",
+				field: "case_name",
+				header: "Name",
+				sort: { direction: "asc", priority: 0, blanks },
+			},
+		],
+	});
+	expect(takes("add_case_list_columns", column("last"))).toBe(true);
+	expect(takes("add_case_list_columns", column("middle"))).not.toBe(true);
+
+	// A page's title is a wording position, described with the formula.
+	expect(JSON.stringify(served("set_form_sections").inputSchema)).toContain(
+		"{{= formula}} inserts a calculated value",
+	);
+});
+
 it("serves accept_placement_moves as exactly a reason and a 64-hex digest", () => {
 	const properties = (served("upload_app_to_hq").inputSchema as Json)
 		.properties;

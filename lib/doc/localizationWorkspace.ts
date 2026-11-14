@@ -11,13 +11,17 @@ import {
 	type TranslationUnit,
 	translationUnitProseSlot,
 } from "@/lib/domain";
+import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { projectFormExpression } from "./expressionText";
 
 /** One immutable snapshot's translation inventory, shared by the language
- * cards, phrase rows, and copy-language action. A new doc creates a new view. */
+ * cards, phrase rows, and copy-language action. A new doc or a new set of
+ * the Project's lookup definitions creates a new view; the definitions name
+ * the tables a calculated value reads. */
 export function createLocalizationWorkspace(
 	doc: BlueprintDoc,
 	requestedLanguage: LanguageTag,
+	lookup: LookupDefinitionIndex | "unavailable",
 ) {
 	const localization = effectiveAppLocalization(doc.localization);
 	const selectedTag = resolveAppLanguage(doc.localization, requestedLanguage);
@@ -40,8 +44,8 @@ export function createLocalizationWorkspace(
 		coverageDiagnostics: collectTranslationCoverageDiagnostics(doc),
 		unitsForLanguage,
 		/** A value as text: a calculated value prints its formula in the
-		 *  unit's prose slot, and reads `[calculated value]` where no unit is
-		 *  named. */
+		 *  unit's prose slot, by the current names of what it reads, and reads
+		 *  `[calculated value]` where no unit is named. */
 		projectValue: (
 			value: LocalizedValue,
 			unit?: Pick<TranslationUnit, "owner" | "role">,
@@ -56,8 +60,7 @@ export function createLocalizationWorkspace(
 					? undefined
 					: {
 							value: (part) =>
-								projectFormExpression(doc, slot, part.expression, "unavailable")
-									.text,
+								projectFormExpression(doc, slot, part.expression, lookup).text,
 						},
 			).text;
 		},

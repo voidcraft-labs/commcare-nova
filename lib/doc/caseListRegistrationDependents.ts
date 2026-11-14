@@ -100,8 +100,7 @@ export function planCaseListRegistrationDependentsOnRemove(
 				names.length === 1
 					? `on ${names[0]}'s case list`
 					: `on the case lists of ${listWithAnd(names)}`;
-			const there = names.length === 1 ? "there" : "on each";
-			return `${hosts[0].formName} is offered ${where}. You can stop offering it ${there}, and then remove it.`;
+			return `${hosts[0].formName} is offered ${where}. You can stop offering it there, and then remove it.`;
 		})
 		.join(" ");
 	const message = groups

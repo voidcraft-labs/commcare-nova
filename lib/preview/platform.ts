@@ -220,7 +220,8 @@ export interface PreviewPlatformRules {
 	readonly barcodeQuestion: "text" | "scan-or-text";
 	/** A Text question with a number keypad. Web Apps `form_entry/entries.js::PhoneEntry` stores an
 	 *  answer only where it matches its pattern; Android `views/widgets/StringNumberWidget.java` limits
-	 *  the keys and stores what its key listener leaves in the box. */
+	 *  the keys and stores what its key listener leaves in the box: a + or - only as its first
+	 *  character, and one period. */
 	readonly numberKeypad: "pattern" | "keys";
 	/** Web Apps `entries.js::FileEntry`, `entry_file.html`; Android
 	 *  `views/widgets/ImageWidget.java`, `CommCareAudioWidget.java`,

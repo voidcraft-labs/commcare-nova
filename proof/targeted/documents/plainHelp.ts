@@ -18,7 +18,9 @@
  * shows each as typed. HQ's form builder reopens it with the property set and
  * writes no markdown form on a save (Vellum `src/parser.js::parseXForm`,
  * `src/javaRosa/plugin.js::contributeToModelXML`), and keeps a hint written
- * with none as it is, so proof 4's saves hold both forms as Nova wrote them.
+ * with none as it is, so its saves hold both forms as Nova wrote them, which
+ * `proof/editors/test_text_formatting_saves.py` reads from what HQ stores
+ * (proof 4 compares saves after the spelling rules, which erase both).
  *
  * Fixed values: the first form's note holds what the worker answers.
  */

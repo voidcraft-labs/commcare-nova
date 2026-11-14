@@ -530,11 +530,33 @@ describe("valid by construction — Negative of, Where you are now, a list of va
 				expect(verdict.ok, `${kind} on ${t}`).toBe(
 					(kind === "eq" || kind === "neq") && t !== "datetime",
 				);
-				if (kind !== "eq" && kind !== "neq" && !verdict.ok)
-					expect(verdict.reason).toContain(
-						"A list of values can be compared only as equal or not equal to a case value.",
-					);
+				if (verdict.ok) continue;
+				// Beside "is" or "isn't" the verb is not the cause, so the line
+				// names the date and time the list can't be compared with.
+				expect(verdict.reason).toContain(
+					kind !== "eq" && kind !== "neq"
+						? "A list of values can be compared only as equal or not equal to a case value."
+						: "A list of values can't be compared with a date and time. CommCare's search matches each listed value by its exact text, not by the moment it names",
+				);
 			}
+		}
+	});
+
+	it("refuses a list of values beside is on the case's status, naming the status rather than the verb", () => {
+		const context = expressionEditorFixture(
+			"search-predicate",
+			CHOICE_VOCABULARY,
+		).context.expressionContext;
+		for (const build of [eq, neq]) {
+			const verdict = expressionEditVerdict(
+				build(term(prop("ct", "status")), valueList(term(literal("open")))),
+				context,
+			);
+			expect(verdict.ok).toBe(false);
+			if (!verdict.ok)
+				expect(verdict.reason).toContain(
+					"A list of values can be compared only with a case property the app holds or with the case type, not with the case's status",
+				);
 		}
 	});
 

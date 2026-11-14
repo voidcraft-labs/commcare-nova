@@ -10,7 +10,8 @@
  * that is empty, unclosed or unreadable, is refused in a sentence the caller
  * can act on. The plausible failures: a question added in the same call left
  * unresolved; an insertion cut at a `}}` inside a quoted string; a choice
- * label sent through `setFieldOptionsSource` read as having no slot; a print
+ * label sent through `setFieldOptionsSource`, or a new page's title sent
+ * through `setFormSections`, read as having no slot; a print
  * that does not parse back to the same part; a case property's label taking
  * a value no form works out.
  */
@@ -182,6 +183,45 @@ it("parses a formula in a choice label sent through setFieldOptionsSource in tha
 	expect(outcome.optionsSource.options[0]?.label.parts[1]).toMatchObject({
 		kind: "value",
 	});
+});
+
+it("parses a formula in a new page's title, whether the page names its own uuid or leaves it to Nova", async () => {
+	const h = visitApp();
+	await addVisitNotes(h);
+	const before = h.currentDoc();
+	const visit = Object.values(before.forms).find(
+		(form) => form.name === "Visit",
+	);
+	if (visit === undefined) throw new Error("The app holds no Visit form.");
+	const [first, ...rest] = before.fieldOrder[visit.uuid] ?? [];
+	if (first === undefined) throw new Error("The Visit form holds no field.");
+	const freshPage = "55555555-5555-4555-8555-555555555555";
+	const result = await h.call("setFormSections", {
+		moduleUuid: "Clients",
+		formUuid: "Visit",
+		sections: [
+			{
+				label: "Visit {{= format-date(today(), '%e %b %Y')}}",
+				fields: [first],
+			},
+			{
+				sectionUuid: freshPage,
+				label: "Notes {{= concat('for ', #form/visit_date)}}",
+				fields: rest,
+			},
+		],
+	});
+	expect(result).toMatchObject({ ok: true });
+	const doc = h.currentDoc();
+	const pages = (doc.fieldOrder[visit.uuid] ?? []).map(
+		(uuid) => doc.fields[uuid],
+	);
+	expect(pages.map((page) => page?.kind)).toEqual(["section", "section"]);
+	expect(pages[1]?.uuid).toBe(freshPage);
+	for (const page of pages) {
+		if (page?.kind !== "section") throw new Error("The page is no section.");
+		expect(partsOf(page.label)[1]).toMatchObject({ kind: "value" });
+	}
 });
 
 it("refuses an empty, unclosed or unreadable formula, and one in a text no form evaluates", async () => {

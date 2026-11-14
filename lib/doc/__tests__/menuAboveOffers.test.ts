@@ -2,9 +2,10 @@
  * Every place the builder offers a choice around a menu that shows its
  * forms in the menu above, held to the commit gate: what a picker offers
  * lands, and what it shows disabled the gate refuses. The offering sites are
- * the link target picker's choices (`formLinkTargetChoices`) and the
+ * the link target picker's choices (`formLinkTargetChoices`), the
  * after-submit and otherwise choosers' built-in destinations
- * (`postSubmitDestinationChoices`, `menuAboveWithheldDestinations`). Each is
+ * (`postSubmitDestinationChoices`, `menuAboveWithheldDestinations`) and the
+ * entry point controls' disabled reasons (`entryPointDestinations`). Each is
  * the production reader over documents built by `buildDoc`, judged by
  * `mutationCommitVerdict`.
  */
@@ -13,6 +14,8 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planEntryPointAdd } from "@/lib/doc/entryPointMutations";
+import { entryPointDestinations } from "@/lib/doc/entryPointReview";
 import {
 	formLinkTargetChoices,
 	menuAboveWithheldDestinations,
@@ -24,6 +27,7 @@ import {
 	type FormLinkTarget,
 	type PostSubmitDestination,
 	postSubmitDestinationChoices,
+	suggestEntryPointId,
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -35,11 +39,33 @@ const REGISTER = testUuid("offers-register");
 const VISIT = testUuid("offers-visit");
 const CHECK = testUuid("offers-check");
 
+function registration() {
+	return {
+		uuid: "offers-register",
+		name: "Register household",
+		type: "registration" as const,
+		fields: [
+			f({
+				kind: "text",
+				id: "case_name",
+				label: proseText("Name"),
+				caseWrite: { caseType: "household", property: "case_name" },
+			}),
+		],
+	};
+}
+
 /** A household menu with a registration and a follow-up, a submenu that
  *  shows its follow-up on the household screen, and a survey menu. With
  *  `householdsAbove` the household menu shows its forms on the app's first
- *  menu too, where its registration keeps the first menu sharing no case. */
-function app(householdsAbove = false): BlueprintDoc {
+ *  menu too, where its registration keeps the first menu sharing no case;
+ *  without `withRegistration` every form listed there opens one case. With
+ *  `membersAbove` false the submenu keeps its screen. */
+function app(
+	householdsAbove = false,
+	withRegistration = true,
+	membersAbove = true,
+): BlueprintDoc {
 	const doc = buildDoc({
 		caseTypes: [{ name: "household", properties: [] }],
 		modules: [
@@ -51,19 +77,7 @@ function app(householdsAbove = false): BlueprintDoc {
 					{ field: "case_name", header: "Name" },
 				]),
 				forms: [
-					{
-						uuid: "offers-register",
-						name: "Register household",
-						type: "registration",
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "household", property: "case_name" },
-							}),
-						],
-					},
+					...(withRegistration ? [registration()] : []),
 					{
 						uuid: "offers-visit",
 						name: "Visit household",
@@ -103,7 +117,7 @@ function app(householdsAbove = false): BlueprintDoc {
 		],
 	});
 	doc.modules[MEMBERS].parentModuleUuid = HOUSEHOLDS;
-	doc.modules[MEMBERS].formsInMenuAbove = true;
+	if (membersAbove) doc.modules[MEMBERS].formsInMenuAbove = true;
 	if (householdsAbove) doc.modules[HOUSEHOLDS].formsInMenuAbove = true;
 	assertAdmittedDoc(doc);
 	return doc;
@@ -196,5 +210,69 @@ describe("offers around a menu that shows its forms in the menu above", () => {
 				]);
 			else expect(menuAboveWithheldDestinations(doc, VISIT)).toEqual([]);
 		});
+
+		it(`lands every entry point the builder offers, and refuses each one it shows disabled, ${shape}`, () => {
+			const doc = app(householdsAbove);
+			const destinations = entryPointDestinations(doc);
+			let admitted = 0;
+			for (const destination of destinations) {
+				const plan = planEntryPointAdd(doc, destination.target, {
+					uuid: testUuid(`offers-entry-${destination.label}`),
+					id: suggestEntryPointId(doc, destination.target),
+				});
+				const landed = plan.ok && gate(doc, [...plan.mutations]).ok;
+				if (destination.issue === undefined) {
+					expect(landed, destination.label).toBe(true);
+					admitted += 1;
+				} else expect(landed, destination.label).toBe(false);
+			}
+			/* The submenu shown above has no screen for its own entry point,
+			 * and its form keeps one. */
+			const members = destinations.filter(
+				(destination) => destination.target.moduleUuid === MEMBERS,
+			);
+			const ofKind = (kind: string) =>
+				members.find((destination) => destination.target.kind === kind);
+			expect(ofKind("module")?.issue).toContain(
+				"shows its forms in the menu above",
+			);
+			expect(ofKind("case-list")?.issue).toContain(
+				"shows its forms in the menu above",
+			);
+			expect(ofKind("form")?.issue).toBeUndefined();
+			expect(admitted).toBeGreaterThan(2);
+		});
 	}
+
+	it("refuses the module destination a submenu's screen opens with the first menu's shared case, as the chooser shows it", () => {
+		const doc = app(true, false, false);
+		const offered = postSubmitDestinationChoices(doc, CHECK);
+		expect(offered).not.toContain("module");
+		for (const destination of offered)
+			expect(gate(doc, [goTo(CHECK, destination)]).ok, destination).toBe(true);
+		const withheld = menuAboveWithheldDestinations(doc, CHECK);
+		expect(withheld).toContainEqual({
+			destination: "module",
+			reason: "menu-opens-with-first-menu-case",
+		});
+		for (const { destination } of withheld)
+			expect(gate(doc, [goTo(CHECK, destination)]).ok, destination).toBe(false);
+	});
+
+	it("refuses an entry point the first menu's shared case would open, as the builder shows it", () => {
+		const doc = app(true, false);
+		const destinations = entryPointDestinations(doc);
+		let refusedShared = 0;
+		for (const destination of destinations) {
+			const plan = planEntryPointAdd(doc, destination.target, {
+				uuid: testUuid(`offers-shared-entry-${destination.label}`),
+				id: suggestEntryPointId(doc, destination.target),
+			});
+			const landed = plan.ok && gate(doc, [...plan.mutations]).ok;
+			expect(landed, destination.label).toBe(destination.issue === undefined);
+			if (destination.issue?.includes("CommCare would keep that case"))
+				refusedShared += 1;
+		}
+		expect(refusedShared).toBeGreaterThan(0);
+	});
 });

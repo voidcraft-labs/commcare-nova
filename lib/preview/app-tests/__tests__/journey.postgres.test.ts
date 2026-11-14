@@ -1812,10 +1812,14 @@ it("chooses a form listed on the home screen, and a submenu's form on its parent
 		});
 		return current.observation;
 	};
-	/* The intake menu has no tile: its form lists on the home screen. */
+	/* The intake menu has no tile: its form lists on the home screen,
+	 * beside the tiles of the starter Survey menu and of Households. */
 	expect(current.observation).toMatchObject({
 		screen: "home",
-		menus: [{ uuid: households, visibility: "shown" }],
+		menus: [
+			{ name: "Survey", visibility: "shown" },
+			{ uuid: households, visibility: "shown" },
+		],
 		forms: [{ uuid: register, menuUuid: intake, visibility: "shown" }],
 	});
 	expect(await step({ kind: "form", formUuid: register })).toMatchObject({
@@ -1827,6 +1831,9 @@ it("chooses a form listed on the home screen, and a submenu's form on its parent
 	await step({ kind: "menu", moduleUuid: households });
 	await step({ kind: "records" });
 	expect(await step({ kind: "select", caseIds: ["house-a"] })).toMatchObject({
+		screen: "details",
+	});
+	expect(await step({ kind: "continue" })).toMatchObject({
 		screen: "menu",
 		forms: expect.arrayContaining([
 			expect.objectContaining({ uuid: check, menuUuid: members }),

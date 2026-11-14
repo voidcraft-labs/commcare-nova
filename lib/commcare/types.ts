@@ -648,12 +648,9 @@ interface HqModuleBase<XPath> {
 		custom_icons: unknown[];
 	};
 	/**
-	 * HQ `CaseListForm` (`models/modules.py`): the registration form the
-	 * Register action on the case list opens. Nova emits it for a module
-	 * whose `caseListRegistrationForm` names one: a hidden module's form
-	 * offered after an empty search, with its relevancy, or another menu's
-	 * form the list always offers, with the button's media
-	 * (`NavMenuItemMediaMixin`). Every other module keeps the null shell.
+	 * HQ `CaseListForm` (`models/modules.py`). The registration a case list
+	 * offers (`Module.caseListRegistrationForm`, either arm); every other
+	 * module keeps the blank block.
 	 */
 	case_list_form: {
 		doc_type: "CaseListForm";

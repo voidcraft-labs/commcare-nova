@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { projectPreviousTask } from "@/lib/commcare";
 import {
 	formFrameChildren,
 	formLinkProjectionContext,
@@ -21,6 +22,11 @@ import {
 	screenOfFrame,
 } from "../afterSubmitRouting";
 import { WEB_APPS_RULES } from "../engine/__tests__/fixtures/previewDevices";
+import type { CaseRow } from "../engine/caseDataBindingTypes";
+import {
+	previousTaskDestination,
+	resolvePreviousTask,
+} from "../engine/previousTask";
 import { moduleEntriesOffTheMenu } from "../entryPointLaunch";
 import { previewCaseFirstModuleUuids } from "../menuProjection";
 
@@ -79,6 +85,23 @@ function nested(): BlueprintDoc {
 	doc.modules[ABOVE].formsInMenuAbove = true;
 	doc.modules[OWN].parentModuleUuid = PARENT;
 	return doc;
+}
+
+function household(caseId: string): CaseRow {
+	return {
+		case_id: caseId,
+		app_id: "app",
+		case_type: "household",
+		owner_id: "worker",
+		status: "open",
+		opened_on: new Date("2026-09-01"),
+		modified_on: new Date("2026-10-01"),
+		closed_on: null,
+		case_name: caseId,
+		external_id: null,
+		parent_case_id: null,
+		properties: {},
+	};
 }
 
 const SESSION = { context: {}, user: {}, userPropertySlugs: {} };
@@ -188,6 +211,46 @@ describe("after submit with forms in the menu above", () => {
 		expect(screenOfFrame(ctx, [])).toEqual({
 			screen: { kind: "first-menu" },
 			selectingModuleUuids: [],
+		});
+	});
+
+	it("lands the preceding task of a form shown above on the screen that lists it, with its case kept", () => {
+		const doc = nested();
+		const destination = previousTaskDestination(
+			doc,
+			ABOVE_FORM,
+			projectPreviousTask(doc, ABOVE_FORM),
+		);
+		expect(destination).toEqual({ kind: "menu", moduleUuid: PARENT });
+		const task = resolvePreviousTask({
+			doc,
+			formUuid: ABOVE_FORM,
+			submittedCaseIds: ["house-a"],
+			selections: {
+				[PARENT]: { caseType: "household", cases: [{ caseId: "house-a" }] },
+			},
+			caseDatabase: { rows: [household("house-a")], indices: [] },
+		});
+		expect(task.destination).toEqual(destination);
+		expect(
+			Object.values(task.selections).map((selection) =>
+				selection.cases.map((choice) => choice.caseId),
+			),
+		).toEqual([["house-a"]]);
+	});
+
+	it("reopens the form's own case list where the screen above lists forms first", () => {
+		const doc = nested();
+		doc.forms[PARENT_FORM].type = "survey";
+		const destination = previousTaskDestination(
+			doc,
+			ABOVE_FORM,
+			projectPreviousTask(doc, ABOVE_FORM),
+		);
+		expect(destination).toMatchObject({
+			kind: "record-selection",
+			moduleUuid: ABOVE,
+			formUuid: ABOVE_FORM,
 		});
 	});
 
