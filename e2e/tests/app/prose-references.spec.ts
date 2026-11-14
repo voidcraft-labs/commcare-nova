@@ -442,8 +442,10 @@ test("inserts, edits and removes calculated values in a hint and shows their res
 		.poll(async () =>
 			(
 				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
-					.blueprint.fields[source].hint as { parts: { kind: string }[] }
-			).parts.map((part) => part.kind),
+					.blueprint.fields[source].hint as
+					| { parts?: { kind: string }[] }
+					| undefined
+			)?.parts?.map((part) => part.kind),
 		)
 		.toEqual(["value", "text", "field-ref"]);
 
@@ -467,8 +469,10 @@ test("inserts, edits and removes calculated values in a hint and shows their res
 		.poll(async () =>
 			(
 				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
-					.blueprint.fields[source].hint as { parts: { kind: string }[] }
-			).parts.map((part) => part.kind),
+					.blueprint.fields[source].hint as
+					| { parts?: { kind: string }[] }
+					| undefined
+			)?.parts?.map((part) => part.kind),
 		)
 		.toEqual(["text", "field-ref"]);
 });
@@ -545,8 +549,10 @@ test("inserts, edits and removes calculated values in a label on the canvas", {
 		.poll(async () =>
 			(
 				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
-					.blueprint.fields[source].label as { parts: { kind: string }[] }
-			).parts.map((part) => part.kind),
+					.blueprint.fields[source].label as
+					| { parts?: { kind: string }[] }
+					| undefined
+			)?.parts?.map((part) => part.kind),
 		)
 		.toEqual(["text", "value", "text", "value"]);
 	// The closed label draws each value as its chip.
@@ -579,8 +585,10 @@ test("inserts, edits and removes calculated values in a label on the canvas", {
 		.poll(async () =>
 			(
 				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
-					.blueprint.fields[source].label as { parts: { kind: string }[] }
-			).parts.map((part) => part.kind),
+					.blueprint.fields[source].label as
+					| { parts?: { kind: string }[] }
+					| undefined
+			)?.parts?.map((part) => part.kind),
 		)
 		.toEqual(["text", "value"]);
 });
