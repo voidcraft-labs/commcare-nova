@@ -46,13 +46,17 @@ import {
 	withLandedConfirmations,
 } from "@/components/builder/app-setup/publishingSectionModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
-import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
+import {
+	useSetDeploymentProjectSpace,
+	useSetDeploymentTargetFacts,
+} from "@/components/builder/DeploymentTargetProvider";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
 	type PublishLogoStepBody,
 	placementOfferCopy,
 	publishOutcome,
+	refusalOpensHqApp,
 	withAcceptedMoves,
 	withConfirmation,
 } from "@/components/builder/publishOutcome";
@@ -352,6 +356,7 @@ export function PublishDialogBody({
 	const canEdit = useCanEdit();
 	const session = useBuilderSessionApi();
 	const setProjectSpace = useSetDeploymentProjectSpace();
+	const setTargetFacts = useSetDeploymentTargetFacts();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
 	const compatibilityControllerRef = useRef<AbortController | null>(null);
@@ -650,13 +655,15 @@ export function PublishDialogBody({
 		[noteDeploymentRecordsChanged],
 	);
 	/* Every refresh answers with the record AND what Preview may now name,
-	 * because an observation can change both. */
+	 * with what that project space keeps of the settings Preview plays,
+	 * because an observation can change all three. */
 	const handleRefreshed = useCallback(
 		(next: RefreshedDeploymentView) => {
 			upsertView(next);
 			setProjectSpace(next.previewProjectSpace);
+			setTargetFacts(next.previewTargetFacts);
 		},
-		[upsertView, setProjectSpace],
+		[upsertView, setProjectSpace, setTargetFacts],
 	);
 
 	/* What publishing to the selected project space will do. The SAME
@@ -975,6 +982,7 @@ export function PublishDialogBody({
 			 * the workers until the next reload withdrew it. A refusal's
 			 * answer applies too: this call is the freshest word either way. */
 			setProjectSpace(outcome.previewProjectSpace);
+			setTargetFacts(outcome.previewTargetFacts);
 			if (outcome.kind === "landed") {
 				if (outcome.deployment !== null) upsertView(outcome.deployment);
 				/* The check's rows were read before this publish stored what
@@ -1103,6 +1111,7 @@ export function PublishDialogBody({
 		getAppId,
 		session,
 		setProjectSpace,
+		setTargetFacts,
 		upsertView,
 		reconciler,
 	]);
@@ -1536,7 +1545,7 @@ export function PublishDialogBody({
 												disabled={isWorking}
 											/>
 										) : null}
-										{status.refusal.code === "hq_app_version_below_floor" &&
+										{refusalOpensHqApp(status.refusal.code) &&
 										status.hqAppUrl !== null ? (
 											<div className="mt-2 text-left">
 												<a

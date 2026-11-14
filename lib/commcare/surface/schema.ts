@@ -98,13 +98,12 @@ export const dispositionSchema = z.enum(DISPOSITIONS);
 export type Disposition = z.infer<typeof dispositionSchema>;
 
 /**
- * A change a HELD row names to the grammar of the Nova slot that holds it:
- * `text` is the change as the row words it, and `scope` the items the row
- * extends it over or the limit it sets on it, where the row gives one apart
- * from the change.
+ * A limit a HELD row sets on the grammar of the Nova slot that holds it:
+ * `text` is the limit as the row words it. A HELD row never states a grammar
+ * Nova does not hold; a wider class has an entry of its own.
  */
 export const slotChangeSchema = z.strictObject({
-	direction: z.enum(["widen", "narrow"]),
+	direction: z.literal("narrow"),
 	text: z.string().min(1),
 	scope: z.string().min(1).optional(),
 });
@@ -240,7 +239,7 @@ export const emissionSchema = z
 export type Emission = z.infer<typeof emissionSchema>;
 
 // An entry's structured fields restate its cells: a HELD entry's slot
-// changes are the `widen` and `narrow` changes its Disposition cell names, a
+// changes are the `narrow` changes its Disposition cell names, a
 // REFUSED entry's reasons are the rule-5 reasons that cell gives, and the
 // platform readings and emission markers are those of the row's Web Apps /
 // Android and Emission cells.

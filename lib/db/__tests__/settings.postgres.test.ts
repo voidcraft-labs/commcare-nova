@@ -1,7 +1,7 @@
 /**
  * Tests for the wiring inside `lib/db/settings.ts` that the layers above mock
  * away — specifically the security-critical decrypt ordering in
- * `getCredentialsForUpload` and the never-clobber contract of
+ * `getHqCredentials` and the never-clobber contract of
  * `refreshApprovedDomains`.
  *
  * The `user_settings` row is a real Postgres row (the per-test DB harness);
@@ -72,11 +72,11 @@ beforeEach(() => {
 	mocks.decrypt.mockResolvedValue("plaintext-key");
 });
 
-describe("getCredentialsForUpload — decrypt happens ONLY after the target resolves", () => {
+describe("getHqCredentials — decrypt happens ONLY after the target resolves", () => {
 	it("single-space key, no request → ok, decrypts exactly once", async () => {
 		await seedSettings({ server: "eu", domains: [PROD] });
-		const { getCredentialsForUpload } = await import("../settings");
-		const r = await getCredentialsForUpload("u1");
+		const { getHqCredentials } = await import("../settings");
+		const r = await getHqCredentials("u1");
 		expect(r).toEqual({
 			ok: true,
 			creds: {
@@ -91,8 +91,8 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 
 	it("multi-space key, no request, no default → ambiguous, NEVER decrypts", async () => {
 		await seedSettings({ domains: [PROD, CRISPR] });
-		const { getCredentialsForUpload } = await import("../settings");
-		const r = await getCredentialsForUpload("u1");
+		const { getHqCredentials } = await import("../settings");
+		const r = await getHqCredentials("u1");
 		expect(r).toEqual({
 			ok: false,
 			error: "ambiguous",
@@ -103,8 +103,8 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 
 	it("requested space unreachable → not_authorized, NEVER decrypts", async () => {
 		await seedSettings({ domains: [PROD, CRISPR] });
-		const { getCredentialsForUpload } = await import("../settings");
-		const r = await getCredentialsForUpload("u1", "ghost-space");
+		const { getHqCredentials } = await import("../settings");
+		const r = await getHqCredentials("u1", "ghost-space");
 		expect(r).toEqual({
 			ok: false,
 			error: "not_authorized",
@@ -115,24 +115,24 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 
 	it("an explicit reachable request resolves on a multi-space key", async () => {
 		await seedSettings({ domains: [PROD, CRISPR] });
-		const { getCredentialsForUpload } = await import("../settings");
-		const r = await getCredentialsForUpload("u1", "connect-ace-prod");
+		const { getHqCredentials } = await import("../settings");
+		const r = await getHqCredentials("u1", "connect-ace-prod");
 		expect(r.ok).toBe(true);
 		if (r.ok) expect(r.domain).toEqual(PROD);
 		expect(mocks.decrypt).toHaveBeenCalledTimes(1);
 	});
 
 	it("no settings row → not_configured, NEVER decrypts", async () => {
-		const { getCredentialsForUpload } = await import("../settings");
-		const r = await getCredentialsForUpload("u1");
+		const { getHqCredentials } = await import("../settings");
+		const r = await getHqCredentials("u1");
 		expect(r).toEqual({ ok: false, error: "not_configured" });
 		expect(mocks.decrypt).not.toHaveBeenCalled();
 	});
 
 	it("configured row with zero stored spaces → not_configured", async () => {
 		await seedSettings({ domains: [] });
-		const { getCredentialsForUpload } = await import("../settings");
-		const r = await getCredentialsForUpload("u1");
+		const { getHqCredentials } = await import("../settings");
+		const r = await getHqCredentials("u1");
 		expect(r).toEqual({ ok: false, error: "not_configured" });
 		expect(mocks.decrypt).not.toHaveBeenCalled();
 	});
@@ -142,8 +142,8 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 		// collapses it to not-configured rather than producing creds with no
 		// server to derive a base URL from.
 		await seedSettings({ server: null, domains: [PROD] });
-		const { getCredentialsForUpload } = await import("../settings");
-		const r = await getCredentialsForUpload("u1");
+		const { getHqCredentials } = await import("../settings");
+		const r = await getHqCredentials("u1");
 		expect(r).toEqual({ ok: false, error: "not_configured" });
 		expect(mocks.decrypt).not.toHaveBeenCalled();
 	});
@@ -167,12 +167,13 @@ describe("refreshApprovedDomains — never clobbers stored spaces on a non-succe
 
 	it("an HQ API error returns hq_error and writes NOTHING", async () => {
 		await seedSettings({ domains: [PROD] });
-		mocks.discover.mockResolvedValue({ status: 503 });
+		const outage = { success: false, status: 503, cause: "network" };
+		mocks.discover.mockResolvedValue(outage);
 		const { refreshApprovedDomains } = await import("../settings");
 
 		const result = await refreshApprovedDomains("u1");
 
-		expect(result).toEqual({ ok: false, kind: "hq_error", status: 503 });
+		expect(result).toEqual({ ok: false, kind: "hq_error", error: outage });
 		expect(await readDomains()).toEqual([PROD]);
 	});
 

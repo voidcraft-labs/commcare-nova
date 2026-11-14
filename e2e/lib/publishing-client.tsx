@@ -69,6 +69,7 @@ const view: DeploymentView = {
 		locations: [],
 	}),
 	leftBehind: [],
+	kept: null,
 };
 const getAppId = () => appId;
 async function loadCompatibility(
@@ -209,7 +210,10 @@ createRoot(root).render(
 			init={{ appId, projectId: "native-project", canEdit: !viewer }}
 		>
 			<ReconcilerProvider appId={appId} baseSeq={0} userId="native-user">
-				<DeploymentTargetProvider initialProjectSpace={null}>
+				<DeploymentTargetProvider
+					initialProjectSpace={null}
+					initialTargetFacts={null}
+				>
 					<Content />
 				</DeploymentTargetProvider>
 			</ReconcilerProvider>

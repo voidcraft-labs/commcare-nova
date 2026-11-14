@@ -99,6 +99,7 @@ const context: ReconcilerContextValue = {
 	subscribePresence: unexpected,
 	subscribeAppOrganization: unexpected,
 	subscribePreviewProjectSpace: unexpected,
+	subscribePreviewTargetFacts: unexpected,
 	subscribeLookupManifest: unexpected,
 	projectScopeId: "native-geopoint",
 	subscribeProjectScopeReset: registry.subscribe,

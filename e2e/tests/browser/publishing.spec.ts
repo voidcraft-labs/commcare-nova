@@ -759,6 +759,7 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 			locations: [],
 		}),
 		leftBehind: [],
+		kept: null,
 	};
 	await page.route("**/api/commcare/upload", (route) =>
 		route.fulfill({
@@ -1070,6 +1071,7 @@ function landedView(
 			locations: [],
 		}),
 		leftBehind: [],
+		kept: null,
 	};
 }
 
@@ -1493,6 +1495,56 @@ test("native publish below the CommCare version floor links to the app whose set
 		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(page.getByText(message, { exact: true })).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: "Open the app in CommCare HQ" }),
+	).toHaveAttribute(
+		"href",
+		"https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+	);
+});
+test("native publish over an application profile naming a removed language shows a line per profile and links to the app", async ({
+	page,
+}) => {
+	const message =
+		"Application profiles of the app on “alpha” include languages this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.";
+	const lines = [
+		"“Field team”: French (fra), Hausa (hau)",
+		"A profile with no name: French (fra), the only language it has",
+	];
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({
+			json: {
+				success: false,
+				refusal: {
+					phase: "preflight",
+					failure: {
+						code: "hq_build_profile_language_missing",
+						message,
+						details: lines,
+					},
+					resourceConflicts: [],
+					remoteChanges: [],
+					confirmationsNeeded: [],
+					webAppsChange: null,
+					placementMoves: null,
+				},
+				url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+				preview_project_space: null,
+			} satisfies PublishResponseBody,
+		}),
+	);
+	await open(page);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(page.getByText(message, { exact: true })).toBeVisible();
+	for (const line of lines) {
+		await expect(page.getByText(line, { exact: true })).toBeVisible();
+	}
 	await expect(
 		page.getByRole("link", { name: "Open the app in CommCare HQ" }),
 	).toHaveAttribute(

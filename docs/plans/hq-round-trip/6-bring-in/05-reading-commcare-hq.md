@@ -219,8 +219,9 @@ Read in full or by enclosing function, for this part:
   are defined on `Application` alone (`models/applications.py::Application.export_json`,
   `Application.scrub_source`); `models/applications.py::RemoteApp` extends `ApplicationBase` and has
   neither. `views/apps.py::app_source` calls `app.export_json(...)`, so a remote app fails on the
-  missing method before any source is built, and never on a key of the source. The status is still
-  (inferred); section 8 does not depend on it.
+  missing method before any source is built, and never on a key of the source. The lane's run
+  confirmed it: `reading/source-remote.json` holds the raised `AttributeError`. Section 8 does not
+  depend on it.
 - *Claim corrected (research, "Reads": lookup rows through `v0_6.py::LookupTableItemResource`).* Nova
   reads rows through `FixtureResource` (`lib/commcare/hq/lookupTables.ts::readHqLookupTableRows`), and
   `LookupTableItemResource`'s list is every row of the project space
@@ -308,7 +309,7 @@ circumstance code. Each retained file is the control of its fact.
   `get_response_class_for_exception`), and raises it again only for a request whose server is
   `testserver`, which every request of the lane's `RequestFactory` names, so
   `operations.application_read` keeps it as that 404, alone. The source read of the same id is a raised
-  `AttributeError` (inferred, "Claims corrected"; section 8 does not depend on it), kept as
+  `AttributeError` ("Claims corrected", confirmed by the lane's run; section 8 does not depend on it), kept as
   `reading/source-remote.json`.
 - **G3, a form whose XML `XForm.get_questions` refuses.** The application resource answers 200 with
   `{"error": <text>}` at that module's position and the other modules whole: every step of a menu's
@@ -334,7 +335,7 @@ planning step 6", the sentence that states it, and goes on.
 | Check | Question | Outcomes, and what the session does for each |
 |---|---|---|
 | G1 | Does a superuser's key pass the plan check on a project space without API access? The key is `operations.seed_api_superuser`'s (section 14.1). Made behind HQ's own middleware, through the handler the lane answers Formplayer's requests with (`proof/formplayer/hq.py::respond`), so `settings.py::MIDDLEWARE` runs and an exception is answered by `handler500` (`operations.client_request`, section 14.1). | **A**, 401 with the subscription sentence: `reading/application-no-api-access-superuser.json` holds it; `lib/commcare/CLAUDE.md` gains "A superuser's key does not pass the plan check." **B**, 200: the file holds the 200; the sentence reads "A superuser's key passes the plan check, so Dimagi staff may read a project space whose plan has no API access.", and the session rewrites the bullet "A superuser's API key does not reach the plan check as a superuser" under "Found while planning step 6" in `harness-findings.md` to say that it is withdrawn and the research's sentence stands, with the retained file as its evidence. **C**, a middleware cannot run in the lane's boot (it asks for a service the lane does not hold, and the file holds `handler500`'s 500): the read is made through `operations.api_request`, the file holds its 401, and the sentence reads "Read, not run: no middleware authenticates an API key before the plan check, so a superuser's key does not pass it." Under A and C the bullet stands as written: it already says what each means. |
-| G4 | What do the two reads answer for a mirror menu, a mirror menu whose source menu is gone, a report menu and a shadow form (section 14.1's `shadow` state)? | **A**, as read: the source holds `case_type: null` on both mirror menus, `""` on the report menu and `xmlns: null` with `shadow_parent_form_id` on the shadow form; the resource holds the mirror menu and the report menu each as a summarized entry with no forms (the mirror menu with its source's case type, the report menu with `""`, which `ModuleBase.get_case_types` gives the property map as a key), the shadow form with its parent's `xmlns`, and the sourceless mirror menu as an `error` entry (its case type is `None`, which the map does not hold). `reading/source-shadow.json` and `application-shadow.json` hold them; `hqAppReading.test.ts` expects `read`, three menus `aligned` and one `not-summarized`, and `notSummarizedMenus` naming no menu (section 8.3). **B**, the resource summarizes the sourceless mirror menu, or returns the report menu as an error: the file holds it; the test expects that entry as the file gives it, and nothing else moves, because section 8.3 judges a menu by the source's `docType` either way. The session writes the answer CommCare HQ gave into the bullet "HQ's source read serves more than the reader's comments say" under "Found while planning step 6" in `harness-findings.md`. |
+| G4 | What do the two reads answer for a mirror menu, a mirror menu whose source menu is gone, a report menu and a shadow form (section 14.1's `shadow` state)? | **A**, as read: the source holds `case_type: null` on both mirror menus, `""` on the report menu and `xmlns: null` with `shadow_parent_form_id` on the shadow form; the resource holds the mirror menu and the report menu each as a summarized entry with no forms (the mirror menu with its source's case type, the report menu with `""`, which `ModuleBase.get_case_types` gives the property map as a key), the shadow form with its parent's `xmlns`, and the sourceless mirror menu as an `error` entry (its case type is `None`, which the map does not hold). `reading/source-shadow.json` and `application-shadow.json` hold them; `hqAppReading.test.ts` expects `read`, four menus `aligned` (the basic menu, the advanced menu, the report menu and the mirror menu) and one `not-summarized` (the sourceless mirror menu, whose entry HQ answers as `{"error": "None"}`), and `notSummarizedMenus` naming no menu (section 8.3). The lane's run answered this: `reading/application-shadow.json` holds that error entry. **B**, the resource summarizes the sourceless mirror menu, or returns the report menu as an error: the file holds it; the test expects that entry as the file gives it, and nothing else moves, because section 8.3 judges a menu by the source's `docType` either way. The session writes the answer CommCare HQ gave into the bullet "HQ's source read serves more than the reader's comments say" under "Found while planning step 6" in `harness-findings.md`. |
 | G5 | Does a throttled tastypie read carry `Retry-After`? Made at the limiter's floor, as `publish/import-429-second.json` is. | **A**, 429 with no `Retry-After`: `reading/application-429.json`; `hqReadJson.test.ts` serves it for the one second wait. **B**, 429 with `Retry-After`: the file holds the header; the test expects the header's wait; `HQ_THROTTLE_ABSENT_WAIT_MS` stays for an edge's 429. |
 | G6 | What do the source read and the application resource answer for an id that is an app of another project space? | **A**, source a raised `AppInDifferentDomainException`, resource 404: `reading/source-other-space.json` (the kept exception), `application-other-space.json`. **B**, the source answers 404: the file holds it. Either way the answer is `gone`: `readHqAppForReading` reads the resource first, the list does not hold the id, and section 8.2 reads every answer of the source read but "deleted" and "a source" as `gone`. `hqAppReading.test.ts` serves the retained pair and expects it. |
 
@@ -546,7 +547,8 @@ Changes to `readHqJson`:
 
 - A status outside 2xx: where `keepRefusedBody`, the body is read once, bounded at
   `HQ_REFUSED_BODY_READ_MAX_BYTES` (64 KiB, section 2.1), the error is `warnAndReturnError`'s with
-  `refusedBody` its first `HQ_REFUSED_BODY_MAX_CHARS` (2,048) characters. `warnAndReturnError` gains
+  `refusedBody` its first `HQ_REFUSED_BODY_MAX_CHARS` (2,048) characters (a body past the byte
+  bound, or one whose stream fails, carries none: neither of HQ's two sentences is that long). `warnAndReturnError` gains
   the synchronous overload `warnAndReturnError(context: string, res: Response, bodyAlreadyRead:
   string): CommCareApiError`, which logs and builds the error from the text it is handed and never
   touches `res.body`, so the body is consumed once. The `keepRefusedBody` path is its only caller.
@@ -722,14 +724,16 @@ export type HqRequestKind = (typeof HQ_REQUEST_KINDS)[number];
 export type HqPermissionNeed =
 	| "edit-apps" | "access-apis" | "edit-apps-and-access-apis" | "locations";
 
-export interface HqFailure {
-	readonly kind: HqFailureKind;
+interface HqFailureOf<K extends HqFailureKind> {
+	readonly kind: K;
 	readonly request: HqRequestKind;
 	/** The status HQ, its edge or the reader gave. */
 	readonly status: number;
-	/** Present exactly where `kind` is `permission`. */
-	readonly permission?: HqPermissionNeed;
 }
+/** `permission` is present exactly where `kind` is `permission`, which the type holds. */
+export type HqFailure =
+	| (HqFailureOf<Exclude<HqFailureKind, "permission">> & { readonly permission?: undefined })
+	| (HqFailureOf<"permission"> & { readonly permission: HqPermissionNeed });
 
 export function classifyHqFailure(
 	error: CommCareApiError,
@@ -1091,7 +1095,8 @@ A question must be an object with string `value` and `tag`; `type`, `repeat`, `g
 object of strings or absent; `options` must be absent or an array of objects with a string `value`
 and an object of strings `translations`. Keys this list does not name (`label`, `label_ref`,
 `comment`, `hashtagValue`, `data_source`, `constraintMsg_ref`, the stock keys) are not read. The
-first entry that fails gives `{ malformedAt: "modules[i]" }` or
+first entry that fails gives `{ malformedAt: "modules[i]" }`, `{ malformedAt: "modules[i].forms[j]" }`
+(a form without a string `unique_id`, an `xmlns` that is a string or null, or a `questions` array) or
 `{ malformedAt: "modules[i].forms[j].questions[k]" }`, logged at error with that path and nothing of
 the content.
 
@@ -1884,8 +1889,9 @@ by the same status rows as today. The source read and the table list each change
 an edge's 401 or 403, on purpose (Changes 1 and 2 under Contracts).
 
 **1. Settings.** `app/(app)/(site)/settings/hqFailureMessage.ts` (new) exports
-`settingsFailureMessage(failure: HqFailure, context: { readonly server: CommCareServer; readonly
-moment: "verify" | "refresh" }): string`; `settings/actions.ts` calls it with
+`settingsFailureMessage(failure: HqFailure, context: { readonly moment: "verify"; readonly server:
+CommCareServer } | { readonly moment: "refresh" }): string` (a refresh's sentences name no server, and
+the refresh result carries none); `settings/actions.ts` calls it with
 `classifyHqFailure(error, "app-list")` and loses `invalidKeyMessage` and `settingsErrorMessage`.
 
 The refresh has no error to classify today, so `lib/db/settings.ts::RefreshDomainsResult`'s
@@ -2138,7 +2144,10 @@ the answer does not say which. No block shows HQ's own error text: `menu-unreada
 
 Log lines (a developer reads them), each with `domain` and the request kind and never a body:
 `[commcare] <label> rate limited, sending again` (warn), `[commcare] <label> is longer than Nova
-reads` (error, unchanged), `[commcare] app list row is malformed` (error, with the row's index),
+reads` (error, unchanged), `[commcare] app list is malformed` (error, for the envelope),
+`[commcare] app list row is malformed` (error, with the row's index),
+`[commcare] API access answer is malformed` (error, a 2xx that is no tastypie list),
+`[commcare] application is malformed` (error, with the envelope's key),
 `[commcare] application modules are malformed` (error, with the path),
 `[commcare] application module not summarized` (error, with the position and HQ's message),
 `[commcare] app reading misaligned` (error, with the place), `[commcare] media map is malformed`

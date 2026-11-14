@@ -157,6 +157,8 @@ CORE_CLASSES = {
     "ExpanderRuntimeTest": "expander",
     "FormLinkRuntimeTest": "form-link",
     "InstantOrderingRuntimeTest": "expression",
+    # Core's StringUtils.normalize and fuzzyMatch over the vectors Preview's list filter is held to.
+    "ListFilterMatchRuntimeTest": "expression",
     "LocalizationRuntimeTest": "localization",
     "LocationOwnerRuntimeTest": "location",
     "LookupRuntimeTest": "lookup",

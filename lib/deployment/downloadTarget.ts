@@ -1,15 +1,24 @@
 import "server-only";
 
 import { hqNestedSelectionFindings } from "@/lib/commcare/hqNestedSelection";
+import { planLanguageWire } from "@/lib/commcare/languageWire";
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import type { CommCareServer } from "@/lib/commcare/servers";
+import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import {
 	targetWireIdentity,
 	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import { type BlueprintDoc, declaresAndroid } from "@/lib/domain";
-import type { AttachmentTargetState } from "@/lib/publish/exportAdvisories";
+import {
+	type BlueprintDoc,
+	declaresAndroid,
+	effectiveAppLocalization,
+} from "@/lib/domain";
+import type {
+	AttachmentTargetState,
+	KeptAdvisoryFacts,
+} from "@/lib/publish/exportAdvisories";
 import {
 	type AttachmentUrlTarget,
 	attachmentUrlTarget,
@@ -23,7 +32,9 @@ import {
 	type DeploymentScope,
 	readDeploymentIdentityOverrides,
 	readReachedDeploymentTargets,
+	readTargetFacts,
 } from "./store";
+import { keptAdvisoryFacts } from "./targetFacts";
 
 /**
  * What a download is made for, read from the app's deployments.
@@ -43,6 +54,12 @@ export type DownloadTarget =
 			readonly identity: WireIdentity;
 			readonly attachmentTarget: AttachmentUrlTarget;
 			readonly reached: readonly ReachedDeploymentTarget[];
+			/**
+			 * What that project space keeps of the values Nova leaves to
+			 * CommCare HQ, read from the deployment's baseline; null where
+			 * there is none to read.
+			 */
+			readonly targetFacts: TargetFacts | null;
 	  }
 	| {
 			readonly format: "json";
@@ -118,7 +135,10 @@ export async function resolveDownloadTarget(
 		);
 	}
 	const { target } = choice;
-	const overrides = await readDeploymentIdentityOverrides(scope, target);
+	const [overrides, targetFacts] = await Promise.all([
+		readDeploymentIdentityOverrides(scope, target),
+		readTargetFacts(scope, target),
+	]);
 	return {
 		format,
 		target,
@@ -130,5 +150,24 @@ export async function resolveDownloadTarget(
 		identity: targetWireIdentity(overrides),
 		attachmentTarget: attachmentUrlTarget(target),
 		reached,
+		targetFacts,
 	};
+}
+
+/**
+ * What a download says it cannot follow of the values its project space
+ * keeps: for a `.ccz` made for a project space whose baseline was read, its
+ * facts over the app's languages, by the codes the archive writes; for a
+ * `.ccz` with none, and for the HQ import file, which is made for no
+ * project space, nothing.
+ */
+export function downloadKeptAdvisoryFacts(
+	download: DownloadTarget,
+	doc: BlueprintDoc,
+): KeptAdvisoryFacts | null {
+	if (download.format !== "ccz" || download.targetFacts === null) return null;
+	return keptAdvisoryFacts(
+		download.targetFacts,
+		planLanguageWire(effectiveAppLocalization(doc.localization)).languages,
+	);
 }

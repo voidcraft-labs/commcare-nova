@@ -37,6 +37,7 @@
 
 "use client";
 import { memo, useId } from "react";
+import { useDeploymentTargetFacts } from "@/components/builder/DeploymentTargetProvider";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
@@ -56,6 +57,7 @@ import {
 	usePresentationField,
 	useVisibleFieldOrder,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { requiredMarkShown } from "@/lib/preview/platform";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useAppId, usePreviewPlatformRules } from "@/lib/session/hooks";
@@ -196,6 +198,19 @@ const InteractiveField = memo(function InteractiveField({
 	// render before the doc row resolves.
 	const enginePath = field ? `${prefix}/${field.id}` : undefined;
 	const state = useEngineStateAt(uuid, enginePath);
+	/* The asterisk, and the word a screen reader reads for it, as the platform
+	 * Preview plays draws them: every required question in Web Apps, and on
+	 * Android only where the reached project space's
+	 * `cc-label-required-questions-with-asterisk` is on. With no facts Android
+	 * shows Nova's own value, `no`. What required means does not change: the
+	 * worker is still stopped and told. */
+	const targetFacts = useDeploymentTargetFacts();
+	const requiredMarked =
+		state.required &&
+		requiredMarkShown(
+			rules.requiredMark,
+			targetFacts?.markRequiredQuestions ?? null,
+		);
 	const controller = useEngineController();
 	const entryKey = controller.entryKey;
 	const projectProse = useProseProjection();
@@ -448,7 +463,7 @@ const InteractiveField = memo(function InteractiveField({
 								plainLabel={labelShowsAsTyped(textForm, field)}
 								className={FIELD_STYLES.label}
 							/>
-							{state.required ? (
+							{requiredMarked ? (
 								<>
 									<span
 										aria-hidden="true"
@@ -476,7 +491,7 @@ const InteractiveField = memo(function InteractiveField({
 				) : (
 					<span id={questionLabelId} className="sr-only">
 						{runtimeMessage(language, "questionPosition", { position })}
-						{state.required
+						{requiredMarked
 							? ` ${runtimeMessage(language, "requiredLabel")}`
 							: ""}
 					</span>

@@ -52,6 +52,10 @@ import {
 } from "@/lib/collab/presenceTypes";
 import { parsePreviewProjectSpaceFrame } from "@/lib/collab/previewProjectSpaceFrame";
 import {
+	type PreviewTargetFacts,
+	parsePreviewTargetFactsFrame,
+} from "@/lib/collab/previewTargetFactsFrame";
+import {
 	createProjectScopeResetRegistry,
 	type ProjectScopeResetRegistry,
 } from "@/lib/collab/projectScopeReset";
@@ -164,6 +168,11 @@ export interface ReconcilerRuntime {
 	readonly subscribePreviewProjectSpace: (
 		cb: (projectSpace: string | null) => void,
 	) => () => void;
+	/** Subscribe to server-resolved preview-target-facts announcements, with
+	 *  the same replay of the retained latest value. */
+	readonly subscribePreviewTargetFacts: (
+		cb: (facts: PreviewTargetFacts | null) => void,
+	) => () => void;
 	readonly lookupManifestBroker: LookupManifestBroker;
 	readonly projectScopeResetRegistry: ProjectScopeResetRegistry;
 	/** Install the handler a `placement-recorded` 409's dropped edits are
@@ -244,6 +253,22 @@ export function createReconcilerRuntime(
 	function publishPreviewProjectSpace(projectSpace: string | null): void {
 		previewProjectSpaceLatest = projectSpace;
 		for (const cb of [...previewProjectSpaceSubs]) cb(projectSpace);
+	}
+	const previewTargetFactsSubs = new Set<
+		(facts: PreviewTargetFacts | null) => void
+	>();
+	/** `undefined` until the first frame, as for the project space. */
+	let previewTargetFactsLatest: PreviewTargetFacts | null | undefined;
+	function subscribePreviewTargetFacts(
+		cb: (facts: PreviewTargetFacts | null) => void,
+	): () => void {
+		previewTargetFactsSubs.add(cb);
+		if (previewTargetFactsLatest !== undefined) cb(previewTargetFactsLatest);
+		return () => previewTargetFactsSubs.delete(cb);
+	}
+	function publishPreviewTargetFacts(facts: PreviewTargetFacts | null): void {
+		previewTargetFactsLatest = facts;
+		for (const cb of [...previewTargetFactsSubs]) cb(facts);
 	}
 	const lookupManifestBroker = createLookupManifestBroker();
 	const projectScopeResetRegistry = createProjectScopeResetRegistry();
@@ -728,6 +753,12 @@ export function createReconcilerRuntime(
 			/* Frames carry the server's whole current answer, so the latest one
 			 * simply wins; there is no cursor and no ordering to reconcile. */
 			publishPreviewProjectSpace(frame.projectSpace);
+		});
+		es.addEventListener("preview-target-facts", (ev) => {
+			if (es !== eventSource) return;
+			const frame = parsePreviewTargetFactsFrame((ev as MessageEvent).data);
+			if (frame === null) return; // malformed: leave the retained value alone
+			publishPreviewTargetFacts(frame.facts);
 		});
 		es.addEventListener("lookup-revision", (ev) => {
 			if (es !== eventSource) return;
@@ -1246,6 +1277,7 @@ export function createReconcilerRuntime(
 		presenceSubs,
 		organizationSubs,
 		subscribePreviewProjectSpace,
+		subscribePreviewTargetFacts,
 		lookupManifestBroker,
 		projectScopeResetRegistry,
 		registerPlacementConflictHandler,
@@ -1339,6 +1371,9 @@ export function ReconcilerProvider({
 						subscribePreviewProjectSpace: (
 							cb: (projectSpace: string | null) => void,
 						) => runtime.subscribePreviewProjectSpace(cb),
+						subscribePreviewTargetFacts: (
+							cb: (facts: PreviewTargetFacts | null) => void,
+						) => runtime.subscribePreviewTargetFacts(cb),
 						subscribeLookupManifest: (
 							cb: (manifest: LookupManifest | null) => void,
 						) => runtime.lookupManifestBroker.subscribe(cb),

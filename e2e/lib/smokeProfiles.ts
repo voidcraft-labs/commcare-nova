@@ -41,6 +41,7 @@ export const SMOKE_PROFILES = [
 	"react-profile",
 	"member-role",
 	"app-notices",
+	"kept-baseline",
 	"connect-learn",
 	"identity-moves",
 ] as const satisfies readonly SmokeProfile[];

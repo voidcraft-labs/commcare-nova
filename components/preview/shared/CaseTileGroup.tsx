@@ -1,8 +1,8 @@
 // components/preview/shared/CaseTileGroup.tsx
 //
 // One GROUP drawn as a card: the tile's header rows once, from the
-// group's first case, then the tile's body rows once for every case in
-// the group. The geometry is `CaseTile`'s — this file owns only the
+// card's first case, then the tile's body rows once for every case the
+// card holds. The geometry is `CaseTile`'s — this file owns only the
 // stacking, so a grouped list and a flat list can never disagree about
 // what a tile looks like.
 //
@@ -16,7 +16,10 @@
 // the body rows the template draws have no id, no checkbox, and no
 // handler of their own. A worker who taps anywhere in a group opens its
 // first case, and Nova shows exactly that rather than inventing a
-// per-row selection the device does not have.
+// per-row selection the device does not have. The heading is drawn from
+// that same case, `rows[0]`, so a heading and a choice cannot name two
+// cases: under the list's filter the card holds only the matches, and its
+// first case is its first match, as the client's one model is.
 //
 // Running as Android the list is flat (`lib/preview/platform.ts`,
 // `tileGrouping`): commcare-android reads no group, so every case is a
@@ -35,7 +38,6 @@ import { CaseTile } from "./CaseTile";
 export function CaseTileGroup({
 	projection,
 	columns,
-	headerRow,
 	rows,
 	caseProperties,
 	displayContext,
@@ -44,10 +46,9 @@ export function CaseTileGroup({
 	readonly projection: GroupedTileProjection;
 	/** The columns the tile carries, in the order the projection placed them. */
 	readonly columns: readonly TileResultsColumn[];
-	/** The case the header is drawn from: the group's own first case. */
-	readonly headerRow: CaseRowWithCalculated;
-	/** The group's cases, in the order the list sorted them. */
-	readonly rows: readonly CaseRowWithCalculated[];
+	/** The card's cases, in the order the list sorted them. The first draws
+	 *  the header and is the case choosing the card chooses. */
+	readonly rows: readonly [CaseRowWithCalculated, ...CaseRowWithCalculated[]];
 	readonly caseProperties: readonly CaseProperty[];
 	readonly displayContext: ColumnDisplayContext;
 	readonly className?: string;
@@ -71,7 +72,7 @@ export function CaseTileGroup({
 					<CaseTile
 						projection={projection.header}
 						columns={columns}
-						row={headerRow}
+						row={rows[0]}
 						caseProperties={caseProperties}
 						displayContext={displayContext}
 						surface="results"

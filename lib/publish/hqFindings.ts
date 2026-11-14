@@ -65,6 +65,7 @@ export const SUBJECTS = [
 	"app-settings",
 	"auto-select",
 	"blank-form",
+	"build-profiles",
 	"call-center-indicators",
 	"case-attachments",
 	"case-detail-tabs",

@@ -1,5 +1,6 @@
 import { v5 as uuidv5 } from "uuid";
 import { COMMCARE_SERVERS, type CommCareServer } from "./servers";
+import type { TargetFacts } from "./targetFacts";
 
 /**
  * The one HQ deployment an archive is made for: its server, its project
@@ -18,6 +19,8 @@ export interface RuntimeTarget {
  * With a target, the deployment's own addresses. With none, the neutral
  * template: structural validation and the HQ JSON path, whose import body
  * holds no runtime URL because HQ writes its own when it builds the app.
+ * A project space's custom base URL moves none of them: HQ's own suite
+ * writes these on the server's base whatever the app's `custom_base_url`.
  */
 export function runtimeUrls(target?: RuntimeTarget) {
 	const { base, domain, appId } = target
@@ -52,23 +55,32 @@ export interface ProfileServerProperty {
  * They are the strings HQ's own profile holds for the same app
  * (`templates/app_manager/profile.xml`, `ApplicationBase.ota_restore_url`,
  * `::post_url`, `::key_server_url`, `corehq/apps/users/util.py::cc_user_domain`),
- * with the receiver URL in its plain form because every app Nova imports has
- * `secure_submissions` off. `cc_user_domain` joins the domain to HQ's
- * `HQ_ACCOUNT_ROOT`, which is `commcarehq.org` on every server Nova publishes
- * to, and lower-cases the whole, as HQ's own does.
+ * with the receiver URL HQ's own `post_url` picks: the secure receiver where
+ * the project space's app submits securely, read from the deployment's
+ * `TargetFacts`, and the plain one otherwise. The three URLs stand on the
+ * project space's custom base URL where it holds one, as
+ * `ApplicationBase.url_base` moves all three: `customBaseUrl` is that URL's
+ * origin, which is what HQ's `urljoin` of it with a root path keeps.
+ * `cc_user_domain` joins the domain to HQ's `HQ_ACCOUNT_ROOT`, which is
+ * `commcarehq.org` on every server Nova publishes to, and lower-cases the
+ * whole, as HQ's own does. With no facts, no project space was read, and the
+ * server's own base and the plain receiver stand.
  */
 export function profileServerProperties(
 	target: RuntimeTarget,
+	facts: Pick<TargetFacts, "secureSubmissions" | "customBaseUrl"> | null,
 ): readonly ProfileServerProperty[] {
-	const base = COMMCARE_SERVERS[target.server].baseUrl;
+	const base = facts?.customBaseUrl ?? COMMCARE_SERVERS[target.server].baseUrl;
 	const domain = encodeURIComponent(target.domain);
 	const appId = encodeURIComponent(target.appId);
+	const receiver =
+		facts?.secureSubmissions === true ? "receiver/secure" : "receiver";
 	return [
 		{
 			key: "ota-restore-url",
 			value: `${base}/a/${domain}/phone/restore/${appId}/`,
 		},
-		{ key: "PostURL", value: `${base}/a/${domain}/receiver/${appId}/` },
+		{ key: "PostURL", value: `${base}/a/${domain}/${receiver}/${appId}/` },
 		{ key: "key_server", value: `${base}/a/${domain}/phone/keys/` },
 		{
 			key: "cc_user_domain",

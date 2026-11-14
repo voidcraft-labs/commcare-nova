@@ -10,8 +10,14 @@ import {
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import {
+	replyRetained,
+	retainedReadingRead,
+} from "@/__tests__/helpers/retainedHqReads";
+import { classifyHqFailure } from "../hq/failure";
+import {
 	listHqLookupTables,
 	readHqLookupTableRows,
+	rowsHoldOtherThanOneValue,
 	uploadLookupTableWorkbook,
 } from "../hq/lookupTables";
 
@@ -131,7 +137,7 @@ it("accepts an explicitly complete empty inventory and rejects malformed envelop
 			expect(
 				await listHqLookupTables(CREDS, DOMAIN),
 				JSON.stringify(data),
-			).toMatchObject({ success: false, status: 502 });
+			).toEqual({ success: false, status: 502, cause: "malformed" });
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual([]);
 		expect(
 			peer
@@ -157,6 +163,7 @@ it("does not turn a late failed page into a partial inventory or follow an endle
 			success: false,
 			status: 403,
 			edgeRefusal: false,
+			refusedBody: "No API access",
 		});
 		peer
 			.get(HOST)
@@ -166,6 +173,7 @@ it("does not turn a late failed page into a partial inventory or follow an endle
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual({
 			success: false,
 			status: 508,
+			cause: "malformed",
 		});
 		expect(peer.getCallHistory()?.calls()).toHaveLength(22);
 	});
@@ -189,7 +197,7 @@ it("classifies a disconnected or non-JSON inventory as unavailable", async () =>
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual({
 			success: false,
 			status: 502,
-			cause: "malformed",
+			cause: "browser-page",
 		});
 	});
 });
@@ -206,6 +214,7 @@ it("does not follow an inventory redirect to another project space", async () =>
 			success: false,
 			status: 302,
 			edgeRefusal: false,
+			refusedBody: "Moved",
 		});
 		expect(
 			peer
@@ -580,6 +589,102 @@ it("refuses a failed page and any row shape HQ does not serve", async () => {
 			).toMatchObject({ success: false, status: 502 });
 		});
 	}
+});
+
+it("refuses a definition it would otherwise read with a default", async () => {
+	const answer = retained("lookup-tables.json");
+	if ("exception" in answer) throw new Error("the table list is an answer");
+	const body = JSON.parse(answer.body) as {
+		objects: Record<string, unknown>[];
+	};
+	const edits: readonly ((table: Record<string, unknown>) => void)[] = [
+		(table) => {
+			(table.fields as Record<string, unknown>[])[0].properties = "label";
+		},
+		(table) => {
+			(table.fields as Record<string, unknown>[])[0] = { properties: [] };
+		},
+		(table) => {
+			table.is_global = "yes";
+		},
+		(table) => {
+			table.item_attributes = [7];
+		},
+	];
+	for (const edit of edits) {
+		const edited = structuredClone(body);
+		edit(edited.objects[0]);
+		await withHttpPeer(async (peer) => {
+			serve(peer, LIST, { ...answer, body: JSON.stringify(edited) });
+			expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual({
+				success: false,
+				status: 502,
+				cause: "malformed",
+			});
+		});
+	}
+});
+
+it("keeps the plan refusal's body, so it reads as the plan and never as the key", async () => {
+	const refusal = await withHttpPeer(async (peer) => {
+		replyRetained(
+			peer.get(HOST).intercept({ path: LIST, method: "GET" }),
+			retainedReadingRead("api-access-no-plan"),
+		);
+		return listHqLookupTables(CREDS, DOMAIN);
+	});
+	if (!("success" in refusal)) throw new Error("the refusal read as a list");
+	expect(classifyHqFailure(refusal, "lookup-tables").kind).toBe(
+		"plan-lacks-api-access",
+	);
+});
+
+it("tells rows that hold other than one value in a field from rows that hold one", async () => {
+	const rowsOf = async (tag: string, file: string) => {
+		const table = tableTagged(await retainedTables(), tag);
+		const result = await withHttpPeer(async (peer) => {
+			serve(peer, rowsPath(table.id), retained(file));
+			return readHqLookupTableRows(CREDS, DOMAIN, table.id);
+		});
+		if ("success" in result) throw new Error(`${file} did not read`);
+		return result.rows;
+	};
+	expect(
+		rowsHoldOtherThanOneValue(await rowsOf("rich", "fixture-rows-rich.json")),
+	).toBe(true);
+	expect(
+		rowsHoldOtherThanOneValue(await rowsOf("plain", "fixture-rows-plain.json")),
+	).toBe(false);
+});
+
+it("stops a row read past the caller's limit at the first page's total, and reads every page without one", async () => {
+	const long = tableTagged(await retainedTables(), "long");
+	const first = retained("fixture-rows-long-1.json");
+	if ("exception" in first) throw new Error("the first page is an answer");
+	const next = new URL(
+		(JSON.parse(first.body) as { meta: { next: string } }).meta.next,
+		`${HOST}${rowsPath(long.id)}`,
+	);
+	await withHttpPeer(async (peer) => {
+		serve(peer, rowsPath(long.id), first);
+		expect(
+			await readHqLookupTableRows(CREDS, DOMAIN, long.id, { stopPast: 1004 }),
+		).toEqual({ kind: "past-limit", totalCount: 1005 });
+		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
+	});
+	await withHttpPeer(async (peer) => {
+		serve(peer, rowsPath(long.id), first);
+		serve(
+			peer,
+			next.pathname + next.search,
+			retained("fixture-rows-long-2.json"),
+		);
+		const whole = await readHqLookupTableRows(CREDS, DOMAIN, long.id, {
+			stopPast: 1005,
+		});
+		expect(whole).toMatchObject({ totalCount: 1005 });
+		expect("rows" in whole && whole.rows).toHaveLength(1005);
+	});
 });
 
 /*

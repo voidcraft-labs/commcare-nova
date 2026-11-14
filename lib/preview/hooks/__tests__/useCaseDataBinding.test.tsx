@@ -82,6 +82,7 @@ function scopeContext(projectScopeId: string): ReconcilerContextValue {
 		subscribePresence: unexpected,
 		subscribeAppOrganization: unexpected,
 		subscribePreviewProjectSpace: unexpected,
+		subscribePreviewTargetFacts: unexpected,
 		subscribeLookupManifest: unexpected,
 		subscribeProjectScopeReset: unexpected,
 		isProjectScopeCurrent: unexpected,

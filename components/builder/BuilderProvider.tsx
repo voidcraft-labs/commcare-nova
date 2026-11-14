@@ -41,6 +41,7 @@ import { AppNoticesProvider } from "@/components/builder/notices/AppNoticesConte
 import type { BuilderNotices } from "@/components/builder/notices/appNoticeModel";
 import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceLazyProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
+import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import type { PlacementHold } from "@/lib/doc/placementHolds";
 import {
@@ -89,6 +90,7 @@ export function BuilderProvider({
 	initialAccess,
 	initialBuildUnfinished,
 	initialProjectSpace,
+	initialTargetFacts,
 	initialNotices,
 	userId,
 }: {
@@ -109,6 +111,9 @@ export function BuilderProvider({
 	/** The CommCare HQ project space preview identity answers with, when the
 	 *  app has reached one. Mounted inside, above the form engine. */
 	initialProjectSpace?: string | null;
+	/** What that project space keeps of the settings Preview plays, under
+	 *  the same rule; `null` where Preview holds no facts. */
+	initialTargetFacts?: PreviewTargetFacts | null;
 	/** The app's migration notices, loaded in the same request as the app.
 	 *  Absent for a build with no app yet, which has none. */
 	initialNotices?: BuilderNotices;
@@ -123,6 +128,7 @@ export function BuilderProvider({
 			initialAccess={initialAccess}
 			initialBuildUnfinished={initialBuildUnfinished}
 			initialProjectSpace={initialProjectSpace}
+			initialTargetFacts={initialTargetFacts}
 			initialNotices={initialNotices}
 			userId={userId}
 		>
@@ -145,6 +151,7 @@ function BuilderProviderInner({
 	initialAccess,
 	initialBuildUnfinished,
 	initialProjectSpace,
+	initialTargetFacts,
 	initialNotices,
 	userId,
 }: {
@@ -155,6 +162,8 @@ function BuilderProviderInner({
 	initialBuildUnfinished?: boolean;
 	/** The CommCare HQ project space preview identity answers with. */
 	initialProjectSpace?: string | null;
+	/** What that project space keeps of the settings Preview plays. */
+	initialTargetFacts?: PreviewTargetFacts | null;
 	initialNotices?: BuilderNotices;
 	userId?: string;
 }) {
@@ -195,6 +204,7 @@ function BuilderProviderInner({
 							 *  deployment context must already be established. */}
 							<DeploymentTargetProvider
 								initialProjectSpace={initialProjectSpace ?? null}
+								initialTargetFacts={initialTargetFacts ?? null}
 							>
 								<BuilderFormEngineProvider>
 									<SyncBridge />

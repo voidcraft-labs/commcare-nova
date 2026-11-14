@@ -312,7 +312,7 @@
 		"id": "application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "`build_profiles` (each profile's `name`, `langs`, `practice_mobile_worker_id`)",
+		"item": "`build_profiles` `{}`",
 		"surfaceKeys": [
 			"schema:Application.build_profiles",
 			"schema:BuildProfile",
@@ -322,8 +322,38 @@
 			"schema:BuildProfile.practice_mobile_worker_id",
 			"parser:ProfileParser/profile@buildProfileID"
 		],
+		"valueClass": "empty",
 		"disposition": "TARGET-OWNED",
-		"dispositionCell": "**TARGET-OWNED**: project-space build configuration, excluded on overwrite (`ApplicationBase._update_excluded_fields`), gated by privilege `build_profiles`; an import-create keeps the source's profiles in the new app, and Nova writes none",
+		"dispositionCell": "**TARGET-OWNED**: project-space build configuration, excluded on overwrite (`ApplicationBase._update_excluded_fields`), gated by privilege `build_profiles`; an import-create keeps the source's profiles in the new app, and Nova writes none; a publish reads the profiles and stops where one names a language the app no longer has",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": ["privilege/build_profiles"]
+	},
+	{
+		"id": "application-and-settings/build-profiles-non-empty",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`build_profiles` holding a profile (its `name`, `langs`, `practice_mobile_worker_id`)",
+		"surfaceKeys": [
+			"schema:Application.build_profiles",
+			"schema:BuildProfile",
+			"schema:BuildProfile.doc_type",
+			"schema:BuildProfile.langs",
+			"schema:BuildProfile.name",
+			"schema:BuildProfile.practice_mobile_worker_id",
+			"parser:ProfileParser/profile@buildProfileID"
+		],
+		"valueClass": "non-empty",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: build profiles as part of the app Nova holds. HQ builds each profile with its own `langs` (`app_strings.py::_create_custom_app_strings`, `ApplicationBase.get_build_langs`) and an update never writes the key, so a language Nova adds joins no profile, and a publish stops where a profile names a language the app no longer has (`hq_build_profile_language_missing`)",
+		"subject": "build-profiles",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -710,10 +740,8 @@
 		"item": "`translations` key in a runtime's UI string catalog (Core, Android, Formplayer)",
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "ui-string-override",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `uiStringOverrides[lang][key]`, keyed by the typed set of strings the runtimes read (editor: CommCare Translations; `${N}` checked)",
-		"subject": "app-settings",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept as the project space holds it. A publish carries every key Nova does not own (`appStringKeys.ts::translationKeyOwner` gives `target`) and a `.ccz` made for the project space writes each into that language's app strings",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -725,7 +753,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`translations[lang][key]`",
+			"cell": "the project space's `translations[lang][key]`",
 			"markers": []
 		},
 		"gates": []
@@ -737,10 +765,8 @@
 		"item": "`translations` catalog key HQ fills with its own text, in a language with no override",
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "hq-catalog-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `uiStringCatalogKeys`, the per-key set of catalog keys for which HQ emits its own catalog text in every language that has no override (English from its catalog at the app's version; other languages from HQ's default file or its unversioned catalogs): `SelectKnownAppStrings.get_app_translation_keys` takes the union of keys across languages, so any language's key, empty or not, puts it in the set; an empty value adds nothing else",
-		"subject": "app-settings",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: follows from the keys above: HQ's build writes its own catalog text for a key some language holds, in every language that holds none (`app_strings.py::SelectKnownAppStrings.app_strings_parts`). A publish changes none of it; a `.ccz` cannot write HQ's catalog and says so",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -752,8 +778,8 @@
 			}
 		},
 		"emission": {
-			"cell": "for a key in the set that no language overrides, `''` in the default language; otherwise the overrides alone. HQ's CommCare Translations upload drops a key with no text of its own, and a value equal to the English catalog text in the `en` column, or in the first language's where the app has no `en` (`ui_translations.py::process_ui_translation_upload`), so no spelling survives a download and upload there, for a language whose column keeps a value (a language with no surviving cell keeps its old values, `translations/utils.py::update_app_translations_from_trans_dict`); that round trip is an HQ-side edit the drift check reports",
-			"markers": []
+			"cell": "n/a",
+			"markers": ["n/a"]
 		},
 		"gates": []
 	},
@@ -994,7 +1020,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "media bytes via `POST …/apps/api/{app_id}/multimedia/` (Nova also writes a map with content-hash ids on create today, `bundle.ts::buildMultimediaMap`)",
+			"cell": "media bytes through HQ's multimedia upload; Nova sends no `multimedia_map` in any mode",
 			"markers": []
 		},
 		"gates": []
@@ -1041,10 +1067,8 @@
 			"setting:properties.logo_android_demo"
 		],
 		"valueClass": "android-logos",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `androidLogos.{home, login, demo}`",
-		"subject": "app-logos",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept as the project space holds them. A publish writes no `logo_refs` but to remove a path-only entry (`targetLogoRefs.ts`); a `.ccz` carries no Android logo and says so",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1056,8 +1080,8 @@
 			}
 		},
 		"emission": {
-			"cell": "as for the Web Apps slot: uploaded in HQ, carried by the local `.ccz`",
-			"markers": []
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": ["privilege/commcare_logo_uploader"]
 	},
@@ -1192,14 +1216,8 @@
 		"item": "1 `properties.cc-autoup-freq`",
 		"surfaceKeys": ["setting:properties.cc-autoup-freq"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `freq-never`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoUpdateFrequency`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.autoUpdateFrequency`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `freq-never` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1211,7 +1229,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`freq-never`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `freq-never` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1287,14 +1305,8 @@
 		"item": "4 `properties.cc-days-form-retain`",
 		"surfaceKeys": ["setting:properties.cc-days-form-retain"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `-1`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.daysFormRetain`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.daysFormRetain`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `-1` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1306,7 +1318,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`-1`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `-1` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1318,14 +1330,8 @@
 		"item": "5 `properties.logenabled`",
 		"surfaceKeys": ["setting:properties.logenabled"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `Enabled`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.loggingEnabled`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.loggingEnabled`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `Enabled` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1337,7 +1343,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`Enabled`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `Enabled` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1405,14 +1411,8 @@
 		"item": "13 `properties.cc-autosync-freq`",
 		"surfaceKeys": ["setting:properties.cc-autosync-freq"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `freq-never`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoSyncFrequency`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.autoSyncFrequency`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `freq-never` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1424,7 +1424,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`freq-never`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `freq-never` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1495,14 +1495,8 @@
 		"item": "17 `properties.cc-content-valid`",
 		"surfaceKeys": ["setting:properties.cc-content-valid"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.multimediaValidation`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.multimediaValidation`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `no` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1514,7 +1508,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`no`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `no` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1526,14 +1520,8 @@
 		"item": "18 `properties.unsent-number-limit`",
 		"surfaceKeys": ["setting:properties.unsent-number-limit"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `5`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.unsentFormLimit`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.unsentFormLimit`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `5` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1545,7 +1533,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`5`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `5` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1557,14 +1545,8 @@
 		"item": "19 `properties.unsent-time-limit`",
 		"surfaceKeys": ["setting:properties.unsent-time-limit"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `5`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.unsyncedTimeLimit`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.unsyncedTimeLimit`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `5` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1576,7 +1558,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`5`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `5` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1641,14 +1623,8 @@
 		"item": "22 `properties.cc-resize-images`",
 		"surfaceKeys": ["setting:properties.cc-resize-images"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `none`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.resizeImages`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.resizeImages`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `none` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1660,7 +1636,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`none`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `none` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1672,14 +1648,8 @@
 		"item": "23 `properties.cc-fuzzy-search-enabled`",
 		"surfaceKeys": ["setting:properties.cc-fuzzy-search-enabled"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.fuzzyListSearch`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.fuzzyListSearch`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `no` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1691,7 +1661,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`no`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `no` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1702,10 +1672,8 @@
 		"section": "Settings and profile",
 		"item": "24 `properties.cc-log-entity-detail-enabled`",
 		"surfaceKeys": ["setting:properties.cc-log-entity-detail-enabled"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.logCaseDetailViews`",
-		"subject": "app-settings",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value. Nova writes none; a publish carries it (`projectProfileForTarget` keeps every key it does not name) and a `.ccz` made for the project space writes it where it is set",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1717,7 +1685,7 @@
 			}
 		},
 		"emission": {
-			"cell": "profile property",
+			"cell": "the project space's value where it is set; nothing otherwise",
 			"markers": []
 		},
 		"gates": []
@@ -1729,14 +1697,8 @@
 		"item": "25 `properties.cc-login-duration-seconds`",
 		"surfaceKeys": ["setting:properties.cc-login-duration-seconds"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `86400`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.loginDuration`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.loginDuration`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `86400` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1748,7 +1710,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`86400`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `86400` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1760,14 +1722,8 @@
 		"item": "26 `properties.cc-inflation-target-density`",
 		"surfaceKeys": ["setting:properties.cc-inflation-target-density"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `none`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.imageTargetDensity`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.imageTargetDensity`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `none` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1779,7 +1735,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`none`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `none` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1791,14 +1747,8 @@
 		"item": "27 `properties.cc-gps-auto-capture-accuracy`",
 		"surfaceKeys": ["setting:properties.cc-gps-auto-capture-accuracy"],
 		"valueClass": "within-choices-or-numeric-10",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `10`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoCaptureAccuracy`, any of the setting's choices (the number `10` that HQ's own settings save stores when none was chosen, from the yaml's numeric default against string choices, is the same state as `'10'`)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.autoCaptureAccuracy`, any of the setting's choices (the number `10` that HQ's own settings save stores when none was chosen, from the yaml's numeric default against string choices, is the same state as `'10'`)"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `10` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1810,7 +1760,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`10`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `10` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1822,14 +1772,8 @@
 		"item": "28 `properties.cc-maps-default-layer`",
 		"surfaceKeys": ["setting:properties.cc-maps-default-layer"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `normal`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.defaultMapLayer`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.defaultMapLayer`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `normal` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1841,7 +1785,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`normal`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `normal` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1853,14 +1797,8 @@
 		"item": "29 `properties.cc-enable-tts`",
 		"surfaceKeys": ["setting:properties.cc-enable-tts"],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.textToSpeech`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.textToSpeech`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `no` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1872,7 +1810,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`no`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `no` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1886,14 +1824,8 @@
 			"setting:properties.cc-label-required-questions-with-asterisk"
 		],
 		"valueClass": "within-choices",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.requiredAsterisk`, any of the setting's choices",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`appSettings.requiredAsterisk`, any of the setting's choices"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `no` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1905,7 +1837,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`no`, the value a device reads for an absent key, on both paths (`appProfileSettings.ts::appProfileProperties`: the HQ JSON's `profile.properties`, the local `.ccz` profile's `<property>`); seeded on a publish, which keeps a value the target already holds (`targetOverlay.ts::projectProfileForTarget`)",
+			"cell": "the project space's value where it holds one; Nova's `no` where it holds none, on both paths",
 			"markers": []
 		},
 		"gates": []
@@ -1955,14 +1887,14 @@
 			"parser:ProfileParser/credential@type"
 		],
 		"disposition": "TARGET-OWNED",
-		"dispositionCell": "**TARGET-OWNED**: written by the project page from the domain's `CredentialApplication` row",
+		"dispositionCell": "**TARGET-OWNED**: written by the project space's credential settings from its `CredentialApplication` row (`domain/views/settings.py::CredentialsApplicationSettingsView`); HQ's build writes it as the profile's `<credentials>` (`templates/app_manager/profile.xml`), which Android's work history reads from each installed app (`PersonalIdWorkHistoryViewModel.kt::getWorkHistoryForAppRecord`). A publish carries it (`projectProfileForTarget` keeps every section it does not name), and a `.ccz` made for the project space writes the same block (`compiler.ts::generateProfile`)",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "nothing in the HQ JSON; the local `.ccz` writes `<credentials active=\"true\"><credential level=\"…\" type=\"APP_ACTIVITY\"/></credentials>` where the project space holds a level",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -2375,19 +2307,15 @@
 		"id": "application-and-settings/45-hq-auto-gps-capture",
 		"area": "application-and-settings",
 		"section": "Settings and profile",
-		"item": "45 `hq.auto_gps_capture`",
+		"item": "45 `hq.auto_gps_capture` on a Connect app",
 		"surfaceKeys": [
 			"setting:hq.auto_gps_capture",
 			"schema:Application.auto_gps_capture"
 		],
+		"valueClass": "connect-app",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: `true` on a Connect app, absent otherwise, which keeps the Auto Capture Location a person turned on in HQ (`expander.ts::expandDoc` from `connectType`, `hqShells.ts::applicationShell`); widen: `Form.autoCaptureLocation`, read on every form, since HQ captures location for a form when the form or the app says so (`FormBase.get_auto_gps_capture`)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`Form.autoCaptureLocation`, read on every form, since HQ captures location for a form when the form or the app says so (`FormBase.get_auto_gps_capture`)"
-			}
-		],
+		"dispositionCell": "**HELD**: derived: `true` on a Connect app (`expander.ts::expandDoc` from `connectType`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (`meta/location` submitted empty; HQ's own setting names it Android's, `commcare-app-settings.yml`, `auto_gps_capture`) / RUNS",
@@ -2400,7 +2328,36 @@
 			}
 		},
 		"emission": {
-			"cell": "`true` on a Connect app; absent otherwise, which keeps a value set in HQ",
+			"cell": "`true` (`hqShells.ts::applicationShell`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "45′ `hq.auto_gps_capture` on an app that is not a Connect app",
+		"surfaceKeys": [
+			"setting:hq.auto_gps_capture",
+			"schema:Application.auto_gps_capture"
+		],
+		"valueClass": "not-a-connect-app",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value. A publish leaves the key out; a `.ccz` made for the project space captures location where it is on (`xform/metaBlock.ts::addMetaBlock`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (`meta/location` submitted empty; HQ's own setting names it Android's, `commcare-app-settings.yml`, `auto_gps_capture`) / RUNS",
+			"webApps": {
+				"reading": "ignored",
+				"note": "`meta/location` submitted empty; HQ's own setting names it Android's (`commcare-app-settings.yml`, `auto_gps_capture`)"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "nothing in the HQ JSON; the local `.ccz` captures location with every form where the project space has it on (`xform/metaBlock.ts::addMetaBlock`)",
 			"markers": []
 		},
 		"gates": []
@@ -2549,23 +2506,15 @@
 			"schema:Application.mobile_ucr_restore_version"
 		],
 		"valueClass": "1-0-or-1-5",
-		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: retiring (MOBILE_UCR)",
-		"subject": "mobile-reports",
-		"reasons": [
-			{
-				"kind": "retiring",
-				"gate": "toggle/MOBILE_UCR",
-				"named": "(MOBILE_UCR)"
-			}
-		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value. Its readers are report menus and mobile report choice lists (`suite_xml/features/mobile_ucr.py`, `helpers/validators.py`), which their own entries refuse, and the restore's choice of report fixture version (`fixtures/mobile_ucr.py::_parse_apps`), which Nova never changes because it never writes the key. HQ's settings page offers `2.0` alone and marks any other value an error (`commcare-app-settings.yml`, `commcare_settings.js`)",
 		"platforms": {
-			"kind": "none",
-			"cell": "—"
+			"kind": "not-applicable",
+			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "—",
-			"markers": []
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -2658,10 +2607,8 @@
 			"setting:hq.persistent_menu",
 			"schema:Application.persistent_menu"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.persistentMenu`",
-		"subject": "app-settings",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value. Only Formplayer and the Web Apps client read it, from HQ's own build (`FormplayerPropertyManager`, `templates/app_manager/profile.xml`); a publish leaves the key out",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -2673,8 +2620,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`persistent_menu` (profile `cc-persistent-menu` always emitted)",
-			"markers": []
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -2687,10 +2634,8 @@
 			"setting:hq.show_breadcrumbs",
 			"schema:Application.show_breadcrumbs"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.breadcrumbs` (absent key = model default `true`)",
-		"subject": "app-settings",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: kept at the project space's value. Only Formplayer and the Web Apps client read it, from HQ's own build (`FormplayerPropertyManager`, `templates/app_manager/profile.xml`); a publish leaves the key out",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -2702,8 +2647,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`show_breadcrumbs` explicit",
-			"markers": []
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
