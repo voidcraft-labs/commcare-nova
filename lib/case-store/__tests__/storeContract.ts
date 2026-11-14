@@ -1759,7 +1759,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			// Round-trip: converting back to datetime midnight-extends —
-			// no park in either direction on this pair.
+			// no park in either direction on this pair. The cast writes the
+			// text CommCare HQ stores for the moment, UTC with six fraction
+			// digits (`temporalValues.ts::caseDatetimeValue`), as every
+			// writer of a case's date and time does.
 			const back = await store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
@@ -1773,7 +1776,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 			});
 			expect(after[0]?.properties).toEqual({
-				seen_at: "2026-07-01T00:00:00.000Z",
+				seen_at: "2026-07-01T00:00:00.000000Z",
 			});
 		});
 

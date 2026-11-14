@@ -85,7 +85,7 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 						uuid: IDS.phoneHeld,
 						kind: "hidden",
 						id: "phone_held",
-						calculate: "#form/phone",
+						calculate: "#form/questions/phone",
 					},
 					{
 						uuid: IDS.name,

@@ -65,6 +65,7 @@ export function ProseReferencePicker({
 	const [open, setOpen] = useState(false);
 	const [valueOpen, setValueOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const searchRef = useRef<HTMLInputElement>(null);
 	const [query, setQuery] = useState("");
 	const [error, setError] = useState("");
 	const [activeId, setActiveId] = useState<string>();
@@ -201,6 +202,9 @@ export function ProseReferencePicker({
 					className="w-80 max-h-[var(--available-height)] overflow-y-auto [&>*]:shrink-0"
 					data-inline-toolbar
 					data-prose-editor={proseEditorId(editor)}
+					// The search is where the picker starts, also when the
+					// Calculated value row stands above it as the first tabbable.
+					initialFocus={searchRef}
 					finalFocus={() => (editor.isDestroyed ? false : editor.view.dom)}
 				>
 					<PopoverTitle>{label}</PopoverTitle>
@@ -240,6 +244,9 @@ export function ProseReferencePicker({
 						</p>
 					)}
 					<Input
+						ref={searchRef}
+						autoComplete="off"
+						data-1p-ignore
 						aria-label="Search references"
 						role="combobox"
 						aria-expanded="true"

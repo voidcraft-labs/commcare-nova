@@ -61,10 +61,13 @@ test("Show a title turns a search's title off and on again", {
 	test.setTimeout(120_000);
 	const seed = seedFor(scenario, "workspace");
 	const appId = seed.caseWorkspace.appId;
-	const panel = page.locator("[data-case-search-panel]").first();
+	// The Search panel on the canvas, whose heading is the screen's title, and
+	// the button in it that opens the panel's settings in the rail.
+	const panel = page.locator("[data-search-surface-state]");
+	const editPanel = panel.locator("[data-case-search-panel]");
 	const showTitle = page.locator("[data-search-show-title]");
 	const toggle = showTitle.getByRole("switch", { name: /^Show a title/ });
-	const titleBox = page.getByRole("textbox", { name: "Title" });
+	const titleBox = page.getByRole("textbox", { name: "Title", exact: true });
 	const runningTitle = page.locator("main [data-search-pane-title]");
 
 	const openSearchPanel = async (route: string) => {
@@ -72,14 +75,14 @@ test("Show a title turns a search's title off and on again", {
 		await expect(
 			page.getByRole("heading", { name: "Search", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
-		await panel.click();
+		await editPanel.click();
 		await expect(showTitle).toBeVisible();
 	};
 
 	await test.step("under the source language, off draws no heading on the canvas or in Preview", async () => {
 		await openSearchPanel(seed.caseWorkspace.routes.search);
 		await expect(
-			panel.getByRole("heading", { name: "Find a patient" }),
+			panel.getByRole("heading", { name: "Find a patient", exact: true }),
 		).toBeVisible();
 		await expect(toggle).toBeChecked();
 		await expect(showTitle).toContainText(
@@ -95,7 +98,7 @@ test("Show a title turns a search's title off and on again", {
 		await expect(titleBox).toHaveCount(0);
 		// The canvas draws no title for a search with none.
 		await expect(
-			panel.getByRole("heading", { name: "Find a patient" }),
+			panel.getByRole("heading", { name: "Find a patient", exact: true }),
 		).toHaveCount(0);
 
 		await openPreviewSearch(page);
@@ -104,13 +107,15 @@ test("Show a title turns a search's title off and on again", {
 	});
 
 	await test.step("on again, the title reads Search on the canvas and in Preview", async () => {
-		await panel.click();
+		await editPanel.click();
 		const on = savedWith(page, appId, '"searchScreenTitle":null');
 		await toggle.click();
 		expect((await on).ok()).toBe(true);
 		await expect(toggle).toBeChecked();
 		await expect(titleBox).toHaveValue("Search");
-		await expect(panel.getByRole("heading", { name: "Search" })).toBeVisible();
+		await expect(
+			panel.getByRole("heading", { name: "Search", exact: true }),
+		).toBeVisible();
 
 		await openPreviewSearch(page);
 		await expect(runningTitle).toHaveText("Search");
@@ -155,14 +160,14 @@ test("Show a title turns a search's title off and on again", {
 
 		// No title is one setting, so the source language shows it off too.
 		await selectLanguage(page, "English");
-		await panel.click();
+		await editPanel.click();
 		await expect(toggle).not.toBeChecked();
 		await expect(titleBox).toHaveCount(0);
 	});
 
 	await test.step("under that language, on again gives every language a title", async () => {
 		await selectLanguage(page, "Español");
-		await panel.click();
+		await editPanel.click();
 		const on = savedWith(page, appId, '"searchScreenTitle":null');
 		await toggle.click();
 		expect((await on).ok()).toBe(true);
@@ -174,7 +179,7 @@ test("Show a title turns a search's title off and on again", {
 		await backToEdit(page);
 
 		await selectLanguage(page, "English");
-		await panel.click();
+		await editPanel.click();
 		await expect(toggle).toBeChecked();
 		await expect(titleBox).toHaveValue("Search");
 	});
@@ -197,7 +202,10 @@ test("Blank values keeps the side a person picked through two turns of the direc
 	const blanks = rule.locator("[data-case-ordering-blanks]");
 	const direction = rule.locator("[data-case-ordering-direction]");
 
-	/** The patients Preview lists after a search with nothing typed. */
+	/** The patients Preview lists after a search with nothing typed. Preview
+	 *  keeps a worker's search through a turn to edit and back, so each look
+	 *  ends with Search again: the next one starts on the Search screen and
+	 *  runs a search of its own. */
 	const previewOrder = async () => {
 		const main = await openPreviewSearch(page);
 		await main
@@ -210,6 +218,12 @@ test("Blank values keeps the side a person picked through two turns of the direc
 			timeout: 20_000,
 		});
 		const names = await rows.allInnerTexts();
+		await main
+			.getByRole("button", { name: "Search again", exact: true })
+			.click();
+		await expect(
+			main.getByRole("textbox", { name: "Patient name" }),
+		).toBeVisible();
 		await backToEdit(page);
 		return names;
 	};
