@@ -80,15 +80,21 @@ On every corpus document the checks are structural:
   Nova's emitter) and the document's saved and incomplete form lists
   (``cc-show-saved``, ``cc-show-incomplete``, ``yes`` or ``no``), where a
   person's save in HQ (``hq-side.json``'s ``profileProperties``) stated
-  another value for one, that value; and every other setting of HQ's
-  settings file as HQ does for an app that sets it not
+  another value for one, that value; every other setting the save stated,
+  as HQ's template prints it (``True`` for a switch on); and every other
+  setting of HQ's settings file as HQ does for an app that sets it not
   (``Application.create_profile``: written only where its
   ``commcare_default`` differs from its ``default``, with the default);
   ``profile.ccpr@<state>`` (``profile_settings``). A control retained before
   the document stated the two settings holds no settings in its intent, and
   is read as an app that states none: every setting as HQ writes it then.
 - **The local profile**: each local archive's profile sets the same
-  seventeen at the document's values (``<archive>/profile.ccpr``), and every
+  seventeen at the document's values, where a person's save in HQ stated
+  another value for one, that value, and where the save turned on the
+  detail-view log setting, that setting too (``<archive>/profile.ccpr``): the
+  archive is made for the project space the saves were made in, and writes
+  what it keeps as HQ's build there does
+  (``lib/commcare/keptProfile.ts::targetProfileProperties``). Every
   version it carries is the document's sequence (``local_archive_versions``):
   the profile's ``version``, ``cc-content-version`` and ``cc-app-version``,
   both suite resources it names and ``<suite version>``, every form and
@@ -278,6 +284,19 @@ NOVA_PROFILE_CONSTANTS = {
     "unsent-number-limit": "5",
     "unsent-time-limit": "5",
 }
+
+
+# The settings beside the seventeen that a local archive made for a project space writes at the value the project
+# space holds (lib/commcare/targetFacts.ts::KEPT_PROFILE_PROPERTY_KEYS), fixed here by hand.
+LOCAL_KEPT_UNSTATED = ("cc-log-entity-detail-enabled",)
+
+
+def hq_profile_text(value):
+    """The text HQ's profile template writes for a stored setting value, or None where it writes none
+    (``Application.create_profile`` keeps a value only where it is truthy, and the template prints it)."""
+    if not value:
+        return None
+    return str(value)
 
 
 def stated_settings(intent: Intent) -> dict | None:
@@ -1139,15 +1158,22 @@ def profile_settings(document, intent: Intent, state, configuration, manifest_it
         if key.startswith("setting:properties.")
     }
     for name in sorted(set(settings) | set(stated or {})):
-        if stated is None or name not in stated:
+        if name in (saved or {}):
+            expected = hq_profile_text(saved[name])
+        elif stated is None or name not in stated:
             expected = _unstated_setting(settings[name])
         else:
-            expected = (saved or {}).get(name, stated[name])
+            expected = stated[name]
         observed = properties.get(name)
         if observed != expected:
             path = f"/profile/property[@key={name}]/@value"
             found.append(_difference(document, artifact, path, path, "changed", expected, observed))
     return found
+
+
+def _owned(name):
+    """Whether Nova writes ``name`` at the document's value whatever the project space holds."""
+    return name in ("cc-show-saved", "cc-show-incomplete")
 
 
 def _unstated_setting(item):
@@ -1165,16 +1191,23 @@ def _archive_files(path):
         return {name: archive.read(name) for name in archive.namelist()}
 
 
-def local_profile_settings(document, intent: Intent, files, prefix) -> list:
+def local_profile_settings(document, intent: Intent, files, prefix, saved=None) -> list:
     """A local archive's profile (``files``: its entries) sets the seventeen settings the document states, each at
-    its value; an intent that states none makes no claim."""
+    its value or at the value a person saved in HQ (``saved``), and each kept setting beside them a person saved;
+    an intent that states none makes no claim."""
     stated = stated_settings(intent)
     if stated is None or "profile.ccpr" not in files:
         return []  # the bar reports an archive without a profile
     properties = _properties(_parsed(files["profile.ccpr"]))
     artifact = f"{prefix}/profile.ccpr"
+    saved = saved or {}
+    wanted = {
+        name: hq_profile_text(saved[name]) if name in saved and not _owned(name) else value
+        for name, value in stated.items()
+    }
+    wanted.update({name: hq_profile_text(saved[name]) for name in LOCAL_KEPT_UNSTATED if name in saved})
     found = []
-    for name, expected in sorted(stated.items()):
+    for name, expected in sorted(wanted.items()):
         observed = properties.get(name)
         if observed != expected:
             path = f"/profile/property[@key={name}]/@value"
@@ -1364,9 +1397,11 @@ def state_differences(document, intent, state, configuration, manifest_items, sa
 
 
 def local_differences(document, intent, path, prefix) -> list:
-    """What a local archive holds against the document: its profile's settings and every version it carries."""
+    """What a local archive holds against the document: its profile's settings, at what a person saved in HQ over A
+    where the save stated one, and every version it carries."""
     files = _archive_files(path)
-    return local_profile_settings(document.id, intent, files, prefix) + local_archive_versions(
+    saved = (document.hq_side or {}).get("profileProperties") or {}
+    return local_profile_settings(document.id, intent, files, prefix, saved) + local_archive_versions(
         document.id, intent, files, prefix
     )
 

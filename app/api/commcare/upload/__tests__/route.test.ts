@@ -21,7 +21,10 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import {
+	previewProjectSpaceFor,
+	previewTargetFactsFor,
+} from "@/lib/deployment/previewSpace";
 import {
 	currentResourceIdentities,
 	publishAppToHq,
@@ -39,18 +42,20 @@ vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
 	resolveAppAccess: vi.fn(),
 }));
 vi.mock("@/lib/db/settings", () => ({ getCommCareSettings: vi.fn() }));
-/* Both service functions the route imports. A factory that names only
- * `publishAppToHq` leaves the other `undefined`, and the route throws on
+/* Every service function the route imports. A factory that names only
+ * `publishAppToHq` leaves the others `undefined`, and the route throws on
  * the call rather than failing an assertion, so every case in this file
  * reports an opaque 500 instead of what it meant to check. */
 vi.mock("@/lib/deployment/service", () => ({
 	publishAppToHq: vi.fn(),
 	currentResourceIdentities: vi.fn(async () => new Map<string, string>()),
+	deploymentKept: vi.fn(async () => null),
 }));
 /* The route asks the server what Preview may name; only the server can
  * see whether the app is now live on more than one space. */
 vi.mock("@/lib/deployment/previewSpace", () => ({
 	previewProjectSpaceFor: vi.fn(async () => "acme"),
+	previewTargetFactsFor: vi.fn(async () => null),
 }));
 
 const SESSION = { user: { id: "u1" } };
@@ -335,13 +340,19 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		// project space, which is when `commcare_project` has two real
 		// answers and Nova must name neither.
 		vi.mocked(previewProjectSpaceFor).mockResolvedValue(null as never);
+		const facts = { fuzzyListSearch: true, markRequiredQuestions: false };
+		vi.mocked(previewTargetFactsFor).mockResolvedValue(facts);
 
 		const res = await POST(
 			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
 		);
-		const body = (await res.json()) as { preview_project_space: unknown };
+		const body = (await res.json()) as {
+			preview_project_space: unknown;
+			preview_target_facts: unknown;
+		};
 
 		expect(body.preview_project_space).toBeNull();
+		expect(body.preview_target_facts).toEqual(facts);
 	});
 
 	it("reads success from the attempt, not from what the target holds", async () => {

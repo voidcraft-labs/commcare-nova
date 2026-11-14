@@ -590,13 +590,8 @@
 		],
 		"valueClass": "unique-in-app",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived from the form's UUID (`wireIdentity.ts::derivedFormXmlns`), or the `xmlns` the deployment ledger records for that project space (`app_deployment_identities`, `wireIdentity.ts::targetWireIdentity`); widen: `Form.xmlns`, a stored submission identity an import keeps for a new project space and the local `.ccz`",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`Form.xmlns`, a stored submission identity an import keeps for a new project space and the local `.ccz`"
-			}
-		],
+		"dispositionCell": "**HELD**: derived from the form's UUID (`wireIdentity.ts::derivedFormXmlns`), or the `xmlns` the deployment ledger records for that project space (`app_deployment_identities`, `wireIdentity.ts::targetWireIdentity`): an app brought in from CommCare HQ keeps HQ's `xmlns` for every form on the project space it came from, and takes the derived one everywhere else",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3038,7 +3033,7 @@
 		],
 		"valueClass": "date-and-time-join",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a datetime writer, arriving with step 4 (the reader recognizes exactly that calculate)",
+		"dispositionCell": "**HELD-NEW**: a datetime writer Nova emits from step 4 (`nova_datetime_<question>`); no reader recognizes it yet",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {

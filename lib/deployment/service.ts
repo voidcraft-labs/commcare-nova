@@ -1,6 +1,7 @@
 import "server-only";
 
 import { gzipSync } from "node:zlib";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { HqApplication } from "@/lib/commcare";
 import {
 	type CommCareApiError,
@@ -13,6 +14,7 @@ import {
 	type HqAppSourceRead,
 	readHqAppSource,
 } from "@/lib/commcare/hq/appSource";
+import { classifyHqFailure, type HqFailure } from "@/lib/commcare/hq/failure";
 import type { HqLocationPush } from "@/lib/commcare/hq/locations";
 import { listHqLocations, patchHqLocations } from "@/lib/commcare/hq/locations";
 import {
@@ -33,9 +35,13 @@ import { placementsToHold } from "@/lib/commcare/placementHolds";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
+import {
+	buildProfileLanguageGaps,
+	publishedLanguageCodes,
+} from "@/lib/commcare/targetBuildProfiles";
 import { compareToVersionFloor } from "@/lib/commcare/versionFloor";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { getHqCredentials } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { declaresWebApps, organizationLevelsOf } from "@/lib/domain";
@@ -45,6 +51,7 @@ import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
+import type { KeptRefreshKind } from "@/lib/publish/keptValues";
 import type {
 	AcceptPlacementMoves,
 	PlacementMoveOfferView,
@@ -60,7 +67,7 @@ import {
 } from "./confirmations";
 import { publishedEntryPoints } from "./entryPointManifest";
 import type { PublishedEntryPointManifest } from "./entryPointTypes";
-import { DeploymentError } from "./errors";
+import { DeploymentError, deploymentNotFound } from "./errors";
 import {
 	canonicalLookupTable,
 	canonicalPlace,
@@ -78,6 +85,7 @@ import { recordPublishPlacements } from "./placements";
 import { narrowingTo } from "./platformNarrowing";
 import type { LocationPushPlan, LookupPushPlan } from "./preflight";
 import {
+	buildProfileLanguageFailure,
 	CREATED_APP_IS_EMPTY,
 	hqAppSourceReadFailure,
 	type PreflightCheck,
@@ -107,7 +115,10 @@ import {
 	type SetupArtifact,
 	type SetupArtifactLookupTable,
 } from "./setupArtifact";
-import { deploymentIsObservable } from "./stateMachine";
+import {
+	deploymentDisplaysAsReached,
+	deploymentIsObservable,
+} from "./stateMachine";
 import {
 	applyDeploymentObservation,
 	beginDeploymentContentWrite,
@@ -117,13 +128,17 @@ import {
 	foldDeploymentAttempt,
 	markResourceBaselinesUnread,
 	type RecordRemoteResourceInput,
+	readAppBaseline,
 	readDeployment,
 	readDeploymentIdentityOverrides,
 	readResourceBaselines,
+	readTargetFacts,
 	recordCreatedRemoteApp,
 	recordPushedResources,
+	recordRefreshedAppBaseline,
 	recordRemoteResource,
 } from "./store";
+import { keptListFor } from "./targetFacts";
 import type {
 	AppBaselineWrite,
 	AppOwnership,
@@ -132,6 +147,7 @@ import type {
 	DeploymentConfirmationKey,
 	DeploymentConfirmationNeeded,
 	DeploymentFailure,
+	DeploymentKept,
 	DeploymentRemoteChange,
 	DeploymentResource,
 	DeploymentResourceConflict,
@@ -992,7 +1008,9 @@ export async function publishAppToHq(
 			if (!created.success) {
 				return refused("resources", {
 					code: "hq_rejected_upload",
-					message: importRejectionMessage(created),
+					message: importRejectionMessage(
+						classifyHqFailure(created, "app-import"),
+					),
 					details: [],
 				});
 			}
@@ -1220,6 +1238,19 @@ export async function publishAppToHq(
 					details: [],
 				});
 			}
+			/* A build profile saved in HQ while the tables and places went is
+			 * held to the same rule preflight holds the first read to: no API
+			 * key can change one, so the content is not sent over it. */
+			const gaps = buildProfileLanguageGaps(
+				publishedLanguageCodes(prepared.doc),
+				read.source.buildProfiles,
+			);
+			if (gaps.length > 0) {
+				return refused(
+					"upload",
+					buildProfileLanguageFailure(domain, gaps, true),
+				);
+			}
 			source = read.source;
 		}
 
@@ -1248,7 +1279,9 @@ export async function publishAppToHq(
 			 * which is exactly what a retry resumes from. */
 			return refused("upload", {
 				code: "hq_rejected_upload",
-				message: importRejectionMessage(result),
+				message: importRejectionMessage(
+					classifyHqFailure(result, "app-import"),
+				),
 				details: [],
 			});
 		}
@@ -2323,23 +2356,47 @@ async function uploadMediaBytes(
 	});
 }
 
-function importRejectionMessage(error: CommCareApiError): string {
-	/* A refusal from the edge in front of CommCare HQ, which never saw the
-	 * request. Its status is a proxy's, so none of the readings below apply:
-	 * reporting a 403 here as a missing Edit Apps permission sends someone
-	 * to ask an administrator for access they already have. */
-	if (error.edgeRefusal) {
-		return "A security gateway in front of CommCare HQ turned this upload away before CommCare HQ received it, so it doesn't reflect your permissions or anything in your app. Nova can't clear this one from here. Dimagi support (support@dimagi.com) can exclude the app import endpoint from the rule that matched.";
+/**
+ * The sentence for an import CommCare HQ or its edge refused, chosen by the
+ * failure's kind. A page for a browser in place of an answer is worded by
+ * its status, as it always has been.
+ */
+export function importRejectionMessage(failure: HqFailure): string {
+	switch (failure.kind) {
+		/* A refusal from the edge in front of CommCare HQ, which never saw the
+		 * request. Its status is a proxy's, so none of the readings below
+		 * apply: reporting a 403 here as a missing Edit Apps permission sends
+		 * someone to ask an administrator for access they already have. */
+		case "gateway-refused":
+			return "A security gateway in front of CommCare HQ turned this upload away before CommCare HQ received it, so it doesn't reflect your permissions or anything in your app. Nova can't clear this one from here. Dimagi support (support@dimagi.com) can exclude the app import endpoint from the rule that matched.";
+		case "key-not-accepted":
+		case "plan-lacks-api-access":
+		case "api-cut-off":
+			return "CommCare HQ didn't accept your API key. Update it in Settings, then publish again.";
+		case "permission":
+		case "not-a-member":
+			return "Your CommCare HQ account can't create apps in this project space. Ask an administrator there for the Edit Apps permission.";
+		case "rate-limited":
+			return "CommCare HQ is rate limiting requests right now. Wait a moment and publish again.";
+		case "hq-unavailable":
+		case "timed-out":
+		case "too-large":
+		case "answer-unreadable":
+			return IMPORT_UNAVAILABLE;
+		case "browser-only":
+			return failure.status >= 500
+				? IMPORT_UNAVAILABLE
+				: importRefused(failure.status);
+		case "not-found":
+		case "refused":
+			return importRefused(failure.status);
 	}
-	const status = error.status;
-	if (status === 401)
-		return "CommCare HQ didn't accept your API key. Update it in Settings, then publish again.";
-	if (status === 403)
-		return "Your CommCare HQ account can't create apps in this project space. Ask an administrator there for the Edit Apps permission.";
-	if (status === 429)
-		return "CommCare HQ is rate limiting requests right now. Wait a moment and publish again.";
-	if (status >= 500)
-		return "CommCare HQ is unavailable right now. Try publishing again in a few minutes.";
+}
+
+const IMPORT_UNAVAILABLE =
+	"CommCare HQ is unavailable right now. Try publishing again in a few minutes.";
+
+function importRefused(status: number): string {
 	return `CommCare HQ refused the app (HTTP ${status}).`;
 }
 
@@ -2347,7 +2404,7 @@ function importRejectionMessage(error: CommCareApiError): string {
  * Prove the caller's stored key belongs to the server this deployment
  * targets.
  *
- * `getCredentialsForUpload` takes no server: it returns whichever
+ * `getHqCredentials` takes no server: it returns whichever
  * installation the caller's own key is on. A Project co-member whose key
  * is on India, refreshing a `production` deployment whose domain slug also
  * exists there, would otherwise read the wrong installation and be told
@@ -2420,10 +2477,7 @@ export async function refreshDeployment(
 		);
 	}
 
-	const credResult = await getCredentialsForUpload(
-		scope.actorUserId,
-		target.domain,
-	);
+	const credResult = await getHqCredentials(scope.actorUserId, target.domain);
 	const now = new Date().toISOString();
 	/* Whose problem this is decides who hears about it. A missing key, or
 	 * one that no longer reaches the project space, belongs to the person
@@ -2467,4 +2521,180 @@ export async function refreshDeployment(
 		deployment: view,
 		artifact: await setupArtifactFor(scope, view, doc, locations),
 	};
+}
+
+/**
+ * The kept list a deployment's card, its MCP projection and a publish answer
+ * show: the label ids `keptListFor` names over the stored baseline's facts,
+ * with the baseline's date. Null where the app's content is not on the
+ * project space, and where the baseline gives no facts (none stored, an
+ * unread one, a shell's, or one that does not verify).
+ */
+export async function deploymentKept(
+	scope: DeploymentScope,
+	view: DeploymentWithResources,
+): Promise<DeploymentKept | null> {
+	if (
+		publishedRemoteApp(view) === null ||
+		!deploymentDisplaysAsReached(view.deployment, "uploaded")
+	) {
+		return null;
+	}
+	const facts = await readTargetFacts(scope, {
+		server: view.deployment.server,
+		domain: view.deployment.domain,
+	});
+	return facts === null
+		? null
+		: { labels: keptListFor(facts), observedAt: facts.observedAt };
+}
+
+/** What Refresh from CommCare HQ amounted to. Every kind but `refreshed` wrote nothing. */
+export type KeptRefreshOutcome =
+	| { readonly kind: "refreshed"; readonly deployment: DeploymentWithResources }
+	/** Something Nova publishes differs from the baseline. Nothing is written. */
+	| { readonly kind: "changed-in-hq" }
+	/** A publish replaced the baseline while CommCare HQ was being read. Nothing is written. */
+	| {
+			readonly kind: "superseded";
+			readonly deployment: DeploymentWithResources;
+	  }
+	| { readonly kind: "no-baseline" }
+	| { readonly kind: "app-gone" }
+	/** CommCare HQ answered with something that is no app Nova can read. */
+	| { readonly kind: "unreadable" }
+	/** CommCare HQ did not accept the stored key for this read. */
+	| { readonly kind: "key-not-accepted" }
+	/** CommCare HQ turned the account away for this read. */
+	| { readonly kind: "no-permission" }
+	| { readonly kind: "unavailable" };
+
+/* The client-safe copy restates the kinds; each must name exactly the other's. */
+type _KeptKindsAgree = [KeptRefreshOutcome["kind"]] extends [KeptRefreshKind]
+	? [KeptRefreshKind] extends [KeptRefreshOutcome["kind"]]
+		? true
+		: never
+	: never;
+const _keptKindsAgree: _KeptKindsAgree = true;
+
+/**
+ * What a failed read of the app's source answers, by the source read's
+ * ladder. The source view runs `api_auth` and `require_can_edit_apps` with
+ * no plan check and no cut-off check (`app_manager/views/apps.py::app_source`),
+ * so a 401 there is the key alone; the plan and cut-off kinds are answered
+ * as the account's permission all the same, should one arrive.
+ */
+function keptReadFailure(
+	error: CommCareApiError,
+): Exclude<KeptRefreshOutcome["kind"], "refreshed" | "superseded"> {
+	if (error.cause === "malformed") return "unreadable";
+	switch (classifyHqFailure(error, "app-source").kind) {
+		case "key-not-accepted":
+			return "key-not-accepted";
+		case "not-a-member":
+		case "permission":
+		case "plan-lacks-api-access":
+		case "api-cut-off":
+			return "no-permission";
+		case "answer-unreadable":
+			return "unreadable";
+		default:
+			return "unavailable";
+	}
+}
+
+/**
+ * Read the settings a project space keeps in CommCare HQ again, without a
+ * publish.
+ *
+ * Nova otherwise reads them only when a publish reads the app's source, so a
+ * person who turns fuzzy search on in CommCare HQ would wait for the next
+ * publish before Preview and a downloaded `.ccz` follow it. This is that read
+ * alone. The baseline is replaced whole, and only where the read compares
+ * equal to it by the publish's own comparison: a baseline stays one read of
+ * CommCare HQ with one date, and replacing it where nothing Nova publishes
+ * has moved changes no later drift verdict. Where something has, nothing is
+ * written and the person is told.
+ *
+ * It authorizes `edit`, as Check status does: it writes the baseline and
+ * reads CommCare HQ with the acting member's own key, whose absence or reach
+ * is raised as a `DeploymentError` that writes nothing.
+ */
+export async function refreshKeptValues(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<KeptRefreshOutcome> {
+	if (!roleAllowsApp(scope.role, "edit")) throw deploymentNotFound();
+
+	// 1. The deployment and the baseline the read is compared with.
+	const existing = await readDeployment(scope, target);
+	const remote = existing === null ? null : activeRemoteApp(existing);
+	if (remote === null) return { kind: "no-baseline" };
+	const baseline = await readAppBaseline(scope, target);
+	if (
+		baseline === null ||
+		baseline.origin === "unread" ||
+		baseline.origin === "create" ||
+		baseline.remoteAppId !== remote.remoteId
+	) {
+		return { kind: "no-baseline" };
+	}
+
+	// 2. The caller's own connection, checked as Check status checks it.
+	const credResult = await getHqCredentials(scope.actorUserId, target.domain);
+	if (!credResult.ok) {
+		throw credResult.error === "not_configured"
+			? new DeploymentError(
+					"hq_not_connected",
+					"CommCare HQ isn't connected on your account, so Nova can't read these again. You can add your API key in Settings, then refresh.",
+				)
+			: new DeploymentError(
+					"domain_not_authorized",
+					`Your CommCare HQ API key can't reach “${target.domain}”, so Nova can't read these again. What you see is the last thing Nova saw.`,
+				);
+	}
+	assertCredentialsMatchServer(credResult.creds, target);
+
+	// 3. The read's date, taken before the request is sent, so a slow answer
+	//    never outdates a publish that imported after this moment.
+	const observedAt = new Date().toISOString();
+
+	// 4. The app's source as CommCare HQ holds it now.
+	const read = await readHqAppSource(
+		credResult.creds,
+		credResult.domain.name,
+		remote.remoteId,
+	);
+	if ("success" in read) return { kind: keptReadFailure(read) };
+	if (read.kind === "gone") return { kind: "app-gone" };
+	if (read.kind === "unsupported") return { kind: "unreadable" };
+
+	// 5. Normalized as a stored baseline is.
+	const normalized = normalizeHqAppSource(read.source.raw);
+	if ("malformed" in normalized) return { kind: "unreadable" };
+
+	// 6. The publish's own comparison. Any part is a change made in HQ.
+	const parts = diffHqAppSource({
+		baseline: baseline.source,
+		current: normalized.normalized,
+		ownership: baseline.ownership,
+		shell: false,
+		schemaDefault: schemaPropertyDefault,
+	});
+	if (parts.length > 0) return { kind: "changed-in-hq" };
+
+	// 7. Nothing Nova publishes moved: the fresh read replaces the baseline.
+	const written = await recordRefreshedAppBaseline(scope, target, {
+		remoteAppId: remote.remoteId,
+		comparedDigest: baseline.sourceDigest,
+		read: {
+			sourceGzip: gzipSync(Buffer.from(normalized.text, "utf8")),
+			sourceBytes: normalized.bytes,
+			sourceDigest: normalized.digest,
+			observedAt,
+		},
+	});
+	return written.outcome === "written"
+		? { kind: "refreshed", deployment: written.deployment }
+		: { kind: "superseded", deployment: written.deployment };
 }

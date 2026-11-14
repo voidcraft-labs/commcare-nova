@@ -28,7 +28,10 @@ HQ's URLconf and answered by the view it names, decorators and all.
   naming fewer is not what a person's page sends and is refused (``HqSideSaveRefused``);
 - ``profileProperties``: each setting the person changes on the app settings page, posted as that page posts it
   (``{"properties": {...}}``) to ``views/settings.py::edit_commcare_profile``, which stores each beside the
-  settings A holds (and, under ``CUSTOM_PROPERTIES``, resets ``custom_properties`` to ``{}``).
+  settings A holds (and, under ``CUSTOM_PROPERTIES``, resets ``custom_properties`` to ``{}``);
+- ``profileFeatures``: each profile feature the person changes on the same page (the worker activity level
+  ``credentials`` among them), posted as that page posts it (``{"features": {...}}``) to the same view, which stores
+  each beside the features A holds, with the same reset.
 
 ``hq-side.json`` also states what Nova's next publish over the saves does (``republish``, with ``stopCode`` where
 it stops), which the capture holds at emission (``proof/corpus/publish.ts``); neither is a save.
@@ -297,6 +300,12 @@ def profile_properties(unit, app_id, properties):
     return [_answer(unit, "POST", "edit_commcare_profile", [unit.domain, app_id], body, content_type, "app settings")]
 
 
+def profile_features(unit, app_id, features):
+    """Each profile feature saved as the app settings page saves it."""
+    body, content_type = _json_body({"features": dict(sorted(features.items()))})
+    return [_answer(unit, "POST", "edit_commcare_profile", [unit.domain, app_id], body, content_type, "app features")]
+
+
 SAVES = (
     ("uiTranslations", lambda unit, app_id, value: ui_translations(unit, app_id, value)),
     ("appAttributes", lambda unit, app_id, value: app_attributes(unit, app_id, value)),
@@ -304,6 +313,7 @@ SAVES = (
     ("lookupTable", lambda unit, app_id, value: lookup_table(unit, value)),
     ("addOns", lambda unit, app_id, value: add_ons(unit, app_id, value)),
     ("profileProperties", lambda unit, app_id, value: profile_properties(unit, app_id, value)),
+    ("profileFeatures", lambda unit, app_id, value: profile_features(unit, app_id, value)),
 )
 # What ``hq-side.json`` states beside the saves: what Nova's next publish over them does.
 STATEMENTS = ("republish", "stopCode")

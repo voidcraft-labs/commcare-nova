@@ -78,6 +78,7 @@ import { hqSideState } from "./documents/hqSideState";
 import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
 import { inlineSearchReads } from "./documents/inlineSearchReads";
 import { instanceReads } from "./documents/instanceReads";
+import { keptValues } from "./documents/keptValues";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupNames } from "./documents/lookupNames";
@@ -144,6 +145,7 @@ import {
 } from "./documents/stableWitnesses";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
+import { tileGroupFilter } from "./documents/tileGroupFilter";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
 /** Every targeted document's maker, in the corpus's order. */
@@ -262,6 +264,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formsInMenuAboveOneCase,
 	registerFromCaseList,
 	registerFromCaseListWebApps,
+	tileGroupFilter,
+	keptValues,
 ];
 
 /** Every targeted document, in a fixed order. */

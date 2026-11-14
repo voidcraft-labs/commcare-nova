@@ -12,6 +12,7 @@ import "server-only";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import type { PreparedExportBoundary } from "./boundaryValidation";
 
@@ -22,11 +23,14 @@ import type { PreparedExportBoundary } from "./boundaryValidation";
  * names its server, its project space and the HQ app that holds the app
  * there, and `identity` gives that deployment's menu and form ids. So no
  * archive is compiled without a target, and its profile tells a phone where
- * to sign in, sync and send forms. `deployment` gives the two other facts of
+ * to sign in, sync and send forms. `deployment` gives the other facts of
  * that deployment the archive reads: whether the project space holds
  * `USH_EMPTY_CASE_LIST_TEXT`, so every case list carries the empty-list text
- * exactly where HQ's build there does, and how many HQ apps the deployment
- * held before this one, which the archive's version counts.
+ * exactly where HQ's build there does; how many HQ apps the deployment held
+ * before this one, which the archive's version counts; and what the project
+ * space keeps of the values Nova leaves to CommCare HQ (`targetFacts`, read
+ * from the deployment's baseline, or null where none was read), which the
+ * archive writes as HQ's build there does.
  *
  * The expander stamps the prepared media manifest's references, resolves
  * attachment links against the prepared target, and names lookup tables
@@ -42,6 +46,7 @@ export function compileLocalArchive(
 	deployment: {
 		readonly emptyCaseListText: boolean;
 		readonly earlierHqApps: number;
+		readonly targetFacts: TargetFacts | null;
 	},
 ): Buffer {
 	if (prepared.mode !== "ccz") {
@@ -65,6 +70,7 @@ export function compileLocalArchive(
 		compiledAtSeq,
 		earlierHqApps: deployment.earlierHqApps,
 		emptyCaseListText: deployment.emptyCaseListText,
+		targetFacts: deployment.targetFacts,
 		...(prepared.lookupWire !== undefined && { lookup: prepared.lookupWire }),
 	});
 }

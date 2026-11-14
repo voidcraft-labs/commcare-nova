@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
+import { rowsMatchingFilterText } from "@/components/preview/shared/listFilter";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	type CaseListConfig,
@@ -18,6 +18,7 @@ import { projectProseTemplate } from "@/lib/domain/prose";
 import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { previewCaseListOrderPlan } from "@/lib/preview/engine/caseListOrder";
+import { previewPlatformRules } from "@/lib/preview/platform";
 
 const NAME = testUuid("filter-off-list-name");
 const VILLAGE = testUuid("filter-off-list-village");
@@ -82,12 +83,19 @@ function filterFindsVillage(slots: ColumnCommonSlots): boolean {
 	});
 	const mod = doc.modules[doc.moduleOrder[0]];
 	const shown = columns.filter((column) => column.visibleInList !== false);
-	return rowMatchesFilterText(
-		shown,
-		amina,
-		"Riverside",
-		DISPLAY,
-		previewCaseListOrderPlan(mod, doc, config),
+	return (
+		rowsMatchingFilterText(
+			shown,
+			[amina],
+			"Riverside",
+			DISPLAY,
+			previewCaseListOrderPlan(mod, doc, config),
+			{
+				fuzzy: false,
+				rules: previewPlatformRules("web-apps").listFilter,
+				edited: true,
+			},
+		).length === 1
 	);
 }
 

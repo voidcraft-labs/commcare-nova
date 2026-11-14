@@ -32,20 +32,76 @@ export interface CommCareApiError {
 	 */
 	edgeRefusal?: boolean;
 	/**
-	 * Why a read synthesized its status rather than taking one CommCare HQ
-	 * answered: no answer reached Nova (`network`, a 503), the request's
-	 * deadline ran out first (`timeout`, a 503), or the answer could not be
-	 * read as what was asked for (`malformed`, a 502). Absent on a status
-	 * CommCare HQ or its edge answered. A caller that retries reads it to tell
-	 * a passing fault from an answer that will not change.
+	 * Why a read synthesized its status: no answer reached Nova (`network`,
+	 * 503), the deadline ran out (`timeout`, 503), the body was longer than
+	 * the read's bound (`too-large`, 502), the answer was a page for a browser
+	 * where JSON was asked (`browser-page`, 502), or it could not be read as
+	 * what was asked for (`malformed`, 502, or 508 for a list whose cursor
+	 * never ends). Absent on a status CommCare HQ or its edge answered.
 	 */
-	cause?: "network" | "timeout" | "malformed";
+	cause?: "network" | "timeout" | "malformed" | "too-large" | "browser-page";
 	/**
 	 * The wait the response's `Retry-After` asked for, in milliseconds, when
 	 * it was a count of seconds (`retryAfterMs`). Absent when the response
 	 * sent none, sent an HTTP date, or was never read.
 	 */
 	retryAfterMs?: number;
+	/**
+	 * The first `HQ_REFUSED_BODY_MAX_CHARS` characters of a refused answer's
+	 * body, present only where the read asked for it
+	 * (`ReadHqJsonOptions.keepRefusedBody`). Read only inside this module,
+	 * never shown and never logged beyond the 200 characters
+	 * `warnAndReturnError` already logs.
+	 */
+	refusedBody?: string;
+}
+
+/** The most characters of a refused answer's body a read keeps as `refusedBody`. */
+export const HQ_REFUSED_BODY_MAX_CHARS = 2_048;
+/** The most bytes of a refused answer's body a read takes in before it cuts `refusedBody`. */
+export const HQ_REFUSED_BODY_READ_MAX_BYTES = 64 * 1024;
+
+/**
+ * `api/resources/__init__.py::HqBaseResource.dispatch`, the plan refusal:
+ * the project space's subscription has no API access. The check runs before
+ * tastypie authenticates, so it answers every key, a superuser's included.
+ */
+export const HQ_API_ACCESS_REFUSAL =
+	"Your current subscription does not have access to this feature";
+/**
+ * The same method's refusal while the `API_BLACKLIST` toggle is on for the
+ * request's user or project space. Two spaces after "requests.".
+ */
+export const HQ_API_CUT_OFF_REFUSAL =
+	"API access has been temporarily cut off due to too many requests.  To re-enable, please contact support.";
+
+/**
+ * `plan` or `cut-off` where a 401 CommCare HQ itself answered holds exactly
+ * one of the two sentences of `HqBaseResource.dispatch` as its `error`, and
+ * null for every other answer. Any other 401 is a key HQ did not accept,
+ * never a guess at the plan.
+ */
+export function apiRefusalSentence(
+	error: CommCareApiError,
+): "plan" | "cut-off" | null {
+	if (
+		error.status !== 401 ||
+		error.edgeRefusal === true ||
+		error.refusedBody === undefined
+	)
+		return null;
+	let body: unknown;
+	try {
+		body = JSON.parse(error.refusedBody);
+	} catch {
+		return null;
+	}
+	if (typeof body !== "object" || body === null || Array.isArray(body))
+		return null;
+	const sentence = (body as Record<string, unknown>).error;
+	if (sentence === HQ_API_ACCESS_REFUSAL) return "plan";
+	if (sentence === HQ_API_CUT_OFF_REFUSAL) return "cut-off";
+	return null;
 }
 
 /**
@@ -206,15 +262,37 @@ export async function logAndReturnError(
  * Sentry event per click for a state nobody can action from Nova's side.
  * `log.warn` stays Cloud-Logging-only, which is the repo's line for
  * expected-but-worth-recording conditions.
+ *
+ * Handed `bodyAlreadyRead`, it logs and builds the error from that text and
+ * never touches `res.body`, for a read that has consumed the body itself.
  */
-export async function warnAndReturnError(
+export function warnAndReturnError(
 	context: string,
 	res: Response,
-): Promise<CommCareApiError> {
-	let body = "";
-	try {
-		body = await res.text();
-	} catch {}
+): Promise<CommCareApiError>;
+export function warnAndReturnError(
+	context: string,
+	res: Response,
+	bodyAlreadyRead: string,
+): CommCareApiError;
+export function warnAndReturnError(
+	context: string,
+	res: Response,
+	bodyAlreadyRead?: string,
+): Promise<CommCareApiError> | CommCareApiError {
+	if (bodyAlreadyRead !== undefined)
+		return warnWithBody(context, res, bodyAlreadyRead);
+	return res.text().then(
+		(body) => warnWithBody(context, res, body),
+		() => warnWithBody(context, res, ""),
+	);
+}
+
+function warnWithBody(
+	context: string,
+	res: Response,
+	body: string,
+): CommCareApiError {
 	log.warn(`[commcare] ${context}`, {
 		status: res.status,
 		body: body.substring(0, 200),

@@ -6,9 +6,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
+import { rowsMatchingFilterText } from "@/components/preview/shared/listFilter";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
+	type CaseListOrderPlan,
+	type Column,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
@@ -42,6 +44,7 @@ import type {
 	CaseRowWithCalculated,
 	JsonObject,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { previewPlatformRules } from "@/lib/preview/platform";
 import { renderCalculatedCell, renderColumnCell } from "../columnCellRenderer";
 import { admittedWorkspace } from "./admittedWorkspace";
 
@@ -187,9 +190,7 @@ describe("case-list Preview cell formatting", () => {
 			const html = renderToStaticMarkup(renderColumnCell(column, row, android));
 			expect(html).not.toContain("href=");
 			expect(visibleText(html)).toBe("[View photo](https://example.org/x)");
-			expect(rowMatchesFilterText([column], row, "example.org", android)).toBe(
-				true,
-			);
+			expect(filterKeepsRow([column], row, "example.org", android)).toBe(true);
 			/* Blank in, blank out, as the column's display expression gives. */
 			expect(
 				projectColumnDisplay(column, makeRow({ photo_url: "" }), android),
@@ -230,12 +231,12 @@ describe("case-list Preview cell formatting", () => {
 				kind: "value",
 				text: address.trim(),
 			});
-			expect(
-				rowMatchesFilterText([column], row, "View photo", EMPTY_CONTEXT),
-			).toBe(false);
+			expect(filterKeepsRow([column], row, "View photo", EMPTY_CONTEXT)).toBe(
+				false,
+			);
 			if (address.trim())
 				expect(
-					rowMatchesFilterText([column], row, address.trim(), EMPTY_CONTEXT),
+					filterKeepsRow([column], row, address.trim(), EMPTY_CONTEXT),
 				).toBe(true);
 		},
 	);
@@ -377,12 +378,10 @@ describe("case-list Preview cell formatting", () => {
 		};
 		for (const property of ["date_opened", "last_modified"]) {
 			const plain = plainColumn(COLUMN_UUID, property, "When");
-			expect(
-				rowMatchesFilterText([plain], row, "2026-09-29", EMPTY_CONTEXT),
-			).toBe(true);
-			expect(rowMatchesFilterText([plain], row, "23:57", EMPTY_CONTEXT)).toBe(
-				false,
+			expect(filterKeepsRow([plain], row, "2026-09-29", EMPTY_CONTEXT)).toBe(
+				true,
 			);
+			expect(filterKeepsRow([plain], row, "23:57", EMPTY_CONTEXT)).toBe(false);
 			expect(projectColumnDisplay(plain, row, EMPTY_CONTEXT)).toEqual({
 				kind: "value",
 				text: "2026-09-29",
@@ -432,9 +431,7 @@ describe("case-list Preview cell formatting", () => {
 			kind: "value",
 			text: "2026-09-30",
 		});
-		expect(rowMatchesFilterText([opened], row, "2026-09-30", results)).toBe(
-			true,
-		);
+		expect(filterKeepsRow([opened], row, "2026-09-30", results)).toBe(true);
 		expect(
 			projectColumnDisplay(
 				dateColumn(COLUMN_UUID, "date_opened", "Opened", "%Y-%m-%d %H:%M"),
@@ -670,18 +667,12 @@ describe("case-list Preview cell formatting", () => {
 		const columns = [status, visit, followUp, ready];
 		const context: ColumnDisplayContext = EMPTY_CONTEXT;
 
-		expect(rowMatchesFilterText(columns, row, "Active Urgent", context)).toBe(
-			true,
-		);
-		expect(rowMatchesFilterText(columns, row, "July 14", context)).toBe(true);
-		expect(rowMatchesFilterText(columns, row, "follow-up due", context)).toBe(
-			true,
-		);
-		expect(rowMatchesFilterText(columns, row, "Yes", context)).toBe(true);
-		expect(rowMatchesFilterText([status], row, "unknown", context)).toBe(false);
-		expect(rowMatchesFilterText(columns, row, '["active"', context)).toBe(
-			false,
-		);
+		expect(filterKeepsRow(columns, row, "Active Urgent", context)).toBe(true);
+		expect(filterKeepsRow(columns, row, "July 14", context)).toBe(true);
+		expect(filterKeepsRow(columns, row, "follow-up due", context)).toBe(true);
+		expect(filterKeepsRow(columns, row, "Yes", context)).toBe(true);
+		expect(filterKeepsRow([status], row, "unknown", context)).toBe(false);
+		expect(filterKeepsRow(columns, row, '["active"', context)).toBe(false);
 	});
 
 	it("uses the first selected image mapping as its alt and filter text", () => {
@@ -709,10 +700,8 @@ describe("case-list Preview cell formatting", () => {
 			kind: "image",
 			text: "Primary alert",
 		});
-		expect(rowMatchesFilterText([column], row, "primary", context)).toBe(true);
-		expect(rowMatchesFilterText([column], row, "secondary", context)).toBe(
-			false,
-		);
+		expect(filterKeepsRow([column], row, "primary", context)).toBe(true);
+		expect(filterKeepsRow([column], row, "secondary", context)).toBe(false);
 	});
 
 	it("keeps authoring blank-value labels English while worker cells follow their language", () => {
@@ -768,4 +757,21 @@ function makeRow(
 		properties,
 		calculated,
 	};
+}
+
+/** Whether the list's filter, exact and as Web Apps runs it, keeps the row. */
+function filterKeepsRow(
+	columns: readonly Column[],
+	row: CaseRowWithCalculated,
+	filterText: string,
+	context: ColumnDisplayContext,
+	plan?: CaseListOrderPlan,
+): boolean {
+	return (
+		rowsMatchingFilterText(columns, [row], filterText, context, plan, {
+			fuzzy: false,
+			rules: previewPlatformRules("web-apps").listFilter,
+			edited: true,
+		}).length === 1
+	);
 }

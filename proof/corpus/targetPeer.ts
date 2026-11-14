@@ -171,9 +171,12 @@ function json(status: number, body: unknown): Answer {
 /**
  * The keys HQ serves for an app created without them, each with the value
  * its source read gives such an app (`models/applications.py::Application`:
- * an empty `DictProperty`, `auto_gps_capture`'s default `false`). A shell
- * holds none of the first four, which arrive with the update; it holds
- * `translations`, and `auto_gps_capture` only for a Connect app.
+ * an empty `DictProperty` or `SchemaDictProperty`, `auto_gps_capture`'s
+ * default `false`). A shell holds none of the first four, which arrive with
+ * the update; it holds `translations`, and `auto_gps_capture` only for a
+ * Connect app. No body Nova sends holds `build_profiles`, and an update never
+ * writes it, so the app keeps HQ's empty one
+ * (`proof/hq-reads/shell/app-source.json`).
  */
 const HQ_DEFAULTS_FOR_A_SHELL: Readonly<Record<string, unknown>> = {
 	profile: {},
@@ -182,6 +185,7 @@ const HQ_DEFAULTS_FOR_A_SHELL: Readonly<Record<string, unknown>> = {
 	add_ons: {},
 	translations: {},
 	auto_gps_capture: false,
+	build_profiles: {},
 };
 
 /**
@@ -466,6 +470,8 @@ export class TargetPeer {
 	 *   `profile.properties`, and `custom_properties` reset to `{}` where the
 	 *   project space holds `CUSTOM_PROPERTIES`
 	 *   (`views/settings.py::edit_commcare_profile`);
+	 * - `profileFeatures`: each feature set over the app's
+	 *   `profile.features`, by the same view, with the same reset;
 	 * - `lookupTable`: the table under its tag uploaded again with a property
 	 *   on one field and an attribute on every row, which
 	 *   `run_upload.py::_run_upload` reads as another table and makes under a
@@ -518,8 +524,24 @@ export class TargetPeer {
 				profile: {
 					...profile,
 					properties: {
-						...((profile.properties ?? {}) as Record<string, string>),
+						...((profile.properties ?? {}) as Record<string, unknown>),
 						...saves.profileProperties,
+					},
+					...(this.state.flags.has("CUSTOM_PROPERTIES") && {
+						custom_properties: {},
+					}),
+				},
+			};
+		}
+		if (saves.profileFeatures !== undefined) {
+			const profile = (next.profile ?? {}) as Record<string, unknown>;
+			next = {
+				...next,
+				profile: {
+					...profile,
+					features: {
+						...((profile.features ?? {}) as Record<string, unknown>),
+						...saves.profileFeatures,
 					},
 					...(this.state.flags.has("CUSTOM_PROPERTIES") && {
 						custom_properties: {},

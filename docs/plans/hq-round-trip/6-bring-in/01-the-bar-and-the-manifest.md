@@ -1372,10 +1372,15 @@ label's id, which 9.4 lists beside each. A cell's text after its colon is its `w
 as the file holds it. A cell written with no such text takes these: `mirrors` alone is
 `by: "lib/commcare/keptProfile.ts::targetProfileProperties"`, as the first row; a `mirrors` with a
 symbol in parentheses takes that symbol's `path::symbol` (`compiler.ts::compileCcz`,
-`compiler.ts::generateProfile`, `xform/metaBlock.ts::addMetaBlock`,
-`runtimeTarget.ts::profileServerProperties`, each under `lib/commcare/`); a `reads` with a symbol in
-parentheses takes that symbol's (`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`,
-`lib/preview/platform.ts::requiredMarkShown`); "the same" repeats the `why` of the row above; `n-i-a`
+`xform/metaBlock.ts::addMetaBlock`, `runtimeTarget.ts::profileServerProperties`, each under
+`lib/commcare/`); a `reads` with a symbol in parentheses takes that symbol's
+(`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`,
+`lib/preview/platform.ts::requiredMarkShown`,
+`lib/preview/engine/useLookupPreviewData.tsx::PreviewLookupDataProvider`,
+`components/builder/media/ProjectMediaResource.tsx::useProjectMediaUrl`). Every `by` is a
+`path::symbol` its module exports, which the binding test holds, so a `reads` never holds prose and
+the `<credentials>` row names `compileCcz`, which writes the profile, rather than the private
+`generateProfile` it calls; "the same" repeats the `why` of the row above; `n-i-a`
 alone is `why: "Nothing an archive holds derives from this value."`; `no-claim` alone is
 `why: "Preview claims nothing this value changes."`; and `default` alone is
 `value: "CommCare HQ's own default"`.
@@ -1411,17 +1416,17 @@ alone is `why: "Nothing an archive holds derives from this value."`; `no-claim` 
 | `35-hq-practice-mobile-worker-id` | setting | Practice mobile worker | states (`kept_practice_worker_absent`) | no-claim: Preview has no practice mode | default: none | `hq-kept-settings` |
 | `34-hq-build-spec-at-or-above-nova-s-floor-2-57` | setting | (none: a version at or above the floor is no difference a person set against Nova) | own: the profile requires Nova's floor, 2.57 | no-claim: Preview runs Nova's own engine | default: the server's default build | `hq-new-app` |
 | `build-profiles-each-profile-s-name-langs-practice-mobile-worker` | setting | (none: empty) | n-i-a: an archive is one build | no-claim | default: none | `hq-new-app` |
-| `32-features-credentials` | setting | Worker activity credential | mirrors (`generateProfile`, the `<credentials>` block) | no-claim: Preview shows no work history | its-own | `hq-kept-settings` |
+| `32-features-credentials` | setting | Worker activity credential | mirrors (`compileCcz`, the profile's `<credentials>` block) | no-claim: Preview shows no work history | its-own | `hq-kept-settings` |
 | `target-derived-profile-properties-posturl-posttesturl-ota` | setting | (none) | own: the four server properties and `cur_locale`, for the archive's project space | no-claim | its-own | `hq-new-app` |
 | `amplifies-workers-amplifies-project-minimum-use-threshold` | server-record | | n-i-a | no-claim | default | `hq-new-app` |
 | `rev-domain-copy-of-version` | server-record | | own: the archive's version is the app's sequence | no-claim | its-own | `hq-new-app` |
 | `short-odk-url-short-odk-media-url`, `built-with-build-signed-built-on-build-comment-comment-from-last`, `date-created-created-from-template-last-modified-has-submissions`, `copy-history-family-id`, `external-blobs`, `archived-media` | server-record | | n-i-a | no-claim | its-own | `hq-new-app` |
 | `id` | identity | | own: `profileUniqueId`, Nova's id for the app on the project space | no-claim | its-own | `hq-new-app` |
-| `multimedia-map` | identity | | own: the archive bundles each file at the path its references name | reads: Preview plays the Project's own copy | its-own | `starter-health` |
+| `multimedia-map` | identity | | own: the archive bundles each file at the path its references name | reads (`useProjectMediaUrl`): Preview plays the Project's own copy | its-own | `starter-health` |
 | `menus-and-case-lists/modulebase-unique-id`, `forms-and-case-writes/unique-id` | identity | | own: the deployment's recorded ids (`targetWireIdentity`) | no-claim: Preview keys by Nova's UUIDs | its-own | `hq-new-app` |
 | `forms-and-case-writes/version` | server-record | | own: each form takes the app's sequence | no-claim | its-own | `hq-new-app` |
-| `expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table` | identity | | own: the archive embeds the Project's table | reads: Preview reads the Project's table | its-own | `hq-new-app` |
-| `expressions-and-data/is-synced-last-modified` | server-record | | own: the archive embeds the Project's table | reads: Preview reads the Project's table | its-own | `hq-new-app` |
+| `expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table` | identity | | own: the archive embeds the Project's table | reads (`PreviewLookupDataProvider`): Preview reads the Project's table | its-own | `hq-new-app` |
+| `expressions-and-data/is-synced-last-modified` | server-record | | own: the archive embeds the Project's table | reads (`PreviewLookupDataProvider`): Preview reads the Project's table | its-own | `hq-new-app` |
 | `case-search/domain-casesearchconfig-sync-cases-on-form-entry`, `forms-and-case-writes/supply-point-id-datum-hq-injects-under-commtrack-enabled-into`, `forms-and-case-writes/data-dictionary-caseproperty-data-type`, `forms-and-case-writes/usercase-creation-and-sync-hq-user-id` | project-state | | n-i-a: the app's source holds none of it; publish asks a person where it matters | no-claim | its-own | `hq-new-app` |
 
 The table has 50 rows: one for each of the 26 entries that are TARGET-OWNED today, the 23 of 3.6 and
@@ -1527,7 +1532,8 @@ the same family by (`proof/checks/manifest_usage.py::ui_string_key`); the file a
 surface's `app-string-id:` items this way.
 
 `lib/deployment/targetFacts.ts` (new, pure: it imports the file above, `./types`,
-`lib/commcare/surface/keptAtHq.ts` and, for types, `lib/publish/keptValues.ts` and
+`lib/commcare/surface/keptAtHq.ts`, `lib/commcare/appProfileSettings.ts` (Nova's seeds, which
+`keptListFor` compares with) and, for types, `lib/publish/keptValues.ts` and
 `exportAdvisories.ts`; no store and no `server-only`, so tests and the proof capture call it):
 
 ```ts
@@ -1604,8 +1610,9 @@ a seeded setting's `profileProperties` value is present and differs from Nova's 
 `cc-log-entity-detail-enabled` is present; `uiTextKeys` is non-empty; `androidLogos` is non-empty;
 `mobileReportVersion` is not `"2.0"`; `autoGpsCapture`, `persistentMenu`, `secureSubmissions` or
 `practiceWorker` is true; `breadcrumbs` is false; `customBaseUrl` is not `null`; `credentialLevel` is
-not `null`. The CommCare version row has no label: a version at or above the floor is no difference
-from what Nova would write.
+not `null`; `languageNames` is not `null` (on an app Nova brought in every language's name is
+CommCare HQ's, where a first publish elsewhere writes Nova's label, 7.2). The CommCare version row
+has no label: a version at or above the floor is no difference from what Nova would write.
 
 ### 6.2 The view-capable reader
 
@@ -1639,9 +1646,11 @@ A row that does not verify answers `null`, which gives `null` here and `unread` 
 It reads in two steps, so a builder page load does not unzip an app's source each time. First it selects
 `deployment_id`, `origin`, `source_digest`, `ownership` and `observed_at`, with no bytes, and with
 the row the live app mapping's ownership (`adopted` or not); `unread`, `create` or no row answers
-`null`. A module-level map of at most 64 entries, keyed by `deployment_id`, `source_digest` and
-`adopted`, then answers a source it has projected before; only a miss selects `source_gzip`. The
-digest names the bytes, so an entry is never stale, and the cap bounds an instance's memory.
+`null`. A module-level map of at most 64 entries, keyed by `deployment_id`, `source_digest`, the
+row's ownership of `auto_gps_capture` and `adopted` (everything the projection reads but the date,
+which each read applies from the row's `observed_at`, since a refresh rewrites the date over
+unchanged bytes), then answers a source it has projected before; only a miss selects `source_gzip`.
+The digest names the bytes, so an entry is never stale, and the cap bounds an instance's memory.
 
 ### 6.3 The `.ccz`
 
@@ -1659,7 +1668,7 @@ Today's path, and each change:
 | `compiler.ts::compileCcz`, the `addMetaBlock` call | `captureLocation: authoredDoc.connectType !== null` | `captureLocation: authoredDoc.connectType !== null \|\| facts?.autoGpsCapture === true` |
 | `compiler.ts::compileCcz`, the app string tables | Nova's own keys | each language's table then takes `facts.uiText[language]` |
 | the three callers of `compileLocalArchive` (`app/api/compile/route.ts`, `lib/mcp/tools/compileApp.ts`, `proof/corpus/publish.ts`) | pass the reached target's two facts | pass `download.targetFacts` too, which reaches the two routes on `app/api/compile/prepareCompileRequest.ts::PreparedCompileRequest.download` (the resolved `ccz` arm, whose type now holds it); the proof capture passes the facts `targetFactsFromBaseline` gives over the baseline it captured, or `null` |
-| the three callers of `exportAdvisories` (`app/api/compile/route.ts`, `app/api/compile/json/route.ts`, `lib/mcp/tools/compileApp.ts`) | `exportAdvisories(doc, attachmentTargetState)` | the `.ccz` arms pass `keptAdvisoryFacts(download.targetFacts, codes)` where the facts are not `null`, else `null`; `app/api/compile/json/route.ts` and `compileApp.ts`'s HQ import file arm pass `null` |
+| the three callers of `exportAdvisories` (`app/api/compile/route.ts`, `app/api/compile/json/route.ts`, `lib/mcp/tools/compileApp.ts`) | `exportAdvisories(doc, attachmentTargetState)` | the `.ccz` arms pass `keptAdvisoryFacts(download.targetFacts, codes)` where the facts are not `null`, else `null`, with `codes` the archive's language codes (`planLanguageWire(...).languages`), through one helper beside the resolver, `lib/deployment/downloadTarget.ts::downloadKeptAdvisoryFacts(download, doc)`, which answers `null` for the import file's arm and for facts that are `null`; `app/api/compile/json/route.ts` passes `null`, and `compileApp.ts` passes the helper's answer, which is `null` for its HQ import file arm |
 
 **`lib/commcare/keptProfile.ts`** (new, pure) exports
 `targetProfileProperties(doc, facts): readonly AppProfileProperty[]`: for each of
@@ -1815,9 +1824,12 @@ the order its case database returns, which is the order of a restore and of loca
 no read gives Nova. So that tie order is no claim Preview makes, with or without fuzzy search. Its
 fields are today's (each shown column's text, each hidden field's, each carrier's raw value);
 `sortText` is the value the field's `CaseListShortField.key` orders by, or `null` where the field
-keeps no key: for `property`, the raw value; for `option-label`, `interval-text`, `link-text` and
-`calculated`, the column's shown text; for `mapping-position`, the position text the plan orders by; a
-carrier's raw value is its own sort text. `components/preview/screens/CaseListScreen.tsx` calls it at
+keeps no key: for `property`, the raw value; for `option-label`, `interval-text` and
+`calculated`, the column's shown text; for `link-text`, the markdown the link writes
+(`[text](value)`, blank for a blank value), which is what the key orders by in the case store
+(`buildCaseStoreSortKeys`) and on a device (the column's display expression, the sort's
+`calculated` directive), where Web Apps shows a link's wording; for `mapping-position`, the
+position text the plan orders by; a carrier's raw value is its own sort text. `components/preview/screens/CaseListScreen.tsx` calls it at
 its one filter site with `fuzzy: useDeploymentTargetFacts()?.fuzzyListSearch ?? false`,
 `rules: platformRules.listFilter` and `edited` from the one piece of state it holds for the box. The
 accent fold applies at every value of the setting: it is Core's rule for the exact match too.
@@ -2147,7 +2159,11 @@ project space would give: an exact filter and, on Android, no mark, which are No
 return for each record) gains
 `readonly kept: { readonly labels: readonly KeptLabelId[]; readonly observedAt: string } | null`,
 filled from `readTargetFacts` for each reached deployment and `null` elsewhere (no baseline, an unread
-one, a shell). `components/builder/DeploymentStatus.tsx` draws the block under the record's rungs
+one, a shell). One function fills it, `service.ts::deploymentKept`, which every surface that answers
+with a record calls: the actions, `app/api/commcare/upload/route.ts` (the publish response's `kept`,
+which `components/builder/publishOutcome.ts` parses, absent reading `null`, so the landed card and
+the section's upserted record carry it), and MCP's `describeDeployment`, which takes it as its third
+argument for every deployment-bearing tool result. `components/builder/DeploymentStatus.tsx` draws the block under the record's rungs
 wherever `kept` is not `null`: with labels, the lead sentence with its date and the labels as a list;
 with none, the one sentence that says so with its date (9.4); and in both, where `canRefresh` is true,
 the button **Refresh from CommCare HQ**. An empty list still draws, because it is where a person asks

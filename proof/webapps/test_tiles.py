@@ -26,6 +26,21 @@
   the first hidden column holds finds its case alone. Plausible failures: a
   carrier the client draws as a cell, a list ordered by the names (the
   default), and a search that never reads the carrier.
+
+- **A grouped tile list's cards under a filter**
+  (``targeted-tile-group-filter``). Formplayer filters, sorts and then
+  groups (``EntityScreenHelper.java::initEntities``), and the client keeps
+  one model a group, the first, which draws the card's heading and is the
+  model a tap names (``views.js::CaseTileGroupedListView.initialize``,
+  ``CaseView.attributes``). Contract, over the released build with the
+  restore's cases served: before the search the list holds three cards,
+  Ada's, Ben's and Eve's, headed Nurse Amani, Nurse Chiku and Nurse Imani;
+  after a search for ``Referred`` it holds two, Ben's and then Cal's, headed
+  Nurse Chiku and Nurse Baraka, the second holding Cal's row alone.
+  Plausible failures: a client that kept each group's own first case (the
+  second card would be Ada's, under Nurse Amani), groups left in their
+  unfiltered order, and a search that never reached Formplayer (three cards
+  after it).
 """
 
 from __future__ import annotations
@@ -161,3 +176,48 @@ def test_web_apps_lays_out_a_tiles_placed_cells_alone_and_orders_and_searches_by
     # Only the first hidden column holds zulu, and the search finds Amina's row alone.
     assert [row["id"] for row in searched["rows"]] == ["row-targeted-amina-visit"]
     assert _placed(searched["rows"][0]) == PLACED["row-targeted-amina-visit"]
+
+
+GROUP_FILTER = "targeted-tile-group-filter"
+
+
+def _card(row):
+    """A grouped card's id and its cells' texts, the heading's first (``tile_grouped_item.html``)."""
+    return row["id"], [cell["text"] for cell in row["cells"] if not cell["hidden"]]
+
+
+def test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents[GROUP_FILTER]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    # Under both tile flags HQ's build keeps the custom tile (defect 12).
+    with webapps_hq.project(document, "maximum") as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run(
+                [
+                    *steps.open_app("Grouped visits"),
+                    *steps.choose("Visits"),
+                    steps.SCREEN,
+                    *steps.search_list("Referred"),
+                    steps.SCREEN,
+                ]
+            )
+    listed, searched = (screen["list"] for screen in run.screens)
+    evidence("tile-group-filter", {"listed": listed, "referred": searched})
+    assert run.page_errors == []
+    assert listed["tiles"] is True
+    # One card a group, each its group's first case, headed by that case's own value.
+    listed_cards = [_card(row) for row in listed["rows"]]
+    assert [card_id for card_id, _ in listed_cards] == [
+        "row-targeted-ada-visit",
+        "row-targeted-ben-visit",
+        "row-targeted-eve-visit",
+    ]
+    assert [cells[0] for _, cells in listed_cards] == ["Nurse Amani", "Nurse Chiku", "Nurse Imani"]
+    # The search leaves Ben, Cal and Dot: Ben's household first, its first match, then Cal's.
+    searched_cards = [_card(row) for row in searched["rows"]]
+    assert [card_id for card_id, _ in searched_cards] == ["row-targeted-ben-visit", "row-targeted-cal-visit"]
+    assert [cells[0] for _, cells in searched_cards] == ["Nurse Chiku", "Nurse Baraka"]
+    # Cal's card holds Cal's row alone: Ada, who does not match, is no row of it.
+    assert searched_cards[1][1] == ["Nurse Baraka", "Cal", "Referred"]

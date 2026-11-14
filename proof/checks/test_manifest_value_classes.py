@@ -4755,7 +4755,6 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/41p-hq-use-custom-suite-true",
         "application-and-settings/44p-hq-translation-strategy-select-known",
         "application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts",
-        "application-and-settings/49p-hq-mobile-ucr-restore-version-1-0-1-5",
         "application-and-settings/non-empty-custom-assertions-app",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
         "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is",

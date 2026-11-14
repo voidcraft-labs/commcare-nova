@@ -18,7 +18,7 @@ An API key can import an app. It cannot make a build or release one.
 | **Make a build** | `views/releases.py::save_copy` — `require_can_edit_apps`, which is `require_permission(HqPermissions.edit_apps)` with the default `login_and_domain_required`. Browser session only. |
 | **Release a build** | `views/releases.py::release_build` — same. |
 | Read the versions | `views/releases.py::current_app_version` — `@login_or_api_key` |
-| Read build ids + release flags | `api/resources/v0_4.py::ApplicationResource.dehydrate_versions` — read-only, `LoginAndDomainAuthentication` (whose decorator map carries an `API_KEY` entry). Also needs the account's `access_api` permission, so a failure here is "could not check", never "not built". |
+| Read build ids + release flags | `api/resources/v0_4.py::ApplicationResource.dehydrate_versions` — read-only, `LoginAndDomainAuthentication` (whose decorator map carries an `API_KEY` entry). Also needs the account's `access_api` permission, so a failure here is "could not check", never "not built". Read through `lib/commcare/hq/application.ts::readHqApplication`. |
 | Install a build | `views/download.py::download_odk_profile` — no login decorator |
 | Web Apps | `cloudcare/views.py::FormplayerMain` — session only, plus the `CLOUDCARE` privilege |
 
@@ -250,7 +250,8 @@ serving the old one.
 A **blocking** edge is a real prerequisite: no connection, an app the export
 boundary refuses, Project data Nova may not write over, or a change made in
 CommCare HQ since Nova's last push that the person has not confirmed
-discarding, an HQ app below CommCare 2.57, and a plan feature or project-space
+discarding, an HQ app below CommCare 2.57, a build profile on HQ's app that
+names a language the app no longer has, and a plan feature or project-space
 setting the app needs that the person has not confirmed (`plan-features`, which
 asks HQ nothing), and, on an update of an app that holds Nova's content, a Web
 App setting on HQ that differs from where the app runs (`web-apps`, after
@@ -304,7 +305,12 @@ table or a place reads it again before the import. Each of the three compares
 what it read with its baseline and collects what changed, and preflight gives
 one verdict over all of it, `hq_changed`, before any write. `target-app` also
 holds the CommCare version that read carries to the floor
-(`hq_app_version_below_floor`).
+(`hq_app_version_below_floor`). `target-app` also holds that read's build
+profiles to the languages this publish writes
+(`lib/commcare/targetBuildProfiles.ts::buildProfileLanguageGaps`, the refusal
+`hq_build_profile_language_missing`): no API key can change a profile, so a
+publish that would leave one naming a language the app lacks stops before any
+write, and the same check runs on the second read, where it stops at `upload`.
 
 The floor is `lib/commcare/versionFloor.ts::compareToVersionFloor`, 2.57: the
 refusal below it carries the app's address in `hqAppUrl`, and an unreadable
@@ -526,7 +532,22 @@ deployment holds one app baseline (`app_deployment_baselines`): the normalized
 source HQ answered right after Nova's push (`push`), right after the empty app
 was made (`create`), or at the cutover (`cutover`), with the ownership
 descriptor of the body it describes. It holds no form ids: a source read
-re-mints them, so the normalization replaces each by its position. Each HQ
+re-mints them, so the normalization replaces each by its position.
+`targetFacts.ts::targetFactsFromBaseline` projects the stored source to
+`TargetFacts`, what the project space holds of the values Nova leaves to
+CommCare HQ, and `keptListFor` names the kept settings it holds differently
+from a new app. `store.ts::readTargetFacts` returns that projection to a
+viewer and never the source, projecting an unchanged baseline once per
+instance (a bounded map keyed by its digest). A `.ccz`, Preview and the
+Publishing card read it; an absent, unread or shell baseline, or one that
+does not verify, gives none, and Nova's own values stand.
+`service.ts::refreshKeptValues` replaces the baseline with a fresh read only
+where the publish's own comparison finds no change, so it moves no later
+drift verdict. Its write (`store.ts::recordRefreshedAppBaseline`) lands only
+while the stored baseline is still the one compared, and its date is taken
+before CommCare HQ is asked, so a read that predates a publish never replaces
+that publish's. The type and the reading of CommCare HQ's own keys are
+`lib/commcare/targetFacts.ts`'s. Each HQ
 table and place a Project maps on a project space holds one resource baseline
 (`project_space_resource_baselines`), keyed by the HQ resource, so two apps of
 a Project that map one table share it. A read that fails records `unread`,
@@ -575,7 +596,8 @@ not claim a person made the change. A table's description and indexed-field
 flags are invisible to the check. A change to a shell other than a menu is
 not seen. A baseline whose origin is `cutover` holds whatever HQ held when it
 was recorded, edits made in HQ before then included, so the first publish
-over it writes over them.
+over it writes over them. A profile saved in HQ between the publish's last
+read and its import is not seen until the next publish, which stops.
 
 ## One publish lifecycle
 
@@ -965,11 +987,14 @@ disagreeing contents, and a fresh deployment survives the status resets
 that switching the destination select causes. The two surfaces converge
 through the builder session: every dialog upsert bumps
 `deploymentRecordsRevision`, and the section reloads on it. Refreshes return
-`previewProjectSpace` beside the record and the caller applies it, so the
+`previewProjectSpace` and `previewTargetFacts` beside the record (a publish
+answers `preview_project_space` and `preview_target_facts`) and the caller
+applies them, so the
 own tab updates without waiting for the stream; every OTHER open tab
 converges through the app stream's deployment lane — each store write
 pokes it (`notifyAppDeployments`, in the write's own transaction), and the
-relay re-resolves and emits the `preview-project-space` frame
+relay re-resolves and emits the `preview-project-space` frame, and the
+`preview-target-facts` frame when the facts changed
 (`lib/preview/CLAUDE.md` § `commcare_project`).
 
 The Workers panel (`components/builder/DeploymentWorkers.tsx`) lives inside
@@ -1000,6 +1025,10 @@ the app.
 - `previewTarget.ts` names the project space Preview resolves
   `commcare_project` to. A slug is the whole answer, so it de-dupes on the
   domain alone.
+- `previewTarget.ts::resolvePreviewFactsTarget` names the one deployment
+  whose kept facts Preview plays (`previewSpace.ts::previewTargetFactsFor`,
+  over `readTargetFacts`). The facts are one deployment's, so it de-dupes on
+  `(server, domain)`: one domain on two servers gives none.
 - `attachmentTarget.ts` names where a capture's case-bound link resolves.
   An origin is part of that answer, so it de-dupes on `(server, domain)` —
   US, India, and EU can hold unrelated project spaces of the same name, and

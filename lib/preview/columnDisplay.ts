@@ -283,6 +283,26 @@ function projectImageMappedValue(
 			};
 }
 
+/**
+ * An ID mapping's or an image map's sort text for a row: the index of the
+ * first entry the value holds as a token, as text, `""` where it holds none,
+ * as the device's `if(selected(<value>, '<entry>'), <index>, ...)` gives it
+ * (`lib/commcare/suite/case-list/sortKeys.ts::idMappingSortXpath`). A value no
+ * column can show holds no entry.
+ */
+export function mappingPositionText(
+	column: Extract<Column, { kind: "id-mapping" | "image-map" }>,
+	row: CaseRowWithCalculated,
+	reading?: Extract<CaseReading, "casedb" | "results">,
+): string {
+	const selected = selectedTokens(
+		caseListDisplaySourceValue(row, column.field, reading),
+	);
+	if (selected === undefined) return "";
+	const index = column.mapping.findIndex((entry) => selected.has(entry.value));
+	return index === -1 ? "" : String(index);
+}
+
 function selectedTokens(
 	source: ReturnType<typeof caseRowDisplaySourceValue>,
 ): ReadonlySet<string> | undefined {

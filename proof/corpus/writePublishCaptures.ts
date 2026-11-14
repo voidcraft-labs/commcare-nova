@@ -68,7 +68,7 @@
  *   the retained HQ reads copy (`proof/hq/test_retained_reads.py`);
  * - when Nova publishes there, `local-1.ccz` and `local-2.ccz`: two exports
  *   of D as Nova's compile route builds them for an app published to that
- *   project space.
+ *   project space, with what it keeps after D's update (`targetFacts`).
  *
  * Every file is the same on every run for one seed (`--seed`, by default
  * the corpus's): a publish draws no id, and each publish and each local
@@ -111,6 +111,7 @@ import { LOCAL_CONFIGURATION, OPERATION_ORDINALS } from "./entropy.mts";
 import {
 	type CapturedRequest,
 	CCZ_CLOCK,
+	capturedTargetFacts,
 	capturePublish,
 	documentVerdict,
 	exportFindings,
@@ -577,17 +578,20 @@ async function writeConfiguration(
 	}
 	/* No archive of a document that does not declare Android: Nova's
 	 * download refuses one (`not-declared-for-android`), and both copies
-	 * read the same declaration. */
+	 * read the same declaration. Each is made for the project space as D's
+	 * update left it, with what it then keeps. */
+	const targetFacts = capturedTargetFacts(capture, "update");
 	let localFiles: string[] | null = [];
 	for (const [copy, ordinal] of [
 		[1, OPERATION_ORDINALS.local],
 		[2, OPERATION_ORDINALS.localAgain],
 	] as const) {
-		const archive = await localCcz(entry.document, configuration.domain, {
-			seed,
-			ordinal,
-			configuration: LOCAL_CONFIGURATION,
-		});
+		const archive = await localCcz(
+			entry.document,
+			configuration.domain,
+			{ seed, ordinal, configuration: LOCAL_CONFIGURATION },
+			{ targetFacts },
+		);
 		if (archive === null) {
 			localFiles = null;
 			break;

@@ -16,6 +16,7 @@ import {
 	decodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
@@ -261,7 +262,10 @@ const ACME: ReachedDeploymentTarget = {
 	earlierHqApps: 0,
 };
 /** What the ledger answers for a `.ccz` made for one reached deployment. */
-function cczFor(target: ReachedDeploymentTarget): DownloadTarget {
+function cczFor(
+	target: ReachedDeploymentTarget,
+	targetFacts: TargetFacts | null = null,
+): DownloadTarget {
 	return {
 		format: "ccz",
 		target,
@@ -273,6 +277,7 @@ function cczFor(target: ReachedDeploymentTarget): DownloadTarget {
 		identity: DERIVED_WIRE_IDENTITY,
 		attachmentTarget: attachmentUrlTarget(target),
 		reached: [target],
+		targetFacts,
 	};
 }
 /** What the ledger answers for the import file, scoped to `reached`. */
@@ -691,6 +696,44 @@ it.each([42, "other-server", {}])(
 		expect(getLookupFixtureData).not.toHaveBeenCalled();
 	},
 );
+it("writes what the project space keeps into its CCZ and says what the CCZ cannot follow", async () => {
+	answers(
+		cczFor(ACME, {
+			observedAt: "2026-11-01T00:00:00.000Z",
+			profileProperties: { "cc-autoup-freq": "freq-daily" },
+			uiText: {},
+			uiTextKeys: [],
+			secureSubmissions: true,
+			customBaseUrl: null,
+			autoGpsCapture: false,
+			androidLogos: ["home"],
+			practiceWorker: false,
+			persistentMenu: false,
+			breadcrumbs: true,
+			mobileReportVersion: "2.0",
+			credentialLevel: "3MON_ACTIVE",
+			languageNames: null,
+			seeds: "nova",
+		}),
+	);
+	const response = await cczPost(request());
+	expect(response.status).toBe(200);
+	const profile = member(
+		await unzip(new Uint8Array(await response.arrayBuffer())),
+		"profile.ccpr",
+	).toString();
+	for (const written of [
+		'key="PostURL" value="https://india.commcarehq.org/a/acme/receiver/secure/0123456789abcdef0123456789abcdef/" force="true"',
+		'key="cc-autoup-freq" value="freq-daily" force="true"',
+		'<credential level="3MON_ACTIVE" type="APP_ACTIVITY"/>',
+	])
+		expect(profile).toContain(written);
+	expect(
+		decodeExportAdvisories(response.headers.get(EXPORT_ADVISORY_HEADER)).map(
+			(item) => item.id,
+		),
+	).toEqual(["kept_android_logos_absent"]);
+});
 it("drops India capture addresses when explicitly exporting for EU", async () => {
 	loads(fixture({ photo: true }));
 	/* India holds the app and EU does not, so the server narrows to none. */

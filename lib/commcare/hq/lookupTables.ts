@@ -45,7 +45,11 @@ import {
 	WAF_PADDING,
 	writeMayHaveLanded,
 } from "./http";
-import { isHqObject, readHqCollection } from "./readCollection";
+import {
+	type HqPastLimit,
+	isHqObject,
+	readHqCollection,
+} from "./readCollection";
 
 /** One lookup table as CommCare HQ reports it. */
 export interface HqLookupTable {
@@ -102,13 +106,32 @@ const LOOKUP_TABLE_PAGE_SIZE = 100;
  */
 const MAX_LOOKUP_TABLE_PAGES = 20;
 
+/** An array of strings, `[]` where absent; null for anything else. */
+function stringList(value: unknown): readonly string[] | null {
+	if (value === undefined) return [];
+	return Array.isArray(value) &&
+		value.every((entry): entry is string => typeof entry === "string")
+		? value
+		: null;
+}
+
+/**
+ * One table of `fixtures/resources/v0_1.py::LookupTableResource`, or null
+ * where it is not what that resource serves. Nothing is read with a default:
+ * a field Nova could not name, properties or row attributes that are not
+ * lists of names, and an `is_global` that is not a boolean refuse the list,
+ * since reading any of them as a plain table would let a publish push over
+ * what HQ holds and a bring-in read a table as simpler than it is.
+ */
 function toHqLookupTable(raw: unknown): HqLookupTable | null {
 	if (
 		!isHqObject(raw) ||
 		typeof raw.id !== "string" ||
 		raw.id.trim() === "" ||
 		typeof raw.tag !== "string" ||
-		raw.tag.trim() === ""
+		raw.tag.trim() === "" ||
+		typeof raw.is_global !== "boolean" ||
+		!Array.isArray(raw.fields)
 	)
 		return null;
 	/* `dehydrate_fields` answers `[{field_name, properties}]`; older rows
@@ -117,38 +140,30 @@ function toHqLookupTable(raw: unknown): HqLookupTable | null {
 	 * drift comparison reads of each. */
 	const fields: string[] = [];
 	const fieldProperties: Record<string, readonly string[]> = {};
-	if (Array.isArray(raw.fields)) {
-		for (const field of raw.fields) {
-			if (typeof field === "string") {
-				fields.push(field);
-				fieldProperties[field] = [];
-				continue;
-			}
-			if (!isHqObject(field)) continue;
-			const name =
-				typeof field.field_name === "string"
-					? field.field_name
-					: typeof field.name === "string"
-						? field.name
-						: null;
-			if (name === null) continue;
-			fields.push(name);
-			fieldProperties[name] = Array.isArray(field.properties)
-				? field.properties.filter(
-						(property): property is string => typeof property === "string",
-					)
-				: [];
+	for (const field of raw.fields) {
+		if (typeof field === "string") {
+			fields.push(field);
+			fieldProperties[field] = [];
+			continue;
 		}
+		if (!isHqObject(field)) return null;
+		const name =
+			typeof field.field_name === "string"
+				? field.field_name
+				: typeof field.name === "string"
+					? field.name
+					: null;
+		const properties = stringList(field.properties);
+		if (name === null || properties === null) return null;
+		fields.push(name);
+		fieldProperties[name] = properties;
 	}
-	const itemAttributes = Array.isArray(raw.item_attributes)
-		? raw.item_attributes.filter(
-				(attribute): attribute is string => typeof attribute === "string",
-			)
-		: [];
+	const itemAttributes = stringList(raw.item_attributes);
+	if (itemAttributes === null) return null;
 	return {
 		id: raw.id,
 		tag: raw.tag,
-		isGlobal: raw.is_global === true,
+		isGlobal: raw.is_global,
 		fields,
 		fieldProperties,
 		itemAttributes,
@@ -160,11 +175,14 @@ function toHqLookupTable(raw: unknown): HqLookupTable | null {
  *
  * A refusal here is never treated as "there are none": that reading would
  * turn a permissions problem into a silent takeover of every same-named
- * table on the target.
+ * table on the target. A refused page keeps its bounded body, so
+ * `failure.ts::classifyHqFailure` tells the plan refusal from a key HQ did
+ * not accept.
  */
 export async function listHqLookupTables(
 	creds: CommCareCredentials,
 	domain: string,
+	options: { readonly cancel?: AbortSignal } = {},
 ): Promise<readonly HqLookupTable[] | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
 
@@ -173,6 +191,7 @@ export async function listHqLookupTables(
 		`${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
 		"lookup table list",
 		MAX_LOOKUP_TABLE_PAGES,
+		{ keepRefusedBody: true, cancel: options.cancel },
 	);
 	if ("success" in rows) return rows;
 	const tables: HqLookupTable[] = [];
@@ -182,7 +201,7 @@ export async function listHqLookupTables(
 			log.error("[commcare] lookup table identity is malformed", undefined, {
 				domain,
 			});
-			return { success: false, status: 502 };
+			return { success: false, status: 502, cause: "malformed" };
 		}
 		tables.push(table);
 	}
@@ -238,6 +257,12 @@ function toFixtureRowFields(
 	return fields;
 }
 
+/** One table's rows, with the total HQ reports for it. */
+export interface HqLookupRows {
+	readonly totalCount: number;
+	readonly rows: readonly HqFixtureRow[];
+}
+
 /**
  * Every row of one lookup table, in HQ's own order
  * (`fixtures/models.py::LookupTableRowManager.iter_rows` sorts by
@@ -248,37 +273,79 @@ function toFixtureRowFields(
  * list does. A row that holds a field with no value makes HQ's serializer
  * raise and the whole read fail, which is a refusal here like any other.
  */
+export function readHqLookupTableRows(
+	creds: CommCareCredentials,
+	domain: string,
+	tableId: string,
+	options?: { readonly cancel?: AbortSignal },
+): Promise<HqLookupRows | CommCareApiError>;
+/** With `stopPast`: `past-limit` where the first page's total is over it, and no page after it. */
+export function readHqLookupTableRows(
+	creds: CommCareCredentials,
+	domain: string,
+	tableId: string,
+	options: { readonly cancel?: AbortSignal; readonly stopPast: number },
+): Promise<
+	| HqLookupRows
+	| (HqPastLimit & { readonly totalCount: number })
+	| CommCareApiError
+>;
 export async function readHqLookupTableRows(
 	creds: CommCareCredentials,
 	domain: string,
 	tableId: string,
+	options: { readonly cancel?: AbortSignal; readonly stopPast?: number } = {},
 ): Promise<
-	| { readonly totalCount: number; readonly rows: readonly HqFixtureRow[] }
+	| HqLookupRows
+	| (HqPastLimit & { readonly totalCount: number })
 	| CommCareApiError
 > {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(tableId))
 		return INVALID_DOMAIN_SLUG;
 	const firstUrl = `${baseUrl(creds)}/a/${domain}/api/fixture/v1/?fixture_type_id=${encodeURIComponent(tableId)}`;
 	const reported: { totalCount: number | null } = { totalCount: null };
-	const raw = await readHqCollection(
-		creds,
-		firstUrl,
-		"lookup table rows",
-		MAX_FIXTURE_ROW_PAGES,
-		{
-			deadline: "page",
-			onMeta: (meta) => {
-				if (
-					reported.totalCount === null &&
-					typeof meta.total_count === "number" &&
-					Number.isSafeInteger(meta.total_count) &&
-					meta.total_count >= 0
-				)
-					reported.totalCount = meta.total_count;
-			},
+	const collectionOptions = {
+		deadline: "page" as const,
+		cancel: options.cancel,
+		onMeta: (meta: Readonly<Record<string, unknown>>) => {
+			if (
+				reported.totalCount === null &&
+				typeof meta.total_count === "number" &&
+				Number.isSafeInteger(meta.total_count) &&
+				meta.total_count >= 0
+			)
+				reported.totalCount = meta.total_count;
 		},
-	);
+	};
+	const { stopPast } = options;
+	const raw =
+		stopPast === undefined
+			? await readHqCollection(
+					creds,
+					firstUrl,
+					"lookup table rows",
+					MAX_FIXTURE_ROW_PAGES,
+					collectionOptions,
+				)
+			: await readHqCollection(
+					creds,
+					firstUrl,
+					"lookup table rows",
+					MAX_FIXTURE_ROW_PAGES,
+					{ ...collectionOptions, stopPast },
+				);
 	if ("success" in raw) return raw;
+	if ("kind" in raw) {
+		/* The first page names the total; rows past a limit the total is not
+		 * over are rows the total does not count. */
+		if (
+			raw.totalCount !== null &&
+			stopPast !== undefined &&
+			raw.totalCount > stopPast
+		)
+			return { kind: "past-limit", totalCount: raw.totalCount };
+		return rowsDisagreeWithTotal(domain, null);
+	}
 	const rows: HqFixtureRow[] = [];
 	for (const value of raw) {
 		if (
@@ -305,18 +372,40 @@ export async function readHqLookupTableRows(
 	 * exactly that many rows: a table that changed between two pages is a
 	 * read that cannot be compared, never a short list. */
 	const { totalCount } = reported;
-	if (totalCount === null || totalCount !== rows.length) {
-		log.error(
-			"[commcare] lookup table rows disagree with their total",
-			undefined,
-			{
-				domain,
-				rows: rows.length,
-			},
-		);
-		return { success: false, status: 502, cause: "malformed" };
-	}
+	if (totalCount === null || totalCount !== rows.length)
+		return rowsDisagreeWithTotal(domain, rows.length);
 	return { totalCount, rows };
+}
+
+function rowsDisagreeWithTotal(
+	domain: string,
+	rows: number | null,
+): CommCareApiError {
+	log.error(
+		"[commcare] lookup table rows disagree with their total",
+		undefined,
+		{
+			domain,
+			rows,
+		},
+	);
+	return { success: false, status: 502, cause: "malformed" };
+}
+
+/**
+ * Whether some row holds a field with other than one value, which Nova's
+ * table model cannot hold. `FixtureResource.dehydrate_fields` serves a whole
+ * row in its `field_list` form as soon as one field holds more than one
+ * value, so a list whose length is not 1 is exactly that.
+ */
+export function rowsHoldOtherThanOneValue(
+	rows: readonly HqFixtureRow[],
+): boolean {
+	return rows.some((row) =>
+		Object.values(row.fields).some(
+			(value) => typeof value !== "string" && value.length !== 1,
+		),
+	);
 }
 
 /**

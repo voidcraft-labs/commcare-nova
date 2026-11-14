@@ -2,11 +2,12 @@
 //
 // The projection a GROUPED tile list draws with: the tile's cells split
 // into the header the group shows once and the body every member of the
-// group repeats. Pure, and read off the Web Apps renderer the same way
-// `caseTileLayout.ts` is, because a grouped list is a visual contract
-// too.
+// group repeats, and the cards a page's rows make (`tileGroupCards`, below).
+// Pure, and read off the Web Apps renderer the same way `caseTileLayout.ts`
+// is, because a grouped list is a visual contract too.
 //
-// Two rules, both proven by the templates, both easy to get wrong:
+// Two rules of the split, both proven by the templates, both easy to get
+// wrong:
 //
 //   1. **The split is the START ROW ONLY.**
 //      `commcare-hq/corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js::CaseTileGroupedListView.initialize`
@@ -32,11 +33,11 @@ import type { TileGridProjection } from "./caseTileLayout";
 import type { PreviewPlatformRules } from "./platform";
 
 /**
- * One grouped tile's two halves. The header is drawn ONCE per group,
- * from the group's first case; the body is drawn once per member.
+ * One grouped tile's two halves. The header is drawn ONCE per card, from
+ * the card's first case; the body is drawn once per member.
  */
 export interface GroupedTileProjection {
-	/** Cells starting in the header band, drawn from the group's first case. */
+	/** Cells starting in the header band, drawn from the card's first case. */
 	readonly header: TileGridProjection;
 	/** Cells starting below it, drawn once for every case in the group. */
 	readonly body: TileGridProjection;
@@ -84,4 +85,90 @@ export function splitTileGridByGroupHeader(
 		},
 		body: { columns: projection.columns, rows: projection.rows, cells: body },
 	};
+}
+
+/**
+ * One card of a grouped tile list: a group key and the cases the card holds, in the list's
+ * order. `rows[0]` is the case the heading is drawn from and the one case choosing the card
+ * chooses.
+ */
+export interface TileGroupCard<Row> {
+	readonly key: string;
+	readonly rows: readonly [Row, ...Row[]];
+}
+
+/** A grouped page as the list's own run of rows: each row in the list's order, and its group. */
+export interface GroupedPageRows<Row> {
+	readonly rows: readonly Row[];
+	readonly keyOf: (row: Row) => string;
+}
+
+/**
+ * The page's rows put back in the list's own order, each still knowing its group.
+ *
+ * The case store reads a grouped page clustered (`queryGrouped`), and names
+ * the order the rows held before clustering in `listOrder`. Total: a row
+ * `listOrder` does not name sorts after those it names, in its clustered
+ * order (`Array.prototype.sort` is stable).
+ */
+export function groupedPageRows<
+	Row extends { readonly case_id: string },
+>(page: {
+	readonly groups: readonly {
+		readonly key: string;
+		readonly rows: readonly Row[];
+	}[];
+	readonly listOrder: readonly string[];
+}): GroupedPageRows<Row> {
+	const place = new Map(page.listOrder.map((caseId, index) => [caseId, index]));
+	const keys = new Map<Row, string>();
+	const clustered: Row[] = [];
+	for (const group of page.groups) {
+		for (const row of group.rows) {
+			keys.set(row, group.key);
+			clustered.push(row);
+		}
+	}
+	const unnamed = page.listOrder.length;
+	const rows = clustered.sort(
+		(a, b) =>
+			(place.get(a.case_id) ?? unnamed) - (place.get(b.case_id) ?? unnamed),
+	);
+	return {
+		rows,
+		keyOf: (row) => {
+			const key = keys.get(row);
+			if (key === undefined)
+				throw new Error(
+					`Case ${row.case_id} is not a row of this grouped page, so it has no group here. Read its group from the page it came from.`,
+				);
+			return key;
+		},
+	};
+}
+
+/**
+ * The cards for the rows that remain, given in the list's order: Core's
+ * `EntityScreenHelper.groupEntities` (a group's place is its first appearance, its members keep
+ * their order) and the client's one model a group (`CaseTileGroupedListView.initialize`).
+ *
+ * Formplayer filters, then sorts, then groups
+ * (`EntityScreenHelper.java::initEntities`), so under the list's filter the
+ * cards are made from the matches: the groups stand in the order of each one's
+ * first match, and a card's first case, which draws its heading and is its one
+ * choice, is its first match. With every row kept the cards are the store's
+ * own groups.
+ */
+export function tileGroupCards<Row>(
+	rowsInListOrder: readonly Row[],
+	keyOf: (row: Row) => string,
+): readonly TileGroupCard<Row>[] {
+	const cards = new Map<string, [Row, ...Row[]]>();
+	for (const row of rowsInListOrder) {
+		const key = keyOf(row);
+		const card = cards.get(key);
+		if (card === undefined) cards.set(key, [row]);
+		else card.push(row);
+	}
+	return [...cards].map(([key, rows]) => ({ key, rows }));
 }

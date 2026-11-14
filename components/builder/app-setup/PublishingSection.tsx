@@ -27,7 +27,10 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { useCommCareConnection } from "@/components/builder/CommCareConnectionContext";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
-import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
+import {
+	useSetDeploymentProjectSpace,
+	useSetDeploymentTargetFacts,
+} from "@/components/builder/DeploymentTargetProvider";
 import { DeploymentWorkers } from "@/components/builder/DeploymentWorkers";
 import { useAppNotices } from "@/components/builder/notices/AppNoticesContext";
 import { Button } from "@/components/shadcn/button";
@@ -64,6 +67,7 @@ export function PublishingSection() {
 	const canEdit = useCanEdit();
 	const requestPublishDialog = useRequestPublishDialog();
 	const setProjectSpace = useSetDeploymentProjectSpace();
+	const setTargetFacts = useSetDeploymentTargetFacts();
 	const { deploymentEntries: noticeEntries } = useAppNotices();
 
 	/* The dialog bumps the records' revision on every record it writes (a
@@ -72,13 +76,15 @@ export function PublishingSection() {
 	const { records, load, upsert } = usePublishingRecords();
 
 	/* Every refresh answers with the record AND what Preview may now name,
-	 * because an observation can change both. */
+	 * with what that project space keeps of the settings Preview plays,
+	 * because an observation can change all three. */
 	const handleRefreshed = useCallback(
 		(next: RefreshedDeploymentView) => {
 			upsert(next);
 			setProjectSpace(next.previewProjectSpace);
+			setTargetFacts(next.previewTargetFacts);
 		},
-		[upsert, setProjectSpace],
+		[upsert, setProjectSpace, setTargetFacts],
 	);
 	/* Provisioning and withdrawing a confirmation answer with the record
 	 * alone: neither can change which project space Preview names. */
