@@ -1747,6 +1747,21 @@ condition on `commcare_project` pass here and fail for half the workers.
 server-side, and `DeploymentTargetProvider` carries it — durable server state,
 so deliberately not the ephemeral session store.
 
+The same rule carries two kept settings. Fuzzy search in case lists: the list
+filter is Core's entity filter (`lib/preview/listFilterMatch.ts`), with accents
+folded, every term required, and with the project space's
+`cc-fuzzy-search-enabled` on, a near miss matched against each sorted field's
+words. The platform rule `listFilter` holds what each runtime does around it:
+Web Apps splits the typed text on single spaces, keeps the list's own order and
+skips an empty text; Android splits on runs of whitespace, puts the closest
+matches first and, once the worker has typed, runs an emptied box as one empty
+term. The asterisk on required questions: the platform rule `requiredMark`
+marks every required question in Web Apps and, on Android, only where the
+project space's `cc-label-required-questions-with-asterisk` is `yes`
+(`requiredMarkShown`). The facts arrive as the `preview-target-facts` frame and
+through `DeploymentTargetProvider`; with none, the filter is exact and Android
+shows no mark.
+
 It IS a usercase property in a way it is not a session key —
 `callcenter/sync_usercase.py::_get_user_case_fields` ends with an unconditional
 `fields.update({... 'commcare_project': domain})`, while

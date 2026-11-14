@@ -12,6 +12,9 @@ import "server-only";
  * The reader holds a status and bytes and nothing else of HQ's answer. It
  * never says what a file is: the declared type is returned as a hint, and
  * `lib/media` judges the bytes.
+ *
+ * The address names no project space, so its log lines carry the request
+ * kind and the status, and no body.
  */
 
 import { log } from "@/lib/logger";
@@ -23,8 +26,8 @@ import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
+	failedResponseError,
 	HQ_REFUSED_BODY_READ_MAX_BYTES,
-	warnAndReturnError,
 } from "./http";
 import { readBoundedBody } from "./readBody";
 
@@ -118,7 +121,13 @@ async function readOnce(
 		);
 		const text =
 			body.kind === "read" ? new TextDecoder().decode(body.bytes) : "";
-		const error = warnAndReturnError("media file refused", response, text);
+		/* The body is read only to tell the edge's refusal from HQ's, and is
+		 * never logged. */
+		log.warn("[commcare] media file refused", {
+			request: "media-file",
+			status: response.status,
+		});
+		const error = failedResponseError(response, text);
 		return error.status === 404 && error.edgeRefusal !== true
 			? { kind: "missing" }
 			: error;

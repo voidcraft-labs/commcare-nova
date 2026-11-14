@@ -38,7 +38,9 @@ literal backslash-`n` or boundary content that the grammar cannot round-trip.
 
 A local CCZ emits Classic's initialization-only `default` locale resource and
 one named resource for every configured language, including the default
-language. Both tables for the default language carry the same effective values.
+language. Both tables for the default language carry the same effective values,
+except the text a project space holds under its own keys, which `default` takes
+from every language as HQ's build merges it (below).
 CommCare Android removes only the literal `default` locale from its language
 picker, so the named copy is required to let a worker switch back to the app's
 default language.
@@ -98,7 +100,11 @@ from the deployment's baseline), as HQ's build there does: the kept profile
 settings and the worker activity credential described below, location capture
 on every form, each language's text under keys the project space owns (its
 runtime UI text) over Nova's own, spelled as HQ spells it
-(`localeFile.ts::hqLocaleFileValue`), and on an app Nova brought in, CommCare
+(`localeFile.ts::hqLocaleFileValue`), with the `default` table taking, under
+each such key, the first language's text that holds one, as HQ's build merges
+its default table, unless a language before it has a catalog that may hold the
+key (`appStringKeys.ts::defaultAppStringsHeldText`, `hqCatalogMayHold`: Nova
+writes no catalog text, so the phone's own wording stands), and on an app Nova brought in, CommCare
 HQ's language names. With no facts, Nova's own values stand, byte for byte. An
 app that does not declare
 Android has no `.ccz` at all (`runtimeTarget.ts::chooseDownloadTarget`,
@@ -239,7 +245,9 @@ through body consumption, and five causes told apart (no answer, the deadline,
 a body over the bound, a page for a browser, an answer Nova cannot read). A 429
 is sent again by one rule (`hq/throttle.ts`): three sends at most, a
 `Retry-After` of at most two seconds waited, one second where HQ names none,
-inside the read's deadline. Every status a read synthesizes for an answer it
+inside the read's deadline; a `Retry-After` that is no count of seconds is the
+answer. A read the deadline or the network cuts off, before its headers or
+while its body streams, logs `[commcare] <label> unavailable`. Every status a read synthesizes for an answer it
 could not use names its cause; a request Nova will not send (a slug or an id it
 cannot put in a URL) is a bare 400. Every failed answer is classified once, by
 `hq/failure.ts::classifyHqFailure`; no caller writes its own status ladder.
@@ -1286,7 +1294,7 @@ The OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`
 
 `addCaseBlocks` and `addMetaBlock` share `xform/domSplice.ts` so the two render-time injections stay in lockstep: one splice-into-`<data>`/`<model>` path, one instance set their printed reads join, one `serializeXml` escaping authority.
 
-For a Connect app, and for an app whose project space holds `auto_gps_capture` on (`TargetFacts.autoGpsCapture`), the local block also captures location, as HQ's build does (`metaBlock.ts::addMetaBlock(xform, { captureLocation })`, with `captureLocation` the condition `expandDoc` uses for HQ's `auto_gps_capture` or that fact): `<cc:location/>` is the last child of `<orx:meta>`, after `<orx:drift/>`, and the model's last two children are `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>` and `<bind nodeset="/data/meta/location" type="geopoint"/>`. A model holds one `pollsensor` or none, as `xform.py::XForm._add_meta_2` writes it.
+For a Connect app, and for an app whose project space captures location with every form (`TargetFacts.autoGpsCapture`), the local block also captures location, as HQ's build does (`metaBlock.ts::addMetaBlock(xform, { captureLocation })`, with `captureLocation` the condition `expandDoc` uses for HQ's `auto_gps_capture` or that fact): `<cc:location/>` is the last child of `<orx:meta>`, after `<orx:drift/>`, and the model's last two children are `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>` and `<bind nodeset="/data/meta/location" type="geopoint"/>`. A model holds one `pollsensor` or none, as `xform.py::XForm._add_meta_2` writes it.
 
 ### Form reads
 

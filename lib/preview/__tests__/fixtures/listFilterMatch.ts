@@ -36,7 +36,7 @@ export const LIST_FILTER_NORMALIZE_VECTORS: readonly NormalizeVector[] = [
 	// The dot of the capital I is a combining mark once decomposed, and goes
 	// before the lower case is taken.
 	{ text: "İstanbul", normalized: "istanbul" },
-	// A mark outside U+0300 to U+036F stays (U+1DC4, a supplementary mark).
+	// A mark outside U+0300 to U+036F stays (U+1DC4, a mark of the Combining Diacritical Marks Supplement block).
 	{ text: "a᷄", normalized: "a᷄" },
 	{ text: "", normalized: "" },
 	{ text: "  Ann  Lee ", normalized: "  ann  lee " },

@@ -11,11 +11,16 @@ import type {
 	RefreshedDeploymentView,
 } from "@/lib/deployment/actions";
 import type { DeploymentKept } from "@/lib/deployment/types";
-import { keptRefreshSentence } from "@/lib/publish/keptValues";
+import {
+	KEPT_REFRESH_NOT_REACHED,
+	keptRefreshSentence,
+} from "@/lib/publish/keptValues";
 import {
 	keptDateText,
 	keptLabelsChanged,
+	keptNoticeApplies,
 	keptRefreshNotice,
+	keptRefreshNotReached,
 } from "../keptListModel";
 
 const SHOWN: DeploymentKept = {
@@ -73,10 +78,11 @@ describe("keptLabelsChanged", () => {
 
 describe("keptRefreshNotice", () => {
 	it("says the list was updated and hands back the record where the read changed it", () => {
-		const view = refreshedView({
+		const kept: DeploymentKept = {
 			labels: ["fuzzy-search", "required-question-asterisk"],
 			observedAt: NOW.toISOString(),
-		});
+		};
+		const view = refreshedView(kept);
 		const notice = keptRefreshNotice(
 			{ success: true, data: { kind: "refreshed", deployment: view } },
 			SHOWN,
@@ -86,11 +92,13 @@ describe("keptRefreshNotice", () => {
 			sentence: "Updated. This is what CommCare HQ holds now.",
 			failed: false,
 			view,
+			kept,
 		});
 	});
 
 	it("says nothing changed where the refreshed list names the same settings", () => {
-		const view = refreshedView({ ...SHOWN, observedAt: NOW.toISOString() });
+		const kept = { ...SHOWN, observedAt: NOW.toISOString() };
+		const view = refreshedView(kept);
 		expect(
 			keptRefreshNotice(
 				{ success: true, data: { kind: "refreshed", deployment: view } },
@@ -101,10 +109,11 @@ describe("keptRefreshNotice", () => {
 			sentence: "Nothing has changed. This is still what CommCare HQ holds.",
 			failed: false,
 			view,
+			kept,
 		});
 	});
 
-	it("hands back the record a publish left where the read was superseded", () => {
+	it("hands back the record a publish left where the read was superseded, speaking of its list", () => {
 		const view = refreshedView(SHOWN);
 		const notice = keptRefreshNotice(
 			{ success: true, data: { kind: "superseded", deployment: view } },
@@ -113,6 +122,18 @@ describe("keptRefreshNotice", () => {
 		);
 		expect(notice.view).toBe(view);
 		expect(notice.failed).toBe(false);
+		/* A publish that could not read the app back leaves no list, and the
+		 * sentence still speaks of that record. */
+		const unread = keptRefreshNotice(
+			{
+				success: true,
+				data: { kind: "superseded", deployment: refreshedView(null) },
+			},
+			SHOWN,
+			CONTEXT,
+		);
+		expect(unread.kept).toBeNull();
+		expect(keptNoticeApplies(unread, null)).toBe(true);
 	});
 
 	it.each([
@@ -136,6 +157,7 @@ describe("keptRefreshNotice", () => {
 				),
 				failed,
 				view: null,
+				kept: SHOWN,
 			});
 		},
 	);
@@ -149,6 +171,40 @@ describe("keptRefreshNotice", () => {
 				SHOWN,
 				CONTEXT,
 			),
-		).toEqual({ sentence: message, failed: true, view: null });
+		).toEqual({ sentence: message, failed: true, view: null, kept: SHOWN });
+	});
+
+	it("says the server could not be reached where the request never answered, inviting another try", () => {
+		expect(keptRefreshNotReached(SHOWN)).toEqual({
+			sentence: KEPT_REFRESH_NOT_REACHED,
+			failed: true,
+			view: null,
+			kept: SHOWN,
+		});
+	});
+});
+
+describe("keptNoticeApplies", () => {
+	const notice = keptRefreshNotice(
+		{ success: true, data: { kind: "unavailable" } },
+		SHOWN,
+		CONTEXT,
+	);
+
+	it("keeps the sentence while the card holds the list it speaks of, however the record was read again", () => {
+		expect(keptNoticeApplies(notice, SHOWN)).toBe(true);
+		expect(
+			keptNoticeApplies(notice, { ...SHOWN, labels: [...SHOWN.labels] }),
+		).toBe(true);
+	});
+
+	it("retires the sentence once a publish or a reload moves the list: its date, its settings, or the list itself", () => {
+		expect(
+			keptNoticeApplies(notice, { ...SHOWN, observedAt: NOW.toISOString() }),
+		).toBe(false);
+		expect(keptNoticeApplies(notice, { ...SHOWN, labels: [] })).toBe(false);
+		expect(keptNoticeApplies(notice, null)).toBe(false);
+		const forNoList = { ...notice, kept: null };
+		expect(keptNoticeApplies(forNoList, SHOWN)).toBe(false);
 	});
 });

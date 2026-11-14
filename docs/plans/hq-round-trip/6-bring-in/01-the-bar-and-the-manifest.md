@@ -1063,7 +1063,7 @@ names the profile parser's `credentials` keys, so the archive's use of them is h
 | Entry | `application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker` |
 | Today | TARGET-OWNED, no value class |
 | New | The entry gains `valueClass: "empty"` and its `item` becomes "`build_profiles` `{}`". A new entry `application-and-settings/build-profiles-non-empty`, HELD-NEW, `valueClass: "non-empty"`, same surface keys and gate (`privilege/build_profiles`), `subject: "build-profiles"`, `owner: "settings-nova-comes-to-own"`, `item`: "`build_profiles` holding a profile (its `name`, `langs`, `practice_mobile_worker_id`)", `dispositionCell`: "**HELD-NEW**: build profiles as part of the app Nova holds. HQ builds each profile with its own `langs` (`app_strings.py::_create_custom_app_strings`, `ApplicationBase.get_build_langs`) and an update never writes the key, so a language Nova adds joins no profile, and a publish stops where a profile names a language the app no longer has (`hq_build_profile_language_missing`)", platforms `not-applicable`, emission `omit`. |
-| Inventory | `application-and-settings.md`, the `build_profiles` row split in two. Each disposition cell gains "; a publish reads the profiles and stops where one names a language the app no longer has". |
+| Inventory | `application-and-settings.md`, the `build_profiles` row split in two. The empty row's disposition cell gains "; a publish reads the profiles and stops where one names a language the app no longer has"; the non-empty row takes the entry's cell above, which already ends with the same stop. |
 | Evidence | `ApplicationBase._update_excluded_fields` lists `build_profiles`. HQ's own Languages page removes a deleted language from every profile (`views/apps.py::edit_app_langs`, the loop over `app.build_profiles`); Nova's update writes `langs` alone. `views/releases.py` makes a build per profile under the `build_profiles` privilege. No request an API key can send writes the key: `LanguageProfilesView` and `edit_app_langs` are `require_can_edit_apps`, a browser session. Lifecycle: alive, behind a plan privilege. |
 
 A publish holds every build profile on the target's app to the languages it writes, and stops
@@ -1666,7 +1666,7 @@ Today's path, and each change:
 | `compiler.ts::generateProfile`, `<features>` | `<checkoff active="true"/>` and `<users active="true"/>` | where `facts?.credentialLevel` is not `null`, a last child `<credentials active="true"><credential level="<the level>" type="APP_ACTIVITY"/></credentials>`, the block `templates/app_manager/profile.xml` writes, in its place after `<users>` (HQ's `<dependencies>` sits between the two, and Nova writes none) |
 | `lib/commcare/runtimeTarget.ts::profileServerProperties(target)` | plain receiver, the server's base URL | `profileServerProperties(target, facts)` |
 | `compiler.ts::compileCcz`, the `addMetaBlock` call | `captureLocation: authoredDoc.connectType !== null` | `captureLocation: authoredDoc.connectType !== null \|\| facts?.autoGpsCapture === true` |
-| `compiler.ts::compileCcz`, the app string tables | Nova's own keys | each language's table then takes `facts.uiText[language]` |
+| `compiler.ts::compileCcz`, the app string tables | Nova's own keys | each language's table then takes `facts.uiText[language]`, and the `default` table HQ's merge of every language (below) |
 | the three callers of `compileLocalArchive` (`app/api/compile/route.ts`, `lib/mcp/tools/compileApp.ts`, `proof/corpus/publish.ts`) | pass the reached target's two facts | pass `download.targetFacts` too, which reaches the two routes on `app/api/compile/prepareCompileRequest.ts::PreparedCompileRequest.download` (the resolved `ccz` arm, whose type now holds it); the proof capture passes the facts `targetFactsFromBaseline` gives over the baseline it captured, or `null` |
 | the three callers of `exportAdvisories` (`app/api/compile/route.ts`, `app/api/compile/json/route.ts`, `lib/mcp/tools/compileApp.ts`) | `exportAdvisories(doc, attachmentTargetState)` | the `.ccz` arms pass `keptAdvisoryFacts(download.targetFacts, codes)` where the facts are not `null`, else `null`, with `codes` the archive's language codes (`planLanguageWire(...).languages`), through one helper beside the resolver, `lib/deployment/downloadTarget.ts::downloadKeptAdvisoryFacts(download, doc)`, which answers `null` for the import file's arm and for facts that are `null`; `app/api/compile/json/route.ts` passes `null`, and `compileApp.ts` passes the helper's answer, which is `null` for its HQ import file arm |
 
@@ -1700,7 +1700,15 @@ still be one Nova writes: `case_autoload.usercase.case_missing`
 (`usercaseWire.ts::USERCASE_MISSING_LOCALE_ID`) matches no generated pattern. Where a project space
 holds text for such a key, that text replaces Nova's in the archive. That is the mirror working: HQ's
 build puts a stored translation over every string (4.4), and a publish carries the key. The `default`
-directory takes the default language's, as it takes that language's whole table. A language of
+directory takes the default language's names, and under every other key the text
+`appStringKeys.ts::defaultAppStringsHeldText(facts.uiText, languages)` gives: HQ's build merges every
+language's strings into its default table, the last language first
+(`app_strings.py::AppStringsBase.create_default_app_strings`), so a key takes the first language's
+text that holds one, a language's catalog text included (`SelectKnownAppStrings.app_strings_parts`).
+Nova writes no catalog text, so where a language's catalog may hold the key
+(`appStringKeys.ts::hqCatalogMayHold`, over the surface's `ui-string:` catalogs) before any language
+that holds text for it, the key takes nothing, and a phone shows its own wording, which
+`kept_ui_text_falls_back` states. A language of
 `uiText` the app does not have writes nothing, as HQ builds no table for it.
 
 **What the archive states.** `lib/publish/exportAdvisories.ts` gains four advisory ids and one
@@ -2806,8 +2814,10 @@ and `targeted-hq-side-state` still publishes over its profile with no stop.
   without a confirmed plan feature": ", and where a build profile on HQ's app names a language the
   app no longer has".
 - `docs/research/2026-09-26-hq-round-trip/inventory/application-and-settings.md`, the
-  `build_profiles` rows (split in two by section 3.7): each disposition cell gains "; a publish
-  reads the profiles and stops where one names a language the app no longer has".
+  `build_profiles` rows (split in two by section 3.7): the empty row's disposition cell gains "; a
+  publish reads the profiles and stops where one names a language the app no longer has", and the
+  non-empty row takes its manifest entry's cell, which already ends with the same stop
+  (`hq_build_profile_language_missing`).
 
 ---
 
@@ -3545,6 +3555,8 @@ export const KEPT_LABELS: Readonly<Record<KeptLabelId, string>>;
 export function keptLead(date: string, hasLabels: boolean): string;
 /** "Under either". */
 export const KEPT_FOLLOWS_LINE: string;
+/** "No answer": the request never reached Nova's server, or its answer never came back. */
+export const KEPT_REFRESH_NOT_REACHED: string;
 
 /** The kinds of `lib/deployment/service.ts::KeptRefreshOutcome`, restated so this file stays client-safe. */
 export type KeptRefreshKind =
@@ -3591,6 +3603,7 @@ is not the current one ("10 November 2025"); MCP gives the ISO date.
 | Raised, `hq_not_connected` | CommCare HQ isn't connected on your account, so Nova can't read these again. You can add your API key in Settings, then refresh. |
 | Raised, `domain_not_authorized` | Your CommCare HQ API key can't reach “{space}”, so Nova can't read these again. What you see is the last thing Nova saw. |
 | Raised, a key on another server | `assertCredentialsMatchServer`'s sentence, as Check status prints it |
+| No answer (the card's request never reached Nova's server, or its answer never came back) | Nova couldn't reach the server to read these again. You can try again in a moment. |
 
 The labels. `KEPT_AT_HQ`'s rows name them by id (section 5), and `KEPT_LABELS` words them:
 
@@ -3779,7 +3792,7 @@ here: the mark is one branch on one preference in `QuestionWidget.java::setTextF
 | `lib/preview/__tests__/platformCells.ts`, the constant `PROFILE_PROPERTY_ONLY_ANDROID_READS` | "A profile property only Android reads; Preview reads no profile property." | removed with its thirteen rows; the two remaining profile rows (`20`, `21`) keep their own reasons |
 | `lib/commcare/runtimeTarget.ts::profileServerProperties`, comment | "with the receiver URL in its plain form because every app Nova imports has `secure_submissions` off" | section 6.3's sentence |
 | `lib/commcare/appProfileSettings.ts`, header | "On a publish they are seeded, not owned" | adds: "and a `.ccz` made for a project space writes that space's value (`keptProfile.ts`)" |
-| `components/builder/CLAUDE.md`, the Publishing section's paragraph | "one full `DeploymentStatus` card per project space the app has reached, with Check status, the Workers panel, and a \"Publish again\"" | adds: ", and the list of what stays as it is in CommCare HQ with its date and Refresh from CommCare HQ" |
+| `lib/deployment/CLAUDE.md`, "The Builder splits the work", and the same card sentence in `components/builder/CLAUDE.md`'s Publishing section paragraph ("renders one full `DeploymentStatus` card per project space the app has reached") | "one full `DeploymentStatus` card per project space the app has reached, with Check status, the Workers panel, and a \"Publish again\"" | adds: ", and the list of what stays as it is in CommCare HQ with its date and Refresh from CommCare HQ" |
 | `docs/architecture/contracts.md`, "Nova is not CommCare HQ." | (the two HQ facts) | a new paragraph after it, in these words: "**Some of an app stays CommCare HQ's.** Content outside an app's menus that Nova's publish never writes is kept at CommCare HQ's value only when three things hold: no publish changes it on that project space; nothing the document holds does something different under its value; and every Nova surface that shows or runs what it changes reads the project space's value or says how it differs. `lib/commcare/surface/keptAtHq.ts::KEPT_AT_HQ` holds one row per kept entry with what a `.ccz` does, what Preview does and what a first publish to another project space does, and a test binds it to the manifest both ways." |
 | `docs/research/2026-09-26-hq-round-trip/inventory/*.md` | the rows of section 3 | as section 3 words them; the Counts table stays the research's |
 | `content/docs/publishing.mdx`, `content/docs/building-with-nova.mdx`, `content/docs/case-workspace.mdx`, `content/docs/mcp/tools.mdx` (`refresh_deployment`, `get_deployment` rows) |  | sections 9.6 and 9.7 |

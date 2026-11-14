@@ -99,6 +99,13 @@ export type KeptRefreshKind =
 	| "no-permission"
 	| "unavailable";
 
+/**
+ * The sentence a refresh shows when its request never reached Nova's server
+ * or its answer never came back, so no outcome is known.
+ */
+export const KEPT_REFRESH_NOT_REACHED =
+	"Nova couldn't reach the server to read these again. You can try again in a moment.";
+
 /** The sentence a refresh that found a change made in CommCare HQ ends on. */
 function keptChangedInHqSentence(date: string): string {
 	return `CommCare HQ saved this app since Nova last read it, so these stay as of ${date}.`;

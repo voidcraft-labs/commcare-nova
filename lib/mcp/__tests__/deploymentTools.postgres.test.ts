@@ -1,20 +1,30 @@
 /** Actual deployment projections and refreshes through SDK, Postgres, and HTTP. */
+import { gzipSync } from "node:zlib";
 import type { Client } from "@modelcontextprotocol/client";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
-import { applicationAnswer } from "@/__tests__/helpers/retainedHqReads";
+import {
+	applicationAnswer,
+	retainedBodyText,
+	retainedPublishRead,
+} from "@/__tests__/helpers/retainedHqReads";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import {
 	applyDeploymentObservation,
 	foldDeploymentAttempt,
 	readDeployment,
+	readTargetFacts,
 	recordCreatedRemoteApp,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
+import { keptListFor } from "@/lib/deployment/targetFacts";
+import type { AppOwnership } from "@/lib/deployment/types";
+import { KEPT_LABELS } from "@/lib/publish/keptValues";
 import {
 	registerGetDeployment,
 	registerRefreshDeployment,
@@ -240,6 +250,9 @@ it("reports every stored target to a viewer with its current resource identity a
 					},
 					left_behind: [{ kind: "app", hq_id: "previous-app", hq_name: null }],
 					confirmations: [],
+					/* The publish's read-back failed and recorded an unread
+					 * baseline, so Nova holds no read of the kept settings. */
+					kept: null,
 					setup_artifact: expect.any(Object),
 				});
 				for (const deployment of body.deployments) {
@@ -878,4 +891,213 @@ it("refuses a withdrawal without the HQ write scope before any read", async () =
 		ACTOR,
 		["nova.read", "nova.hq.read"],
 	);
+});
+
+/* The kept settings: what `get_deployment` reports of them and what
+ * `refresh_deployment` with `kept_values` answers. The source reads are HQ's
+ * own, retained by the proof lane (`proof/hq-reads/publish/source-live`), or
+ * that read with fuzzy search turned on in CommCare HQ. */
+const SOURCE_PATH = "/a/clinic/apps/source/working-app/";
+const READ_AT = "2026-11-01T09:00:00.000Z";
+/** What Nova's upload owned in the read: its two app settings. */
+const OWNERSHIP: AppOwnership = {
+	addOns: [],
+	profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+	profileCustomProperties: [],
+	autoGpsCapture: false,
+};
+function liveSource(): Record<string, unknown> {
+	return JSON.parse(retainedBodyText(retainedPublishRead("source-live")));
+}
+function fuzzyOnSource(): Record<string, unknown> {
+	const source = liveSource();
+	const profile = source.profile as { properties: Record<string, string> };
+	profile.properties["cc-fuzzy-search-enabled"] = "yes";
+	return source;
+}
+/** Record a landed publish whose read-back of `source`, dated `observedAt`, is the baseline. */
+async function publishedWithRead(
+	source: Record<string, unknown>,
+	observedAt = READ_AT,
+) {
+	const read = normalizeHqAppSource(source);
+	if ("malformed" in read) throw new Error(read.malformed);
+	await foldDeploymentAttempt(
+		SCOPE,
+		TARGET,
+		"preflight",
+		{ status: "succeeded", at: READ_AT },
+		{ ensure: true },
+	);
+	await recordRemoteResource(SCOPE, TARGET, {
+		kind: "app",
+		novaResourceId: APP,
+		remoteId: "working-app",
+		ownership: "nova-created",
+		pushedRevision: 0,
+		remoteRevision: 1,
+		uploadedAt: READ_AT,
+		baseline: {
+			origin: "push",
+			remoteAppId: "working-app",
+			sourceGzip: gzipSync(Buffer.from(read.text, "utf8")),
+			sourceBytes: read.bytes,
+			sourceDigest: read.digest,
+			ownership: OWNERSHIP,
+			observedAt,
+			discard: null,
+		},
+	});
+}
+function sourceRequest(peer: MockAgent) {
+	return peer.get(HOST).intercept({
+		path: SOURCE_PATH,
+		method: "GET",
+		headers: { authorization: "ApiKey account:fixture-key" },
+	});
+}
+function serveSource(peer: MockAgent, source: Record<string, unknown>) {
+	sourceRequest(peer).reply(200, JSON.stringify(source), {
+		headers: { "content-type": "application/json" },
+	});
+}
+/** The one deployment's app baseline row, whole. */
+async function baselines() {
+	return h.db().selectFrom("app_deployment_baselines").selectAll().execute();
+}
+const KEPT_ARGS = { app_id: APP, ...TARGET, kept_values: true };
+
+it("reports the kept settings to a viewer worded as the card words them, in the card's order, with the instant Nova read them", async () => {
+	await seed(false);
+	await publishedWithRead(fuzzyOnSource());
+	const facts = await readTargetFacts(SCOPE, TARGET);
+	if (facts === null) throw new Error("Expected the stored read's facts");
+	const words = keptListFor(facts).map((label) => KEPT_LABELS[label]);
+	expect(words).toContain("Fuzzy search in case lists");
+	await withHttpPeer(async (peer) => {
+		const body = await asUser(
+			async (client) =>
+				JSON.parse(resultText(await call(client, GET, { app_id: APP }))),
+			"viewer",
+			["nova.read", "nova.hq.read"],
+		);
+		expect(body.deployments[0].kept).toEqual({
+			labels: words,
+			observed_at: READ_AT,
+		});
+		expect(urls(peer)).toEqual([]);
+	});
+});
+
+it("reads the kept settings again with kept_values, answers with the card's sentence and the deployment, and asks about no build", async () => {
+	await seed(false);
+	await publishedWithRead(liveSource());
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			serveSource(peer, fuzzyOnSource());
+			const changed = await refresh(client, KEPT_ARGS);
+			const stored = await readTargetFacts(SCOPE, TARGET);
+			expect(stored?.observedAt).not.toBe(READ_AT);
+			expect(changed).toMatchObject({
+				app_id: APP,
+				kept_refresh: "refreshed",
+				message: "Updated. This is what CommCare HQ holds now.",
+				domain: "clinic",
+				state: "uploaded",
+				hq_app_id: "working-app",
+				kept: {
+					labels: expect.arrayContaining(["Fuzzy search in case lists"]),
+					observed_at: stored?.observedAt,
+				},
+				setup_artifact: { domain: "clinic", hqAppId: "working-app" },
+			});
+
+			serveSource(peer, fuzzyOnSource());
+			const same = await refresh(client, KEPT_ARGS);
+			expect(same).toMatchObject({
+				kept_refresh: "refreshed",
+				message: "Nothing has changed. This is still what CommCare HQ holds.",
+				kept: { labels: changed.kept.labels },
+			});
+		});
+		expect(urls(peer)).toEqual(
+			[SOURCE_PATH, SOURCE_PATH].map((path) => ({
+				method: "GET",
+				fullUrl: HOST + path,
+			})),
+		);
+	});
+});
+
+it("answers a read that could not be used with its sentence dated by the ISO date of the read the list stands on, and writes nothing", async () => {
+	await seed(false);
+	await publishedWithRead(liveSource());
+	const before = await baselines();
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			sourceRequest(peer).reply(401, "");
+			expect(await refresh(client, KEPT_ARGS)).toEqual({
+				app_id: APP,
+				kept_refresh: "key-not-accepted",
+				message:
+					"CommCare HQ didn't accept your saved API key, so these stay as of 2026-11-01. You can save a new key in Settings, then refresh again.",
+			});
+			sourceRequest(peer).reply(403, "");
+			expect(await refresh(client, KEPT_ARGS)).toEqual({
+				app_id: APP,
+				kept_refresh: "no-permission",
+				message:
+					"CommCare HQ didn't let your account read this app, so these stay as of 2026-11-01. Reading it needs permission to edit apps in clinic. You can check the connected account, then refresh again.",
+			});
+		});
+		expect(urls(peer)).toHaveLength(2);
+	});
+	expect(await baselines()).toEqual(before);
+});
+
+it("answers superseded with the deployment as the publish that landed during the read left it", async () => {
+	await seed(false);
+	await publishedWithRead(liveSource());
+	const publishedAgainAt = new Date(Date.now() + 60_000).toISOString();
+	await withHttpPeer(async (peer) => {
+		sourceRequest(peer).reply(async () => {
+			await publishedWithRead(fuzzyOnSource(), publishedAgainAt);
+			return { statusCode: 200, data: JSON.stringify(liveSource()) };
+		});
+		await asUser(async (client) => {
+			expect(await refresh(client, KEPT_ARGS)).toMatchObject({
+				kept_refresh: "superseded",
+				message:
+					"Someone published here while Nova was reading, so this is as that publish left it.",
+				hq_app_id: "working-app",
+				kept: {
+					labels: expect.arrayContaining(["Fuzzy search in case lists"]),
+					observed_at: publishedAgainAt,
+				},
+			});
+		});
+	});
+});
+
+it("gives the tool's error with its sentence when the caller's connection cannot read the kept settings, and asks nothing", async () => {
+	await seed(false);
+	await publishedWithRead(liveSource());
+	const before = await baselines();
+	await h
+		.db()
+		.updateTable("user_settings")
+		.set({ commcare_username: "" })
+		.where("user_id", "=", ACTOR)
+		.execute();
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			expect(errorBody(await call(client, REFRESH, KEPT_ARGS))).toMatchObject({
+				error_type: "hq_not_configured",
+				message:
+					"CommCare HQ isn't connected on your account, so Nova can't read these again. You can add your API key in Settings, then refresh.",
+			});
+		});
+		expect(urls(peer)).toEqual([]);
+	});
+	expect(await baselines()).toEqual(before);
 });

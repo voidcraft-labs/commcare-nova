@@ -1011,6 +1011,35 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			frames.filter((x) => x.event === "preview-target-facts");
 		const fuzzyOnly = { fuzzyListSearch: true, markRequiredQuestions: false };
 		const both = { fuzzyListSearch: true, markRequiredQuestions: true };
+		/* The lane is a coalesced pump: two writes committed back to back can
+		 * be read in one run, and a run that repeats a value would then never
+		 * happen. So after each write that must send nothing, the test holds
+		 * until the lane has finished a run that read that write: the read
+		 * shows it, and every resolution the lane started has settled, so
+		 * that run's send, or its silence, is decided before the next write. */
+		const deploymentStore = await import("@/lib/deployment/store");
+		const previewSpace = await import("@/lib/deployment/previewSpace");
+		const recordsRead = vi.spyOn(
+			deploymentStore,
+			"readDeploymentPreviewRecords",
+		);
+		const factsRead = vi.spyOn(deploymentStore, "readTargetFacts");
+		const spaceResolved = vi.spyOn(previewSpace, "previewProjectSpaceFor");
+		const factsResolved = vi.spyOn(previewSpace, "previewTargetFactsFor");
+		const laneFinishedRunThatRead = async (read: () => boolean) =>
+			vi.waitFor(
+				() => {
+					expect(read()).toBe(true);
+					for (const resolved of [spaceResolved, factsResolved]) {
+						expect(
+							resolved.mock.settledResults.filter(
+								(result) => result.type === "incomplete",
+							),
+						).toEqual([]);
+					}
+				},
+				{ timeout: 2_000 },
+			);
 
 		const { frames } = await collectUntil(appId, {
 			predicate: (f) =>
@@ -1035,13 +1064,26 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					{ status: "succeeded", at },
 					{ ensure: true },
 				);
+				/* A deployment short of uploaded: still no facts, so no frame. */
+				await laneFinishedRunThatRead(() =>
+					recordsRead.mock.settledResults.some(
+						(result) => result.type === "fulfilled" && result.value.length > 0,
+					),
+				);
 				await publishWith({ "cc-fuzzy-search-enabled": "yes" });
 				await seen(2);
-				/* Another kept setting moves; both facts stay. */
+				/* Another kept setting moves; both facts stay, so no frame. */
 				await publishWith({
 					"cc-fuzzy-search-enabled": "yes",
 					"cc-autoup-freq": "7",
 				});
+				await laneFinishedRunThatRead(() =>
+					factsRead.mock.settledResults.some(
+						(result) =>
+							result.type === "fulfilled" &&
+							result.value?.profileProperties["cc-autoup-freq"] === "7",
+					),
+				);
 				await publishWith({
 					"cc-fuzzy-search-enabled": "yes",
 					"cc-autoup-freq": "7",

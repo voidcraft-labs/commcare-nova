@@ -21,6 +21,16 @@ const memberships = (names: string[], meta: object = {}) => ({
 const accessPath = (domain: string) => `/a/${domain}/apps/api/list_apps/`;
 afterEach(() => vi.useRealTimers());
 
+/**
+ * Until the read's resend wait is scheduled beside its deadline. It yields
+ * through `setImmediate`, which the fake clock leaves real, so no fake time
+ * passes while it waits (`vi.waitFor` would advance the clock as it polls).
+ */
+async function untilWaitScheduled(): Promise<void> {
+	while (vi.getTimerCount() < 2)
+		await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 it("retains only accessible memberships with exact display names on the selected server", async () => {
 	await withHttpPeer(async (peer) => {
 		peer
@@ -267,10 +277,10 @@ it("answers HQ's 429 once the list has been sent three times, waiting a second b
 			.times(3);
 		const pending = discoverAccessibleDomains(CREDS);
 		for (const sent of [1, 2]) {
-			/* The resend's wait is scheduled beside the read's deadline. */
-			await vi.waitFor(() => expect(vi.getTimerCount()).toBe(2));
+			await untilWaitScheduled();
+			await vi.advanceTimersByTimeAsync(999);
 			expect(peer.getCallHistory()?.calls()).toHaveLength(sent);
-			await vi.advanceTimersByTimeAsync(1_000);
+			await vi.advanceTimersByTimeAsync(1);
 		}
 		expect(await pending).toEqual({
 			success: false,

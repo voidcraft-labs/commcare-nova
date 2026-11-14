@@ -1,7 +1,7 @@
 /** The one JSON reader of CommCare HQ, against a controlled HTTP peer and HQ's retained answers. */
 import type { MockAgent } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { withHttpPeer, withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedHqAnswer,
 	replyRetained,
@@ -132,7 +132,7 @@ describe("a 429", () => {
 			expect(calls(peer)).toHaveLength(2);
 			expect(log.warn).toHaveBeenCalledWith(
 				"[commcare] application rate limited, sending again",
-				{ domain: "clinic", waitMs: 1_000, sent: 1 },
+				{ domain: "clinic", request: "application", waitMs: 1_000, sent: 1 },
 			);
 		});
 	});
@@ -159,6 +159,21 @@ describe("a 429", () => {
 				status: 429,
 				edgeRefusal: false,
 				retryAfterMs: 2_500,
+			});
+			expect(calls(peer)).toHaveLength(1);
+		});
+	});
+
+	it("is the answer at once where its Retry-After is a date, a wait Nova cannot read", async () => {
+		await withHttpPeer(async (peer) => {
+			replyRetained(
+				intercept(peer),
+				throttledFor("Fri, 13 Nov 2026 18:00:00 GMT"),
+			);
+			expect(await readHqJson(CREDS, URL, "application")).toEqual({
+				success: false,
+				status: 429,
+				edgeRefusal: false,
 			});
 			expect(calls(peer)).toHaveLength(1);
 		});
@@ -286,6 +301,82 @@ describe("deadlineMs and cancel", () => {
 				await pending;
 			}
 		});
+	});
+
+	it("is a timeout at 60 seconds, logged, where the peer sends its headers and stalls its body", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const reached = Promise.withResolvers<void>();
+		const closed = Promise.withResolvers<void>();
+		let pending: ReturnType<typeof readHqJson> | undefined;
+		try {
+			await withSocketHttpPeer(
+				"india.commcarehq.org",
+				(_request, response) => {
+					response.writeHead(200, { "content-type": "application/json" });
+					response.once("close", closed.resolve);
+					response.write('{"id": "working-app", "modules": [', () =>
+						reached.resolve(),
+					);
+				},
+				async () => {
+					let settled = false;
+					pending = readHqJson(CREDS, URL, "application", {
+						deadlineMs: 60_000,
+					}).finally(() => {
+						settled = true;
+					});
+					await reached.promise;
+					await new Promise<void>((resolve) => setImmediate(resolve));
+					await vi.advanceTimersByTimeAsync(59_999);
+					expect(settled).toBe(false);
+					await vi.advanceTimersByTimeAsync(1);
+					expect(await pending).toEqual({
+						success: false,
+						status: 503,
+						cause: "timeout",
+					});
+					expect(log.warn).toHaveBeenCalledWith(
+						"[commcare] application unavailable",
+						expect.anything(),
+					);
+					await closed.promise;
+				},
+			);
+		} finally {
+			await pending;
+		}
+	});
+
+	it("is no answer, logged, where the connection drops while the body streams", async () => {
+		const reached = Promise.withResolvers<void>();
+		let pending: ReturnType<typeof readHqJson> | undefined;
+		try {
+			await withSocketHttpPeer(
+				"india.commcarehq.org",
+				(_request, response) => {
+					response.writeHead(200, { "content-type": "application/json" });
+					response.write('{"id": "working-app", "modules": [', () => {
+						reached.resolve();
+						response.destroy();
+					});
+				},
+				async () => {
+					pending = readHqJson(CREDS, URL, "application");
+					await reached.promise;
+					expect(await pending).toEqual({
+						success: false,
+						status: 503,
+						cause: "network",
+					});
+					expect(log.warn).toHaveBeenCalledWith(
+						"[commcare] application unavailable",
+						{ error: expect.anything() },
+					);
+				},
+			);
+		} finally {
+			await pending;
+		}
 	});
 
 	it("stops a held read when cancel aborts, as no answer, and logs nothing", async () => {

@@ -581,6 +581,23 @@ it("stops the place list at a page whose total is over the caller's limit, after
 	});
 });
 
+it("refuses a place list whose places pass the limit while the total it names does not", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PLACES, method: "GET" })
+			.reply(200, {
+				objects: [root, child],
+				meta: { next: null, total_count: 1 },
+			});
+		expect(await listHqLocations(CREDS, DOMAIN, { stopPast: 1 })).toEqual({
+			success: false,
+			status: 502,
+			cause: "malformed",
+		});
+	});
+});
+
 it("stops a place list that names no total at the first page that takes it past the limit, and reads it whole without one", async () => {
 	/* Written here: every retained page names a total. */
 	const SECOND = "/a/clinic/api/location/v2/?limit=1000&offset=1000";

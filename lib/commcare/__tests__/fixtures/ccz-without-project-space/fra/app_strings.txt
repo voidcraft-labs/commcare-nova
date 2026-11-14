@@ -1,0 +1,10 @@
+homescreen.title=Worker record wire
+app.display.name=Worker record wire
+cchq.case=Case
+modules.m0=Visits
+forms.m0f0=Visit
+forms.m0f0.submit_label=Submit
+case_autoload.usercase.case_missing=This form saves to your own worker record, and there isn't one on this device yet. Syncing usually brings it down. If it doesn't, your supervisor can check your account.
+en=English
+fra=Français
+lang.current=fra

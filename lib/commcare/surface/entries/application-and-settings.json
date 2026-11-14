@@ -714,7 +714,7 @@
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "language-name-other",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a per-language display name, which may be HQ's default (HQ writes `langcodes.get_name` of the code, translated, when the key is absent or empty: `app_strings.py::_create_custom_app_strings`; Nova derives every name today, `lib/domain/languageRegistry/names.ts::resolvedLanguageDisplayLabel` through `lib/commcare/languageWire.ts::planLanguageWire`)",
+		"dispositionCell": "**HELD-NEW**: a per-language display name, which may be HQ's default (HQ writes `langcodes.get_name` of the code, translated, when the key is absent or empty: `app_strings.py::_create_custom_app_strings`; Nova writes its own label for every language on a publish (`targetOverlay.ts::projectTranslationsForTarget`), `lib/domain/languageRegistry/names.ts::resolvedLanguageDisplayLabel` through `lib/commcare/languageWire.ts::planLanguageWire`)",
 		"subject": "app-settings",
 		"owner": "settings-nova-comes-to-own",
 		"platforms": {
@@ -2682,7 +2682,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit",
+			"cell": "omit (the local `.ccz` writes `ota-restore-url`, `PostURL`, `key_server` and `cc_user_domain` for its project space, on the custom base URL and the secure receiver where the project space holds them)",
 			"markers": ["omit"]
 		},
 		"gates": ["toggle/MOBILE_RECOVERY_MEASURES"]

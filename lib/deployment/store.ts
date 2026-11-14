@@ -1396,23 +1396,33 @@ export async function readTargetFacts(
 		}
 	}
 
+	/* The bytes come with their own row's origin and date: a publish or a
+	 * refresh that rewrote the baseline between the two statements is
+	 * answered from the read it stored, never from the first row's date. */
 	const bytes = await db
 		.selectFrom("app_deployment_baselines")
-		.select(["source_gzip", "source_digest", "ownership"])
+		.select([
+			"origin",
+			"source_gzip",
+			"source_digest",
+			"ownership",
+			"observed_at",
+		])
 		.where("deployment_id", "=", row.deployment_id)
 		.executeTakeFirst();
-	/* A baseline rewritten between the two reads is a newer read, projected
-	 * on the next call and never paired with this row's date. */
-	if (bytes === undefined || bytes.source_digest !== row.source_digest) {
+	if (bytes === undefined || bytes.origin === "unread") return null;
+	if (knownReadOrigin(row.deployment_id, bytes.origin) === "create") {
 		return null;
 	}
 	const verified = verifiedBaselineSource({
 		deployment_id: row.deployment_id,
-		...bytes,
+		source_gzip: bytes.source_gzip,
+		source_digest: bytes.source_digest,
+		ownership: bytes.ownership,
 	});
 	if (verified === null || bytes.source_digest === null) return null;
 	const facts = targetFactsFromSource(verified.source, {
-		observedAt,
+		observedAt: bytes.observed_at.toISOString(),
 		novaOwnsAutoGpsCapture: verified.ownership.autoGpsCapture,
 		adopted,
 	});

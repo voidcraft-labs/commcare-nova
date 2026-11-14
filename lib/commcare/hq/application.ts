@@ -42,6 +42,8 @@ export interface HqAppBuild {
 }
 
 export interface HqApplication {
+	/** The project space the answer was read from. */
+	readonly domain: string;
 	readonly appId: string;
 	readonly name: string;
 	/** The save counter of the document the answer describes. */
@@ -148,6 +150,7 @@ export async function readHqApplication(
 		});
 	}
 	return {
+		domain,
 		appId,
 		name: body.name,
 		version: body.version,
@@ -311,6 +314,7 @@ export function hqApplicationModules(
 ): readonly HqApplicationModule[] | { readonly malformedAt: string } {
 	const malformedAt = (path: string) => {
 		log.error("[commcare] application modules are malformed", undefined, {
+			domain: application.domain,
 			request: "application",
 			appId: application.appId,
 			path,

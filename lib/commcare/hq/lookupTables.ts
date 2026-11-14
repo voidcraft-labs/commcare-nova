@@ -336,13 +336,9 @@ export async function readHqLookupTableRows(
 				);
 	if ("success" in raw) return raw;
 	if ("kind" in raw) {
-		/* The first page names the total; rows past a limit the total is not
-		 * over are rows the total does not count. */
-		if (
-			raw.totalCount !== null &&
-			stopPast !== undefined &&
-			raw.totalCount > stopPast
-		)
+		/* A row read needs the total its pages name, so a list past the limit
+		 * that named none disagrees with its total like any other. */
+		if (raw.totalCount !== null)
 			return { kind: "past-limit", totalCount: raw.totalCount };
 		return rowsDisagreeWithTotal(domain, null);
 	}

@@ -1,3 +1,4 @@
+import { defaultAppStringsHeldText } from "@/lib/commcare/appStringKeys";
 import { targetProfileProperties } from "@/lib/commcare/keptProfile";
 import {
 	profileServerProperties,
@@ -1191,9 +1192,10 @@ export function compileCcz(
 	// named locale used by the worker-facing language picker. Every configured
 	// language therefore gets its own named directory, including the first
 	// language, while `default/` duplicates that first language's effective
-	// table. CommCare Android removes only the literal `default` locale from its
-	// picker; omitting the named copy would make it impossible to switch back to
-	// the default language after choosing another one.
+	// table, but for the project space's own text (below). CommCare Android
+	// removes only the literal `default` locale from its picker; omitting the
+	// named copy would make it impossible to switch back to the default
+	// language after choosing another one.
 	const langs = localization.languages;
 	const langDirs: Array<[lang: string, dir: string]> = [
 		[localization.defaultLanguage, "default"],
@@ -1313,9 +1315,14 @@ export function compileCcz(
 	// of them, as HQ's build
 	// puts a stored translation over every string. Each is written in HQ's own
 	// spelling (`hqLocaleFileValue`), being text Nova did not write. `default`
-	// takes the default language's, as it takes that language's whole table;
-	// a language of the facts the app does not have writes nothing, as HQ
-	// builds no table for it.
+	// takes the default language's names, and under each other key the text
+	// HQ's build merges into its default table from every language
+	// (`defaultAppStringsHeldText`); a language of the facts the app does not
+	// have writes nothing, as HQ builds no table for it.
+	const defaultHeldText =
+		facts === null
+			? {}
+			: defaultAppStringsHeldText(facts.uiText, localization.languages);
 	for (const [language, dir] of langDirs) {
 		const table = new Map<string, string>();
 		const heldText = new Set<string>();
@@ -1335,7 +1342,9 @@ export function compileCcz(
 			if (held !== undefined) heldText.add(code);
 		}
 		for (const [key, value] of Object.entries(
-			ownEntry(facts?.uiText, language) ?? {},
+			dir === "default"
+				? defaultHeldText
+				: (ownEntry(facts?.uiText, language) ?? {}),
 		)) {
 			table.set(key, value);
 			heldText.add(key);

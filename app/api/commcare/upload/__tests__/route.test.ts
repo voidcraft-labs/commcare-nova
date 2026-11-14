@@ -27,6 +27,7 @@ import {
 } from "@/lib/deployment/previewSpace";
 import {
 	currentResourceIdentities,
+	deploymentKept,
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
@@ -229,6 +230,24 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.url).toContain("/a/acme/apps/view/");
 		/* A publish writes the declaration, so it answers with no read of it. */
 		expect(Object.hasOwn(body, "web_apps_enabled")).toBe(false);
+	});
+
+	it("answers with the kept list of the record the publish left", async () => {
+		const kept = {
+			labels: ["fuzzy-search"] as const,
+			observedAt: "2026-11-01T09:00:00.000Z",
+		};
+		vi.mocked(deploymentKept).mockResolvedValueOnce(kept);
+
+		const body = (await (
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }))
+		).json()) as { kept: unknown };
+
+		expect(body.kept).toEqual(kept);
+		expect(deploymentKept).toHaveBeenCalledWith(
+			expect.objectContaining({ appId: "app-1", projectId: "proj-1" }),
+			deploymentView("uploaded"),
+		);
 	});
 
 	it("names a lookup table an earlier publish left behind", async () => {

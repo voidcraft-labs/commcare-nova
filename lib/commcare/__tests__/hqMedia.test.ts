@@ -11,6 +11,7 @@
 import type { MockAgent } from "undici";
 import { afterEach, expect, it, vi } from "vitest";
 import { withHttpPeer, withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { log } from "@/lib/logger";
 import { readHqMediaFile } from "../hq/media";
 
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
@@ -155,9 +156,9 @@ it("asks once more after a second where HQ could not send the file, and no more"
 	});
 });
 
-it("sends a 500 once and answers it", async () => {
+it("sends a 500 once and answers it, logging its status and never its body", async () => {
 	await withHttpPeer(async (peer) => {
-		intercept(peer).reply(500, "");
+		intercept(peer).reply(500, "Traceback: secret detail");
 		expect(await read()).toEqual({
 			success: false,
 			status: 500,
@@ -165,6 +166,13 @@ it("sends a 500 once and answers it", async () => {
 		});
 		expect(calls(peer)).toHaveLength(1);
 	});
+	expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+		"[commcare] media file refused",
+		{ request: "media-file", status: 500 },
+	);
+	expect(JSON.stringify(vi.mocked(log.warn).mock.calls)).not.toContain(
+		"secret detail",
+	);
 });
 
 it("sends nothing for an id that is not one HQ gives", async () => {

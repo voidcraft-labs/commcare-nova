@@ -169,7 +169,7 @@ export type HqToolErrorType =
  *   - `hq_app_version_below_floor` — the app on CommCare HQ is set to a
  *     CommCare version below the one Nova's apps need. Nothing of its
  *     content was sent; the payload carries the app's `url` there.
- *   - `hq_build_profile_language_missing` — an application profile of the
+ *   - `hq_build_profile_language_missing`: an application profile of the
  *     app on CommCare HQ includes a language this app no longer has, and no
  *     API key can change one. Nothing of its content was sent; the message
  *     names each profile and language on its own line, and the payload

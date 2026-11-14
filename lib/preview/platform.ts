@@ -249,7 +249,7 @@ export interface PreviewPlatformRules {
 	 * splits on runs of whitespace (`adapters/EntityListAdapter.java::filterByString`,
 	 * `split("\\s+")`), shows the matches as the filter returns them, stably
 	 * re-sorted by ascending score under fuzzy search
-	 * (`cases/entity/EntityStringFilterer.java::buildMatchList`), and runs every
+	 * (`adapters/EntityStringFilterer.java::buildMatchList`), and runs every
 	 * change once the worker has typed, an emptied box included, which is one
 	 * empty term (`adapters/EntityStringFilterer.java`, `isFilterEmpty`).
 	 */
