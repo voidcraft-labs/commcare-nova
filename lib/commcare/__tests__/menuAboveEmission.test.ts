@@ -354,8 +354,15 @@ describe("the local suite's menus", () => {
 		expect(menu.attribs.relevant).toBe(
 			`(${ROLE_READ} = 'nurse') and (${ROLE_READ} = 'supervisor')`,
 		);
-		// The condition's instance is declared on its own `<menu>`.
+		// The condition's instance is declared on its own `<menu>`, after its
+		// commands, where HQ's build appends it
+		// (`InstancesHelper._add_menu_instances`).
 		expect(instanceIds(menu)).toEqual(["commcaresession"]);
+		expect(childElements(menu).map((child) => child.name)).toEqual([
+			"display",
+			"command",
+			"instance",
+		]);
 	});
 
 	it("writes the parent's own menu as before, beside the submenu's", () => {

@@ -20,9 +20,10 @@ registration.
   opens regenerated (``<scenario>.hq.xml``: the second module's first form
   for nested menus, the last module's first form for no-matches).
 - ``menu_screens``: menus that show their forms in the menu above and
-  registration from the case list, with endpoints, each document's suite and,
-  for the two-registrations control, the error HQ's own module validator gives
-  its case list (``ModuleValidator.validate_case_list_form``).
+  registration from the case list, with endpoints, built at the CommCare
+  version Nova publishes at (``DEFAULT_COMMCARE_VERSION``): each document's
+  suite and, for the two-registrations control, the error HQ's own module
+  validator gives its case list (``ModuleValidator.validate_case_list_form``).
 - ``localizations(family)``: the localization and worker corpora, each form
   regenerated and, for localization, each language's app strings
   (``<scenario>.hq.<lang>.strings.txt``).
@@ -34,6 +35,7 @@ captured app contents come from the targeted corpus and do not join either
 family's fixture records.
 """
 
+from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
 from proof.native.hq_support import (
     NOVA_SERVER_ORIGIN,
     hand_assembled_suite,
@@ -170,7 +172,13 @@ def menu_screens(session):
     exports = session.family("menu-screens")
     records = []
     flags = {"CASE_SEARCH_ADVANCED", "SESSION_ENDPOINTS"}
-    with _check(session, ENDPOINT_DOMAIN, flags):
+    # HQ builds these at the CommCare version Nova publishes at, not the native proofs' 2.53 default: from 2.54 HQ
+    # declares a menu's instances on the menu itself rather than on each of its entries
+    # (``feature_support.py::supports_menu_instances``, ``post_process/instances.py::InstancesHelper.update_suite``),
+    # which is where Nova's local suite declares them, and Nova publishes at 2.57 and above.
+    with native_check(
+        ENDPOINT_DOMAIN, flags=flags, commcare_version=DEFAULT_COMMCARE_VERSION, server_origin=NOVA_SERVER_ORIGIN
+    ):
         from corehq.apps.app_manager.helpers.validators import ModuleValidator
 
         for source in sorted(exports.glob("*.json")):

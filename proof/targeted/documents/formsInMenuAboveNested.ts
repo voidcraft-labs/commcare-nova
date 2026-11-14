@@ -1,6 +1,12 @@
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn, proseText } from "@/lib/domain";
-import { eq, literal, or, prop, sessionUser } from "@/lib/domain/expression";
+import {
+	eq,
+	literal,
+	or,
+	prop,
+	sessionUserProperty,
+} from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -11,9 +17,12 @@ import { answerHeld } from "./echo";
  * - "Households" is case first, for a visitor. Its submenu "Household
  *   checks", for a checker or a visitor, shows its two follow-up forms there
  *   (the screen stays case first): "Check household", whose display condition
- *   reads the household, and "Review household", which has none, so with no
- *   household chosen the two menus' conditions alone decide whether it shows,
- *   and a checker, whom the parent's condition refuses, does not see it. Its
+ *   reads the chosen household, and "Review household", which has none, so
+ *   the two menus' conditions alone decide whether it shows, and a checker,
+ *   whom the parent's condition refuses, does not see it. The conditions read
+ *   the worker's role, a worker property the app declares, so a publish asks
+ *   the project space for the field and a worker with no role holds it
+ *   blank. Its
  *   submenu "Household list" shows only its case list entry there (the screen
  *   still stays case first); "Household extras" keeps its screen and returns
  *   to its parent after submit.
@@ -35,6 +44,7 @@ import { answerHeld } from "./echo";
 export function formsInMenuAboveNested() {
 	const id = "targeted-forms-in-menu-above-nested";
 	const key = (name: string) => targetedUuid(id, name);
+	const role = key("role");
 	const note = (name: string) =>
 		f({
 			uuid: key(`${name}-note`),
@@ -91,7 +101,7 @@ export function formsInMenuAboveNested() {
 				uuid: key("households"),
 				name: "Households",
 				caseType: "household",
-				displayCondition: eq(sessionUser("role"), literal("visitor")),
+				displayCondition: eq(sessionUserProperty(role), literal("visitor")),
 				caseListConfig: list("households"),
 				forms: [
 					{
@@ -117,8 +127,8 @@ export function formsInMenuAboveNested() {
 				name: "Household checks",
 				caseType: "household",
 				displayCondition: or(
-					eq(sessionUser("role"), literal("checker")),
-					eq(sessionUser("role"), literal("visitor")),
+					eq(sessionUserProperty(role), literal("checker")),
+					eq(sessionUserProperty(role), literal("visitor")),
 				),
 				caseListConfig: list("household-checks"),
 				forms: [
@@ -234,6 +244,8 @@ export function formsInMenuAboveNested() {
 			},
 		],
 	});
+	doc.userProperties = { [role]: { uuid: role, slug: "role", label: "Role" } };
+	doc.userPropertyOrder = [role];
 	for (const [child, parent] of [
 		["household-checks", "households"],
 		["household-list", "households"],
