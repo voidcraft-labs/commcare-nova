@@ -69,26 +69,33 @@ What is compared is Nova's emitted wire, never what HQ makes of it:
   Core's parse, and is compared all the same (``_place_unread``). Where
   the other archive names the same element and an entity at the same
   position there owns it, it is that entity's: the same element, read on
-  one side (a datum the edit removed or added). One the other archive
-  does not hold at all, in an archive holding exactly one module the
-  other does not (the module the edit removed or added), is that
-  module's: Nova emits each module's unread elements inside its
-  per-module loop, so they leave and arrive with it. Every other is unowned
-  (``UNOWNED``), compared as one record with each element's own name and
-  every ``locale`` read out (the strings it names, in every language), so
-  a module that moves keeps it. It is inside the footprint where the
-  footprint reaches the app, as every element Core's parse places with no
-  entity is, or holds every module of D and D': Nova emits each detail and
-  each search's remote request inside its per-module loop
-  (``lib/commcare/compiler.ts::compileCcz``), so an unread one is some
+  one side (a datum the edit removed or added). Any other unread detail
+  is the module's whose one menu its name declares in its own archive:
+  Nova emits a module's details whether or not a datum reads them (a case
+  list's details where no form selects a case), each named
+  ``<menu>_<case|search>_<short|long>`` after the menu Core places for the
+  module, the naming contract ``_detail_pairs`` reads
+  (``_declared_details``); and a remote request an element placed so opens
+  (the search an unread case list's action would open) is that element's
+  entity's. One the other archive does not hold at all, in an archive
+  holding exactly one module the other does not (the module the edit
+  removed or added), is that module's: Nova emits each module's unread
+  elements inside its per-module loop, so they leave and arrive with it.
+  Every other is unowned (``UNOWNED``), compared as one record with each
+  element's own name and every ``locale`` read out (the strings it names,
+  in every language), so a module that moves keeps it. It is inside the
+  footprint where the footprint reaches the app, as every element Core's
+  parse places with no entity is, or holds every module of D and D': Nova
+  emits each detail and each search's remote request inside its per-module
+  loop (``lib/commcare/compiler.ts::compileCcz``), so an unread one is some
   module's. The other remote requests, an entry point's claims, are emitted
   outside that loop (``lib/commcare/entryPointSuite.ts::
   buildEntryPointSuite``) and are never unread: the endpoint that needs one
-  pushes its command. Which module an unread element is, only its
-  positional name says, so this placement errs both ways: a change to one
-  of a module outside a footprint that reaches the app passes, and a change
-  to one of a module inside a footprint that neither reaches the app nor
-  holds every module fails.
+  pushes its command. Which module an unowned element is, nothing in the
+  archive says, so its placement errs both ways: a change to one of a
+  module outside a footprint that reaches the app passes, and a change to
+  one of a module inside a footprint that neither reaches the app nor holds
+  every module fails.
 
 An input either side lacks is refused rather than skipped
 (``CorpusLayoutError``): a configuration D is published under where D' has
@@ -877,17 +884,47 @@ def _position(entity, placement):
     return None
 
 
+DETAIL_ROLES = tuple(f"{target}_{screen}" for target in ("case", "search") for screen in ("short", "long"))
+
+
+def _declared_details(ids):
+    """Nova's four declared detail names under each module's one menu, by the module: ``{name: entity}``.
+
+    The naming contract ``_detail_pairs`` reads: ``compiler.ts`` names a
+    module's details ``<menu>_<case|search>_<short|long>`` after the menu
+    Core places for it (``_owned``), whether or not a datum reads them. A
+    module without exactly one menu declares none, and a name two modules'
+    menus would give is neither's.
+    """
+    found, shared = {}, set()
+    for entity, held in sorted(ids.items(), key=lambda item: str(item[0])):
+        menus = held.get("menus", [])
+        if entity[0] != "module" or len(menus) != 1:
+            continue
+        for role in DETAIL_ROLES:
+            name = f"{menus[0]['id']}_{role}"
+            if name in found:
+                shared.add(name)
+            found[name] = entity
+    return {name: entity for name, entity in found.items() if name not in shared}
+
+
 def _place_unread(sides, mapping):
     """Each archive's unread elements, placed: ``[({entity: [element]}, [unowned element])]``.
 
     An element unread in one archive is an entity's where the other archive
     owns the element of the same name (D''s name mapped to D's, as every name
     is compared) through an entity at the same position in both: positional
-    names then name the same entity's element on both sides. One the other
-    archive does not hold at all, where exactly one module sits in this
-    archive alone (a module the edit removed or added), is that module's: a
-    module's elements leave and arrive with it. Every other is unowned
-    (``UNOWNED``).
+    names then name the same entity's element on both sides. A detail
+    otherwise is the module's whose one menu its name declares in this
+    archive (``_declared_details``): Nova emits a module's details whether or
+    not a datum reads them, named after its menu. A remote request a stack
+    step of an element placed so opens (an unread case list's search action)
+    is that element's entity's, as ``_claim_details`` gives a module the
+    remote requests its own elements open. One the other archive does not
+    hold at all, where exactly one module sits in this archive alone (a
+    module the edit removed or added), is that module's: a module's elements
+    leave and arrive with it. Every other is unowned (``UNOWNED``).
     """
     reverse = {value: key for key, value in mapping.items()}
     owners = [
@@ -895,7 +932,7 @@ def _place_unread(sides, mapping):
         for (_, _, owned, _, _) in sides
     ]
     found = []
-    for index, (suite, placement, _, _, _) in enumerate(sides):
+    for index, (suite, placement, _, ids, _) in enumerate(sides):
         other = 1 - index
         other_placement = sides[other][1]
 
@@ -903,17 +940,29 @@ def _place_unread(sides, mapping):
             # The name the other archive gives this element: D''s names are mapped to D's.
             return mapping.get(name, name) if index == 1 else reverse.get(name, name)
 
+        declared = _declared_details(ids)
         alone = sorted(set(placement[0]) - set(other_placement[0]))
-        placed, unowned = {}, []
+        placed, unowned, opened = {}, [], {}
+        # ``unread`` lists details before remote requests, so a detail's search action is known when its remote
+        # request is placed.
         for tag, name in unread(suite):
+            element = suite.elements[(tag, name)]
             entity = owners[other].get((tag, named(name)))
             position = None if entity is None else _position(entity, placement)
             if position is not None and position == _position(entity, other_placement):
-                placed.setdefault(entity, []).append(suite.elements[(tag, name)])
+                pass
+            elif tag == "detail" and name in declared:
+                entity = declared[name]
+            elif tag == "remote-request" and name in opened:
+                entity = opened[name]
             elif len(alone) == 1 and (tag, named(name)) not in sides[other][0].elements:
-                placed.setdefault(("module", alone[0]), []).append(suite.elements[(tag, name)])
+                entity = ("module", alone[0])
             else:
-                unowned.append(suite.elements[(tag, name)])
+                unowned.append(element)
+                continue
+            placed.setdefault(entity, []).append(element)
+            for command in _opened(element, suite):
+                opened.setdefault(command, entity)
         found.append((placed, unowned))
     return found
 

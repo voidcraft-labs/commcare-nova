@@ -16,6 +16,8 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { availableLookupContext } from "@/lib/__tests__/lookupFixtures";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -25,6 +27,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { mutationCommitVerdict } from "../commitVerdicts";
 import {
 	caseOperationIdVerdict,
 	caseOperationLinkIdentifierVerdict,
@@ -207,10 +210,15 @@ describe("fieldIdVerdict — format classes", () => {
 		expect(v.ok ? "" : v.message).toContain("empty");
 	});
 
-	it("rejects spaces, hyphens, and leading digits, offering an editor-safe id", () => {
+	it("accepts a hyphen after the first letter, as HQ's form builder does", () => {
+		expect(at("first-name")).toEqual({ ok: true });
+		expect(at("copy-1-of-age")).toEqual({ ok: true });
+	});
+
+	it("rejects spaces, a leading hyphen, and leading digits, offering an editor-safe id", () => {
 		for (const [bad, free] of [
 			["first name", "first_name"],
-			["first-name", "first_name"],
+			["-first", "first"],
 			["1st_name", "q1st_name"],
 			["naïve!", "na_ve_"],
 		]) {
@@ -412,23 +420,31 @@ describe("caseTypeNameVerdict", () => {
 		});
 	});
 
-	it("rejects an illegal identifier (leading digit / spaces)", () => {
-		expect(caseTypeNameVerdict("1visit", existing).ok).toBe(false);
-		expect(caseTypeNameVerdict("home visit", existing)).toMatchObject({
-			ok: false,
-			code: "illegal_format",
-		});
+	it("rejects a character HQ's case type grammar refuses", () => {
+		for (const name of ["home visit", "visit.v2", "ñ"])
+			expect(caseTypeNameVerdict(name, existing)).toMatchObject({
+				ok: false,
+				code: "illegal_format",
+				userMessage:
+					"A case type holds only letters, digits, underscores and hyphens.",
+			});
 	});
 
-	it("rejects a reserved namespace, case-insensitively", () => {
-		expect(caseTypeNameVerdict("case", existing)).toMatchObject({
-			ok: false,
-			code: "reserved",
-		});
-		expect(caseTypeNameVerdict("Parent", existing)).toMatchObject({
-			ok: false,
-			code: "reserved",
-		});
+	it("accepts a leading digit, underscore or hyphen, and every reference word", () => {
+		for (const name of [
+			"1visit",
+			"2024",
+			"_flagged",
+			"-flagged",
+			"case",
+			"Parent",
+			"form",
+			"user",
+			"search",
+			"record",
+			"row",
+		])
+			expect(caseTypeNameVerdict(name, existing)).toEqual({ ok: true });
 	});
 
 	it("rejects an EXACT duplicate of an existing type", () => {
@@ -555,15 +571,23 @@ describe("case-operation identifier vocabulary", () => {
 					"Start with a letter or underscore; use only letters, digits, or underscores.",
 			});
 		}
-		for (const candidate of ["source-id", "source.id", "_source_id"]) {
+		for (const candidate of ["source.id", "_source_id", "-source"]) {
 			const verdict = caseOperationWritePropertyVerdict(candidate, new Set());
 			expect(verdict).toMatchObject({
 				ok: false,
 				code: "illegal_format",
 				userMessage:
-					"Start with a letter; use only letters, digits, or underscores.",
+					"Start with a letter; use only letters, digits, underscores, or hyphens.",
 			});
 		}
+		for (const candidate of ["source-id", "state", "category"])
+			expect(caseOperationWritePropertyVerdict(candidate, new Set())).toEqual({
+				ok: true,
+			});
+		for (const candidate of ["location_id", "hq_user_id"])
+			expect(
+				caseOperationWritePropertyVerdict(candidate, new Set()),
+			).toMatchObject({ ok: false, code: "reserved" });
 		for (const candidate of ["parent-link", "parent.link", " parent_link"]) {
 			expect(
 				caseOperationLinkIdentifierVerdict(candidate, new Set()),
@@ -617,4 +641,129 @@ describe("identifier length and duplicate boundaries", () => {
 			expect(verdict("visit", new Set(["Visit"]))).toEqual({ ok: true });
 		}
 	});
+});
+
+describe("each verdict agrees with the commit gate", () => {
+	const gate = (doc: BlueprintDoc) =>
+		mutationCommitVerdict(doc, [], availableLookupContext([])).ok;
+
+	it.each([
+		"first-name",
+		"copy-1-of-age",
+		"a-",
+		"-a",
+		"_a",
+		"1a",
+		"a b",
+		"a.b",
+		"XMLa",
+		"meta",
+		"weight",
+	])("fieldIdVerdict and the gate agree on the question ID %j", (id) => {
+		const doc = makeDoc();
+		const verdict = fieldIdVerdict({ doc, parentUuid: F1, proposedId: id });
+		const candidate = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: AGE,
+					targetKind: "int",
+					patch: { id },
+				},
+			],
+			availableLookupContext([]),
+		);
+		expect(candidate.ok).toBe(verdict.ok);
+	});
+
+	/** A registration form of `caseType` whose answer saves to `property`. */
+	const registering = (caseType: string, property: string) =>
+		buildDoc({
+			caseTypes: [
+				{
+					name: caseType,
+					properties: [
+						{ name: "case_name", label: "Name" },
+						...(property === "case_name"
+							? []
+							: [{ name: property, label: "Saved" }]),
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Records",
+					caseType,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType, property: "case_name" },
+								}),
+								...(property === "case_name"
+									? []
+									: [
+											f({
+												kind: "text",
+												id: "saved",
+												caseWrite: { caseType, property },
+											}),
+										]),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it.each([
+		"case",
+		"parent",
+		"form",
+		"user",
+		"search",
+		"record",
+		"row",
+		"2024",
+		"-x",
+		"_x",
+		"1st-visit",
+		"patient",
+		"a b",
+		"ñ",
+		"x".repeat(256),
+	])(
+		"caseTypeNameVerdict and the gate agree on the case type %j",
+		(caseType) => {
+			expect(gate(registering(caseType, "case_name"))).toBe(
+				caseTypeNameVerdict(caseType, new Set()).ok,
+			);
+		},
+	);
+
+	it.each([
+		"first-name",
+		"state",
+		"category",
+		"visit-count",
+		"location_id",
+		"hq_user_id",
+		"a.b",
+		"-x",
+	])(
+		"caseOperationWritePropertyVerdict and the gate agree on the property %j",
+		(property) => {
+			expect(gate(registering("patient", property))).toBe(
+				caseOperationWritePropertyVerdict(property, new Set()).ok,
+			);
+		},
+	);
 });

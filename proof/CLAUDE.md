@@ -230,9 +230,10 @@ harness keeps, each with its reason.
 - **An existing fuzz sample keeps its draws.** A generator change that
   repairs an inadmissible value maps the value after its draw, without a
   new random call or a retry: a select's default becomes its first drawn
-  option. A new expression family has its own sample, and plans applied
-  after the document's draw leave an absent target alone rather than
-  drawing again. Existing document ids and every unrelated draw stay the
+  option. A new family (the expression family, the advanced family) draws
+  a stream of its own, so its draws move no other family's; the expression
+  family's plans, applied after the document's draw, leave an absent target
+  alone rather than drawing again. Existing document ids and every unrelated draw stay the
   same, so the frozen comparison can identify each deliberate change.
 - **A zoned Core class runs in a test JVM of its own, once per zone, never
   in the suite's.** Core reads the JVM's default zone where no installed
@@ -385,9 +386,9 @@ harness keeps, each with its reason.
   - **Weekly** (`proof-audit.yml`): both profiles whole and fresh, the run
     that proves the store's keys and replaces the snapshot, beside the
     comparisons over a 24-document sample that turns each week (its seed
-    the run's ISO year and week, so every document is compared within
-    fifteen weeks, and a dispatch that names the seed runs the same sample
-    again). The whole run without the readers also holds the committed
+    the run's ISO year and week, so every document is compared within the
+    corpus's size over 24 weeks, rounded up, and a dispatch that names the
+    seed runs the same sample again). The whole run without the readers also holds the committed
     sensitivity effects to its own flips both ways, so an effect no flip
     shows any longer fails the week by name.
   The lane with every reader costs about 550 worker-hours whole, against

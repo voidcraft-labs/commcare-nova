@@ -31,6 +31,10 @@ import {
 	termSchema,
 } from "@/lib/domain/expression/types";
 import { formRecordScope } from "@/lib/domain/formRecordScope";
+import {
+	caseReferenceText,
+	readCaseReference,
+} from "@/lib/domain/hashtagSegments";
 import { isSearchOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { userPropertiesOf } from "@/lib/domain/users";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
@@ -302,17 +306,19 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 				property: name,
 			});
 		}
-		if (
-			this.options.candidateCaseType &&
-			(value === "case" || this.formCaseTypes?.has(value))
-		) {
-			const caseType = value === "case" ? this.options.selectedCaseType : value;
+		if (this.options.candidateCaseType && value === "case") {
+			const caseType = this.options.selectedCaseType;
 			if (!caseType || !this.formCaseTypes?.has(caseType))
 				throw new AuthoringInputError(
 					"This form has no selected record in that scope.",
 				);
 			return termSchema.parse({ kind: "form-case", caseType, property: name });
 		}
+		const formRecord = this.options.candidateCaseType
+			? readCaseReference(value, path)
+			: undefined;
+		if (formRecord && this.formCaseTypes?.has(formRecord.caseType))
+			return termSchema.parse({ kind: "form-case", ...formRecord });
 		if (value === "row") {
 			if (!this.options.tableId)
 				throw new AuthoringInputError(
@@ -326,13 +332,16 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			throw new AuthoringInputError(
 				"A record reference needs exactly one record type and property.",
 			);
-		const caseType =
+		return this.recordProperty(
 			value === "case"
 				? this.currentCaseType
 				: value === "record"
 					? path[0]
-					: value;
-		const property = value === "record" ? path[1] : name;
+					: value,
+			value === "record" ? path[1] : name,
+		);
+	}
+	recordProperty(caseType: string | undefined, property: string): Term {
 		const type = this.typeContext.facts.caseTypes.find(
 			(type) => type.name === caseType,
 		);
@@ -545,7 +554,9 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 	}
 	private printReference(term: Term): string | undefined {
 		if (term.kind === "form-case")
-			return `#${term.caseType === this.options.selectedCaseType ? "case" : term.caseType}/${term.property}`;
+			return term.caseType === this.options.selectedCaseType
+				? `#case/${term.property}`
+				: caseReferenceText(term.caseType, term.property);
 		if (term.kind === "field") {
 			const field = this.fields.find(
 				(field) =>
@@ -572,7 +583,11 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			term.caseType === this.currentCaseType
 		)
 			return this.options.candidateCaseType && this.options.tableId
-				? `#record/${term.caseType}/${term.property}`
+				? // `#record/<type>/` names the form's record of that type where the
+					// form reads one, so the candidate then takes `property(…)`.
+					term.caseType === undefined || this.formCaseTypes?.has(term.caseType)
+					? undefined
+					: `#record/${term.caseType}/${term.property}`
 				: `#${this.options.candidateCaseType ? "row" : "case"}/${term.property}`;
 		if (term.kind === "table-column" && term.tableId === this.options.tableId) {
 			const column = this.table(term.tableId).columns.find(

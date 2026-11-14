@@ -84,7 +84,7 @@ describe("lookup manifest stream frames", () => {
 			parseLookupManifestFrame(
 				JSON.stringify({
 					...MANIFEST,
-					tables: [{ ...MANIFEST.tables[0], tag: "not-valid" }],
+					tables: [{ ...MANIFEST.tables[0], tag: "9-not-valid" }],
 				}),
 			),
 		).toBeNull();

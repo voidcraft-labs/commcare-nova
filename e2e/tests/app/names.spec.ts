@@ -1,0 +1,159 @@
+import type { Page } from "@playwright/test";
+import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
+
+/** Wait for the save of a batch whose body holds every one of `parts` and
+ *  none of `absent`. */
+function savedWith(
+	page: Page,
+	appId: string,
+	parts: readonly string[],
+	absent: readonly string[] = [],
+) {
+	return page.waitForResponse((response) => {
+		const request = response.request();
+		const body = request.postData() ?? "";
+		return (
+			new URL(response.url()).pathname === `/api/apps/${appId}` &&
+			request.method() === "PUT" &&
+			parts.every((part) => body.includes(part)) &&
+			!absent.some((part) => body.includes(part))
+		);
+	});
+}
+
+/** Open the starter form, whose canvas holds the insertion gaps. */
+async function openStarterForm(page: Page) {
+	await page
+		.getByRole("list", { name: "Survey forms" })
+		.getByRole("button", { name: "Survey", exact: true })
+		.click();
+	await expect(page.locator("[data-insertion-point]").first()).toBeAttached();
+}
+
+/** Add a Single Select at the form's last gap and wait for its save. */
+async function addSingleSelect(page: Page, appId: string) {
+	await page.locator("[data-insertion-point] > button").last().click();
+	await page.getByRole("menuitem", { name: "Choice", exact: true }).hover();
+	const added = savedWith(page, appId, ['"kind":"addField"']);
+	await page
+		.getByRole("menuitem", { name: "Single Select", exact: true })
+		.click();
+	expect((await added).ok()).toBe(true);
+}
+
+test("a question ID takes a hyphen and its reference resolves, and a choice holds a quote mark and stands alone", {
+	tag: "@seed:open",
+}, async ({ scenario, page }) => {
+	const { openAppId } = seedFor(scenario, "open");
+	await openBuilder(page, `/build/${openAppId}`);
+	await openStarterForm(page);
+	await addSingleSelect(page, openAppId);
+
+	// The ID HQ's form builder writes for a duplicated question's family:
+	// hyphens are part of the grammar, so the rename saves as typed.
+	const idInput = page.locator('[data-field-id="id"] input').visible();
+	await expect(idInput).toBeVisible();
+	const renamed = savedWith(page, openAppId, ['"id":"first-name"']);
+	await idInput.fill("first-name");
+	await idInput.press("Enter");
+	expect((await renamed).ok()).toBe(true);
+	await expect(idInput).toHaveValue("first-name");
+	await expect(page.locator('[data-tree-field="first-name"]')).toBeVisible();
+
+	// A value keeps its apostrophe as typed: the editor no longer drops it.
+	// The choices save together when Enter is pressed or focus leaves them.
+	const options = page.getByRole("group", { name: "Options", exact: true });
+	const values = options.getByPlaceholder("value", { exact: true });
+	await expect(values.first()).toBeVisible();
+	const quoted = savedWith(page, openAppId, [`"value":"it's"`]);
+	await values.first().fill("it's");
+	await values.first().press("Enter");
+	expect((await quoted).ok()).toBe(true);
+	await expect(values.first()).toHaveValue("it's");
+
+	// Choices come off until one is left, and the last one stays. The editor
+	// saves the choices whole, so a removal is the save that no longer holds
+	// the removed choice's value.
+	const removals = options.getByRole("button", { name: /^Remove / });
+	await expect(values).toHaveCount(2);
+	while ((await values.count()) > 1) {
+		const before = await values.count();
+		const gone = await values.last().inputValue();
+		const removed = savedWith(
+			page,
+			openAppId,
+			['"optionsSource"', `"value":"it's"`],
+			[`"value":"${gone}"`],
+		);
+		await removals.last().click();
+		expect((await removed).ok()).toBe(true);
+		await expect(values).toHaveCount(before - 1);
+	}
+	await expect(values).toHaveCount(1);
+	await expect(removals).toHaveCount(1);
+	await expect(removals.first()).toBeDisabled();
+	await expect(values.first()).toHaveValue("it's");
+
+	await reloadBuilder(page);
+	await expect(page.locator('[data-tree-field="first-name"]')).toBeVisible();
+	await expect(idInput).toHaveValue("first-name");
+	await expect(values).toHaveCount(1);
+	await expect(values.first()).toHaveValue("it's");
+
+	// The starter question's label reads the renamed question: the hashtag
+	// suggestion offers it by its hyphenated path, and its chip resolves to
+	// that path before and after a reload, never to a repair chip.
+	const main = page.getByRole("main");
+	await main.getByRole("button", { name: "Question 1", exact: true }).click();
+	const label = main.getByRole("textbox", { name: "Label", exact: true });
+	await expect(label).toBeFocused();
+	await label.press("End");
+	await label.pressSequentially(" #form/first");
+	await page.getByRole("option", { name: /#form\/first-name$/ }).click();
+	const chip = '[data-ref-raw="#form/first-name"]';
+	await expect(label.locator(chip)).toBeVisible();
+	const referenced = savedWith(page, openAppId, ['"kind":"field-ref"']);
+	await label.press("ControlOrMeta+Enter");
+	expect((await referenced).ok()).toBe(true);
+	await expect(main.locator(chip)).toBeVisible();
+	await expect(main.locator("[data-reference-repair]")).toHaveCount(0);
+
+	await reloadBuilder(page);
+	await expect(main.locator(chip)).toBeVisible();
+	await expect(main.locator("[data-reference-repair]")).toHaveCount(0);
+});
+
+test("a case type typed with a space and a leading digit is created as HQ's menu page takes it", {
+	tag: "@seed:open",
+}, async ({ scenario, page }) => {
+	const { openAppId } = seedFor(scenario, "open");
+	await openBuilder(page, `/build/${openAppId}`);
+	// The starter's module row opens its module screen, which holds its settings.
+	await page
+		.getByRole("list", { name: "App structure" })
+		.getByRole("button", { name: "Survey", exact: true })
+		.first()
+		.click();
+	await page
+		.getByRole("button", { name: "Module settings", exact: true })
+		.click();
+	const settings = page.getByRole("dialog", {
+		name: "Module settings",
+		exact: true,
+	});
+	await settings.getByRole("button", { name: /^Case type: / }).click();
+	const draft = page.getByPlaceholder("For example, Follow-up visit");
+	await draft.fill("1st visit");
+	const created = savedWith(page, openAppId, ['"1st_visit"']);
+	await page.getByRole("button", { name: "Create", exact: true }).click();
+	expect((await created).ok()).toBe(true);
+	// The picker names the saved `1st_visit` the way it names every type.
+	await expect(
+		settings.getByRole("button", {
+			name: "Case type: 1st visit",
+			exact: true,
+		}),
+	).toBeVisible();
+	await expect(settings.getByRole("alert")).toHaveCount(0);
+});

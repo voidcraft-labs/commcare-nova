@@ -31,11 +31,11 @@ import {
 	projectProseTemplate,
 	proseTemplateText,
 	repairSelectOptionValue,
+	SELECT_OPTION_VALUE_BOTH_QUOTES,
 	selectOptionValueProblem,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
-import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
 import { AUTOMATION_RULES } from "./automations";
 import { caseListRegistrationFormInModule } from "./case-search/caseListRegistration";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
@@ -97,10 +97,9 @@ function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
 
 /**
  * The catalog copy of a select property's choices shares the inline
- * options' grammar (`lib/domain/selectOptionValue.ts`): a catalog value
- * reaches the suite as the XPath literal the case list compares the
- * property with (`field = 'value'`), so whitespace, quotes, and emptiness
- * break the same way they do on the device. `SELECT_OPTION_VALUE_INVALID`
+ * options' grammar (`lib/domain/selectOptionValue.ts`): a catalog value is
+ * the same stored answer token, so whitespace, both quote marks in one
+ * value, and emptiness break the same way they do on the device. `SELECT_OPTION_VALUE_INVALID`
  * (`field.ts`) is the per-field twin.
  */
 function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
@@ -129,12 +128,16 @@ function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
 						? "is empty"
 						: problem === "whitespace"
 							? `is ${shown}, which contains a space`
-							: `is ${shown}, which contains a quote mark`;
+							: `is ${shown}, which holds both an apostrophe and a double quote`;
 				errors.push(
 					validationError(
 						"CASE_PROPERTY_OPTION_VALUE_INVALID",
 						"app",
-						`Choice ${index + 1}${shownLabel ? ` ("${shownLabel}")` : ""} of case property "${caseType.name}.${property.name}" has a value that ${what}. A choice's value is the answer the app stores and compares, not the wording, so it cannot hold spaces or quote marks and cannot be empty. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`,
+						`Choice ${index + 1}${shownLabel ? ` ("${shownLabel}")` : ""} of case property "${caseType.name}.${property.name}" has a value that ${what}. ${
+							problem === "both-quotes"
+								? SELECT_OPTION_VALUE_BOTH_QUOTES
+								: `A choice's value is the answer the app stores and compares, not the wording, so it cannot hold spaces and cannot be empty. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`
+						}`,
 						{},
 						{
 							caseType: caseType.name,
@@ -341,50 +344,6 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 }
 
 /**
- * Reject a case type named after a reserved reference namespace
- * (`form` / `user` / `case` / `parent`, case-insensitive). Such a name
- * collides with the hashtag system: `#user/<prop>` always resolves to
- * CommCare's built-in user case (the wire resolves the flat namespace first),
- * so the validator would accept `#user/x` as the project's `user` type while
- * the emitter silently points it at the wrong case — a wrong emit with no
- * authoring signal. The reserved set is shared with `checkCaseHashtag`'s
- * resolution skip-set (`reservedNamespaces.ts`) so the two can't drift. Scans
- * every module's `caseType` AND the case-type catalog so a child type declared
- * only in `doc.caseTypes` is caught too; each offending name is reported once.
- */
-function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
-	const errors: ValidationError[] = [];
-	const flagged = new Set<string>();
-
-	const flag = (name: string, location: ValidationError["location"]): void => {
-		const lower = name.toLowerCase();
-		if (!RESERVED_CASE_TYPE_NAMES.has(lower)) return;
-		if (flagged.has(lower)) return;
-		flagged.add(lower);
-		errors.push(
-			validationError(
-				"RESERVED_CASE_TYPE_NAME",
-				"app",
-				`Case type "${name}" collides with a reserved reference namespace. Nova's references reserve #form/, #user/, #search/, #case/, and #parent/: "#${name}/<property>" would resolve to the built-in "${lower}" namespace, not this case type. Rename it to something project-specific (for example "${name}_record").`,
-				location,
-				{ caseType: name },
-			),
-		);
-	};
-
-	for (const moduleUuid of doc.moduleOrder) {
-		const mod = doc.modules[moduleUuid];
-		if (mod.caseType) {
-			flag(mod.caseType, { moduleUuid, moduleName: mod.name });
-		}
-	}
-	for (const ct of doc.caseTypes ?? []) {
-		flag(ct.name, {});
-	}
-	return errors;
-}
-
-/**
  * Connect ids must be unique across the whole app.
  *
  * A connect id (`learn_module` / `assessment` / `deliver_unit` / `task`)
@@ -563,7 +522,6 @@ export const APP_RULES = [
 	noModules,
 	emptyAppName,
 	validTranslationOverlays,
-	reservedCaseTypeName,
 	duplicateConnectIds,
 	connectNoParticipatingForms,
 	// A case list registration slot naming a form outside its module.

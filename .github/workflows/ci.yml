@@ -634,9 +634,9 @@ jobs:
 
   proof-plan:
     # The proof lane's plan: the early queue (groups that need no corpus:
-    # the harness's packages that do not read it, the surface, HQ's
-    # self-checks; the lane's server refuses one holding a document's,
-    # a control's or a package of proof.lane.blocks.CORPUS_PACKAGES), built
+    # the harness's packages that do not read it and the surface; the
+    # lane's server refuses one holding a document's, a control's or a
+    # package of proof.lane.blocks.CORPUS_PACKAGES), built
     # from the commit and the evidence store, and the shard count for both
     # queues (python3 -m proof.lane.plan fit): the fewest shards whose
     # expected end is within a few seconds of the soonest any count ends,

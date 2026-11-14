@@ -2651,7 +2651,13 @@ Removed: `proof/corpus/hq/__main__.py`, `harvest.py`, `sources.py`, `test_harves
 `"hq-selfchecks"` from `proof/lane/blocks.py::SINGLE_GROUPS`, its sentence in that module's
 docstring and its name in `group_problem`'s message, its sentence in `proof/store/queue.py`'s
 docstring and in `proof/checks/sharding.py::collection_roots`'s, and its name in
-`proof/lane/test_blocks.py`; the README section "HQ's apps as self-checks".
+`proof/lane/test_blocks.py` and `proof/checks/test_sharding.py`; the index's `hq`
+list and `emitCorpus.ts::HqIndexEntry`, which only the flag filled; the README
+section "HQ's apps as self-checks". With the privilege tests moved, `proof/corpus`
+holds no Python test, so it is no package group: `proof/lane/test_forkserver.py`'s
+early-queue tests, which used it as a group that reads no corpus, use `proof/core`
+in its place, and the README's list of the groups a reader's run by hand takes
+loses it.
 
 Kept, moved: `proof/corpus/hq/test_privileges.py` is no part of the harvest. It holds each privilege
 rule of `proof/checks/configurations.py` to the content HQ gates, over `AppFactory` apps, and runs
@@ -2740,8 +2746,8 @@ Every string here is read by a developer or a model in a failure. No person usin
 | L16 | `bases.retained.test.ts`, an answer nothing asked for | `The base ${base} retains ${unasked}, and Nova's reader never asked for it. A base keeps only the answers a reading uses. Either the reader stopped reading it, or the base no longer holds what needs it.` |
 | L17 | `test_retained.py`, a value HQ does not serve | `CommCare HQ doesn't serve the value the variant ${variant} sets: ${why}. An app's source never carries it, so Nova never reads it. Record that in the row (hqNeverServes) and exempt ${entry} as hq-never-serves-the-value. If the change itself is wrong, look at the row's change in proof/matrix/variants.json.` `why` is `its import refused it (${raised})` or `its source read holds something else at ${pointer}`. |
 | L18 | `test_retained.py`, an exemption that ended | `CommCare HQ now serves the value the variant ${variant} sets, where it used to ${was}. So ${entry} can sit in an app's source after all. Take it out of proof/matrix/exemptions.json, and give the row the standing and the place the reader should answer.` `was` is `refuse it (${raised})` or `serve something else at ${pointer}`. |
-| L19 | `proof/corpus/emit.ts`, a document the corpus newly leaves out | `The corpus now leaves out ${id}: Nova's ${by} refuses it (${codes}). The fixed corpus leaves out only what proof/corpus/left-out.json names, so a rule that refuses more can't shrink it unseen. If the rule is right, change the document's source so it holds what Nova holds, or name it in left-out.json. If it isn't, the rule refuses too much.` `by` reads `publish`, `upload to CommCare HQ` or `local export`. |
-| L20 | the same, a named document the corpus takes | `proof/corpus/left-out.json names ${id} as left out, and the corpus now takes it. Take it off the list.` |
+| L19 | `proof/corpus/emit.ts`, a document the corpus newly leaves out | `The corpus now leaves out ${id}: Nova's ${by} refuses it (${codes}). The fixed corpus leaves out only what proof/corpus/left-out.json names, so a rule that refuses more can't shrink it unseen. If the rule is right, change the document's source so it holds what Nova holds, or name it in left-out.json. If it isn't, the rule refuses too much.` `by` reads `publish`, `upload to CommCare HQ` or `local export`. `id` is the document's id, or for an edit `the ${kind} edit of ${id}`: an edit's entry carries its document's id, so the bare id would say the document left. |
+| L20 | the same, a named document the corpus takes | `proof/corpus/left-out.json names ${id} as left out, and the corpus now takes it. Take it off the list.` `id` reads as in L19. |
 
 `placeLine` is part 01's (`lib/publish/hqFindingCopy.ts`). The ids L11 and L14 are not used. No
 string here uses an em dash, and none is a button or a placeholder.

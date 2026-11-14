@@ -12,7 +12,6 @@ import {
 	type RelationStep,
 	relationStepSchema,
 	valueSchema,
-	XML_ELEMENT_NAME_PATTERN,
 } from "./expression/types";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
@@ -663,15 +662,18 @@ export function orderedCaseOperations(form: {
 
 // Connect config. Persisted blocks are complete: partial sub-configs and
 // omitted ids belong only to builder/tool draft types and are finalized before
-// a Form is constructed. All four ids share this one XML-element/Connect-slug
-// grammar; app-wide uniqueness and app-mode compatibility need the owning
-// Blueprint and are enforced by `blueprintTopologyIssues`.
+// a Form is constructed. All four ids share this one stored bound; the exact
+// rule is the question-id grammar (`lib/commcare/connectSlugs.ts`), and
+// app-wide uniqueness and app-mode compatibility need the owning Blueprint
+// and are enforced by `blueprintTopologyIssues`.
 export const CONNECT_ID_MAX_LENGTH = 50;
+/** The stored bound of a Connect id; `connectSlugs.ts` holds the exact rule. */
+export const CONNECT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 export const connectIdSchema = z
 	.string()
 	.min(1)
 	.max(CONNECT_ID_MAX_LENGTH)
-	.regex(XML_ELEMENT_NAME_PATTERN);
+	.regex(CONNECT_ID_PATTERN);
 
 const connectLearnModuleSchema = z.strictObject({
 	id: connectIdSchema,

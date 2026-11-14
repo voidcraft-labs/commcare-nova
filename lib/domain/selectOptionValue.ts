@@ -10,16 +10,19 @@
 // values for the same reason, and every one of them teaches the same shape
 // before a value is rejected.
 //
-// What binds is the wire, not taste. JavaRosa's form parser flags a choice
-// `<value>` holding whitespace or a quote character (`commcare-core
-// .../xform/parse/XFormParser.java::parseItem`, the ` \n\t\f\r'"\`` scan);
-// CommCare Android then throws on ANY select whose value contains a space
+// What binds is the wire, not taste. HQ's form builder refuses a choice
+// value holding whitespace (`Vellum src/mugs/types/select.js`), CommCare
+// Android throws on ANY select whose value contains a space
 // (`commcare-android .../views/widgets/QuestionWidget.java::getSelectChoices`),
 // and a multi-select answer is a space-joined list of these tokens, so a
-// space inside one makes it two (`selected()` splits on spaces). A quote
-// breaks the XPath literal a value is compared with (`field = 'value'`),
-// which is how the case list projects a select's labels. An empty value is
-// a choice that saves nothing, which no reader can tell from "unanswered".
+// space inside one makes it two (`selected()` splits on spaces). JavaRosa's
+// form parser only warns about a quote mark and keeps the choice
+// (`commcare-core .../xform/parse/XFormParser.java::parseItem`), and every
+// place a value is written takes one: an XML text node, or a string literal
+// printed between the other quote mark. A value holding both an apostrophe
+// and a double quote has no XPath string literal, so a rule naming the
+// choice could not be shown as text. An empty value is a choice that saves
+// nothing, which no reader can tell from "unanswered".
 //
 // Everything else is admitted: the grammar is deliberately NOT a slug
 // grammar, because stored values are data and a stricter rule would
@@ -29,14 +32,13 @@
 import { z } from "zod";
 import { suffixUntilFree } from "./idSlug";
 
-/** The characters a stored choice value can never hold. */
-const FORBIDDEN = /[\s'"`]/;
-
 /**
  * The admitted grammar as one anchored pattern, for schemas that carry a
- * `pattern` to the model (the negation of `FORBIDDEN`, non-empty).
+ * `pattern` to the model: no whitespace, not empty. A value holding both
+ * quote marks is refused beside it (`SELECT_OPTION_VALUE_BOTH_QUOTES`),
+ * since no pattern every provider's engine reads can state it.
  */
-export const SELECT_OPTION_VALUE_PATTERN = /^[^\s'"`]+$/;
+export const SELECT_OPTION_VALUE_PATTERN = /^\S+$/;
 
 /**
  * The sentence every model-facing `value` slot carries. It states the
@@ -48,7 +50,11 @@ export const SELECT_OPTION_VALUE_DESCRIPTION =
 
 /** The rejection a schema returns when a value breaks the grammar. */
 export const SELECT_OPTION_VALUE_REJECTION =
-	"A choice value is the stored answer token, not the wording: it cannot hold spaces, quotes, or apostrophes, and cannot be empty. Use a lowercase slug with words joined by underscores (prefer_not_to_say) and put the wording in the label.";
+	"A choice value is the stored answer token, not the wording: it cannot hold spaces and cannot be empty. A lowercase slug with words joined by underscores (prefer_not_to_say) keeps it easy to read, with the wording in the label.";
+
+/** The rejection for a value holding both an apostrophe and a double quote. */
+export const SELECT_OPTION_VALUE_BOTH_QUOTES =
+	"Nova can't yet write a rule that names a choice holding both an apostrophe and a double quote. Keeping one kind of quote mark, or neither, works.";
 
 /**
  * The one Zod leaf every model-facing `value` slot is: the grammar as a
@@ -59,11 +65,15 @@ export const SELECT_OPTION_VALUE_REJECTION =
 export const selectOptionValueSchema = z
 	.string()
 	.regex(SELECT_OPTION_VALUE_PATTERN, SELECT_OPTION_VALUE_REJECTION)
+	.refine(
+		(value) => !(value.includes("'") && value.includes('"')),
+		SELECT_OPTION_VALUE_BOTH_QUOTES,
+	)
 	.describe(SELECT_OPTION_VALUE_DESCRIPTION);
 
 /**
- * Why a choice's value is refused: the three grammar problems a value has
- * alone, and `duplicate`, a value an earlier choice of the same list holds.
+ * Why a choice's value is refused: the three problems a value has alone,
+ * and `duplicate`, a value an earlier choice of the same list holds.
  * HQ's form builder reports a repeated value among one question's choices
  * on exact string equality (Vellum `src/mugs/types/select.js`), and an
  * answer saved with it can't say which choice was meant.
@@ -71,7 +81,7 @@ export const selectOptionValueSchema = z
 export type SelectOptionValueProblem =
 	| "empty"
 	| "whitespace"
-	| "quote"
+	| "both-quotes"
 	| "duplicate";
 
 /** Why a value is refused alone, or `undefined` when it is admitted. */
@@ -79,9 +89,9 @@ export function selectOptionValueProblem(
 	value: string,
 ): Exclude<SelectOptionValueProblem, "duplicate"> | undefined {
 	if (value.length === 0) return "empty";
-	const hit = FORBIDDEN.exec(value);
-	if (hit === null) return undefined;
-	return /\s/.test(hit[0]) ? "whitespace" : "quote";
+	if (/\s/.test(value)) return "whitespace";
+	if (value.includes("'") && value.includes('"')) return "both-quotes";
+	return undefined;
 }
 
 export function isValidSelectOptionValue(value: string): boolean {
@@ -141,16 +151,16 @@ export function duplicateSelectOptionValues(
 
 /**
  * The nearest admitted spelling of what someone typed: every whitespace
- * run becomes one underscore and quote characters disappear. Nothing else
- * changes, so a deliberate `ICD10` or `a-b` stays as typed, and so does an
+ * run becomes one underscore. Nothing else changes, so a deliberate
+ * `ICD10`, `a-b` or `it's` stays as typed, and so does an
  * underscore at either edge: this runs on every keystroke of a controlled
  * input, where trimming an edge would erase the `_` someone just typed
  * (or the space that just became one) before the next character arrives.
- * Returns `""` when nothing survives; callers that need a non-empty value
- * fall back themselves.
+ * An empty box stays empty; callers that need a non-empty value fall back
+ * themselves.
  */
 export function sanitizeSelectOptionValue(raw: string): string {
-	return raw.replace(/\s+/g, "_").replace(/['"`]/g, "");
+	return raw.replace(/\s+/g, "_");
 }
 
 /**
@@ -176,7 +186,8 @@ export function suggestSelectOptionValue(
  * The replacement a refusal names for a value already outside the grammar:
  * the value's own admitted spelling when one survives (`"Prefer not to
  * say"` keeps its words as `prefer_not_to_say`), else the label's, else
- * `fallback`; never one a sibling already holds.
+ * `fallback`; never one a sibling already holds. A quote mark leaves the
+ * slug rather than splitting a word (`don't_know` becomes `dont_know`).
  */
 export function repairSelectOptionValue(
 	value: string,
@@ -185,7 +196,9 @@ export function repairSelectOptionValue(
 	taken: ReadonlySet<string>,
 ): string {
 	return suffixUntilFree(
-		slugOf(sanitizeSelectOptionValue(value)) || slugOf(label) || fallback,
+		slugOf(sanitizeSelectOptionValue(value).replace(/['"`]/g, "")) ||
+			slugOf(label) ||
+			fallback,
 		taken,
 	);
 }

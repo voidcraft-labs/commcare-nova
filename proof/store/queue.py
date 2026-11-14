@@ -12,8 +12,7 @@ package with tests. The main queue holds every document of the corpus
 (``corpus:<id>``; the corpus's ``native/`` is its products, not a document),
 every control the known-defect and fixed-defect registers and the walk-stops
 list's ``control`` entries name (``control:<id>``), and the packages in
-``proof.lane.blocks.CORPUS_PACKAGES``. A group no test belongs to
-(``hq-selfchecks``) is never queued: the lane would find nothing of it.
+``proof.lane.blocks.CORPUS_PACKAGES``.
 
 Each group is one of three classes, from the snapshots ``--store`` names
 (merged; an absent one holds nothing) and the fingerprints of this checkout

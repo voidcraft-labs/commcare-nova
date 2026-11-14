@@ -6,15 +6,11 @@
 		"item": "Question ID matching `^(?!XML)[a-zA-Z][\\w-]*$`",
 		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.id`; widen: hyphens; narrow: no leading underscore, no leading `XML`, and not `meta` in any case (Nova admits `[a-zA-Z_][a-zA-Z0-9_]*`, including those); a rename would move the submission path",
+		"dispositionCell": "**HELD**: `Field.id`; narrow: no leading underscore, no leading `XML`, and not `meta` in any case; a rename would move the submission path",
 		"slotChanges": [
 			{
-				"direction": "widen",
-				"text": "hyphens"
-			},
-			{
 				"direction": "narrow",
-				"text": "no leading underscore, no leading `XML`, and not `meta` in any case (Nova admits `[a-zA-Z_][a-zA-Z0-9_]*`, including those); a rename would move the submission path"
+				"text": "no leading underscore, no leading `XML`, and not `meta` in any case; a rename would move the submission path"
 			}
 		],
 		"platforms": {
@@ -56,6 +52,7 @@
 		"valueClass": "root-question-case",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `XForm._create_casexml` \"You cannot use the Case Management UI if you already have a case block in your form.\" (executed)",
+		"subject": "question-ids",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -81,6 +78,7 @@
 		"valueClass": "commcare-usercase-beside-usercase-updates",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: unrepresentable identity: `XForm._add_usercase` appends HQ's own `commcare_usercase` beside it (executed: the build succeeds with both)",
+		"subject": "worker-record",
 		"reasons": [
 			{
 				"kind": "unrepresentable-identity",
@@ -106,6 +104,7 @@
 		"valueClass": "invalid-question-id",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum error \"not a valid Question ID\"",
+		"subject": "question-ids",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -131,6 +130,7 @@
 		"valueClass": "sibling-of-one-name",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: unrepresentable identity: both answers share one submission path",
+		"subject": "question-ids",
 		"reasons": [
 			{
 				"kind": "unrepresentable-identity",
@@ -198,6 +198,8 @@
 		"valueClass": "phone-number",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `text` with `Field.appearance: numeric` (Appearances)",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (regex-validated) / RUNS",
@@ -264,6 +266,7 @@
 		"valueClass": "numeric-type-on-secret",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum's Secret writes `xsd:string` only",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -324,6 +327,7 @@
 		"valueClass": "untyped-secret-numeric-appearance",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Android shows a plain secret text box (`DATATYPE_NULL` reaches `StringWidget`, which ignores the appearance), and a Vellum save writes `xsd:string` and keeps the appearance (executed), which Android shows as a numeric box (`StringNumberWidget`)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -383,6 +387,7 @@
 		"valueClass": "long",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum's `Long` is not addable (\"Deprecated. Users may not add new longs\", `mugs/types/numeric.js`)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -430,6 +435,7 @@
 		"valueClass": "non-choice-type-on-select",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum drops the type on save",
+		"subject": "question-choices",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -490,6 +496,7 @@
 		"valueClass": "untyped-input-numeric-appearance",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Android shows a plain text box (`WidgetFactory.buildBasicWidget` sends `DATATYPE_NULL` to `StringWidget`, which ignores `numeric` and `numbers`), and a Vellum save writes `xsd:string`, which Android shows as a numeric box (executed)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -723,13 +730,8 @@
 		],
 		"valueClass": "single-select",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `single_select`; widen: one option (Vellum and Core allow it; Nova needs ≥2)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "one option (Vellum and Core allow it; Nova needs ≥2)"
-			}
-		],
+		"dispositionCell": "**HELD**: `single_select`, one option or more",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -762,7 +764,7 @@
 		],
 		"valueClass": "multi-select",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `multi_select` (same widening)",
+		"dispositionCell": "**HELD**: `multi_select`, one option or more",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -784,17 +786,39 @@
 		"id": "questions/choice-value-containing-or",
 		"area": "questions",
 		"section": "Question types",
-		"item": "choice value containing `'`, `\"` or `` ` ``",
+		"item": "choice value containing `'`, `\"` or `` ` ``, and not both `'` and `\"`",
 		"surfaceKeys": ["xform:select1/item/value", "xform:select/item/value"],
-		"valueClass": "quote-characters",
+		"valueClass": "one-kind-of-quote-mark",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: option `value`; widen the option grammar (Vellum forbids whitespace, duplicates and an empty value) and escape in Nova's XPath emitters",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "the option grammar (Vellum forbids whitespace, duplicates and an empty value) and escape in Nova's XPath emitters"
+		"dispositionCell": "**HELD**: option `value`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
-		],
+		},
+		"emission": {
+			"cell": "the value",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote",
+		"area": "questions",
+		"section": "Question types",
+		"item": "choice value containing both `'` and `\"`",
+		"surfaceKeys": ["xform:select1/item/value", "xform:select/item/value"],
+		"valueClass": "both-quote-marks",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a value no XPath string literal spells, so a rule naming the choice has no form text",
+		"subject": "question-choices",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -820,6 +844,7 @@
 		"valueClass": "refused-choice-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum error (`mugs/types/select.js`, and `mugs.js` for a required value); multi-select stops Web Apps",
+		"subject": "question-choices",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -883,6 +908,7 @@
 		"valueClass": "contradicting-choice-type-on-select",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: a Vellum save drops the type, and Core then infers the other choice type (`applyControlProperties` keeps an explicit choice type, and Web Apps renders by it)",
+		"subject": "question-choices",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -913,6 +939,7 @@
 		"valueClass": "missing-value-or-label",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `get_questions` \"has no <value>\" / JavaRosa fatal (\"requires <label>\", \"requires <copy> or <value>\")",
+		"subject": "question-choices",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -957,6 +984,7 @@
 		"valueClass": "items-and-itemset-or-no-choices",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable (JavaRosa fatal)",
+		"subject": "question-choices",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -1022,6 +1050,8 @@
 		"valueClass": "acknowledge-label",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `label.acknowledge`",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (auto-`OK`; a required one never blocks) / RUNS (checkbox)",
@@ -1049,6 +1079,7 @@
 		"valueClass": "ref-less",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `XForm._get_path` \"has no 'ref' or 'bind'\"",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -1130,6 +1161,8 @@
 		"valueClass": "hidden-value-with-calculate-and-default",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a Hidden Value keeping its default beside its calculate, with the default's setvalue at the question's place in data-tree order, as Vellum writes it (README, \"Load-time values\"): a later setvalue can read the default before the calculate overrides it (executed in Core: `3`, where without the default, or with the reader first, it is empty), and in a repeat row the default can outlast the calculate, until something the calculate depends on is set after the default's setvalue runs or the row's load reruns the calculate (executed: `D` against `a!`, and `ab!` where a node the calculate reads is set after the default); where it writes a case property, its default and its calculate each count as a writer of it (README, \"Data types\")",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (in such a repeat row the next request reinitializes the form and replaces the default with the calculate, so the default never reaches a submission) / RUNS (in such a repeat row the default lasts, and is submitted, until something its calculate depends on is set after the default's setvalue runs, as saving a screen does (leaving it, changing an answer on it, or a location or media response) for each question on it that holds or held a value, even unchanged, though not for one blank before and after (`FormEntryActivity.saveAnswersForCurrentScreen` → `FormEntryController.commitAnswer`; executed), and as an app callout response does for each of its targets; saving and resuming reinitializes the form, and finishing only revalidates, `SaveToDiskTask` → `FormDef.postProcessInstance`)",
@@ -1157,6 +1190,7 @@
 		"valueClass": "hidden-value-with-children",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum cannot construct it (`validChildTypes` empty)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1464,6 +1498,7 @@
 		"valueClass": "bare-repeat",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform (kept only as a ReadOnly control)",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -1565,6 +1600,7 @@
 		"valueClass": "count-from-non-integer-hidden-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Core parses the count node's text as an integer, and a fractional value stops form entry (\"The repeat count value \\\"2.5\\\" … must be a number!\", `FormEntryModel.createModelForGroup`; executed); refused even where its values happen to be whole, since Nova's types do not prove it, by choice (defect 30)",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1627,6 +1663,7 @@
 		"valueClass": "count-from-decimal-question",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Core parses the count node's text as an integer, and a decimal answer is written as `3.0`, so every answer stops form entry (\"must be a number!\", `FormEntryModel.createModelForGroup`, `DecimalData.uncast`; executed)",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1652,6 +1689,7 @@
 		"valueClass": "count-from-other-question",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: an answer that is not integer text stops form entry (executed with a text answer `3.5`), and a label or group has no value, so the repeat never has a row; refused whatever a question's constraint says, since Nova does not prove a constraint's range, by choice",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1677,6 +1715,7 @@
 		"valueClass": "count-reading-its-rows",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Core keeps adding rows as entry moves on (executed: `count(/data/r) + 1` gave 30 rows in 60 steps); Nova's validator refuses it (`CYCLE`, `lib/commcare/validator/runner.ts`)",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1702,6 +1741,7 @@
 		"valueClass": "count-not-a-path",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: Vellum writes it as entered (executed), and Core's parser requires a path (`XPathReference.getPathExpr`: \"Expected XPath path, got XPath expression\"; executed), which Formplayer's `validate_form` runs during the build",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -1727,6 +1767,7 @@
 		"valueClass": "count-outside-form-data",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Core resolves the count only in the form's own data (`FormEntryModel.createModelForGroup`), and form entry throws \"Could not find the location … where the repeat … is looking for its count\" (`FormDef.canCreateRepeat`; executed)",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1752,6 +1793,7 @@
 		"valueClass": "without-count",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum filters it out (`mugs/types/group.js` Repeat `controlChildFilter`)",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1862,6 +1904,7 @@
 		"valueClass": "model-iteration-under-late-relevance",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's `@count` setvalue reads its `@ids` blank there, so the repeat is empty (`count=\"0\"`) on that opening, and it stays empty after the ancestor becomes relevant (executed; where the ancestor is relevant there, the rows are built); Nova writes the count placement there",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1887,6 +1930,7 @@
 		"valueClass": "model-iteration-reading-a-blank-answer",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's setvalues evaluate the query once, when the form loads or the parent row is added, while that answer is still blank, so the rows never reflect it (executed); Nova writes the count placement there",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1912,6 +1956,7 @@
 		"valueClass": "model-iteration-nested",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's canonical absolute `@current_index` counts the inner rows of every outer row, so once an earlier outer row has inner rows, form entry throws (`XPathException: … element 2 of a list with only 1`) or first gives rows the wrong case ids (executed, with a model-iteration, a counted and a user-added outer repeat); Nova writes the count placement there",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1937,6 +1982,7 @@
 		"valueClass": "user-repeat-in-a-field-list",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable and broken at runtime: Vellum reports \"Repeat Count is required.\" (for `field-list` exactly; a case variant loads as a plain group), and Android cannot add instances there, reading the host ignoring case (`FormEntryController.isHostWithAppearance`); `FIELD_LIST_USER_REPEAT` and `FORM_SECTION_USER_REPEAT` refuse it",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1971,6 +2017,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `repeat.addLabel`, `addFirstLabel`",
+		"subject": "repeats",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2029,6 +2077,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: a Vellum save keeps the element but drops the itext no question references, which Core then refuses to load (executed), as for any orphaned itext reference",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2091,6 +2140,8 @@
 		"valueClass": "image-max-dimension",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `image.maxDimension`",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -2116,6 +2167,7 @@
 		"valueClass": "invalid-image-max-dimension",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime or not HQ-editable: Core throws \"Invalid input for image max dimension\" on a non-integer when Android installs or loads the form, on every `<upload>` element (`UploadQuestionExtensionParser`, which Android registers for all of them, `XFormExtensionUtils`), a Vellum save drops a non-number and truncates a fraction (executed: `big` dropped, `12.5px` becomes `12px`), and Android cannot scale an image to a size of zero or less (`FileUtil.getBitmapScaledByMaxDimen` then asks for a non-positive size)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -2278,6 +2330,8 @@
 		"valueClass": "face-capture",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `faceCapture` capture kind",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (a plain image upload) / RUNS",
@@ -2337,6 +2391,7 @@
 		"valueClass": "other-upload-mediatype",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum refuses to open the form (`parser.js::buildControlNodeAdaptorMap` `upload`), and for a case variant of the four mediatypes (`IMAGE/*`) a save rewrites it to lowercase, which Core reads as a different control, since its match is case-sensitive (`XFormParser.parseUpload`; executed)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2372,6 +2427,8 @@
 		"valueClass": "android-app-callout",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `callout` field kind (app id, extras, responses)",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (unsupported entry; the literal \"Not Supported by Web Entry\" can be submitted) / RUNS",
@@ -2397,6 +2454,7 @@
 		"surfaceKeys": ["appearance:android-IntentExtensionParser/quick"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no editor writes it; Vellum keeps it only as a hidden unknown attribute of the intent tag (`intentManager.js::parseIntentTags`)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2429,6 +2487,7 @@
 		"valueClass": "print-callout",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (VELLUM_PRINTING, tagged deprecated in HQ; Vellum also turns an Android App Callout given the print action into this question on load, `intentManager.js::syncMugWithIntent`, so that path is the same feature)",
+		"subject": "print-templates",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -2537,6 +2596,8 @@
 		"valueClass": "attribute-or-property-field",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: lookup carrier over attributes and field properties (Lookup tables)",
+		"subject": "question-choices",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2565,6 +2626,7 @@
 		"valueClass": "itext-call",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum error \"… was not found in the lookup table\" (`itemset.js::validateRefWidget` checks against HQ's field and `@attr` list)",
+		"subject": "question-choices",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2589,6 +2651,8 @@
 		"surfaceKeys": ["vellum-feature:sorted_itemsets"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `optionsSource.sortColumn`",
+		"subject": "question-choices",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2646,6 +2710,8 @@
 		"valueClass": "filter-outside-predicate",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model in `optionsSource.filter`",
+		"subject": "question-choices",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2684,6 +2750,8 @@
 		"valueClass": "advanced-data-source",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources. Typed `optionsSource: cases` now supports worker-available casedb choices; arbitrary report and fixture nodesets remain out of scope.",
+		"subject": "question-choices",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2713,6 +2781,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Vellum drops it",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -2743,6 +2812,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK): authorable only by the `commtrack` Vellum plugin",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -2808,6 +2878,8 @@
 		"valueClass": "xpath-case-type",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseOperations[].caseType` expression",
+		"subject": "save-to-case",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2840,6 +2912,8 @@
 		"valueClass": "savetocase-authored-create-id",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: authored create id expression (beyond `idFrom`); at the form root a load-time value: HQ's editor keeps it only as an `xforms-ready` setvalue (`saveToCase.js::getSetValues`), so each answer it reads has its load-time value at the id's place in the load (README, \"Load-time values\"; executed: `concat(/data/key, '-')` gives `abc-` after a default of `abc` and `-` without one, a read of a calculate that default feeds gives `abc-`, and `concat(/data/key, uuid())` gives a fresh id)",
+		"subject": "save-to-case",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2865,6 +2939,7 @@
 		"valueClass": "savetocase-blank-create-id",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: computed when the form opens (the row above), the id is blank on every submission, and a blank case id makes HQ reject the whole submission (`form_processor/casedb_base.py::get`, `IllegalCaseId`; executed: `/data/key` gives `case_id=\"\"` with no default and with an earlier default of `''`, and a read of a calculate no earlier value feeds gives `\"\"`)",
+		"subject": "save-to-case",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -2949,6 +3024,8 @@
 		"valueClass": "expressions-outside-typed-vocabularies",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model in `caseOperations`",
+		"subject": "save-to-case",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2973,13 +3050,8 @@
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "hyphenated-property-names",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `writes[].property`; widen `CASE_OPERATION_PROPERTY_REGEX`",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`CASE_OPERATION_PROPERTY_REGEX`"
-			}
-		],
+		"dispositionCell": "**HELD**: `writes[].property`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3036,6 +3108,8 @@
 		"valueClass": "savetocase-close-only",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: two operations sharing the block: an update with no writes, which touches the case (a transaction and a new `modified_on`) on every submission that reaches the block, and a close under the Close Condition, since Vellum puts it on `…/case/close` alone (`saveToCase.js`; HQ processes a case block with no action, `form_processor/backends/sql/update_strategy.py`); Nova's close condition gates the whole block today",
+		"subject": "save-to-case",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3061,6 +3135,8 @@
 		"valueClass": "write-and-close",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: two operations sharing the block, the create or update and a close of the same case under the block's Close Condition (Vellum makes only create and update exclusive, `saveToCase.js`, and puts the Close Condition on `…/case/close` alone; Nova's close arm today gates the whole operation and takes no links)",
+		"subject": "save-to-case",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3112,6 +3188,8 @@
 		"valueClass": "owner-id-condition",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a condition on the owner write (Vellum writes it as `relevant` on the `create/owner_id` leaf, and a non-relevant owner is left out of the block)",
+		"subject": "save-to-case",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3215,6 +3293,7 @@
 		"valueClass": "on-a-savetocase-node",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum discards it (`saveToCaseMugOptions.getBindList`)",
+		"subject": "save-to-case",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3240,6 +3319,7 @@
 		"valueClass": "in-a-savetocase-block",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: dropped",
+		"subject": "save-to-case",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3292,6 +3372,7 @@
 		"valueClass": "savetocase-leaf-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: dropped",
+		"subject": "save-to-case",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3317,6 +3398,7 @@
 		"valueClass": "attachment-in-a-savetocase-block",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum writes only create/update/close/index",
+		"subject": "save-to-case",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3342,6 +3424,7 @@
 		"valueClass": "live-create-case-id",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum rewrites it to an `xforms-ready` setvalue",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3367,6 +3450,7 @@
 		"valueClass": "reserved-user-case-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum error",
+		"subject": "worker-record",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3392,6 +3476,7 @@
 		"valueClass": "hand-written-case-block",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Vellum discards its attribute binds, so every submission fails after a save",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -3416,23 +3501,41 @@
 		"surfaceKeys": ["mug:ConnectLearnModule", "vellum-plugin:commcareConnect"],
 		"valueClass": "connect-learn-module",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Form.connect.learn_module`; widen (all four Connect blocks, an assessment at most once per submission, as the next row refuses): hyphens in block ids, as Vellum's id rule allows (`util.js` `/^(?!XML)[a-zA-Z][\\w-]*$/`), and narrow: no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block and Nova admits today (executed; defect 15), and the id length each block's Connect column takes (50 for a learn module or task, 100 for a deliver unit, any for an assessment, which Connect does not store; Nova caps every id at 50 today), a display condition per block, blank entity expressions, a `time_estimate` of 0, several blocks per form, and placement inside groups and repeats, as Vellum allows",
+		"dispositionCell": "**HELD**: `Form.connect.learn_module`; narrow (all four Connect blocks): no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block",
 		"slotChanges": [
 			{
-				"direction": "widen",
-				"text": "hyphens in block ids, as Vellum's id rule allows (`util.js` `/^(?!XML)[a-zA-Z][\\w-]*$/`)",
-				"scope": "all four Connect blocks, an assessment at most once per submission, as the next row refuses"
-			},
-			{
 				"direction": "narrow",
-				"text": "no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block and Nova admits today (executed; defect 15)"
-			},
-			{
-				"direction": "widen",
-				"text": "the id length each block's Connect column takes (50 for a learn module or task, 100 for a deliver unit, any for an assessment, which Connect does not store; Nova caps every id at 50 today), a display condition per block, blank entity expressions, a `time_estimate` of 0, several blocks per form, and placement inside groups and repeats, as Vellum allows",
-				"scope": "all four Connect blocks, an assessment at most once per submission, as the next row refuses"
+				"text": "no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block",
+				"scope": "all four Connect blocks"
 			}
 		],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`vellum:role=\"ConnectLearnModule\"`; COMMCARE_CONNECT",
+			"markers": []
+		},
+		"gates": ["toggle/COMMCARE_CONNECT"]
+	},
+	{
+		"id": "questions/connect-blocks-beyond-one-of-each-kind",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect block with an id over 50 characters, a display condition, a blank entity expression or a `time_estimate` of 0; several blocks of one kind in a form; a block inside a group or a repeat",
+		"surfaceKeys": ["mug:ConnectLearnModule", "vellum-plugin:commcareConnect"],
+		"valueClass": "beyond-one-of-each-kind",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: Connect blocks as questions at authored positions",
+		"subject": "connect-blocks",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3458,6 +3561,7 @@
 		"valueClass": "several-connect-assessments",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Connect stores one assessment per submission and raises \"Learn Assessment is already completed\" for the second block (commcare-connect `form_receiver/processor.py::process_assessments`)",
+		"subject": "connect-blocks",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3508,13 +3612,35 @@
 		"surfaceKeys": ["mug:ConnectDeliverUnit", "vellum-plugin:commcareConnect"],
 		"valueClass": "connect-deliver-unit",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connect.deliver_unit`; widen: a `work_area_id` expression",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "a `work_area_id` expression"
+		"dispositionCell": "**HELD**: `connect.deliver_unit`, with an empty `work_area_id`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
-		],
+		},
+		"emission": {
+			"cell": "with an empty `<work_area_id/>` (Vellum adds it; equivalent)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-deliver-unit-work-area-id-expression",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Connect Deliver Unit with a `work_area_id` expression",
+		"surfaceKeys": ["mug:ConnectDeliverUnit", "vellum-plugin:commcareConnect"],
+		"valueClass": "work-area-id-expression",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a `work_area_id` expression",
+		"subject": "connect-blocks",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3571,6 +3697,7 @@
 		"valueClass": "connect-id-over-column-length",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Connect keeps these ids in slug columns of those lengths (commcare-connect `opportunity/models.py` `LearnModule.slug`, `TaskType.slug`, `DeliverUnit.slug`): a longer learn module or deliver unit id fails where Connect writes it (`opportunity/tasks.py`, `form_receiver/processor.py`), and a longer task id matches no task type (`processor.py` looks tasks up by `task_type__slug`), while Vellum allows any length",
+		"subject": "connect-blocks",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3599,6 +3726,8 @@
 		"valueClass": "connect-work-area-update",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `connect.work_area_update`",
+		"subject": "connect-blocks",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3624,6 +3753,7 @@
 		"valueClass": "unknown-control",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -3647,6 +3777,7 @@
 		"surfaceKeys": ["mug:Ignored"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -3671,6 +3802,7 @@
 		"valueClass": "readonly-input",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Vellum turns it into an acknowledge label (`<trigger>` without an appearance, executed) (\"produces different XML than consumed\")",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -3715,6 +3847,7 @@
 		"valueClass": "type-vellum-does-not-write",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum rewrites the type to `xsd:string`, or a case variant of a type it knows (`xsd:Int`, `xsd:datetime`) to that type's spelling (`parser.js` lowercases before matching), while Core's type names are case-sensitive",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3773,6 +3906,8 @@
 		"valueClass": "data-parent",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.dataParent`",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3806,6 +3941,7 @@
 		"valueClass": "data-parent-crossing-a-repeat",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum error",
+		"subject": "repeats",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3831,6 +3967,7 @@
 		"valueClass": "instance-text",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum shows the property only when present (a code comment marks it deprecated, `mugs.js`)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3860,6 +3997,7 @@
 		"valueClass": "default-event-mismatching-placement",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum reads either event as the Default Value and rewrites the event by placement on save (`parser.js::parseSetValue`, `defaultOptions.getSetValues`)",
+		"subject": "question-types",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3885,6 +4023,8 @@
 		"valueClass": "hidden-value-namespace",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a Hidden Value's data-node namespace (Vellum's \"Special Hidden Value XMLNS attribute\", `mugs/baseSpecs.js`)",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a (submission shape only)",
@@ -3909,6 +4049,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.lockedInHq` (privilege `locked_admin_questions` a target precondition; no runtime effect)",
+		"subject": "question-types",
+		"owner": "xform",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -3985,17 +4127,12 @@
 		"id": "questions/bind-required-true",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "bind `required=\"true()\"`",
+		"item": "bind `required=\"true()\"` on a question other than a label",
 		"surfaceKeys": ["xform:model/bind@required"],
 		"valueClass": "true",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.required` (`true()`); widen: on labels, where it is the acknowledge label's required (Question types, acknowledge label)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "on labels, where it is the acknowledge label's required (Question types, acknowledge label)"
-			}
-		],
+		"dispositionCell": "**HELD**: `Field.required` (`true()`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4016,17 +4153,12 @@
 		"id": "questions/bind-required-expr",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "bind `required=\"<expr>\"`",
+		"item": "bind `required=\"<expr>\"` on a question other than a label",
 		"surfaceKeys": ["xform:model/bind@required"],
 		"valueClass": "expression",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.required` (expression); widen: on labels, as above",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "on labels, as above"
-			}
-		],
+		"dispositionCell": "**HELD**: `Field.required` (expression)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4039,6 +4171,33 @@
 		},
 		"emission": {
 			"cell": "`required` (Vellum adds `requiredCondition` itself)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/bind-required-on-a-label",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "bind `required` on a label",
+		"surfaceKeys": ["xform:model/bind@required"],
+		"valueClass": "on-a-label",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the acknowledge label's required",
+		"subject": "question-logic",
+		"owner": "xform",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`required=\"true()\"`",
 			"markers": []
 		},
 		"gates": []
@@ -4070,6 +4229,7 @@
 		"valueClass": "differing-from-required",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: a Vellum save rewrites `required` to it (`parser.js` reads it first, `mugs/defaultOptions.js::getBindList` writes it; executed)",
+		"subject": "question-logic",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4130,14 +4290,37 @@
 		"section": "Binds, actions, model and head content",
 		"item": "bind `constraint`",
 		"surfaceKeys": ["xform:model/bind@constraint"],
+		"valueClass": "on-kinds-nova-validates",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.validate`; widen: on geopoint, image, audio, video, signature and file questions and labels, which Vellum offers it on and Core reads on any question (`mugs/types/misc.js`, `group.js` disallow it only on hidden values and groups)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "on geopoint, image, audio, video, signature and file questions and labels, which Vellum offers it on and Core reads on any question (`mugs/types/misc.js`, `group.js` disallow it only on hidden values and groups)"
+		"dispositionCell": "**HELD**: `Field.validate`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
-		],
+		},
+		"emission": {
+			"cell": "`constraint` on every kind that carries validation, `barcode` and `secret` among them (`fieldKindCarriesValidation`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/bind-constraint-on-a-capture-question-or-a-label",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "bind `constraint` on a geopoint, image, audio, video, signature or file question or a label",
+		"surfaceKeys": ["xform:model/bind@constraint"],
+		"valueClass": "on-capture-or-label",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `Field.validate` on those kinds",
+		"subject": "question-logic",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4163,6 +4346,7 @@
 		"valueClass": "without-a-constraint",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: a Vellum error, which puts it outside the envelope (Rule 1) though no runtime shows the message (a runtime shows it only when a constraint fails, `FormEntryActivityUIController.showConstraintWarning`)",
+		"subject": "question-logic",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4227,6 +4411,7 @@
 		"valueClass": "literal-message",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum keeps it only as the hidden `constraintMsgAttr` property (`javaRosa/plugin.js`), written back verbatim, which no editor sets",
+		"subject": "question-logic",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4279,6 +4464,7 @@
 		"valueClass": "on-a-shown-question",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum shows Calculate Condition only when already present (`visible_if_present`)",
+		"subject": "question-logic",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4304,6 +4490,7 @@
 		"surfaceKeys": ["xform:model/bind@readonly"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: no Vellum property (kept only as a raw attribute)",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -4389,6 +4576,7 @@
 		"valueClass": "other-bind-id",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum reads `bind=` as a path, warns \"Ambiguous bind\", turns the question into a Hidden Value and writes a control with no `ref` (executed), which HQ's build then refuses (`XForm._get_path`)",
+		"subject": "form-source",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4440,6 +4628,7 @@
 		"valueClass": "names-no-node",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: JavaRosa \"Question bound to non-existent node\" (`XFormParser::verifyControlBindings`)",
+		"subject": "form-source",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4465,6 +4654,7 @@
 		"valueClass": "attribute-no-plugin-owns",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Vellum discards it (\"Bind Node … will be discarded\")",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -4496,13 +4686,44 @@
 		],
 		"valueClass": "default-outside-repeat",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.default_value`; widen: on image, audio, video, signature and file questions and labels (`baseSpecs.js` hides it only on triggers, choices and groups)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "on image, audio, video, signature and file questions and labels (`baseSpecs.js` hides it only on triggers, choices and groups)"
+		"dispositionCell": "**HELD**: `Field.default_value`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (new sessions only) / RUNS (new instances only)",
+			"webApps": {
+				"reading": "runs",
+				"note": "new sessions only"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "new instances only"
 			}
+		},
+		"emission": {
+			"cell": "`setvalue xforms-ready`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/default-on-a-capture-question-or-a-label",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "a default on an image, audio, video, signature or file question or a label",
+		"surfaceKeys": [
+			"jr-action:setvalue",
+			"jr-event:xforms-ready",
+			"xform:setvalue",
+			"xform:setvalue@event",
+			"xform:setvalue@ref",
+			"xform:setvalue@value"
 		],
+		"valueClass": "on-capture-or-label",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `Field.default_value` on those kinds",
+		"subject": "question-logic",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (new sessions only) / RUNS (new instances only)",
@@ -4598,6 +4819,7 @@
 		"valueClass": "second-default",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum keeps one (`parser.js::parseSetValue`)",
+		"subject": "question-logic",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4629,6 +4851,7 @@
 		"valueClass": "form-level-setvalue",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: kept only as a form-level setvalue",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -4658,6 +4881,7 @@
 		"valueClass": "action-nested-in-control",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Vellum drops them, or keeps them as read-only controls inside a group",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -4683,6 +4907,7 @@
 		"valueClass": "send-with-submission",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Vellum drops both",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -4717,6 +4942,7 @@
 		"valueClass": "refused-by-core",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: JavaRosa fatal (`XFormParser::parseSubmission`, \"Missing required attribute resource\")",
+		"subject": "form-source",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4773,6 +4999,7 @@
 		"valueClass": "authored-pollsensor",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Vellum drops it (HQ injects its own from `auto_gps_capture`)",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -4857,6 +5084,7 @@
 		"valueClass": "foreign-namespace-model-child",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Core dispatches `<model>` children by local name whatever their namespace (`XFormParser.parseModel`; Android registers `pollsensor`), and Vellum drops them",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -4882,6 +5110,7 @@
 		"valueClass": "xforms-namespace-or-text",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: JavaRosa fatal",
+		"subject": "form-source",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4940,6 +5169,7 @@
 		"valueClass": "head-child-dispatched-by-local-name",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: Core parses them as form content by local name (`XFormParser` `topLevelHandlers`; executed: a foreign-namespace `input` there became a question), and Vellum drops them",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -4965,6 +5195,7 @@
 		"valueClass": "authored-meta",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum error \"'meta' is not a valid Question ID\" (HQ's build would replace it, `XForm._add_meta_2`)",
+		"subject": "form-source",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5101,6 +5332,7 @@
 		"valueClass": "ui-version-other-than-1",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no editor writes one, and a Vellum save writes `1` where it is absent (`parser.js`, `writer.js`); Core carries a present value into every submission, where expressions can read it",
+		"subject": "form-source",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5149,6 +5381,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Core keeps them in the instance and writes them into every submission (`XFormParser.loadNamespaces`, `XFormSerializingVisitor`), where expressions can read the attributes (executed: `concat(/data/@foo, '!')` gives `bar!`), and a Vellum save drops them (`writer.js::createModelHeader` writes only those five)",
+		"subject": "form-source",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5212,6 +5445,7 @@
 		"noSurfaceKey": "A DTD declaration is no element or attribute of the form, so the surface holds no item for it; HQ refuses the source before any reader reads it.",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `DangerousXmlException`",
+		"subject": "form-source",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -5317,6 +5551,8 @@
 		"valueClass": "markdown",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Form.plainText`: with it, Vellum writes no markdown forms and drops every existing one on each save, so dropping it would let later Vellum edits add markdown forms (`javaRosa/plugin.js`); the validator refuses a markdown label form in such a form",
+		"subject": "question-text",
+		"owner": "xform",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -5380,6 +5616,8 @@
 		"valueClass": "select1-minimal",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (dropdown) / RUNS (spinner)",
@@ -5407,6 +5645,8 @@
 		"valueClass": "select1-compact",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (grid)",
@@ -5433,6 +5673,8 @@
 		"valueClass": "select1-quick",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (auto-advance)",
@@ -5463,6 +5705,8 @@
 		"valueClass": "select1-quick-compact",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5491,6 +5735,8 @@
 		"valueClass": "select1-combobox",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5521,6 +5767,8 @@
 		"valueClass": "select1-combobox-multiword",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (whole-word match, 2nd token only) / RUNS (substring)",
@@ -5553,6 +5801,8 @@
 		"valueClass": "select1-combobox-fuzzy",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (Web Apps algorithm) / RUNS",
@@ -5579,6 +5829,8 @@
 		"valueClass": "select1-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5607,6 +5859,8 @@
 		"valueClass": "select1-list-nolabel",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5632,6 +5886,8 @@
 		"valueClass": "select1-label",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5656,6 +5912,8 @@
 		"surfaceKeys": ["appearance:web-apps/button-select"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -5681,6 +5939,8 @@
 		"valueClass": "select1-receive",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (radio list, combobox) / IGNORED",
@@ -5710,6 +5970,8 @@
 		"valueClass": "select-minimal",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5735,6 +5997,8 @@
 		"valueClass": "select-compact",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5760,6 +6024,8 @@
 		"valueClass": "select-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5788,6 +6054,8 @@
 		"valueClass": "select-list-nolabel",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5813,6 +6081,8 @@
 		"valueClass": "select-label",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5860,6 +6130,8 @@
 		"valueClass": "secret-numeric",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (shown unmasked) / RUNS (masked)",
@@ -5887,6 +6159,8 @@
 		"valueClass": "text-or-secret-numbers",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5912,6 +6186,8 @@
 		"valueClass": "short",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (narrow) / DIFFERENT (text and numeric inputs only, as the whole appearance: the keyboard action)",
@@ -5938,6 +6214,8 @@
 		"surfaceKeys": ["appearance:web-apps/medium"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -5963,6 +6241,8 @@
 		"valueClass": "text-address",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (geocoder) with CASE_SEARCH_ADVANCED and the `geocoder` privilege, else UNAVAILABLE (unsupported entry; the literal \"Not Supported by Web Entry\" can be submitted) / IGNORED (text)",
@@ -5990,6 +6270,8 @@
 		"valueClass": "broadcast",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6015,6 +6297,8 @@
 		"valueClass": "text-receive",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6044,6 +6328,8 @@
 		"valueClass": "barcode-text-entry-tokens",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (read as on a text question, since `entries.js::getEntry` handles text and barcode in one branch: `numeric` a digits check, `address` the geocoder under its gates, `receive-*` a receiver) / IGNORED (Android's barcode widget reads only `editable` inside the string and `quick` as the whole string, `BarcodeWidget.java`, `IntentWidget.java`)",
@@ -6071,6 +6357,8 @@
 		"valueClass": "hint-as-placeholder-on-text-entry",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6096,6 +6384,8 @@
 		"valueClass": "hint-as-placeholder-on-other-entry",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (the hint shows nowhere) / IGNORED",
@@ -6122,6 +6412,8 @@
 		"valueClass": "intent-on-other-input",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (the ordinary entry) / RUNS (Android builds the intent widget for any input, `WidgetFactory`)",
@@ -6149,6 +6441,7 @@
 		"valueClass": "intent-naming-orphan-tag",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no editor creates an `<odkx:intent>` without its callout question, which owns it and deletes or renames it (a save keeps an existing one, `intentManager.js::writeIntentXML`, executed: unproducible), and `Field.appearance` cannot hold the tag's class, extras or responses",
+		"subject": "question-appearance",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -6174,6 +6467,7 @@
 		"valueClass": "intent-naming-no-tag",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Android form entry throws \"No registered intent callout for id …\" (`AndroidXFormExtensions.getIntent`)",
+		"subject": "question-appearance",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -6199,6 +6493,8 @@
 		"valueClass": "barcode-quick",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (auto-scan)",
@@ -6247,6 +6543,8 @@
 		"valueClass": "date-ethiopian",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6272,6 +6570,8 @@
 		"valueClass": "date-nepali",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6300,6 +6600,8 @@
 		"valueClass": "date-gregorian",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6324,6 +6626,8 @@
 		"surfaceKeys": ["appearance:web-apps/12-hour"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6368,6 +6672,8 @@
 		"valueClass": "geopoint-maps",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6393,6 +6699,8 @@
 		"valueClass": "barcode-editable",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6418,6 +6726,8 @@
 		"valueClass": "image-acquire",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6443,6 +6753,8 @@
 		"valueClass": "image-overlay-small",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6468,6 +6780,8 @@
 		"valueClass": "audio-legacy",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6511,6 +6825,8 @@
 		"surfaceKeys": ["appearance:android/acquire-or-upload"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6535,6 +6851,8 @@
 		"surfaceKeys": ["appearance:android/long"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (API ≥24)",
@@ -6561,6 +6879,8 @@
 		"valueClass": "video-acquire",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6604,6 +6924,8 @@
 		"surfaceKeys": ["appearance:android/selectable"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6634,6 +6956,8 @@
 		"valueClass": "floating-status",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6659,6 +6983,8 @@
 		"valueClass": "floating-hidden",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance` `floating-hidden` in place of that first token, one value for every such token, the same state: Android hides a label whose appearance starts with `floating-` whatever follows (`TriggerWidget`), and its floating bar shows only the three values as the whole string (`FormNavigationUI.FloatingLabel`); of the later tokens, those Web Apps reads on a label are held as their own rows hold them (a later token its own row refuses refuses the string) and the rest, which no runtime reads there, are dropped, the same state (a string with `floating-` only in a later position stays with the multi-token row below)",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (the first token; later tokens as their own rows) / DIFFERENT (hidden)",
@@ -6686,6 +7012,8 @@
 		"valueClass": "group-compact",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -6710,6 +7038,8 @@
 		"surfaceKeys": ["appearance:web-apps/group-collapse"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6734,6 +7064,8 @@
 		"surfaceKeys": ["appearance:web-apps/collapse-open"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (with `group-collapse`) / IGNORED",
@@ -6778,6 +7110,8 @@
 		"surfaceKeys": ["appearance:web-apps/group-border"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6803,6 +7137,8 @@
 		"valueClass": "n-per-row",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6828,6 +7164,8 @@
 		"valueClass": "n-per-row-repeat",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6856,6 +7194,8 @@
 		"valueClass": "per-row-read-as-k",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance` holding `<k>-per-row` or `<k>-per-row-repeat`, k those digits, the same state (Rules applied, rule 2): Web Apps reads the token only through its pattern and the integer `parseInt` takes from that text, which is k (`form_ui.js::GroupedElementTileRow.calculateElementWidth`; `getNPerRowStyleFromRepeatStyle` copies that text plus `-per-row` to each repeat, which the per-row pattern matches and reads as k), and neither Android nor Core reads a per-row value",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -6884,6 +7224,7 @@
 		"valueClass": "per-row-without-leading-digits",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: only the raw string holds it: `parseInt` takes no number from that text, so Web Apps gives the tile the class `col-md-NaN` (`Question.setWidths`, `Group`), which no rule defines, and it takes the full width of its row (Bootstrap's `.row > *`), while every later element of its container shares that one wrapping row (`Container.groupElements`), a reading no value in `Field.appearance` has",
+		"subject": "question-appearance",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -6914,6 +7255,7 @@
 		"valueClass": "per-row-holding-another-read-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: only the raw string holds it, since `<k>-per-row` would drop a value a runtime reads",
+		"subject": "question-appearance",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -6941,6 +7283,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -7020,6 +7364,7 @@
 		"valueClass": "whitespace-read-otherwise",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: only the raw string holds it, since no value in `Field.appearance` has its reading",
+		"subject": "question-appearance",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -7053,6 +7398,8 @@
 		"valueClass": "multi-token",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance` holding the ordered list of its typed tokens, emitted in the order and spelling HQ stores, apart from a per-row token, emitted as its row emits it (`<k>-per-row` or `<k>-per-row-repeat`)",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT / DIFFERENT (Web Apps reads every token but takes a combobox's match type only from its second token, so `fuzzy combobox` is a plain combobox there; Android reads only its substring values, so `fuzzy combobox` is fuzzy there and `minimal hint-as-placeholder` falls back to the default widget)",
@@ -7087,6 +7434,8 @@
 		"valueClass": "unread-tokens-dropped",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance` without those tokens, the same state (Rules applied, rule 2)",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT / DIFFERENT (each runtime reads the remaining tokens as the multi-token row below states)",
@@ -7122,6 +7471,7 @@
 		"valueClass": "unread-token",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: only the raw string holds it, since no value in `Field.appearance` has its reading, and dropping the token would change a reading",
+		"subject": "question-appearance",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -7157,6 +7507,8 @@
 		"valueClass": "android-inside-match-as-held-value",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance` holding that held value, the same state: Android's substring matches read both alike (a compact select takes its column count from the text after the string's first `-` when that is an integer, else none, `WidgetFactory.buildCompactSelectOne`, `buildSelectMulti`; a Gregorian date reads `cancel` anywhere in the string, `DatePrototypeFactory.getWidget`), and Web Apps reads neither",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -7195,6 +7547,7 @@
 		"valueClass": "android-inside-match-other",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: only the raw string holds it, since the two runtimes read it differently and no value in `Field.appearance` has that pair of readings",
+		"subject": "question-appearance",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -7226,6 +7579,8 @@
 		"valueClass": "case-variant-read-alike",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Field.appearance` holding the lowercase value, the same state: Android reads them ignoring case (`WidgetFactory.java`, `GeoPointWidget.java`, `VideoWidget.java`, Core's `FormEntryController.isHostWithAppearance`), and Web Apps reads neither spelling",
+		"subject": "question-appearance",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -7255,6 +7610,7 @@
 		"valueClass": "case-variant-read-differently",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: only the raw string holds it, since Android reads it as the lowercase value (`WidgetFactory.java`, `StringWidget.java`) while Web Apps matches the lowercase value exactly (`entries.js::getEntry`, `form_ui.js::Question.setWidths`) and ignores the variant, a pair of readings no value in `Field.appearance` has",
+		"subject": "question-appearance",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -7370,6 +7726,8 @@
 		"surfaceKeys": ["itext-form:core/long"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `labelForms.long` (preferred over the default text on both runtimes only when the label has no markdown form)",
+		"subject": "question-media",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7476,6 +7834,7 @@
 		"valueClass": "differing-from-the-default-text",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum loads the markdown value as the default text and writes both from it, so a save replaces the default (`javaRosa/plugin.js::loadXML`, `contributeToModelXML`)",
+		"subject": "question-text",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -7505,6 +7864,7 @@
 		"valueClass": "in-some-languages-only",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime where a non-default language holds one the default lacks, since Core throws `NoLocalizedTextException` when that language loads (executed), and otherwise not HQ-editable, since a Vellum save writes each language's own markdown (`javaRosa/plugin.js`; meanwhile the other languages show the default language's markdown, executed)",
+		"subject": "question-text",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -7584,6 +7944,8 @@
 		"valueClass": "differing-by-language",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `localizedMedia`",
+		"subject": "media-by-language",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7611,6 +7973,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `label_media.videoInline`",
+		"subject": "question-media",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (replaces the label image)",
@@ -7637,6 +8001,7 @@
 		"valueClass": "label",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ ships no file for a `big-image` form of its own (`FormMediaMixin.all_media` collects image, audio, video and video-inline forms; `remove_unused_mappings` prunes the rest), so Android's full-screen view opens a missing file unless another media form in the app happens to use the same path",
+		"subject": "question-media",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -7661,6 +8026,8 @@
 		"surfaceKeys": ["itext-form:android/qrcode"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `labelForms.qrcode`",
+		"subject": "question-media",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (replaces the label image unless a `video-inline` form does)",
@@ -7686,6 +8053,8 @@
 		"surfaceKeys": ["itext-form:android/tts"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `labelForms.speech`",
+		"subject": "question-media",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / DIFFERENT (only with no `audio`)",
@@ -7731,6 +8100,7 @@
 		"valueClass": "first-translation-without-default",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ's build raises 'Unrecognized value of \"form\" attribute' when any form other than image, audio, video, video-inline or markdown is present (`VALID_VALUE_FORMS`), and otherwise \"has no <value>\" (`xform.py::XForm.localize`, which checks the first `<translation>`)",
+		"subject": "question-text",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -7766,14 +8136,52 @@
 			"xform:trigger/hint@ref",
 			"xform:upload/hint@ref"
 		],
+		"valueClass": "off-a-label",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.hint`; widen: on labels (`javaRosa/plugin.js` disallows it only on special groups)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "on labels (`javaRosa/plugin.js` disallows it only on special groups)"
+		"dispositionCell": "**HELD**: `Field.hint`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (always markdown) / DIFFERENT (plain)",
+			"webApps": {
+				"reading": "different",
+				"note": "always markdown"
+			},
+			"android": {
+				"reading": "different",
+				"note": "plain"
 			}
+		},
+		"emission": {
+			"cell": "`<hint>` itext",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/hint-text-on-a-label",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "hint text on a label",
+		"surfaceKeys": [
+			"xform:input/hint",
+			"xform:secret/hint",
+			"xform:select/hint",
+			"xform:select1/hint",
+			"xform:trigger/hint",
+			"xform:upload/hint",
+			"xform:input/hint@ref",
+			"xform:secret/hint@ref",
+			"xform:select/hint@ref",
+			"xform:select1/hint@ref",
+			"xform:trigger/hint@ref",
+			"xform:upload/hint@ref"
 		],
+		"valueClass": "on-a-label",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `Field.hint` on a label",
+		"subject": "question-text",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (always markdown) / DIFFERENT (plain)",
@@ -7845,13 +8253,51 @@
 		],
 		"valueClass": "help",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.help` (widen: on image, audio, video, signature and file questions and labels), markdown on (Nova always writes the markdown form, so Android always renders help as markdown)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "on image, audio, video, signature and file questions and labels"
+		"dispositionCell": "**HELD**: `Field.help`, markdown on (markdown off is `plainHelp`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT / DIFFERENT",
+			"webApps": {
+				"reading": "different"
+			},
+			"android": {
+				"reading": "different"
 			}
+		},
+		"emission": {
+			"cell": "`<help>` itext",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/help-text-on-a-capture-question-or-a-label",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "help text on an image, audio, video, signature or file question or a label",
+		"surfaceKeys": [
+			"xform:input/help",
+			"xform:secret/help",
+			"xform:select/help",
+			"xform:select1/help",
+			"xform:trigger/help",
+			"xform:upload/help",
+			"xform:input/help@ref",
+			"xform:secret/help@ref",
+			"xform:select/help@ref",
+			"xform:select1/help@ref",
+			"xform:trigger/help@ref",
+			"xform:upload/help@ref",
+			"itext-form:android/markdown",
+			"itext-form:core/markdown",
+			"itext-form:hq/markdown"
 		],
+		"valueClass": "on-capture-or-label",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `Field.help` on those kinds",
+		"subject": "question-text",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT / DIFFERENT",
@@ -7886,13 +8332,46 @@
 		],
 		"valueClass": "help-media",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.help_media`; widen: on the kinds `Field.help` widens to",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "on the kinds `Field.help` widens to"
+		"dispositionCell": "**HELD**: `Field.help_media`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (only when help has text) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "only when help has text"
+			},
+			"android": {
+				"reading": "runs"
 			}
+		},
+		"emission": {
+			"cell": "itext media",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/help-media-on-a-capture-question-or-a-label",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "help media on an image, audio, video, signature or file question or a label",
+		"surfaceKeys": [
+			"itext-form:android/image",
+			"itext-form:core/image",
+			"itext-form:hq/image",
+			"itext-form:android/audio",
+			"itext-form:core/audio",
+			"itext-form:hq/audio",
+			"itext-form:android/video",
+			"itext-form:core/video",
+			"itext-form:hq/video"
 		],
+		"valueClass": "on-capture-or-label",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `Field.help_media` on those kinds",
+		"subject": "question-media",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (only when help has text) / RUNS",
@@ -7918,13 +8397,35 @@
 		"surfaceKeys": ["xform:model/bind@jr:constraintMsg"],
 		"valueClass": "validation-message-text",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.validate_msg`; widen: on the kinds `Field.validate` widens to",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "on the kinds `Field.validate` widens to"
+		"dispositionCell": "**HELD**: `Field.validate_msg`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
-		],
+		},
+		"emission": {
+			"cell": "itext",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/validation-message-on-a-capture-question-or-a-label",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "validation message text on a geopoint, image, audio, video, signature or file question or a label",
+		"surfaceKeys": ["xform:model/bind@jr:constraintMsg"],
+		"valueClass": "on-capture-or-label",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a validation message on those kinds",
+		"subject": "question-text",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8143,6 +8644,7 @@
 		"valueClass": "choice",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime (as for labels)",
+		"subject": "question-choices",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -8284,6 +8786,8 @@
 		"valueClass": "any-other-expression",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: prose expression part (`Expression`)",
+		"subject": "question-text",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8336,6 +8840,7 @@
 		"surfaceKeys": ["xform:model/itext/translation/text/value/h:*"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -8404,6 +8909,7 @@
 		"valueClass": "blank-beside-default-text",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum fills a blank translation from the default language on every save (executed; a Bulk App Translations upload of one language can write one)",
+		"subject": "question-text",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -8467,6 +8973,7 @@
 		"valueClass": "read-only-in-expressions",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum drops itext that no question references",
+		"subject": "question-text",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -8492,6 +8999,7 @@
 		"valueClass": "unreferenced-pragma",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: unreferenced itext, dropped by Vellum",
+		"subject": "question-text",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -8517,6 +9025,8 @@
 		"valueClass": "pragma-key",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the form's pragma setting (auto-submit and the others); where `Pragma-Submit-Automatically` is the label of a question (not of a group, repeat or choice), HQ's editor also offers the form as a clickable icon's target (`Form.is_auto_submitting_form`), so which text carries the id is held; the validator refuses a Nova form where a pragma entry's text equals, in every language and form, that of an entry whose id sorts before it, since the build would merge it away (the presence-only pragmas, auto-submit, suppress autosync and skip validation, collide when two carry the same text), naming both",
+		"subject": "question-text",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (`FormSession.getPragma`) / IGNORED",
@@ -8562,6 +9072,8 @@
 		"valueClass": "pragma-form-descriptor",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the form's saved-form descriptor",
+		"subject": "question-text",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS (`SaveToDiskTask` → Core `FormMetaIndicatorUtil`)",
@@ -8628,6 +9140,7 @@
 		"valueClass": "duplicate",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `ItextNodeGroup.add_node`, JavaRosa fatal",
+		"subject": "question-text",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",

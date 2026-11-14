@@ -32,7 +32,13 @@ import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import type { NodeType, SyntaxNode } from "@lezer/common";
-import { CASE_NODE_ATTRIBUTE_PROPERTIES, caseRefAcceptMap } from "@/lib/domain";
+import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	caseRefAcceptMap,
+	caseReferenceNamespaceType,
+	caseReferencePrefix,
+	caseReferenceText,
+} from "@/lib/domain";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import { USER_PROPERTIES } from "@/lib/references/provider";
 import type {
@@ -143,15 +149,31 @@ function findDataPathRoot(node: SyntaxNode): SyntaxNode | null {
 	return pathRoot;
 }
 
-/** Read the namespace (case-type/form/user) from a HashtagRef node's text. */
+/** Read the namespace (`form`, `user`, a record type's short form, or
+ * `record/<type>`) from a HashtagRef node's text, or `undefined` for a bare
+ * `record`, whose record type is still to be chosen. */
 function readHashtagNamespace(
 	node: SyntaxNode,
 	doc: { sliceString(from: number, to: number): string },
-): string {
-	// HashtagRef node text is "#prefix/path/..." — namespace is the first segment after #
-	const text = doc.sliceString(node.from + 1, node.to); // skip "#"
-	const slashIdx = text.indexOf("/");
-	return slashIdx >= 0 ? text.slice(0, slashIdx) : text;
+): string | undefined {
+	const parts = doc.sliceString(node.from + 1, node.to).split("/"); // skip "#"
+	if (parts[0] !== "record") return parts[0];
+	return parts.length >= 2 ? `record/${parts[1]}` : undefined;
+}
+
+/** Whether the person is writing a record reference in its long spelling,
+ * `#record/<type>/`, which every option they are offered then takes. */
+function typedLongSpelling(typed: string): boolean {
+	return typed.startsWith("#record/");
+}
+
+/** The namespace of the hashtag text typed so far, or `undefined` while the
+ * namespace itself is still being typed (`record/<type>` needs its second `/`). */
+function typedHashtagNamespace(text: string): string | undefined {
+	const parts = text.split("/");
+	if (parts[0] === "record")
+		return parts.length >= 3 ? `record/${parts[1]}` : undefined;
+	return parts.length >= 2 ? parts[0] : undefined;
 }
 
 // ── Completion sources ─────────────────────────────────────────────────
@@ -192,11 +214,10 @@ export function hashtagSource(
 
 		if (hashtagAncestor) {
 			from = hashtagAncestor.from;
-			const text = state.doc.sliceString(hashtagAncestor.from + 1, pos); // text typed so far, skip "#"
-			const slashIdx = text.indexOf("/");
-			if (slashIdx >= 0) {
-				namespace = text.slice(0, slashIdx); // case-type name, "form", or "user"
-			}
+			// text typed so far, skip "#"
+			namespace = typedHashtagNamespace(
+				state.doc.sliceString(hashtagAncestor.from + 1, pos),
+			);
 		} else {
 			// Check for a cursor after "/" in a hashtag path (e.g. #patient/|).
 			// Tree structure: Child { HashtagRef("#patient"), "/", <cursor> }
@@ -234,10 +255,25 @@ export function hashtagSource(
 				)
 			: undefined;
 
+		const typed = state.doc.sliceString(from, pos);
+		const longSpelling = typedLongSpelling(typed);
+
 		// Namespace stage: inside HashtagRef but no "/" typed yet — show the
 		// fixed prefixes plus one per readable case type. A session-scoped
 		// slot (an after-submit link) runs after the form has closed, so
-		// `#form/` is withheld rather than offered and then refused.
+		// `#form/` is withheld rather than offered and then refused. After
+		// `#record/` the stage offers each readable type in that spelling.
+		if (namespace === undefined && longSpelling) {
+			const options: Completion[] = [...(accept?.keys() ?? [])].map(
+				(typeName) => ({
+					label: `#record/${typeName}/`,
+					type: "namespace",
+					detail: "case property",
+					boost: 2,
+				}),
+			);
+			return options.length === 0 ? null : { from, options };
+		}
 		if (namespace === undefined) {
 			const options: Completion[] = STATIC_NAMESPACE_OPTIONS.filter(
 				(option) => option.label !== "#form/" || reference?.scope !== "session",
@@ -245,7 +281,7 @@ export function hashtagSource(
 			if (accept) {
 				for (const typeName of accept.keys()) {
 					options.push({
-						label: `#${typeName}/`,
+						label: caseReferencePrefix(typeName),
 						type: "namespace",
 						detail: "case property",
 						boost: 2,
@@ -285,11 +321,21 @@ export function hashtagSource(
 					type: "property",
 				})),
 			];
-		} else if (accept?.has(namespace)) {
+		} else {
 			// A readable case type — offer exactly its accepted properties.
-			const typeEntry = reference?.reachableCaseTypes?.get(namespace);
-			options = [...(accept.get(namespace) ?? [])].map((prop) => ({
-				label: `#${namespace}/${prop}`,
+			const caseType = caseReferenceNamespaceType(namespace);
+			const accepted =
+				caseType === undefined ? undefined : accept?.get(caseType);
+			const typeEntry =
+				caseType === undefined
+					? undefined
+					: reference?.reachableCaseTypes?.get(caseType);
+			options = [...(accepted ?? [])].map((prop) => ({
+				// In the spelling the person typed, so the typed text filters it.
+				label:
+					longSpelling && caseType !== undefined
+						? `#record/${caseType}/${prop}`
+						: caseReferenceText(caseType ?? namespace, prop),
 				detail: typeEntry?.properties.get(prop)?.label,
 				type: "property",
 			}));
@@ -299,7 +345,6 @@ export function hashtagSource(
 
 		/* Suppress the dropdown when the typed text already exactly matches a
        known reference — the chip is rendered and there's nothing to complete. */
-		const typed = state.doc.sliceString(from, pos);
 		if (options.some((o) => o.label === typed)) return null;
 
 		return { from, options };

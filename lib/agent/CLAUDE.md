@@ -247,11 +247,14 @@ retains only its own investigation across corrections, with a fresh revision-bou
 review message and durable focus. It does not inherit private architect reasoning. A compatible
 provider compaction checkpoint replaces only the replay prefix, never the
 human-readable stored history. Prompt, model, toolset, and context versions
-control checkpoint compatibility. `lib/models.ts::MODEL_CONTEXT_VERSION` moves
-in every pull request that changes the name, the description or the input
-schema of a tool the Solutions Architect is offered, or the authoring guide
-(`lib/agent/authoring/reference.ts`), because a stored model context is
-replayed only under the catalog it was made against. A tool only MCP serves is
+control checkpoint compatibility. `lib/models.ts::MODEL_CONTEXT_VERSION`
+differs between any two deployed builds that differ in the name, the
+description or the input schema of a tool the Solutions Architect is offered,
+or in the authoring guide (`lib/agent/authoring/reference.ts`), because a
+stored model context is replayed only under the catalog it was made against,
+and production stores one only under a deployed build. A set of changes that
+merges and deploys together moves it once, in that set. A change that deploys
+alone moves it in its own pull request. A tool only MCP serves is
 in no stored model context and does not move it, and neither does a field added
 to a shared read tool's result with no change to the tool's name, description
 or input. Keep completed tool results and reasoning items intact on resume;

@@ -119,6 +119,7 @@ import {
 	type SelectSearchInputType,
 	type SimpleSearchInputDef,
 	searchInputDefault,
+	searchInputNameRefusal,
 	searchInputOptions,
 	simpleSearchInputDef,
 	type UserProperty,
@@ -412,11 +413,20 @@ function VisibleSearchInputEditor({
 
 	// ── Common-slot mutators ──
 
-	/* A multiple-choice field matches only when its reference name IS the
-	 * property it searches (`multiSelectSearchInputRefusal`), so a rename that
-	 * breaks that is held with the reason instead of bouncing off the gate. */
+	/* A rename the gate would refuse is held with its reason instead of
+	 * bouncing off the gate: a name outside the Search field name grammar
+	 * (`searchInputNameRefusal`, the schema's own sentence), and on a
+	 * multiple-choice field a name that is not the property it searches,
+	 * since such a field matches only then (`multiSelectSearchInputRefusal`). */
 	const [nameRefusal, setNameRefusal] = useState<string | null>(null);
 	const setName = (name: string) => {
+		// An empty name is the row's own empty state, which the row says below.
+		const grammarRefusal =
+			name.length === 0 ? undefined : searchInputNameRefusal(name);
+		if (grammarRefusal !== undefined) {
+			setNameRefusal(grammarRefusal);
+			return;
+		}
 		if (value.kind === "simple" && value.type === "multi-select") {
 			const refusal = multiSelectSearchInputRefusal({ ...value, name });
 			if (refusal !== undefined) {

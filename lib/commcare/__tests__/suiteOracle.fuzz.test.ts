@@ -4,6 +4,12 @@ import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { advancedDocArbitrary } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
+	countNames,
+	emptyNamesCensus,
+	expectNamesCensus,
+	namesDocArbitrary,
+} from "./namesDocArbitrary";
+import {
 	hasCaseSearch,
 	hasChildCase,
 	hasMedia,
@@ -81,4 +87,22 @@ it("compiles workflow samples whose after-submit link carries a create, with an 
 	);
 	expect(census.total).toBe(60);
 	expect(census.advanced / census.total).toBeGreaterThan(0.5);
+});
+
+// The names family: case types that start with a digit or are one of
+// reference text's fixed words, and a Search field whose name holds a hyphen,
+// reach the HQ import, the local suite's entries and every binding. The
+// census fails by name if the generator stops drawing them.
+it("compiles workflows whose case types and Search fields fill Nova's name grammars", {
+	timeout: 60_000,
+}, () => {
+	const census = emptyNamesCensus();
+	assertGenerated(
+		fc.property(namesDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			countNames(census, doc);
+		}),
+		{ seed: 20261113, numRuns: 80 },
+	);
+	expectNamesCensus(census, 80);
 });

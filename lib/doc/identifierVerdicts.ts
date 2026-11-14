@@ -7,8 +7,8 @@
  * XPath references resolve against. Where its answer is saved is the
  * writes of the form's case operations that read it, never its id. Field IDs
  * therefore carry only form-path
- * constraints: Nova's question-id grammar (HQ's form builder's, without the
- * hyphen: `lib/domain/questionId.ts::QUESTION_ID_PATTERN`), the names no
+ * constraints: Nova's question-id grammar (HQ's form builder's:
+ * `lib/domain/questionId.ts::QUESTION_ID_PATTERN`), the names no
  * form may hold (`meta`, `case`, `registration` and `script` in any case;
  * `instance`, `bind` and `parsererror`, which HQ's form builder can't open a
  * form with), and sibling-ID uniqueness (CommCare requires unique ids among
@@ -34,7 +34,6 @@ import {
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
 } from "@/lib/commcare/constants";
-import { RESERVED_CASE_TYPE_NAMES } from "@/lib/commcare/validator/reservedNamespaces";
 import {
 	authoredCasePropertyNameSchema,
 	type BlueprintDoc,
@@ -318,11 +317,10 @@ export function renameFieldIdVerdict({
 // ── Case-type names ─────────────────────────────────────────────────
 //
 // A module's case type is a CommCare wire identifier too: it must match
-// `CASE_TYPE_REGEX`, stay within `MAX_CASE_TYPE_LENGTH`, and avoid the
-// reserved reference namespaces (`form`/`user`/`case`/`parent`) that would
-// collide with the hashtag system. The same constraints the validator's
-// `INVALID_CASE_TYPE_FORMAT` / `CASE_TYPE_TOO_LONG` (`rules/module.ts`) and
-// `RESERVED_CASE_TYPE_NAME` (`rules/app.ts`) rules enforce as backstops — this
+// `CASE_TYPE_PATTERN` (`lib/domain/expression/types.ts`, read here as
+// `CASE_TYPE_REGEX`) and stay within `MAX_CASE_TYPE_LENGTH`. The same
+// constraints the validator's `INVALID_CASE_TYPE_FORMAT` /
+// `CASE_TYPE_TOO_LONG` (`rules/module.ts`) rules enforce as backstops — this
 // verdict lets the create-new-case-type picker disable an illegal name inline
 // (valid-by-construction) instead of letting the commit gate reject it after.
 
@@ -330,7 +328,6 @@ export function renameFieldIdVerdict({
 export type CaseTypeNameRejectionCode =
 	| "empty"
 	| "illegal_format"
-	| "reserved"
 	| "too_long"
 	| "duplicate";
 
@@ -345,8 +342,7 @@ const CASE_TYPE_OK: CaseTypeNameVerdict = { ok: true };
  * app's existing types (a brand-new type can't reuse an existing name —
  * "create new" would otherwise silently target the existing one). `existing`
  * is the set of case-type names already in use (module case types and/or the
- * catalog). The reserved check is case-insensitive (the wire resolver lowercases
- * reserved namespaces); the DUPLICATE check is case-SENSITIVE — CommCare case
+ * catalog). The DUPLICATE check is case-SENSITIVE — CommCare case
  * types are case-sensitive and there's no `DUPLICATE_CASE_TYPE` validator rule,
  * so "Patient" is a distinct, wire-valid type when only "patient" exists, and
  * rejecting it would be stricter than the wire. Only an exact match means
@@ -365,7 +361,7 @@ export function caseTypeNameVerdict(
 			ok: false,
 			code: "illegal_format",
 			userMessage:
-				"Start with a letter; use only letters, digits, underscores, or hyphens.",
+				"A case type holds only letters, digits, underscores and hyphens.",
 		};
 	}
 	if (trimmed.length > MAX_CASE_TYPE_LENGTH) {
@@ -373,13 +369,6 @@ export function caseTypeNameVerdict(
 			ok: false,
 			code: "too_long",
 			userMessage: `Keep it to ${MAX_CASE_TYPE_LENGTH} characters or fewer.`,
-		};
-	}
-	if (RESERVED_CASE_TYPE_NAMES.has(trimmed.toLowerCase())) {
-		return {
-			ok: false,
-			code: "reserved",
-			userMessage: `"${trimmed}" is reserved. Try something like "${trimmed}_record".`,
 		};
 	}
 	if (existing.has(trimmed)) {
@@ -503,9 +492,9 @@ const CASE_OPERATION_PROPERTY_OK: CaseOperationPropertyVerdict = { ok: true };
  * Adjudicate a case property a case operation would write.
  *
  * Reserved properties are the ones the operation's own facets own (the
- * name, the owner) or that the two runtimes disagree about, so writing
- * one through the generic slot would mean two different things on a
- * device and on HQ. A case operation's write is always in the form's
+ * name, the owner) or that CommCare HQ stores somewhere other than the
+ * property (`location_id`, `hq_user_id`), so writing one through the
+ * generic slot would mean something a property write does not. A case operation's write is always in the form's
  * source, so the names HQ's form builder can't keep there are refused too:
  * the three it can't open a form with, and `close`, which it reads as
  * closing the case. `alreadyWritten` is the set this operation already

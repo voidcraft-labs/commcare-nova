@@ -47,6 +47,14 @@ describe("structural XForm paths", () => {
 			],
 		],
 		[
+			"/data/first-name",
+			"#form/first-name",
+			[
+				{ kind: "element", name: "data" },
+				{ kind: "element", name: "first-name" },
+			],
+		],
+		[
 			"/data/case/@case_id",
 			undefined,
 			[
@@ -74,7 +82,7 @@ describe("structural XForm paths", () => {
 		"/data//x",
 		"/data/x/",
 		"/data/9bad",
-		"/data/a-b",
+		"/data/-ab",
 		"/data/p:q",
 		"/data/x[1]",
 		"/data/case/@9bad",
@@ -84,7 +92,7 @@ describe("structural XForm paths", () => {
 		expect(() => FormPath.parse(raw)).toThrow(/FormPath.parse/);
 	});
 
-	it.each(["", "1bad", "with-hyphen", "with/slash", "p:q", "name\n"])(
+	it.each(["", "1bad", "-lead", "with/slash", "p:q", "name\n"])(
 		"enforces the same supported segment names in both builders: %j",
 		(name) => {
 			const root = FormPath.root();

@@ -13,6 +13,7 @@ import {
 	FUNCTION_REGISTRY,
 	functionArityIssue,
 } from "@/lib/domain/expressionFunctions";
+import { readCaseReference } from "@/lib/domain/hashtagSegments";
 import { organizationLevelsOf } from "@/lib/domain/organization";
 import { itextIdFor, itextUnitForId } from "../xform/itextIds";
 import { formNodeProjection } from "./formNodeProjection";
@@ -52,6 +53,10 @@ const comparisons = {
 	"<=": "lte",
 } as const;
 const arithmetic = new Set(["+", "-", "*", "div", "mod"]);
+
+/** The shape a record reference takes, said when a hashtag names none. */
+const RECORD_REFERENCE_SHAPE =
+	"A record reference names one property: #<record-type>/<property>, or #record/<record-type>/<property>, which reads any record type. A worker's detail is #user/<property>.";
 
 /** Parse source into identities and structured operators. No source text,
  * unresolved names or grouping trivia can enter the returned tree. */
@@ -241,38 +246,48 @@ export function parseFormExpression(
 		ctx: ExpressionContext,
 	): Expression {
 		if (node.namespace === "form") return bindFormPath(binder, node, ctx);
-		if (node.segments.length !== 1)
+		if (node.namespace === "row")
 			refuse(
 				"unknown-hashtag",
 				node,
-				"This reference needs one answer path, #<record-type>/<property>, or #user/<property>.",
+				"#row reads the record or the table row a filter is testing, so it has nothing to read in this formula. A record's value is #<record-type>/<property>, and a record type called row is #record/row/<property>.",
 			);
-		const property = node.segments[0];
-		if (node.namespace === "user")
-			return term(formUserProperty(scope, property, "worker-record"), node);
-		if (node.namespace === "search") {
-			const matches =
-				ctx.form?.searchInputs.filter((input) => input.name === property) ?? [];
-			if (matches.length !== 1)
-				refuse(
-					"unknown-search-input",
-					node,
-					`This menu's search has no field called ${property}.`,
-				);
-			return term({ kind: "input", searchInputUuid: matches[0].uuid }, node);
-		}
-		if (node.namespace === "case") {
+		if (
+			node.namespace === "user" ||
+			node.namespace === "search" ||
+			node.namespace === "case"
+		) {
+			if (node.segments.length !== 1)
+				refuse("unknown-hashtag", node, RECORD_REFERENCE_SHAPE);
+			const property = node.segments[0];
+			if (node.namespace === "user")
+				return term(formUserProperty(scope, property, "worker-record"), node);
+			if (node.namespace === "search") {
+				const matches =
+					ctx.form?.searchInputs.filter((input) => input.name === property) ??
+					[];
+				if (matches.length !== 1)
+					refuse(
+						"unknown-search-input",
+						node,
+						`This menu's search has no field called ${property}.`,
+					);
+				return term({ kind: "input", searchInputUuid: matches[0].uuid }, node);
+			}
 			const selected = scope.authoring?.selectedCaseType;
 			if (selected === undefined)
 				refuse(
 					"case-alias-unbound",
 					node,
-					"Name the record type with #<record-type>/<property> in this formula.",
+					"This formula has no selected record for #case to read. You can name the record type, as in #<record-type>/<property>. A record type called case is #record/case/<property>.",
 				);
 			return term({ kind: "form-case", caseType: selected, property }, node);
 		}
+		const read = readCaseReference(node.namespace, node.segments);
+		if (read === undefined)
+			refuse("unknown-hashtag", node, RECORD_REFERENCE_SHAPE);
 		return term(
-			{ kind: "form-case", caseType: node.namespace, property },
+			{ kind: "form-case", caseType: read.caseType, property: read.property },
 			node,
 		);
 	}

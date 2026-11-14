@@ -5,12 +5,14 @@ import {
 	buildConnectSlugMap,
 	connectIdConflictError,
 	connectIdError,
+	connectIdProblem,
 	deriveConnectId,
 } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { connectIdSchema } from "@/lib/domain/forms";
 import {
 	questionIdProblem,
 	RESERVED_CONNECT_BLOCK_IDS,
@@ -95,7 +97,7 @@ describe("Connect creation identity policy", () => {
 		"2024 Intake",
 		"has space",
 		"1st_module",
-		"bad-dash",
+		"-dash-first",
 		"",
 		"_leading_underscore",
 		"XMLquiz",
@@ -114,9 +116,29 @@ describe("Connect creation identity policy", () => {
 		"Task",
 		"Module",
 		"q_deliver",
+		"intro-module",
+		"a-",
 		"a".repeat(50),
 	])("accepts %j", (id) => {
 		expect(connectIdError(id)).toBeNull();
+	});
+	it("agrees with the stored schema on a hyphen, and narrows it where the schema keeps old blocks parsing", () => {
+		expect(connectIdSchema.safeParse("intro-module").success).toBe(true);
+		expect(connectIdProblem("intro-module")).toBeUndefined();
+		// The schema keeps admitting the leading underscore it always has, so
+		// no stored block stops parsing; the verdict refuses it.
+		expect(connectIdSchema.safeParse("_lesson").success).toBe(true);
+		expect(connectIdProblem("_lesson")).toEqual({
+			kind: "format",
+			problem: "leading-underscore",
+		});
+		for (const reserved of RESERVED_CONNECT_BLOCK_IDS.exact) {
+			expect(connectIdProblem(reserved)?.kind).toBe("format");
+		}
+		for (const outside of ["a.b", "a b", "-a"]) {
+			expect(connectIdSchema.safeParse(outside).success).toBe(false);
+			expect(connectIdProblem(outside)?.kind).toBe("format");
+		}
 	});
 	it.each(["assessment", "deliver", "module", "task", "work_area_update"])(
 		"refuses %j, a name Connect's receiver keeps for itself",

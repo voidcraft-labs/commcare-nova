@@ -29,6 +29,7 @@ import {
 	proseTemplateIsEmpty,
 	proseTemplateText,
 	repairSelectOptionValue,
+	SELECT_OPTION_VALUE_BOTH_QUOTES,
 	selectOptionValueProblem,
 	snapshotTranslationUnits,
 } from "@/lib/domain";
@@ -94,46 +95,11 @@ function selectNoOptions(field: Field, ctx: FieldContext): ValidationError[] {
 }
 
 /**
- * A select field with at least one but fewer than two options. `SELECT_NO_OPTIONS`
- * owns the zero-option case (the schema-backed empty state); this rule catches
- * the in-between state a granular `removeOption` can reach in place — the
- * reducer drops an option without re-parsing the field through `fieldSchema`'s
- * `.min(2)`, so the gate, not the schema, is the only layer that sees a select
- * collapse to a single choice.
- */
-function selectTooFewOptions(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
-	if (field.kind !== "single_select" && field.kind !== "multi_select")
-		return [];
-	if (field.optionsSource.kind !== "inline") return [];
-	const count = field.optionsSource.options.length;
-	if (count === 0 || count >= 2) return [];
-	const typeName =
-		field.kind === "single_select" ? "single-select" : "multi-select";
-	return [
-		validationError(
-			"SELECT_TOO_FEW_OPTIONS",
-			"field",
-			`Field "${field.id}" in "${ctx.formName}" is a ${typeName} field with only one option. A choice field needs at least two options so there's something to choose between. Add another option, or remove the field if a single fixed value is all you need.`,
-			{
-				moduleUuid: ctx.moduleUuid,
-				moduleName: ctx.moduleName,
-				formUuid: ctx.formUuid,
-				formName: ctx.formName,
-				fieldUuid: field.uuid,
-				fieldId: field.id,
-			},
-		),
-	];
-}
-
-/**
  * A choice's stored VALUE is the answer token, and the wire cannot carry
- * one holding whitespace or a quote: CommCare Android throws on any select
- * value with a space, a multi-select answer is a space-joined token list,
- * and the case list compares the property with `field = 'value'`. An empty
+ * one holding whitespace: CommCare Android throws on any select value with
+ * a space, and a multi-select answer is a space-joined token list. A value
+ * holding both an apostrophe and a double quote has no XPath string
+ * literal, so no rule naming the choice could be shown as text. An empty
  * value saves nothing, indistinguishable from "unanswered".
  * `lib/domain/selectOptionValue.ts` owns the grammar; this rule applies it
  * to inline options, with `CASE_PROPERTY_OPTION_VALUE_INVALID` (`app.ts`)
@@ -168,7 +134,7 @@ function selectOptionValueInvalid(
 				? `${position} has an empty value. A choice's value is the answer the app stores, so an empty one saves nothing and reads as unanswered. Give it a value such as "${suggestion}": a lowercase slug with words joined by underscores, with the wording kept in the label.`
 				: problem === "whitespace"
 					? `${position} has the value ${JSON.stringify(option.value)}, which contains a space. A choice's value is the answer the app stores, not the wording, and the device refuses a choice value holding a space (a multi-select answer is a space-separated list of these values). Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`
-					: `${position} has the value ${JSON.stringify(option.value)}, which contains a quote mark. A choice's value is the answer the app stores, and the app compares it inside quotes, so a quote or apostrophe in it breaks that comparison. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`;
+					: `${position} has the value ${JSON.stringify(option.value)}, which holds both an apostrophe and a double quote. ${SELECT_OPTION_VALUE_BOTH_QUOTES}`;
 		errors.push(
 			validationError(
 				"SELECT_OPTION_VALUE_INVALID",
@@ -639,7 +605,6 @@ function queryRepeatModelIterationShape(
 
 const FIELD_RULES = [
 	selectNoOptions,
-	selectTooFewOptions,
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,
 	selectOptionLabelEmpty,

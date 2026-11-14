@@ -82,7 +82,7 @@ export const CONNECT_SLUG_MAX_LENGTH = CONNECT_ID_MAX_LENGTH;
  */
 export const CONNECT_ID_FIELD_DESCRIPTION =
 	"Leave unset. Nova derives a valid unique id from the name. Set only to " +
-	"pin one: a letter first, then letters, digits or underscores, not " +
+	"pin one: a letter first, then letters, digits, underscores or hyphens, not " +
 	`starting with XML, at most ${CONNECT_SLUG_MAX_LENGTH} characters, unique in the app, and none ` +
 	"of assessment, deliver, module, task, work_area_update, meta, case, " +
 	"registration, script, instance, bind, parsererror. CommCare Connect " +

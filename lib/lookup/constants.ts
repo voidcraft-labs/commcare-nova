@@ -36,9 +36,14 @@ export const LOOKUP_DATA_TYPES = [
 	"datetime",
 ] as const;
 
-/** ASCII identifiers accepted by the lookup wire boundary. */
-export const LOOKUP_WIRE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-export const LOOKUP_XML_PREFIX_PATTERN = /^xml/i;
+/** A tag's or a column's wire name: an unaccented letter or underscore, then
+ * letters, digits, underscores or hyphens. A period is left out: CommCare
+ * HQ's build reads an unquoted period in a case list filter and a display
+ * condition as the current case (`xpath.py::dot_interpolate`). */
+export const LOOKUP_WIRE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+/** CommCare HQ refuses a name that starts with lowercase `xml`, and only that
+ * (`fixtures/utils.py::is_identifier_invalid`). */
+export const LOOKUP_XML_PREFIX_PATTERN = /^xml/;
 
 /**
  * Instance ids the CommCare runtime owns, which a table tag may therefore never
@@ -115,7 +120,7 @@ export function reservedInstanceTagCause(
 	if (
 		RESERVED_INSTANCE_TAGS.some((reserved) => reserved === lowered) ||
 		lowered === "search_selected_cases" ||
-		/^(?:parent_)*selected_cases(?:_[a-z][a-z0-9_-]*)?$/.test(lowered)
+		/^(?:parent_)*selected_cases(?:_[a-z0-9_-]+)?$/.test(lowered)
 	)
 		return { kind: "name" };
 	const word = RESERVED_INSTANCE_TAG_WORDS.find((reserved) =>

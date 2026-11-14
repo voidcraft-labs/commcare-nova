@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { buildFormActions } from "@/lib/commcare/formActions";
 import type { CaseOperation, Form } from "@/lib/domain";
-import { eq, literal, term } from "@/lib/domain/expression/builders";
+import { concat, eq, literal, term } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
 import {
 	childCreate,
@@ -131,6 +131,24 @@ describe("the own case", () => {
 			expect(result.update_case.update).toEqual({});
 		},
 	);
+
+	it("writes nothing for a registration whose own arm takes Save to Case", () => {
+		// A computed name keeps the own arm off Case Management, so the form
+		// opens no case and requires none: HQ's build refuses an active update
+		// there (`xform.py::XForm._create_casexml`).
+		const result = actions("registration", {
+			operations: () => [
+				own({
+					name: concat(read("name"), term(literal(" "))),
+					writes: [{ property: "age", value: read("age") }],
+				}),
+			],
+		});
+		expect(result.open_case.condition.type).toBe("never");
+		expect(result.update_case.condition.type).toBe("never");
+		expect(result.update_case.update).toEqual({});
+		expect(result.close_case.condition.type).toBe("never");
+	});
 
 	it("writes nothing for a survey", () => {
 		const result = actions("survey", {});

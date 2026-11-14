@@ -7,6 +7,12 @@ import type { Uuid } from "@/lib/domain";
 import { advancedDocArbitrary, CARRIED_CREATE } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
+	countNames,
+	emptyNamesCensus,
+	expectNamesCensus,
+	namesDocArbitrary,
+} from "./namesDocArbitrary";
+import {
 	blueprintDocArbitrary,
 	hasFormItextMedia,
 	hasSectionedForm,
@@ -89,4 +95,21 @@ it("compiles advanced forms whose carried create is an open action", {
 	);
 	expect(census.total).toBe(60);
 	expect(census.openAction / census.total).toBeGreaterThan(0.5);
+});
+
+// The names family: question ids holding hyphens, selects of one option and
+// choice values holding a quote mark reach every XForm, HQ JSON and binding
+// oracle. The census fails by name if the generator stops drawing them.
+it("compiles forms whose question ids, choices and written properties fill Nova's name grammars", {
+	timeout: 60_000,
+}, () => {
+	const census = emptyNamesCensus();
+	assertGenerated(
+		fc.property(namesDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			countNames(census, doc);
+		}),
+		{ seed: 20261113, numRuns: 80 },
+	);
+	expectNamesCensus(census, 80);
 });

@@ -1442,12 +1442,24 @@ test("options use real label editors, preserve draft identity across key-order e
 		page.getByRole("textbox", { name: "Stored value for Green", exact: true }),
 	).toHaveValue("green");
 	await page.getByRole("button", { name: "Remove Green", exact: true }).click();
-	await expect(
-		page.getByRole("button", { name: "Remove Red", exact: true }),
-	).toBeDisabled();
-	await expect(
-		page.getByRole("button", { name: "Remove Blue", exact: true }),
-	).toBeDisabled();
+	await expect(saved).not.toContainText('"value":"green"');
+	// A select holds one option or more: with two left, each can still go,
+	// and the last one cannot.
+	const removeRed = page.getByRole("button", {
+		name: "Remove Red",
+		exact: true,
+	});
+	const removeBlue = page.getByRole("button", {
+		name: "Remove Blue",
+		exact: true,
+	});
+	await expect(removeRed).toBeEnabled();
+	await expect(removeBlue).toBeEnabled();
+	await removeBlue.click();
+	await expect(removeBlue).toHaveCount(0);
+	await expect(saved).not.toContainText('"value":"blue"');
+	await expect(saved).toContainText('"value":"red"');
+	await expect(removeRed).toBeDisabled();
 });
 test("changing a reference-bearing option label preserves the authored stored token", async ({
 	page,
@@ -3011,7 +3023,7 @@ test("native inline validity refuses Enter and blur with the actual Connect iden
 	await input.fill("bad code");
 	await expect(input).toHaveAttribute("aria-invalid", "true");
 	await expect(input).toHaveAccessibleDescription(
-		/holds only letters, digits and underscores/,
+		/holds only letters, digits, underscores and hyphens/,
 	);
 	await input.press("Enter");
 	await expect(saved).toHaveText("starting_code");

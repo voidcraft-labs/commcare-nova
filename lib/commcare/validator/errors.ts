@@ -15,7 +15,6 @@ export type ValidationErrorCode =
 	| "EMPTY_APP_NAME"
 	| "APP_TEXT_UNREPRESENTABLE"
 	| "NO_MODULES"
-	| "RESERVED_CASE_TYPE_NAME"
 	| "CONNECT_NO_PARTICIPATING_FORMS"
 	| "PLATFORM_FEATURE_UNAVAILABLE"
 	| "BLUEPRINT_TOPOLOGY_INVALID"
@@ -239,7 +238,6 @@ export type ValidationErrorCode =
 	// Field-level
 	| "SELECT_DEFAULT_NOT_AN_OPTION"
 	| "SELECT_NO_OPTIONS"
-	| "SELECT_TOO_FEW_OPTIONS"
 	| "SELECT_OPTION_VALUE_INVALID"
 	| "SELECT_OPTION_VALUE_DUPLICATE"
 	| "SELECT_OPTION_LABEL_EMPTY"
@@ -392,6 +390,10 @@ export type ValidationErrorCode =
 	// id on `open_case.external_id`. HQ's Case Management tab writes one as an
 	// ordinary `update_case.update` row, and Nova writes it that way too.
 	| "HQJSON_OPEN_CASE_EXTERNAL_ID"
+	// A form that requires no case and opens none with an active
+	// `update_case`. HQ's build raises `CaseError` for it
+	// (`xform.py::XForm._create_casexml`).
+	| "HQJSON_UPDATE_WITHOUT_CASE"
 	// Media path regression guard. CCHQ's
 	// `suite_xml/generator.py::media_resources` RAISES `MediaResourceError`
 	// for a media path that doesn't start with `jr://file/`. Menu media

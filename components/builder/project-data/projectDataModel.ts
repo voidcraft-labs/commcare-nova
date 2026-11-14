@@ -97,10 +97,11 @@ export function rowAdditionRefusal(
  *
  * A suggestion, never an imposition: the field stays editable and stops
  * tracking the label the moment the author types in it. The rule is
- * `LOOKUP_WIRE_IDENTIFIER_PATTERN`: an ASCII letter or underscore, then
- * letters, digits, and underscores, plus the boundary's refusal of anything
- * starting `xml`, so the suggestion is one the server will accept rather than
- * one it will bounce.
+ * `LOOKUP_WIRE_IDENTIFIER_PATTERN`: an unaccented letter or underscore, then
+ * letters, digits, underscores and hyphens, plus the boundary's refusal of a
+ * lowercase `xml` start. The suggestion keeps to lowercase words joined by
+ * underscores, so it is one the server will accept rather than one it will
+ * bounce.
  */
 export function suggestWireName(label: string): string {
 	const ascii = label

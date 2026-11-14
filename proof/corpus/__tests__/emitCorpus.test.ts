@@ -74,6 +74,15 @@
  * plausible failures are a refusal that reads the setting alone, refusing a
  * document Nova publishes there, and one that never reads the verdict.
  *
+ * The lane's emission holds the fixed floor's census to
+ * `proof/corpus/left-out.json` (`leftOutDifferences`) and stops before
+ * writing anything where they differ. The plausible failures: a rule that
+ * newly refuses a fixed document making the corpus one document smaller and
+ * passing, and a list that keeps naming a document the corpus takes. The
+ * observation is this suite's own census against three lists: one naming
+ * the document it refuses, an empty one and one naming a document it takes;
+ * and the committed list read by its own schema.
+ *
  * The corpus here is small but spans what the emitter treats differently:
  * producer documents with lookup data and uploaded media, three languages
  * whose wire codes are not their tags, a workforce document over a producer
@@ -105,9 +114,15 @@ import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import { type CorpusDocument, lookupContextOf } from "../documents";
 import { EDIT_KINDS } from "../editBatches";
+import { WORKTREE } from "../emissionProcess";
 import {
 	type EmittedCorpus,
 	emitCorpus,
+	type LeftOut,
+	LeftOutError,
+	leftOutDifferences,
+	leftOutMessage,
+	leftOutSchema,
 	UnlandedKindsError,
 } from "../emitCorpus";
 import { sampleFuzzDocuments } from "../fuzzSample";
@@ -133,6 +148,7 @@ const PRODUCER_IDS = [
 	"nested-menu-same-smaller",
 ];
 const REFUSED = "nested-menu-same-smaller";
+const LEFT_OUT_FILE = join(WORKTREE, "proof", "corpus", "left-out.json");
 /** A workforce document over a producer document that carries uploaded media. */
 const WORKFORCE_ID = workforceDocumentId("case-list-local");
 
@@ -197,6 +213,7 @@ async function emit(
 		readonly jobs?: number;
 		readonly requireEveryKind?: boolean;
 		readonly only?: readonly string[];
+		readonly leftOut?: LeftOut;
 	} = {},
 ): Promise<EmittedCorpus> {
 	const only = options.only;
@@ -208,6 +225,7 @@ async function emit(
 		sampled,
 		jobs: options.jobs ?? 1,
 		requireEveryKind: options.requireEveryKind ?? false,
+		...(options.leftOut !== undefined && { leftOut: options.leftOut }),
 		...(only !== undefined && {
 			select: { label: "chosen", includes: (id) => only.includes(id) },
 		}),
@@ -243,11 +261,16 @@ describe("the corpus emitter", () => {
 			}),
 			workforce,
 		];
+		// The advanced family's draws are documents like the others to the
+		// emitter; this suite's corpus keeps to the two original draws and the
+		// expression family, and the fuzz sample's own suite holds the family.
 		sampled = sampleFuzzDocuments({
 			size: 2,
 			seed: DEFAULT_CORPUS_SEED,
 			manifestFor,
-		}).map((sample) => sample.document);
+		})
+			.filter((sample) => sample.generator !== "advanced")
+			.map((sample) => sample.document);
 		({ index } = await emit(join(root, "nova"), fixed, sampled));
 	});
 
@@ -517,6 +540,73 @@ describe("the corpus emitter", () => {
 		expect((refused as UnlandedKindsError).kinds).toEqual(unlanded);
 		// Nothing was written: no index the checks would read, no document.
 		expect(await readdir(out)).toEqual([]);
+	});
+
+	it("holds the fixed floor's census to what left-out.json names, and stops before writing anything where a document leaves or joins", async () => {
+		const census = index?.census.fixed;
+		if (census === undefined) throw new Error("The index holds no census.");
+		const refusedEntry = {
+			id: REFUSED,
+			by: "publish",
+			codes: ["HQ_NESTED_SELECTION_UNREPRESENTABLE"],
+		} as const;
+		expect(
+			leftOutDifferences(census, { documents: [refusedEntry], edits: [] }),
+		).toEqual([]);
+
+		const unseen = leftOutDifferences(census, { documents: [], edits: [] });
+		expect(unseen).toEqual([
+			{ change: "leaves", part: "document", entry: refusedEntry },
+		]);
+		expect(unseen.map(leftOutMessage)).toEqual([
+			`The corpus now leaves out ${REFUSED}: Nova's publish refuses it (HQ_NESTED_SELECTION_UNREPRESENTABLE). The fixed corpus leaves out only what proof/corpus/left-out.json names, so a rule that refuses more can't shrink it unseen. If the rule is right, change the document's source so it holds what Nova holds, or name it in left-out.json. If it isn't, the rule refuses too much.`,
+		]);
+
+		const takenEntry = {
+			id: PRODUCER_IDS[0] ?? "",
+			by: "publish",
+			codes: ["HQ_NESTED_SELECTION_UNREPRESENTABLE"],
+		} as const;
+		const taken = leftOutDifferences(census, {
+			documents: [takenEntry, refusedEntry],
+			edits: [],
+		});
+		expect(taken).toEqual([
+			{ change: "takes", part: "document", entry: takenEntry },
+		]);
+		expect(taken.map(leftOutMessage)).toEqual([
+			`proof/corpus/left-out.json names ${takenEntry.id} as left out, and the corpus now takes it. Take it off the list.`,
+		]);
+
+		const refusedDocument = fixed.find((document) => document.id === REFUSED);
+		if (refusedDocument === undefined)
+			throw new Error(`The fixed floor holds no ${REFUSED}.`);
+		const out = join(root, "left-out");
+		const stopped = await emit(out, [refusedDocument], [], {
+			leftOut: { documents: [], edits: [] },
+		}).then(
+			() => undefined,
+			(error: unknown) => error,
+		);
+		expect(stopped).toBeInstanceOf(LeftOutError);
+		expect((stopped as LeftOutError).differences).toEqual(unseen);
+		// Nothing was written: no index the checks would read, no document.
+		expect(await readdir(out)).toEqual([]);
+	});
+
+	it("reads the committed left-out.json as one list of documents and one of edits, each in id order", async () => {
+		const committed = leftOutSchema.safeParse(
+			JSON.parse(await readFile(LEFT_OUT_FILE, "utf8")),
+		);
+		expect(committed.success, committed.error?.message).toBe(true);
+		const unordered = leftOutSchema.safeParse({
+			documents: [
+				{ id: "b", by: "publish", codes: ["A"] },
+				{ id: "a", by: "publish", codes: ["A"] },
+			],
+			edits: [],
+		});
+		expect(unordered.success).toBe(false);
 	});
 
 	it("writes a targeted document with its own files and no edit, and changes no other document's batch by adding one", {

@@ -583,7 +583,7 @@ describe("case-operation activation and identity", () => {
 		expect(codesFor([linked("Close")])).toEqual(codesFor([linked("parent")]));
 	});
 
-	it("accepts underscores but rejects hyphens and dots in emitted node names", () => {
+	it("accepts underscores, rejects hyphens and dots in operation ids and links, and dots in written properties", () => {
 		expect(codesFor([update({ id: "_update_patient2" })])).toEqual([]);
 		for (const id of ["update-patient", "update.patient"]) {
 			const error = errorsFor([update({ id })]).find(
@@ -593,7 +593,7 @@ describe("case-operation activation and identity", () => {
 				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 			);
 		}
-		for (const property of ["not-wire-safe", "not.wire.safe"]) {
+		for (const property of ["not.wire.safe", "-not-wire-safe"]) {
 			const error = errorsFor([
 				update({
 					writes: [{ property, value: term(literal("not emitted as a node")) }],
@@ -811,8 +811,6 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 			"date_modified",
 			"location_id",
 			"hq_user_id",
-			"category",
-			"state",
 		]) {
 			expectCode("CASE_OPERATION_RESERVED_PROPERTY", [
 				update({ writes: [{ property, value: term(literal("x")) }] }),

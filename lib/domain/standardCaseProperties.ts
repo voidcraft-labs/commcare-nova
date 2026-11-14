@@ -241,8 +241,6 @@ export const FORBIDDEN_CASE_WRITE_PROPERTIES: ReadonlySet<string> = new Set([
 	"xform_ids",
 	"location_id",
 	"hq_user_id",
-	"category",
-	"state",
 ]);
 
 /**

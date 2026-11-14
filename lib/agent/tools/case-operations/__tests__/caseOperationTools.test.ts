@@ -294,7 +294,7 @@ describe("case-operation canonical author boundary", () => {
 				caseOperationInputSchema.safeParse({ ...accepted, id }).success,
 			).toBe(false);
 		}
-		for (const property of ["source-id", "source.id"]) {
+		for (const property of ["source.id", "-source"]) {
 			expect(
 				caseOperationInputSchema.safeParse({
 					...accepted,
@@ -302,6 +302,13 @@ describe("case-operation canonical author boundary", () => {
 				}).success,
 			).toBe(false);
 		}
+		expect(
+			caseOperationInputSchema.safeParse({
+				...accepted,
+				caseType: "1st-visit",
+				writes: [{ property: "source-id", value: fieldValue }],
+			}).success,
+		).toBe(true);
 		for (const identifier of ["parent-link", "parent.link"]) {
 			expect(
 				caseOperationInputSchema.safeParse({

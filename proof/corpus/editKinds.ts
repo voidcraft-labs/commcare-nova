@@ -2258,8 +2258,8 @@ const removeOption: KindGenerator = (ctx) =>
 			const options = inlineOptionsOf(field) ?? [];
 			const victim = ctx.rng.shuffle(options)[0];
 			if (victim === undefined) return undefined;
-			// A select keeps at least two options, so a two-option select gains
-			// one before it loses one of its own.
+			// A select of two options or fewer gains one before it loses one of
+			// its own, so the edit leaves it holding at least two.
 			const grow: Mutation[] =
 				options.length > 2
 					? []

@@ -2951,6 +2951,12 @@ def _search_and_menus():
             refused("app", _app([plain(case_type="commcare-user")]), "schema:Module.case_type", "/modules/0/case_type"),
             accepted("app", _app([plain(case_type="patient")]), "schema:Module.case_type", "/modules/0/case_type"),
         ),
+        "menus-and-case-lists/case-type-outside-the-menu-page-s-grammar": (
+            refused("app", _app([plain(case_type="visit.note")]), "schema:Module.case_type", "/modules/0/case_type"),
+            refused("app", _app([plain(case_type="visité")]), "schema:Module.case_type", "/modules/0/case_type"),
+            accepted("app", _app([plain(case_type="1st-visit")]), "schema:Module.case_type", "/modules/0/case_type"),
+            accepted("app", _app([plain(case_type="case")]), "schema:Module.case_type", "/modules/0/case_type"),
+        ),
         "menus-and-case-lists/module-or-mirror-form-endpoint-id-that-is-not-a-slugify-fixed": (
             refused(
                 "app",

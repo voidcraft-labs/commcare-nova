@@ -411,8 +411,8 @@ const optionValueProblemPhrase = (e: ValidationError): string => {
 			return "has an empty stored value";
 		case "whitespace":
 			return `has the stored value ${shown}, which contains a space`;
-		case "quote":
-			return `has the stored value ${shown}, which contains a quote mark`;
+		case "both-quotes":
+			return "holds both an apostrophe and a double quote";
 		default:
 			return `has the stored value ${shown}, which the app can't store`;
 	}
@@ -693,12 +693,6 @@ const USER_MESSAGE_BY_CODE: Record<
 	EMPTY_APP_NAME: () => "Your app needs a name. Add one to get started.",
 	APP_TEXT_UNREPRESENTABLE: (e) =>
 		`${det(e, "label", "Some app text")} contains a character Nova can't preserve. You can remove ${det(e, "character", "that character")} or retype the affected text.`,
-	RESERVED_CASE_TYPE_NAME: (e) => {
-		const ct = det(e, "caseType", "");
-		return ct
-			? `${q(ct)} is a reserved word, so it can't be a case type. Try something more specific, like ${q(`${ct}_record`)}.`
-			: 'That case type uses a reserved word. Try something more specific, like adding "_record".';
-	},
 	XPATH_CARRIER_CONTEXT_UNAVAILABLE: () =>
 		"An after-submit formula reads the form after it has closed. Save the value to a case property or read session data instead.",
 	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: (e) => {
@@ -748,7 +742,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	MUTATION_WIRE_CANONICALITY_INVALID: () =>
 		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
 	CASE_PROPERTY_OPTION_VALUE_INVALID: (e) =>
-		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
+		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} both store ${q(det(e, "optionValue", ""))}, so a saved value can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	TRANSLATION_UNIT_UNKNOWN: () =>
@@ -877,7 +871,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM: (e) =>
 		`${q(modName(e))} uses a different case type from its parent, and that parent only shows Results. Add a form to the parent, use the same case type, or make this module top-level.`,
 	INVALID_CASE_TYPE_FORMAT: (e) =>
-		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} isn't a valid name. Start it with a letter and stick to letters, numbers, underscores, and hyphens.`,
+		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} holds a character a case type can't. Letters, numbers, underscores and hyphens all work.`,
 	CASE_TYPE_TOO_LONG: (e) =>
 		`${q(modName(e))}'s case type name is too long. Try a shorter one.`,
 	MISSING_CASE_LIST_COLUMNS: (e) =>
@@ -1305,7 +1299,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		const id = det(e, "connectId", "");
 		const sentence = questionIdSentence(e, id, "connect");
 		return sentence === undefined
-			? `The Connect ID ${q(id)} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`
+			? `The Connect ID ${q(id)} in ${q(formName(e))} won't work. Letters, numbers, underscores and hyphens all work, with a letter first.`
 			: `The Connect ID ${q(id)} in ${q(formName(e))} needs a change. ${sentence}`;
 	},
 	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
@@ -1520,10 +1514,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The starting value for ${q(fieldName(e))} is not one of its choices. Choose an available answer or clear the starting value.`,
 	SELECT_NO_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
-	SELECT_TOO_FEW_OPTIONS: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with only one choice. Add another so there's something to pick between.`,
 	SELECT_OPTION_VALUE_INVALID: (e) =>
-		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
+		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	SELECT_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
@@ -1559,7 +1551,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	INVALID_FIELD_ID: (e) => {
 		const sentence = questionIdSentence(e, fieldName(e), "question");
 		return sentence === undefined
-			? `${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Use letters, numbers, and underscores, starting with a letter.`
+			? `${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Letters, numbers, underscores and hyphens all work, with a letter first.`
 			: `${q(fieldName(e))} in ${q(formName(e))} needs another ID. ${sentence}`;
 	},
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: (e) =>

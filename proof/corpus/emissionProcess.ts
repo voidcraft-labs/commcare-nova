@@ -1,7 +1,7 @@
 /**
- * How the emission starts its child processes (the Vitest writers, the
- * document writers, HQ's self-check emitter), so what each writes depends
- * on its inputs and not on the machine or the shell it was started from:
+ * How the emission starts its child processes (the Vitest writers and the
+ * document writers), so what each writes depends on its inputs and not on
+ * the machine or the shell it was started from:
  *
  * - each starts with the entropy preload (`./entropy.mts`) loaded first, so
  *   no module takes a reference to a generator before it is seeded;

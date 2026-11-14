@@ -110,6 +110,38 @@ describe("hashtagSource — case-loading forms surface all case properties", () 
 	}
 });
 
+describe("hashtagSource — a record type in its long spelling", () => {
+	it("offers each readable type as #record/<type>/ right after #record/, and while its type is typed", () => {
+		const source = hashtagSource(() => makeLintContext("followup"));
+		for (const typed of ["#record/", "#record/pa"]) {
+			const result = source(ctxFor(typed));
+			expect(result?.from, typed).toBe(0);
+			expect(
+				result?.options.map((o) => o.label),
+				typed,
+			).toEqual(["#record/patient/"]);
+		}
+	});
+
+	it("labels a type that is no fixed word's properties as typed, #record/<type>/<property>, so the typed text keeps them", () => {
+		const source = hashtagSource(() => makeLintContext("followup"));
+		for (const typed of ["#record/patient/", "#record/patient/a"]) {
+			const labels = (source(ctxFor(typed))?.options.map((o) => o.label) ?? [])
+				.slice()
+				.sort();
+			expect(labels, typed).toEqual([
+				"#record/patient/age",
+				"#record/patient/case_id",
+				"#record/patient/weight",
+			]);
+		}
+		// The short spelling keeps its own labels.
+		expect(
+			(source(ctxFor("#patient/"))?.options.map((o) => o.label) ?? []).sort(),
+		).toEqual(["#patient/age", "#patient/case_id", "#patient/weight"]);
+	});
+});
+
 describe("hashtagSource — survey forms offer no case properties", () => {
 	it("offers nothing after `#patient/` (a survey loads no case)", () => {
 		// A survey form's suite entry declares no `case_id` datum, so any

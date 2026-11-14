@@ -187,8 +187,8 @@ export function CreateTableDialog({
 								className="h-11"
 							/>
 							<FieldDescription>
-								Letters, digits, and underscores. Changing it later needs admin
-								access.
+								Letters, digits, underscores and hyphens, with a letter or an
+								underscore first. Changing it later needs admin access.
 							</FieldDescription>
 						</Field>
 

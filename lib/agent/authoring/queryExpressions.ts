@@ -38,6 +38,9 @@ export interface QueryBindings {
 	choice(field: Uuid, value: Literal): Literal | Choice;
 	/** Resolvers reject missing or ambiguous names in their current scope. */
 	reference(namespace: string, path: readonly string[]): Term;
+	/** A record property `property(<type>, <property>)` names: always a
+	 *  property of the scope's record, never a form's record of that type. */
+	recordProperty(caseType: string, property: string): Term;
 	identity(
 		kind: "table" | "column" | "operation" | "location" | "level" | "module",
 		name: string,
@@ -239,7 +242,7 @@ function compiler(bindings: QueryBindings) {
 					);
 				const resolved = via
 					? bindings.forRelation(via).reference("case", [string(args[1])])
-					: bindings.reference("record", [origin, string(args[1])]);
+					: bindings.recordProperty(origin, string(args[1]));
 				if (resolved.kind !== "prop")
 					throw new AuthoringInputError("property() needs a record property.");
 				return {
