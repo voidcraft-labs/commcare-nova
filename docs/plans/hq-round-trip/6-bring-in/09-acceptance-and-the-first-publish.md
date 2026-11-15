@@ -1907,7 +1907,7 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 12 | `case-settings-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/forms/*/actions`; `/_attachments/*` | no |
 | 13 | `search-filter-rows-recut` | the same test for its id | `/modules/*/search_config/default_properties` | no |
 | 14 | `sort-rule-kept-as-hidden-column` | the same | `/modules/*/case_details/short/columns`; `/modules/*/case_details/short/sort_elements/*/type`; `/modules/*/case_details/short/sort_elements/*/display` | no |
-| 15 | `list-settings-respelled` | the same | `/modules/*/case_details/short/max_select_value`; `/modules/*/case_details/short/sort_elements`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description` (the last two for a search text map that lacks a language where every language is blank, or a title or description spelled other than as HQ's build shows it, part 07, section 12.4); `/modules/*/search_config/<key>` for a blank `""` in a key HQ reads only where it holds text, a `data_registry_workflow` or `additional_registry_cases` where no registry is named, or an `additional_case_types` naming only the menu's own type, and `/modules/*/search_config/properties/*/<key>` for a Search field's text map spelled other than as the build shows it, a blank `receiver_expression` or `default_value`, or a `required` whose test is blank (part 07, sections 12.2 and 12.4); `/modules/*/case_list/label` (a case list menu item's label with no text, read as "Case List", part 07, section 8.6) | no |
+| 15 | `list-settings-respelled` | the same | `/modules/*/case_details/short/max_select_value`; `/modules/*/case_details/short/sort_elements`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description` (the last two for a search text map that lacks a language where every language is blank, or a title or description spelled other than as HQ's build shows it, part 07, section 12.4); `/modules/*/search_config/<key>` for a blank `""` in a key HQ reads only where it holds text, a `data_registry_workflow` or `additional_registry_cases` where no registry is named, or an `additional_case_types` naming only the menu's own type, and `/modules/*/search_config/properties/*/<key>` for a Search field's text map spelled other than as the build shows it, a blank `receiver_expression` or `default_value`, or a `required` whose test is blank (part 07, sections 12.2 and 12.4); `/modules/*/case_list/label` (a case list menu item's label with no text, read as "Case List", part 07, section 8.6, or a label held as every app string is, `heldText.ts::heldText`); `/modules/*/case_list_form/label` (a Register button's label with text that Nova prints another way: a language with no key, a `null`, a language the app no longer lists, spaces at a text's end, part 07, section 8.7); `/modules/*/case_details/*/columns/*/header` and `/modules/*/case_details/*/columns/*/enum/*/value` (a column's header or a mapping's label or image path spelled other than as the build shows it, part 07, section 11.2) | no |
 | 16 | `search-filter-joined-to-list` | the same | `/modules/*/case_details/short/filter` | no |
 | 17 | `search-restates-list-filter` | the same | `/modules/*/search_config/default_properties` | yes |
 | 18 | `link-held-case-guards-added` | the same | `/modules/*/forms/*/form_links/*/xpath` | yes |
@@ -1924,9 +1924,9 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 29 | `media-files-renamed` | `f.media.rederived` is not empty | `/multimedia_map/*`; `MEDIA_REFERENCE_PATHS` | yes |
 | 30 | `media-references-with-no-file-removed` | `f.mediaLeftOut` is above zero (part 11, section 3.2) | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | no |
 | 31 | `unused-media-entries-removed` | some path of `f.source.multimediaMap` is the `path` of no entry of `f.facts.mediaReferences` and of no entry of `f.source.logoRefs` | `/multimedia_map/*` | no |
-| 32 | `names-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/name`; `/modules/*/forms/*/name` | no |
+| 32 | `names-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/app.display.name` | no |
 | 33 | `media-maps-respelled` | the same | `/modules/*/media_image`; `/modules/*/media_audio`; `/modules/*/use_default_image_for_all`; `/modules/*/use_default_audio_for_all`; the same four under `/modules/*/forms/*`, `/modules/*/case_list` and `/modules/*/case_list_form` | no |
-| 34 | `name-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name` | yes |
+| 34 | `text-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/*`; `/modules/*/case_list/label`; `/modules/*/case_list_form/label`; `/modules/*/case_details/*/columns/*/header`; `/modules/*/case_details/*/columns/*/enum/*/value`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description`; `/modules/*/search_config/properties/*/label`; `/modules/*/search_config/properties/*/hint`; `/modules/*/search_config/properties/*/required/text`; `/modules/*/search_config/properties/*/validations/*/text` | yes |
 
 `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`. Every other entry has
 `reading`. `date-and-time-questions-split` reads what the chosen declaration did to the document at
@@ -1968,19 +1968,33 @@ holds `null`, holds a blank beside another language's text or holds a language t
 lists is written again by the first publish, each language showing the same text. The structure
 stage appends a record under this id at the map's pointer wherever Nova's print of the reading
 differs from the stored map, and never for a map Nova prints back exactly, which every map Nova
-writes is. No worker meets the change, so `forms-and-settings-rewritten` says it.
+writes is. The app's name is read the same way (`appShell.ts::holdAppName`): a `name` or a
+language's `app.display.name` with spaces at its end, which no device showed, is recorded under
+this id at its pointer. No worker meets the change, so `forms-and-settings-rewritten` says it.
 
-**`name-spaces-dropped`.** Nova holds no name a worker reads as blank in one language while the
-source language's name holds text (`translationUnits.ts::NONBLANK_TRANSLATION_ROLES`), and no name
-with a space at either end (`localeFile.ts::localeFileValueIssue`). HQ's build writes a name that is
-only spaces in a language as one non-breaking space (`commcare_translations.py::dumps`), which a
-device shows as a blank name, and keeps a space at a name's start, which Core's locale reader keeps
-(`LocalizationUtils.parseAndAdd` trims the line, so only a name's end loses its spaces). The
-structure stage reads such a name as part 06 holds it (sections 7.3 and 7.4,
-`structure.ts::heldName`): the language takes the source language's name, and the space at the
-start is dropped. A worker reads that name after the first publish, so the entry touches workers.
-The stage appends a record under this id at the map's pointer in place of `names-respelled`, and so
-does the fold of a generated key over a name that leaves such a text (part 06, section 16.5).
+**`text-spaces-dropped`.** Nova holds no app string a worker reads as blank in one language while
+the source language's holds text where its role requires text
+(`translationUnits.ts::translationRoleRequiresNonblank`: a menu's, a form's and the app's name, a
+case list menu item's and a Register button's label, a Search field's label and messages, the
+search screen's title and subtitle), and no app string with a space at either end
+(`localeFile.ts::localeFileValueIssue`). HQ's build writes a text that is only spaces in a
+language as one non-breaking space (`commcare_translations.py::dumps`), which a device shows as a
+blank text, and writes a line break as the two characters `\n`; Core's locale reader trims the
+line and only then reads `\n` as a line break (`LocalizationUtils.parseAndAdd`, `parseValue`), so
+a text's end loses its spaces but keeps a line break, and its start keeps both. Every
+reader of an app string holds it through one function (`heldText.ts::heldText`, part 06, sections
+7.3 and 7.4, and part 07, sections 8.6, 11.2 and 12.4): the language takes the source language's
+text, and the spaces at the start and a line break at either end are dropped. A Search field's
+own message is held apart from the runtime guard's text joined after it (part 07, section 12.2,
+`prompts.ts::readValidation`), so a message whose end meets the guard's text with a space of its
+own loses it, and the joined text a worker reads has one space fewer there. A worker reads that text after the first publish, so
+the entry touches workers. The reader records this id at the map's pointer in place of the
+surface's respelling id (`names-respelled`, `list-settings-respelled`,
+`heldText.ts::recordTextRewrite`), and so does the fold of a generated key that leaves such a
+text (part 06, section 16.5), at a name's map or else at the key's pointer. A form's itext is not
+an app string: Core trims a translation's value at both ends as it parses the form
+(`XFormParser.getLabel`), whoever wrote it, so Nova writes it as stored and no worker meets a
+change.
 
 **`media-maps-respelled`.** A menu's, a form's, a case list item's or a Register button's
 `media_image` or `media_audio` map is read as the file CommCare HQ's build shows in each language
@@ -2034,10 +2048,15 @@ document, check 4 reads no expression, and check 5 reads only whether a calculat
 - **By the reader's same-state rules.** `firstPublishChanges.test.ts` requires every record of
   `ReadFacts.sameStateRewrites`, over every retained read, to name an id of this table whose `paths`
   cover the record's `path`. Part 07's `rewrites.test.ts` requires every same-state rule in its code to
-  carry an id. Four ids are recorded outside part 07's rules: `date-and-time-saved-as-hq-stores-it`,
+  carry an id. Five ids are recorded outside part 07's rules, the ids of
+  `lib/commcare/reader/types.ts::FIRST_PUBLISH_READING_RECORDS`: `date-and-time-saved-as-hq-stores-it`,
   whose two recording sites are held by two cases of `firstPublishChanges.test.ts` (Tests);
-  `names-respelled` and `name-spaces-dropped`, recorded by part 06's structure stage and its fold
-  of generated keys and held by `lib/commcare/reader/__tests__/names.test.ts`; and
+  `registration-label-fixed`, recorded by part 07's `menus/registration.ts::readLabel` and held by
+  `lib/commcare/reader/menus/__tests__/registration.test.ts`;
+  `names-respelled`, recorded by part 06's structure stage, its fold of generated keys and the
+  app shell's reading of the app's name, and `text-spaces-dropped`, recorded by every reader of an
+  app string through `heldText.ts::recordTextRewrite`, held by
+  `lib/commcare/reader/__tests__/names.test.ts` and `lib/commcare/reader/__tests__/heldTexts.test.ts`; and
   `media-maps-respelled`, recorded by part 07's
   `menus/navMedia.ts::recordRespelling` and held by
   `lib/commcare/reader/menus/__tests__/navMedia.test.ts`.
@@ -2082,7 +2101,7 @@ entry above). None is left undecided.
 | `created_from_template` | exact | CommCare HQ's import view sets it on every import and no body can prevent it. No page and no runtime reads it, so no line says it. The pointer is one of `forms-and-settings-rewritten`'s |
 | The pruned media map | declare, `unused-media-entries-removed` | HQ's import runs the prune and saves |
 | A menu's, form's, case list item's or Register button's icon or audio stored under some languages only, beside a blank or a language the app no longer lists, or under `use_default_*_for_all` | declare, `media-maps-respelled` | part 07, section 8.6: the map is read as the file HQ's build shows in each language (`navMedia.ts::shownNavMedia`), and Nova writes that file under every language with the switch off, which every language shows alike |
-| A form's text, or a media form of it, that a translation lacks, or a translation the form lacks | exact | part 06, sections 12.1, 12.4 and 12.5: a language with no value shows the form's default language's on Core, which the reading reads as its text, and Nova writes it in that language. Covered, as spelling, by `forms-and-settings-rewritten` |
+| A form's text, or a media form of it, that a translation lacks, or a translation the form lacks | exact | part 06, sections 12.1, 12.4 and 12.5: a language with no value shows the form's default language's on Core, which the reading reads as its text, and Nova writes it in that language. So do the `__nova_` forms of a protected validation message that a translation lacks, or holds as the default's copy a save in HQ's form builder writes, and its `jr:constraintMsg`, which holds no branch for a language CommCare HQ added after the publish: Core reads the default's forms there and so shows the default's branch (part 06, section 13.2, `constraint-message`), and Nova writes the language's own forms and the composition over every language, a branch gained per such language, showing the same message. Covered, as spelling, by `forms-and-settings-rewritten` |
 | A generated translation key in `translations` | exact where it has no effect or is blank; declare where it folds (`translation-overrides-folded`); refuse otherwise | part 01, section 7.1; part 06, section 16.5 |
 | The translation keys Nova writes itself (`homescreen.title`, `app.display.name`, a language's name) | exact | the first two are the app's name where it differs by language, read into the name's translations; a language's name is kept at CommCare HQ's value on an adopted deployment (part 10) |
 | Preload order | exact where no later load-time value reads the question; refuse otherwise | part 07, section 3.7 (`laterLoadReaders`), `not-yet` |
@@ -2114,8 +2133,9 @@ entry above). None is left undecided.
 | A form's name, or a CommCare Connect block's name or description, holding `instance(` and a quoted id | refuse | part 03, section 5.1: no spelling of plain text keeps CommCare HQ's instance scan out, so the gate refuses the text (`FORM_TEXT_READ_AS_INSTANCE`), and the reader raises `forms-and-case-writes/form-name-read-as-an-instance` and `questions/connect-block-text-read-as-an-instance` for an app that holds it (part 06, sections 7.4 and 15). No register entry is added |
 | Label text holding `instance(` | exact | part 03, section 5: Nova splits the text with a literal output, and no runtime reads label text as a path |
 | A Register button's label with no text, in every language or in one | declare, `registration-label-fixed` | part 02, section 11.8: read as "Create a new Case" in each such language, the words HQ's build writes; a build could show other words before |
-| A menu's or a form's name map Nova would print another way: a language with no key, a `null`, a blank beside another language's text, a key of a language the app no longer lists, spaces at a name's end | declare, `names-respelled` | part 06, sections 7.3 and 7.4: read as the text CommCare HQ's build shows in each language (`hqText.ts::shownText`), the source language's in the slot, so every language shows what it showed and only the stored map is new. A map Nova prints back exactly, every map Nova writes among them, reads exactly and records nothing |
-| A menu's or a form's name that is only spaces in a language where the source language's name holds text, or that begins with a space | declare, `name-spaces-dropped` | part 06, section 7.4: Nova holds no blank name translation and no name with a space at either end, so the language takes the source language's name and the space is dropped. Refusing would keep out an app CommCare HQ builds over a blank-looking name; a deliberately blank name in one language is not a concept Nova holds, as a blank form text is not (`blank-translations-filled`) |
+| A menu's or a form's name map Nova would print another way: a language with no key, a `null`, a blank beside another language's text, a key of a language the app no longer lists, spaces at a name's end; the app's `name` or an `app.display.name` with spaces at its end | declare, `names-respelled` | part 06, sections 7.3 and 7.4: read as the text CommCare HQ's build shows in each language (`hqText.ts::shownText`), the source language's in the slot, so every language shows what it showed and only the stored map is new. A map Nova prints back exactly, every map Nova writes among them, reads exactly and records nothing |
+| An app string (a name, a label, a header, a Search field's text, the search screen's subtitle) that is only spaces in a language where the source language's text holds text and its role requires text, that begins with a space, that begins or ends with a line break, or a Search field's own message that meets the runtime guard's text joined after it with a space of its own | declare, `text-spaces-dropped` | part 06, section 7.4, and part 07, sections 8.6, 11.2 and 12.4 (`heldText.ts::heldText`): Nova holds no blank translation of such a text and no app string with a space or a line break at either end, so the language takes the source language's text and the space or line break is dropped. Refusing would keep out an app CommCare HQ builds over a blank-looking text; a deliberately blank text in one language is not a concept Nova holds, as a blank form text is not (`blank-translations-filled`). The search screen's title blank in some languages stays the HELD-NEW entry `case-search/title-label-blank-in-some-languages` |
+| A Register button's label with text in every language that Nova prints another way: a language with no key, a `null`, a key of a language the app no longer lists, spaces at a text's end | declare, `list-settings-respelled` | part 07, section 8.7: read as the text HQ's build shows in each language (`menus/modules.ts::labelAsBuilt`, held as every app string is), so every language shows what it showed and only the stored map is new |
 | A case list menu item's label with no text | exact | part 07, section 8.6: HQ's build writes the literal "Case List" in every language, and Nova holds that label. The stored map's spelling is `list-settings-respelled`'s |
 | The expression rewrites | declare, `instant-comparison` to `search-today-device-day` | part 08, section 2.3 |
 
@@ -2714,7 +2734,7 @@ register is their home.
 | `media-files-renamed` | Some pictures, sounds and videos get new names in CommCare HQ, because Nova can't keep the names they had. Phones download them again with the next version of the app. |
 | `media-references-with-no-file-removed` | References to pictures, sounds and videos that have no file in CommCare HQ are removed. Workers saw nothing there. |
 | `unused-media-entries-removed` | CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ. |
-| `name-spaces-dropped` | A menu or form name that is only spaces in one language now shows its name in the source language there, and spaces at the start of a name are dropped. Before, workers saw a blank name or the spaces. |
+| `text-spaces-dropped` | A name, label or other app text that is only spaces in one language now shows its text in the source language there, and spaces or line breaks at the start or end of a text are dropped. Before, workers saw a blank text, the spaces or the line breaks. |
 
 **C3. `read-back-differs`.** The block is part 01's (01-the-bar-and-the-manifest.md, section 9.3).
 This part writes no title, body or next step for it (section 14.4).

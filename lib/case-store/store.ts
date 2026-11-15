@@ -887,6 +887,10 @@ export interface GenerateSampleDataArgs {
 	caseType: CaseType;
 	count: number;
 	seed: string;
+	/** The index each generated child names its parent by: the one a form's
+	 *  read of the parent walks (`lib/domain/advancedModule.ts::ancestorIndex`),
+	 *  `parent` where omitted. */
+	parentIdentifier?: string;
 }
 
 /**
@@ -899,6 +903,8 @@ export interface ResetSampleDataArgs {
 	appId: string;
 	caseType: CaseType;
 	count: number;
+	/** As on {@link GenerateSampleDataArgs}. */
+	parentIdentifier?: string;
 }
 
 /**
@@ -1147,6 +1153,11 @@ export interface CaseStore extends SchemaCaseStore {
 		row: CaseInsert;
 		/** Relationship for a supplied `parent_case_id`; ordinary child when omitted. */
 		parentRelationship?: "child" | "extension";
+		/** The index a supplied `parent_case_id` is written under: the one a
+		 *  form's read of the parent walks
+		 *  (`lib/domain/advancedModule.ts::ancestorIndex`), `parent` where
+		 *  omitted. */
+		parentIdentifier?: string;
 	}): Promise<{
 		caseId: string;
 	}>;

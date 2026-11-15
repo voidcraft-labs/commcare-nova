@@ -19,7 +19,6 @@ import {
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { generatedAppStringPattern } from "../appStringKeys";
 import { instanceScanRead } from "../hqInstanceScan";
-import { isPythonSpace, localeFileValueIssue } from "../localeFile";
 import type { Admitted } from "./accounting";
 import { applicationReading } from "./appShell";
 import {
@@ -32,6 +31,7 @@ import {
 } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
 import { generatedKeyOwner } from "./generatedTranslationKeys";
+import { heldText, recordTextRewrite } from "./heldText";
 import { cleanTrans, shownText } from "./hqText";
 import { externalKey } from "./identity";
 import { isJsonObject, type JsonCursor } from "./jsonCursor";
@@ -440,73 +440,15 @@ function spelledAsPrinted(
 	);
 }
 
-/** Whether Python's `str.strip()` leaves `text` empty: every character of it is a space. */
-function pythonBlank(text: string): boolean {
-	for (let index = 0; index < text.length; index += 1)
-		if (!isPythonSpace(text.charCodeAt(index))) return false;
-	return true;
-}
-
-/** Whether CommCare Core's locale reader drops the character at a line's end: Java's
- *  `String.trim()` removes every character up to U+0020. */
-function trimmedByCore(text: string, index: number): boolean {
-	return text.charCodeAt(index) <= 0x20;
-}
-
-/**
- * The text a device or Web Apps shows for an app string CommCare HQ's build
- * writes as `text`, `""` for a name that shows blank:
- * `commcare_translations.py::dumps` writes a text Python reads as blank as one
- * non-breaking space, and Core's `LocalizationUtils.parseAndAdd` trims the
- * line, so the characters up to U+0020 at the text's end are gone.
- */
-function hqDeviceText(text: string): string {
-	if (pythonBlank(text)) return "";
-	let end = text.length;
-	while (end > 0 && trimmedByCore(text, end - 1)) end -= 1;
-	return text.slice(0, end);
-}
-
-/** The text a device shows for a name Nova holds as `text`: `localeFile.ts`
- *  writes a blank one as one non-breaking space, and Nova's gate admits no
- *  other text with a space at either end (`APP_STRING_VALUE_UNREPRESENTABLE`). */
-function novaDeviceText(text: string): string {
-	return text.trim() === "" ? "" : text;
-}
-
-/**
- * The text Nova holds for a name a language shows as `text`, or undefined where
- * Nova's gate admits no spelling of it (`localeFile.ts::localeFileValueIssue`:
- * a literal `\n` or a carriage return). A name that is only spaces is held as
- * it is, since Nova writes it blank as HQ's build does; any other loses the
- * characters up to U+0020 at both ends, which Nova's locale files cannot hold:
- * those at the end no device showed (`hqDeviceText`), those at the start it did.
- */
-function holdName(text: string): string | undefined {
-	let held = text;
-	if (text.trim() !== "") {
-		let start = 0;
-		let end = text.length;
-		while (start < end && trimmedByCore(text, start)) start += 1;
-		while (end > start && trimmedByCore(text, end - 1)) end -= 1;
-		held = text.slice(start, end);
-	}
-	return localeFileValueIssue(held) === undefined ? held : undefined;
-}
-
 /**
  * What Nova holds of a name that shows `shown` in each language of `codes`
  * (the build's languages, in order) with `source` the source language, or
- * undefined where Nova's gate admits no spelling of one of those texts.
- *
- * The source's text is the slot's (`holdName`), and another language takes a
- * translation where its own held text differs from the source's and is not
- * blank: a name translation is never blank in Nova
- * (`translationUnits.ts::NONBLANK_TRANSLATION_ROLES`), so a language whose
- * name shows blank beside a source that does not prints the source's name.
- * `workersSeeAnother` is whether that, or a space dropped at a name's start,
- * changes what a worker reads in some language (`hqDeviceText` against
- * `novaDeviceText`).
+ * undefined where Nova's gate admits no spelling of one of those texts: the
+ * one holding of every app string (`heldText.ts::heldText`) for a name, whose
+ * translation is never blank in Nova (`translationUnits.ts`), so a language
+ * whose name shows blank beside a source that does not prints the source's
+ * name, and a space at a name's start is dropped; `workersSeeAnother` is
+ * whether that changes what a worker reads in some language.
  */
 export function heldName(
 	shown: ReadonlyMap<string, string>,
@@ -515,24 +457,15 @@ export function heldName(
 ):
 	| Pick<NameAsRead, "source" | "translations" | "workersSeeAnother">
 	| undefined {
-	const held = holdName(shown.get(source) ?? "");
-	if (held === undefined) return undefined;
-	const translations = new Map<string, string>();
-	for (const code of codes) {
-		const text = shown.get(code);
-		if (code === source || text === undefined) continue;
-		const own = holdName(text);
-		if (own === undefined) return undefined;
-		if (own.trim() !== "" && own !== held) translations.set(code, own);
-	}
-	const workersSeeAnother = codes.some((code) => {
-		const text = shown.get(code);
-		return (
-			text !== undefined &&
-			hqDeviceText(text) !== novaDeviceText(translations.get(code) ?? held)
-		);
-	});
-	return { source: held, translations, workersSeeAnother };
+	// A menu's and a form's name hold one content policy: text in every language.
+	const held = heldText(shown, codes, source, "module-name");
+	return held === undefined
+		? undefined
+		: {
+				source: held.source,
+				translations: held.translations,
+				workersSeeAnother: held.workersSeeAnother,
+			};
 }
 
 /**
@@ -610,31 +543,15 @@ export function namesRead(
 
 /**
  * Records that the first publish rewrites a name's stored map: under
- * `name-spaces-dropped` where a worker then reads another name in some
- * language, else under `names-respelled`. A name's map is recorded once, the
- * worker's change over the respelling.
+ * `text-spaces-dropped` where a worker then reads another name in some
+ * language, else under `names-respelled` (`heldText.ts::recordTextRewrite`).
  */
 export function recordNameRewrite(
 	ctx: ReadContext,
 	name: Pick<NameRead, "entry" | "path">,
 	workersSeeAnother: boolean,
 ): void {
-	const register = workersSeeAnother
-		? "name-spaces-dropped"
-		: "names-respelled";
-	const rewrites = ctx.facts.sameStateRewrites;
-	const at = rewrites.findIndex(
-		(one) =>
-			one.path === name.path &&
-			(one.register === "names-respelled" ||
-				one.register === "name-spaces-dropped"),
-	);
-	const known = at < 0 ? undefined : rewrites[at];
-	if (known?.register === register || known?.register === "name-spaces-dropped")
-		return;
-	const record = { entry: name.entry, path: name.path, register } as const;
-	if (known === undefined) rewrites.push(record);
-	else rewrites[at] = record;
+	recordTextRewrite(ctx, name, "names-respelled", workersSeeAnother);
 }
 
 /**

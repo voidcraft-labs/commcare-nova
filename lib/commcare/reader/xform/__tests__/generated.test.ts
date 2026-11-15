@@ -27,8 +27,7 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
-import { applyMutations } from "@/lib/doc/mutations";
-import { type BlueprintDoc, type LanguageTag, proseText } from "@/lib/domain";
+import { type BlueprintDoc, proseText } from "@/lib/domain";
 import { and, eq, formField, literal } from "@/lib/domain/expression/builders";
 import { caseCaptureFixture } from "../../../__tests__/caseCaptureFixture";
 import {
@@ -305,58 +304,6 @@ describe("a protected validation message, read whole", () => {
 			),
 		);
 		expect(edited).toContain("unrecognized xform:bind@jr:constraintMsg");
-	});
-
-	it("leaves the message unclaimed where a language the app holds lacks its text", async () => {
-		const { doc } = constraintMessageFixture("references");
-		const spanish = produce(doc, (draft) => {
-			applyMutations(draft, [
-				{
-					kind: "addLanguage",
-					language: { language: "spa" as LanguageTag },
-					wireCode: "es",
-				},
-			]);
-		});
-		/** The source with every Spanish text that holds one of the composition's forms removed. */
-		const withoutSpanishForms = (xml: string): string => {
-			const document = parseXml(xml);
-			const translation = findOne(
-				(element: Element) =>
-					element.name === "translation" && element.attribs.lang === "es",
-				document.children.filter(isTag),
-				true,
-			);
-			if (translation === null) return xml;
-			translation.children = translation.children.filter(
-				(text) =>
-					!isTag(text) ||
-					!text.children.some(
-						(value) =>
-							isTag(value) && (value.attribs.form ?? "").startsWith("__nova_"),
-					),
-			);
-			return serializeXml(document);
-		};
-		const read = async (edit: (xml: string) => string) => {
-			const outcome = readHqApp(
-				await inputFor(
-					exportedBody(spanish, { xml: edit, root: { langs: ["en", "es"] } }),
-				),
-			);
-			return (outcome.kind === "account" ? outcome.findings : [])
-				.filter((finding) => finding.place.kind === "question")
-				.map((finding) => `${finding.code} ${finding.detail.name ?? ""}`);
-		};
-		expect(await read((xml) => xml)).toEqual([]);
-		let edits = 0;
-		const findings = await read((xml) => {
-			const out = withoutSpanishForms(xml);
-			if (out !== xml) edits += 1;
-			return out;
-		});
-		expect(edits).toBe(1);
-		expect(findings).toContain("unrecognized xform:bind@jr:constraintMsg");
 	});
 });
 

@@ -34,6 +34,7 @@ import {
 import { serializeWire } from "../../xpath/wire/serialize";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
+import { recordTextRewrite } from "../heldText";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { keptMediaPaths } from "../projectionInputs";
 import { sameXPathText } from "../syntaxCompare";
@@ -43,8 +44,10 @@ import {
 	draftFormByReadId,
 	effectiveNames,
 	formChoosesCase,
+	heldLabel,
 	labelAsBuilt,
 	labelMap,
+	labelSpelledAsBuilt,
 	rawForms,
 	rawModuleById,
 	rawModules,
@@ -475,7 +478,14 @@ function readLabel(
 		Object.values(stored).some((text) => textOf(text) !== "");
 	const claim = anyText ? REGISTRATION.label : REGISTRATION.labelEmpty;
 	cursor.take("label", claim, (value) => value).value;
-	const built = labelAsBuilt(stored, langs, CREATE_A_NEW_CASE);
+	const held = heldLabel(
+		ctx,
+		labelAsBuilt(stored, langs, CREATE_A_NEW_CASE),
+		"case-list-registration-label",
+	);
+	// A label Nova's gate admits no spelling of (a literal `\n`, a carriage return) is kept as
+	// built here, and the settle's comparison leaves it unrecognized.
+	const built = held?.texts ?? labelAsBuilt(stored, langs, CREATE_A_NEW_CASE);
 	const fixed = !anyText || langs.some((lang) => stored[lang] === "");
 	if (fixed)
 		ctx.facts.sameStateRewrites.push({
@@ -483,6 +493,21 @@ function readLabel(
 			path: `${cursor.pointer}/label`,
 			register: "registration-label-fixed",
 		});
+	// Any other map Nova prints another way (a language with no key, a `null`, a language the app
+	// no longer lists, a text held without the spaces at its ends) is written again by the first
+	// publish: under `text-spaces-dropped` where a worker then reads another text, else under
+	// `list-settings-respelled`, where the words HQ's build wrote stand.
+	if (
+		held !== undefined &&
+		(held.workersSeeAnother ||
+			(!fixed && !labelSpelledAsBuilt(stored, built, langs)))
+	)
+		recordTextRewrite(
+			ctx,
+			{ entry: claim.entry, path: `${cursor.pointer}/label` },
+			"list-settings-respelled",
+			held.workersSeeAnother,
+		);
 	const names = effectiveNames(formNames, langs);
 	if (langs.every((lang) => built[lang] === names[lang])) return undefined;
 	return writeBuiltLabel(
@@ -801,21 +826,30 @@ export function settleRegistrations(
 			unrecognized("schema:CaseListForm.form_id");
 			continue;
 		}
-		const builtSource = labelAsBuilt(
-			labelMap(source.label),
-			langs,
-			CREATE_A_NEW_CASE,
+		// Each label as the reading holds it (`modules.ts::heldLabel`).
+		const builtSource = heldLabel(
+			ctx,
+			labelAsBuilt(labelMap(source.label), langs, CREATE_A_NEW_CASE),
+			"case-list-registration-label",
 		);
-		const builtOurs = labelAsBuilt(
-			withReadTranslations(
-				ctx,
-				caseListFormLabelUnit(doc, block.host.uuid, block.form.uuid),
-				labelMap(emitted.label),
+		const builtOurs = heldLabel(
+			ctx,
+			labelAsBuilt(
+				withReadTranslations(
+					ctx,
+					caseListFormLabelUnit(doc, block.host.uuid, block.form.uuid),
+					labelMap(emitted.label),
+				),
+				langs,
+				CREATE_A_NEW_CASE,
 			),
-			langs,
-			CREATE_A_NEW_CASE,
+			"case-list-registration-label",
 		);
-		if (!sameJson(builtSource, builtOurs)) {
+		if (
+			builtSource === undefined ||
+			builtOurs === undefined ||
+			!sameJson(builtSource.texts, builtOurs.texts)
+		) {
 			unrecognized("schema:CaseListForm.label");
 			continue;
 		}

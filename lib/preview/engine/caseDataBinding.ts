@@ -94,6 +94,7 @@ import {
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
+	sampleParentIdentifier,
 	seedSampleCases,
 	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
@@ -1335,16 +1336,29 @@ export async function populateSampleCasesAction(
 			appId,
 			personaUuid,
 			required: "edit",
+			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
 		// The LIVE `CaseType` definition comes straight from the client —
-		// the generator reads only its property declarations + `parent_type`,
-		// so the one catalog entry is all this needs (never the whole
-		// blueprint). `resolveAuthorizedPreviewContext` verifies the actor holds
-		// `edit` on the app's Project before binding the store, so a crafted `appId` for
-		// another Project is rejected — the client-supplied id is otherwise
-		// unchecked — and generated rows land in that shared Project's store.
-		return await seedSampleCases(context.store, { appId, caseType });
+		// the generator reads only its property declarations + `parent_type`.
+		// The index each child names its parent by comes from the committed
+		// blueprint, the one a submission's links come from, so a form's read
+		// of the parent finds a generated child's parent as it finds a
+		// submitted one's. `resolveAuthorizedPreviewContext` verifies the actor
+		// holds `edit` on the app's Project before binding the store, so a
+		// crafted `appId` for another Project is rejected — the client-supplied
+		// id is otherwise unchecked — and generated rows land in that shared
+		// Project's store.
+		return await seedSampleCases(context.store, {
+			appId,
+			caseType,
+			parentIdentifier: sampleParentIdentifier(
+				context.blueprint === undefined
+					? undefined
+					: hydratePersistedBlueprint(context.blueprint),
+				caseType,
+			),
+		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
@@ -1392,9 +1406,19 @@ export async function resetSampleCasesAction(
 			appId,
 			personaUuid,
 			required: "edit",
+			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
-		return await resetSampleCases(context.store, { appId, caseType });
+		return await resetSampleCases(context.store, {
+			appId,
+			caseType,
+			parentIdentifier: sampleParentIdentifier(
+				context.blueprint === undefined
+					? undefined
+					: hydratePersistedBlueprint(context.blueprint),
+				caseType,
+			),
+		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found

@@ -20,6 +20,7 @@ import {
 	TIME_SINCE_UNITS,
 } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { hqXPath, hqXPathText } from "../../hqJson/xpath";
 import {
@@ -43,6 +44,7 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { heldText, recordTextRewrite } from "../heldText";
 import { dotInterpolate } from "../hqInterpolation";
 import { HQ_PAGE_LABELS } from "../hqPageLabels";
 import { shownText } from "../hqText";
@@ -567,25 +569,81 @@ export function shownTexts(
 	return out;
 }
 
+/** A stored app string as a reading holds it in each app language (`heldTextsIn`). */
+export interface HeldTexts {
+	/** By language code, the text Nova prints there: the language's own held text where it
+	 *  differs from the source's, else the source's (`heldText.ts::heldText`). */
+	readonly texts: Readonly<Record<string, string>>;
+	/** Whether a worker reads another text in some language after the first publish. */
+	readonly workersSeeAnother: boolean;
+}
+
 /**
- * Records the first publish's respelling of a stored app string the reading read as `shown`:
- * Nova writes each language's shown text under its own code, so a map that lacks a language,
- * holds one blank, or holds a code the app does not list, is written another way and shows the
- * same in every language.
+ * A stored `{lang: text}` app string of role `role` as a reading holds it in each of the app's
+ * languages `codes`, with `source` the source language's code: the text HQ's build shows there
+ * (`shownTexts`), held as every app string is (`heldText.ts::heldText`: no space at either end,
+ * and no blank-looking translation beside a source that holds text where the role requires
+ * text). `undefined` where the build prints a value whose text the reader cannot know, or Nova's
+ * gate admits no spelling of a text.
  */
-function noteRespelled(
+export function heldTextsIn(
+	stored: unknown,
+	codes: readonly string[],
+	source: string | undefined,
+	role: TranslationUnitRole,
+): HeldTexts | undefined {
+	const shown = shownTexts(stored, codes);
+	if (shown === undefined) return undefined;
+	if (source === undefined) return { texts: shown, workersSeeAnother: false };
+	const held = heldText(shown, codes, source, role);
+	return held === undefined
+		? undefined
+		: { texts: held.printed, workersSeeAnother: held.workersSeeAnother };
+}
+
+/** Whether a reading holds two stored app strings of role `role` alike in every app language
+ *  (`heldTextsIn`). */
+export function sameHeldTexts(
+	codes: readonly string[],
+	source: string | undefined,
+	role: TranslationUnitRole,
+	a: unknown,
+	b: unknown,
+): boolean {
+	const left = heldTextsIn(a, codes, source, role);
+	const right = heldTextsIn(b, codes, source, role);
+	return (
+		left !== undefined &&
+		right !== undefined &&
+		codes.every((code) => left.texts[code] === right.texts[code])
+	);
+}
+
+/**
+ * Records the first publish's rewrite of a stored app string the reading read as `read`: Nova
+ * writes each language's held text under its own code, so a map that lacks a language, holds one
+ * blank, holds a code the app does not list, or holds a text with a space at either end, is
+ * written another way, under `list-settings-respelled` where every language shows what it
+ * showed and `text-spaces-dropped` where a worker reads another text
+ * (`heldText.ts::recordTextRewrite`).
+ */
+export function noteRespelled(
 	ctx: ReadContext,
 	entry: string,
 	path: string,
 	stored: unknown,
-	shown: Readonly<Record<string, string>> | undefined,
+	read: HeldTexts | undefined,
 ): void {
-	if (shown !== undefined && !sameJson(stored, shown))
-		ctx.facts.sameStateRewrites.push({
-			entry,
-			path,
-			register: "list-settings-respelled",
-		});
+	if (
+		read !== undefined &&
+		(read.workersSeeAnother || !sameJson(stored, read.texts))
+	)
+		recordTextRewrite(
+			ctx,
+			{ entry, path },
+			"list-settings-respelled",
+			read.workersSeeAnother,
+		);
 }
 
 /** Whether HQ's build shows two stored `{lang: text}` app strings alike in every app language. */
@@ -787,23 +845,33 @@ interface EnumEntry {
 	readonly value: Readonly<Record<string, string>> | undefined;
 }
 
-/** The enum entries of a column, each value read in the app's languages `codes`. */
+/** The enum entries of a column, each value read in the app's languages `codes` with `source`
+ *  the source language's code. */
 function enumEntries(
 	column: JsonCursor,
 	codes: readonly string[],
+	source?: string,
 ): readonly EnumEntry[] {
-	return enumEntriesOf(column.peek("enum"), codes);
+	return enumEntriesOf(column.peek("enum"), codes, source);
 }
 
-/** The entries of a stored `enum`, each value read in the app's languages `codes`. */
+/** The entries of a stored `enum`, each value read in the app's languages `codes` as a reading
+ *  holds a label (`heldTextsIn`): every text a mapping's value holds is a label or an interval's
+ *  text, whose roles allow a blank translation alike. */
 function enumEntriesOf(
 	stored: unknown,
 	codes: readonly string[],
+	source?: string,
 ): readonly EnumEntry[] {
 	if (!Array.isArray(stored)) return [];
 	return stored.map((entry) => ({
 		key: isJsonObject(entry) ? entry.key : undefined,
-		value: shownTexts(isJsonObject(entry) ? entry.value : {}, codes),
+		value: heldTextsIn(
+			isJsonObject(entry) ? entry.value : {},
+			codes,
+			source,
+			"case-list-mapping-label",
+		)?.texts,
 	}));
 }
 
@@ -850,7 +918,12 @@ function claimAltTexts(
 	for (const item of column.list("enum", "MappingItem", C.enumMapping)) {
 		if (!claimAltText(item, codes, false)) ok = false;
 		item.derived("key", derivedEnumKey);
-		const value = shownTexts(item.peek("value"), codes);
+		const value = heldTextsIn(
+			item.peek("value"),
+			codes,
+			sourceCode(ctx),
+			"case-list-mapping-label",
+		);
 		if (value === undefined) ok = false;
 		else {
 			item.derived("value", derivedEnumValue);
@@ -1031,7 +1104,13 @@ export function readDetailColumn(
 	const codes = appCodes(ctx);
 	// The header as HQ's build shows it in each language; one the reader cannot know is left
 	// unclaimed, for the close to name, and the column is no proposal.
-	const header = shownTexts(column.peek("header"), codes);
+	const heldHeader = heldTextsIn(
+		column.peek("header"),
+		codes,
+		sourceCode(ctx),
+		"case-list-header",
+	);
+	const header = heldHeader?.texts;
 	if (header !== undefined) {
 		column.take("header", C.header, () => header).value;
 		noteRespelled(
@@ -1039,7 +1118,7 @@ export function readDetailColumn(
 			C.header.entry,
 			`${column.pointer}/header`,
 			column.peek("header"),
-			header,
+			heldHeader,
 		);
 	}
 	const place = column.place;
@@ -1350,7 +1429,7 @@ function readIdMapping(
 	) => ColumnProposal | undefined,
 ): ColumnProposal | undefined {
 	const codes = appCodes(ctx);
-	const entries = enumEntries(column, codes);
+	const entries = enumEntries(column, codes, sourceCode(ctx));
 	const seen = new Set<string>();
 	for (const entry of entries) {
 		const problem = enumKeyProblem(entry.key);
@@ -1504,12 +1583,13 @@ function readImageAsset(
 	});
 	if (read.kind !== "asset") return undefined;
 	item.take("value", C.enumImageValue, languageMap).value;
+	// A path is no text: it is held as shown, and no worker reads another.
 	noteRespelled(
 		ctx,
 		C.enumImageValue.entry,
 		`${item.pointer}/value`,
 		item.peek("value"),
-		shown,
+		{ texts: shown, workersSeeAnother: false },
 	);
 	return read.assetId;
 }
@@ -1645,7 +1725,7 @@ function readProjection(
 	others: boolean,
 ): ColumnProposal | undefined {
 	const codes = appCodes(ctx);
-	const entries = enumEntries(column, codes);
+	const entries = enumEntries(column, codes, sourceCode(ctx));
 	let candidate: ArmOmit<ColumnBody, "header"> | undefined;
 	let choices: SelectChoices | undefined;
 	const texts: Record<string, Readonly<Record<string, string>>> = {};
@@ -1700,7 +1780,14 @@ function readProjection(
 		)) {
 			item.derived("key", ITEM_CLAIMS.labelKey);
 			// A label whose shown text the reader cannot know is left for the close to name.
-			const value = shownTexts(item.peek("value"), codes);
+			const value = heldTextsIn(
+				item.peek("value"),
+				codes,
+				sourceCode(ctx),
+				choices === undefined
+					? "case-list-interval-text"
+					: "case-property-option-label",
+			);
 			if (value !== undefined) {
 				item.derived("value", ITEM_CLAIMS.labelValue);
 				noteRespelled(

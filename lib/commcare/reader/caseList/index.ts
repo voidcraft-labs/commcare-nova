@@ -38,7 +38,9 @@ import {
 	HQ_PROPERTY_RENAMES,
 	imageMapPropertyText,
 	labelShownProperty,
+	sameHeldTexts,
 	sameShownTexts,
+	sourceCode,
 } from "./columns";
 import {
 	type CaseListReading,
@@ -256,6 +258,7 @@ const CELL_KEYS = [
  */
 function columnDifference(
 	codes: readonly string[],
+	source: string | undefined,
 	stored: JsonObject,
 	ours: JsonObject,
 	tile: boolean,
@@ -275,7 +278,13 @@ function columnDifference(
 	// HQ's build reads no header of a Search Only column (`detail_screen.py::Invisible`).
 	if (
 		format !== "invisible" &&
-		!sameShownTexts(codes, stored.header, ours.header)
+		!sameHeldTexts(
+			codes,
+			source,
+			"case-list-header",
+			stored.header,
+			ours.header,
+		)
 	)
 		return "schema:DetailColumn.header";
 	if (format === "date" && stored.date_format !== ours.date_format)
@@ -301,7 +310,19 @@ function columnDifference(
 							dotInterpolate(keyB, property),
 						);
 		if (!sameKey) return "schema:MappingItem.key";
-		if (!sameShownTexts(codes, item.value, other.value))
+		// An image map's value is a path, compared as shown; any other mapping's is a text, compared
+		// as the reading holds it (`heldTextsIn`).
+		if (
+			format === "enum-image"
+				? !sameShownTexts(codes, item.value, other.value)
+				: !sameHeldTexts(
+						codes,
+						source,
+						"case-list-mapping-label",
+						item.value,
+						other.value,
+					)
+		)
 			return "schema:MappingItem.value";
 	}
 	if (tile)
@@ -478,6 +499,7 @@ function listDifference(
 	for (const [index, column] of longStored.entries()) {
 		const key = columnDifference(
 			codes,
+			sourceCode(ctx),
 			column,
 			longOurs[index] as JsonObject,
 			false,
@@ -498,6 +520,7 @@ function listDifference(
 	for (const [index, column] of shortStored.entries()) {
 		const key = columnDifference(
 			codes,
+			sourceCode(ctx),
 			column,
 			shortOurs[index] as JsonObject,
 			tile,

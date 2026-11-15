@@ -136,7 +136,9 @@ export interface ReachableCaseType {
  * target but not a readable source.
  *
  * `depth` is the load-bearing output: the wire emitter turns a typed
- * `form-case` reference into the corresponding `…/index/parent × depth …/<prop>` walk.
+ * `form-case` reference into a walk of `depth` index hops, each under the index
+ * the app links that type to its parent by
+ * (`lib/commcare/caseTypeDepths.ts::caseTypeHopMap`), then `/<prop>`.
  * Ordered own-first; cycle-guarded against malformed
  * `parent_type` chains. An undeclared own type still appears at depth 0 (with
  * no properties) so its namespace is recognized even before properties exist.

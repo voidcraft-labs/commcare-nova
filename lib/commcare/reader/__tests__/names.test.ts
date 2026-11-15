@@ -10,7 +10,7 @@
  * Nova's export of the reading shows every language the same text, held as
  * Nova's gate admits it: a name that shows blank in a language beside a source
  * that does not takes the source's name there, and a space at a name's start
- * is dropped, each recorded under `name-spaces-dropped` because a worker reads
+ * is dropped, each recorded under `text-spaces-dropped` because a worker reads
  * another name. A stored map Nova prints back exactly reads exactly and
  * records nothing; any other map is respelled by the first publish, and the
  * reading says so under `names-respelled`. A generated key folded over a name
@@ -179,7 +179,7 @@ const nameRecords = (draft: {
 	facts: { sameStateRewrites: readonly unknown[] };
 }) =>
 	draft.facts.sameStateRewrites.filter((one) =>
-		["names-respelled", "name-spaces-dropped"].includes(
+		["names-respelled", "text-spaces-dropped"].includes(
 			(one as { register: string }).register,
 		),
 	);
@@ -212,7 +212,7 @@ describe("a menu's and a form's name map", () => {
 		/** What they show from Nova's export of the reading, where a worker reads another name. */
 		readonly novaShows?: Readonly<Record<string, string>>;
 		/** The register the first publish's rewrite of the map is recorded under, if any. */
-		readonly register?: "names-respelled" | "name-spaces-dropped";
+		readonly register?: "names-respelled" | "text-spaces-dropped";
 	}[] = [
 		{
 			title: "lacking the source language",
@@ -255,14 +255,14 @@ describe("a menu's and a form's name map", () => {
 			stored: { es: "  ", en: "Patients" },
 			shows: { es: "", en: "Patients" },
 			novaShows: { es: "Patients", en: "Patients" },
-			register: "name-spaces-dropped",
+			register: "text-spaces-dropped",
 		},
 		{
 			title: "with a space at the start of a language's name",
 			stored: { es: " Pacientes", en: "Patients" },
 			shows: { es: " Pacientes", en: "Patients" },
 			novaShows: { es: "Pacientes", en: "Patients" },
-			register: "name-spaces-dropped",
+			register: "text-spaces-dropped",
 		},
 		{
 			title: "only spaces in every language",
@@ -416,7 +416,7 @@ describe("a generated key folded over a name", () => {
 			{
 				entry: "menus-and-case-lists/modulebase-name",
 				path: "/modules/0/name",
-				register: "name-spaces-dropped",
+				register: "text-spaces-dropped",
 			},
 		]);
 		const after = storedNames(republished(draft.doc)).menu;

@@ -124,10 +124,36 @@ default's text is the form builder's to fill from it (`prose.ts::finishText`). O
 absences keep a form out: a text the default translation holds no default value of, and a
 question's or choice's label with no value in the source's first `<translation>` in document
 order, whatever its language, which HQ's build reads every label in
-(`itext.ts::ItextReading.buildRefusesLabel`). Nova then prints every language's text or path in full, so a
+(`itext.ts::ItextReading.buildRefusesLabel`). A protected validation message's `__nova_` forms
+are read the same way, form by form, as Core merges the default locale's keys under each
+language's (`xform/afterBinding.ts::shownForms`), and its `jr:constraintMsg` is rebuilt over the
+branches the source holds, in the order it tests them, each the message of the language whose
+forms name it (`messageBranches`), never over the document's languages: CommCare HQ rewrites
+neither when it adds, renames or reorders a language. So a language HQ added after the publish,
+one that lacks the forms and one holding the default's copy a save in HQ's form builder writes
+show the default's message through the default's branch. Nova then prints every language's text or path in full, so a
 first publish fills the languages a stored map or translation left out: a media map's under
 `media-maps-respelled`, which `navMedia.ts::recordRespelling` records with each stored map Nova
 writes again, and a form's under `forms-and-settings-rewritten`.
+
+Every app string a reading holds (the app's, a menu's and a form's name, a case list menu item's
+and a Register button's label, a column's header, a mapping's label, an interval's text, a Search
+field's texts, the search screen's title and subtitle, and a text a generated key folds over) is
+held through one function, `heldText.ts::heldText`, by its translation unit's role: what a device
+shows is the bar (`hqDeviceText`: HQ's build writes a blank text as a non-breaking space and a line
+break as `\n`, and Core's locale reader trims a line's end before it reads `\n` back, so a line
+break at a text's end is shown and its spaces are not), each text loses the characters up to
+U+0020 at both ends unless it is only spaces, and for a role whose translation is never blank
+(`translationRoleRequiresNonblank`) a blank-looking language beside a source that holds text takes
+the source's text. A Search field's validation message is held apart from the runtime guard's text
+joined after it (`search/prompts.ts::readValidation`, `search/guardSplit.ts::sharedGuardText`). A
+respelling no worker meets is recorded under the surface's own id (`names-respelled`,
+`list-settings-respelled`), and one a worker meets under `text-spaces-dropped`
+(`heldText.ts::recordTextRewrite`). A text with a literal `\n`, a carriage return or a character
+XML cannot hold has no spelling the gate admits and is left unclaimed, and a generated key folded
+over one is refused (`assemble.ts::decideGeneratedKeys`). A comparison of a stored text with
+Nova's print compares both as held. A form's itext is no app string: Core trims a value at both ends as it
+parses the form, so it is read as stored.
 
 What the project space holds rather than the app (levels, worker and location properties) is read
 from what the reading is told and what the logic reads, so its canonical rows run the reading's

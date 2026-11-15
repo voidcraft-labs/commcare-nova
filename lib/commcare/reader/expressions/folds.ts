@@ -7,7 +7,6 @@
  * proposer never looks at a name to decide.
  */
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import { reachableCaseTypes } from "@/lib/domain/caseTypes";
 import {
 	activeRowScope,
 	type ExpressionContext,
@@ -36,6 +35,7 @@ import {
 import { organizationLevelsOf } from "@/lib/domain/organization";
 import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
+import { caseTypeHopMap } from "../../caseTypeDepths";
 import type { FoldApi } from "../../xpath/formParseScope";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { formUserProperty } from "../../xpath/referenceBindings";
@@ -646,24 +646,30 @@ const formRead: Fold = {
 	},
 };
 
-/** The depth of an own-case walk keyed at `key`: 0 where the key reads a
- *  session datum, one more for each `…/index/parent` hop around it. */
-export function ownCaseDepth(key: FormSyntax | undefined): number | undefined {
+/** The indices an own-case walk keyed at `key` follows, from the own case
+ *  up: none where the key reads a session datum, one more for each
+ *  `…/index/<identifier>` hop around it. A `form-case` read walks the indices
+ *  `caseTypeDepths.ts::caseTypeHopMap` gives its type. */
+export function ownCaseWalk(
+	key: FormSyntax | undefined,
+): readonly string[] | undefined {
 	if (key === undefined) return undefined;
-	if (sessionDatumRead(key)) return 0;
+	if (sessionDatumRead(key)) return [];
 	const hop = casedbRow(key);
 	if (hop === undefined || hop.row.where.length !== 1) return undefined;
-	const [index, parent, ...more] = hop.rest;
+	const [index, identifier, ...more] = hop.rest;
 	if (
 		more.length > 0 ||
 		index?.name !== "index" ||
 		index.attribute ||
-		parent?.name !== "parent" ||
-		parent.attribute
+		index.where.length > 0 ||
+		identifier === undefined ||
+		identifier.attribute ||
+		identifier.where.length > 0
 	)
 		return undefined;
-	const inner = ownCaseDepth(caseIdKey(hop.row.where[0]));
-	return inner === undefined ? undefined : inner + 1;
+	const inner = ownCaseWalk(caseIdKey(hop.row.where[0]));
+	return inner === undefined ? undefined : [...inner, identifier.name];
 }
 
 const ownCaseRead: Fold = {
@@ -708,8 +714,8 @@ const ownCaseRead: Fold = {
 		const [step, ...more] = read.rest;
 		const property = rowProperty(step);
 		if (property === undefined || more.length > 0) return undefined;
-		const depth = ownCaseDepth(caseIdKey(read.row.where[0]));
-		if (depth === undefined) return undefined;
+		const walk = ownCaseWalk(caseIdKey(read.row.where[0]));
+		if (walk === undefined) return undefined;
 		const moduleUuid = context.form?.moduleUuid;
 		const moduleCaseType =
 			moduleUuid === undefined
@@ -718,19 +724,18 @@ const ownCaseRead: Fold = {
 		// In a question's choice filter a `prop` is the candidate case's: the
 		// form's own case, or a case above it, is `form-case` there.
 		if (context.ruleSet === "record" && context.slot.entity !== "field") {
-			if (depth !== 0 || moduleCaseType === undefined) return undefined;
+			if (walk.length !== 0 || moduleCaseType === undefined) return undefined;
 			return api.term(
 				{ kind: "prop", caseType: moduleCaseType, property },
 				node,
 			);
 		}
-		const reachable = reachableCaseTypes(
-			moduleCaseType,
-			env.doc.caseTypes ?? [],
-		).find((type) => type.depth === depth);
+		const reachable = [
+			...caseTypeHopMap(env.doc, moduleCaseType).entries(),
+		].find(([, hops]) => sameJson(hops, walk));
 		if (reachable === undefined) return undefined;
 		return api.term(
-			{ kind: "form-case", caseType: reachable.name, property },
+			{ kind: "form-case", caseType: reachable[0], property },
 			node,
 		);
 	},

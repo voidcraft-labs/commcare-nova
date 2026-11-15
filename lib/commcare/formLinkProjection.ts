@@ -95,7 +95,7 @@ import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { FormExpressionSlotRef } from "@/lib/domain/expression/types";
 import type { PlannedNewCaseDatum } from "./casePlacementPlan";
-import { caseTypeDepthMap } from "./caseTypeDepths";
+import { caseTypeHopMap } from "./caseTypeDepths";
 import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
 import { moduleExpressionContexts } from "./expressionContext";
 import {
@@ -123,11 +123,12 @@ import {
 } from "./suite/case-search/inlineSearch";
 import { USERCASE_DATUM_ID } from "./usercaseWire";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
+import { formCaseWalk } from "./xform/formCaseRead";
 import { formNodeProjection } from "./xpath/formNodeProjection";
 import { w } from "./xpath/wire/builders";
 import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
 import { selectedCasesInstance, sessionInstance } from "./xpath/wire/instances";
-import { caseById, casePropertyStep } from "./xpath/wire/rowScope";
+import { caseById } from "./xpath/wire/rowScope";
 import { serializeWire } from "./xpath/wire/serialize";
 import type { WireExpr } from "./xpath/wire/tree";
 
@@ -2458,7 +2459,8 @@ export function projectFormLinkSessionExpression(
 	}
 	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
 	const ownCaseId = ownCaseSessionRef(doc, moduleUuid, form.type, sourceDatums);
-	const depths = caseTypeDepthMap(
+	const hops = caseTypeHopMap(
+		expressionDoc,
 		expressionDoc.modules[structure.moduleUuid]?.caseType,
 		types.facts.caseTypes,
 	);
@@ -2482,17 +2484,11 @@ export function projectFormLinkSessionExpression(
 						},
 					}),
 			formCaseProperty: (caseType, property) => {
-				const depth = depths.get(caseType);
-				if (depth === undefined || ownCaseId === undefined)
+				const walk = hops.get(caseType);
+				if (walk === undefined || ownCaseId === undefined)
 					throw new Error("The submitted form does not supply this record.");
-				if (depth === 0 && property === "case_id") return ownCaseId;
-				let id = ownCaseId;
-				for (let hop = 0; hop < depth; hop++)
-					id = w.append(caseById(id, "casedb"), [
-						w.step("index"),
-						w.step("parent"),
-					]);
-				return w.append(caseById(id, "casedb"), [casePropertyStep(property)]);
+				if (walk.length === 0 && property === "case_id") return ownCaseId;
+				return formCaseWalk(ownCaseId, walk, property);
 			},
 		},
 	});

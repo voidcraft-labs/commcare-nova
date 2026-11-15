@@ -1,9 +1,14 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Expression, Uuid } from "@/lib/domain";
-import { readMenusOf } from "../../menus/__tests__/menuReading";
-import { laterLoadReaders } from "../preloads";
+import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
+import {
+	hqBuildRefusesProperty,
+	laterLoadReaders,
+	preloadReadOf,
+} from "../preloads";
 import { type CaseReading, readCases, readFields } from "./caseReading";
 
 /** Every entry a reading claimed something under. */
@@ -111,6 +116,119 @@ async function preloaded(fields: FieldSpec[], preload: Record<string, string>) {
 		},
 	});
 }
+
+/**
+ * A `parent/` preload, which HQ's build reads through the case's `parent`
+ * index (`xform.py::XForm.add_case_preloads`), against the read of the
+ * household Nova prints, which walks the index the app links a patient to its
+ * household by (`caseTypeDepths.ts::caseTypeHopMap`). The failure this
+ * catches: a preload read as a household read that walks another index, a
+ * silent misread of the case HQ loads.
+ */
+describe("a case preload through `parent`, against the index the app links by", () => {
+	const OTHER_CASE =
+		"forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix";
+	const NAME = testUuid("parent-preload-name");
+	/** Households whose follow-up registers a patient linked to it as
+	 *  `identifier`, and patients whose follow-up preloads the household's remark. */
+	const households = (identifier: string) =>
+		buildDoc(
+			{
+				caseTypes: [
+					{
+						name: "household",
+						properties: [{ name: "remark", label: "Remark" }],
+					},
+					{
+						name: "patient",
+						parent_type: "household",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+				modules: [
+					{
+						name: "Households",
+						caseType: "household",
+						forms: [
+							{
+								name: "Add patient",
+								type: "followup",
+								fields: [f({ kind: "text", id: "nm", uuid: NAME })],
+							},
+						],
+					},
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "text", id: "q", uuid: Q })],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				const add = doc.formOrder[doc.moduleOrder[0] as Uuid]?.[0] as Uuid;
+				doc.forms[add] = {
+					...doc.forms[add],
+					caseOperations: [
+						{
+							uuid: testUuid("parent-preload-create"),
+							id: "patient",
+							action: "create",
+							caseType: "patient",
+							target: { kind: "new" },
+							name: read(NAME),
+							links: [
+								{
+									identifier,
+									targetType: "household",
+									target: { kind: "session" },
+									relationship: "child",
+								},
+							],
+						},
+					],
+				} as never;
+			},
+		);
+	const withPreload = (doc: BlueprintDoc) =>
+		readMenusOf(doc, (app) => {
+			const actions = app.modules[1]?.forms[0]?.actions as Record<
+				string,
+				unknown
+			>;
+			actions.case_preload = {
+				doc_type: "PreloadAction",
+				preload: { "/data/q": "parent/remark" },
+				condition: { type: "always", doc_type: "FormActionCondition" },
+			};
+		});
+	const qDefault = (doc: BlueprintDoc | undefined) =>
+		(
+			Object.values(doc?.fields ?? {}).find((field) => field.id === "q") as
+				| { readonly default_value?: unknown }
+				| undefined
+		)?.default_value;
+
+	it("reads it as the household's read where the app links a patient by `parent`", async () => {
+		const reading = await withPreload(households("parent"));
+		expect(codesOf(reading)).toEqual([]);
+		expect(qDefault(reading.doc)).toEqual({
+			kind: "term",
+			term: { kind: "form-case", caseType: "household", property: "remark" },
+		});
+	});
+
+	it("refuses it where the app links a patient by another index, which the household's read walks", async () => {
+		const reading = await withPreload(households("home"));
+		expect(codesOf(reading)).toContain(OTHER_CASE);
+		expect(reading.outcome.defects).toEqual([]);
+	});
+});
 
 describe("a case preload, read as the question's default", () => {
 	it("reads a preload as the default that reads the case's property, in place of an authored one", async () => {
@@ -608,5 +726,169 @@ describe("a case preload on a form that requires no case", () => {
 			const reading = await onSurvey({ "/data/q": property });
 			expect(reading.findings.map((one) => one.code)).toContain(REFUSED);
 		}
+	});
+});
+
+/**
+ * A preloaded property ending in one newline. HQ's validator matches with
+ * Python's `re.match` and a pattern ending in `$`, which also matches before a
+ * newline that ends the text (`helpers/validators.py::validate_property`), so
+ * HQ's build takes the name and writes it into the load's XPath as it is
+ * (`xform.py::XForm.add_case_preloads`), where Core's lexer drops the newline:
+ * CommCare reads the child element of the name without it. The failures this
+ * catches: such an app refused as one HQ's build refuses, and a name HQ maps
+ * without the newline (`name`, `owner_id`) read as the mapped value.
+ */
+describe("a preloaded property HQ's grammar takes for its one trailing newline", () => {
+	const UNNAMED =
+		"expressions-and-data/a-form-expression-outside-what-nova-types";
+	const ILLEGAL =
+		"forms-and-case-writes/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json";
+
+	it("is HQ's grammar exactly: one newline at the very end, index steps included", () => {
+		for (const property of ["dob\n", "parent/dob\n", "status\n"])
+			expect(hqBuildRefusesProperty(property), property).toBe(false);
+		for (const property of ["dob\n\n", "parent\n/dob", "\ndob", "status"])
+			expect(hqBuildRefusesProperty(property), property).toBe(true);
+		expect(preloadReadOf("parent/dob\n")).toEqual({
+			indices: ["parent"],
+			name: "dob",
+		});
+		expect(preloadReadOf("name")).toEqual({ indices: [], name: "case_name" });
+	});
+
+	// One document for every reading, so two readings differ only by the stored map.
+	const visit = followup([f({ kind: "text", id: "q", uuid: Q })]);
+	async function wholeReading(property: string) {
+		return readMenusOf(visit, (app) => {
+			const actions = app.modules[0]?.forms[0]?.actions as Record<
+				string,
+				unknown
+			>;
+			actions.case_preload = {
+				doc_type: "PreloadAction",
+				preload: { "/data/q": property },
+				condition: { type: "always", doc_type: "FormActionCondition" },
+			};
+		});
+	}
+
+	function defaultOf(reading: Awaited<ReturnType<typeof wholeReading>>) {
+		return (
+			Object.values(reading.doc?.fields ?? {}).find((one) => one.id === "q") as
+				| { readonly default_value?: unknown }
+				| undefined
+		)?.default_value;
+	}
+
+	it("reads the property CommCare reads, the document a preload of the name without it gives", async () => {
+		for (const [stored, plain, property] of [
+			["dob\n", "dob", "dob"],
+			// HQ reserves `case_name`, and reads `case_name\n` from the case's own name element.
+			["case_name\n", "name", "case_name"],
+		] as const) {
+			const reading = await wholeReading(stored);
+			expect(reading.findings, stored).toEqual([]);
+			expect(reading.outcome.defects, stored).toEqual([]);
+			expect(defaultOf(reading), stored).toEqual({
+				kind: "term",
+				term: { kind: "form-case", caseType: "patient", property },
+			});
+			const without = await wholeReading(plain);
+			expect(without.findings, plain).toEqual([]);
+			expect(reading.doc, stored).toEqual(without.doc);
+		}
+	});
+
+	it("reads `date_opened` and `last_modified` with the newline as the case's own child elements, which Nova names", async () => {
+		// HQ reserves both names, so no plain twin exists: CommCare reads the case's
+		// `date_opened` and `last_modified` children (`CaseChildElement`), which Nova's
+		// `form-case` read of each prints, and the checker admits as the question's default.
+		for (const property of ["date_opened", "last_modified"]) {
+			const stored = `${property}\n`;
+			const reading = await wholeReading(stored);
+			expect(reading.findings, property).toEqual([]);
+			expect(reading.outcome.defects, property).toEqual([]);
+			expect(reading.doc, property).toBeDefined();
+			expect(defaultOf(reading), property).toEqual({
+				kind: "term",
+				term: { kind: "form-case", caseType: "patient", property },
+			});
+			// Nova's own document holding that default reads back to the same document.
+			const own = produce(visit, (draft) => {
+				const field = draft.fields[Q] as { default_value?: unknown };
+				field.default_value = {
+					kind: "term",
+					term: { kind: "form-case", caseType: "patient", property },
+				};
+			});
+			const ownReading = await readMenusOf(own);
+			expect(ownReading.findings, property).toEqual([]);
+			expect(ownReading.outcome.defects, property).toEqual([]);
+			expect(reading.doc, property).toEqual(ownReading.doc);
+			// The plain name is HQ's reserved word, which its build refuses.
+			const plain = await wholeReading(property);
+			expect(
+				plain.findings.map((one) => one.code),
+				property,
+			).toContain(ILLEGAL);
+		}
+	});
+
+	it("refuses a name whose element no property name of Nova's names, as Nova's limit", async () => {
+		// HQ's build maps none of these with the newline, so CommCare reads the child element
+		// `name`, `owner_id`, `status` or `type`, where Nova reads `case_name`, `@owner_id` and
+		// `@status`, and holds no property `type`.
+		for (const property of ["name\n", "owner_id\n", "status\n", "type\n"]) {
+			const reading = await wholeReading(property);
+			expect(reading.outcome.defects, property).toEqual([]);
+			const codes = reading.findings.map((one) => one.code);
+			expect(codes, property).not.toContain(ILLEGAL);
+			const found = reading.findings.find((one) => one.code === UNNAMED);
+			expect(found, property).toBeDefined();
+			expect(found?.detail?.name).toBe(property);
+			expect(found?.detail?.reason).toBe("name:case-property");
+			expect(found && "standing" in found ? found.standing : undefined).toBe(
+				"not-yet",
+			);
+		}
+	});
+
+	it("still refuses two newlines, which HQ's grammar does not take", async () => {
+		const reading = await wholeReading("dob\n\n");
+		expect(reading.findings.map((one) => one.code)).toContain(ILLEGAL);
+	});
+
+	it("reads a worker-record preload of such a name as the worker property of the name without it", async () => {
+		const workerVisit = followup([
+			f({
+				kind: "text",
+				id: "mood",
+				caseWrite: { caseType: "commcare-user", property: "mood" },
+			}),
+			f({ kind: "text", id: "q", uuid: Q }),
+		]);
+		async function workerPreload(property: string) {
+			return readMenusOf(workerVisit, (app) => {
+				const actions = app.modules[0]?.forms[0]?.actions as Record<
+					string,
+					unknown
+				>;
+				actions.usercase_preload = {
+					doc_type: "PreloadAction",
+					preload: { "/data/q": property },
+					condition: { type: "always", doc_type: "FormActionCondition" },
+				};
+			});
+		}
+		const reading = await workerPreload("mood\n");
+		const plain = await workerPreload("mood");
+		expect(reading.findings).toEqual([]);
+		expect(reading.doc).toEqual(plain.doc);
+		// `name\n` reads the worker case's element `name`, never its case name.
+		const named = await workerPreload("name\n");
+		expect(named.findings.map((one) => one.code)).toContain(
+			"forms-and-case-writes/any-other-usercase-preload",
+		);
 	});
 });

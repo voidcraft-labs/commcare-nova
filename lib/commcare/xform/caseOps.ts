@@ -85,7 +85,7 @@ import type {
 	PropertyRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
-import { caseTypeDepthMap } from "../caseTypeDepths";
+import { caseTypeHopMap } from "../caseTypeDepths";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
 import {
@@ -971,7 +971,7 @@ export function buildCaseOperations(
 	 * the form's own binds do. No operation slot reads a row through it. */
 	const ownCaseRead = formCasePropertyRead({
 		formType: form.type,
-		caseTypeDepths: caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []),
+		caseTypeHops: caseTypeHopMap(doc, moduleCaseType),
 		moduleCaseType,
 		selectedCaseId: selectedCaseIdRef,
 	});

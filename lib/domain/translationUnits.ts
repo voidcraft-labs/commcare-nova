@@ -162,6 +162,14 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"search-runtime-validation-message",
 ]);
 
+/** Whether a unit of `role` holds `contentPolicy: "require-nonblank"`: no translation of it may be
+ *  blank. */
+export function translationRoleRequiresNonblank(
+	role: TranslationUnitRole,
+): boolean {
+	return NONBLANK_TRANSLATION_ROLES.has(role);
+}
+
 export interface LocalizedTranslationUnit extends TranslationUnit {
 	readonly language: LanguageTag;
 	readonly explicit?: TranslationEntry;
@@ -270,7 +278,7 @@ export function collectTranslationCoverageDiagnostics(
 function unit(
 	input: Omit<TranslationUnit, "sourceFingerprint" | "contentPolicy">,
 ): TranslationUnit {
-	const contentPolicy = NONBLANK_TRANSLATION_ROLES.has(input.role)
+	const contentPolicy = translationRoleRequiresNonblank(input.role)
 		? "require-nonblank"
 		: "allow-blank";
 	return {

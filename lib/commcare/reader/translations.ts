@@ -70,6 +70,9 @@ function isBlank(value: LocalizedValue): boolean {
  * (a translation left blank in another language reads as none, and the first
  * publish writes the source's text there, as CommCare HQ's form builder does
  * on every save). Any other value is the person's own translation, reviewed.
+ * An app string reaches here held (`heldText.ts::heldText`): with no space at
+ * either end, and never blank-looking where its role requires text, so the
+ * entry is one Nova's gate admits.
  */
 export function translationEntryFor(
 	kind: "text" | "prose",

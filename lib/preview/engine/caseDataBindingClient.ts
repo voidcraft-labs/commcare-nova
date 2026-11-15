@@ -177,8 +177,9 @@ export function caseRowToFormPreload(row: CaseRow): Map<string, string> {
  * `caseRowToFormPreload`.
  *
  * Positional binding is the wire's semantic: typed form-case reads
- * emit a blueprint-fixed
- * `index/parent × depth` casedb walk with NO case-type filter, so
+ * emit a blueprint-fixed casedb walk of `depth` index hops with NO
+ * case-type filter, each under the index the app links that type to
+ * its parent by (`lib/commcare/caseTypeDepths.ts::caseTypeHopMap`), so
  * when the live parent chain doesn't mirror the blueprint's
  * `parent_type` chain (a re-parented row, data predating a
  * hierarchy edit), the device reads whatever row sits at the hop
@@ -204,9 +205,10 @@ export function caseRowsToFormPreloads(
 	return byType;
 }
 
-/** Resolve one case and its `index/parent` chain from a captured device
+/** Resolve one case and its chain of `parent` indices from a captured device
  * database, then apply the same positional case-type projection as the normal
- * server row loader. This is the post-submit path: it must consume the exact
+ * server row loader. The map it builds supplies the own case's preloads; a
+ * form's ancestor read over this database evaluates the wire's own walk. This is the post-submit path: it must consume the exact
  * entry snapshot plus the transaction-returned patch, never a newer database
  * read that could disagree with structural `casedb`. */
 export function caseDatabaseToFormPreloads(

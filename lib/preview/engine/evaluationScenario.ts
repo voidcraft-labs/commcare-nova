@@ -3,6 +3,7 @@ import addFormats from "ajv-formats";
 import { z } from "zod";
 import type { CaseRow } from "@/lib/case-store";
 import { type BlueprintDoc, materializableCaseTypes } from "@/lib/domain";
+import { ancestorIndex } from "@/lib/domain/advancedModule";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { FormEvaluationInputError } from "@/lib/preview/engine/formEvaluationTypes";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
@@ -105,7 +106,9 @@ export function evaluationScenarioCases(
 				case_id: record.id,
 				ancestor_id: parent.id,
 				target_case_type: parent.caseType,
-				identifier: "parent",
+				// The index a form's read of the parent walks, so the record's
+				// form reads the parent the test supplied.
+				identifier: ancestorIndex(doc, record.caseType, parent.caseType),
 				relationship: type.relationship ?? "child",
 				depth: 1,
 			});

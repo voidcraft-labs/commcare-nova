@@ -278,13 +278,28 @@ function wrapperVerdicts(
 	return verdicts;
 }
 
+/**
+ * Nova's own print of the tree the expression stage held for the slot whose
+ * text a stored bind's attribute holds (`element`, the attribute's local
+ * name); `undefined` where the attribute holds no such slot's text, or the
+ * stage held none.
+ */
+export type HeldSlotPrint = (
+	element: Element,
+	attribute: string,
+) => string | undefined;
+
 /** Two binds alike: one path, the same plain attributes, each expression
- *  as a tree; a `vellum:` shadow is not compared. */
+ *  as a tree; a `vellum:` shadow is not compared. An expression `a` holds
+ *  that the expression stage held as a slot's tree is the emitter's where
+ *  `b`'s is that tree's print (`heldPrint`): the stage compared it with the
+ *  source and reported what a first publish changes in it. */
 function sameBind(
 	a: { element: Element; path: string[] },
 	aForm: FormSourceModel,
 	b: { element: Element; path: string[] },
 	bForm: FormSourceModel,
+	heldPrint?: HeldSlotPrint,
 ): boolean {
 	if (!samePath(a.path, b.path)) return false;
 	const skip = (namespace: string | null) => namespace === VELLUM_NS;
@@ -301,7 +316,13 @@ function sameBind(
 		const local = key.slice(key.indexOf(" ") + 1);
 		const plain = key.startsWith(" ");
 		if (plain && EXPRESSION_ATTRIBUTES.has(local)) {
-			if (!sameXPathText(value, other, { ruleSet: "form" })) return false;
+			if (sameXPathText(value, other, { ruleSet: "form" })) continue;
+			const held = heldPrint?.(a.element, local);
+			if (
+				held === undefined ||
+				!sameXPathText(held, other, { ruleSet: "form" })
+			)
+				return false;
 		} else if (value !== other) return false;
 	}
 	return true;
@@ -348,6 +369,7 @@ export function blockTreesEqual(
 	stored: StoredSaveToCaseBlock,
 	emitted: FormSourceModel,
 	judgedApart: ReadonlySet<string> = new Set(),
+	heldPrint?: HeldSlotPrint,
 ): boolean {
 	const { block, form } = stored;
 	/** The element at `path` on both sides alike with everything under it,
@@ -365,7 +387,7 @@ export function blockTreesEqual(
 			sameLists(
 				modelElements(form, form.binds, bindPathText, under),
 				modelElements(emitted, emitted.binds, bindPathText, under),
-				(a, b) => sameBind(a, form, b, emitted),
+				(a, b) => sameBind(a, form, b, emitted, heldPrint),
 			) &&
 			sameLists(
 				modelElements(form, form.setvalues, setvalueRef, under),
@@ -409,7 +431,7 @@ export function blockTreesEqual(
 			sameLists(
 				modelElements(form, form.binds, bindPathText, at),
 				modelElements(emitted, emitted.binds, bindPathText, at),
-				(a, b) => sameBind(a, form, b, emitted),
+				(a, b) => sameBind(a, form, b, emitted, heldPrint),
 			) &&
 			sameLists(
 				modelElements(form, form.setvalues, setvalueRef, at),

@@ -38,7 +38,7 @@ import type {
 	FormExpressionSlotRef,
 } from "@/lib/domain/expression/types";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
-import { caseTypeDepthMap } from "../caseTypeDepths";
+import { caseTypeHopMap } from "../caseTypeDepths";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
@@ -95,7 +95,7 @@ function formReadsLocations(
 	const expressions = formExpressionEmission(doc, formUuid, naming, {
 		formCaseProperty: formCasePropertyRead({
 			formType: form.type,
-			caseTypeDepths: caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []),
+			caseTypeHops: caseTypeHopMap(doc, moduleCaseType),
 			moduleCaseType,
 		}),
 		organizationLevels: doc.organizationLevels ?? {},

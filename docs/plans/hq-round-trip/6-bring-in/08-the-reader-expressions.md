@@ -677,7 +677,11 @@ the type, and the emitter hands it to the `toWire` call of each runtime value. E
 of `filter-identities-dropped` reads the control from the wire build context it builds or is handed
 (a table lookup's `where` does, inside `lowerExpression`), or takes `rewrites?: RewriteControl` as an
 optional last argument where it builds none; `planConstraintCollections` takes it as an optional last
-argument. Absent, the emitter prints as today, so no production caller changes. Withheld, each site
+argument. A Search field's slots (its default or hidden value, required condition, validation
+rule and choices' filter) print through `suite/case-search/searchPrompts.ts::searchPromptWire`,
+which takes `rewrites?: RewriteControl` as an optional last argument and hands it to the `toWire`
+call and the `lookupOptionsNodeset` call of each slot, so a read of a Search answer without the
+guard on its rows is compared at the second level as every other slot's is. Absent, the emitter prints as today, so no production caller changes. Withheld, each site
 prints what it printed before the rewrite existed: `compareSides` takes the `bare` plan; the three
 guards return the read; the search text prints its bare path; each of the six sites skips
 `simplifyForEmission` and prints the tree as stored; `planConstraintCollections` returns the
@@ -1022,8 +1026,8 @@ miss. Its steps:
 
    - **Case properties**, each with a case type the syntax fixes: a `[@case_type = '<literal>']`
      predicate on a casedb or results query, a search's results row with none (the searched menu's
-     type, as `formPathBinding.ts` types it), an own-case walk (the form's reachable types by depth,
-     `lib/domain/caseTypes.ts::reachableCaseTypes`), or a case keyed on such a walk's own
+     type, as `formPathBinding.ts` types it), an own-case walk (the form's reachable type whose walk is exactly the indices the syntax walks,
+     `caseTypeDepths.ts::caseTypeHopMap`, `scanReads.ts::keyWalk`), or a case keyed on such a walk's own
      `@case_id`, in a menu's own slot a case keyed on the session value of a case a menu above it
      chose (the menu's case list entry datums, by the id or the pre-alignment id
      `formLinkProjection.ts::caseListStepDatumId` prints), a row-relative step in a slot whose
@@ -1494,7 +1498,7 @@ property apart and every other slot reading it prints by its type.
 | Id | Rule sets | Shape | Proposal |
 |---|---|---|---|
 | `form-read` | both | an absolute path `/data/…` to a question or a repeat row's attribute; in a Save to Case block's slot, a path whose syntax is what the emitter prints through `current()` from the slot's node for an answer of the block's repeat (`FoldEnv.place`), which proposes that question's read with no spelling | the same read with no stored spelling, the hashtag an author sees as `#form/…`, at `formReadToWire`'s two relocation sites too (a `default_value` slot, or a row predicate that crosses a repeat the slot is in, `formReads.ts::crossesSourceRepeatInRowPredicate`), where the emitter prints it `current()/…` and, withheld, as the absolute path the author wrote |
-| `own-case-read` | form | a path `instance('casedb')/casedb/case[@case_id = X]/<step>` where `X` is a session datum read, or the same shape again ending `/index/parent`, nested to any depth | `form-case { caseType, property }`: `caseType` the form's reachable type at the nesting depth (`reachableCaseTypes`: own 0, parent 1), `property` the step (`@case_id`, `@owner_id`, `@status` as the standard properties `rowValue` gives) |
+| `own-case-read` | form | a path `instance('casedb')/casedb/case[@case_id = X]/<step>` where `X` is a session datum read, or the same shape again ending `/index/<identifier>`, nested to any depth (`folds.ts::ownCaseWalk` gives the identifiers walked, from the own case up) | `form-case { caseType, property }`: `caseType` the form's reachable type whose walk is exactly those identifiers (`caseTypeDepths.ts::caseTypeHopMap`: the own type none, each ancestor one more, under the index the app's child links between the two types use, `parent` where none or several do, `advancedModule.ts::ancestorIndex`), `property` the step (`@case_id`, `@owner_id`, `@status` as the standard properties `rowValue` gives). A walk no reachable type has, `index/parent` where the app links the two types only as `home` among them, proposes nothing, since the emitter would print the read through `index/home` |
 | `own-case-read` | record, case operation slots | the same shape at depth 0 | `prop { caseType: <the module's>, property }` with no `via`, which the operation context prints anchored on the own-case datum |
 | `own-case-read` | record, a question's choice filter | the same shape, nested to any depth | `form-case { caseType, property }` as in form logic: among a query's rows a `prop` is the candidate's |
 | `own-case-read` | form, and a link's condition and values | a session datum read the entry gives the form's own case (the case its menu chose, or the one a registration creates) | `form-case { caseType: <the module's>, property: "case_id" }`, `#<own>/case_id`; in a form slot of a loading form it prints as a `casedb` read and is withdrawn |
@@ -3188,6 +3192,7 @@ Files of parts 06, 07 and 11 that call this part's exports are listed in those p
 | `lib/commcare/xpath/wire/formReads.ts` | `formReadToWire` reads `rewrites` at its two relocation sites and calls `reached` there (2.3) |
 | `lib/commcare/xpath/wire/serialize.ts` | exports `literalArguments` (for `canonical.ts`, 5.5) |
 | `lib/commcare/hqJson/caseList.ts`, `lib/commcare/suite/case-list/nodesetFilter.ts`, `lib/commcare/lookupOptions.ts`, `lib/commcare/suite/case-list/shortDetail.ts` | the sites of `filter-identities-dropped` skip `simplifyForEmission` where the control withholds it; `projectCaseListFilter` is exported (2.1, 2.3) |
+| `lib/commcare/suite/case-search/searchPrompts.ts` | `searchPromptWire` takes `rewrites?: RewriteControl` as its last argument and hands it to each slot's `toWire` and `lookupOptionsNodeset` (2.3) |
 | `lib/commcare/xform/constraintCollections.ts` | `planConstraintCollections` takes `rewrites?: RewriteControl`, returns the expression unchanged with no calculation where `validation-counts-moved` is withheld, and calls `reached` (2.3) |
 | `lib/commcare/csql/emitter.ts` | no change to `CsqlEmissionContext`, which is `Omit<WireBuildContext, "target">` and so holds `rewrites`; the emitter hands it to the `toWire` call of each runtime value (2.3) |
 | `lib/commcare/xform/formExpressions.ts`, `lib/commcare/expressionContext.ts`, `lib/commcare/suite/case-search/xpathQuery.ts` | export the slot build contexts the emitters use, so the reader prints with the same one (2.1) |

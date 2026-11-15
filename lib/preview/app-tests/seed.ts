@@ -189,11 +189,18 @@ export async function seedAppTest(
 				{ ...scope, ownerId: owners.get(id) ?? scope.actorUserId },
 				async (store) => {
 					const { app_id: _app, owner_id: _owner, ...record } = row;
+					const edge = cases.indices.find(
+						(index) =>
+							index.case_id === id && index.ancestor_id === row.parent_case_id,
+					);
 					await store.insert({
 						appId: scope.appId,
 						row: record,
 						parentRelationship:
 							types.get(row.case_type)?.relationship ?? "child",
+						...(edge === undefined
+							? {}
+							: { parentIdentifier: edge.identifier }),
 					});
 				},
 			);

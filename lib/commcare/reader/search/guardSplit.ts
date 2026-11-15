@@ -27,10 +27,18 @@ import {
 import { withCandidate } from "../candidate";
 import { translationEntryFor } from "../translations";
 
-/** The longest text after a space that every text ends with, leaving each a text before it. */
+/**
+ * The longest text after a space that every text ends with, leaving each a text before it, of
+ * those where neither the text nor any text before it has a character up to U+0020 at the end
+ * that meets the space (an app string Nova's gate admits, `localeFile.ts::localeFileValueIssue`);
+ * where no split is clean so, the longest of all, whose two sides the reader then holds as every
+ * app string is (`heldText.ts::holdText`). Every text Nova's emitter joins has a clean split, so
+ * the choice reads a Nova-born document's texts back as it holds them.
+ */
 export function sharedGuardText(texts: readonly string[]): string | undefined {
-	const [first, ...rest] = texts;
+	const [first] = texts;
 	if (first === undefined) return undefined;
+	let longest: string | undefined;
 	for (
 		let at = first.indexOf(" ", 1);
 		at !== -1;
@@ -39,13 +47,20 @@ export function sharedGuardText(texts: readonly string[]): string | undefined {
 		const suffix = first.slice(at + 1);
 		if (suffix === "") continue;
 		if (
-			rest.every(
+			!texts.every(
 				(one) => one.length > suffix.length + 1 && one.endsWith(` ${suffix}`),
 			)
 		)
-			return suffix;
+			continue;
+		longest ??= suffix;
+		const clean =
+			suffix.charCodeAt(0) > 0x20 &&
+			texts.every(
+				(one) => one.charCodeAt(one.length - suffix.length - 2) > 0x20,
+			);
+		if (clean) return suffix;
 	}
-	return undefined;
+	return longest;
 }
 
 /**

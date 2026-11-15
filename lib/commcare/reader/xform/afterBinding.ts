@@ -13,6 +13,7 @@
  * question or the form.
  */
 
+import type { Element } from "domhandler";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -48,6 +49,7 @@ import { fieldBindType } from "../../xform/bindType";
 import { protectConstraintMessage } from "../../xform/constraintMessage";
 import { questionDatetimeCaseValue } from "../../xform/datetimeCaseValue";
 import { formNodeProjection } from "../../xpath/formNodeProjection";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { withCandidate } from "../candidate";
 import { claimRegistry } from "../claims";
@@ -556,11 +558,27 @@ function checkModelIterations(
 }
 
 /**
- * One protected validation message (13.2): the question's `jr:constraintMsg` is the expression
- * `protectConstraintMessage` composes from the message as the document now holds it in every
- * language, each of its references standing where the text's own output does, and the text's
- * `__nova_` forms are exactly the ones it writes. Equal, the expression and the forms are
- * claimed as the message's; different, they are left for the close to report.
+ * One protected validation message (13.2), held to what Core shows in each language.
+ *
+ * Core evaluates the stored `jr:constraintMsg` in a language over that language's text table,
+ * which is the default language's text under every id and form key with the language's own laid
+ * over it (`Localizer.getLocaleData`; `jr:itext` reads it, `FormDef.initEvalContext`): the
+ * `__nova_locale` form it reads chooses a branch, and the `__nova_piece_` forms it reads are
+ * that branch's words. The stored expression is the composition over the languages the app held
+ * when Nova last wrote the form, each branch tested by the `__nova_locale` value its language
+ * wrote, and CommCare HQ rewrites neither when it adds a language, renames one (`rename_language`
+ * changes only the translation's `lang`) or reorders them, nor does a save in HQ's form builder,
+ * which fills a language that lacks a form with the default's (`javaRosa/plugin.js`,
+ * `getValueOrDefault`). So the composition is rebuilt over the branches the source holds
+ * (`messageBranches`), each the message of the language that wrote its forms, and printed back
+ * against the source with each of the message's references standing where the text's own
+ * output does; then every language must read (`shownForms`) exactly one branch's forms, and that
+ * branch's message must be the one the document holds for the language. A language CommCare HQ
+ * added after the publish, one whose text lacks the forms and one the form builder filled from
+ * the default thus read the default's message, which is what the document holds for them, and
+ * the first publish writes the composition over every language and each language's own forms
+ * (`forms-and-settings-rewritten`). Equal, the expression and the forms are claimed as the
+ * message's; different, they are left for the close to report.
  */
 function settleProtectedMessage(
 	ctx: ReadContext,
@@ -589,45 +607,15 @@ function settleProtectedMessage(
 		outputOf.set(JSON.stringify(atom), slot.registered[index]?.text ?? "");
 	});
 	const holeOf = new Map<string, string>();
-	const lower = (part: ProseAtomPart) => {
+	const holeFor = (part: ProseAtomPart): string => {
 		const identity = JSON.stringify(part);
 		const hole = holeOf.get(identity) ?? `${HOLE}_${holeOf.size}`;
 		holeOf.set(identity, hole);
-		return w.context([w.step(hole)]);
+		return hole;
 	};
 	const localization = commCareLocalization(doc);
 	const unitId = makeTranslationUnitId("field", uuid, "validate_msg");
-	ctx.accounting.noteRebuild();
-	const built = protectConstraintMessage(
-		message.textId,
-		localization.languages.map((language) => ({
-			language,
-			template: localization.prose(language, unitId),
-		})),
-		lower,
-	);
-	if (built === undefined) return;
-	const expected = new Map(
-		[...holeOf].map(([identity, hole]) => [hole, outputOf.get(identity)]),
-	);
-	const bound = matchesHoles(
-		message.bind.attribs[message.attribute] ?? "",
-		built.expression,
-		(name) => expected.has(name),
-	);
-	const sameExpression =
-		bound !== undefined &&
-		[...expected].every(([hole, output]) => {
-			const at = bound.get(hole);
-			const read = output === undefined ? undefined : readFormSyntax(output);
-			return (
-				at !== undefined &&
-				read?.ok === true &&
-				read.node !== undefined &&
-				sameSyntax(at, read.node, { ruleSet: "form" })
-			);
-		});
-	// The text's own forms, language by language, against the ones the composition writes.
+	// The text's own forms, language by language.
 	const wireCodes = planLanguageWire(
 		effectiveAppLocalization(doc.localization),
 	).wireCodeByTag;
@@ -639,24 +627,84 @@ function settleProtectedMessage(
 			),
 		}),
 	);
-	// Every language the composition writes forms for holds the text, so a language
-	// whose translation lacks it is a difference, not a pass.
-	const ownedCodes = new Set(owned.map(({ code }) => code));
-	const sameForms =
-		[...built.forms].every(
-			([code, want]) => want.length === 0 || ownedCodes.has(code),
-		) &&
-		owned.every(({ code, values }) => {
-			const want = code === undefined ? undefined : built.forms.get(code);
-			if (want === undefined || want.length !== values.length) return false;
-			const held = new Map(
-				values.map((value) => [value.attribs.form, ownText(value)] as const),
-			);
-			return want.every(
-				(value) => held.get(value.attribs.form) === ownText(value),
-			);
-		});
-	if (!sameExpression || !sameForms) return;
+	if (!owned.every(({ code }) => code !== undefined)) return;
+	const defaultCode =
+		text.itext.defaultLanguage === undefined
+			? undefined
+			: wireCodes.get(text.itext.defaultLanguage);
+	const stored = message.bind.attribs[message.attribute] ?? "";
+	const branches = messageBranches(
+		stored,
+		message.textId,
+		owned,
+		localization.languages,
+	);
+	// The branches the stored composition holds, each the message of the language whose forms
+	// it was written from, printed back against the source.
+	let held:
+		| {
+				readonly forms: ReadonlyMap<string, Element[]>;
+				readonly writerOf: ReadonlyMap<string, string>;
+		  }
+		| undefined;
+	for (const order of branches) {
+		ctx.accounting.noteRebuild();
+		const used = new Map<string, string | undefined>();
+		const composed = protectConstraintMessage(
+			message.textId,
+			order.map(({ label, writer: code }) => ({
+				language: label,
+				template: localization.prose(code, unitId),
+			})),
+			(part) => {
+				const hole = holeFor(part);
+				used.set(hole, outputOf.get(JSON.stringify(part)));
+				return w.context([w.step(hole)]);
+			},
+		);
+		if (composed === undefined) continue;
+		const bound = matchesHoles(stored, composed.expression, (name) =>
+			used.has(name),
+		);
+		const sameExpression =
+			bound !== undefined &&
+			[...used].every(([hole, output]) => {
+				const at = bound.get(hole);
+				const read = output === undefined ? undefined : readFormSyntax(output);
+				return (
+					at !== undefined &&
+					read?.ok === true &&
+					read.node !== undefined &&
+					sameSyntax(at, read.node, { ruleSet: "form" })
+				);
+			});
+		if (!sameExpression) continue;
+		held = {
+			forms: composed.forms,
+			writerOf: new Map(order.map(({ label, writer: code }) => [label, code])),
+		};
+		break;
+	}
+	if (held === undefined) return;
+	// Every language reads one branch's forms, and that branch shows the message the document
+	// holds for the language.
+	const { forms, writerOf } = held;
+	const sameForms = localization.languages.every((code) => {
+		const shown = shownForms(owned, code, defaultCode);
+		if (shown === undefined) return false;
+		const chosen = [...forms].find(([, want]) =>
+			sameFormValues(shown, want),
+		)?.[0];
+		const from = chosen === undefined ? undefined : writerOf.get(chosen);
+		return (
+			from !== undefined &&
+			sameJson(
+				localization.prose(from, unitId),
+				localization.prose(code, unitId),
+			)
+		);
+	});
+	if (!sameForms) return;
 	xform.cursor.derived(
 		{ element: message.bind, attribute: message.attribute },
 		G.messageExpression,
@@ -666,6 +714,156 @@ function settleProtectedMessage(
 			if (value.attribs.form === "__nova_identity")
 				xform.cursor.dropSubtree(value, G.messageIdentity);
 			else xform.cursor.derivedSubtree(value, G.messageForms);
+}
+
+/** One branch of a stored protected message: the `__nova_locale` value that chooses it and the
+ *  language whose forms hold that value, whose message the branch composes. */
+interface MessageBranch {
+	readonly label: string;
+	readonly writer: string;
+}
+
+/**
+ * The orders of branches a stored protected message may hold, each to be printed back. A branch
+ * is a `__nova_locale` value some language's own forms hold, each value the one the language it
+ * was written for wrote (`protectConstraintMessage` writes a language's code); its message is
+ * that language's: the one of that code where it still holds the value, else the first in the
+ * app's order that does (a language CommCare HQ renamed keeps the forms written under its old
+ * code). The order is the one the stored expression tests the values in, read from its tree, and
+ * the value no test names is the last branch's; where several could be, each is an order.
+ * Only a proposal: the composition over it is printed back and compared whole.
+ */
+function messageBranches(
+	stored: string,
+	id: string,
+	owned: readonly {
+		readonly code: string | undefined;
+		readonly values: readonly Element[];
+	}[],
+	languages: readonly string[],
+): MessageBranch[][] {
+	const ownLocale = (code: string): string | undefined => {
+		const values = owned
+			.filter((one) => one.code === code)
+			.flatMap(({ values }) => values)
+			.filter((value) => value.attribs.form === "__nova_locale");
+		return values.length === 1 && values[0] !== undefined
+			? ownText(values[0])
+			: undefined;
+	};
+	const writerOf = new Map<string, string>();
+	for (const code of languages) {
+		const label = ownLocale(code);
+		if (label === undefined) continue;
+		if (label === code || !writerOf.has(label)) writerOf.set(label, code);
+	}
+	const tested = testedLocales(stored, id);
+	if (tested === undefined) return [];
+	const branch = (label: string): MessageBranch | undefined => {
+		const writer = writerOf.get(label);
+		return writer === undefined ? undefined : { label, writer };
+	};
+	const head = tested.map(branch);
+	if (head.some((one) => one === undefined)) return [];
+	const lasts = [...writerOf.keys()].filter((label) => !tested.includes(label));
+	return lasts.map((last) => [
+		...(head as MessageBranch[]),
+		{ label: last, writer: writerOf.get(last) as string },
+	]);
+}
+
+/**
+ * The `__nova_locale` values a stored protected message tests, in order: the chain
+ * `if(jr:itext('<id>;__nova_locale') = '<value>', …, …)` inside its outer `__nova_mode` test,
+ * read from the parsed tree. Undefined where the text does not parse; a chain of another shape
+ * ends the list, and the print-back refuses it.
+ */
+function testedLocales(stored: string, id: string): string[] | undefined {
+	const read = readFormSyntax(stored);
+	if (!read.ok || read.node === undefined) return undefined;
+	const strip = (node: FormSyntax): FormSyntax =>
+		node.kind === "group" ? strip(node.value) : node;
+	const branchesOf = (node: FormSyntax): FormSyntax | undefined => {
+		const call = strip(node);
+		return call.kind === "call" && call.name === "if" && call.args.length === 3
+			? call
+			: undefined;
+	};
+	const tested: string[] = [];
+	const outer = branchesOf(read.node);
+	if (outer === undefined || outer.kind !== "call") return tested;
+	let chain = outer.args[2];
+	while (chain !== undefined) {
+		const call = branchesOf(chain);
+		if (call === undefined || call.kind !== "call") break;
+		const test = strip(call.args[0] as FormSyntax);
+		if (test.kind !== "binary" || test.op !== "=") break;
+		const left = strip(test.left);
+		const right = strip(test.right);
+		if (
+			left.kind !== "call" ||
+			left.name !== "jr:itext" ||
+			left.args.length !== 1 ||
+			right.kind !== "string"
+		)
+			break;
+		const name = strip(left.args[0] as FormSyntax);
+		if (name.kind !== "string" || name.value !== `${id};__nova_locale`) break;
+		tested.push(right.value);
+		chain = call.args[2];
+	}
+	return tested;
+}
+
+/**
+ * The `__nova_` forms of a protected message's text a device in language `code` reads, by form
+ * name: each of the language's own, and each it lacks the default language's
+ * (`Localizer.getLocaleData` loads the default locale's text under every id and form key, then
+ * the language's own over it, and `jr:itext` reads that merge, `FormDef.initEvalContext`). So a
+ * language whose translation lacks the text, or holds it without the forms, reads the default's
+ * forms, as a language HQ added after the publish does until its forms are written. Undefined
+ * where one translation holds two values of one form, which Core refuses
+ * (`XFormParser.parseTranslation`). A form neither holds falls back to the text's own value
+ * (`Localizer.getText`), which is no form Nova writes, so it leaves the form out and the
+ * comparison fails.
+ */
+function shownForms(
+	owned: readonly {
+		readonly code: string | undefined;
+		readonly values: readonly Element[];
+	}[],
+	code: string,
+	defaultCode: string | undefined,
+): Map<string, string> | undefined {
+	const formsOf = (of: string | undefined): Map<string, string> | undefined => {
+		const forms = new Map<string, string>();
+		if (of === undefined) return forms;
+		for (const { code: held, values } of owned)
+			if (held === of)
+				for (const value of values) {
+					const form = value.attribs.form ?? "";
+					if (forms.has(form)) return undefined;
+					forms.set(form, ownText(value));
+				}
+		return forms;
+	};
+	const own = formsOf(code);
+	const fallback = code === defaultCode ? new Map() : formsOf(defaultCode);
+	if (own === undefined || fallback === undefined) return undefined;
+	return new Map([...fallback, ...own]);
+}
+
+/** Whether the forms a language shows are exactly the values the composition writes. */
+function sameFormValues(
+	shown: ReadonlyMap<string, string>,
+	want: readonly Element[],
+): boolean {
+	return (
+		shown.size === want.length &&
+		want.every(
+			(value) => shown.get(value.attribs.form ?? "") === ownText(value),
+		)
+	);
 }
 
 /** Each Connect slot the emitter fills from its default where the slot is unset

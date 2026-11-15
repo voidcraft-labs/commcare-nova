@@ -74,7 +74,8 @@ import {
 	type HeldGeneratedKey,
 	repositionGeneratedKey,
 } from "./generatedTranslationKeys";
-import { sameJson } from "./jsonCursor";
+import { heldText, holdText, recordTextRewrite } from "./heldText";
+import { pointerToken, sameJson } from "./jsonCursor";
 import { resourcedDocument, sourceLanguageAsRead } from "./languages";
 import {
 	defaultPostSubmitAbsent,
@@ -93,7 +94,6 @@ import {
 import { requiredMessagesAsRead } from "./search/systemSentences";
 import {
 	deferredFormNames,
-	heldName,
 	namesRead,
 	recordNameRewrite,
 	refuseFormNameReadAsInstance,
@@ -1178,6 +1178,11 @@ function decideGeneratedKeys(
 	const languages = reading.languages;
 	const units = snapshotTranslationUnits(doc);
 	const folded = new Set<string>();
+	/* Where each folded unit's first key is stored, for a record of the change a worker meets. */
+	const foldSites = new Map<
+		TranslationUnitId,
+		{ readonly entry: string; readonly path: string }
+	>();
 	const foldValues = new Map<
 		TranslationUnitId,
 		Map<LanguageTag, LocalizedValue>
@@ -1201,11 +1206,14 @@ function decideGeneratedKeys(
 			held.json.account(held.key, CLAIMS.generatedNoEffect);
 			continue;
 		}
+		// A fold over a text Nova's gate admits no spelling of (a literal `\n`, a carriage return,
+		// a character XML cannot hold, `heldText.ts::holdText`) is no text Nova can hold.
 		if (
 			verdict.kind !== "fold" ||
 			!foldable ||
 			tag === undefined ||
-			unit === undefined
+			unit === undefined ||
+			holdText(verdict.value) === undefined
 		) {
 			held.json.refuse(held.key, CLAIMS.generatedAnythingElse, {
 				name: held.key,
@@ -1216,6 +1224,11 @@ function decideGeneratedKeys(
 			.value;
 		folds += 1;
 		foldedKeys.add(`${held.language}\u0000${held.key}`);
+		if (!foldSites.has(verdict.unit))
+			foldSites.set(verdict.unit, {
+				entry: CLAIMS.generatedOverOneText.entry,
+				path: `${held.json.pointer}/${pointerToken(held.key)}`,
+			});
 		const once = `${verdict.unit}\u0000${tag}`;
 		if (folded.has(once)) continue;
 		folded.add(once);
@@ -1229,7 +1242,14 @@ function decideGeneratedKeys(
 		if (source || doc.localization === undefined)
 			sourceFolds.set(verdict.unit, verdict.value);
 	}
-	const wireNames = keepShownText(ctx, doc, units, foldValues, sourceFolds);
+	const wireNames = keepShownText(
+		ctx,
+		doc,
+		units,
+		foldValues,
+		sourceFolds,
+		foldSites,
+	);
 	for (const { unit, before, after } of wireNames) {
 		const owner = units.get(unit)?.owner;
 		if (owner?.kind !== "form" || before === after) continue;
@@ -1291,9 +1311,10 @@ function blankValue(value: LocalizedValue): boolean {
  * for a menu's or form's name (`structure.ts::namesRead`), and for any other unit the text
  * Nova printed for that language before the folds. So a fold in one language changes no other
  * language's text but where HQ's build changes it too: the source language's fold never becomes
- * the text of a language that held its own. A name is then held as the structure stage holds
- * one (`structure.ts::heldName`), and where a worker would read another name in some language
- * the reading records it (`structure.ts::recordNameRewrite`).
+ * the text of a language that held its own. Every text is then held as every app string is
+ * (`heldText.ts::heldText`, by its unit's role), and where a worker would read another text in
+ * some language the reading records it under `text-spaces-dropped`, at a name's map
+ * (`structure.ts::recordNameRewrite`) or else at the first key folded over the text.
  *
  * Returns, for every folded text unit, the text Nova writes in the app's first language before
  * and after the folds: a form's name there is the one `formWireName` writes into its source.
@@ -1307,6 +1328,10 @@ function keepShownText(
 		ReadonlyMap<LanguageTag, LocalizedValue>
 	>,
 	sourceFolds: Map<TranslationUnitId, string>,
+	foldSites: ReadonlyMap<
+		TranslationUnitId,
+		{ readonly entry: string; readonly path: string }
+	>,
 ): readonly { unit: TranslationUnitId; before: string; after: string }[] {
 	const localization = doc.localization;
 	const languages = applicationReading(ctx)?.languages;
@@ -1365,27 +1390,32 @@ function keepShownText(
 			return blankValue(value) ? (firstShown ?? value) : value;
 		};
 		const sourceOne = coded.find((one) => one.tag === sourceTag);
-		/* A name is held as `structure.ts::heldName` holds what each language shows: never blank
-		 * beside a source that is not, never with a space at either end. */
+		/* A text is held as every app string is (`heldText.ts::heldText`): never with a space at
+		 * either end, and never blank beside a source that is not where its role requires text. */
 		const shownByCode = new Map<string, string>();
 		for (const one of coded) {
 			const value = hqShown(one);
 			if (typeof value === "string") shownByCode.set(one.code, value);
 		}
-		const heldNames =
-			name === undefined || sourceOne === undefined
+		const heldTexts =
+			sourceOne === undefined || shownByCode.size !== coded.length
 				? undefined
-				: heldName(
+				: heldText(
 						shownByCode,
 						coded.map((one) => one.code),
 						sourceOne.code,
+						unit.role,
 					);
-		if (name !== undefined && heldNames?.workersSeeAnother)
-			recordNameRewrite(ctx, name, true);
+		if (heldTexts?.workersSeeAnother) {
+			const site = foldSites.get(unitId);
+			if (name !== undefined) recordNameRewrite(ctx, name, true);
+			else if (site !== undefined)
+				recordTextRewrite(ctx, site, "list-settings-respelled", true);
+		}
 		const shown = (one: { code: string; tag: LanguageTag }): LocalizedValue =>
-			heldNames === undefined
+			heldTexts === undefined
 				? hqShown(one)
-				: (heldNames.translations.get(one.code) ?? heldNames.source);
+				: (heldTexts.translations.get(one.code) ?? heldTexts.source);
 		if (sourceOne !== undefined) {
 			const value = shown(sourceOne);
 			if (

@@ -23,13 +23,15 @@ import {
 	type SearchInputLookupOptions,
 } from "@/lib/domain/modules";
 import type { SearchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
+import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { withCandidate } from "../candidate";
 import {
 	appCodes,
+	type HeldTexts,
+	heldTextsIn,
 	languageMap,
-	shownTexts,
 	sourceCode,
 	sourceText,
 	translatedTexts,
@@ -44,6 +46,7 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { holdText, recordTextRewrite } from "../heldText";
 import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
@@ -281,6 +284,10 @@ export interface PromptReading {
 	readonly requiredWhen?: number;
 	readonly validationRule?: number;
 	readonly optionsFilter?: number;
+	/** By language code, the whole text Nova prints for the field's validation as the reading
+	 *  holds the stored one (`readValidation`): its message, held as every app string is, with
+	 *  the guard's text joined after it. The settle compares the projection's with it. */
+	readonly validationText?: Readonly<Record<string, string>>;
 	/** The provisional entry written into the draft. */
 	readonly input: SearchInputDef;
 }
@@ -434,13 +441,23 @@ function readPrompt(
 		prompt.used(key) && prompt.peek(key) !== "";
 	// Each text as HQ's build shows it in each app language (`app_strings.py`, `clean_trans` of
 	// the map): a language the map lacks, or holds blank, shows another language's text.
+	// Each is held as every app string is (`caseList/columns.ts::heldTextsIn`): no space at
+	// either end, and a label or message blank-looking in a language beside the source's text
+	// takes the source's text there.
 	const codes = appCodes(ctx);
-	const shownOf = (stored: unknown) => shownTexts(stored ?? {}, codes);
-	const label = shownOf(prompt.peek("label"));
-	const hintMap = shownOf(prompt.peek("hint"));
-	const requiredMap = requires
-		? shownOf(isJsonObject(storedRequired) ? storedRequired.text : undefined)
-		: {};
+	const heldOf = (stored: unknown, role: TranslationUnitRole) =>
+		heldTextsIn(stored ?? {}, codes, sourceCode(ctx), role);
+	const labelHeld = heldOf(prompt.peek("label"), "search-input-label");
+	const hintHeld = heldOf(prompt.peek("hint"), "search-input-hint");
+	const requiredHeld: HeldTexts | undefined = requires
+		? heldOf(
+				isJsonObject(storedRequired) ? storedRequired.text : undefined,
+				"search-input-required-message",
+			)
+		: { texts: {}, workersSeeAnother: false };
+	const label = labelHeld?.texts;
+	const hintMap = hintHeld?.texts;
+	const requiredMap = requiredHeld?.texts;
 	if (
 		label === undefined ||
 		hintMap === undefined ||
@@ -665,15 +682,25 @@ function readPrompt(
 		at: JsonCursor,
 		key: string,
 		entry: string,
-		shown: Readonly<Record<string, string>>,
+		read: HeldTexts | undefined,
 	) => {
-		if (at.used(key) && !spelledAsShown(at.peek(key), shown, codes))
-			sameState(ctx, entry, `${at.pointer}/${key}`, "list-settings-respelled");
+		if (
+			read !== undefined &&
+			at.used(key) &&
+			(read.workersSeeAnother ||
+				!spelledAsShown(at.peek(key), read.texts, codes))
+		)
+			recordTextRewrite(
+				ctx,
+				{ entry, path: `${at.pointer}/${key}` },
+				"list-settings-respelled",
+				read.workersSeeAnother,
+			);
 	};
 	prompt.take("label", P.label, languageMap).value;
 	prompt.take("hint", P.hint, languageMap).value;
-	respelled(prompt, "label", P.label.entry, label);
-	respelled(prompt, "hint", P.hint.entry, hintMap);
+	respelled(prompt, "label", P.label.entry, labelHeld);
+	respelled(prompt, "hint", P.hint.entry, hintHeld);
 	const register = (
 		slot:
 			| "search_input_default"
@@ -722,7 +749,7 @@ function readPrompt(
 		const test = assertion.peek("test");
 		assertion.take("text", P.requiredText, languageMap).value;
 		const text = requiredMap;
-		respelled(assertion, "text", P.requiredText.entry, text);
+		respelled(assertion, "text", P.requiredText.entry, requiredHeld);
 		required = {};
 		if (typeof test === "string" && test.trim() === "true()")
 			assertion.take("test", P.requiredAlways, String).value;
@@ -754,9 +781,17 @@ function readPrompt(
 	const first = validationList[0];
 	if (first !== undefined && validation !== undefined) {
 		first.take("text", P.validationText, languageMap).value;
-		const shown = shownOf(first.peek("text"));
-		if (shown !== undefined)
-			respelled(first, "text", P.validationText.entry, shown);
+		const whole = validationTexts(ctx, first.peek("text"), codes);
+		respelled(
+			first,
+			"text",
+			P.validationText.entry,
+			whole !== undefined &&
+				validation.kind === "checked" &&
+				validation.workersSeeAnother
+				? { ...whole, workersSeeAnother: true }
+				: whole,
+		);
 		if (validation.kind === "guard") first.derived("test", P.validationGuard);
 		else {
 			if (validation.rule !== undefined)
@@ -862,6 +897,7 @@ function readPrompt(
 		...(requiredWhen !== undefined && { requiredWhen }),
 		...(validationRule !== undefined && { validationRule }),
 		...(optionsFilter !== undefined && { optionsFilter }),
+		...(validation?.kind === "checked" && { validationText: validation.held }),
 		input: entry,
 	};
 }
@@ -875,6 +911,12 @@ type ValidationReading =
 			readonly kind: "checked";
 			readonly rule?: string;
 			readonly messages: Readonly<Record<string, string>>;
+			/** By language code, the whole text Nova prints for the validation: each message with the
+			 *  guard's text joined after it where the check carries the guard. */
+			readonly held: Readonly<Record<string, string>>;
+			/** Whether Nova's join of a message and the guard's text shows another text than the
+			 *  stored text did in some language: the message's end lost a space. */
+			readonly workersSeeAnother: boolean;
 	  };
 
 /** `stored`, a prompt's first validation, as `ValidationReading`; `"unreadable"` where its text
@@ -885,7 +927,7 @@ function readValidation(
 	codes: readonly string[],
 ): ValidationReading | "unreadable" | undefined {
 	if (!isJsonObject(stored)) return undefined;
-	const text = shownTexts(stored.text ?? {}, codes);
+	const text = validationTexts(ctx, stored.text, codes)?.texts;
 	if (text === undefined) return "unreadable";
 	const test = stored.test;
 	const authored = withoutRuntimeGuard(
@@ -898,23 +940,48 @@ function readValidation(
 			? undefined
 			: guardTexts(ctx).get(authored.guard.key);
 	const rule = authored.kind === "split" ? authored.rule : test;
-	const messages =
-		authored.kind === "split"
-			? Object.fromEntries(
-					Object.entries(text).map(([code, one]) => [
-						code,
-						withoutSuffix(
-							one,
-							` ${guarded?.get(code) ?? authored.guard.message}`,
-						),
-					]),
-				)
-			: text;
+	// Each language's own message is the text before the guard's, held as every app string is
+	// (`heldText.ts::holdText`): a message whose end meets the guard's text with a space of its
+	// own loses it, so Nova's join, one space between, shows one space fewer there.
+	let workersSeeAnother = false;
+	const messages: Record<string, string> = { ...text };
+	const held: Record<string, string> = { ...text };
+	if (authored.kind === "split")
+		for (const [code, one] of Object.entries(text)) {
+			const suffix = ` ${guarded?.get(code) ?? authored.guard.message}`;
+			if (!one.endsWith(suffix)) continue;
+			const before = one.slice(0, one.length - suffix.length);
+			const message = holdText(before) ?? before;
+			messages[code] = message;
+			held[code] = `${message}${suffix}`;
+			if (held[code] !== one) workersSeeAnother = true;
+		}
 	return {
 		kind: "checked",
 		...(typeof rule === "string" && rule.trim() !== "" && { rule }),
 		messages,
+		held,
+		workersSeeAnother,
 	};
+}
+
+/**
+ * A stored validation's text, its field's message with the runtime guard's sentence joined after
+ * it where the check carries one (`searchPrompts.ts::buildValidation`), as a reading holds it
+ * (`caseList/columns.ts::heldTextsIn`): no space at either end, and a language blank-looking
+ * beside the source's text takes the source's whole text there, guard sentence included.
+ */
+function validationTexts(
+	ctx: ReadContext,
+	stored: unknown,
+	codes: readonly string[],
+): HeldTexts | undefined {
+	return heldTextsIn(
+		stored ?? {},
+		codes,
+		sourceCode(ctx),
+		"search-input-validation-message",
+	);
 }
 
 /** The app's language codes, the reading's source first and the rest in the app's order: the
@@ -944,7 +1011,9 @@ const GUARD_TEXTS = new WeakMap<
  * which may be other than the first. In any other language the text is `guardSplit.ts::readGuardText`'s: a
  * text that is the guard alone as it stands; else, where every text that joins it ends with the
  * source sentence, untranslated; else the longest text after a space that every joined text of
- * that language ends with and that leaves each field a message of its own. The stored bytes are
+ * that language ends with and that leaves each field a message of its own, a split whose sides
+ * meet the space with no space of their own first (`guardSplit.ts::sharedGuardText`). Each text
+ * is held as every app string is (`heldText.ts::holdText`). The stored bytes are
  * the join alone, so the last is the reading's choice of where one field's message ends, which
  * the canonical choice `joined-search-guards-split-as-read` makes of a Nova-born document; the
  * whole menu's projection holds every choice. Each text read is written as the unit's
@@ -965,7 +1034,7 @@ function guardTexts(
 			? prompt.validations[0]
 			: undefined;
 		if (!isJsonObject(first)) continue;
-		const text = shownTexts(first.text ?? {}, codes);
+		const text = validationTexts(ctx, first.text, codes)?.texts;
 		if (text === undefined) continue;
 		const reading = withoutRuntimeGuard(
 			first.test,
@@ -998,7 +1067,9 @@ function guardTexts(
 				code === source
 					? entry.message
 					: readGuardText(entry.message, given, texts);
-			if (read !== undefined) byCode.set(code, read);
+			// A text split from a join is held as every app string is (`heldText.ts::holdText`).
+			const held = read === undefined ? undefined : holdText(read);
+			if (held !== undefined) byCode.set(code, held);
 		}
 		out.set(key, byCode);
 		ctx.translations.set(
@@ -1039,7 +1110,12 @@ function requiredDefaultTexts(
 			: storedPrompts(ctx.app.peek("modules"))
 					.map((prompt) =>
 						isJsonObject(prompt.required)
-							? shownTexts(prompt.required.text ?? {}, appCodes(ctx))
+							? heldTextsIn(
+									prompt.required.text ?? {},
+									appCodes(ctx),
+									source,
+									"search-input-required-message",
+								)?.texts
 							: undefined,
 					)
 					.find(
@@ -1059,12 +1135,6 @@ function requiredDefaultTexts(
 		translatedTexts(ctx, Object.fromEntries(out)),
 	);
 	return out;
-}
-
-function withoutSuffix(text: string, suffix: string): string {
-	return text.endsWith(suffix)
-		? text.slice(0, text.length - suffix.length)
-		: text;
 }
 
 /** Whether `input` is a simple Search field that names, as its mode, the mode its widget takes

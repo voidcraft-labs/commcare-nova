@@ -45,20 +45,28 @@ const HQ_CASE_GENERATION_PREFIXES = [
  * `parent/parent/` — so a read of any case type lands as its
  * `#case/`-generation equivalent, whatever the type is called.
  *
- * Depth ≥ 3 (beyond HQ's three named generations) falls back to the
- * parent-chain spelling (`#case/parent/parent/parent/<prop>`) — HQ's own
- * normalization shows chains are its internal canonical form, and the load map
- * is string-recorded metadata, not editor-parsed XPath. This projects the
+ * The rest of the path names each index the read walks
+ * (`caseTypeDepths.ts::caseTypeHopMap`), as HQ resolves it, one relationship
+ * name at a time (`app_case_metadata.py::AppCaseMetadata.get_property_list`,
+ * over `get_parent_type_map`, whose keys are the index names the app's forms
+ * write). A walk of `parent` indices alone takes HQ's generation names; depth
+ * ≥ 3 (beyond HQ's three named generations) falls back to the parent-chain
+ * spelling (`#case/parent/parent/parent/<prop>`) — HQ's own normalization
+ * shows chains are its internal canonical form, and the load map is
+ * string-recorded metadata, not editor-parsed XPath. A walk through any other
+ * index spells every index by name (`#case/home/<prop>`). This projects the
  * typed read, never reference text.
  */
 export function hqLoadReference(
 	caseType: string,
 	property: string,
-	caseTypeDepths: ReadonlyMap<string, number>,
+	caseTypeHops: ReadonlyMap<string, readonly string[]>,
 ): string | undefined {
-	const depth = caseTypeDepths.get(caseType);
-	if (depth === undefined) return undefined;
-	const prefix =
-		HQ_CASE_GENERATION_PREFIXES[depth] ?? `#case/${"parent/".repeat(depth)}`;
+	const hops = caseTypeHops.get(caseType);
+	if (hops === undefined) return undefined;
+	const prefix = hops.every((identifier) => identifier === "parent")
+		? (HQ_CASE_GENERATION_PREFIXES[hops.length] ??
+			`#case/${"parent/".repeat(hops.length)}`)
+		: `#case/${hops.map((identifier) => `${identifier}/`).join("")}`;
 	return prefix + property;
 }
