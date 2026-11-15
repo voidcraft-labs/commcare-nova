@@ -1388,17 +1388,20 @@ function readUpdateMap(
 			continue;
 		}
 		const ownWrite = slot === "own" && loads && !facet && via === undefined;
-		// The rows the own case's `update` names by its key.
+		// The rows the own case's `update` names by its key: a key through the
+		// cases above the loaded one is its own row's.
 		const keyClaim =
-			slot !== "own" || indices.length > 0
-				? undefined
-				: property === "name" && r.type !== "registration"
-					? BASIC_CLAIMS.nameKey
-					: property === "owner_id"
-						? BASIC_CLAIMS.ownerKey
-						: categoryOrState
-							? BASIC_CLAIMS.categoryStateKey
-							: undefined;
+			via !== undefined
+				? BASIC_CLAIMS.viaOnLoad
+				: slot !== "own" || indices.length > 0
+					? undefined
+					: property === "name" && r.type !== "registration"
+						? BASIC_CLAIMS.nameKey
+						: property === "owner_id"
+							? BASIC_CLAIMS.ownerKey
+							: categoryOrState
+								? BASIC_CLAIMS.categoryStateKey
+								: undefined;
 		const read = readUpdate(r, cursor, property, ownWrite, pathClaim, keyClaim);
 		if (!read.ok || read.value === undefined) continue;
 		// The own case and the worker's record are written once, from questions in no repeat.

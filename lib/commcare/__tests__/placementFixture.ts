@@ -64,7 +64,7 @@ export function placementFixture(
 				properties: [
 					{ name: "case_name", label: "Name" },
 					{ name: "age", label: "Age" },
-					{ name: "status", label: "Status" },
+					{ name: "outcome", label: "Outcome" },
 					{ name: "photo_url", label: "Photo" },
 				],
 			},
@@ -146,7 +146,13 @@ export function placementFixture(
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
-				forms: [{ name: "Kid survey", type: "survey" }],
+				forms: [
+					{
+						name: "Kid survey",
+						type: "survey",
+						fields: [field({ kind: "text", id: "kid_remark" })],
+					},
+				],
 			},
 			{
 				name: "Visits",
@@ -154,7 +160,13 @@ export function placementFixture(
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
-				forms: [{ name: "Visit survey", type: "survey" }],
+				forms: [
+					{
+						name: "Visit survey",
+						type: "survey",
+						fields: [field({ kind: "text", id: "visit_remark" })],
+					},
+				],
 			},
 		],
 	});

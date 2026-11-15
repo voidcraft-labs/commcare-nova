@@ -22,11 +22,13 @@
  * as a respelling, or a respelling recorded as a change workers see; a blank translation of a text
  * whose role allows one filled with the source's text.
  */
+import AdmZip from "adm-zip";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
@@ -44,6 +46,7 @@ import { proseText } from "@/lib/domain/prose";
 import { SEARCH_RUNTIME_VALIDATION_MESSAGES } from "@/lib/domain/searchRuntimeValidationMessages";
 import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUnits";
 import type { Uuid } from "@/lib/domain/uuid";
+import { compileCcz } from "../../compiler";
 import { expandDoc } from "../../expander";
 import { commCareLocalization } from "../../localization";
 import { runValidation } from "../../validator/runner";
@@ -67,15 +70,21 @@ const LANGS = ["es", "en"] as const;
  * blank: `dumps` writes a text Python strips to nothing as one non-breaking space and a line
  * break as `\n`, Core ends the line at a carriage return and trims it, dropping every character
  * up to U+0020 at its end, before it reads `\n`, whether `dumps` wrote it or the text held it,
- * as a line break. The test's texts hold ASCII spaces, line breaks, carriage returns and
- * backslashes only.
+ * as a line break. `dumps` also writes a `#` no backslash precedes as `\#`, and Core reads `\#`
+ * as `#` before it reads `\n`, so a backslash before `#` is not shown. The test's texts hold
+ * ASCII letters, spaces, line breaks, carriage returns, backslashes and `#` only.
  */
 function onDevice(text: string): string {
 	if (text.trim() === "") return "";
-	const line = text.replaceAll("\n", "\\n").split("\r")[0] ?? "";
+	const lines = text.replaceAll("\n", "\\n");
+	let written = "";
+	for (let index = 0; index < lines.length; index += 1)
+		written +=
+			lines[index] === "#" && lines[index - 1] !== "\\" ? "\\#" : lines[index];
+	const line = written.split("\r")[0] ?? "";
 	let end = line.length;
 	while (end > 0 && line.charCodeAt(end - 1) <= 0x20) end -= 1;
-	return line.slice(0, end).replaceAll("\\n", "\n");
+	return line.slice(0, end).replaceAll("\\#", "#").replaceAll("\\n", "\n");
 }
 
 /** A language's own app string, `clean_trans(map, [lang] + langs)`. */
@@ -618,6 +627,43 @@ describe("an app string read from CommCare HQ", () => {
 			stored: (map) => ({ ...map, en: "Patient\\nname" }),
 			register: "list-settings-respelled",
 		},
+		// A backslash before `#` is left by `dumps` and read by Core as `#` alone, so the reading
+		// holds the `#` a device showed and only the stored map is new.
+		{
+			surface: SURFACES.menuName,
+			case: "with a backslash before `#` inside a language's text",
+			stored: (map) => ({ ...map, es: "Visita \\#1" }),
+			register: "names-respelled",
+		},
+		{
+			surface: SURFACES.formName,
+			case: "with a backslash before `#` inside the source's text",
+			stored: (map) => ({ ...map, en: "Visit \\#1 and #2" }),
+			register: "names-respelled",
+		},
+		{
+			surface: SURFACES.header,
+			case: "with a backslash before `#` inside a language's text",
+			stored: (map) => ({ ...map, es: "Nombre \\#" }),
+			register: "list-settings-respelled",
+		},
+		{
+			surface: SURFACES.label,
+			case: "with a backslash before `#` inside the source's text",
+			stored: (map) => ({ ...map, en: "Patient \\#" }),
+			register: "list-settings-respelled",
+		},
+		{
+			surface: SURFACES.register,
+			case: "with a backslash before `#` inside every language's text",
+			stored: () => ({ en: "New \\#", es: "Nuevo \\#" }),
+			register: "list-settings-respelled",
+		},
+		{
+			surface: SURFACES.header,
+			case: "with a `#` no backslash precedes, which a device shows as it is",
+			stored: (map) => ({ ...map, es: "Nombre #1" }),
+		},
 		// A device shows only the text before a carriage return, and a rest with no `=` defines
 		// no app string, so the reading holds what it showed.
 		{
@@ -1041,6 +1087,31 @@ describe("an app string whose rest after a carriage return defines another app s
 		).toEqual([[LINE_END_ENTRY, "case-list", "modules.m0"]]);
 	});
 
+	// Where a language's text shows none of itself (nothing before the carriage return), Nova
+	// holds no spelling of the label, which is left unrecognized at the case list as a menu's
+	// name is, and is one finding whether or not another language holds the blank HQ's build
+	// fills.
+	it("in a Register button's label a device shows none of is left unrecognized at the case list alone, beside a language HQ's build fills too", async () => {
+		for (const label of [
+			{ en: "", es: "\rmodules.m0=X" },
+			{ en: "New patient", es: "\rmodules.m0=X" },
+		]) {
+			const body = exportedBody(registrationDoc());
+			set(body, ["modules", 1, "case_list_form", "label"], label);
+			const outcome = readHqApp(await inputFor(body));
+			expect(outcome.defects).toEqual([]);
+			expect(outcome.kind).toBe("account");
+			if (outcome.kind !== "account") return;
+			expect(
+				outcome.findings.map((finding) => [
+					finding.code,
+					finding.place.kind,
+					finding.detail?.name,
+				]),
+			).toEqual([["unrecognized", "case-list", "schema:CaseListForm.label"]]);
+		}
+	});
+
 	// HQ's build writes every non-empty value of an app language's translations into its file,
 	// whatever the key names (`SelectKnownAppStrings.app_strings_parts`, `non_empty_only`).
 	const translationCases: readonly {
@@ -1150,16 +1221,191 @@ describe("a name a device shows with a line break where CommCare HQ stores `\\n`
 	});
 
 	it("in the app's `name` is refused at the app: Android's app picker shows the profile's name as stored", async () => {
+		for (const name of ["Health\\napp", "Health app \\#1"]) {
+			const body = exportedBody(PROMPTS);
+			body.name = name;
+			const outcome = readHqApp(await inputFor(body));
+			expect(outcome.defects).toEqual([]);
+			expect(outcome.kind).toBe("account");
+			if (outcome.kind !== "account") return;
+			expect(
+				outcome.findings.map((finding) => [finding.code, finding.place.kind]),
+			).toEqual([["unrecognized", "app"]]);
+		}
+	});
+});
+
+/**
+ * The string CommCare Core reads for `key` from an `app_strings.txt`, as
+ * `LocalizationUtils.parseLocaleInput` reads it at the pin: each line ended at a line break or
+ * a carriage return, trimmed, a `#` no backslash precedes and what follows it dropped, the key
+ * before the first `=`, and the value after it with `\#` read as `#` and then `\n` as a line
+ * break. A later line for one key wins.
+ */
+function coreAppString(file: string, key: string): string | undefined {
+	let found: string | undefined;
+	for (const raw of file.split(/\r\n|\r|\n/)) {
+		// Java's `String.trim()`: every character up to U+0020 at both ends.
+		let start = 0;
+		let end = raw.length;
+		while (start < end && raw.charCodeAt(start) <= 0x20) start += 1;
+		while (end > start && raw.charCodeAt(end - 1) <= 0x20) end -= 1;
+		let line = raw.slice(start, end);
+		let dec = line.length;
+		for (;;) {
+			const at = line.slice(0, dec).lastIndexOf("#");
+			if (at === -1) break;
+			if (at === 0 || line[at - 1] !== "\\") {
+				line = line.slice(0, at);
+				dec = line.length;
+			} else dec = at;
+		}
+		const equal = line.indexOf("=");
+		if (equal === -1 || equal === line.length - 1) continue;
+		if (line.slice(0, equal) !== key) continue;
+		found = line
+			.slice(equal + 1)
+			.split("\\#")
+			.join("#")
+			.split("\\n")
+			.join("\n");
+	}
+	return found;
+}
+
+describe("a menu's name read with a backslash before `#`, printed into Nova's own archive", () => {
+	it("shows on a device what HQ's build of the source showed", async () => {
+		const { body, draft } = await read(PROMPTS, (body) => {
+			set(body, ["modules", 0, "name"], {
+				es: "Visitas \\#1",
+				en: "Visits \\#1 and #2",
+			});
+		});
+		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const before = shows(get(body, ["modules", 0, "name"]));
+		expect(before).toEqual({ es: "Visitas #1", en: "Visits #1 and #2" });
+		const zip = new AdmZip(
+			compileCcz(expandDoc(draft.doc), draft.doc.appName, draft.doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		for (const lang of LANGS)
+			expect(
+				coreAppString(zip.readAsText(`${lang}/app_strings.txt`), "modules.m0"),
+			).toBe(before[lang]);
+	});
+});
+
+describe("an app string a device shows with a backslash before `#`", () => {
+	// Two backslashes then `#` are left by `dumps` and shown by Core as one backslash then `#`,
+	// which only a text holding a backslash before `#` spells, and the gate admits none.
+	it("in a column's header has no spelling Nova's gate admits and is left unrecognized at the case list", async () => {
 		const body = exportedBody(PROMPTS);
-		body.name = "Health\\napp";
+		for (const path of SURFACES.header.at) {
+			const map = (get(body, path) ?? {}) as Texts;
+			set(body, path, { ...map, es: "Nombre \\\\#" });
+		}
 		const outcome = readHqApp(await inputFor(body));
 		expect(outcome.defects).toEqual([]);
 		expect(outcome.kind).toBe("account");
 		if (outcome.kind !== "account") return;
 		expect(
 			outcome.findings.map((finding) => [finding.code, finding.place.kind]),
-		).toEqual([["unrecognized", "app"]]);
+		).toEqual([
+			["unrecognized", "case-list"],
+			["unrecognized", "case-detail"],
+		]);
 	});
+});
+
+/**
+ * Android's menu list, its Register button and Search field labels, and every screen title read
+ * a menu's or form's name and those labels through Core's argument filler
+ * (`Localizer.processArguments`, `localeFile.ts::argumentScreenIssue`), which shows
+ * `Visitas ${0}` as `Visitas` there while Web Apps' menu list shows it as stored, so Nova holds
+ * no text that shows alike on every screen. Every other app string no screen reads that way.
+ */
+describe("an app string a screen reads as a placeholder", () => {
+	const PLACEHOLDER = `Visitas \${0}`;
+	const refused = [
+		[SURFACES.menuName, "menu", "schema:Module.name"],
+		[SURFACES.formName, "form", "schema:Form.name"],
+		[SURFACES.menuItem, "case-list", "schema:CaseList.label"],
+		[SURFACES.register, "case-list", "schema:CaseListForm.label"],
+	] as const;
+	for (const [surface, place, key] of refused)
+		it(`in ${surface.title} has no spelling Nova's gate admits and is left unrecognized at its place alone`, async () => {
+			const body = exportedBody(surface.doc);
+			for (const path of surface.at) {
+				const map = (get(body, path) ?? {}) as Texts;
+				set(body, path, { ...map, es: PLACEHOLDER });
+			}
+			const outcome = readHqApp(await inputFor(body));
+			expect(outcome.defects).toEqual([]);
+			expect(outcome.kind).toBe("account");
+			if (outcome.kind !== "account") return;
+			expect(
+				outcome.findings.map((finding) => [
+					finding.code,
+					finding.place.kind,
+					finding.detail?.name,
+				]),
+			).toEqual([["unrecognized", place, key]]);
+		});
+
+	it("in a Search field's label has no spelling Nova's gate admits and is left unrecognized at the search", async () => {
+		const body = exportedBody(PROMPTS);
+		for (const path of SURFACES.label.at) {
+			const map = (get(body, path) ?? {}) as Texts;
+			set(body, path, { ...map, es: PLACEHOLDER });
+		}
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") return;
+		expect(
+			outcome.findings.map((finding) => [
+				finding.code,
+				finding.place.kind,
+				finding.detail?.name,
+			]),
+		).toContainEqual([
+			"unrecognized",
+			"search",
+			"schema:CaseSearchProperty.label",
+		]);
+	});
+
+	it("in a menu's name that starts with a placeholder opener no } follows, which every screen shows as stored, is held as it is", async () => {
+		const opening = `\${Visitas`;
+		const { body, draft } = await read(PROMPTS, (body) => {
+			const path = SURFACES.menuName.at[0];
+			set(body, path, { ...((get(body, path) ?? {}) as Texts), es: opening });
+		});
+		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(shows(get(republished(draft.doc), SURFACES.menuName.at[0]))).toEqual(
+			shows(get(body, SURFACES.menuName.at[0])),
+		);
+	});
+
+	for (const surface of [
+		SURFACES.header,
+		SURFACES.hint,
+		SURFACES.description,
+	] as const)
+		it(`in ${surface.title}, which no screen reads as a placeholder, is held as a device shows it`, async () => {
+			const { body, draft } = await read(surface.doc, (body) => {
+				for (const path of surface.at) {
+					const map = (get(body, path) ?? {}) as Texts;
+					set(body, path, { ...map, es: PLACEHOLDER });
+				}
+			});
+			expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+			const path = surface.at[0];
+			expect(surface.shows(get(republished(draft.doc), path))).toEqual(
+				surface.shows(get(body, path)),
+			);
+		});
 });
 
 /**
@@ -1382,6 +1628,12 @@ describe("an app translation folded over a choice's label", () => {
 	it("over the two characters `\\n` is held as the line break a device shows, which no worker reads otherwise", async () => {
 		const read = await fold("Act\\nive");
 		expect(read.value).toEqual(proseText("Act\nive"));
+		expect(read.workerRecords).toEqual([]);
+	});
+
+	it("over a backslash before `#` is held as the `#` a device shows, which no worker reads otherwise", async () => {
+		const read = await fold("Act\\#ive");
+		expect(read.value).toEqual(proseText("Act#ive"));
 		expect(read.workerRecords).toEqual([]);
 	});
 

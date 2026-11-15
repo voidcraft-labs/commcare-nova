@@ -31,6 +31,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression/types";
 import {
 	advancedFixture,
 	OP,
@@ -40,11 +41,14 @@ import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import { knownCaseTypesOf } from "../../index";
+import { readHqApp } from "./heldReading";
 
 const WORKER =
 	"forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes";
 const LOCATION = "forms-and-case-writes/update-keys-location-id-hq-user-id";
+const FACET =
+	"questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat";
 /** The worker property each export writes, renamed in the source to each key. */
 const WRITTEN = "zz_worker_note";
 const PROPERTY = testUuid("worker-keys-property") as Uuid;
@@ -160,6 +164,51 @@ async function readWith(doc: BlueprintDoc, key: string) {
 	);
 }
 
+const OTHER = "zz_worker_other";
+const OTHER_PROPERTY = testUuid("worker-keys-other") as Uuid;
+
+/** `doc` whose write of the worker's record also saves its value to a second
+ *  declared worker property, read with the two keys named `first` and
+ *  `second` in the source. */
+async function readWithTwo(doc: BlueprintDoc, first: string, second: string) {
+	const both = produce(doc, (draft) => {
+		draft.userProperties = {
+			...draft.userProperties,
+			[OTHER_PROPERTY]: { uuid: OTHER_PROPERTY, slug: OTHER, label: "Other" },
+		} as never;
+		draft.userPropertyOrder = [
+			...(draft.userPropertyOrder ?? []),
+			OTHER_PROPERTY,
+		];
+		for (const form of Object.values(draft.forms))
+			for (const operation of form.caseOperations ?? [])
+				if (
+					operation.action !== "own" &&
+					operation.target.kind === "worker-record"
+				) {
+					const [written] = operation.writes ?? [];
+					if (written !== undefined)
+						operation.writes?.push({ ...written, property: OTHER });
+				}
+	});
+	const rename = (text: string) =>
+		text.replaceAll(WRITTEN, first).replaceAll(OTHER, second);
+	const body = exportedBody(both, {
+		xml: rename,
+		modules: (modules) =>
+			JSON.parse(rename(JSON.stringify(modules))) as Record<string, unknown>[],
+	});
+	return readHqApp(
+		await inputFor(body, {
+			resolver: matchingResolver(
+				both.appId,
+				externalIdentityMap(both, DERIVED_WIRE_IDENTITY),
+			),
+			knownCaseTypes: knownCaseTypesOf(both),
+		}),
+	);
+}
+
 const PATHS = [
 	["usercase_update", () => basicApp(false)],
 	["a Save to Case block of commcare-user", () => basicApp(true)],
@@ -224,6 +273,21 @@ describe("a write of the worker's record to a key no worker property takes", () 
 		});
 	}
 
+	// Two keys that differ only in capitalization: CommCare writes each, but
+	// CommCare HQ's user-data schema and the gate hold one worker property of
+	// the two (`USER_PROPERTY_SLUG_DUPLICATE`), so the reading declares the
+	// first in code-unit order and refuses the write of the other.
+	for (const [path, app] of PATHS)
+		it(`is one finding for the second of \`Region\` and \`region\` in ${path}`, async () => {
+			const outcome = await readWithTwo(app(), "region", "Region");
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "account")
+				throw new Error("Both keys were held as worker properties.");
+			expect(
+				outcome.findings.map((one) => [one.code, one.detail.name]),
+			).toEqual([[WORKER, "region"]]);
+		});
+
 	// The block's own rows and HQ's `name` and `owner_id`, each the worker's
 	// record's name or owner, which HQ's user-case sync writes over.
 	for (const [path, app, key] of [
@@ -248,4 +312,265 @@ describe("a write of the worker's record to a key no worker property takes", () 
 					: [],
 			).toEqual([WORKER]);
 		});
+});
+
+/**
+ * A Save to Case update of the worker's record in a condition group or in a
+ * repeat: CommCare HQ's form builder takes both (it refuses only a create, a
+ * close or a link of `commcare-user`), and the gate refuses both
+ * (`CASE_OPERATION_TARGET_INVALID`, reason `worker-record-facet`), since Nova
+ * keeps a form's writes of the worker's record in one update that runs once
+ * on every submission. Each source is Nova's print of that update, the shape
+ * HQ's form builder keeps.
+ */
+describe("a Save to Case update of the worker's record that runs on a condition or per row", () => {
+	const KIDS = testUuid("worker-keys-kids");
+	const KID = testUuid("worker-keys-kid");
+	function workerApp(update: Partial<CaseOperation>): BlueprintDoc {
+		return declared(
+			buildDoc(
+				{
+					appId: "app-1",
+					caseTypes: [{ name: "patient", properties: [] }],
+					modules: [
+						{
+							name: "Patients",
+							caseType: "patient",
+							forms: [
+								{
+									uuid: "worker-keys-form",
+									name: "Visit",
+									type: "followup",
+									fields: [
+										f({ kind: "text", id: "note", uuid: NOTE }),
+										f({
+											kind: "repeat",
+											id: "kids",
+											uuid: KIDS,
+											children: [f({ kind: "text", id: "kid", uuid: KID })],
+										}),
+									],
+								},
+							],
+						},
+					],
+				},
+				(built) => {
+					built.forms[FORM] = {
+						...built.forms[FORM],
+						caseOperations: [
+							{
+								uuid: testUuid("worker-keys-update"),
+								id: "worker",
+								action: "update",
+								caseType: "commcare-user",
+								target: { kind: "worker-record" },
+								writes: [{ property: WRITTEN, value: term(formField(NOTE)) }],
+								...update,
+							} as CaseOperation,
+						],
+					} as never;
+				},
+			),
+		);
+	}
+
+	type FacetCase = readonly [string, Partial<CaseOperation>, string];
+	const cases: readonly FacetCase[] = [
+		[
+			"in its condition group",
+			{
+				condition: eq(term(formField(NOTE)), literal("yes")),
+				// A write's own condition keeps the update in a block.
+				writes: [
+					{
+						property: WRITTEN,
+						value: term(formField(NOTE)),
+						condition: eq(term(formField(NOTE)), literal("no")),
+					},
+				],
+			},
+			"nova_condition_worker",
+		],
+		[
+			"in a repeat",
+			{
+				forEach: { repeat: KIDS },
+				writes: [{ property: WRITTEN, value: term(formField(KID)) }],
+			},
+			"nova_operations",
+		],
+	];
+	for (const [name, update, shape] of cases)
+		it(`is one finding at the block ${name}, and no document`, async () => {
+			const doc = workerApp(update);
+			const verdict = mutationCommitVerdict(
+				doc,
+				[],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(
+				(verdict.ok ? [] : verdict.findings).map(
+					(one) => (one.details as { reason?: string } | undefined)?.reason,
+				),
+			).toContain("worker-record-facet");
+			// The source holds the update in a Save to Case block.
+			expect(JSON.stringify(exportedBody(doc))).toContain(shape);
+			const outcome = await readWith(doc, WRITTEN);
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "account")
+				throw new Error(
+					"An update of the worker's record the gate refuses was read.",
+				);
+			expect(outcome.findings.map((one) => one.code)).toEqual([FACET]);
+		});
+});
+
+/**
+ * A Save to Case update of the worker's record beside another update of it in
+ * the same form: CommCare HQ's form builder keeps each block, and a device
+ * and HQ's server apply both in the form's order, but the gate refuses a
+ * second update of the worker's record (`CASE_OPERATION_TARGET_INVALID`,
+ * reason `worker-record-twice`), since Nova keeps a form's writes of it in
+ * one update. Each source is Nova's print of two such updates (a write's own
+ * condition keeps an update in a block): `usercase_update` beside a block,
+ * two blocks, and an advanced form's load of the worker's record beside a
+ * block.
+ */
+describe("a Save to Case update of the worker's record beside another update of it", () => {
+	const TWICE =
+		"questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record";
+	function conditionalUpdate(name: string, value: Expression): CaseOperation {
+		return {
+			uuid: testUuid(`worker-keys-${name}`),
+			id: name,
+			action: "update",
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+			writes: [
+				{
+					property: WRITTEN,
+					value,
+					condition: eq(value, literal("yes")),
+				},
+			],
+		};
+	}
+	function withSecond(
+		doc: BlueprintDoc,
+		form: Uuid,
+		second: CaseOperation,
+	): BlueprintDoc {
+		return produce(doc, (draft) => {
+			draft.forms[form]?.caseOperations?.push(second as never);
+		});
+	}
+	const cases: readonly (readonly [string, () => BlueprintDoc])[] = [
+		[
+			"usercase_update beside a block",
+			() =>
+				withSecond(
+					basicApp(false),
+					FORM as Uuid,
+					conditionalUpdate("worker_b", term(formField(NOTE))),
+				),
+		],
+		[
+			"two blocks",
+			() =>
+				withSecond(
+					basicApp(true),
+					FORM as Uuid,
+					conditionalUpdate("worker_b", term(formField(NOTE))),
+				),
+		],
+		[
+			"the load auto-selected by usercase beside a block",
+			() => {
+				const doc = advancedApp();
+				const form = Object.keys(doc.forms).find((uuid) =>
+					(doc.forms[uuid as Uuid]?.caseOperations ?? []).some(
+						(one) =>
+							one.action !== "own" && one.target.kind === "worker-record",
+					),
+				) as Uuid;
+				return withSecond(
+					doc,
+					form,
+					conditionalUpdate("worker_b", read("name")),
+				);
+			},
+		],
+	];
+	for (const [name, app] of cases)
+		it(`is one finding at the form for ${name}`, async () => {
+			const doc = app();
+			const verdict = mutationCommitVerdict(
+				doc,
+				[],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(
+				(verdict.ok ? [] : verdict.findings).map(
+					(one) => (one.details as { reason?: string } | undefined)?.reason,
+				),
+			).toContain("worker-record-twice");
+			const outcome = await readWith(doc, WRITTEN);
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "account")
+				throw new Error(
+					"Two updates of the worker's record the gate refuses were read.",
+				);
+			expect(outcome.findings.map((one) => one.code)).toEqual([TWICE]);
+		});
+
+	// Two loads of the worker's record hold no block: the second load is
+	// refused where it is read, and this entry's finding is not given.
+	it("leaves a second load of the worker's record to the load's own refusal", async () => {
+		const doc = advancedApp();
+		const body = exportedBody(doc, {
+			modules: (modules) =>
+				modules.map((module) => ({
+					...module,
+					forms: (module.forms as Record<string, unknown>[]).map((form) => {
+						const actions = form.actions as Record<string, unknown> | undefined;
+						const loads = actions?.load_update_cases;
+						const worker = Array.isArray(loads)
+							? (loads as Record<string, unknown>[]).find(
+									(load) => load.auto_select,
+								)
+							: undefined;
+						return worker === undefined
+							? form
+							: {
+									...form,
+									actions: {
+										...actions,
+										load_update_cases: [
+											...(loads as Record<string, unknown>[]),
+											{ ...worker, case_tag: `${worker.case_tag}_2` },
+										],
+									},
+								};
+					}),
+				})),
+		});
+		const outcome = await readHqApp(
+			await inputFor(body, {
+				resolver: matchingResolver(
+					doc.appId,
+					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+				),
+				knownCaseTypes: knownCaseTypesOf(doc),
+			}),
+		);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "account")
+			throw new Error("A second load of the worker's record was read.");
+		const codes = outcome.findings.map((one) => one.code);
+		expect(codes).toContain(
+			"forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain",
+		);
+		expect(codes).not.toContain(TWICE);
+	});
 });

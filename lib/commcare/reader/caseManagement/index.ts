@@ -11,12 +11,16 @@
  * where it was read, and each scalar check folded out of a constraint
  * written back.
  */
-import { caseOperationWireOrderViolationDetails } from "@/lib/doc/caseOperationOrder";
+import {
+	caseOperationTargetTypeOrderViolations,
+	caseOperationWireOrderViolationDetails,
+} from "@/lib/doc/caseOperationOrder";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
 } from "@/lib/domain/caseScalarTextGuard";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { planFormCaseWire } from "../../casePlacementPlan";
 import { expandDoc } from "../../expander";
 import {
@@ -36,13 +40,14 @@ import {
 	placedBasic,
 	planPlacements,
 } from "../../placement";
+import { validateCaseOperations } from "../../validator/rules/caseOperations";
 import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace, whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
-import { holdsWorkerRecordWrite } from "../worldEntities";
+import { heldWorkerSlugs, holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
 import {
 	ADVANCED_CLAIMS,
@@ -54,6 +59,7 @@ import {
 	writeAdvancedOperations,
 } from "./advancedActions";
 import {
+	BASIC_CLAIMS,
 	basicCaseReading,
 	ownerQuestionPath,
 	readBasicActions,
@@ -74,6 +80,7 @@ import { inWireScopeOrder, ORDER_CLAIMS } from "./operationOrder";
 import { readPreloads, settlePreloads } from "./preloads";
 import {
 	readSaveToCaseBlocks,
+	SAVE_TO_CASE_CLAIMS,
 	saveToCaseReading,
 	settleSaveToCase,
 	writeSaveToCaseOperations,
@@ -117,7 +124,44 @@ export function writeCaseOperations(ctx: ReadContext, app: DraftApp): void {
 			holdWireScopeOrder(ctx, form);
 		}
 	writeAdvancedChains(ctx);
+	refuseWritesOfFoldedWorkerNames(ctx);
 	readCaseCatalog(ctx, app);
+}
+
+/**
+ * One finding at the form for each write of the worker's record to a name another write of it
+ * spells in other letters only (`region` beside `Region`): CommCare keeps the two apart, but a
+ * reading declares one worker property of the two (`worldEntities.ts::heldWorkerSlugs`, the
+ * first in code-unit order), since CommCare HQ's user-data schema and the gate hold slugs unique
+ * whatever their capitalization (`custom_data_fields/edit_model.py::
+ * CustomDataFieldsForm.verify_no_duplicates`, `USER_PROPERTY_SLUG_DUPLICATE`), and the gate holds
+ * every write of the worker's record to a declared one (`validateWorkerRecordProperty`). So the
+ * other is a key no worker property takes, refused under that entry by the claim of the place
+ * it was read from, with the key in `detail.name`.
+ */
+function refuseWritesOfFoldedWorkerNames(ctx: ReadContext): void {
+	const held = new Set(heldWorkerSlugs([], workerRecordWriteSlugs(ctx)));
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms)
+			for (const operation of form.form.caseOperations ?? [])
+				if (
+					operation.action !== "own" &&
+					operation.target.kind === "worker-record"
+				)
+					for (const write of operation.writes ?? [])
+						if (
+							holdsWorkerRecordWrite(write.property) &&
+							!held.has(write.property)
+						)
+							ctx.accounting.finding(
+								operation.placement?.kind === "save-to-case"
+									? SAVE_TO_CASE_CLAIMS.workerKey
+									: operation.placement?.kind === "advanced"
+										? ADVANCED_CLAIMS.loadWorkerKey
+										: BASIC_CLAIMS.workerKey,
+								form.place,
+								{ name: write.property },
+							);
 }
 
 /**
@@ -128,7 +172,8 @@ export function writeCaseOperations(ctx: ReadContext, app: DraftApp): void {
  * write names, beside those its logic reads (`provisional.ts::bindExpressions`).
  * Every write a reader stage holds names one (`worldEntities.ts::
  * holdsWorkerRecordWrite`, asked where each stage reads the key), so each slug
- * here is declared.
+ * here is declared, but one of two that differ only in capitalization, whose
+ * writes are refused (`refuseWritesOfFoldedWorkerNames`).
  */
 export function workerRecordWriteSlugs(ctx: ReadContext): string[] {
 	const slugs: string[] = [];
@@ -529,6 +574,15 @@ function settleBasicForm(
  * the gate asks it (`caseOperationWireOrderViolationDetails`): a keyed create
  * after a change that is no create in every order Nova writes, or a later
  * change in its repeat row that may be of its case. One finding at the form.
+ *
+ * Beside it, the gate's target-type rule over the same order
+ * (`caseOperationTargetTypeOrderViolations`): a block that gives a case
+ * another type (a keyed create of a type other than a later change reads, a
+ * `case_type` row) where a later change, Case Management's change of the
+ * form's own case among them, may read that case as its earlier type, or a
+ * `case_type` row in a repeat that may meet the type an earlier row gave. A
+ * device and CommCare HQ's server apply both in one order, and Nova's types
+ * hold neither: one finding at the form under its own entry.
  */
 function settleOperationOrder(
 	ctx: ReadContext,
@@ -536,9 +590,48 @@ function settleOperationOrder(
 	form: DraftForm,
 ): void {
 	if ((doc.forms[form.uuid]?.caseOperations ?? []).length === 0) return;
-	if (caseOperationWireOrderViolationDetails(doc, form.uuid).length === 0)
-		return;
-	ctx.accounting.finding(ORDER_CLAIMS.noOrder, form.place);
+	if (caseOperationWireOrderViolationDetails(doc, form.uuid).length > 0)
+		ctx.accounting.finding(ORDER_CLAIMS.noOrder, form.place);
+	if (caseOperationTargetTypeOrderViolations(doc, form.uuid).length > 0)
+		ctx.accounting.finding(ORDER_CLAIMS.typeChange, form.place);
+}
+
+/**
+ * A form that writes the worker's record in more than one update: a Save to
+ * Case block of `commcare-user` beside CommCare HQ's basic `usercase_update`,
+ * an advanced form's load of the worker's record, or another such block. HQ's
+ * form builder keeps each block (`saveToCase.js` refuses only a create, a
+ * close or a link of `commcare-user`), and a device and HQ's server apply every
+ * block in the form's order (Core's `CaseXmlParser` block by block; HQ's
+ * `casexml/apps/case/xform.py::get_case_updates` groups a case's blocks and
+ * sorts them stably by their first action, so two updates keep the form's
+ * order). Nova keeps a form's every write of the worker's record in one update
+ * (`validator/rules/caseOperations.ts::workerRecordFindings`, reason
+ * `worker-record-twice`), and no one update prints two blocks: one finding at
+ * the form, asked of the gate's own rule over the bound document.
+ */
+function settleWorkerRecordWrites(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	form: DraftForm,
+): void {
+	// Only a reading that holds a block of `commcare-user` is this entry's: a
+	// second load of the worker's record is refused where it is read.
+	const block = (form.form.caseOperations ?? []).some(
+		(operation) =>
+			operation.action !== "own" &&
+			operation.target.kind === "worker-record" &&
+			operation.placement?.kind === "save-to-case",
+	);
+	if (!block) return;
+	const moduleUuid = moduleUuidOfForm(doc, form.uuid);
+	if (moduleUuid === undefined) return;
+	if (
+		validateCaseOperations(doc, form.uuid, moduleUuid).some(
+			(finding) => finding.details?.reason === "worker-record-twice",
+		)
+	)
+		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.workerTwice, form.place);
 }
 
 /**
@@ -573,6 +666,7 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 			settleScalarChecks(ctx, ctx.doc ?? doc, form);
 			settlePreloads(ctx, form);
 			settleOperationOrder(ctx, ctx.doc ?? doc, form);
+			settleWorkerRecordWrites(ctx, ctx.doc ?? doc, form);
 		}
 	}
 	settleWriterTypes(ctx, app, ctx.doc ?? doc);

@@ -3310,6 +3310,32 @@
 		"gates": []
 	},
 	{
+		"id": "expressions-and-data/a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "a read of a place's `location_data/<name>` under a name no location property takes: one CommCare HQ's location fields or Nova refuse for a field (`name`, `external_id`, a `commcare` or `xml` prefix, a case-reserved word in any capitalization, past 127 characters), or one another `location_data` read of the app spells in other letters only (`Zone` beside `zone`)",
+		"surfaceKeys": [],
+		"noSurfaceKey": "a relation between a read's name and the location fields a project space can define, which no surface item states",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: unrepresentable identity: not a location property Nova can hold: Nova reads a place's data only through a location property the app declares, and no location property takes this name: CommCare HQ's location fields refuse a name it reserves for the system (`name`, `type`, `external_id` and the rest of `SYSTEM_FIELDS`) and a `commcare` or `xml` prefix as written, a case-reserved word in any capitalization, and hold slugs unique whatever their capitalization (`custom_data_fields/models.py::validate_reserved_words`, `custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_reserved_words`, `::verify_no_duplicates`); Nova holds the same uniqueness (`LOCATION_PROPERTY_SLUG_DUPLICATE`) and is stricter about reserved names, refusing the system names and the two prefixes in any capitalization (`validator/userPropertySlug.ts::userPropertySlugVerdict`, deliberately lowercased), so a name such as `Commcare_zone` or `XML_zone`, which HQ's location fields can hold, takes no location property either; Core reads each name as its own element (`location_data/Zone` and `location_data/zone` are two reads), so of two names that differ only in capitalization Nova holds the first in code-unit order (`worldEntities.ts::worldEntitiesFromReads`) and refuses the read of the other",
+		"subject": "expressions",
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "not a location property Nova can hold: Nova reads a place's data only through a location property the app declares, and no location property takes this name: CommCare HQ's location fields refuse a name it reserves for the system (`name`, `type`, `external_id` and the rest of `SYSTEM_FIELDS`) and a `commcare` or `xml` prefix as written, a case-reserved word in any capitalization, and hold slugs unique whatever their capitalization (`custom_data_fields/models.py::validate_reserved_words`, `custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_reserved_words`, `::verify_no_duplicates`); Nova holds the same uniqueness (`LOCATION_PROPERTY_SLUG_DUPLICATE`) and is stricter about reserved names, refusing the system names and the two prefixes in any capitalization (`validator/userPropertySlug.ts::userPropertySlugVerdict`, deliberately lowercased), so a name such as `Commcare_zone` or `XML_zone`, which HQ's location fields can hold, takes no location property either; Core reads each name as its own element (`location_data/Zone` and `location_data/zone` are two reads), so of two names that differ only in capitalization Nova holds the first in code-unit order (`worldEntities.ts::worldEntitiesFromReads`) and refuses the read of the other"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "expressions-and-data/a-form-expression-outside-what-nova-types",
 		"area": "expressions-and-data",
 		"section": "XPath functions and structure",

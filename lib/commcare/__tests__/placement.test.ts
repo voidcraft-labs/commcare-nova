@@ -203,7 +203,7 @@ const ROWS: readonly ConditionRow[] = [
 				action: "update",
 				caseType: "patient",
 				target: { kind: "op", opUuid: OWN },
-				writes: [write("status", read("status"))],
+				writes: [write("outcome", read("status"))],
 			} as CaseOperation,
 		]),
 		reason: "case-changed-before-create",
@@ -422,7 +422,7 @@ describe("Save to Case conditions", () => {
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
-			writes: [write("status", read("status"))],
+			writes: [write("outcome", read("status"))],
 			...extra,
 		}) as CaseOperation;
 	const subject: PlacementSubject = {
@@ -479,7 +479,7 @@ describe("Save to Case conditions", () => {
 				own({
 					writes: [
 						write("age", read("age"), { onlyIfChanged: true }),
-						write("status", read("status"), {
+						write("outcome", read("status"), {
 							via: [{ identifier: "parent" }],
 						}),
 					],
@@ -722,7 +722,7 @@ describe("the procedure", () => {
 					caseType: "patient",
 					target: { kind: "session" },
 					condition: read("flag"),
-					writes: [write("status", read("name"))],
+					writes: [write("outcome", read("name"))],
 				} as CaseOperation,
 			],
 		});

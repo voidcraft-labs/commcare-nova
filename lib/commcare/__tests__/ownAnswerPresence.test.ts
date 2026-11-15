@@ -26,7 +26,7 @@ it("guards an own-case answer row in a Save to Case block as the basic update do
 			own({
 				writes: [
 					{ property: "age", value: read("age") },
-					{ property: "status", value: concat(read("name"), read("name")) },
+					{ property: "outcome", value: concat(read("name"), read("name")) },
 				],
 			}),
 		],
@@ -44,5 +44,5 @@ it("guards an own-case answer row in a Save to Case block as the basic update do
 	const bindOf = (suffix: string) =>
 		binds.find((bind) => bind.attribs.nodeset?.endsWith(suffix))?.attribs;
 	expect(bindOf("/case/update/age")?.relevant).toBe("count(/data/age) > 0");
-	expect(bindOf("/case/update/status")?.relevant).toBeUndefined();
+	expect(bindOf("/case/update/outcome")?.relevant).toBeUndefined();
 });

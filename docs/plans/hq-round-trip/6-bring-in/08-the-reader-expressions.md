@@ -975,7 +975,21 @@ reading that gives the rows' compared types), and lists the `field` of each name
 field CommCare HQ writes on every worker's own case, as step 7 lists a slot's
 (`search/index.ts::searchRowUserFields(ctx)`). The frame adds them to the first run's `userFields`
 before it mints (`provisional.ts::bindExpressions`), so the row binds to the minted property at the
-settle.
+settle. The names the writes of the worker's record save to
+(`caseManagement/index.ts::workerRecordWriteSlugs`) go apart, as `writtenUserFields`. Of names
+that differ only in their capitalization (`Region`, `region`), which CommCare keeps apart and
+CommCare HQ's user-data and location-data schemas and the gate hold as one
+(`custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_duplicates`,
+`USER_PROPERTY_SLUG_DUPLICATE`, `LOCATION_PROPERTY_SLUG_DUPLICATE`), the frame mints one
+(`worldEntities.ts::heldWorkerSlugs`): the first written in code-unit order where a write names one,
+else the first read. A worker read of another binds to the name-backed `session-user` leaf, as
+`formUserProperty` binds a slug a held property spells in other letters only; a write of another
+is refused at its form (`caseManagement/index.ts::refuseWritesOfFoldedWorkerNames`, under
+`a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`); and a `location_data` read
+of another, or of a slug the gate refuses for a location property (`userPropertySlugVerdict`), is
+`unknown-location-property`, which `findings.ts::parseIssueEntry` places under
+`expressions-and-data/a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes`
+(`worldEntities.ts::locationDataNameRefused`).
 
 ```ts
 // lib/commcare/reader/expressions/index.ts

@@ -1733,14 +1733,27 @@ for a name), whose rules for a name are:
 - a name is held as a device shows it: `dumps` writes a line break as the two characters `\n` and
   Core reads those two characters back as a line break whoever wrote them (`parseValue`), so a name
   holding `\n` is held with the line break a device shows there (left to right, as `parseValue`
-  reads them), which `dumps` writes as the same line, and only the stored map is new; Core ends a
+  reads them), which `dumps` writes as the same line, and only the stored map is new; `dumps`
+  leaves a `#` a backslash precedes and Core reads `\#` as `#` (`parseValue`, before it reads
+  `\n`), so a name holding a backslash before `#` is held with the `#` alone, which Nova's gate
+  admits and `dumps` writes as `\#`, and only the stored map is new, while a name a device shows
+  with a backslash before `#` (two backslashes then `#` stored) has no spelling the gate admits
+  (`localeFile.ts::localeFileValueIssue`) and is left unclaimed; Core ends a
   line at a carriage return (`BufferedReader.readLine`), so a name holding one is held as the text
   before it, unless the rest is a line that defines an app string (`heldText.ts::keyDefinedAfterLineEnd`:
   a `=` with text after it), which sets the wording of another text and is refused under
   `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string` at
   the menu or form, where the map's rewrite is recorded (`heldText.ts::recordTextRewrite`); a name a
   device shows none of (nothing after the key before a carriage return) or holding a character XML
-  cannot hold leaves the map unclaimed for the close. A form's name read with a line break is also
+  cannot hold leaves the map unclaimed for the close, and so does a name a device shows holding a
+  `${` that some screen reads as a placeholder (`localeFile.ts::argumentScreenIssue`): Android's menu
+  list (`MenuAdapter.setupTextView`) and every screen title and breadcrumb, Web Apps' included
+  (`CommCareSession.getHeaderTitles`), read a menu's or form's name through Core's
+  `Localizer.processArguments(name, new String[]{""})` and trim it, which shows `Visits ${0}` as
+  `Visits` and `a${b` as `aa${b`, while Web Apps' menu list shows it as stored, so no name Nova
+  holds shows alike on every screen; the gate refuses it (`localeFile.ts::appStringValueIssue`), and
+  a `${` opening a name with no `}` after it, which every screen shows as stored, is held. A form's
+  name read with a line break is also
   the text `formWireName` writes into `<h:title>` and the data node's `name`: HQ's build writes
   neither (`XForm.set_name` runs only on a rename in HQ), Core takes the title's text trimmed and
   the name as it stands (`XFormParser.parseTitle`), Web Apps shows neither and Android keeps the
@@ -3733,7 +3746,7 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[];
 | `app-logo-is-absent` | `not-carried` | the app's `logo`, and none | none: a publish writes no `logo_refs`, so a logo reaches CommCare HQ only when a person adds it there (6.1) |
 | `menu-and-form-ids-as-read` | `not-carried` | a menu's and a form's `id` as authored, and the id a reading mints | the slug of the source language's name (a menu's, where blank, the first language's that holds one), suffixed past the ids of its kind before it in reading order (`provisional.ts::menuAndFormIdsAsRead`) |
 | `worker-fields-read-by-name-are-properties` | `one-wire` | a worker field read by name that no worker property names, and the same read beside a property of that slug | the property, labelled with its slug, under the UUID a re-read mints under the app's own id (`worldEntities.ts::namedWorkerReadsAreProperties`) |
-| `world-properties-as-read` | `not-carried` | the worker and location properties as authored, and as `worldEntitiesFromReads` gives them from what the logic reads | each one read, labelled with its slug, in the order of the slugs, and none that nothing reads (`worldEntities.ts::worldPropertiesAsRead`) |
+| `world-properties-as-read` | `not-carried` | the worker and location properties as authored, and as `worldEntitiesFromReads` gives them from what the logic reads | each one read, labelled with its slug, in the order of the slugs, and none that nothing reads; of a property and a field read by name whose slugs differ only in capitalization, the one a reading declares (`worldEntities.ts::heldWorkerSlugs`), each read of the other the name-backed read of its slug (`worldEntities.ts::worldPropertiesAsRead`) |
 | `organization-levels-as-read` | `not-carried` | the levels as authored, and as `levelsFromHq` reads the list a publish sets up | the read levels: holding workers, descendant cases all or none, their own branch's address book, no description, parent before child (`worldEntities.ts::levelsAsRead`) |
 
 The provenance and out-of-date rows are why a Nova-born document in several languages reads back to

@@ -12,6 +12,7 @@ import { formField, term } from "@/lib/domain/expression";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { caseListOf } from "../../../../../proof/targeted/build";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { entriesAt } from "../../__tests__/readerInput";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
 import {
@@ -425,6 +426,30 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			expect(
 				ownWrites(reading).find((one) => one.property === "size")?.via,
 			).toEqual([{ identifier: "parent", throughCaseType: "household" }]);
+		});
+
+		it("claims a key through the case above under that key's own row", async () => {
+			const reading = await readCases(app([visit], [household]), {
+				edit: (json) => {
+					withChild(json);
+					const update = actionsOf(json).update_case.update as Record<
+						string,
+						unknown
+					>;
+					update["parent/size"] = { question_path: "/data/other" };
+				},
+			});
+			expect(codes(reading)).toEqual([]);
+			const closed = reading.ctx.close();
+			const update = "/modules/0/forms/0/actions/update_case/update";
+			expect(entriesAt(closed, `${update}/parent~1size/question_path`)).toEqual(
+				[
+					`${F}/update-key-whose-index-segments-are-each-parent-or-host-parent-p`,
+				],
+			);
+			expect(entriesAt(closed, `${update}/notes/question_path`)).toEqual([
+				`${F}/update-case-update-property-question`,
+			]);
 		});
 
 		it("reads `host/p` as a write through the host a stored index of that name fixes", async () => {

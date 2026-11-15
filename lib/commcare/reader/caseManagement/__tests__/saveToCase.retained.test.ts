@@ -21,8 +21,8 @@ import {
 	retainedSourceBody,
 	sourceFromBody,
 } from "../../__tests__/readerInput";
-import { readHqApp } from "../../index";
 import { readCasesOfBody } from "./caseReading";
+import { readHqApp } from "./heldReading";
 
 const OUTSIDE = "questions/savetocase-block-outside-nova-s-own-block-shape";
 

@@ -101,7 +101,7 @@ describe("the own case", () => {
 					writes: [
 						{ property: "age", value: read("age"), onlyIfChanged: true },
 						{
-							property: "status",
+							property: "outcome",
 							value: read("status"),
 							via: [{ identifier: "parent" }],
 						},
@@ -115,7 +115,10 @@ describe("the own case", () => {
 			name: { question_path: "/data/nova_trimmed_name", update_mode: "always" },
 			owner_id: { question_path: "/data/flag", update_mode: "always" },
 			age: { question_path: "/data/age", update_mode: "edit" },
-			"parent/status": { question_path: "/data/status", update_mode: "always" },
+			"parent/outcome": {
+				question_path: "/data/status",
+				update_mode: "always",
+			},
 		});
 	});
 

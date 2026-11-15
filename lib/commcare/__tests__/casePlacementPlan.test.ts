@@ -155,7 +155,7 @@ describe("planFormCaseWire", () => {
 					writes: [
 						{ property: "age", value: read("age"), onlyIfChanged: true },
 						{
-							property: "status",
+							property: "outcome",
 							value: read("status"),
 							via: [{ identifier: "parent" }],
 						},
@@ -166,7 +166,10 @@ describe("planFormCaseWire", () => {
 		const { actions, datums } = basicPlan(doc, formUuid);
 		expect(actions.update_case.update).toEqual({
 			age: { question_path: "/data/age", update_mode: "edit" },
-			"parent/status": { question_path: "/data/status", update_mode: "always" },
+			"parent/outcome": {
+				question_path: "/data/status",
+				update_mode: "always",
+			},
 		});
 		expect(actions.open_case.condition.type).toBe("never");
 		expect(datums).toEqual([]);

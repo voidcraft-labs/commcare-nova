@@ -87,10 +87,7 @@ import {
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
-import {
-	hqLocaleFileValue,
-	serializeLocaleFileValue,
-} from "@/lib/commcare/localeFile";
+import { hqLocaleFileValue } from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
@@ -1317,8 +1314,9 @@ export function compileCcz(
 	// Nova's label, and the text the project space holds under its own keys
 	// (its runtime UI text among them), after Nova's own entries and over any
 	// of them, as HQ's build
-	// puts a stored translation over every string. Each is written in HQ's own
-	// spelling (`hqLocaleFileValue`), being text Nova did not write. `default`
+	// puts a stored translation over every string. Every value, Nova's own and
+	// the project space's, is written in HQ's own spelling
+	// (`hqLocaleFileValue`), so a worker reads one string from either. `default`
 	// takes the default language's names, and under each other key the text
 	// HQ's build merges into its default table from every language
 	// (`defaultAppStringsHeldText`); a language of the facts the app does not
@@ -1329,7 +1327,6 @@ export function compileCcz(
 			: defaultAppStringsHeldText(facts.uiText, localization.languages);
 	for (const [language, dir] of langDirs) {
 		const table = new Map<string, string>();
-		const heldText = new Set<string>();
 		for (const [localeId, source] of Object.entries(appStrings)) {
 			const unitSource = appStringUnits[localeId];
 			table.set(
@@ -1343,18 +1340,14 @@ export function compileCcz(
 		for (const code of localization.languages) {
 			const held = ownEntry(heldNames, code);
 			table.set(code, held ?? localization.languageName(code));
-			if (held !== undefined) heldText.add(code);
 		}
 		for (const [key, value] of Object.entries(
 			dir === "default"
 				? defaultHeldText
 				: (ownEntry(facts?.uiText, language) ?? {}),
-		)) {
+		))
 			table.set(key, value);
-			heldText.add(key);
-		}
 		table.set("lang.current", language);
-		heldText.delete("lang.current");
 		const localizedSuiteErrors = validateSuite(
 			suiteXml,
 			new Set(table.keys()),
@@ -1371,10 +1364,7 @@ export function compileCcz(
 			);
 		}
 		files[`${dir}/app_strings.txt`] = [...table]
-			.map(
-				([key, value]) =>
-					`${key}=${heldText.has(key) ? hqLocaleFileValue(value) : serializeLocaleFileValue(key, value)}`,
-			)
+			.map(([key, value]) => `${key}=${hqLocaleFileValue(value)}`)
 			.join("\n");
 	}
 

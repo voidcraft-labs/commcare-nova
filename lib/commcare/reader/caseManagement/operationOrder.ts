@@ -35,6 +35,13 @@ export const ORDER_CLAIMS = defineClaims("caseManagement.operationOrder", {
 		"questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes",
 		"mug:SaveToCase",
 	),
+	/** A form whose changes the gate's target-type rule refuses in the order
+	 *  the reading holds: a block gives a case another type where a later
+	 *  change may read it as the earlier one (`index.ts::settleOperationOrder`). */
+	typeChange: refuse(
+		"questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type",
+		"mug:SaveToCase",
+	),
 });
 
 /** Whether `one` is a create keyed by an answer, which the gate's wire-order

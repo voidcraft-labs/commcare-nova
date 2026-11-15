@@ -29,7 +29,7 @@ import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import { knownCaseTypesOf } from "../../index";
 import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
 import {
 	comparableOperations,
@@ -41,6 +41,7 @@ import {
 	readNames,
 	readPaths,
 } from "./caseReading";
+import { readHqApp } from "./heldReading";
 
 function app(forms: FormSpec[]): BlueprintDoc {
 	return buildDoc({

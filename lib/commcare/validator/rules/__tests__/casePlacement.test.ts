@@ -56,7 +56,7 @@ function update(key: string, extra: Partial<CaseOperation> = {}) {
 		action: "update",
 		caseType: "patient",
 		target: { kind: "session" },
-		writes: [{ property: "status", value: read("status") }],
+		writes: [{ property: "outcome", value: read("status") }],
 		...extra,
 	} as CaseOperation;
 }

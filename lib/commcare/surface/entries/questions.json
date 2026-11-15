@@ -3165,6 +3165,87 @@
 		"gates": []
 	},
 	{
+		"id": "questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a SaveToCase block that gives a case another type, a create keyed by an answer (`nova-case-v1:`) of a type other than the case's a later change reads, or a `case_type` row, where another of the form's changes reads a case Nova cannot prove is another one as its earlier type (Case Management's change of the form's own case, a later block or a later block's link), or where the row is in a repeat on a case other than the one its row creates",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "type-change-a-later-change-may-read-as-the-earlier-type",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a change of a case's type beside a change Nova cannot prove is of another case: a create keyed by an answer may name a case an earlier submission made, and a create of a case that exists gives it the create's type on a device (`CaseXmlParser.createCase` under `acceptCreateOverwrites`, Core's default and Web Apps' setting) and on CommCare HQ's server (`update_strategy.py::SqlCaseUpdateStrategy._apply_create_action`, whose known properties hold `type`), as a `case_type` row does; so a later change of a case that may be that one (Case Management's change of the form's own case, a block whose case id is another expression, or a link to such a case) may write a case of the new type as one of the earlier type, and a `case_type` row in a repeat may meet the type an earlier row gave its case; Nova's case types hold no such change (`lib/doc/caseOperationOrder.ts::caseOperationTargetTypeOrderViolations`, `CASE_OPERATION_TARGET_TYPE_MISMATCH`)",
+		"subject": "form-case-management",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a SaveToCase update of `commcare-user` (the worker's record) in Nova's condition group (`nova_condition_`) or inside a repeat",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "worker-record-update-on-a-condition-or-per-row",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: an update of the worker's record that runs on a condition, or once for each row of a repeat: Nova keeps a form's writes of the worker's record in one update that runs once on every submission (`validator/rules/caseOperations.ts::workerRecordFindings`, reason `worker-record-facet`), as CommCare HQ's own `usercase_update` block does (`xform.py::XForm._add_usercase`); HQ's form builder takes such a block (`saveToCase.js` refuses only a create, a close or a link of `commcare-user`), and a device and HQ's server apply it as any block: one in a condition group that is not relevant is left out of the submission, and one in a repeat is applied once for each row",
+		"subject": "worker-record",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a SaveToCase update of `commcare-user` (the worker's record) in a form that also writes the worker's record in another update: CommCare HQ's basic `usercase_update`, an advanced form's load of the worker's record, or another such block",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "worker-record-update-beside-another",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a form that writes the worker's record in more than one update: Nova keeps a form's every write of the worker's record in one update (`validator/rules/caseOperations.ts::workerRecordFindings`, reason `worker-record-twice`), as CommCare HQ's own `usercase_update` block is one (`xform.py::XForm._add_usercase`), and no one update prints two blocks; HQ's form builder keeps each block (`saveToCase.js` refuses only a create, a close or a link of `commcare-user`), and a device and HQ's server apply every block in the form's order (Core's `CaseXmlParser`, block by block; HQ's `casexml/apps/case/xform.py::get_case_updates` groups a case's blocks and sorts them stably by their first action, so two updates keep the form's order)",
+		"subject": "worker-record",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath",
 		"area": "questions",
 		"section": "Question types",
