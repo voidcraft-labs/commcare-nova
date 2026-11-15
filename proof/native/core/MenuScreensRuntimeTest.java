@@ -33,9 +33,10 @@ import static org.junit.Assert.*;
  * first and exactly where Preview opens a case list for it, submenus or not, and once that case is chosen Core lists
  * the screen, however many forms it shows, as `fill` holds (the menu-landings document holds each shape Preview once
  * read apart: a case-first menu with a submenu, a case list menu with a submenu, a case-first menu of one form, and
- * advanced menus whose entries ask for the datum each load's tag names); stepping back from each case-loading form to
- * its case list and choosing a case there opens the form again exactly where Preview does, the form chosen after its
- * case on a case-first screen and before it elsewhere (`stepBacks`); each
+ * advanced menus whose entries ask for the datum each load's tag names, and a basic submenu under an advanced parent);
+ * one step back from each case-loading form lands where Preview lands, the menu with the case held where the form was
+ * chosen after its case and the case list where it was chosen before, and stepping on back to its case list and
+ * choosing a case there opens the form again exactly where Preview does (`stepBacks`); each
  * form with no destinations of its own lands
  * where Preview lands it (`frameLanding.ts::screenOfFrame` over its after-submit frame), every one of them: an entry
  * of a menu whose forms read the search is given the search's results and its claim as Core's own command-line
@@ -63,11 +64,11 @@ public class MenuScreensRuntimeTest {
  static SessionWrapper session(Suite suite,MockUserDataSandbox sandbox,String[]... cases){return session(suite,sandbox,new JSONObject().put("role",""),new JSONArray(),cases);}
  /** The same, the worker's data the listing's `user` (each user field the device holds, with its value), and the
   * device also holding the producer's `deviceCases`, each `{id, type, properties}`. The documents that compare the
-  * role declare it as a worker property, so a publish asks the project space for the field, and in a project space
-  * that defines it a worker with no value has it blank: HQ's restore gives every worker each user field the project
-  * space defines, `''` where none is set (`user_data.py::UserData.to_dict`). A field the data leaves out is one the
-  * device holds no key for: a place key of a worker assigned nowhere (`models.py::get_user_session_data`), or a
-  * field the project space does not define. */
+  * role declare it as a worker property, which the setup list a publish shows names for someone to add on CommCare
+  * HQ, and in a project space that defines it a worker with no value has it blank: HQ's restore gives every worker
+  * each user field the project space defines, `''` where none is set (`user_data.py::UserData.to_dict`). A field the
+  * data leaves out is one the device holds no key for: a place key of a worker assigned nowhere
+  * (`models.py::get_user_session_data`), or a field the project space does not define. */
  static SessionWrapper session(Suite suite,MockUserDataSandbox sandbox,JSONObject user,JSONArray deviceCases,String[]... cases){
   User worker=new User("worker","","worker-id");
   for(String key:user.keySet())worker.setProperty(key,user.getString(key));
@@ -202,16 +203,16 @@ public class MenuScreensRuntimeTest {
   for(String document:WORKER_DOCUMENTS)for(boolean hq:new boolean[]{false,true})
    assertTrue(document+" hq="+hq+" refuses no screen",listEachScreen(document,hq)[1]>0);
  }
- /** Steps back from the form the session has open, as a device's Back reaches its case list, until the session asks
-  * for a case (`CommCareSession.stepBack`), chooses `caseId` there, and returns the command the session then opens,
-  * or null where it asks for a command, which lists the menu. */
+ /** Steps back from where the session stands, as a device's Back reaches the case list, until the session asks for a
+  * case (`CommCareSession.stepBack`), chooses `caseId` there, and returns the command the session then opens, or null
+  * where it asks for a command, which lists the menu. */
  static String afterStepBack(SessionWrapper session,String caseId,String label){
   for(int step=0;;step++){
    assertTrue(label+" never asks for a case stepping back",step<6);
-   session.stepBack(session.getEvaluationContext());
    String needed=session.getNeededData(session.getEvaluationContext());
    if(SessionFrame.STATE_DATUM_VAL.equals(needed)){session.setEntityDatum(session.getNeededDatum().getDataId(),caseId);break;}
    if(SessionFrame.STATE_MULTIPLE_DATUM_VAL.equals(needed)){session.setDatum(SessionFrame.STATE_MULTIPLE_DATUM_VAL,session.getNeededDatum().getDataId(),"selection-"+caseId);break;}
+   session.stepBack(session.getEvaluationContext());
   }
   String needed=session.getNeededData(session.getEvaluationContext());
   if(needed==null)return session.getCommand();
@@ -219,10 +220,14 @@ public class MenuScreensRuntimeTest {
   return null;
  }
  /** A worker chooses each case-loading form as its screen offers it, after the case where the screen chooses its case
-  * first and before any case elsewhere, steps back to the case list and chooses a case again: Core opens the form
-  * where the form's command sits beneath the case in the session, and asks for a command, listing the menu, where it
-  * sits above it, and Preview does the same (`menuProjection.ts::previewCaseListReturnTarget`,
-  * `previewCaseListFormRequest`, the producer's `stepBacks`). */
+  * first and before any case elsewhere, and steps back once: Core stops on the menu with the case still held where the
+  * form's command sits above the case (`shouldPopNext` stops where the session waits for a command), which a device
+  * shows (Android's `MenuActivity` after `stepBack`, Web Apps' selections less the form), and on the case list where it
+  * sits beneath the case, and Preview lands on the same screen (`oneStepBack`: `menuProjection.ts::
+  * previewCaseListHeldChoices` on a list's own form menu, `moduleScreenLanding` on a menu screen). Stepping back on
+  * to the case list and choosing a case again, Core opens the form where its command sits beneath the case and asks
+  * for a command, listing the menu, where it sits above it, and Preview does the same
+  * (`previewCaseListReturn`, `previewCaseListFormRequest`, the producer's `stepBacks`). */
  @Test public void eachStepBackFromAFormContinuesWherePreviewDoes()throws Exception{
   int afterCase=0,beforeCase=0;
   for(String document:DOCUMENTS)for(boolean hq:new boolean[]{false,true}){
@@ -241,6 +246,12 @@ public class MenuScreensRuntimeTest {
      if(caseFirst){fill(session,caseId,label,false,true);afterCase++;}else beforeCase++;
      session.setCommand(command);
      fill(session,caseId,label,false);
+     session.stepBack(session.getEvaluationContext());
+     String needed=session.getNeededData(session.getEvaluationContext());
+     String landed=SessionFrame.STATE_COMMAND_ID.equals(needed)?"menu":SessionFrame.STATE_DATUM_VAL.equals(needed)||SessionFrame.STATE_MULTIPLE_DATUM_VAL.equals(needed)?"case-list":needed;
+     assertEquals(label+" one step back",stepBack.getString("oneStepBack"),landed);
+     if(landed.equals("menu"))
+      assertTrue(label+" lets go of the case on the menu one step back",session.getData().containsValue(caseId)||session.getData().containsValue("selection-"+caseId));
      String expected=stepBack.isNull("afterStepBack")?null:stepBack.getString("afterStepBack");
      assertEquals(label+" after a step back to its case list",expected,afterStepBack(session,caseId,label));
     }

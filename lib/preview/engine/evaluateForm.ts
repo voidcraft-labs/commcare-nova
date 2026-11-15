@@ -23,6 +23,10 @@ import type {
 	evaluateSearchSnapshot,
 	SearchEvaluationInput,
 } from "./searchEvaluation";
+import {
+	type DataRefusalTransfer,
+	dataRefusalFromTransfer,
+} from "./surfacedDataRefusal";
 
 export {
 	FormEvaluationInputError,
@@ -39,6 +43,7 @@ type WorkerResult<T> =
 			error?: Error;
 			fault?: FormEvaluationFault;
 			refusal?: FormRefusalDetails;
+			dataRefusal?: DataRefusalTransfer;
 	  };
 
 /** A read-only form run owns one bounded thread, including FormEngine and its
@@ -137,11 +142,13 @@ async function evaluateInWorker<T>(
 					}
 				} else
 					reject(
-						message.refusal !== undefined
-							? new FormRefusedError(message.refusal)
-							: message.inputError
-								? new FormEvaluationInputError(message.message, message.fault)
-								: (message.error ?? new Error(message.message)),
+						message.dataRefusal !== undefined
+							? dataRefusalFromTransfer(message.dataRefusal)
+							: message.refusal !== undefined
+								? new FormRefusedError(message.refusal)
+								: message.inputError
+									? new FormEvaluationInputError(message.message, message.fault)
+									: (message.error ?? new Error(message.message)),
 					);
 			});
 		});

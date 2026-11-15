@@ -20,9 +20,9 @@ import { answerHeld } from "./echo";
  *   reads the chosen household, and "Review household", which has none, so
  *   the two menus' conditions alone decide whether it shows, and a checker,
  *   whom the parent's condition refuses, does not see it. The conditions read
- *   the worker's role, a worker property the app declares, so a publish asks
- *   the project space for the field and a worker with no role holds it
- *   blank. Its
+ *   the worker's role, a worker property the app declares, which the setup
+ *   list a publish shows names for someone to add on CommCare HQ, and a
+ *   worker with no role holds it blank. Its
  *   submenu "Household list" shows only its case list entry there (the screen
  *   still stays case first); "Household extras" keeps its screen and returns
  *   to its parent after submit.

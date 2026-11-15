@@ -347,7 +347,8 @@ export function csqlComposition() {
 		},
 	);
 	// The condition reads the worker's region, a worker property the app
-	// declares, so a publish asks the project space for the field.
+	// declares, which the setup list a publish shows names for someone to add
+	// on CommCare HQ.
 	const regionProperty = uuid("worker-region");
 	doc.userProperties = {
 		[regionProperty]: { uuid: regionProperty, slug: "region", label: "Region" },

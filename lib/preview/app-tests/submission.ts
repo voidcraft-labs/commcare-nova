@@ -25,6 +25,7 @@ import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
 import type { FormEvaluationContext } from "../engine/formEvaluationTypes";
 import { submittedEntryPath } from "../engine/formLinkEvaluation";
 import type { AppTestContext } from "./context";
+import { appTestDataRefusal } from "./dataRefusal";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { enterAppTestMenu } from "./navigation";
 import type {
@@ -485,9 +486,13 @@ export async function submitAppTest(
 			validation: undefined,
 		};
 	} catch (error) {
-		if (!expectedAppTestRefusal(error)) throw error;
 		// Production saves first and reports a next-screen failure afterward.
 		// Preserve that distinction rather than rolling back a successful save.
+		// A refusal of data the device lacks after the save (a link's condition
+		// over a worker key the worker has none of) is such a failure, which
+		// Preview shows on the saved form's links.
+		const refused = appTestDataRefusal(context, error);
+		if (!expectedAppTestRefusal(refused)) throw error;
 		return {
 			state: {
 				...state,
@@ -495,10 +500,7 @@ export async function submitAppTest(
 				screen: {
 					kind: "after-submit" as const,
 					moduleUuid: screen.moduleUuid,
-					message:
-						error instanceof Error
-							? error.message
-							: "The next task could not be opened.",
+					message: refused.message,
 				},
 			},
 			effects: result,

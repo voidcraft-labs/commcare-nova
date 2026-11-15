@@ -140,7 +140,8 @@ export function formLinkHiddenTarget() {
 		],
 	});
 	// The condition reads the worker's role, a worker property the app
-	// declares, so a publish asks the project space for the field.
+	// declares, which the setup list a publish shows names for someone to add
+	// on CommCare HQ.
 	const roleProperty = uuid("worker-role");
 	doc.userProperties = {
 		[roleProperty]: { uuid: roleProperty, slug: "role", label: "Role" },

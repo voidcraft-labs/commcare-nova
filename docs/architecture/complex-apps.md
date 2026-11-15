@@ -1151,10 +1151,14 @@ Core refuses a read of a key the device holds no node for
 (`DataInstance.hasTemplatePath`, `XPathNodeset.unpack`), which fails the whole
 menu screen that reads it (`MenuLoader`'s load exception, which Formplayer's
 `MenuScreen.init` and Android's `MenuAdapter.showAnyLoadErrors` show) and a
-form at entry. A publish asks the project space to define each declared
-property (the setup artifact's worker information), so a custom field is
-declared, never read by name. A read of the worker's record (`#user/<name>`)
-reads blank where unset (casedb's wildcard template) and stays admitted.
+form at entry. The setup list a publish shows names each declared property
+for a person to define on CommCare HQ (the setup artifact's worker
+information; HQ has no API that defines one), so a custom field is declared,
+never read by name. A read of the worker's record (`#user/<name>`) reads blank
+where unset (casedb's wildcard template) and stays admitted; declaring worker
+information under that name, or renaming worker information to it, rebinds
+every such read to the property's identity in the same batch
+(`lib/doc/userMutations.ts`), on all three editors.
 Preview refuses a read of an absent key as the device does
 (`lib/preview/CLAUDE.md`): on a menu, a case-first menu's forms, a case list,
 Details, a Search and a form whose case blocks read it, and in App Tests. The builder exposes the two
@@ -2965,14 +2969,23 @@ and Formplayer advances past a menu only under `cc-auto-advance-menu`
 (`FormplayerPropertyManager.isAutoAdvanceMenu`, off by default), which Nova never writes. So
 once a case is chosen Preview opens a form only where one was requested (chosen before the
 case, a link's, a retained command's), and otherwise lists the menu
-(`menuProjection.ts::previewRequestedForm`). A form chosen from the menu after its case sits
-above the case in the session, so a device that steps back from it to the case list
-(`CommCareSession.stepBack` pops the form's command, where the menu waits, then the case)
-holds no form there: Preview marks that target `formChosenAfterCase`, a route back to the
-list leaves no form (`previewCaseListReturnTarget`), the list ignores one so marked
-(`previewCaseListFormRequest`), and the next case lists the menu again. A form chosen before
-its case stays beneath it, and the list opens it again. `MenuScreensRuntimeTest` replays both
-in Core (`stepBacks`).
+(`menuProjection.ts::previewRequestedForm`). A requested form opens without the menu being
+listed, so no display condition is read on the way: Core reads a command's condition only in
+`MenuLoader`, as it lists a menu, and a refusal a sibling form's condition would raise there
+never arises. A form chosen from the menu after its case sits
+above the case in the session, so one step back from it stops on that menu with the case held
+(`CommCareSession.stepBack` pops the form's command and stops where the session waits for a
+command, `shouldPopNext`; Android shows `MenuActivity`, Web Apps the selections less the form),
+and a second reaches the case list with nothing chosen. Preview marks that target
+`formChosenAfterCase` with the list that chose the case: a list whose own form menu listed the
+form shows that menu for the held case whenever it opens (`previewCaseListHeldChoices`), until the
+menu's Back steps past it (`steppedPastMenu`) and the form showing again holds it there once more,
+a menu screen holds it in its selection, the trail reads menu, case, form as Web Apps' does, each
+crumb cutting the session back to its screen (`previewMenuSelectionsLetGo`), a route back to a list goes to the one that chose the case holding no
+form (`previewCaseListReturn`), the list ignores a form so chosen
+(`previewCaseListFormRequest`), and the next case lists the menu again. A form chosen before its
+case stays beneath it: one step back reaches its list, which opens it again.
+`MenuScreensRuntimeTest` replays both in Core (`stepBacks`: `oneStepBack` and `afterStepBack`).
 Preview replays the collection over the suite's datums
 (`lib/preview/engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`), and
 `proof/native/core/MenuScreensRuntimeTest.java` holds Preview's listing to Core's.

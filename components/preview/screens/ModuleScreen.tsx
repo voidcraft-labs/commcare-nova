@@ -32,7 +32,6 @@ import {
 	moduleFormsReadSearch,
 	moduleLanding,
 	moduleParent,
-	moduleScreenLanding,
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
@@ -59,6 +58,8 @@ import {
 	previewCaseListMenuEntry,
 	previewHiddenScreenEntries,
 	previewMenuCaseContext,
+	previewMenuScreenChoice,
+	previewMenuScreenLanding,
 	previewModuleOwnVisibility,
 	previewModuleScreenIsBareCaseList,
 	previewScreenEntries,
@@ -149,8 +150,6 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 				: previewScreenEntries(menuSource.doc, { kind: "menu", moduleUuid }),
 		[menuSource.doc, mode, moduleUuid],
 	);
-	/* A submenu that shows its forms here is still this menu's child. */
-	const hasChildren = moduleHasChildren(menuSource, moduleUuid);
 	const menuCaseContext = useMemo(
 		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
 		[menuSource, moduleUuid, menuCaseSelections],
@@ -265,25 +264,17 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	 * on the module URL directly (deep link, breadcrumb, flipping to preview).
 	 * `moduleScreenNavigation.ts` owns which landing applies and why. */
 	const isCaseFirst = useIsCaseFirstModule(moduleUuid);
-	/* The screen's own shape, submenus or not: a bare case list with submenus
-	 * opens on its list too, and lists them once its case is chosen. */
-	const isBareCaseList =
-		moduleUuid !== undefined &&
-		previewModuleScreenIsBareCaseList(menuSource.doc, moduleUuid);
 	const endpointLaunch = usePreviewEntryPointLaunch();
 	const preserveEntryPointMenu =
 		mode !== "edit" &&
 		endpointLaunch?.location.kind === "module" &&
 		endpointLaunch.location.moduleUuid === moduleUuid;
-	const landing = moduleScreenLanding({
-		preserveEntryPointMenu,
-		hasModule: !!moduleUuid,
-		hasChildren,
-		hasSelectedCase: selectedMenuCase !== undefined,
-		isBareCaseList,
-		isCaseFirst,
-		mode: mode === "edit" ? "edit" : "preview",
-	});
+	const landing = previewMenuScreenLanding(
+		menuSource,
+		moduleUuid,
+		menuCaseSelections,
+		{ mode: mode === "edit" ? "edit" : "preview", preserveEntryPointMenu },
+	);
 	useEffect(() => {
 		if (!moduleUuid) return;
 		if (
@@ -373,15 +364,21 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 				return;
 			}
 		}
-		/* The case was chosen on this screen before the form, so the form's
-		 * command sits above it: a route back to the list holds no form. */
+		/* The case was chosen before the form, so the form's command sits
+		 * above it: a route back to a list goes to the list that chose it,
+		 * this menu's or a parent's whose case the form's menu goes on with,
+		 * and holds no form. */
 		setPreviewCaseTarget({
 			formUuid,
 			cases: cases.map(({ caseId, caseName }) => ({
 				caseId,
 				...(caseName !== undefined && { caseName }),
 			})),
-			formChosenAfterCase: true,
+			formChosenAfterCase: previewMenuScreenChoice(
+				menuSource,
+				formModuleUuid,
+				menuCaseSelections,
+			),
 		});
 		navigate.openForm(formModuleUuid, formUuid);
 	};

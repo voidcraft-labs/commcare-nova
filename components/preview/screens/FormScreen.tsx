@@ -101,7 +101,10 @@ import {
 	overlayCaseDatabasePatch,
 	submissionWorkerValues,
 } from "@/lib/preview/engine/caseDatabasePatch";
-import { previewDataRefusalOf } from "@/lib/preview/engine/dataRefusal";
+import {
+	previewDataRefusalOf,
+	readPreviewScreen,
+} from "@/lib/preview/engine/dataRefusal";
 import type { EngineValidationCompletion } from "@/lib/preview/engine/engineController";
 import {
 	afterSubmitSessionDatums,
@@ -118,7 +121,11 @@ import {
 	projectTargetCaseSelectionsAsync,
 	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
-import { previewSessionValues } from "@/lib/preview/engine/identity";
+import {
+	previewSessionValues,
+	type ResolvedPreviewIdentity,
+	samePreviewIdentity,
+} from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import {
 	resolvePreviousTask,
@@ -161,8 +168,9 @@ import { useSearchResultsSnapshot } from "@/lib/preview/hooks/useSearchResultsSn
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
 	previewCaseFirstModuleUuids,
-	previewCaseListReturnTarget,
+	previewCaseListReturn,
 	previewMenuCaseContext,
+	previewTargetHoldingMenu,
 } from "@/lib/preview/menuProjection";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
@@ -403,6 +411,11 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 	readonly caseDatabase: CaseDatabaseSnapshot;
 	/** The entry's session map: what the form read as `session/data`. */
 	readonly entrySession: EntrySessionData | undefined;
+	/** The worker whose session the entry ran in when it was submitted. Every
+	 *  after-submit read (the links, where a target lands, whether it waits)
+	 *  reads this one session, as a device's does not change when the form
+	 *  closes. `null` where no worker had arrived. */
+	readonly identity: ResolvedPreviewIdentity | null;
 	/** The materializable catalog from the same submit-time revision. */
 	readonly caseTypes: readonly CaseType[];
 }
@@ -502,6 +515,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 		loc.kind === "form-links";
 	const formUuid = screen.formUuid;
 	const moduleUuid = screen.moduleUuid;
+	/* Every route from this form back to a case list goes to the list that
+	 * chose its case, leaving the target that list continues with
+	 * (`menuProjection.ts::previewCaseListReturn`), read when it runs. */
+	const caseListReturn = () =>
+		previewCaseListReturn(session.getState().previewCaseTarget, {
+			moduleUuid,
+			formUuid,
+		});
 	const routeMatchesScreen =
 		atForm && loc.formUuid === formUuid && loc.moduleUuid === moduleUuid;
 	const selectedUuid =
@@ -573,9 +594,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const searchDefaultsLookup = usePreviewLookupStatus();
 	const searchDefaultsCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const searchDefaultsCasesLoad = useDeviceCaseDatabaseLoad();
+	const searchDefaultsSession = useMemo(
+		() =>
+			previewSessionValues(previewIdentity, withNavigationWidth(previewDevice)),
+		[previewIdentity, previewDevice],
+	);
 	const searchDefaultsReady =
 		!readsSearchDefaults ||
 		searchWorld({
+			session: searchDefaultsSession,
 			readsCaseDatabase:
 				mod !== undefined && moduleSearchReadsCaseDatabase(mod),
 			deviceCases: searchDefaultsCases.snapshot,
@@ -586,18 +613,19 @@ export function FormScreen({ screen }: FormScreenProps) {
 		menuSource.doc,
 		formsReadSearch ? moduleUuid : undefined,
 	);
-	const searchAnswers = useMemo(() => {
+	/* The starting values are read only once their world is there
+	 * (`searchDefaultsReady`): the worker, the lookups and the device's
+	 * cases. A read of data the device lacks (a place key of a worker
+	 * assigned nowhere) is the refusal a device meets building the search
+	 * the form reads, held as the screen's state and shown in place of the
+	 * form (`readPreviewScreen`), never an error leaving the render. */
+	const searchAnswersRead = useMemo(() => {
 		if (mode !== "preview") return undefined;
 		const searchInputs = hostSearchInputs ?? [];
 		const defaults =
-			readsSearchDefaults && moduleUuid !== undefined
-				? resolveSearchInputDefaults(
-						searchInputs,
-						previewSessionValues(
-							previewIdentity,
-							withNavigationWidth(previewDevice),
-						),
-						{
+			readsSearchDefaults && moduleUuid !== undefined && searchDefaultsReady
+				? readPreviewScreen(() =>
+						resolveSearchInputDefaults(searchInputs, searchDefaultsSession, {
 							doc: menuSource.doc,
 							moduleUuid,
 							...(searchDefaultsLookup.kind === "data" && {
@@ -605,33 +633,43 @@ export function FormScreen({ screen }: FormScreenProps) {
 							}),
 							sessionData: searchDefaultsStep.data,
 							caseDatabase: searchDefaultsCases.snapshot,
-						},
+						}),
 					)
-				: NO_SEARCH_DEFAULTS;
-		return formSearchAnswers({
-			searchInputs,
-			admission: noMatchesAdmission,
-			formsReadSearch,
-			searchState,
-			openedByLink,
-			defaults,
-		});
+				: { kind: "read" as const, value: NO_SEARCH_DEFAULTS };
+		if (defaults.kind === "refused") return defaults;
+		return {
+			kind: "read" as const,
+			value: formSearchAnswers({
+				searchInputs,
+				admission: noMatchesAdmission,
+				formsReadSearch,
+				searchState,
+				openedByLink,
+				defaults: defaults.value,
+			}),
+		};
 	}, [
 		mode,
 		noMatchesAdmission,
 		hostSearchInputs,
 		formsReadSearch,
 		readsSearchDefaults,
+		searchDefaultsReady,
 		openedByLink,
 		moduleUuid,
 		searchState,
-		previewIdentity,
-		previewDevice,
+		searchDefaultsSession,
 		menuSource.doc,
 		searchDefaultsLookup,
 		searchDefaultsStep.data,
 		searchDefaultsCases.snapshot,
 	]);
+	const searchAnswers =
+		searchAnswersRead?.kind === "read" ? searchAnswersRead.value : undefined;
+	const searchDefaultsRefusal =
+		searchAnswersRead?.kind === "refused"
+			? searchAnswersRead.refusal
+			: undefined;
 	const language = useBuilderLanguage();
 	/* A form of a menu whose forms read the search that reads what it found
 	 * opens with that search's results, as a device's session holds them on
@@ -912,7 +950,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 		caseBindingReady &&
 			searchResultsReady &&
 			!searchResultsRefused &&
-			searchDefaultsReady,
+			searchDefaultsReady &&
+			searchDefaultsRefusal === undefined,
 		entrySession,
 	);
 	const engineEntry = useEngineEntry();
@@ -985,10 +1024,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 		};
 	}, []);
 	/* The live lookup status and worker, for the after-submit route: a link
-	 * target whose menu visibility is still pending (lookup data loading, the
-	 * worker hydrating) waits for the next of either, as the menus' own
-	 * visibility reads do. Unmounting releases a waiting route, which then
-	 * finds its attempt stale. */
+	 * target whose menu visibility is still pending (lookup data loading)
+	 * waits for the next change, as the menus' own visibility reads do. The
+	 * route reads the session of the entry it routes
+	 * (`SubmittedContextSnapshot.identity`), never the running worker's: a
+	 * running worker who is no longer that one makes the waiting route stale.
+	 * Unmounting releases a waiting route, which then finds its attempt
+	 * stale. */
 	const lookupStatus = usePreviewLookupStatus();
 	const visibilityInputsRef = useRef({ lookupStatus, previewIdentity });
 	const visibilityWaitersRef = useRef(new Set<() => void>());
@@ -1161,6 +1203,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const clearRunning = clearTargetEntryKey !== undefined;
 	const submissionAttemptRef = useRef(0);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
+	/* The form showing holds its case beneath it again, as the session does
+	 * while the form is open: a step back lands on the menu that listed it
+	 * with the case held, whatever the worker did on that menu before a step
+	 * forward reopened the form (`menuProjection.ts::previewTargetHoldingMenu`). */
+	useEffect(() => {
+		if (!routeMatchesScreen || previewCaseTarget?.formUuid !== formUuid) return;
+		const held = previewTargetHoldingMenu(previewCaseTarget, true);
+		if (held !== previewCaseTarget) setPreviewCaseTarget(held);
+	}, [formUuid, previewCaseTarget, routeMatchesScreen, setPreviewCaseTarget]);
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
 	/* Capture imperatively at the final write boundary. Post-write routing keeps
@@ -1210,13 +1261,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 			return;
 		setSubmitStatus({ kind: "idle" });
 		setPreviewSelectedCase(undefined);
-		setPreviewCaseTarget(
-			previewCaseListReturnTarget(
-				session.getState().previewCaseTarget,
-				formUuid,
-			),
-		);
-		navigate.replace({ kind: "cases", moduleUuid });
+		const back = previewCaseListReturn(session.getState().previewCaseTarget, {
+			moduleUuid,
+			formUuid,
+		});
+		setPreviewCaseTarget(back.target);
+		navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
 	}, [
 		caseBindingReplaced,
 		explicitCases,
@@ -1631,14 +1681,26 @@ export function FormScreen({ screen }: FormScreenProps) {
 			);
 			return;
 		}
+		/* The links, and every routing read after them, read the session the
+		 * entry ran in when it was submitted: the device's session does not
+		 * change when the form closes. An entry opens only once the worker has
+		 * arrived (`EngineController.setPreviewIdentityPending`), so an entry
+		 * submitted with no worker belongs to a controller no shell gave one,
+		 * and nothing is left to route. */
+		const entryIdentity = submitted.identity;
+		if (entryIdentity === null) {
+			announceWrite();
+			settleAttempt({ kind: "idle" });
+			return;
+		}
 		const refreshedCaseDatabase = overlayCaseDatabasePatch(
 			submitted.caseDatabase,
 			caseDatabasePatch,
 		);
 		const postSubmissionUsercase = submissionWorkerValues(
 			caseDatabasePatch,
-			previewIdentity?.ownerId,
-			previewIdentity?.usercase ?? {},
+			entryIdentity.ownerId,
+			entryIdentity.usercase,
 		);
 
 		let caseData: PostSubmissionCaseData = new Map();
@@ -1702,7 +1764,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
-				session: previewSessionValues(previewIdentity, previewDevice),
+				session: previewSessionValues(entryIdentity, previewDevice),
 				usercase: postSubmissionUsercase,
 				/* The entry's own session map: the device's session does not
 				 * change when the form closes, so a link reads the ids its form
@@ -1822,10 +1884,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 							afterSubmitTargetVisibility({
 								doc,
 								target,
-								session: previewSessionValues(
-									visibilityInputsRef.current.previewIdentity,
-									previewDevice,
-								),
+								session: previewSessionValues(entryIdentity, previewDevice),
 								lookup: targetLookup(),
 								deviceCases: {
 									snapshot: refreshedCaseDatabase,
@@ -1836,16 +1895,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 					});
 				let frameRoute = routeOnce();
 				while (frameRoute.kind === "pending") {
-					/* With the worker known and the device's cases in hand, a
+					/* With the entry's worker and the device's cases in hand, a
 					 * still pending target waits only on lookup data, and a failed
 					 * read brings no later change to wake on. */
-					if (
-						targetLookup().kind === "error" &&
-						previewSessionValues(
-							visibilityInputsRef.current.previewIdentity,
-							previewDevice,
-						).identityPending !== true
-					) {
+					if (targetLookup().kind === "error") {
 						failAfterSave(
 							"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
 							"target-lookup-unavailable",
@@ -1853,7 +1906,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 						return;
 					}
 					await nextVisibilityInputs();
-					if (!isCurrent()) {
+					if (
+						!isCurrent() ||
+						!samePreviewIdentity(
+							visibilityInputsRef.current.previewIdentity,
+							entryIdentity,
+						)
+					) {
 						announceWrite();
 						settleAttempt({ kind: "idle" });
 						return;
@@ -2338,6 +2397,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				doc,
 				caseDatabase: controller.previewCaseDatabaseSnapshot,
 				entrySession: controller.entrySession,
+				identity: controller.previewIdentitySnapshot,
 				caseTypes: materializableCaseTypesFromDoc(doc),
 			};
 		};
@@ -2911,16 +2971,35 @@ export function FormScreen({ screen }: FormScreenProps) {
 				caseName={caseName}
 				onChooseAnotherRecord={() => {
 					setPreviewSelectedCase(undefined);
-					setPreviewCaseTarget(
-						previewCaseListReturnTarget(
-							session.getState().previewCaseTarget,
-							formUuid,
-						),
-					);
-					navigate.replace({ kind: "cases", moduleUuid });
+					const back = caseListReturn();
+					setPreviewCaseTarget(back.target);
+					navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
 				}}
-				onBackToList={() => navigate.openCaseList(moduleUuid)}
+				onBackToList={() => {
+					setPreviewSelectedCase(undefined);
+					const back = caseListReturn();
+					setPreviewCaseTarget(back.target);
+					navigate.openCaseList(back.moduleUuid);
+				}}
 				onBack={() => navigate.openModule(moduleUuid)}
+			/>
+		);
+	}
+
+	/* Building the search this form reads, the device read a starting value
+	 * over data it holds none of (a place key of a worker assigned nowhere),
+	 * so a phone stops there and never opens the form. An edit or the worker
+	 * changing reads it again. */
+	if (mode === "preview" && searchDefaultsRefusal !== undefined) {
+		return (
+			<PreviewDataRefusalPanel
+				surface="search"
+				reason={searchDefaultsRefusal.reason}
+				{...(moduleUuid === undefined ? {} : { moduleUuid })}
+				action={{
+					label: runtimeMessage(language.language, "back"),
+					onClick: () => navigate.openModule(moduleUuid),
+				}}
 			/>
 		);
 	}
@@ -3054,13 +3133,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 					className={FORM_PRIMARY_ACTION_CLS}
 					onClick={() => {
 						setPreviewSelectedCase(undefined);
-						setPreviewCaseTarget(
-							previewCaseListReturnTarget(
-								session.getState().previewCaseTarget,
-								formUuid,
-							),
-						);
-						navigate.replace({ kind: "cases", moduleUuid });
+						const back = caseListReturn();
+						setPreviewCaseTarget(back.target);
+						navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
 					}}
 				>
 					Choose another record
@@ -3600,13 +3675,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				? {
 						onChooseAnotherRecord: () => {
 							setPreviewSelectedCase(undefined);
-							setPreviewCaseTarget(
-								previewCaseListReturnTarget(
-									session.getState().previewCaseTarget,
-									formUuid,
-								),
-							);
-							navigate.replace({ kind: "cases", moduleUuid });
+							const back = caseListReturn();
+							setPreviewCaseTarget(back.target);
+							navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
 						},
 					}
 				: {})}

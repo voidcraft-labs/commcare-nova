@@ -35,6 +35,7 @@ import {
 	screenChoosesCaseFirst,
 	screenIsBareCaseList,
 } from "@/lib/domain";
+import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
 import { proseText } from "@/lib/domain/prose";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
 import { menuScreenDocArbitrary } from "./menuScreenDocArbitrary";
@@ -173,20 +174,25 @@ it("answers as Core does for every screen of the menu-screens corpus", {
 });
 
 /**
- * The draw with every menu that has a case type emitted advanced (its kind
- * held, `Module.heldKind`), each case-loading form's own load holding the
- * drawn tag (none, the case list entry's own `case_<type>`, or another a
- * published app could keep), where the gate admits it; else undefined.
+ * The draw with each menu that has a case type emitted advanced (its kind
+ * held, `Module.heldKind`) where `kinds` draws it so, in module order, so a
+ * basic submenu meets an advanced parent and the reverse; each case-loading
+ * form of an advanced menu with its own load holding the drawn tag (none, the
+ * case list entry's own `case_<type>`, or another a published app could
+ * keep), where the gate admits it; else undefined.
  */
 function advancedVariant(
 	base: BlueprintDoc,
 	tags: readonly (number | undefined)[],
+	kinds: readonly boolean[],
 ): BlueprintDoc | undefined {
 	const doc = structuredClone(base);
 	let at = 0;
+	let typed = 0;
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
 		if (mod?.caseType === undefined) continue;
+		if (kinds[typed++ % kinds.length] !== true) continue;
 		mod.heldKind = "advanced";
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const own = doc.forms[formUuid]?.caseOperations?.find(
@@ -219,8 +225,9 @@ it("answers as Core does for every screen of the corpus with its menus emitted a
 				minLength: 1,
 				maxLength: 6,
 			}),
-			(base, tags) => {
-				const doc = advancedVariant(base, tags);
+			fc.array(fc.boolean(), { minLength: 1, maxLength: 4 }),
+			(base, tags, kinds) => {
+				const doc = advancedVariant(base, tags, kinds);
 				if (doc === undefined) return;
 				admitted++;
 				for (const answer of answers(doc)) {
@@ -244,12 +251,16 @@ const visit = (name: string) => ({
 });
 
 /** A parent menu of patients that keeps its screen, and a submenu that
- *  shows its forms there. */
+ *  shows its forms there, or keeps a screen of its own (`ownScreen`), with
+ *  its case list as an entry after its forms (`caseListMenuItem`) or as its
+ *  only entry (`bareCaseList`). */
 function sharedScreen(
 	submenu: Partial<{
 		caseType: string;
 		bareCaseList: boolean;
+		caseListMenuItem: boolean;
 		registration: boolean;
+		ownScreen: boolean;
 	}>,
 ): BlueprintDoc {
 	const caseType = submenu.caseType ?? "patient";
@@ -276,7 +287,8 @@ function sharedScreen(
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
-				...(submenu.bareCaseList === true && { caseListMenuItem: {} }),
+				...((submenu.bareCaseList === true ||
+					submenu.caseListMenuItem === true) && { caseListMenuItem: {} }),
 				forms:
 					submenu.bareCaseList === true
 						? []
@@ -300,9 +312,25 @@ function sharedScreen(
 		],
 	});
 	doc.modules[testUuid("submenu")].parentModuleUuid = testUuid("parent");
-	doc.modules[testUuid("submenu")].formsInMenuAbove = true;
+	if (submenu.ownScreen !== true)
+		doc.modules[testUuid("submenu")].formsInMenuAbove = true;
 	rebuildFieldParent(doc);
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	return doc;
+}
+
+/** `sharedScreen(submenu)` with the parent's kind held advanced and the
+ *  submenu basic. A new document object, since every projection caches its
+ *  answers per document. */
+function underAdvancedParent(
+	submenu: Parameters<typeof sharedScreen>[0],
+): BlueprintDoc {
+	const doc = structuredClone(sharedScreen(submenu));
+	doc.modules[testUuid("parent")].heldKind = "advanced";
+	rebuildFieldParent(doc);
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	expect(menuEmittedAdvanced(doc, testUuid("parent"))).toBe(true);
+	expect(menuEmittedAdvanced(doc, testUuid("submenu"))).toBe(false);
 	return doc;
 }
 
@@ -450,13 +478,34 @@ describe("an advanced menu, by the datum each entry asks for first", () => {
 	it("asks for the case first where a submenu's forms align with its advanced parent's", () => {
 		// The submenu's selection takes the parent's `case_id_load_patient0`
 		// (`formLinkProjection.ts::alignWithRootMenu`).
-		const doc = sharedScreen({});
-		doc.modules[testUuid("parent")].heldKind = "advanced";
-		expect(answers(doc).find((answer) => answer.menu === "Patients")).toEqual({
+		expect(
+			answers(underAdvancedParent({})).find(
+				(answer) => answer.menu === "Patients",
+			),
+		).toEqual({
 			menu: "Patients",
 			nova: true,
 			core: true,
 		});
+	});
+
+	it("asks for the case first where a basic submenu's only entry, its case list, aligns with its advanced parent's form", () => {
+		// HQ's `add_parent_datums` gives the submenu's case list entry the
+		// parent form's `case_id_load_patient0`, so every entry on the parent's
+		// screen asks for that datum first.
+		expect(
+			answers(underAdvancedParent({ bareCaseList: true })).find(
+				(answer) => answer.menu === "Patients",
+			),
+		).toEqual({ menu: "Patients", nova: true, core: true });
+	});
+
+	it("asks for the case first on a basic submenu's own screen, whose form and case list entry both align with its advanced parent's form", () => {
+		expect(
+			answers(
+				underAdvancedParent({ ownScreen: true, caseListMenuItem: true }),
+			).find((answer) => answer.menu === "More"),
+		).toEqual({ menu: "More", nova: true, core: true });
 	});
 });
 

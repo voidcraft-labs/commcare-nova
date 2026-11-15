@@ -1219,11 +1219,13 @@ parent's filter only for a submenu that is above, `menus.py::_generate_menu`). B
 Once a case is chosen Preview opens a form only where one was requested (the form chosen before the
 case, a link's, a retained command's), and otherwise lists the menu, however many forms it shows
 (`menuProjection.ts::previewRequestedForm`, which replaced the one-form skip `previewAutomaticForm`).
-A form chosen from the menu after its case sits above the case in the session, so stepping back
-from it to the list leaves no form there (`CommCareSession.stepBack`), and the next case lists the
-menu again (`menuProjection.ts::previewCaseListReturnTarget`, `previewCaseListFormRequest`).
-`MenuScreensRuntimeTest` holds the landing (`landsOnCaseList`) and each step back from a form
-(`stepBacks`) to Core over the `menu-screens` documents, `menu-landings` among them.
+A form chosen from the menu after its case sits above the case in the session, so one step back
+from it stops on that menu with the case held and a second reaches the list holding no form
+(`CommCareSession.stepBack`), and the next case lists the menu again
+(`menuProjection.ts::previewCaseListHeldChoices`, `previewCaseListReturn`,
+`previewCaseListFormRequest`). `MenuScreensRuntimeTest` holds the landing (`landsOnCaseList`) and
+each step back from a form (`stepBacks`: where one step back lands, and what the list opens after
+it) to Core over the `menu-screens` documents, `menu-landings` among them.
 
 ### 8.4 Routes
 

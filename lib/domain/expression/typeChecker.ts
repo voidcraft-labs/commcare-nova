@@ -3025,8 +3025,8 @@ function inferTerm(
 			 * custom key only where the project space defines that field
 			 * (`user_data.py::UserData.to_dict`), Core refuses a read of a
 			 * key the device lacks (`XPathNodeset.unpack` on a path
-			 * `DataInstance.hasTemplatePath` misses), and a publish asks the
-			 * project space only for the fields the app declares. The
+			 * `DataInstance.hasTemplatePath` misses), and the setup list a
+			 * publish shows names only the fields the app declares. The
 			 * worker's record (`worker-record`) holds every property, `''`
 			 * where unset, so its reads of other names stand. */
 			if ([...ctx.facts.userPropertySlugs.values()].includes(term.field))
@@ -3038,7 +3038,7 @@ function inferTerm(
 				!BUILT_IN_USER_PROPERTY_SLUGS.has(term.field)
 				? fail(
 						"undeclared-worker-field",
-						`This reads the worker's “${term.field}”, which this app doesn't declare as worker information. Publishing asks the project space to define only the worker information an app declares, and a phone stops where it reads a field its project space doesn't define. You can add “${term.field}” as worker information in App setup and read that instead.`,
+						`This reads the worker's “${term.field}”, which this app doesn't declare as worker information. The setup list names only the worker information an app declares, for someone to add on CommCare HQ, and a phone stops where it reads a field its project space doesn't define. You can add “${term.field}” as worker information in App setup and read that instead.`,
 					)
 				: nodes("text", "string");
 		case "session-context":

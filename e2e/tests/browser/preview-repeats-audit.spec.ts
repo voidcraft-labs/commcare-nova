@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { Locator, Page, TestInfo } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
@@ -22,6 +23,12 @@ import type {} from "../../lib/preview-repeats-client";
 // in Preview alike.
 
 test.use({ timezoneId: "America/New_York" });
+
+/* The peer's member is signed in as the page loads: Preview opens a form only
+ * once the member's session has resolved. */
+const SIGNED_IN = {
+	"@/lib/auth/hooks/useAuth": resolve("e2e/lib/signed-in-auth-boundary.ts"),
+};
 
 async function openLanguageJourney(page: Page, peerOrigin: string) {
 	await page.context().grantPermissions(["geolocation"]);
@@ -67,7 +74,11 @@ test.describe("on Android, in a zone the stored offset matches", () => {
 	test("worker date, recorded location and live announcements switch language without replacing answers", async ({
 		page,
 	}, testInfo) => {
-		const peer = await componentPeer("e2e/lib/preview-repeats-client.tsx");
+		const peer = await componentPeer(
+			"e2e/lib/preview-repeats-client.tsx",
+			[],
+			SIGNED_IN,
+		);
 		await page.route(`${peer.origin}/api/auth/get-session`, (route) =>
 			route.fulfill({ json: null }),
 		);
@@ -206,7 +217,11 @@ test.describe("on Android, in a zone the stored offset is not", () => {
 	test("a preloaded date and time reads in the device's zone, and its two halves answer only what the worker gives", async ({
 		page,
 	}, testInfo) => {
-		const peer = await componentPeer("e2e/lib/preview-repeats-client.tsx");
+		const peer = await componentPeer(
+			"e2e/lib/preview-repeats-client.tsx",
+			[],
+			SIGNED_IN,
+		);
 		await page.route(`${peer.origin}/api/auth/get-session`, (route) =>
 			route.fulfill({ json: null }),
 		);
@@ -312,7 +327,7 @@ test("Repeated Preview questions keep native accessible names and retained DOM i
 	const peer = await componentPeer(
 		"e2e/lib/preview-repeats-client.tsx",
 		[],
-		{},
+		SIGNED_IN,
 		{
 			"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY": '""',
 			"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": '""',
@@ -474,7 +489,11 @@ test("Repeated Preview questions keep native accessible names and retained DOM i
 test("adding a repeat initializes its bound rows without replacing earlier answers", async ({
 	page,
 }) => {
-	const peer = await componentPeer("e2e/lib/preview-repeats-client.tsx");
+	const peer = await componentPeer(
+		"e2e/lib/preview-repeats-client.tsx",
+		[],
+		SIGNED_IN,
+	);
 	await page.route(`${peer.origin}/api/auth/get-session`, (route) =>
 		route.fulfill({ json: null }),
 	);
@@ -502,7 +521,11 @@ test("phone Preview omits automatic calculation shells and keeps meaningful repe
 	page,
 }, testInfo) => {
 	await page.setViewportSize({ width: 320, height: 720 });
-	const peer = await componentPeer("e2e/lib/preview-repeats-client.tsx");
+	const peer = await componentPeer(
+		"e2e/lib/preview-repeats-client.tsx",
+		[],
+		SIGNED_IN,
+	);
 	await page.route(`${peer.origin}/api/auth/get-session`, (route) =>
 		route.fulfill({ json: null }),
 	);

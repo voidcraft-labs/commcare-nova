@@ -34,10 +34,12 @@
  * one form, and three advanced menus whose entries ask for the datum each
  * load's tag names: a case list entry beside forms loaded under another tag,
  * two forms a published app keeps under two tags, and two forms kept under
- * the case list entry's own tag. Every screen of every document also writes
+ * the case list entry's own tag; and an advanced menu whose basic submenus'
+ * entries align with its form. Every screen of every document also writes
  * where Preview opens it (`landsOnCaseList`) and, for each case-loading form
- * on it, what its case list continues into once the worker steps back to it
- * from the form and chooses a case again (`stepBacks`).
+ * on it, where one step back from the form lands and what its case list
+ * continues into once the worker steps back to it and chooses a case again
+ * (`stepBacks`).
  *
  * Four documents are read for a list of workers' data rather than roles, each
  * listing a screen as refused where a condition it reads asks for a user field
@@ -126,11 +128,16 @@ import {
 	menuScreenEntryKey,
 	moduleHasChildren,
 	previewCaseFirstModuleUuids,
+	previewCaseListContinuation,
 	previewCaseListFormRequest,
+	previewCaseListHeldChoices,
+	previewCaseListMenuChoice,
 	previewCaseListMenuEntry,
-	previewCaseListReturnTarget,
+	previewCaseListReturn,
 	previewContributorVisibility,
 	previewMenuCaseContext,
+	previewMenuScreenChoice,
+	previewMenuScreenLanding,
 	previewModuleOwnVisibility,
 	previewModuleScreenIsBareCaseList,
 	previewRequestedForm,
@@ -174,8 +181,9 @@ mkdirSync(output, { recursive: true });
  * (`assertEveryMenuConditionHolds`), and a submenu's condition joined with its
  * parent's is read both holding and failing on the parent's side alone
  * (`assertEveryConjunctionIsRead`). The documents that compare it declare
- * `role` as a worker property, so a publish asks the project space for the
- * field (`lib/deployment/setupArtifact.ts`, worker information), and a worker
+ * `role` as a worker property, which the setup list a publish shows names for
+ * someone to add on CommCare HQ (`lib/deployment/setupArtifact.ts`, worker
+ * information), and a worker
  * the project space holds no value for has it blank: HQ's restore gives every
  * worker each user field the project space defines, `''` where none is set
  * (`user_data.py::UserData.to_dict`), as Preview reads a declared property.
@@ -717,19 +725,29 @@ function landsOnCaseList(doc: BlueprintDoc, screen: MenuScreen): boolean {
 let loneFormStepBacks = 0;
 
 /**
- * For each case-loading form a worker can choose on the screen, what the case
- * list continues into once the worker steps back to it from the form and
- * chooses a case again, as Preview decides it: the form's command, or null
- * where it lists the menu. The worker chooses the form as the screen offers
+ * For each case-loading form a worker can choose on the screen, where Preview
+ * lands once the worker steps back off the form, and what the case list
+ * continues into once the worker steps back to it and chooses a case again,
+ * as Preview decides it. The worker chooses the form as the screen offers
  * it: from the menu after the case on a screen that chooses its case first
- * (`ModuleScreen` and `CaseListScreen` mark that target `formChosenAfterCase`),
- * before any case otherwise. The route back is `FormScreen`'s
- * (`previewCaseListReturnTarget`, and `CaseListScreen` ignoring a form chosen
- * after its case), and the choice is `CaseListScreen`'s
- * (`previewCaseListFormRequest`, then `previewRequestedForm` over the forms
- * shown). A form whose menu reads the search is left out: its search step
- * is no case list a worker steps back to. `MenuScreensRuntimeTest` replays the
- * same path in Core and steps back with `CommCareSession.stepBack`.
+ * (the mark `CaseListScreen` writes, `previewCaseListMenuChoice`, where
+ * choosing the case went on into the list's own form menu,
+ * `previewCaseListContinuation`, and otherwise the one `ModuleScreen` writes,
+ * `previewMenuScreenChoice`, over the selection the list wrote), before any
+ * case otherwise.
+ *
+ * `oneStepBack` is the screen one Back lands on: `menu`, the screen's menu
+ * with the case held, where the form was chosen after its case (the list's
+ * own form menu where `previewCaseListHeldChoices` holds the case as the list
+ * shows, a menu screen where `previewMenuScreenLanding` lists its forms for
+ * the case its selection holds), else `case-list`, where the list holds the
+ * form. `afterStepBack` is the form's command where the list a route back
+ * reaches (`previewCaseListReturn`) opens the form once a case is chosen
+ * (`previewCaseListFormRequest`, then `previewRequestedForm`), or null where
+ * it lists the menu. A form whose menu reads the
+ * search is left out: its search step is no case list a worker steps back
+ * to. `MenuScreensRuntimeTest` replays the same path in Core and steps back
+ * with `CommCareSession.stepBack`.
  */
 function stepBacksOf(
 	read: ScreenRead,
@@ -737,7 +755,7 @@ function stepBacksOf(
 	readings: readonly Reading[],
 	asksCaseFirst: boolean,
 ) {
-	const { doc, ctx } = read;
+	const { doc, ctx, screen } = read;
 	return entries.flatMap((entry) => {
 		if (entry.kind !== "form") return [];
 		const mod = doc.modules[entry.moduleUuid];
@@ -785,32 +803,77 @@ function stepBacksOf(
 				forms.filter((form) => form.visibility === "shown").length === 1
 			)
 				loneFormStepBacks++;
-			const chosen = asksCaseFirst
-				? { formUuid: entry.formUuid, formChosenAfterCase: true as const }
-				: { formUuid: entry.formUuid };
-			const caseLoading = menuFormUuidsOf(doc, entry.moduleUuid).filter(
-				(uuid) => {
+			const caseLoadingOf = (moduleUuid: Uuid) =>
+				menuFormUuidsOf(doc, moduleUuid).filter((uuid) => {
 					const formType = doc.forms[uuid]?.type;
 					return (
 						formType !== undefined && CASE_LOADING_FORM_TYPES.has(formType)
 					);
-				},
-			);
+				});
+			const caseId = reading.chosen?.case.id ?? "case-one";
+			const cases = [{ caseId }];
+			/* What Preview holds once the worker has chosen the form: a form
+			 * chosen before any case is the list's held form; one chosen after
+			 * the case carries the mark the screen that listed it writes, the
+			 * list's own form menu where choosing the case went on into it
+			 * (`CaseListScreen`), else the menu screen that holds the case in
+			 * the selection the list wrote for it (`ModuleScreen`). */
+			const listModuleUuid =
+				screen.kind === "menu" ? screen.moduleUuid : entry.moduleUuid;
+			const source = { ...doc, doc, caseTypes: doc.caseTypes ?? [] };
+			const listsOwnFormMenu =
+				previewCaseListContinuation(doc, listModuleUuid) === "form-menu";
+			const selections =
+				reading.chosen === undefined || listsOwnFormMenu
+					? {}
+					: {
+							[listModuleUuid]: {
+								caseType: reading.chosen.case.type,
+								cases,
+							},
+						};
+			const chosen =
+				reading.chosen === undefined
+					? { formUuid: entry.formUuid, cases }
+					: {
+							formUuid: entry.formUuid,
+							cases,
+							formChosenAfterCase: listsOwnFormMenu
+								? previewCaseListMenuChoice(listModuleUuid)
+								: previewMenuScreenChoice(source, entry.moduleUuid, selections),
+						};
+			/* One step back: the list shows its form menu for the held case
+			 * (`previewCaseListHeldChoices`), or the menu screen lands on its
+			 * menu for the case its selection holds (`previewMenuScreenLanding`). */
+			const heldOnList = previewCaseListHeldChoices(chosen, {
+				moduleUuid: listModuleUuid,
+				caseLoadingFormUuids: caseLoadingOf(listModuleUuid),
+				continuation: previewCaseListContinuation(doc, listModuleUuid),
+			});
+			const menuHoldsCase =
+				reading.chosen !== undefined &&
+				!listsOwnFormMenu &&
+				previewMenuScreenLanding(source, listModuleUuid, selections, {
+					mode: "preview",
+				}).kind === "form-menu";
+			const back = previewCaseListReturn(chosen, {
+				moduleUuid: entry.moduleUuid,
+				formUuid: entry.formUuid,
+			});
 			const opened = previewRequestedForm(
-				forms.filter((form) => form.entry.moduleUuid === entry.moduleUuid),
-				previewCaseListFormRequest(
-					previewCaseListReturnTarget(chosen, entry.formUuid),
-					caseLoading,
-				),
+				caseLoadingOf(back.moduleUuid),
+				previewCaseListFormRequest(back.target, caseLoadingOf(back.moduleUuid)),
 			);
 			return [
 				{
 					command: formCommandId(ctx, entry.moduleUuid, entry.formUuid),
-					caseId: reading.chosen?.case.id ?? "case-one",
+					caseId,
+					oneStepBack:
+						heldOnList !== undefined || menuHoldsCase ? "menu" : "case-list",
 					afterStepBack:
 						opened === undefined
 							? null
-							: formCommandId(ctx, entry.moduleUuid, opened),
+							: formCommandId(ctx, back.moduleUuid, opened),
 				},
 			];
 		}
@@ -1259,7 +1322,8 @@ function workerPlaceRead(): BlueprintDoc {
  * the field gives every worker the key, `''` where unset
  * (`user_data.py::UserData.to_dict`); one that does not gives none, and Core
  * refuses the read, which is why Nova's gate asks for the field to be
- * declared, so a publish asks the project space to define it.
+ * declared, so the setup list a publish shows names it for someone to add on
+ * CommCare HQ.
  */
 function undeclaredWorkerFieldControl(): BlueprintDoc {
 	const doc = buildDoc({
@@ -1431,6 +1495,12 @@ write("undeclared-worker-field-control", undeclaredWorkerFieldControl(), {
  * - "Checks" is emitted advanced, beside its case list entry, and a publish
  *   keeps both forms' loads under the tag `case_check`, so every entry asks
  *   for `case_id_case_check` first: Core asks for the check first.
+ * - "Visits" is emitted advanced and holds two basic submenus of visits:
+ *   "Visit list", which shows its case list entry in the visits' screen and
+ *   holds nothing else, and "Visit notes", which keeps its screen and holds a
+ *   follow-up form and its case list entry. HQ aligns each basic entry with
+ *   the visits' form, so every entry on both screens asks for the parent's
+ *   `case_id_load_visit0` first: Core asks for the visit first on both.
  *
  * Each step back from a form of a case-first menu here lands on a list that
  * holds no form, and from a form of a forms-first one on a list that holds it.
@@ -1452,6 +1522,7 @@ function menuLandings(): BlueprintDoc {
 			{ name: "patient", properties: [] },
 			{ name: "review", properties: [] },
 			{ name: "check", properties: [] },
+			{ name: "visit", properties: [] },
 		],
 		modules: [
 			{
@@ -1522,6 +1593,29 @@ function menuLandings(): BlueprintDoc {
 					followUp("landings-check-finish", "Finish check"),
 				],
 			},
+			{
+				uuid: "landings-visits",
+				name: "Visits",
+				caseType: "visit",
+				caseListConfig: list(),
+				forms: [followUp("landings-visit-check", "Check visit")],
+			},
+			{
+				uuid: "landings-visit-list",
+				name: "Visit list",
+				caseType: "visit",
+				caseListMenuItem: {},
+				caseListConfig: list(),
+				forms: [],
+			},
+			{
+				uuid: "landings-visit-notes",
+				name: "Visit notes",
+				caseType: "visit",
+				caseListMenuItem: {},
+				caseListConfig: list(),
+				forms: [followUp("landings-visit-note", "Note visit")],
+			},
 		],
 	});
 	/* Where a publish keeps a form's own load: its own case operation's
@@ -1544,6 +1638,12 @@ function menuLandings(): BlueprintDoc {
 	doc.modules[testUuid("landings-checks")].heldKind = "advanced";
 	keepLoadUnder("landings-check-start", "case_check");
 	keepLoadUnder("landings-check-finish", "case_check");
+	doc.modules[testUuid("landings-visits")].heldKind = "advanced";
+	doc.modules[testUuid("landings-visit-list")].parentModuleUuid =
+		testUuid("landings-visits");
+	doc.modules[testUuid("landings-visit-list")].formsInMenuAbove = true;
+	doc.modules[testUuid("landings-visit-notes")].parentModuleUuid =
+		testUuid("landings-visits");
 	const verdict = mutationCommitVerdict(doc, [], lookupContextOf(undefined));
 	if (!verdict.ok)
 		throw new Error(
@@ -1554,7 +1654,16 @@ function menuLandings(): BlueprintDoc {
 	return verdict.nextDoc;
 }
 
-write("menu-landings", menuLandings(), ROLES);
+const landings = menuLandings();
+// The visits' two screens ask for the visit first only where Nova reads each
+// basic entry as aligned with the advanced parent's form, so a witness that
+// read them forms first would hold Core to nothing about that alignment.
+for (const key of ["landings-visits", "landings-visit-notes"])
+	if (!screenChoosesCaseFirst(landings, ownScreen(testUuid(key))))
+		throw new Error(
+			`The menu-landings screen "${landings.modules[testUuid(key)]?.name}" no longer asks for the visit first, so it witnesses nothing about a basic entry under an advanced parent.`,
+		);
+write("menu-landings", landings, ROLES);
 
 // Some step back is read on a screen that chooses its case first and lists one
 // form, where Core lists the menu and Preview once opened the form by itself.

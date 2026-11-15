@@ -485,19 +485,24 @@ export function selectAppTestRecords(
 		throw new AppTestActionError(
 			"A case list opened from its menu entry opens no form.",
 		);
-	const forms = appTestForms(context, next, screen.moduleUuid, true);
-	if (forms.length === 0)
+	/* The form chosen before the case opens, and no menu is listed, so no
+	 * condition is read (`previewRequestedForm`); otherwise the menu lists its
+	 * forms, however many it shows. */
+	const requested = previewRequestedForm(
+		menuFormUuidsOf(context.doc, screen.moduleUuid).filter((uuid) => {
+			const type = context.doc.forms[uuid]?.type;
+			return type !== undefined && CASE_LOADING_FORM_TYPES.has(type);
+		}),
+		screen.formUuid,
+	);
+	if (requested !== undefined)
+		return {
+			...next,
+			screen: enterAppTestForm(context, next, screen.moduleUuid, requested),
+		};
+	if (appTestForms(context, next, screen.moduleUuid, true).length === 0)
 		throw new AppTestActionError("This record list has no next task.");
-	/* The form chosen before the case opens; otherwise the menu lists its
-	 * forms, however many it shows (`previewRequestedForm`). */
-	const requested = previewRequestedForm(forms, screen.formUuid);
-	return {
-		...next,
-		screen:
-			requested === undefined
-				? next.screen
-				: enterAppTestForm(context, next, screen.moduleUuid, requested),
-	};
+	return next;
 }
 
 /**

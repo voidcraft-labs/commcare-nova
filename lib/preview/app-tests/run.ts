@@ -29,11 +29,9 @@ import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
-import { previewDataRefusalSubject } from "../engine/dataRefusal";
 import { evaluateForm } from "../engine/evaluateForm";
 import { appReadsPlaces } from "../engine/expressionCaseReads";
 import { availablePages } from "../engine/sectionPaging";
-import { serverPreviewDataRefusalOf } from "../engine/serverDataRefusal";
 import {
 	recordsReadSearch,
 	searchedReading,
@@ -44,11 +42,7 @@ import {
 	formReadsSearchResults,
 	type SearchResultsSnapshot,
 } from "../engine/xpathInstances";
-import {
-	dataRefusalCopy,
-	runtimeLanguage,
-	runtimeMessage,
-} from "../runtimeMessages";
+import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
 import {
 	claimableCaseIds,
 	claimPostsAtResult,
@@ -57,6 +51,7 @@ import {
 } from "../searchClaims";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
+import { appTestDataRefusal, readingSurface } from "./dataRefusal";
 import { appTestCellProjector, appTestDetails } from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
@@ -156,7 +151,9 @@ async function appTestSearchResults(
 		screen: searchedScreen,
 	});
 	if (refusal !== undefined) throw new AppTestActionError(refusal);
-	const found = await serverSearchResults(context.store, read);
+	const found = await readingSurface("search", () =>
+		serverSearchResults(context.store, read),
+	);
 	if (found === undefined) throw refused();
 	return found;
 }
@@ -693,21 +690,6 @@ export async function advanceAppTest(
 	}
 }
 
-/** Core's refusal of data the device lacks while a screen lists its menus
- *  or its cases, or while a form opens or goes on
- *  (`engine/serverDataRefusal.ts`), as the action's refusal; any other error
- *  as it is. */
-function appTestDataRefusal(context: AppTestContext, error: unknown): unknown {
-	const refusal = serverPreviewDataRefusalOf(error);
-	if (refusal === undefined) return error;
-	const copy = dataRefusalCopy(
-		context.language,
-		refusal.stage === "links" ? "links" : "menu",
-		previewDataRefusalSubject(refusal.reason, context.lookup),
-	);
-	return new AppTestActionError(`${copy.title}. ${copy.body}`);
-}
-
 async function advanceAppTestOnScreen(
 	context: AppTestContext,
 	scope: Scope,
@@ -1190,11 +1172,14 @@ async function advanceAppTestOnScreen(
 				throw new AppTestActionError(
 					"Open and answer a form before submitting it.",
 				);
-			const saved = await submitAppTest(
+			const { formContext } = await appTestFormContext(
 				context,
 				scope,
 				state,
-				(await appTestFormContext(context, scope, state, screen)).formContext,
+				screen,
+			);
+			const saved = await readingSurface("form", () =>
+				submitAppTest(context, scope, state, formContext),
 			);
 			context = { ...context, identity: saved.identity };
 			next = saved.state;
@@ -1238,16 +1223,16 @@ async function advanceAppTestOnScreen(
 		);
 		return { ...observed, observation: { ...observed.observation, ...extra } };
 	} catch (error) {
+		/* The form is saved, so the next screen's refusal of data the device
+		 * lacks keeps it, as Preview shows the refusal after the save. */
+		const refused = appTestDataRefusal(context, error);
 		if (
-			!expectedAppTestRefusal(error) ||
+			!expectedAppTestRefusal(refused) ||
 			extra.savedInTest !== true ||
 			screen.kind !== "form"
 		)
 			throw error;
-		const message =
-			error instanceof Error
-				? error.message
-				: "The next task could not be opened.";
+		const message = refused.message;
 		return {
 			state: {
 				...next,

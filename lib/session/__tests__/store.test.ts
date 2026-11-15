@@ -373,6 +373,49 @@ describe("BuilderSession store", () => {
 			formUuid,
 			cases: [{ caseId: "case-1" }],
 		});
+
+		/* So is every other fact of the same form and cases: where the form
+		 * was chosen (the menu's held case lets go, and is held again, by the
+		 * mark alone), the list's search text, and a link's opening. */
+		const menuModuleUuid = testUuid("module-1");
+		const cases = [{ caseId: "case-1" }];
+		for (const target of [
+			{
+				formUuid,
+				cases,
+				formChosenAfterCase: {
+					caseListModuleUuid: menuModuleUuid,
+					fromCaseListMenu: true as const,
+				},
+			},
+			{
+				formUuid,
+				cases,
+				formChosenAfterCase: {
+					caseListModuleUuid: menuModuleUuid,
+					fromCaseListMenu: true as const,
+					steppedPastMenu: true as const,
+				},
+			},
+			{
+				formUuid,
+				cases,
+				formChosenAfterCase: {
+					caseListModuleUuid: menuModuleUuid,
+					fromCaseListMenu: true as const,
+				},
+			},
+			{
+				formUuid,
+				cases,
+				formChosenAfterCase: { caseListModuleUuid: menuModuleUuid },
+			},
+			{ formUuid, cases, caseListSearchText: "ana" },
+			{ formUuid, cases, openedByLink: true as const },
+		]) {
+			store.getState().setPreviewCaseTarget(target);
+			expect(store.getState().previewCaseTarget).toEqual(target);
+		}
 	});
 
 	it("holds a Register launch's form entry apart from the case target, until Home or a Preview flip ends it", () => {

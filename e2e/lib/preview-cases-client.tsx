@@ -14,7 +14,7 @@ import {
 	plainColumn,
 	proseText,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/expression";
+import { eq, literal, sessionUser, term } from "@/lib/domain/expression";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
@@ -82,6 +82,16 @@ function fixture(count: number) {
 						name: "Close case",
 						type: "close",
 						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+						/* -2: a condition on the worker's place, which a member
+						 * assigned nowhere lacks, so Core fails the menu. */
+						...(count === -2
+							? {
+									displayCondition: eq(
+										term(sessionUser("commcare_location_id")),
+										literal("clinic"),
+									),
+								}
+							: {}),
 					},
 				],
 			},
@@ -152,6 +162,10 @@ window.previewCasesAudit = {
 		configureSeveralCasePopulation();
 		setCount(-1);
 	},
+	severalReadingThePlace() {
+		configureSeveralCasePopulation();
+		setCount(-2);
+	},
 	target: () => session.getState().previewCaseTarget,
 	refresh() {
 		session.getState().beginAccessRefresh();
@@ -171,6 +185,7 @@ declare global {
 		previewCasesAudit: {
 			setCount(count: number): void;
 			several(): void;
+			severalReadingThePlace(): void;
 			target(): import("@/lib/session/types").PreviewCaseTarget | undefined;
 			refresh(): void;
 			dispose(): void;

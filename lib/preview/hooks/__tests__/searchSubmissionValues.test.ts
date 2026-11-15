@@ -66,8 +66,10 @@ describe("searchWorld", () => {
 		deviceCases: typeof cases | null,
 		deviceCasesLoad: "idle" | "loading" | "ready" | "error",
 		lookup = "data",
+		session: { readonly identityPending?: true } = {},
 	) =>
 		searchWorld({
+			session,
 			readsCaseDatabase,
 			deviceCases,
 			deviceCasesLoad,
@@ -87,6 +89,15 @@ describe("searchWorld", () => {
 		expect(world(true, null, "error")).toBe("failed");
 		// A search that reads none is not held by their failure.
 		expect(world(false, null, "error")).toBe("ready");
+	});
+
+	it("waits for the worker while the session has none, whatever else is ready", () => {
+		const pending = { identityPending: true } as const;
+		expect(world(false, null, "idle", "data", pending)).toBe("waiting");
+		expect(world(true, cases, "ready", "data", pending)).toBe("waiting");
+		// A session still waiting is not a failed world: the worker arrives.
+		expect(world(true, null, "error", "data", pending)).toBe("waiting");
+		expect(world(true, cases, "ready", "data")).toBe("ready");
 	});
 
 	it("waits for lookups still loading", () => {

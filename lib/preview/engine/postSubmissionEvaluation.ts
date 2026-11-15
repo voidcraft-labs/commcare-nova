@@ -23,6 +23,7 @@ import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
+import { workerFailureError } from "./dataRefusal";
 import { afterSubmitSessionDatums, entrySessionData } from "./entrySessionData";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
@@ -153,10 +154,15 @@ export async function evaluatePostSubmissionSnapshot(
 				},
 				{ signal: AbortSignal.timeout(30_000) },
 			);
-			if (!result.ok)
+			if (!result.ok) {
+				/* A read of data the device lacks (a worker key the worker has
+				 * none of, a table with no rows) is Core's refusal of the links,
+				 * which a phone stops on after the save, never a failed check. */
+				if (result.refusal !== undefined) throw workerFailureError(result);
 				throw new FormEvaluationInputError(
 					`The next-task condition could not be evaluated (${result.error.code}).`,
 				);
+			}
 			return deserializeXPathWorkerValue(result.value);
 		};
 		const world = createFormLinkWorkerWorld(

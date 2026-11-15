@@ -49,6 +49,7 @@ import {
 	serverRecordsRead,
 	serverSearchResults,
 } from "@/lib/preview/engine/serverSearchRead";
+import { SurfacedDataRefusal } from "@/lib/preview/engine/surfacedDataRefusal";
 import { workerLocationFixture } from "@/lib/preview/engine/workerLocationFixture";
 import {
 	type CaseDatabaseSnapshot,
@@ -228,7 +229,7 @@ export async function loadFormEvaluationContext(
  * answers are the evaluated form's own (`FormEvaluationInput.searchAnswers`),
  * and a form of any other module reads none.
  */
-function formsReadSearchFormAnswers(
+export function formsReadSearchFormAnswers(
 	doc: BlueprintDoc,
 	form: EvaluatedForm,
 	world: Pick<
@@ -245,18 +246,53 @@ function formsReadSearchFormAnswers(
 		!moduleFormsReadSearch(module)
 	)
 		return undefined;
-	const defaults = resolveSearchInputDefaults(
-		module.caseListConfig?.searchInputs ?? [],
-		previewSessionValues(world.identity, world.device),
-		{
-			doc,
-			moduleUuid,
-			lookup: previewLookupData(world.lookup),
-			sessionData: {},
-			caseDatabase: world.cases,
-		},
-	);
+	let defaults: ReturnType<typeof resolveSearchInputDefaults>;
+	try {
+		defaults = resolveSearchInputDefaults(
+			module.caseListConfig?.searchInputs ?? [],
+			previewSessionValues(world.identity, world.device),
+			{
+				doc,
+				moduleUuid,
+				lookup: previewLookupData(world.lookup),
+				sessionData: {},
+				caseDatabase: world.cases,
+			},
+		);
+	} catch (error) {
+		throw searchRefusalInputError(
+			error,
+			resolveAppLanguage(doc.localization, form.language),
+			world.identity.personaUuid === undefined
+				? undefined
+				: doc.personas?.[world.identity.personaUuid]?.name,
+		);
+	}
 	return [...defaults].map(([name, value]) => ({ name, value }));
+}
+
+/**
+ * A read of data the worker's device lacks (a place key of a worker assigned
+ * nowhere) stops the search on a phone, or the case list where the Search
+ * action's condition read it (`surfacedDataRefusal.ts`): the check says so in
+ * the words Preview shows it in. Every other error is returned as it is, to
+ * be thrown.
+ */
+function searchRefusalInputError(
+	error: unknown,
+	language: ReturnType<typeof resolveAppLanguage>,
+	worker: string | undefined,
+): unknown {
+	const surfaced = error instanceof SurfacedDataRefusal ? error : undefined;
+	const refused = surfaced?.refusal ?? serverPreviewDataRefusalOf(error);
+	if (refused === undefined) return error;
+	const copy = dataRefusalCopy(
+		language,
+		surfaced?.surface ?? "search",
+		previewDataRefusalSubject(refused.reason, undefined),
+		worker === undefined ? {} : { worker },
+	);
+	return new FormEvaluationInputError(`${copy.title}. ${copy.body}`);
 }
 
 /**
@@ -312,21 +348,17 @@ export async function formSearchResults(
 				? "This form's search reads the records of a parent chosen before it, which a form check cannot choose. Start an app test to choose the parent and run the search."
 				: "This form's menu has no record list to search.",
 		);
-	/* A read of data the worker's device lacks (a place key of a worker
-	 * assigned nowhere) stops the search on a phone: the check says so in the
-	 * words Preview shows it in. */
 	const refusing = async <T>(run: () => Promise<T>): Promise<T> => {
 		try {
 			return await run();
 		} catch (error) {
-			const refused = serverPreviewDataRefusalOf(error);
-			if (refused === undefined) throw error;
-			const copy = dataRefusalCopy(
+			throw searchRefusalInputError(
+				error,
 				searchWorld.language,
-				"search",
-				previewDataRefusalSubject(refused.reason, undefined),
+				world.identity.personaUuid === undefined
+					? undefined
+					: doc.personas?.[world.identity.personaUuid]?.name,
 			);
-			throw new FormEvaluationInputError(`${copy.title}. ${copy.body}`);
 		}
 	};
 	/* The search screen first, as the worker reaches it: a Search action its

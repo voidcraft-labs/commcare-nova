@@ -435,6 +435,105 @@ describe("user authoring tools", () => {
 		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 
+	it("rebinds the reads of a name that new or renamed worker information takes", async () => {
+		const reads = (doc: BlueprintDoc) => {
+			const field = Object.values(doc.fields).find(
+				(each) => each.id === "notes",
+			);
+			if (field === undefined || field.kind !== "text")
+				throw new Error("Expected the question.");
+			return { relevant: field.relevant, label: field.label?.parts[1] };
+		};
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									id: "notes",
+									kind: "text",
+									label: {
+										parts: [
+											{ kind: "text", text: "Region " },
+											{ kind: "user-ref", property: "region" },
+										],
+									},
+									relevant: eq(
+										{
+											kind: "session-user",
+											field: "region",
+											source: "worker-record",
+										},
+										literal("north"),
+									),
+								}),
+								f({
+									id: "area_copy",
+									kind: "hidden",
+									calculate: {
+										kind: "term",
+										term: {
+											kind: "session-user",
+											field: "area",
+											source: "worker-record",
+										},
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const harness = makeHarness(doc);
+
+		const added = await harness.runTool(addUserPropertiesTool, {
+			properties: [{ slug: "region", label: "Region" }],
+		});
+		if (!("uuids" in added.result))
+			throw new Error(`The add was refused: ${JSON.stringify(added.result)}`);
+		const region = added.result.uuids[0];
+		expect(reads(harness.currentDoc())).toEqual({
+			relevant: eq(
+				{
+					kind: "session-user-property",
+					userPropertyUuid: region,
+					source: "worker-record",
+				},
+				literal("north"),
+			),
+			label: { kind: "user-property-ref", userPropertyUuid: region },
+		});
+
+		const renamed = await harness.runTool(updateUserPropertyTool, {
+			uuid: region,
+			slug: "area",
+		});
+		expect(renamed.result).toMatchObject({ ok: true });
+		const copy = Object.values(harness.currentDoc().fields).find(
+			(each) => each.id === "area_copy",
+		);
+		expect(copy).toMatchObject({
+			calculate: {
+				kind: "term",
+				term: {
+					kind: "session-user-property",
+					userPropertyUuid: region,
+					source: "worker-record",
+				},
+			},
+		});
+		// The question's reads are the information's and follow its rename.
+		expect(reads(harness.currentDoc()).label).toEqual({
+			kind: "user-property-ref",
+			userPropertyUuid: region,
+		});
+	});
+
 	it("updates and removes a persona by UUID, then allows its unreferenced role to be removed", async () => {
 		const harness = makeHarness(emptyDoc());
 		const role = await harness.runTool(addUserTypesTool, {

@@ -24,19 +24,23 @@
  * `verifyUndeclaredWorkerFieldRepair` checks with the production emitters
  * before a script may write.
  *
- * The reads are found by one walk of the whole persisted document, which
- * reaches every place a read is stored: the registered slots of modules,
- * forms and fields, prose parts, automations and the translation overlay. A
- * translation that was current before the repair is rewritten the same way
- * as its source and stays current; one that was already out of date cannot
- * be rewritten by a batch the gate admits, so an app holding a read in one is
- * refused.
+ * The declaration and the rebind are the live planners'
+ * (`lib/doc/userMutations.ts::addUserPropertyMutations` and
+ * `rebindWorkerReadsByName`), which the builder and the tools run when worker
+ * information takes a name a read already uses, so the repair and a later
+ * edit rebind one way. They rewrite a translation that was current before
+ * the repair the same way as its source and keep it current; one that was
+ * already out of date cannot be rewritten by a batch the gate admits, so an
+ * app holding a read in one is refused. The census is one walk of the whole
+ * persisted document, which reaches every place a read is stored, so a read
+ * the planners did not reach refuses the app rather than going unseen.
  *
  * Every refusal here is content-free: it names a reason, never a field name,
  * a label, an expression or any other content of the app.
  */
 
 import AdmZip from "adm-zip";
+import { produce } from "immer";
 import { v5 as uuidv5 } from "uuid";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -54,6 +58,12 @@ import {
 } from "@/lib/doc/fieldParent";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
+import {
+	addUserPropertyMutations,
+	rebindWorkerReadsByName,
+} from "@/lib/doc/userMutations";
 import {
 	type BlueprintDoc,
 	BUILT_IN_USER_PROPERTY_SLUGS,
@@ -248,17 +258,16 @@ export function repairUndeclaredWorkerFields(
 			translationsKeptCurrent: 0,
 		};
 
-	const target = structuredClone(before);
 	const bySlug = new Map<string, Uuid>();
 	const twice = new Set<string>();
-	for (const uuid of target.userPropertyOrder ?? []) {
-		const property = target.userProperties?.[uuid];
+	for (const uuid of before.userPropertyOrder ?? []) {
+		const property = before.userProperties?.[uuid];
 		if (property === undefined) continue;
 		if (bySlug.has(property.slug)) twice.add(property.slug);
 		bySlug.set(property.slug, property.uuid);
 	}
 
-	const taken = authoredUuids(target);
+	const taken = authoredUuids(before);
 	const claimed = new Set(bySlug.keys());
 	const declared: UserProperty[] = [];
 	for (const slug of census.undeclared) {
@@ -268,7 +277,7 @@ export function repairUndeclaredWorkerFields(
 				verdict.code === "duplicate" ? "slug-collides" : "slug-not-declarable",
 			);
 		const property = userPropertySchema.safeParse({
-			uuid: undeclaredWorkerFieldPropertyUuid(target.appId, slug),
+			uuid: undeclaredWorkerFieldPropertyUuid(before.appId, slug),
 			slug,
 			label: slug,
 		});
@@ -289,7 +298,7 @@ export function repairUndeclaredWorkerFields(
 		collectTranslationUnits(beforeDoc).map((unit) => [unit.id, unit]),
 	);
 	const staleEntries = new Set<object>();
-	for (const entries of Object.values(target.localization?.translations ?? {}))
+	for (const entries of Object.values(before.localization?.translations ?? {}))
 		for (const [unitId, entry] of Object.entries(entries)) {
 			const unit = unitsBefore.get(unitId);
 			if (
@@ -304,7 +313,7 @@ export function repairUndeclaredWorkerFields(
 
 	let reboundReads = 0;
 	let staleRead = false;
-	visitObjects(target, (node, holder, key) => {
+	visitObjects(before, (node) => {
 		if (staleEntries.has(node)) {
 			/* An out-of-date translation is left as it is: a read in it that
 			 * the repair would rebind refuses the app. */
@@ -317,62 +326,48 @@ export function repairUndeclaredWorkerFields(
 		}
 		const read = namedWorkerRead(node);
 		if (read === undefined) return false;
-		const userPropertyUuid = bySlug.get(read.name);
-		if (userPropertyUuid === undefined) return true;
+		if (!bySlug.has(read.name)) return true;
 		if (twice.has(read.name))
 			throw new UndeclaredWorkerFieldRefusal("slug-declared-twice");
-		const replacement =
-			node.kind === "user-ref"
-				? { kind: "user-property-ref", userPropertyUuid }
-				: {
-						kind: "session-user-property",
-						userPropertyUuid,
-						...(node.source !== undefined && { source: node.source }),
-					};
-		(holder as Record<string | number, unknown>)[key] = replacement;
 		reboundReads += 1;
 		return true;
 	});
 	if (staleRead)
 		throw new UndeclaredWorkerFieldRefusal("stale-translation-read");
 
-	if (declared.length > 0) {
-		target.userProperties = {
-			...target.userProperties,
-			...Object.fromEntries(
-				declared.map((property) => [property.uuid, property]),
-			),
-		};
-		target.userPropertyOrder = [
-			...(target.userPropertyOrder ?? []),
-			...declared.map((property) => property.uuid),
-		];
-	}
-
+	/* The rebind is the live planners': declaring a property rebinds every
+	 * read by name of its slug in the same batch, as the builder and the tools
+	 * do, and a slug the app already declared has its reads rebound the same
+	 * way. Each step applies before the next is planned, so two slugs read in
+	 * one text are rewritten one after the other. */
+	let doc = beforeDoc;
+	const step = (mutations: readonly Mutation[]): void => {
+		doc = produce(doc, (draft) => {
+			applyMutations(draft, [...mutations]);
+		});
+	};
+	const declaredSlugSet = new Set(declared.map((property) => property.slug));
+	for (const [slug, uuid] of bySlug)
+		if (!declaredSlugSet.has(slug) && !twice.has(slug))
+			step(rebindWorkerReadsByName(doc, slug, uuid));
+	for (const { uuid, ...property } of declared)
+		step(addUserPropertyMutations(doc, uuid, property));
+	const target = toPersistableDoc(doc);
 	let translationsKeptCurrent = 0;
-	if (target.localization !== undefined) {
-		const unitsAfter = new Map(
-			collectTranslationUnits(hydratePersistedBlueprint(target)).map((unit) => [
-				unit.id,
-				unit,
-			]),
-		);
-		for (const entries of Object.values(target.localization.translations))
-			for (const [unitId, entry] of Object.entries(entries)) {
-				if (staleEntries.has(entry)) continue;
-				const unit = unitsAfter.get(unitId);
-				if (
-					unit === undefined ||
-					translationSourceFingerprintsEqual(
-						entry.sourceFingerprint,
-						unit.sourceFingerprint,
-					)
+	for (const [language, entries] of Object.entries(
+		target.localization?.translations ?? {},
+	))
+		for (const [unitId, entry] of Object.entries(entries)) {
+			const prior = before.localization?.translations[language]?.[unitId];
+			if (
+				prior !== undefined &&
+				!translationSourceFingerprintsEqual(
+					entry.sourceFingerprint,
+					prior.sourceFingerprint,
 				)
-					continue;
-				entry.sourceFingerprint = unit.sourceFingerprint;
+			)
 				translationsKeptCurrent += 1;
-			}
-	}
+		}
 
 	if (needsWorkerFieldRepair(target))
 		throw new UndeclaredWorkerFieldRefusal("read-not-rebound");

@@ -15,6 +15,7 @@ const english = {
 	breadcrumbPath: "Show breadcrumb path",
 	pageNavigation: "Page navigation",
 	formGettingReady: "This form is getting ready.",
+	searchGettingReady: "This search is getting ready.",
 	answersLocked: "Answers are locked while this submission finishes.",
 	freshFormReady: "A fresh form entry is ready.",
 	caseDataRefreshing: "Case data is refreshing. Your answers are still here.",
@@ -327,6 +328,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	breadcrumbPath: "Mostrar la ruta de navegación",
 	pageNavigation: "Navegación de páginas",
 	formGettingReady: "El formulario se está preparando.",
+	searchGettingReady: "La búsqueda se está preparando.",
 	answersLocked: "Las respuestas están bloqueadas mientras termina el envío.",
 	freshFormReady: "El formulario está listo para una nueva entrada.",
 	caseDataRefreshing:

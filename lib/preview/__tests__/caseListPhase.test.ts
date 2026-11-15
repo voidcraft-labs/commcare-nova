@@ -8,7 +8,12 @@
 
 import { describe, expect, it } from "vitest";
 import type { SearchWorkflow } from "@/lib/domain";
-import { caseListStep, resultsConstraintContext } from "../caseListPhase";
+import {
+	caseListReadsResults,
+	caseListScreenStep,
+	caseListStep,
+	resultsConstraintContext,
+} from "../caseListPhase";
 import {
 	ANDROID_RULES,
 	WEB_APPS_RULES,
@@ -148,6 +153,91 @@ describe("caseListStep", () => {
 				submittedFoundNothing: true,
 			}),
 		).toBe("results");
+	});
+});
+
+describe("caseListScreenStep", () => {
+	const screen = (
+		overrides: Partial<Parameters<typeof caseListScreenStep>[0]> &
+			Pick<StepArgs, "workflow" | "rules">,
+	) =>
+		caseListScreenStep({
+			formsReadSearch: false,
+			searchRelevant: "undecided",
+			hasSubmitted: false,
+			...overrides,
+		});
+
+	it("waits in Web Apps where an undecided Search button condition decides between the list and the search", () => {
+		expect(screen({ workflow: "skipToResults", rules: WEB_APPS_RULES })).toBe(
+			"waiting",
+		);
+		expect(screen({ workflow: "searchFirst", rules: WEB_APPS_RULES })).toBe(
+			"waiting",
+		);
+		expect(
+			screen({
+				workflow: "searchFirst",
+				rules: WEB_APPS_RULES,
+				hasSubmitted: true,
+			}),
+		).toBe("waiting");
+	});
+
+	it("shows the one step an undecided condition cannot change", () => {
+		for (const workflow of WORKFLOWS)
+			expect(screen({ workflow, rules: ANDROID_RULES })).toBe("browse");
+		expect(screen({ workflow: "listFirst", rules: WEB_APPS_RULES })).toBe(
+			"browse",
+		);
+		expect(
+			screen({
+				workflow: "skipToResults",
+				formsReadSearch: true,
+				rules: WEB_APPS_RULES,
+			}),
+		).toBe("results");
+		expect(
+			screen({
+				workflow: "searchFirst",
+				formsReadSearch: true,
+				rules: WEB_APPS_RULES,
+			}),
+		).toBe("search");
+	});
+
+	it("is the decided step once the condition is decided", () => {
+		for (const workflow of WORKFLOWS)
+			for (const rules of [WEB_APPS_RULES, ANDROID_RULES])
+				for (const searchRelevant of [true, false])
+					expect(screen({ workflow, rules, searchRelevant })).toBe(
+						step({ workflow, rules, searchRelevant }),
+					);
+	});
+});
+
+describe("caseListReadsResults", () => {
+	const run = (hasSubmitted: boolean, readsRegisteredCase = false) => ({
+		hasSubmitted,
+		readsRegisteredCase,
+	});
+
+	it("reads the worker's list whatever has been searched", () => {
+		expect(caseListReadsResults("browse", run(false))).toBe(true);
+		expect(caseListReadsResults("browse", run(true))).toBe(true);
+	});
+
+	it("reads no Results before the menu's default search has run", () => {
+		expect(caseListReadsResults("results", run(false))).toBe(false);
+		expect(caseListReadsResults("results", run(true))).toBe(true);
+		expect(caseListReadsResults("results", run(false, true))).toBe(true);
+	});
+
+	it("reads nothing on the Search screen or while the step waits", () => {
+		for (const submitted of [false, true]) {
+			expect(caseListReadsResults("search", run(submitted))).toBe(false);
+			expect(caseListReadsResults("waiting", run(submitted, true))).toBe(false);
+		}
 	});
 });
 

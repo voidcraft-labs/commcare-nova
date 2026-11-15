@@ -81,8 +81,8 @@ import {
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { type IdentityMove, withIdentityMoves } from "@/lib/doc/identityMoves";
 import {
+	choicePreservationFor,
 	planKindConversion,
-	withChoicePreservation,
 } from "@/lib/doc/kindConversionCascade";
 import {
 	type LookupCommitState,
@@ -134,12 +134,14 @@ import type {
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
 	addPersonaMutations,
-	addUserPropertyMutations,
 	addUserTypeMutations,
+	planAddUserProperty,
+	planUpdateUserProperty,
 	type RemoveUserPropertyPlan,
 	removePersonaMutations,
 	removeUserPropertyPlan,
 	removeUserTypePlan,
+	type UserPropertyPlan,
 	updatePersonaMutations,
 	updatePersonaValueMutations,
 	updateUserTypeMutations,
@@ -223,6 +225,59 @@ export type StructuredCommitOutcome =
  *  identity move first), only review it, or commit a batch whose moves the
  *  person has already been shown. */
 type GuardedMode = "commit" | "review" | "stated";
+
+/**
+ * What `guardedApply` dispatches: a batch, or an authored batch with the
+ * rewrites that keep the document's reads meaning what they meant
+ * (`followUps`). The worker-language lens shapes only `authored`, moving
+ * edited wording into a translation; a follow-up changes which identity a
+ * read names or turns a read into its value, never the wording, so it is a
+ * source-document change in every language. It is planned over the shaped
+ * authored batch and sent as it is.
+ */
+type GuardedBatch =
+	| readonly Mutation[]
+	| {
+			readonly authored: readonly Mutation[];
+			readonly followUps: (
+				doc: BlueprintDoc,
+				authored: readonly Mutation[],
+			) => readonly Mutation[];
+	  };
+
+function isMutationList(batch: GuardedBatch): batch is readonly Mutation[] {
+	return Array.isArray(batch);
+}
+
+/**
+ * A field edit with the choice reads it would strand kept as their values
+ * (`kindConversionCascade.ts::planChoicePreservation`), planned over the
+ * authored edit as the worker-language lens shapes it. The count is read
+ * after the dispatch.
+ */
+function choicePreservingBatch(authored: readonly Mutation[]): {
+	readonly batch: GuardedBatch;
+	readonly preservedChoiceCount: () => number;
+} {
+	let preservedChoiceCount = 0;
+	return {
+		batch: {
+			authored,
+			followUps: (doc, shaped) => {
+				const plan = choicePreservationFor(doc, shaped);
+				preservedChoiceCount = plan.preservedChoiceCount;
+				return plan.mutations;
+			},
+		},
+		preservedChoiceCount: () => preservedChoiceCount,
+	};
+}
+
+/** A worker-information write with the reads it rebinds as follow-ups, so
+ *  the worker-language lens never reads a rebind as a translation edit. */
+function userPropertyBatch(plan: UserPropertyPlan): GuardedBatch {
+	return { authored: [plan.write], followUps: () => plan.rebind };
+}
 
 type GuardedApplyResult =
 	| {
@@ -926,7 +981,7 @@ export function createBlueprintMutations(
 		 * validated. The batch is then RECORDED: it is the author's
 		 * un-persisted intent until the reconciler PUTs it. */
 		const guardedApply = (
-			mutations: readonly Mutation[],
+			batch: GuardedBatch,
 			mode: GuardedMode = "commit",
 			announceRefusal = announce,
 		): GuardedApplyResult => {
@@ -949,6 +1004,7 @@ export function createBlueprintMutations(
 				return { ok: false, messages: admission.messages };
 			}
 			const doc = get();
+			const authored = isMutationList(batch) ? batch : batch.authored;
 			/* The waiting batch was projected into the worker language when
 			 * it was dispatched, and the gate admitted it as it stands;
 			 * projecting it again would read its own translation writes as
@@ -956,7 +1012,8 @@ export function createBlueprintMutations(
 			const alreadyProjected =
 				mode === "stated" &&
 				pending !== null &&
-				deepEqual(pending.batch, mutations);
+				isMutationList(batch) &&
+				deepEqual(pending.batch, batch);
 			const snapshotAuthoringLanguage =
 				authoringLanguage === null
 					? null
@@ -967,22 +1024,28 @@ export function createBlueprintMutations(
 						readonly ok: true;
 						readonly mutations: readonly Mutation[];
 				  } = alreadyProjected
-				? { ok: true, mutations }
+				? { ok: true, mutations: authored }
 				: projectBuilderLanguageMutations(
 						doc,
 						snapshotAuthoringLanguage,
-						mutations,
+						authored,
 					);
 			if (!projected.ok) {
 				const lines = [projected.message];
 				if (announceRefusal) notifyRejectedCommit(lines);
 				return { ok: false, messages: lines };
 			}
+			const mutations = isMutationList(batch)
+				? projected.mutations
+				: [
+						...projected.mutations,
+						...batch.followUps(doc, projected.mutations),
+					];
 			/* Where the edit leaves a held identity unable to stay where a
 			 * publish recorded it, the planner appends the move and states it.
 			 * Over a document that holds one it prepares the candidate, and the
 			 * verdict evaluates that candidate rather than preparing again. */
-			const plan = withIdentityMoves(doc, projected.mutations, {
+			const plan = withIdentityMoves(doc, mutations, {
 				recorded: doc.recordedHolds,
 			});
 			const verdict =
@@ -1186,7 +1249,7 @@ export function createBlueprintMutations(
 				// in `Mutation` — at the value level the shape is structurally
 				// identical, but TS treats the union arms as distinct types
 				// rather than a parameterized one.
-				const planned = withChoicePreservation(doc, [
+				const preserving = choicePreservingBatch([
 					{
 						kind: "updateField",
 						uuid,
@@ -1196,9 +1259,9 @@ export function createBlueprintMutations(
 						) as FieldPatchFor<typeof targetKind>,
 					} as Mutation,
 				]);
-				const applied = guardedApply(planned.mutations);
-				if (applied.ok && planned.preservedChoiceCount > 0)
-					notifyPreservedChoices(planned.preservedChoiceCount);
+				const applied = guardedApply(preserving.batch);
+				if (applied.ok && preserving.preservedChoiceCount() > 0)
+					notifyPreservedChoices(preserving.preservedChoiceCount());
 				return toOutcome(applied);
 			},
 
@@ -1388,10 +1451,10 @@ export function createBlueprintMutations(
 					};
 				}
 				batch.push(...plan.mutations);
-				const planned = withChoicePreservation(doc, batch);
-				const applied = guardedApply(planned.mutations);
-				if (applied.ok && planned.preservedChoiceCount > 0)
-					notifyPreservedChoices(planned.preservedChoiceCount);
+				const preserving = choicePreservingBatch(batch);
+				const applied = guardedApply(preserving.batch);
+				if (applied.ok && preserving.preservedChoiceCount() > 0)
+					notifyPreservedChoices(preserving.preservedChoiceCount());
 				return toOutcome(applied);
 			},
 
@@ -2011,20 +2074,19 @@ export function createBlueprintMutations(
 			addUserProperty(property) {
 				const uuid = asUuid(crypto.randomUUID());
 				const applied = guardedApply(
-					addUserPropertyMutations(get(), uuid, property),
+					userPropertyBatch(planAddUserProperty(get(), uuid, property)),
 				);
 				if (!applied.ok) return applied;
 				return { ok: true, uuid };
 			},
 
 			updateUserProperty(uuid, patch) {
-				if (ownRecordValue(get().userProperties, uuid) === undefined) {
+				const plan = planUpdateUserProperty(get(), uuid, patch);
+				if (plan === undefined) {
 					warnUnresolved("updateUserProperty", { uuid });
 					return NOOP_REJECTION;
 				}
-				return toOutcome(
-					guardedApply([{ kind: "updateUserProperty", uuid, patch }]),
-				);
+				return toOutcome(guardedApply(userPropertyBatch(plan)));
 			},
 
 			removeUserProperty(uuid) {

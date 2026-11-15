@@ -28,6 +28,7 @@ import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 export { BuilderPageNavigation } from "@/components/builder/BuilderPageNavigation";
 
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	useEffectiveCaseTypes,
 	useMaterializableCaseTypes,
@@ -41,6 +42,12 @@ import {
 import type { Uuid } from "@/lib/doc/types";
 import { moduleShowsFormsInMenuAbove } from "@/lib/domain";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
+import {
+	previewCaseListReturn,
+	previewMenuSelectionsLetGo,
+	previewTargetAboveForm,
+	previewTargetHoldingMenu,
+} from "@/lib/preview/menuProjection";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	DEVICE_HOME_CRUMB_KEY,
@@ -57,7 +64,9 @@ import {
 	usePreviewSelectedCase,
 	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseTarget,
+	useSetPreviewMenuCaseSelection,
 } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 
 /** Stable no-op handler for breadcrumb items that don't navigate. */
@@ -188,32 +197,86 @@ export function BreadcrumbStrip() {
 
 	/* Breadcrumb click handlers, memoized on navigation structure so
 	 * CollapsibleBreadcrumb's memo() skips re-renders when nothing changed.
-	 * A case-loading form's crumb (`reselectCaseFor`) re-enters its
-	 * case-selection step: re-open the case list seeded with this form as
-	 * the continue target: instead of re-navigating to the form the user is
-	 * already on; every other crumb pushes its location. */
-	const breadcrumbHandlers = useMemo(
-		() =>
-			effectiveBreadcrumbs.map((item) => {
-				const reselectFor = item.reselectCaseFor;
-				if (item.key === DEVICE_HOME_CRUMB_KEY)
-					return () => setPreviewAtDeviceHome(true);
-				if (reselectFor && moduleUuid) {
-					return () => {
-						setPreviewCaseTarget({ formUuid: reselectFor });
-						navigate.openCaseList(moduleUuid);
-					};
-				}
-				return () => navigate.push(item.location);
-			}),
-		[
-			effectiveBreadcrumbs,
-			navigate,
-			moduleUuid,
-			setPreviewAtDeviceHome,
-			setPreviewCaseTarget,
-		],
-	);
+	 * In Preview a crumb ends the session's steps at the screen it names, as
+	 * Web Apps' breadcrumb cuts its selections back to that step
+	 * (`spliceSelections`): a case-loading form's crumb (`reselectCaseFor`)
+	 * re-enters its case selection, a held case's crumb (`holdsCaseOn`)
+	 * reaches the menu that holds it, and a menu's crumb lets go of every
+	 * case chosen on it or past it. Each reads the session when it runs. */
+	const sessionApi = useBuilderSessionApi();
+	const docApi = useBlueprintDocApi();
+	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
+	const breadcrumbHandlers = useMemo(() => {
+		const letGo = (screen: {
+			moduleUuid: Uuid | undefined;
+			through?: true;
+		}) => {
+			for (const uuid of previewMenuSelectionsLetGo(
+				docApi.getState(),
+				sessionApi.getState().previewMenuCaseSelections,
+				screen,
+			))
+				setPreviewMenuCaseSelection(uuid, undefined);
+		};
+		return effectiveBreadcrumbs.map((item) => {
+			const reselectFor = item.reselectCaseFor;
+			const holder = item.holdsCaseOn;
+			if (item.key === DEVICE_HOME_CRUMB_KEY)
+				return () => setPreviewAtDeviceHome(true);
+			if (!previewing) return () => navigate.push(item.location);
+			if (reselectFor && moduleUuid) {
+				/* Re-enter the case selection as a route back from the form
+				 * does: the list that chose its case, holding the form only
+				 * where the worker chose it before the case. */
+				return () => {
+					const back = previewCaseListReturn(
+						sessionApi.getState().previewCaseTarget,
+						{ moduleUuid, formUuid: reselectFor },
+					);
+					setPreviewCaseTarget(back.target);
+					navigate.openCaseList(back.moduleUuid);
+				};
+			}
+			if (holder !== undefined) {
+				/* The menu that holds the case: a case list's own form menu
+				 * holds it through the target, a menu screen through its
+				 * selection, which stays with the selections above it. */
+				return () => {
+					const target = sessionApi.getState().previewCaseTarget;
+					setPreviewCaseTarget(
+						target?.formChosenAfterCase?.fromCaseListMenu === true
+							? previewTargetHoldingMenu(target, true)
+							: previewTargetAboveForm(target),
+					);
+					letGo({ moduleUuid: holder, through: true });
+					navigate.push(item.location);
+				};
+			}
+			if (item.key === "home" || item.key.startsWith("m:"))
+				return () => {
+					setPreviewCaseTarget(
+						previewTargetAboveForm(sessionApi.getState().previewCaseTarget),
+					);
+					letGo({
+						moduleUuid: item.key.startsWith("m:")
+							? (item.key.slice(2) as Uuid)
+							: undefined,
+					});
+					navigate.push(item.location);
+				};
+			return () => navigate.push(item.location);
+		});
+	}, [
+		docApi,
+		effectiveBreadcrumbs,
+		navigate,
+		moduleUuid,
+		previewing,
+		sessionApi,
+		setPreviewAtDeviceHome,
+		setPreviewCaseTarget,
+		setPreviewMenuCaseSelection,
+	]);
 
 	/* Assemble breadcrumb parts: memoized so CollapsibleBreadcrumb's memo
 	 * boundary actually works. Without useMemo, every render creates a new

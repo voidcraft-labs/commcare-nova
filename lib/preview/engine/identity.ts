@@ -101,9 +101,9 @@ export interface ResolvedPreviewIdentity {
 }
 
 /**
- * The signed-out projection: device context only, no user values. This is
- * NOT an identity. Navigation conditions wait for hydration rather than
- * interpreting its absent values as the selected worker's permissions.
+ * The projection with no worker: device context only, no user values. This
+ * is NOT an identity, and its empty user data is not a worker who holds no
+ * keys: see {@link awaitsPreviewIdentity}.
  */
 const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
 	identityPending: true,
@@ -111,6 +111,24 @@ const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
 	user: {},
 	userPropertySlugs: {},
 };
+
+/**
+ * Whether the session is still waiting for its worker: the signed-in
+ * member's session has not resolved, so the session is not yet the worker's.
+ * Nothing reads a worker key against it, because a device refuses a read of a
+ * key its worker lacks and this session lacks every key: a read would show
+ * that refusal for a worker whose device holds the key. Every screen that
+ * reads the session waits instead, as a menu's display condition does
+ * (`displayConditionEvaluation.ts`), the form engine holds its entry
+ * (`EngineController.setPreviewIdentityPending`), and the Search screen and a
+ * form's search answers wait with the rest of their world
+ * (`useSearchCsqlRuntime.ts::searchWorld`).
+ */
+export function awaitsPreviewIdentity(
+	session: Pick<PreviewSearchSessionValues, "identityPending">,
+): boolean {
+	return session.identityPending === true;
+}
 
 /**
  * The framework keys CommCare injects into `session/user/data` AFTER the
