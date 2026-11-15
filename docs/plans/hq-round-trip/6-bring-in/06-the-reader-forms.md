@@ -477,7 +477,22 @@ export interface ReaderInput {
 	 *  document and part 15's two readings pass the document's own,
 	 *  `caseManagement/knownCaseTypes.ts::knownCaseTypesOf(doc)`. */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** What Nova already holds about this app's languages that no export carries: the language
+	 *  each CommCare HQ code it published names, `languages.ts::knownLanguageCodesOf(doc)`, the
+	 *  held document's `localization.wireCodes` inverted. `readLanguages` reads a code this holds
+	 *  as its language and every other code by `languageIdentityForHqCode`. The minter can change
+	 *  the spelling it gives an identity (`swc`, `prs` and `pap-AW` took the bare `sw`, `fas` and
+	 *  `pap` while no other language held them, and take `swc-`, `prs-` and `pap-aw` now), and a
+	 *  stored code is never re-minted, since it is the language's identity on CommCare HQ; told
+	 *  nothing, a re-read would name such a code as the language that holds the spelling now
+	 *  (`swh`). Absent for an app Nova has never held: a first reading passes none. Acceptance's
+	 *  re-read passes none either, since its document's codes are the ones the reading named.
+	 *  Proof 6 over a Nova-born document and part 15's two readings pass the document's own. */
+	readonly knownLanguageCodes?: ReaderKnownLanguageCodes;
 }
+
+/** The language each CommCare HQ code of an app Nova holds names, by the code. */
+export type ReaderKnownLanguageCodes = ReadonlyMap<string, LanguageTag>;
 
 export interface ReaderKnownCaseTypes {
 	targetOf(caseType: string, identifier: string): KnownIndexTarget | undefined;
@@ -1442,7 +1457,9 @@ is absent (`ApplicationBase.wrap`).
    code outside `localization.ts::languageWireCodeSchema`'s grammar, or one the list holds twice:
    `refuse(a-non-empty-langs-code-outside-that-grammar-or-repeated)`. Otherwise the code is held
    verbatim as the language's wire code.
-2. **Its identity.** `languageIdentityForHqCode(code)`: split at the first hyphen into `base` and
+2. **Its identity.** A code `ReaderInput.knownLanguageCodes` holds is the language it names there, a
+   stored code being the language's identity on CommCare HQ and never re-minted; every other code is
+   `languageIdentityForHqCode(code)`: split at the first hyphen into `base` and
    `suffix`. `languageRegistry/index.ts::languageCodeVerdict(base)` gives the language: itself where it
    is `individual-living`; `resolved` where it is `set1-alias`; the first of `members` where it is a
    `macrolanguage` (the registry lists the predominant member first, the rule
@@ -1662,7 +1679,7 @@ one. Part 07 claims no key of the other rows: it reads their result from `ctx.dr
 |---|---|
 | `doc_type`, `module_type` | 7.1; `module_type` is at its class's default or is covered by the document-type finding |
 | `unique_id` | 7.2 |
-| `name` | `take(modulebase-name)`: the name in the source language into `module.name`, each other language through `ctx.translations` (12.5's rule) |
+| `name` | `take(modulebase-name)`, read by `structure.ts::nameAsRead` (below): the text CommCare HQ's build shows in the source language, held as `heldName` holds it, into `module.name`, each other language's where it differs through `ctx.translations`; a map the reader cannot know (no JSON object, or a chosen value that is a number, an object or an array), or whose text Nova's gate admits no spelling of (a literal `\n` or a carriage return, `localeFile.ts::localeFileValueIssue`), is left unclaimed for the close |
 | `forms` | `list(…, take(module-forms))`, each child's class from its `doc_type` |
 | `comment` | `account(comment-module)` |
 | `ref_details`, `referral_list` | `account(module-ref-details)`, `account(module-referral-list)` |
@@ -1677,7 +1694,7 @@ Ids are under `forms-and-case-writes/`.
 |---|---|
 | `doc_type`, `form_type` | 7.1; `take(form-type)` where `form_type` is not the class's default |
 | `unique_id`, `xmlns` | 7.2 |
-| `name` | `take(name-lang)`, as a menu's name; where `instanceScanRead` (`lib/commcare/hqInstanceScan.ts`; part 03, section 5.1) answers for the name in the app's first language, the one `formWireName` writes into the form, also `refuse(form-name-read-as-an-instance)`, raised with `Accounting.finding` at the form, `detail.name` the text it answered |
+| `name` | `take(name-lang)`, as a menu's name; where `instanceScanRead` (`lib/commcare/hqInstanceScan.ts`; part 03, section 5.1) answers for the name in the app's first language as the form's source holds it once the generated keys are decided (below), the one `formWireName` writes into the form, also `refuse(form-name-read-as-an-instance)`, raised with `Accounting.finding` at the form, `detail.name` the text it answered |
 | `version` | `account(version)` |
 | `validation_cache`, `comment`, `submit_notification_label` | `account(validation-cache)`, `account(comment)`, `account(submit-notification-label)` |
 | `show_count` | `account(show-count-false)` or `account(show-count-true)` by value |
@@ -1689,6 +1706,48 @@ Ids are under `forms-and-case-writes/`.
 | `requires`, `actions`, `form_filter`, `post_form_workflow`, `post_form_workflow_fallback`, `form_links`, `session_endpoint_id`, `respect_relevancy`, `function_datum_endpoints`, `media_image`, `media_audio`, `use_default_image_for_all`, `use_default_audio_for_all`, `custom_icons`, `custom_assertions`, and on an advanced form `arbitrary_datums`, `schedule` | part 07 |
 
 `Form.type` is not on the wire: part 07 derives it from `requires` and `actions`, before stage 7.
+
+**A name map.** A menu's or a form's `name` is read as CommCare HQ's build shows it in each language
+(`structure.ts::nameAsRead`, over `hqText.ts`). HQ's build writes `clean_trans(name, [lang] + langs)`
+into each language's app strings (`app_strings.py::_create_custom_app_strings`), drops a blank there
+(`create_custom_app_strings`), and a device then shows the `default` locale's text, the first build
+language's that is not blank (`create_default_app_strings`); `xforms_extras.py::_trans` takes the first
+of those languages the map holds with a value other than `None`, a blank included, else the value
+under the map's least key. HQ stores a name under one language only where it was added while the app
+builder's language was another (`views/forms.py` reads the `lang` cookie, `models/modules.py::new_form`
+stores `name={lang: name}`), or where a language was added after it. Each language's text is the
+one `hqText.ts::shownText` gives, held as Nova's gate admits a name (`structure.ts::heldName`):
+
+- the source language's text is the slot's, whatever the map holds there: a source language with no
+  key, a `null` or a blank beside another language's text holds the text a device shows, the
+  `default` locale's, never a blank no device shows;
+- another language takes a translation where its text differs from the source's and is not blank:
+  Nova holds no blank name translation (`translationUnits.ts::NONBLANK_TRANSLATION_ROLES`), so a
+  language whose name HQ's build writes as only spaces, which `commcare_translations.py::dumps`
+  writes as one non-breaking space and a device shows blank, prints the source language's name;
+- a name loses the characters up to U+0020 at its ends, which Nova's locale files cannot hold
+  (`localeFile.ts::localeFileValueIssue`): those at the end no device showed, since Core's
+  `LocalizationUtils.parseAndAdd` trims each line, and those at the start it did;
+- a text holding a literal `\n` or a carriage return, which Nova's gate admits no spelling of, leaves
+  the map unclaimed for the close.
+
+Every map Nova's emitter writes prints back exactly and records nothing. Any other map is written
+again by the first publish: under `names-respelled` where every language shows what it showed, and
+under `name-spaces-dropped`, which touches workers, where a language shows another name, a blank one
+or one with a space at its start (part 09, section 11.2), both held by `__tests__/names.test.ts`.
+Each language's own text, `clean_trans(name, [lang] + langs)`, is kept for the fold of a generated
+key over the name (16.5).
+
+The name `form-name-read-as-an-instance` scans is the first language's as Nova prints it once the
+generated keys are decided, its translation there or else the source's: the text `formWireName`
+writes into the form's source and the gate refuses, whatever the source language is. Where the
+stored first-language name reads as an instance and an app translation in that language words the
+name (the generated key `forms.m#f#` at the form's position, a non-blank text with no instance read),
+the structure stage writes that wording into the first language, so that the strings Nova's build
+makes of the reading can be made, and the scan waits for the key's verdict
+(`structure.ts::scanFormName`): the verdict reads the stored name in its place
+(`assemble.ts::withDeferredNames`), and where the key folds, the form's source holds the wording and
+no finding stands; where it does not, the stored name is scanned (`settleDeferredFormNames`).
 
 The entry `form-name-read-as-an-instance` is part 03's, with its subject `instance-text` (its
 section 5.1): a form's name is plain text in the form's source, CommCare HQ's build reads
@@ -1830,13 +1889,17 @@ model-iteration wrapper (10.3), and the four Connect roles are 15. A role none o
 **Binds** (`readBinds`, as `parseBindList` reads them). A bind's path is its `nodeset`, or its `ref`; a
 relative path is taken from the data root (`parser.js::processPath`). The path is read with
 `xpath/formSyntax.ts::readFormSyntax` and must be a chain of child steps, with at most one final
-attribute step.
+attribute step, and with `..` only among the leading steps of a relative path: Core's reference
+parser refuses a `..` anywhere else (`XPathPathExpr.getReference`, `parentsAllowed`), and the form
+then does not load, so such a bind is left unclaimed (`unrecognized`). The same reading
+(`model.ts::readNodePath`) serves a control's `ref`, a setvalue's `ref` and a repeat's count.
 
 | The bind | Result |
 |---|---|
-| its path names no node | `dropSubtree(bind-whose-nodeset-matches-no-node)` |
+| its path names no node, or `/` above the data root, written `/` or as a relative `..` (Core drops a bind on `/`, `XFormParser.verifyBindings`) | `dropSubtree(bind-whose-nodeset-matches-no-node)` |
+| its path names the data root itself (`/data`, `/data/.`, relative `.`: Core resolves a relative path from the root, `XFormParser.getAbsRef`; a path that steps down and back up to it is no path, above) | `refuseSubtree(bind-whose-path-names-the-data-root-itself-data-data-or-a)`: Core applies it to the root, so its `relevant` hides the whole form, and no question holds it |
 | its path ends in an attribute of a model-iteration wrapper or row, or lies in a case region | kept for 10.3 or handed to part 07 |
-| its path ends in any other attribute | `refuseSubtree(bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model)` |
+| its path ends in any other attribute, the data root's included | `refuseSubtree(bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model)` |
 | a second bind for one node | left unclaimed: `unrecognized` |
 | otherwise | `BindFacts` on the node; `nodeset` is `take(bind-nodeset-absolute-or-relative)` |
 
@@ -1866,7 +1929,7 @@ source is an `item-list:<tag>`, `locations` or `user-groups` fixture, and under
 | The body holds | Result |
 |---|---|
 | any other element where a control may stand | `refuseSubtree(unknown-body-control-vellum-readonly-e-g-range)` |
-| a `repeat` that is not the one `repeat` child of a `group` whose appearance is not `field-list` in any letter case | `refuseSubtree(bare-repeat-with-no-group-wrapper)`. Vellum's `group` adaptor tests `appearance === 'field-list'` first (`parser.js::buildControlNodeAdaptorMap`), so under a group written `field-list` the `repeat` is a control it does not know, and under a case variant (`Field-List`) it is a Repeat in HQ's form builder while Core, which reads the appearance ignoring case, draws a Question List. Neither is a repeat Nova holds |
+| a `repeat` that is not the one child control of a `group` whose appearance is not `field-list` in any letter case | `refuseSubtree(bare-repeat-with-no-group-wrapper)`. Core collapses a group into its repeat only where the repeat is the group's one child (`XFormParser.collapseRepeatGroups`, counting every control `groupLevelHandlers` makes, by its local name); beside another control the group stays a group, its label is no repeat's, and the repeat has no wrapper. Vellum's `group` adaptor tests `appearance === 'field-list'` first (`parser.js::buildControlNodeAdaptorMap`), so under a group written `field-list` the `repeat` is a control it does not know, and under a case variant (`Field-List`) it is a Repeat in HQ's form builder while Core, which reads the appearance ignoring case, draws a Question List. Neither is a repeat Nova holds |
 | `<input readonly="true()">` | `refuseSubtree(input-readonly-true-control-attribute)` |
 | a `trigger` with no `ref`, `nodeset` or `bind` | `refuseSubtree(ref-less-trigger)` |
 
@@ -1888,12 +1951,16 @@ becomes a field:
 3. generated question siblings (13.2), each proposed against the fields found so far and those found
    after, in two passes: fields first by control and bind, then generated candidates among the nodes
    with no control;
-4. every node a control names: a field of the kind 9.1 gives;
+4. every node a control names: a field of the kind 9.1 gives; a control other than a group or a
+   repeat whose node has element children is
+   `refuseSubtree(a-question-other-than-a-group-or-repeat-whose-data-node-has)` on the control and the
+   node, and the node stands in as a group, so each node under it reads under that group;
 5. every remaining node with no element child: a Hidden Value (9.1);
 6. a remaining node with element children and no control: `refuseSubtree(hidden-value-with-children)`.
 
-**A control's place and its node's place must agree.** Where a field's control stands in another
-container than its data node, it is `refuse(data-parent-data-node-under-another-group-than-its-control)`,
+**A control's place and its node's place must agree.** Checked once step 4 has made every field a
+control makes, so a data parent whose control stands later in the body counts. Where a field's control
+stands in another container than its data node, it is `refuse(data-parent-data-node-under-another-group-than-its-control)`,
 or `refuse(data-parent-crossing-a-repeat)` where a repeat lies between the two.
 
 **Order.** A container's children are ordered as `parseControlTree`'s `merge` leaves them: in data-tree
@@ -2539,8 +2606,8 @@ every repeat, `mugs/types/group.js`).
 | a path to no node of the data tree | | | | `refuse(jr-count-naming-a-node-in-a-secondary-instance-or-no-node)` |
 | the path of the generated count node of this repeat (13.2, `count`) | `true()` | plain | `count_bound`; `repeat_count` is that node's `calculate`, registered (11.1) | `take(jr-count-naming-a-hidden-value-whose-calculate-is-an-integer-in)` |
 | the path of a field | `true()` | plain | `count_bound`; `repeat_count` is a read of that field, which part 08 binds from the registered `jr:count` path | by the field: an int question `take(repeat-with-jr-count-naming-an-integer-question-of-the-form-s)`; a Hidden Value `take(jr-count-naming-a-hidden-value-whose-calculate-is-an-integer-in)`; a single select `take(jr-count-naming-a-single-select-question-whose-every-choice)`; a decimal question `refuse(jr-count-naming-a-decimal-question)`; any other kind `refuse(jr-count-naming-any-other-question-kind-text-barcode-multi)` |
-| `<wrapper>/@count` | `true()` | a `vellum:role="Repeat"` wrapper holding `ids`, `count` and `current_index` attributes and one `item` child with `id`, `index` and `jr:template` | `query_bound`, `placement: "model-iteration"` | `take(repeat-model-iteration-vellum-role-repeat-ids-count-current)`, held to 10.4 |
-| the generated query count node (13.2, `query-count`) | `true()` | a wrapper holding the generated ids and count nodes and one `item` child with `jr:template`, in a body group over the wrapper | `query_bound`, `placement: "count"` | `take(count-repeat-whose-count-and-row-ids-come-from-one-query-a)` |
+| `<wrapper>/@count` | `true()` | a `vellum:role="Repeat"` wrapper holding `ids`, `count` and `current_index` attributes and one `item` child with `id`, `index` and `jr:template`, and no other child | `query_bound`, `placement: "model-iteration"` | `take(repeat-model-iteration-vellum-role-repeat-ids-count-current)`, held to 10.4 |
+| the generated query count node (13.2, `query-count`) | `true()` | a wrapper holding the generated ids and count nodes, the position node where it is written, one `item` child with `jr:template` and no other child, in a body group over the wrapper | `query_bound`, `placement: "count"` | `take(count-repeat-whose-count-and-row-ids-come-from-one-query-a)` |
 
 The three refusals that need the bound document are decided in stage 10 (`afterBinding.ts`), from the
 bound `repeat_count`: a Hidden Value count the checker does not type as a whole number is
@@ -2561,7 +2628,11 @@ differ is left unclaimed. The repeat captions `jr:addCaption` and `jr:addEmptyCa
 `refuseSubtree(those-captions-referencing-itext)` where they reference itext.
 
 A query repeat's field is at the wrapper; its children are the `item` row's children, and `item` is no
-field (`NodeRole` `query-row`).
+field (`NodeRole` `query-row`). A wrapper that holds any other node is neither placement: the field
+stands at the wrapper only because nothing but the row and the generated nodes is under it, and a node
+beside the row would otherwise read as a child of every row. Such a count-placement wrapper is the
+group HQ's form builder shows, read as it stands (its generated nodes are then Hidden Values, whose
+own rows refuse them); such a model-iteration wrapper is left unclaimed.
 
 ### 10.4 Where model iteration is held
 
@@ -2801,10 +2872,10 @@ key `xform:model/itext/translation@lang`, read as the language the texts under i
 | The table holds | Result |
 |---|---|
 | a `translation` whose `lang` is none of the app's codes | `dropSubtree(translation-for-a-language-not-in-langs)` |
-| `translation@default` | `drop(itext-ids-other-than-a-pragma-key-default-placement)`; Nova marks `langs[0]` |
+| `translation@default` | `drop(itext-ids-other-than-a-pragma-key-default-placement)`; Nova marks `langs[0]`. The form's default language, which the reading reads by, is the one HQ's build and Core give it: `langs[0]` where the form holds its translation (`xform.py::XForm.set_default_language`), else the first translation the form holds (`exclude_languages` keeps document order; `XFormParser.parseIText` takes the first available locale) (`itext.ts::ItextReading.defaultLanguage`) |
 | two `text`s of one `id` in one translation | `refuseSubtree(duplicate-text-id-in-one-translation-jr-itext-with-double-quotes)` at the form |
-| a `text` whose first translation has no default value | `refuse(a-label-whose-itext-in-the-first-translation-has-no-default-form)` at the question that references it |
-| a translation absent for an app language | nothing to claim: its texts read as untranslated (12.5), the state `a-translation-missing-for-an-app-language` holds |
+| a `text` whose form's default translation holds no default value (Core then shows no text), or a question's or choice's label whose `text` in the source's first `<translation>`, in document order whatever its language, holds no `value` without a `form` (HQ's build reads every label there, `forms.py::FormBase.cached_get_questions` → `xform.py::XForm._get_label_text` → `localize(ref, None)`, and raises "has no <value>" for it, `helpers/validators.py`) | `refuse(a-label-whose-itext-in-the-first-translation-has-no-default-form)` at the question that references it (`itext.ts::ItextReading.buildRefusesLabel`). Any other translation, the source language's included, whose `text` holds no default value shows the default translation's text there (`XFormParser.verifyTextMappings` only warns for a locale that is not the default, `Localizer.getLocaleData` falls back per key) and reads as it (12.5) |
+| a translation absent for an app language, the first or the source included | nothing to claim: the language shows the form's default language's text (`FormDef.initLocale` shows the default locale for a language the form lacks), which the reading reads as its text (12.5), the state `a-translation-missing-for-an-app-language` holds |
 
 A text is found by what references it. A control's `label`, `hint`, `help` and `alert`, an `item`'s
 `label` and a bind's `jr:constraintMsg` each hold a `ref` (or the attribute itself) that
@@ -2816,7 +2887,7 @@ never content: the `text@id` attribute is `drop(itext-ids-other-than-a-pragma-ke
 | The reference | Result |
 |---|---|
 | the argument is written between double quotes (the string node's first source character) | `refuse(duplicate-text-id-in-one-translation-jr-itext-with-double-quotes)` |
-| the id is in no translation of the first language, or of the source language where that is another (6.3, item 4) | the same entry |
+| the id is in no translation of the form's default language (Core refuses it, `XFormParser.verifyTextMappings`) | the same entry. An id another translation lacks shows the default's text there (`Localizer.getLocaleData` loads the default locale's keys under every locale), the source language's included |
 | a `label` with text and no `ref` | `take(inline-label-text-label-no-itext)`: that text, in the source language |
 | a `hint` or an `item`'s `label` with text and no `ref` | that text, in the source language, under the slot's own `take` (`hint-text`, `choice-label-with-no-markdown-form`): Core shows an element's inner text where it names no text id (`FormEntryPrompt.localizeText`), and the form builder keeps it (`parser.js::populateControlMug` reads a hint's and a label's inner text, and `writer.js::createHint` and the label's itext write it back) |
 | a `help` with content and no `ref` | left unclaimed, as an `alert` written inline is: Core shows that text (`FormEntryPrompt.localizeText`), the form builder keeps a help's `ref` alone (`javaRosa/plugin.js::parseItextRef`, and `createHelp` writes a help only through its text), so its next save loses the text, and no entry names it. A `help` with no `ref` and no content reads as a blank help text under `help-text-markdown-form` |
@@ -2903,7 +2974,9 @@ Rules that complete the table:
   (`translationEntryFor` gives no entry) and counted in `ReadFormFacts.blankTranslations` (part 09,
   Decision 19). A `value` present and empty in the first language where another language holds text
   is `refuse(an-explicitly-blank-value-in-the-first-language-where-another-holds-text)`, new. A
-  missing `text` or `value` is no blank: it reads as untranslated. Two cases the pair leaves: a
+  missing `text` or `value` is no blank: the language shows the default language's text, which the
+  reading reads as its text (12.5). "The first language" in this rule is the form's default
+  language (12.1), `langs[0]` wherever the form holds its translation. Two cases the pair leaves: a
   blank `value` in another language of a text refused this way is claimed under the same refusal,
   one finding at the question; and a text whose values are blank in every language is the default
   row of the table, read as a blank text. A hint, a help text or a validation message blank in
@@ -2988,14 +3061,25 @@ two sides hold one definition of a run Core drops.
 holds media for: a question's label (`label_media`), its help (`help_media`) and an inline choice
 (`media`). The value's text is a path.
 
-- **One path in every language.** Each media kind's path must be equal in every app language that holds
-  a `text` for the id, and present in all or in none. Then the slot holds that kind, under
+- **One file in every language.** Each media kind's file must be one in every app language, each
+  language read as it shows the text: a language whose text holds no form of the kind, or no text,
+  shows the form's default language's (Core loads the default locale's keys under every locale,
+  `Localizer.getLocaleData`), so the default language must hold the kind wherever any language does
+  (a form only another language holds is a key Core refuses when it loads that language), and the
+  paths held must be one path, or several paths the media index resolves to one asset. CommCare HQ keeps one media document per file content
+  (`hqmedia/models.py::CommCareMultimedia.get_by_data`), so the same picture uploaded under two
+  languages' paths is two `multimedia_map` entries over one file, which a Nova slot holds as its one
+  asset, and the first publish keeps one of the paths (`media-paths-joined`, part 10, section 4.2).
+  Then the slot holds that kind, under
   `take(label-image-audio-video-same-asset-every-language)`, `take(help-media)`, `take(choice-image)` or
-  `take(choice-audio-video)`. A path that differs between two languages, or is present in one and absent
-  in another, is `refuse(label-or-option-media-differing-by-language)` at the question (part 01's
+  `take(choice-audio-video)`. Paths of two files, a path only a language other than the default
+  holds, or several paths one of which resolves to no asset, are
+  `refuse(label-or-option-media-differing-by-language)` at the question (part 01's
   3.5 holds the wording of the three media rows of questions and forms).
 - **The file.** `input.media.resolve(path)`: `asset` puts the asset id in the slot, makes the `take`
-  claim above on each language's `value`, and adds a `ReadMediaReference` to `facts.mediaReferences`.
+  claim above on each language's `value`, and adds a `ReadMediaReference` to `facts.mediaReferences`
+  for each distinct path, so the projection (part 07, `readProjectionInputs`) and the first publish
+  see every path the source spells for the file.
   `no-entry` and `unreadable` put nothing in the slot and hand each language's `value` off
   (`XmlCursor.handOff(node, "media-reference", path)`, 4.3), with one `PendingMedia` in
   `facts.pendingMedia`. No claim is made here because the entry is not the reader's to pick: part
@@ -3037,7 +3121,8 @@ the Web Apps logo, an image column's image) is read by the same rule through one
 
 ```ts
 // lib/commcare/reader/xform/media.ts
-/** One shared path of a `{ lang: path }` map, resolved; or why there is none. */
+/** The one file of a `{ lang: path }` map, resolved: one shared path, or several paths the
+ *  media index resolves to one asset; or why there is none. */
 export function readMediaMap(
 	ctx: ReadContext,
 	byLanguage: Readonly<Record<string, string>>,
@@ -3049,8 +3134,13 @@ export function readMediaMap(
  | { readonly kind: "differs" };
 ```
 
-`none` is an empty map. `differs` is a path that is not one in every app language that holds one;
-the caller refuses under its own `…-differing-by-language` entry. `asset` and `handed-off` list the
+Each app language's path is the one HQ's build shows there, `hqText.ts::shownText` (a language the
+map lacks or holds blank shows the `default` table's: the first language's path that is not blank,
+else the map's least key's), so a map stored in one language reads as the file every language shows;
+`navMedia.ts::readNavMedia` hands it the paths its own rule shows (part 07, 8.6). `none` is a map
+every language shows nothing for. `differs` is a file that is not one in every app language (paths
+that do not all resolve to one asset), or a value whose printed text the reader cannot know
+(`hqText.ts`); the caller refuses under its own `…-differing-by-language` entry. `asset` and `handed-off` list the
 reference as above; the caller makes its own `take` claim on `asset` and none on `handed-off`.
 
 ### 12.5 Translations
@@ -3092,9 +3182,13 @@ after part 08 bound the outputs, builds each language's `ProseTemplate`, and wri
   Nova's translation holds (`lib/domain/CLAUDE.md`, "Localization is an overlay"). The `value`
   attribute of a paired output is claimed under the entry its source twin was claimed under, with
   `Accounting.claimEntry`. An output with no twin is the finding below;
-- for every other language, `translationEntryFor(kind, source, target, sourceLanguage)` gives no
-  entry where the target is absent, is deeply equal to the source, or is blank where the source is
-  not (12.2's held blank), and otherwise
+- for every other language, the target is that language's own value, or the form's default
+  language's (12.1) where the language holds no value of the text (no translation, or none of this
+  id or of its default form, all of which show the default's text on Core) or holds a blank beside
+  the source's text (12.2's held blank, which the form builder fills from the default language, as
+  Nova's first publish writes it). A borrowed value is claimed by the default language's own pass
+  and by no other. `translationEntryFor(kind, source, target, sourceLanguage)` gives no entry where
+  the target is deeply equal to the source, and otherwise
   `{ value: target, sourceFingerprint: translationSourceFingerprint(kind, source), origin: "human",
   review: "reviewed", translatedFrom: sourceLanguage }`.
 
@@ -3843,6 +3937,22 @@ step 4), in order:
    `detail.name`. A key that names a menu or form position CommCare HQ's app holds none at names
    nothing that failed to read: it is classified under its own spelling, which no string of the
    table has, and is inert.
+
+5. **Every other language keeps what HQ's build shows.** After the verdicts, each unit a key folded
+   over is given, in every language, the text HQ's build shows there (`assemble.ts::keepShownText`):
+   a language's own string is its override where one is set, else the unit's own text there; a
+   language whose own string is blank shows the first build language's own string that is not blank
+   (`app_strings.py`: `SelectKnownAppStrings.app_strings_parts` lays `non_empty_only(translations[lang])`
+   over the language's strings, `create_default_app_strings` merges every language's, overrides
+   included). The unit's own text is `nameAsRead`'s for a menu's or a form's name (7.4) and the text
+   Nova printed in that language before the folds for any other unit. So an override in the source
+   language never becomes the text of a language that showed its own, and an override HQ's default
+   locale carries into a language whose own text is blank is carried there too. A menu's or a
+   form's name is then held as 7.4 holds one (`structure.ts::heldName`), recorded under
+   `name-spaces-dropped` where a worker reads another name in some language. A fold that changes
+   the first language's name of a form is scanned as 7.4 scans it, and an instance read there is
+   that form's `form-name-read-as-an-instance`; a fold over a form name whose scan waited (7.4)
+   clears it.
 
 Over a provisional document the verdicts are sound one way, as 16.3's are. A `not-yet` it raises
 is true of the source: the key's menu or form read whole, so its strings and their sources are

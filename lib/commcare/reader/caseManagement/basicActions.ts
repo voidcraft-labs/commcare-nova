@@ -30,7 +30,10 @@ import {
 	type FindingDetail,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
-import { RESERVED_CASE_PROPERTIES } from "../../constants";
+import {
+	HQ_CASE_RESERVED_WORDS,
+	RESERVED_CASE_PROPERTIES,
+} from "../../constants";
 import {
 	activeActions,
 	isMultiSelectMenu,
@@ -815,12 +818,19 @@ function propertyNameFinding(
 ): Claim<"refuse"> | "unrecognized" | undefined {
 	if (
 		AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(key) &&
-		!RESERVED_CASE_PROPERTIES.has(key)
+		!RESERVED_CASE_PROPERTIES.has(key) &&
+		!HQ_CASE_RESERVED_WORDS.has(key)
 	)
 		return key.length > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
 			? "unrecognized"
 			: undefined;
-	if (!HQ_PROPERTY.test(key) || RESERVED_CASE_PROPERTIES.has(key))
+	// HQ's own reserved words (its hyphenated `date-opened` and `external-id` among them), and
+	// `owner_id`, which Nova reads as the owner and never as a property.
+	if (
+		!HQ_PROPERTY.test(key) ||
+		HQ_CASE_RESERVED_WORDS.has(key) ||
+		RESERVED_CASE_PROPERTIES.has(key)
+	)
 		return child ? BASIC_CLAIMS.illegalChildKey : BASIC_CLAIMS.illegalKey;
 	for (const character of key)
 		if (!isCoreNameCharacter(character)) return BASIC_CLAIMS.nonCoreKey;
@@ -1281,11 +1291,18 @@ export function readBasicActions(
 	const requires = json.peek("requires") ?? "none";
 	const active = activeActions(actions, requires);
 	const openCase = isJsonObject(actions.open_case) ? actions.open_case : {};
+	const menu = {
+		case_details: module.json.peek("case_details"),
+		search_config: module.json.peek("search_config"),
+	};
+	const multi = isMultiSelectMenu(menu);
+	const registry = menuMayLoadRegistryCase(menu);
 	const row = formTypeRow(
 		requires,
 		active,
 		conditionType(openCase.condition),
 		module,
+		!multi && !registry,
 	);
 	if (row.kind === "finding") {
 		json.refuse("requires", row.requires);
@@ -1309,12 +1326,6 @@ export function readBasicActions(
 		applied: ctx.input.saveOnlyEditedApplied === true,
 		createNames: [],
 	};
-	const menu = {
-		case_details: module.json.peek("case_details"),
-		search_config: module.json.peek("search_config"),
-	};
-	const multi = isMultiSelectMenu(menu);
-	const registry = menuMayLoadRegistryCase(menu);
 	const opens = active.has("open_case");
 	const loads = row.type === "followup" || row.type === "close";
 	// HQ's build writes a form's update, close and child cases only here

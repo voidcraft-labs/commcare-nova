@@ -163,7 +163,10 @@ function modelIteration(
 		!["ids", "count", "current_index"].every(
 			(name) => plain(wrapper.element, name) !== undefined,
 		) ||
-		!["id", "index"].every((name) => plain(row.element, name) !== undefined)
+		!["id", "index"].every((name) => plain(row.element, name) !== undefined) ||
+		// The emitter's wrapper holds its row and nothing else: a node beside the row is no
+		// row's child, though the repeat's field stands on the wrapper.
+		wrapper.children.length !== 1
 	)
 		return false;
 	const parts = modelIterationParts(path, insideRepeat(wrapper));
@@ -373,7 +376,8 @@ export function readRepeat(
 			secondaryInstancePath(text) ? X.countNamingNoNode : X.countNotAPath,
 			text,
 		);
-	if (read.kind === "none") return refuseAll(X.countNamingNoNode, text);
+	// The data root is no question a count can name, as a node the tree lacks is none.
+	if (read.kind !== "node") return refuseAll(X.countNamingNoNode, text);
 	if (read.attribute !== undefined) {
 		const wrapperNode = node.parent;
 		if (

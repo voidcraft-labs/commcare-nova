@@ -14,10 +14,10 @@ import {
 
 const options = new Command()
 	.description(
-		"Apply the reviewed plan that scripts/scan-several-case-close-places.ts --plan-out wrote: move each held own close of a several-case form under its condition group, one blueprint-migration change per app, through the commit gate. Each app must still hold the sequence and document digest the scan read, and its repair must still produce the reviewed digest; otherwise the run stops and asks for a new scan. Dry-run by default: it checks each entry and judges it with the gate, writing nothing. Prints app ids, counts, statuses and finding codes only; an app the gate refuses is reported and left unchanged, and a rerun verifies the change it already wrote. Production execution uses the migration Job identity: in the maintenance image it is several-case-close-repair.cjs, run through the historical-repair Job with --plan-base64 and, for the reviewed write, --execute. Run the read-only scan again afterward and expect zero.",
+		"Apply the reviewed plan that scripts/scan-several-case-close-places.ts --plan-out wrote: move each held own close of a several-case form under its condition group, one blueprint-migration change per app, through the commit gate. Each app must still hold the sequence and document digest the scan read, and its repair must still produce the reviewed digest; otherwise the run stops and asks for a new scan. Dry-run by default: it checks each entry and judges it with the gate, writing nothing. Prints app ids, counts, statuses and finding codes only; an app the gate refuses is reported and left unchanged, and a rerun verifies the change it already wrote. It writes to the database the environment names (npx tsx --conditions=react-server); no maintenance image or Job carries it. Run the read-only scan again afterward and expect zero.",
 	)
 	.option("--plan <path>", "reviewed JSON plan file")
-	.option("--plan-base64 <value>", "reviewed JSON plan for the maintenance Job")
+	.option("--plan-base64 <value>", "reviewed JSON plan, base64-encoded")
 	.option("--execute", "write the changes")
 	.parse()
 	.opts<{ plan?: string; planBase64?: string; execute?: boolean }>();

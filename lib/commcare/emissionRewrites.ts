@@ -37,10 +37,14 @@ export const EMISSION_REWRITES: Readonly<
 	/** `fromExpression.ts::term` (`session-context`) and `::lowerExpression`
 	 *  (`case-list-search-text`): a session value that can be absent reads blank there. */
 	"absent-session-value-guard": { behavior: "changes" },
-	/** `formReads.ts::formReadToWire`: a row filter inside a repeat reads this entry's answer. */
+	/** `formReads.ts::formReadToWire`, and a Save to Case block's binding
+	 *  (`formReads.ts::placeBindingWithheld`): a row filter inside a repeat
+	 *  reads this entry's answer. */
 	"row-predicate-current": { behavior: "changes" },
-	/** `formReads.ts::formReadToWire`, the `default_value` slot: Core resolves
-	 *  the absolute and the `current()` spelling of a default's read to one node. */
+	/** `formReads.ts::formReadToWire`, the `default_value` slot, and a Save to
+	 *  Case block's binding of its own repeat's answer outside a row filter
+	 *  (`formReads.ts::placeBindingWithheld`): Core resolves the absolute and
+	 *  the `current()` spelling of the read to one node. */
 	"default-reads-current": { behavior: "none" },
 	/** `csql/print.ts`: a search value picks its quote mark and fails closed. */
 	"search-value-guards": { behavior: "changes" },

@@ -22,7 +22,7 @@ import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 const outputArgument = process.argv[2];
 if (!outputArgument)
 	throw new Error(
-		"Usage: node --import tsx proof/native/producers/emit-media-evidence.ts OUTPUT_DIRECTORY",
+		"Usage: node --conditions=react-server --import tsx proof/native/producers/emit-media-evidence.ts OUTPUT_DIRECTORY",
 	);
 const output = resolve(outputArgument);
 mkdirSync(output, { recursive: true });

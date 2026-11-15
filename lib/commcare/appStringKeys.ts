@@ -245,7 +245,7 @@ export function defaultAppStringsHeldText(
  * any other loses the run of spaces at its end, a line break excepted,
  * because `dumps` writes a line break as the two characters `\n`.
  */
-function defaultTableText(text: string): string {
+export function defaultTableText(text: string): string {
 	if ([...text].every((char) => isPythonSpace(char.charCodeAt(0)))) return "";
 	let end = text.length;
 	while (end > 0) {

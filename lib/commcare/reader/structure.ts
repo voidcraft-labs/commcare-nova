@@ -17,7 +17,9 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { generatedAppStringPattern } from "../appStringKeys";
 import { instanceScanRead } from "../hqInstanceScan";
+import { isPythonSpace, localeFileValueIssue } from "../localeFile";
 import type { Admitted } from "./accounting";
 import { applicationReading } from "./appShell";
 import {
@@ -29,6 +31,8 @@ import {
 	take,
 } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
+import { generatedKeyOwner } from "./generatedTranslationKeys";
+import { cleanTrans, shownText } from "./hqText";
 import { externalKey } from "./identity";
 import { isJsonObject, type JsonCursor } from "./jsonCursor";
 import { formPlace, menuPlace, whereText } from "./place";
@@ -384,23 +388,429 @@ export function caseReferencesOf(form: DraftForm): JsonCursor | undefined {
 	return CASE_REFERENCES.get(form);
 }
 
-/** A localized name: the source language's into the slot, each other language's into the sink. */
+/** A menu's or form's name map as a reading holds it (`nameAsRead`). */
+export interface NameAsRead {
+	/** The text CommCare HQ's build shows in the source language, as Nova holds it
+	 *  (`heldName`): the name's own slot. */
+	readonly source: string;
+	/** By language code, the text HQ's build shows in each other language where Nova holds one
+	 *  that differs from the source: the name's translations. */
+	readonly translations: ReadonlyMap<string, string>;
+	/** By language code, the text that language's own app strings hold for the name,
+	 *  `clean_trans(name, [code] + langs)`, blank where its file leaves the string to the
+	 *  `default` locale. A generated translation key folded over the name reads it
+	 *  (`assemble.ts::keepShownText`). */
+	readonly own: ReadonlyMap<string, string>;
+	/** Whether Nova's print of the reading (`localization.ts::textMap`: every language's
+	 *  translation, else the source) differs from the stored map, which the first publish then
+	 *  rewrites. */
+	readonly respelled: boolean;
+	/** Whether a worker would read another name in some language after the first publish
+	 *  (`heldName`). */
+	readonly workersSeeAnother: boolean;
+}
+
+/** What Nova prints for a name read as `source` and `translations`: every language's text. */
+function printedName(
+	codes: readonly string[],
+	source: string | undefined,
+	read: Pick<NameAsRead, "source" | "translations">,
+): Record<string, string> {
+	return Object.fromEntries(
+		codes.map((code) => [
+			code,
+			code === source
+				? read.source
+				: (read.translations.get(code) ?? read.source),
+		]),
+	);
+}
+
+/** Whether a stored map is, key for key and value for value, the map Nova prints. */
+function spelledAsPrinted(
+	stored: Readonly<Record<string, unknown>>,
+	printed: Readonly<Record<string, string>>,
+): boolean {
+	const keys = Object.keys(stored);
+	return (
+		keys.length === Object.keys(printed).length &&
+		keys.every(
+			(code) => Object.hasOwn(printed, code) && stored[code] === printed[code],
+		)
+	);
+}
+
+/** Whether Python's `str.strip()` leaves `text` empty: every character of it is a space. */
+function pythonBlank(text: string): boolean {
+	for (let index = 0; index < text.length; index += 1)
+		if (!isPythonSpace(text.charCodeAt(index))) return false;
+	return true;
+}
+
+/** Whether CommCare Core's locale reader drops the character at a line's end: Java's
+ *  `String.trim()` removes every character up to U+0020. */
+function trimmedByCore(text: string, index: number): boolean {
+	return text.charCodeAt(index) <= 0x20;
+}
+
+/**
+ * The text a device or Web Apps shows for an app string CommCare HQ's build
+ * writes as `text`, `""` for a name that shows blank:
+ * `commcare_translations.py::dumps` writes a text Python reads as blank as one
+ * non-breaking space, and Core's `LocalizationUtils.parseAndAdd` trims the
+ * line, so the characters up to U+0020 at the text's end are gone.
+ */
+function hqDeviceText(text: string): string {
+	if (pythonBlank(text)) return "";
+	let end = text.length;
+	while (end > 0 && trimmedByCore(text, end - 1)) end -= 1;
+	return text.slice(0, end);
+}
+
+/** The text a device shows for a name Nova holds as `text`: `localeFile.ts`
+ *  writes a blank one as one non-breaking space, and Nova's gate admits no
+ *  other text with a space at either end (`APP_STRING_VALUE_UNREPRESENTABLE`). */
+function novaDeviceText(text: string): string {
+	return text.trim() === "" ? "" : text;
+}
+
+/**
+ * The text Nova holds for a name a language shows as `text`, or undefined where
+ * Nova's gate admits no spelling of it (`localeFile.ts::localeFileValueIssue`:
+ * a literal `\n` or a carriage return). A name that is only spaces is held as
+ * it is, since Nova writes it blank as HQ's build does; any other loses the
+ * characters up to U+0020 at both ends, which Nova's locale files cannot hold:
+ * those at the end no device showed (`hqDeviceText`), those at the start it did.
+ */
+function holdName(text: string): string | undefined {
+	let held = text;
+	if (text.trim() !== "") {
+		let start = 0;
+		let end = text.length;
+		while (start < end && trimmedByCore(text, start)) start += 1;
+		while (end > start && trimmedByCore(text, end - 1)) end -= 1;
+		held = text.slice(start, end);
+	}
+	return localeFileValueIssue(held) === undefined ? held : undefined;
+}
+
+/**
+ * What Nova holds of a name that shows `shown` in each language of `codes`
+ * (the build's languages, in order) with `source` the source language, or
+ * undefined where Nova's gate admits no spelling of one of those texts.
+ *
+ * The source's text is the slot's (`holdName`), and another language takes a
+ * translation where its own held text differs from the source's and is not
+ * blank: a name translation is never blank in Nova
+ * (`translationUnits.ts::NONBLANK_TRANSLATION_ROLES`), so a language whose
+ * name shows blank beside a source that does not prints the source's name.
+ * `workersSeeAnother` is whether that, or a space dropped at a name's start,
+ * changes what a worker reads in some language (`hqDeviceText` against
+ * `novaDeviceText`).
+ */
+export function heldName(
+	shown: ReadonlyMap<string, string>,
+	codes: readonly string[],
+	source: string,
+):
+	| Pick<NameAsRead, "source" | "translations" | "workersSeeAnother">
+	| undefined {
+	const held = holdName(shown.get(source) ?? "");
+	if (held === undefined) return undefined;
+	const translations = new Map<string, string>();
+	for (const code of codes) {
+		const text = shown.get(code);
+		if (code === source || text === undefined) continue;
+		const own = holdName(text);
+		if (own === undefined) return undefined;
+		if (own.trim() !== "" && own !== held) translations.set(code, own);
+	}
+	const workersSeeAnother = codes.some((code) => {
+		const text = shown.get(code);
+		return (
+			text !== undefined &&
+			hqDeviceText(text) !== novaDeviceText(translations.get(code) ?? held)
+		);
+	});
+	return { source: held, translations, workersSeeAnother };
+}
+
+/**
+ * A menu's or form's stored `name` map read, for an app whose languages are
+ * `codes` (`app.langs`, in order) and whose source language is `source`, or
+ * undefined where the reader cannot know what HQ's build shows from it (a map
+ * that is no JSON object, or a value HQ would print and JSON does not fix,
+ * `hqText.ts`), or Nova's gate admits no spelling of it (`heldName`).
+ *
+ * Each language reads as the text HQ's build shows there
+ * (`hqText.ts::shownText`, over `app_strings.py` and
+ * `xforms_extras.py::_trans`), held as `heldName` holds it: the source
+ * language's in the slot, each other language's a translation where it
+ * differs. Every map Nova's emitter writes prints back exactly. Any other map
+ * (one that lacks a language, holds `null`, a blank beside text, a language
+ * the app no longer lists, or a space at a name's end) is respelled by the
+ * first publish, every language showing what HQ's build showed, except where
+ * `workersSeeAnother`: a name that shows blank in a language beside a source
+ * that does not, or begins with a space.
+ */
+export function nameAsRead(
+	stored: unknown,
+	codes: readonly string[],
+	source: string | undefined,
+): NameAsRead | undefined {
+	const map = stored === undefined ? {} : stored;
+	if (!isJsonObject(map)) return undefined;
+	const own = new Map<string, string>();
+	for (const code of codes) {
+		const text = cleanTrans(map, [code, ...codes]);
+		if (!text.ok) return undefined;
+		own.set(code, text.text);
+	}
+	if (source === undefined)
+		return {
+			source: "",
+			translations: new Map(),
+			own,
+			respelled: false,
+			workersSeeAnother: false,
+		};
+	const shown = new Map<string, string>();
+	for (const code of codes) {
+		// `create_default_app_strings` skips a language spelled `default`.
+		if (code === "default" && code !== source) continue;
+		const text = shownText(map, code, codes);
+		if (!text.ok) return undefined;
+		shown.set(code, text.text);
+	}
+	const held = heldName(shown, codes, source);
+	if (held === undefined) return undefined;
+	return {
+		...held,
+		own,
+		respelled: !spelledAsPrinted(map, printedName(codes, source, held)),
+	};
+}
+
+/** What the structure stage read of one menu's or form's name: each language's own text
+ *  (`NameAsRead.own`), and where its map is stored, so a later fold can record a change. */
+export interface NameRead {
+	readonly own: ReadonlyMap<string, string>;
+	readonly entry: string;
+	readonly path: string;
+}
+
+const NAMES_READ = new WeakMap<ReadContext, Map<TranslationUnitId, NameRead>>();
+
+/** Each menu and form name a reading read, by unit. */
+export function namesRead(
+	ctx: ReadContext,
+): ReadonlyMap<TranslationUnitId, NameRead> {
+	return NAMES_READ.get(ctx) ?? new Map();
+}
+
+/**
+ * Records that the first publish rewrites a name's stored map: under
+ * `name-spaces-dropped` where a worker then reads another name in some
+ * language, else under `names-respelled`. A name's map is recorded once, the
+ * worker's change over the respelling.
+ */
+export function recordNameRewrite(
+	ctx: ReadContext,
+	name: Pick<NameRead, "entry" | "path">,
+	workersSeeAnother: boolean,
+): void {
+	const register = workersSeeAnother
+		? "name-spaces-dropped"
+		: "names-respelled";
+	const rewrites = ctx.facts.sameStateRewrites;
+	const at = rewrites.findIndex(
+		(one) =>
+			one.path === name.path &&
+			(one.register === "names-respelled" ||
+				one.register === "name-spaces-dropped"),
+	);
+	const known = at < 0 ? undefined : rewrites[at];
+	if (known?.register === register || known?.register === "name-spaces-dropped")
+		return;
+	const record = { entry: name.entry, path: name.path, register } as const;
+	if (known === undefined) rewrites.push(record);
+	else rewrites[at] = record;
+}
+
+/**
+ * A localized name, read by `nameAsRead`: its source text into the slot, each
+ * other language's translation into the sink, and a record of the first
+ * publish's rewrite of the stored map (`recordNameRewrite`). A map the reader
+ * cannot know or Nova cannot hold is left unclaimed, so the close reports it
+ * as `unrecognized`. Returns the reading, undefined where the map was left.
+ */
 function readName(
 	ctx: ReadContext,
 	unit: TranslationUnitId,
-	names: Readonly<Record<string, unknown>>,
-): string {
-	const reading = applicationReading(ctx);
-	const source = reading?.languages.source;
+	json: JsonCursor,
+	claim: Claim<"take">,
+): NameAsRead | undefined {
+	const languages = applicationReading(ctx)?.languages;
+	const read = nameAsRead(
+		json.peek("name"),
+		languages?.codes ?? [],
+		languages?.source,
+	);
+	if (read === undefined) return undefined;
+	json.take("name", claim, (value) => value).value;
 	const translated = new Map<LanguageTag, LocalizedValue>();
-	for (const [code, text] of Object.entries(names)) {
-		if (code === source || typeof text !== "string") continue;
-		const tag = reading?.languages.tagOf.get(code);
-		if (tag !== undefined && !reading?.languages.refused.has(code))
+	for (const [code, text] of read.translations) {
+		const tag = languages?.tagOf.get(code);
+		if (tag !== undefined && !languages?.refused.has(code))
 			translated.set(tag, text);
 	}
 	if (translated.size > 0) ctx.translations.set(unit, "text", translated);
-	return textIn(names, source);
+	const name = {
+		own: read.own,
+		entry: claim.entry,
+		path: `${json.pointer}/name`,
+	};
+	const held = NAMES_READ.get(ctx) ?? new Map();
+	held.set(unit, name);
+	NAMES_READ.set(ctx, held);
+	if (read.respelled || read.workersSeeAnother)
+		recordNameRewrite(ctx, name, read.workersSeeAnother);
+	return read;
+}
+
+/**
+ * The text `formWireName` writes into a form's source for a name read as
+ * `read`: its text in the app's first language, which is the source's where
+ * that language holds no translation.
+ */
+function wireNameOf(ctx: ReadContext, read: NameAsRead): string {
+	const languages = applicationReading(ctx)?.languages;
+	const first = languages?.first;
+	return first === undefined || first === languages?.source
+		? read.source
+		: (read.translations.get(first) ?? read.source);
+}
+
+/**
+ * Raises `form-name-read-as-an-instance` at a form whose name, as
+ * `formWireName` writes it into the form's source, CommCare HQ's build reads
+ * as an instance read, which Nova's gate refuses (`FORM_TEXT_READ_AS_INSTANCE`).
+ */
+export function refuseFormNameReadAsInstance(
+	ctx: ReadContext,
+	form: DraftForm,
+	wireName: string,
+): void {
+	const instance = instanceScanRead(wireName);
+	if (instance !== undefined)
+		ctx.accounting.finding(
+			FORM[`nameReadAsInstance@${form.docType}`] as Claim,
+			form.place,
+			{ name: instance },
+		);
+}
+
+/** A form whose first-language name reads as an instance and that an app translation in that
+ *  language words otherwise: the scan waits for the generated key's verdict. */
+export interface DeferredFormName {
+	readonly form: DraftForm;
+	/** The first-language name as the form's map holds it, which the scan reads. */
+	readonly stored: string;
+	/** The language and key of the app translation over it. */
+	readonly language: string;
+	readonly key: string;
+}
+
+const DEFERRED_FORM_NAMES = new WeakMap<ReadContext, DeferredFormName[]>();
+
+/** The forms whose instance scan waits for a generated key's verdict, in reading order. */
+export function deferredFormNames(
+	ctx: ReadContext,
+): readonly DeferredFormName[] {
+	return DEFERRED_FORM_NAMES.get(ctx) ?? [];
+}
+
+/**
+ * Scans the name a form's source would hold once every generated key over it is decided. A key
+ * that folded wrote its own wording there, so a deferred form whose key `folded` names is clear;
+ * every other is scanned on its stored name. Runs once, after the keys' verdicts.
+ */
+export function settleDeferredFormNames(
+	ctx: ReadContext,
+	folded: ReadonlySet<string>,
+): void {
+	for (const one of deferredFormNames(ctx))
+		if (!folded.has(`${one.language}\u0000${one.key}`))
+			refuseFormNameReadAsInstance(ctx, one.form, one.stored);
+}
+
+/**
+ * The app translation that words a form's name in the app's first language
+ * (the generated key `forms.m#f#` at the form's position, a non-blank text),
+ * which HQ's build lays over the name there
+ * (`app_strings.py::SelectKnownAppStrings.app_strings_parts`).
+ */
+function firstLanguageNameOverride(
+	ctx: ReadContext,
+	form: DraftForm,
+): { readonly key: string; readonly value: string } | undefined {
+	const reading = applicationReading(ctx);
+	const first = reading?.languages.first;
+	if (reading === undefined || first === undefined) return undefined;
+	for (const held of reading.generatedKeys) {
+		if (held.language !== first || typeof held.value !== "string") continue;
+		if (held.value === "") continue;
+		if (generatedAppStringPattern(held.key) !== "forms.m#f#") continue;
+		const owner = generatedKeyOwner(held.key);
+		if (
+			owner.kind === "form" &&
+			owner.menu === form.menu &&
+			owner.form === form.index
+		)
+			return { key: held.key, value: held.value };
+	}
+	return undefined;
+}
+
+/**
+ * Scans a form's name for an instance read, as `formWireName` writes it after
+ * the generated keys are decided. Where an app translation words the name in
+ * the first language without one, the wording is written there now, so the
+ * strings Nova's build makes of the reading can be made, and the scan waits
+ * for that key's verdict (`settleDeferredFormNames`): it folds and the source
+ * holds the wording, or it does not and the stored name is scanned.
+ */
+function scanFormName(
+	ctx: ReadContext,
+	draft: DraftForm,
+	unit: TranslationUnitId,
+	read: NameAsRead,
+): string {
+	const wireName = wireNameOf(ctx, read);
+	if (instanceScanRead(wireName) === undefined) return read.source;
+	const override = firstLanguageNameOverride(ctx, draft);
+	const languages = applicationReading(ctx)?.languages;
+	if (
+		override === undefined ||
+		languages?.first === undefined ||
+		instanceScanRead(override.value) !== undefined
+	) {
+		refuseFormNameReadAsInstance(ctx, draft, wireName);
+		return read.source;
+	}
+	const deferred = DEFERRED_FORM_NAMES.get(ctx) ?? [];
+	deferred.push({
+		form: draft,
+		stored: wireName,
+		language: languages.first,
+		key: override.key,
+	});
+	DEFERRED_FORM_NAMES.set(ctx, deferred);
+	if (languages.first === languages.source) return override.value;
+	const tag = languages.tagOf.get(languages.first);
+	if (tag !== undefined)
+		ctx.translations.set(unit, "text", new Map([[tag, override.value]]));
+	return read.source;
 }
 
 /** A menu's own keys: its name, id, forms list, comment and the dynamic keys HQ leaves on it. */
@@ -411,16 +821,13 @@ function readMenuKeys(
 ): void {
 	const { json } = draft;
 	json.account("unique_id", MENU[`uniqueId@${cls}`] as Claim<"account">);
-	const names = json.take(
-		"name",
-		MENU[`name@${cls}`] as Claim<"take">,
-		(value) => (isJsonObject(value) ? value : {}),
-	).value;
-	const name = readName(
-		ctx,
-		makeTranslationUnitId("module", draft.uuid, "name"),
-		names,
-	);
+	const name =
+		readName(
+			ctx,
+			makeTranslationUnitId("module", draft.uuid, "name"),
+			json,
+			MENU[`name@${cls}`] as Claim<"take">,
+		)?.source ?? "";
 	ctx.writeDraft(() => {
 		Object.assign(draft.module, { uuid: draft.uuid, name });
 	});
@@ -460,26 +867,19 @@ function readFormKeys(
 	ctx: ReadContext,
 	draft: DraftForm,
 	cls: FormClass,
-	names: Readonly<Record<string, unknown>>,
 ): void {
 	const { json } = draft;
 	const claim = <U extends ClaimUse>(name: string) =>
 		FORM[`${name}@${cls}` as keyof typeof FORM] as Claim<U>;
 	json.account("unique_id", claim<"account">("uniqueId"));
 	read(json.take("form_type", claim<"take">("formType"), (value) => value));
-	const name = readName(
-		ctx,
-		makeTranslationUnitId("form", draft.uuid, "name"),
-		names,
-	);
-	/* The first language's name is the one `formWireName` writes into the
-	 * form's source, where CommCare HQ's build reads `instance('…')` as an
-	 * instance read and Nova's gate refuses it. */
-	const instance = instanceScanRead(name);
-	if (instance !== undefined)
-		ctx.accounting.finding(claim("nameReadAsInstance"), draft.place, {
-			name: instance,
-		});
+	const unit = makeTranslationUnitId("form", draft.uuid, "name");
+	const names = readName(ctx, unit, json, claim<"take">("name"));
+	/* The text `formWireName` writes into the form's source is the name in the
+	 * app's first language, not the source language's: CommCare HQ's build
+	 * reads `instance('…')` there as an instance read and Nova's gate refuses
+	 * it. */
+	const name = names === undefined ? "" : scanFormName(ctx, draft, unit, names);
 	ctx.writeDraft(() => {
 		Object.assign(draft.form, { uuid: draft.uuid, name });
 	});
@@ -542,7 +942,6 @@ interface FormCandidate {
 	readonly json: JsonCursor;
 	readonly cls: FormClass;
 	readonly place: Extract<HqPlace, { kind: "form" }>;
-	readonly names: Readonly<Record<string, unknown>>;
 	xmlns: string | undefined;
 }
 
@@ -636,13 +1035,11 @@ export function readStructure(ctx: ReadContext): void {
 				form.refuseWhole(FORM_TYPE.blankSource);
 				return;
 			}
-			const names = form.peek("name");
 			forms.push({
 				index: formIndex,
 				json: form,
 				cls: formCls,
 				place: form.place as Extract<HqPlace, { kind: "form" }>,
-				names: isJsonObject(names) ? names : {},
 				xmlns,
 			});
 		});
@@ -704,11 +1101,6 @@ export function readStructure(ctx: ReadContext): void {
 				FORM[`xmlns@${form.cls}`] as Claim<"take">,
 				() => xmlns,
 			);
-			const names = form.json.take(
-				"name",
-				FORM[`name@${form.cls}`] as Claim<"take">,
-				() => form.names,
-			).value;
 			const formDraft: DraftForm = {
 				menu: menu.index,
 				index: form.index,
@@ -724,7 +1116,7 @@ export function readStructure(ctx: ReadContext): void {
 			ctx.writeDraft(() => {
 				draft.forms.push(formDraft);
 			});
-			readFormKeys(ctx, formDraft, form.cls, names);
+			readFormKeys(ctx, formDraft, form.cls);
 		}
 	}
 }

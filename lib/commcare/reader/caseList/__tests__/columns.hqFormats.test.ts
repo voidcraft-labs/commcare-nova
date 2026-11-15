@@ -595,3 +595,93 @@ describe("a detail's callout and tabs", () => {
 		expect(found).toContain(`${M}tab-relevant-lifts-into-predicate-not`);
 	});
 });
+
+/**
+ * Contract: a column the first pass reads as a plain column passes the settle as one, which
+ * compares each stored column as HQ's build reads it: an unregistered slug and `invisible` on the
+ * case detail are plain columns, and a mapping a format reads none of is the save's leftover. The
+ * failure it catches: a list the manifest holds refused as `unrecognized` once the projection
+ * writes `plain` back, which a first-pass test never sees.
+ */
+describe("a column read as plain, through the whole reading", () => {
+	const whole = (edit: (short: Detail, long: Detail) => void) =>
+		readDetails(edit, false);
+
+	const notesPlain = (reading: Awaited<ReturnType<typeof whole>>) => {
+		const read = comparableList(listOf(reading)) as {
+			list: { kind: string; field: string; visibleInDetail?: boolean }[];
+		};
+		return read.list[1];
+	};
+
+	it("reads a slug HQ registers no format for on both screens", async () => {
+		const reading = await whole((short, long) => {
+			Object.assign(short.columns[1] ?? {}, { format: "calculate" });
+			Object.assign(long.columns[1] ?? {}, { format: "calculate" });
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(notesPlain(reading)).toMatchObject({
+			kind: "plain",
+			field: "notes",
+		});
+	});
+
+	it("reads Search Only on the case detail as a column the detail shows", async () => {
+		const reading = await whole((_short, long) => {
+			Object.assign(long.columns[1] ?? {}, { format: "invisible" });
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(notesPlain(reading)).toMatchObject({
+			kind: "plain",
+			field: "notes",
+		});
+		expect(notesPlain(reading)?.visibleInDetail).toBeUndefined();
+	});
+
+	it("reads an ID mapping left on a column switched back to plain as nothing", async () => {
+		const stale = [
+			{ key: "m", value: { en: "Male" } },
+			{ key: "f", value: { en: "Female" } },
+		];
+		const reading = await whole((short, long) => {
+			Object.assign(short.columns[1] ?? {}, { enum: stale });
+			Object.assign(long.columns[1] ?? {}, { enum: stale });
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(notesPlain(reading)).toMatchObject({
+			kind: "plain",
+			field: "notes",
+		});
+	});
+});
+
+/**
+ * Contract: a property column over `case_id` reads the child element `case_id`, which no case
+ * holds, so HQ's build shows it blank for every case (`CASE_PROPERTY_MAP` has no `case_id`;
+ * Core holds the id as an attribute), while Nova's column over `case_id` shows the id. The
+ * failure it catches: the column read as Nova's, and the first publish showing an id where HQ's
+ * app showed nothing.
+ */
+describe("a property column over case_id", () => {
+	it("is refused as blank for every case, on either screen", async () => {
+		for (const screens of [["short"], ["long"]] as const) {
+			const reading = await readFormat(
+				{ field: "case_id", useXpathExpression: false },
+				screens,
+			);
+			expect(codes(reading)).toContain(
+				`${M}case-id-as-a-property-column-s-field`,
+			);
+		}
+	});
+
+	it("leaves Nova's own column over case_id, the expression `@case_id`, held", async () => {
+		const reading = await readLists(
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				plainColumn(uuid(2), "case_id", "Record ID"),
+			]),
+		);
+		expect(closedCodes(reading)).toEqual([]);
+	});
+});

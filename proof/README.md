@@ -4048,7 +4048,20 @@ A family is one corpus, and each runs as one chain:
 1. **The producer** (`proof/native/producers/emit-*.ts`) builds its admitted
    Nova documents from the same fixture modules Nova's ordinary tests use, and
    emits them through Nova's real expander (`expandDoc`) and CCZ compiler
-   (`compileCcz`) into `native/<family>/` (below). Two families come from
+   (`compileCcz`) into `native/<family>/` (below). A producer runs as
+   `node --conditions=react-server --import tsx` (`families.py::NODE`, as the
+   corpus emitter runs): a Nova server module starts with `import
+   "server-only"`, which throws at import under Node's default conditions.
+   Each HQ step names which of the family's files it imports as apps
+   (`hq_support.app_sources`, which never takes a proof's
+   `*.evidence.json`), and what else a producer writes takes a name its step
+   does not import. The search families' step (`suite_emission.searches`:
+   search, prompt, function, csql, quote, static-quote, form-link) imports
+   every other `.json`, so their producers write nothing else as `.json`
+   (csql's reader vectors are `csql-reader.jsonl`, as `scenarios.jsonl`);
+   a step with a prefix imports only its prefix (`endpoint-*.json`,
+   `container-*.json`), and menu-screens skips its own `.screens.json` and
+   `.offers.json`. Two families come from
    Vitest suites that already build them: `expander`
    (`lib/commcare/__tests__/expanderEvidence.ts`, run by `expander.test.ts`
    with `NOVA_EXPANDER_EVIDENCE_DIR`) and `hq-oracle` (`hqJsonOracle.test.ts`
@@ -4532,7 +4545,7 @@ decoded text and child order.
   finding 75's HQ half, and also sends the closed instant ranges the
   emitter's range was cleared by, written by hand in every spelling a bound may carry.
   Every answer is in `csql/csql-payload.evidence.json` and printed as a
-  table. The family's producer also writes `csql/csql-reader.json`, the
+  table. The family's producer also writes `csql/csql-reader.jsonl`, the
   reading the reader of CommCare HQ's apps gives each CSQL text of its
   vectors (`lib/commcare/reader/expressions/__tests__/csqlVectors.ts`), and
   `test_csql_reader_parity.py` has HQ's own `eulxml` parser and

@@ -9,6 +9,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	CaseType,
+	LanguageTag,
 	LookupColumnId,
 	LookupTableId,
 	MediaKind,
@@ -53,7 +54,16 @@ export interface ReaderInput {
 	 *  each index of a type reaches. Consulted only where the app itself fixes none (no child
 	 *  link, no parent selection, no open action's index). Absent for an app Nova has never held. */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** What Nova already holds about this app's languages that no export carries: the language
+	 *  each CommCare HQ code it published names, from the held document's `localization.wireCodes`
+	 *  (`languages.ts::knownLanguageCodesOf`). A code it holds is read as that language whatever
+	 *  the app names it, since the code is the language's identity on CommCare HQ; any other code
+	 *  is read by `languageIdentityForHqCode`. Absent for an app Nova has never held. */
+	readonly knownLanguageCodes?: ReaderKnownLanguageCodes;
 }
+
+/** The language each CommCare HQ code of an app Nova holds names, by the code. */
+export type ReaderKnownLanguageCodes = ReadonlyMap<string, LanguageTag>;
 
 /** The case types the indices of the app's document reach, as Nova holds them
  *  (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */
@@ -241,12 +251,21 @@ export const SAME_STATE_REGISTERS = [
 /**
  * The register's rows a reading records under that are no same-state rule of
  * a comparison: a date and time a Save to Case value wrote in Nova's earlier
- * spelling, and a registration label read as the words CommCare HQ's build
- * writes for one with no text.
+ * spelling, a registration label read as the words CommCare HQ's build
+ * writes for one with no text, a menu's or form's name map read as the
+ * text HQ's build shows in each language where Nova prints another map
+ * (`structure.ts::nameAsRead`), and where a worker then reads another name
+ * in some language (a name that shows blank beside a source that does not, or
+ * begins with a space, `structure.ts::heldName`), and a menu's, form's or case list item's media
+ * map read as the file HQ's build shows in each language where Nova prints
+ * another map (`menus/navMedia.ts::shownNavMedia`).
  */
 export const FIRST_PUBLISH_READING_RECORDS = [
 	"date-and-time-saved-as-hq-stores-it",
 	"registration-label-fixed",
+	"names-respelled",
+	"name-spaces-dropped",
+	"media-maps-respelled",
 ] as const;
 
 export type SameStateRegister =

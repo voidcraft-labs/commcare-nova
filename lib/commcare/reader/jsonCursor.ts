@@ -97,7 +97,18 @@ export function isJsonObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Two JSON values alike: equal scalars, arrays alike element by element, objects alike key by key. */
+/** The keys of `value` that hold a value: a key whose value is `undefined` is no key of JSON. */
+function definedKeys(value: JsonObject): string[] {
+	return Object.keys(value).filter((key) => value[key] !== undefined);
+}
+
+/**
+ * Two JSON values alike, as their JSON text would be once each object's keys
+ * were sorted: equal scalars, arrays alike element by element, objects alike
+ * key by key whatever order their keys were written in. A key whose value is
+ * `undefined` is absent, as `JSON.stringify` and every store Nova writes
+ * through leave it out. The reader's one structural equality of stored values.
+ */
 export function sameJson(a: unknown, b: unknown): boolean {
 	if (a === b) return true;
 	if (Array.isArray(a)) {
@@ -108,9 +119,9 @@ export function sameJson(a: unknown, b: unknown): boolean {
 		);
 	}
 	if (isJsonObject(a) && isJsonObject(b)) {
-		const keys = Object.keys(a);
+		const keys = definedKeys(a);
 		return (
-			keys.length === Object.keys(b).length &&
+			keys.length === definedKeys(b).length &&
 			keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
 		);
 	}

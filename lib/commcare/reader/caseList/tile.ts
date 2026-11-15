@@ -25,7 +25,8 @@ import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { withCandidate } from "../candidate";
 import { defineClaims, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
-import { externalKey, mintEntityUuid } from "../identity";
+import { externalKey } from "../identity";
+import { reReadUuidOf } from "../identityMap";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import type { JoinedDetails } from "./details";
 
@@ -338,8 +339,8 @@ export function readTile(
  * returns it as that plain column too, with nothing but its field, its order rule and its two
  * hidden flags. Its identity is then the one a re-read gives a plain column at its place in the
  * list's order: the identity of the document's own plain column under that key where it holds
- * one, else minted under the app's id. It reads the rules where
- * `order-rules-on-the-columns-they-land-on` puts them.
+ * one, else the UUID a re-read gives a key the document lacks (`identityMap.ts::reReadUuidOf`).
+ * It reads the rules where `order-rules-on-the-columns-they-land-on` puts them.
  */
 export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 	const changed = doc.moduleOrder.filter((uuid) => {
@@ -350,6 +351,7 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 		);
 	});
 	if (changed.length === 0) return doc;
+	const reRead = reReadUuidOf(doc, DERIVED_WIRE_IDENTITY);
 	return withCandidate(doc, (draft) => {
 		for (const uuid of changed) {
 			const config = draft.modules[uuid]?.caseListConfig;
@@ -380,8 +382,7 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 			const source = doc.modules[uuid]?.caseListConfig;
 			if (source !== undefined)
 				carriersAsPlainColumns(config, plainColumnKeys(source), (field, n) =>
-					mintEntityUuid(
-						doc.appId,
+					reRead(
 						externalKey.caseListColumn(
 							DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
 							"plain",

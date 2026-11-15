@@ -24,7 +24,7 @@ import types
 from dataclasses import asdict
 from unittest.mock import patch
 
-from proof.native.hq_support import import_source, native_check, regenerate_form, sha256
+from proof.native.hq_support import app_sources, import_source, native_check, regenerate_form, sha256
 
 
 def containers(session):
@@ -32,7 +32,7 @@ def containers(session):
     exports = session.family("container")
     records = []
     with native_check(domain):
-        for source in sorted(exports.glob("container-*.json")):
+        for source in app_sources(exports, "container-*.json"):
             raw = source.read_bytes()
             form = import_source(raw, domain).get_module(0).get_form(0)
             native = regenerate_form(form, domain)
@@ -46,7 +46,7 @@ def navigations(session):
 
     domain = "nova-navigation-evidence"
     exports = session.family("navigation")
-    sources = sorted(exports.glob("*.json"))
+    sources = app_sources(exports)
     records = []
     with native_check(domain):
         for source in sources:

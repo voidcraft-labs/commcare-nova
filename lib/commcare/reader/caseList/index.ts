@@ -27,16 +27,18 @@ import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { dotInterpolate } from "../hqInterpolation";
 import { isJsonObject, sameJson } from "../jsonCursor";
-import { readProjectionInputs } from "../projectionInputs";
+import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
 import {
 	appCodes,
 	attributeOf,
+	columnFormatAsRead,
+	formatReadsMapping,
 	HQ_PROPERTY_RENAMES,
 	imageMapPropertyText,
 	labelShownProperty,
-	languageMap,
+	sameShownTexts,
 } from "./columns";
 import {
 	type CaseListReading,
@@ -216,22 +218,22 @@ function objects(value: unknown): JsonObject[] {
 	return Array.isArray(value) ? value.filter(isJsonObject) : [];
 }
 
-/** A column's `field` as the property it reads, or its expression text. */
-function fieldRead(column: JsonObject): { property?: string; text?: string } {
+/** A column's `field` as what HQ's build reads: the property it names, the child element it
+ *  names where that is no property Nova reads, or its expression text. */
+function fieldRead(column: JsonObject): {
+	property?: string;
+	element?: string;
+	text?: string;
+} {
 	const field = typeof column.field === "string" ? column.field : "";
 	if (column.useXpathExpression !== true) {
 		const renamed = HQ_PROPERTY_RENAMES[field] ?? field;
-		return { property: renamed };
+		// `CASE_PROPERTY_MAP` maps no `case_id`, so HQ reads the child element of that name, which
+		// no case holds, where Nova's `@case_id` reads the case's id.
+		return renamed === "case_id" ? { element: renamed } : { property: renamed };
 	}
 	const attribute = attributeOf(field);
 	return attribute === undefined ? { text: field } : { property: attribute };
-}
-
-/** Two `{lang: text}` maps alike over the app's languages, a language a map lacks read as `""`. */
-function sameTexts(codes: readonly string[], a: unknown, b: unknown): boolean {
-	const left = languageMap(a);
-	const right = languageMap(b);
-	return codes.every((code) => (left[code] ?? "") === (right[code] ?? ""));
 }
 
 const CELL_KEYS = [
@@ -246,28 +248,40 @@ const CELL_KEYS = [
 	"show_shading",
 ] as const;
 
-/** The surface key of the first difference between a stored column and the projection's. */
+/**
+ * The surface key of the first difference between a stored column and the projection's, each
+ * read as HQ's build reads it on `screen`: the format as the reading reads it
+ * (`columns.ts::columnFormatAsRead`), every text as the build shows it in each language, and the
+ * mapping only where the format reads one.
+ */
 function columnDifference(
 	codes: readonly string[],
 	stored: JsonObject,
 	ours: JsonObject,
 	tile: boolean,
+	screen: "short" | "long",
 ): string | undefined {
-	const format = stored.format ?? "plain";
-	if (format !== (ours.format ?? "plain")) return "schema:DetailColumn.format";
+	const format = columnFormatAsRead(stored.format, screen);
+	if (format !== columnFormatAsRead(ours.format, screen))
+		return "schema:DetailColumn.format";
 	const a = fieldRead(stored);
 	const b = fieldRead(ours);
-	if (a.property !== undefined || b.property !== undefined) {
+	if (a.element !== undefined || b.element !== undefined) {
+		if (a.element !== b.element) return "schema:DetailColumn.field";
+	} else if (a.property !== undefined || b.property !== undefined) {
 		if (a.property !== b.property) return "schema:DetailColumn.field";
 	} else if (!sameXPathText(a.text ?? "", b.text ?? ""))
 		return "schema:DetailColumn.field";
 	// HQ's build reads no header of a Search Only column (`detail_screen.py::Invisible`).
-	if (format !== "invisible" && !sameTexts(codes, stored.header, ours.header))
+	if (
+		format !== "invisible" &&
+		!sameShownTexts(codes, stored.header, ours.header)
+	)
 		return "schema:DetailColumn.header";
 	if (format === "date" && stored.date_format !== ours.date_format)
 		return "schema:DetailColumn.date_format";
-	const enumA = objects(stored.enum);
-	const enumB = objects(ours.enum);
+	const enumA = formatReadsMapping(format) ? objects(stored.enum) : [];
+	const enumB = formatReadsMapping(format) ? objects(ours.enum) : [];
 	if (enumA.length !== enumB.length) return "schema:DetailColumn.enum";
 	for (const [index, item] of enumA.entries()) {
 		const other = enumB[index] as JsonObject;
@@ -287,7 +301,7 @@ function columnDifference(
 							dotInterpolate(keyB, property),
 						);
 		if (!sameKey) return "schema:MappingItem.key";
-		if (!sameTexts(codes, item.value, other.value))
+		if (!sameShownTexts(codes, item.value, other.value))
 			return "schema:MappingItem.value";
 	}
 	if (tile)
@@ -324,6 +338,14 @@ function sortDifference(
 		: reading.sort.kept.map((index) => stored[index] as JsonObject);
 	const expected = reading.sort.defaulted ? 1 : kept.length;
 	if (ours.length !== expected) return "schema:Detail.sort_elements";
+	// A whole-number or decimal comparison where HQ's build compares text orders the list
+	// another way (`1, 10, 2` against `1, 2, 10`): HQ's default element is `string`
+	// (`details.py::get_default_sort_elements`), and on a column whose format has no sort of its
+	// own every stored `type` but `int` and `double` compares as text (`FormattedDetailColumn.sort_node`
+	// writes it as `string` or as it is, and Core's `DetailFieldParser` reads any other word so).
+	const numericWord = (type: unknown) => type === "int" || type === "double";
+	if (reading.sort.defaulted && numericWord(ours[0]?.type))
+		ctx.accounting.finding(ORDER_CLAIMS.typeText, place);
 	for (const [position, element] of kept.entries()) {
 		const other = ours[position] as JsonObject;
 		const storedText = positionalText(element.field, columns.stored);
@@ -381,6 +403,8 @@ function sortDifference(
 		const numeric = reading.sort.numeric.get(index);
 		if (numeric !== undefined && other.type !== numeric)
 			ctx.accounting.finding(ORDER_CLAIMS.typeNumeric, place);
+		if (reading.sort.textual.has(index) && numericWord(other.type))
+			ctx.accounting.finding(ORDER_CLAIMS.typeText, place);
 		// A date comparison over a property whose type is not of the date class HQ's build writes as
 		// it writes a text one (`detail_screen.py::FormattedDetailColumn.sort_node`), and the first
 		// publish writes Nova's word for it.
@@ -427,11 +451,26 @@ function listDifference(
 		(Array.isArray(detail) ? detail : []).flatMap((column, index) =>
 			isJsonObject(column) && !dropped.has(index) ? [column] : [],
 		);
+	// An image map's paths compare as the files they name (`keptMediaPaths`).
+	const asPrinted = (column: JsonObject): JsonObject =>
+		column.format !== "enum-image" || !Array.isArray(column.enum)
+			? column
+			: {
+					...column,
+					enum: column.enum.map((item: unknown) =>
+						isJsonObject(item)
+							? { ...item, value: keptMediaPaths(ctx, item.value) }
+							: item,
+					),
+				};
 	const shortStored = kept(
 		reading.short.peek("columns"),
 		reading.dropped.short,
-	);
-	const longStored = kept(reading.long.peek("columns"), reading.dropped.long);
+	).map(asPrinted);
+	const longStored = kept(
+		reading.long.peek("columns"),
+		reading.dropped.long,
+	).map(asPrinted);
 	const shortOurs = objects(pair.short.columns);
 	const longOurs = objects(pair.long.columns);
 	const tile = mod.caseListConfig?.tile !== undefined;
@@ -442,6 +481,7 @@ function listDifference(
 			column,
 			longOurs[index] as JsonObject,
 			false,
+			"long",
 		);
 		if (key !== undefined) return key;
 	}
@@ -461,6 +501,7 @@ function listDifference(
 			column,
 			shortOurs[index] as JsonObject,
 			tile,
+			"short",
 		);
 		if (key !== undefined) return key;
 	}

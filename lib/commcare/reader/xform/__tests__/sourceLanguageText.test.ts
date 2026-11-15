@@ -388,3 +388,200 @@ describe("a form's text where the source language is not the first", () => {
 		]);
 	});
 });
+
+/** `xml` without its translation of `lang`, as a form saved before the language was added. */
+function withoutTranslation(xml: string, lang: string): string {
+	const from = xml.indexOf(`<translation lang="${lang}"`);
+	if (from < 0) throw new Error(`The form holds no translation of ${lang}.`);
+	const close = "</translation>";
+	const to = xml.indexOf(close, from) + close.length;
+	return xml.slice(0, from) + xml.slice(to);
+}
+
+/** The translation of a text slot of `case_name` in `language`, where the reading holds one. */
+function nameTranslation(
+	doc: BlueprintDoc,
+	language: string,
+	slot: "label" | "hint",
+): unknown {
+	const field = Object.values(doc.fields).find((one) => one.id === "case_name");
+	if (field === undefined) throw new Error("The reading holds no case_name.");
+	return doc.localization?.translations[language]?.[
+		makeTranslationUnitId("field", field.uuid, slot)
+	]?.value;
+}
+
+describe("a form that holds no translation of an app language", () => {
+	// CommCare HQ's build marks the first language's translation default only where the form
+	// holds one (`xform.py::XForm.set_default_language`), else Core takes the first translation
+	// (`XFormParser.parseIText`), and a language the form holds no translation of shows that
+	// default (`FormDef.initLocale`). So the form shows the default's text in every language.
+
+	it("reads a form without the first language's translation as the default's text there", async () => {
+		const outcome = await readExport(sourcedAfterFirst(), (xml) =>
+			withoutTranslation(xml, "es"),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(findingNames(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const read = outcome.draft.doc;
+		expect(nameSlots(read).label).toEqual(proseText("Name"));
+		// The default the form shows in Spanish is the source's text, so it is no translation.
+		expect(nameTranslation(read, "spa", "label")).toBeUndefined();
+		expect(nameTranslation(read, "spa", "hint")).toBeUndefined();
+	});
+
+	it("reads a form without the source language's translation as the default's text in the source's slot", async () => {
+		const outcome = await readExport(sourcedAfterFirst(), (xml) =>
+			withoutTranslation(xml, "en"),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(findingNames(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const read = outcome.draft.doc;
+		expect(nameSlots(read).label).toEqual(proseText("Nombre"));
+		expect(nameSlots(read).hint).toEqual(proseText("Nombre y apellido"));
+		expect(nameTranslation(read, "spa", "label")).toBeUndefined();
+		expect(media(read)).toEqual(media(canonical(sourcedAfterFirst())));
+	});
+});
+
+/** `sourcedAfterFirst` with French third, its hint translated. */
+function withFrenchThird(): BlueprintDoc {
+	const doc = sourcedAfterFirst();
+	const field = Object.values(doc.fields).find((one) => one.id === "case_name");
+	if (field === undefined || doc.localization === undefined)
+		throw new Error("No case_name.");
+	const unitId = makeTranslationUnitId("field", field.uuid, "hint");
+	const unit = translationUnitsById(doc).get(unitId);
+	if (unit === undefined) throw new Error(`No unit ${unitId}.`);
+	doc.localization = {
+		...doc.localization,
+		languageOrder: ["spa", "eng", "fra"],
+		wireCodes: { ...doc.localization.wireCodes, fra: "fr" },
+		translations: {
+			...doc.localization.translations,
+			fra: {
+				[unitId]: {
+					value: proseText("Nom et prenom"),
+					sourceFingerprint: unit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			},
+		},
+	};
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	return doc;
+}
+
+describe("a blank in a third language where the source is not the first", () => {
+	it("holds the blank as the first language's text, as the form builder fills it", async () => {
+		const outcome = await readExport(withFrenchThird(), (xml) =>
+			xml.replace("<value>Nom et prenom</value>", "<value/>"),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(findingNames(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const read = outcome.draft.doc;
+		expect(read.localization?.sourceLanguage).toBe("eng");
+		expect(nameSlots(read).hint).toEqual(proseText("First and last name"));
+		expect(nameTranslation(read, "fra", "hint")).toEqual(
+			proseText("Nombre y apellido"),
+		);
+	});
+});
+
+/** `xml` with `lang`'s translation removed from its place and written first. */
+function translationFirst(xml: string, lang: string): string {
+	const from = xml.indexOf(`<translation lang="${lang}"`);
+	const first = xml.indexOf("<translation ");
+	if (from < 0 || first < 0) throw new Error(`No translation of ${lang}.`);
+	const close = "</translation>";
+	const to = xml.indexOf(close, from) + close.length;
+	const moved = xml.slice(from, to);
+	const without = xml.slice(0, from) + xml.slice(to);
+	return without.slice(0, first) + moved + without.slice(first);
+}
+
+/** `xml` with the default value of the text reading `text` in `lang`'s translation removed, and
+ *  its markdown copy where it has one, so the text holds its media forms alone. */
+function withoutDefaultValue(xml: string, lang: string, text: string): string {
+	const from = xml.indexOf(`<translation lang="${lang}"`);
+	if (from < 0) throw new Error(`No translation of ${lang}.`);
+	const to = xml.indexOf("</translation>", from);
+	let translation = xml.slice(from, to);
+	const value = `<value>${text}</value>`;
+	if (!translation.includes(value))
+		throw new Error(`The translation of ${lang} holds no ${text}.`);
+	translation = translation
+		.replace(value, "")
+		.replace(`<value form="markdown">${text}</value>`, "");
+	return xml.slice(0, from) + translation + xml.slice(to);
+}
+
+/** The codes of a reading's refusals, `unrecognized` aside. */
+function refusalCodes(outcome: ReturnType<typeof readHqApp>): string[] {
+	return outcome.kind === "account"
+		? outcome.findings
+				.map((one) => one.code)
+				.filter((code) => code !== "unrecognized")
+		: [];
+}
+
+describe("a text a translation holds no default value of", () => {
+	// Core refuses only a text the default locale holds no form of
+	// (`XFormParser.verifyTextMappings`) and shows any other locale the default's text where it
+	// holds none (`Localizer.getLocaleData`); HQ's build reads each question's and choice's label
+	// in the source's first `<translation>` (`XForm._get_label_text` → `localize(ref, None)`) and
+	// refuses one with no value there.
+
+	it("reads the source language's label holding only its media as the default's text", async () => {
+		const outcome = await readExport(sourcedAfterFirst(), (xml) =>
+			withoutDefaultValue(xml, "en", "Name"),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(findingNames(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const read = outcome.draft.doc;
+		expect(nameSlots(read).label).toEqual(proseText("Nombre"));
+		expect(nameTranslation(read, "spa", "label")).toBeUndefined();
+		expect(nameSlots(read).hint).toEqual(proseText("First and last name"));
+		expect(media(read)).toEqual(media(canonical(sourcedAfterFirst())));
+	});
+
+	it("reads a form whose first translation in the document is not the default's as before", async () => {
+		const outcome = await readExport(sourcedAfterFirst(), (xml) =>
+			translationFirst(xml, "en"),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(findingNames(outcome)).toEqual([]);
+	});
+
+	it("refuses a label with no value in the first translation in the document, as HQ's build does", async () => {
+		const outcome = await readExport(sourcedAfterFirst(), (xml) =>
+			withoutDefaultValue(translationFirst(xml, "en"), "en", "Name"),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(refusalCodes(outcome)).toEqual([
+			"questions/a-label-whose-itext-in-the-first-translation-has-no-default-form",
+		]);
+	});
+
+	it("reads a hint with no value in the first translation in the document as the default's text, which HQ's build does not read there", async () => {
+		const outcome = await readExport(sourcedAfterFirst(), (xml) =>
+			withoutDefaultValue(
+				translationFirst(xml, "en"),
+				"en",
+				"First and last name",
+			),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(findingNames(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		expect(nameSlots(outcome.draft.doc).hint).toEqual(
+			proseText("Nombre y apellido"),
+		);
+	});
+});

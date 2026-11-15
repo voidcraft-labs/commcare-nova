@@ -478,11 +478,11 @@ describe("a print under a rewrite control", () => {
 	});
 
 	describe("the two current() relocations", () => {
-		it("reports a row filter's relocation whatever spelling the read stores", () => {
+		it("reports a row filter's relocation of a read it relocates", () => {
 			const doc = rowPredicateDoc();
 			const ref = fieldRef(doc, "indexed", "calculate");
 			const kind = fieldNamed(doc, "kind");
-			for (const spelling of [undefined, "absolute", "current"] as const) {
+			for (const spelling of [undefined, "absolute"] as const) {
 				const rows: Expression = {
 					kind: "count",
 					via: {
@@ -516,11 +516,11 @@ describe("a print under a rewrite control", () => {
 			}
 		});
 
-		it("reports a default's relocation whatever spelling the read stores", () => {
+		it("reports a default's relocation of a read it relocates", () => {
 			const doc = app();
 			const ref = fieldRef(doc, "end", "default_value");
 			const start = fieldNamed(doc, "start");
-			for (const spelling of [undefined, "absolute", "current"] as const) {
+			for (const spelling of [undefined, "absolute"] as const) {
 				const { applied, withheld } = both(
 					doc,
 					ref,
@@ -531,6 +531,51 @@ describe("a print under a rewrite control", () => {
 				expect(withheld).not.toContain("current()");
 				const reached = printed(doc, ref, field(start, spelling), []).reached;
 				expect(reached).not.toContain("row-predicate-current");
+			}
+		});
+
+		it("leaves a read stored current() as it is at both sites, withheld or not", () => {
+			// Nothing relocates a read the author spelled `current()`: its print
+			// is the one it had before the rewrite existed, and it reaches neither.
+			const rowDoc = rowPredicateDoc();
+			const rowRef = fieldRef(rowDoc, "indexed", "calculate");
+			const rows: Expression = {
+				kind: "count",
+				via: {
+					kind: "cases",
+					source: "casedb",
+					where: [
+						{
+							kind: "eq",
+							left: term({
+								kind: "prop",
+								caseType: "visit",
+								property: "kind_text",
+							}),
+							right: field(fieldNamed(rowDoc, "kind"), "current"),
+						},
+					],
+				},
+			};
+			const defaultDoc = app();
+			const defaultRef = fieldRef(defaultDoc, "end", "default_value");
+			const start = field(fieldNamed(defaultDoc, "start"), "current");
+			for (const [doc, ref, expression, env] of [
+				[rowDoc, rowRef, rows, readEnv()],
+				[defaultDoc, defaultRef, start, undefined],
+			] as const) {
+				const applied = printed(doc, ref, expression, [], env);
+				const withheld = printed(
+					doc,
+					ref,
+					expression,
+					["row-predicate-current", "default-reads-current"],
+					env,
+				);
+				expect(applied.text).toContain("current()");
+				expect(withheld.text).toBe(applied.text);
+				expect(applied.reached).not.toContain("row-predicate-current");
+				expect(applied.reached).not.toContain("default-reads-current");
 			}
 		});
 

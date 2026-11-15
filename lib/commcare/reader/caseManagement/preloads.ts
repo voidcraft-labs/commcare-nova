@@ -10,14 +10,18 @@
 import {
 	type BlueprintDoc,
 	type Expression,
+	externalUserPropertyNameSchema,
 	fieldKindDeclaresKey,
 	type Term,
+	type UserProperty,
 	type Uuid,
 } from "@/lib/domain";
 import { term } from "@/lib/domain/expression/builders";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { RESERVED_CASE_PROPERTIES } from "../../constants";
+import { caseTypeDepthMap } from "../../caseTypeDepths";
+import { HQ_CASE_RESERVED_WORDS } from "../../constants";
 import { activeActions, isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
 import type { Admitted } from "../accounting";
 import { withCandidate } from "../candidate";
@@ -33,6 +37,7 @@ import type { DraftForm, DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
 import { isJsonObject } from "../jsonCursor";
 import { appPlace, whereText } from "../place";
+import { holdsWorkerProperty } from "../worldEntities";
 import type { DraftField } from "../xform";
 import {
 	actionsCursorOf,
@@ -110,6 +115,10 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 		`${F}/case-preload-into-a-question-that-holds-no-default`,
 		"schema:PreloadAction.preload",
 	),
+	illegalProperty: refuse(
+		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
+		"schema:PreloadAction.preload",
+	),
 	label: refuse(
 		`${F}/a-case-write-name-or-preload-on-a-question-the-picker-does-not`,
 		"schema:PreloadAction.preload",
@@ -177,6 +186,16 @@ export interface PreloadCandidate {
 	readonly usercase?: string;
 	/** The finding a load a later load-time value reads is; the basic preload's where absent. */
 	readonly moves?: Claim<"refuse">;
+	/** A case preload read as a `form-case` read of `caseType`, which walks `index/parent`
+	 *  from the form's own case as deep as the catalog places `caseType`: it names the case
+	 *  HQ loads (`depth` `parent` steps up, an advanced load's own case `depth` loads before
+	 *  the own) only where the catalog places it `depth` deep, which the settle checks once
+	 *  the catalog is read, and is the finding `otherCase` where it does not. */
+	readonly load?: {
+		readonly caseType: string;
+		readonly depth: number;
+		readonly otherCase: Claim<"refuse">;
+	};
 }
 
 const CANDIDATES = new WeakMap<DraftForm, PreloadCandidate[]>();
@@ -265,14 +284,10 @@ export function readPreloads(
 			// HQ's validator holds every preloaded property to its grammar, index
 			// steps included, and its last step out of the reserved words
 			// (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties`).
-			const reserved = Object.values(caseMap).some((property) => {
-				if (typeof property !== "string") return true;
-				const segments = property.split("/");
-				return (
-					segments.some((segment) => !HQ_PROPERTY.test(segment)) ||
-					RESERVED_CASE_PROPERTIES.has(segments[segments.length - 1] as string)
-				);
-			});
+			const reserved = Object.values(caseMap).some(
+				(property) =>
+					typeof property !== "string" || hqBuildRefusesProperty(property),
+			);
 			if (reserved) A.refuse("case_preload", PRELOAD_CLAIMS.onSurveyReserved);
 			else A.drop("case_preload", PRELOAD_CLAIMS.onSurvey);
 		} else {
@@ -287,6 +302,16 @@ export function readPreloads(
 			const rows = new Set<PreloadRow>();
 			for (const [path, property] of Object.entries(caseMap)) {
 				const field = fieldAt(form, path);
+				// HQ's build refuses the form, wherever the question stands: its validator holds
+				// every preloaded property to its grammar and out of the reserved words.
+				if (typeof property === "string" && hqBuildRefusesProperty(property)) {
+					ctx.accounting.finding(
+						PRELOAD_CLAIMS.illegalProperty,
+						field?.place ?? form.place,
+						{ name: property },
+					);
+					continue;
+				}
 				if (field === undefined || typeof property !== "string") {
 					ctx.accounting.finding(PRELOAD_CLAIMS.label, form.place, {
 						name: path,
@@ -353,7 +378,17 @@ export function readPreloads(
 				};
 				rows.add(indices.length > 0 ? "parent" : "plain");
 				writeDefault(ctx, form, field, term(read));
-				candidates.push({ field, place: field.place });
+				// The read walks as deep as the catalog places its type, which HQ's
+				// `parent/` steps reach only where that is their count.
+				candidates.push({
+					field,
+					place: field.place,
+					load: {
+						caseType: readType,
+						depth: indices.length,
+						otherCase: PRELOAD_CLAIMS.ancestorUnknown,
+					},
+				});
 			}
 			const row =
 				PRELOAD_ROWS.find((one) => rows.has(one)) ?? ("plain" as const);
@@ -386,15 +421,14 @@ export function readPreloads(
 			Object.keys(usercaseUpdate.update).length > 0;
 		const fields = Object.entries(usercaseMap).map(([path, property]) => ({
 			field: fieldAt(form, path),
-			property,
+			property: usercaseRead(property),
 		}));
 		const held =
 			writesWorker &&
 			fields.every(
 				({ field, property }) =>
 					field !== undefined &&
-					typeof property === "string" &&
-					!property.includes("/") &&
+					property !== undefined &&
 					repeatOfField(field) === undefined,
 			);
 		// A question that takes no default: a label is the picker's row, any
@@ -540,6 +574,94 @@ export function laterLoadReaders(
 }
 
 /**
+ * The element of the worker's case a `usercase_preload` of `property` reads, as HQ's build
+ * reads it (`xform.py::XForm.add_case_preloads`, called by `_add_usercase` for the usercase):
+ * `name` is the case's `case_name`, and every other property but `owner_id` the child element
+ * of its name, which is what a worker-record read prints (`fromExpression.ts::workerProperty`).
+ * `undefined` for every other, each the finding `any-other-usercase-preload` (no editor of
+ * HQ's makes any `usercase_preload`, so only the class Nova reads is held):
+ *
+ * - `owner_id`, which HQ reads as the case's `@owner_id` attribute and no worker-record read
+ *   prints;
+ * - a path through an index (`parent/<property>`), which HQ's build accepts
+ *   (`helpers/validators.py::validate_property` allows parents) and reads from an ancestor of
+ *   the worker's case (`get_case_parent_id_xpath`), which no worker-record read reaches;
+ * - a property HQ's build refuses: one outside `validate_property`'s grammar, or one in
+ *   `case-reserved-words.json` (`IndexedFormBaseValidator.check_case_properties` holds every
+ *   `usercase_preload` property to both);
+ * - a name Nova's worker-record read cannot spell (`externalUserPropertyNameSchema`: ASCII
+ *   letters, digits, `_` and `-`), where HQ's grammar takes any letter after the first.
+ */
+/**
+ * Whether HQ's build refuses a form for a preloaded property (`case_preload`, an advanced
+ * load's `preload`): `helpers/validators.py::IndexedFormBaseValidator.check_case_properties`
+ * reads every one (`FormActions.all_property_names`, `LoadUpdateAction.get_property_names`),
+ * refuses a path outside `validate_property`'s grammar (parents allowed) and a last step in
+ * `case-reserved-words.json` (`HQ_CASE_RESERVED_WORDS`). `owner_id` is no reserved word of
+ * HQ's (HQ reads it as the case's `@owner_id`, `xform.py::XForm.add_case_preloads`).
+ */
+export function hqBuildRefusesProperty(property: string): boolean {
+	const segments = property.split("/");
+	const name = segments[segments.length - 1] as string;
+	return (
+		segments.some((segment) => !HQ_PROPERTY.test(segment)) ||
+		HQ_CASE_RESERVED_WORDS.has(name)
+	);
+}
+
+function usercaseRead(property: unknown): string | undefined {
+	if (typeof property !== "string" || property === "owner_id") return undefined;
+	if (property === "name") return "case_name";
+	if (hqBuildRefusesProperty(property)) return undefined;
+	return externalUserPropertyNameSchema.safeParse(property).success
+		? property
+		: undefined;
+}
+
+/**
+ * The worker-record read of `slug` the expression stage gives `#user/<slug>`
+ * (`expressions/canonical.ts::workerRecordLeaf`, `worldEntities.ts::worldEntitiesFromReads`):
+ * the name-backed read of one of the worker case's own keys (`USERCASE_BUILT_IN_KEYS`) or of a
+ * slug Nova holds as no worker property; else the worker property of that slug, the one the
+ * document holds or one minted under the key a re-read mints it by. A slug a held property
+ * spells in other letters only, which HQ's duplicate check reads as the same, stays name-backed.
+ * `undefined` where the minting failed, which the accounting has recorded.
+ */
+function workerRecordRead(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	slug: string,
+	place: HqPlace,
+):
+	| { readonly kind: "property"; readonly property: UserProperty }
+	| { readonly kind: "name"; readonly term: Term }
+	| undefined {
+	const named: Term = {
+		kind: "session-user",
+		field: slug,
+		source: "worker-record",
+	};
+	if (USERCASE_BUILT_IN_KEYS.includes(slug))
+		return { kind: "name", term: named };
+	const matches = Object.values(doc.userProperties ?? {}).filter(
+		(one) => one.slug.toLowerCase() === slug.toLowerCase(),
+	);
+	const [only] = matches;
+	if (matches.length === 1 && only !== undefined && only.slug === slug)
+		return { kind: "property", property: only };
+	if (matches.length > 0 || !holdsWorkerProperty(slug))
+		return { kind: "name", term: named };
+	const minted = ctx.accounting.identity(
+		ctx.resolver.claim(externalKey.userProperty(slug), whereText(appPlace())),
+		place,
+		"schema:PreloadAction.preload",
+	);
+	return minted === undefined
+		? undefined
+		: { kind: "property", property: { uuid: minted, slug, label: slug } };
+}
+
+/**
  * Judges each preload of `form` over the bound document: a worker record's
  * default is written now that the app's worker properties are known, and a
  * load a later load-time value reads is the finding that it would move.
@@ -547,47 +669,50 @@ export function laterLoadReaders(
 export function settlePreloads(ctx: ReadContext, form: DraftForm): void {
 	const candidates = CANDIDATES.get(form);
 	if (candidates === undefined || ctx.doc === undefined) return;
+	const ownType = ctx.draft.modules.find((one) => one.forms.includes(form))
+		?.module.caseType;
+	const depths = caseTypeDepthMap(ownType, ctx.doc.caseTypes ?? []);
 	for (const candidate of candidates) {
 		const uuid = candidate.field.uuid;
 		if (uuid === undefined) continue;
+		const load = candidate.load;
+		if (load !== undefined && depths.get(load.caseType) !== load.depth) {
+			ctx.accounting.finding(load.otherCase, candidate.place, {
+				name: candidate.field.id,
+			});
+			continue;
+		}
 		if (candidate.usercase !== undefined) {
-			const slug = candidate.usercase;
-			const doc = ctx.doc;
-			let property = Object.values(doc.userProperties ?? {}).find(
-				(one) => one.slug === slug,
+			const read = workerRecordRead(
+				ctx,
+				ctx.doc,
+				candidate.usercase,
+				candidate.place,
 			);
-			if (property === undefined) {
-				const claim = ctx.resolver.claim(
-					externalKey.userProperty(slug),
-					whereText(appPlace()),
-				);
-				const minted = ctx.accounting.identity(
-					claim,
-					candidate.place,
-					"schema:PreloadAction.preload",
-				);
-				if (minted === undefined) continue;
-				property = { uuid: minted, slug, label: slug };
-			}
-			const known = property;
-			ctx.doc = withCandidate(doc, (draft) => {
-				if (draft.userProperties?.[known.uuid] === undefined) {
-					draft.userProperties = {
-						...(draft.userProperties ?? {}),
-						[known.uuid]: known,
-					};
-					draft.userPropertyOrder = [
-						...(draft.userPropertyOrder ?? []),
-						known.uuid,
-					];
-				}
-				const field = draft.fields[uuid] as Record<string, unknown> | undefined;
-				if (field !== undefined)
-					field.default_value = term({
+			if (read === undefined) continue;
+			ctx.doc = withCandidate(ctx.doc, (draft) => {
+				let leaf: Term;
+				if (read.kind === "name") leaf = read.term;
+				else {
+					const known = read.property;
+					if (draft.userProperties?.[known.uuid] === undefined) {
+						draft.userProperties = {
+							...(draft.userProperties ?? {}),
+							[known.uuid]: known,
+						};
+						draft.userPropertyOrder = [
+							...(draft.userPropertyOrder ?? []),
+							known.uuid,
+						];
+					}
+					leaf = {
 						kind: "session-user-property",
 						userPropertyUuid: known.uuid,
 						source: "worker-record",
-					} as Term);
+					};
+				}
+				const field = draft.fields[uuid] as Record<string, unknown> | undefined;
+				if (field !== undefined) field.default_value = term(leaf);
 			});
 		}
 		if (laterLoadReaders(ctx.doc, form.uuid, uuid).length > 0)

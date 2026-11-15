@@ -27,6 +27,7 @@ function typeOf(
 	requires: string,
 	active: Record<string, unknown>,
 	caseType = "patient",
+	menuCaseManagement = true,
 ) {
 	const stored = actions(active);
 	return readFormType(
@@ -34,6 +35,7 @@ function typeOf(
 		activeActions(stored, requires),
 		menu(caseType),
 		(stored.open_case as { condition: { type: string } }).condition.type,
+		menuCaseManagement,
 	);
 }
 
@@ -48,6 +50,7 @@ function entryOf(
 		activeActions(stored, requires),
 		(stored.open_case as { condition: { type: string } }).condition.type,
 		menu(caseType),
+		true,
 	).requires.entry;
 }
 
@@ -81,6 +84,24 @@ describe("a basic form's type, by the eleven rows of Form types", () => {
 		expect(typeOf("case", {})).toBe("followup");
 		expect(typeOf("case", { close_case: ALWAYS })).toBe("close");
 		expect(typeOf("case", { close_case: IF })).toBe("close");
+	});
+
+	it("reads a form that requires a case as a follow-up where its menu turns HQ's case management off, whose build writes no close", () => {
+		expect(typeOf("case", { close_case: ALWAYS }, "patient", false)).toBe(
+			"followup",
+		);
+		expect(typeOf("case", { close_case: IF }, "patient", false)).toBe(
+			"followup",
+		);
+		// A form that opens its case turns it back on.
+		expect(
+			typeOf(
+				"none",
+				{ open_case: ALWAYS, close_case: ALWAYS },
+				"patient",
+				false,
+			),
+		).toBe("registration");
 	});
 
 	it("reads a form with no case action, and one whose close has no open in a menu with a case type, as a survey", () => {

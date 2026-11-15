@@ -10,7 +10,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 const output = process.argv[2];
 if (!output)
 	throw new Error(
-		"Usage: node --import tsx proof/native/producers/emit-static-quote-evidence.ts OUTPUT_DIRECTORY",
+		"Usage: node --conditions=react-server --import tsx proof/native/producers/emit-static-quote-evidence.ts OUTPUT_DIRECTORY",
 	);
 const doc = csqlStaticQuoteFixture("safe");
 const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);

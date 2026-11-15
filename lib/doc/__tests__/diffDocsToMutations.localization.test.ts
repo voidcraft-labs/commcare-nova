@@ -152,6 +152,79 @@ describe("diffDocsToMutations localization", () => {
 		);
 	});
 
+	it("reaches a source that stands third in the order from a one-language app", () => {
+		const before = doc();
+		const after = produce(before, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "relabelSourceLanguage",
+					language: { language: "spa" },
+					wireCode: "es",
+				},
+				{
+					kind: "addLanguage",
+					language: { language: "eng" },
+					wireCode: "en",
+				},
+				{
+					kind: "addLanguage",
+					language: { language: "fra" },
+					wireCode: "fr",
+				},
+				{ kind: "setDefaultLanguage", code: "fra" },
+				{ kind: "setDefaultLanguage", code: "eng" },
+			]);
+		});
+		expect(after.localization).toMatchObject({
+			sourceLanguage: "spa",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "fra", "spa"],
+			wireCodes: { eng: "en", fra: "fr", spa: "es" },
+		});
+		expect(toPersistableDoc(wireReplay(before, after))).toEqual(
+			toPersistableDoc(after),
+		);
+	});
+
+	it("reorders languages an app already holds", () => {
+		const languages = produce(doc(), (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addLanguage",
+					language: { language: "fra" },
+					wireCode: "fr",
+				},
+				{
+					kind: "addLanguage",
+					language: { language: "spa" },
+					wireCode: "es",
+				},
+			]);
+		});
+		const reordered = produce(languages, (draft) => {
+			applyMutations(draft, [
+				{ kind: "setDefaultLanguage", code: "spa" },
+				{ kind: "setDefaultLanguage", code: "fra" },
+			]);
+		});
+		expect(languages.localization?.languageOrder).toEqual([
+			"eng",
+			"fra",
+			"spa",
+		]);
+		expect(reordered.localization?.languageOrder).toEqual([
+			"fra",
+			"spa",
+			"eng",
+		]);
+		expect(toPersistableDoc(wireReplay(languages, reordered))).toEqual(
+			toPersistableDoc(reordered),
+		);
+		expect(toPersistableDoc(wireReplay(reordered, languages))).toEqual(
+			toPersistableDoc(languages),
+		);
+	});
+
 	it("round-trips translations whose units are born or removed in the same diff", () => {
 		const before = doc();
 		const formUuid = before.formOrder[before.moduleOrder[0]][0];

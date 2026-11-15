@@ -416,7 +416,7 @@ build of the base and HQ's build of Nova's publish over it.
 | `update_mode: edit` on a follow-up's own update in a project space without `SAVE_ONLY_EDITED_FORM_FIELDS`, written back `always` | `conditionalcaseupdate-update-mode-edit` | `hq-advanced` |
 | a `case_list.label` with no text written back as "Case List" | `module-case-list-label-lang` | `hq-menus` |
 | a sort element no column joins, written back as a stored hidden column | `field-naming-a-property-not-displayed-hq-appends-a-hidden-column` | `hq-case-lists` |
-| `type: string` or `date` written back as Nova's derived word | `type-string-not-a-menu-value`, `type-plain-date-int-double-equal-to-the-type-nova-derives` | `hq-case-lists` |
+| `type: date`, `string` or any other word but `int`, `double`, `distance` and `index`, written back as Nova's derived word | `type-string-not-a-menu-value`, `type-plain-date-int-double-equal-to-the-type-nova-derives` | `hq-case-lists` |
 | no sort elements over a short detail whose first column is hidden, written back as one explicit element on that column | `no-sort-elements` | `hq-case-lists` |
 | `max_select_value: -1` written back `100` | `detail-max-select-value-on-a-multi-select-basic-list` | `hq-case-lists` |
 | `blanks: ""` written back as the direction's own word | `blanks` | `hq-case-lists` |
@@ -743,7 +743,20 @@ line here says what the shorthand is in the frame's own names:
   ): { readonly icon?: string; readonly audioLabel?: string };
   ```
 
-  It reads each map (`media_image`, `media_audio`) through part 06's
+  It reads each map (`media_image`, `media_audio`) as HQ's build shows it in each app language,
+  `navMedia.ts::shownNavMedia` over the map and its `use_default_image_for_all` or
+  `use_default_audio_for_all` switch, on a menu, a form, a case list menu item and a Register
+  button alike: each is a `NavMenuItemMediaMixin`, HQ's pages set both switches on each
+  (`views/modules.py` calls `views/media_utils.py::handle_media_edits` for the module, its
+  `case_list_form_` and its `case_list-menu_item_` prefixes, `views/forms.py` for a form), and
+  the entry `menus-and-case-lists/use-default-image-for-all-use-default-audio-for-all` names the
+  case list item's and the Register button's switches beside the menu's, the switches read
+  `derived`, and `menus-and-case-lists/media-image-media-audio-differing-by-language` names their
+  maps beside the menu's (`models/mixins.py::NavMenuItemMediaMixin`: the suite names the
+  media only where some language holds a path of its own, `uses_image`; a language's own app
+  strings hold its own path; the `default` table holds the first language's path, else the value
+  under the map's least key, `_get_media_by_language`; Core shows a language with no path of its
+  own the `default` table's), then hands the path each language shows to part 06's
   `xform/media.ts::readMediaMap` (its 12.4), with the slot a
   `lib/domain/mediaRefs.ts::MediaRefLocation` kind: `asset` writes the asset id into the slot (and
   this reader makes its `take` claim on the key); `none` and `handed-off` leave the slot absent (the
@@ -831,10 +844,14 @@ export interface ReadProjectionInputs {
 	readonly attachmentTarget: AttachmentUrlTarget;
 	/** Each bound table under the tag and field names the source reads it by. */
 	readonly lookupNaming: LookupWireNaming;
-	/** Each asset the media index resolved, at the path the source spells for it. */
+	/** Each asset the media index resolved, at the path it keeps: the first, in code-unit order,
+	 *  of the paths the source spells for it. */
 	readonly assets: AssetManifest;
 }
 export function readProjectionInputs(ctx: ReadContext): ReadProjectionInputs;
+/** A stored `{ language: path }` map with each path as a projection prints it: the kept path of
+ *  the asset the media index resolves it to, where a reference names that asset. */
+export function keptMediaPaths(ctx: ReadContext, value: unknown): unknown;
 ```
 
 - `identity` is `wireIdentity.ts::targetWireIdentity(overrides)`, the function a publish to an adopted
@@ -852,9 +869,20 @@ export function readProjectionInputs(ctx: ReadContext): ReadProjectionInputs;
 - `lookupNaming` is `lookup/naming.ts::lookupWireNaming(ctx.input.lookup.definitions)`: the bound
   catalog, whose tags and field names are the source's. Without it a Search field's choices, a filter
   and a link condition that read a table print under identity names.
-- `assets` maps each asset id of `ctx.facts.mediaReferences` to the path the source spells
-  (`ReadMediaReference.path`), which is the path the adopted deployment's media-path rows give a
-  publish (part 10, 10-identity-and-the-ledger.md, section 4). A media slot with a pending
+- `assets` maps each asset id of `ctx.facts.mediaReferences` to a path the source spells for it
+  (`ReadMediaReference.path`): where its references spell several (CommCare HQ holds one file under
+  several paths), the first in code-unit order of the path less `jr://file/`, the one part 09's
+  `emissionAssets` writes too. It is not always the path the adopted deployment's media-path rows
+  give a publish: `assignMediaPaths` (part 10, 10-identity-and-the-ledger.md, section 4.2) drops a
+  path it cannot hold, one that names another file and one that differs from another file's only
+  by letter case (steps 2 to 4) before it takes the first in that order (step 5), and its register
+  declares each move. No comparison depends on which path is kept, as below. The document holds a slot's
+  asset and no path, so a projection prints that one path at every slot of the asset. Every
+  comparison of a stored media path with the projection's (a menu's, a form's and a case list menu
+  item's `media_image` and `media_audio`, a registration block's, an image column's mapping values)
+  reads the stored map through `keptMediaPaths`, so a path naming the same file as the kept one
+  compares equal and the join is the first publish's `media-paths-joined`. The inputs are rebuilt
+  where a later stage read more references. A media slot with a pending
   reference holds no asset, and its key is left out of the comparison: part 11 decides it.
 
 A keyed create's id is written under `nova-case-v1:<UUIDv5(app, form, operation, type)>:`
@@ -930,8 +958,8 @@ Area `forms-and-case-writes`:
 | `none`, `open_case` active, `close_case` inactive | `registration` | `form-requires-none-open-case-active-close-case-inactive` |
 | `none`, `open_case.condition.type: if` | `registration` with `openCondition` (3.3) | `form-requires-none-open-case-condition-if` |
 | `none`, `open_case` and `close_case` active | `registration` with `closeCondition`: 3.3's expression for `if`, `matchAll()` for `always` | `form-requires-none-open-case-close-case-active` |
-| `case`, `close_case` inactive | `followup` | `form-requires-case-no-close` |
-| `case`, `close_case` active | `close`; `closeCondition` absent for `always`, else 3.3 | `form-requires-case-close-case` |
+| `case`, `close_case` inactive, or active in a menu that selects several cases or may load a data registry's case (HQ's build writes no close there, `xform.py::XForm._create_casexml`, `default_case_management`; the close is 3.4's INERT row) | `followup` | `form-requires-case-no-close` |
+| `case`, `close_case` active, any other menu | `close`; `closeCondition` absent for `always`, else 3.3 | `form-requires-case-close-case` |
 | `none`, no active open, update, close or child case (an active `usercase_update` or `usercase_preload` leaves the form a survey: the worker's record reads by 3.2 and 3.7) | `survey` | `form-requires-none-no-case-action` |
 | `none`, `close_case` active, no open, menu has a case type | `survey` (HQ builds no case block) | `form-requires-none-with-close-case-active-and-no-open-in-a-module-with-a` |
 | `none`, `update_case` active, no open | finding | `form-requires-none-with-update-case-active-and-no-open` |
@@ -1314,8 +1342,12 @@ repeat runs when its row is added, after the load, in both orders, so it is neve
 | from `host/`, `user/` or a mixed path | finding | `case-preload-from-any-other-index-path-host-user-a-mixed-path` |
 | into a question inside a repeat | nothing (it fills no row) | `case-preload-into-a-question-inside-a-repeat` (INERT) |
 | in a multi-select menu, by its two rows | finding at a top-level menu; in a child menu or one under a parent selection, no default: HQ loads it from `session/data/selected_cases`, which names no case, so the load empties it after every other setvalue, and its own default, dropped, is a candidate for `laterLoadReaders` | `case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module`, `case-preload-into-a-question-outside-any-repeat-in-a-multi-select-child` |
-| on a `requires: none` form | nothing, or finding for a reserved or illegal property | `case-preload-active-on-a-requires-none-form-naming-valid`, `case-preload-on-a-requires-none-form-naming-a-reserved-or` |
-| `usercase_preload.preload[path] = prop`, outside any repeat, the form's active `usercase_update` writing a property, `laterLoadReaders` empty | `default_value`: the worker-record read part 08 builds for `#user/prop` | `usercase-preload-into-a-question-outside-any-repeat-on-a-form` |
+| on a `requires: none` form | nothing, or finding for a reserved or illegal property (`owner_id` is none: `preloads.ts::hqBuildRefusesProperty`) | `case-preload-active-on-a-requires-none-form-naming-valid`, `case-preload-on-a-requires-none-form-naming-a-reserved-or` |
+| on a form that requires a case, a `prop` outside `validate_property`'s grammar (parents allowed) or whose last step is in `case-reserved-words.json`, wherever its question stands: HQ's build refuses the form (`check_case_properties` reads every `case_preload` property, `FormActions.all_property_names`; `owner_id` is no reserved word of HQ's, and HQ reads it as `@owner_id`, `xform.py::XForm.add_case_preloads`) | finding, `detail.name` the property (`preloads.ts::hqBuildRefusesProperty`) | `update-key-failing-hq-s-grammar-or-in-case-reserved-words-json` (its keys gain `schema:PreloadAction.preload`, section 14) |
+| `usercase_preload.preload[path] = prop`, outside any repeat, the form's active `usercase_update` writing a property, `laterLoadReaders` empty, `prop` neither `owner_id`, nor a path through an index, nor a property HQ's build refuses (`validate_property`, `case-reserved-words.json`: `IndexedFormBaseValidator.check_case_properties` reads every `usercase_preload` property), and a name `externalUserPropertyNameSchema` takes (`preloads.ts::usercaseRead`) | `default_value`: the worker-record read part 08 builds for `#user/prop`, where `name` is `case_name` (`xform.py::XForm.add_case_preloads`); a worker property only for a slug `worldEntities.ts::holdsWorkerProperty` holds and none of the worker case's own keys (`USERCASE_BUILT_IN_KEYS`), else the name-backed read | `usercase-preload-into-a-question-outside-any-repeat-on-a-form` |
+| `usercase_preload` of `owner_id`: HQ reads the case's `@owner_id` attribute, which no worker-record read prints | finding | `any-other-usercase-preload` |
+| `usercase_preload` of a path through an index (`parent/prop`): HQ's build accepts it (`validate_property` allows parents) and reads it from an ancestor of the worker's case (`get_case_parent_id_xpath`), which no worker-record read reaches | finding | `any-other-usercase-preload` |
+| `usercase_preload` of a property HQ's grammar takes and Nova's worker-record read cannot spell (`externalUserPropertyNameSchema`: ASCII letters, digits, `_` and `-`; HQ's `\w` takes any letter after the first) | finding | `any-other-usercase-preload` |
 | any other `usercase_preload` | finding | `any-other-usercase-preload` |
 | `load_from_form` | by its three rows | `load-from-form-whose-paths-the-form-still-has` (INERT), `load-from-form-naming-a-path-the-form-no-longer-has-on-a-form` (REFUSED), `load-from-form-on-a-form-that-does-not-require-a-case` (INERT) |
 | `case_preload.condition`, `usercase_preload.condition`, `load_from_form.condition` | nothing | `preload-action-condition` (INERT) |
@@ -1468,9 +1500,11 @@ action that carries none (`advancedTags.ts::allocateAdvancedTags`).
 | the last load's `close_condition`, active | `Form.type: "close"`, `closeCondition` by 3.3 with scope `{ own: false, repeat: undefined }` | `loadupdateaction-close-condition-on-the-form-s-own-selection` |
 | an earlier load's `case_properties` | `{ action: "update", caseType, target: { kind: "expression", expr: term({ kind: "session-datum", datum: { kind: "selected-case", module: <its menu> } }) }, writes, placement }` | `loadupdateaction-case-properties` |
 | an earlier load's `close_condition`, active | `{ action: "close", caseType, target: <the same>, condition?, placement }`, after that load's update | `loadupdateaction-close-condition-on-any-other-selection` |
+| a `preload` property outside `validate_property`'s grammar or whose last step is in `case-reserved-words.json`, on any load: HQ's build refuses the form (`LoadUpdateAction.get_property_names` → `check_case_properties`) | finding | `update-key-failing-hq-s-grammar-or-in-case-reserved-words-json` (its keys gain `schema:LoadUpdateAction.preload`, section 14) |
 | a `case_properties` or `preload` key holding `/` on a load with a `case_index` | finding | `loadupdateaction-preload-or-case-properties-property-with-on-a` |
 | a `case_properties` entry whose `update_mode` is `"edit"`, on any load | finding: the build applies it (`xform.py::_add_case_updates`), and Nova holds the mode only in the basic own slot (3.2) | `update-mode-edit-off-a-follow-up-form-s-own-update` (new, section 14) |
 | `preload[path] = prop`, question outside any repeat, `prop` without `/`, `laterLoadReaders` empty (3.7) | the question's `default_value`: the `form-case` read of `prop` with the load's case type | `loadupdateaction-preload-question-property` (re-cut HELD for this class, section 14) |
+| the same on a load other than the form's own that the read does not reach: a `form-case` read walks `index/parent` from the form's own case as many times as its type's depth in the catalog (`formCaseRead.ts::formCasePropertyRead`, over `reachableCaseTypes`), and HQ's build reads the load's own case (`xform.py::XForm._create_casexml_advanced`), so the read is that case only where every later load of the chain is chosen through a `parent` index (`case_index.reference_id`) and the catalog places the load's type exactly as many loads deep as the load stands before the own (a load nearer the own that has its type, or a link of the app that gives a type of the chain another parent, places it elsewhere; the depth is judged once the catalog is read, `preloads.ts::settlePreloads`) | finding | `index-path-through-a-case-type-the-app-does-not-fix` |
 | any other `preload` | finding | `forms-and-case-writes/loadupdateaction-preload-read-later-in-the-load` (new, section 14) |
 | a write or preload whose question is a label | finding | `an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or` |
 
@@ -1499,6 +1533,7 @@ it does, and by 4.4's open actions otherwise.
 | `case_properties[key].update_mode: "edit"` | finding: the build applies it (`xform.py::_create_casexml_advanced`) to a case that has no earlier value | `update-mode-edit-off-a-follow-up-form-s-own-update` (new) |
 | `case_properties.owner_id` naming part 06's folded node of purpose `owner` | by the node's value (`generatedNodes.ts::advancedOwnerNodeValue`'s two): the acting user's node reads as no `owner`, `unowned()`'s as `unowned()`. A case an action opens with no owner is the worker's, and `advancedOwnerNodeValue` prints the acting user's node for an absent owner and for `actingUser()` alike, so of the two the reader returns the first (R3), and a Nova-born `actingUser()` on an opened case is the canonical row `opened-case-owner-acting-user-is-absent` (`assemble.ts::READER_CANONICAL_CHOICES`) | the writes row |
 | `case_properties.owner_id` naming a question | `owner: term(formField(q))` | the writes row |
+| no `case_properties.owner_id`, and `case_indices` that are all `extension` | `owner: unowned()`: HQ's build sets no owner there and writes `-` (`xform.py::autoset_owner_id_for_advanced_action`), and `advancedOwnerNodeValue` prints `unowned()` on such a case with no node | the writes row |
 | `repeat_context`, the name question's innermost repeat | `forEach` | `advancedopencaseaction-repeat-context-equal-to-the-name-question` |
 | any other `repeat_context`; two or more open actions of one repeat, fewer than two of them with `case_indices`, which share the row's one `case` block (HQ's build nests a repeat's blocks under `case_<tag>` only where two or more of its open actions are indexed: `xform.py::_create_casexml_advanced`, `get_action_path`, over `AdvancedFormActions.count_subcases_per_repeat_context`) | finding | `advancedopencaseaction-repeat-context-other-than-the-name`, `two-or-more-open-actions-whose-repeat-context-is-one-repeat` |
 | `open_condition` | 3.3 with scope `{ own: false, repeat }` | `advancedopencaseaction-open-condition` |
@@ -1750,7 +1785,8 @@ it is, with the own arm's guards) is the own arm: the canonical row
 makes such an update the form's own arm, dropping the bare one, under the UUID the reading mints
 for the own arm's key. It cannot keep the update's UUID: an operation's external key spells its
 action, so the update's key is no key of the reading, and a re-read through `matchingResolver`
-mints the own arm's. No candidate claims a key: the choice is made on what the source prints
+mints the own arm's, which the row asks `identityMap.ts::reReadUuidOf` for (part 10, section 2.3:
+where the document holds the key's own mint under another key, a re-read gives another). No candidate claims a key: the choice is made on what the source prints
 before the chosen block's key is claimed, once, so `IdentityResolver` needs no look that records
 nothing.
 
@@ -2526,11 +2562,16 @@ does with a path and what a slot holds where the path is handed off). `slots` na
 stand in: `module_icon` and `module_audio_label`, `case_list_icon` and `case_list_audio_label`,
 `form_icon` and `form_audio_label`, or `case_list_registration_icon` and
 `case_list_registration_audio_label`. Reading a map into one path is part 01 section 3.5's re-cut
-for menus ("the same path in every language the app has reads as the one shared slot; a path present
-in one language and absent in another counts as differing"). (R2):
+for menus ("a map that shows one file in every language, read as HQ's build shows it, reads as the
+one shared slot"; two files shown in two languages differ). HQ's page stores an icon under the
+language being edited alone (`views/media_utils.py::handle_media_edits`), so a map stored in one
+language is the ordinary state and reads as the file every language shows. (R2):
 `multimedia/navMenuMedia.ts::buildNavMediaDicts` over the read slots, with the app's languages and
-2.4's `assets`, gives the stored maps; a map whose reference is pending is left out of the comparison
-and is part 11's to decide.
+2.4's `assets`, gives maps that show what the stored maps show: both sides are compared through
+`shownNavMedia`, never as stored. Where a stored map is not the map Nova prints (a language left out,
+a blank, a language the app no longer lists, a switch on), the reading records the first publish's
+rewrite under `media-maps-respelled` (part 09, 11.2). A map whose reference is pending is left out of
+the comparison and is part 11's to decide.
 
 ### 8.7 Registration from the case list, and the hidden menu
 
@@ -2936,7 +2977,13 @@ standard properties (`name-date-opened-external-id-status-owner-id-hq-renames-to
 rows' findings (`idx-prop-parent-host-any-index-names-other-than-a-first-step`, `user-prop-usercase`,
 `user-steps-prop`, `owner-name`, `property-x-or-prefix-x-with-a-prefix-hq-registers-no-generator`,
 `attachment-name-with-any-other-format`, `ledger-section`, `location-type`, `schedule-var`,
-`indicator-call-center-name`, `indicator-any-other-set-name`). A field outside
+`indicator-call-center-name`, `indicator-any-other-set-name`). `case_id` as a property column's
+`field` (not calculated) is `case-id-as-a-property-column-s-field` (REFUSED, broken at runtime, new,
+section 14): `PropertyXpathGenerator.xpath` maps the field through `CASE_PROPERTY_MAP`, which maps
+`status` and `owner_id` to their attributes and has no entry for `case_id`, so the column reads the
+child element `case_id`, which no case carries (Core holds the id as an attribute,
+`CaseChildElement`), and is blank where Nova's column over `case_id` (`@case_id`) shows the id. A
+field outside
 `AUTHORED_CASE_PROPERTY_NAME_PATTERN` that HQ's check accepts is the finding
 `column-field-outside-nova-s-property-grammar` (HELD-NEW, new, section 14), with the name in
 `detail.name`. Part 04 widens the property grammar for a form's writes (its N2 and N7) and names no
@@ -2980,16 +3027,33 @@ needs a column that shows no header on the list, which is step 7's group `case-l
 own interval columns read back by the `translatable-enum` row above, so no Nova app is affected.
 
 **Every column's other keys.** `header{lang}` reads `header` and its translations, role
-`case-list-header` (`header`); a column hidden from both screens keeps its stored header under every
-language, as `projectColumnForShortDetail` writes it. `enum[].alt_text` blank is
-`enum-mappingitem-alt-text-lang`; with text, part 04's N11. `case_tile_field` blank or off a template
+`case-list-header` (`header`), as HQ's build shows it in each app language
+(`hqText.ts::shownText`: `clean_trans` over `[lang] + app.langs`, a blank falling back to the
+`default` locale), never the stored map taken literally: HQ's column editor saves only the editing
+language's key (`column.js::serialize`), so a header typed in one language is a one-key map every
+language shows, and the source text is the source language's shown text. The same reading holds an
+ID mapping's labels, a label projection's, an interval's text, an image map's paths (each
+language's image is the shown path, before `readMediaMap`), a detail's `no_items_text` and
+`select_text`, a sort element's `display`, and an image map's or clickable icon's `enum[].alt_text`
+(`clean_trans(item.alt_text, langs)`, so `{en: null}` shows `None`). A value whose printed text the
+reader cannot know (a number, an object) is left unclaimed for the close, which names it at its key. Where the stored map is not the shown text under
+every app language's code, the first publish writes it so (13.3, `list-settings-respelled`). A
+column hidden from both screens keeps its stored header under every language, as
+`projectColumnForShortDetail` writes it. `enum[].alt_text` blank in every language is
+`enum-mappingitem-alt-text-lang`; with text on an image map or a clickable icon, part 04's N11; with
+text on an ID mapping or a label projection, `mappingitem-alt-text-on-a-format-that-builds-no-image`
+(INERT: `detail_screen.py::EnumImage` alone builds an alt text). `case_tile_field` blank or off a template
 tile is part 01's `case-tile-field-blank-or-off-a-template-tile` (INERT); with text on a template tile,
 `case-tile-field-template-slot-on-icon-text-grid`. `graph_configuration: null` or on another format,
-`filter_xpath`, `advanced`, and the bookkeeping keys (`hasAutocomplete`, `calc_xpath`, `isTab`,
-`hasNodeset`, `nodeset`, `relevant`, `time_ago_interval` and `late_flag` on a column of another format,
-`date_format` on a column that is no date) are their INERT rows (`graph-configuration-null`,
-`graph-configuration-non-empty-on-any-other-column`, `filter-xpath`, `advanced`,
-`ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`). `optimization` is
+`filter_xpath`, `advanced`, the bookkeeping keys (`hasAutocomplete`, `calc_xpath`, `isTab`,
+`hasNodeset`, `nodeset`, `relevant`), and the format extras the column editor saves on every column
+(`time_ago_interval` and `late_flag` on a column of another format, `date_format` on a column that is
+no date, `enum` on a column whose format reads no mapping: any but `enum`, `conditional-enum`,
+`enum-image`, `clickable-icon` and `translatable-enum`, since the editor saves the mapping widget's
+entries on every column, `details/bootstrap5/column.js::serialize`) are their INERT rows
+(`graph-configuration-null`, `graph-configuration-non-empty-on-any-other-column`, `filter-xpath`,
+`advanced`, `ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`,
+`format-extras-the-column-editor-saves-on-every-column`). `optimization` is
 `optimization-cache-lazy-load-cache-and-lazy-load`. `endpoint_action_id` is its three rows
 (`enum-image-column-carrying-an-endpoint-action-id-on-the-case`,
 `a-column-of-a-format-other-than-clickable-icon-or-enum-image`
@@ -3031,7 +3095,11 @@ and puts the column back on the list, hidden.
 lookupNaming)`, with 2.4's `assets` and `lookupNaming`, gives the long detail's columns equal to the
 stored ones, and the short detail's equal to the stored ones followed by exactly 11.4's hidden sort
 columns, each compared after the INERT claims of 11.2, with `field` and
-`enum` keys as trees where they are expressions. The projection is made over the bound document
+`enum` keys as trees where they are expressions. Each stored column is compared as HQ's build reads
+it on its screen: its format as the reading reads it (`columns.ts::columnFormatAsRead`: an
+unregistered slug is `plain`, and on the case detail so are `invisible` and a geo format), a
+non-calculated `case_id` as the child element it reads, every text as the build shows it in each
+language, and the `enum` only where the format reads one. The projection is made over the bound document
 with the texts the reading gave the translation sink written as its translations
 (`caseList/readTexts.ts::withReadTexts`), since the sink reaches the document only at assembly, so
 a header, a mapping label or a Search field's label is compared in every app language. This one call per menu is the (R2) of 11.4, 11.5 and
@@ -3048,7 +3116,7 @@ rule by rule:
 | `sort_elements[i]` | Reads into | Entry |
 |---|---|---|
 | none, and the short detail's first column is shown (or the detail is empty) | no column holds `sort` | `no-sort-elements` |
-| none, and the short detail's first column is an `invisible` column | that column takes `sort: { direction: "asc", priority: 0 }`: HQ's build sorts an unsorted list by its column 0 whatever its format (`suite_xml/sections/details.py::get_default_sort_elements`), and Nova's implicit rule is on the first shown field (`caseListOrder.ts`, rule 7), so only an authored rule on the hidden column keeps the order. Nova then writes the one element HQ's default builds, a source rewrite the register holds (13.3) | `no-sort-elements` |
+| none, and the short detail's first column is an `invisible` column | that column takes `sort: { direction: "asc", priority: 0 }`: HQ's build sorts an unsorted list by its column 0 whatever its format (`suite_xml/sections/details.py::get_default_sort_elements`), and Nova's implicit rule is on the first shown field (`caseListOrder.ts`, rule 7), so only an authored rule on the hidden column keeps the order. Nova then writes the one element HQ's default builds, a source rewrite the register holds (13.3). HQ's default element is `string`, so where Nova's rule there derives `int` or `double` the settle raises `type-plain-date-or-string-or-none-where-nova-derives-int-or-double` | `no-sort-elements` |
 | `field` a property name equal to the join text of a short column | `sort` on the first such column in `listColumnOrder` (rule 5) | `field-naming-a-displayed-column` |
 | `field` a property name no short column joins, and a shown link column reads that property (any but `case_id`) | `sort` on the first such link column: a rule on a shown link is a property element over its property (`caseListOrder.ts`, rule 4, exception i), for which HQ's build appends the field | `field-naming-a-displayed-column` |
 | in a tile list, `field` a property name no short column joins and that a column 11.3's rule 4 made from the long detail reads | that column is on the list, hidden: `visibleInList: false` with the `sort`, and no `notOnList`. It is how Nova writes a tile list's hidden sorted column, as a sort row with no stored column (`caseListOrder.ts`, rule 4, exception iii), so Nova's own tile lists read back as they were | `field-naming-a-property-not-displayed-hq-appends-a-hidden-column` |
@@ -3059,14 +3127,17 @@ rule by rule:
 | `direction` `ascending` or `descending` | `direction` | `direction` |
 | `blanks` `first` or `last` | `columnSort(direction, priority, blanks)` (part 03: stored only where it is not the direction's own) | `blanks-first-last` (HELD, part 03 section 7) |
 | `blanks: ""` or absent | no `blanks` | `blanks` |
-| `type` `plain`, `date` or `string` | nothing: Nova writes its derived word | `type-plain-date-int-double-equal-to-the-type-nova-derives`, `type-string-not-a-menu-value` |
+| any `type` but `distance` and `index`, on a column whose stored list format sorts by its own type (`date`, `time-ago`, `distance` and the mapping formats: `FormattedDetailColumn.sort_node` reads no element's type there) | nothing: Nova writes its derived word, a source rewrite the register holds for `int` and `double` (13.3) | `type-plain-date-int-double-equal-to-the-type-nova-derives` |
+| `type` `plain`, `date`, none, or any other word but `int`, `double`, `distance` and `index` (Core's `DetailFieldParser` compares every word but `int` and `double` as text, and HQ writes a word it does not map as it is), where the plan derives a text or date comparison | nothing: Nova writes its derived word | `type-plain-date-int-double-equal-to-the-type-nova-derives`, `type-string-not-a-menu-value` |
+| `type` `plain`, `date`, none, or any other word but `int`, `double`, `distance` and `index`, where the plan derives `int` or `double` (HQ compares text, Nova numbers) | finding, in the settle | `type-plain-date-or-string-or-none-where-nova-derives-int-or-double` (HELD-NEW, new, section 14) |
 | `type` `int` or `double` equal to the comparator the plan derives, with section 7's declaration where no writer types the property | nothing | the same |
 | `type` `int` or `double` the plan does not derive | finding | `type-int-or-double-differing-from-the-derived-type-on-a-column` |
 | `type` `distance`, `index` | finding | `type-distance`, `type-index-cache-and-index-order-2` |
-| `display` `{}` or blank in every language | nothing | `display` |
+| `field` neither `_cc_calculated_N` nor one property name: read as the field of the column HQ's build appends for it (`util.py::create_temp_sort_column`), by the column field's rows (a relation path, `user/`, `#owner_name`, a prefix, `case_id`, a name outside Nova's grammar), and `field-failing-details-utils-js-isvalidpropertyname-non` only where HQ's own check (`details/utils.js::isValidPropertyName`, `_validate_detail_screen_field`) refuses it | finding | the column field's row |
+| `display` `{}` or blank in every language, as HQ's build shows it | nothing | `display` |
 | `display` with text, on a sort joined to a displayed column | nothing | `display-lang-on-a-sort-joined-to-a-displayed-column` (INERT) |
 | `display` with text on a sort-only element or an `invisible` column | finding | `display-lang-sort-by-label-on-a-sort-only-element`, `display-lang-on-a-sort-joined-to-an-invisible-column` |
-| `sort_calculation` blank, equal to the joined calculated column, or beside a field on a format with its own sort | nothing | `sort-calculation-equal-to-the-referenced-calculated-column`, `field-and-a-differing-sort-calculation-on-a-column-whose-format` |
+| `sort_calculation` blank, equal to the joined calculated column, or beside a field on a format with its own sort, the stored list format of the short column HQ joins it to (a column hidden from Results is `invisible` there whatever its detail partner shows, and sorts by the calculation) | nothing | `sort-calculation-equal-to-the-referenced-calculated-column`, `field-and-a-differing-sort-calculation-on-a-column-whose-format` |
 | `sort_calculation` authored | finding | `sort-calculation-authored-calculation-row-field`, `field-and-a-differing-sort-calculation-on-any-other-column` |
 
 (R2), in `settleCaseLists`: the `sort_elements` of `projectCaseListForHq`'s short detail (11.3's one
@@ -3349,8 +3420,8 @@ on an advanced menu is 4.1's blocker.
 
 | Key | Reads into | Entry |
 |---|---|---|
-| `name`, inside `SEARCH_INPUT_NAME_PATTERN` (part 04) | `name` | `name-prompt-key-case-property`; outside it, part 04's N3; a reserved request key, `a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys`; shared with a default filter, `a-default-filter-and-a-search-property-sharing-one-name` |
-| `label{lang}`, `hint{lang}` | `label`, `hint`, roles `search-input-label`, `search-input-hint` | `label-lang`, `hint-lang` |
+| `name`, inside `SEARCH_INPUT_NAME_PATTERN` (part 04) | `name` | `name-prompt-key-case-property`; outside it, part 04's N3; a reserved request key, `a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys`; shared with a default filter, `a-default-filter-and-a-search-property-sharing-one-name`; on a prompt without `exclude`, `case_id`, `owner_id`, `status` or `name`, which HQ's search reads by its own rule (`name` is the case's name, `case_search/const.py::INDEXED_METADATA_BY_KEY`), `prompt-named-for-a-case-attribute-hq-matches-itself`, and a name `authoredCasePropertyNameSchema` refuses (`_x`, `date-opened`, `external-id`), `prompt-key-outside-nova-s-name-grammar`: the simple arm's property is the prompt's name, so a name no case property can take is a finding at the search, never a document the schema refuses at assembly |
+| `label{lang}`, `hint{lang}` | `label`, `hint`, roles `search-input-label`, `search-input-hint`, each read as HQ's build shows it in each app language (`hqText.ts::shownText`, through `caseList/columns.ts::shownTexts`: `app_strings.py` prints `clean_trans(map, [lang] + langs)`, so a language the map lacks, or holds blank, shows another language's text); a map spelled otherwise is recorded under `list-settings-respelled`. The same reading holds for `required.text` and `validations[0].text` below | `label-lang`, `hint-lang` |
 | no `input_`, no `appearance` | `type: "text"` | `text-prompt-no-input` |
 | `appearance: "barcode_scan"` | `type: "barcode"` | `appearance-barcode-scan` |
 | `input_: "date"` | `type: "date"` | `input-date` (re-cut, section 14: the class Nova writes) |
@@ -3359,6 +3430,8 @@ on an advanced menu is 4.1's blocker.
 | an itemset over reports, another scheme, attributes or field properties; `checkbox`; `appearance: "address"` | finding | `input-select1-select-commcare-reports-itemset-mobile-ucr`, `itemset-scheme-other-than-item-list-commcare-reports`, `itemset-refs-to-item-attributes-attr-or-property-qualified`, `input-checkbox-itemset`, `appearance-address-geocoder-broadcast-emitted-input-address`, `appearance-address-with-required-or-validations` |
 | any other `appearance` | nothing | `appearance-any-other-value` (INERT) |
 | `default_value` | `default`, pending (slot `search_input_default`) | part 08 claims `default-value-lifting-into-valueexpression` or its pair; on a date range, part 04's N8 |
+| `receiver_expression` or `default_value` `""`; `required` whose `test` is blank or `null`, whatever its `text` | nothing: HQ's Case List page writes the two blanks on every save, its build and Web Apps read each only where it holds text, and its build writes no `<required>` and no text for a blank test (`remote_requests.py`, `app_strings.py`: `if prop.required.test`); recorded under `list-settings-respelled` | `a-blank-text-in-a-search-key-hq-reads-only-where-it-holds-text` (INERT) |
+| `required` or `validations[0]` with a `test`, whose `text` is blank in every app language | finding: HQ's build writes the requirement's text blank, and no text for such a validation, whose worker reads the runtime's own sentence; Nova holds no check without a message | `a-required-or-validation-test-with-no-message-in-any-language` |
 | `required { test, text }` | `required: { when?, message? }` (slot `search_input_required_when`, mode `no-case`; a `test` of `true()` is an absent `when`; a text that is Nova's own required message in every language is an absent `message`), role `search-input-required-message`. Nova's message for a required field with none of its own is one unit of the app (`system/search-required/default`), printed whole by each such field, so its text in each language is read over every Search field of the app (`prompts.ts::requiredDefaultTexts`): in the reading's source language (part 06, section 6.3, item 4) it is `SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`, and in every other language the text there of the first required field, in menu and prompt order, whose source-language text is that sentence; it is written as the unit's translation. A field whose text is that one in every language holds no message; any other keeps its source-language text as its message and each other language's as that message's translation, which prints the same bytes. A document whose field's own message is Nova's sentence in the source language prints the bytes of the document whose fields hold their messages where this reading puts them, and the canonical choice `required-messages-as-read` (`search/systemSentences.ts::requiredMessagesAsRead`; part 09, section 9) makes that document of it | `required-test-text` |
 | `validations[0] { test, text }` | `validation: { rule, message }` (slot `search_input_validation_rule`, mode `no-dots`), role `search-input-validation-message`, after removing the runtime guard Nova conjoins (`xpathQuery.ts::buildRuntimeCsqlPromptValidations`): the texts are read in the source language first, then the others in the app's order, since the guard's message is Nova's own sentence in the source language and any text in a translation, and the first that tells decides: a text that is one of `SEARCH_RUNTIME_VALIDATION_MESSAGES` is the guard alone (the test claimed `derived`, no validation read); one that ends with a space and one of them is the authored rule, the left operand of the test's top-level `and`, with the authored message before it. The guard's message is one unit of the app (`system/search-validation/<key>`), so its text in each language is read over every Search field of the app (`prompts.ts::guardTexts`) and written as that unit's translation. In the reading's source language the unit's text is its source, the catalog sentence, whatever the stored texts say, because a system unit's source text is Nova's own and a document holds no other text there; a field whose source-language text does not end with it keeps its whole text there, and the settle's (R2) then finds the projection differs (`unrecognized`, `schema:Assertion.text`). The source is the first language, in `langs` order, that a reading with it as the source prints back at each place Nova writes a source text apart from a translation, the app's name and Nova's own sentences (part 06, section 6.3, item 4: `languages.ts::readingSourceCode`; here, a language whose text is Nova's sentence for every system unit the app's searches print, `systemSentences.ts::systemSentenceHolders`), so an app whose first language holds a translated guard, a Nova document whose source language is not its first, reads with its own source language, and the first language's text is the guard's translation. In every other language (`guardSplit.ts::readGuardText`): a field whose text is the guard alone gives its language's text as it stands; else, where every joined text of the language ends with the catalog sentence, it is untranslated; else it is the longest text after a space that every joined text of the language ends with and that leaves each field a message of its own, the reading's choice where one field's message ends (the bytes are the join alone), which the canonical choice `joined-search-guards-split-as-read` (`guardSplit.ts::joinedGuardsSplitAsRead`; part 09, section 9) makes of a Nova-born document. Each field's message in a language is its text less a space and that guard text. The settle's (R2) holds either reading, and (R3) tries the rule with its guard, then without | `validations-0-test-text` |
 | `validations[1:]`; `hidden` with `required` or `validations` | finding | `validations-1`, `hidden-together-with-required-or-validations` |
@@ -3480,7 +3553,7 @@ where it belongs. Each conjunct is then classified, first match:
 
 | Kind | Test | Reads into |
 |---|---|---|
-| **A, Nova's zero-input row** | the menu has no prompt, the row is the only default filter, and its value is the literal `'match-all()'` (`xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`) | nothing: a search with no fields and no filter. Claims `match-all-match-none` |
+| **A, Nova's zero-input row** | the menu has no prompt, the row is the only default filter, and its value is the literal `'match-all()'` (`xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`) | nothing: a search with no fields and no filter. Claims `match-all-match-none`. Nova writes the row only where no list filter narrows the search (`xpathQuery.ts::xpathQueryRequestValues`): beside a bound list filter with clauses every clause goes unrestated, the finding `case-list-filter-clause-the-search-does-not-restate`, or `search-restates-list-filter` on a menu whose forms read the search, as the unrestated check below |
 | **B, a list filter clause restated** | the conjunct is deep-equal to one top-level conjunct of the bound `caseListConfig.filter` (after `effectiveFilterForEmission`), not yet matched; or, for a row of one conjunct, the clause respelled as the row spells it (the conjunct itself, then the clause with each date-and-time literal written as the row writes the same moment) prints the stored `Detail.filter` (`projectCaseListForHq`) and the row. A device's comparison folds a date and time to its moment, so two spellings print one list filter and two rows, and the row says which | nothing: derived; the respelled clause replaces the read one |
 | **C, a simple field's derivation** | the conjunct is `whenInput(input(P), body)` for a prompt `P` with `exclude: true`, and for some candidate `(property, via, mode)` read from `body`, `simpleArmDerivation.ts::deriveSimpleArmPredicate(candidate, caseType, context)` is deep-equal to it. Where re-emitting with the simple field writes the rows out of the stored order and kind D's first candidate (the field's own condition) keeps it, the conjunct is kind D: Nova writes field conditions before derivations. Otherwise an advanced field whose condition is its own derivation reads as the simple field, the canonical choice `derived-search-conditions-are-simple-fields` (`search/rows.ts::derivedConditionsAreSimpleFields`), since both print one search. Candidates, (R3): `eq(prop, input)` gives mode `exact` (absent where it is the type's default, `DEFAULT_SEARCH_MODE_KIND`); a `match` gives its `fuzzy`, `starts-with`, `phonetic` or `fuzzy-date` mode; the whole-day interval gives a date field's `exact` with the property typed `date`, then `datetime` | the field's `property`, `via` (absent for the case itself), `mode` |
 | **D, a condition that reads Search fields** | the conjunct reads at least one prompt and is no kind C derivation. Two Nova slots can hold it, and Nova writes it from either as a row alone, so it is (R3) over the two candidates below | the first candidate that applies and that `matchSearchRows` accepts |
@@ -3574,10 +3647,10 @@ workflow row with nothing read.
 
 | Key | Reads into | Entry |
 |---|---|---|
-| `title_label{lang}` with text in every language the app has | `searchScreenTitle`, role `search-screen-title`; absent where it is "Search" in the source language (`DEFAULT_CASE_SEARCH_TITLE`), the text of an absent title, whose other languages are the title unit's translations either way | `title-label-lang-non-empty` (its `item` narrowed, section 14) |
-| `title_label` `{}` or blank in every language the app has | `searchScreenTitle: NO_SEARCH_SCREEN_TITLE` (part 03 section 6) | `title-label-or-blank-hq-s-default` (HELD, part 03 section 6) |
-| `title_label` blank in some languages and not others | finding | `title-label-blank-in-some-languages` (part 03 names it; section 14 adds it) |
-| `description{lang}` with text | `searchScreenSubtitle`, role `search-screen-subtitle` | `description-lang-markdown` |
+| `title_label` showing text in every language the app has, read as HQ's build shows it (`settings.ts::shownTitles`: a language's own file holds `title_label.get(lang) or ''` and drops a blank, `app_strings.py::_create_case_search_app_strings` and `non_empty_only`, and the `default` table it falls back to holds the first language's, `create_default_app_strings` with `for_default`, so a language with no title of its own shows the first language's) | `searchScreenTitle`, role `search-screen-title`; absent where it is "Search" in the source language (`DEFAULT_CASE_SEARCH_TITLE`), the text of an absent title, whose other languages are the title unit's translations either way; a map spelled other than as shown is recorded under `list-settings-respelled` | `title-label-lang-non-empty` (its `item` narrowed, section 14) |
+| `title_label` `{}` or shown blank in every language the app has | `searchScreenTitle: NO_SEARCH_SCREEN_TITLE` (part 03 section 6) | `title-label-or-blank-hq-s-default` (HELD, part 03 section 6) |
+| `title_label` shown blank in some languages and not others: blank or absent in the first language while another holds text, or only whitespace in a language | finding | `title-label-blank-in-some-languages` (part 03 names it; section 14 adds it) |
+| `description{lang}` with text | `searchScreenSubtitle`, role `search-screen-subtitle`, read as HQ's build shows it in each app language (`app_strings.py`, `clean_trans`), as 12.2's prompt texts; a map spelled otherwise is recorded under `list-settings-respelled` | `description-lang-markdown` |
 | `search_button_label` equal to `{ en: "Search All Cases" }` | nothing; it is HQ's model default, at which a claim records nothing (`jsonCursor.ts`) | `search-button-label-hq-default-en-search-all-cases` |
 | any other `search_button_label` | finding | `search-button-label-any-other-value` |
 | `search_button_display_condition` | `searchButtonDisplayCondition`, pending (slot `search_button_display_condition`) | part 08 claims `search-button-display-condition-lifting-into-predicate` or its pair |
@@ -3586,8 +3659,11 @@ workflow row with nothing read.
 | the same without that clause in the list filter | finding | `blacklisted-owner-ids-expression-without-that-clause`; part 08 claims `blacklisted-owner-ids-expression-outside-valueexpression` |
 | `include_all_related_cases` equal to `searchNeedsSupportingCases(config, contexts)` over the draft | nothing: derived | `include-all-related-cases-implied-by-nova-relation-reads` |
 | `include_all_related_cases` otherwise | finding | `include-all-related-cases-false-where-nova-s-relation-reads`, `include-all-related-cases-authored-without-relation-reads` |
+| `search_button_display_condition`, `blacklisted_owner_ids_expression`, `data_registry`, `custom_related_case_property` or `instance_name` `""` | nothing: HQ's Case List page writes each blank on every save (`views/modules.py::_gather_and_update_search_properties`) and every reader tests it by truth; recorded under `list-settings-respelled` on a menu that searches | `a-blank-text-in-a-search-key-hq-reads-only-where-it-holds-text` (INERT) |
+| `data_registry_workflow` or `additional_registry_cases`, at any value, where `data_registry` is absent or `""` | nothing: HQ reads both only behind `util.py::module_offers_registry_search`, which tests the registry by truth, and its Case List page on a project space with the data registry stores `data_registry_workflow: "load_case"` beside a blank registry on every save (the hidden `<select>`'s `value` binding, `case_claim.js::searchConfigModel`); recorded under `list-settings-respelled` (`settings.ts::readRegistry`) | `the-registry-workflow-and-cases-where-no-registry-is-named` (INERT) |
+| `additional_case_types` naming only the menu's own `case_type` | nothing: every reader widens the list by `set(additional_case_types) - {case_type}` (`suite_xml/utils.py::get_ordered_case_types`); recorded under `list-settings-respelled` on a menu that searches | `additional-case-types-naming-only-the-menu-s-own-type` (INERT) |
 | `instance_name` | finding, by its rows | `instance-name-without-casedb-ledgerdb-fixture-or-session-in-it`, `instance-name-containing-casedb-ledgerdb-fixture-or-session`, `a-module-whose-effective-results-instance-results-instance-name`; `an-effective-results-instance-equal-to-a-module-s-that-does-not` (INERT) |
-| `additional_case_types`, `custom_related_case_property`, `custom_sort_properties`, `search_on_clear`, `case_search_endpoint_id`, the three registry keys | finding | their rows (`additional-case-types`, `custom-related-case-property`, `custom-sort-properties-property-name-sort-type-exact-date`, `search-on-clear`, `search-on-clear-with-the-case-list-s-auto-select-checked-whether`, `case-search-endpoint-id`, `data-registry-data-registry-workflow-additional-registry-cases`) |
+| `additional_case_types` naming a type other than the menu's own, whether or not the menu offers search: HQ's build widens the menu's own list by it (`entries.py::EntriesHelper.get_datum_meta_module`, `additional_types`), so a menu that offers no search does not claim it inactive; `custom_related_case_property`, `custom_sort_properties`, `search_on_clear`, `case_search_endpoint_id`, a named `data_registry` (holding text) with its workflow and extra cases | finding | their rows (`additional-case-types`, `custom-related-case-property`, `custom-sort-properties-property-name-sort-type-exact-date`, `search-on-clear`, `search-on-clear-with-the-case-list-s-auto-select-checked-whether`, `case-search-endpoint-id`, `data-registry-data-registry-workflow-additional-registry-cases`) |
 | removed and unknown keys | nothing | `removed-keys-dynamic-search-additional-relevant-search-filter`, `any-other-unknown-casesearch-key` (INERT) |
 
 A menu with Search fields whose settings read as none of the rows above holds no `caseSearchConfig`:
@@ -3606,16 +3682,22 @@ at the first publish, as for any app.
 (11.3's one call) equals the stored one after the INERT claims, key by key, with `properties` compared
 in order and each expression as a tree. `default_properties` is the one key not compared that way: its
 `_xpath_query` rows are held by 12.3's `matchSearchRows`, which allows the reorder and the split that
-section declares, and its other rows by 12.3's first table. One same-state rule applies here:
-`title_label` and `description` are compared language by language over the app's languages, a
-language the stored map lacks equal to `""`. HQ's model default for both is `{}`
-(`models/case_search.py::CaseSearch`), its build reads `title_label.get(lang) or ''`
-(`CaseSearch.get_search_title_label`), and Nova writes a blank text under every app language
-(`hqShells.ts::caseSearchConfigShell`), which is what HQ's Case List save leaves. A stored map that
-lacks a language where every language is blank is that rewrite, recorded under
-`list-settings-respelled` (13.3). A prompt's `required` at HQ's model default, a blank `test` with no
-text, is no requirement: HQ's build writes none (`suite_xml/post_process/remote_requests.py`,
-`if prop.required.test`), and the comparison reads it as absent, as the reading does.
+section declares, and its other rows by 12.3's first table. Every prompt text (`label`, `hint`,
+`required.text`, `validations[0].text`) and `description` is compared as HQ's build shows it in each
+app language (`caseList/columns.ts::sameShownTexts`): the build prints each through `clean_trans`,
+so a language a map lacks shows another's text, and Nova's projection, which writes the source's text
+under every language a translation lacks, shows the same. The title is compared as HQ's build shows it in each
+app language too, by its own rule (`settings.ts::shownTitles`), not `clean_trans`: a language's file
+holds `title_label.get(lang) or ''` (`CaseSearch.get_search_title_label`) and drops a blank
+(`non_empty_only`), and the `default` table holds the first language's, so a language with no title
+of its own shows the first language's. HQ's model default for it and `description` is `{}`
+(`models/case_search.py::CaseSearch`), and Nova writes a blank text under every app language
+(`hqShells.ts::caseSearchConfigShell`), which is what HQ's Case List save leaves. A stored map spelled
+other than as shown (a language it lacks, or blank, beside the first language's text; a language it
+lacks where every language is blank) is that rewrite, recorded under `list-settings-respelled` (13.3). A prompt's `required` whose `test` is blank is no requirement,
+whatever its text: HQ's build writes none (`suite_xml/post_process/remote_requests.py`,
+`if prop.required.test`), and the comparison reads it as absent, as the reading does; a stored blank
+test is never compared as `true()`.
 
 ---
 
@@ -3729,7 +3811,7 @@ run") moves a row out of this table where a build file differs.
 | `case-settings-respelled` | some form holds a non-empty `case_preload` or `usercase_preload` or advanced `preload`, an `open_case.external_id`, an `update_case.condition` Nova writes as another word (an `if`, or a `never` on one of the three shapes 3.2 holds), a `subcases[].reference_id` of `parent`, a `name_update.update_mode` of `edit` on a block that creates, or an `update_mode` of `edit` on a follow-up or close form's own update in a project space that does not apply it (3.2) | `modules[*].forms[*].actions`; the forms' setvalues | no |
 | `search-filter-rows-recut` (part 01's name) | some menu's `_xpath_query` rows are not in the order, or the number, Nova writes | `modules[*].search_config.default_properties` | no |
 | `sort-rule-kept-as-hidden-column` | some short detail holds a sort element no column joins, a `type` of `string`, or a `type` of `date` the first publish writes `plain` (over a property whose type is not of the date class) | `modules[*].case_details.short.columns`, `.sort_elements[*].type`, `.sort_elements[*].display` | no |
-| `list-settings-respelled` | some short detail holds a `max_select_value` of `-1`, a sort element whose `blanks` is `""`, a `sort_calculation` equal to the column its element joins, two sort elements with one `field`, or no sort elements under a first column that is `invisible`; or some search holds a `title_label` or a `description` that lacks a language where every language is blank (12.4); or some menu holds a `case_list.label` blank, or with no text, in a language beside `show: true` (8.6) | `modules[*].case_details.short.max_select_value`, `.sort_elements`; `modules[*].search_config.title_label`, `.description`; `modules[*].case_list.label` | no |
+| `list-settings-respelled` | some short detail holds a `max_select_value` of `-1`, a sort element whose `blanks` is `""`, a `sort_calculation` equal to the column its element joins, two sort elements with one `field`, or no sort elements under a first column that is `invisible`; or some search holds a `title_label` spelled other than as HQ's build shows it in each app language (12.4: a language it lacks, or holds blank, beside the first language's text, or that it lacks where every language is blank), a `description` that lacks a language where every language is blank, a `description` or a Search field's `label`, `hint`, `required.text` or `validations[0].text` spelled other than as HQ's build shows it in each app language (12.2, 12.4), a blank `""` in one of the keys HQ reads only where they hold text, a `data_registry_workflow` or `additional_registry_cases` where no registry is named, an `additional_case_types` naming only the menu's own type, or a `required` whose `test` is blank (12.2, 12.4); or some menu holds a `case_list.label` blank, or with no text, in a language beside `show: true` (8.6) | `modules[*].case_details.short.max_select_value`, `.sort_elements`; `modules[*].search_config.title_label`, `.description`, its blank keys, `.data_registry_workflow`, `.additional_registry_cases`, `.additional_case_types`, and its `properties[*]`' text maps, blank keys and `required`; `modules[*].case_list.label` | no |
 | `search-filter-joined-to-list` | some menu whose forms read the search holds an `_xpath_query` conjunct that reads no Search field and restates no clause of its list filter (12.3, kind F) | `modules[*].case_details.short.filter` | no |
 | `search-restates-list-filter` | some menu whose forms read the search holds a clause of its list filter that no `_xpath_query` conjunct restates (12.3, the first closing check) | `modules[*].search_config.default_properties` (added rows) | yes |
 | `link-held-case-guards-added` | some form holds a `form_links` entry that carries a value onto a single-case selection and whose `xpath` does not end in that value's held-case guard (9.4, `guards: "added"`) | `modules[*].forms[*].form_links[*].xpath` | yes |
@@ -3801,7 +3883,7 @@ or INERT row needs no reader: the lane asks one of a refusing entry alone (part 
 | `forms-and-case-writes/loadupdateaction-preload-read-later-in-the-load` | HELD-NEW | `selection-preload-read-later` | `schema:LoadUpdateAction.preload` | `case-preloads`, `forms-and-case-management` | "`LoadUpdateAction.preload` into a question a later load-time value reads, into a question in a repeat, or from a property path" | "**HELD-NEW**: a preload held with its place at the end of the load" |
 | `forms-and-case-writes/case-preload-into-a-question-that-holds-no-default` | HELD-NEW | `preload-target-holds-no-default` | those of `forms-and-case-writes/case-preload-question-property-into-a-question-outside-any`, and `schema:FormActions.usercase_preload`, `schema:LoadUpdateAction.preload` | `case-preloads`, `forms-and-case-management` | "a preload into a question whose kind holds no default value in Nova, or into a Hidden Value that has a calculation" | "**HELD-NEW**: a load into a question that takes no default: Nova holds a preload as the question's default value, and a Hidden Value holds one value source (`HIDDEN_VALUE_BOTH_SOURCES`)" |
 | `forms-and-case-writes/update-mode-edit-off-a-follow-up-form-s-own-update` | HELD-NEW | `edit-where-nova-saves-every-time` | `schema:ConditionalCaseUpdate.update_mode` | `form-case-management`, `forms-and-case-management` | "`update_mode: edit` on a registration form's `update_case` or `external_id`, on the `name` or `owner_id` key of any `update_case`, on `usercase_update`, on a child case's `case_properties`, or on an advanced load's or open action's `case_properties`, in a project space with `SAVE_ONLY_EDITED_FORM_FIELDS`" | "**HELD-NEW**: saving only a changed answer anywhere but a follow-up or close form's own basic update, in a project space with `SAVE_ONLY_EDITED_FORM_FIELDS`: HQ's build applies it there (`xform.py::XFormCaseBlock.add_case_updates`), and Nova holds `onlyIfChanged` on the own arm's property writes in the basic own slot alone (`validateOnlyIfChanged`)" |
-| `forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix` | HELD-NEW | `ancestor-type-unknown` | those of `forms-and-case-writes/update-key-whose-index-segments-are-each-parent-or-host-parent-p` and of `forms-and-case-writes/case-preload-from-parent-paths-into-a-question-outside-any` | `form-case-management`, `forms-and-case-management` | "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type" | "**HELD-NEW**: a write or a load through an index whose case type the app does not state; Nova names an ancestor by its case type (`RelationStep.throughCaseType`, `formCasePropertyRefSchema`)" |
+| `forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix` | HELD-NEW | `ancestor-type-unknown` | those of `forms-and-case-writes/update-key-whose-index-segments-are-each-parent-or-host-parent-p` and of `forms-and-case-writes/case-preload-from-parent-paths-into-a-question-outside-any`, and `schema:LoadUpdateAction.preload` | `form-case-management`, `forms-and-case-management` | "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type (an advanced form's preload on a load other than its own that the read of its case type does not reach: a later load of the chain is chosen through an index other than `parent`, or the catalog places the load's type at another depth, as where a load nearer the form's own has that type)" | "**HELD-NEW**: a write or a load through an index whose case type the app does not state; Nova names an ancestor by its case type (`RelationStep.throughCaseType`, `formCasePropertyRefSchema`)" |
 | `forms-and-case-writes/update-mode-edit-in-a-project-space-that-saves-every-time` | INERT | `edit-the-project-space-does-not-apply` | `schema:ConditionalCaseUpdate.update_mode` | none | "`update_mode: edit`, anywhere but a follow-up or close form's own basic update, in a project space without `SAVE_ONLY_EDITED_FORM_FIELDS`" | "**INERT**: HQ's build reads the mode only under that flag (`xform.py::XForm`, `self.save_only_if_edited`), so without it every answer is saved every time, which is what Nova writes" |
 | `menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one` | HELD-NEW | `advanced-with-a-kind-blocker` | those of `menus-and-case-lists/advancedmodule` | `advanced-menus` (new subject, "Copy"), `forms-and-case-management` | "`AdvancedModule` whose forms read the search, whose case list menu item is narrowed, or whose chain no one index name follows" | "**HELD-NEW**: an advanced module `lib/domain/advancedModule.ts::advancedKindBlockers` keeps Nova from writing advanced" |
 | `menus-and-case-lists/module-case-list-label-or-media-beside-show-false` | INERT | `beside-show-false` | `schema:CaseList.label`, `schema:CaseList.media_image`, `schema:CaseList.media_audio` | none | "`case_list.label` or media on a basic module whose `case_list.show` is false" | "**INERT**: each reader of the label and the media tests `show` first (`app_strings.py::_create_case_list_app_strings`, `suite_xml/sections/entries.py::EntriesHelper.entry_for_module`, `suite_xml/sections/menus.py::MenuContributor._get_commands`, `corehq/apps/hqmedia/models.py::ModuleMediaMixin.all_media`)" |
@@ -3827,7 +3909,7 @@ subject; the fields the schema and the two tests also need are these:
 | `forms-and-case-writes/loadupdateaction-preload-question-property` | HELD-NEW to HELD; `valueClass: "selection-preload-as-default"`; `item` "`LoadUpdateAction.preload{question: property}` into a question outside any repeat that no later load-time value reads"; cell "**HELD**: the question's default value reading the selected case's property, the same state (README, \"Load-time values\")"; `subject` and `owner` leave |
 | `forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held` | REFUSED to HELD-NEW; `valueClass: "load-changes-values"` kept; the refusal reason leaves; `subject: "case-preloads"`, `owner: "forms-and-case-management"`; cell "**HELD-NEW**: a preload held with its place at the end of the load: HQ appends it after every setvalue the form holds (`xform.py::XForm.add_case_preloads`), and a default value runs at the question's place. The basic Case Management page draws no load section, and its save keeps a stored `case_preload` (`forms/case_config_ui.js::HQFormActions.from_case_transaction`)"; the inventory row's "not HQ-editable: no editor writes basic `case_preload` (the basic Case Management page has no load section)" becomes the cell's last sentence, since the fact stands and is no reason to refuse ("Claims corrected"). Its lane reader (`manifest_value_classes.py::load_changes_values`, with its shapes in `test_manifest_value_classes.py`) leaves with the refusal, since the registry holds a reader for a REFUSED entry alone, and a HELD-NEW row needs none |
 | `forms-and-case-writes/conditionalcaseupdate-update-mode-edit` | stays HELD; gains `valueClass: "follow-up-own-update"`; `item` "`ConditionalCaseUpdate.update_mode: edit` on a property of a `requires: case` form's `update_case`"; cell gains "read as `onlyIfChanged` where the source project space applies it, and as saved every time where it does not (the same state there: HQ's build reads the mode only under `SAVE_ONLY_EDITED_FORM_FIELDS`)" |
-| `forms-and-case-writes/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json` | stays REFUSED (`not-hq-buildable`); gains the key `schema:OpenSubCaseAction.case_properties`; `item` gains "or a child case's property key holding `/`"; cell gains "(`helpers/validators.py::IndexedFormBaseValidator.check_case_properties`: no parent properties for a subcase)". HQ's build refuses the state, so it needs no lane reader |
+| `forms-and-case-writes/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json` | stays REFUSED (`not-hq-buildable`); gains the keys `schema:OpenSubCaseAction.case_properties`, `schema:PreloadAction.preload` and `schema:LoadUpdateAction.preload`; `item` gains "or a child case's property key holding `/`, or a preloaded property (a `case_preload` on a form that requires a case, an advanced load's `preload`) failing that grammar or whose last step is in that list"; cell gains "(`helpers/validators.py::IndexedFormBaseValidator.check_case_properties`, which reads every preloaded property too, `FormActions.all_property_names`, `LoadUpdateAction.get_property_names`: no parent properties for a subcase)". HQ's build refuses the state, so it needs no lane reader |
 | `forms-and-case-writes/loadupdateaction-case-tag-without` | stays HELD; `item` "`LoadUpdateAction.case_tag` without `/` and without `-`"; `valueClass` stays `tag-without-slash` |
 | the nine HELD Save to Case rows of `questions` (`savetocase-create-case-type-literal-case-name-owner-id-uuid-case`, `savetocase-update-case-id-xpath`, `savetocase-property-rows-calculation-condition-lifting-into`, `savetocase-property-names-with-hyphens-a-z-w-case-insensitive`, `savetocase-open-case-condition`, `savetocase-owner`, `savetocase-link-index-name-child-extension-and-unlink-empty`, `savetocase-inside-a-repeat`, `savetocase-inside-a-group-whose-display-condition-gates-it`) | each `item` gains "in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)"; the last is re-worded "a SaveToCase block in Nova's condition group"; dispositions unchanged |
 | `menus-and-case-lists/media-image-media-audio-differing-by-language` and its HELD sibling `menus-and-case-lists/media-image-media-audio-same-asset-in-every-language` | part 01 section 3.5's wording. The form pair is worded by part 06; this part claims the form's `media_image` and `media_audio` (8.6) |
@@ -3847,6 +3929,10 @@ subject; the fields the schema and the two tests also need are these:
 | `menus-and-case-lists/column-field-outside-nova-s-property-grammar` | HELD-NEW | `property-name-outside-nova-s-grammar` | `schema:DetailColumn.field` | `case-list-columns`, `case-list-and-detail` | "a column `field` that `details/utils.js::isValidPropertyName` accepts and Nova's case property grammar does not (a name longer than 255 characters, or one word after a `#` other than `#owner_name`)" | "**HELD-NEW**: a column over a property name outside `casePropertyName.ts::authoredCasePropertyNameSchema`" (HQ's word `[a-zA-Z][\w_-]*` and `AUTHORED_CASE_PROPERTY_NAME_PATTERN` agree on a single word, hyphens included, so the class is the length bound and the `#` HQ's check admits before the last word) |
 | `menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name` | HELD-NEW | `identifier-outside-xml-name` | those of `menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows` | `case-tiles`, `case-list-and-detail` | "`case_tile_group.index_identifier` outside `[a-zA-Z_][a-zA-Z0-9_]*`" | "**HELD-NEW**: a grouping index name Nova's `tile.grouping.identifier` cannot spell" |
 | `menus-and-case-lists/sort-elements-sharing-a-join-text` | INERT | `earlier-of-two-with-one-field` | `schema:SortElement.field`, `schema:SortElement.type`, `schema:SortElement.direction`, `schema:SortElement.blanks`, `schema:SortElement.display`, `schema:SortElement.sort_calculation` | none | "a sort element whose `field` a later element of the same detail repeats" | "**INERT**: `util.py::get_sort_and_sort_only_columns` keys the elements by `field`, a later one replacing an earlier, and HQ's build and its app strings both take the elements through it" |
+| `menus-and-case-lists/type-plain-date-or-string-or-none-where-nova-derives-int-or-double` | HELD-NEW | `authored-text-comparator` | `parser:DetailFieldParser/sort@type`, `schema:SortElement.type` | `case-list-sorting`, `case-list-and-detail` | "`type` `plain`, `date`, none (HQ's default element is `string`), or any word but `int`, `double`, `distance` and `index`, where Nova derives `int` or `double`, on a column without its own sort" | "**HELD-NEW**: `sort.comparator` (authored): HQ writes `string` for `plain`, `date` and none, and any other word as it is (`FormattedDetailColumn.sort_node`, `details.py::get_default_sort_elements`), and Core compares every word but `int` and `double` as text (`DetailFieldParser`), so the list orders numbers as text, where the comparator Nova derives from the property's type orders them as numbers"; platforms RUNS / RUNS; emission `type` |
+| `menus-and-case-lists/case-id-as-a-property-column-s-field` | REFUSED, `broken-at-runtime` | `case-id-element` | `detail-field-type:property` | `case-list-columns`, none | "`case_id` as a property column's `field` (or a sort element's, whose appended column reads it so)" | "**REFUSED**: broken at runtime: `PropertyXpathGenerator.xpath` maps the field through `CASE_PROPERTY_MAP`, which has no entry for `case_id`, so the column reads the child element `case_id`, which no case carries (Core holds the id as the attribute alone, `CaseChildElement`), and is blank for every case" |
+| `menus-and-case-lists/mappingitem-alt-text-on-a-format-that-builds-no-image` | INERT | `non-blank-where-no-image-is-built` | `schema:MappingItem.alt_text` | none | "`MappingItem.alt_text{lang}` holding text, on a column whose format builds no image (`enum`, `translatable-enum`)" | "**INERT**: HQ's build gives an alt text on `enum-image` and `clickable-icon` alone (`detail_screen.py::EnumImage.alt_text`, `app_strings.py`), and its column editor saves none" |
+| `menus-and-case-lists/format-extras-the-column-editor-saves-on-every-column` | INERT | `format-extras-elsewhere` | `schema:DetailColumn.date_format`, `schema:DetailColumn.enum`, `schema:DetailColumn.late_flag`, `schema:DetailColumn.time_ago_interval` | none | "the format extras the column editor saves on every column: `date_format` on a column that is no date, `late_flag` and `time_ago_interval` on a column of another format, and `enum` on a column whose format reads no mapping (any but `enum`, `conditional-enum`, `enum-image`, `clickable-icon` and `translatable-enum`)" | "**INERT**: HQ's column editor saves each format's extra on every column whatever its format (`details/bootstrap5/column.js`, `serialize`), and HQ's build reads each only on its own format (`detail_screen.py`)" |
 
 Part 02's row `case-search/search-on-a-put-in-root-module` (HELD-NEW, `search-setup`,
 `case-search`) takes `valueClass: "on-a-put-in-root-module"` and the keys of
@@ -3856,7 +3942,7 @@ Part 03's row, which its section 10 names and this part's reader claims (12.4):
 
 | Entry | Disposition | `valueClass` | Surface keys | `subject`, `owner` | `item` | `dispositionCell` |
 |---|---|---|---|---|---|---|
-| `case-search/title-label-blank-in-some-languages` | HELD-NEW | `blank-in-some-languages` | `schema:CaseSearch.title_label`, `parser:SessionDatumParser/title` | `search-setup`, `case-search` | "`title_label` blank in some app languages and not in others" | "**HELD-NEW**: a search title blank in one language where another holds text: HQ shows a blank title there, where Nova's translation fill would show the default language's" |
+| `case-search/title-label-blank-in-some-languages` | HELD-NEW | `blank-in-some-languages` | `schema:CaseSearch.title_label`, `parser:SessionDatumParser/title` | `search-setup`, `case-search` | "`title_label` showing a blank title in some app languages and text in others: blank or absent in the app's first language while another holds text, or only whitespace in a language" | "**HELD-NEW**: a search title shown blank in one language where another shows text: a language with no title of its own shows the first language's (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`, `create_default_app_strings`), so the title shows blank there only where the first language's is blank too, or where a language holds only whitespace; Nova's translation fill would show the source's text" |
 
 Its `platforms` is `not-applicable` and its `emission` `omit`, as every new HELD-NEW row of this
 section.
@@ -3870,7 +3956,10 @@ section.
 | `case-search/input-date` | stays HELD; `valueClass: "date-excluded-with-a-whole-day-clause"`; cell "**HELD**: scalar `date`, excluded from HQ's matcher, beside its whole-day `_xpath_query` clause" |
 | `case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false` | stays HELD, `valueClass` `list-first-android-only` kept; `item` "`auto_launch: false` and `default_search: false` in an app with `cloudcare_enabled: false`" |
 | `menus-and-case-lists/field-naming-a-property-not-displayed-hq-appends-a-hidden-column` | stays HELD; emission cell "a stored `invisible` column, last, and its sort element" |
-| `case-search/title-label-lang-non-empty` | stays HELD; `item` narrowed to "`title_label{lang}` non-empty in every app language", so its class and that of `case-search/title-label-blank-in-some-languages` on the key are disjoint |
+| `menus-and-case-lists/ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset` | stays INERT over `schema:DetailColumn.<undeclared>` alone; its `item` names the undeclared keys alone again. The format extras it had taken with their declared keys (`date_format`, `late_flag`, `time_ago_interval`, and now `enum` on a column whose format reads no mapping) move to a new INERT entry, `menus-and-case-lists/format-extras-the-column-editor-saves-on-every-column` (valueClass `format-extras-elsewhere`), so every backticked name in the catch-all's allowing row is an undeclared key, as the lane's `test_the_undeclared_keys_the_catch_alls_leave_are_the_ones_the_rows_name` reads it |
+| `menus-and-case-lists/type-string-not-a-menu-value` | stays HELD; `valueClass` `another-word`; `item` "`type` any word the Case List page does not offer but `distance` and `index` (`string`, or another: not a menu value)"; cell "**HELD**: read as `plain` (build-identical: HQ writes the word as it is, `FormattedDetailColumn.sort_node`, and Core compares every word but `int` and `double` as text, `DetailFieldParser`)" |
+| `menus-and-case-lists/enum-mappingitem-alt-text-non-blank` | stays HELD-NEW; `item` "`MappingItem.alt_text{lang}` holding text, on an image map or a clickable icon" |
+| `case-search/title-label-lang-non-empty` | stays HELD; `item` narrowed to "`title_label` showing text in every app language: text in the app's first language, and in each other language text of its own or none (blank or absent), which shows the first language's", so its class and that of `case-search/title-label-blank-in-some-languages` on the key are disjoint; its cell gains how the title is read as shown (12.4) |
 | `menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows` | stays HELD; gains `valueClass: "identifier-an-xml-element-name"`, the row `case-tile-group-identifier-outside-an-xml-element-name` splits from |
 
 Part 01's Appendix A counts the entries by subject; its counts follow from the `subject` cells of

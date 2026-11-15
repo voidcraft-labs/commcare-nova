@@ -27,6 +27,10 @@ import type {
 } from "@/lib/domain/modules";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import {
+	EMISSION_REWRITES,
+	type EmissionRewriteId,
+} from "../../emissionRewrites";
+import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
 } from "../../expressionContext";
@@ -832,8 +836,29 @@ export function classifySearchRows(
 				predicate: { kind: "match-all" },
 				placement: { kind: "A" },
 			});
-		return { conjuncts, unrestated: [] };
+		if (listClauses.length === 0) return { conjuncts, unrestated: [] };
+		// Nova writes its zero-input row only for a search no list filter narrows
+		// (`xpathQuery.ts::xpathQueryRequestValues`): beside a filter it sends the filter's clauses,
+		// where the source's search finds every case of the type and HQ applies the filter to the
+		// device's list alone (`remote_requests.py::_build_datum_nodeset`). No clause is restated.
+		const unrestated = listClauses.map((_, index) => index);
+		if (input.formsReadSearch)
+			sameState(
+				ctx,
+				ROWS_HELD,
+				`${module.json.pointer}/search_config/default_properties`,
+				"search-restates-list-filter",
+			);
+		else
+			ctx.accounting.finding(ROW_CLAIMS.unrestated, {
+				kind: "case-list",
+				menu: module.index,
+				name: place.kind === "search" ? place.name : "",
+			});
+		return { conjuncts, unrestated };
 	}
+	// The rewrites each held row is read up to, reported once the menu's rows print back.
+	const rowRewrites = new Set<EmissionRewriteId>();
 	for (const row of input.rows) {
 		const contexts = moduleExpressionContexts(doc, module.uuid, naming);
 		let read = readSearchRowConjuncts(
@@ -900,6 +925,7 @@ export function classifySearchRows(
 			place,
 		);
 		claimUses();
+		for (const id of read.rewrites) rowRewrites.add(id);
 		const rowIndex = input.rows.indexOf(row);
 		// HQ joins every row with `and`, so two rows of one text are one condition wherever each
 		// sits: a candidate writes this row back where it writes either.
@@ -1383,13 +1409,33 @@ export function classifySearchRows(
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:DefaultCaseSearchProperty.defaultValue",
 			});
-	} else if (!inOrder || conjuncts.length !== input.rows.length || markersRow)
-		sameState(
-			ctx,
-			markersRow ? MARKERS_HELD : ROWS_HELD,
-			`${module.json.pointer}/search_config/default_properties`,
-			"search-filter-rows-recut",
-		);
+	} else {
+		if (!inOrder || conjuncts.length !== input.rows.length || markersRow)
+			sameState(
+				ctx,
+				markersRow ? MARKERS_HELD : ROWS_HELD,
+				`${module.json.pointer}/search_config/default_properties`,
+				"search-filter-rows-recut",
+			);
+		// A row held at its guards level is printed with the rewrites it was read up to, which
+		// change what the first publish's search does (`emissionRewrites.ts`), so the reading
+		// reports each, as the expression stage reports a slot's.
+		for (const id of rowRewrites)
+			if (
+				EMISSION_REWRITES[id].behavior === "changes" &&
+				!ctx.facts.rewrites.some(
+					(one) =>
+						one.id === id &&
+						one.key === "schema:DefaultCaseSearchProperty.defaultValue" &&
+						sameJson(one.place, place),
+				)
+			)
+				ctx.facts.rewrites.push({
+					id,
+					place,
+					key: "schema:DefaultCaseSearchProperty.defaultValue",
+				});
+	}
 	ctx.doc = doc;
 	return { conjuncts, unrestated };
 }

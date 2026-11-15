@@ -16,7 +16,7 @@ import {
 
 const options = new Command()
 	.description(
-		"Count, without writing, each saved app's forms whose menu selects several cases and whose own close under a condition is held at the place published before its condition group, and judge each app's repair with the commit gate. Prints app ids, form counts, statuses (planned, held, refused) and finding codes only. With --plan-out it writes the reviewed plan for scripts/migrate-several-case-close-places.ts, one entry per planned app: its sequence, document digest, repaired-document digest and form ids. Exits 0 when no app holds such a close, 1 when some app does, 2 when an app could not be read. In the maintenance image it is several-case-close-scan.cjs, run through the historical-repair Job with no arguments or with --app <id>.",
+		"Count, without writing, each saved app's forms whose menu selects several cases and whose own close under a condition is held at the place published before its condition group, and judge each app's repair with the commit gate. Prints app ids, form counts, statuses (planned, held, refused) and finding codes only. With --plan-out it writes the reviewed plan for scripts/migrate-several-case-close-places.ts, one entry per planned app: its sequence, document digest, repaired-document digest and form ids. Exits 0 when no app holds such a close, 1 when some app does, 2 when an app could not be read. Run it with npx tsx --conditions=react-server; --prod reads production read-only.",
 	)
 	.option("--app <id>", "scan this app alone")
 	.option("--plan-out <path>", "private reviewed plan JSON file")

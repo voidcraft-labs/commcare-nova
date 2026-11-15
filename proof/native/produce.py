@@ -51,7 +51,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from proof import processes
-from proof.native.families import FAMILIES
+from proof.native.families import FAMILIES, NODE
 
 WORKTREE = Path(__file__).resolve().parents[2]
 PRODUCER_TIMEOUT_SECONDS = 300
@@ -62,8 +62,6 @@ PRODUCER_CONCURRENCY = 4
 CORPUS_DIRECTORY = "native"
 PRODUCED = "produced.json"
 PUBLISH_CAPTURE = "publish-capture"
-# The publish capture's two commands, run as their command lines run them.
-NODE = ("node", "--conditions=react-server", "--import", "tsx")
 CAPTURE_DOCUMENTS = "proof/hq/publishCaptureDocuments.ts"
 CAPTURE_WRITER = "proof/corpus/writePublishCaptures.ts"
 ENTRY_POINT_IDS = "entry-point-ids"

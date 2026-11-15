@@ -89,12 +89,15 @@ describe("a search's settings", () => {
 		).toContain("list-settings-respelled");
 	});
 
-	it("raises a title blank in some languages", async () => {
+	it("raises a title shown blank in some languages", async () => {
+		// A language with no title of its own shows the first language's, so only a blank first
+		// language shows blank beside another's text.
 		const reading = await readLists(doc({ searchScreenTitle: "Find" }), {
 			edit: (app) => {
 				(app as Record<string, unknown>).langs = ["en", "fra"];
 				const config = app.modules[0]?.search_config;
-				if (config !== undefined) config.title_label = { en: "Find", fra: "" };
+				if (config !== undefined)
+					config.title_label = { en: "", fra: "Trouver" };
 			},
 			firstPassOnly: true,
 		});

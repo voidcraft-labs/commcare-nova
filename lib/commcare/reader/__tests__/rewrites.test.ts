@@ -8,10 +8,13 @@
  * these readers hand it; and a reading that applies one rule once lists that
  * rule's row once. The rows are `types.ts::SAME_STATE_REGISTERS`, and every
  * one of them is read by a case here, so a row added to that list without a
- * reading that records it fails. Two readings record under rows of their own
+ * reading that records it fails. Other readings record under rows of their own
  * (`FIRST_PUBLISH_READING_RECORDS`), which the
  * register words and holds by its own test: a date and time saved in the
- * spelling Nova wrote before, and a Register label with no text. The
+ * spelling Nova wrote before, a Register label with no text, a menu's or
+ * form's name map Nova prints another way or with another name for a worker
+ * (`names.test.ts`), and a media map Nova prints another way
+ * (`menus/__tests__/navMedia.test.ts`). The
  * plausible failure: a source rewrite the first publish makes with no
  * register row, so the lane finds a difference no entry holds.
  */
@@ -61,7 +64,7 @@ import {
 /** The rows of the first-publish register these readers hand it. */
 const REGISTER_ROWS: ReadonlySet<string> = new Set(SAME_STATE_REGISTERS);
 
-/** The two rows the register words for readings outside this table. */
+/** The rows the register words for readings outside this table. */
 const OWN_ROWS: ReadonlySet<string> = new Set(FIRST_PUBLISH_READING_RECORDS);
 
 type Rewrites = ReadFacts["sameStateRewrites"];

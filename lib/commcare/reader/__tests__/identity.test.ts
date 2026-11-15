@@ -3,8 +3,10 @@
  * changed namespace, version string or name layout (which would re-id every
  * app a later reading brings in), a kind left out of the name, a minted UUID
  * the document schema refuses, an identity kind nobody classified, a key met
- * twice that mints twice, and a matching resolver that answers a known key
- * with anything but its UUID.
+ * twice that mints twice, a matching resolver that answers a known key
+ * with anything but its UUID, and one that gives an entity it mints a UUID
+ * the map already holds for another (a key renamed in Nova, or an ordinal
+ * moved by a removal, beside a key CommCare HQ then added).
  */
 import { describe, expect, it } from "vitest";
 import { BLUEPRINT_AUTHORED_IDENTITY_KINDS, uuidSchema } from "@/lib/domain";
@@ -235,5 +237,51 @@ describe("matchingResolver", () => {
 				{ kind: otherKey.kind, parts: otherKey.parts, uuid: knownUuid },
 			]),
 		).toThrow(/under two keys/);
+	});
+
+	it("gives a new entity another UUID where the map holds its key's UUID under a renamed one", () => {
+		/* A first reading minted field `a`; Nova renamed it `b`, which kept the UUID; CommCare HQ
+		 * then added a new `a`. */
+		const a = externalKey.field(XMLNS, ["a"]);
+		const b = externalKey.field(XMLNS, ["b"]);
+		const renamed = mintEntityUuid(APP_ID, a);
+		const map: IdentityMapEntry[] = [
+			{ kind: b.kind, parts: b.parts, uuid: renamed },
+		];
+		const first = matchingResolver(APP_ID, map);
+		expect(first.claim(b, "form 1")).toEqual({ ok: true, uuid: renamed });
+		const added = first.claim(a, "form 1");
+		if (!added.ok) throw new Error("The new field was claimed once.");
+		expect(added.uuid).not.toBe(renamed);
+		expect(uuidSchema.parse(added.uuid)).toBe(added.uuid);
+		/* Another reading told the same map gives the same UUID, whatever it claims first. */
+		const second = matchingResolver(APP_ID, map);
+		expect(second.claim(a, "form 1")).toEqual(added);
+		expect(second.claim(b, "form 1")).toEqual({ ok: true, uuid: renamed });
+	});
+
+	it("gives two columns of one property two UUIDs after the first was removed in Nova", () => {
+		/* Two columns of `x` were minted at ordinals 0 and 1; the first was removed, so the
+		 * second's key is ordinal 0 while it keeps ordinal 1's UUID; CommCare HQ then added a
+		 * second column of `x`. */
+		const at = (n: number) =>
+			externalKey.caseListColumn("menu-1", "plain", "x", n);
+		const map: IdentityMapEntry[] = [
+			{
+				kind: "caseListColumn",
+				parts: at(0).parts,
+				uuid: mintEntityUuid(APP_ID, at(1)),
+			},
+		];
+		const resolver = matchingResolver(APP_ID, map);
+		const kept = resolver.claim(at(0), "menu 1");
+		const added = resolver.claim(at(1), "menu 1");
+		expect(kept).toEqual({ ok: true, uuid: mintEntityUuid(APP_ID, at(1)) });
+		if (!kept.ok || !added.ok) throw new Error("Each column was claimed once.");
+		expect(added.uuid).not.toBe(kept.uuid);
+		expect(resolver.entries().map((entry) => entry.uuid)).toEqual([
+			kept.uuid,
+			added.uuid,
+		]);
 	});
 });

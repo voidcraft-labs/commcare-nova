@@ -275,7 +275,9 @@ a re-read), the source project space's lookup tables, organization levels and
 media files, whether that project space applies "save only if changed", and,
 for an app Nova already holds, `knownCaseTypes`, the case type each index of a
 type reaches, consulted only where the app itself fixes none (no child link,
-no parent selection, no open action's index). The app's first language (HQ's `langs[0]`) is its default. The
+no parent selection, no open action's index), and `knownLanguageCodes`, the
+language each wire code it stored names, which a re-read takes before
+`languageIdentityForHqCode`. The app's first language (HQ's `langs[0]`) is its default. The
 reading's source language, whose text the document's own slots hold, is the
 first language, in `langs` order, that a reading with it as the source prints
 back at every place Nova's emitter writes a source text apart from a
@@ -765,7 +767,17 @@ itext entry and no protected carrier, because no runtime shows a message no
 constraint can fail (`xform/constraintMessage.ts::bindCarriesConstraint`, which
 the builder and the generated-node allocator share). The reader's
 canonical row `validation-message-with-no-condition-is-absent` removes such a
-message from the document it compares. A field carries media on its label
+message from the document it compares. Which questions write one is
+`xform/validationMessage.ts::constraintCarryingQuestions`, over the guards
+the placement gives; Preview's text table (`lib/preview/engine/formText.ts`)
+holds a validation message's entry by it, and the gate refuses a `jr:itext`
+read of a message the form holds but does not write at the read
+(`validator/rules/validationMessageRead.ts`, `INVALID_REF` with identity
+`validation-message`), since a device answers that read with `[itext:<id>]`;
+a read of a message the form does not hold (another form's question, one gone,
+one with no message) is the checker's own refusal (identity `wording`) alone.
+The checker admits the read: whether the bind carries a constraint depends on
+where the form's case change is kept, which the domain does not state. A field carries media on its label
 and its help text. A hint, a validation message and a group's or repeat's label
 carry none, because no CommCare runtime shows media there, so a protected
 validation message has no `__nova_mode;image`, `;audio`, `;video` or

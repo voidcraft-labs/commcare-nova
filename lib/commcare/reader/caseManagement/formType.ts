@@ -122,17 +122,26 @@ function refused(claims: {
  * The row of `requires` and the active actions, a refused class tested before
  * the held one of the same key. `active` is
  * `publishedCaseBlocks.ts::activeActions(actions, requires)`;
- * `openConditionType` is `open_case.condition.type` as stored.
+ * `openConditionType` is `open_case.condition.type` as stored;
+ * `menuCaseManagement` is whether the form's menu leaves HQ's build its
+ * default case management, which a menu that selects several cases or may
+ * load a data registry's case turns off (`xform.py::XForm._create_casexml`,
+ * `default_case_management`). There a form that requires a case and opens
+ * none gets no close from its `close_case` (the build writes one only
+ * `if 'close_case' in actions and default_case_management`), so the form
+ * closes nothing and is a follow-up, its stored close inert
+ * (`basicActions.ts`, `multiSelectNoClose`).
  */
 export function formTypeRow(
 	requires: unknown,
 	active: ReadonlySet<string>,
 	openConditionType: unknown,
 	module: DraftModule,
+	menuCaseManagement: boolean,
 ): FormTypeRow {
 	const word = requires ?? "none";
 	if (word === "case")
-		return active.has("close_case")
+		return active.has("close_case") && menuCaseManagement
 			? typed("close", CLOSE)
 			: typed("followup", FOLLOWUP);
 	if (word !== "none") return refused(REFERRAL);
@@ -154,14 +163,22 @@ export function formTypeRow(
 	return typed("survey", SURVEY);
 }
 
-/** `active` is `publishedCaseBlocks.ts::activeActions(actions, requires)`. */
+/** `active` is `publishedCaseBlocks.ts::activeActions(actions, requires)`;
+ *  `menuCaseManagement` as `formTypeRow` reads it. */
 export function readFormType(
 	requires: unknown,
 	active: ReadonlySet<string>,
 	module: DraftModule,
-	openConditionType?: unknown,
+	openConditionType: unknown,
+	menuCaseManagement: boolean,
 ): FormType | FindingEntry {
-	const found = formTypeRow(requires, active, openConditionType, module);
+	const found = formTypeRow(
+		requires,
+		active,
+		openConditionType,
+		module,
+		menuCaseManagement,
+	);
 	return found.kind === "type"
 		? found.type
 		: { kind: "finding", entry: found.requires.entry };

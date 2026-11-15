@@ -1023,7 +1023,7 @@ function childNamed(
  * `nova_query_id_r` and `nova_query_index_r` with the binds and `jr-insert` setvalues
  * `countPlacementRow.ts::countPlacementRowPieces` writes, and the row's guard
  * `position() < ../<count>` on its own or as the last operand of an `and`. Undefined where a
- * part is missing or differs.
+ * part is missing or differs, or the wrapper holds any other node.
  */
 export function readQueryPlacement(
 	wrapper: DataNode,
@@ -1047,6 +1047,10 @@ export function readQueryPlacement(
 		rowIndex === undefined
 	)
 		return undefined;
+	// The emitter writes nothing else in the wrapper: a node beside these is no row's, and the
+	// wrapper holding it is no count placement but the group HQ's form builder shows.
+	const parts = new Set([ids, count, position, row]);
+	if (wrapper.children.some((child) => !parts.has(child))) return undefined;
 	const idsBind = binds.get(ids);
 	const countBind = binds.get(count);
 	const trees = countPlacementTrees({ ids: ids.name, count: count.name });

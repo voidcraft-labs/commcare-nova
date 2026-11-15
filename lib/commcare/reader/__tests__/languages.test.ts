@@ -6,14 +6,36 @@
  * repeated one held; `pt-br`, `zh-hans` and `cmn-hanttw` read without their
  * region or script, since the suffix is lower case; and a code Nova itself
  * wrote for an identity read back to another identity, which would make an
- * app Nova published read back as a different app.
+ * app Nova published read back as a different app; a re-read of an app Nova
+ * holds that names a stored code's language anew where the minter has since
+ * changed its spelling (`swc` stored as `sw`); and a reading whose source
+ * stands third in the app's order throwing at its construction batch.
  */
 
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { type AppLanguageIdentity, languageTag } from "@/lib/domain";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { applyMutations } from "@/lib/doc/mutations";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
+import type { Mutation } from "@/lib/doc/types";
+import {
+	type AppLanguageIdentity,
+	type BlueprintDoc,
+	collectTranslationUnits,
+	languageTag,
+	proseText,
+} from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { mintLanguageWireCode } from "../../languageWire";
+import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
+import { matchingResolver } from "../identity";
+import { externalIdentityMap } from "../identityMap";
+import { knownLanguageCodesOf, readHqApp } from "../index";
 import { languageIdentityForHqCode, readLanguages } from "../languages";
+import type { ReaderInput, ReadOutcome } from "../types";
+import { exportedBody, inputFor } from "./novaExport";
 import {
 	readContext,
 	readerInput,
@@ -200,5 +222,134 @@ describe("readLanguages", () => {
 			},
 		]);
 		expect(ctx.draft.localization).toBeUndefined();
+	});
+});
+
+/** A one-form survey app, which every language test below changes. */
+function survey(appName = "Clinic"): BlueprintDoc {
+	return buildDoc({
+		appId: "app-1",
+		appName,
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Intake",
+						type: "survey",
+						fields: [{ kind: "text", id: "notes", label: proseText("Notes") }],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** A reading of `doc`'s export, as a re-read of an app Nova holds is told it. */
+async function readExport(
+	doc: BlueprintDoc,
+	overrides: Partial<ReaderInput> = {},
+): Promise<Extract<ReadOutcome, { kind: "read" }>> {
+	const outcome = readHqApp(
+		await inputFor(exportedBody(doc), {
+			resolver: matchingResolver(
+				"app-1",
+				externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+			),
+			recordDialect: recordDialectRoundTrip,
+			...overrides,
+		}),
+	);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(
+			`The export read to an account: ${outcome.findings.map((one) => `${one.code} (${one.detail.name ?? ""})`).join(", ")}`,
+		);
+	return outcome;
+}
+
+describe("a re-read of an app Nova holds", () => {
+	it.each<[AppLanguageIdentity, string, AppLanguageIdentity]>([
+		[{ language: "swc" }, "sw", { language: "swh" }],
+		[{ language: "prs" }, "fas", { language: "pes" }],
+		[{ language: "pap", region: "AW" }, "pap", { language: "pap" }],
+	])(
+		"reads %o, stored under the code %s before its spelling changed, back to it",
+		async (identity, code, holder) => {
+			const tag = languageTag(identity);
+			const doc = produce(survey(), (draft) => {
+				applyMutations(draft, [
+					{ kind: "addLanguage", language: identity, wireCode: code },
+				]);
+			});
+			expect(doc.localization?.wireCodes[tag]).toBe(code);
+			const told = await readExport(doc, {
+				knownLanguageCodes: knownLanguageCodesOf(doc),
+			});
+			expect(told.draft.doc.localization?.wireCodes).toEqual({
+				eng: "en",
+				[tag]: code,
+			});
+			/* Told nothing, a reading names the code as the language that holds its spelling now. */
+			const untold = await readExport(doc);
+			expect(untold.draft.doc.localization?.wireCodes).toEqual({
+				eng: "en",
+				[languageTag(holder)]: code,
+			});
+		},
+	);
+});
+
+describe("a reading whose source is not among its first two languages", () => {
+	it("returns a draft whose batch replays to its document", async () => {
+		const languages = produce(survey("Clínica"), (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "relabelSourceLanguage",
+					language: { language: "spa" },
+					wireCode: "es",
+				},
+				{ kind: "addLanguage", language: { language: "eng" }, wireCode: "en" },
+				{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fr" },
+				{ kind: "setDefaultLanguage", code: "fra" },
+				{ kind: "setDefaultLanguage", code: "eng" },
+			]);
+		});
+		const unit = collectTranslationUnits(languages).find(
+			(one) => one.owner.kind === "app",
+		);
+		if (unit === undefined) throw new Error("The app has a name to translate.");
+		/* English and French each name the app their own way, so neither is the source. */
+		const doc = produce(languages, (draft) => {
+			applyMutations(
+				draft,
+				(["eng", "fra"] as const).map(
+					(language): Mutation => ({
+						kind: "setTranslation",
+						language,
+						unitId: unit.id,
+						entry: {
+							value: language === "eng" ? "Clinic" : "Clinique",
+							sourceFingerprint: unit.sourceFingerprint,
+							origin: "human",
+							review: "reviewed",
+							translatedFrom: "spa",
+						},
+					}),
+				),
+			);
+		});
+		const read = await readExport(doc);
+		expect(read.draft.doc.localization).toMatchObject({
+			sourceLanguage: "spa",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "fra", "spa"],
+		});
+		const replayed = produce(emptyBlueprintDoc("app-1"), (draft) => {
+			applyMutations(draft, [...read.draft.batch]);
+		});
+		expect(toPersistableDoc(replayed).localization).toEqual(
+			toPersistableDoc(read.draft.doc).localization,
+		);
 	});
 });

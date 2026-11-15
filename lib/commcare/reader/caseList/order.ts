@@ -19,11 +19,23 @@ import {
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import { caseListOrderOptions } from "../../suite/case-list/orderPlanOptions";
 import { withCandidate } from "../candidate";
-import { defineClaims, derived, drop, refuse, take } from "../claims";
+import {
+	type Claim,
+	defineClaims,
+	derived,
+	drop,
+	refuse,
+	take,
+} from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import type { JsonCursor } from "../jsonCursor";
 import { sameXPathText } from "../syntaxCompare";
-import { HQ_PROPERTY_RENAMES, languageMap } from "./columns";
+import {
+	appCodes,
+	classifyField,
+	HQ_PROPERTY_RENAMES,
+	shownTexts,
+} from "./columns";
 import { type JoinedColumn, type JoinedDetails, sameState } from "./details";
 
 const A = "menus-and-case-lists/";
@@ -98,6 +110,10 @@ export const ORDER_CLAIMS = defineClaims("caseList.order", {
 		`${A}type-int-or-double-differing-from-the-derived-type-on-a-column`,
 		"schema:SortElement.type",
 	),
+	typeText: refuse(
+		`${A}type-plain-date-or-string-or-none-where-nova-derives-int-or-double`,
+		"schema:SortElement.type",
+	),
 	display: derived(`${A}display`, "schema:SortElement.display"),
 	displayJoined: drop(
 		`${A}display-lang-on-a-sort-joined-to-a-displayed-column`,
@@ -139,8 +155,12 @@ export interface SortReading {
 	readonly ok: boolean;
 	/** Each kept element's index in the stored list, in the order HQ keeps them. */
 	readonly kept: readonly number[];
-	/** Each kept element's stored `type` where it is `int` or `double`, by element index. */
+	/** Each kept element's stored `type` where it is `int` or `double`, by element index, on a
+	 *  column whose format has no sort of its own. */
 	readonly numeric: ReadonlyMap<number, string>;
+	/** The index of each kept element whose stored `type` compares as text (every word but `int`,
+	 *  `double`, `distance` and `index`, or none) on a column whose format has no sort of its own. */
+	readonly textual: ReadonlySet<number>;
 	/** The index of each kept element whose stored `type` is `date`. */
 	readonly dates: ReadonlySet<number>;
 	/** Whether the source held no element and an `invisible` first column took HQ's default. */
@@ -198,7 +218,43 @@ function sameOrderKey(own: number, landing: number, joined: JoinedDetails) {
 	return a !== undefined && a === orderKeyClass(joined.columns[landing]);
 }
 
-const PROPERTY = /^[a-zA-Z][\w_-]*$/;
+/** The formats whose column sorts by its own expression and type, whatever the sort element's
+ *  `type` and `sort_calculation` (`detail_screen.py`: `SORT_XPATH_FUNCTION` on `Date`, `TimeAgo`
+ *  and `Distance`, `sort_xpath_function` on `Enum` and its subclasses). */
+const OWN_SORT_FORMATS: ReadonlySet<string> = new Set([
+	"date",
+	"time-ago",
+	"distance",
+	"enum",
+	"conditional-enum",
+	"enum-image",
+	"translatable-enum",
+	"clickable-icon",
+]);
+
+/** The claim that refuses a sort element's `field` where it is no property Nova reads, by the
+ *  row of the column field HQ's build reads it as (`columns.ts::classifyField`), or none. */
+function fieldClass(text: string): Claim<"refuse"> | undefined {
+	const classified = classifyField(text);
+	if (classified.kind === "property") return undefined;
+	// The editor's own check refuses the field on a sort row as on a column.
+	return classified.claim.entry === O.fieldInvalid.entry
+		? O.fieldInvalid
+		: classified.claim;
+}
+
+/** The sort element `type`s the Case List page offers that HQ's build writes as a text
+ *  comparison (`FormattedDetailColumn.sort_node` maps `plain` and `date` to `string`), and HQ's
+ *  default, none. */
+function menuTextType(type: unknown): boolean {
+	return (
+		type === undefined ||
+		type === null ||
+		type === "" ||
+		type === "plain" ||
+		type === "date"
+	);
+}
 
 /**
  * Reads `sort_elements` into each joined column's `sort`, adding a hidden column for an element
@@ -215,7 +271,9 @@ export function readSortElements(
 	const stored = short.peek("sort_elements");
 	const elements = Array.isArray(stored) ? stored : [];
 	const numeric = new Map<number, string>();
+	const textual = new Set<number>();
 	const dates = new Set<number>();
+	const codes = appCodes(ctx);
 	if (elements.length === 0) {
 		short.derived("sort_elements", O.none);
 		const first = joined.columns.find((column) => column.short === 0);
@@ -233,9 +291,9 @@ export function readSortElements(
 				`${short.pointer}/sort_elements`,
 				"list-settings-respelled",
 			);
-			return { ok: true, kept: [], numeric, dates, defaulted: true };
+			return { ok: true, kept: [], numeric, textual, dates, defaulted: true };
 		}
-		return { ok: true, kept: [], numeric, dates, defaulted: false };
+		return { ok: true, kept: [], numeric, textual, dates, defaulted: false };
 	}
 	const cursors = short.list("sort_elements", "SortElement", O.elements);
 	// A later element with one `field` replaces an earlier one.
@@ -290,6 +348,17 @@ export function readSortElements(
 		// The column the element lands on; none where the element's `field` is refused.
 		let target: number | undefined;
 		let sortOnly = false;
+		// The stored format of the short column HQ's build gives the element: the first column
+		// with its join text, or the `invisible` column it appends for an element none joins
+		// (`util.py::create_temp_sort_column`).
+		let landingFormat: unknown = "invisible";
+		const storedFormat = (index: number | undefined) => {
+			const short =
+				index === undefined ? undefined : joined.columns[index]?.short;
+			return short === undefined
+				? "invisible"
+				: (shortColumns[short]?.peek("format") ?? "plain");
+		};
 		const calculated = CALCULATED_FIELD.exec(text);
 		if (calculated !== null) {
 			// HQ joins `_cc_calculated_<n>` to stored short column `n` where that column is an
@@ -326,12 +395,16 @@ export function readSortElements(
 				ok = false;
 			} else {
 				target = sameOrderKey(own, landing, joined) ? own : landing;
+				landingFormat = storedFormat(landing);
 				cursor.take("field", O.fieldCalculated, String).value;
 			}
-		} else if (!PROPERTY.test(text)) {
+		} else if (fieldClass(text) !== undefined) {
+			// HQ's build reads the field as it reads a column's (the column it joins, or the one
+			// it appends), so a field that is no property Nova reads is refused by the column
+			// field's own row: a relation path, a worker's property, the owner's name, a prefix.
 			cursor.refuse(
 				"field",
-				O.fieldInvalid,
+				fieldClass(text) ?? O.fieldInvalid,
 				text === "" ? undefined : { name: text.slice(0, 200) },
 			);
 			ok = false;
@@ -363,6 +436,7 @@ export function readSortElements(
 						});
 			if (shortIndex !== undefined || linked !== undefined) {
 				target = shortIndex ?? linked;
+				if (shortIndex !== undefined) landingFormat = storedFormat(shortIndex);
 				cursor.take("field", O.fieldDisplayed, String).value;
 			} else {
 				sortOnly = true;
@@ -413,15 +487,35 @@ export function readSortElements(
 
 		// The comparator: derived, numeric where the plan derives it, or a date where the property
 		// is of the date class (each judged in the settle; `dateSortDeclarations` names the
-		// property a date element types where nothing else types it).
+		// property a date element types where nothing else types it). A column whose format sorts
+		// by its own type reads none of it, so the settle judges the type only where it does not.
 		const type = cursor.peek("type");
+		const ownSort =
+			typeof landingFormat === "string" && OWN_SORT_FORMATS.has(landingFormat);
 		if (type === "distance") {
 			cursor.refuse("type", O.typeDistance);
 			ok = false;
 		} else if (type === "index") {
 			cursor.refuse("type", O.typeIndex);
 			ok = false;
-		} else if (type === "string") {
+		} else if (type === "int" || type === "double") {
+			cursor.derived("type", O.typeDerived);
+			if (!ownSort) numeric.set(index, type);
+			else
+				sameState(
+					ctx,
+					O.typeDerived.entry,
+					`${cursor.pointer}/type`,
+					"list-settings-respelled",
+				);
+		} else if (menuTextType(type)) {
+			cursor.derived("type", O.typeDerived);
+			if (type === "date") dates.add(index);
+			if (!ownSort) textual.add(index);
+		} else if (typeof type === "string") {
+			// Any other word, `string` among them, HQ writes through as it is (`sort_node`:
+			// `.get(type, type)`), and Core compares every word but `int` and `double` as text
+			// (`DetailFieldParser`: `string` and any other word leave the field's `DATATYPE_TEXT`).
 			cursor.derived("type", O.typeString);
 			sameState(
 				ctx,
@@ -429,16 +523,17 @@ export function readSortElements(
 				`${cursor.pointer}/type`,
 				"sort-rule-kept-as-hidden-column",
 			);
-		} else if (type === "int" || type === "double") {
-			cursor.derived("type", O.typeDerived);
-			numeric.set(index, type);
-		} else {
-			cursor.derived("type", O.typeDerived);
-			if (type === "date") dates.add(index);
+			if (!ownSort) textual.add(index);
 		}
+		// A `type` that is no text at all is no `StringProperty` HQ holds: it is left for the
+		// close to name.
 
-		const display = languageMap(cursor.peek("display"));
-		if (Object.values(display).every((one) => one.trim() === ""))
+		// The label as HQ's build shows it in each language (`create_temp_sort_column` makes it
+		// the appended column's header); one the reader cannot know (a number, an object) is
+		// left unclaimed, for the close to name at its key.
+		const display = shownTexts(cursor.peek("display"), codes);
+		if (display === undefined) ok = false;
+		else if (Object.values(display).every((one) => one.trim() === ""))
 			cursor.derived("display", O.display);
 		else if (sortOnly || column === undefined) {
 			cursor.refuse("display", O.displaySortOnly);
@@ -462,7 +557,9 @@ export function readSortElements(
 			} else if (text === "") {
 				cursor.refuse("sort_calculation", O.calculationAuthored);
 				ok = false;
-			} else if (column?.proposal.column.kind === "date") {
+			} else if (ownSort) {
+				// HQ's build reads the stored short column's format, not the joined proposal's: a
+				// list column hidden from Results is `invisible`, which sorts by the calculation.
 				cursor.derived("sort_calculation", O.calculationBesideOwnSort);
 			} else {
 				cursor.refuse("sort_calculation", O.calculationOther);
@@ -470,7 +567,7 @@ export function readSortElements(
 			}
 		}
 	});
-	return { ok, kept, numeric, dates, defaulted: false };
+	return { ok, kept, numeric, textual, dates, defaulted: false };
 }
 
 /** The property types whose raw value Nova's sort element names a `date` comparison

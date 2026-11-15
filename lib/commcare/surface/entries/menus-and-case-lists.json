@@ -1627,7 +1627,7 @@
 		"id": "menus-and-case-lists/media-image-media-audio-same-asset-in-every-language",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "`media_image`, `media_audio` (same asset in every language); the same path in every language the app has reads as the one shared slot",
+		"item": "`media_image`, `media_audio` (same asset in every language); a map that shows one file in every language, read as HQ's build shows it (a language with no path of its own shows the `default` table's), reads as the one shared slot",
 		"surfaceKeys": [
 			"parser:MenuParser/text@form",
 			"schema:AdvancedModule.media_audio",
@@ -1662,11 +1662,15 @@
 		"id": "menus-and-case-lists/media-image-media-audio-differing-by-language",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "`media_image`, `media_audio` differing by language; a path present in one language and absent in another counts as differing",
+		"item": "`media_image`, `media_audio` (a menu's, its case list menu item's, its Register button's) differing by language: two files shown in two languages, each language read as HQ's build shows it (a language with no path of its own shows the `default` table's)",
 		"surfaceKeys": [
 			"parser:MenuParser/text@form",
 			"schema:AdvancedModule.media_audio",
 			"schema:AdvancedModule.media_image",
+			"schema:CaseList.media_audio",
+			"schema:CaseList.media_image",
+			"schema:CaseListForm.media_audio",
+			"schema:CaseListForm.media_image",
 			"schema:Module.media_audio",
 			"schema:Module.media_image",
 			"schema:ShadowModule.media_audio",
@@ -1697,10 +1701,14 @@
 		"id": "menus-and-case-lists/use-default-image-for-all-use-default-audio-for-all",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "`use_default_image_for_all`, `use_default_audio_for_all`",
+		"item": "`use_default_image_for_all`, `use_default_audio_for_all` (a menu's, its case list menu item's, its Register button's)",
 		"surfaceKeys": [
 			"schema:AdvancedModule.use_default_audio_for_all",
 			"schema:AdvancedModule.use_default_image_for_all",
+			"schema:CaseList.use_default_audio_for_all",
+			"schema:CaseList.use_default_image_for_all",
+			"schema:CaseListForm.use_default_audio_for_all",
+			"schema:CaseListForm.use_default_image_for_all",
 			"schema:Module.use_default_audio_for_all",
 			"schema:Module.use_default_image_for_all",
 			"schema:ShadowModule.use_default_audio_for_all",
@@ -4155,7 +4163,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`MappingItem.alt_text{lang}` holding text",
+		"item": "`MappingItem.alt_text{lang}` holding text, on an image map or a clickable icon",
 		"surfaceKeys": [
 			"parser:DetailFieldParser/alt_text",
 			"schema:MappingItem.alt_text"
@@ -4178,6 +4186,26 @@
 		"emission": {
 			"cell": "`alt_text`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/mappingitem-alt-text-on-a-format-that-builds-no-image",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "`MappingItem.alt_text{lang}` holding text, on a column whose format builds no image (`enum`, `translatable-enum`)",
+		"surfaceKeys": ["schema:MappingItem.alt_text"],
+		"valueClass": "non-blank-where-no-image-is-built",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build gives an alt text on `enum-image` and `clickable-icon` alone (`detail_screen.py::EnumImage.alt_text`, `app_strings.py`), and its column editor saves none",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -4616,13 +4644,8 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "UI bookkeeping keys `hasAutocomplete`, `calc_xpath`, `isTab`, `hasNodeset`, `nodeset`, `relevant`, `nodesetCaseType`, `nodesetFilter`, and the format extras the column editor saves on every column: `date_format` on a column that is no date, `late_flag` and `time_ago_interval` on a column of another format",
-		"surfaceKeys": [
-			"schema:DetailColumn.<undeclared>",
-			"schema:DetailColumn.date_format",
-			"schema:DetailColumn.late_flag",
-			"schema:DetailColumn.time_ago_interval"
-		],
+		"item": "UI bookkeeping keys `hasAutocomplete`, `calc_xpath`, `isTab`, `hasNodeset`, `nodeset`, `relevant`, `nodesetCaseType`, `nodesetFilter`",
+		"surfaceKeys": ["schema:DetailColumn.<undeclared>"],
 		"valueClass": "ui-bookkeeping-keys",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: dynamic properties no emitter reads",
@@ -4632,6 +4655,31 @@
 		},
 		"emission": {
 			"cell": "HQ's own values (`hasAutocomplete: true` on property columns, `false` on calculated, and `false` on a property column after a save when a new module's Name column lacked it)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/format-extras-the-column-editor-saves-on-every-column",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "the format extras the column editor saves on every column: `date_format` on a column that is no date, `late_flag` and `time_ago_interval` on a column of another format, and `enum` on a column whose format reads no mapping (any but `enum`, `conditional-enum`, `enum-image`, `clickable-icon` and `translatable-enum`)",
+		"surfaceKeys": [
+			"schema:DetailColumn.date_format",
+			"schema:DetailColumn.enum",
+			"schema:DetailColumn.late_flag",
+			"schema:DetailColumn.time_ago_interval"
+		],
+		"valueClass": "format-extras-elsewhere",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's column editor saves each format's extra on every column whatever its format (`details/bootstrap5/column.js`, `serialize`), and HQ's build reads each only on its own format (`detail_screen.py`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "the shell's values on every column (`hqShells.ts::detailColumn`: `date_format` `%d/%m/%y`, `late_flag` 30, `time_ago_interval` 365.25, `enum` `[]`)",
 			"markers": []
 		},
 		"gates": []
@@ -6650,6 +6698,33 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/case-id-as-a-property-column-s-field",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column field paths",
+		"item": "`case_id` as a property column's `field` (or a sort element's, whose appended column reads it so)",
+		"surfaceKeys": ["detail-field-type:property"],
+		"valueClass": "case-id-element",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: `PropertyXpathGenerator.xpath` maps the field through `CASE_PROPERTY_MAP`, which has no entry for `case_id`, so the column reads the child element `case_id`, which no case carries (Core holds the id as the attribute alone, `CaseChildElement`), and is blank for every case",
+		"subject": "case-list-columns",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "`PropertyXpathGenerator.xpath` maps the field through `CASE_PROPERTY_MAP`, which has no entry for `case_id`, so the column reads the child element `case_id`, which no case carries (Core holds the id as the attribute alone, `CaseChildElement`), and is blank for every case"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/owner-name",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -7102,6 +7177,37 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/type-plain-date-or-string-or-none-where-nova-derives-int-or-double",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "`type` `plain`, `date`, none (HQ's default element is `string`), or any word but `int`, `double`, `distance` and `index`, where Nova derives `int` or `double`, on a column without its own sort",
+		"surfaceKeys": [
+			"parser:DetailFieldParser/sort@type",
+			"schema:SortElement.type"
+		],
+		"valueClass": "authored-text-comparator",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `sort.comparator` (authored): HQ writes `string` for `plain`, `date` and none, and any other word as it is (`FormattedDetailColumn.sort_node`, `details.py::get_default_sort_elements`), and Core compares every word but `int` and `double` as text (`DetailFieldParser`), so the list orders numbers as text, where the comparator Nova derives from the property's type orders them as numbers",
+		"subject": "case-list-sorting",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`type`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/type-distance",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -7170,14 +7276,14 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Sorting",
-		"item": "`type: string` (not a menu value)",
+		"item": "`type` any word the Case List page does not offer but `distance` and `index` (`string`, or another: not a menu value)",
 		"surfaceKeys": [
 			"parser:DetailFieldParser/sort@type",
 			"schema:SortElement.type"
 		],
-		"valueClass": "string",
+		"valueClass": "another-word",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: read as `plain` (build-identical, `FormattedDetailColumn.sort_node`)",
+		"dispositionCell": "**HELD**: read as `plain` (build-identical: HQ writes the word as it is, `FormattedDetailColumn.sort_node`, and Core compares every word but `int` and `double` as text, `DetailFieldParser`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

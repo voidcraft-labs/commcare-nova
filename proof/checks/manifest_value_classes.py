@@ -121,7 +121,9 @@ class Form:
         self.readings = None  # proof.checks.manifest_usage.Readings, once the check reads the observation's
         self.app_form = None  # (App, its form object) where an app JSON carries the form
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
-        self.entry_suite = None  # the suite (``Runtime``) whose entries open the form, where the check reads one
+        # The suites (their roots) whose entries open the form, where the check reads any: HQ's builds of an app
+        # JSON's upload, or a local archive's own suite (``manifest_usage.link_entry_suites``).
+        self.entry_suites = ()
 
     @cached_property
     def xmlns(self):
@@ -3695,6 +3697,17 @@ def data_registry_key(use, manifest):
     return any(entry.get("property") == "x_commcare_data_registry" for entry in _default_entries(at, config))
 
 
+def registry_named(use, manifest):
+    """``case-search/data-registry-data-registry-workflow-additional-registry-cases``: a search whose
+    ``data_registry`` holds text, with whatever ``data_registry_workflow`` and ``additional_registry_cases`` stand
+    beside it. HQ reads the registry by truth (``util.py::module_offers_registry_search``), so a blank or absent
+    registry names none, and the workflow and extra cases beside it are the INERT ``no-registry`` class."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    return bool(config.get("data_registry"))
+
+
 def endpoint_id_key(use, manifest):
     """``case-search/default-properties-entry-keyed-x-commcare-endpoint-id``."""
     at, config = _search(use)
@@ -4185,6 +4198,16 @@ def explicit_property_prefix(use, manifest):
     if column is None:
         return None
     return str(column.get("field") or "").startswith("property:")
+
+
+def case_id_element(use, manifest):
+    """``menus-and-case-lists/case-id-as-a-property-column-s-field``: a non-calculated column whose field is
+    ``case_id``, which HQ reads as a child element no case carries (``detail_screen.py::CASE_PROPERTY_MAP`` maps no
+    ``case_id``)."""
+    at, column, detail, kind, module = _column(use)
+    if column is None:
+        return None
+    return not column.get("useXpathExpression") and str(column.get("field") or "") == "case_id"
 
 
 def _custom_tile(detail):
@@ -5128,6 +5151,24 @@ def hidden_value_with_children(use, manifest):
     return not form.question_controls(_path_of(form, element))
 
 
+# The body controls that may name a node with element children: a group and a repeat, the only questions whose
+# mug takes child mugs with data nodes (Vellum ``mugs.js::isNestableGroup``).
+NESTING_CONTROLS = frozenset({"group", "repeat"})
+
+
+def question_with_children(use, manifest):
+    """``questions/a-question-other-than-a-group-or-repeat-whose-data-node-has``: a data node with element children
+    that a body question control other than a group or repeat names (an input, a select, a label, an upload),
+    whose mug takes no child (``mugs.js::isNestableGroup``; a select's Choice and Itemset children are
+    control-only)."""
+    form, element = _data_node(use)
+    if form is None:
+        return None
+    if element is None or not _children(element):
+        return False
+    return any(_local(control) not in NESTING_CONTROLS for control in form.question_controls(_path_of(form, element)))
+
+
 def default_data_value(use, manifest):
     """``questions/default-data-value-datavalue-instance-text``: a data node Vellum's parser makes a question of
     that holds text in the form's instance, which it reads as the question's ``dataValue`` (``parser.js``:
@@ -5351,13 +5392,14 @@ def _suite_supplied(root, element):
 
 
 def _form_supplied(form):
-    """The session data ids every entry that opens a form writes: the entries of the suite the check reads beside
-    it (``Form.entry_suite``) whose ``<form>`` names the form's namespace, or None where it reads none."""
-    if form.entry_suite is None or form.xmlns is None:
+    """The session data ids every entry that opens a form writes: the entries of the suites the check reads beside
+    it (``Form.entry_suites``) whose ``<form>`` names the form's namespace, or None where it reads none."""
+    if form.xmlns is None:
         return None
     lists = [
         {datum_id for datum_id, _ in _session_ids(entry)}
-        for entry in _children(form.entry_suite.root)
+        for suite in form.entry_suites
+        for entry in _children(suite)
         if _local(entry) == "entry"
         and any(_local(child) == "form" and (child.text or "").strip() == form.xmlns for child in _children(entry))
     ]
@@ -5373,8 +5415,9 @@ def datum_not_supplied(use, manifest):
     instance paths through the session's instance, ``instance-source:session``), less the ids with an item or a
     class of their own (``stringquery``, ``fingerprintquery``, ``supply_point_id``). What is written there is the
     suite's: in a suite, the session where the element runs (``_suite_supplied``); in a form, the ids every entry
-    that opens it writes, from the suite the check reads beside the form (a local archive's own, and for an app
-    JSON's form the local archive Nova built of the same export), and None where it reads none."""
+    that opens it writes, from the suites the check reads beside the form (a local archive's own, and for an app
+    JSON's form each build HQ made of its upload, or the local archive Nova built of the same export where HQ
+    built none), and None where it reads none."""
     at = _xml(use)
     if at is None or at.attribute is None:
         return None
@@ -6443,6 +6486,20 @@ def attribute_bind_no_plugin_owns(use, manifest):
     return not (owner in form.model_repeats or (_local(owner) == "item" and parent in form.model_repeats))
 
 
+def bind_on_data_root(use, manifest):
+    """``questions/bind-whose-path-names-the-data-root-itself-data-data-or-a``: a bind whose nodeset names the data
+    root itself, which Core applies to the root (``XFormParser.getAbsRef`` resolves a relative path from it), so its
+    ``relevant`` hides the whole form: ``/data``, or the spellings ``/data/.``, ``.`` and ``./.``, which name the
+    root and no node here. Any other nodeset that names no node here is not settled by the export alone."""
+    form, bind, node = _bind(use)
+    if bind is None:
+        return None if form is None else False
+    if node is not None:
+        return node is form.data_root
+    root = form.paths.get(form.data_root)
+    return True if bind.get("nodeset").strip() in {f"{root}/.", ".", "./."} else None
+
+
 def second_default(use, manifest):
     """``questions/a-second-default-setvalue-on-one-question``: a setvalue Vellum reads as a question's Default
     Value after another one on the same question, of which its parser keeps only one (``parser.js::parseSetValue``,
@@ -7013,6 +7070,8 @@ ROW_UNDECLARED_KEYS = {
     ),
     "Form": frozenset({"no_vellum", "put_in_root"}),
     "AdvancedForm": frozenset({"no_vellum", "put_in_root"}),
+    # No row names a key a basic form's actions do not declare: the catch-all refuses every one.
+    "FormActions": frozenset(),
     "UpdateCaseAction": frozenset({"update_multi", "name_update_multi"}),
     "OpenCaseAction": frozenset({"update_multi", "name_update_multi"}),
 }
@@ -7072,6 +7131,7 @@ VALUE_CLASSES = {
     "questions/question-id-failing-the-grammar-or-meta-in-any-case": invalid_question_id,
     "questions/two-sibling-data-nodes-with-one-name": sibling_with_one_name,
     "questions/hidden-value-with-children": hidden_value_with_children,
+    "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": question_with_children,
     "questions/default-data-value-datavalue-instance-text": default_data_value,
     "questions/hand-written-case-block-without-vellum-role-incl-a-root-data": hand_written_case_block,
     "questions/attachment-inside-a-savetocase-block": attachment_in_save_to_case,
@@ -7091,6 +7151,7 @@ VALUE_CLASSES = {
     "questions/savetocase-create-close-or-link-of-commcare-user-or-type-user": reserved_save_to_case_type,
     "questions/bind-calculate-on-a-visible-question": calculate_on_shown_question,
     "questions/bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model": attribute_bind_no_plugin_owns,
+    "questions/bind-whose-path-names-the-data-root-itself-data-data-or-a": bind_on_data_root,
     "questions/a-second-default-setvalue-on-one-question": second_default,
     "questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes": order_a_save_changes,
     "questions/data-root-uiversion-other-than-1-or-absent": data_root_ui_version,
@@ -7216,6 +7277,7 @@ VALUE_CLASSES = {
     "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": request_config_key_runtime_value,
     "case-search/an-x-commcare-custom-related-case-property-entry-together-with": related_case_property_twice,
     "case-search/default-properties-entry-keyed-x-commcare-data-registry": data_registry_key,
+    "case-search/data-registry-data-registry-workflow-additional-registry-cases": registry_named,
     "case-search/default-properties-entry-keyed-x-commcare-endpoint-id": endpoint_id_key,
     "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": missing_default_value,
     "case-search/that-entry-together-with-blacklisted-owner-ids-expression": blacklisted_owner_ids_twice,
@@ -7266,6 +7328,7 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/field-failing-details-utils-js-isvalidpropertyname-non": fails_property_name_check,
     "menus-and-case-lists/property-x-or-prefix-x-with-a-prefix-hq-registers-no-generator": explicit_property_prefix,
+    "menus-and-case-lists/case-id-as-a-property-column-s-field": case_id_element,
     "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": null_on_unplaced_tile,
     "menus-and-case-lists/custom-tile-font-size-null": null_font_size_on_tile,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,

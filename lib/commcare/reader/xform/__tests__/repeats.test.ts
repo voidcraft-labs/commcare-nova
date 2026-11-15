@@ -23,6 +23,7 @@ import { readHqApp } from "../../index";
 import { modelIterationVerdict } from "../repeats";
 import {
 	codesAt,
+	formFindings,
 	readFields,
 	readForm,
 	unrecognizedAt,
@@ -504,6 +505,117 @@ describe("modelIterationVerdict", () => {
 	it("names every other need outside Nova's rule", () => {
 		expect(verdict(queryDoc({ relevant: "true()" }))).toBe(
 			Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
+		);
+	});
+});
+
+describe("a query repeat's wrapper holding a node the emitter never writes there", () => {
+	/** Nova's export of the form, with `total` added to the query repeat's wrapper as HQ's form
+	 *  builder adds a Hidden Value to the group it shows there. */
+	function withTotal(doc: BlueprintDoc, wrapperPath: string): string {
+		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+			xmlns: XMLNS,
+		});
+		expect(source.split("</visits>")).toHaveLength(2);
+		return source
+			.replace("</visits>", "<total/></visits>")
+			.replace(
+				"</model>",
+				`<bind nodeset="${wrapperPath}/total" calculate="count(${wrapperPath}/item)"/></model>`,
+			);
+	}
+
+	it("is no count placement: the node stays outside every row, and the reading names what keeps it out", async () => {
+		const source = withTotal(queryDoc({ nested: true }), "/data/outer/visits");
+		const reading = await readForm(source);
+		const fields = readFields(reading.xform ?? ({} as never));
+		const visits = fields.find((field) => field.id === "visits");
+		const total = fields.find((field) => field.id === "total");
+		expect(visits?.kind).toBe("group");
+		expect(total?.parent).toBe(visits);
+		expect(
+			reading.closed.claims.counts[
+				Q("count-repeat-whose-count-and-row-ids-come-from-one-query-a")
+			],
+		).toBeUndefined();
+		expect(
+			await codesThroughEveryStage(
+				source,
+				"outer/visits/item/nova_query_id_visits",
+			),
+		).toContain(
+			Q("hidden-value-with-both-calculate-and-a-default-by-any-expression"),
+		);
+	});
+
+	it("is no model iteration: the wrapper is left unclaimed", async () => {
+		const reading = await readForm(withTotal(queryDoc(), "/data/visits"));
+		const visits = readFields(reading.xform ?? ({} as never)).find(
+			(field) => field.id === "visits",
+		);
+		expect(visits?.standIn).toBe(true);
+		expect(
+			reading.closed.claims.counts[
+				Q("repeat-model-iteration-vellum-role-repeat-ids-count-current")
+			],
+		).toBeUndefined();
+		expect(codesAt(reading, "visits")).toContain("unrecognized");
+	});
+});
+
+describe("a group holding a repeat beside another control", () => {
+	const BARE = Q("bare-repeat-with-no-group-wrapper");
+	const source = (beside: string, groupRef = "") =>
+		xformSource({
+			data: `<member jr:template=""><name/></member><notes/>`,
+			model:
+				'<bind nodeset="/data/member/name" type="xsd:string"/><bind nodeset="/data/notes" type="xsd:string"/>',
+			body: `<group${groupRef}><label>Household</label><repeat nodeset="/data/member"><input ref="/data/member/name"/></repeat>${beside}</group>`,
+		});
+
+	it("is no repeat's wrapper, as Core collapses only a group whose one child is the repeat", async () => {
+		for (const beside of [
+			'<input ref="/data/notes"/>',
+			// A control the body refuses is still a child of the group in Core.
+			'<input ref="/data/notes" readonly="true()"/>',
+		]) {
+			const reading = await readForm(source(beside));
+			const fields = readFields(reading.xform ?? ({} as never));
+			expect(fields.some((field) => field.kind === "repeat")).toBe(false);
+			expect(formFindings(reading).map((finding) => finding.code)).toContain(
+				BARE,
+			);
+		}
+	});
+
+	it("is no wrapper with a `ref` either: the group stays a group", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: `<g><member jr:template=""><name/></member><notes/></g>`,
+				model:
+					'<bind nodeset="/data/g/member/name" type="xsd:string"/><bind nodeset="/data/g/notes" type="xsd:string"/>',
+				body: '<group ref="/data/g"><label>Household</label><repeat nodeset="/data/g/member"><input ref="/data/g/member/name"/></repeat><input ref="/data/g/notes"/></group>',
+			}),
+		);
+		const fields = readFields(reading.xform ?? ({} as never));
+		expect(fields.find((field) => field.id === "g")?.kind).toBe("group");
+		expect(fields.find((field) => field.id === "notes")?.parent?.id).toBe("g");
+		expect(fields.some((field) => field.kind === "repeat")).toBe(false);
+		expect(formFindings(reading).map((finding) => finding.code)).toContain(
+			BARE,
+		);
+	});
+
+	it("leaves a group whose one control is the repeat its wrapper, whatever its label", async () => {
+		const reading = await readForm(source(""));
+		const fields = readFields(reading.xform ?? ({} as never));
+		expect(fields.map((field) => [field.id, field.kind])).toEqual([
+			["member", "repeat"],
+			["name", "text"],
+			["notes", "hidden"],
+		]);
+		expect(formFindings(reading).map((finding) => finding.code)).not.toContain(
+			BARE,
 		);
 	});
 });

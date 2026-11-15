@@ -338,6 +338,11 @@ export const X = {
 		Q("bind-whose-nodeset-matches-no-node"),
 		"xform:model/bind@nodeset",
 	),
+	bindOnDataRoot: one(
+		"refuse",
+		Q("bind-whose-path-names-the-data-root-itself-data-data-or-a"),
+		"xform:model/bind@nodeset",
+	),
 	bindAttributePath: one(
 		"refuse",
 		Q("bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model"),
@@ -409,6 +414,11 @@ export const X = {
 	hiddenWithChildren: one(
 		"refuse",
 		Q("hidden-value-with-children"),
+		"xform:model/instance//*",
+	),
+	questionWithChildren: one(
+		"refuse",
+		Q("a-question-other-than-a-group-or-repeat-whose-data-node-has"),
 		"xform:model/instance//*",
 	),
 	dataParentOtherGroup: one(

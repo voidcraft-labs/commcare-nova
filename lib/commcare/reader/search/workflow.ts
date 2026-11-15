@@ -72,6 +72,14 @@ export const WORKFLOW_CLAIMS = {
 			`${S}search-on-a-put-in-root-module`,
 			"schema:CaseSearch.auto_launch",
 		),
+		putInRootDefault: refuse(
+			`${S}search-on-a-put-in-root-module`,
+			"schema:CaseSearch.default_search",
+		),
+		putInRootInline: refuse(
+			`${S}search-on-a-put-in-root-module`,
+			"schema:CaseSearch.inline_search",
+		),
 	}),
 };
 
@@ -135,7 +143,12 @@ export function readSearchWorkflow(
 	const defaultSearch = config.peek("default_search") === true;
 	const inline = config.peek("inline_search") === true;
 	if (module.json.peek("put_in_root") === true) {
+		// The finding stands whatever the three booleans hold: a list-first search holds each at
+		// its default, which no claim records. Each one used is claimed under it.
 		config.refuse("auto_launch", W.other.putInRoot);
+		config.refuse("default_search", W.other.putInRootDefault);
+		config.refuse("inline_search", W.other.putInRootInline);
+		ctx.accounting.finding(W.other.putInRoot, config.place);
 		return undefined;
 	}
 	let workflow: SearchWorkflow;

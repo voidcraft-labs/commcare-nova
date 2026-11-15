@@ -18,7 +18,7 @@ import type { DraftApp, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace } from "../place";
-import { readProjectionInputs } from "../projectionInputs";
+import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
 import {
@@ -38,6 +38,7 @@ import {
 	settleModules,
 	withReadTranslations,
 } from "./modules";
+import { shownBlockMedia } from "./navMedia";
 import { readCaseListRegistration, settleRegistrations } from "./registration";
 
 export { registerLinkExpressions } from "./afterSubmit";
@@ -97,14 +98,6 @@ export function readRootSelectionsTaken(ctx: ReadContext, app: DraftApp): void {
 }
 
 type JsonObject = Readonly<Record<string, unknown>>;
-
-/** A stored map of paths by language, restricted to the app's languages. */
-function inLanguages(value: unknown, langs: readonly string[]): JsonObject {
-	const map = isJsonObject(value) ? value : {};
-	return Object.fromEntries(
-		langs.filter((lang) => lang in map).map((lang) => [lang, map[lang]]),
-	);
-}
 
 /** Whether two stored XPath values are one: both absent or blank, or one tree. */
 function sameFilter(a: unknown, b: unknown): boolean {
@@ -207,12 +200,24 @@ function acceptMenus(
 		}
 		if (
 			own?.icon !== undefined &&
-			!sameJson(inLanguages(source.media_image, langs), ours.media_image)
+			!sameJson(
+				keptMediaPaths(
+					ctx,
+					shownBlockMedia((k) => source[k], "media_image", langs),
+				),
+				shownBlockMedia((k) => ours[k], "media_image", langs),
+			)
 		)
 			unrecognized(`schema:${module.docType}.media_image`);
 		if (
 			own?.audioLabel !== undefined &&
-			!sameJson(inLanguages(source.media_audio, langs), ours.media_audio)
+			!sameJson(
+				keptMediaPaths(
+					ctx,
+					shownBlockMedia((k) => source[k], "media_audio", langs),
+				),
+				shownBlockMedia((k) => ours[k], "media_audio", langs),
+			)
 		)
 			unrecognized(`schema:${module.docType}.media_audio`);
 		if (
@@ -243,16 +248,22 @@ function acceptMenus(
 			if (
 				item?.icon !== undefined &&
 				!sameJson(
-					inLanguages(sourceList.media_image, langs),
-					ourList.media_image,
+					keptMediaPaths(
+						ctx,
+						shownBlockMedia((k) => sourceList[k], "media_image", langs),
+					),
+					shownBlockMedia((k) => ourList[k], "media_image", langs),
 				)
 			)
 				listUnrecognized("schema:CaseList.media_image");
 			if (
 				item?.audioLabel !== undefined &&
 				!sameJson(
-					inLanguages(sourceList.media_audio, langs),
-					ourList.media_audio,
+					keptMediaPaths(
+						ctx,
+						shownBlockMedia((k) => sourceList[k], "media_audio", langs),
+					),
+					shownBlockMedia((k) => ourList[k], "media_audio", langs),
 				)
 			)
 				listUnrecognized("schema:CaseList.media_audio");
@@ -269,16 +280,22 @@ function acceptMenus(
 			if (
 				ownForm.icon !== undefined &&
 				!sameJson(
-					inLanguages(form.json.peek("media_image"), langs),
-					ourForm.media_image,
+					keptMediaPaths(
+						ctx,
+						shownBlockMedia((k) => form.json.peek(k), "media_image", langs),
+					),
+					shownBlockMedia((k) => ourForm[k], "media_image", langs),
 				)
 			)
 				formUnrecognized(`schema:${form.docType}.media_image`);
 			if (
 				ownForm.audioLabel !== undefined &&
 				!sameJson(
-					inLanguages(form.json.peek("media_audio"), langs),
-					ourForm.media_audio,
+					keptMediaPaths(
+						ctx,
+						shownBlockMedia((k) => form.json.peek(k), "media_audio", langs),
+					),
+					shownBlockMedia((k) => ourForm[k], "media_audio", langs),
 				)
 			)
 				formUnrecognized(`schema:${form.docType}.media_audio`);

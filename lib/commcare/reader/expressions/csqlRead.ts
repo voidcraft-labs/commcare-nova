@@ -45,10 +45,14 @@ import {
 	emitCsql,
 	emitCsqlTree,
 } from "../../csql/emitter";
-import { printCsql } from "../../csql/print";
+import { csqlClauseWrapper, printCsql } from "../../csql/print";
 import { checkCsqlRepresentability } from "../../csql/representability";
 import type { CsqlNode } from "../../csql/tree";
-import type { EmissionRewriteId } from "../../emissionRewrites";
+import {
+	EMISSION_REWRITE_IDS,
+	EMISSION_REWRITES,
+	type EmissionRewriteId,
+} from "../../emissionRewrites";
 import { caseListStepDatumId } from "../../formLinkProjection";
 import { lookupWireNaming } from "../../lookup/naming";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
@@ -60,6 +64,7 @@ import {
 } from "../../xpath/functionCapabilities";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
+import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { firstDifference, sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
@@ -143,6 +148,8 @@ type SkeletonPart =
 			readonly kind: "presence";
 			readonly input: FormSyntax;
 			readonly body: readonly SkeletonPart[];
+			/** The conditions the body's own wrapper sends `match-none()` under. */
+			readonly rejects: readonly FormSyntax[];
 	  }
 	| {
 			readonly kind: "choice";
@@ -232,14 +239,61 @@ function readsSearchAnswer(node: FormSyntax): boolean {
 	return stringOf(at.args[0])?.startsWith("search-input") === true;
 }
 
+/** A search row's wrapper over its syntax tree: its parts, and the
+ *  conditions under which the whole row sends `match-none()`, which the
+ *  guards level holds to the obligations Nova's own wrapper rejects under. */
+interface RowSkeleton {
+	readonly parts: readonly SkeletonPart[];
+	readonly rejects: readonly FormSyntax[];
+}
+
+/** A row's skeleton, read one of two ways. `failClosed`: an
+ *  `if(G, 'match-none()', X)` at the root of a wrapper fails the row closed
+ *  under `G`, which the guards level judges as Nova's own guard. Otherwise
+ *  that `if` is a choice like any other, the author's own condition, which
+ *  the row's reading holds in its tree. */
+function rowSkeleton(wrapper: FormSyntax, failClosed = true): RowSkeleton {
+	const rejects: FormSyntax[] = [];
+	return {
+		parts: skeleton(wrapper, failClosed ? { rejects } : {}),
+		rejects,
+	};
+}
+
+/** Whether a row's wrapper, read as failing closed, fails closed anywhere:
+ *  at its root or at the root of its presence body. */
+function failsClosed(row: RowSkeleton): boolean {
+	return (
+		row.rejects.length > 0 ||
+		row.parts.some(
+			(part) => part.kind === "presence" && part.rejects.length > 0,
+		)
+	);
+}
+
+/** The skeletons a row is read under, the failing-closed one first: where
+ *  it fails closed under a condition that is no guard of Nova's, the row is
+ *  read again with that condition as a choice. */
+function rowSkeletons(wrapper: FormSyntax): readonly RowSkeleton[] {
+	const row = rowSkeleton(wrapper);
+	return failsClosed(row) ? [row, rowSkeleton(wrapper, false)] : [row];
+}
+
 /** The parts of a search row's wrapper, over its syntax tree: the
  *  constant text the wrapper builds, the values the device splices in, and
- *  the choices it makes. */
-function skeleton(wrapper: FormSyntax, root = true): readonly SkeletonPart[] {
+ *  the choices it makes. `root` is given at the root of a wrapper, where a
+ *  presence test is the row's, and where, when `root.rejects` is given, an
+ *  `if(G, 'match-none()', X)` fails the whole row closed under `G`: the part
+ *  is `X`'s, and `G` is collected for the guards level to judge, never
+ *  dropped. Anywhere else such an `if` is a choice like any other. */
+function skeleton(
+	wrapper: FormSyntax,
+	root?: { readonly rejects?: FormSyntax[] },
+): readonly SkeletonPart[] {
 	const node = bare(wrapper);
 	if (node.kind === "string") return [{ kind: "text", text: node.value }];
 	if (node.kind === "call" && node.name === "concat")
-		return node.args.flatMap((arg) => skeleton(arg, false));
+		return node.args.flatMap((arg) => skeleton(arg));
 	const choice = callOf(node, "if", 3);
 	if (choice !== undefined) {
 		const [condition, thenArg, elseArg] = choice.args as [
@@ -249,19 +303,28 @@ function skeleton(wrapper: FormSyntax, root = true): readonly SkeletonPart[] {
 		];
 		const count = callOf(condition, "count", 1);
 		if (
-			root &&
+			root !== undefined &&
 			count !== undefined &&
 			readsSearchAnswer(count.args[0] as FormSyntax) &&
 			stringOf(elseArg) === "match-all()"
-		)
+		) {
+			const own: FormSyntax[] = [];
 			return [
 				{
 					kind: "presence",
 					input: count.args[0] as FormSyntax,
-					body: skeleton(thenArg, true),
+					body: skeleton(
+						thenArg,
+						root.rejects === undefined ? {} : { rejects: own },
+					),
+					rejects: own,
 				},
 			];
-		if (stringOf(thenArg) === "match-none()") return skeleton(elseArg, root);
+		}
+		if (root?.rejects !== undefined && stringOf(thenArg) === "match-none()") {
+			root.rejects.push(condition);
+			return skeleton(elseArg, root);
+		}
 		const quoted = containsQuote(condition, '"');
 		if (quoted !== undefined) {
 			const inner = callOf(thenArg, "if", 3);
@@ -273,7 +336,8 @@ function skeleton(wrapper: FormSyntax, root = true): readonly SkeletonPart[] {
 				inner !== undefined &&
 				single !== undefined &&
 				sameNode(single, quoted) &&
-				stringOf(inner.args[1]) === "match-none()"
+				stringOf(inner.args[1]) === "match-none()" &&
+				sameCascadeBranches(inner.args[2] as FormSyntax, elseArg, quoted)
 			)
 				return around(elseArg, quoted);
 			const singleQuoted = callOf(thenArg, "concat", 3);
@@ -295,13 +359,50 @@ function skeleton(wrapper: FormSyntax, root = true): readonly SkeletonPart[] {
 				kind: "choice",
 				condition,
 				// biome-ignore lint/suspicious/noThenProperty: a skeleton branch, never awaited.
-				then: skeleton(thenArg, false),
-				otherwise: skeleton(elseArg, false),
+				then: skeleton(thenArg),
+				otherwise: skeleton(elseArg),
 				node,
 			},
 		];
 	}
 	return [{ kind: "hole", node, quoted: false }];
+}
+
+/** Whether a quote cascade's single-quoted branch is its double-quoted one
+ *  with the value between the other quote marks: the one CSQL whichever
+ *  branch the device takes, so the cascade's parts are the double-quoted
+ *  branch's alone. A branch that says something else is no cascade, and its
+ *  `if` is read as a choice. */
+function sameCascadeBranches(
+	single: FormSyntax,
+	double: FormSyntax,
+	value: FormSyntax,
+): boolean {
+	const singleParts = around(single, value);
+	const doubleParts = around(double, value);
+	const prefix = markerPrefix([
+		...constantTexts(singleParts),
+		...constantTexts(doubleParts),
+	]);
+	const left = assemble(singleParts, prefix);
+	const right = assemble(doubleParts, prefix);
+	if (
+		left.markers.length !== right.markers.length ||
+		left.markers.some(
+			({ part }, index) =>
+				!sameNode(part.node, right.markers[index]?.part.node as FormSyntax),
+		)
+	)
+		return false;
+	const leftCsql = readFormSyntax(left.text);
+	const rightCsql = readFormSyntax(right.text);
+	return (
+		leftCsql.ok &&
+		rightCsql.ok &&
+		leftCsql.node !== undefined &&
+		rightCsql.node !== undefined &&
+		sameNode(leftCsql.node, rightCsql.node)
+	);
 }
 
 /** The skeleton of the double-quoted branch of a quote cascade: its text,
@@ -318,9 +419,9 @@ function around(
 		return node.args.flatMap((arg) =>
 			sameNode(arg, value)
 				? [{ kind: "hole" as const, node: value, quoted: false }]
-				: skeleton(arg, false),
+				: skeleton(arg),
 		);
-	return skeleton(branch, false);
+	return skeleton(branch);
 }
 
 /** Each run of text and holes as one CSQL text, a hole or a choice as a
@@ -703,8 +804,7 @@ class CsqlBinder {
 			if (
 				test.kind !== "multi-select-contains" ||
 				test.values.length !== 1 ||
-				(first !== undefined &&
-					JSON.stringify(first.property) !== JSON.stringify(test.property))
+				(first !== undefined && !sameJson(first.property, test.property))
 			)
 				return undefined;
 			tests.push(test);
@@ -737,8 +837,7 @@ class CsqlBinder {
 				equality.right.kind === "term" ? equality.right.term : undefined;
 			if (
 				value?.kind !== "literal" ||
-				(left !== undefined &&
-					JSON.stringify(left) !== JSON.stringify(equality.left))
+				(left !== undefined && !sameJson(left, equality.left))
 			)
 				return undefined;
 			left = equality.left;
@@ -935,7 +1034,7 @@ class CsqlBinder {
 		// device value, so the two are compared bound.
 		const lower = this.value(left.right, anchor, false, rowType);
 		const upper = this.value(right.right, anchor, false, rowType);
-		if (JSON.stringify(lower) !== JSON.stringify(upper)) return undefined;
+		if (!sameJson(lower, upper)) return undefined;
 		return { kind: "eq", left: anchor, right: lower };
 	}
 
@@ -1748,22 +1847,72 @@ function sourceText(
 	};
 }
 
-/** Guards: the same CSQL and, hole for hole, the same device values. */
+/** The tests of an `or` of `and`s, each disjunct as its clauses. */
+function disjuncts(node: FormSyntax): FormSyntax[][] {
+	const split = (at: FormSyntax, op: string): FormSyntax[] => {
+		const inner = bare(at);
+		return inner.kind === "binary" && inner.op === op
+			? [...split(inner.left, op), ...split(inner.right, op)]
+			: [inner];
+	};
+	return split(node, "or").map((disjunct) => split(disjunct, "and"));
+}
+
+/** Whether every condition the source's wrapper sends `match-none()` under
+ *  is one Nova's wrapper of the row rejects under too: each disjunct of each
+ *  is, clause for clause in any order, a disjunct of one of the candidate's
+ *  obligations. The guards level then changes only where Nova's wrapper
+ *  fails closed and the source's did not, which is the rewrite it reports;
+ *  a condition of the author's own, under which the source showed no case,
+ *  is no guard of Nova's, and the row is not held at this level. */
+function rejectsHeld(rejects: readonly FormSyntax[], tree: CsqlNode): boolean {
+	if (rejects.length === 0) return true;
+	const obligations: FormSyntax[][] = [];
+	for (const rejection of csqlClauseWrapper(tree).runtimeRejections ?? []) {
+		const condition = printed(rejection.condition);
+		if (condition === undefined) return false;
+		obligations.push(...disjuncts(condition));
+	}
+	const sameClauses = (a: FormSyntax[], b: FormSyntax[]): boolean => {
+		if (a.length !== b.length) return false;
+		const left = [...b];
+		for (const clause of a) {
+			const at = left.findIndex((other) => sameNode(clause, other));
+			if (at < 0) return false;
+			left.splice(at, 1);
+		}
+		return true;
+	};
+	return rejects.every((reject) =>
+		disjuncts(reject).every((disjunct) =>
+			obligations.some((obligation) => sameClauses(disjunct, obligation)),
+		),
+	);
+}
+
+/** Guards: the same CSQL and, hole for hole, the same device values, and no
+ *  condition the source fails closed under that Nova's wrapper does not. */
 function guards(
-	parts: readonly SkeletonPart[],
+	row: RowSkeleton,
 	tree: CsqlNode,
 	prefix: string,
 ): { readonly today: boolean; readonly guarded: boolean } | undefined {
+	const { parts, rejects } = row;
 	const [only] = parts;
 	if (parts.length === 1 && only?.kind === "presence") {
-		if (tree.k !== "presence") return undefined;
+		if (tree.k !== "presence" || rejects.length > 0) return undefined;
 		const trigger = printed(tree.trigger);
 		if (trigger === undefined || !sameNode(only.input, trigger))
 			return undefined;
-		const inner = guards(only.body, tree.clause, prefix);
+		const inner = guards(
+			{ parts: only.body, rejects: only.rejects },
+			tree.clause,
+			prefix,
+		);
 		return inner === undefined ? undefined : { ...inner, guarded: true };
 	}
 	if (tree.k === "presence") return undefined;
+	if (!rejectsHeld(rejects, tree)) return undefined;
 	const source = sourceText(parts, prefix);
 	const candidate = candidateText(tree, prefix);
 	if (source === undefined || candidate === undefined) return undefined;
@@ -1824,6 +1973,40 @@ function refusalOf(
 	return undefined;
 }
 
+/** The rewrites of the device values a row splices in, all withheld when
+ *  the guards level compares them with the source's. */
+const DEVICE_REWRITES: ReadonlySet<EmissionRewriteId> = new Set(
+	EMISSION_REWRITE_IDS,
+);
+
+/** `emission` with every rewrite of a device value withheld, each one the
+ *  print reaches added to `reached`. */
+function withDeviceRewritesWithheld(
+	emission: CsqlEmissionContext,
+	reached: Set<EmissionRewriteId>,
+): CsqlEmissionContext {
+	return {
+		...emission,
+		rewrites: { withhold: DEVICE_REWRITES, reached: (id) => reached.add(id) },
+	};
+}
+
+/** `rewrites`, then each rewrite in `reached` a worker meets, once. */
+function changing(
+	reached: ReadonlySet<EmissionRewriteId>,
+	rewrites: readonly EmissionRewriteId[],
+): EmissionRewriteId[] {
+	return [
+		...rewrites,
+		...EMISSION_REWRITE_IDS.filter(
+			(id) =>
+				reached.has(id) &&
+				EMISSION_REWRITES[id].behavior === "changes" &&
+				!rewrites.includes(id),
+		),
+	];
+}
+
 /** The JSON key a search filter row sits in. */
 const ROW_KEY = "schema:DefaultCaseSearchProperty.defaultValue";
 
@@ -1875,11 +2058,6 @@ export function readSearchFilterRow(
 	}
 	if (!read.ok || read.node === undefined) return unparsed;
 	const source = read.node;
-	const parts = skeleton(source);
-	const prefix = markerPrefix(constantTexts(parts));
-	const typing = comparedRowTypes(parts, context, env, text);
-	const rowContext = withComparedTypes(context, typing);
-	const emission = emissionContext(rowContext, env);
 	let firstRefusal: Refusal | undefined;
 	// Where the source's wrapper first differs from Nova's own wrapper of a
 	// reading, for the defect line of a row left unrecognized.
@@ -1891,49 +2069,86 @@ export function readSearchFilterRow(
 			unrecognized: true,
 			reason: `differs:${differing.kind}`,
 		}) as const;
-	for (const proposals of [true, false]) {
-		const { bound: raw, today } = bindCsql(parts, rowContext, env, {
-			text,
-			proposals,
-		});
-		if ("unrecognized" in raw) return unrecognized();
-		if (!("kind" in raw)) return { ok: false, claim: rowClaim(raw, source) };
-		// A relation typed as the catalog resolves it, the canonical member of
-		// the paths that print one row.
-		const bound = typedRelations(raw, rowContext);
-		const refusal = refusalOf(bound, rowContext, env);
-		if (refusal !== undefined) {
-			firstRefusal ??= refusal;
-			continue;
-		}
-		const types = typing.length === 0 ? {} : { types: typing };
-		let tree: CsqlNode;
-		try {
-			if (exact(source, bound, emission))
-				return {
-					ok: true,
-					predicate: bound,
-					level: "exact",
-					rewrites: [],
-					...types,
-				};
-			tree = emitCsqlTree(bound, emission);
-		} catch {
-			continue;
-		}
-		const level = guards(parts, tree, prefix);
-		if (level === undefined) {
-			if (!differs) {
-				differing = wrapperDifference(source, bound, emission) ?? source;
-				differs = true;
+	// The skeleton that fails closed first, then, where the source fails
+	// closed under a condition that is no guard of Nova's, the one that
+	// reads that condition as the author's own choice.
+	const skeletons = rowSkeletons(source);
+	for (const [variant, row] of skeletons.entries()) {
+		const last = variant === skeletons.length - 1;
+		const { parts } = row;
+		const prefix = markerPrefix(constantTexts(parts));
+		const typing = comparedRowTypes(parts, context, env, text);
+		const rowContext = withComparedTypes(context, typing);
+		const emission = emissionContext(rowContext, env);
+		for (const proposals of [true, false]) {
+			const { bound: raw, today } = bindCsql(parts, rowContext, env, {
+				text,
+				proposals,
+			});
+			if ("unrecognized" in raw) {
+				if (last) return unrecognized();
+				break;
 			}
-			continue;
+			if (!("kind" in raw)) {
+				if (last) return { ok: false, claim: rowClaim(raw, source) };
+				break;
+			}
+			// A relation typed as the catalog resolves it, the canonical member of
+			// the paths that print one row.
+			const bound = typedRelations(raw, rowContext);
+			const refusal = refusalOf(bound, rowContext, env);
+			if (refusal !== undefined) {
+				firstRefusal ??= refusal;
+				continue;
+			}
+			const types = typing.length === 0 ? {} : { types: typing };
+			const reached = new Set<EmissionRewriteId>();
+			// The device values Nova splices in, with every rewrite of theirs
+			// withheld (a read of an answer guarded for no rows), so they
+			// compare with the source's, and each reported.
+			const withheld = withDeviceRewritesWithheld(emission, reached);
+			let tree: CsqlNode;
+			try {
+				if (exact(source, bound, emission))
+					return {
+						ok: true,
+						predicate: bound,
+						level: "exact",
+						rewrites: [],
+						...types,
+					};
+				if (exact(source, bound, withheld))
+					return {
+						ok: true,
+						predicate: bound,
+						level: "guards",
+						rewrites: changing(reached, []),
+						...types,
+					};
+				tree = emitCsqlTree(bound, withheld);
+			} catch {
+				continue;
+			}
+			const level = guards(row, tree, prefix);
+			if (level === undefined) {
+				if (!differs) {
+					differing = wrapperDifference(source, bound, emission) ?? source;
+					differs = true;
+				}
+				continue;
+			}
+			const rewrites: EmissionRewriteId[] = [];
+			if (level.guarded || !(today && level.today))
+				rewrites.push("search-value-guards");
+			if (today && level.today) rewrites.push("search-today-device-day");
+			return {
+				ok: true,
+				predicate: bound,
+				level: "guards",
+				rewrites: changing(reached, rewrites),
+				...types,
+			};
 		}
-		const rewrites: EmissionRewriteId[] = [];
-		if (level.guarded || !(today && level.today))
-			rewrites.push("search-value-guards");
-		if (today && level.today) rewrites.push("search-today-device-day");
-		return { ok: true, predicate: bound, level: "guards", rewrites, ...types };
 	}
 	// A binding that passed the checker and printed back unequal leaves the
 	// row Nova's to explain, whatever another binding was refused for.
@@ -2002,16 +2217,17 @@ export function searchRowLevel(
 	env: SearchRowEnv,
 ): "exact" | "guards" | undefined {
 	const emission = emissionContext(context, env);
-	const parts = skeleton(source);
 	try {
 		if (exact(source, predicate, emission)) return "exact";
-		return guards(
-			parts,
-			emitCsqlTree(predicate, emission),
-			markerPrefix(constantTexts(parts)),
-		) === undefined
-			? undefined
-			: "guards";
+		const withheld = withDeviceRewritesWithheld(emission, new Set());
+		if (exact(source, predicate, withheld)) return "guards";
+		const tree = emitCsqlTree(predicate, withheld);
+		return rowSkeletons(source).some(
+			(row) =>
+				guards(row, tree, markerPrefix(constantTexts(row.parts))) !== undefined,
+		)
+			? "guards"
+			: undefined;
 	} catch {
 		return undefined;
 	}
@@ -2027,7 +2243,7 @@ export function searchRowCsql(wrapper: FormSyntax):
 			readonly presence: boolean;
 	  }
 	| undefined {
-	let parts = skeleton(wrapper);
+	let { parts } = rowSkeleton(wrapper);
 	const [only] = parts;
 	const presence = parts.length === 1 && only?.kind === "presence";
 	if (presence && only?.kind === "presence") parts = only.body;

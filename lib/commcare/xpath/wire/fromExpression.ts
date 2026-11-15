@@ -66,7 +66,7 @@ import {
 	guardNodeSetConsumer,
 	guardValue,
 } from "./emptyRows";
-import { formReadToWire } from "./formReads";
+import { formReadToWire, placeBindingWithheld } from "./formReads";
 import { normalizeGeopoint, validGeopointCenter } from "./geopoint";
 import {
 	locationsInstance,
@@ -467,7 +467,18 @@ function term(input: Term, ctx: Context): WireExpr {
 				input.filters === undefined
 					? bindings.formFields?.get(input.uuid)
 					: undefined;
-			if (result !== undefined) return result;
+			// A Save to Case block's binding reads its own repeat's answer from
+			// `current()`; an absolute read's relocation there can be withheld.
+			if (
+				result !== undefined &&
+				!(
+					result.k === "path" &&
+					result.root.k === "current" &&
+					ctx.form !== undefined &&
+					placeBindingWithheld(input, ctx.types, ctx.form, ctx.rewrites)
+				)
+			)
+				return result;
 			if (ctx.form === undefined)
 				throw new Error(
 					"A form read reached wire emission without the owning form-node projection.",

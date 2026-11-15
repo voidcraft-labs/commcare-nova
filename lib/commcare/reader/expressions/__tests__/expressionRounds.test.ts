@@ -215,9 +215,12 @@ describe("a later round that changes a Hidden Value's type", () => {
 		// the Hidden Value is no date and time for the rounds after it. The
 		// comparison is Nova's own print where the Hidden Value is one: equal
 		// in the first round, and printed otherwise once the type changed.
-		// The Hidden Value's guard is a rewrite, so it is held at the second
-		// level as the date and time Nova's print reads back as, and the
-		// comparison, judged again over it, is the comparison once more.
+		// The table read inside HQ's `if` takes Nova's guard, a rewrite, so the
+		// Hidden Value is held at the second level as the tree Nova's print
+		// reads back as when that print is judged too: HQ's `if`, falling back
+		// to 0, never the bare read the withdrawn guard proposed, which falls
+		// back to ''. The comparison, judged again over it, is held as the
+		// text it is, which reads the Hidden Value's text.
 		const pending = [
 			registration(
 				asProposed,
@@ -232,9 +235,24 @@ describe("a later round that changes a Hidden Value's type", () => {
 		];
 		const reading = readExpressions(provisional, pending, env);
 		expect(reading.rounds).toBeGreaterThan(1);
-		expect(reading.rounds).toBeLessThanOrEqual(4);
-		expect(reading.bound[0]).toEqual(visitTime);
-		expect(reading.bound[1]).toEqual(before);
+		expect(reading.rounds).toBeLessThan(EXPRESSION_ROUND_LIMIT);
+		expect(reading.circumstances).toEqual([]);
+		expect(reading.bound[0]).toEqual({
+			kind: "if",
+			cond: {
+				kind: "gt",
+				left: {
+					kind: "count",
+					via: { kind: "table-rows", tableId: TABLE, where: [] },
+				},
+				right: term({ kind: "literal", value: 0 }),
+			},
+			// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+			then: visitTime,
+			else: term({ kind: "literal", value: 0 }),
+		});
+		expect(reading.bound[1]).toBeDefined();
+		expect(reading.bound[1]).not.toEqual(before);
 		expectHeldPrintsItsText(reading, pending, env);
 	});
 

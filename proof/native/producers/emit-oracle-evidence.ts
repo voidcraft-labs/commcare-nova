@@ -11,7 +11,7 @@ import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 const outArgument = process.argv[2];
 if (!outArgument)
 	throw new Error(
-		"Usage: node --import tsx proof/native/producers/emit-oracle-evidence.ts OUTPUT_DIRECTORY",
+		"Usage: node --conditions=react-server --import tsx proof/native/producers/emit-oracle-evidence.ts OUTPUT_DIRECTORY",
 	);
 const out = resolve(outArgument);
 mkdirSync(out, { recursive: true });

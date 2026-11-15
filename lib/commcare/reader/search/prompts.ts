@@ -14,6 +14,7 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
@@ -28,10 +29,12 @@ import { withCandidate } from "../candidate";
 import {
 	appCodes,
 	languageMap,
+	shownTexts,
 	sourceCode,
 	sourceText,
 	translatedTexts,
 } from "../caseList/columns";
+import { sameState } from "../caseList/details";
 import {
 	type Claim,
 	defineClaims,
@@ -46,10 +49,14 @@ import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
 import { readGuardText } from "./guardSplit";
+import { BLANK_IS_ABSENT, spelledAsShown } from "./settings";
 import { storedPrompts, withoutRuntimeGuard } from "./systemSentences";
 import { searchPlace } from "./workflow";
 
 const S = "case-search/";
+
+/** The entry a required or validation test with no message in any language is refused under. */
+const NO_MESSAGE = `${S}a-required-or-validation-test-with-no-message-in-any-language`;
 
 export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	order: take(`${S}prompt-order`, "schema:CaseSearch.properties"),
@@ -210,6 +217,23 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}receiver-expression-on-a-prompt-whose-editor-appearance-is`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
+	blankReceiver: drop(
+		BLANK_IS_ABSENT,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
+	blankDefault: drop(
+		BLANK_IS_ABSENT,
+		"schema:CaseSearchProperty.default_value",
+	),
+	blankRequiredTest: drop(
+		BLANK_IS_ABSENT,
+		"schema:CaseSearchProperty.required",
+	),
+	requiredNoMessage: refuse(NO_MESSAGE, "schema:CaseSearchProperty.required"),
+	validationNoMessage: refuse(
+		NO_MESSAGE,
+		"schema:CaseSearchProperty.validations",
+	),
 	group: refuse(`${S}is-group-group-key`, "schema:CaseSearchProperty.is_group"),
 	groupMissing: refuse(
 		`${S}groups-present-and-an-input-without-group-key`,
@@ -234,11 +258,14 @@ const RESERVED_REQUEST_KEYS = new Set([
 	"_xpath_query",
 ]);
 
-/** The case attributes a prompt can be named for, which HQ's search reads by its own rule. */
+/** The case attributes a prompt can be named for, and the case's name, which HQ's search reads
+ *  by its own rule (`case_search/const.py::INDEXED_METADATA_BY_KEY`: `@case_id`, `@owner_id`,
+ *  `@status`, and `name`, the case's name, which Nova names `case_name`). */
 export const ATTRIBUTE_PROMPT_NAMES = new Set([
 	"case_id",
 	"owner_id",
 	"status",
+	"name",
 ]);
 
 /** One prompt as the pass read it, for the arms the settle decides. */
@@ -369,6 +396,66 @@ function readPrompt(
 		prompt.refuse(key, claim, named);
 		return undefined;
 	};
+	// A blank `""` is the key absent: HQ's Case List page writes `receiver_expression: ""` for
+	// every plain or lookup prompt and `default_value` for a multi-select one on each save
+	// (`views/modules.py::_update_search_properties`), and HQ's build and Web Apps read each only
+	// where it holds text (`remote_requests.py`: `if prop.default_value`; `query.js`, `receive`).
+	// A `required` whose test is blank is no requirement, whatever its text: HQ's build writes no
+	// `<required>` and no text for it (`remote_requests.py`, `app_strings.py`:
+	// `if prop.required.test`).
+	const storedRequired = prompt.peek("required");
+	const requiredTest = isJsonObject(storedRequired)
+		? storedRequired.test
+		: undefined;
+	const requires =
+		prompt.used("required") &&
+		requiredTest !== null &&
+		requiredTest !== undefined &&
+		requiredTest !== "";
+	for (const [key, claim, blank] of [
+		[
+			"receiver_expression",
+			P.blankReceiver,
+			prompt.peek("receiver_expression") === "",
+		],
+		["default_value", P.blankDefault, prompt.peek("default_value") === ""],
+		["required", P.blankRequiredTest, prompt.used("required") && !requires],
+	] as const)
+		if (blank && prompt.used(key)) {
+			prompt.drop(key, claim);
+			sameState(
+				ctx,
+				claim.entry,
+				`${prompt.pointer}/${key}`,
+				"list-settings-respelled",
+			);
+		}
+	const holds = (key: "receiver_expression" | "default_value") =>
+		prompt.used(key) && prompt.peek(key) !== "";
+	// Each text as HQ's build shows it in each app language (`app_strings.py`, `clean_trans` of
+	// the map): a language the map lacks, or holds blank, shows another language's text.
+	const codes = appCodes(ctx);
+	const shownOf = (stored: unknown) => shownTexts(stored ?? {}, codes);
+	const label = shownOf(prompt.peek("label"));
+	const hintMap = shownOf(prompt.peek("hint"));
+	const requiredMap = requires
+		? shownOf(isJsonObject(storedRequired) ? storedRequired.text : undefined)
+		: {};
+	if (
+		label === undefined ||
+		hintMap === undefined ||
+		requiredMap === undefined
+	) {
+		ctx.accounting.circumstance("unrecognized", place, {
+			name:
+				label === undefined
+					? "schema:CaseSearchProperty.label"
+					: hintMap === undefined
+						? "schema:CaseSearchProperty.hint"
+						: "schema:Assertion.text",
+		});
+		return undefined;
+	}
 	if (RESERVED_REQUEST_KEYS.has(name))
 		return refuseWith("name", P.nameReserved);
 	if (!SEARCH_INPUT_NAME_PATTERN.test(name))
@@ -379,7 +466,7 @@ function readPrompt(
 		return refuseWith("group_key", P.groupMissing);
 	if (prompt.used("allow_blank_value"))
 		return refuseWith("allow_blank_value", P.allowBlank);
-	if (prompt.used("receiver_expression"))
+	if (holds("receiver_expression"))
 		return refuseWith(
 			"receiver_expression",
 			prompt.used("appearance") && prompt.peek("appearance") !== "barcode_scan"
@@ -388,7 +475,7 @@ function readPrompt(
 		);
 	const hidden = prompt.peek("hidden") === true;
 	const exclude = prompt.peek("exclude") === true;
-	const checked = prompt.used("required") || prompt.used("validations");
+	const checked = requires || prompt.used("validations");
 	const appearance = prompt.peek("appearance");
 	const input = prompt.peek("input_");
 	if (appearance === "address")
@@ -397,12 +484,33 @@ function readPrompt(
 		if (checked) return refuseWith("hidden", P.hiddenChecked);
 		if (carriesWidget(prompt)) return refuseWith("hidden", P.hiddenWidget);
 		if (!exclude) return refuseWith("hidden", P.hiddenNoExclude);
-		if (!prompt.used("default_value"))
-			return refuseWith("hidden", P.hiddenNoDefault);
+		if (!holds("default_value")) return refuseWith("hidden", P.hiddenNoDefault);
 	}
 	const validations = prompt.peek("validations");
 	if (Array.isArray(validations) && validations.length > 1)
 		return refuseWith("validations", P.validationsLater);
+	// A check whose message is blank in every language: HQ's build shows the runtime's own
+	// sentence for a validation (`remote_requests.py` writes no text where `has_text` is false)
+	// and a blank one for a requirement, and Nova holds no check without a message of its own.
+	if (requires && sourceText(ctx, requiredMap) === "")
+		return refuseWith("required", P.requiredNoMessage);
+	const validation = readValidation(
+		ctx,
+		Array.isArray(validations) ? validations[0] : undefined,
+		codes,
+	);
+	if (validation === "unreadable") {
+		ctx.accounting.circumstance("unrecognized", place, {
+			name: "schema:Assertion.text",
+		});
+		return undefined;
+	}
+	if (
+		validation?.kind === "checked" &&
+		validation.rule !== undefined &&
+		sourceText(ctx, validation.messages) === ""
+	)
+		return refuseWith("validations", P.validationNoMessage);
 
 	let type: PromptReading["type"] = hidden ? "hidden" : "text";
 	let options: SearchInputLookupOptions | undefined;
@@ -521,8 +629,13 @@ function readPrompt(
 			prompt.drop("appearance", P.appearanceOther);
 		if (!exclude && ATTRIBUTE_PROMPT_NAMES.has(name))
 			return refuseWith("name", P.nameAttribute);
+		// A prompt without `exclude` matches the case property of its own name, which Nova holds as
+		// the simple field's property: a name Nova's property grammar refuses (`_x`, `date-opened`,
+		// `external-id`) names a property no document can hold.
+		if (!exclude && !authoredCasePropertyNameSchema.safeParse(name).success)
+			return refuseWith("name", P.nameOutside);
 	}
-	if (type === "date-range" && prompt.used("default_value"))
+	if (type === "date-range" && holds("default_value"))
 		return refuseWith("default_value", P.defaultOnRange);
 
 	const uuid = ctx.accounting.identity(
@@ -546,8 +659,21 @@ function readPrompt(
 	else if (exclude) prompt.take("exclude", P.exclude, Boolean).value;
 	if (hidden) prompt.take("hidden", P.hiddenValue, Boolean).value;
 
-	const label = prompt.take("label", P.label, languageMap).value;
-	const hintMap = prompt.take("hint", P.hint, languageMap).value;
+	// A text map spelled other than as the build shows it prints the same text, and the first
+	// publish writes it as shown.
+	const respelled = (
+		at: JsonCursor,
+		key: string,
+		entry: string,
+		shown: Readonly<Record<string, string>>,
+	) => {
+		if (at.used(key) && !spelledAsShown(at.peek(key), shown, codes))
+			sameState(ctx, entry, `${at.pointer}/${key}`, "list-settings-respelled");
+	};
+	prompt.take("label", P.label, languageMap).value;
+	prompt.take("hint", P.hint, languageMap).value;
+	respelled(prompt, "label", P.label.entry, label);
+	respelled(prompt, "hint", P.hint.entry, hintMap);
 	const register = (
 		slot:
 			| "search_input_default"
@@ -577,7 +703,9 @@ function readPrompt(
 		);
 	const defaultText = prompt.peek("default_value");
 	const hasDefault =
-		typeof defaultText === "string" && defaultText.trim() !== "";
+		holds("default_value") &&
+		typeof defaultText === "string" &&
+		defaultText.trim() !== "";
 	const defaultIndex = hasDefault
 		? register(
 				hidden ? "search_input_hidden_value" : "search_input_default",
@@ -589,18 +717,16 @@ function readPrompt(
 		: undefined;
 	let requiredWhen: number | undefined;
 	let required: { message?: string } | undefined;
-	if (prompt.used("required")) {
+	if (requires) {
 		const assertion = prompt.object("required", "Assertion", P.required);
 		const test = assertion.peek("test");
-		const text = assertion.take("text", P.requiredText, languageMap).value;
+		assertion.take("text", P.requiredText, languageMap).value;
+		const text = requiredMap;
+		respelled(assertion, "text", P.requiredText.entry, text);
 		required = {};
-		if (
-			typeof test !== "string" ||
-			test.trim() === "" ||
-			test.trim() === "true()"
-		)
+		if (typeof test === "string" && test.trim() === "true()")
 			assertion.take("test", P.requiredAlways, String).value;
-		else
+		else if (typeof test === "string")
 			requiredWhen = register(
 				"search_input_required_when",
 				test,
@@ -626,45 +752,26 @@ function readPrompt(
 	let validationMessage: string | undefined;
 	const validationList = prompt.list("validations", "Assertion", P.validation);
 	const first = validationList[0];
-	if (first !== undefined) {
-		const test = first.peek("test");
-		const text = first.take("text", P.validationText, languageMap).value;
-		const authored = withoutRuntimeGuard(
-			test,
-			sourceFirst(ctx).map((code) => text[code] ?? ""),
-		);
-		const guarded =
-			authored.kind === "whole"
-				? undefined
-				: guardTexts(ctx).get(authored.guard.key);
-		if (authored.kind === "guard") first.derived("test", P.validationGuard);
+	if (first !== undefined && validation !== undefined) {
+		first.take("text", P.validationText, languageMap).value;
+		const shown = shownOf(first.peek("text"));
+		if (shown !== undefined)
+			respelled(first, "text", P.validationText.entry, shown);
+		if (validation.kind === "guard") first.derived("test", P.validationGuard);
 		else {
-			const rule = authored.kind === "split" ? authored.rule : test;
-			if (typeof rule === "string" && rule.trim() !== "")
+			if (validation.rule !== undefined)
 				validationRule = register(
 					"search_input_validation_rule",
-					rule,
+					validation.rule,
 					{ json: first, key: "test" },
 					"no-dots",
 					"schema:Assertion.test",
 				);
-			const messages =
-				authored.kind === "split"
-					? Object.fromEntries(
-							Object.entries(text).map(([code, one]) => [
-								code,
-								withoutSuffix(
-									one,
-									` ${guarded?.get(code) ?? authored.guard.message}`,
-								),
-							]),
-						)
-					: text;
-			validationMessage = sourceText(ctx, messages);
+			validationMessage = sourceText(ctx, validation.messages);
 			ctx.translations.set(
 				makeTranslationUnitId("search-input", uuid, "validation-message"),
 				"text",
-				translatedTexts(ctx, messages),
+				translatedTexts(ctx, validation.messages),
 			);
 		}
 	}
@@ -759,6 +866,57 @@ function readPrompt(
 	};
 }
 
+/** A prompt's first validation as read: Nova's runtime guard alone, or the authored rule (where
+ *  it holds one) with each language's message as HQ's build shows it, less the guard's sentence
+ *  where the stored check joins the guard after it. */
+type ValidationReading =
+	| { readonly kind: "guard" }
+	| {
+			readonly kind: "checked";
+			readonly rule?: string;
+			readonly messages: Readonly<Record<string, string>>;
+	  };
+
+/** `stored`, a prompt's first validation, as `ValidationReading`; `"unreadable"` where its text
+ *  holds a value whose printed text the reader cannot know. */
+function readValidation(
+	ctx: ReadContext,
+	stored: unknown,
+	codes: readonly string[],
+): ValidationReading | "unreadable" | undefined {
+	if (!isJsonObject(stored)) return undefined;
+	const text = shownTexts(stored.text ?? {}, codes);
+	if (text === undefined) return "unreadable";
+	const test = stored.test;
+	const authored = withoutRuntimeGuard(
+		test,
+		sourceFirst(ctx).map((code) => text[code] ?? ""),
+	);
+	if (authored.kind === "guard") return { kind: "guard" };
+	const guarded =
+		authored.kind === "whole"
+			? undefined
+			: guardTexts(ctx).get(authored.guard.key);
+	const rule = authored.kind === "split" ? authored.rule : test;
+	const messages =
+		authored.kind === "split"
+			? Object.fromEntries(
+					Object.entries(text).map(([code, one]) => [
+						code,
+						withoutSuffix(
+							one,
+							` ${guarded?.get(code) ?? authored.guard.message}`,
+						),
+					]),
+				)
+			: text;
+	return {
+		kind: "checked",
+		...(typeof rule === "string" && rule.trim() !== "" && { rule }),
+		messages,
+	};
+}
+
 /** The app's language codes, the reading's source first and the rest in the app's order: the
  *  order a stored text is read in, since the source language holds Nova's own sentences. */
 function sourceFirst(ctx: ReadContext): readonly string[] {
@@ -807,7 +965,8 @@ function guardTexts(
 			? prompt.validations[0]
 			: undefined;
 		if (!isJsonObject(first)) continue;
-		const text = languageMap(first.text);
+		const text = shownTexts(first.text ?? {}, codes);
+		if (text === undefined) continue;
 		const reading = withoutRuntimeGuard(
 			first.test,
 			ordered.map((code) => text[code] ?? ""),
@@ -880,7 +1039,7 @@ function requiredDefaultTexts(
 			: storedPrompts(ctx.app.peek("modules"))
 					.map((prompt) =>
 						isJsonObject(prompt.required)
-							? languageMap(prompt.required.text)
+							? shownTexts(prompt.required.text ?? {}, appCodes(ctx))
 							: undefined,
 					)
 					.find(

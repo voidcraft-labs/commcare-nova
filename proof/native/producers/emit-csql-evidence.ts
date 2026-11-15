@@ -20,7 +20,7 @@ import { inventoryIndex } from "../../../lib/commcare/surface/inventory";
 const output = process.argv[2];
 if (!output)
 	throw new Error(
-		"Usage: node --import tsx proof/native/producers/emit-csql-evidence.ts OUTPUT_DIRECTORY",
+		"Usage: node --conditions=react-server --import tsx proof/native/producers/emit-csql-evidence.ts OUTPUT_DIRECTORY",
 	);
 mkdirSync(output, { recursive: true });
 const runtimeTarget = {
@@ -50,30 +50,26 @@ writeFileSync(resolve(output, "scenarios.jsonl"), `${records.join("\n")}\n`);
 
 // The search row reader's reading of each CSQL text the reader is held to, for
 // test_csql_reader_parity.py, which reads the same texts with HQ's own CSQL
-// parser and filter builder.
+// parser and filter builder. One line per text, as `scenarios.jsonl`: every
+// `.json` in this directory is an app source to the family's HQ step.
 const readerDoc = csqlVectorDoc();
 const readerContext = rowContext(readerDoc);
 const readerEnv = rowEnv(readerDoc);
 const index = inventoryIndex();
-writeFileSync(
-	resolve(output, "csql-reader.json"),
-	`${JSON.stringify({
-		schemaVersion: 1,
-		vectors: CSQL_READER_VECTORS.map((vector) => {
-			const reading = readSearchFilterRow(
-				csqlRow(vector.csql),
-				readerContext,
-				readerEnv,
-			);
-			const verdict = reading.ok
-				? { held: reading.level }
-				: "claim" in reading
-					? {
-							entry: reading.claim.entryId,
-							disposition: index.entry(reading.claim.entryId)?.disposition,
-						}
-					: { unrecognized: true };
-			return { id: vector.id, csql: vector.csql, verdict };
-		}),
-	})}\n`,
-);
+const vectors = CSQL_READER_VECTORS.map((vector) => {
+	const reading = readSearchFilterRow(
+		csqlRow(vector.csql),
+		readerContext,
+		readerEnv,
+	);
+	const verdict = reading.ok
+		? { held: reading.level }
+		: "claim" in reading
+			? {
+					entry: reading.claim.entryId,
+					disposition: index.entry(reading.claim.entryId)?.disposition,
+				}
+			: { unrecognized: true };
+	return JSON.stringify({ id: vector.id, csql: vector.csql, verdict });
+});
+writeFileSync(resolve(output, "csql-reader.jsonl"), `${vectors.join("\n")}\n`);

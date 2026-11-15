@@ -7,16 +7,21 @@
  * prints another export, or to one the reader does not read it on.
  */
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Column } from "@/lib/domain";
 import {
 	columnSort,
 	idMappingColumn,
 	idMappingEntry,
+	imageMapColumn,
+	imageMapEntry,
 	orderedColumns,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain/modules";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../validator/runner";
 import { rulesOnTheColumnsTheyLandOn } from "../order";
 import { patients, uuid } from "./fixtures";
@@ -268,5 +273,160 @@ describe("a positional element naming an ID mapping with another table than its 
 		expect(ruledHeaders(orderedColumns(read, "list"))).toEqual([
 			["Status", columnSort("asc", 0)],
 		]);
+	});
+});
+
+const icon = testUuid("asset-status-icon") as unknown as MediaAssetId;
+
+/** Two shown image maps over `status` with one set of values after a name column, the rule on
+ *  the one `ruled` names. */
+function statusImages(ruled: 2 | 3) {
+	return patients([
+		plainColumn(uuid(1), "case_name", "Name"),
+		imageMapColumn(
+			uuid(2),
+			"status",
+			"Status",
+			[imageMapEntry("open", icon)],
+			ruled === 2 ? { sort: columnSort("asc", 0) } : {},
+		),
+		imageMapColumn(
+			uuid(3),
+			"status",
+			"Status again",
+			[imageMapEntry("open", icon)],
+			ruled === 3 ? { sort: columnSort("asc", 0) } : {},
+		),
+	]);
+}
+
+/**
+ * Contract: an image map over an attribute-backed property is an expression column, so a rule on
+ * the later of two with one set of values prints its own position, and both order by one table
+ * where the export carries the media manifest that writes them as images; the reader reads the
+ * rule where it is. Exported with no manifest, each map with entries is a plain column over the
+ * property, and the reader proposes plain columns, which order by the property alike; the
+ * reading prints that export back. The failure it catches: `orderKeyClass` keying an image map
+ * apart from the plan's key for it, so a reading moves a rule the export names by position.
+ */
+describe("a rule on the later of two shown image maps over status with one table", () => {
+	const onLater = statusImages(3);
+	const onEarlier = statusImages(2);
+
+	it("is admitted on either and prints the position of the column it is on", async () => {
+		expect(ownershipCodes(onLater)).toEqual([]);
+		expect(ownershipCodes(onEarlier)).toEqual([]);
+		expect(await elementFields(onEarlier)).toEqual([["_cc_calculated_1"]]);
+		expect(await elementFields(onLater)).toEqual([["_cc_calculated_2"]]);
+	});
+
+	it("reads each back with the rule where it is, under a media manifest", async () => {
+		for (const doc of [onLater, onEarlier]) {
+			const reading = await readLists(doc, { media: true });
+			expect(codes(reading)).toEqual([]);
+			expect(ruledHeaders(orderedColumns(listOf(reading), "list"))).toEqual(
+				ruledHeaders(orderedColumns(docList(doc), "list")),
+			);
+			expect(
+				listOf(reading).columns.filter((one) => one.kind === "image-map"),
+			).toHaveLength(2);
+		}
+	});
+
+	it("reads each export with no manifest as plain columns, the rule where it is", async () => {
+		for (const doc of [onLater, onEarlier]) {
+			const reading = await readLists(doc);
+			expect(codes(reading)).toEqual([]);
+			const read = listOf(reading);
+			expect(
+				read.columns.map((one) =>
+					one.kind === "plain" ? one.field : one.kind,
+				),
+			).toEqual(["case_name", "status", "status"]);
+			expect(ruledHeaders(orderedColumns(read, "list"))).toEqual(
+				ruledHeaders(orderedColumns(docList(doc), "list")),
+			);
+			expect(await exportedList(reading.ctx.doc as BlueprintDoc)).toEqual(
+				await exportedList(doc),
+			);
+		}
+	});
+
+	it("leaves either as it is", () => {
+		expect(rulesOnTheColumnsTheyLandOn(onLater)).toBe(onLater);
+		expect(rulesOnTheColumnsTheyLandOn(onEarlier)).toBe(onEarlier);
+	});
+});
+
+/** Two shown plain columns over `status`, whose catalog entry names its choices, after a name
+ *  column, the rule on the one `ruled` names. */
+function statusLabels(ruled: 2 | 3): BlueprintDoc {
+	const doc = patients([
+		plainColumn(uuid(1), "case_name", "Name"),
+		plainColumn(
+			uuid(2),
+			"status",
+			"Status",
+			ruled === 2 ? { sort: columnSort("asc", 0) } : {},
+		),
+		plainColumn(
+			uuid(3),
+			"status",
+			"Status again",
+			ruled === 3 ? { sort: columnSort("asc", 0) } : {},
+		),
+	]);
+	return {
+		...doc,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{
+						name: "status",
+						label: proseText("Status"),
+						data_type: "single_select",
+						options: [
+							{ value: "open", label: proseText("Open") },
+							{ value: "closed", label: proseText("Closed") },
+						],
+					},
+				],
+			},
+		],
+	};
+}
+
+/**
+ * Contract: a shown plain column over an attribute-backed property whose catalog entry names
+ * choices shows the choices' labels, an expression column, so a rule on the later of two prints
+ * its own position, and both order by the labels; the reader reads each as its label projection
+ * (`orderKeyClass`'s `option-label` class) and the rule where it is. The failure it catches: the
+ * two read as orderings apart, so the rule is read on the earlier column and a first publish
+ * rewrites the element.
+ */
+describe("a rule on the later of two shown label columns over status", () => {
+	const onLater = statusLabels(3);
+	const onEarlier = statusLabels(2);
+
+	it("is admitted on either and prints the position of the column it is on", async () => {
+		expect(ownershipCodes(onLater)).toEqual([]);
+		expect(ownershipCodes(onEarlier)).toEqual([]);
+		expect(await elementFields(onEarlier)).toEqual([["_cc_calculated_1"]]);
+		expect(await elementFields(onLater)).toEqual([["_cc_calculated_2"]]);
+	});
+
+	it("reads each back with the rule where it is", async () => {
+		for (const doc of [onLater, onEarlier]) {
+			const reading = await readLists(doc);
+			expect(codes(reading)).toEqual([]);
+			expect(ruledHeaders(orderedColumns(listOf(reading), "list"))).toEqual(
+				ruledHeaders(orderedColumns(docList(doc), "list")),
+			);
+			expect(await exportedList(reading.ctx.doc as BlueprintDoc)).toEqual(
+				await exportedList(doc),
+			);
+		}
 	});
 });

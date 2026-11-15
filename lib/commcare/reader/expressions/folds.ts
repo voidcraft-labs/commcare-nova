@@ -26,7 +26,6 @@ import {
 	type ComparisonKind,
 	type DateAddInterval,
 	type Expression,
-	type FormNodeRef,
 	isRelationPath,
 	type Literal,
 	type RelationPath,
@@ -37,11 +36,10 @@ import {
 import { organizationLevelsOf } from "@/lib/domain/organization";
 import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
-import type { FormNodeProjection } from "../../xpath/formNodeProjection";
 import type { FoldApi } from "../../xpath/formParseScope";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { formUserProperty } from "../../xpath/referenceBindings";
-import { crossesSourceRepeatInRowPredicate } from "../../xpath/wire/formReads";
+import { sameJson } from "../jsonCursor";
 
 /** One member per fold of the three tables, in table order. */
 export type FoldId =
@@ -95,9 +93,6 @@ export interface FoldEnv {
 	readonly root?: FormSyntax;
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
-	/** The form-node projection the slot's paths bind through, where the slot
-	 *  reads a form. */
-	readonly projection?: FormNodeProjection;
 	/** Claims a site of its own for this fold over `span` (a fold that folds
 	 *  several runs of one node, each its own site): false where that site is
 	 *  withdrawn. A fold that claims none takes the node's own span. */
@@ -445,8 +440,11 @@ const protectedLiteral: Fold = {
 	propose(node, context, api, env) {
 		const concat = call(node, "concat");
 		if (concat === undefined || concat.args.length < 2) return undefined;
-		const parts: Expression[] = [];
-		let joined = false;
+		// The runs of two or more literal pieces whose sites are not withdrawn,
+		// found before anything is bound: where there is none the call binds
+		// plainly, and binding its arguments here too would bind them twice,
+		// which doubles at every level of nested `concat`s.
+		const runs = new Map<number, { readonly end: number }>();
 		let index = 0;
 		while (index < concat.args.length) {
 			let end = index;
@@ -455,32 +453,39 @@ const protectedLiteral: Fold = {
 				literalPiece(concat.args[end] as FormSyntax) !== undefined
 			)
 				end++;
-			const run = concat.args.slice(index, end);
-			const first = run[0];
-			const last = run.at(-1);
+			const first = concat.args[index];
+			const last = concat.args[end - 1];
 			if (
-				run.length >= 2 &&
+				end - index >= 2 &&
 				first !== undefined &&
 				last !== undefined &&
 				env.use({ from: first.from, to: last.to })
-			) {
-				const value = run.map((piece) => literalPiece(piece)).join("");
+			)
+				runs.set(index, { end });
+			index = end > index ? end : index + 1;
+		}
+		if (runs.size === 0) return undefined;
+		const parts: Expression[] = [];
+		index = 0;
+		while (index < concat.args.length) {
+			const run = runs.get(index);
+			if (run !== undefined) {
+				const pieces = concat.args.slice(index, run.end);
+				const first = pieces[0] as FormSyntax;
+				const last = pieces.at(-1) as FormSyntax;
+				const value = pieces.map((piece) => literalPiece(piece)).join("");
 				parts.push(
 					api.term({ kind: "literal", value }, {
 						...first,
 						to: last.to,
 					} as FormSyntax),
 				);
-				joined = true;
-				index = end;
+				index = run.end;
 				continue;
 			}
-			const arg = concat.args[index] as FormSyntax;
-			for (const piece of end > index ? run : [arg])
-				parts.push(api.bind(piece, context));
-			index = end > index ? end : index + 1;
+			parts.push(api.bind(concat.args[index] as FormSyntax, context));
+			index++;
 		}
-		if (!joined) return undefined;
 		const [only, ...more] = parts;
 		if (only === undefined) return undefined;
 		if (more.length === 0) return only;
@@ -587,14 +592,15 @@ const formRead: Fold = {
 	ruleSets: ["form", "record"],
 	propose(node, context, api, env) {
 		// A Save to Case block reads an answer of its own repeat from the node
-		// it stands in, through `current()`.
+		// it stands in, through `current()`: the read with no spelling, which
+		// prints that binding whether a rewrite is withheld or not.
 		const placed = env.place?.fields.get(formSyntaxKey(core(node)));
 		if (placed !== undefined)
 			return api.term({ kind: "field", uuid: placed }, node);
 		const path = flat(node);
-		// A record rule holds no read spelled from `current()`; the emitter
-		// writes a question's read that way where its evaluation crosses a
-		// repeat, so the read with no spelling is the one it prints.
+		// A record rule holds no read spelled from `current()`, so another
+		// `current()` read is held with no spelling too, and the comparison
+		// decides whether Nova's print is the source's.
 		const climbing = flat(node, true);
 		if (
 			context.ruleSet === "record" &&
@@ -618,32 +624,25 @@ const formRead: Fold = {
 			read.spelling !== "absolute"
 		)
 			return undefined;
-		const target: FormNodeRef =
-			read.kind === "field"
-				? {
-						kind: "field",
-						uuid: read.uuid,
-						...(read.role === undefined ? {} : { role: read.role }),
-					}
-				: {
-						kind: "repeat-row",
-						repeat: read.repeat,
-						attribute: read.attribute,
-					};
-		const coordinates = env.projection?.graph.path(target);
-		const relocated =
-			(context.slot.entity === "field" &&
-				context.slot.slot === "default_value") ||
-			(coordinates !== undefined &&
-				env.projection !== undefined &&
-				crossesSourceRepeatInRowPredicate(
-					coordinates,
-					context,
-					env.projection,
-				));
+		// A Save to Case block prints an answer of its own repeat through its
+		// binding, from `current()`. The author's absolute path binds plainly,
+		// as `absolute`, the one read that binding prints as written once the
+		// relocation is withheld (`formReads.ts::placeBindingWithheld`); the
+		// held tree is the re-read of Nova's print, with no spelling.
+		if (
+			read.kind === "field" &&
+			[...(env.place?.fields.values() ?? [])].includes(read.uuid)
+		)
+			return undefined;
+		// Anywhere else, the read with no spelling, at a relocation site too:
+		// the emitter prints it `current()/…` there and, with the relocation
+		// withheld, as the absolute path the author wrote, while in a form slot
+		// a read the author spelled `current()` is stored `current` and keeps
+		// that spelling in both prints. The tree a slot held at the second
+		// level stores is the re-read of Nova's print, which spells the
+		// relocated read `current` (`index.ts::readBack`).
 		const { spelling: _absolute, ...rest } = read;
-		const term = (relocated ? { ...rest, spelling: "current" } : rest) as Term;
-		return { kind: "term", term };
+		return { kind: "term", term: rest as Term };
 	},
 };
 
@@ -1055,6 +1054,54 @@ function lazyBranches(node: Call): readonly number[] | undefined {
 	return undefined;
 }
 
+/** Whether a branch's syntax can bind to a `weighted-checklist` call in a
+ *  form slot, by every fold that can give one: the call itself; a guard that
+ *  `empty-rows-guard` (`if(count(…) > 0, X, '')`) or `handed-on-rows-guard`
+ *  (`if(…, 0, X)`) unwraps to an `X` that can; this fold's own guard around
+ *  the call; an `if` or `cond` every branch of which can, which this fold
+ *  reads as the call. A branch this refuses binds to something else, so the
+ *  fold declines the node before binding any of it. */
+const checklistBranches = new WeakMap<FormSyntax, boolean>();
+function mayBindChecklist(node: FormSyntax): boolean {
+	// Each node is asked once: a node can be reached as a guard's branch and
+	// as a lazy call's, and the answer depends on the syntax alone.
+	const known = checklistBranches.get(node);
+	if (known !== undefined) return known;
+	const answer = checklistBranch(node);
+	checklistBranches.set(node, answer);
+	return answer;
+}
+function checklistBranch(node: FormSyntax): boolean {
+	if (call(node, "weighted-checklist") !== undefined) return true;
+	const guard = call(node, "if", 3);
+	if (guard !== undefined) {
+		const [condition, present, absent] = guard.args as [
+			FormSyntax,
+			FormSyntax,
+			FormSyntax,
+		];
+		if (
+			presentCount(condition) !== undefined &&
+			(stringValue(absent) === "" || numberValue(absent) === 0) &&
+			mayBindChecklist(present)
+		)
+			return true;
+		if (numberValue(present) === 0 && mayBindChecklist(absent)) return true;
+		if (
+			call(absent, "weighted-checklist") !== undefined &&
+			countedAbsent(condition)
+		)
+			return true;
+	}
+	const lazy = guard ?? call(node, "cond");
+	if (lazy === undefined) return false;
+	return (
+		lazyBranches(lazy)?.every((index) =>
+			mayBindChecklist(lazy.args[index] as FormSyntax),
+		) === true
+	);
+}
+
 const checklistGuard: Fold = {
 	id: "checklist-guard",
 	ruleSets: ["form"],
@@ -1073,6 +1120,16 @@ const checklistGuard: Fold = {
 		const lazy = call(node, "if", 3) ?? call(node, "cond");
 		const branches = lazy === undefined ? undefined : lazyBranches(lazy);
 		if (lazy === undefined || branches === undefined) return undefined;
+		// Nothing is bound unless every branch can bind to the call: a plain
+		// binding of the node binds every argument again, so binding them
+		// for a chain of `if`s that are no checklist would double the work at
+		// every level of the chain.
+		if (
+			!branches.every((index) =>
+				mayBindChecklist(lazy.args[index] as FormSyntax),
+			)
+		)
+			return undefined;
 		const bound = lazy.args.map((arg) => api.bind(arg, context));
 		const calls = branches.map((index) => bound[index]);
 		const first = calls[0];
@@ -1091,11 +1148,7 @@ const checklistGuard: Fold = {
 			(one) => (one as Extract<Expression, { kind: "call" }>).args,
 		);
 		const differing = first.args.flatMap((arg, index) =>
-			args.every(
-				(others) => JSON.stringify(others[index]) === JSON.stringify(arg),
-			)
-				? []
-				: [index],
+			args.every((others) => sameJson(others[index], arg)) ? [] : [index],
 		);
 		if (differing.length !== 1) return undefined;
 		const at = differing[0] as number;
@@ -1924,8 +1977,11 @@ const relationPresence: Fold = {
 		// run of two that is a test is its own site.
 		const parts = clauses(node, "and");
 		if (parts.length <= 2) return presenceProposal(node, context, api, env);
-		const bound: Expression[] = [];
-		let folded = false;
+		// The runs that fold first, each binding only itself; the other
+		// clauses are bound once one has, so an `and` this declines (any
+		// with no test in it) has none of its clauses bound here, which the
+		// plain binding binds once.
+		const runs = new Map<number, Expression>();
 		let index = 0;
 		while (index < parts.length) {
 			const first = parts[index] as FormSyntax;
@@ -1937,17 +1993,28 @@ const relationPresence: Fold = {
 						? presenceProposal(run, context, api, env)
 						: undefined;
 				if (proposal !== undefined) {
-					bound.push(proposal);
-					folded = true;
+					runs.set(index, proposal);
 					index += 2;
 					continue;
 				}
 			}
-			bound.push(api.bind(first, context));
+			index += 1;
+		}
+		if (runs.size === 0) return undefined;
+		const bound: Expression[] = [];
+		index = 0;
+		while (index < parts.length) {
+			const run = runs.get(index);
+			if (run !== undefined) {
+				bound.push(run);
+				index += 2;
+				continue;
+			}
+			bound.push(api.bind(parts[index] as FormSyntax, context));
 			index += 1;
 		}
 		const [head, ...rest] = bound;
-		if (!folded || head === undefined) return undefined;
+		if (head === undefined) return undefined;
 		return api.remember({ kind: "and", clauses: [head, ...rest] }, node);
 	},
 };

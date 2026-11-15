@@ -45,7 +45,8 @@ import {
 import type { DraftModule, ReadContext } from "../context";
 import { dotInterpolate } from "../hqInterpolation";
 import { HQ_PAGE_LABELS } from "../hqPageLabels";
-import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { shownText } from "../hqText";
+import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { pendingPlaceholder, type ReadMode } from "../pendingExpressions";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
@@ -323,6 +324,10 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}enum-mappingitem-alt-text-non-blank`,
 		"schema:MappingItem.alt_text",
 	),
+	altTextNoImage: drop(
+		`${A}mappingitem-alt-text-on-a-format-that-builds-no-image`,
+		"schema:MappingItem.alt_text",
+	),
 	tileFieldInert: drop(
 		`${A}case-tile-field-blank-or-off-a-template-tile`,
 		"schema:DetailColumn.case_tile_field",
@@ -342,16 +347,24 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		"schema:DetailColumn.<undeclared>",
 	),
 	dateFormatElsewhere: drop(
-		`${A}ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`,
+		`${A}format-extras-the-column-editor-saves-on-every-column`,
 		"schema:DetailColumn.date_format",
 	),
 	lateFlagElsewhere: drop(
-		`${A}ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`,
+		`${A}format-extras-the-column-editor-saves-on-every-column`,
 		"schema:DetailColumn.late_flag",
 	),
 	timeAgoElsewhere: drop(
-		`${A}ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`,
+		`${A}format-extras-the-column-editor-saves-on-every-column`,
 		"schema:DetailColumn.time_ago_interval",
+	),
+	enumElsewhere: drop(
+		`${A}format-extras-the-column-editor-saves-on-every-column`,
+		"schema:DetailColumn.enum",
+	),
+	caseIdElement: refuse(
+		`${A}case-id-as-a-property-column-s-field`,
+		"detail-field-type:property",
 	),
 	optimization: refuse(
 		`${A}optimization-cache-lazy-load-cache-and-lazy-load`,
@@ -422,6 +435,41 @@ const GEO_DEPENDENCIES: Readonly<Record<string, readonly string[]>> = {
 	"geo-boundary-color": ["address", "geo-boundary"],
 	"geo-points-colors": ["address", "geo-points"],
 };
+
+/** The formats whose column HQ's build reads `enum` for (`detail_screen.py::Enum` and its
+ *  subclasses; `app_strings.py::_create_module_details_app_strings`). */
+const MAPPING_FORMATS: ReadonlySet<string> = new Set([
+	"enum",
+	"conditional-enum",
+	"enum-image",
+	"clickable-icon",
+	"translatable-enum",
+]);
+
+/** Whether HQ's build reads a column's `enum` under `format`. */
+export function formatReadsMapping(format: string): boolean {
+	return MAPPING_FORMATS.has(format);
+}
+
+/**
+ * The format HQ's build reads a stored column under, as the reading reads it on `screen`: a slug
+ * HQ registers no class for is `plain` (`detail_screen.py::get_class_for_format`), and on the
+ * case detail `invisible` and a geo format hide nothing (`HideShortColumn` hides only a list
+ * column), so each is `plain` there too. Every other format is its own.
+ */
+export function columnFormatAsRead(
+	stored: unknown,
+	screen: "short" | "long",
+): string {
+	const format = typeof stored === "string" ? stored : "plain";
+	if (!REGISTERED_FORMATS.has(format)) return "plain";
+	if (
+		screen === "long" &&
+		(format === "invisible" || GEO_DEPENDENCIES[format] !== undefined)
+	)
+		return "plain";
+	return format;
+}
 
 /** The formats HQ's Case List and Case Detail saves admit once per detail (`screen.js::save`). */
 const ONCE_PER_DETAIL = new Set(["image", ...Object.keys(GEO_DEPENDENCIES)]);
@@ -498,6 +546,63 @@ export function languageMap(value: unknown): Record<string, string> {
 	return out;
 }
 
+/**
+ * A stored `{lang: text}` app string (a column's header, a mapping entry's label or image path,
+ * a sort element's label) as HQ's build shows it in each of the app's languages, `codes`
+ * (`hqText.ts::shownText`): a language the map lacks, or holds blank, shows another language's
+ * text, so the map is read as built and never taken literally. `undefined` where the build
+ * prints a value whose text the reader cannot know (a number, an object), or the stored value is
+ * no map.
+ */
+export function shownTexts(
+	stored: unknown,
+	codes: readonly string[],
+): Record<string, string> | undefined {
+	const out: Record<string, string> = {};
+	for (const code of codes) {
+		const shown = shownText(stored, code, codes);
+		if (!shown.ok) return undefined;
+		out[code] = shown.text;
+	}
+	return out;
+}
+
+/**
+ * Records the first publish's respelling of a stored app string the reading read as `shown`:
+ * Nova writes each language's shown text under its own code, so a map that lacks a language,
+ * holds one blank, or holds a code the app does not list, is written another way and shows the
+ * same in every language.
+ */
+function noteRespelled(
+	ctx: ReadContext,
+	entry: string,
+	path: string,
+	stored: unknown,
+	shown: Readonly<Record<string, string>> | undefined,
+): void {
+	if (shown !== undefined && !sameJson(stored, shown))
+		ctx.facts.sameStateRewrites.push({
+			entry,
+			path,
+			register: "list-settings-respelled",
+		});
+}
+
+/** Whether HQ's build shows two stored `{lang: text}` app strings alike in every app language. */
+export function sameShownTexts(
+	codes: readonly string[],
+	a: unknown,
+	b: unknown,
+): boolean {
+	const left = shownTexts(a, codes);
+	const right = shownTexts(b, codes);
+	return (
+		left !== undefined &&
+		right !== undefined &&
+		codes.every((code) => left[code] === right[code])
+	);
+}
+
 /** The app's language codes in HQ's order. */
 export function appCodes(ctx: ReadContext): readonly string[] {
 	return applicationReading(ctx)?.languages.codes ?? [];
@@ -560,7 +665,7 @@ export function attributeOf(text: string): string | undefined {
 	return oneAttribute(parse(text));
 }
 
-type FieldClass =
+export type FieldClass =
 	| { readonly kind: "property"; readonly name: string }
 	| { readonly kind: "finding"; readonly claim: Claim<"refuse"> };
 
@@ -570,8 +675,10 @@ const HQ_PROPERTY_NAME = new RegExp(
 	`^(${HQ_WORD}:)*(${HQ_WORD}\\/)*#?${HQ_WORD}$`,
 );
 
-/** The column field a property-backed column reads, classified by the rows of the field. */
-function classifyField(field: string): FieldClass {
+/** The column field a property-backed column reads, classified by the rows of the field: also
+ *  the field of the hidden column HQ's build appends for a sort element no column joins
+ *  (`util.py::create_temp_sort_column`). */
+export function classifyField(field: string): FieldClass {
 	if (field === "#owner_name") return { kind: "finding", claim: C.ownerName };
 	const colon = field.indexOf(":");
 	if (colon > 0) {
@@ -605,6 +712,11 @@ function classifyField(field: string): FieldClass {
 	// HQ's page accepts a `#` before the last word and a name of any length;
 	// Nova's property grammar takes neither.
 	const renamed = HQ_PROPERTY_RENAMES[field] ?? field;
+	// HQ's build reads a property field through `CASE_PROPERTY_MAP`, which maps `status` and
+	// `owner_id` to their attributes and has no entry for `case_id`, so it reads the child element
+	// `case_id`, which no case holds (Core holds the id as the attribute alone,
+	// `CaseChildElement`): the column is blank for every case.
+	if (renamed === "case_id") return { kind: "finding", claim: C.caseIdElement };
 	if (
 		!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(renamed) ||
 		renamed.length > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
@@ -668,35 +780,88 @@ function formatName(format: string): { name: string } | undefined {
 	return label === undefined ? undefined : { name: label };
 }
 
-/** The enum entries of a column: each key and its value map. */
-function enumEntries(
-	column: JsonCursor,
-): readonly { key: unknown; value: Record<string, string> }[] {
-	return enumEntriesOf(column.peek("enum"));
+/** One stored `enum` entry: its key, and its value as HQ's build shows it in each app language
+ *  (`shownTexts`), `undefined` where the build prints a value the reader cannot know. */
+interface EnumEntry {
+	readonly key: unknown;
+	readonly value: Readonly<Record<string, string>> | undefined;
 }
 
-/** The entries of a stored `enum`: each key and its value map. */
+/** The enum entries of a column, each value read in the app's languages `codes`. */
+function enumEntries(
+	column: JsonCursor,
+	codes: readonly string[],
+): readonly EnumEntry[] {
+	return enumEntriesOf(column.peek("enum"), codes);
+}
+
+/** The entries of a stored `enum`, each value read in the app's languages `codes`. */
 function enumEntriesOf(
 	stored: unknown,
-): readonly { key: unknown; value: Record<string, string> }[] {
+	codes: readonly string[],
+): readonly EnumEntry[] {
 	if (!Array.isArray(stored)) return [];
 	return stored.map((entry) => ({
 		key: isJsonObject(entry) ? entry.key : undefined,
-		value: isJsonObject(entry) ? languageMap(entry.value) : {},
+		value: shownTexts(isJsonObject(entry) ? entry.value : {}, codes),
 	}));
 }
 
-/** Claims each enum entry's `alt_text`, blank by its HELD row and with text by its finding. */
-function claimAltTexts(column: JsonCursor): boolean {
+/**
+ * Claims one enum entry's `alt_text` as HQ's build shows it in each app language
+ * (`app_strings.py`: `clean_trans(item.alt_text, langs)`, on an image map and a clickable icon
+ * alone, the formats `detail_screen.py::EnumImage` builds an `<alt_text>` for): blank in every
+ * language by its HELD row; on a format that builds no image, inert whatever it holds; with text
+ * in any language by its finding (a `null` HQ prints `None`); and left unclaimed, for the close to
+ * name, where the build prints a value the reader cannot know. Whether the entry's alt text is
+ * Nova's.
+ */
+function claimAltText(
+	item: JsonCursor,
+	codes: readonly string[],
+	buildsImage: boolean,
+): boolean {
+	const alt = shownTexts(item.peek("alt_text"), codes);
+	if (
+		alt !== undefined &&
+		Object.values(alt).every((text) => text.trim() === "")
+	)
+		item.derived("alt_text", C.altTextBlank);
+	else if (!buildsImage) item.drop("alt_text", C.altTextNoImage);
+	else if (alt === undefined) return false;
+	else {
+		item.refuse("alt_text", C.altText);
+		return false;
+	}
+	return true;
+}
+
+/**
+ * Claims each ID mapping entry's `alt_text`, which HQ's build reads on no `enum` column
+ * (`claimAltText`), and its key and value. A value whose shown text the reader cannot know is left unclaimed, for the close
+ * to name at its entry.
+ */
+function claimAltTexts(
+	ctx: ReadContext,
+	column: JsonCursor,
+	codes: readonly string[],
+): boolean {
 	let ok = true;
 	for (const item of column.list("enum", "MappingItem", C.enumMapping)) {
-		const alt = languageMap(item.peek("alt_text"));
-		if (Object.values(alt).some((text) => text.trim() !== "")) {
-			item.refuse("alt_text", C.altText);
-			ok = false;
-		} else item.derived("alt_text", C.altTextBlank);
+		if (!claimAltText(item, codes, false)) ok = false;
 		item.derived("key", derivedEnumKey);
-		item.derived("value", derivedEnumValue);
+		const value = shownTexts(item.peek("value"), codes);
+		if (value === undefined) ok = false;
+		else {
+			item.derived("value", derivedEnumValue);
+			noteRespelled(
+				ctx,
+				derivedEnumValue.entry,
+				`${item.pointer}/value`,
+				item.peek("value"),
+				value,
+			);
+		}
 	}
 	return ok;
 }
@@ -742,6 +907,9 @@ function claimOtherKeys(
 	if (format !== "late-flag") column.drop("late_flag", C.lateFlagElsewhere);
 	if (format !== "time-ago")
 		column.drop("time_ago_interval", C.timeAgoElsewhere);
+	// The save writes the ID Mapping list too, which only the formats with a mapping read
+	// (`detail_screen.py::Enum` and its subclasses, `app_strings.py`).
+	if (!MAPPING_FORMATS.has(format)) column.drop("enum", C.enumElsewhere);
 	if (column.used("optimization")) {
 		column.refuse("optimization", C.optimization);
 		ok = false;
@@ -809,7 +977,7 @@ function readOwnTranslatableEnum(
 	field: string,
 	offersSearch: boolean,
 ): undefined {
-	const entries = enumEntries(column);
+	const entries = enumEntries(column, []);
 	if (
 		entries.some(
 			(entry) =>
@@ -860,7 +1028,20 @@ export function readDetailColumn(
 	screen: "short" | "long",
 	options: ColumnOptions,
 ): ColumnReading {
-	const header = column.take("header", C.header, languageMap).value;
+	const codes = appCodes(ctx);
+	// The header as HQ's build shows it in each language; one the reader cannot know is left
+	// unclaimed, for the close to name, and the column is no proposal.
+	const header = shownTexts(column.peek("header"), codes);
+	if (header !== undefined) {
+		column.take("header", C.header, () => header).value;
+		noteRespelled(
+			ctx,
+			C.header.entry,
+			`${column.pointer}/header`,
+			column.peek("header"),
+			header,
+		);
+	}
 	const place = column.place;
 	if (column.peek("model") === "product") {
 		column.refuse("model", C.modelProduct);
@@ -872,9 +1053,9 @@ export function readDetailColumn(
 		typeof column.peek("format") === "string"
 			? (column.peek("format") as string)
 			: "plain";
-	const others = claimOtherKeys(column, format, screen);
+	const others = claimOtherKeys(column, format, screen) && header !== undefined;
 	const field = fieldOf(column);
-	const base = { header: sourceText(ctx, header) };
+	const base = { header: sourceText(ctx, header ?? {}) };
 	const proposal = (
 		kind: ColumnProposal["column"],
 		extra: Partial<
@@ -884,7 +1065,7 @@ export function readDetailColumn(
 		others
 			? {
 					column: kind,
-					header,
+					header: header ?? {},
 					texts: extra.texts ?? {},
 					...(extra.expression !== undefined && {
 						expression: extra.expression,
@@ -947,7 +1128,7 @@ export function readDetailColumn(
 				column,
 				format,
 				field.text,
-				header,
+				header ?? {},
 				base,
 				others,
 			);
@@ -1038,7 +1219,7 @@ export function readDetailColumn(
 				...base,
 			} as ColumnProposal["column"]);
 		case "enum":
-			return readIdMapping(ctx, column, name, base, header, proposal);
+			return readIdMapping(ctx, column, name, base, proposal);
 		case "enum-image":
 			return readImageMap(ctx, module, column, name, base, proposal);
 		case "late-flag": {
@@ -1163,13 +1344,13 @@ function readIdMapping(
 	column: JsonCursor,
 	field: string,
 	base: { header: string },
-	_header: Readonly<Record<string, string>>,
 	proposal: (
 		column: ColumnProposal["column"],
 		extra?: Partial<Pick<ColumnProposal, "texts">>,
 	) => ColumnProposal | undefined,
 ): ColumnProposal | undefined {
-	const entries = enumEntries(column);
+	const codes = appCodes(ctx);
+	const entries = enumEntries(column, codes);
 	const seen = new Set<string>();
 	for (const entry of entries) {
 		const problem = enumKeyProblem(entry.key);
@@ -1188,9 +1369,9 @@ function readIdMapping(
 		seen.add(entry.key as string);
 	}
 	column.take("format", C.enumFormat, String).value;
-	if (!claimAltTexts(column)) return undefined;
-	const texts: Record<string, Record<string, string>> = {};
-	for (const entry of entries) texts[entry.key as string] = entry.value;
+	if (!claimAltTexts(ctx, column, codes)) return undefined;
+	const texts: Record<string, Readonly<Record<string, string>>> = {};
+	for (const entry of entries) texts[entry.key as string] = entry.value ?? {};
 	return proposal(
 		{
 			kind: "id-mapping",
@@ -1198,7 +1379,7 @@ function readIdMapping(
 			...base,
 			mapping: entries.map((entry) => ({
 				value: entry.key as string,
-				label: sourceText(ctx, entry.value),
+				label: sourceText(ctx, entry.value ?? {}),
 			})),
 		} as ColumnProposal["column"],
 		{ texts },
@@ -1258,7 +1439,8 @@ function readImageMap(
 	base: { header: string },
 	proposal: (column: ColumnProposal["column"]) => ColumnProposal | undefined,
 ): ColumnProposal | undefined {
-	const entries = enumEntries(column);
+	const codes = appCodes(ctx);
+	const entries = enumEntries(column, []);
 	const values: string[] = [];
 	for (const entry of entries) {
 		if (typeof entry.key !== "string") {
@@ -1289,11 +1471,7 @@ function readImageMap(
 	let ok = true;
 	items.forEach((item, index) => {
 		item.derived("key", ITEM_CLAIMS.imageKey);
-		const alt = languageMap(item.peek("alt_text"));
-		if (Object.values(alt).some((text) => text.trim() !== "")) {
-			item.refuse("alt_text", C.altText);
-			ok = false;
-		} else item.derived("alt_text", C.altTextBlank);
+		if (!claimAltText(item, codes, true)) ok = false;
 		const asset = readImageAsset(ctx, item);
 		const value = values[index];
 		if (asset === undefined || value === undefined) ok = false;
@@ -1313,7 +1491,12 @@ function readImageAsset(
 	ctx: ReadContext,
 	item: JsonCursor,
 ): string | undefined {
-	const read = readMediaMap(ctx, languageMap(item.peek("value")), {
+	// Each language's image as HQ's build writes its app string, so a path stored in one
+	// language is the image of every language.
+	// A path the reader cannot know is left unclaimed, for the close to name at the entry.
+	const shown = shownTexts(item.peek("value"), appCodes(ctx));
+	if (shown === undefined) return undefined;
+	const read = readMediaMap(ctx, shown, {
 		site: { json: item, key: "value" },
 		place: item.place,
 		slot: "image_map_mapping",
@@ -1321,6 +1504,13 @@ function readImageAsset(
 	});
 	if (read.kind !== "asset") return undefined;
 	item.take("value", C.enumImageValue, languageMap).value;
+	noteRespelled(
+		ctx,
+		C.enumImageValue.entry,
+		`${item.pointer}/value`,
+		item.peek("value"),
+		shown,
+	);
 	return read.assetId;
 }
 
@@ -1454,10 +1644,11 @@ function readProjection(
 	base: { header: string },
 	others: boolean,
 ): ColumnProposal | undefined {
-	const entries = enumEntries(column);
+	const codes = appCodes(ctx);
+	const entries = enumEntries(column, codes);
 	let candidate: ArmOmit<ColumnBody, "header"> | undefined;
 	let choices: SelectChoices | undefined;
-	const texts: Record<string, Record<string, string>> = {};
+	const texts: Record<string, Readonly<Record<string, string>>> = {};
 	if (format === "markdown") candidate = linkCandidate(text);
 	else {
 		if (
@@ -1470,7 +1661,7 @@ function readProjection(
 			return undefined;
 		}
 		const first = entries[0];
-		if (entries.length === 1 && first !== undefined) {
+		if (entries.length === 1 && first?.value !== undefined) {
 			candidate = intervalCandidate(text, sourceText(ctx, first.value));
 			if (candidate !== undefined) texts[""] = first.value;
 		}
@@ -1508,11 +1699,27 @@ function readProjection(
 			C.translatableEnumMapping,
 		)) {
 			item.derived("key", ITEM_CLAIMS.labelKey);
-			item.derived("value", ITEM_CLAIMS.labelValue);
-			item.derived("alt_text", C.altTextBlank);
+			// A label whose shown text the reader cannot know is left for the close to name.
+			const value = shownTexts(item.peek("value"), codes);
+			if (value !== undefined) {
+				item.derived("value", ITEM_CLAIMS.labelValue);
+				noteRespelled(
+					ctx,
+					ITEM_CLAIMS.labelValue.entry,
+					`${item.pointer}/value`,
+					item.peek("value"),
+					value,
+				);
+			}
+			claimAltText(item, codes, false);
 		}
 	}
-	if (!others) return undefined;
+	if (
+		!others ||
+		(format === "translatable-enum" &&
+			entries.some((entry) => entry.value === undefined))
+	)
+		return undefined;
 	return {
 		column: { ...candidate, ...base } as ColumnProposal["column"],
 		header,
@@ -1537,7 +1744,8 @@ export function labelShownProperty(column: unknown): string | undefined {
 		typeof column.field !== "string"
 	)
 		return undefined;
-	return selectLabelCandidate(column.field, enumEntriesOf(column.enum))?.field;
+	return selectLabelCandidate(column.field, enumEntriesOf(column.enum, []))
+		?.field;
 }
 
 /** The document a label projection is printed against: its labels are enum variables, so it

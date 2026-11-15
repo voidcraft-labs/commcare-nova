@@ -117,7 +117,7 @@ import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 const output = process.argv[2];
 if (!output)
 	throw new Error(
-		"Usage: node --import tsx proof/native/producers/emit-expression-evidence.ts OUTPUT_DIRECTORY",
+		"Usage: node --conditions=react-server --import tsx proof/native/producers/emit-expression-evidence.ts OUTPUT_DIRECTORY",
 	);
 mkdirSync(output, { recursive: true });
 

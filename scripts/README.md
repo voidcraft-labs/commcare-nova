@@ -187,46 +187,19 @@ operator decision instead of automatic recovery.
 
 ## Several-case own close repair
 
-A form whose menu selects several cases, closing each selected case under a
-close condition, keeps that close in a condition group of each selected case's
-row. A document published before that shape recorded the close one segment
-short of it (`Form.ownClosePlacement`), which the validator now refuses
-(`HELD_PLACEMENT_INEXPRESSIBLE`), so no export of the app passes until the
-repair runs. The repair keeps every
-recorded segment and adds the condition group under the name the form's plan
-of generated nodes gives it, suffixed where a sibling already holds it.
+A form whose menu selects several cases and closes each selected case under a
+close condition keeps that close in a condition group of each selected case's
+row. A document published before that shape held the close one segment short
+of it (`Form.ownClosePlacement`), which the validator refuses
+(`HELD_PLACEMENT_INEXPRESSIBLE`). Both scripts run with
+`npx tsx --conditions=react-server`; no maintenance image or Job carries them.
 
 ```bash
-# Read-only inventory. Prints app ids, form counts, statuses and finding codes
-# only; exits 0 at zero. --plan-out writes the private reviewed plan (per app:
-# sequence, document digest, repaired-document digest, form ids).
-npx tsx scripts/scan-several-case-close-places.ts --prod --plan-out plan.json
+# Read-only census; --prod reads production. --plan-out writes the private
+# reviewed plan. Exits 0 when no app holds such a close.
+npx tsx --conditions=react-server scripts/scan-several-case-close-places.ts --prod --plan-out plan.json
 
-# The reviewed write, through the maintenance image's historical-repair Job
-# (never --prod). Without the last --execute it is the dry run.
-python3 scripts/rollout/deploy-cloud-run.py --execute-job \
-  --project=commcare-nova --region=us-central1 \
-  --job=commcare-nova-historical-repair \
-  --image="$NOVA_MAINTENANCE_IMAGE" --wait-seconds=3060 \
-  --execution-arg=several-case-close-repair.cjs \
-  --execution-arg=--plan-base64 \
-  --execution-arg="$(base64 < plan.json | tr -d '\n')" \
-  --execution-arg=--execute
-
-# Required postcondition, from the Job: zero.
-python3 scripts/rollout/deploy-cloud-run.py --execute-job \
-  --project=commcare-nova --region=us-central1 \
-  --job=commcare-nova-historical-repair \
-  --image="$NOVA_MAINTENANCE_IMAGE" --wait-seconds=3060 \
-  --execution-arg=several-case-close-scan.cjs
+# The reviewed write against the database the environment names. Without
+# --execute it is the dry run.
+npx tsx --conditions=react-server scripts/migrate-several-case-close-places.ts --plan plan.json --execute
 ```
-
-Locally, `npx tsx scripts/migrate-several-case-close-places.ts --plan plan.json`
-is the dry run and `--execute` writes. Each app must still hold the sequence
-and digest the scan read, or the run stops and asks for a new scan. An app a
-run or an unsettled reservation holds is reported `held` by the scan and left
-out of the plan; an app whose repaired document the gate refuses is reported
-`refused` with its finding codes and left unchanged. A rerun finds the change it
-wrote and verifies it. Apply it before deployment admission: the runtime
-database probe refuses an app that still holds the old place. Running it
-against production needs the owner's explicit approval.

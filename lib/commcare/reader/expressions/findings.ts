@@ -35,6 +35,7 @@ import type { FormParseIssue } from "../../xpath/formParseIssues";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
+import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
 
@@ -2103,14 +2104,13 @@ function nodeAt(
 	path: CheckPath,
 ): Expression | Term | undefined {
 	if (tree === undefined) return undefined;
-	const key = JSON.stringify(path);
 	let found: Expression | Term | undefined;
 	walkExpression(tree, {
 		visitExpression(expression, at) {
-			if (found === undefined && JSON.stringify(at) === key) found = expression;
+			if (found === undefined && sameJson(at, path)) found = expression;
 		},
 		visitTerm(term, at) {
-			if (found === undefined && JSON.stringify(at) === key) found = term;
+			if (found === undefined && sameJson(at, path)) found = term;
 		},
 	});
 	return found;

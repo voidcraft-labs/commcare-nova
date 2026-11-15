@@ -1,5 +1,6 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
+import type { RewriteControl } from "./emissionRewrites";
 import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
@@ -2416,13 +2417,15 @@ export function ownCaseSessionRef(
 
 type FormLinkSourceType = BlueprintDoc["forms"][string]["type"];
 
-/** Project a stored condition or value in its actual after-submit slot. */
+/** Project a stored condition or value in its actual after-submit slot,
+ *  with `rewrites` withheld or reported (the reader of CommCare HQ's apps). */
 export function projectFormLinkSessionExpression(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	formUuid: Uuid,
 	expression: Expression,
 	slot: FormExpressionSlotRef,
+	rewrites?: RewriteControl,
 ): WireExpr {
 	const moduleUuid = owningModuleOf(ctx, formUuid);
 	const expressionDoc = ctx.expressionDoc;
@@ -2463,6 +2466,7 @@ export function projectFormLinkSessionExpression(
 		target: "suite",
 		types,
 		form: formNodeProjection(doc, structure, { surface: "wire" }),
+		...(rewrites === undefined ? {} : { rewrites }),
 		bindings: {
 			workerProperty: ctx.workerProperty,
 			datumId: entryDatumIdResolver(

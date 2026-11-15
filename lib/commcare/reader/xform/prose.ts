@@ -59,6 +59,7 @@ import type { Accounting } from "../accounting";
 import { withCandidate } from "../candidate";
 import type { ReadContext } from "../context";
 import { readerDefect } from "../defects";
+import { sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
@@ -372,8 +373,9 @@ export interface SlotText {
 	readonly id: string | undefined;
 	/** Whether this slot is the first that references its id: it claims the text. */
 	readonly first: boolean;
-	/** The language whose value the slot holds: the source language, or the default language
-	 *  where the source's value is blank beside the default's text (the form builder's fill). */
+	/** The language whose value the slot holds: the source language, or the form's default
+	 *  language where the source's value is blank beside the default's text (the form builder's
+	 *  fill) or the form holds no source value (Core shows the default's there). */
 	readonly own: LanguageTag;
 	/** Each app language's default value, the source language's among them. */
 	readonly values: ReadonlyMap<LanguageTag, ReadValue>;
@@ -526,11 +528,6 @@ export function blankOptionalTextAbsent(doc: BlueprintDoc): BlueprintDoc {
 	});
 }
 
-/** Two prose values alike, as JSON. */
-function sameProse(a: unknown, b: unknown): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
-}
-
 /** The slot of a question's text, by its translation role. */
 const FILL_SLOT_OF: Readonly<Record<string, TextSlot>> = {
 	"field-label": "label",
@@ -604,20 +601,20 @@ export function blankItextFilled(doc: BlueprintDoc): BlueprintDoc {
 		for (const { unit, filled } of changes) {
 			const next = filled.get(source);
 			if (next === undefined) continue;
-			if (!sameProse(next, unit.source)) writeSourceProse(draft, unit, next);
+			if (!sameJson(next, unit.source)) writeSourceProse(draft, unit, next);
 			const sourceFingerprint = translationSourceFingerprint("prose", next);
 			for (const [language, value] of filled) {
 				if (language === source) continue;
 				const entries = draft.localization?.translations[language];
 				if (entries === undefined) continue;
-				if (sameProse(value, next)) {
+				if (sameJson(value, next)) {
 					delete entries[unit.id];
 					continue;
 				}
 				const held = entries[unit.id];
 				if (
 					held !== undefined &&
-					sameProse(held.value, value) &&
+					sameJson(held.value, value) &&
 					held.sourceFingerprint === sourceFingerprint
 				)
 					continue;
@@ -1260,15 +1257,17 @@ function readSlotText(
 	const id = ref.id;
 	const { source, defaultLanguage } = itext;
 	const values = itext.values(id);
-	// The text must hold the source language's value, which the slot holds, and the default
-	// language's, which the form builder fills a blank from.
-	const sourceForms = source === undefined ? undefined : values?.get(source);
+	// The text must hold the form's default language's value: Core refuses a text id the default
+	// locale lacks (`XFormParser.verifyTextMappings`), and the form builder fills a blank from
+	// it. A language whose translation holds no value of the text, or that the form holds no
+	// translation of, shows the default's (`Localizer.getLocaleData` loads the default locale's
+	// keys under every locale, `FormDef.initLocale` shows the default locale for a language the
+	// form lacks), the source language among them.
 	const defaultForms =
 		defaultLanguage === undefined ? undefined : values?.get(defaultLanguage);
 	if (
 		source === undefined ||
 		defaultLanguage === undefined ||
-		sourceForms === undefined ||
 		defaultForms === undefined
 	) {
 		ref.claim(cursor, false, false);
@@ -1278,7 +1277,16 @@ function readSlotText(
 				cursor.refuseSubtree(text, X.duplicateTextId, place);
 		return none;
 	}
-	if (!sourceForms.has("default") || !defaultForms.has("default")) {
+	// A text the default translation holds no default value of shows nothing on Core, and HQ's
+	// build refuses a label whose text in the source's first `<translation>` holds none. Any
+	// other language's text without a default value, the source's included, shows the default's
+	// (`XFormParser.verifyTextMappings` only warns for a locale that is not the default,
+	// `Localizer.getLocaleData` falls back per key), as a language without the text does.
+	if (
+		!defaultForms.has("default") ||
+		((owner.slot === "label" || owner.slot === "option_label") &&
+			itext.buildRefusesLabel(id))
+	) {
 		ref.claim(cursor, false, false);
 		if (first)
 			for (const text of itext.texts(id).values())
@@ -1311,10 +1319,12 @@ function readSlotText(
 	// The blank rules are the form builder's, which fills a blank value from the default
 	// language on every save: a blank there beside another language's text is refused, and a
 	// blank in any other language beside the default's text is held, filled from it. So a blank
-	// source value beside the default's text reads as the default's text.
+	// source value beside the default's text reads as the default's text, as a source value the
+	// form does not hold does.
 	const defaultBlank = valueIsBlank(read.get(defaultLanguage) as ReadValue);
+	const sourceValue = read.get(source);
 	const own =
-		valueIsBlank(read.get(source) as ReadValue) && !defaultBlank
+		sourceValue === undefined || (valueIsBlank(sourceValue) && !defaultBlank)
 			? defaultLanguage
 			: source;
 	const ownValue = read.get(own) as ReadValue;
@@ -1607,13 +1617,28 @@ export function finishText(ctx: ReadContext): void {
 				const sourceValue = slot.values.get(slot.own);
 				const sourceBlank =
 					sourceValue === undefined || valueIsBlank(sourceValue);
-				for (const [language, value] of slot.values) {
+				const formDefault = text.itext.defaultLanguage;
+				for (const language of text.itext.languages) {
 					if (language === slot.own) continue;
 					const targets = localization.translations[language];
 					if (targets === undefined) continue;
-					// A value left blank beside the source's text is no translation (12.2): it is
-					// paired with nothing, so it makes no entry and no finding.
-					if (valueIsBlank(value) && !sourceBlank) continue;
+					// A language the text holds no value in shows the form's default language's
+					// text, and a value left blank there beside the source's text is the form
+					// builder's to fill from it (12.2); either reads as the default's text, a value
+					// the default language's own pass claims, so this pass claims nothing of it.
+					let value = slot.values.get(language);
+					const borrowed =
+						language !== formDefault &&
+						(value === undefined || (valueIsBlank(value) && !sourceBlank));
+					if (borrowed)
+						value =
+							formDefault === undefined
+								? undefined
+								: slot.values.get(formDefault);
+					if (value === undefined) continue;
+					// The default's own text is the slot's: no translation.
+					if (borrowed && formDefault === slot.own) continue;
+					const claims = slot.first && !borrowed;
 					const used = new Set<number>();
 					const parts: ProsePart[] = [];
 					let differs = false;
@@ -1630,7 +1655,7 @@ export function finishText(ctx: ReadContext): void {
 								}),
 						);
 						if (twin < 0 || atoms[twin] === undefined) {
-							if (slot.first)
+							if (claims)
 								text.cursor.refuseSubtree(
 									part.output.element,
 									X.outputsDiffer,
@@ -1641,7 +1666,7 @@ export function finishText(ctx: ReadContext): void {
 						}
 						used.add(twin);
 						parts.push(structuredClone(atoms[twin] as ProsePart));
-						if (slot.first)
+						if (claims)
 							claimTwin(
 								ctx,
 								text.cursor,
@@ -1652,7 +1677,7 @@ export function finishText(ctx: ReadContext): void {
 							);
 					}
 					if (used.size < slot.registered.length) {
-						if (slot.first) ctx.accounting.finding(X.outputsDiffer, slot.place);
+						if (claims) ctx.accounting.finding(X.outputsDiffer, slot.place);
 						differs = true;
 					}
 					if (differs) continue;

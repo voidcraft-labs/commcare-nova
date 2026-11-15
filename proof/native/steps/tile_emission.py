@@ -9,7 +9,7 @@ The separate session-read target uses its actual corpus archive and captured
 app content through ``session_reads``; it adds no tile fixture record.
 """
 
-from proof.native.hq_support import import_source, native_check, sha256
+from proof.native.hq_support import app_sources, import_source, native_check, sha256
 from proof.native.steps.session_reads import session_reads
 
 DOMAIN = "nova-tile-evidence"
@@ -21,7 +21,7 @@ def tiles(session):
     from lxml import etree
 
     exports = session.family("tile")
-    sources = sorted(exports.glob("*.json"))
+    sources = app_sources(exports)
     records = []
     with native_check(DOMAIN):
         for source in sources:

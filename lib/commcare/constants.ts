@@ -6,10 +6,13 @@ import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 
 /**
  * Case property names Nova refuses in update_case / case_preload blocks: the
- * 38 entries of commcare-hq/corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json,
- * which HQ rejects there, plus `owner_id`, which HQ's wire accepts in an
- * update block and Nova reserves by its own rule: a case's owner is authored
- * as the owner of a case write, never as a property.
+ * entries of commcare-hq/corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json
+ * (`HQ_CASE_RESERVED_WORDS`), which HQ rejects there, but its two hyphenated
+ * spellings `date-opened` and `external-id`, which Nova's property name
+ * grammar refuses on its own (`lib/domain/casePropertyName.ts`), plus
+ * `owner_id`, which HQ's wire accepts in an update block and Nova reserves by
+ * its own rule: a case's owner is authored as the owner of a case write,
+ * never as a property.
  * CCHQ's alternate standard-property spellings are rejected by the domain
  * schema and deliberately do not survive as a live compatibility table here.
  */
@@ -53,6 +56,19 @@ export const RESERVED_CASE_PROPERTIES: ReadonlySet<string> = new Set([
 	"xform_ids",
 	// Nova's own rule: a case's owner is authored as the owner of a case write.
 	"owner_id",
+]);
+
+/**
+ * CommCare HQ's own reserved case property words, exactly its
+ * `case-reserved-words.json` (`helpers/validators.py::load_case_reserved_words`):
+ * HQ's build refuses a form that writes or preloads one
+ * (`IndexedFormBaseValidator.check_case_properties`, on the last step of a
+ * path). The reader judges HQ's apps by it; `owner_id` is none of HQ's.
+ */
+export const HQ_CASE_RESERVED_WORDS: ReadonlySet<string> = new Set([
+	...[...RESERVED_CASE_PROPERTIES].filter((word) => word !== "owner_id"),
+	"date-opened",
+	"external-id",
 ]);
 
 /** Safe rename targets for reserved property names the LLM might generate. */

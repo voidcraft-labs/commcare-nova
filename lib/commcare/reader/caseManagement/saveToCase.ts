@@ -72,8 +72,8 @@ import type { ClaimSite } from "../accounting";
 import { withCandidate } from "../candidate";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
-import { externalKey, mintEntityUuid } from "../identity";
-import { externalIdentityMap } from "../identityMap";
+import { externalKey } from "../identity";
+import { externalIdentityMap, reReadUuidOf } from "../identityMap";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { questionPlace, whereText } from "../place";
@@ -3425,7 +3425,9 @@ export function updateBesideBareOwnAsOwnArm(doc: BlueprintDoc): BlueprintDoc {
 			] as typeof form.caseOperations;
 		}
 	});
-	// The own arm takes the UUID its block's key mints, as a reading gives it.
+	// The own arm takes the UUID a reading gives its block's key, which `doc`
+	// does not hold (`identityMap.ts::reReadUuidOf`).
+	const reRead = reReadUuidOf(doc, DERIVED_WIRE_IDENTITY);
 	const keyOf = new Map(
 		externalIdentityMap(converted, DERIVED_WIRE_IDENTITY).map((entry) => [
 			entry.uuid,
@@ -3439,7 +3441,7 @@ export function updateBesideBareOwnAsOwnArm(doc: BlueprintDoc): BlueprintDoc {
 			);
 			const entry = keyOf.get(update.uuid);
 			if (arm === undefined || entry === undefined) continue;
-			arm.uuid = mintEntityUuid(doc.appId, entry);
+			arm.uuid = reRead(entry);
 		}
 	});
 }

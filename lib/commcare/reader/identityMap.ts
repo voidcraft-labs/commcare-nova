@@ -33,8 +33,31 @@ import {
 	externalKeyText,
 	type FormLinkTargetKey,
 	type IdentityMapEntry,
+	matchingUuidOf,
 	sortIdentityMapEntries,
 } from "./identity";
+
+/**
+ * The UUID a re-read of `doc`'s export gives an entity of `key`, told
+ * `externalIdentityMap(doc, identity)` through `matchingResolver`: the
+ * document's own UUID where it holds the key, else a UUID it holds under no
+ * key (`identity.ts::freeEntityUuid`). A canonical row that gives an entity
+ * the UUID a re-read gives it asks here, never `mintEntityUuid` directly: a
+ * document holds an entity renamed in Nova (a column whose property changed,
+ * an ordinal a removal moved) under the UUID its old key mints, and a re-read
+ * gives a new entity of that old key another one. The map is built on the
+ * first call.
+ */
+export function reReadUuidOf(
+	doc: BlueprintDoc,
+	identity: WireIdentity,
+): (key: ExternalKey) => Uuid {
+	let uuidOf: ((key: ExternalKey) => Uuid) | undefined;
+	return (key) => {
+		uuidOf ??= matchingUuidOf(doc.appId, externalIdentityMap(doc, identity));
+		return uuidOf(key);
+	};
+}
 
 /**
  * Every entity of `doc` that has an external key, with that key, ordered by
