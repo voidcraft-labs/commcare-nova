@@ -27,6 +27,7 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
+import type { HeldTexts } from "../caseList/columns";
 import {
 	type Claim,
 	defineClaims,
@@ -36,6 +37,7 @@ import {
 	take,
 } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
+import { heldText, recordTextRewrite } from "../heldText";
 import { isJsonObject } from "../jsonCursor";
 import { readNavMedia } from "./navMedia";
 
@@ -453,13 +455,38 @@ export function labelMap(
 }
 
 /** Whether a stored label map holds Nova's spelling of `built`: every app
- *  language's text, as built. */
+ *  language's text, as built, and no other language's. */
 export function labelSpelledAsBuilt(
 	stored: Readonly<Record<string, string | null>>,
 	built: Readonly<Record<string, string>>,
 	langs: readonly string[],
 ): boolean {
-	return langs.every((lang) => stored[lang] === built[lang]);
+	return (
+		langs.every((lang) => stored[lang] === built[lang]) &&
+		Object.keys(stored).every((lang) => langs.includes(lang))
+	);
+}
+
+/**
+ * A label read as built (`labelAsBuilt`) as a reading holds it, by its role
+ * (`heldText.ts::heldText`): no space at either end, and a language
+ * blank-looking beside the source's text takes the source's text there.
+ * Undefined where Nova's gate admits no spelling of a text, and `built` as it
+ * is where the reading names no source language.
+ */
+export function heldLabel(
+	ctx: ReadContext,
+	built: Readonly<Record<string, string>>,
+	role: "case-list-menu-item-label" | "case-list-registration-label",
+): HeldTexts | undefined {
+	const languages = applicationReading(ctx)?.languages;
+	const source = languages?.source;
+	if (languages === undefined || source === undefined)
+		return { texts: built, workersSeeAnother: false };
+	const held = heldText(built, languages.codes, source, role);
+	return held === undefined
+		? undefined
+		: { texts: held.printed, workersSeeAnother: held.workersSeeAnother };
 }
 
 /**
@@ -889,25 +916,41 @@ function readCaseListMenuItem(
 	const langs = appLanguageCodes(ctx);
 	const stored_ = labelMap(caseList.label);
 	cursor.take("label", MENU.caseListLabel, (value) => value).value;
-	const built = caseListLabelAsBuilt(stored_, langs);
-	const names = effectiveNames(stored.name, langs);
-	if (!labelSpelledAsBuilt(stored_, built, langs))
-		ctx.facts.sameStateRewrites.push({
-			entry: MENU.caseListLabel.entry,
-			path: `${cursor.pointer}/label`,
-			register: "list-settings-respelled",
+	const held = heldLabel(
+		ctx,
+		caseListLabelAsBuilt(stored_, langs),
+		"case-list-menu-item-label",
+	);
+	// A label Nova's gate admits no spelling of is a finding at the case list, and the rest of
+	// the item is still read.
+	if (held === undefined)
+		ctx.accounting.circumstance("unrecognized", caseListPlaceOf(module), {
+			name: "schema:CaseList.label",
 		});
-	const label = langs.every((lang) => built[lang] === names[lang])
-		? undefined
-		: writeBuiltLabel(
-				ctx,
-				makeTranslationUnitId(
-					"module",
-					module.uuid,
-					"case-list-menu-item-label",
-				),
-				built,
-			);
+	else if (
+		held.workersSeeAnother ||
+		!labelSpelledAsBuilt(stored_, held.texts, langs)
+	)
+		recordTextRewrite(
+			ctx,
+			{ entry: MENU.caseListLabel.entry, path: `${cursor.pointer}/label` },
+			"list-settings-respelled",
+			held.workersSeeAnother,
+		);
+	const built = held?.texts;
+	const names = effectiveNames(stored.name, langs);
+	const label =
+		built === undefined || langs.every((lang) => built[lang] === names[lang])
+			? undefined
+			: writeBuiltLabel(
+					ctx,
+					makeTranslationUnitId(
+						"module",
+						module.uuid,
+						"case-list-menu-item-label",
+					),
+					built,
+				);
 	if (Array.isArray(caseList.custom_icons) && caseList.custom_icons.length > 0)
 		cursor.refuse("custom_icons", MENU.caseListCustomIcons);
 	const media = readNavMedia(

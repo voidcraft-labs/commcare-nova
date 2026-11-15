@@ -304,6 +304,133 @@ describe("an advanced form's loads and open actions", () => {
 		).toEqual([]);
 	});
 
+	describe("a written key outside Nova's property grammar", () => {
+		// HQ's build holds every key of every advanced action, a load's and an open
+		// action's, to `validate_property` with parents and its reserved words on the
+		// last step (`AdvancedFormValidator.check_actions` over `get_all_actions` →
+		// `check_case_properties`), and writes each key as the update's element
+		// (`xform.py::make_case_elem`).
+		const ILLEGAL = `${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`;
+		const NON_CORE = `${F}/update-key-holding-a-character-validate-property-accepts-that-is`;
+		const NON_ASCII = `${F}/update-key-holding-a-non-ascii-core-name-character`;
+		const CASES: readonly (readonly [string, string])[] = [
+			["dob+1", ILLEGAL],
+			["status", ILLEGAL],
+			["date-opened", ILLEGAL],
+			["case_name", ILLEGAL],
+			["parent/stat+us", ILLEGAL],
+			["parent/status", ILLEGAL],
+			["age\n\n", ILLEGAL],
+			// One trailing newline passes HQ's grammar, and lxml refuses it as a tag.
+			["age\n", NON_CORE],
+			["a½", NON_CORE],
+			["a名字", NON_ASCII],
+		];
+
+		/** A whole reading of `doc` with `key` written to the case of `stored`'s map. */
+		async function writing(
+			doc: BlueprintDoc,
+			key: string,
+			stored: (app: MenuAppJson) => Record<string, unknown>,
+		) {
+			return readMenusOf(doc, (app) => {
+				const properties = stored(app).case_properties as Record<
+					string,
+					unknown
+				>;
+				const [first] = Object.values(properties);
+				properties[key] = first;
+			});
+		}
+
+		it("refuses the worker's load's key the same way, once, with no second finding at the load", async () => {
+			const { doc } = memberFollowup([
+				{
+					uuid: OP("worker"),
+					id: "commcare_user",
+					action: "update",
+					caseType: "commcare-user",
+					target: { kind: "worker-record" },
+					writes: [{ property: "last_household", value: read("name") }],
+				},
+			]);
+			const workerLoad = (app: MenuAppJson) => {
+				const worker = actionsOf(app).load_update_cases.find(
+					(load) => load.auto_select !== null,
+				);
+				if (worker === undefined)
+					throw new Error("The form loads the worker's record.");
+				return worker;
+			};
+			for (const [key, entry] of [
+				["status", ILLEGAL],
+				["mood\n", NON_CORE],
+			] as const) {
+				// The key replaces the load's one write, which would leave it writing nothing.
+				const reading = await readMenusOf(doc, (app) => {
+					const load = workerLoad(app);
+					const [value] = Object.values(
+						load.case_properties as Record<string, unknown>,
+					);
+					load.case_properties = { [key]: value };
+				});
+				expect(reading.outcome.defects, key).toEqual([]);
+				expect(codesOf(reading), key).toEqual([entry]);
+			}
+		});
+
+		const lastLoad = (app: MenuAppJson) => {
+			const loads = actionsOf(app).load_update_cases;
+			return loads[loads.length - 1] as Record<string, unknown>;
+		};
+		const ownOpen = (app: MenuAppJson) => {
+			const open = actionsOf(app).open_cases[0] as Record<string, unknown>;
+			// The registration's own open action writes nothing but its name; give it
+			// a write of the form's `age` to copy.
+			open.case_properties = {
+				...(open.case_properties as Record<string, unknown>),
+				size: {
+					...(open.name_update as Record<string, unknown>),
+					question_path: "/data/age",
+				},
+			};
+			return open;
+		};
+
+		for (const [surface, fixture, stored] of [
+			["a load's", () => memberFollowup().doc, lastLoad],
+			["an open action's", () => registration().doc, ownOpen],
+		] as const)
+			it(`refuses ${surface} key under the row HQ's build gives it, at its key, never a defect`, async () => {
+				const doc = fixture();
+				// The pair: the map as Nova writes it reads with no finding.
+				const plain = await writing(doc, "size", stored);
+				expect(codesOf(plain)).toEqual([]);
+				expect(plain.outcome.defects).toEqual([]);
+				for (const [key, entry] of CASES) {
+					const reading = await writing(doc, key, stored);
+					expect(reading.outcome.defects, key).toEqual([]);
+					const found = reading.findings.filter((one) => one.code === entry);
+					expect(found, key).toHaveLength(1);
+					expect(found[0]?.detail?.name, key).toBe(key);
+					expect(
+						codesOf(reading).filter((code) => code.startsWith("unrecognized")),
+						key,
+					).toEqual([]);
+				}
+				// A name in Nova's grammar past its length is unrecognized at its map.
+				const long = await writing(doc, "a".repeat(256), stored);
+				expect(long.outcome.defects).toEqual([]);
+				expect(codesOf(long)).toEqual([
+					`unrecognized:${
+						surface === "a load's"
+							? "schema:LoadUpdateAction.case_properties"
+							: "schema:AdvancedOpenCaseAction.case_properties"
+					}`,
+				]);
+			});
+	});
+
 	it("reads an open action that names Nova's owner node of no owner as unowned", async () => {
 		const { doc } = registration([
 			{
@@ -447,6 +574,35 @@ describe("an advanced form's loads and open actions", () => {
 			});
 		});
 
+		it("reads a property HQ's grammar takes for its trailing newline as the element CommCare reads", async () => {
+			// `validate_property` matches with `re.match` and a closing `$`, which takes one
+			// trailing newline; HQ's build maps neither `name` nor `owner_id` spelled so, and
+			// Core's lexer drops the newline: the load reads the child element of the name.
+			const { doc } = memberFollowup();
+			const preloadOf = (property: string) =>
+				readMenusOf(doc, (app) => {
+					const load = actionsOf(app).load_update_cases[0] as Record<
+						string,
+						unknown
+					>;
+					load.preload = { "/data/name": property };
+				});
+			const named = await preloadOf("case_name\n");
+			expect(codesOf(named)).toEqual([]);
+			expect(nameDefault(named.doc)).toEqual(householdName);
+			expect(named.doc).toEqual((await preloadOf("name")).doc);
+			const UNNAMED =
+				"expressions-and-data/a-form-expression-outside-what-nova-types";
+			for (const property of ["name\n", "status\n", "owner_id\n"]) {
+				const reading = await preloadOf(property);
+				expect(codesOf(reading), property).toContain(UNNAMED);
+				expect(codesOf(reading), property).not.toContain(
+					`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
+				);
+				expect(reading.outcome.defects, property).toEqual([]);
+			}
+		});
+
 		it("reads one on the load next to the own where the load before it shares its type", async () => {
 			const { doc } = visitUnderTwoHouseholds();
 			const plain = await readMenusOf(doc, (app) => {
@@ -493,9 +649,10 @@ describe("an advanced form's loads and open actions", () => {
 			]);
 		});
 
-		it("refuses one reached through an index other than `parent`, which the read does not walk", async () => {
+		it("reads one reached through an index other than `parent` where the read walks that index", async () => {
 			// The app links a member to its household as `mother`, so Nova's chain chooses
-			// the member by that index.
+			// the member by that index, and a read of the household walks `index/mother`
+			// from the member (`caseTypeDepths.ts::caseTypeHopMap`): the case HQ loads.
 			const { doc } = advancedFixture({
 				formType: "followup",
 				menu: "members",
@@ -541,9 +698,21 @@ describe("an advanced form's loads and open actions", () => {
 			});
 			expect(codesOf(plain)).toEqual([]);
 			const reading = await readMenusOf(doc, preloadOn(0));
-			expect(codesOf(reading).filter((code) => code === OTHER_CASE)).toEqual([
-				OTHER_CASE,
-			]);
+			expect(codesOf(reading)).toEqual([]);
+			expect(nameDefault(reading.doc)).toEqual(householdName);
+		});
+
+		it("refuses one reached through an index the app's links do not name, which the read does not walk", async () => {
+			// No link of the app joins a member to its household, so a read of the household
+			// walks `index/parent`; HQ chose the member by `index/mother`.
+			const { doc } = memberFollowup();
+			const reading = await readMenusOf(doc, (app) => {
+				const [, own] = actionsOf(app).load_update_cases;
+				(own?.case_index as Record<string, unknown>).reference_id = "mother";
+				preloadOn(0)(app);
+			});
+			expect(codesOf(reading)).toContain(OTHER_CASE);
+			expect(reading.outcome.defects).toEqual([]);
 		});
 	});
 

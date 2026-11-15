@@ -33,7 +33,7 @@ import {
 	unowned,
 } from "@/lib/domain/expression/builders";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
-import type { HqPlace } from "@/lib/publish/hqFindings";
+import { circumstanceFinding, type HqPlace } from "@/lib/publish/hqFindings";
 import type { PlannedLoad } from "../../advancedSelections";
 import { HQ_CASE_TAG_PATTERN } from "../../advancedTags";
 import { planFormCaseWire } from "../../casePlacementPlan";
@@ -57,7 +57,9 @@ import { isAllocatedName } from "../xform/generated";
 import type { DataNode } from "../xform/model";
 import {
 	dropCreateNameRequired,
+	type PropertyNameClass,
 	type ProposedValue,
+	propertyNameClass,
 	questionValue,
 	repeatOfField,
 } from "./basicActions";
@@ -75,6 +77,8 @@ import {
 	fieldAt,
 	holdsDefault,
 	hqBuildRefusesProperty,
+	preloadReadOf,
+	UNNAMED_PRELOAD,
 	writeDefault,
 } from "./preloads";
 
@@ -227,6 +231,18 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-preload-or-case-properties-property-with-on-a`,
 		"schema:LoadUpdateAction.case_properties",
 	),
+	loadIllegalKey: refuse(
+		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
+		"schema:LoadUpdateAction.case_properties",
+	),
+	loadNonCoreKey: refuse(
+		`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+		"schema:LoadUpdateAction.case_properties",
+	),
+	loadNonAsciiKey: refuse(
+		`${F}/update-key-holding-a-non-ascii-core-name-character`,
+		"schema:LoadUpdateAction.case_properties",
+	),
 	slashPreloadOnIndexedLoad: refuse(
 		`${F}/loadupdateaction-preload-or-case-properties-property-with-on-a`,
 		"schema:LoadUpdateAction.preload",
@@ -357,6 +373,18 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/advancedopencaseaction-case-properties-key-with-parent-p`,
 		"schema:AdvancedOpenCaseAction.case_properties",
 	),
+	openIllegalKey: refuse(
+		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
+		"schema:AdvancedOpenCaseAction.case_properties",
+	),
+	openNonCoreKey: refuse(
+		`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+		"schema:AdvancedOpenCaseAction.case_properties",
+	),
+	openNonAsciiKey: refuse(
+		`${F}/update-key-holding-a-non-ascii-core-name-character`,
+		"schema:AdvancedOpenCaseAction.case_properties",
+	),
 	openRepeat: take(
 		`${F}/advancedopencaseaction-repeat-context-equal-to-the-name-question`,
 		"schema:AdvancedOpenCaseAction.repeat_context",
@@ -422,6 +450,19 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		"schema:CaseIndex.relationship",
 	),
 });
+
+/** The claims of a load's write map (`readProperties`), a chosen load's and the worker's alike. */
+const LOAD_PROPERTY_CLAIMS = {
+	map: ADVANCED_CLAIMS.loadProperties,
+	path: ADVANCED_CLAIMS.loadQuestionPath,
+	slash: undefined,
+	surface: "schema:LoadUpdateAction.case_properties",
+	names: {
+		illegal: ADVANCED_CLAIMS.loadIllegalKey,
+		"non-core": ADVANCED_CLAIMS.loadNonCoreKey,
+		"non-ascii": ADVANCED_CLAIMS.loadNonAsciiKey,
+	},
+};
 
 // ── What the first pass proposes ────────────────────────────────────────
 
@@ -494,6 +535,9 @@ interface AdvancedReading {
 	readonly chain?: readonly Uuid[];
 	/** Each id the reading gave, in the order it gave them. */
 	readonly mints: readonly AdvancedMint[];
+	/** Whether the first pass refused part of the stored actions (a key, a load, an open
+	 *  action), each refusal standing as its own finding. */
+	readonly refused?: true;
 }
 
 /** One id the reading gave an operation: its case type's, or the name its owner node carries. */
@@ -670,6 +714,12 @@ function readProperties(
 		readonly map: Claim<"take">;
 		readonly path: Claim<"take">;
 		readonly slash: Claim<"refuse"> | undefined;
+		/** The map's surface key, which an `unrecognized` key names. */
+		readonly surface: string;
+		/** The rows of a key outside Nova's property grammar, by `propertyNameClass`. */
+		readonly names: Readonly<
+			Record<Exclude<PropertyNameClass, "too-long">, Claim<"refuse">>
+		>;
 	},
 	indexed: boolean,
 	/** An open action's: whose `owner_id` may name Nova's owner node, which the open action
@@ -680,6 +730,8 @@ function readProperties(
 	name?: ProposedValue;
 	owner?: ProposedValue | "acting-user" | "unowned";
 	ownerNode?: OwnerNode;
+	/** A key of the map was refused, as its own finding. */
+	refused?: true;
 } {
 	const out: ReturnType<typeof readProperties> = { writes: [] };
 	if (!parent.used("case_properties")) return out;
@@ -689,6 +741,16 @@ function readProperties(
 		claims.map,
 	);
 	for (const [key, cursor] of entries) {
+		// HQ's build holds every key of every advanced action, a load's and an
+		// open action's alike, to its grammar with parents and its reserved words
+		// on the last step (`AdvancedFormValidator.check_actions`, over
+		// `get_all_actions`), before anything else is asked of the key.
+		if (hqBuildRefusesProperty(key)) {
+			cursor.refuseWhole(claims.names.illegal, { name: key });
+			r.ok = false;
+			out.refused = true;
+			continue;
+		}
 		if (key.includes("/")) {
 			if (claims.slash !== undefined)
 				cursor.refuseWhole(claims.slash, { name: key });
@@ -699,6 +761,34 @@ function readProperties(
 					name: "schema:LoadUpdateAction.case_properties",
 				});
 			r.ok = false;
+			continue;
+		}
+		// `name` and `owner_id` are the case's name and owner; every other key is a
+		// property, which Nova's grammar must name.
+		const named =
+			key === "name" || key === "owner_id" ? undefined : propertyNameClass(key);
+		if (named === "too-long") {
+			const place = r.form.place;
+			r.ctx.accounting.circumstance("unrecognized", place, {
+				name: claims.surface,
+			});
+			const raised = circumstanceFinding("unrecognized", place, {
+				name: claims.surface,
+			});
+			for (const covered of [
+				"question_path",
+				"update_mode",
+				...cursor.undeclared(),
+			])
+				r.ctx.accounting.cover({ json: cursor, key: covered }, raised);
+			r.ok = false;
+			out.refused = true;
+			continue;
+		}
+		if (named !== undefined) {
+			cursor.refuseWhole(claims.names[named], { name: key });
+			r.ok = false;
+			out.refused = true;
 			continue;
 		}
 		if (cursor.peek("update_mode") === "edit") {
@@ -1115,34 +1205,24 @@ export function readAdvancedActions(
 				L.drop("product_program", ADVANCED_CLAIMS.productProgramOff);
 		}
 		const indexed = indexRead !== undefined;
-		const properties = readProperties(
-			r,
-			L,
-			{
-				map: ADVANCED_CLAIMS.loadProperties,
-				path: ADVANCED_CLAIMS.loadQuestionPath,
-				slash: undefined,
-			},
-			indexed,
-		);
-		// A `form-case` read walks `index/parent` from the form's own case as many
-		// times as its type's depth in the catalog (`formCaseRead.ts::formCasePropertyRead`).
-		// HQ chose each later load among the cases whose index the load names points
-		// at the load before (`index/<reference_id>`), so the load `distance` loads
-		// before the own is reached by that walk exactly where every later load's
-		// index is `parent` and the type sits that deep.
-		const distance = chosenIndexes.length - 1 - position;
-		const byParent = chosenIndexes.slice(position + 1).every((later) => {
-			const stored = storedLoads[later] as Record<string, unknown> | undefined;
-			const laterIndex = isJsonObject(stored?.case_index)
-				? stored.case_index
-				: {};
-			return chainIndexName(laterIndex) === "parent";
-		});
-		readLoadPreloads(r, L, load, caseType as string, indexed, {
-			depth: distance,
-			byParent,
-		});
+		const properties = readProperties(r, L, LOAD_PROPERTY_CLAIMS, indexed);
+		// A `form-case` read walks from the form's own case the indices the document
+		// links each type to its parent by (`caseTypeDepths.ts::caseTypeHopMap`). HQ
+		// chose each later load among the cases whose index the load names points at
+		// the load before (`index/<reference_id>`), so this load is reached from the
+		// own case through each later load's index, the own load's first.
+		const hops = chosenIndexes
+			.slice(position + 1)
+			.reverse()
+			.map((later) => {
+				const stored = storedLoads[later] as
+					| Record<string, unknown>
+					| undefined;
+				return chainIndexName(
+					isJsonObject(stored?.case_index) ? stored.case_index : {},
+				);
+			});
+		readLoadPreloads(r, L, load, caseType as string, indexed, hops);
 		const closeStored = load.close_condition;
 		const closes = activeCondition(closeStored);
 		// A close that never runs is read as no close. HQ's page stores one with its question,
@@ -1354,6 +1434,12 @@ export function readAdvancedActions(
 				map: ADVANCED_CLAIMS.openProperties,
 				path: ADVANCED_CLAIMS.openQuestionPath,
 				slash: ADVANCED_CLAIMS.openSlashKey,
+				surface: "schema:AdvancedOpenCaseAction.case_properties",
+				names: {
+					illegal: ADVANCED_CLAIMS.openIllegalKey,
+					"non-core": ADVANCED_CLAIMS.openNonCoreKey,
+					"non-ascii": ADVANCED_CLAIMS.openNonAsciiKey,
+				},
 			},
 			false,
 			true,
@@ -1658,6 +1744,7 @@ export function readAdvancedActions(
 		...(worker !== undefined && { worker }),
 		...(chainOk && chain.length === chosen.length && { chain: [...chain] }),
 		mints,
+		...(!r.ok && { refused: true as const }),
 	});
 }
 
@@ -1749,14 +1836,11 @@ function readAutoSelectLoad(
 	}
 	if (mode !== "usercase") return refuseLoad(r, L, C.autoBlank);
 	const tag = load.case_tag;
-	const properties = readProperties(
-		r,
-		L,
-		{ map: C.loadProperties, path: C.loadQuestionPath, slash: undefined },
-		false,
-	);
+	const properties = readProperties(r, L, LOAD_PROPERTY_CLAIMS, false);
 	if (
-		properties.writes.length === 0 ||
+		// A load whose only writes were refused writes something HQ's build refuses, each
+		// refusal its own finding, and the rest of the load is read on.
+		(properties.writes.length === 0 && properties.refused !== true) ||
 		activeCondition(load.close_condition) ||
 		properties.name !== undefined ||
 		properties.owner !== undefined ||
@@ -1856,22 +1940,24 @@ function refuseLoad(
  *  finding that it would hold its place at the end of the load. HQ's build
  *  reads each load's preload from that load's own case
  *  (`xform.py::XForm._create_casexml_advanced`, `session_case_id`), and the
- *  default is a `form-case` read, which walks `index/parent` from the form's
- *  own case as deep as the load's type sits in the catalog. `reach` is that
- *  load's place in the chain: `depth` loads before the own, reached through
- *  `parent` indices only where `byParent`. A load reached through another
- *  index is the finding that Nova's read would name another case
- *  (`preloadOtherCase`) here; one whose type the catalog does not place
- *  `depth` deep (another load of the chain nearer the own shares its type,
- *  or a link of the app gives a type of the chain another parent) is the
- *  same finding once the catalog is read (`preloads.ts::settlePreloads`). */
+ *  default is a `form-case` read, which walks from the form's own case the
+ *  indices the document links each type to its parent by
+ *  (`caseTypeDepths.ts::caseTypeHopMap`). `hops` is the walk to this load
+ *  from the own case: each later load's index, the own load's first. A load
+ *  the document's walk does not reach that way (a type the catalog does not
+ *  place that deep, another load of the chain nearer the own sharing its
+ *  type, a link of the app giving a type of the chain another parent, or a
+ *  later load chosen through an index the app's links between the two types
+ *  do not name alone) is the finding that Nova's read would name another case
+ *  (`preloadOtherCase`), once the catalog and the links are read
+ *  (`preloads.ts::settlePreloads`). */
 function readLoadPreloads(
 	r: Reading,
 	L: JsonCursor,
 	load: Readonly<Record<string, unknown>>,
 	caseType: string,
 	indexed: boolean,
-	reach: { readonly depth: number; readonly byParent: boolean },
+	hops: readonly string[],
 ): void {
 	const preload = isJsonObject(load.preload) ? load.preload : {};
 	if (Object.keys(preload).length === 0) return;
@@ -1930,8 +2016,18 @@ function readLoadPreloads(
 		r.ok = false;
 		return;
 	}
-	if (!reach.byParent) {
-		L.refuse("preload", ADVANCED_CLAIMS.preloadOtherCase);
+	// A name HQ's grammar admits for its trailing newline reads a child element
+	// no property name of Nova's names (`preloads.ts::preloadReadOf`).
+	const unnamed = entries.find(
+		({ property }) =>
+			typeof property === "string" &&
+			preloadReadOf(property).name === undefined,
+	);
+	if (unnamed !== undefined) {
+		L.refuse("preload", UNNAMED_PRELOAD, {
+			name: unnamed.property as string,
+			reason: "name:case-property",
+		});
 		r.ok = false;
 		return;
 	}
@@ -1949,7 +2045,7 @@ function readLoadPreloads(
 		const read: Term = {
 			kind: "form-case",
 			caseType,
-			property: property === "name" ? "case_name" : (property as string),
+			property: preloadReadOf(property as string).name as string,
 		};
 		writeDefault(r.ctx, r.form, question, term(read));
 		addPreloadCandidate(r.form, {
@@ -1958,7 +2054,7 @@ function readLoadPreloads(
 			moves: ADVANCED_CLAIMS.preloadLater,
 			load: {
 				caseType,
-				depth: reach.depth,
+				hops,
 				otherCase: ADVANCED_CLAIMS.preloadOtherCase,
 			},
 		});
@@ -2451,9 +2547,12 @@ export function settleAdvancedForm(
 			),
 		)
 	) {
-		ctx.accounting.circumstance("unrecognized", form.place, {
-			name: "schema:AdvancedForm.actions",
-		});
+		// What the first pass refused is missing from the reading, so the actions differ by it;
+		// its finding at the form already says so, and the difference is no second cause.
+		if (!(reading.refused === true && ctx.accounting.hasFindingAt(form.place)))
+			ctx.accounting.circumstance("unrecognized", form.place, {
+				name: "schema:AdvancedForm.actions",
+			});
 		return;
 	}
 	const plan = planPlacements(doc, form.uuid);

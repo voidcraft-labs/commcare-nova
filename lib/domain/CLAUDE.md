@@ -376,8 +376,10 @@ because `entryDatumSupplies` reads them too, and each load's tag,
 first), and
 `Module.heldKind` holds the kind a publish carried; `advancedKindBlockers`
 names what keeps a menu basic, `heldKindExpresses` whether a held kind can
-still express its menu, and `advancedChainIndex` the index name of each load
-in the menu's parent chain. The three live in `advancedModule.ts`, because the
+still express its menu, `advancedChainIndex` the index name of each load
+in the menu's parent chain, and `ancestorIndex` the index a form's read of
+an ancestor (`#<type>/<property>`) walks from each type to its catalog
+parent, that one name, `parent` where no link or several names join them. The four live in `advancedModule.ts`, because the
 builder and the commit gate read them: a blocker is a menu that lets a worker
 choose several cases, one whose forms read its search, one whose case list
 menu item is narrowed, or a parent chain whose pair of case types the app

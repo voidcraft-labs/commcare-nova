@@ -1960,6 +1960,7 @@ describe("resetSampleCases", () => {
 		const seeded = await seedSampleCases(store, {
 			appId: APP_ID,
 			caseType: PATIENT_CASE_TYPE,
+			parentIdentifier: "parent",
 		});
 		expect(seeded.kind).toBe("ok");
 		if (seeded.kind !== "ok") return;
@@ -1976,6 +1977,7 @@ describe("resetSampleCases", () => {
 		const result = await resetSampleCases(store, {
 			appId: APP_ID,
 			caseType: PATIENT_CASE_TYPE,
+			parentIdentifier: "parent",
 		});
 		expect(result.kind).toBe("ok");
 		if (result.kind !== "ok") return;
@@ -2605,6 +2607,7 @@ describe("seedSampleCases", () => {
 		const result = await seedSampleCases(store, {
 			appId: APP_ID,
 			caseType: PATIENT_CASE_TYPE,
+			parentIdentifier: "parent",
 		});
 		expect(result.kind).toBe("ok");
 		if (result.kind !== "ok") return;
@@ -2636,6 +2639,7 @@ describe("mapPopulateSampleCasesError through Postgres", () => {
 			await seedSampleCases(store, {
 				appId: APP_ID,
 				caseType: PATIENT_CASE_TYPE,
+				parentIdentifier: "parent",
 			});
 			throw new Error("seedSampleCases should have thrown");
 		} catch (err) {
@@ -2685,6 +2689,7 @@ describe("mapPopulateSampleCasesError through Postgres", () => {
 			await seedSampleCases(store, {
 				appId: APP_ID,
 				caseType: PATIENT_CASE_TYPE,
+				parentIdentifier: "parent",
 			});
 			throw new Error("seedSampleCases should have thrown");
 		} catch (err) {

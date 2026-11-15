@@ -387,11 +387,13 @@ export type LoadFilterPreviewResult =
  * sort, or page window.
  *
  * `ancestors` is the bound case's parent chain, nearest-first
- * (parent, grandparent, …), walked server-side through the case
- * store's `parent` index edges. The form engine resolves
- * `#<ancestor_type>/<prop>` references against it — the preview
- * counterpart of the wire's `…/index/parent × depth …` casedb
- * walk. Empty for a root case.
+ * (parent, grandparent, …), walked server-side through each case's
+ * `parent_case_id`. It fills the form engine's per-type case map; a
+ * form's `#<ancestor_type>/<prop>` read over a device snapshot
+ * evaluates the wire's own casedb walk instead, under the index the
+ * app links each type to its parent by
+ * (`lib/commcare/caseTypeDepths.ts::caseTypeHopMap`). Empty for a
+ * root case.
  */
 export type LoadCaseDataResult =
 	| {

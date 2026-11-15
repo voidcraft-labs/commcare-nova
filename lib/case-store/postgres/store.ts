@@ -1859,6 +1859,7 @@ export class PostgresCaseStore implements CaseStore {
 		appId: string;
 		row: CaseInsert;
 		parentRelationship?: CaseIndicesTable["relationship"];
+		parentIdentifier?: string;
 	}): Promise<{ caseId: string }> {
 		// One transaction across cases + case_indices so a derived
 		// edge insert can't observe a partial cases-row commit.
@@ -1875,6 +1876,9 @@ export class PostgresCaseStore implements CaseStore {
 				...(args.parentRelationship === undefined
 					? {}
 					: { parentRelationship: args.parentRelationship }),
+				...(args.parentIdentifier === undefined
+					? {}
+					: { parentIdentifier: args.parentIdentifier }),
 			});
 			return { caseId };
 		});
@@ -1904,6 +1908,7 @@ export class PostgresCaseStore implements CaseStore {
 			caseId?: string;
 			ownerId?: string;
 			parentRelationship?: CaseIndicesTable["relationship"];
+			parentIdentifier?: string;
 			caseIdTaken?: () => never;
 		},
 	): Promise<string> {
@@ -1973,9 +1978,11 @@ export class PostgresCaseStore implements CaseStore {
 
 		// Direct-edge derivation: depth=1 edges only; recursive
 		// walks compose at read time via `compileRelationPath`.
-		// A direct insert defaults to an ordinary child. The running-app
-		// submission path supplies the committed case type's relationship so
-		// extension hosts survive the same way the emitted case block does.
+		// A direct insert defaults to an ordinary child under `parent`. The
+		// running-app submission path supplies the committed case type's
+		// relationship so extension hosts survive the same way the emitted case
+		// block does, and a caller that knows the app names the index the
+		// app's forms read the parent through.
 		if (
 			args.row.parent_case_id !== null &&
 			args.row.parent_case_id !== undefined
@@ -1991,7 +1998,7 @@ export class PostgresCaseStore implements CaseStore {
 					case_id: caseId,
 					ancestor_id: args.row.parent_case_id,
 					target_case_type: parentTargetType,
-					identifier: "parent",
+					identifier: args.parentIdentifier ?? "parent",
 					relationship: args.parentRelationship ?? "child",
 					depth: 1,
 				})
@@ -2147,6 +2154,7 @@ export class PostgresCaseStore implements CaseStore {
 			appId: string;
 			rows: ReadonlyArray<CaseInsert>;
 			parentRelationship?: CaseIndicesTable["relationship"];
+			parentIdentifier?: string;
 		},
 	): Promise<{ caseIds: ReadonlyArray<string> }> {
 		if (args.rows.length === 0) {
@@ -2271,7 +2279,7 @@ export class PostgresCaseStore implements CaseStore {
 				case_id: caseId,
 				ancestor_id: row.parent_case_id,
 				target_case_type: targetCaseType,
-				identifier: "parent",
+				identifier: args.parentIdentifier ?? "parent",
 				relationship: args.parentRelationship ?? "child",
 				depth: 1,
 			});
@@ -3401,6 +3409,9 @@ export class PostgresCaseStore implements CaseStore {
 			appId: args.appId,
 			rows,
 			parentRelationship: args.caseType.relationship ?? "child",
+			...(args.parentIdentifier === undefined
+				? {}
+				: { parentIdentifier: args.parentIdentifier }),
 		});
 		return { inserted: caseIds.length };
 	}
@@ -3517,6 +3528,9 @@ export class PostgresCaseStore implements CaseStore {
 				caseType: args.caseType,
 				count: args.count,
 				seed: Date.now().toString(),
+				...(args.parentIdentifier === undefined
+					? {}
+					: { parentIdentifier: args.parentIdentifier }),
 			});
 
 			return { deleted, inserted };

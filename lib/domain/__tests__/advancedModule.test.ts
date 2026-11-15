@@ -12,6 +12,7 @@ import { buildDoc, type ModuleSpec } from "@/lib/__tests__/docHelpers";
 import {
 	advancedChainIndex,
 	advancedKindBlockers,
+	ancestorIndex,
 	heldKindExpresses,
 } from "@/lib/domain/advancedModule";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
@@ -166,6 +167,38 @@ describe("advancedChainIndex", () => {
 			kind: "one",
 			identifier: "household",
 		});
+	});
+});
+
+/**
+ * The index a form's read of an ancestor follows. The failure it catches: a
+ * read of the household walking `parent` from a member an advanced menu chose
+ * through `home`, which names another case or none.
+ */
+describe("ancestorIndex", () => {
+	it("follows the chain's one index name, `parent` where no link joins the types", () => {
+		expect(ancestorIndex(chainDoc(), "member", "household")).toBe("parent");
+		const named = chainDoc({
+			register: [create("first", "member", [link("home", "household")])],
+		});
+		expect(ancestorIndex(named, "member", "household")).toBe("home");
+		expect(advancedChainIndex(named, "member", "household")).toEqual({
+			kind: "one",
+			identifier: "home",
+		});
+	});
+
+	it("follows `parent` over a pair linked under several names, which no advanced menu chains", () => {
+		const doc = chainDoc({
+			register: [
+				create("first", "member", [link("home", "household")]),
+				create("second", "member", [link("parent", "household")]),
+			],
+		});
+		expect(ancestorIndex(doc, "member", "household")).toBe("parent");
+		expect(
+			advancedKindBlockers(doc, testUuid(MEMBERS)).map((one) => one.kind),
+		).toEqual(["chain-index"]);
 	});
 });
 

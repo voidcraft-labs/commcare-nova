@@ -7,16 +7,17 @@
  */
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
-import { reachableCaseTypes } from "@/lib/domain/caseTypes";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { activeRowScope, slotContext } from "@/lib/domain/expression/context";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
+import { caseTypeHopMap } from "../../caseTypeDepths";
 import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../../formLinkProjection";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
 import { searchRowCsql } from "./csqlRead";
@@ -30,7 +31,7 @@ import {
 	flat,
 	instanceId,
 	joinedClauses,
-	ownCaseDepth,
+	ownCaseWalk,
 	presenceShape,
 	rowProperty,
 	siblingCaseRow,
@@ -293,12 +294,12 @@ function chosenCaseType(
 		: undefined;
 }
 
-/** The depth of the own-case walk a case id key reads: an own-case walk's,
+/** The indices of the own-case walk a case id key reads: an own-case walk's,
  *  or the `@case_id` of a case keyed on one, which is that case's own id. */
-function keyDepth(key: FormSyntax | undefined): number | undefined {
+function keyWalk(key: FormSyntax | undefined): readonly string[] | undefined {
 	if (key === undefined) return undefined;
-	const depth = ownCaseDepth(key);
-	if (depth !== undefined) return depth;
+	const walk = ownCaseWalk(key);
+	if (walk !== undefined) return walk;
 	const read = casedbRow(key);
 	const [id, ...more] = read?.rest ?? [];
 	if (
@@ -310,7 +311,7 @@ function keyDepth(key: FormSyntax | undefined): number | undefined {
 		id.where.length > 0
 	)
 		return undefined;
-	return keyDepth(caseIdKey(read.row.where[0]));
+	return keyWalk(caseIdKey(read.row.where[0]));
 }
 
 function sortedDistinct(values: Iterable<string>): string[] {
@@ -448,9 +449,7 @@ export function scanReads(
 		const moduleType =
 			moduleUuid === undefined ? undefined : doc.modules[moduleUuid]?.caseType;
 		const reachable =
-			form === undefined
-				? []
-				: reachableCaseTypes(moduleType, doc.caseTypes ?? []);
+			form === undefined ? [] : [...caseTypeHopMap(doc, moduleType).entries()];
 		notePresence(rowType ?? moduleType, prepared.syntax);
 		const nodes = nodesOf(prepared.syntax);
 		const inPredicate = new Set<FormSyntax>();
@@ -507,9 +506,9 @@ export function scanReads(
 					);
 				})
 				.find((type) => type !== undefined);
-			const ownDepth =
+			const ownWalk =
 				rowStep.where.length === 1
-					? keyDepth(caseIdKey(rowStep.where[0]))
+					? keyWalk(caseIdKey(rowStep.where[0]))
 					: undefined;
 			// In a menu's own slot, a case keyed on a session value is the
 			// case a menu above it chose.
@@ -532,9 +531,9 @@ export function scanReads(
 				typed ??
 				searched ??
 				chosen ??
-				(ownDepth === undefined
+				(ownWalk === undefined
 					? undefined
-					: reachable.find((type) => type.depth === ownDepth)?.name);
+					: reachable.find(([, hops]) => sameJson(hops, ownWalk))?.[0]);
 			if (caseType === undefined) {
 				// A query of every case, which Nova writes for a property one
 				// case type alone declares: the slot's own case type, where

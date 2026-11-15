@@ -6,6 +6,7 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
 import type { BlueprintDoc, SearchInputDef } from "@/lib/domain";
 import {
 	eq,
@@ -24,6 +25,7 @@ import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import { expandDoc } from "../../../expander";
 import { lookupWireNaming } from "../../../lookup/naming";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	codes,
@@ -31,6 +33,7 @@ import {
 	listOf,
 	readLists,
 } from "../../caseList/__tests__/listReading";
+import { readHqApp } from "../../index";
 import type { ReaderInput } from "../../types";
 import { exactSearchModeIsAbsent } from "../prompts";
 
@@ -545,5 +548,60 @@ describe("Search fields over a table and over dates", () => {
 				searchInputs: unknown[];
 			};
 			expect(read.searchInputs).toEqual(asRead(inputs, reading));
+		});
+});
+
+describe("a Search field's test that reads an answer without Nova's guard on its rows", () => {
+	// CommCare HQ's page keeps any test an author types, so a test may read
+	// `instance('search-input:results')/input/field[@name = '…']` bare where Nova prints it inside
+	// `if(count(…/input/field) > 0, …, '')`. The reading compares it with the print that leaves
+	// that rewrite out (`emissionRewrites.ts`, `empty-rows-guard`), so it is an account with a
+	// finding at the test and never a reader defect. The failure it catches: a Search field's
+	// slots printed without the reader's rewrite control, so a bare read is left unrecognized at
+	// both levels and ends in `expression-not-written-back`.
+	const answer = (name: string) =>
+		`instance('search-input:results')/input/field[@name = '${name}']`;
+	const cases: readonly {
+		readonly title: string;
+		readonly edit: (props: Record<string, unknown>[]) => void;
+	}[] = [
+		{
+			title: "a validation",
+			edit: (props) => {
+				const one = props[0] as Record<string, unknown>;
+				one.validations = [
+					{
+						test: `${answer(String(one.name))} != 'x'`,
+						text: { es: "No x", en: "Not x" },
+					},
+				];
+			},
+		},
+		{
+			title: "a required condition",
+			edit: (props) => {
+				const one = props[1] as { required: Record<string, unknown> };
+				one.required.test = `${answer("case_name")} = ''`;
+			},
+		},
+	];
+	for (const one of cases)
+		it(`in ${one.title} is refused at the test, with no defect`, async () => {
+			const body = exportedBody(localizationWireFixture("prompts"));
+			const modules = body.modules as {
+				search_config: { properties: Record<string, unknown>[] };
+			}[];
+			one.edit(modules[0]?.search_config.properties ?? []);
+			const outcome = readHqApp(await inputFor(body));
+			expect(outcome.defects).toEqual([]);
+			expect(outcome.kind).toBe("account");
+			if (outcome.kind !== "account") return;
+			expect(
+				outcome.findings.map((finding) => [
+					finding.code,
+					finding.detail?.name,
+					finding.place.kind,
+				]),
+			).toEqual([["unrecognized", "schema:Assertion.test", "search"]]);
 		});
 });

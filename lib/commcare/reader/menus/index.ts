@@ -32,6 +32,7 @@ import {
 	caseListLabelAsBuilt,
 	caseListMenus,
 	caseListPlaceOf,
+	heldLabel,
 	labelMap,
 	rawModules,
 	readModules,
@@ -230,18 +231,28 @@ function acceptMenus(
 				});
 			const sourceList = isJsonObject(source.case_list) ? source.case_list : {};
 			const ourList = isJsonObject(ours.case_list) ? ours.case_list : {};
-			if (
-				!sameJson(
-					caseListLabelAsBuilt(labelMap(sourceList.label), langs),
-					caseListLabelAsBuilt(
-						withReadTranslations(
-							ctx,
-							caseListMenuItemLabelUnit({ ...own, uuid: module.uuid }),
-							labelMap(ourList.label),
-						),
-						langs,
+			// Each label as the reading holds it (`modules.ts::heldLabel`).
+			const sourceLabel = heldLabel(
+				ctx,
+				caseListLabelAsBuilt(labelMap(sourceList.label), langs),
+				"case-list-menu-item-label",
+			);
+			const ourLabel = heldLabel(
+				ctx,
+				caseListLabelAsBuilt(
+					withReadTranslations(
+						ctx,
+						caseListMenuItemLabelUnit({ ...own, uuid: module.uuid }),
+						labelMap(ourList.label),
 					),
-				)
+					langs,
+				),
+				"case-list-menu-item-label",
+			);
+			if (
+				sourceLabel === undefined ||
+				ourLabel === undefined ||
+				!sameJson(sourceLabel.texts, ourLabel.texts)
 			)
 				listUnrecognized("schema:CaseList.label");
 			const item = own?.caseListMenuItem;

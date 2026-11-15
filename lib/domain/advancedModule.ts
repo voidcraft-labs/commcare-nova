@@ -1,7 +1,8 @@
 // lib/domain/advancedModule.ts
 //
-// What keeps a menu from being an advanced module in CommCare HQ, and the
-// one index name an advanced form's chained loads follow. Nova never offers
+// What keeps a menu from being an advanced module in CommCare HQ, the one
+// index name an advanced form's chained loads follow, and the index a form's
+// read of an ancestor case follows from each case to its parent. Nova never offers
 // an advanced menu as a choice: a menu is emitted advanced only where its
 // kind is held (`Module.heldKind`) or a create an after-submit link carries
 // needs it (`lib/commcare/moduleKind.ts::emittedModuleKind`), and only where
@@ -124,6 +125,26 @@ export function advancedChainIndex(
 	if (identifiers.length === 1)
 		return { kind: "one", identifier: identifiers[0] };
 	return { kind: "several", identifiers: [...identifiers] };
+}
+
+/**
+ * The index a form's read of an ancestor case (`#<type>/<property>`) follows
+ * from a `childType` case to its `parentType` case, the type's `parent_type`
+ * in the catalog: the one identifier the app's child links between the two
+ * types use, as `advancedChainIndex` finds it, so the read reaches the case an
+ * advanced menu chose through that index (`[index/<identifier>=…]`); `parent`
+ * where no link joins them or where they are linked under several names. An
+ * advanced menu is never chained over a pair linked under several names
+ * (`chain-index`), so in every advanced form the read follows the index its
+ * load was chosen through.
+ */
+export function ancestorIndex(
+	doc: BlueprintDoc,
+	childType: string,
+	parentType: string,
+): string {
+	const index = advancedChainIndex(doc, childType, parentType);
+	return index.kind === "one" ? index.identifier : "parent";
 }
 
 /** The modules of `moduleUuid`'s parent selection, root first, ending at

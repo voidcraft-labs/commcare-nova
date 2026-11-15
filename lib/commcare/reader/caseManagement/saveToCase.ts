@@ -72,6 +72,7 @@ import type { ClaimSite } from "../accounting";
 import { withCandidate } from "../candidate";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
+import { printSlot } from "../expressions/readExpression";
 import { externalKey } from "../identity";
 import { externalIdentityMap, reReadUuidOf } from "../identityMap";
 import { isJsonObject, sameJson } from "../jsonCursor";
@@ -82,7 +83,12 @@ import { caseReferencesOf } from "../structure";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReadMenuAndFormIdentities } from "../types";
-import type { DraftField, ReadSaveToCaseBlock, ReadXForm } from "../xform";
+import {
+	type DraftField,
+	expressionEnvOf,
+	type ReadSaveToCaseBlock,
+	type ReadXForm,
+} from "../xform";
 import { HOLE, isAllocatedName, matchesTemplate } from "../xform/generated";
 import { type DataNode, pathSteps } from "../xform/model";
 import {
@@ -97,6 +103,7 @@ import {
 import {
 	blockTreesEqual,
 	emittedFormSource,
+	type HeldSlotPrint,
 	storedFormSource,
 } from "./saveToCaseCompare";
 
@@ -2895,8 +2902,50 @@ function ownCloseHolds(
 			{ block: ownClose.block, form: storedFormSource(xform.parsed) },
 			emitted,
 			judgedApart(reading),
+			heldSlotPrints(ctx, doc, reading),
 		)
 	);
+}
+
+/**
+ * Nova's print over `doc` of the tree the expression stage held for each text
+ * a block's bind holds whole, by the stored bind and attribute it was read
+ * from: a block whose source spells a held slot otherwise than Nova prints it
+ * (the form builder's absolute `/data/r/k` for an answer of the block's own
+ * repeat, which Nova prints from `current()`) is the block Nova prints, since
+ * the expression stage compared the slot with the source and reported what
+ * the print changes. A text the attribute holds only part of (a name inside
+ * its trim) is compared as written.
+ */
+function heldSlotPrints(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	reading: FormBlocks,
+): HeldSlotPrint {
+	const bySite = new Map<Element, Map<string, number>>();
+	for (const { index } of reading.registrations.values()) {
+		const at = ctx.pending.site(index).at;
+		if (!("element" in at) || at.attribute === undefined) continue;
+		const registration = ctx.pending.list()[index];
+		if (registration?.text !== at.element.attribs[at.attribute]) continue;
+		const attributes = bySite.get(at.element) ?? new Map<string, number>();
+		attributes.set(at.attribute, index);
+		bySite.set(at.element, attributes);
+	}
+	let env: ReturnType<typeof expressionEnvOf> | undefined;
+	return (element, attribute) => {
+		const index = bySite.get(element)?.get(attribute);
+		if (index === undefined) return undefined;
+		const tree = ctx.pending.outcome(index).expression;
+		const registration = ctx.pending.list()[index];
+		if (tree === undefined || registration === undefined) return undefined;
+		env ??= expressionEnvOf(ctx);
+		try {
+			return printSlot(doc, registration.ref, tree, env);
+		} catch {
+			return undefined;
+		}
+	};
 }
 
 /** Whether every accepted block of `form` holds tests 2 and 4 over `doc`. */
@@ -2911,6 +2960,7 @@ function blocksHold(
 	const emitted = emittedForm(ctx, doc, form);
 	const stored = storedFormSource(xform.parsed);
 	const apart = judgedApart(reading);
+	const held = heldSlotPrints(ctx, doc, reading);
 	const failing: ProposedBlock[] = [];
 	for (const one of reading.proposals) {
 		let shape: readonly SaveToCaseBlockSegment[] | undefined;
@@ -2926,7 +2976,7 @@ function blocksHold(
 			shape === undefined ||
 			shape.join("/") !== one.segments.join("/") ||
 			emitted === undefined ||
-			!blockTreesEqual({ block: one.block, form: stored }, emitted, apart)
+			!blockTreesEqual({ block: one.block, form: stored }, emitted, apart, held)
 		)
 			failing.push(one);
 	}

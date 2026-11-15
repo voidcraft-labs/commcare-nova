@@ -26,13 +26,19 @@ import {
 	take,
 } from "./claims";
 import type { ReadContext } from "./context";
-import { isJsonObject, type JsonCursor, sameJson } from "./jsonCursor";
+import { heldText, recordTextRewrite } from "./heldText";
+import {
+	isJsonObject,
+	type JsonCursor,
+	pointerToken,
+	sameJson,
+} from "./jsonCursor";
 import {
 	type HqLanguages,
 	manifestFindingOf,
 	readLanguages,
 } from "./languages";
-import { appSettingsPlace } from "./place";
+import { appPlace, appSettingsPlace } from "./place";
 
 const A = "application-and-settings";
 const key = (name: string) => `schema:Application.${name}`;
@@ -778,7 +784,7 @@ function readTranslations(
 		ctx.facts.foldedTranslationKeys += 1;
 	}
 	const translated = new Map(
-		[...appNames].flatMap(([code, text]) => {
+		[...holdAppName(ctx, languages, name, appNames)].flatMap(([code, text]) => {
 			const tag = languages.tagOf.get(code);
 			return tag === undefined || languages.refused.has(code)
 				? []
@@ -792,6 +798,63 @@ function readTranslations(
 			translated,
 		);
 	return held;
+}
+
+/**
+ * The app's name as a reading holds it: each language shows the source's name (`name`, or the
+ * source language's `app.display.name` read over it) or its own `app.display.name`, held as
+ * every app string is (`heldText.ts::heldText`): no space at either end, and a language whose
+ * name shows blank beside a source that does not takes the source's name. The source's text is
+ * written into the draft, and each other language's translation is returned by code. A name
+ * Nova's gate admits no spelling of is named `unrecognized` at the app, and the names are
+ * returned as stored. Where the first publish writes a stored value again, the reading records
+ * it: under `text-spaces-dropped` where a worker then reads another name, else under
+ * `names-respelled`.
+ */
+function holdAppName(
+	ctx: ReadContext,
+	languages: HqLanguages,
+	name: Admitted<string> | undefined,
+	appNames: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> {
+	const source = languages.source;
+	const sourceName = ctx.draft.appName?.value;
+	if (source === undefined || name === undefined || sourceName === undefined)
+		return appNames;
+	const shown = new Map<string, string>();
+	for (const code of languages.codes)
+		shown.set(
+			code,
+			code === source ? sourceName : (appNames.get(code) ?? name.value),
+		);
+	const held = heldText(shown, languages.codes, source, "app-name");
+	if (held === undefined) {
+		ctx.accounting.circumstance("unrecognized", appPlace(), {
+			name: key("name"),
+		});
+		return appNames;
+	}
+	if (held.source !== sourceName)
+		ctx.writeDraft(() => {
+			ctx.draft.appName = ctx.accounting.unrecorded(held.source);
+		});
+	for (const code of languages.codes) {
+		const before = shown.get(code);
+		if (before === undefined || before === held.printed[code]) continue;
+		const own = code !== source && appNames.has(code);
+		recordTextRewrite(
+			ctx,
+			own
+				? {
+						entry: TRANSLATION_CLAIMS.appDisplayName.entry,
+						path: `/translations/${pointerToken(code)}/app.display.name`,
+					}
+				: { entry: CLAIMS.name.entry, path: "/name" },
+			"names-respelled",
+			held.workersSeeAnother,
+		);
+	}
+	return held.translations;
 }
 
 /** The root's undeclared keys: CommCare HQ's dynamic keys, a read-only member's name, or any other. */

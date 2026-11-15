@@ -13,6 +13,7 @@ import {
 	NO_SEARCH_SCREEN_TITLE,
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
+import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import { projectCaseListForHq } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { normalizeSpace } from "../../suite/wire";
@@ -21,9 +22,11 @@ import { w } from "../../xpath/wire/builders";
 import { withCandidate } from "../candidate";
 import {
 	appCodes,
+	type HeldTexts,
+	heldTextsIn,
 	languageMap,
-	sameShownTexts,
-	shownTexts,
+	sameHeldTexts,
+	sourceCode,
 	sourceText,
 	translatedTexts,
 } from "../caseList/columns";
@@ -32,6 +35,7 @@ import { withReadTexts } from "../caseList/readTexts";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
+import { heldText, recordTextRewrite } from "../heldText";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { readProjectionInputs } from "../projectionInputs";
@@ -656,28 +660,49 @@ export function readSearchSettings(
 		cursor.refuse("title_label", T.titleSome);
 		ok = false;
 	} else {
-		cursor.take("title_label", T.title, languageMap).value;
-		// "Search" in the source language is the absent title, whose text is that word: a document
-		// holds its other languages as the title unit's translations either way.
-		const text = sourceText(ctx, title);
-		if (text !== DEFAULT_CASE_SEARCH_TITLE) config.searchScreenTitle = text;
-		ctx.translations.set(
-			makeTranslationUnitId("module", module.uuid, "search-title"),
-			"text",
-			translatedTexts(ctx, title),
-		);
-		if (!spelledAsShown(storedTitle, title, codes))
-			sameState(
-				ctx,
-				T.title.entry,
-				`${cursor.pointer}/title_label`,
-				"list-settings-respelled",
+		// Held as every app string is (`heldText.ts::heldText`): no space at either end. A title
+		// Nova's gate admits no spelling of is left for the close to name.
+		const held = heldTitles(title, codes, sourceCode(ctx));
+		if (held === undefined) {
+			ctx.accounting.circumstance("unrecognized", place, {
+				name: "schema:CaseSearch.title_label",
+			});
+			ok = false;
+		} else {
+			cursor.take("title_label", T.title, languageMap).value;
+			// "Search" in the source language is the absent title, whose text is that word: a
+			// document holds its other languages as the title unit's translations either way.
+			const text = sourceText(ctx, held.texts);
+			if (text !== DEFAULT_CASE_SEARCH_TITLE) config.searchScreenTitle = text;
+			ctx.translations.set(
+				makeTranslationUnitId("module", module.uuid, "search-title"),
+				"text",
+				translatedTexts(ctx, held.texts),
 			);
+			if (
+				held.workersSeeAnother ||
+				!spelledAsShown(storedTitle, held.texts, codes)
+			)
+				recordTextRewrite(
+					ctx,
+					{ entry: T.title.entry, path: `${cursor.pointer}/title_label` },
+					"list-settings-respelled",
+					held.workersSeeAnother,
+				);
+		}
 	}
 	const storedDescription = cursor.peek("description");
 	// The subtitle as HQ's build shows it in each language (`app_strings.py`, `clean_trans` of the
-	// map): a language the map lacks, or holds blank, shows another's text.
-	const description = shownTexts(storedDescription ?? {}, codes);
+	// map): a language the map lacks, or holds blank, shows another's text. It is held as every
+	// app string is (`caseList/columns.ts::heldTextsIn`): no space at either end, and a language
+	// blank-looking beside the source's text takes the source's text there.
+	const heldDescription = heldTextsIn(
+		storedDescription ?? {},
+		codes,
+		sourceCode(ctx),
+		"search-screen-subtitle",
+	);
+	const description = heldDescription?.texts;
 	if (description === undefined) {
 		ctx.accounting.circumstance("unrecognized", place, {
 			name: "schema:CaseSearch.description",
@@ -691,12 +716,15 @@ export function readSearchSettings(
 			"text",
 			translatedTexts(ctx, description),
 		);
-		if (!spelledAsShown(storedDescription, description, codes))
-			sameState(
+		if (
+			heldDescription?.workersSeeAnother === true ||
+			!spelledAsShown(storedDescription, description, codes)
+		)
+			recordTextRewrite(
 				ctx,
-				T.description.entry,
-				`${cursor.pointer}/description`,
+				{ entry: T.description.entry, path: `${cursor.pointer}/description` },
 				"list-settings-respelled",
+				heldDescription?.workersSeeAnother === true,
 			);
 	} else if (cursor.used("description")) {
 		// Blank in every language is no subtitle, as an absent map is.
@@ -855,32 +883,67 @@ function sameXPathValue(a: unknown, b: unknown): boolean {
 	return typeof a === "string" && typeof b === "string" && sameXPathText(a, b);
 }
 
-/** Whether two stored text maps show one text in each app language, as HQ's build shows each
- *  (`hqText.ts::shownText`): a language a map lacks shows another language's text. A map that
- *  is absent is no text. */
-function sameTexts(codes: readonly string[], a: unknown, b: unknown): boolean {
-	return sameShownTexts(codes, a ?? {}, b ?? {});
+/** Whether a reading holds two stored text maps of role `role` alike in each app language
+ *  (`caseList/columns.ts::sameHeldTexts`, over `hqText.ts::shownText`): a language a map lacks
+ *  shows another language's text. A map that is absent is no text. */
+function sameTexts(
+	codes: readonly string[],
+	source: string | undefined,
+	role: TranslationUnitRole,
+	a: unknown,
+	b: unknown,
+): boolean {
+	return sameHeldTexts(codes, source, role, a ?? {}, b ?? {});
 }
 
-/** Whether two stored titles show one text in each app language (`shownTitles`). */
-function sameTitles(codes: readonly string[], a: unknown, b: unknown): boolean {
-	const left = shownTitles(a, codes);
-	const right = shownTitles(b, codes);
+/** A title each app language shows (`shownTitles`) as a reading holds it
+ *  (`heldText.ts::heldText`), or undefined where Nova's gate admits no spelling of a text. */
+function heldTitles(
+	shown: Readonly<Record<string, string>>,
+	codes: readonly string[],
+	source: string | undefined,
+): HeldTexts | undefined {
+	if (source === undefined) return { texts: shown, workersSeeAnother: false };
+	const held = heldText(shown, codes, source, "search-screen-title");
+	return held === undefined
+		? undefined
+		: { texts: held.printed, workersSeeAnother: held.workersSeeAnother };
+}
+
+/** Whether a reading holds two stored titles alike in each app language (`shownTitles`,
+ *  `heldTitles`). */
+function sameTitles(
+	codes: readonly string[],
+	source: string | undefined,
+	a: unknown,
+	b: unknown,
+): boolean {
+	const shownA = shownTitles(a, codes);
+	const shownB = shownTitles(b, codes);
+	const left =
+		shownA === undefined ? undefined : heldTitles(shownA, codes, source);
+	const right =
+		shownB === undefined ? undefined : heldTitles(shownB, codes, source);
 	return (
 		left !== undefined &&
 		right !== undefined &&
-		codes.every((code) => left[code] === right[code])
+		codes.every((code) => left.texts[code] === right.texts[code])
 	);
 }
 
-const PROMPT_TEXT_KEYS = ["label", "hint"] as const;
+const PROMPT_TEXT_KEYS = [
+	["label", "search-input-label"],
+	["hint", "search-input-hint"],
+] as const;
 const PROMPT_PLAIN_KEYS = ["name", "input_", "hidden", "exclude"] as const;
 
 /** The surface key of the first difference between a stored prompt and the projection's. */
 function promptDifference(
 	codes: readonly string[],
+	source: string | undefined,
 	stored: JsonObject,
 	ours: JsonObject,
+	firstValidation: Readonly<Record<string, string>> | undefined,
 ): string | undefined {
 	for (const key of PROMPT_PLAIN_KEYS)
 		if (!(BLANK(stored[key]) && BLANK(ours[key])) && stored[key] !== ours[key])
@@ -890,8 +953,8 @@ function promptDifference(
 		(ours.appearance === "barcode_scan")
 	)
 		return "schema:CaseSearchProperty.appearance";
-	for (const key of PROMPT_TEXT_KEYS)
-		if (!sameTexts(codes, stored[key], ours[key]))
+	for (const [key, role] of PROMPT_TEXT_KEYS)
+		if (!sameTexts(codes, source, role, stored[key], ours[key]))
 			return `schema:CaseSearchProperty.${key}`;
 	if (!sameXPathValue(stored.default_value, ours.default_value))
 		return "schema:CaseSearchProperty.default_value";
@@ -911,7 +974,16 @@ function promptDifference(
 		return "schema:CaseSearchProperty.required";
 	if (reqA !== undefined && reqB !== undefined) {
 		if (!sameXPathValue(reqA.test, reqB.test)) return "schema:Assertion.test";
-		if (!sameTexts(codes, reqA.text, reqB.text)) return "schema:Assertion.text";
+		if (
+			!sameTexts(
+				codes,
+				source,
+				"search-input-required-message",
+				reqA.text,
+				reqB.text,
+			)
+		)
+			return "schema:Assertion.text";
 	}
 	const valA = Array.isArray(stored.validations)
 		? stored.validations.filter(isJsonObject)
@@ -924,7 +996,32 @@ function promptDifference(
 	for (const [index, one] of valA.entries()) {
 		const other = valB[index] as JsonObject;
 		if (!sameXPathValue(one.test, other.test)) return "schema:Assertion.test";
-		if (!sameTexts(codes, one.text, other.text)) return "schema:Assertion.text";
+		// The first validation's text as the reading holds it where it read one
+		// (`prompts.ts::PromptReading.validationText`: a message held apart from the guard's text
+		// joined after it), else each stored text held whole.
+		const held = index === 0 ? firstValidation : undefined;
+		const ourHeld =
+			held === undefined
+				? undefined
+				: heldTextsIn(
+						other.text ?? {},
+						codes,
+						source,
+						"search-input-validation-message",
+					)?.texts;
+		if (
+			held === undefined
+				? !sameTexts(
+						codes,
+						source,
+						"search-input-validation-message",
+						one.text,
+						other.text,
+					)
+				: ourHeld === undefined ||
+					codes.some((code) => held[code] !== ourHeld[code])
+		)
+			return "schema:Assertion.text";
 	}
 	return undefined;
 }
@@ -936,6 +1033,7 @@ function searchDifference(
 	doc: BlueprintDoc,
 	mod: Module,
 	stored: JsonCursor,
+	prompts: readonly PromptReading[],
 ): string | undefined {
 	const inputs = readProjectionInputs(ctx);
 	const ours = printed(
@@ -947,12 +1045,21 @@ function searchDifference(
 		).searchConfig,
 	) as JsonObject;
 	const codes = appCodes(ctx);
+	const source = sourceCode(ctx);
 	for (const key of ["auto_launch", "default_search", "inline_search"] as const)
 		if ((stored.peek(key) === true) !== (ours[key] === true))
 			return `schema:CaseSearch.${key}`;
-	if (!sameTitles(codes, stored.peek("title_label"), ours.title_label))
+	if (!sameTitles(codes, source, stored.peek("title_label"), ours.title_label))
 		return "schema:CaseSearch.title_label";
-	if (!sameTexts(codes, stored.peek("description"), ours.description))
+	if (
+		!sameTexts(
+			codes,
+			source,
+			"search-screen-subtitle",
+			stored.peek("description"),
+			ours.description,
+		)
+	)
 		return "schema:CaseSearch.description";
 	for (const key of [
 		"search_button_display_condition",
@@ -960,16 +1067,30 @@ function searchDifference(
 	] as const)
 		if (!sameXPathValue(stored.peek(key), ours[key]))
 			return `schema:CaseSearch.${key}`;
+	// Each stored prompt with the pointer its reading's cursor has.
 	const promptsA = Array.isArray(stored.peek("properties"))
-		? (stored.peek("properties") as unknown[]).filter(isJsonObject)
+		? (stored.peek("properties") as unknown[]).flatMap((one, index) =>
+				isJsonObject(one)
+					? [{ one, pointer: `${stored.pointer}/properties/${index}` }]
+					: [],
+			)
 		: [];
 	const promptsB = Array.isArray(ours.properties)
 		? ours.properties.filter(isJsonObject)
 		: [];
 	if (promptsA.length !== promptsB.length)
 		return "schema:CaseSearch.properties";
+	const validationTexts = new Map(
+		prompts.map((prompt) => [prompt.cursor.pointer, prompt.validationText]),
+	);
 	for (const [index, prompt] of promptsA.entries()) {
-		const key = promptDifference(codes, prompt, promptsB[index] as JsonObject);
+		const key = promptDifference(
+			codes,
+			source,
+			prompt.one,
+			promptsB[index] as JsonObject,
+			validationTexts.get(prompt.pointer),
+		);
 		if (key !== undefined) return key;
 	}
 	if (
@@ -1059,7 +1180,7 @@ export function settleSearchSettings(
 		const mod = doc.modules[module.uuid] as Module;
 		let difference: string | undefined;
 		try {
-			difference = searchDifference(ctx, doc, mod, cursor);
+			difference = searchDifference(ctx, doc, mod, cursor, prompts);
 		} catch {
 			difference = EMITTER_THREW;
 		}

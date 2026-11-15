@@ -12,29 +12,52 @@ import { caseById, casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
 
 /**
+ * The read of `property` on the case `hops` reaches from the case whose id
+ * is `id`: one `index/<identifier>` step per hop, then the property, each
+ * case found in `casedb` by its id.
+ */
+export function formCaseWalk(
+	id: WireExpr,
+	hops: readonly string[],
+	property: string,
+): WireExpr {
+	let reached = id;
+	for (const identifier of hops)
+		reached = w.append(caseById(reached, "casedb"), [
+			w.step("index"),
+			w.step(identifier),
+		]);
+	return w.append(caseById(reached, "casedb"), [casePropertyStep(property)]);
+}
+
+/**
  * The read of `#<type>/<property>` in one form, for `toWire`'s
  * `formCaseProperty` binding.
  *
  * The module's own case is `instance('casedb')/casedb/case[@case_id = <id>]`
  * where `<id>` is the selected case's session datum (`session/data/case_id`
- * unless root alignment renamed it); each ancestor is one `index/parent` hop
- * further up. A registration form's own `case_id` is the id its entry
- * allocated, `session/data/case_id_new_<type>_0`.
+ * unless root alignment renamed it); each ancestor is one index hop further
+ * up, under the index the app links each type to its parent by
+ * (`caseTypeDepths.ts::caseTypeHopMap`), so an advanced form reads the case
+ * its chained load was chosen through. A registration form's own `case_id`
+ * is the id its entry allocated, `session/data/case_id_new_<type>_0`.
  */
 export function formCasePropertyRead(args: {
 	readonly formType: FormType;
-	readonly caseTypeDepths: ReadonlyMap<string, number>;
+	/** Each readable type's index walk from the own case
+	 *  (`caseTypeDepths.ts::caseTypeHopMap`). */
+	readonly caseTypeHops: ReadonlyMap<string, readonly string[]>;
 	readonly moduleCaseType: string | undefined;
 	/** The own case's session read; `session/data/case_id` when absent. */
 	readonly selectedCaseId?: WireExpr;
 }): (caseType: string, property: string) => WireExpr {
 	return (caseType, property) => {
-		const depth = args.caseTypeDepths.get(caseType);
-		if (depth === undefined)
+		const hops = args.caseTypeHops.get(caseType);
+		if (hops === undefined)
 			throw new Error("The form cannot read this record type.");
 		if (
 			args.formType === "registration" &&
-			depth === 0 &&
+			hops.length === 0 &&
 			property === "case_id"
 		) {
 			if (args.moduleCaseType === undefined)
@@ -47,18 +70,15 @@ export function formCasePropertyRead(args: {
 				w.step(newCaseIdDatumId(args.moduleCaseType)),
 			]);
 		}
-		let id: WireExpr =
+		return formCaseWalk(
 			args.selectedCaseId ??
-			w.instance(sessionInstance(), [
-				w.step("session"),
-				w.step("data"),
-				w.step("case_id"),
-			]);
-		for (let hop = 0; hop < depth; hop++)
-			id = w.append(caseById(id, "casedb"), [
-				w.step("index"),
-				w.step("parent"),
-			]);
-		return w.append(caseById(id, "casedb"), [casePropertyStep(property)]);
+				w.instance(sessionInstance(), [
+					w.step("session"),
+					w.step("data"),
+					w.step("case_id"),
+				]),
+			hops,
+			property,
+		);
 	};
 }

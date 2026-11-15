@@ -911,6 +911,69 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 		]);
 	});
 
+	it("refuses a key with one trailing newline once, which HQ's grammar takes and its build cannot write", async () => {
+		// `validate_property`'s `re.match` with a closing `$` takes the newline, and HQ's build
+		// then makes the key the update's element (`xform.py::make_case_elem`), which lxml
+		// refuses as no tag name.
+		const reading = await readMenusOf(app([visit]), (json) => {
+			const update = actionsOf(json as AppJson).update_case.update as Record<
+				string,
+				unknown
+			>;
+			update["notes\n"] = { question_path: "/data/other" };
+		});
+		expect(atActions(reading)).toEqual([
+			`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+		]);
+	});
+
+	it("refuses a child case's key outside Nova's grammar under the row HQ's build gives it, once", async () => {
+		// A child's keys pass the same grammar (`check_case_properties`' subcase names, a
+		// `re.match` with a closing `$`), and HQ's build writes each as the child block's
+		// element (`xform.py::make_case_elem`).
+		for (const [key, entry] of [
+			[
+				"notes\n",
+				`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+			],
+			[
+				"n½",
+				`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+			],
+			["n名字", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		] as const) {
+			const reading = await readMenusOf(app([visit]), (json) => {
+				actionsOf(json as AppJson).subcases = [
+					{
+						doc_type: "OpenSubCaseAction",
+						case_type: "patient",
+						name_update: { question_path: "/data/other" },
+						case_properties: { [key]: { question_path: "/data/notes" } },
+						condition: { type: "always" },
+						close_condition: { type: "never" },
+					},
+				] as never;
+			});
+			expect(atActions(reading), key).toEqual([entry]);
+			expect(reading.outcome.defects, key).toEqual([]);
+		}
+	});
+
+	it("refuses a key whose index step is outside HQ's grammar as a key HQ's build refuses, once", async () => {
+		// `check_case_properties` holds the whole key to the grammar, index steps included:
+		// no other index path, which Nova might come to read.
+		const reading = await readMenusOf(app([visit]), (json) => {
+			const update = actionsOf(json as AppJson).update_case.update as Record<
+				string,
+				unknown
+			>;
+			update["pa+rent/size"] = { question_path: "/data/other" };
+		});
+		expect(atActions(reading)).toEqual([
+			`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
+		]);
+	});
+
 	it("refuses a write through an index no link fixes once", async () => {
 		const reading = await readMenusOf(app([visit]), (json) => {
 			const update = actionsOf(json as AppJson).update_case.update as Record<

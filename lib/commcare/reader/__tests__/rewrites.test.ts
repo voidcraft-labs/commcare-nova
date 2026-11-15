@@ -12,8 +12,9 @@
  * (`FIRST_PUBLISH_READING_RECORDS`), which the
  * register words and holds by its own test: a date and time saved in the
  * spelling Nova wrote before, a Register label with no text, a menu's or
- * form's name map Nova prints another way or with another name for a worker
- * (`names.test.ts`), and a media map Nova prints another way
+ * form's name map Nova prints another way (`names.test.ts`), any app string
+ * held so that a worker reads another text (`text-spaces-dropped`, over every
+ * surface in `heldTexts.test.ts`), and a media map Nova prints another way
  * (`menus/__tests__/navMedia.test.ts`). The
  * plausible failure: a source rewrite the first publish makes with no
  * register row, so the lane finds a difference no entry holds.

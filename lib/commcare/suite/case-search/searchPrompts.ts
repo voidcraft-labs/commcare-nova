@@ -45,6 +45,7 @@ import {
 	type WireElementContext,
 	xel,
 } from "@/lib/commcare/elementBuilders";
+import type { RewriteControl } from "@/lib/commcare/emissionRewrites";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { w } from "@/lib/commcare/xpath/wire/builders";
@@ -233,6 +234,8 @@ export interface SearchPromptWire {
 /**
  * Lower one search input through its actual owning slots. The module factory
  * supplies the current search-input identities and each slot's lexical scope.
+ * `rewrites` is the reader's control over the rewrites each slot's print
+ * reaches (`emissionRewrites.ts`); an export passes none.
  */
 export function searchPromptWire(
 	input: SearchInputDef,
@@ -240,12 +243,14 @@ export function searchPromptWire(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	searchInputInstanceId?: `search-input:${string}`,
+	rewrites?: RewriteControl,
 ): SearchPromptWire {
 	const emission: PromptEmissionContext = {
 		types: (slot) =>
 			expressions({ slot, member: { searchInputUuid: input.uuid } }),
 		lookupNaming,
 		searchInputInstanceId,
+		...(rewrites === undefined ? {} : { rewrites }),
 	};
 	const mapping = promptAttributeMapping(input);
 	// When `input.label` is empty the locale registers `input.name`
@@ -491,6 +496,7 @@ interface PromptEmissionContext {
 	readonly types: (slot: PromptSlot) => ExpressionContext;
 	readonly searchInputInstanceId?: `search-input:${string}`;
 	readonly lookupNaming: LookupWireNaming | undefined;
+	readonly rewrites?: RewriteControl;
 }
 
 /**
@@ -568,6 +574,9 @@ function buildItemset(
 			types: emission.types("search_input_options"),
 			naming: lookupNaming,
 			instanceScope: "suite",
+			...(emission.rewrites === undefined
+				? {}
+				: { rewrites: emission.rewrites }),
 		}),
 		label: w.context([w.step(table.wireNameFor(options.labelColumnId))]),
 		value: w.context([w.step(table.wireNameFor(options.valueColumnId))]),
@@ -689,6 +698,7 @@ function emitScreenPredicate(
 				? {}
 				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 		},
+		...(emission.rewrites === undefined ? {} : { rewrites: emission.rewrites }),
 	});
 }
 
@@ -748,5 +758,6 @@ function compileDefaultExpression(
 				? {}
 				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 		},
+		...(emission.rewrites === undefined ? {} : { rewrites: emission.rewrites }),
 	});
 }

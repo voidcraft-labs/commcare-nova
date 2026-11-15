@@ -32,7 +32,7 @@ import { userPropertySlugsByUuid } from "@/lib/domain/users";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { caseOptionsNodeset } from "../../caseOptions";
-import { caseTypeDepthMap } from "../../caseTypeDepths";
+import { caseTypeHopMap } from "../../caseTypeDepths";
 import { searchAnswersOf } from "../../emissionPlan";
 import type { RewriteControl } from "../../emissionRewrites";
 import { moduleExpressionContexts } from "../../expressionContext";
@@ -541,7 +541,7 @@ function formEmission(
 	const bindings: WireTermBindings = {
 		formCaseProperty: formCasePropertyRead({
 			formType: form.type,
-			caseTypeDepths: caseTypeDepthMap(mod?.caseType, doc.caseTypes ?? []),
+			caseTypeHops: caseTypeHopMap(doc, mod?.caseType),
 			moduleCaseType: mod?.caseType,
 			...(own !== undefined && own.maxSelectValue === undefined
 				? { selectedCaseId: sessionDataRef(own.id) }
@@ -934,6 +934,7 @@ export function printSlot(
 					expressions,
 					naming,
 					searchInstanceOf(mod),
+					rewrites,
 				);
 				switch (ref.slot) {
 					case "search_input_default":

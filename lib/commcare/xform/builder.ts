@@ -1,5 +1,5 @@
 import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
-import { caseTypeDepthMap } from "../caseTypeDepths";
+import { caseTypeHopMap } from "../caseTypeDepths";
 /**
  * XForm XML emitter.
  *
@@ -823,18 +823,15 @@ export function buildXFormSource(
 ): XFormSource {
 	const localization = commCareLocalization(doc);
 
-	// The case types this form can READ, name → parent-index hop depth (own = 0,
-	// parent = 1, …). Built from the owning module's case type via the shared
-	// `caseTypeDepthMap` — the SAME construction `buildCaseReferencesLoad`
-	// translates its load entries through, and the same `reachableCaseTypes`
-	// source the deep validator's accept map reads — so a `#<type>/<prop>` ref
-	// the validator accepted resolves on the wire to the matching
-	// `…/index/parent × depth …/<prop>` walk and the load map names the same
-	// case as the binds. Empty when the module has no case type.
-	const caseTypeDepths = caseTypeDepthMap(
-		opts.moduleCaseType,
-		doc.caseTypes ?? [],
-	);
+	// The case types this form can READ, name → the index walk from its own
+	// case (own = no hop, parent = one, …). Built from the owning module's case
+	// type via the shared `caseTypeHopMap` — the SAME construction
+	// `buildCaseReferencesLoad` translates its load entries through, over the
+	// same `reachableCaseTypes` source the deep validator's accept map reads — so
+	// a `#<type>/<prop>` ref the validator accepted resolves on the wire to the
+	// matching `…/index/<identifier> …/<prop>` walk and the load map names the
+	// same case as the binds. Empty when the module has no case type.
+	const caseTypeHops = caseTypeHopMap(doc, opts.moduleCaseType);
 	const instances = new InstanceSink();
 	const context: WireElementContext = {
 		mode: { target: "xform", constraint: false },
@@ -844,7 +841,7 @@ export function buildXFormSource(
 		doc,
 		formUuid,
 		opts.lookupNaming,
-		caseTypeDepths,
+		caseTypeHops,
 		opts.selectedCaseIdRef,
 		opts.moduleCaseType,
 	);
@@ -1841,7 +1838,7 @@ function deriveLookupSelectKit(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	naming: LookupWireNaming | undefined,
-	caseTypeDepths: ReadonlyMap<string, number>,
+	caseTypeHops: ReadonlyMap<string, readonly string[]>,
 	selectedCaseId: WireExpr | undefined,
 	moduleCaseType: string | undefined,
 ): LookupSelectEmissionKit {
@@ -1851,7 +1848,7 @@ function deriveLookupSelectKit(
 		userPropertySlugs: userPropertySlugsByUuid(doc),
 		formCaseProperty: formCasePropertyRead({
 			formType: doc.forms[formUuid].type,
-			caseTypeDepths,
+			caseTypeHops,
 			moduleCaseType,
 			...(selectedCaseId === undefined ? {} : { selectedCaseId }),
 		}),

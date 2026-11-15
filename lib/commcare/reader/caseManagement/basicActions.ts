@@ -221,9 +221,17 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
 		"schema:UpdateCaseAction.update",
 	),
+	nonCoreChildKey: refuse(
+		`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
+		"schema:OpenSubCaseAction.case_properties",
+	),
 	nonAsciiKey: refuse(
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		"schema:UpdateCaseAction.update",
+	),
+	nonAsciiChildKey: refuse(
+		`${F}/update-key-holding-a-non-ascii-core-name-character`,
+		"schema:OpenSubCaseAction.case_properties",
 	),
 	uploadQuestion: refuse(
 		`${F}/update-from-an-upload-question-attachment-mode`,
@@ -780,9 +788,17 @@ export function questionValue(
 
 // ── Property names ───────────────────────────────────────────────────────
 
-/** HQ's own property grammar (`helpers/validators.py::validate_property`,
- *  without parents): Python's `\w` is every Unicode letter and digit. */
-export const HQ_PROPERTY = /^[a-zA-Z][\p{L}\p{N}_-]*$/u;
+/** HQ's own property grammar without parents, as `helpers/validators.py::validate_property`
+ *  runs it: Python's `\w` is every Unicode letter and digit, and `re.match` of a pattern
+ *  ending in `$` also matches before one newline that ends the text, so a name followed by
+ *  one newline passes (`'note\n'`), and one followed by two does not. */
+export const HQ_PROPERTY = /^[a-zA-Z][\p{L}\p{N}_-]*\n?$/u;
+/** The same grammar with parents (`validate_property`'s default, which
+ *  `IndexedFormBaseValidator.check_case_properties` runs on every written and
+ *  preloaded property): steps joined by `/`, one newline allowed only at the
+ *  very end. */
+export const HQ_PROPERTY_PATH =
+	/^[a-zA-Z][\p{L}\p{N}_-]*(?:\/[a-zA-Z][\p{L}\p{N}_-]*)*\n?$/u;
 /** The code point ranges of a name character of CommCare Core's XPath grammar (`localName`). */
 const CORE_NAME_RANGES: readonly (readonly [number, number])[] = [
 	[0x2d, 0x2e],
@@ -808,33 +824,70 @@ function isCoreNameCharacter(character: string): boolean {
 	const code = character.codePointAt(0) ?? -1;
 	return CORE_NAME_RANGES.some(([low, high]) => code >= low && code <= high);
 }
-/** The class of a property key outside Nova's own grammar
- *  (`casePropertyName.ts`), first match in HQ's rows; undefined for a name
- *  Nova holds, and `unrecognized` for a name in Nova's grammar past its
- *  length, which no row of HQ's names. */
-function propertyNameFinding(
-	key: string,
-	child: boolean,
-): Claim<"refuse"> | "unrecognized" | undefined {
+/**
+ * The row of a written property key (one step, no index) outside Nova's own
+ * grammar (`casePropertyName.ts`), first match in HQ's rows; undefined for a
+ * name Nova holds:
+ *
+ * - `illegal`: outside HQ's grammar, or one of HQ's own reserved words (its
+ *   hyphenated `date-opened` and `external-id` among them), or `owner_id`,
+ *   which Nova reads as the owner and never as a property;
+ * - `non-core`: a character HQ's grammar takes that is none of Core's name
+ *   characters. A name HQ's grammar passes for its one trailing newline is
+ *   one: HQ's build writes the key as the update's element
+ *   (`xform.py::make_case_elem`), which lxml refuses as no tag name
+ *   (`ValueError`), so no build holds it;
+ * - `non-ascii`: Core's name characters, one of them past ASCII;
+ * - `too-long`: Nova's grammar past its length, which no row of HQ's names.
+ *
+ * A key of every surface that writes a property takes the same class: a basic
+ * update's or child's, and an advanced load's or open action's.
+ */
+export type PropertyNameClass =
+	| "illegal"
+	| "non-core"
+	| "non-ascii"
+	| "too-long";
+
+export function propertyNameClass(key: string): PropertyNameClass | undefined {
 	if (
 		AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(key) &&
 		!RESERVED_CASE_PROPERTIES.has(key) &&
 		!HQ_CASE_RESERVED_WORDS.has(key)
 	)
 		return key.length > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
-			? "unrecognized"
+			? "too-long"
 			: undefined;
-	// HQ's own reserved words (its hyphenated `date-opened` and `external-id` among them), and
-	// `owner_id`, which Nova reads as the owner and never as a property.
 	if (
 		!HQ_PROPERTY.test(key) ||
 		HQ_CASE_RESERVED_WORDS.has(key) ||
 		RESERVED_CASE_PROPERTIES.has(key)
 	)
-		return child ? BASIC_CLAIMS.illegalChildKey : BASIC_CLAIMS.illegalKey;
+		return "illegal";
 	for (const character of key)
-		if (!isCoreNameCharacter(character)) return BASIC_CLAIMS.nonCoreKey;
-	return BASIC_CLAIMS.nonAsciiKey;
+		if (!isCoreNameCharacter(character)) return "non-core";
+	return "non-ascii";
+}
+
+/** The claim of a basic update's (`child` false) or child's property key
+ *  outside Nova's grammar (`propertyNameClass`), under the key's own surface;
+ *  `unrecognized` for one past Nova's length. */
+function propertyNameFinding(
+	key: string,
+	child: boolean,
+): Claim<"refuse"> | "unrecognized" | undefined {
+	switch (propertyNameClass(key)) {
+		case undefined:
+			return undefined;
+		case "too-long":
+			return "unrecognized";
+		case "illegal":
+			return child ? BASIC_CLAIMS.illegalChildKey : BASIC_CLAIMS.illegalKey;
+		case "non-core":
+			return child ? BASIC_CLAIMS.nonCoreChildKey : BASIC_CLAIMS.nonCoreKey;
+		case "non-ascii":
+			return child ? BASIC_CLAIMS.nonAsciiChildKey : BASIC_CLAIMS.nonAsciiKey;
+	}
 }
 
 // ── Case types an index reaches ─────────────────────────────────────────
@@ -1151,6 +1204,14 @@ function readUpdateMap(
 				refuseEntry(cursor, BASIC_CLAIMS.usercaseSlash, key);
 				continue;
 			}
+		}
+		// HQ's validator holds the whole key, its index steps included, to its
+		// grammar (`check_case_properties` → `validate_property`), so a key an
+		// index step of which fails it is a key HQ's build refuses, never an
+		// index path Nova may come to read.
+		if (!HQ_PROPERTY_PATH.test(key)) {
+			refuseEntry(cursor, BASIC_CLAIMS.illegalKey, key);
+			continue;
 		}
 		const segments = key.split("/");
 		const property = segments[segments.length - 1] as string;

@@ -1716,7 +1716,9 @@ of those languages the map holds with a value other than `None`, a blank include
 under the map's least key. HQ stores a name under one language only where it was added while the app
 builder's language was another (`views/forms.py` reads the `lang` cookie, `models/modules.py::new_form`
 stores `name={lang: name}`), or where a language was added after it. Each language's text is the
-one `hqText.ts::shownText` gives, held as Nova's gate admits a name (`structure.ts::heldName`):
+one `hqText.ts::shownText` gives, held as Nova's gate admits a name: by `heldText.ts::heldText`, the
+one function every reader of an app string holds its text through (`structure.ts::heldName` calls it
+for a name), whose rules for a name are:
 
 - the source language's text is the slot's, whatever the map holds there: a source language with no
   key, a `null` or a blank beside another language's text holds the text a device shows, the
@@ -1733,8 +1735,13 @@ one `hqText.ts::shownText` gives, held as Nova's gate admits a name (`structure.
 
 Every map Nova's emitter writes prints back exactly and records nothing. Any other map is written
 again by the first publish: under `names-respelled` where every language shows what it showed, and
-under `name-spaces-dropped`, which touches workers, where a language shows another name, a blank one
+under `text-spaces-dropped`, which touches workers, where a language shows another name, a blank one
 or one with a space at its start (part 09, section 11.2), both held by `__tests__/names.test.ts`.
+The app's name is held the same way (`appShell.ts::holdAppName`, over `name` and each language's
+`app.display.name`), and so is every app string part 07 reads (`__tests__/heldTexts.test.ts`). A
+form's itext is no app string: Core trims a value at both ends as it parses the form
+(`XFormParser.getLabel`), so a value read as stored prints back to the same text on every device,
+and the domain allows a blank translation of every itext role.
 Each language's own text, `clean_trans(name, [lang] + langs)`, is kept for the fold of a generated
 key over the name (16.5).
 
@@ -3312,7 +3319,7 @@ attributes listed, shadows aside.
 | Purpose | Emitter | The node | Its bind | What confirms it | Folds into |
 |---|---|---|---|---|---|
 | `constraint-count` | `builder.ts::buildFieldParts`, `constraintCollections.ts` | a sibling of `q` with no control, named `nova_constraint_<q>_<n>` | `type="xsd:int"`; `relevant` the tree `count(q) > 0`; `calculate` a call of `count` over a filtered path; no `vellum:calculate` | `q`'s `constraint` reads the node's path | the calculate goes to part 08 in `env.generatedValues`, by the node's absolute path (17.2); part 08 puts it back where `q`'s validation reads the node. Claimed under `bind-constraint` |
-| `constraint-message` | `builder.ts::buildFieldParts`, `constraintMessage.ts::protectConstraintMessage` | a sibling of `q` with a body `input` directly after `q`'s control whose one child is a `label` referencing a text id `T` | `type="xsd:string"`, `relevant="false()"`, `readonly="true()"` | `q`'s `jr:constraintMsg` is the tree `protectConstraintMessage(T, messages, lower).expression` gives for the messages read from `T`'s ordinary values, compared through `sameTree` in stage 10, once the outputs are bound; and `T`'s forms are exactly the ones it writes | `q.validate_msg` is `T`'s text (12.3). The node, its control, its bind and the forms are claimed under `protected-constraint-message-carrier-readonly`, `protected-constraint-message-expression`, `protected-constraint-message-forms` and, for `__nova_identity`, `drop(protected-constraint-message-identity)` |
+| `constraint-message` | `builder.ts::buildFieldParts`, `constraintMessage.ts::protectConstraintMessage` | a sibling of `q` with a body `input` directly after `q`'s control whose one child is a `label` referencing a text id `T` | `type="xsd:string"`, `relevant="false()"`, `readonly="true()"` | `q`'s `jr:constraintMsg` is the tree `protectConstraintMessage(T, branches, lower).expression` gives, compared once the outputs are bound in stage 10, where the branches are the ones the source holds, not the document's languages: each a `__nova_locale` value some language's own forms hold, its message that language's (the language of that code where it still holds it, else the first that does, as a language CommCare HQ renamed keeps forms written under its old code: `rename_language` changes only the translation's `lang`), in the order the stored expression tests them, the value no test names last (`afterBinding.ts::messageBranches`, a proposal the print-back holds). CommCare HQ rewrites neither the expression nor the forms when it adds, renames or reorders a language. Then every language reads exactly one branch's forms, and that branch's message is the one the document holds for the language: a language reads its own `__nova_` forms and, for each it lacks, the default language's (`Localizer.getLocaleData` loads the default locale under every id and form key and the language's own over it, and `jr:itext` reads that merge; `shownForms`). So a language CommCare HQ added after the publish, whose translation lacks `T` and whose code the stored expression never tests, one that holds `T` without the forms, and one holding the copy of the default's a save in HQ's form builder writes (`javaRosa/plugin.js` writes each form's `getValueOrDefault`, `__nova_locale` naming the default language) show the default's message through the default's branch, which their reading of `T` holds (12.5), and the first publish writes the composition over every language and each language's own forms, under `forms-and-settings-rewritten` (part 09, section 11.2). A form neither holds falls back to `T`'s own value (`Localizer.getText`), no form the composition writes, and a language whose text is not the message it shows is a difference (`afterBinding.ts::settleProtectedMessage`) | `q.validate_msg` is `T`'s text (12.3). The node, its control, its bind and the forms are claimed under `protected-constraint-message-carrier-readonly`, `protected-constraint-message-expression`, `protected-constraint-message-forms` and, for `__nova_identity`, `drop(protected-constraint-message-identity)` |
 | `count` | `builder.ts::buildRepeatBody` | a sibling of the repeat `r` with no control, named `nova_count_<r>` | `type="xsd:int"`; `calculate` any tree; `vellum:nodeset` | `r`'s `jr:count` names it | 10.3: `repeat_count` is the calculate, registered (11.1) |
 | `query-ids` | `builder.ts::buildQueryRepeat` | a child of the wrapper, named `nova_query_ids_<r>` | `calculate` a call `join(' ', P)`; `vellum:nodeset` | the count node reads it | `ids_query` is `P`, registered (11.1) |
 | `query-count` | the same | a child of the wrapper, named `nova_query_count_<r>` | `type="xsd:int"`; `calculate` the tree `count-selected(../<ids>)` | the repeat's `jr:count` names it | the count placement (10.3) |
@@ -3947,9 +3954,10 @@ step 4), in order:
    included). The unit's own text is `nameAsRead`'s for a menu's or a form's name (7.4) and the text
    Nova printed in that language before the folds for any other unit. So an override in the source
    language never becomes the text of a language that showed its own, and an override HQ's default
-   locale carries into a language whose own text is blank is carried there too. A menu's or a
-   form's name is then held as 7.4 holds one (`structure.ts::heldName`), recorded under
-   `name-spaces-dropped` where a worker reads another name in some language. A fold that changes
+   locale carries into a language whose own text is blank is carried there too. Every unit's text
+   is then held as 7.4 holds a name (`heldText.ts::heldText`, by the unit's role), recorded under
+   `text-spaces-dropped` where a worker reads another text in some language: at a name's map, and
+   for any other unit at the first key folded over it. A fold that changes
    the first language's name of a form is scanned as 7.4 scans it, and an instance read there is
    that form's `form-name-read-as-an-instance`; a fold over a form name whose scan waited (7.4)
    clears it.

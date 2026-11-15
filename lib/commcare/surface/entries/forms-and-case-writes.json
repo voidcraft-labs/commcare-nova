@@ -3160,18 +3160,20 @@
 		"id": "forms-and-case-writes/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key failing HQ's grammar or in `case-reserved-words.json`, or a child case's property key holding `/`, or a preloaded property (a `case_preload` on a form that requires a case, an advanced load's `preload`) failing that grammar or whose last step is in that list",
+		"item": "update key failing HQ's grammar or in `case-reserved-words.json`, or a child case's property key holding `/`, or a preloaded property (a `case_preload` on a form that requires a case, an advanced load's `preload`) failing that grammar or whose last step is in that list, or an advanced load's or open action's `case_properties` key failing that grammar or whose last step is in that list",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.update",
 			"schema:OpenSubCaseAction.case_properties",
 			"schema:PreloadAction.preload",
-			"schema:LoadUpdateAction.preload"
+			"schema:LoadUpdateAction.preload",
+			"schema:LoadUpdateAction.case_properties",
+			"schema:AdvancedOpenCaseAction.case_properties"
 		],
 		"valueClass": "illegal-or-reserved-key",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-buildable: `update_case word illegal` / `update_case uses reserved word` (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties`, which reads every preloaded property too, `FormActions.all_property_names`, `LoadUpdateAction.get_property_names`: no parent properties for a subcase)",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `update_case word illegal` / `update_case uses reserved word` (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties`, which reads every preloaded property too, `FormActions.all_property_names`, `LoadUpdateAction.get_property_names`, and every advanced load's and open action's keys, `AdvancedFormValidator.check_actions` over `get_all_actions`: no parent properties for a subcase)",
 		"subject": "case-property-names",
 		"reasons": [
 			{
@@ -3227,7 +3229,10 @@
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
-			"schema:UpdateCaseAction.update"
+			"schema:UpdateCaseAction.update",
+			"schema:OpenSubCaseAction.case_properties",
+			"schema:LoadUpdateAction.case_properties",
+			"schema:AdvancedOpenCaseAction.case_properties"
 		],
 		"valueClass": "non-ascii-core-name-key",
 		"disposition": "HELD-NEW",
@@ -3254,20 +3259,23 @@
 		"id": "forms-and-case-writes/update-key-holding-a-character-validate-property-accepts-that-is",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key holding a character `validate_property` accepts that is not one of Core's name characters: a letter without case (`名字`, `محل`), a titlecase letter (`ǅ`), most numbers other than decimal digits (`½`, `⁴`, `〇`; `Ⅷ`, which Java counts as uppercase, is read), or a character outside the Basic Multilingual Plane (`𐐀`)",
+		"item": "update key holding a character `validate_property` accepts that is not one of Core's name characters: a letter without case (`名字`, `محل`), a titlecase letter (`ǅ`), most numbers other than decimal digits (`½`, `⁴`, `〇`; `Ⅷ`, which Java counts as uppercase, is read), or a character outside the Basic Multilingual Plane (`𐐀`), or one newline that ends the key (`notes\\n`), which `validate_property`'s `re.match` of a pattern ending in `$` takes",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
-			"schema:UpdateCaseAction.update"
+			"schema:UpdateCaseAction.update",
+			"schema:OpenSubCaseAction.case_properties",
+			"schema:LoadUpdateAction.case_properties",
+			"schema:AdvancedOpenCaseAction.case_properties"
 		],
 		"valueClass": "non-core-name-key",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-buildable: `validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser)",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser); a key ending in a newline fails earlier, where HQ's build makes the update's element (`xform.py::make_case_elem`: lxml raises `ValueError: Invalid tag name`, which `models/applications.py::_get_form_files` does not catch)",
 		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
-				"named": "`validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser)"
+				"named": "`validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser); a key ending in a newline fails earlier, where HQ's build makes the update's element (`xform.py::make_case_elem`: lxml raises `ValueError: Invalid tag name`, which `models/applications.py::_get_form_files` does not catch)"
 			}
 		],
 		"platforms": {
@@ -7214,7 +7222,7 @@
 		"id": "forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type (an advanced form's preload on a load other than its own that the read of its case type does not reach: a later load of the chain is chosen through an index other than `parent`, or the catalog places the load's type at another depth, as where a load nearer the form's own has that type)",
+		"item": "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type (an advanced form's preload on a load other than its own that the read of its case type does not reach: a later load of the chain is chosen through an index other than the one the read walks, the one name the app's child links between the two types use or `parent` where none or several do, or the catalog places the load's type at another depth, as where a load nearer the form's own has that type)",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",

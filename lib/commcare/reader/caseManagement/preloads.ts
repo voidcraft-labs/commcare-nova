@@ -20,7 +20,7 @@ import { term } from "@/lib/domain/expression/builders";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { caseTypeDepthMap } from "../../caseTypeDepths";
+import { caseTypeHopMap } from "../../caseTypeDepths";
 import { HQ_CASE_RESERVED_WORDS } from "../../constants";
 import { activeActions, isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
 import type { Admitted } from "../accounting";
@@ -34,15 +34,16 @@ import {
 	take,
 } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
+import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { externalKey } from "../identity";
-import { isJsonObject } from "../jsonCursor";
+import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace, whereText } from "../place";
 import { holdsWorkerProperty } from "../worldEntities";
 import type { DraftField } from "../xform";
 import {
 	actionsCursorOf,
 	ancestorSteps,
-	HQ_PROPERTY,
+	HQ_PROPERTY_PATH,
 	inactiveClaimOf,
 	repeatOfField,
 } from "./basicActions";
@@ -145,6 +146,13 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 	),
 });
 
+/** The finding for a preload HQ's build reads from a case child no property
+ *  name of Nova's names (`preloadReadOf`): the checker's own refusal of a case
+ *  property outside Nova's name grammar, which the expression stage gives a
+ *  form expression reading one (`findings.ts::nameGrammarEntry`). */
+export const UNNAMED_PRELOAD =
+	EXPRESSION_CLAIMS["a-form-expression-outside-what-nova-types"];
+
 /** The rows a case preload's question reads under, in the table's order. */
 const PRELOAD_ROWS = [
 	"plain",
@@ -186,14 +194,15 @@ export interface PreloadCandidate {
 	readonly usercase?: string;
 	/** The finding a load a later load-time value reads is; the basic preload's where absent. */
 	readonly moves?: Claim<"refuse">;
-	/** A case preload read as a `form-case` read of `caseType`, which walks `index/parent`
-	 *  from the form's own case as deep as the catalog places `caseType`: it names the case
-	 *  HQ loads (`depth` `parent` steps up, an advanced load's own case `depth` loads before
-	 *  the own) only where the catalog places it `depth` deep, which the settle checks once
-	 *  the catalog is read, and is the finding `otherCase` where it does not. */
+	/** A case preload read as a `form-case` read of `caseType`, which walks from the form's
+	 *  own case the indices `caseTypeDepths.ts::caseTypeHopMap` gives `caseType`: it names
+	 *  the case HQ loads (through the `hops` indices, from the own case up: a basic preload's
+	 *  `parent` steps, an advanced load's own case through each later load's index) only
+	 *  where the document walks exactly `hops`, which the settle checks once the catalog and
+	 *  the app's links are read, and is the finding `otherCase` where it does not. */
 	readonly load?: {
 		readonly caseType: string;
-		readonly depth: number;
+		readonly hops: readonly string[];
 		readonly otherCase: Claim<"refuse">;
 	};
 }
@@ -335,9 +344,7 @@ export function readPreloads(
 					ctx.accounting.finding(PRELOAD_CLAIMS.noDefault, field.place);
 					continue;
 				}
-				const segments = property.split("/");
-				const name = segments[segments.length - 1] as string;
-				const indices = segments.slice(0, -1);
+				const { indices, name } = preloadReadOf(property);
 				if (indices.some((segment) => segment !== "parent")) {
 					ctx.accounting.finding(PRELOAD_CLAIMS.otherPath, field.place, {
 						name: property,
@@ -371,21 +378,29 @@ export function readPreloads(
 					if (authored) candidates.push({ field, place: field.place });
 					continue;
 				}
-				const read: Term = {
+				if (name === undefined) {
+					// HQ's build reads a child element no property name of Nova's names.
+					ctx.accounting.finding(UNNAMED_PRELOAD, field.place, {
+						name: property,
+						reason: "name:case-property",
+					});
+					continue;
+				}
+				const caseRead: Term = {
 					kind: "form-case",
 					caseType: readType,
-					property: name === "name" ? "case_name" : name,
+					property: name,
 				};
 				rows.add(indices.length > 0 ? "parent" : "plain");
-				writeDefault(ctx, form, field, term(read));
-				// The read walks as deep as the catalog places its type, which HQ's
-				// `parent/` steps reach only where that is their count.
+				writeDefault(ctx, form, field, term(caseRead));
+				// The read walks the indices the document links its type through, which
+				// are HQ's `parent/` steps only where they are as many and all `parent`.
 				candidates.push({
 					field,
 					place: field.place,
 					load: {
 						caseType: readType,
-						depth: indices.length,
+						hops: indices,
 						otherCase: PRELOAD_CLAIMS.ancestorUnknown,
 					},
 				});
@@ -574,12 +589,73 @@ export function laterLoadReaders(
 }
 
 /**
+ * Whether HQ's build refuses a form for a preloaded property (`case_preload`, an advanced
+ * load's `preload`) or an advanced action's written key (a load's or an open action's
+ * `case_properties`): `helpers/validators.py::IndexedFormBaseValidator.check_case_properties`
+ * reads every one (`FormActions.all_property_names`, and `LoadUpdateAction.get_property_names`
+ * and `AdvancedAction.get_property_names` over `AdvancedFormValidator.check_actions`'
+ * `get_all_actions`), refuses a path outside `validate_property`'s grammar (parents allowed) and a last step in
+ * `case-reserved-words.json` (`HQ_CASE_RESERVED_WORDS`). `owner_id` is no reserved word of
+ * HQ's (HQ reads it as the case's `@owner_id`, `xform.py::XForm.add_case_preloads`).
+ */
+export function hqBuildRefusesProperty(property: string): boolean {
+	// HQ splits the last step off as it is stored (`util.py::split_path`), so a
+	// trailing newline stays on it and no reserved word matches.
+	const segments = property.split("/");
+	const name = segments[segments.length - 1] as string;
+	return !HQ_PROPERTY_PATH.test(property) || HQ_CASE_RESERVED_WORDS.has(name);
+}
+
+/** The children of a case in CommCare's case database that Nova reads by
+ *  the same element (`CaseChildElement`; `rowScope.ts::casePropertyStep` prints
+ *  each as a child step): the reserved words HQ's grammar admits only with a
+ *  trailing newline. */
+const CASE_CHILD_ELEMENTS: ReadonlySet<string> = new Set([
+	"case_name",
+	"date_opened",
+	"last_modified",
+]);
+
+/**
+ * What a preload of `property`, one HQ's build admits (`hqBuildRefusesProperty`
+ * false), reads, as Nova names it: the index steps HQ walks and the case
+ * property. HQ's build reads `name` as `case_name` and `owner_id` as the
+ * attribute `@owner_id`, every other last step as the child element it names
+ * (`xform.py::XForm.add_case_preloads`, and the advanced load's own loop). A
+ * last step with the one trailing newline HQ's grammar admits is mapped by
+ * neither, and Core's XPath lexer drops the newline (`Lexer.java`, whitespace
+ * between tokens), so it reads the child element of the name without it.
+ * Nova reads that element only where its own read of the name prints it: a
+ * name HQ's build reads the same way without the newline, or a child element
+ * of every case (`CASE_CHILD_ELEMENTS`). The `name` is `undefined` for every other such name
+ * (`name`, `owner_id`, `case_id`, `status`, a reserved word such as `type`),
+ * a child Nova's property grammar has no name for.
+ */
+export function preloadReadOf(property: string): {
+	readonly indices: readonly string[];
+	readonly name: string | undefined;
+} {
+	const newline = property.endsWith("\n");
+	const indices = (newline ? property.slice(0, -1) : property).split("/");
+	const last = indices.pop() as string;
+	if (!newline) return { indices, name: last === "name" ? "case_name" : last };
+	const unnamed =
+		!CASE_CHILD_ELEMENTS.has(last) &&
+		(last === "name" ||
+			last === "owner_id" ||
+			HQ_CASE_RESERVED_WORDS.has(last));
+	return { indices, name: unnamed ? undefined : last };
+}
+
+/**
  * The element of the worker's case a `usercase_preload` of `property` reads, as HQ's build
  * reads it (`xform.py::XForm.add_case_preloads`, called by `_add_usercase` for the usercase):
  * `name` is the case's `case_name`, and every other property but `owner_id` the child element
- * of its name, which is what a worker-record read prints (`fromExpression.ts::workerProperty`).
- * `undefined` for every other, each the finding `any-other-usercase-preload` (no editor of
- * HQ's makes any `usercase_preload`, so only the class Nova reads is held):
+ * of its name, which is what a worker-record read prints (`fromExpression.ts::workerProperty`);
+ * a name with the one trailing newline HQ's grammar admits reads the child element of the
+ * name without it (`preloadReadOf`). `undefined` for every other, each the finding
+ * `any-other-usercase-preload` (no editor of HQ's makes any `usercase_preload`, so only the
+ * class Nova reads is held):
  *
  * - `owner_id`, which HQ reads as the case's `@owner_id` attribute and no worker-record read
  *   prints;
@@ -589,32 +665,22 @@ export function laterLoadReaders(
  * - a property HQ's build refuses: one outside `validate_property`'s grammar, or one in
  *   `case-reserved-words.json` (`IndexedFormBaseValidator.check_case_properties` holds every
  *   `usercase_preload` property to both);
+ * - a name with that trailing newline whose element Nova names no property (`preloadReadOf`:
+ *   `name`, `owner_id`, `case_id`, `status`, `type` and HQ's other reserved words), each the
+ *   child element of the worker's case without the newline, which no worker-record read prints;
  * - a name Nova's worker-record read cannot spell (`externalUserPropertyNameSchema`: ASCII
  *   letters, digits, `_` and `-`), where HQ's grammar takes any letter after the first.
  */
-/**
- * Whether HQ's build refuses a form for a preloaded property (`case_preload`, an advanced
- * load's `preload`): `helpers/validators.py::IndexedFormBaseValidator.check_case_properties`
- * reads every one (`FormActions.all_property_names`, `LoadUpdateAction.get_property_names`),
- * refuses a path outside `validate_property`'s grammar (parents allowed) and a last step in
- * `case-reserved-words.json` (`HQ_CASE_RESERVED_WORDS`). `owner_id` is no reserved word of
- * HQ's (HQ reads it as the case's `@owner_id`, `xform.py::XForm.add_case_preloads`).
- */
-export function hqBuildRefusesProperty(property: string): boolean {
-	const segments = property.split("/");
-	const name = segments[segments.length - 1] as string;
-	return (
-		segments.some((segment) => !HQ_PROPERTY.test(segment)) ||
-		HQ_CASE_RESERVED_WORDS.has(name)
-	);
-}
-
 function usercaseRead(property: unknown): string | undefined {
-	if (typeof property !== "string" || property === "owner_id") return undefined;
-	if (property === "name") return "case_name";
-	if (hqBuildRefusesProperty(property)) return undefined;
-	return externalUserPropertyNameSchema.safeParse(property).success
-		? property
+	if (typeof property !== "string" || hqBuildRefusesProperty(property))
+		return undefined;
+	const { indices, name } = preloadReadOf(property);
+	// HQ's `owner_id` is the worker case's attribute, which no worker-record read prints.
+	if (name === undefined || indices.length > 0 || name === "owner_id")
+		return undefined;
+	if (name === "case_name") return name;
+	return externalUserPropertyNameSchema.safeParse(name).success
+		? name
 		: undefined;
 }
 
@@ -671,12 +737,12 @@ export function settlePreloads(ctx: ReadContext, form: DraftForm): void {
 	if (candidates === undefined || ctx.doc === undefined) return;
 	const ownType = ctx.draft.modules.find((one) => one.forms.includes(form))
 		?.module.caseType;
-	const depths = caseTypeDepthMap(ownType, ctx.doc.caseTypes ?? []);
+	const walks = caseTypeHopMap(ctx.doc, ownType);
 	for (const candidate of candidates) {
 		const uuid = candidate.field.uuid;
 		if (uuid === undefined) continue;
 		const load = candidate.load;
-		if (load !== undefined && depths.get(load.caseType) !== load.depth) {
+		if (load !== undefined && !sameJson(walks.get(load.caseType), load.hops)) {
 			ctx.accounting.finding(load.otherCase, candidate.place, {
 				name: candidate.field.id,
 			});

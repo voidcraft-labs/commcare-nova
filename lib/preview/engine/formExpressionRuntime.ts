@@ -1,4 +1,4 @@
-import { caseTypeDepthMap } from "@/lib/commcare/caseTypeDepths";
+import { caseTypeHopMap } from "@/lib/commcare/caseTypeDepths";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
@@ -156,7 +156,7 @@ function deriveFormSessionBindings(
 		),
 		formCaseProperty: formCasePropertyRead({
 			formType: form.type,
-			caseTypeDepths: caseTypeDepthMap(mod.caseType, doc.caseTypes ?? []),
+			caseTypeHops: caseTypeHopMap(doc, mod.caseType),
 			moduleCaseType: mod.caseType,
 			// A several-case form names no one case; the emitter keys its case
 			// reads on `session/data/case_id` there, and so does Preview.

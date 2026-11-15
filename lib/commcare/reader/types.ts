@@ -254,9 +254,10 @@ export const SAME_STATE_REGISTERS = [
  * spelling, a registration label read as the words CommCare HQ's build
  * writes for one with no text, a menu's or form's name map read as the
  * text HQ's build shows in each language where Nova prints another map
- * (`structure.ts::nameAsRead`), and where a worker then reads another name
- * in some language (a name that shows blank beside a source that does not, or
- * begins with a space, `structure.ts::heldName`), and a menu's, form's or case list item's media
+ * (`structure.ts::nameAsRead`), an app string of any surface where a worker
+ * then reads another text in some language (one that shows blank beside a
+ * source that does not where its role requires text, or begins with a space,
+ * `heldText.ts::heldText`), and a menu's, form's or case list item's media
  * map read as the file HQ's build shows in each language where Nova prints
  * another map (`menus/navMedia.ts::shownNavMedia`).
  */
@@ -264,7 +265,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"date-and-time-saved-as-hq-stores-it",
 	"registration-label-fixed",
 	"names-respelled",
-	"name-spaces-dropped",
+	"text-spaces-dropped",
 	"media-maps-respelled",
 ] as const;
 
