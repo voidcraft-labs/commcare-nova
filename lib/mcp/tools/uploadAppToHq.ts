@@ -152,7 +152,12 @@
  *                                 recorded where CommCare HQ keeps its case
  *                                 changes. Nothing was sent; uploading again
  *                                 once the edits settle goes on.
- *  14. `hq_upload_failed`:        `importApp` returned a non-success
+ *  13d. `publishing_stopped`:     someone stopped publishing the app to
+ *                                 that project space while this upload ran,
+ *                                 so Nova recorded nothing more of it; the
+ *                                 message says whether CommCare HQ may hold
+ *                                 part of it.
+ *  14. `hq_upload_failed`:       `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx), or CommCare HQ would not
  *                                 take the app's lookup tables or places.
@@ -278,6 +283,8 @@ export const UPLOAD_ERROR_TAGS = {
 	app_changed_while_publishing: "app_changed_while_publishing",
 	/** The case changes the caller accepted moving are no longer the ones Nova would move. */
 	hq_placement_moves_changed: "hq_placement_moves_changed",
+	/** Someone stopped publishing the app to that project space while this upload ran. */
+	publishing_stopped: "publishing_stopped",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 const CONFIRM_DESCRIPTION =
@@ -1026,6 +1033,17 @@ export function registerUploadAppToHq(
 						if (failure.code === "app_changed_while_publishing") {
 							return makeGateError(
 								UPLOAD_ERROR_TAGS.app_changed_while_publishing,
+								failure.message,
+								appId,
+								answer,
+							);
+						}
+						/* Someone stopped publishing the app there while this
+						 * upload ran, so Nova recorded nothing more of it. The
+						 * message says whether CommCare HQ may hold part of it. */
+						if (failure.code === "publishing_stopped") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.publishing_stopped,
 								failure.message,
 								appId,
 								answer,

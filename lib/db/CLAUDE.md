@@ -23,30 +23,44 @@ Coherence is proved where the writes happen instead —
 compares its Project first — and `apps.ts::commitAppProjectMoveInTransaction`
 re-tenants these rows in the same transaction that flips `apps.project_id`. A partial unique index on
 `(deployment_id, kind, nova_resource_id) WHERE superseded_at IS NULL` makes two
-live ownership mappings for one Nova resource unrepresentable; superseded rows
+live ownership mappings for one Nova resource unrepresentable. A second, on
+`(server, domain, remote_id)` for live, unreleased `app` mappings, makes two
+Nova apps on one HQ app unrepresentable across Projects; a `BEFORE INSERT`
+trigger copies `server` and `domain` from the deployment. Superseded rows
 are retained rather than deleted so the app an earlier publish left behind
 stays nameable (an ordinary republish updates the mapped app in place —
 supersession arises only from the recreate after an HQ-side deletion, plus
 rows from before in-place updates).
 `lib/deployment/CLAUDE.md` owns the lifecycle.
 
-**The deployment ledger has four more tables, each with its runtime privilege
+**The deployment ledger has six more tables, each with its runtime privilege
 class** (`privilegeConvergence.ts`, DDL in
-`20261015020000_hq_round_trip_deployment_ledger.ts`).
+`20261015020000_hq_round_trip_deployment_ledger.ts` and
+`20261201000000_hq_bring_in_ledger.ts`).
 `app_deployment_identities` (the module and form ids a target holds that are
-not Nova's derivation) is runtime read-only: only a migration writes it, as the
-migration role, and a publish writes none. `app_deployment_confirmations` (what
+not Nova's derivation) and `app_deployment_media_paths` (the path CommCare HQ
+keeps a media file under) are runtime insert-and-delete: rows are written when
+an app is brought in and deleted when its deployment is ended
+(`hqAppClaims.ts::endDeploymentInTransaction`), never changed and never
+row-locked. A Project move deletes an app's media-path rows and inserts them
+under the destination Project's asset ids
+(`hqAppClaims.ts::remapDeploymentMediaPathsInTransaction`).
+`app_deployment_keyed_case_ids` (the id prefix a create keyed by an answer
+writes on the project space an app was brought in from) is inserted and
+deleted with the identity rows. `app_deployment_confirmations` (what
 a person confirmed about one project space for one app: a plan feature, the
 flat location fixture, a Connect forwarder, sync on form entry turned off,
 CommCare Supply turned off) is
 inserted on confirm and updated on withdrawal, never deleted. `app_deployment_baselines` (the app as CommCare
-HQ returned it when Nova last read it, gzip `bytea`) and
+HQ returned it when Nova last read it, gzip `bytea`, with the Nova revision it
+describes, CommCare HQ's file at each media path, and `first_publish_changes`,
+never set beside origin `create` or `unread`, held so by a CHECK) and
 `project_space_resource_baselines` (a lookup table or place as CommCare HQ
 returned it, keyed by Project, server, project space and HQ resource, so two
 apps whose live mappings name one HQ table or place share a row) are upserted
-only, serialized by the deployment row's lock. The three runtime-written tables
-are insert/update, never deleted or row-locked. The first three cascade with
-their deployment; `project_space_resource_baselines` has no deletion path at
+only, serialized by the deployment row's lock. The three insert/update tables
+are never deleted from or row-locked. All five per-deployment tables cascade
+with their deployment; `project_space_resource_baselines` has no deletion path at
 all, because no app is hard-deleted at runtime and Project deletion is
 disabled, so the future whole-tenant deletion lifecycle must list it.
 `app_deployment_resources.remote_missing_at` is the "CommCare HQ reports this
@@ -103,7 +117,13 @@ design sessions for one actor can never both hold. Canonical commits,
 thread writes, and unchanged-holder verification (the heartbeats) take NO
 actor gate and keep authority-row-first ordering — gate-after-row on any
 lifecycle path would permit a gate↔row deadlock, which is exactly what the
-`actorGenerationGate.test.ts` source scan forbids.
+`actorGenerationGate.test.ts` source scan forbids. A transaction that settles an app's released
+HQ app claims (`hqAppClaims.ts::lockReleasedClaimsInTransaction`: a restore, and
+a publish that finds one) is the one protocol that locks more than one app row.
+It takes each HQ app's transaction advisory lock first, in key order, then the
+app rows in ascending app id, and starts again where what it read before the
+locks no longer holds. A birth from CommCare HQ takes the same advisory lock
+before the one existing app row it may lock.
 
 **Builder hydration is one authorized snapshot.**
 `appAccess.ts::resolveAuthorizedAppSnapshot` holds `apps FOR SHARE`, then the
@@ -166,7 +186,13 @@ projection. Active authorization rejects a non-null `deleted_at` on both
 full blueprint reads (`resolveAppAccess`) and lightweight Project reads
 (`loadAppProjectId`), matching the locked scope resolver. Inspection and explicit
 restore continue to use the stored row; Project membership alone does not make
-a deleted app active.
+a deleted app active. Deleting an app writes no deployment row: an app in
+recently deleted gives up its CommCare HQ app only when another app takes it
+(`hqAppClaims.ts::claimHqAppInTransaction` sets the mapping's `released_at`).
+`restoreApp` settles each HQ app the restored app gave up while it was
+deleted: it takes it back, from a holder in recently deleted too, or ends that
+deployment where a live app holds it (`hqAppClaims.ts`), and answers the
+project spaces it stopped publishing to.
 
 App list/search cursors are admitted by `appPagination.ts` before SQL: their
 sort, composite key, encoding and canonical timestamp must match the emitted

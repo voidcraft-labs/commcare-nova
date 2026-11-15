@@ -6,11 +6,19 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { readHqApp } from "@/lib/commcare/reader";
+import {
+	readerInput,
+	sourceFromBody,
+} from "@/lib/commcare/reader/__tests__/readerInput";
 import {
 	type SchemaDefaultReader,
 	schemaPropertyDefault,
 } from "@/lib/commcare/surface/schemaDefaults";
+import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { adoptedAppBaselineWrite, adoptedIdentityRows } from "../adoption";
 import {
 	type AppChangePart,
 	diffHqAppSource,
@@ -48,7 +56,11 @@ function diff(
 	baseline: unknown,
 	current: unknown,
 	ownership: AppOwnership,
-	options: { shell?: boolean; schemaDefault?: SchemaDefaultReader } = {},
+	options: {
+		shell?: boolean;
+		schemaDefault?: SchemaDefaultReader;
+		languageNames?: "nova" | "target";
+	} = {},
 ): readonly AppChangePart[] {
 	return diffHqAppSource({
 		baseline: normalized(baseline).normalized,
@@ -56,6 +68,7 @@ function diff(
 		ownership,
 		shell: options.shell ?? false,
 		schemaDefault: options.schemaDefault ?? schemaPropertyDefault,
+		languageNames: options.languageNames ?? "nova",
 	});
 }
 
@@ -257,6 +270,29 @@ describe("comparing two reads", () => {
 		expect(diff(base, languageName, needed)).toEqual([{ kind: "text" }]);
 	});
 
+	it("reads no language name on an app Nova brought in, whose names the project space keeps", () => {
+		const needed = { ...ownership, addOns: ["display_conditions"] };
+		const renamed = edited((app) => {
+			(app.translations as Record<string, Record<string, string>>).en.en =
+				"Anglais";
+		});
+		expect(diff(base, renamed, needed, { languageNames: "target" })).toEqual(
+			[],
+		);
+		expect(diff(base, renamed, needed, { languageNames: "nova" })).toEqual([
+			{ kind: "text" },
+		]);
+		/* A generated key is still Nova's there. */
+		const generated = edited((app) => {
+			(app.translations as Record<string, Record<string, string>>).en[
+				"modules.m0"
+			] = "Visits, renamed";
+		});
+		expect(diff(base, generated, needed, { languageNames: "target" })).toEqual([
+			{ kind: "text" },
+		]);
+	});
+
 	it("reads add-ons and profile keys only under the baseline's ownership", () => {
 		const properties = (app: Source) =>
 			(app.profile as { properties: Record<string, string> }).properties;
@@ -292,6 +328,75 @@ describe("comparing two reads", () => {
 			app.cloudcare_enabled = !app.cloudcare_enabled;
 		});
 		expect(diff(base, flipped, ownership)).toEqual([]);
+	});
+});
+
+describe("a baseline an app brought in from CommCare HQ is born with", () => {
+	/** The `read` baseline of the retained source, as an adoption writes it, over the document the reader gives. */
+	async function adoptedBaseline() {
+		const body = retainedRead(NAVIGATION_BASE);
+		const source = await sourceFromBody(body);
+		const input = readerInput(source);
+		const outcome = await readHqApp({
+			...input,
+			recordDialect: () => undefined,
+		});
+		if (outcome.kind !== "read") {
+			throw new Error(
+				`The retained source did not read: ${outcome.findings.map((finding) => finding.code).join(", ")}`,
+			);
+		}
+		const rows = adoptedIdentityRows(outcome.draft.identities, input.modules);
+		if (!rows.ok) throw new Error(`No identity row for ${rows.at}.`);
+		const write = adoptedAppBaselineWrite({
+			remoteAppId: "hq-app",
+			source,
+			prepared: {
+				doc: outcome.draft.doc,
+				assets: new Map(),
+				attachmentTarget: null,
+			},
+			target: { server: "india", domain: "clinic" },
+			identity: targetWireIdentity(rows.rows),
+			novaRevision: 0,
+			mediaFiles: {},
+			observedAt: "2026-11-10T09:00:00.000Z",
+			firstPublish: { ids: [], touchesWorkers: false, of: "first-publish" },
+		});
+		const stored = JSON.parse(
+			gunzipSync(write.sourceGzip ?? Buffer.alloc(0)).toString("utf8"),
+		) as unknown;
+		if (write.ownership === null)
+			throw new Error("A read baseline holds the ownership it was born with.");
+		return { stored, ownership: write.ownership };
+	}
+
+	function compared(
+		baseline: Awaited<ReturnType<typeof adoptedBaseline>>,
+		current: unknown,
+	): readonly AppChangePart[] {
+		return diffHqAppSource({
+			baseline: baseline.stored,
+			current: normalized(current).normalized,
+			ownership: baseline.ownership,
+			shell: false,
+			schemaDefault: schemaPropertyDefault,
+			languageNames: "target",
+		});
+	}
+
+	it("finds no change on the app as CommCare HQ still holds it, and names the one form whose attachment changed", async () => {
+		const baseline = await adoptedBaseline();
+		expect(compared(baseline, retainedRead(NAVIGATION_BASE))).toEqual([]);
+		const changed = edited((app) => {
+			const visit = app.modules[0]?.forms[0];
+			const attachments = app._attachments as Record<string, string>;
+			const key = `${String(visit?.unique_id)}.xml`;
+			attachments[key] = `${attachments[key]} `;
+		});
+		expect(compared(baseline, changed)).toEqual([
+			{ kind: "form", menu: 0, form: 0, name: "Visit", menuName: "Patients" },
+		]);
 	});
 });
 

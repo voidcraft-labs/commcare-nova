@@ -48,6 +48,12 @@
  * keeps each case change it sends for the first time, which changes the
  * saved app, so every answer carries `placements`: how many this attempt
  * recorded and how many of them an accepted offer moved.
+ *
+ * `viewer` is the reader's locale and time zone, which name the day in a
+ * sentence about a change made in CommCare HQ since Nova brought the app in.
+ * Unlike the fields above it decides nothing the publish writes, so it is
+ * read leniently: anything but an object of two strings is no viewer, and a
+ * locale or zone the date formatter refuses reads as the default's.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -76,6 +82,7 @@ import {
 } from "@/lib/deployment/types";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
+import type { DriftDateOptions } from "@/lib/publish/driftReference";
 import {
 	type AcceptPlacementMoves,
 	acceptPlacementMovesSchema,
@@ -206,6 +213,22 @@ function readAcceptPlacementMoves(
 	return accepted.data;
 }
 
+/**
+ * The reader's locale and time zone, or nothing. Never a refusal: this
+ * decides how one date is spelled and nothing about what is written, so a
+ * malformed value publishes with the default day.
+ */
+function readViewer(value: unknown): DriftDateOptions | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return undefined;
+	}
+	const { locale, timeZone } = value as Record<string, unknown>;
+	if (typeof locale !== "string" || typeof timeZone !== "string") {
+		return undefined;
+	}
+	return { locale, timeZone };
+}
+
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
@@ -220,6 +243,7 @@ export async function POST(req: NextRequest) {
 			confirm?: unknown;
 			confirmWebApps?: unknown;
 			acceptPlacementMoves?: unknown;
+			viewer?: unknown;
 		} | null;
 
 		if (!body) throw new ApiError("App data is required", 400);
@@ -256,6 +280,8 @@ export async function POST(req: NextRequest) {
 		const acceptPlacementMoves = readAcceptPlacementMoves(
 			body.acceptPlacementMoves,
 		);
+		/* Whose day a drift sentence names. */
+		const driftDate = readViewer(body.viewer);
 
 		/* Publishing to CommCare HQ requires edit, not view: a viewer can't
 		 * push a shared app out of the Project. An `AppAccessError` maps to
@@ -307,6 +333,7 @@ export async function POST(req: NextRequest) {
 			discardRemoteChanges,
 			confirm,
 			...(confirmWebApps !== undefined && { confirmWebApps }),
+			...(driftDate !== undefined && { driftDate }),
 		});
 
 		/* Whether THIS publish got the app there, which is not the same as

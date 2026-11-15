@@ -22,11 +22,23 @@ function shell(doc: BlueprintDoc) {
 		compatibility: { advisories: [] },
 		update: null,
 		identity: DERIVED_WIRE_IDENTITY,
-	};
+		languageNames: "nova",
+		seeds: "nova",
+		keyedCaseIdPrefixes: new Map(),
+	} as const;
 }
 
 function update(doc: BlueprintDoc, source: HqAppSource) {
 	return { ...shell(doc), update: { appId: "hq-app", source } };
+}
+
+/** An update of the app mapping a bring-in left `adopted`. */
+function adoptedUpdate(doc: BlueprintDoc, source: HqAppSource) {
+	return {
+		...update(doc, source),
+		languageNames: "target",
+		seeds: "target",
+	} as const;
 }
 
 /** The source of the shell a first publish creates, as HQ serves it back. */
@@ -134,6 +146,40 @@ describe("hqImportApplication", () => {
 		expect(application.auto_gps_capture).toBe(true);
 		expect(ownership.autoGpsCapture).toBe(true);
 	});
+	it("leaves an adopted app's language names and unset settings as CommCare HQ holds them", () => {
+		/* The plausible failure: the input's options never reaching the
+		 * overlay, so the first publish over an app Nova brought in renames a
+		 * language and seeds every setting its workers never had. */
+		const doc = buildDoc({
+			appName: "Visits",
+			appSettings: { showSavedForms: true, showIncompleteForms: false },
+		});
+		const source = shellSource({
+			translations: { en: { en: "Inglés" } },
+			profile: { properties: { "cc-autoup-freq": "freq-daily" } },
+		});
+		const adopted = hqImportApplication(adoptedUpdate(doc, source));
+		/* Nothing of Nova's differs there, so the body leaves the key out and
+		 * CommCare HQ keeps the name it holds. */
+		expect(Object.hasOwn(adopted.application, "translations")).toBe(false);
+		expect(adopted.application.profile?.properties).toEqual({
+			"cc-autoup-freq": "freq-daily",
+			"cc-show-saved": "yes",
+			"cc-show-incomplete": "no",
+		});
+		/* The descriptor is the same: it names Nova's two settings alone. */
+		expect(adopted.ownership.profileProperties).toEqual([
+			"cc-show-saved",
+			"cc-show-incomplete",
+		]);
+		const created = hqImportApplication(update(doc, source));
+		expect(Object.hasOwn(created.application, "translations")).toBe(true);
+		expect(created.application.translations?.en?.en).not.toBe("Inglés");
+		expect(created.application.profile?.properties?.["cc-enable-tts"]).toBe(
+			"no",
+		);
+	});
+
 	describe("logo_refs", () => {
 		const pathOnly = { path: "jr://file/commcare/abc.png" };
 		const uploaded = {

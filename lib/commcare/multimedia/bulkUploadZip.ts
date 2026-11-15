@@ -9,12 +9,13 @@ import type { AssetManifest } from "./assetWirePath";
 
 /**
  * Build the ZIP CommCare HQ's `upload_multimedia_api` endpoint ingests:
- * one entry per unique wire path (`commcare/<hash><ext>`) carrying the
- * asset's bytes. HQ's `process_bulk_upload_zip` matches each entry to the
- * imported app's `jr://file/commcare/...` references by path
- * (`get_form_path`), so the entry layout IS the bare wire path —
- * byte-identical to the references the expander emitted and to the `.ccz`'s
- * media entries. The same ZIP is what the JSON-export bundle ships for a
+ * one entry per unique wire path carrying the asset's bytes: the
+ * content-hash path `commcare/<hash><ext>`, or the path the target holds
+ * for a file that came in from CommCare HQ, in whatever directory it names.
+ * HQ's `process_bulk_upload_zip` matches each entry to the imported app's
+ * `jr://file/...` references by path (`get_form_path`), so the entry layout
+ * IS the bare wire path — byte-identical to the references the expander
+ * emitted and to the `.ccz`'s media entries. The same ZIP is what the JSON-export bundle ships for a
  * manual two-step import, so both paths speak one format.
  *
  * Dedupes by wire path: two distinct `MediaAssetId`s can resolve to one

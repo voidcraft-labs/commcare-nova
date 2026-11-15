@@ -149,9 +149,10 @@ async function record(remoteId = "working-app", target = TARGET) {
 		target,
 		"preflight",
 		{ status: "succeeded", at: "2026-09-01T00:00:00.000Z" },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	return recordRemoteResource(SCOPE, target, {
+		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: APP,
 		remoteId,
@@ -168,6 +169,9 @@ async function record(remoteId = "working-app", target = TARGET) {
 			ownership: null,
 			observedAt: "2026-09-01T00:00:00.000Z",
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 }
@@ -403,7 +407,7 @@ it("names a missing remote app as an upload refusal and heals it when HQ later r
 			expect(gone.phases.upload).toEqual({
 				status: "failed",
 				detail:
-					"The app Nova published to “clinic” isn't there any more. It may have been deleted on CommCare HQ. Publish again to create a new one.",
+					"The app this one publishes to on “clinic” isn't there any more. It may have been deleted on CommCare HQ. Publishing again creates a new one.",
 			});
 			reply(peer, VERSION_PATH, {
 				currentVersion: 4,
@@ -439,9 +443,10 @@ it("says what Nova knows of each target's HQ app: there, empty, gone or none", a
 		target("shell"),
 		"preflight",
 		{ status: "succeeded", at },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	await recordCreatedRemoteApp(SCOPE, target("shell"), {
+		expectedEndings: 0,
 		remoteId: "shell-app",
 		baseline: {
 			origin: "unread",
@@ -452,6 +457,9 @@ it("says what Nova knows of each target's HQ app: there, empty, gone or none", a
 			ownership: null,
 			observedAt: at,
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 	const published = await record("gone-app", target("gone"));
@@ -480,7 +488,7 @@ it("says what Nova knows of each target's HQ app: there, empty, gone or none", a
 		target("none"),
 		"preflight",
 		{ status: "succeeded", at },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	await withHttpPeer(async (peer) => {
 		await asUser(async (client) => {
@@ -519,9 +527,10 @@ it("tells a refresh of a first publish that stopped with its empty app mapped th
 		TARGET,
 		"preflight",
 		{ status: "succeeded", at },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	await recordCreatedRemoteApp(SCOPE, TARGET, {
+		expectedEndings: 0,
 		remoteId: "working-app",
 		baseline: {
 			origin: "unread",
@@ -532,17 +541,26 @@ it("tells a refresh of a first publish that stopped with its empty app mapped th
 			ownership: null,
 			observedAt: at,
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
-	await foldDeploymentAttempt(SCOPE, TARGET, "resources", {
-		status: "failed",
-		at,
-		failure: {
-			code: "hq_rejected_resource_push",
-			message: "CommCare HQ would not take this app's lookup tables.",
-			details: [],
+	await foldDeploymentAttempt(
+		SCOPE,
+		TARGET,
+		"resources",
+		{
+			status: "failed",
+			at,
+			failure: {
+				code: "hq_rejected_resource_push",
+				message: "CommCare HQ would not take this app's lookup tables.",
+				details: [],
+			},
 		},
-	});
+		{ expectedEndings: 0 },
+	);
 	expect((await readDeployment(SCOPE, TARGET))?.active).toHaveLength(1);
 	const before = await snapshot();
 	await withHttpPeer(async (peer) => {
@@ -625,7 +643,7 @@ it("refuses scope, app access, absent publication, and invalid SDK input before 
 				TARGET,
 				"preflight",
 				{ status: "succeeded", at: "2026-09-01T00:00:00.000Z" },
-				{ ensure: true },
+				{ ensure: true, expectedEndings: 0 },
 			);
 			expect(errorBody(await call(client)).message).toContain("hasn't reached");
 			for (const args of [
@@ -784,6 +802,7 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 				{ kind: "form-entry-sync-off" },
 				{ kind: "commtrack-off" },
 			],
+			expectedEndings: 0,
 		},
 	);
 	await withHttpPeer(async (peer) => {
@@ -932,9 +951,10 @@ async function publishedWithRead(
 		TARGET,
 		"preflight",
 		{ status: "succeeded", at: READ_AT },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	await recordRemoteResource(SCOPE, TARGET, {
+		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: APP,
 		remoteId: "working-app",
@@ -951,6 +971,9 @@ async function publishedWithRead(
 			ownership: OWNERSHIP,
 			observedAt,
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 }

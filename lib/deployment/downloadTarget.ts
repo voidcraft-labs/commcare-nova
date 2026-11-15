@@ -15,10 +15,13 @@ import {
 	declaresAndroid,
 	effectiveAppLocalization,
 } from "@/lib/domain";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
+import type { Uuid } from "@/lib/domain/uuid";
 import type {
 	AttachmentTargetState,
 	KeptAdvisoryFacts,
 } from "@/lib/publish/exportAdvisories";
+import { keyedCaseIdPrefixesFor } from "./adoption";
 import {
 	type AttachmentUrlTarget,
 	attachmentUrlTarget,
@@ -31,6 +34,8 @@ import {
 import {
 	type DeploymentScope,
 	readDeploymentIdentityOverrides,
+	readDeploymentKeyedCaseIds,
+	readDeploymentMediaPaths,
 	readReachedDeploymentTargets,
 	readTargetFacts,
 } from "./store";
@@ -52,6 +57,18 @@ export type DownloadTarget =
 			readonly runtimeTarget: RuntimeTarget;
 			/** That deployment's overrides over the derivation. */
 			readonly identity: WireIdentity;
+			/**
+			 * The path CommCare HQ keeps each media file under on that project
+			 * space, by asset; empty where it holds none, so every file takes
+			 * Nova's own path.
+			 */
+			readonly mediaPaths: ReadonlyMap<MediaAssetId, string>;
+			/**
+			 * The id prefix each keyed create's cases stand under there, by
+			 * operation, for the operations that still create that type; empty
+			 * where it holds none.
+			 */
+			readonly keyedCaseIdPrefixes: ReadonlyMap<Uuid, string>;
 			readonly attachmentTarget: AttachmentUrlTarget;
 			readonly reached: readonly ReachedDeploymentTarget[];
 			/**
@@ -135,9 +152,11 @@ export async function resolveDownloadTarget(
 		);
 	}
 	const { target } = choice;
-	const [overrides, targetFacts] = await Promise.all([
+	const [overrides, targetFacts, mediaPaths, keyedCaseIds] = await Promise.all([
 		readDeploymentIdentityOverrides(scope, target),
 		readTargetFacts(scope, target),
+		readDeploymentMediaPaths(scope, target),
+		readDeploymentKeyedCaseIds(scope, target),
 	]);
 	return {
 		format,
@@ -148,6 +167,8 @@ export async function resolveDownloadTarget(
 			appId: target.hqAppId,
 		},
 		identity: targetWireIdentity(overrides),
+		mediaPaths,
+		keyedCaseIdPrefixes: keyedCaseIdPrefixesFor(doc, keyedCaseIds),
 		attachmentTarget: attachmentUrlTarget(target),
 		reached,
 		targetFacts,

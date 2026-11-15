@@ -1,6 +1,6 @@
 import { SaxesParser } from "saxes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	admitNestedDoc,
@@ -39,6 +39,7 @@ import type {
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import {
 	prepareExportBoundary,
+	prepareExportBoundaryWithReads,
 	prepareExportBoundaryWithRegistry,
 } from "../boundaryValidation";
 
@@ -498,6 +499,70 @@ describe("prepareExportBoundary", () => {
 			projectRevision: "7",
 		});
 		expect(result.prepared.assets).toBe(assets);
+	});
+
+	it("resolves media at the paths the target holds, and at none where the caller passes none", async () => {
+		const heldMediaPaths = new Map([
+			[testMediaAssetId("held-logo"), "media/logo.png"],
+		]);
+		const doc = validDoc();
+		const held = await prepareExportBoundary({
+			mode: "ccz",
+			access: ACCESS,
+			doc,
+			compiledAtSeq: 5,
+			attachmentTarget: null,
+			heldMediaPaths,
+		});
+		expect(held.ok).toBe(true);
+		expect(resolveMediaManifest).toHaveBeenLastCalledWith(doc, "project-1", {
+			withBytes: true,
+			heldPaths: heldMediaPaths,
+		});
+
+		const derived = await prepareExportBoundary({
+			mode: "hq-upload",
+			access: ACCESS,
+			doc,
+			compiledAtSeq: 5,
+			attachmentTarget: null,
+		});
+		expect(derived.ok).toBe(true);
+		expect(resolveMediaManifest).toHaveBeenLastCalledWith(doc, "project-1", {
+			withBytes: true,
+		});
+	});
+
+	it("hands a caller's own reads the held paths, and nothing where it passes none", async () => {
+		const heldMediaPaths = new Map([
+			[testMediaAssetId("held-logo"), "media/logo.png"],
+		]);
+		const mediaManifest = vi.fn(async () => new Map());
+		const reads = {
+			lookupFixtureData: async () => EMPTY_FIXTURE_SNAPSHOT,
+			mediaRows: async () => [],
+			mediaManifest,
+		};
+		const doc = validDoc();
+		for (const input of [{ heldMediaPaths }, {}]) {
+			const result = await prepareExportBoundaryWithReads(
+				{
+					mode: "ccz",
+					access: ACCESS,
+					doc,
+					compiledAtSeq: 5,
+					attachmentTarget: null,
+					...input,
+				},
+				reads,
+			);
+			expect(result.ok).toBe(true);
+		}
+		expect(mediaManifest.mock.calls).toEqual([
+			[doc, "project-1", heldMediaPaths],
+			[doc, "project-1", undefined],
+		]);
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
 
 	it("propagates an operational definition-read failure before media byte resolution", async () => {

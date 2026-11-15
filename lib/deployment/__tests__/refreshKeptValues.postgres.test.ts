@@ -40,6 +40,7 @@ import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { deploymentKept, refreshKeptValues } from "../service";
 import {
 	type DeploymentScope,
+	endDeployment,
 	foldDeploymentAttempt,
 	readDeployment,
 	readTargetFacts,
@@ -166,6 +167,9 @@ function baselineOf(
 		ownership: OWNERSHIP,
 		observedAt: options.observedAt ?? PUBLISHED_AT,
 		discard: options.discard === undefined ? null : { digest: options.discard },
+		novaRevision: null,
+		mediaFiles: { kind: "set", files: null },
+		firstPublish: { kind: "set", list: null },
 	};
 }
 
@@ -176,9 +180,10 @@ async function published(baseline: AppBaselineWrite, remoteId = HQ_APP) {
 		TARGET,
 		"preflight",
 		{ status: "succeeded", at: PUBLISHED_AT },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	return recordRemoteResource(SCOPE, TARGET, {
+		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: APP,
 		remoteId,
@@ -323,7 +328,7 @@ describe("refreshKeptValues", () => {
 				TARGET,
 				"preflight",
 				{ status: "succeeded", at: PUBLISHED_AT },
-				{ ensure: true },
+				{ ensure: true, expectedEndings: 0 },
 			);
 			await withHttpPeer(async (peer) => {
 				expect(await refreshKeptValues(SCOPE, TARGET)).toEqual({
@@ -344,6 +349,9 @@ describe("refreshKeptValues", () => {
 				ownership: null,
 				observedAt: PUBLISHED_AT,
 				discard: null,
+				novaRevision: null,
+				mediaFiles: { kind: "set", files: null },
+				firstPublish: { kind: "set", list: null },
 			});
 			const before = await baselineRow();
 			await withHttpPeer(async (peer) => {
@@ -362,10 +370,11 @@ describe("refreshKeptValues", () => {
 				TARGET,
 				"preflight",
 				{ status: "succeeded", at: PUBLISHED_AT },
-				{ ensure: true },
+				{ ensure: true, expectedEndings: 0 },
 			);
 			const shell = baselineOf(liveSource());
 			await recordCreatedRemoteApp(SCOPE, TARGET, {
+				expectedEndings: 0,
 				remoteId: HQ_APP,
 				baseline: { ...shell, origin: "create" },
 			});
@@ -388,6 +397,95 @@ describe("refreshKeptValues", () => {
 				});
 				expect(sent(peer)).toBe(0);
 			});
+		});
+	});
+
+	describe("over a deployment someone stopped, one whose HQ app another Nova app took, and one Nova brought in", () => {
+		it("says publishing stopped there and asks CommCare HQ nothing", async () => {
+			await seedApp();
+			await published(baselineOf(liveSource()));
+			await h.seedProjectMember("an-admin", PROJECT, "admin");
+			await endDeployment(
+				{ ...SCOPE, role: "admin", actorUserId: "an-admin" },
+				TARGET,
+			);
+			await withHttpPeer(async (peer) => {
+				await expect(refreshKeptValues(SCOPE, TARGET)).rejects.toMatchObject({
+					name: "DeploymentError",
+					code: "invalid",
+					message:
+						"Nova stopped publishing this app to “clinic”, so there's nothing there for it to check on. Publishing there again makes a new app.",
+				});
+				expect(sent(peer)).toBe(0);
+			});
+		});
+
+		it("answers no-baseline for a live mapping that is released, and asks CommCare HQ nothing", async () => {
+			await seedApp();
+			await published(baselineOf(liveSource()));
+			await h
+				.db()
+				.updateTable("app_deployment_resources")
+				.set({ released_at: new Date() })
+				.where("kind", "=", "app")
+				.execute();
+			const before = await baselineRow();
+			await withHttpPeer(async (peer) => {
+				expect(await refreshKeptValues(SCOPE, TARGET)).toEqual({
+					kind: "no-baseline",
+				});
+				expect(sent(peer)).toBe(0);
+			});
+			expect(await baselineRow()).toEqual(before);
+		});
+
+		it("refreshes a read baseline and keeps its revision, its HQ files and the first publish's list", async () => {
+			await seedApp();
+			const files = { "commcare/image/logo.png": "hq-file-1" };
+			const list = {
+				ids: ["forms-and-settings-rewritten"],
+				webAppsOnInHq: true,
+				of: "first-publish",
+			} as const;
+			await foldDeploymentAttempt(
+				SCOPE,
+				TARGET,
+				"preflight",
+				{ status: "succeeded", at: PUBLISHED_AT },
+				{ ensure: true, expectedEndings: 0 },
+			);
+			await recordRemoteResource(SCOPE, TARGET, {
+				expectedEndings: 0,
+				kind: "app",
+				novaResourceId: APP,
+				remoteId: HQ_APP,
+				ownership: "adopted",
+				adoptedBy: ACTOR,
+				pushedRevision: 1,
+				uploadedAt: PUBLISHED_AT,
+				remoteRevision: null,
+				baseline: {
+					...baselineOf(liveSource()),
+					origin: "read",
+					novaRevision: 1,
+					mediaFiles: { kind: "set", files },
+					firstPublish: { kind: "set", list },
+				},
+			});
+			await withHttpPeer(async (peer) => {
+				serveSource(peer, fuzzyOnSource());
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+			});
+			const after = await baselineRow();
+			expect(after?.source_digest).toBe(
+				baselineOf(fuzzyOnSource()).sourceDigest,
+			);
+			expect(after).toMatchObject({
+				origin: "read",
+				media_files: files,
+				first_publish_changes: list,
+			});
+			expect(Number(after?.nova_revision)).toBe(1);
 		});
 	});
 

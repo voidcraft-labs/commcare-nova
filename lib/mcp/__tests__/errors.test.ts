@@ -125,6 +125,9 @@ it.each([
 	{ code: "domain_not_authorized" as const, type: "domain_not_authorized" },
 	{ code: "not_found" as const, type: "not_found" },
 	{ code: "invalid" as const, type: "invalid_input" },
+	/* An editor stopping publishing: a member who lacks the capability,
+	 * whose message names who has it. */
+	{ code: "not_permitted" as const, type: "permission_denied" },
 ])(
 	"maps deployment $code to the external $type category without leaking its cause",
 	({ code, type }) => {

@@ -2289,7 +2289,8 @@ from a name, because two project spaces can hold unrelated apps — or unrelated
 lookup tables — sharing a name and picking one would attach a deployment to
 somebody else's work. An adoption is never inferred: the publish REFUSES,
 names the resource, and only a caller naming that exact Nova id records it,
-attributed to who and when. `pushed_identity` holds the external name a
+attributed to who and when. An app is `adopted` by one route alone, bringing
+it in from CommCare HQ, which records who did. `pushed_identity` holds the external name a
 resource carries there, which is what makes a renamed resource reportable as
 left behind. `lib/deployment/CLAUDE.md` owns the detail.
 

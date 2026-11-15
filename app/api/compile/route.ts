@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
 				emptyCaseListText: download.target.emptyCaseListText,
 				earlierHqApps: download.target.earlierHqApps,
 				targetFacts: download.targetFacts,
+				keyedCaseIdPrefixes: download.keyedCaseIdPrefixes,
 			},
 		);
 

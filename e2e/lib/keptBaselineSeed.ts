@@ -147,6 +147,9 @@ export function keptBaselineWrite(
 		},
 		observedAt: KEPT_BASELINE_SEED.observedAt,
 		discard: null,
+		novaRevision: null,
+		mediaFiles: { kind: "set", files: null },
+		firstPublish: { kind: "set", list: null },
 	};
 }
 

@@ -333,16 +333,21 @@ These decisions are closed unless the project owner explicitly reopens them.
   never ordinary success with a warning.
 - A durable deployment record is keyed by Nova app, Project, HQ server, and HQ
   domain. Remote-resource mappings additionally key the Nova resource UUID and
-  store ownership/adoption, remote id, pushed identity, and revision.
+  store ownership/adoption, remote id, pushed identity, and revision. One HQ
+  app is published to by one Nova app at a time, across Projects. An app in
+  recently deleted gives its HQ app up to whoever takes it. A deployment can be
+  ended: its app mapping is superseded with no successor, its recorded ids and
+  media paths go, and a later publish there makes a new app with derived ids.
 - Nova never auto-adopts a same-named HQ resource, overwrites an unowned
   resource, or deletes a remote resource on rename. First adoption is explicit.
   Renames create/repoint or update only resources Nova demonstrably owns, and
   report any old remote resource left behind.
 - Nova never writes over a change made in CommCare HQ since its last publish
-  there without a person's word. Every such decision a person can answer is
-  made in preflight, before any write, by comparing HQ's current read of the
-  app, each mapped lookup table and each mapped place with HQ's own read after
-  Nova's last push. One `hq_changed` refusal lists every change of every kind
+  there, or since it brought the app in, without a person's word. Every such
+  decision a person can answer is made in preflight, before any write, by
+  comparing HQ's current read of the app, each mapped lookup table and each
+  mapped place with HQ's own read after Nova's last push, or the read the app
+  was brought in from. One `hq_changed` refusal lists every change of every kind
   but the app's Web App setting, and a person publishes over a change only by
   naming it back with the digest of the state they were shown, so a state HQ
   has since left is asked about again. The Web App setting has one question of

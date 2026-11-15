@@ -609,7 +609,7 @@ describe("atomic Project move", () => {
 			{ server: "production", domain: "acme" },
 			"preflight",
 			{ status: "succeeded", at: "2026-08-06T00:00:00.000Z" },
-			{ ensure: true },
+			{ ensure: true, expectedEndings: 0 },
 		);
 
 		await prepareMove(appId);
@@ -628,6 +628,79 @@ describe("atomic Project move", () => {
 		expect(moved).toEqual({ project_id: DESTINATION, domain: "acme" });
 	});
 
+	it("re-keys the media paths CommCare HQ keeps to the destination's assets", async () => {
+		const appId = await seedMoveableApp({
+			id: "app-media-path-move",
+			appName: "Media path move",
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		const deployment = await foldDeploymentAttempt(
+			{ appId, projectId: SOURCE, role: "owner", actorUserId: ACTOR },
+			{ server: "production", domain: "acme" },
+			"preflight",
+			{ status: "succeeded", at: "2026-08-06T00:00:00.000Z" },
+			{ ensure: true, expectedEndings: 0 },
+		);
+		const sourceLogoB = testMediaAssetId("path-source-logo-b");
+		const sourceLogoA = testMediaAssetId("path-source-logo-a");
+		const sourceIcon = testMediaAssetId("path-source-icon");
+		const sourceDropped = testMediaAssetId("path-source-dropped");
+		const destinationLogo = testMediaAssetId("path-destination-logo");
+		const destinationIcon = testMediaAssetId("path-destination-icon");
+		for (const [id, projectId] of [
+			[sourceLogoB, SOURCE],
+			[sourceLogoA, SOURCE],
+			[sourceIcon, SOURCE],
+			[sourceDropped, SOURCE],
+			[destinationLogo, DESTINATION],
+			[destinationIcon, DESTINATION],
+		] as const) {
+			await seedReadyAsset({ id, projectId, kind: "image" });
+		}
+		await h
+			.db()
+			.insertInto("app_deployment_media_paths")
+			.values(
+				(
+					[
+						[sourceLogoB, "commcare/image/logo-b.png"],
+						[sourceLogoA, "commcare/image/logo-a.png"],
+						[sourceIcon, "media/icon.png"],
+						[sourceDropped, "commcare/image/old.png"],
+					] as const
+				).map(([assetId, wirePath]) => ({
+					deployment_id: deployment.deployment.id,
+					media_asset_id: assetId,
+					wire_path: wirePath,
+				})),
+			)
+			.execute();
+
+		await commitMove(appId, {
+			assetIdMap: new Map([
+				[sourceLogoB, destinationLogo],
+				[sourceLogoA, destinationLogo],
+				[sourceIcon, destinationIcon],
+			]),
+		});
+
+		expect(
+			await h
+				.db()
+				.selectFrom("app_deployment_media_paths")
+				.select(["media_asset_id", "wire_path"])
+				.where("deployment_id", "=", deployment.deployment.id)
+				.orderBy("wire_path")
+				.execute(),
+		).toEqual([
+			{
+				media_asset_id: destinationLogo,
+				wire_path: "commcare/image/logo-a.png",
+			},
+			{ media_asset_id: destinationIcon, wire_path: "media/icon.png" },
+		]);
+	});
+
 	it("copies the moving app's place baselines to the destination by the baseline upsert's rule", async () => {
 		const appId = await seedMoveableApp({
 			id: "app-baseline-move",
@@ -640,7 +713,7 @@ describe("atomic Project move", () => {
 			target,
 			"preflight",
 			{ status: "succeeded", at: "2026-08-06T00:00:00.000Z" },
-			{ ensure: true },
+			{ ensure: true, expectedEndings: 0 },
 		);
 		const mapping = (remoteId: string, superseded: boolean) => ({
 			deployment_id: deployment.deployment.id,

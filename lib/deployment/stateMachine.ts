@@ -35,7 +35,8 @@ import {
 /**
  * How far along a progress state is. `incomplete` has no position, which
  * is the point: it is a refusal, so nothing may compare it as "further
- * than uploaded" or "not yet released".
+ * than uploaded" or "not yet released". `ended` has none either: the
+ * project space holds nothing this app publishes to.
  */
 export function deploymentProgressIndex(state: DeploymentState): number | null {
 	const index = (DEPLOYMENT_PROGRESS_STATES as readonly string[]).indexOf(
@@ -233,6 +234,12 @@ export function deploymentIsObservable(
  * record unobservable, so a whole re-publish would be the only way back.
  * What matters is whether the app is THERE, and after a probe failure it
  * is.
+ *
+ * An ended deployment publishes to nothing in its project space, as before
+ * a first publish, where a refused attempt writes no row. So a refused or
+ * pending attempt leaves it `ended`, by reference, and only a passed phase
+ * moves it on: a preflight that passes moves it to `preflight`, and the
+ * publish goes on as a first publish.
  */
 export function applyAttemptOutcome(
 	record: DeploymentRecord,
@@ -240,6 +247,9 @@ export function applyAttemptOutcome(
 	outcome: DeploymentPhaseOutcome,
 ): DeploymentRecord {
 	if (deploymentDisplaysAsReached(record, "uploaded")) {
+		return record;
+	}
+	if (record.state === "ended" && outcome.status !== "succeeded") {
 		return record;
 	}
 	return applyPhaseOutcome(record, phase, outcome);

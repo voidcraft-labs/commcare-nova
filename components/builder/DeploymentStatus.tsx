@@ -73,6 +73,7 @@ import {
 	KEPT_LABELS,
 	keptLead,
 } from "@/lib/publish/keptValues";
+import { GONE_APP_NEXT_PUBLISH } from "@/lib/publish/stopPublishing";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /**
@@ -358,7 +359,7 @@ export function DeploymentStatus({
 					{record.resumePhase !== null ? (
 						<p className="mt-2 pl-9 text-nova-text-secondary">
 							{remoteAppReportedGone(view.deployment)
-								? "Publishing again creates a new app on CommCare HQ, because the one Nova made is gone."
+								? GONE_APP_NEXT_PUBLISH
 								: RESUME_SENTENCE[record.resumePhase]}
 						</p>
 					) : null}

@@ -276,6 +276,20 @@ export function namesInWords(names: readonly string[]): string {
 	return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
+/**
+ * The review's line for the plan features Nova records as confirmed when it
+ * brings an app in, because the app's source already uses them. `labels`
+ * are each recorded feature's `PLAN_FEATURES[id].label`, in `PLAN_FEATURES`'
+ * order; the caller leaves the line out where none was recorded. It claims
+ * nothing about the project space's plan, which Nova cannot read.
+ */
+export function adoptionRecordedFeaturesLine(
+	labels: readonly string[],
+	domain: string,
+): string {
+	return `This app already uses ${namesInWords(labels)} on “${domain}”, and publishing changes nothing about them, so Nova won't ask about them. You can withdraw any of these on the Publishing card.`;
+}
+
 /** What a person can do where the project space's plan has no Web Apps. */
 export function webAppsWhereMissing(narrowing: PlatformNarrowing): string {
 	if (narrowing.open)

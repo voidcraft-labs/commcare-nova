@@ -1571,7 +1571,7 @@ export const hqMediaRecordSchema: z.ZodType<HqMediaRecord>;
 ```
 
 `lib/db/pg.ts::AppDeploymentBaselinesTable` types it `JSONColumnType<Readonly<Record<string,
-string>>> | null`. `AppBaseline` gains `mediaFiles: HqMediaRecord | null` on every arm
+string>> | null, string | null | undefined, string | null>`. `AppBaseline` gains `mediaFiles: HqMediaRecord | null` on every arm
 (`readAppBaseline` parses the column with `hqMediaRecordSchema`; a value that fails the parse is
 logged at error with the deployment's id and read as null, since Nova wrote it). Null means Nova
 holds no record for this deployment. An entry that is absent means Nova holds no record for that

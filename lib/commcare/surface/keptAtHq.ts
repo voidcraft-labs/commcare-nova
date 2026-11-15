@@ -271,6 +271,19 @@ export const KEPT_AT_HQ: Readonly<Record<string, KeptRow>> = {
 			elsewhere: COMMCARE_WORDING,
 			base: "hq-kept-settings",
 		},
+	"application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s":
+		{
+			kind: "setting",
+			label: "language-names",
+			ccz: {
+				does: "mirrors",
+				by: "lib/commcare/compiler.ts::compileCcz",
+				advisory: "kept_language_names_differ",
+			},
+			preview: noClaim("The language menu is Nova's own control."),
+			elsewhere: seeds("Nova's label"),
+			base: "hq-kept-settings",
+		},
 	"application-and-settings/logo-refs-hq-logo-android-home-login-demo": {
 		kind: "setting",
 		label: "android-logos",

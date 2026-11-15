@@ -78,6 +78,10 @@ function mapping(over: Partial<DeploymentResource> = {}): DeploymentResource {
 		remoteObservedAt: null,
 		supersededAt: null,
 		remoteMissingAt: null,
+		adoptedByName: null,
+		releasedAt: null,
+		endedReason: null,
+		endedByName: null,
 		...over,
 	};
 }

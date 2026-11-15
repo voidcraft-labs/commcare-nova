@@ -558,7 +558,9 @@ three keys need the target's current value: `profile`, `translations` and
 one read the publish hands it, its last before the import
 (`lib/deployment/CLAUDE.md` says which): it carries what the target owns,
 writes Nova's own values over it (`cc-show-saved` and `cc-show-incomplete`
-always; a constant setting only where the target holds no value for it), and
+always; a constant setting only where the target holds no value for it, and
+never on a deployment whose app Nova brought in, where an absent setting stays
+absent), and
 leaves a key out of the body when the result equals that read's value.
 `profile.properties` is projected whatever the Search advisory says; an
 `unverified` advisory leaves `custom_properties` as the target's bag. A source
@@ -2089,6 +2091,13 @@ unknown id, and 400 for an app deleted in HQ, whose source read still answers
 200 with a `doc_type` ending `-Deleted` (`app_manager/util.py::app_doc_types`)).
 An update never writes `multimedia_map`, `build_profiles`, `custom_base_url` or
 `practice_mobile_worker_id`, and Nova sends no `multimedia_map` in any mode.
+Every media file lives at its content-hash path under `commcare/`
+(`multimedia/assetWirePath.ts::wirePathFor`), except a path a target holds,
+which keeps its directory; the media suite writes each file's own
+(`multimedia/mediaSuiteXml.ts`: `path="../../<dir>"` and the location
+`./<dir>/<name>`, HQ's `media_resources` rule, which CommCare Android installs
+at `<dir>/<name>` where `jr://file/<dir>/<name>` reads it), and the `.ccz` and
+the bulk upload name the file at that path.
 `readHqAppSource` reads `build_profiles` so that a publish can refuse to leave
 a profile naming a language the app no longer has (`targetBuildProfiles.ts`).
 Which of the two a publish does, and what happens to it

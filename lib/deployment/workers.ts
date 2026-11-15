@@ -46,7 +46,8 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { organizationLevelsOf, personasOf } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { StoredLocation } from "@/lib/organization/types";
-import { publishedRemoteApp } from "./resources";
+import { DeploymentEndedError } from "./errors";
+import { deploymentEnding, publishedRemoteApp } from "./resources";
 import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
@@ -216,6 +217,15 @@ export async function provisionWorkers(
 	 * app the project space does not hold, or holds only as the empty app a
 	 * first publish makes, is an account with nothing to do. */
 	const deployment = await readDeployment(input.scope, target);
+	/* Someone stopped publishing this app there: the app the project space
+	 * still holds is no longer this one's, so no account is made for it. */
+	if (deployment !== null && deploymentEnding(deployment) !== null) {
+		return refused({
+			code: "app_not_published",
+			message: `Nova stopped publishing this app to “${domain}”, so there's no app there for a worker to sign in to. You can publish it there again and then add workers.`,
+			details: [],
+		});
+	}
 	if (deployment === null || publishedRemoteApp(deployment) === null) {
 		return refused({
 			code: "app_not_published",
@@ -317,7 +327,12 @@ export async function provisionWorkers(
 		refusal,
 		workers: provisioned,
 		unconfirmed,
-		deployment: await recordLanded(input, target, landed),
+		deployment: await recordLanded(
+			input,
+			target,
+			landed,
+			deployment.deployment.endings,
+		),
 	});
 
 	for (const push of plan.pushes) {
@@ -388,7 +403,12 @@ export async function provisionWorkers(
 		refusal: null,
 		workers: provisioned,
 		unconfirmed,
-		deployment: await recordLanded(input, target, landed),
+		deployment: await recordLanded(
+			input,
+			target,
+			landed,
+			deployment.deployment.endings,
+		),
 	};
 }
 
@@ -638,14 +658,36 @@ async function recordLanded(
 	input: ProvisionWorkersInput,
 	target: DeploymentTargetKey,
 	landed: readonly RecordRemoteResourceInput[],
+	/** The count of endings this call read with the deployment. */
+	expectedEndings: number,
 ): Promise<DeploymentWithResources | null> {
 	try {
-		return await recordPushedResources(input.scope, target, landed, {
-			status: "reconciled",
-			kind: "worker",
-			stillUsed: Object.keys(personasOf(input.doc)),
-		});
+		return await recordPushedResources(
+			input.scope,
+			target,
+			landed,
+			{
+				status: "reconciled",
+				kind: "worker",
+				stillUsed: Object.keys(personasOf(input.doc)),
+			},
+			{ expectedEndings },
+		);
 	} catch (error) {
+		/* Someone stopped publishing here while the accounts were made: a
+		 * person's act, not a fault, and the ended deployment takes no worker
+		 * mapping. */
+		if (error instanceof DeploymentEndedError) {
+			log.warn(
+				"[deployment] worker mappings not recorded: publishing stopped",
+				{
+					domain: input.domain,
+					appId: input.scope.appId,
+					workers: landed.length,
+				},
+			);
+			return null;
+		}
 		log.error("[deployment] worker mappings could not be recorded", error, {
 			domain: input.domain,
 			appId: input.scope.appId,

@@ -80,6 +80,9 @@ const LISTED_WHEN: Readonly<
 	"case-detail-view-logging": (facts) =>
 		facts.profileProperties["cc-log-entity-detail-enabled"] !== undefined,
 	"reworded-commcare-screens": (facts) => facts.uiTextKeys.length > 0,
+	/* On an app Nova brought in every language's name is CommCare HQ's, where
+	 * a first publish to another project space writes Nova's label. */
+	"language-names": (facts) => facts.languageNames !== null,
 	"android-logos": (facts) => facts.androidLogos.length > 0,
 	"mobile-report-version": (facts) => facts.mobileReportVersion !== "2.0",
 	"location-with-every-form": (facts) => facts.autoGpsCapture,

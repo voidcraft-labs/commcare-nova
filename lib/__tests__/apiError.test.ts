@@ -13,6 +13,7 @@ vi.mock("@/lib/logger", () => ({
 	log: { error: logErrorMock, warn: logWarnMock, info: vi.fn() },
 }));
 
+import { DeploymentError } from "@/lib/deployment/errors";
 import {
 	ApiError,
 	declaredBodyTooLarge,
@@ -237,6 +238,24 @@ describe("handleApiError — client-abort vs genuine error", () => {
 		expect(res.status).toBe(404);
 		expect(logErrorMock).not.toHaveBeenCalled();
 	});
+
+	it.each([
+		{ code: "not_permitted" as const, status: 403 },
+		{ code: "domain_not_authorized" as const, status: 403 },
+		{ code: "not_found" as const, status: 404 },
+		{ code: "invalid" as const, status: 400 },
+	])(
+		"a DeploymentError of code $code answers $status with its own message, logged at warn",
+		async ({ code, status }) => {
+			const message =
+				"Only an admin or owner of this Project can stop publishing here. You can ask one of them to.";
+			const res = handleApiError(new DeploymentError(code, message));
+			expect(res.status).toBe(status);
+			expect(await res.json()).toEqual({ error: message });
+			expect(logErrorMock).not.toHaveBeenCalled();
+			expect(logWarnMock).toHaveBeenCalledTimes(1);
+		},
+	);
 });
 
 describe("parseApiErrorMessage — both chat-transport error shapes", () => {

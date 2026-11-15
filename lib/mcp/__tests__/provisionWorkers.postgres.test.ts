@@ -17,6 +17,7 @@ import { commitGuardedBatch } from "@/lib/db/apps";
 import { provisionWorkersAction } from "@/lib/deployment/actions";
 import {
 	applyDeploymentObservation,
+	endDeployment,
 	foldDeploymentAttempt,
 	readDeployment,
 	recordCreatedRemoteApp,
@@ -134,9 +135,10 @@ async function seed(
 		TARGET,
 		"preflight",
 		{ status: "succeeded", at },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	await recordRemoteResource(SCOPE, TARGET, {
+		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: APP,
 		remoteId: "published-app",
@@ -153,6 +155,9 @@ async function seed(
 			ownership: null,
 			observedAt: at,
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 }
@@ -478,9 +483,10 @@ it.each([
 				TARGET,
 				"preflight",
 				{ status: "succeeded", at },
-				{ ensure: true },
+				{ ensure: true, expectedEndings: 0 },
 			);
 			await recordCreatedRemoteApp(SCOPE, TARGET, {
+				expectedEndings: 0,
 				remoteId: "shell-app",
 				baseline: {
 					origin: "unread",
@@ -491,6 +497,9 @@ it.each([
 					ownership: null,
 					observedAt: at,
 					discard: null,
+					novaRevision: null,
+					mediaFiles: { kind: "set", files: null },
+					firstPublish: { kind: "set", list: null },
 				},
 			});
 		} else {
@@ -527,6 +536,28 @@ it.each([
 		expect(await snapshot()).toEqual(before);
 	},
 );
+
+it("refuses a project space someone stopped publishing to, saying so and asking HQ nothing", async () => {
+	await seed();
+	await h.seedProjectMember("admin", PROJECT, "admin");
+	await endDeployment(
+		{ ...SCOPE, actorUserId: "admin", role: "admin" },
+		TARGET,
+	);
+	const before = await snapshot();
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const result = body(await call(client), true);
+			expect(result.error_type).toBe("app_not_published");
+			expect(result.message).toBe(
+				"Nova stopped publishing this app to “clinic”, so there's no app there for a worker to sign in to. You can publish it there again and then add workers.",
+			);
+			expect(result.workers).toEqual([]);
+		});
+		expect(peer.getCallHistory()?.calls()).toEqual([]);
+	});
+	expect(await snapshot()).toEqual(before);
+});
 
 it("waits for actual worker mapping persistence before releasing its credential answer", async () => {
 	await seed();
@@ -636,6 +667,7 @@ async function mapPlace(location: Awaited<ReturnType<typeof place>>) {
 			},
 		],
 		{ status: "partial" },
+		{ expectedEndings: 0 },
 	);
 }
 it("refuses an unpublished place by name, then preserves the created account when its separate assignment is refused", async () => {

@@ -102,7 +102,7 @@ export async function observeDeployment(input: {
 					failed(
 						now,
 						"remote_app_missing",
-						`The app Nova published to “${domain}” isn't there any more. It may have been deleted on CommCare HQ. Publish again to create a new one.`,
+						`The app this one publishes to on “${domain}” isn't there any more. It may have been deleted on CommCare HQ. Publishing again creates a new one.`,
 					),
 				],
 			],

@@ -62,6 +62,11 @@ function application(
 	};
 }
 
+/** Nova created the HQ app: it writes its own language labels and seeds. */
+const NOVA_NAMES = { languageNames: "nova" } as const;
+const NOVA_SEEDS = { seeds: "nova" } as const;
+const NOVA_FILL = { ...NOVA_NAMES, ...NOVA_SEEDS };
+
 function source(overrides: Partial<HqAppSource> = {}): HqAppSource {
 	return {
 		docType: "Application",
@@ -94,6 +99,7 @@ describe("translations", () => {
 					hin: { "home.start": "Shuru", hin: "Hindi" },
 				},
 			}),
+			NOVA_NAMES,
 		);
 		expect(projected).toEqual({
 			en: {
@@ -128,6 +134,7 @@ describe("translations", () => {
 					},
 				},
 			}),
+			NOVA_NAMES,
 		);
 		// English does not localize the name, so neither app-name key stays.
 		expect(projected?.en).toEqual({ en: "English", fra: "French" });
@@ -138,6 +145,7 @@ describe("translations", () => {
 		const projected = projectTranslationsForTarget(
 			application({ translations: { en: { en: "", fra: "French" } } }),
 			source({ translations: {} }),
+			NOVA_NAMES,
 		);
 		expect(projected).toEqual({ en: { fra: "French" } });
 	});
@@ -156,8 +164,83 @@ describe("translations", () => {
 			projectTranslationsForTarget(
 				application(),
 				source({ translations: current }),
+				NOVA_NAMES,
 			),
 		).toBeUndefined();
+	});
+});
+
+describe("translations on an app Nova brought in", () => {
+	const TARGET_NAMES = { languageNames: "target" } as const;
+
+	it("carries a language name the target holds and writes none of Nova's labels", () => {
+		const projected = projectTranslationsForTarget(
+			application(),
+			source({
+				translations: {
+					en: { en: "English, as typed", "home.start": "Begin" },
+					fra: { fra: "Français", en: "" },
+				},
+			}),
+			TARGET_NAMES,
+		);
+		expect(projected).toEqual({
+			en: { en: "English, as typed", "home.start": "Begin" },
+			fra: {
+				fra: "Français",
+				en: "",
+				"app.display.name": "Clinique",
+				"homescreen.title": "Clinique",
+			},
+		});
+	});
+
+	it("leaves a name the target does not hold absent", () => {
+		const projected = projectTranslationsForTarget(
+			application(),
+			source({ translations: { en: { "home.start": "Begin" } } }),
+			TARGET_NAMES,
+		);
+		expect(projected).toEqual({
+			en: { "home.start": "Begin" },
+			fra: {
+				"app.display.name": "Clinique",
+				"homescreen.title": "Clinique",
+			},
+		});
+		/* The same read under Nova's labels writes each language's name. */
+		expect(
+			projectTranslationsForTarget(
+				application(),
+				source({ translations: { en: { "home.start": "Begin" } } }),
+				NOVA_NAMES,
+			)?.en,
+		).toEqual({ "home.start": "Begin", en: "English", fra: "French" });
+	});
+
+	it("leaves the key out where the target already holds every name it keeps", () => {
+		const current = {
+			en: { en: "Inglés", "home.start": "Begin" },
+			fra: {
+				"app.display.name": "Clinique",
+				"homescreen.title": "Clinique",
+			},
+		};
+		expect(
+			projectTranslationsForTarget(
+				application(),
+				source({ translations: current }),
+				TARGET_NAMES,
+			),
+		).toBeUndefined();
+		/* Nova's labels would replace that name. */
+		expect(
+			projectTranslationsForTarget(
+				application(),
+				source({ translations: current }),
+				NOVA_NAMES,
+			)?.en?.en,
+		).toBe("English");
 	});
 });
 
@@ -217,6 +300,7 @@ describe("profile", () => {
 			application(),
 			current,
 			"available",
+			NOVA_SEEDS,
 		);
 		expect(projected?.properties).toEqual({
 			...SEVENTEEN,
@@ -231,6 +315,58 @@ describe("profile", () => {
 		}
 	});
 
+	it("on an app Nova brought in, seeds no setting the target holds no value for and still writes Nova's two", () => {
+		const current: HqApplicationProfile = {
+			properties: {
+				"cc-autoup-freq": "freq-daily",
+				"cc-fuzzy-search-enabled": null,
+				"cc-enable-tts": "",
+				"cc-content-valid": false,
+				"cc-days-form-retain": 0,
+				"cc-show-saved": "no",
+			},
+		};
+		const projected = projectProfileForTarget(
+			application(),
+			current,
+			"available",
+			{ seeds: "target" },
+		);
+		/* Every seeded key stays as the target holds it: absent, or a value
+		 * HQ's build writes nothing for. */
+		expect(projected?.properties).toEqual({
+			"cc-autoup-freq": "freq-daily",
+			"cc-fuzzy-search-enabled": null,
+			"cc-enable-tts": "",
+			"cc-content-valid": false,
+			"cc-days-form-retain": 0,
+			"cc-show-saved": "yes",
+			"cc-show-incomplete": "no",
+		});
+		/* The same read under Nova's seeds writes each seed it holds none for. */
+		const seeded = projectProfileForTarget(
+			application(),
+			current,
+			"available",
+			NOVA_SEEDS,
+		)?.properties;
+		for (const { key } of SEEDED_PROFILE_PROPERTIES) {
+			if (key === "cc-autoup-freq") continue;
+			expect(seeded?.[key], key).toBe(SEVENTEEN[key]);
+		}
+	});
+
+	it("on an app Nova brought in, sends no profile where the target holds Nova's two", () => {
+		expect(
+			projectProfileForTarget(
+				application(),
+				{ properties: { "cc-show-saved": "yes", "cc-show-incomplete": "no" } },
+				"not-needed",
+				{ seeds: "target" },
+			),
+		).toBeUndefined();
+	});
+
 	it("keeps every other section and leaves a no-op out", () => {
 		const current: HqApplicationProfile = {
 			features: { users: { value: true } },
@@ -241,12 +377,13 @@ describe("profile", () => {
 			},
 		};
 		expect(
-			projectProfileForTarget(application(), current, "available"),
+			projectProfileForTarget(application(), current, "available", NOVA_SEEDS),
 		).toBeUndefined();
 		const changed = projectProfileForTarget(
 			application(),
 			{ ...current, properties: { ...SEVENTEEN, "cc-show-saved": "no" } },
 			"available",
+			NOVA_SEEDS,
 		);
 		expect(changed?.features).toEqual({ users: { value: true } });
 		expect(changed?.custom_properties).toEqual(current.custom_properties);
@@ -262,7 +399,7 @@ describe("profile", () => {
 			},
 		};
 		expect(
-			projectProfileForTarget(application(), current, "available")
+			projectProfileForTarget(application(), current, "available", NOVA_SEEDS)
 				?.custom_properties,
 		).toEqual({
 			foreign: "kept",
@@ -271,7 +408,7 @@ describe("profile", () => {
 		});
 		for (const state of ["missing", "not-needed"] as const)
 			expect(
-				projectProfileForTarget(application(), current, state)
+				projectProfileForTarget(application(), current, state, NOVA_SEEDS)
 					?.custom_properties,
 			).toEqual({ foreign: "kept", foreignNull: null });
 		// Unverified projects the settings and leaves the bag as it is.
@@ -279,6 +416,7 @@ describe("profile", () => {
 			application(),
 			{ ...current, properties: {} },
 			"unverified",
+			NOVA_SEEDS,
 		);
 		expect(unverified?.properties).toEqual(SEVENTEEN);
 		expect(unverified?.custom_properties).toEqual(current.custom_properties);
@@ -297,6 +435,7 @@ describe("profile", () => {
 					custom_properties: { foreign: "target" },
 				},
 				"available",
+				NOVA_SEEDS,
 			)?.custom_properties,
 		).toEqual({ foreign: "target", "cc-index-case-search-results": "yes" });
 	});
@@ -315,6 +454,7 @@ describe("the whole body and its ownership", () => {
 			input,
 			current,
 			"available",
+			NOVA_FILL,
 		);
 		expect({ input, current }).toEqual(before);
 		expect(Object.keys(body).at(-1)).toBe("_attachments");
@@ -333,6 +473,7 @@ describe("the whole body and its ownership", () => {
 			input,
 			source(),
 			"available",
+			NOVA_FILL,
 		);
 		const current = source({
 			translations: first.translations ?? {},
@@ -343,9 +484,35 @@ describe("the whole body and its ownership", () => {
 			input,
 			current,
 			"available",
+			NOVA_FILL,
 		);
 		for (const key of ["translations", "add_ons", "profile"])
 			expect(Object.hasOwn(again, key)).toBe(false);
+	});
+
+	it("hands each option to its key: names to translations, seeds to the profile", () => {
+		const current = source({
+			translations: { en: { en: "Inglés" } },
+			profile: { properties: {} },
+		});
+		const { application: body } = projectApplicationForTarget(
+			application(),
+			current,
+			"not-needed",
+			{ languageNames: "target", seeds: "nova" },
+		);
+		expect(body.translations?.en?.en).toBe("Inglés");
+		expect(body.profile?.properties?.["cc-autoup-freq"]).toBe("freq-never");
+		const { application: other } = projectApplicationForTarget(
+			application(),
+			current,
+			"not-needed",
+			{ languageNames: "nova", seeds: "target" },
+		);
+		expect(other.translations?.en?.en).toBe("English");
+		expect(
+			Object.hasOwn(other.profile?.properties ?? {}, "cc-autoup-freq"),
+		).toBe(false);
 	});
 
 	it("records what Nova set: the needed add-ons, its two settings and the derived key it sets", () => {
@@ -353,6 +520,7 @@ describe("the whole body and its ownership", () => {
 			application({ add_ons: { subcases: true, display_conditions: true } }),
 			source({ addOns: { menu_mode: true, calc_xpaths: true } }),
 			"available",
+			NOVA_FILL,
 		);
 		expect(ownership).toEqual({
 			addOns: ["display_conditions", "subcases"],
@@ -362,14 +530,15 @@ describe("the whole body and its ownership", () => {
 		});
 		for (const state of ["missing", "not-needed", "unverified"] as const)
 			expect(
-				projectApplicationForTarget(application(), source(), state).ownership
-					.profileCustomProperties,
+				projectApplicationForTarget(application(), source(), state, NOVA_FILL)
+					.ownership.profileCustomProperties,
 			).toEqual([]);
 		expect(
 			projectApplicationForTarget(
 				application({ auto_gps_capture: true }),
 				source(),
 				"available",
+				NOVA_FILL,
 			).ownership.autoGpsCapture,
 		).toBe(true);
 	});

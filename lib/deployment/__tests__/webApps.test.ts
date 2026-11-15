@@ -3,11 +3,14 @@
  * stops that read the setting HQ holds. The plausible failures: a question
  * over an empty shell (its fill writes the declaration with no question), a
  * question that never stops asking once answered, an answer that outlives
- * the value it agreed to, a `changedInHq` that blames the wrong side, and a
- * baseline read that takes an absent or non-boolean value as on.
+ * the value it agreed to, a `changedInHq` that blames the wrong side, a
+ * baseline read that takes an absent or non-boolean value as on, and a
+ * baseline Nova read when it brought the app in, or when it brought in
+ * changes, that is not compared or loses what it is measured against.
  */
 import { describe, expect, it } from "vitest";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import type { DriftReference } from "@/lib/publish/driftReference";
 import {
 	baselineWebApps,
 	createdWithoutWebApps,
@@ -40,12 +43,15 @@ const pushed = (cloudcareEnabled: unknown) => ({
 	source: { doc_type: "Application", cloudcare_enabled: cloudcareEnabled },
 });
 
+const PUBLISHED: DriftReference = { kind: "published" };
+
 function ask(overrides: Partial<WebAppsChangeInput>) {
 	return webAppsChange({
 		declaresWebApps: true,
 		held: false,
 		baseline: pushed(true),
 		confirmWebApps: undefined,
+		since: PUBLISHED,
 		...overrides,
 	});
 }
@@ -78,6 +84,7 @@ describe("webAppsChange", () => {
 			from: false,
 			to: true,
 			changedInHq: true,
+			since: PUBLISHED,
 		});
 	});
 
@@ -86,6 +93,7 @@ describe("webAppsChange", () => {
 			from: false,
 			to: true,
 			changedInHq: true,
+			since: PUBLISHED,
 		});
 		expect(
 			ask({
@@ -93,13 +101,44 @@ describe("webAppsChange", () => {
 				held: false,
 				baseline: { origin: "cutover", source: { cloudcare_enabled: true } },
 			}),
-		).toEqual({ from: false, to: true, changedInHq: true });
+		).toEqual({ from: false, to: true, changedInHq: true, since: PUBLISHED });
+	});
+
+	it("compares a baseline read when the app was brought in, or when changes were, as a push's, and carries what it is measured against", () => {
+		const cases = [
+			{
+				origin: "read",
+				since: { kind: "brought-in", at: "2026-11-10T23:30:00.000Z" },
+			},
+			{ origin: "changes", since: { kind: "changes-brought-in" } },
+		] as const satisfies readonly {
+			readonly origin: "read" | "changes";
+			readonly since: DriftReference;
+		}[];
+		for (const { origin, since } of cases) {
+			/* HQ held Web Apps on when Nova read it, and holds it off now. */
+			expect(
+				ask({
+					baseline: { origin, source: { cloudcare_enabled: true } },
+					since,
+				}),
+			).toEqual({ from: false, to: true, changedInHq: true, since });
+			/* HQ holds what Nova read: it is the declaration that moved. */
+			expect(
+				ask({
+					declaresWebApps: false,
+					held: true,
+					baseline: { origin, source: { cloudcare_enabled: true } },
+					since,
+				}),
+			).toEqual({ from: true, to: false, changedInHq: false, since });
+		}
 	});
 
 	it("says the declaration moved where the baseline held the same value", () => {
 		expect(
 			ask({ declaresWebApps: false, held: true, baseline: pushed(true) }),
-		).toEqual({ from: true, to: false, changedInHq: false });
+		).toEqual({ from: true, to: false, changedInHq: false, since: PUBLISHED });
 	});
 
 	it("cannot tell who moved it over an unread baseline or none", () => {
@@ -111,6 +150,7 @@ describe("webAppsChange", () => {
 				from: false,
 				to: true,
 				changedInHq: null,
+				since: PUBLISHED,
 			});
 		}
 	});

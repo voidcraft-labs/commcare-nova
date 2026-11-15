@@ -35,6 +35,7 @@ import type {
 	PreviewDeploymentAnswer,
 	PublishPlacements,
 } from "@/lib/deployment/types";
+import type { DriftReference } from "@/lib/publish/driftReference";
 import {
 	type AcceptPlacementMoves,
 	type PlacementMoveOfferView,
@@ -53,6 +54,42 @@ export interface PublishLogoStepBody {
 	readonly fileName: string;
 	/** True when this is not the logo the deployment last offered. */
 	readonly changed: boolean;
+}
+
+/**
+ * A change in CommCare HQ as a response carries it. A server that predates
+ * what a change is measured against, or whether it can be brought in, leaves
+ * those out.
+ */
+type ResponseRemoteChange = Omit<
+	DeploymentRemoteChange,
+	"since" | "canBringIn"
+> &
+	Partial<Pick<DeploymentRemoteChange, "since" | "canBringIn">>;
+
+/** The Web Apps question as a response carries it, `since` left out by an older server. */
+type ResponseWebAppsChange = Omit<WebAppsChange, "since"> &
+	Partial<Pick<WebAppsChange, "since">>;
+
+/** A refusal as a response carries it. */
+export type PublishResponseRefusal = Omit<
+	DeploymentAttemptRefusal,
+	"remoteChanges" | "webAppsChange"
+> & {
+	readonly remoteChanges?: readonly ResponseRemoteChange[];
+	readonly webAppsChange?: ResponseWebAppsChange | null;
+};
+
+/** What a change that names no reference is measured against: the last publish. */
+const PUBLISHED: DriftReference = { kind: "published" };
+
+/** The Web Apps question a refusal carries, measured against the last publish where it names nothing. */
+function webAppsChangeOf(
+	change: ResponseWebAppsChange | null,
+): WebAppsChange | null {
+	return change === null
+		? null
+		: { ...change, since: change.since ?? PUBLISHED };
 }
 
 /** The parts of the publish response this decision reads. */
@@ -82,7 +119,7 @@ export interface PublishResponseBody {
 	/** The settings the project space keeps in CommCare HQ, with their date, or null. */
 	readonly kept?: DeploymentView["kept"];
 	/** Why THIS attempt stopped, from the one publish lifecycle. */
-	readonly refusal?: DeploymentAttemptRefusal | null;
+	readonly refusal?: PublishResponseRefusal | null;
 	/**
 	 * Where CommCare HQ keeps the app's case changes, as this attempt
 	 * recorded it: how many placements it recorded and how many of them an
@@ -303,9 +340,13 @@ export function publishOutcome(
 			 * predates one of these fields is a refusal with nothing to take over or
 			 * publish over, not a crash. */
 			resourceConflicts: body.refusal.resourceConflicts ?? [],
-			remoteChanges: body.refusal.remoteChanges ?? [],
+			remoteChanges: (body.refusal.remoteChanges ?? []).map((change) => ({
+				...change,
+				since: change.since ?? PUBLISHED,
+				canBringIn: change.canBringIn ?? false,
+			})),
 			confirmationsNeeded: body.refusal.confirmationsNeeded ?? [],
-			webAppsChange: body.refusal.webAppsChange ?? null,
+			webAppsChange: webAppsChangeOf(body.refusal.webAppsChange ?? null),
 			placementMoves: body.refusal.placementMoves ?? null,
 			placements: body.placements ?? NO_PLACEMENTS,
 			warnings: body.warnings ?? [],

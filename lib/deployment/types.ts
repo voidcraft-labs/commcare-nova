@@ -19,6 +19,8 @@ import {
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import type { DriftReference } from "@/lib/publish/driftReference";
+import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import type { KeptListValues } from "@/lib/publish/keptValues";
 import type { PlacementMoveOfferView } from "@/lib/publish/placementMoves";
 import {
@@ -27,6 +29,7 @@ import {
 	PROJECT_SPACE_SETTING_KINDS,
 } from "@/lib/publish/planFeatures";
 import type { WebAppsChange } from "@/lib/publish/webApps";
+import type { HqMediaRecord } from "./hqMedia";
 
 /* `z.enum` takes a non-empty tuple; the ids are a fixed, non-empty list. */
 export const PLAN_FEATURE_ID_LIST = PLAN_FEATURE_IDS as unknown as readonly [
@@ -44,6 +47,11 @@ export type { CommCareServer } from "@/lib/commcare/servers";
  * reachable from any progress state, and while a deployment sits there
  * Nova withholds both `released` and `runnable` rather than reporting a
  * partial success as a whole one.
+ *
+ * `ended` is not a progress state either: someone stopped publishing this
+ * app to the project space, and the HQ app there stays as it was. A
+ * preflight that passes moves it to `preflight`, and the publish goes on
+ * as a first publish that makes a new app beside the old one.
  */
 export const DEPLOYMENT_STATES = [
 	"preflight",
@@ -53,8 +61,16 @@ export const DEPLOYMENT_STATES = [
 	"released",
 	"runnable",
 	"incomplete",
+	"ended",
 ] as const;
 export type DeploymentState = (typeof DEPLOYMENT_STATES)[number];
+
+/**
+ * Why a deployment ended. `stopped`: a person stopped publishing there.
+ * `claimed-elsewhere`: another Nova app publishes to that HQ app now.
+ */
+export const DEPLOYMENT_END_REASONS = ["stopped", "claimed-elsewhere"] as const;
+export type DeploymentEndReason = (typeof DEPLOYMENT_END_REASONS)[number];
 
 /**
  * The ordered states a deployment advances through. `incomplete` is
@@ -254,6 +270,12 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	"hq_placement_moves_changed",
 	/** The released build did not serve the profile a device installs from. */
 	"build_not_installable",
+	/**
+	 * Someone stopped publishing this app to the project space while this
+	 * publish was getting ready or running, so every later write of it was
+	 * refused. Publishing again makes a new app there.
+	 */
+	"publishing_stopped",
 ] as const;
 export type DeploymentFailureCode = (typeof DEPLOYMENT_FAILURE_CODES)[number];
 
@@ -411,6 +433,18 @@ export interface DeploymentRemoteChange {
 	 * are named whatever the baseline, so they carry their part and read true.
 	 */
 	readonly baselineKnown: boolean;
+	/**
+	 * What the change is measured against: the app's from its baseline's
+	 * origin (`remoteChanges.ts::driftReferenceOf`); a table's and a place's
+	 * always `published`, since a push writes their baselines.
+	 */
+	readonly since: DriftReference;
+	/**
+	 * Whether Nova can bring this change in to the app: true for the app's
+	 * change where its deployment has a usable pair, false for a table and a
+	 * place.
+	 */
+	readonly canBringIn: boolean;
 }
 
 /**
@@ -426,9 +460,17 @@ export interface BaselineDiscardWrite {
 /**
  * What the app baseline writers take. Gzip and digests are computed before the transaction.
  * `cutover` is written only by a refresh, which keeps the origin the baseline it replaces held.
+ * `read` is an adoption's: CommCare HQ's source as Nova brought the app in. `changes` is a
+ * bring-in of changes': the source as that bring-in left it.
  */
 export interface AppBaselineWrite {
-	readonly origin: "create" | "push" | "cutover" | "unread";
+	readonly origin:
+		| "create"
+		| "push"
+		| "cutover"
+		| "read"
+		| "changes"
+		| "unread";
 	readonly remoteAppId: string;
 	readonly sourceGzip: Buffer | null;
 	readonly sourceBytes: number | null;
@@ -436,6 +478,27 @@ export interface AppBaselineWrite {
 	readonly ownership: AppOwnership | null;
 	readonly observedAt: string;
 	readonly discard: BaselineDiscardWrite | null;
+	/**
+	 * The revision of the Nova app this source describes; null where it
+	 * describes none (a `create` and an `unread` baseline).
+	 */
+	readonly novaRevision: number | null;
+	/**
+	 * Which CommCare HQ file stands at each path the app publishes. A `keep`
+	 * keeps the row's value where the HQ app is the same and writes null
+	 * where it is another app.
+	 */
+	readonly mediaFiles:
+		| { readonly kind: "keep" }
+		| { readonly kind: "set"; readonly files: HqMediaRecord | null };
+	/**
+	 * What the next publish changes in CommCare HQ. A `keep` keeps the row's
+	 * list where the HQ app is the same and writes null where it is another
+	 * app; a push writes `set` with null, which ends the list.
+	 */
+	readonly firstPublish:
+		| { readonly kind: "keep" }
+		| { readonly kind: "set"; readonly list: StoredFirstPublish | null };
 }
 
 /** What the resource baseline writers take, one HQ table or place each. */
@@ -575,6 +638,18 @@ export interface DeploymentResource {
 	readonly supersededAt: string | null;
 	/** Set when CommCare HQ reported this app gone; null for every other kind. */
 	readonly remoteMissingAt: string | null;
+	/** `auth_user.name` of `adoptedBy`, or "A former member"; null exactly where `adoptedBy` is. */
+	readonly adoptedByName: string | null;
+	/**
+	 * Set on a live `app` mapping whose HQ app another Nova app took, or took
+	 * back, while this mapping's Nova app was in recently deleted. No publish
+	 * plans an update over a released mapping; null for every other mapping.
+	 */
+	readonly releasedAt: string | null;
+	/** Why this superseded `app` mapping ended its deployment; null for every other mapping. */
+	readonly endedReason: DeploymentEndReason | null;
+	/** `auth_user.name` of whoever ended it, or "A former member"; null exactly where `endedReason` is. */
+	readonly endedByName: string | null;
 }
 
 /**
@@ -608,6 +683,12 @@ export interface DeploymentRecord {
 	readonly offeredLogoContentHash: string | null;
 	/** The target's USH_EMPTY_CASE_LIST_TEXT as the last publish read it; null until a publish has read it. */
 	readonly targetEmptyCaseListText: boolean | null;
+	/**
+	 * How many times this deployment has ended. A publish carries the count
+	 * it first read on every store write, so an ending in between refuses
+	 * the rest of that publish.
+	 */
+	readonly endings: number;
 }
 
 /** A deployment plus the resource mappings that belong to it. */
@@ -686,7 +767,7 @@ export interface PreviewDeploymentAnswer {
 /** The app as CommCare HQ returned it when Nova last read it, or the fact that Nova could not read it. */
 export type AppBaseline =
 	| {
-			readonly origin: "create" | "push" | "cutover";
+			readonly origin: "create" | "push" | "cutover" | "read" | "changes";
 			readonly remoteAppId: string;
 			/** The normalized read. */
 			readonly source: unknown;
@@ -694,12 +775,31 @@ export type AppBaseline =
 			readonly ownership: AppOwnership;
 			readonly observedAt: string;
 			readonly observedBy: string;
+			/** The revision of the Nova app this source describes; null where it describes none. */
+			readonly novaRevision: number | null;
+			/** Which CommCare HQ file stands at each path the app publishes. */
+			readonly mediaFiles: HqMediaRecord | null;
+			/** The row's `source_bytes`. */
+			readonly sourceBytes: number;
 	  }
 	| {
 			readonly origin: "unread";
 			readonly remoteAppId: string;
 			readonly observedAt: string;
 			readonly observedBy: string;
+			/**
+			 * What the row's `origin` column holds: `unread` for a read that
+			 * failed, else the origin of a stored source Nova could not verify.
+			 */
+			readonly storedOrigin:
+				| "create"
+				| "push"
+				| "cutover"
+				| "read"
+				| "changes"
+				| "unread";
+			readonly novaRevision: number | null;
+			readonly mediaFiles: HqMediaRecord | null;
 	  };
 
 /** A lookup table as CommCare HQ returned it, without its row values. */

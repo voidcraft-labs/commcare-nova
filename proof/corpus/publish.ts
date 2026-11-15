@@ -1129,7 +1129,11 @@ interface LedgerTable {
 function normalizedRead(
 	prepared: PreparedDocument,
 	source: HqAppSource,
-): { readonly normalized: unknown; readonly digest: string } {
+): {
+	readonly normalized: unknown;
+	readonly digest: string;
+	readonly bytes: number;
+} {
 	const result = normalizeHqAppSource(source.raw);
 	if ("malformed" in result) {
 		throw new Error(
@@ -1377,6 +1381,10 @@ async function tableEdge(
 			remoteObservedAt: null,
 			supersededAt: null,
 			remoteMissingAt: null,
+			adoptedByName: null,
+			releasedAt: null,
+			endedReason: null,
+			endedByName: null,
 		}),
 	);
 	const plan = planLookupResourcePush({
@@ -1407,6 +1415,8 @@ async function tableEdge(
 			note: null,
 			observedDigest,
 			baselineKnown: true,
+			since: { kind: "published" },
+			canBringIn: false,
 		});
 		const describe = (part: LookupChangePart) =>
 			describeLookupChange(part, push.tag);
@@ -1486,6 +1496,7 @@ function appEdge(
 		ownership: ledger.app.ownership,
 		shell: ledger.app.origin === "create",
 		schemaDefault: schemaPropertyDefault,
+		languageNames: "nova",
 	});
 	if (parts.length === 0) return null;
 	return {
@@ -1497,6 +1508,9 @@ function appEdge(
 		note: null,
 		observedDigest: current.digest,
 		baselineKnown: true,
+		/* The capture's app is one Nova's own publish made. */
+		since: { kind: "published" },
+		canBringIn: false,
 	};
 }
 
@@ -1563,6 +1577,7 @@ async function sendContent(
 			ownership: held.ownership,
 			shell: held.origin === "create",
 			schemaDefault: schemaPropertyDefault,
+			languageNames: "nova",
 		});
 		if (moved.length > 0) {
 			throw new Error(
@@ -1581,6 +1596,12 @@ async function sendContent(
 		compatibility: report,
 		update: { appId, source },
 		identity: DERIVED_WIRE_IDENTITY,
+		/* The capture peer's app is one Nova's own publish created, never one
+		 * brought in, so Nova writes its language labels and its seeds, and no
+		 * keyed create's cases stand under an id prefix HQ already holds. */
+		languageNames: "nova",
+		seeds: "nova",
+		keyedCaseIdPrefixes: new Map(),
 	});
 	const imported = await importApp(
 		CREDENTIALS,
@@ -1650,6 +1671,9 @@ async function sendContent(
 					ownership,
 					observedAt: new Date(CCZ_CLOCK).toISOString(),
 					observedBy: "proof-capture",
+					novaRevision: prepared.source.compiledAtSeq,
+					mediaFiles: null,
+					sourceBytes: readBack.bytes,
 				},
 				false,
 			),
@@ -1700,6 +1724,9 @@ async function firstPublish(
 		compatibility: report,
 		update: null,
 		identity: DERIVED_WIRE_IDENTITY,
+		languageNames: "nova",
+		seeds: "nova",
+		keyedCaseIdPrefixes: new Map(),
 	});
 	const created = await importApp(
 		CREDENTIALS,
@@ -1823,6 +1850,7 @@ async function updateStep(
 		held: read.cloudcareEnabled,
 		baseline: { origin: ledger.app.origin, source: ledger.app.normalized },
 		confirmWebApps: confirm?.webApps,
+		since: { kind: "published" },
 	});
 	if (change !== null) {
 		return {
@@ -2490,6 +2518,9 @@ export async function localCcz(
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,
 					targetFacts: options.targetFacts ?? null,
+					/* The capture's deployment holds no keyed create's id
+					 * prefix: its app is Nova-born. */
+					keyedCaseIdPrefixes: new Map(),
 				},
 			),
 		),

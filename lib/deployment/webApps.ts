@@ -16,6 +16,7 @@
  */
 
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import type { DriftReference } from "@/lib/publish/driftReference";
 import type { WebAppsChange } from "@/lib/publish/webApps";
 import type { AppBaseline } from "./types";
 
@@ -32,6 +33,11 @@ export interface WebAppsChangeInput {
 	} | null;
 	/** What the caller sent: the value the person agreed to write. */
 	readonly confirmWebApps: boolean | undefined;
+	/**
+	 * What the baseline is measured as, `remoteChanges.ts::driftReferenceOf`
+	 * of the app baseline and the live mapping; the change carries it.
+	 */
+	readonly since: DriftReference;
 }
 
 /**
@@ -40,8 +46,8 @@ export interface WebAppsChangeInput {
  * baseline's origin is `create`, and its fill writes the declaration as a
  * first publish does), HQ already holds the declaration, or the person
  * agreed to write it. `changedInHq` says who moved the value, read from the
- * baseline Nova's last push stored, and is null where no read of it is
- * stored.
+ * stored baseline (Nova's last push, the read that brought the app in, or
+ * the last bring-in of changes), and is null where no read of it is stored.
  */
 export function webAppsChange(input: WebAppsChangeInput): WebAppsChange | null {
 	if (input.baseline?.origin === "create") return null;
@@ -49,11 +55,33 @@ export function webAppsChange(input: WebAppsChangeInput): WebAppsChange | null {
 	if (input.confirmWebApps === input.declaresWebApps) return null;
 	const baseline = input.baseline;
 	const changedInHq =
-		baseline !== null &&
-		(baseline.origin === "push" || baseline.origin === "cutover")
+		baseline !== null && baselineHoldsSource(baseline.origin)
 			? baselineWebApps(baseline.source) !== input.held
 			: null;
-	return { from: input.held, to: input.declaresWebApps, changedInHq };
+	return {
+		from: input.held,
+		to: input.declaresWebApps,
+		changedInHq,
+		since: input.since,
+	};
+}
+
+/** Whether a baseline of this origin stores a read of the app's source to compare. */
+function baselineHoldsSource(origin: AppBaseline["origin"]): boolean {
+	switch (origin) {
+		case "push":
+		case "cutover":
+		case "read":
+		case "changes":
+			return true;
+		case "create":
+		case "unread":
+			return false;
+		default: {
+			const unplaced: never = origin;
+			return unplaced;
+		}
+	}
 }
 
 /**

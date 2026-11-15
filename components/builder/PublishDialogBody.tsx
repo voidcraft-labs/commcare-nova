@@ -86,7 +86,7 @@ import {
 } from "@/components/shadcn/select";
 import { useReconcilerContext } from "@/lib/collab/context";
 import {
-	BASELINE_UNKNOWN_SENTENCE,
+	baselineUnknownSentence,
 	type CommCareServer,
 	deploymentServerLabel,
 	LOOKUP_ADOPTION_NOTE,
@@ -117,6 +117,7 @@ import type {
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import { viewerDriftDate } from "@/lib/publish/driftReference";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
 import type { ManualImportStep } from "@/lib/publish/manualImportGuide";
 import {
@@ -130,6 +131,7 @@ import {
 	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
 import {
 	WEB_APPS_CHANGE_HEADING,
 	type WebAppsChange,
@@ -913,6 +915,10 @@ export function PublishDialogBody({
 					confirm: confirmations,
 					...(confirmWebApps !== null && { confirmWebApps }),
 					...(acceptMoves !== null && { acceptPlacementMoves: acceptMoves }),
+					/* The reader's own day for a sentence that names when the app
+					 * was brought in, the same values this dialog's own sentences
+					 * use. */
+					viewer: viewerDriftDate(),
 				}),
 				signal: controller.signal,
 			});
@@ -1955,6 +1961,7 @@ function publishPlanCopy(plan: PublishPlan): string {
 		return "This updates the app already in this project space.";
 	if (plan === "creates")
 		return "This creates a new app in this project space.";
+	if (plan === "creates-beside") return PUBLISH_PLAN_CREATES_BESIDE;
 	if (plan === "fills-shell")
 		return "Nova made an empty app here on an earlier try. Uploading fills it in.";
 	return "Nova checks this project space before sending the app.";
@@ -2661,7 +2668,7 @@ function RemoteChangeChoice({
 							</ul>
 						) : (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
-								{BASELINE_UNKNOWN_SENTENCE}
+								{baselineUnknownSentence(change.since, viewerDriftDate())}
 							</p>
 						)}
 						{change.note !== null ? (
