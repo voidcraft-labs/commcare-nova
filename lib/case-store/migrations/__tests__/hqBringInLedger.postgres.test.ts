@@ -19,7 +19,10 @@ import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { lockReleasedClaimsInTransaction } from "@/lib/db/hqAppClaims";
 import type { AppDatabase } from "@/lib/db/pg";
-import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
+import {
+	authoredCaseIdPrefix,
+	isAuthoredCaseIdPrefix,
+} from "@/lib/domain/caseOperationIdentity";
 import { asUuid } from "@/lib/domain/uuid";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import { caseStoreMigrations } from "..";
@@ -951,6 +954,10 @@ describe(MIGRATION, () => {
 			false,
 			false,
 		]);
+		// The reader holds a keyed create only under a prefix this floor stores.
+		expect(verdicts.map((one) => one.admitted === true)).toEqual(
+			prefixes.map(isAuthoredCaseIdPrefix),
+		);
 
 		const record = (deployment: string, operation: string, caseType: string) =>
 			refusal(() =>
@@ -1076,6 +1083,105 @@ describe(MIGRATION, () => {
 			]);
 		} finally {
 			await reader.end();
+		}
+	});
+
+	it("holds no ledger table while it waits for another, so the previous revision's baseline read and baseline write pass it in either order", {
+		timeout: 30_000,
+	}, async () => {
+		const db = database.db;
+		await seedFourApps(db);
+		await insertBaseline(db, {
+			deployment: A,
+			remoteAppId: "hq-1",
+			origin: "push",
+		});
+		const publisher = new Client({ connectionString: database.uri });
+		const reader = new Client({ connectionString: database.uri });
+		const observer = new Client({ connectionString: database.uri });
+		await publisher.connect();
+		await reader.connect();
+		await observer.connect();
+		let migration: Promise<{ code: string } | undefined> | undefined;
+		let settled = false;
+		try {
+			/* The previous revision's mapping insert, still open: it holds
+			 * app_deployment_resources, and app_deployments through its foreign key. */
+			await publisher.query("BEGIN");
+			await publisher.query(
+				`INSERT INTO public.app_deployment_resources
+					(deployment_id, kind, nova_resource_id, remote_id, ownership, pushed_at, pushed_revision)
+					VALUES ($1::uuid, 'app', 'app', 'hq-b', 'nova-created', now(), 1)`,
+				[B],
+			);
+			const publisherPid = (
+				await publisher.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+			).rows[0]?.pid;
+			if (publisherPid === undefined)
+				throw new Error("The publisher's connection named no backend.");
+
+			migration = refusal(() => runUp(db)).finally(() => {
+				settled = true;
+			});
+			/* Wait until the migration is contending for its locks. */
+			for (let attempt = 0; ; attempt += 1) {
+				await observer.query("SELECT pg_stat_clear_snapshot()");
+				const waiting = await observer.query<{ count: number }>(
+					`SELECT count(*)::int AS count FROM pg_stat_activity
+						WHERE datname = current_database()
+							AND pid NOT IN (pg_backend_pid(), $1)
+							AND state = 'active'
+							AND (wait_event_type = 'Lock' OR wait_event = 'PgSleep')`,
+					[publisherPid],
+				);
+				if ((waiting.rows[0]?.count ?? 0) > 0) break;
+				if (settled)
+					throw new Error(
+						"The migration finished before it ever waited behind the open mapping insert.",
+					);
+				if (attempt > 2_000)
+					throw new Error(
+						"The migration never reached its wait behind the open mapping insert.",
+					);
+				await new Promise<void>((resolve) => setImmediate(resolve));
+			}
+
+			/* A request that waited behind the migration fails here instead of
+			 * hanging, and one caught in a cycle with it fails with 40P01. */
+			await reader.query("SET lock_timeout = '3s'");
+			const read = await reader.query<{ deployment_id: string }>(
+				`SELECT b.deployment_id FROM public.app_deployment_baselines b
+					JOIN public.app_deployments d ON d.id = b.deployment_id
+					WHERE d.app_id = 'app-a'`,
+			);
+			expect(read.rows).toEqual([{ deployment_id: A }]);
+
+			await reader.query("BEGIN");
+			await reader.query(
+				"SELECT id FROM public.app_deployments WHERE id = $1::uuid FOR UPDATE",
+				[A],
+			);
+			await reader.query(
+				`UPDATE public.app_deployment_baselines SET observed_at = now()
+					WHERE deployment_id = $1::uuid`,
+				[A],
+			);
+			await reader.query("COMMIT");
+			expect(settled).toBe(false);
+
+			await publisher.query("COMMIT");
+			expect(await migration).toBeUndefined();
+			expect(await mappingTargets(db)).toEqual([
+				{ remote_id: "hq-b", matches: true },
+			]);
+		} finally {
+			/* A ROLLBACK outside a transaction only warns. */
+			await publisher.query("ROLLBACK");
+			await reader.query("ROLLBACK");
+			await migration;
+			await publisher.end();
+			await reader.end();
+			await observer.end();
 		}
 	});
 });

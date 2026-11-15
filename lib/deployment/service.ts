@@ -2727,6 +2727,14 @@ function endedDeploymentError(target: DeploymentTargetKey): DeploymentError {
 	);
 }
 
+/** What Check status says of a live mapping whose HQ app another Nova app took. */
+function releasedMappingError(target: DeploymentTargetKey): DeploymentError {
+	return new DeploymentError(
+		"invalid",
+		`Another Nova app publishes to this app's CommCare HQ app in “${target.domain}” now, so Nova has nothing to check there for this one. You can publish there again. Nova updates that app if no other Nova app publishes to it by then, and makes a new one beside it otherwise.`,
+	);
+}
+
 /**
  * Ask CommCare HQ what has happened to a published app since last time.
  *
@@ -2771,6 +2779,11 @@ export async function refreshDeployment(
 			`This app hasn't reached “${target.domain}” yet, so there's nothing on CommCare HQ to check on. Publish it first.`,
 		);
 	}
+	/* Another Nova app took this HQ app while this one was in recently
+	 * deleted. What CommCare HQ says of it is about that app's publishes,
+	 * so nothing is asked and nothing is written until a publish of this
+	 * app settles where it publishes. */
+	if (remote.releasedAt !== null) throw releasedMappingError(target);
 	/* A mapping HQ reported gone is always asked about again, even after a
 	 * later failed create overwrote the refusal's code: HQ's own undo is
 	 * how that app comes back, and only an answered check clears it. */
@@ -3065,7 +3078,10 @@ export async function refreshKeptValues(
 	if (parts.length > 0) return { kind: "changed-in-hq" };
 
 	// 7. Nothing Nova publishes moved: the fresh read replaces the baseline,
-	//    or the baseline already holds what it read.
+	//    or the baseline already holds what it read. Someone may have
+	//    stopped publishing here while CommCare HQ was answering; the write
+	//    then refuses, and the answer is the one an ended deployment gets
+	//    before the read.
 	const written = await recordRefreshedAppBaseline(scope, target, {
 		expectedEndings: existing?.deployment.endings ?? 0,
 		remoteAppId: remote.remoteId,
@@ -3076,6 +3092,11 @@ export async function refreshKeptValues(
 			sourceDigest: normalized.digest,
 			observedAt,
 		},
+	}).catch((error: unknown) => {
+		if (error instanceof DeploymentEndedError) {
+			throw endedDeploymentError(target);
+		}
+		throw error;
 	});
 	return written.outcome === "current"
 		? { kind: "refreshed", deployment: written.deployment }

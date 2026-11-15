@@ -81,8 +81,6 @@ export interface TargetFacts {
 	readonly languageNames: Readonly<
 		Record<string, Readonly<Record<string, string>>>
 	> | null;
-	/** Who fills a seeded setting the project space holds no value for. */
-	readonly seeds: "nova" | "target";
 }
 
 type JsonObject = Readonly<Record<string, unknown>>;
@@ -339,6 +337,5 @@ export function targetFactsFromSource(
 			objectAt(profile, "features").credentials,
 		),
 		languageNames,
-		seeds: input.adopted ? "target" : "nova",
 	};
 }

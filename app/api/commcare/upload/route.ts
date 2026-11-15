@@ -391,15 +391,13 @@ export async function POST(req: NextRequest) {
 				deployment: outcome.deployment,
 				/* Never inferred from `deployment.superseded` by the client:
 				 * a table recreated after being deleted on CommCare HQ
-				 * supersedes its mapping and leaves nothing there. */
+				 * supersedes its mapping and leaves nothing there. The one
+				 * selector the builder and MCP share answers where the names
+				 * could not be read (`identities` null) too. */
 				left_behind:
 					outcome.deployment === null
 						? []
-						: identities === null
-							? outcome.deployment.superseded.filter(
-									(resource) => resource.kind === "app",
-								)
-							: leftBehindResources(outcome.deployment, identities),
+						: leftBehindResources(outcome.deployment, identities),
 				...(kept !== "unread" && { kept }),
 				/* Why THIS attempt stopped, when it did. The record cannot
 				 * carry it: a refusal against an already-live deployment

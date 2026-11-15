@@ -48,8 +48,10 @@ export class DeploymentError extends Error {
 
 /**
  * A store write found the deployment ended since its publish first read it.
- * Never shown to a person: `publishAppToHq` catches it. It is no
- * `DeploymentError` and carries no code.
+ * Never shown to a person: `publishAppToHq` and `service.ts::refreshKeptValues`
+ * catch it and answer that publishing there stopped, and
+ * `workers.ts::provisionWorkers` catches it and records no worker mapping.
+ * It is no `DeploymentError` and carries no code.
  */
 export class DeploymentEndedError extends Error {
 	readonly name = "DeploymentEndedError";

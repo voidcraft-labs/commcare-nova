@@ -153,7 +153,6 @@ const EVERY_VALUE_KEPT: TargetFacts = {
 	mobileReportVersion: "1.0",
 	credentialLevel: "3MON_ACTIVE",
 	languageNames: { en: { en: "English" } },
-	seeds: "target",
 };
 
 /** A project space that holds what a first publish of a new app gives. */
@@ -172,7 +171,6 @@ const NOTHING_KEPT: TargetFacts = {
 	mobileReportVersion: "2.0",
 	credentialLevel: null,
 	languageNames: null,
-	seeds: "nova",
 };
 
 describe("the kept list over KEPT_AT_HQ", () => {

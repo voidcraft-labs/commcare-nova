@@ -82,6 +82,7 @@ function mapping(over: Partial<DeploymentResource> = {}): DeploymentResource {
 		releasedAt: null,
 		endedReason: null,
 		endedByName: null,
+		heldByAnotherApp: false,
 		...over,
 	};
 }

@@ -34,11 +34,13 @@ import {
 } from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
 import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
 import { readHqAppSource } from "@/lib/commcare/hq/appSource";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	derivedFormXmlns,
 	derivedUniqueId,
@@ -62,6 +64,7 @@ import {
 	type CasePlacement,
 	type OrganizationLevel,
 } from "@/lib/domain";
+import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { createLocation } from "@/lib/organization/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
@@ -2364,12 +2367,14 @@ const renamedLanguage = (source: Record<string, unknown>) => {
  * identity row for the menu and one for the form holding the ids CommCare
  * HQ's app holds, and a `read` baseline of the source as `adoption.ts`
  * builds it over the source the peer answers now (`edit` applied), with the
- * file CommCare HQ held at a published path and the reviewed list.
+ * file CommCare HQ held at a published path and the reviewed list. The
+ * document's media resolve through `assets`, at the paths HQ keeps them under.
  */
 async function bringIn(
 	peer: MockAgent,
 	doc: BlueprintDoc,
 	edit: (source: Record<string, unknown>) => void = () => {},
+	assets: AssetManifest = new Map(),
 ) {
 	const deployment = (await state()) ?? fail();
 	const id = deployment.deployment.id;
@@ -2413,7 +2418,7 @@ async function bringIn(
 		source: read.source,
 		prepared: {
 			doc,
-			assets: new Map(),
+			assets,
 			attachmentTarget: attachmentUrlTarget(TARGET),
 		},
 		target: TARGET,
@@ -2536,6 +2541,157 @@ describe("a publish over an app Nova brought in", () => {
 		/* An app with no Search: the body the publish sent owns what the
 		 * bring-in's descriptor owns. */
 		expect(baseline.ownership).toEqual(read.ownership);
+	});
+
+	it("sends each media file at the path CommCare HQ keeps it under, and a kept keyed create under the prefix the project space's cases stand under", async () => {
+		const doc = caseOperationFixture("key");
+		const [{ formUuid, create }] = Object.entries(doc.forms).flatMap(
+			([uuid, form]) =>
+				(form.caseOperations ?? []).flatMap((operation) =>
+					operation.action === "create" &&
+					operation.target.kind === "new" &&
+					operation.target.idFrom !== undefined
+						? [{ formUuid: asUuid(uuid), create: operation }]
+						: [],
+				),
+		);
+		if (create.action !== "create") throw new Error("Expected a create");
+		/* The prefix HQ's source app derived for that create, which the
+		 * reading's own UUIDs cannot derive again. */
+		const heldPrefix = authoredCaseIdPrefix({
+			appId: "hq-source-app",
+			formUuid,
+			operationUuid: create.uuid,
+			caseType: create.caseType,
+		});
+		const derivedPrefix = authoredCaseIdPrefix({
+			appId: doc.appId,
+			formUuid,
+			operationUuid: create.uuid,
+			caseType: create.caseType,
+		});
+		const heldPath = Object.keys(HELD_MEDIA_FILES)[0];
+		const image = testMediaAssetId("held-image");
+		const png = readFileSync("public/nova-icons/household.png");
+		const hash = createHash("sha256").update(png).digest("hex");
+		const field = Object.values(doc.fields).find(
+			(candidate) => candidate.kind === "text",
+		);
+		if (field === undefined || field.kind !== "text")
+			throw new Error("Expected a text field");
+		field.label_media = { image };
+		await seed(doc);
+		await h
+			.db()
+			.insertInto("media_assets")
+			.values({
+				id: image,
+				project_id: PROJECT,
+				owner: "creator",
+				kind: "image",
+				content_hash: hash,
+				mime_type: "image/png",
+				extension: ".png",
+				size_bytes: png.length,
+				gcs_object_key: `projects/${PROJECT}/${hash}.png`,
+				original_filename: "logo.png",
+				display_name: "Logo",
+				status: "ready",
+				media_format: "png",
+			})
+			.execute();
+		vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+		const media = `/a/clinic/apps/api/${HQ_APP}/multimedia/`;
+		const zips: AdmZip[] = [];
+		const mediaTaken = (peer: MockAgent) => {
+			request(peer, media, "POST").reply(async (opts) => {
+				const form = await readMultipartRequest(opts);
+				const file = form.get("bulk_upload_file");
+				if (!(file instanceof Blob)) throw new Error("Expected a ZIP");
+				zips.push(new AdmZip(Buffer.from(await file.arrayBuffer())));
+				return {
+					statusCode: 200,
+					data: JSON.stringify({ success: true, processing_id: "media-job" }),
+				};
+			});
+			request(peer, `${media}status/media-job/`).reply(200, {
+				success: true,
+				processing_id: "media-job",
+				complete: true,
+				matched_count: 1,
+				unmatched_count: 0,
+				unmatched_files: [],
+				errors: [],
+			});
+		};
+		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			mediaTaken(peer);
+			expect((await publish(doc)).landed).toBe(true);
+			await bringIn(
+				peer,
+				doc,
+				undefined,
+				new Map([
+					[
+						image,
+						{
+							assetId: image,
+							wirePath: heldPath,
+							kind: "image",
+							mimeType: "image/png",
+							contentHash: hash,
+							extension: ".png",
+						},
+					],
+				]),
+			);
+			const id = ((await state()) ?? fail()).deployment.id;
+			await h
+				.db()
+				.insertInto("app_deployment_media_paths")
+				.values({
+					deployment_id: id,
+					media_asset_id: image,
+					wire_path: heldPath,
+				})
+				.execute();
+			await h
+				.db()
+				.insertInto("app_deployment_keyed_case_ids")
+				.values({
+					deployment_id: id,
+					nova_operation_uuid: create.uuid,
+					case_type: create.caseType,
+					case_id_prefix: heldPrefix,
+				})
+				.execute();
+
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			mediaTaken(peer);
+			expect((await publish(doc)).landed).toBe(true);
+		});
+
+		const [update] = bodies;
+		const forms = Object.values(
+			update.app._attachments as Record<string, unknown>,
+		)
+			.filter((value): value is string => typeof value === "string")
+			.join("\n");
+		expect(forms).toContain(heldPrefix);
+		expect(forms).not.toContain(derivedPrefix);
+		expect(forms).toContain(`jr://file/${heldPath}`);
+		const [first, republished] = zips.map((zip) =>
+			zip.getEntries().map((entry) => entry.entryName),
+		);
+		expect(first).not.toContain(heldPath);
+		expect(republished).toEqual([heldPath]);
 	});
 
 	it("records the publish's own descriptor, which differs from the bring-in's only in the Search key, where the advisory is available", async () => {

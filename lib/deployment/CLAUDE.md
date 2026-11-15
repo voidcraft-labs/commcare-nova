@@ -606,7 +606,11 @@ from a new app. `store.ts::readTargetFacts` returns that projection to a
 viewer and never the source, projecting an unchanged baseline once per
 instance (a bounded map keyed by its digest). A `.ccz`, Preview and the
 Publishing card read it; an absent, unread or shell baseline, or one that
-does not verify, gives none, and Nova's own values stand.
+does not verify, gives none, and Nova's own values stand, but for Nova's
+seeds on a deployment whose live app mapping is `adopted`: who seeds is the
+mapping's, which `ReachedDeploymentTarget.adopted` carries to the archive
+apart from the facts, so a `.ccz` there writes no seed and says its language
+names may differ (`downloadTarget.ts::downloadKeptAdvisoryFacts`).
 `service.ts::refreshKeptValues` replaces the baseline with a fresh read only
 where the publish's own comparison finds no change, so it moves no later
 drift verdict. Its write (`store.ts::recordRefreshedAppBaseline`) lands only
@@ -902,7 +906,7 @@ because each fold states its precondition against that fresh row:
   first as superseded — the same answer two sequential creates produce.
 - `applyDeploymentObservation` folds only while the active mapping still
   carries the remote id AND the `push_token` the observation read before
-  asking. Postgres assigns a fresh UUID on insertion and every update of
+  asking, and is not released. Postgres assigns a fresh UUID on insertion and every update of
   push fields, even when the timestamp, source revision, and remote id stay
   equal. Observation-only updates and supersession retain that identity.
   Thus a refresh that spent five seconds asking
@@ -936,7 +940,11 @@ mapping's `released_at`. The index is the floor under the lock: an insert that
 still meets it throws the same error with no holder. A live app whose mapping
 is released publishes nowhere there until it is settled:
 `resources.ts::plannedInPlaceUpdate` answers null for it, so it is no reached
-target, and `readDeploymentPreviewRecords` leaves it out.
+target, and `readDeploymentPreviewRecords` leaves it out. Check status
+(`refreshDeployment`) refuses it, asking CommCare HQ nothing and writing
+nothing, since what HQ says of that app is about the other app's publishes,
+and `applyDeploymentObservation` discards an observation of a mapping a birth
+released while HQ was being asked.
 
 **Restoring takes each given-up HQ app back unless a live Nova app holds it.**
 `lib/db/apps.ts::restoreApp`, and `publishAppToHq` before it reads anything
@@ -1003,7 +1011,9 @@ read, and every store write of that publish carries it (`DeploymentFence`):
 `markResourceBaselinesUnread`, `recordRemoteResource` and
 `recordRefreshedAppBaseline` throw `DeploymentEndedError` and write nothing
 where the row's count differs, and `finishDeploymentContentWrite` answers
-false. The publish answers `publishing_stopped`. Without the fence, its
+false. The publish answers `publishing_stopped`, the kept values' refresh
+answers that publishing there stopped, and provisioning records no worker
+mapping. Without the fence, its
 mapping would land on a deployment whose identity rows are gone, and the next
 publish would change every form's `xmlns`. `applyDeploymentObservation` and
 `recordEntryPointObservation` need no fence: an ended deployment has no live
@@ -1019,7 +1029,7 @@ mapping and a new generation, so neither writes.
 | Check status (`refreshDeployment`) and the kept values' refresh (`refreshKeptValues`) | say that publishing there stopped and read nothing of CommCare HQ |
 | provisioning workers (`provisionWorkers`) | refuses, saying publishing there stopped |
 | the Publishing card and the dialog's row (`nextPublishAction`) | `creates-beside` while `deploymentEnding` is not null |
-| the left-behind report (`leftBehindResources`) | an ended `app` mapping is not left behind: the ending names it |
+| the left-behind report (`leftBehindResources`) | the `app` mapping a standing ending names is not left behind, since the ending's line names it, nor one ended `claimed-elsewhere`, since another Nova app publishes to it; once a publish records a new app, or a later ending names another, a `stopped` one is left behind, unless another Nova app now holds its HQ app: no superseded `app` mapping a live, unreleased mapping of another deployment holds is ever left behind (`heldByAnotherApp`, marked by `store.ts::loadResources`), since that app publishes to it |
 | `earlierHqApps` (the `.ccz` version) | counts the ended mapping like any superseded `app` mapping |
 | the setup artifact | no HQ app id, so no link into the app's pages |
 | placements, migration notices, drift | unchanged: an ending changes no hold, and no mapping means nothing is compared |

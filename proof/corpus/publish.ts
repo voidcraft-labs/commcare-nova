@@ -1385,6 +1385,7 @@ async function tableEdge(
 			releasedAt: null,
 			endedReason: null,
 			endedByName: null,
+			heldByAnotherApp: false,
 		}),
 	);
 	const plan = planLookupResourcePush({
@@ -2489,6 +2490,8 @@ export async function localCcz(
 				hqAppId: PLACEHOLDER_APP_ID,
 				emptyCaseListText,
 				earlierHqApps: 0,
+				/* The capture's deployment is Nova-born. */
+				adopted: false,
 			},
 		],
 		{ format: "ccz", domain, declaresAndroid: declaresAndroid(source.doc) },
@@ -2517,6 +2520,7 @@ export async function localCcz(
 				{
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,
+					adopted: target.adopted,
 					targetFacts: options.targetFacts ?? null,
 					/* The capture's deployment holds no keyed create's id
 					 * prefix: its app is Nova-born. */
@@ -2549,6 +2553,7 @@ export async function importFile(
 				hqAppId: PLACEHOLDER_APP_ID,
 				emptyCaseListText: false,
 				earlierHqApps: 0,
+				adopted: false,
 			},
 		],
 		{ format: "json", declaresAndroid: declaresAndroid(source.doc) },

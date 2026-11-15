@@ -14,7 +14,10 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { readDownloadTargetsAction } from "../actions";
-import { resolveDownloadTarget } from "../downloadTarget";
+import {
+	downloadKeptAdvisoryFacts,
+	resolveDownloadTarget,
+} from "../downloadTarget";
 import {
 	type DeploymentScope,
 	foldDeploymentAttempt,
@@ -54,7 +57,11 @@ async function seed(doc: BlueprintDoc) {
 	await h.seedProjectMember("creator", PROJECT, "owner");
 	await h.seedProjectMember("viewer", PROJECT, "viewer");
 }
-async function publish(server: "india" | "production", domain: string) {
+async function publish(
+	server: "india" | "production",
+	domain: string,
+	adoptedBy?: string,
+) {
 	const target = { server, domain };
 	await foldDeploymentAttempt(
 		OWNER,
@@ -68,7 +75,8 @@ async function publish(server: "india" | "production", domain: string) {
 		kind: "app",
 		novaResourceId: APP,
 		remoteId: `${server}-${domain}-app`,
-		ownership: "nova-created",
+		ownership: adoptedBy === undefined ? "nova-created" : "adopted",
+		...(adoptedBy !== undefined && { adoptedBy }),
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
@@ -246,4 +254,40 @@ it("makes a CCZ for the project space an app was brought in from under HQ's medi
 		throw new Error(JSON.stringify(district));
 	expect(district.mediaPaths.size).toBe(0);
 	expect(district.keyedCaseIdPrefixes.size).toBe(0);
+});
+
+it("makes a CCZ that seeds nothing for a project space an app was brought in from whose read-back did not land, and says its language names may differ", async () => {
+	const doc = plainDoc();
+	await seed(doc);
+	await publish("india", "clinic", "creator");
+	await publish("india", "district");
+
+	const clinic = await resolveDownloadTarget(OWNER, {
+		format: "ccz",
+		server: "india",
+		domain: "clinic",
+		doc,
+	});
+	if ("kind" in clinic || clinic.format !== "ccz")
+		throw new Error(JSON.stringify(clinic));
+	expect(clinic.targetFacts).toBeNull();
+	expect(clinic.target.adopted).toBe(true);
+	expect(downloadKeptAdvisoryFacts(clinic, doc)).toEqual({
+		uiTextFallsBack: false,
+		androidLogos: false,
+		practiceWorker: false,
+		languageNames: true,
+	});
+
+	const district = await resolveDownloadTarget(OWNER, {
+		format: "ccz",
+		server: "india",
+		domain: "district",
+		doc,
+	});
+	if ("kind" in district || district.format !== "ccz")
+		throw new Error(JSON.stringify(district));
+	expect(district.targetFacts).toBeNull();
+	expect(district.target.adopted).toBe(false);
+	expect(downloadKeptAdvisoryFacts(district, doc)).toBeNull();
 });

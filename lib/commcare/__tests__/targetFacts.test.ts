@@ -99,7 +99,6 @@ describe("targetFactsFromSource over the retained read", () => {
 			mobileReportVersion: "2.0",
 			credentialLevel: null,
 			languageNames: null,
-			seeds: "nova",
 		});
 	});
 
@@ -254,7 +253,7 @@ describe("targetFactsFromSource over the retained read", () => {
 		expect(facts.credentialLevel).toBe("3MON_ACTIVE");
 	});
 
-	it("carries language names and leaves seeding to CommCare HQ only on an app Nova brought in", () => {
+	it("carries language names only on an app Nova brought in", () => {
 		const named = (source: Json) => {
 			source.langs = ["en", "fra"];
 			translations(source).en = { en: "English", fra: "" };
@@ -262,13 +261,11 @@ describe("targetFactsFromSource over the retained read", () => {
 		};
 		const created = factsOf(named);
 		expect(created.languageNames).toBeNull();
-		expect(created.seeds).toBe("nova");
 		const adopted = factsOf(named, { adopted: true });
 		expect(adopted.languageNames).toEqual({
 			en: { en: "English" },
 			fra: { en: "Anglais", fra: "Français" },
 		});
-		expect(adopted.seeds).toBe("target");
 	});
 
 	it("gives null for a source that is no object", () => {

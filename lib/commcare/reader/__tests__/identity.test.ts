@@ -226,7 +226,7 @@ describe("matchingResolver", () => {
 				...known,
 				{ kind: knownKey.kind, parts: knownKey.parts, uuid: other },
 			]),
-		).toThrow(/one field key twice/);
+		).toThrow(/names the key .* twice \(entries 0 and 1\)/);
 	});
 
 	it("refuses a map that holds one UUID under two keys", () => {
@@ -236,7 +236,7 @@ describe("matchingResolver", () => {
 				...known,
 				{ kind: otherKey.kind, parts: otherKey.parts, uuid: knownUuid },
 			]),
-		).toThrow(/under two keys/);
+		).toThrow(/names the UUID .* twice \(entries 0 and 1\)/);
 	});
 
 	it("gives a new entity another UUID where the map holds its key's UUID under a renamed one", () => {

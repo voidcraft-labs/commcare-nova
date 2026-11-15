@@ -768,6 +768,7 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 					releasedAt: null,
 					endedReason: null,
 					endedByName: null,
+					heldByAnotherApp: false,
 				},
 			],
 			superseded: [],

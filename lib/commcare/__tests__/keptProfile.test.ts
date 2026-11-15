@@ -5,7 +5,7 @@
  * build there then disagree), a `force` lost on the way, one of the two
  * settings Nova owns taken from the project space, the detail-view log
  * setting written where nothing holds it, and a deployment Nova brought in
- * given Nova's seeds.
+ * given Nova's seeds, read or not.
  */
 
 import { describe, expect, it } from "vitest";
@@ -42,22 +42,31 @@ const OTHER_CHOICES: Readonly<Record<string, string>> = {
 	"unsent-time-limit": "14",
 };
 
-function facts(
-	profileProperties: Readonly<Record<string, string>>,
-	seeds: "nova" | "target" = "nova",
-) {
-	return { profileProperties, seeds };
+function facts(profileProperties: Readonly<Record<string, string>>) {
+	return { profileProperties };
 }
 
 describe("targetProfileProperties", () => {
 	it("writes Nova's own seventeen where no project space was read", () => {
-		expect(targetProfileProperties(DOC, null)).toEqual(
+		expect(targetProfileProperties(DOC, null, "nova")).toEqual(
 			appProfileProperties(DOC),
 		);
 	});
 
+	it("writes the two owned settings alone on a project space Nova brought in that no read tells", () => {
+		expect(
+			targetProfileProperties(DOC, null, "target").map(({ key, value }) => [
+				key,
+				value,
+			]),
+		).toEqual([
+			["cc-show-saved", "yes"],
+			["cc-show-incomplete", "no"],
+		]);
+	});
+
 	it("writes each seeded setting at the project space's value, with its own force", () => {
-		const written = targetProfileProperties(DOC, facts(OTHER_CHOICES));
+		const written = targetProfileProperties(DOC, facts(OTHER_CHOICES), "nova");
 		expect(written).toEqual(
 			appProfileProperties(DOC).map((property) => ({
 				...property,
@@ -76,6 +85,7 @@ describe("targetProfileProperties", () => {
 		const written = targetProfileProperties(
 			DOC,
 			facts({ "cc-autoup-freq": "freq-daily" }),
+			"nova",
 		);
 		expect(written).toEqual(
 			appProfileProperties(DOC).map((property) =>
@@ -90,6 +100,7 @@ describe("targetProfileProperties", () => {
 		const written = targetProfileProperties(
 			DOC,
 			facts({ "cc-show-saved": "no", "cc-show-incomplete": "yes" }),
+			"nova",
 		);
 		const owned = Object.fromEntries(
 			written
@@ -106,12 +117,13 @@ describe("targetProfileProperties", () => {
 
 	it("writes the detail-view log setting, forced and last, only where the project space holds it", () => {
 		expect(
-			targetProfileProperties(DOC, facts({})).map(({ key }) => key),
+			targetProfileProperties(DOC, facts({}), "nova").map(({ key }) => key),
 		).not.toContain("cc-log-entity-detail-enabled");
 		expect(
 			targetProfileProperties(
 				DOC,
 				facts({ "cc-log-entity-detail-enabled": "True" }),
+				"nova",
 			).at(-1),
 		).toEqual({
 			key: "cc-log-entity-detail-enabled",
@@ -123,7 +135,8 @@ describe("targetProfileProperties", () => {
 	it("leaves out a seeded setting a project space Nova brought in holds no value for", () => {
 		const written = targetProfileProperties(
 			DOC,
-			facts({ "cc-fuzzy-search-enabled": "yes" }, "target"),
+			facts({ "cc-fuzzy-search-enabled": "yes" }),
+			"target",
 		);
 		expect(written.map(({ key, value }) => [key, value])).toEqual([
 			["cc-fuzzy-search-enabled", "yes"],
@@ -137,6 +150,7 @@ describe("targetProfileProperties", () => {
 			targetProfileProperties(
 				DOC,
 				facts(Object.create({ logenabled: "Disabled" })),
+				"nova",
 			),
 		).toEqual(appProfileProperties(DOC));
 	});

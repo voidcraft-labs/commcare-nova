@@ -379,7 +379,9 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 			},
 			run: async () => await restoreApp(restoreAppId, restoreActor),
 			assertCommitted: async (result) => {
-				expect(result).toBeUndefined();
+				/* The app published nowhere, so its restore stopped publishing
+				 * nowhere. */
+				expect(result).toEqual({ stoppedPublishing: [] });
 				const row = await h.readAppRow(restoreAppId);
 				expect(row?.deleted_at).toBeNull();
 				expect(row?.recoverable_until).toBeNull();

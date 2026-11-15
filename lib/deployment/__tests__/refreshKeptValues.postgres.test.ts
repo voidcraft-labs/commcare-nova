@@ -420,6 +420,30 @@ describe("refreshKeptValues", () => {
 			});
 		});
 
+		it("says publishing stopped there when someone stops it while CommCare HQ is answering, and writes nothing", async () => {
+			await seedApp();
+			await published(baselineOf(liveSource()));
+			await h.seedProjectMember("an-admin", PROJECT, "admin");
+			const before = await baselineRow();
+			await withHttpPeer(async (peer) => {
+				/* The read compares equal, so only the ending stops the write. */
+				request(peer).reply(async () => {
+					await endDeployment(
+						{ ...SCOPE, role: "admin", actorUserId: "an-admin" },
+						TARGET,
+					);
+					return { statusCode: 200, data: JSON.stringify(liveSource()) };
+				});
+				await expect(refreshKeptValues(SCOPE, TARGET)).rejects.toMatchObject({
+					name: "DeploymentError",
+					code: "invalid",
+					message:
+						"Nova stopped publishing this app to “clinic”, so there's nothing there for it to check on. Publishing there again makes a new app.",
+				});
+			});
+			expect(await baselineRow()).toEqual(before);
+		});
+
 		it("answers no-baseline for a live mapping that is released, and asks CommCare HQ nothing", async () => {
 			await seedApp();
 			await published(baselineOf(liveSource()));

@@ -50,6 +50,8 @@ export function compileLocalArchive(
 	deployment: {
 		readonly emptyCaseListText: boolean;
 		readonly earlierHqApps: number;
+		/** The deployment's live app mapping is one Nova brought in. */
+		readonly adopted: boolean;
 		readonly targetFacts: TargetFacts | null;
 		readonly keyedCaseIdPrefixes: ReadonlyMap<Uuid, string>;
 	},
@@ -76,6 +78,7 @@ export function compileLocalArchive(
 		compiledAtSeq,
 		earlierHqApps: deployment.earlierHqApps,
 		emptyCaseListText: deployment.emptyCaseListText,
+		adopted: deployment.adopted,
 		targetFacts: deployment.targetFacts,
 		...(prepared.lookupWire !== undefined && { lookup: prepared.lookupWire }),
 	});

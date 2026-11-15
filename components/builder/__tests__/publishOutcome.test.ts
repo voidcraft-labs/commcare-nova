@@ -12,6 +12,7 @@ import {
 	APP_PREVIEW_NOTE,
 	HQ_CHANGED_MESSAGE,
 } from "@/lib/deployment/remoteChanges";
+import { nextPublishAction } from "@/lib/deployment/resources";
 import type {
 	DeploymentConfirmationNeeded,
 	DeploymentRecord,
@@ -93,6 +94,76 @@ const REFUSAL = {
 	webAppsChange: null,
 	placementMoves: null,
 };
+
+/** An `app` mapping as a server that predates mapping endings serves it: no
+ *  `adoptedByName`, `releasedAt`, `endedReason`, `endedByName` or
+ *  `heldByAnotherApp`. */
+function olderAppMapping(remoteId: string, supersededAt: string | null) {
+	return {
+		deploymentId: "dep-1",
+		kind: "app" as const,
+		novaResourceId: "app-1",
+		remoteId,
+		ownership: "nova-created" as const,
+		pushedIdentity: null,
+		adoptedAt: null,
+		adoptedBy: null,
+		pushedRevision: 3,
+		pushedAt: "2026-08-06T00:00:00.000Z",
+		pushToken: `push-${remoteId}`,
+		remoteRevision: 4,
+		remoteObservedAt: null,
+		supersededAt,
+		remoteMissingAt: null,
+	};
+}
+
+describe("a record from a server that predates mapping endings", () => {
+	const { endings: _, ...olderRecord } = RECORD;
+
+	it("reads the app it just updated as one the next publish updates", () => {
+		const outcome = publishOutcome(true, {
+			success: true,
+			hq_app_action: "updated",
+			deployment: {
+				deployment: olderRecord,
+				active: [olderAppMapping("hq-1", null)],
+				superseded: [],
+				confirmations: [],
+			},
+			setup_artifact: ARTIFACT,
+		});
+		if (outcome.kind !== "landed" || outcome.deployment === null)
+			throw new Error("The publish landed with its record.");
+		const record = outcome.deployment.deployment;
+		expect(record.deployment.endings).toBe(0);
+		expect(record.active[0]).toMatchObject({
+			adoptedByName: null,
+			releasedAt: null,
+			endedReason: null,
+			endedByName: null,
+			heldByAnotherApp: false,
+		});
+		expect(nextPublishAction(record)).toBe("updates");
+	});
+
+	it("reads an app a later publish replaced as replaced, not ended", () => {
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: REFUSAL,
+			deployment: {
+				deployment: olderRecord,
+				active: [],
+				superseded: [olderAppMapping("hq-0", "2026-08-05T00:00:00.000Z")],
+				confirmations: [],
+			},
+			setup_artifact: ARTIFACT,
+		});
+		if (outcome.kind !== "refused" || outcome.deployment === null)
+			throw new Error("The refusal carried its record.");
+		expect(nextPublishAction(outcome.deployment.deployment)).toBe("creates");
+	});
+});
 
 describe("a publish that landed", () => {
 	it("carries what the project space keeps of the settings Preview plays, and none where the response holds none", () => {

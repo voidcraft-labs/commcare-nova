@@ -11,6 +11,10 @@ import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
+import {
+	OWNED_PROFILE_PROPERTY_KEYS,
+	SEEDED_PROFILE_PROPERTIES,
+} from "@/lib/commcare/appProfileSettings";
 import type { HqApplication } from "@/lib/commcare/types";
 import { derivedFormXmlns } from "@/lib/commcare/wireIdentity";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -82,7 +86,11 @@ const AT = "2026-09-01T00:00:00.000Z";
 const hqAppId = (server: string, domain: string) =>
 	createHash("md5").update(`${server}/${domain}`).digest("hex");
 /** A deployment whose content is on the project space: a CCZ can be made for it. */
-async function publish(server: "india" | "production", domain: string) {
+async function publish(
+	server: "india" | "production",
+	domain: string,
+	adoptedBy?: string,
+) {
 	const target = { server, domain };
 	await foldDeploymentAttempt(
 		OWNER,
@@ -96,7 +104,8 @@ async function publish(server: "india" | "production", domain: string) {
 		kind: "app",
 		novaResourceId: APP,
 		remoteId: hqAppId(server, domain),
-		ownership: "nova-created",
+		ownership: adoptedBy === undefined ? "nova-created" : "adopted",
+		...(adoptedBy !== undefined && { adoptedBy }),
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
@@ -786,6 +795,43 @@ it("makes a CCZ for the project space an app was brought in from with HQ's media
 		expect(districtForm).toContain(`jr://file/${WIRE}`);
 		expect(requiredFile(district, WIRE)).toEqual(PNG);
 		expect(district.getEntry(held)).toBeNull();
+	});
+});
+
+/* Who seeds is the live app mapping's, not the read's: the project space an
+ * app was brought in from, whose read-back did not land, gives no facts, and
+ * its CCZ writes none of Nova's seeds there and says its language names may
+ * differ; another project space Nova created the app on keeps them. */
+it("makes a CCZ that seeds nothing for the project space an app was brought in from whose read-back did not land", async () => {
+	await seed();
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	await publish("india", "clinic", "creator");
+	await publish("india", "district");
+	await asUser(async (client) => {
+		for (const [domain, adopted] of [
+			["clinic", true],
+			["district", false],
+		] as const) {
+			const result = await call(client, "ccz", { domain });
+			const keys = new Set(
+				elements(
+					archive(result, "ccz").readAsText("profile.ccpr"),
+					"property",
+				).map((node) => node.attribs.key),
+			);
+			for (const { key } of SEEDED_PROFILE_PROPERTIES)
+				expect(keys.has(key), `${domain} ${key}`).toBe(!adopted);
+			for (const key of OWNED_PROFILE_PROPERTY_KEYS)
+				expect(keys.has(key), `${domain} ${key}`).toBe(true);
+			const advisories = (
+				(result._meta?.["nova/exportAdvisories"] ?? []) as readonly {
+					id: string;
+				}[]
+			).map((item) => item.id);
+			expect(advisories, domain).toEqual(
+				adopted ? ["kept_language_names_differ"] : [],
+			);
+		}
 	});
 });
 
