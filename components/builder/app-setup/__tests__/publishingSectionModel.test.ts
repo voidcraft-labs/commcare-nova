@@ -86,6 +86,7 @@ function view(overrides: {
 		},
 		leftBehind: [],
 		kept: null,
+		firstPublish: null,
 	};
 }
 

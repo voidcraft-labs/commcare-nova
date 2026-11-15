@@ -10,6 +10,12 @@
 // files had already worked around by re-implementing them: a copy of a
 // rule is a rule that can drift.
 
+import type { Platform } from "@/lib/domain/platforms";
+import {
+	type FirstPublishView,
+	firstPublishViewFromStored,
+	type StoredFirstPublish,
+} from "@/lib/publish/firstPublishChangeIds";
 import type {
 	DeploymentEndReason,
 	DeploymentResource,
@@ -138,6 +144,30 @@ export function deploymentEnding(
 		reason: mapping.endedReason,
 		hqAppId: mapping.remoteId,
 	};
+}
+
+/** A deployment's stored first-publish list, as `store.ts::readFirstPublishStates` reads it. */
+export interface FirstPublishState {
+	/** The HQ app the list was stored for: the baseline's. */
+	readonly remoteAppId: string;
+	readonly stored: StoredFirstPublish;
+}
+
+/**
+ * The stored list, while the live app mapping names the app it was stored
+ * for; null otherwise. A mapping of any ownership counts, so a list a bring-in
+ * of changes stores over a publish Nova made is shown; an ended deployment,
+ * which has no live mapping, shows none. The two Web Apps lines are worked
+ * out from where the app runs now (`firstPublishViewFromStored`).
+ */
+export function firstPublishOf(
+	deployment: DeploymentWithResources,
+	state: FirstPublishState | undefined,
+	runsOnlyOn: Platform | undefined,
+): FirstPublishView | null {
+	if (state === undefined) return null;
+	if (activeRemoteApp(deployment)?.remoteId !== state.remoteAppId) return null;
+	return firstPublishViewFromStored(state.stored, runsOnlyOn);
 }
 
 /** What the next publish to a target does with the app there. */

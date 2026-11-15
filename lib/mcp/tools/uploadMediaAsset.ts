@@ -21,17 +21,16 @@
  * between a claim and the store (validate.ts documents the MCP path skips
  * it).
  *
- * After a clean validation the tool dedups against the Project library
- * (same `(project_id, contentHash)` probe the HTTP path uses): a re-upload of
+ * After a clean validation the tool publishes through
+ * `lib/media/publishReadyMedia.ts::publishReadyMedia`, the one in-memory
+ * publisher: it dedups against the Project library (same
+ * `(project_id, contentHash)` probe the HTTP path uses), so a re-upload of
  * bytes already present returns the existing `ready` asset's id without
- * re-storing. On a miss it writes the content-addressed GCS object and publishes
- * the complete `ready` row in one metadata transaction — there is no invisible
- * pending row whose id can be lost on a crash. The caller allocates the asset id
- * before storage, so an ambiguous commit response is reconciled under the same
- * content lock: the exact committed row is returned, another ready winner is
- * deduplicated, or a truly unclaimed object is deleted. A hard process crash
- * before metadata leaves only the deterministic content key, which a retry
- * safely overwrites and adopts instead of creating another stranded object.
+ * re-storing; on a miss it writes the content-addressed GCS object and
+ * publishes the complete `ready` row in one metadata transaction, reconciling
+ * an ambiguous commit response under the same content lock. Its permission
+ * refusal (`MediaPublishPermissionError`) maps back to this tool's two access
+ * errors, so a caller reads the same answer whichever check refused it.
  *
  * MCP-only tool: hand-registered via the `register*(server, ctx)` facade,
  * not the shared adapter — it neither operates on a `BlueprintDoc` nor
@@ -40,30 +39,15 @@
 
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { Kysely, Transaction } from "kysely";
 import { z } from "zod";
-import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
+import { ASSET_SIZE_CAPS_BYTES, asMediaAssetId } from "@/lib/domain/multimedia";
 import {
-	findReadyAssetByProjectAndHash,
-	hasAssetForGcsObjectKey,
-	insertReadyAssetInTransaction,
-} from "@/lib/db/mediaAssets";
-import type { AppDatabase } from "@/lib/db/pg";
-import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
-import {
-	ASSET_SIZE_CAPS_BYTES,
-	asMediaAssetId,
-	gcsObjectKeyFor,
-} from "@/lib/domain/multimedia";
-import { log } from "@/lib/logger";
+	MediaPublishPermissionError,
+	publishReadyMedia,
+} from "@/lib/media/publishReadyMedia";
 import { validateMediaBytes } from "@/lib/media/validate";
 import { ProjectPermissionError } from "@/lib/projects/manage";
-import {
-	deleteAsset as deleteStoredAsset,
-	uploadAssetBytes,
-} from "@/lib/storage/media";
-import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -79,23 +63,6 @@ const MAX_INLINE_UPLOAD_BYTES = Math.max(
 const MAX_INLINE_BASE64_CHARS = Math.ceil(MAX_INLINE_UPLOAD_BYTES / 3) * 4;
 const UPLOAD_PERMISSION_MESSAGE =
 	"Your role in this Project can't upload media. Ask a Project admin to make you an editor.";
-
-/** GCS work holds only the content lock. Each metadata decision then proves
- * current edit authority under the same transaction as its read or publication. */
-function withUploadPermission<T>(
-	db: Kysely<AppDatabase>,
-	actorUserId: string,
-	projectId: string,
-	body: (tx: Transaction<AppDatabase>) => Promise<T>,
-): Promise<T> {
-	return db.transaction().execute(async (tx) => {
-		const role = await projectRoleForInTransaction(tx, actorUserId, projectId);
-		if (role === null) throw new McpAccessError("not_owner", "project");
-		if (!roleAllowsApp(role, "edit"))
-			throw new ProjectPermissionError(UPLOAD_PERMISSION_MESSAGE);
-		return body(tx);
-	});
-}
 
 /**
  * Input schema for `upload_media_asset`, exported so the schema-compiler
@@ -208,120 +175,19 @@ export function registerUploadMediaAsset(
 						).projectId
 					: await ensurePersonalProject(ctx.userId);
 
-				const gcsObjectKey = gcsObjectKeyFor(
-					project,
-					validated.contentHash,
-					validated.extension,
-				);
-				const attemptAssetId = asMediaAssetId(randomUUID());
-				let finalObjectMayNeedCleanup = false;
-				let publication:
-					| { kind: "deduplicated"; assetId: string }
-					| { kind: "published"; assetId: string };
-				try {
-					publication = await withMediaObjectKeyLock(
-						gcsObjectKey,
-						async (lockedDb) => {
-							/* Re-check dedup while holding the same canonical-key lock as
-							 * browser confirm, Project-copy publication, and
-							 * last-reference cleanup. Exactly one same-content publisher
-							 * stores bytes and commits ready metadata; every waiter
-							 * observes that winner. */
-							const existing = await withUploadPermission(
-								lockedDb,
-								ctx.userId,
-								project,
-								(tx) =>
-									findReadyAssetByProjectAndHash(
-										project,
-										validated.contentHash,
-										tx,
-									),
-							);
-							if (existing) {
-								return {
-									kind: "deduplicated" as const,
-									assetId: existing.id,
-								};
-							}
-
-							/* Mark before GCS I/O because a failed storage request can
-							 * have committed remotely. The flag remains set until the lock
-							 * body and its advisory unlock both finish successfully. */
-							finalObjectMayNeedCleanup = true;
-							await uploadAssetBytes({
-								gcsObjectKey,
-								bytes,
-								contentType: validated.mimeType,
-							});
-							const published = await withUploadPermission(
-								lockedDb,
-								ctx.userId,
-								project,
-								(tx) =>
-									insertReadyAssetInTransaction(tx, {
-										assetId: attemptAssetId,
-										owner: ctx.userId,
-										project_id: project,
-										contentHash: validated.contentHash,
-										mimeType: validated.mimeType,
-										kind: validated.kind,
-										extension: validated.extension,
-										sizeBytes: validated.sizeBytes,
-										gcsObjectKey,
-										originalFilename: args.filename,
-										...(validated.dimensions !== undefined && {
-											dimensions: validated.dimensions,
-										}),
-										...(validated.durationMs !== undefined && {
-											durationMs: validated.durationMs,
-										}),
-										...(validated.mediaFormat !== undefined && {
-											mediaFormat: validated.mediaFormat,
-										}),
-									}),
-							);
-							return {
-								kind: "published" as const,
-								assetId: published.id,
-							};
-						},
-					);
-					finalObjectMayNeedCleanup = false;
-				} catch (error) {
-					if (finalObjectMayNeedCleanup) {
-						const recovered = await recoverFailedMcpPublication({
-							gcsObjectKey,
-							projectId: project,
-							contentHash: validated.contentHash,
-							actorUserId: ctx.userId,
-						}).catch((cleanupError: unknown) => {
-							if (
-								cleanupError instanceof McpAccessError ||
-								cleanupError instanceof ProjectPermissionError
-							)
-								throw cleanupError;
-							log.error(
-								"[mcp:upload-media] lost-publication recovery failed",
-								cleanupError,
-								{
-									gcsObjectKey,
-									projectId: project,
-									attemptAssetId,
-								},
-							);
-							return null;
-						});
-						if (recovered !== null) {
-							return successResult(
-								recovered.assetId,
-								validated.kind,
-								recovered.assetId !== attemptAssetId,
-							);
-						}
-					}
-					throw error;
-				}
+				const publication = await publishReadyMedia({
+					actorUserId: ctx.userId,
+					projectId: project,
+					bytes,
+					validated,
+					originalFilename: args.filename,
+					assetId: asMediaAssetId(randomUUID()),
+				}).catch((error: unknown) => {
+					if (!(error instanceof MediaPublishPermissionError)) throw error;
+					throw error.reason === "not-a-member"
+						? new McpAccessError("not_owner", "project")
+						: new ProjectPermissionError(UPLOAD_PERMISSION_MESSAGE);
+				});
 
 				return successResult(
 					publication.assetId,
@@ -336,57 +202,6 @@ export function registerUploadMediaAsset(
 			}
 		},
 	);
-}
-
-async function recoverFailedMcpPublication(args: {
-	gcsObjectKey: string;
-	projectId: string;
-	contentHash: string;
-	actorUserId: string;
-}): Promise<{ assetId: string } | null> {
-	return withMediaObjectKeyLock(args.gcsObjectKey, async (lockedDb) => {
-		/* A transaction commit can succeed even when its acknowledgement is lost.
-		 * Re-read the serialized Project/hash result before treating the object as
-		 * unpublished. If it is our preallocated id, the insert committed; if a
-		 * waiter published after our rollback, that row is the canonical dedup
-		 * result. Identical bytes can validate under different extensions, so a
-		 * ready hash winner does not necessarily claim this attempt's exact key. */
-		const ready = await findReadyAssetByProjectAndHash(
-			args.projectId,
-			args.contentHash,
-			lockedDb,
-		);
-		if (ready !== null) {
-			if (ready.gcsObjectKey !== args.gcsObjectKey) {
-				const attemptedKeyIsClaimed = await hasAssetForGcsObjectKey(
-					args.gcsObjectKey,
-					lockedDb,
-				);
-				if (!attemptedKeyIsClaimed) {
-					await deleteStoredAsset(args.gcsObjectKey);
-				}
-			}
-			return withUploadPermission(
-				lockedDb,
-				args.actorUserId,
-				args.projectId,
-				async (tx) => {
-					const current = await findReadyAssetByProjectAndHash(
-						args.projectId,
-						args.contentHash,
-						tx,
-					);
-					return current === null ? null : { assetId: current.id };
-				},
-			);
-		}
-		const published = await hasAssetForGcsObjectKey(
-			args.gcsObjectKey,
-			lockedDb,
-		);
-		if (!published) await deleteStoredAsset(args.gcsObjectKey);
-		return null;
-	});
 }
 
 /**

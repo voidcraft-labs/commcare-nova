@@ -79,6 +79,31 @@ const cancelled =
 	"Saving stopped before this place could be changed. Reload, then try again.";
 
 describe("organization client at its transport boundary", () => {
+	it("carries where managed places come from as each complete read holds it, and keeps it through a failed refresh", async () => {
+		const { client, actions } = harness();
+		const hq = {
+			server: "india",
+			domain: "district-health",
+			refreshedAt: "2026-11-02T09:00:00.000Z",
+			leftOut: { ward: 3 },
+		};
+		actions.read.mockResolvedValueOnce(
+			ok({ revision: "7", locations: [place], hq }),
+		);
+		await client.refresh();
+		expect(client.getSnapshot().hq).toEqual(hq);
+		actions.read.mockResolvedValueOnce({
+			success: false,
+			code: "unavailable",
+			message: "Places are temporarily unavailable.",
+		});
+		await client.refresh();
+		expect(client.getSnapshot().hq).toEqual(hq);
+		actions.read.mockResolvedValueOnce(read("8"));
+		await client.refresh();
+		expect(client.getSnapshot().hq).toBeUndefined();
+	});
+
 	it("distinguishes an unread organization from an empty one and retains a complete snapshot on refresh failure", async () => {
 		const { client, actions } = harness();
 		expect(client.getSnapshot()).toEqual({

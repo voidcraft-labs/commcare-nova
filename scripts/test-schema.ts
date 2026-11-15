@@ -37,7 +37,7 @@ import { readSourceTool } from "../lib/agent/tools/media/readSource";
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
  *     `removeMediaAsset`, `uploadMediaAsset`, `getLookupTables`,
- *     `getLookupTableRows`, `createLookupTable`, `updateLookupTable`,
+ *     `getOrganization`, `getLookupTableRows`, `createLookupTable`, `updateLookupTable`,
  *     `editLookupColumns`, `editLookupRows`, `replaceLookupRows`,
  *     `removeLookupTable`, `updateApp`, `generateSchema`.
  */
@@ -117,6 +117,7 @@ import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
 import { moveFieldTool } from "../lib/agent/tools/moveField";
 import {
 	createLocationTool,
+	getOrganizationTool,
 	updateLocationTool,
 } from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
@@ -508,6 +509,12 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: getLookupTablesTool.inputSchema,
 		prompt:
 			"Use getLookupTables to read the first page of Project data tables.",
+	},
+	{
+		name: "getOrganization",
+		description: getOrganizationTool.description,
+		schema: getOrganizationTool.inputSchema,
+		prompt: "Use getOrganization to read this app's levels and places.",
 	},
 	{
 		name: "getLookupTableRows",

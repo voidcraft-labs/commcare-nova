@@ -346,6 +346,13 @@ export interface PlanWorkerProvisioningInput {
 	readonly workers: readonly PlannedWorker[];
 	/** The deployment's live mappings — every kind; this filters its own. */
 	readonly mappings: readonly DeploymentResource[];
+	/**
+	 * Each place CommCare HQ manages for the app in this project space, by
+	 * Nova's place id, to CommCare HQ's id for it. Such places were never
+	 * pushed, so no `location` mapping names them; empty for every other
+	 * project space.
+	 */
+	readonly managedPlaceIds: ReadonlyMap<string, string>;
 	/** What the project space already holds under these names. */
 	readonly hqWorkers: readonly RemoteWorker[];
 	/** Required worker information still missing, by persona uuid. */
@@ -378,17 +385,13 @@ export interface PlanWorkerProvisioningInput {
 export function workerProvisionProblems(
 	input: Pick<
 		PlanWorkerProvisioningInput,
-		"workers" | "mappings" | "workerDataGaps" | "domain"
+		"workers" | "mappings" | "managedPlaceIds" | "workerDataGaps" | "domain"
 	>,
 ): readonly WorkerProvisionProblem[] {
 	const problems: WorkerProvisionProblem[] = [];
 	const claimed = new Map<string, string>();
 	const named = new Set<string>();
-	const remoteIdByLocationUuid = new Map(
-		input.mappings
-			.filter((resource) => resource.kind === "location")
-			.map((resource) => [resource.novaResourceId, resource.remoteId] as const),
-	);
+	const remoteIdByLocationUuid = remoteLocationIds(input);
 
 	for (const worker of input.workers) {
 		if (named.has(worker.personaUuid)) {
@@ -445,6 +448,22 @@ export function workerProvisionProblems(
 }
 
 /**
+ * CommCare HQ's id for each of the app's places on this project space: a
+ * place a publish pushed, through its `location` mapping, and a place
+ * CommCare HQ manages there, through the id the copy holds.
+ */
+function remoteLocationIds(
+	input: Pick<PlanWorkerProvisioningInput, "mappings" | "managedPlaceIds">,
+): ReadonlyMap<string, string> {
+	const ids = new Map(input.managedPlaceIds);
+	for (const resource of input.mappings) {
+		if (resource.kind === "location")
+			ids.set(resource.novaResourceId, resource.remoteId);
+	}
+	return ids;
+}
+
+/**
  * Plan the call, or refuse it.
  *
  * Problems are reported before ownership, and ALL of them at once. An app
@@ -468,11 +487,7 @@ export function planWorkerProvisioning(
 			.filter((resource) => resource.kind === "worker")
 			.map((resource) => [resource.novaResourceId, resource] as const),
 	);
-	const remoteIdByLocationUuid = new Map(
-		input.mappings
-			.filter((resource) => resource.kind === "location")
-			.map((resource) => [resource.novaResourceId, resource.remoteId] as const),
-	);
+	const remoteIdByLocationUuid = remoteLocationIds(input);
 	const adopting = new Set(input.adoptPersonaUuids);
 
 	const problems = workerProvisionProblems(input);

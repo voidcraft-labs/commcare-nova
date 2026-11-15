@@ -45,14 +45,21 @@ import { getHqCredentials } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { declaresWebApps, organizationLevelsOf } from "@/lib/domain";
+import type { Platform } from "@/lib/domain/platforms";
 import { log } from "@/lib/logger";
 import { getLookupDefinitions } from "@/lib/lookup/service";
+import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
 import type { DriftDateOptions } from "@/lib/publish/driftReference";
+import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
 import type { KeptRefreshKind } from "@/lib/publish/keptValues";
+import {
+	MANAGED_TABLE_HANDED_BACK,
+	MANAGED_TABLE_HANDED_BACK_AFTER_CREATE,
+} from "@/lib/publish/managedData";
 import type {
 	AcceptPlacementMoves,
 	PlacementMoveOfferView,
@@ -86,6 +93,7 @@ import {
 	hqImportApplication,
 } from "./importApplication";
 import type { PlannedPlacePush } from "./locationResourcePlan";
+import { managedTablesHandedBack } from "./managedData";
 import { observeDeployment } from "./observe";
 import { placementMoveOffer, placementMoveOfferView } from "./placementMoves";
 import { recordPublishPlacements } from "./placements";
@@ -114,6 +122,7 @@ import {
 	activeRemoteApp,
 	activeResource,
 	deploymentEnding,
+	firstPublishOf,
 	nextPublishAction,
 	plannedInPlaceUpdate,
 	publishedRemoteApp,
@@ -142,6 +151,7 @@ import {
 	readDeployment,
 	readDeploymentIdentityOverrides,
 	readDeploymentKeyedCaseIds,
+	readFirstPublishStates,
 	readResourceBaselines,
 	readTargetFacts,
 	recordCreatedRemoteApp,
@@ -570,11 +580,23 @@ export async function projectSpaceConfirmations(
 	target: DeploymentTargetKey | null,
 ): Promise<ProjectSpaceConfirmationChecks> {
 	if (target === null) return confirmationChecks([], [], null);
+	const lookups = await projectLookupNaming(scope, doc);
 	const { needed } = await publishConfirmationNeeds(
 		scope,
 		doc,
 		target,
-		await projectLookupNaming(scope, doc),
+		lookups?.naming,
+		/* The tables CommCare HQ manages from the target, which a publish there
+		 * leaves out of its workbook. */
+		new Set(
+			(lookups?.definitions ?? []).flatMap((definition) =>
+				definition.hq?.managedBy === "commcare-hq" &&
+				definition.hq.server === target.server &&
+				definition.hq.domain === target.domain
+					? [definition.id]
+					: [],
+			),
+		),
 	);
 	const deployment = await readDeployment(scope, target);
 	return confirmationChecks(
@@ -587,12 +609,19 @@ export async function projectSpaceConfirmations(
 /**
  * What the tables `doc` reads are called on the wire, from the Project's
  * definitions in one snapshot, or `undefined` for an app that reads no
- * table, as `boundaryValidation.ts::prepareWithRegistry` names them.
+ * table, as `boundaryValidation.ts::prepareWithRegistry` names them, with
+ * the definitions it was read from.
  */
 async function projectLookupNaming(
 	scope: DeploymentScope,
 	doc: BlueprintDoc,
-): Promise<LookupWireNaming | undefined> {
+): Promise<
+	| {
+			readonly naming: LookupWireNaming;
+			readonly definitions: readonly LookupTableDefinition[];
+	  }
+	| undefined
+> {
 	const { tableIds } = extractLookupReferenceTargets(doc);
 	if (tableIds.length === 0) return undefined;
 	const snapshot = await getLookupDefinitions(
@@ -603,7 +632,10 @@ async function projectLookupNaming(
 		},
 		tableIds,
 	);
-	return lookupWireNaming(snapshot.definitions);
+	return {
+		naming: lookupWireNaming(snapshot.definitions),
+		definitions: snapshot.definitions,
+	};
 }
 
 /** The document's `save-to-case` move offer as a person sees it, or `null`. */
@@ -2047,6 +2079,30 @@ async function pushLookupTables(
 			? []
 			: [{ kind: "lookup-table" as const, remoteId: push.mappedRemoteId }],
 	);
+	/* The last read of who manages each table, one statement and one request
+	 * before the workbook goes: a table handed back to CommCare HQ from this
+	 * project space since preflight is CommCare HQ's again, and writing it
+	 * would replace what a person chose to leave there. Nothing is sent. */
+	const handedBack = await managedTablesHandedBack(
+		scope,
+		target,
+		plan.pushes.map((push) => push.tableId),
+	);
+	if (handedBack.length > 0) {
+		return {
+			failure: {
+				code: "managed_table_handed_back",
+				/* A first publish made the empty app before the workbook. */
+				message: createdApp
+					? MANAGED_TABLE_HANDED_BACK_AFTER_CREATE
+					: MANAGED_TABLE_HANDED_BACK,
+				details: [],
+			},
+			deployment: null,
+			readBackFailed: false,
+			warnings: [],
+		};
+	}
 	/* Read before the push writes over them: a table HQ makes again under a
 	 * new id is named only where its baseline shows the definition unchanged. */
 	const priorBaselines = new Map(
@@ -2183,7 +2239,14 @@ async function pushLookupTables(
 			remoteId: landed.id,
 			ownership: push.ownership,
 			pushedIdentity: push.tag,
-			adoptedBy: push.ownership === "adopted" ? scope.actorUserId : null,
+			/* Who handed the table to Nova: the standing a sibling's adoption or
+			 * a takeover carries, or the person this push adopts it for. */
+			adoptedBy:
+				push.ownership === "adopted"
+					? (push.adoption?.by ?? scope.actorUserId)
+					: null,
+			adoptedAt:
+				push.ownership === "adopted" ? (push.adoption?.at ?? null) : null,
 			/* A lookup table's own generation, not the app's: its rows change
 			 * outside the blueprint, so the app's sequence would say nothing
 			 * about whether the pushed copy is current. */
@@ -2893,6 +2956,38 @@ export async function landedDeploymentKept(
 	} catch (error) {
 		log.error(
 			"[deployment] kept list unavailable after a write landed",
+			undefined,
+			{
+				appId: scope.appId,
+				domain: view.deployment.domain,
+				after,
+				errorName: error instanceof Error ? error.name : typeof error,
+				errorCode: faultCode(error),
+			},
+		);
+		return "unread";
+	}
+}
+
+/**
+ * The first-publish list a view shows, for the answer to an action whose
+ * write has landed: a fault reading it is logged as `landedDeploymentKept`
+ * logs one and answers `unread`, which a card answers by keeping the list it
+ * shows (`keptListModel.ts::refreshedViewToShow`). None of these writes
+ * changes the stored list but a push, which clears it.
+ */
+export async function landedFirstPublish(
+	scope: DeploymentScope,
+	view: DeploymentWithResources,
+	runsOnlyOn: Platform | undefined,
+	after: KeptReadAfter,
+): Promise<FirstPublishView | null | "unread"> {
+	try {
+		const states = await readFirstPublishStates(scope);
+		return firstPublishOf(view, states.get(view.deployment.id), runsOnlyOn);
+	} catch (error) {
+		log.error(
+			"[deployment] first-publish list unavailable after a write landed",
 			undefined,
 			{
 				appId: scope.appId,

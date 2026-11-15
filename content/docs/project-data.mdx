@@ -209,12 +209,21 @@ A table travels with the app it is read by, whichever way the app leaves Nova:
   If a table was edited in CommCare HQ since Nova last published it, the next
   publish stops and asks before it replaces the edit, so the values you keep
   here stay the ones your app reads.
+  A table managed in CommCare HQ is different: Nova never writes it in the
+  project space that manages it, and checks before each publish that it still
+  holds what your app reads. When several of your Project's apps read one
+  table, each of them publishes it without being asked to take it over.
 - **The CommCare HQ app file** comes as a zip with a `lookup-tables.xlsx` beside
-  it, for uploading on the project's Lookup Tables page.
+  it, for uploading on the project's Lookup Tables page. Tables managed in
+  CommCare HQ come in a second file, `lookup-tables-managed-in-commcare-hq.xlsx`.
+  The project space that manages them already has them, so you leave that file
+  out there; any other project space takes it the same way as the first.
 
 If a cell contains a character CommCare cannot preserve, Nova stops the export
 and names the table and column. You can remove the character or retype the
 affected values in Project data, then try again. Nova keeps your stored values unchanged.
+For a table managed in CommCare HQ, you change the value there instead, then
+refresh Nova's copy on the table's page.
 
 One thing worth knowing before you rename an export tag: CommCare HQ finds a
 table by that tag, so renaming makes a **new** table there and leaves the old
@@ -239,6 +248,36 @@ of a table:
 - **Owners on rows of a table every worker sees** have no effect in CommCare HQ,
   since every worker receives every row of such a table. Nova's upload removes
   them and keeps the table and its rows.
+
+## Tables managed in CommCare HQ
+
+When you bring an app in from CommCare HQ, the lookup tables it reads come with
+it, marked **Managed in CommCare HQ**. Each one lives in its project space on
+CommCare HQ. Nova keeps a copy so your apps and Preview can read it, and never
+changes it there.
+
+You can change the table on CommCare HQ's Lookup Tables page, then choose
+**Refresh from CommCare HQ** on the table's page in Nova. Nova refreshes its copy
+before each publish too, and the page shows when the copy was last refreshed.
+While CommCare HQ manages a table it stays read-only in Nova, for you, for Nova
+in chat and for an MCP agent alike.
+
+**Manage in Nova** hands the table to Nova. From then on you change it in Nova,
+and each publish to that project space replaces the table there with Nova's
+columns and rows. If someone changes it in CommCare HQ after that, your next
+publish there stops and shows you what changed before it sends anything. A
+Project admin can choose this, and Nova names the apps that read the table
+before you confirm.
+
+**Let CommCare HQ manage it again** hands it back. Nova takes CommCare HQ's
+columns and rows as they are right then and stops changing the table there.
+Changes made in Nova that were never published there are replaced, and every
+column becomes text, as CommCare HQ holds it.
+
+If a column your apps read is gone in CommCare HQ, Nova keeps the column in its
+copy, with no values, so those apps keep opening. Their next publish to that
+project space stops until the column is back in CommCare HQ or the apps stop
+reading it.
 
 ## Who can do what
 

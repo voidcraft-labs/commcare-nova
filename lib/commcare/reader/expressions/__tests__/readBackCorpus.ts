@@ -302,8 +302,12 @@ export function judgeReadBack(
 		)
 			return { stored, verdict: { kind: "dormant" } };
 		const got = readSlots.get(stored.key);
+		/* Both sides as the document names its worker fields: the canonical
+		 * form reads a name-backed read of a slug the reading holds as that
+		 * property (`worker-field-by-name`), as the reading itself does. */
 		const named = read === undefined ? got : asNamed(got, read, doc);
-		if (isDeepStrictEqual(named, want))
+		const wantNamed = read === undefined ? want : asNamed(want, read, doc);
+		if (isDeepStrictEqual(named, wantNamed))
 			return { stored, verdict: { kind: "same" } };
 		if (
 			read !== undefined &&

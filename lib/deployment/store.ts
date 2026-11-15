@@ -34,7 +34,11 @@ import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
-import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
+import {
+	FIRST_PUBLISH_CHANGE_IDS,
+	type StoredFirstPublish,
+	storedFirstPublishSchema,
+} from "@/lib/publish/firstPublishChangeIds";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import type { AdoptedKeyedCaseId } from "./adoption";
 import {
@@ -43,7 +47,7 @@ import {
 	deploymentNotFound,
 } from "./errors";
 import { type HqMediaRecord, hqMediaRecordSchema } from "./hqMedia";
-import { publishedRemoteApp } from "./resources";
+import { type FirstPublishState, publishedRemoteApp } from "./resources";
 import {
 	applyAttemptOutcome,
 	applyObservation,
@@ -622,6 +626,90 @@ export async function readDeploymentMediaPaths(
 		.orderBy("p.media_asset_id")
 		.execute();
 	return new Map(rows.map((row) => [row.media_asset_id, row.wire_path]));
+}
+
+/** One live lookup-table mapping another app of the Project holds on a project space. */
+export interface SiblingLookupMapping {
+	readonly tableId: string;
+	readonly appId: string;
+	readonly remoteId: string;
+	readonly pushedIdentity: string;
+	readonly ownership: DeploymentResourceOwnership;
+	readonly adoptedAt: string | null;
+	readonly adoptedBy: string | null;
+}
+
+/**
+ * Live lookup-table mappings of the Project's other apps on one project
+ * space, for the tables named: every app of the Project but `scope.appId`,
+ * an app in recently deleted and a deployment that was ended included, since
+ * what either put in CommCare HQ is still there. A mapping with no pushed
+ * name says nothing about which table CommCare HQ holds under a tag, so it is
+ * left out. Ordered by table, then the earliest adoption, then the oldest
+ * mapping. `view`.
+ *
+ * A bring-in's read passes the app's derived id, which names no deployment
+ * yet, so every app of the Project is a sibling; the birth passes its
+ * transaction, so the answer is read under the locks it holds.
+ */
+export async function readSiblingLookupMappings(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	tableIds: readonly string[],
+	tx?: Transaction<AppDatabase>,
+): Promise<readonly SiblingLookupMapping[]> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	if (tableIds.length === 0) return [];
+	const db = tx ?? (await getAppDb());
+	const rows = await db
+		.selectFrom("app_deployment_resources as r")
+		.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+		.select([
+			"r.nova_resource_id",
+			"d.app_id",
+			"r.remote_id",
+			"r.pushed_identity",
+			"r.ownership",
+			"r.adopted_at",
+			"r.adopted_by",
+		])
+		.where("d.project_id", "=", scope.projectId)
+		.where("d.server", "=", target.server)
+		.where("d.domain", "=", target.domain)
+		.where("d.app_id", "<>", scope.appId)
+		.where("r.kind", "=", "lookup-table")
+		.where("r.superseded_at", "is", null)
+		.where("r.pushed_identity", "is not", null)
+		.where("r.nova_resource_id", "in", [...tableIds])
+		.orderBy("r.nova_resource_id")
+		.orderBy("r.adopted_at", (order) => order.asc().nullsLast())
+		.orderBy("r.created_at")
+		.orderBy("r.id")
+		.execute();
+	return rows.map((row) => {
+		const ownership = deploymentResourceOwnershipSchema.safeParse(
+			row.ownership,
+		);
+		if (!ownership.success) {
+			throw new Error(
+				`A deployment records "${row.ownership}" ownership, which Nova does not know.`,
+			);
+		}
+		if (row.pushed_identity === null) {
+			throw new Error(
+				"A lookup table mapping read for its pushed name holds none.",
+			);
+		}
+		return {
+			tableId: row.nova_resource_id,
+			appId: row.app_id,
+			remoteId: row.remote_id,
+			pushedIdentity: row.pushed_identity,
+			ownership: ownership.data,
+			adoptedAt: isoOrNull(row.adopted_at),
+			adoptedBy: row.adopted_by,
+		};
+	});
 }
 
 /**
@@ -1376,6 +1464,13 @@ export interface RecordRemoteResourceInput {
 	 * reviewable decision into a constraint violation at 3am.
 	 */
 	readonly adoptedBy?: string | null;
+	/**
+	 * When the resource was handed to Nova, where that moment is not this
+	 * write's: a lookup table a sibling app adopted, or one a person took over
+	 * with Manage in Nova, keeps their moment beside their name. Absent or
+	 * null on an adoption, the write's own moment. Only with `adoptedBy`.
+	 */
+	readonly adoptedAt?: string | null;
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
 	/**
@@ -2042,6 +2137,90 @@ function rememberTargetFacts(key: string, facts: TargetFacts | null): void {
 }
 
 /**
+ * The first-publish list each of the app's deployments keeps on its
+ * baseline, keyed by deployment id, with the HQ app the baseline was read
+ * from. A deployment that keeps none has no entry.
+ *
+ * `view`, where `readAppBaseline` takes `edit`: it selects the list and the
+ * HQ app's id and never the source, so the Publishing section and the
+ * pre-publish check read it as a viewer does. A stored id the registry no
+ * longer holds is dropped with a warning, and a value of any other shape is
+ * logged at error and read as no list: an edit of the registry stops no
+ * page and no publish.
+ */
+export async function readFirstPublishStates(
+	scope: DeploymentScope,
+): Promise<ReadonlyMap<string, FirstPublishState>> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("app_deployment_baselines as b")
+		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
+		.select(["b.deployment_id", "b.remote_app_id", "b.first_publish_changes"])
+		.where("d.app_id", "=", scope.appId)
+		.where("d.project_id", "=", scope.projectId)
+		.where("b.first_publish_changes", "is not", null)
+		.execute();
+	const states = new Map<string, FirstPublishState>();
+	for (const row of rows) {
+		const stored = storedFirstPublish(
+			row.deployment_id,
+			row.first_publish_changes,
+		);
+		if (stored !== null)
+			states.set(row.deployment_id, {
+				remoteAppId: row.remote_app_id,
+				stored,
+			});
+	}
+	return states;
+}
+
+const REGISTERED_FIRST_PUBLISH_IDS: ReadonlySet<string> = new Set(
+	FIRST_PUBLISH_CHANGE_IDS,
+);
+
+/**
+ * A stored first-publish list as the registry reads it now, or null. Nova
+ * wrote the value, so one that is no list of ids beside a Web App setting
+ * and a kind is logged at error; an id the registry has since lost is
+ * dropped with a warning and the rest kept.
+ */
+function storedFirstPublish(
+	deploymentId: string,
+	value: unknown,
+): StoredFirstPublish | null {
+	const unreadable = (issue: string): null => {
+		log.error(
+			`The deployment ${deploymentId} holds first-publish changes Nova can't read (${issue}). They are written when an app is brought in, by lib/deployment/adoption.ts::adoptedAppBaselineWrite, and when changes made in CommCare HQ are brought in or recorded, by lib/deployment/store.ts::recordHqChangesTaken and ::recordRefreshedAppBaseline. Nova is showing this deployment with no list.`,
+			undefined,
+			{ deploymentId },
+		);
+		return null;
+	};
+	if (typeof value !== "object" || value === null || Array.isArray(value))
+		return unreadable("not an object");
+	const record = value as Record<string, unknown>;
+	const keys = Object.keys(record).sort();
+	if (keys.join(",") !== "ids,of,webAppsOnInHq")
+		return unreadable(`keys ${keys.join(", ")}`);
+	if (!Array.isArray(record.ids)) return unreadable("ids is not a list");
+	const ids = record.ids.filter((id) => {
+		if (typeof id !== "string" || REGISTERED_FIRST_PUBLISH_IDS.has(id))
+			return true;
+		log.warn("[deployment] first-publish change no longer registered", {
+			deploymentId,
+			changeId: id,
+		});
+		return false;
+	});
+	const parsed = storedFirstPublishSchema.safeParse({ ...record, ids });
+	if (!parsed.success)
+		return unreadable(parsed.error.issues[0]?.code ?? "unknown shape");
+	return parsed.data;
+}
+
+/**
  * What the project space holds of the values Nova leaves to CommCare HQ,
  * projected from this target's stored app baseline, or null where there is
  * no baseline, it is `unread` or a shell's, or it does not verify.
@@ -2272,9 +2451,19 @@ async function writeResourceMapping(
 				: "Only an adopted resource records who adopted it; a resource Nova created has no such decision to attribute.",
 		);
 	}
+	const adoptedAt = input.adoptedAt ?? null;
+	if (!adopted && adoptedAt !== null) {
+		throw new Error(
+			"Only an adopted resource records when it was adopted; a resource Nova created has no such decision to date.",
+		);
+	}
 	const attribution = {
 		ownership: input.ownership,
-		adopted_at: adopted ? now : null,
+		adopted_at: adopted
+			? adoptedAt === null
+				? now
+				: new Date(adoptedAt)
+			: null,
 		adopted_by: adopted ? adoptedBy : null,
 		pushed_identity: input.pushedIdentity ?? null,
 	} as const;

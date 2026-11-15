@@ -6,7 +6,9 @@
  * every one of them is a thing an author comes to this screen to do. Capability
  * decides what appears: an editor sees the first three, and the two that need
  * `delete` are absent rather than present-and-disabled for someone who can
- * never use them.
+ * never use them. A table CommCare HQ manages is a copy, so it offers none of
+ * the edits to anyone (its banner says why and what to do instead); removing
+ * Nova's copy stays a `delete`, held to the same reference blockers.
  */
 "use client";
 
@@ -30,11 +32,7 @@ import type {
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
 import { useNavigate } from "@/lib/routing/hooks";
-import {
-	useCanDelete,
-	useProjectCanEdit,
-	useProjectId,
-} from "@/lib/session/hooks";
+import { useProjectId } from "@/lib/session/hooks";
 import { AddColumnDialog } from "./AddColumnDialog";
 import { CsvImportDialog } from "./CsvImportDialog";
 import { DestructiveChangeDialog } from "./DestructiveChangeDialog";
@@ -49,6 +47,7 @@ import {
 	rowAdditionRefusal,
 	tableCapacity,
 } from "./projectDataModel";
+import { useTableIsEditable } from "./useProjectData";
 
 export function TableActions({
 	table,
@@ -57,8 +56,10 @@ export function TableActions({
 	table: LookupTableSnapshot;
 	workspace: ProjectDataWorkspace;
 }) {
-	const canEdit = useProjectCanEdit();
-	const canDelete = useCanDelete();
+	const editability = useTableIsEditable(table.id);
+	const canEdit = editability.edit;
+	const canChangeSchema = editability.changeSchema;
+	const canDeleteTable = editability.deleteTable;
 	const projectId = useProjectId();
 	const navigate = useNavigate();
 	const [name, setName] = useState(() =>
@@ -196,32 +197,32 @@ export function TableActions({
 						</Button>
 					</>
 				)}
-				{canDelete && (
-					<>
-						<Button
-							type="button"
-							variant="ghost"
-							className=""
-							disabled={settingWrite !== null}
-							onClick={() => setEditingTag(true)}
-						>
-							Edit export tag
-						</Button>
-						<Button
-							type="button"
-							variant="ghost-destructive"
-							disabled={tableBusy}
-							onClick={() => setDeleting(table.tableRevision)}
-						>
-							<Icon
-								icon={tablerTrash}
-								width="16"
-								height="16"
-								aria-hidden="true"
-							/>
-							Delete table
-						</Button>
-					</>
+				{canChangeSchema && (
+					<Button
+						type="button"
+						variant="ghost"
+						className=""
+						disabled={settingWrite !== null}
+						onClick={() => setEditingTag(true)}
+					>
+						Edit export tag
+					</Button>
+				)}
+				{canDeleteTable && (
+					<Button
+						type="button"
+						variant="ghost-destructive"
+						disabled={tableBusy}
+						onClick={() => setDeleting(table.tableRevision)}
+					>
+						<Icon
+							icon={tablerTrash}
+							width="16"
+							height="16"
+							aria-hidden="true"
+						/>
+						Delete table
+					</Button>
 				)}
 			</div>
 
@@ -324,7 +325,7 @@ export function TableActions({
 				</div>
 			)}
 
-			{canDelete && editingTag && (
+			{canChangeSchema && editingTag && (
 				<div className="space-y-2">
 					<p className="text-[12px] leading-snug text-nova-text-muted">
 						The export tag is the stable table name CommCare and integrations
@@ -452,7 +453,7 @@ export function TableActions({
 				/>
 			)}
 
-			{canDelete && deleting !== null && (
+			{canDeleteTable && deleting !== null && (
 				<DestructiveChangeDialog
 					open
 					table={table}

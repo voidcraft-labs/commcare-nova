@@ -749,8 +749,18 @@ export function slotPrint(
 	ref: SlotContextRef,
 	env: ExpressionReadEnv,
 ): SlotPrint {
+	return slotPrintUnder(doc, ref, namingOf(env));
+}
+
+/** `slotPrint` under a lookup naming the caller holds: the questions a
+ *  block's place binds are the same under every naming, which names only
+ *  tables and columns. */
+export function slotPrintUnder(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+	naming: LookupWireNaming,
+): SlotPrint {
 	if (!caseOperationSlot(ref)) return {};
-	const naming = namingOf(env);
 	let bindings: WireTermBindings | undefined;
 	try {
 		bindings = caseOperationPlaces(

@@ -170,9 +170,15 @@ export function DeploymentStatus({
 					domain: record.domain,
 				});
 				if (result.success) {
-					/* A kept list Check status could not read after its write
-					 * landed keeps the list the card shows. */
-					onUpdated(refreshedViewToShow(result.data, view.kept));
+					/* A kept list or a first-publish list Check status could
+					 * not read after its write landed keeps the one the card
+					 * shows. */
+					onUpdated(
+						refreshedViewToShow(result.data, {
+							kept: view.kept,
+							firstPublish: view.firstPublish,
+						}),
+					);
 					return;
 				}
 				setRefreshError(result.message);
@@ -182,7 +188,15 @@ export function DeploymentStatus({
 				);
 			}
 		});
-	}, [appId, record.server, record.domain, view.kept, onUpdated, sessionApi]);
+	}, [
+		appId,
+		record.server,
+		record.domain,
+		view.kept,
+		view.firstPublish,
+		onUpdated,
+		sessionApi,
+	]);
 
 	const shownKept = view.kept;
 	const handleKeptRefresh = useCallback(() => {
@@ -202,6 +216,7 @@ export function DeploymentStatus({
 				const next = keptRefreshNotice(result, shownKept, {
 					now: new Date(),
 					space: record.domain,
+					firstPublish: view.firstPublish,
 				});
 				if (next.view !== null) onUpdated(next.view);
 				setKeptNotice(next);
@@ -209,7 +224,15 @@ export function DeploymentStatus({
 				setKeptNotice(keptRefreshNotReached(shownKept));
 			}
 		});
-	}, [appId, record.server, record.domain, shownKept, onUpdated, sessionApi]);
+	}, [
+		appId,
+		record.server,
+		record.domain,
+		shownKept,
+		view.firstPublish,
+		onUpdated,
+		sessionApi,
+	]);
 	/* A sentence speaks of the list it was given for, and leaves once a
 	 * publish or a reload moves the list. */
 	const shownKeptNotice =

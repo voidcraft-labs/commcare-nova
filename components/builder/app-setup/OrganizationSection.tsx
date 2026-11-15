@@ -9,7 +9,10 @@
  *
  * The store's snapshot is read once here and passed down, so the two
  * subsections that need it (Places, and Levels for its occupied set) share
- * one subscription rather than racing two.
+ * one subscription rather than racing two. Where the places are a copy
+ * CommCare HQ manages, the snapshot says so (`hq`): the banner above says
+ * where they live, Levels says what Nova assumed, and Places offers no
+ * control.
  */
 "use client";
 
@@ -18,6 +21,7 @@ import { Spinner } from "@/components/shadcn/spinner";
 import { useOrganization } from "@/lib/organization/useOrganization";
 import { useAppId } from "@/lib/session/hooks";
 import { LevelsSubsection } from "./LevelsSubsection";
+import { ManagedPlacesBanner } from "./ManagedPlacesBanner";
 import { PlaceInformationSubsection } from "./PlaceInformationSubsection";
 import { PlacesSubsection } from "./PlacesSubsection";
 
@@ -91,9 +95,17 @@ export function OrganizationSection() {
 								</Button>
 							</p>
 						)}
+						{organization.hq !== undefined && appId !== undefined && (
+							<ManagedPlacesBanner
+								appId={appId}
+								hq={organization.hq}
+								onRefreshed={organization.reload}
+							/>
+						)}
 						<LevelsSubsection
 							occupiedLevelUuids={occupiedLevelUuids}
 							locations={organization.locations}
+							managedDomain={organization.hq?.domain}
 						/>
 						<PlaceInformationSubsection locations={organization.locations} />
 						<PlacesSubsection organization={organization} />

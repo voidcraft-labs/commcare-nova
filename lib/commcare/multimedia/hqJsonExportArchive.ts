@@ -6,8 +6,14 @@
 // that shape: the app JSON (carrying its `jr://file/commcare/<hash><ext>`
 // references), the HQ bulk-upload `multimedia.zip` holding the bytes those
 // references resolve to, the app's logo as `logo<ext>`, the fixture workbook
-// holding the lookup tables the app reads, and a README that walks a person
-// through the steps that apply.
+// holding the lookup tables the app reads that Nova manages, a second one
+// holding Nova's copy of those CommCare HQ manages, and a README that walks a
+// person through the steps that apply.
+//
+// The file is made for no project space, so it must work for the space that
+// manages a table and for one that has never seen it: a person importing into
+// the space that manages the tables leaves the second workbook out, and
+// anywhere else uploads it too.
 //
 // The app JSON carries no `logo_refs`, and HQ's bulk upload maps no
 // app-level media (`hqmedia/models.py::ApplicationMediaMixin.all_media`), so
@@ -20,8 +26,9 @@
 // carries one. Each companion appears only when the app has one, so a README
 // never lists a step for a file that is not in the archive.
 //
-// The direct-upload path pushes the SAME workbook through CommCare HQ's fixture
-// API before it imports the app (`lib/deployment/service.ts`), so a hand-imported
+// The direct-upload path pushes the SAME rows through CommCare HQ's fixture
+// API before it imports the app (`lib/deployment/service.ts`), less any table
+// CommCare HQ manages in the project space it writes to, so a hand-imported
 // app and an API-uploaded one land the same data on the project space.
 //
 // One builder, two callers: the HTTP download (`app/api/compile/json`) and the
@@ -33,8 +40,10 @@
 import AdmZip from "adm-zip";
 import { type BlueprintDoc, declaresWebApps } from "@/lib/domain";
 import { carriesViaBulkUpload, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { driftDate } from "@/lib/publish/driftReference";
 import {
 	MANUAL_IMPORT_LOOKUP_WORKBOOK,
+	MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK,
 	MANUAL_IMPORT_MEDIA_ZIP,
 	type ManualImportStep,
 	manualImportGuide,
@@ -114,9 +123,20 @@ function sameTypeChildFormNames(doc: BlueprintDoc): string[] {
 }
 
 /**
+ * A table CommCare HQ manages, as the export boundary lists those it left out
+ * of the first workbook (`PreparedExportBoundary.managedLookupTables`).
+ */
+export interface HqImportFileManagedTable {
+	readonly tag: string;
+	readonly domain: string;
+	/** When Nova's copy was last refreshed, an ISO instant. */
+	readonly refreshedAt: string;
+}
+
+/**
  * The manual-import steps for this file, from the same derivations a
  * publish's own checks read: the capabilities and plan features the document
- * needs, the workbook's tables, the media the bulk upload carries, the logo,
+ * needs, the two workbooks' tables, the media the bulk upload carries, the logo,
  * whether the app runs in Web Apps, whether the app reads places, whether it sends forms to CommCare Connect,
  * whether a publish would ask that sync on form entry or CommCare Supply is off, the forms that make a case linked to a case of their own type, and the properties its searches measure distance on. An import file has no target and sends no places.
  *
@@ -129,6 +149,10 @@ export function hqImportFileGuide(input: {
 	readonly doc: BlueprintDoc;
 	readonly assets: AssetManifest;
 	readonly lookupWorkbook: LookupWorkbook | undefined;
+	/** The second workbook, of the tables CommCare HQ manages. */
+	readonly managedLookupWorkbook: LookupWorkbook | undefined;
+	/** The tables the second workbook carries, in the definitions' order. */
+	readonly managedLookupTables: readonly HqImportFileManagedTable[];
 	/** The target the app JSON beside it was written for (`expandDoc`'s). */
 	readonly attachmentTarget: AttachmentUrlTarget | null;
 	/** The lookup naming the app JSON beside it was written under (`expandDoc`'s), or `undefined` for an app that reads no table. */
@@ -138,6 +162,14 @@ export function hqImportFileGuide(input: {
 	return manualImportGuide({
 		appFileName: appFileName(input.appName),
 		lookupTags: input.lookupWorkbook?.tables.map((table) => table.tag) ?? [],
+		/* The guide is made on the server for whoever opens the ZIP, so it has
+		 * no reader's locale: the day is the UTC day, spelled as every drift
+		 * sentence's default spells one. */
+		managedLookupTables: input.managedLookupTables.map((table) => ({
+			tag: table.tag,
+			domain: table.domain,
+			refreshedOn: driftDate(table.refreshedAt),
+		})),
 		hasMedia: bulkUploadAssets(input.doc, input.assets).size > 0,
 		versionFloor: `${COMMCARE_VERSION_FLOOR.major}.${COMMCARE_VERSION_FLOOR.minor}`,
 		capabilities: requiredProjectSpaceCapabilities(input.doc)
@@ -145,7 +177,14 @@ export function hqImportFileGuide(input: {
 			.map(({ label, reasons }) => ({ label, reasons })),
 		planFeatures: requiredPlanFeatures(
 			input.doc,
-			{ lookupTables: input.lookupWorkbook !== undefined, places: false },
+			{
+				/* Either workbook needs the plan's lookup tables, wherever the
+				 * second goes but the project space that manages its tables. */
+				lookupTables:
+					input.lookupWorkbook !== undefined ||
+					input.managedLookupWorkbook !== undefined,
+				places: false,
+			},
 			input.attachmentTarget,
 		).map(({ label, plans, consequence }) => ({ label, plans, consequence })),
 		logo: logo === undefined ? null : { fileName: logo.name },
@@ -162,7 +201,8 @@ export function hqImportFileGuide(input: {
 /**
  * Build the `<app>.zip`: the app JSON, the HQ bulk-upload `multimedia.zip`
  * when the bulk upload carries any media, the logo as `logo<ext>` when the
- * app has one, the fixture workbook when it reads lookup tables, and
+ * app has one, the fixture workbook when it reads a lookup table Nova
+ * manages, the second workbook when it reads one CommCare HQ manages, and
  * `README.txt`, the rendered guide its caller derived with
  * `hqImportFileGuide` over the same inputs.
  *
@@ -173,7 +213,8 @@ export function hqImportFileGuide(input: {
  * an API upload speak one format. The caller resolves the manifest
  * `withBytes: true` first: every entry must carry its bytes or
  * `buildMediaBulkUploadZip` throws. The workbook arrives already built, from
- * the same validated lookup generation the export boundary measured.
+ * the same validated lookup generation the export boundary measured, and so
+ * does the second.
  */
 export function buildHqJsonExportArchive(
 	appName: string,
@@ -181,6 +222,7 @@ export function buildHqJsonExportArchive(
 	hqJson: HqApplication,
 	assets: AssetManifest,
 	lookupWorkbook: LookupWorkbook | undefined,
+	managedLookupWorkbook: LookupWorkbook | undefined,
 	readme: string,
 ): Buffer {
 	const bundle = new AdmZip();
@@ -206,6 +248,12 @@ export function buildHqJsonExportArchive(
 		bundle.addFile(
 			MANUAL_IMPORT_LOOKUP_WORKBOOK,
 			Buffer.from(lookupWorkbook.bytes),
+		);
+	}
+	if (managedLookupWorkbook !== undefined) {
+		bundle.addFile(
+			MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK,
+			Buffer.from(managedLookupWorkbook.bytes),
 		);
 	}
 	bundle.addFile("README.txt", Buffer.from(readme, "utf-8"));

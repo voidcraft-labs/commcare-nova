@@ -21,12 +21,15 @@ import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import type { LookupColumnId, LookupRowId } from "@/lib/domain/lookupIds";
 import type { LookupRow, LookupTableSnapshot } from "@/lib/lookup/types";
+import { COLUMN_GONE_IN_HQ } from "@/lib/publish/managedData";
 import { useNavigate } from "@/lib/routing/hooks";
+import { ManagedTableBanner } from "./ManagedTableBanner";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
 import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
 import {
@@ -154,6 +157,9 @@ export function ProjectDataTableScreen() {
 				<code className="font-mono text-nova-text-secondary">{table.tag}</code>
 			</p>
 
+			{workspace !== null && (
+				<ManagedTableBanner table={table} workspace={workspace} />
+			)}
 			{workspace !== null && (
 				<TableActions table={table} workspace={workspace} />
 			)}
@@ -380,6 +386,11 @@ function TableGrid({
 										<span className="block text-[12px] font-normal text-nova-text-muted">
 											{COLUMN_TYPE_LABELS[column.dataType]}
 										</span>
+										{table.hq?.goneColumnIds.includes(column.id) === true && (
+											<Badge variant="amber" className="mt-1">
+												{COLUMN_GONE_IN_HQ}
+											</Badge>
+										)}
 									</Button>
 								</th>
 							))}

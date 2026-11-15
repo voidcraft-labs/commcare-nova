@@ -422,15 +422,19 @@ export function planDatetimeSplit(
 	);
 	// A conversion to a Hidden Value flips no case type, so its cascade never
 	// refuses, and its first mutation is always the addressed convert, which
-	// the split states itself below.
+	// the split states itself below. The rest of a Hidden Value's cascade only
+	// pins a property the converted question was the last typed writer of,
+	// for a Hidden Value that holds no value yet; the split's Hidden Value
+	// takes the clock-keeping join in the same batch, which types every
+	// property it saves to as a date and time, so the split pins nothing, and
+	// a reading of its export, which declares no type a writer gives, reads
+	// the same catalog back.
 	const conversion = planKindConversion({
 		doc,
 		field: original,
 		toKind: "hidden",
 	});
-	const [addressedConvert, ...cascade] = conversion.ok
-		? conversion.mutations
-		: [];
+	const [addressedConvert] = conversion.ok ? conversion.mutations : [];
 	if (
 		addressedConvert?.kind !== "convertField" ||
 		addressedConvert.uuid !== fieldUuid
@@ -485,7 +489,6 @@ export function planDatetimeSplit(
 			[timeUuid],
 			fingerprints,
 		),
-		...cascade,
 	];
 	return {
 		ok: true,

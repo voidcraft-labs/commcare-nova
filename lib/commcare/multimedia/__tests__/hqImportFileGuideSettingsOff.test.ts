@@ -28,6 +28,8 @@ function guide(doc: ReturnType<typeof placementFixture>["doc"]) {
 		doc,
 		assets: new Map(),
 		lookupWorkbook: undefined,
+		managedLookupWorkbook: undefined,
+		managedLookupTables: [],
 		attachmentTarget: null,
 		lookupNaming: undefined,
 	});

@@ -14,7 +14,9 @@ source no Nova export holds, which a test writes by hand to show what a
 reader does with it, is written as the spelling rules' tests write one
 (``form_written``): ``with_the_media_slots`` writes the form Nova emitted
 before defect 16 took media off a hint, a validation message and a group's or
-repeat's label.
+repeat's label, and ``with_missing_media`` takes a published app's files away
+as an app made in HQ can hold them: a multimedia map entry gone, or a file
+deleted from the project space while its entry stays.
 
 ``build_id`` names an archive HQ does not hold (Nova's local export) by its
 content, and ``core_sessions`` runs Core's sessions over a build, as proof 3
@@ -180,6 +182,52 @@ def with_the_media_slots(holder):
     media stays Nova's export. ``holder`` is a ``Published`` or a ``proof.webapps.hq.Project``."""
     kept = (MEDIA_SLOTS / f"{holder.document.id}.form.xml").read_text(encoding="utf-8")
     return form_written(holder, {"0.0": lambda _source: kept})
+
+
+# The files ``targeted-missing-media`` names, by the name their path ends in (each path is
+# ``jr://file/commcare/<the file's SHA-256><extension>``): the three whose map entries ``with_missing_media`` takes
+# out (the question's image, the menu's, list's and Register action's picture, and the one sound), and the one whose
+# entry stays while its file is deleted (the question ``photo``'s image).
+MISSING_MEDIA_UNMAPPED = (
+    "50a8af47cc2e68f022bfb93e26be925081df6d21b3d4c276cdabdbd8d31de83d.png",
+    "30ab512e6539a83342a9415c6e7ddc7358a0ffd2aefe5369c86b9efb591e3984.png",
+    "4aebda3a657a0d8f532d11ceacb1679081d7bdf7d7d301a53f1096af3580be91.wav",
+)
+MISSING_MEDIA_DELETED = "c5f74c6dda51d3941b4d17d05991f900debbf387ff748eda65d2f03dda227b2e.png"
+
+
+def with_missing_media(holder, *, delete_file=True):
+    """A ``change`` (for ``served`` and ``proof.webapps.hq.Project.released``) that takes the files of
+    ``targeted-missing-media`` away from the published app, as an app made in CommCare HQ can hold them: each
+    path of ``MISSING_MEDIA_UNMAPPED`` loses its entry in the app's multimedia map, and, with ``delete_file``, the
+    media document of ``MISSING_MEDIA_DELETED``'s entry is deleted from the project space by HQ's own model while
+    the entry stays. The app is saved through HQ's app, and the stored document the release is made from is read
+    again. ``holder`` holds the app (its ``unit`` and ``app_id``)."""
+
+    def change(stored):
+        from corehq.apps.hqmedia.models import CommCareMultimedia
+
+        from proof.hq import operations
+
+        app = operations.held_app(holder.unit, holder.app_id)
+        paths = {path.rsplit("/", 1)[-1]: path for path in app.multimedia_map}
+        named = (*MISSING_MEDIA_UNMAPPED, MISSING_MEDIA_DELETED)
+        absent = [name for name in named if name not in paths]
+        if absent:
+            raise AssertionError(
+                f"The published app's multimedia map holds no path ending in {absent}, which targeted-missing-media"
+                f" names: it holds {sorted(paths)}. The document's files changed; write their names here again."
+            )
+        for name in MISSING_MEDIA_UNMAPPED:
+            del app.multimedia_map[paths[name]]
+        if delete_file:
+            kept = app.multimedia_map[paths[MISSING_MEDIA_DELETED]]
+            CommCareMultimedia.get_doc_class(kept.media_type).get(kept.multimedia_id).delete()
+        app.save()
+        stored.clear()
+        stored.update(operations.held_app(holder.unit, holder.app_id).to_json())
+
+    return change
 
 
 @contextmanager

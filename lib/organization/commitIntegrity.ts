@@ -13,8 +13,13 @@ import {
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
+	type ManagedOrganizationCommitRefusal,
+	managedOrganizationCommitRefusal,
+} from "@/lib/publish/managedData";
+import {
 	fixedLocationOwnerIssue,
 	ownerVerdictRows,
+	reverseHopDestinationLevelUuids,
 	reverseLocationOwnerIssue,
 } from "./ownerTargetVerdicts";
 import { locationValueCatalogIssue } from "./valueCatalog";
@@ -43,7 +48,41 @@ import { advanceOrganizationRevision } from "./writerTransaction";
  *
  * All of it runs after the verdict and before the entity write, so a rejection
  * leaves nothing behind and a shed never outlives the removal that caused it.
+ *
+ * Three of the row-to-document refusals end by sending the author to move or
+ * change places. Where the app's places are a copy CommCare HQ manages, Nova
+ * refuses those place edits, so the same refusal names CommCare HQ and a
+ * refresh instead ({@link refusalFor}).
  */
+
+/**
+ * The refusal a row-to-document check throws: today's sentence, or, where
+ * CommCare HQ manages the app's places, the managed sentence with the step
+ * that works. Called on the refusal path only, so a commit that passes reads
+ * nothing more.
+ */
+async function refusalFor(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	sentence: string,
+	managed: ManagedOrganizationCommitRefusal,
+): Promise<BlueprintCommitRejectedError> {
+	const state = await tx
+		.selectFrom("app_organization_state")
+		.select(["hq_server", "hq_domain"])
+		.where("app_id", "=", appId)
+		.executeTakeFirst();
+	if (
+		state === undefined ||
+		state.hq_server === null ||
+		state.hq_domain === null
+	) {
+		return new BlueprintCommitRejectedError(sentence);
+	}
+	return new BlueprintCommitRejectedError(
+		managedOrganizationCommitRefusal(managed, state.hq_domain),
+	);
+}
 
 /**
  * Every location row the document references, deduplicated and sorted.
@@ -227,10 +266,13 @@ export async function assertRemovedLevelsUnused(
 	const names = removed
 		.filter((level) => blocked.has(level.uuid))
 		.map((level) => `"${level.name}"`);
-	throw new BlueprintCommitRejectedError(
+	throw await refusalFor(
+		tx,
+		appId,
 		names.length === 1
 			? `${names[0]} still has places in it, so the level can't be removed. Bring back any archived places, then move every place to another level.`
 			: `${names.join(" and ")} still have places in them, so those levels can't be removed. Bring back any archived places, then move every place to another level.`,
+		{ kind: "level-in-use", levels: names },
 	);
 }
 
@@ -291,15 +333,22 @@ export async function assertLocationPlacementsValid(
 
 	for (const row of rows) {
 		const locationLevel = levels[row.level_uuid];
+		const placement = { kind: "placement", place: `"${row.name}"` } as const;
 		if (locationLevel === undefined) {
-			throw new BlueprintCommitRejectedError(
+			throw await refusalFor(
+				tx,
+				args.appId,
 				`"${row.name}" stands at a level this change removes. Bring it back first if it is archived, then move it to another level.`,
+				placement,
 			);
 		}
 		if (row.parent_id === null) {
 			if (locationLevel.parentLevelUuid !== undefined) {
-				throw new BlueprintCommitRejectedError(
+				throw await refusalFor(
+					tx,
+					args.appId,
 					`"${row.name}" would be left without a parent place after this level change. Bring it back first if it is archived, move it to a valid parent, then retry the level change.`,
+					placement,
 				);
 			}
 			continue;
@@ -309,8 +358,11 @@ export async function assertLocationPlacementsValid(
 			parent === undefined ||
 			!levelMayNestUnder(row.level_uuid, parent.level_uuid, levels)
 		) {
-			throw new BlueprintCommitRejectedError(
+			throw await refusalFor(
+				tx,
+				args.appId,
 				`"${row.name}" would no longer sit under a place at a level above it after this level change. Bring it back first if it is archived, move it to a valid parent, then retry the level change.`,
+				placement,
 			);
 		}
 	}
@@ -338,8 +390,11 @@ export async function assertLocationValuesValid(
 			row.values,
 		);
 		if (issue !== undefined) {
-			throw new BlueprintCommitRejectedError(
+			throw await refusalFor(
+				tx,
+				args.appId,
 				`"${row.name}" blocks this change. ${issue}`,
+				{ kind: "value", place: `"${row.name}"`, issue },
 			);
 		}
 	}
@@ -400,21 +455,6 @@ function fixedOwnerTargets(doc: BlueprintDoc): readonly string[] {
 			if (owner?.kind === "term" && owner.term.kind === "fixed-location") {
 				targets.add(owner.term.locationUuid);
 			}
-		}
-	}
-	return [...targets].sort();
-}
-
-function reverseHopDestinationLevelUuids(doc: BlueprintDoc): readonly string[] {
-	const targets = new Set<string>();
-	for (const form of Object.values(doc.forms)) {
-		for (const operation of form.caseOperations ?? []) {
-			if (operation.owner === undefined) continue;
-			walkExpressionTerms(operation.owner, (term) => {
-				if (term.kind === "owner-location-at-level") {
-					targets.add(term.levelUuid);
-				}
-			});
 		}
 	}
 	return [...targets].sort();

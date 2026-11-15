@@ -91,7 +91,8 @@ export type LookupSchemaGovernanceErrorCode =
 	| "referenced"
 	| "accepted_design"
 	| "last_column"
-	| "incompatible_values";
+	| "incompatible_values"
+	| "managed_in_hq";
 
 export class LookupSchemaGovernanceError extends Error {
 	readonly code: LookupSchemaGovernanceErrorCode;
@@ -203,7 +204,9 @@ function normalizeOperation(
 function translateLockedTableError(error: unknown): never {
 	if (
 		error instanceof LookupError &&
-		(error.code === "not_found" || error.code === "conflict")
+		(error.code === "not_found" ||
+			error.code === "conflict" ||
+			error.code === "managed_in_hq")
 	) {
 		throw new LookupSchemaGovernanceError(error.code, error.message, {
 			cause: error,
@@ -224,6 +227,9 @@ async function lockTargetTable(
 			projectId,
 			operation.tableId,
 			operation.expectedTableRevision,
+			/* Removing Nova's copy changes nothing in CommCare HQ, so a table
+			 * it manages may still be deleted; its columns may not change. */
+			operation.kind === "delete-table" ? "remove-table" : "author",
 		);
 	} catch (error) {
 		translateLockedTableError(error);

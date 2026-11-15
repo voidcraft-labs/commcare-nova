@@ -55,6 +55,7 @@ import {
 } from "./caseList/details";
 import {
 	implicitOrderRuleIsAbsent,
+	orderPrioritiesAsRead,
 	rulesOnTheColumnsTheyLandOn,
 } from "./caseList/order";
 import { tileColumnsShownNowhereAsRead } from "./caseList/tile";
@@ -645,6 +646,14 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: implicitOrderRuleIsAbsent,
 	},
 	{
+		/** A list whose rules hold numbers other than 0, 1, 2 in their order, and the list
+		 *  numbered so: no export writes a rule's number, only the order of the rules, and the
+		 *  reader numbers the rules it reads from 0 (`caseList/order.ts::orderPrioritiesAsRead`). */
+		id: "order-priorities-as-read",
+		kind: "one-wire",
+		apply: orderPrioritiesAsRead,
+	},
+	{
 		/** In a tile list a column hidden from Results and from Details, as authored, and as a
 		 *  reading gives it: only its order rule reaches an export, so the reader returns a plain
 		 *  such column with no header, last in the order of its rule, and none for one whose rule
@@ -693,13 +702,17 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 	{
 		/** A document's catalog as authored, and the catalog the reader derives from the same
 		 *  document: the emitter reads a property's type through `effectiveCaseTypes`, and a label
-		 *  and a property nothing reads reach no export, so the reader returns the derived one. */
+		 *  and a property nothing reads reach no export, so the reader returns the derived one. An
+		 *  app with no case type holds no catalog, as a new app does (`emptyBlueprintDoc`), and an
+		 *  empty one prints the same bytes, so the document a birth builds from the construction
+		 *  batch is the one the reader returns. */
 		id: "case-catalog-is-as-read",
 		kind: "one-wire",
 		apply: (doc) => {
 			const caseTypes = catalogAsRead(doc);
 			return withCandidate(doc, (draft) => {
-				draft.caseTypes = caseTypes as typeof draft.caseTypes;
+				draft.caseTypes =
+					caseTypes.length === 0 ? null : (caseTypes as typeof draft.caseTypes);
 			});
 		},
 	},

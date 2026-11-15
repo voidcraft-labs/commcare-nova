@@ -108,8 +108,11 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   (`e2e/lib/searchStandingSeed.ts`). The
   refused preload's record is written straight into `cases`, as an import leaves
   it, because the case store's own writers refuse a date property that is not a
-  date. A journey may switch its active Project or change a member's role
-  without affecting another scenario. Viewer contexts use that attempt's
+  date. The managed-data profile writes its copies through the bring-in's own
+  writers and gives the owner a CommCare HQ connection row whose key nothing
+  can use, because its journey never presses an action that sends one; its
+  second member is an editor with no connection. A journey may switch its
+  active Project or change a member's role without affecting another scenario. Viewer contexts use that attempt's
   separate viewer cookie.
 - **Browser component tests own local peers and contexts.** `e2e/tests/browser/`
   runs in Chromium against ephemeral component peers, using production CSS and the

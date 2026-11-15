@@ -28,8 +28,9 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  * for people who import into CommCare HQ themselves rather than through an
  * API key. Shares the auth + parse + boundary-gate + manifest preamble with
  * the `.ccz` twin via `prepareCompileRequest`, then always answers a ZIP:
- * the app JSON, the HQ bulk-upload `multimedia.zip` and the fixture workbook
- * when the app has them, and a `README.txt` that is the rendered
+ * the app JSON, the HQ bulk-upload `multimedia.zip`, the fixture workbook
+ * and the second workbook of the tables CommCare HQ manages when the app has
+ * them, and a `README.txt` that is the rendered
  * manual-import guide. The guide's steps also ride the
  * `X-Nova-Manual-Import-Guide` header, so the publish dialog shows exactly
  * what the README says once the file has arrived.
@@ -53,6 +54,8 @@ export async function POST(req: NextRequest) {
 			attachmentTargetState,
 			lookupNaming,
 			lookupWorkbook,
+			managedLookupTables,
+			managedLookupWorkbook,
 		} = await prepareCompileRequest(req, {
 			boundaryErrorVerb: "export",
 			mode: "hq-json",
@@ -93,6 +96,8 @@ export async function POST(req: NextRequest) {
 			doc,
 			assets,
 			lookupWorkbook,
+			managedLookupWorkbook,
+			managedLookupTables,
 			attachmentTarget,
 			lookupNaming,
 		});
@@ -102,6 +107,7 @@ export async function POST(req: NextRequest) {
 			hqJson,
 			assets,
 			lookupWorkbook,
+			managedLookupWorkbook,
 			renderManualImportGuide(guide),
 		);
 		// The archive is the artifact the person hands to HQ, and HQ's importer

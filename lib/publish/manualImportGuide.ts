@@ -18,6 +18,11 @@ import {
 	distanceSearchSetupStep,
 	distanceSearchSetupSummary,
 } from "./distanceSearchSetup";
+import {
+	MANAGED_LOOKUP_GUIDE_TITLE,
+	type ManagedLookupGuideTable,
+	managedLookupGuideLines,
+} from "./managedData";
 import { namesInWords } from "./planFeatures";
 import {
 	PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
@@ -26,6 +31,7 @@ import {
 
 export type ManualImportStepKind =
 	| "lookup-tables"
+	| "managed-lookup-tables"
 	| "import-app"
 	| "commcare-version"
 	| "media"
@@ -42,6 +48,7 @@ export type ManualImportStepKind =
 
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"lookup-tables",
+	"managed-lookup-tables",
 	"import-app",
 	"commcare-version",
 	"media",
@@ -69,6 +76,12 @@ export interface ManualImportGuideInput {
 	readonly appFileName: string;
 	/** The tag of each lookup table the workbook carries; empty for none. */
 	readonly lookupTags: readonly string[];
+	/**
+	 * Each lookup table the second workbook carries, managed in CommCare HQ:
+	 * its tag, the project space that manages it, and the UTC day Nova's
+	 * copy was last refreshed. Empty for none.
+	 */
+	readonly managedLookupTables: readonly ManagedLookupGuideTable[];
 	readonly hasMedia: boolean;
 	/** The floor as text, "2.57". The caller formats it; the guide imports no constant. */
 	readonly versionFloor: string;
@@ -106,6 +119,14 @@ export interface ManualImportGuideInput {
 
 /** The ZIP's member that holds the lookup tables. */
 export const MANUAL_IMPORT_LOOKUP_WORKBOOK = "lookup-tables.xlsx";
+/**
+ * The ZIP's member that holds Nova's copy of the lookup tables CommCare HQ
+ * manages. A file of its own, so a person importing into the project space
+ * that manages them uploads the first file as always and touches nothing
+ * CommCare HQ manages.
+ */
+export const MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK =
+	"lookup-tables-managed-in-commcare-hq.xlsx";
 /** The ZIP's member that holds the media, in CommCare HQ's bulk-upload format. */
 export const MANUAL_IMPORT_MEDIA_ZIP = "multimedia.zip";
 
@@ -133,6 +154,27 @@ function lookupTablesStep(tags: readonly string[]): ManualImportStep {
 			`The file carries ${tags.join(", ")}. If your project already has a table with one`,
 			"of those names, uploading replaces its rows.",
 		],
+	};
+}
+
+/**
+ * The second workbook, right after the first. Uploading it into the project
+ * space that manages its tables would replace their rows there with Nova's
+ * copy, so the step says to leave it out there; where the file carries no
+ * first workbook, it says how to upload it anywhere else.
+ */
+function managedLookupTablesStep(
+	tables: readonly ManagedLookupGuideTable[],
+	afterLookupTablesStep: boolean,
+): ManualImportStep {
+	return {
+		kind: "managed-lookup-tables",
+		title: MANAGED_LOOKUP_GUIDE_TITLE,
+		lines: managedLookupGuideLines(
+			tables,
+			MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK,
+			afterLookupTablesStep,
+		),
 	};
 }
 
@@ -385,6 +427,14 @@ export function manualImportGuide(
 	return [
 		...(input.lookupTags.length > 0
 			? [lookupTablesStep(input.lookupTags)]
+			: []),
+		...(input.managedLookupTables.length > 0
+			? [
+					managedLookupTablesStep(
+						input.managedLookupTables,
+						input.lookupTags.length > 0,
+					),
+				]
 			: []),
 		importAppStep(input.appFileName),
 		commCareVersionStep(input.versionFloor),

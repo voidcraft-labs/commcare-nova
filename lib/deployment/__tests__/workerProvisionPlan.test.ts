@@ -33,6 +33,7 @@ import {
 	requiredWorkerDataGaps,
 	retainUnconfirmedWorkers,
 	unconfirmedWorkerKey,
+	workerProvisionProblems,
 } from "../workerProvisionPlan";
 
 const DOMAIN = "myproject";
@@ -102,6 +103,7 @@ function plan(
 	return planWorkerProvisioning({
 		workers: [worker()],
 		mappings: [],
+		managedPlaceIds: new Map(),
 		hqWorkers: [],
 		workerDataGaps: new Map(),
 		domain: DOMAIN,
@@ -349,6 +351,35 @@ describe("things CommCare HQ would take and then not do", () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("Expected a provisionable plan");
 		expect(result.pushes[0]?.locationIds).toEqual(["hq-denver", "hq-second"]);
+	});
+
+	it("stands a persona in the place CommCare HQ manages, by the id the copy holds", () => {
+		const input = {
+			workers: [worker({ locationUuids: [DENVER] })],
+			mappings: [],
+			managedPlaceIds: new Map([[DENVER, "hq-managed-denver"]]),
+			workerDataGaps: new Map(),
+			domain: DOMAIN,
+		};
+		// The problem pass runs before the search, with no plan yet.
+		expect(workerProvisionProblems(input)).toEqual([]);
+		const result = plan(input);
+		if (!result.ok) throw new Error("Expected a provisionable plan");
+		expect(result.pushes[0]?.locationIds).toEqual(["hq-managed-denver"]);
+		// A place neither the copy nor the ledger holds is still refused.
+		expect(
+			workerProvisionProblems({
+				...input,
+				workers: [worker({ locationUuids: [DENVER, "second-place"] })],
+			}),
+		).toEqual([
+			{
+				kind: "place-not-pushed",
+				personaUuid: AMINA,
+				personaName: "Amina",
+				locationUuid: "second-place",
+			},
+		]);
 	});
 });
 

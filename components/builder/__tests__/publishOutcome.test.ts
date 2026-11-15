@@ -222,6 +222,7 @@ describe("a publish that landed", () => {
 				artifact: ARTIFACT,
 				leftBehind: [],
 				kept: null,
+				firstPublish: null,
 			},
 			hqAppAction: null,
 			appUrl: "https://hq/app",
@@ -535,6 +536,7 @@ describe("a publish that was refused", () => {
 			artifact: ARTIFACT,
 			leftBehind: [],
 			kept: null,
+			firstPublish: null,
 		});
 		expect(outcome.resourceConflicts).toStrictEqual([]);
 	});

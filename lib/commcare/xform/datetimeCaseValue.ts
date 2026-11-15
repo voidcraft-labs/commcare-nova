@@ -45,6 +45,13 @@ export function datetimeCaseValuePath(
  *
  * `clock` names the node that reads a typed leaf holding `now()` once
  * (`generatedNodes.ts`, purpose `instant`); a question read needs none.
+ *
+ * An app made in CommCare HQ that saves a date and time question straight
+ * to a case is refused when it is brought in (its source stores the day
+ * alone, where this value stores the moment). One that holds the spelling
+ * Nova wrote before this value was CommCare HQ's is read as the same write,
+ * and the first publish writes this spelling back, which the first-publish
+ * register declares (`date-and-time-saved-as-hq-stores-it`).
  */
 export function datetimeCaseValue(
 	expression: Expression,

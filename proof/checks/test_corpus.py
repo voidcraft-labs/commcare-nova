@@ -802,12 +802,12 @@ def test_the_corpus_holds_each_search_workflow_and_each_placement():
 
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits. Every pull request that adds or removes a document writes the count its sources then give.
-FIXED_DOCUMENTS = 424
+FIXED_DOCUMENTS = 425
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
     """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
-    the floor plus the sample's size (464 with the default sample of 40). Catches a source that silently stops
+    the floor plus the sample's size (465 with the default sample of 40). Catches a source that silently stops
     emitting a document, which every other test would pass by reading less."""
     corpus = cases.load_corpus()
     emitted = len(corpus.emitted)

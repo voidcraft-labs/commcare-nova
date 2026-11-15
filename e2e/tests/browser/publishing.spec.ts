@@ -783,6 +783,7 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 		}),
 		leftBehind: [],
 		kept: null,
+		firstPublish: null,
 	};
 	await page.route("**/api/commcare/upload", (route) =>
 		route.fulfill({
@@ -999,6 +1000,7 @@ test("native import file download lists the guide's steps once the file arrives"
 	const steps = manualImportGuide({
 		appFileName: "Endpoint app",
 		lookupTags: ["districts"],
+		managedLookupTables: [],
 		hasMedia: false,
 		versionFloor: "2.57",
 		capabilities: [],
@@ -1096,6 +1098,7 @@ function landedView(
 		}),
 		leftBehind: [],
 		kept: null,
+		firstPublish: null,
 	};
 }
 

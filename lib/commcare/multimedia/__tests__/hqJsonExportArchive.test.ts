@@ -56,6 +56,8 @@ function importFile(
 			doc,
 			assets,
 			lookupWorkbook,
+			managedLookupWorkbook: undefined,
+			managedLookupTables: [],
 			attachmentTarget: null,
 			lookupNaming: undefined,
 		}),
@@ -66,6 +68,7 @@ function importFile(
 		HQ,
 		assets,
 		lookupWorkbook,
+		undefined,
 		readme,
 	);
 }
@@ -161,6 +164,8 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 					doc,
 					assets: NO_MEDIA,
 					lookupWorkbook: undefined,
+					managedLookupWorkbook: undefined,
+					managedLookupTables: [],
 					attachmentTarget: null,
 					lookupNaming: undefined,
 				}),
@@ -244,6 +249,8 @@ describe("the logo in the HQ import file", () => {
 				doc: logoDoc,
 				assets,
 				lookupWorkbook: undefined,
+				managedLookupWorkbook: undefined,
+				managedLookupTables: [],
 				attachmentTarget: null,
 				lookupNaming: undefined,
 			}),
@@ -253,6 +260,7 @@ describe("the logo in the HQ import file", () => {
 			logoDoc,
 			expandDoc(logoDoc, { assets }),
 			assets,
+			undefined,
 			undefined,
 			readme,
 		);
@@ -270,10 +278,100 @@ describe("the logo in the HQ import file", () => {
 			expandDoc(noLogo, { assets: ONE_ASSET }),
 			ONE_ASSET,
 			undefined,
+			undefined,
 			"",
 		);
 		expect(
 			memberNames(archive).filter((name) => name.startsWith("logo")),
 		).toEqual([]);
+	});
+});
+
+describe("the HQ app file's tables managed in CommCare HQ", () => {
+	const MANAGED = [
+		{
+			tag: "records",
+			domain: "acme-health",
+			refreshedAt: "2026-11-03T22:15:00.000Z",
+		},
+	];
+
+	function guideOf(
+		lookupWorkbook: LookupWorkbook | undefined,
+		managedLookupWorkbook: LookupWorkbook | undefined,
+		managedLookupTables: typeof MANAGED,
+	) {
+		return hqImportFileGuide({
+			appName: "Tracker",
+			doc,
+			assets: NO_MEDIA,
+			lookupWorkbook,
+			managedLookupWorkbook,
+			managedLookupTables,
+			attachmentTarget: null,
+			lookupNaming: undefined,
+		});
+	}
+
+	function planFeatureLines(steps: ReturnType<typeof guideOf>): string[] {
+		return (
+			steps.find((step) => step.kind === "plan-features")?.lines ?? []
+		).filter((line) => line.startsWith("  - "));
+	}
+
+	it("still asks for the plan's lookup tables, and adds the managed step, where every table is managed", () => {
+		const steps = guideOf(undefined, ONE_TABLE, MANAGED);
+		expect(
+			planFeatureLines(steps).some((line) =>
+				line.startsWith("  - Lookup Tables: "),
+			),
+		).toBe(true);
+		const kinds = steps.map((step) => step.kind);
+		expect(kinds).not.toContain("lookup-tables");
+		const managed = steps.find((step) => step.kind === "managed-lookup-tables");
+		expect(managed?.title).toBe("Lookup tables managed in CommCare HQ");
+		/* The guide is made on the server for no one reader: the UTC day. */
+		expect(managed?.lines).toContain(
+			"  records (in acme-health, copied on 3 November 2026)",
+		);
+		/* With no workbook to carry, no step asks for the plan's lookup tables. */
+		expect(
+			planFeatureLines(guideOf(undefined, undefined, [])).some((line) =>
+				line.startsWith("  - Lookup Tables: "),
+			),
+		).toBe(false);
+	});
+
+	it("writes both workbooks under their two names", () => {
+		const second = buildLookupWorkbook(
+			lookupWireNaming(corpus.definitions.slice(0, 1)),
+			corpus.rowsByTable,
+		);
+		const steps = guideOf(ONE_TABLE, second, MANAGED);
+		const archive = buildHqJsonExportArchive(
+			"Tracker",
+			doc,
+			HQ,
+			NO_MEDIA,
+			ONE_TABLE,
+			second,
+			renderManualImportGuide(steps),
+		);
+		const zip = new AdmZip(archive);
+		expect(memberNames(archive).sort()).toEqual([
+			"README.txt",
+			"Tracker.json",
+			"lookup-tables-managed-in-commcare-hq.xlsx",
+			"lookup-tables.xlsx",
+		]);
+		expect(zip.readFile("lookup-tables.xlsx")).toEqual(
+			Buffer.from(ONE_TABLE.bytes),
+		);
+		expect(zip.readFile("lookup-tables-managed-in-commcare-hq.xlsx")).toEqual(
+			Buffer.from(second.bytes),
+		);
+		const text = readme(archive);
+		expect(text).toContain("=== 1. Upload the lookup tables ===");
+		expect(text).toContain("=== 2. Lookup tables managed in CommCare HQ ===");
 	});
 });

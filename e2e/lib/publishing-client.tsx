@@ -71,6 +71,7 @@ const view: DeploymentView = {
 	}),
 	leftBehind: [],
 	kept: null,
+	firstPublish: null,
 };
 const getAppId = () => appId;
 async function loadCompatibility(

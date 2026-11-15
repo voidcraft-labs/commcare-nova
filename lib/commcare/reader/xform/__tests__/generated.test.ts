@@ -650,7 +650,7 @@ describe("a case write's siblings, proposed for the case management stage", () =
 		expect(reading.ctx.facts.sameStateRewrites).toEqual([
 			{
 				entry: DATETIME_SIBLING_ENTRY,
-				path: "/data/nova_datetime_seen",
+				path: expect.stringMatching(/^\/_attachments\/[^/]+$/),
 				register: "date-and-time-saved-as-hq-stores-it",
 			},
 		]);

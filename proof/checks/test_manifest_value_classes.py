@@ -1120,6 +1120,27 @@ def _media_app(path, media_type, **fields):
     )
 
 
+def _labelled_media_app(medium, path, mapped, **fields):
+    """An app whose one form's question carries ``path`` as its label's ``medium``, with that path's
+    ``multimedia_map`` entry where ``mapped``, beside an entry for another file, so the map is used either way."""
+    form = _form(
+        data="<q/>",
+        model=(
+            '<itext><translation lang="en" default=""><text id="q-label"><value>Q</value>'
+            f'<value form="{medium}">jr://file/{path}</value></text></translation></itext>'
+            '<bind nodeset="/data/q" type="xsd:string"/>'
+        ),
+        body='<input ref="/data/q"><label ref="jr:itext(\'q-label\')"/></input>',
+    )
+    entries = {"jr://file/commcare/other.png": {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage"}}
+    if mapped:
+        entries[f"jr://file/{path}"] = {
+            "doc_type": "HQMediaMapItem",
+            "media_type": "CommCareAudio" if medium == "audio" else "CommCareImage",
+        }
+    return _with_forms(_app([_module([_form_json("none")])], multimedia_map=entries, **fields), f=form)
+
+
 def _box(kind, body):
     return struct.pack(">I", 8 + len(body)) + kind + body
 
@@ -3947,6 +3968,31 @@ def _search_and_menus():
                 _media_app("commcare/a.png", "CommCareImage"),
                 "schema:Application.multimedia_map",
                 "/multimedia_map",
+            ),
+        ),
+        "expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws": (
+            # In an app with Web Apps: a label's audio with no entry, and the same audio with its entry.
+            refused(
+                "app",
+                _labelled_media_app("audio", "commcare/q.mp3", mapped=False, cloudcare_enabled=True),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                _labelled_media_app("audio", "commcare/q.mp3", mapped=True, cloudcare_enabled=True),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+                readings=True,
+            ),
+            # A label's picture with no entry is drawn on Android alone, which no export declares.
+            unsettled(
+                "app",
+                _labelled_media_app("image", "commcare/q.png", mapped=False, cloudcare_enabled=True),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+                readings=True,
             ),
         ),
         "expressions-and-data/image-tiff-heif": _media_shapes(

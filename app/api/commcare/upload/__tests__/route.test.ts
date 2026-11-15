@@ -25,6 +25,7 @@ import { previewDeploymentAnswerFor } from "@/lib/deployment/previewSpace";
 import {
 	currentResourceIdentities,
 	landedDeploymentKept,
+	landedFirstPublish,
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
@@ -48,6 +49,7 @@ vi.mock("@/lib/deployment/service", () => ({
 	publishAppToHq: vi.fn(),
 	currentResourceIdentities: vi.fn(async () => new Map<string, string>()),
 	landedDeploymentKept: vi.fn(async () => null),
+	landedFirstPublish: vi.fn(async () => null),
 }));
 /* The route asks the server what Preview may name; only the server can
  * see whether the app is now live on more than one space. */
@@ -292,11 +294,34 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		);
 	});
 
+	it("answers with the first-publish list the record keeps, read for where the app runs", async () => {
+		const firstPublish = {
+			ids: ["forms-and-settings-rewritten"] as const,
+			touchesWorkers: false,
+			of: "first-publish" as const,
+		};
+		vi.mocked(landedFirstPublish).mockResolvedValueOnce(firstPublish);
+
+		const body = (await (
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }))
+		).json()) as { first_publish: unknown };
+
+		expect(body.first_publish).toEqual(firstPublish);
+		expect(landedFirstPublish).toHaveBeenCalledWith(
+			expect.objectContaining({ appId: "app-1", projectId: "proj-1" }),
+			deploymentView("uploaded"),
+			undefined,
+			"publish",
+		);
+	});
+
 	it("answers a landed publish as landed when the reads after it fault, leaving out what it could not read", async () => {
-		/* The import went through. A store fault reading the kept list or
-		 * what Preview may name must not turn that into "Upload failed",
-		 * which would send the person to publish again. */
+		/* The import went through. A store fault reading the kept list, the
+		 * first-publish list or what Preview may name must not turn that
+		 * into "Upload failed", which would send the person to publish
+		 * again. */
 		vi.mocked(landedDeploymentKept).mockResolvedValueOnce("unread");
+		vi.mocked(landedFirstPublish).mockResolvedValueOnce("unread");
 		vi.mocked(previewDeploymentAnswerFor).mockResolvedValueOnce(null);
 
 		const res = await POST(
@@ -307,6 +332,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(res.status).toBe(201);
 		expect(body.success).toBe(true);
 		expect(Object.hasOwn(body, "kept")).toBe(false);
+		expect(Object.hasOwn(body, "first_publish")).toBe(false);
 		expect(Object.hasOwn(body, "preview_project_space")).toBe(false);
 		expect(Object.hasOwn(body, "preview_target_facts")).toBe(false);
 	});

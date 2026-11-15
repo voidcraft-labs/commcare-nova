@@ -1,6 +1,7 @@
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { type ValidationError, validationError } from "../validator/errors";
 import { xmlTextIssue } from "../xmlText";
+import { lookupTableManagedInDomain } from "./xmlText";
 
 // Native HQ IteratorJSONReader.set_field_value applies Python str.strip to every
 // decoded string. Python whitespace includes U+0085 and excludes U+FEFF; JS trim
@@ -18,13 +19,23 @@ export function hqWouldTrimLookupText(value: string): boolean {
 	);
 }
 
-/** HQ-only carrier refusal: preserve storage and local fixture semantics. */
+/** The last sentence of `LOOKUP_CELL_TEXT_CHANGED_BY_HQ` for a table CommCare HQ manages in `domain`. */
+export function changedByHqManagedRemedy(domain: string): string {
+	return `CommCare HQ manages this table in ${domain}. You can take that white space out there, then refresh Nova's copy on the table's page.`;
+}
+
+/**
+ * HQ-only carrier refusal: preserve storage and local fixture semantics.
+ * `snapshot` holds the tables a workbook carries, and only those: a table
+ * left out of every workbook is never sent, so CommCare HQ never trims it.
+ */
 export function lookupHqCellTextFindings(
 	snapshot: LookupFixtureDataSnapshot,
 ): ValidationError[] {
 	const findings: ValidationError[] = [];
 	for (const table of snapshot.definitions) {
 		const rows = snapshot.rowsByTable.get(table.id) ?? [];
+		const managedInDomain = lookupTableManagedInDomain(table);
 		for (const column of table.columns) {
 			let count = 0;
 			const examples: { row: number; id: string }[] = [];
@@ -41,11 +52,15 @@ export function lookupHqCellTextFindings(
 				if (examples.length < 5) examples.push({ row: index + 1, id: row.id });
 			});
 			if (count === 0) continue;
+			const remedy =
+				managedInDomain === undefined
+					? "Remove that whitespace in Project data."
+					: changedByHqManagedRemedy(managedInDomain);
 			findings.push(
 				validationError(
 					"LOOKUP_CELL_TEXT_CHANGED_BY_HQ",
 					"app",
-					`The "${column.label}" column in "${table.name}" has leading or trailing whitespace in ${count} row(s) that CommCare HQ would remove. Remove that whitespace in Project data.`,
+					`The "${column.label}" column in "${table.name}" has leading or trailing whitespace in ${count} row(s) that CommCare HQ would remove. ${remedy}`,
 					{},
 					{
 						tableId: table.id,
@@ -55,6 +70,7 @@ export function lookupHqCellTextFindings(
 						offendingRowCount: String(count),
 						offendingRowPositions: examples.map((item) => item.row).join(","),
 						offendingRowIds: examples.map((item) => item.id).join(","),
+						...(managedInDomain !== undefined && { managedInDomain }),
 					},
 				),
 			);

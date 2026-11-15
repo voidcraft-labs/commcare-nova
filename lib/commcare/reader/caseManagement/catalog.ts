@@ -579,8 +579,11 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 		declareSelectTypes(draft, selects);
 		DATETIME_DECLARATIONS.set(ctx, declareHiddenDateTimes(draft, writes));
 	});
+	/* An app with no case type holds no catalog, as a new app does
+	 * (`emptyBlueprintDoc`): an empty one prints the same bytes, and the
+	 * document a birth builds from the construction batch holds none. */
 	ctx.writeDraft(() => {
-		app.caseTypes = next as Catalog;
+		app.caseTypes = next.length === 0 ? null : (next as Catalog);
 	});
 }
 
@@ -724,9 +727,14 @@ function expressionReads(
 function typedReaders(doc: BlueprintDoc): {
 	readonly exact: Map<string, ReadonlySet<CasePropertyDataType>>;
 	readonly dateClass: ReadonlySet<string>;
+	/** The properties a date-range Search field reads on its own case: the field rides the
+	 *  bare prompt, which prints no type, so a date and a date and time print it alike and a
+	 *  reading declares the date (`search/rows.ts`, which tries `date` first). */
+	readonly dateRange: ReadonlySet<string>;
 } {
 	const out = new Map<string, Set<CasePropertyDataType>>();
 	const dateClass = new Set<string>();
+	const dateRange = new Set<string>();
 	const add = (
 		caseType: string,
 		property: string,
@@ -784,13 +792,15 @@ function typedReaders(doc: BlueprintDoc): {
 			if (!destination.ok) continue;
 			if (record.type === "date")
 				add(destination.caseType, record.property, ["date", "datetime"]);
-			if (record.type === "date-range")
+			if (record.type === "date-range") {
 				add(destination.caseType, record.property, ["date"]);
+				dateRange.add(`${destination.caseType}\u0000${record.property}`);
+			}
 		}
 	}
 	for (const [caseType, property] of hiddenDateTimeWrites(doc))
 		add(caseType, property, ["datetime"]);
-	return { exact: out, dateClass };
+	return { exact: out, dateClass, dateRange };
 }
 
 /**
@@ -1190,7 +1200,9 @@ export function catalogAsRead(
 						? keep
 						: readers.dateClass.has(key) && DATE_SORT_CLASS.has(keep)
 							? DATE_SORT_DECLARED_TYPE
-							: undefined;
+							: readers.dateRange.has(key) && keep === "datetime"
+								? "date"
+								: undefined;
 				if (kept === undefined) continue;
 				const derived = untyped
 					.find((one) => one.name === type.name)

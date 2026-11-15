@@ -67,6 +67,13 @@
  * overlay on the first read, which a push makes stale; a discard that writes
  * Nova's whole map over the target's; and a target value read as Nova's, which
  * would stop the publish over a save Nova does not own.
+ *
+ * A table the app reads that CommCare HQ manages in the project space is read
+ * before anything else, as the `managed-data` edge reads it, and never sent:
+ * the capture's peer holds CommCare HQ's table (`PublishInput.hqTables`) and
+ * answers both sides' reads from it. The plausible failures: a capture that
+ * pushes the table Nova leaves out, reads it in another order than Nova, or
+ * passes over a table Nova's publish would refresh or stop on.
  */
 
 import { createHash } from "node:crypto";
@@ -89,6 +96,11 @@ import { profileUniqueId } from "@/lib/commcare/runtimeTarget";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch } from "@/lib/db/apps";
+import {
+	makeManagedCopy,
+	readerOf,
+	type ServedTable,
+} from "@/lib/deployment/__tests__/managedFixtures";
 import {
 	clinicVisitsDocument,
 	searchLookupMediaDocument,
@@ -131,7 +143,12 @@ import {
 	type PublishConfiguration,
 	type PublishDocument,
 } from "../publish";
-import { type PeerRequest, shellSource, TargetPeer } from "../targetPeer";
+import {
+	type PeerRequest,
+	type PeerTable,
+	shellSource,
+	TargetPeer,
+} from "../targetPeer";
 
 vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/auth-utils")>()),
@@ -949,6 +966,167 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	}
 });
 
+/** CommCare HQ's table that Nova's copy is made from, as `managedFixtures.ts` serves one. */
+const MANAGED_FACILITIES: ServedTable = {
+	id: "hq-facilities",
+	tag: "facilities",
+	fields: ["code", "name"],
+	rows: [
+		{ code: "001", name: "North" },
+		{ code: "002", name: "South" },
+	],
+};
+
+/** `MANAGED_FACILITIES` as the capture's peer holds a table HQ's own upload made. */
+const MANAGED_FACILITIES_HELD: PeerTable = {
+	id: MANAGED_FACILITIES.id,
+	tag: MANAGED_FACILITIES.tag,
+	isGlobal: true,
+	fields: MANAGED_FACILITIES.fields.map((name) => ({ name, properties: [] })),
+	itemAttributes: [],
+	description: "",
+	rows: MANAGED_FACILITIES.rows.map((row, index) => ({
+		id: `${MANAGED_FACILITIES.id}-row-${index}`,
+		fields: Object.fromEntries(
+			Object.entries(row).map(([name, value]) => [
+				name,
+				[{ value, properties: {} }],
+			]),
+		),
+		itemAttributes: {},
+	})),
+};
+
+it("captures the managed-data edge's reads of a table CommCare HQ manages in the project space, and sends no workbook for it", async () => {
+	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	const copy = await makeManagedCopy(h, scope, MANAGED_FACILITIES, {
+		server: PROOF_SERVER,
+		domain: DOMAIN,
+	});
+	await seed(readerOf([copy]));
+	const document = await storedDocument({
+		lookup: await getLookupFixtureData(scope, [copy.tableId]),
+	});
+	const capture = sentSteps(
+		await capturePublish({
+			create: document,
+			updates: [{ name: "update", document }],
+			configuration: CLINIC,
+			hqTables: [MANAGED_FACILITIES_HELD],
+		}),
+	);
+
+	const log: PeerRequest[] = [];
+	const starts: number[] = [];
+	await withHttpPeer(async (peer) => {
+		const model = projectSpace();
+		model.holdTables([MANAGED_FACILITIES_HELD]);
+		servedBy(peer, model, log);
+		starts.push(log.length);
+		expect((await publish()).hqAppAction).toBe("created");
+		starts.push(log.length);
+		expect((await publish()).hqAppAction).toBe("updated");
+	});
+
+	// Each publish reads the table list and the managed table's rows before
+	// anything else, as the `managed-data` edge does, and pushes no workbook:
+	// CommCare HQ manages the one table the app reads.
+	const [firstOrder, updateOrder] = perPublish(lines(log), starts);
+	expect(ordered(capture.first.sequence)).toEqual([
+		"table list",
+		"rows read",
+		"import",
+		"source read",
+		"import",
+		"source read",
+	]);
+	expect(ordered(firstOrder ?? [])).toEqual(ordered(capture.first.sequence));
+	expect(ordered(capture.update.sequence)).toEqual([
+		"table list",
+		"rows read",
+		"source read",
+		"import",
+		"source read",
+	]);
+	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
+	expect(await formsTo(log, "/fixtures/fixapi/")).toEqual([]);
+	expect(capture.first.content.lookup).toBeUndefined();
+	expect(capture.update.lookup).toBeUndefined();
+	// The rows the edge read are recorded beside the body, for the HQ side to
+	// hold to HQ's own table before it applies the capture.
+	expect(capture.first.content.assumedResources).toEqual({
+		lookupTables: [
+			{
+				tag: "facilities",
+				table: {
+					is_global: true,
+					fields: [
+						{ field_name: "code", properties: [] },
+						{ field_name: "name", properties: [] },
+					],
+					item_attributes: [],
+				},
+				rows: [
+					{ fields: { code: "001", name: "North" } },
+					{ fields: { code: "002", name: "South" } },
+				],
+			},
+		],
+	});
+	const [shell, content, updated] = await formsTo(log, "/apps/api/import_app/");
+	await expectSameImport(capture.first.create.importApp, shell);
+	await expectSameImport(capture.first.content.importApp, content);
+	await expectSameImport(capture.update.importApp, updated);
+});
+
+it("ends the capture by name where the peer holds a managed table otherwise than Nova's copy", async () => {
+	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	const copy = await makeManagedCopy(h, scope, MANAGED_FACILITIES, {
+		server: PROOF_SERVER,
+		domain: DOMAIN,
+	});
+	await seed(readerOf([copy]));
+	const document = await storedDocument({
+		lookup: await getLookupFixtureData(scope, [copy.tableId]),
+	});
+	const [north, south] = MANAGED_FACILITIES_HELD.rows;
+	if (north === undefined || south === undefined)
+		throw new Error("The held table lost its rows.");
+	await expect(
+		capturePublish({
+			create: document,
+			updates: [{ name: "update", document }],
+			configuration: CLINIC,
+			hqTables: [
+				{
+					...MANAGED_FACILITIES_HELD,
+					rows: [
+						north,
+						{
+							...south,
+							fields: {
+								...south.fields,
+								name: [{ value: "East", properties: {} }],
+							},
+						},
+					],
+				},
+			],
+		}),
+	).rejects.toThrow(
+		/would refresh its copy of facilities or stop before anything else, since row 2's name is "East" in CommCare HQ and "South" in the copy/,
+	);
+	// And a project space that holds no such table is the stop Nova's
+	// publish makes over a table gone from CommCare HQ.
+	await expect(
+		capturePublish({
+			create: document,
+			updates: [{ name: "update", document }],
+			configuration: CLINIC,
+		}),
+	).rejects.toThrow(/would stop with hq_managed_data_changed/);
+});
+
 /** The update the capture sent through a person's confirmation, and the stops it met on the way. */
 function confirmedUpdate(capture: PublishCapture) {
 	const { update } = sentSteps(capture);
@@ -1518,6 +1696,8 @@ it("answers the Web Apps question of an edit that narrows the app to Android onl
 			code: "hq_web_apps_change",
 			remoteChanges: [],
 			conflicts: [],
+			/* The capture's app is one Nova's own publish made, so the
+			 * question counts from that publish. */
 			webAppsChange: {
 				from: true,
 				to: false,

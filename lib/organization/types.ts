@@ -89,6 +89,20 @@ export interface OrganizationSnapshot {
 	readonly revision: OrganizationRevision;
 	/** Every place, archived included, in `(parentId, orderKey, id)` order. */
 	readonly locations: readonly StoredLocation[];
+	/**
+	 * Present exactly while the places are a copy of a CommCare HQ project
+	 * space's, which only a refresh writes. No address and no connection: the
+	 * Organization banner reads those from the deployment boundary.
+	 */
+	readonly hq?: {
+		/** One of CommCare HQ's servers, by the name the deployment ledger uses. */
+		readonly server: string;
+		readonly domain: string;
+		/** When the copy was last refreshed, as `Date.prototype.toISOString` spells it. */
+		readonly refreshedAt: string;
+		/** Active places the copy left out because their level is not in the app, by level code. */
+		readonly leftOut: Readonly<Record<string, number>>;
+	};
 }
 
 /**

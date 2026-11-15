@@ -29,6 +29,7 @@ import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError } from "./errors";
 import { readLookupFixtureDataInTransaction } from "./fixtureSnapshot";
 import { formatLookupBytes, formatLookupCount } from "./format";
+import { lookupHqOriginOf } from "./managedRules";
 import {
 	addLookupColumnInputSchema,
 	createLookupRowInputSchema,
@@ -132,6 +133,7 @@ function toIso(value: Date): string {
 }
 
 function manifestEntryOf(table: StoredTable): LookupTableManifestEntry {
+	const hq = lookupHqOriginOf(table, null);
 	return {
 		id: lookupTableIdSchema.parse(table.id),
 		name: table.name,
@@ -140,6 +142,7 @@ function manifestEntryOf(table: StoredTable): LookupTableManifestEntry {
 		rowCount: table.row_count,
 		dataBytes: table.data_bytes,
 		...revisionsOf(table),
+		...(hq === undefined ? {} : { hq }),
 	};
 }
 
@@ -175,13 +178,15 @@ function snapshotOf(args: {
 	columns: readonly StoredColumn[];
 	rows: readonly StoredRow[];
 }): LookupTableSnapshot {
+	const columns = args.columns.map(columnOf);
+	const hq = lookupHqOriginOf(args.table, columns);
 	return {
 		projectId: args.projectId,
 		projectRevision: args.projectRevision,
 		id: lookupTableIdSchema.parse(args.table.id),
 		name: args.table.name,
 		tag: args.table.tag,
-		columns: args.columns.map(columnOf),
+		columns,
 		columnCount: args.table.column_count,
 		rows: args.rows.map(lookupRowOf),
 		rowCount: args.table.row_count,
@@ -191,6 +196,7 @@ function snapshotOf(args: {
 		createdAt: toIso(args.table.created_at),
 		updatedAt: toIso(args.table.updated_at),
 		...revisionsOf(args.table),
+		...(hq === undefined ? {} : { hq }),
 	};
 }
 
@@ -856,6 +862,7 @@ export async function updateLookupTableName(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			if (table.name === parsed.name) return receiptOf(table, state.revision);
 			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
@@ -890,6 +897,7 @@ export async function updateLookupTableTag(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			if (table.tag === parsed.tag) return receiptOf(table, state.revision);
 			const duplicate = await tx
@@ -937,6 +945,7 @@ export async function addLookupColumn(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			if (table.column_count >= LOOKUP_MAX_COLUMNS) {
 				throw new LookupError(
@@ -1025,6 +1034,7 @@ async function updateLookupColumnProjection(
 				scope.projectId,
 				input.tableId,
 				input.expectedTableRevision,
+				"author",
 			);
 			const column = await tx
 				.selectFrom("lookup_columns")
@@ -1094,6 +1104,7 @@ export async function moveLookupColumn(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			const columns = await orderedColumns(tx, scope.projectId, parsed.tableId);
 			const currentIndex = columns.findIndex(
@@ -1146,6 +1157,7 @@ export async function createLookupRow(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			if (table.row_count >= LOOKUP_MAX_ROWS) {
 				throw new LookupError(
@@ -1213,6 +1225,7 @@ export async function updateLookupRow(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			const columns = await orderedColumns(tx, scope.projectId, parsed.tableId);
 			const values = validateRowsAgainstColumns(columns.map(columnOf), [
@@ -1276,6 +1289,7 @@ export async function deleteLookupRow(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			const deleted = await tx
 				.deleteFrom("lookup_rows")
@@ -1318,6 +1332,7 @@ export async function moveLookupRow(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			const rows = await orderedRows(tx, scope.projectId, parsed.tableId);
 			const currentIndex = rows.findIndex((row) => row.id === parsed.rowId);
@@ -1375,6 +1390,7 @@ export async function replaceLookupRows(
 				scope.projectId,
 				parsed.tableId,
 				parsed.expectedTableRevision,
+				"author",
 			);
 			const columns = await orderedColumns(tx, scope.projectId, parsed.tableId);
 			const values = validateRowsAgainstColumns(

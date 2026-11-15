@@ -83,7 +83,8 @@ export function canonicalCoordinate(value: string): string {
 	return negative && magnitude !== "0" ? `-${magnitude}` : magnitude;
 }
 
-const coordinateSchema = z
+/** A coordinate the store holds, parsed to its canonical spelling. */
+export const coordinateSchema = z
 	.string()
 	.regex(
 		COORDINATE_PATTERN,

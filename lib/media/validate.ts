@@ -1,10 +1,12 @@
 /**
  * Media validation pipeline.
  *
- * One module, two entry points: the HTTP confirm route reads bytes
- * from GCS, the MCP `upload_media_asset` tool decodes base64 inline.
- * Both pass through this same gauntlet so the rejection contract is
- * uniform.
+ * One gauntlet, entered three ways: the HTTP confirm route reads bytes
+ * from GCS, the MCP `upload_media_asset` tool decodes base64 inline, and
+ * `validateSniffedMediaBytes` judges bytes that arrive with no name Nova
+ * can trust (a file read from CommCare HQ), naming them by their sniffed
+ * format first. All pass through the same stages so the rejection
+ * contract is uniform.
  *
  * The pipeline is defense-in-depth — five stages, each rejecting
  * different classes of bad input:
@@ -381,6 +383,170 @@ export async function classifyStoredMediaBytes(
 	return result.ok
 		? (result.validated.mediaFormat ?? UNPLAYABLE_MEDIA_FORMAT)
 		: UNPLAYABLE_MEDIA_FORMAT;
+}
+
+/** What judging bytes that arrive with no trustworthy name found. */
+export type SniffedMediaValidation =
+	| { readonly ok: true; readonly validated: ValidatedMediaMetadata }
+	| {
+			readonly ok: false;
+			readonly reason: ValidationFailureReason;
+			readonly message: string;
+			/** What `file-type` reported, normalized where Nova knows the format,
+			 *  else as reported; null where it reported nothing. */
+			readonly sniffedMime: string | null;
+	  };
+
+/**
+ * Judge bytes that arrive with no name Nova can trust. The format is read from
+ * the bytes, the name is built from it, and the one gate runs over that name.
+ *
+ * SVG is asked first, because `file-type` answers `application/xml` for bytes
+ * that begin `<?xml ` (and for its two UTF-16 twins) and nothing for bytes
+ * that begin `<svg`: where the sniff answers nothing or an XML type, the
+ * document's first element is read (`looksLikeSvg`).
+ */
+export async function validateSniffedMediaBytes(
+	bytes: Buffer,
+): Promise<SniffedMediaValidation> {
+	const sniffed = await fileTypeFromBuffer(bytes);
+	const reported = sniffed?.mime ?? null;
+	if (
+		(reported === null ||
+			reported === "application/xml" ||
+			reported === "text/xml") &&
+		looksLikeSvg(decodeLeadingText(bytes))
+	) {
+		return {
+			ok: false,
+			reason: "svg-not-accepted",
+			message: SVG_REFUSAL_MESSAGE,
+			sniffedMime: "image/svg+xml",
+		};
+	}
+	if (reported === null) {
+		return {
+			ok: false,
+			reason: "magic-bytes-sniff-failed",
+			message:
+				"Nova couldn't tell what kind of file this is from its bytes. It may be empty, damaged, or in a format no CommCare app plays. Saving it again as a picture, sound or video in a format Nova takes fixes that.",
+			sniffedMime: null,
+		};
+	}
+	const mime = normalizeMimeType(reported);
+	if (mime === undefined) {
+		return {
+			ok: false,
+			reason: "mime-claim-mismatch",
+			message: `This file's bytes are \`${reported}\`, a format Nova doesn't take. Saving it again as a picture, sound or video in a format Nova takes fixes that.`,
+			sniffedMime: reported,
+		};
+	}
+	const result = await validateMediaBytes({
+		bytes,
+		claimedMimeType: mime,
+		claimedSizeBytes: bytes.length,
+		originalFilename: `file${EXTENSION_FOR_MIME_TYPE[mime]}`,
+	});
+	return result.ok ? result : { ...result, sniffedMime: mime };
+}
+
+/** How far into a document `looksLikeSvg` reads for its first element. */
+const SVG_SCAN_BYTES = 4096;
+
+/**
+ * The first `SVG_SCAN_BYTES` of a document as text: UTF-16 where a byte order
+ * mark says so, UTF-8 otherwise. A malformed sequence decodes to U+FFFD rather
+ * than throwing, since the text is only scanned for its first tag.
+ */
+function decodeLeadingText(bytes: Buffer): string {
+	const head = bytes.subarray(0, SVG_SCAN_BYTES);
+	if (head[0] === 0xff && head[1] === 0xfe) {
+		return new TextDecoder("utf-16le").decode(head.subarray(2));
+	}
+	if (head[0] === 0xfe && head[1] === 0xff) {
+		const body = Buffer.from(head.subarray(2, 2 + ((head.length - 2) & ~1)));
+		return new TextDecoder("utf-16le").decode(body.swap16());
+	}
+	return new TextDecoder("utf-8").decode(head);
+}
+
+/**
+ * Whether a document's first element is `svg`. After a byte order mark, white
+ * space, processing instructions (the XML declaration among them), comments
+ * and one `<!DOCTYPE ...>`, the first tag's local name (the part after a
+ * prefix's colon) is `svg` in any case. A scan of the document's first tag: it
+ * parses nothing else, and a prolog it cannot close reads as no SVG.
+ */
+function looksLikeSvg(text: string): boolean {
+	let at = text.startsWith("﻿") ? 1 : 0;
+	let doctypeSeen = false;
+	for (;;) {
+		at = skipWhiteSpace(text, at);
+		if (text.startsWith("<?", at)) {
+			const end = text.indexOf("?>", at + 2);
+			if (end === -1) return false;
+			at = end + 2;
+		} else if (text.startsWith("<!--", at)) {
+			const end = text.indexOf("-->", at + 4);
+			if (end === -1) return false;
+			at = end + 3;
+		} else if (!doctypeSeen && text.startsWith("<!DOCTYPE", at)) {
+			const end = doctypeEnd(text, at + "<!DOCTYPE".length);
+			if (end === -1) return false;
+			doctypeSeen = true;
+			at = end + 1;
+		} else {
+			break;
+		}
+	}
+	if (text[at] !== "<") return false;
+	let end = at + 1;
+	while (end < text.length && !endsTagName(text.charCodeAt(end))) end++;
+	if (end === text.length) return false;
+	const name = text.slice(at + 1, end);
+	const localName = name.slice(name.lastIndexOf(":") + 1);
+	return localName.toLowerCase() === "svg";
+}
+
+function skipWhiteSpace(text: string, from: number): number {
+	let at = from;
+	while (at < text.length && isXmlWhiteSpace(text.charCodeAt(at))) at++;
+	return at;
+}
+
+/** XML's white space: space, tab, carriage return, line feed. */
+function isXmlWhiteSpace(code: number): boolean {
+	return code === 0x20 || code === 0x09 || code === 0x0d || code === 0x0a;
+}
+
+function endsTagName(code: number): boolean {
+	return isXmlWhiteSpace(code) || code === 0x3e /* > */ || code === 0x2f; // /
+}
+
+/**
+ * The index of the `>` that closes a document type declaration, skipping a
+ * quoted literal and an internal subset in `[ ... ]` (whose own quoted
+ * literals may hold `]` or `>`); -1 where the scanned text never closes it.
+ */
+function doctypeEnd(text: string, from: number): number {
+	let quote: string | null = null;
+	let inSubset = false;
+	for (let at = from; at < text.length; at++) {
+		const char = text[at];
+		if (quote !== null) {
+			if (char === quote) quote = null;
+		} else if (char === '"' || char === "'") {
+			quote = char;
+		} else if (char === "[") {
+			inSubset = true;
+		} else if (char === "]") {
+			inSubset = false;
+		} else if (char === ">" && !inSubset) {
+			return at;
+		}
+	}
+	return -1;
 }
 
 type Refusal = {

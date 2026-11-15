@@ -206,6 +206,21 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 */
 	"hq_table_content_unsupported",
 	/**
+	 * A lookup table the app reads is managed in CommCare HQ in the target,
+	 * and changed there in a way the app depends on: a column it reads is
+	 * gone, the table is gone, or it now holds what Nova can't hold. Nothing
+	 * was sent and no lookup table was written; `details` names each change
+	 * and what the person can do.
+	 */
+	"hq_managed_data_changed",
+	/**
+	 * A lookup table the app reads became managed in CommCare HQ from the
+	 * target between preflight and the workbook upload. Nothing of the
+	 * workbook or the app's content was sent; the next publish leaves that
+	 * table out.
+	 */
+	"managed_table_handed_back",
+	/**
 	 * The app's organization does not fit the levels the target defines,
 	 * so CommCare HQ would refuse the places rather than hold them. Its
 	 * own recovery: change the tree in Nova, or the levels over there.
