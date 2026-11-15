@@ -15,6 +15,7 @@ import {
 	changeSearchRunDraft,
 	clearSearchRun,
 	hasNonEmptyValue,
+	openSearchRunState,
 	reconcileSearchRunState,
 	restoreSearchRun,
 	withHiddenValues,
@@ -52,10 +53,12 @@ export interface SearchInputRunState {
 	 *  ordinary field holding its starting value (manifest
 	 *  `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`). */
 	readonly drawnInputs: readonly SearchInputDef[];
-	/** Core's refusal of the Search screen: a starting value or a hidden
-	 *  value reads data the worker's device lacks (a place key of a worker
-	 *  assigned nowhere), which a phone reads as the screen opens and stops
-	 *  on. The state then holds no field, and the screen shows the refusal. */
+	/** Core's refusal of the Search screen: a starting value, a hidden
+	 *  value, a required condition or the check of a prompt its starting
+	 *  value answers reads data the worker's device lacks (a place key of a
+	 *  worker assigned nowhere), which Core's query manager reads as the
+	 *  screen opens and stops on, on both platforms. The state then holds no
+	 *  field, and the screen shows the refusal. */
 	readonly refusal?: PreviewDataRefusal;
 }
 
@@ -83,21 +86,20 @@ export function useSearchInputRunState(args: {
 	/** The platform Preview plays; defaults to an app's default platform. */
 	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">;
 }): SearchInputRunState {
-	/* The screen's starting values are read as it opens, and its hidden values
-	 * as a search is sent, both over the same session, so a read either makes
-	 * of data the device lacks is the screen's refusal, held as state. */
+	/* The screen reads what Core's query manager reads as it opens (its
+	 * starting values, hidden values, required conditions and the checks its
+	 * starting values answer), so a read any of them makes of data the device
+	 * lacks is the screen's refusal on both platforms, held as state. */
 	const read = useMemo(
 		() =>
-			readPreviewScreen(() => {
-				const built = buildSearchRunState(
+			readPreviewScreen(() =>
+				openSearchRunState(
 					args.scopeKey,
 					args.searchInputs,
 					args.session,
 					args.environment,
-				);
-				built.resolveHidden();
-				return built;
-			}),
+				),
+			),
 		[args.scopeKey, args.searchInputs, args.session, args.environment],
 	);
 	const desired = useMemo(

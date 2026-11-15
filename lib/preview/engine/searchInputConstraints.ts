@@ -256,6 +256,42 @@ export async function searchInputRequiredMarksOnDevice(
 	return marks;
 }
 
+/**
+ * Read the Search screen's conditions as it opens, as Core's query manager
+ * reads them whatever the platform does with the verdicts
+ * (`RemoteQuerySessionManager.java`: its constructor runs
+ * `validateUserAnswers`, which Formplayer reaches through
+ * `QueryScreen.init` and Android through
+ * `QueryRequestActivity.initRemoteQuerySessionManager`): every visible
+ * prompt's required condition, and the check of each prompt its starting
+ * value answers. A read of data the device lacks (a place key of a worker
+ * assigned nowhere) throws Core's refusal, which stops the screen on both
+ * platforms, though Android shows no mark and checks no answer. A
+ * pattern-bearing condition, and one whose lookup carriers the held
+ * snapshot does not cover, is left unread here.
+ */
+export function readSearchScreenConditionsAtOpen(
+	searchInputs: readonly SearchInputDef[],
+	startingValues: SearchInputValues,
+	session: PreviewSearchSessionValues,
+	environment: PreviewSearchEnvironment,
+): void {
+	const judge = constraintJudge(
+		searchInputs,
+		startingValues,
+		session,
+		environment,
+		undefined,
+	);
+	const answers = withSearchInputExpressionValues(searchInputs, startingValues);
+	for (const input of searchInputs) {
+		if (input.kind === "hidden") continue;
+		judge(input.required?.when, input.uuid, "search_input_required_when");
+		if ((answers.get(input.name) ?? "") !== "")
+			judge(input.validation?.rule, input.uuid, "search_input_validation_rule");
+	}
+}
+
 /** One constraint to judge: which prompt, what it says, and how the
  *  predicate's verdict decides it. `predicate` is absent for an
  *  unconditional requirement, which fires on a blank answer outright. */
