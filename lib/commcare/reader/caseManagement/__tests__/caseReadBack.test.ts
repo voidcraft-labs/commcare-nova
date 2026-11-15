@@ -9,20 +9,30 @@
  * placements, each expression slot marked where it stands (the expression
  * yardsticks judge the trees).
  *
+ * Each reading is also a document the commit gate admits under the platform
+ * declaration the document holds (`mutationCommitVerdict` with that choice's
+ * mutations, as acceptance applies the one a person takes, under the
+ * document's own lookup data): the reader refuses, where it reads a key, every write the gate's
+ * case operation rules refuse, so a reading never holds a document no editor
+ * could have saved.
+ *
  * The plausible failure: a reading that returns another catalog (a property
  * on another type, a type the document does not declare, another order) or
  * another order or id of a form's operations with no finding, which a test
- * that asks only for no finding, and for fields and expressions, passes.
+ * that asks only for no finding, and for fields and expressions, passes; or a
+ * reading the gate refuses, which no comparison with the canonical document
+ * names where the canonical rows move it.
  */
 import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type BlueprintDoc, blueprintDocSchema, type Uuid } from "@/lib/domain";
 import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
-import type { CorpusDocument } from "@/proof/corpus/documents";
+import { type CorpusDocument, lookupContextOf } from "@/proof/corpus/documents";
 import { publishFindings } from "@/proof/corpus/editBatches";
 import { producerDocuments } from "@/proof/corpus/producers";
 import { targetedDocuments } from "@/proof/targeted/index";
@@ -186,10 +196,31 @@ async function caseDifference(
 		caseFacts(want),
 		caseFacts(outcome.draft.doc),
 	);
-	return difference === "" ? null : difference;
+	if (difference !== "") return difference;
+	// The reading is the document before the gate; acceptance applies the
+	// platform declaration a person takes, here the document's own.
+	const { declaration } = outcome.draft;
+	const choice =
+		declaration.kind === "choices"
+			? declaration.choices.find(
+					(one) => one.runsOnlyOn === doc.appSettings.runsOnlyOn,
+				)
+			: undefined;
+	if (choice === undefined)
+		return `the reading offers no declaration for ${doc.appSettings.runsOnlyOn ?? "both platforms"}`;
+	const verdict = mutationCommitVerdict(
+		outcome.draft.doc,
+		choice.mutations,
+		lookupContextOf(document.lookup),
+	);
+	return verdict.ok
+		? null
+		: `the gate refuses the reading: ${verdict.findings
+				.map((one) => one.code)
+				.join(", ")}`;
 }
 
-it("reads every targeted and producer document back to its own case changes", {
+it("reads every targeted and producer document back to its own case changes, into a document the gate admits", {
 	timeout: 300_000,
 }, async () => {
 	const failures: string[] = [];

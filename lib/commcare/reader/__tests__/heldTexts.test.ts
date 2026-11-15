@@ -753,6 +753,46 @@ describe("the app's name read from CommCare HQ", () => {
 			},
 		]);
 	});
+
+	// A language that stores no `app.display.name` shows `name`: where the source language's own
+	// display name is read as the app's name, that language takes `name` as its translation, and a
+	// respelling of it is CommCare HQ's `name`, the one path that holds it.
+	it("folded from the source language's own display name records another language's respelling at `name`, never at a display name it does not store", async () => {
+		const doc = localizationWireFixture("prompts");
+		const localization = doc.localization;
+		if (localization === undefined)
+			throw new Error("The prompts fixture holds two languages.");
+		/* English first and the source, Spanish translating Nova's sentences, so Spanish never
+		 * reads as the source, and an English display name other than `name` is the fold's. */
+		doc.localization = {
+			...localization,
+			defaultLanguage: "eng" as LanguageTag,
+			languageOrder: ["eng", "spa"] as LanguageTag[],
+		};
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const { draft } = await read(doc, (body) => {
+			body.name = "Health app  ";
+			const translations = body.translations as Record<string, JsonObject>;
+			expect(translations.es?.["app.display.name"]).toBeUndefined();
+			translations.en = {
+				...translations.en,
+				"app.display.name": "Health override",
+			};
+		});
+		expect(draft.doc.appName).toBe("Health override");
+		expect(
+			draft.facts.sameStateRewrites.filter(
+				(record) =>
+					record.path === "/name" || record.path.endsWith("/app.display.name"),
+			),
+		).toEqual([
+			{
+				entry: "application-and-settings/name",
+				path: "/name",
+				register: "names-respelled",
+			},
+		]);
+	});
 });
 
 describe("an app translation folded over an app string", () => {
@@ -1026,18 +1066,42 @@ describe("an app string whose rest after a carriage return defines another app s
 			key: "m0.case_short.case_nothing_9.header",
 		},
 	];
+	// A value a device shows none of (nothing before the carriage return) is refused here too:
+	// the rest is checked before the text is held.
 	for (const one of translationCases)
-		it(`in ${one.title} is refused at the key under that entry`, async () => {
+		it(`in ${one.title} is refused at the key under that entry, a value a device shows none of included`, async () => {
+			for (const value of ["Salud\rmodules.m0=Hacked", "\rmodules.m0=Hacked"]) {
+				const body = exportedBody(PROMPTS);
+				const translations = body.translations as Record<string, JsonObject>;
+				translations[one.language] = {
+					...translations[one.language],
+					[one.key]: value,
+				};
+				const outcome = readHqApp({
+					...(await inputFor(body)),
+					appStrings: () => ({ languages: { es: {}, en: {} }, units: {} }),
+				});
+				expect(outcome.defects).toEqual([]);
+				expect(outcome.kind).toBe("account");
+				if (outcome.kind !== "account") return;
+				expect(
+					outcome.findings.map((finding) => [
+						finding.code,
+						finding.place.kind,
+						finding.detail?.name,
+					]),
+				).toEqual([[LINE_END_ENTRY, "app", "modules.m0"]]);
+			}
+		});
+
+	it("in the app's name is refused at the app under that entry alone, a name a device shows none of included", async () => {
+		for (const name of [
+			"Health app\rmodules.m0=Hacked",
+			"\rmodules.m0=Hacked",
+		]) {
 			const body = exportedBody(PROMPTS);
-			const translations = body.translations as Record<string, JsonObject>;
-			translations[one.language] = {
-				...translations[one.language],
-				[one.key]: "Salud\rmodules.m0=Hacked",
-			};
-			const outcome = readHqApp({
-				...(await inputFor(body)),
-				appStrings: () => ({ languages: { es: {}, en: {} }, units: {} }),
-			});
+			body.name = name;
+			const outcome = readHqApp(await inputFor(body));
 			expect(outcome.defects).toEqual([]);
 			expect(outcome.kind).toBe("account");
 			if (outcome.kind !== "account") return;
@@ -1047,27 +1111,26 @@ describe("an app string whose rest after a carriage return defines another app s
 					finding.place.kind,
 					finding.detail?.name,
 				]),
-			).toContainEqual([LINE_END_ENTRY, "app", "modules.m0"]);
-			// The key itself, and no other text, is refused under that entry.
-			expect(
-				outcome.findings.filter((finding) => finding.code === LINE_END_ENTRY),
-			).toHaveLength(1);
-		});
+			).toEqual([[LINE_END_ENTRY, "app", "modules.m0"]]);
+		}
+	});
 
-	it("in the app's name is refused at the app under that entry alone", async () => {
+	// A text held at a slot is held through `heldText`, which admits no spelling of a text a
+	// device shows none of before its rewrite is recorded, so it is left unrecognized instead.
+	it("in a menu's name a device shows none of is left unrecognized at the menu, not refused under that entry", async () => {
 		const body = exportedBody(PROMPTS);
-		body.name = "Health app\rmodules.m0=Hacked";
+		const path: Path = ["modules", 0, "name"];
+		set(body, path, {
+			...((get(body, path) ?? {}) as Texts),
+			es: "\rmodules.m0=Hacked",
+		});
 		const outcome = readHqApp(await inputFor(body));
 		expect(outcome.defects).toEqual([]);
 		expect(outcome.kind).toBe("account");
 		if (outcome.kind !== "account") return;
 		expect(
-			outcome.findings.map((finding) => [
-				finding.code,
-				finding.place.kind,
-				finding.detail?.name,
-			]),
-		).toEqual([[LINE_END_ENTRY, "app", "modules.m0"]]);
+			outcome.findings.map((finding) => [finding.code, finding.place.kind]),
+		).toEqual([["unrecognized", "menu"]]);
 	});
 });
 

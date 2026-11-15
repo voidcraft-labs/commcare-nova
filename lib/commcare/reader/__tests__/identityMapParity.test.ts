@@ -289,8 +289,10 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 				operations: () => [
 					own({
 						writes: [
+							// A computed value, which Case Management cannot state, so the
+							// own arm takes a block. (`status` is a word the gate reserves.)
 							{
-								property: "status",
+								property: "photo_url",
 								value: concat(read("name"), term(literal(" seen"))),
 							},
 						],

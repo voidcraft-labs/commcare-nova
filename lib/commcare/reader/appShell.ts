@@ -704,9 +704,11 @@ function appliedDisplayName(value: unknown): value is string {
  * `languages.ts::readingSourceCode`, which falls back to the first) a
  * value that is not `name` is the name every runtime shows there. It is read
  * as the app's name, and each other language that stores none takes `name`
- * as its translation, which is what it shows: workers read the same words, and
- * HQ's own `name` becomes the override's wording at the first publish, a fold
- * counted with the generated keys'.
+ * as its translation, which is what it shows (`holdAppName` reads `name` for a
+ * language `appNames` lacks): workers read the same words, and HQ's own `name`
+ * becomes the override's wording at the first publish, a fold counted with the
+ * generated keys'. `appNames` holds only the languages that store a name of
+ * their own, so a rewrite is recorded only at a path CommCare HQ holds.
  */
 function readTranslations(
 	ctx: ReadContext,
@@ -795,10 +797,6 @@ function readTranslations(
 		ctx.writeDraft(() => {
 			ctx.draft.appName = override;
 		});
-		if (appName !== undefined)
-			for (const code of languages.codes)
-				if (code !== languages.source && !appNames.has(code))
-					appNames.set(code, appName);
 		ctx.facts.foldedTranslationKeys += 1;
 	}
 	const translated = new Map(

@@ -71,7 +71,10 @@ producer document, compared whole: every place of the document but its expressio
 are compared tree by tree, and but what no export carries and the reader is never told),
 `expressions/__tests__/expressionReadBack.fuzz.test.ts`,
 `caseList/__tests__/order.roundTrip.test.ts`, `__tests__/identityMapParity.test.ts` and
-`xform/__tests__/formFixedPoint.fuzz.test.ts`. Each compares a reading with the canonical document
+`xform/__tests__/formFixedPoint.fuzz.test.ts`. `caseManagement/__tests__/caseReadBack.test.ts` also
+holds each reading to the commit gate under the platform declaration its document holds, since a
+canonical row can carry the reading and the canonical document past a rule together: every key a
+reader stage reads as a write is refused there where the gate refuses it. Each compares a reading with the canonical document
 (the rows applied in list order) and is never weakened, skipped or special-cased. Beside them,
 `__tests__/canonicalRowsKeepExport.test.ts` applies the rows in list order to every document
 `targetedReadBack.test.ts` reads (`__tests__/publishedDocuments.ts`, the documents and the publish's
@@ -159,8 +162,10 @@ the source's text. A Search field's validation message is held apart from the ru
 joined after it (`search/prompts.ts::readValidation`, `search/guardSplit.ts::sharedGuardText`); where
 no language's message tells whether the guard is joined, the whole test is the rule, its refusal
 waits for the search settle (`PendingExpression.deferRefusal`), and a test ending with the guard the
-projection joins to the field (`search/settings.ts::endsWithRuntimeGuard`) is `unrecognized` at its
-message, which keeps it out, rather than refused for the guard's reads. A
+projection joins to the field (`search/settings.ts::runtimeGuardEnding`) is `unrecognized` at its
+message, which keeps it out, rather than refused for the guard's reads, and the rule before the
+guard is read on its own, its refusal standing beside the message's where Nova cannot hold it
+either (`search/index.ts::untoldRuleRefusal`). A
 respelling no worker meets is recorded under the surface's own id (`names-respelled`,
 `list-settings-respelled`), and one a worker meets under `text-spaces-dropped`
 (`heldText.ts::recordTextRewrite`). A text whose rest after a carriage return is a line that
@@ -211,7 +216,9 @@ The places that tell, each held by a pair in `__tests__/readingSource.test.ts`:
 - **The app's name.** HQ JSON's `name` is the source language's name, and a language's
   `translations[<code>]["app.display.name"]` and `homescreen.title` are written only where its
   name differs (`expander.ts::appLevelValues`). A language holding a non-empty
-  `app.display.name` other than `name` is not the source.
+  `app.display.name` other than `name` is not the source, unless its rest after a carriage
+  return defines an app string: no export holds that, and the reading refuses it at its key
+  whatever the source (`appShell.ts::readTranslations`), so it tells nothing.
 - **Nova's own sentences.** A system unit's source is Nova's sentence (`lib/domain/translationUnits.ts`:
   each Search runtime guard's message, the required message of a Search field with none of its
   own), so the source language's text for each one the app's searches print is the sentence
@@ -232,3 +239,56 @@ The places that look as if they could and do not:
   holds such a difference;
 - the local `.ccz` writes each language's own name under `app.display.name`, but the reader reads
   HQ JSON.
+
+## Known conservative refusals
+
+Shapes CommCare HQ can give that the reader refuses rather than holds, each with a true finding.
+A change that holds one removes its line.
+
+- **A carriage return in an app string whose rest defines another app string**: refused under
+  `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`
+  at the text's place, or at its key in `translations` (`heldText.ts::refuseLineEndKey`,
+  `appShell.ts::readTranslations`). Core reads that rest as a line of its own, so it sets the
+  wording of the string it names, which no document holds and Nova, printing no carriage return,
+  would drop. Where a text a device shows none of (nothing before the carriage return) is read
+  depends on the place. A text held through `heldText.ts::heldText` (a menu's or form's name, a
+  column's header) is left `unrecognized` instead, since `holdText` admits no spelling of it
+  before its rewrite is recorded. The app's `name` (`appShell.ts::holdAppName`), a `translations`
+  value (`readTranslations`) and the texts checked at their own key (the search screen's title,
+  the Search button's label, a detail's empty-list and continue texts, an image map's alt text)
+  check the rest first, so such a text there is refused under the line-end entry.
+- **An app `name` holding the two characters `\n` or a carriage return**: `unrecognized` at the
+  app, `name` (`appShell.ts::holdAppName`). The profile's `name`, which Android's app picker
+  shows, carries it as stored while the app strings show a line break or the text before the
+  carriage return; Nova prints one name into both.
+- **An after-submit link's condition or carried value that prints as the source only with a
+  rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
+  `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with
+  the expansion's print, which applies every rewrite, and no held level reaches that print.
+- **Nova's own owner clause in a case list filter respelled by hand in CommCare HQ**, beside a
+  search that stores the owner list: refused under
+  `case-search/blacklisted-owner-ids-expression-without-that-clause` at the search
+  (`search/settings.ts::readSearchSettings`, `holdsOwnersWithoutClause`). Only Nova's spelling
+  tells the clause from an authored condition (`isOwnerClause`), and Nova's print would write the
+  clause again beside the respelled one.
+- **Two rewrites that print at one node, one inside the other's spelling, each spelled otherwise
+  than the source**: refused under the slot's own entry (`expressions/index.ts::siteLevel`). No
+  single site's flip moves the first difference on, so the search finds no level.
+- **An ancestor read across a pair of case types the app links under several names, where no
+  one name is on every case it links, or the one name its child links use is not**: refused at
+  the reading slot, the checker's `relation-ambiguous` reason `ancestor-link-names`
+  (`lib/domain/advancedModule.ts::ancestorWalk`, the gate's `FORM_CASE_READ_ACROSS_SEVERAL_LINKS`).
+  A walk through any one name reads blank for some case, or a case other than the one a worker
+  chose. Where every create writes the several names, the read is held and walks the child
+  links' name, else `parent`, else the first in document order.
+- **A create keyed by an answer in a form whose changes stand in no order the gate admits**: one
+  finding at the form under
+  `questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes`
+  (`caseManagement/index.ts::settleOperationOrder`, over the gate's own
+  `caseOperationWireOrderViolationDetails`). The reading first holds the order HQ's lists give
+  where the gate admits it, else moves changes only as far as what prints one source allows
+  (`caseManagement/operationOrder.ts::inWireScopeOrder`), so the finding stands only where no order
+  Nova writes is admitted: a keyed create in a repeat beside a change at the root (HQ's
+  `usercase_update` turned on beside Nova's export of one), or a later change in its repeat row that
+  may be of its case. The gate refuses these because HQ's server applies a case's create before its
+  other changes while a device applies them in form order, and it cannot prove the two cases apart.

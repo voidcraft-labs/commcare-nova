@@ -728,19 +728,15 @@ export function readExpressions(
 					? { level: { kind: "withheld" } as const, withheld: reached }
 					: siteLevel(current, registration, env, bound);
 			if (found !== undefined) {
-				const { tree, sited } = storedAtLevel(
-					current,
-					registration,
-					env,
-					bound,
-					found,
-				);
+				// The slot stores what Nova's own print reads back as, at the
+				// level found for the bound candidate (`readBack`).
+				const tree = readBack(current, registration, env, bound.candidate);
 				leveled.set(index, tree);
-				levels.set(index, sited.level);
+				levels.set(index, found.level);
 				outcomes.set(index, { kind: "held", tree });
 				for (const id of EMISSION_REWRITE_IDS)
 					if (
-						sited.withheld.has(id) &&
+						found.withheld.has(id) &&
 						EMISSION_REWRITES[id].behavior === "changes"
 					)
 						rewrites.push({
@@ -1412,52 +1408,6 @@ function siteLevel(
 	return undefined;
 }
 
-/** A level a slot's print reads the source at: every rewrite withheld, else site by site. */
-function levelOf(
-	doc: BlueprintDoc,
-	pending: PendingExpression,
-	env: ExpressionReadEnv,
-	bound: BoundSlot,
-): ReturnType<typeof siteLevel> {
-	const reached = new Set<EmissionRewriteId>();
-	const withheld = judgeSlot(doc, pending, env, bound, {
-		withhold: WITHHOLD_ALL,
-		reached: (id) => reached.add(id),
-	});
-	return withheld.kind === "bound" && withheld.equal
-		? { level: { kind: "withheld" }, withheld: reached }
-		: siteLevel(doc, pending, env, bound);
-}
-
-/**
- * The tree a slot held at a level other than exact stores, and the level that tree prints the
- * source at. The tree is `readBack` of Nova's own print, so the document equals its own re-read;
- * the level was found for the bound candidate, whose sites a settle's print counts, so where the
- * re-read tree is another tree it is judged at that level again, and leveled afresh where the
- * level does not print the source from it (its sites reached in another order), so a settle that
- * prints the stored tree at its level prints the source. Where no level does, the re-read tree
- * keeps `found`: it differs from the source only where a rewrite no runtime tells apart applies
- * (`default-reads-current`, which spells one node two ways), and a settle that prints it otherwise
- * than the source refuses with a finding.
- */
-function storedAtLevel(
-	doc: BlueprintDoc,
-	pending: PendingExpression,
-	env: ExpressionReadEnv,
-	bound: BoundSlot,
-	found: NonNullable<ReturnType<typeof siteLevel>>,
-): {
-	readonly tree: Expression;
-	readonly sited: NonNullable<ReturnType<typeof siteLevel>>;
-} {
-	const tree = readBack(doc, pending, env, bound.candidate);
-	if (sameJson(tree, bound.candidate)) return { tree, sited: found };
-	const reread: BoundSlot = { ...bound, candidate: tree };
-	const same = judgeSlot(doc, pending, env, reread, levelControl(found.level));
-	if (same.kind === "bound" && same.equal) return { tree, sited: found };
-	return { tree, sited: levelOf(doc, pending, env, reread) ?? found };
-}
-
 /** The tree a slot's unwithheld print `P` reads back as: the tree acceptance's
  *  re-read of Nova's emission gives, which a held slot at the second level
  *  stores so the document equals its own re-read. The re-read is a reading of
@@ -1465,7 +1415,18 @@ function storedAtLevel(
  *  against `P` and a fold site whose print differs is withdrawn, as the first
  *  level withdraws one from the source, until the binding prints `P` exactly.
  *  Where none does, the slot keeps `candidate`, which prints `P` by
- *  construction: a tree that prints something else is never stored. */
+ *  construction: a tree that prints something else is never stored.
+ *  The slot keeps the level found for `candidate` (`readExpressions`, step
+ *  4). Where the re-read is another tree, it either prints the source at that
+ *  level too (a form read whose `absolute` spelling Nova prints anyway), or
+ *  holds Nova's own spelling where the source spells another that no withheld
+ *  rewrite prints from it: a read of its repeat's own answer spelled from
+ *  `current()` (`row-predicate-current`, `default-reads-current`), a case list
+ *  filter without the identities Nova drops (`filter-identities-dropped`). No
+ *  level prints the source from that tree, so none is searched for it. A site
+ *  level counts the candidate's sites, and a read relocated to `current()` is
+ *  a site the stored tree no longer reaches; that read is a form's, inside a
+ *  repeat, and no settle prints such a slot again (`printLevel.ts`). */
 function readBack(
 	doc: BlueprintDoc,
 	pending: PendingExpression,

@@ -470,6 +470,39 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 				`${F}/index-path-through-a-case-type-the-app-does-not-fix`,
 			);
 		});
+
+		it("refuses the name and the owner of the case above, which HQ's build writes as that case's own", async () => {
+			// HQ's build writes `parent/name` as the parent's `case_name` and
+			// `parent/owner_id` as its owner (`XFormCaseBlock.add_case_updates`), and
+			// `case-reserved-words.json` holds neither; Nova renames and gives an
+			// owner only to an operation's own case.
+			for (const property of ["name", "owner_id"]) {
+				const reading = await readCases(app([visit], [household]), {
+					edit: (json) => {
+						withChild(json);
+						const update = actionsOf(json).update_case.update as Record<
+							string,
+							unknown
+						>;
+						update[`parent/${property}`] = { question_path: "/data/other" };
+					},
+				});
+				const found = reading.findings.filter(
+					(one) =>
+						one.code ===
+						`${F}/update-key-name-or-owner-id-through-an-index-segment`,
+				);
+				expect(found, property).toHaveLength(1);
+				expect(found[0]?.detail?.name, property).toBe(`parent/${property}`);
+				expect(
+					ownWrites(reading).some((one) => one.via !== undefined),
+					property,
+				).toBe(false);
+				expect(codes(reading), property).not.toContain(
+					`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
+				);
+			}
+		});
 	});
 
 	describe("a child case", () => {

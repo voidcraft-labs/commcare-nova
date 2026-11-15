@@ -25,8 +25,11 @@ interface Calculation {
  * The identities remain unchanged; only wire emission substitutes count nodes.
  *
  * `rewrites` reports `validation-counts-moved` wherever the plan holds a
- * calculation; where it withholds the id, the plan returns the expression
- * unchanged with no calculation, so every count prints inline.
+ * calculation, and is asked once, through `rewriteWithheld`, whether the
+ * validation's one site leaves it out, so a control that answers site by site
+ * (`RewriteControl.withholdSite`) is answered as one that withholds by id;
+ * where it does, the plan returns the expression unchanged with no
+ * calculation, so every count prints inline, and names none.
  */
 export function planConstraintCollections(
 	expression: Expression,
@@ -43,8 +46,7 @@ export function planConstraintCollections(
 	const calculations: Calculation[] = [];
 	const overrides = new Map<Expression, WireExpr>();
 	const byStructure = new Map<string, Calculation>();
-	const withheld = rewrites?.withhold.has("validation-counts-moved") === true;
-	let moves = false;
+	const moved: Expression[] = [];
 	const visit = (node: ExpressionNode, insideFilter: boolean): void => {
 		if (
 			!insideFilter &&
@@ -54,21 +56,7 @@ export function planConstraintCollections(
 			node.via.term.kind === "field" &&
 			independentCollection(node.via.term, fieldUuid, doc)
 		) {
-			moves = true;
-			if (withheld) return;
-			const key = JSON.stringify(node);
-			let calculation = byStructure.get(key);
-			if (calculation === undefined) {
-				const name = nameFor(calculations.length);
-				calculation = {
-					name,
-					path: path.parent().child(name),
-					expression: node,
-				};
-				calculations.push(calculation);
-				byStructure.set(key, calculation);
-			}
-			overrides.set(node, calculation.path.toWire());
+			moved.push(node);
 			return;
 		}
 		for (const child of expressionChildren(node)) {
@@ -81,8 +69,26 @@ export function planConstraintCollections(
 		}
 	};
 	visit(expression, false);
-	if (moves && rewriteWithheld(rewrites, "validation-counts-moved"))
-		return { expression, calculations: [], overrides: new Map() };
+	if (
+		moved.length === 0 ||
+		rewriteWithheld(rewrites, "validation-counts-moved")
+	)
+		return { expression, calculations, overrides };
+	for (const node of moved) {
+		const key = JSON.stringify(node);
+		let calculation = byStructure.get(key);
+		if (calculation === undefined) {
+			const name = nameFor(calculations.length);
+			calculation = {
+				name,
+				path: path.parent().child(name),
+				expression: node,
+			};
+			calculations.push(calculation);
+			byStructure.set(key, calculation);
+		}
+		overrides.set(node, calculation.path.toWire());
+	}
 	return { expression, calculations, overrides };
 }
 

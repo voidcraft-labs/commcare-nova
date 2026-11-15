@@ -798,13 +798,14 @@ judged as any reading is (2.4): `P` is bound with every fold on, the binding is 
 with `P`, and a fold site whose print differs is withdrawn, until the binding prints `P` exactly; a
 fold the source's reading withdrew is proposed again over `P` and must be withdrawn again, or the
 slot would store another expression (a clinic's case read as the worker's own record). Where no
-binding prints `P`, the slot keeps the candidate, which prints `P` by construction. The level was
-found for the candidate, whose sites a settle's print counts, so a re-read tree that is another tree
-is judged at that level again and leveled afresh where it does not print the source there
-(`expressions/index.ts::storedAtLevel`): a settle that prints the stored tree at its level prints the
-source. Where no level does, the tree keeps the candidate's level; it then differs from the source
-only where a rewrite no runtime tells apart applies (`default-reads-current`). So: a read at a
-relocation site is spelled `current` (5.2); in each of the six slots the tree is
+binding prints `P`, the slot keeps the candidate, which prints `P` by construction. The slot keeps
+the level found for the candidate (`expressions/index.ts::readBack`). A re-read tree that is another
+tree either prints the source at that level too, or holds Nova's spelling where the source spells
+another that no withheld rewrite prints from it (a read of a repeat's own answer spelled from
+`current()`, a filter without its identities), so no level of it prints the source and none is
+searched for. A site level counts the candidate's sites, of which such a relocated read is one the
+stored tree no longer reaches; it is a form's read inside a repeat, which no settle prints again.
+So: a read at a relocation site is spelled `current` (5.2); in each of the six slots the tree is
 `simplifyForEmission` of the candidate, and a table lookup's `where` anywhere in a tree likewise; the
 case list filter is `effectiveFilterForEmission` of the candidate, absent where that is all-true
 (5.5); a validation's count stays inline in the stored condition, since the sibling is no slot of the
@@ -824,10 +825,15 @@ A message an author edited in HQ so no language ends with the guard's sentence t
 whole test is registered as the rule, with `deferRefusal`: the expression stage's refusal of it
 waits for the search settle (`provisional.ts::settleDeferredRefusal`). Once the menu's rows are placed
 the settle asks the projection for the guard it joins to the field and compares the stored test's
-last top-level conjuncts with it as parsed trees (`search/settings.ts::endsWithRuntimeGuard`). Where
+last top-level conjuncts with it as parsed trees (`search/settings.ts::runtimeGuardEnding`). Where
 they are the guard, Nova prints the guard's sentence in the source language and no message ends
 with it, so the field is `unrecognized` at `schema:Assertion.text` and the refusal of the guard's
-reads is dropped; elsewhere the refusal stands as the expression stage made it. A check the
+reads is dropped; the field's own rule, the conjuncts before the guard, is then read on its own
+(`search/index.ts::untoldRuleRefusal`, through `readExpressions` over the settled document), and
+where Nova cannot hold it either its refusal stands beside the message's, since every finding a
+reading can decide is reported in one pass. A rule whose conjuncts share a group with the guard's
+(`a and (b and G)`) has no text of its own in the source and is not read; the message's finding
+alone keeps that field out. Elsewhere the refusal stands as the expression stage made it. A check the
 expression stage holds whole is split by the settle's own candidates (`ruleCandidates`).
 
 ### 2.4 Folds are proposals
@@ -3232,7 +3238,7 @@ Files of parts 06, 07 and 11 that call this part's exports are listed in those p
 | `lib/commcare/reader/syntaxCompare.ts` | `sameSyntax`, `firstDifference`, `sameXPathText`, `CompareOptions`, with the eight rows of 3.2 |
 | `lib/commcare/reader/hqInterpolation.ts` | `interpolateHqXPath`, `dotInterpolate`, `syntaxOf`, `hqInterpolationSlot`, `HqInterpolationSlot`, `HqInterpolated`, `HQ_USERCASE_XPATH`, `hqCaseByIdXPath` (6.1) |
 | `lib/commcare/emissionRewrites.ts` | `EMISSION_REWRITE_IDS`, `EmissionRewriteId`, `EMISSION_REWRITES`, `EmissionRewrite`, `RewriteControl` (2.3) |
-| `lib/commcare/reader/expressions/index.ts` | `readExpressions`, `ExpressionReadEnv`, `ExpressionReading`, `ExpressionClaim`, `GeneratedValue`, `RecordDialectJudge`, `EXPRESSION_ROUND_LIMIT` (2.5); `siteLevel`, `levelOf` and `storedAtLevel`, the second level and the tree it stores (2.3) |
+| `lib/commcare/reader/expressions/index.ts` | `readExpressions`, `ExpressionReadEnv`, `ExpressionReading`, `ExpressionClaim`, `GeneratedValue`, `RecordDialectJudge`, `EXPRESSION_ROUND_LIMIT` (2.5); `siteLevel` and `readBack`, the second level and the tree it stores (2.3) |
 | `lib/commcare/reader/expressions/readExpression.ts` | `readExpression` (one slot: bind, print, compare), `SlotJudgment`, `readingScope`, `sourceNodeProjection`, `slotReadMode` (4.3, 5.5) |
 | `lib/commcare/reader/expressions/folds.ts` | `EXPRESSION_FOLDS`, `Fold`, `FoldId`, `FoldEnv` (5) |
 | `lib/commcare/reader/expressions/canonical.ts` | `PRINT_COLLISIONS`, `PrintCollision`, `canonicalExpression` (5.5) |

@@ -27,6 +27,7 @@ import { dateSortDeclarations } from "../caseList/order";
 import { noteProperty } from "../caseManagement/catalog";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftModule, ReadContext } from "../context";
+import { readExpressions } from "../expressions";
 import { readExpression } from "../expressions/readExpression";
 import {
 	scanReads,
@@ -38,6 +39,8 @@ import { pendingPlaceholder } from "../pendingExpressions";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import {
+	applyExpressionCircumstance,
+	applyExpressionClaim,
 	provisionalDocument,
 	refusalDeferred,
 	settleDeferredRefusal,
@@ -55,11 +58,11 @@ import {
 	type SearchRow,
 } from "./rows";
 import {
-	endsWithRuntimeGuard,
 	holdsOwnersWithoutClause,
 	holdsText,
 	ownersWithoutClauseRegistration,
 	readSearchSettings,
+	runtimeGuardEnding,
 	settleSearchSettings,
 } from "./settings";
 import { offersSearch, readSearchWorkflow, searchPlace } from "./workflow";
@@ -795,11 +798,14 @@ function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
  * Each Search field's check whose message told nothing of Nova's runtime guard and whose rule the
  * expression stage refused (`prompts.ts::ValidationReading.untold`, `PendingExpression.deferRefusal`),
  * settled over the menu's placed rows. Where the stored test ends with the guard Nova's projection
- * joins to the field's check (`settings.ts::endsWithRuntimeGuard`), the guard is Nova's and what
+ * joins to the field's check (`settings.ts::runtimeGuardEnding`), the guard is Nova's and what
  * keeps the field out is its message: Nova prints the guard's sentence after the field's own in
  * the source language and no language's message ends with it, so the field is `unrecognized` at
- * `schema:Assertion.text` and the expression stage's refusal of the guard's reads is dropped.
- * Elsewhere the rule is the whole test, and its refusal stands.
+ * `schema:Assertion.text` and the expression stage's refusal of the guard's reads is dropped. The
+ * field's own rule, the conjuncts before the guard, is then read on its own
+ * (`untoldRuleRefusal`), and where Nova cannot hold it either, its refusal stands beside the
+ * message's, so the reading names both. Elsewhere the rule is the whole test, and its refusal
+ * stands.
  */
 function settleUntoldChecks(ctx: ReadContext, reading: SearchReading): void {
 	const doc = ctx.doc;
@@ -807,11 +813,11 @@ function settleUntoldChecks(ctx: ReadContext, reading: SearchReading): void {
 	for (const prompt of reading.prompts) {
 		const index = prompt.validationRule;
 		if (index === undefined || !refusalDeferred(ctx, index)) continue;
-		if (
-			doc === undefined ||
-			mod === undefined ||
-			!endsWithRuntimeGuard(ctx, doc, mod, prompt)
-		) {
+		const ending =
+			doc === undefined || mod === undefined
+				? undefined
+				: runtimeGuardEnding(ctx, doc, mod, prompt);
+		if (doc === undefined || ending === undefined) {
 			settleDeferredRefusal(ctx, index);
 			continue;
 		}
@@ -823,5 +829,37 @@ function settleUntoldChecks(ctx: ReadContext, reading: SearchReading): void {
 			index,
 			circumstanceFinding("unrecognized", place, detail),
 		);
+		if (ending.rule !== undefined)
+			untoldRuleRefusal(ctx, doc, index, ending.rule);
 	}
+}
+
+/**
+ * The field's own rule of an untold check, `rule` the source's text of the conjuncts before
+ * Nova's guard, read by the expression stage on its own over the settled document
+ * (`expressions/index.ts::readExpressions`, under the check's registration with `rule` as its
+ * text): where it is held, the message alone keeps the field out; where it is refused, each of the
+ * reading's claims and `unrecognized` rows is applied to the check's node, as the expression stage
+ * applies a refusal (`provisional.ts::applyExpressionClaim`, `applyExpressionCircumstance`).
+ */
+function untoldRuleRefusal(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	index: number,
+	rule: string,
+): void {
+	const registration = ctx.pending.list()[index];
+	if (registration === undefined) return;
+	const { deferRefusal: _deferred, ...own } = registration;
+	const judged = readExpressions(
+		doc,
+		[{ ...own, text: rule }],
+		expressionEnvOf(ctx),
+	);
+	if (judged.bound[0] !== undefined) return;
+	const at = ctx.pending.site(index).at;
+	for (const claim of judged.claims)
+		if (claim.source === 0) applyExpressionClaim(ctx, claim, at);
+	for (const row of judged.circumstances)
+		if (row.source === 0) applyExpressionCircumstance(ctx, row, at);
 }

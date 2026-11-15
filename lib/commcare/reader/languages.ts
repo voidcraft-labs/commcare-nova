@@ -58,6 +58,7 @@ import { inventoryIndex } from "../surface/inventory";
 import { withCandidate } from "./candidate";
 import { type Claim, defineClaims, refuse, take } from "./claims";
 import type { ReadContext } from "./context";
+import { keyDefinedAfterLineEnd } from "./heldText";
 import { isJsonObject, sameJson } from "./jsonCursor";
 import { languagesPlace } from "./place";
 import { systemSentenceHolders } from "./search/systemSentences";
@@ -401,14 +402,24 @@ export interface SourceEvidence {
  * document that prints the app. HQ's build ignores an empty one
  * (`app_strings.py::SelectKnownAppStrings.app_strings_parts`, `non_empty_only`), and one
  * equal to `name` is what every language that holds no other shows, so
- * neither tells one language from another.
+ * neither tells one language from another. Nor does one whose rest after a
+ * carriage return defines another app string (`heldText.ts::keyDefinedAfterLineEnd`):
+ * Nova prints no carriage return, so no document's export holds it, and the
+ * reading refuses it at its key whichever language is the source
+ * (`appShell.ts::readTranslations`), so reading it here would only move the
+ * source and refuse what the source's text keeps out elsewhere.
  */
 function namesTheAppAsSource(evidence: SourceEvidence, code: string): boolean {
 	const strings = isJsonObject(evidence.translations)
 		? evidence.translations[code]
 		: undefined;
 	const shown = isJsonObject(strings) ? strings["app.display.name"] : undefined;
-	return typeof shown !== "string" || shown === "" || shown === evidence.name;
+	return (
+		typeof shown !== "string" ||
+		shown === "" ||
+		shown === evidence.name ||
+		keyDefinedAfterLineEnd(shown) !== undefined
+	);
 }
 
 /**

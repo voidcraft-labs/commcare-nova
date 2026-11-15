@@ -4140,9 +4140,36 @@ def _data_binds_and_itext():
     )
     usercase = form(data="<commcare_usercase/><q/>", body='<input ref="/data/q"/>')
     usercase_update = {"condition": ALWAYS, "update": {"name": _update("/data/q")}}
+    # A SaveToCase block's own update rows (`status`, `size`), a hand-written case block's and a question's.
+    reserved = form(
+        data=f"""<op vellum:role="SaveToCase">{case}<update><status/><size/></update></case></op>
+          <hand>{case}<update><status/></update></case></hand><plain><status/></plain>"""
+    )
+    update_row = f"{data}op[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}"
+    hand_row = f"{data}hand[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}status[1]"
 
     def usercase_app(**actions):
         return _with_forms(_app([_module([_form_json("none", **actions)])]), f=usercase)
+
+    # A SaveToCase block of the worker's record, with rows no worker property takes (`external_id`, `case_type`)
+    # and one it takes (`team`), and another case's block writing `external_id`.
+    worker_block = form(
+        data=f"""<w vellum:role="SaveToCase" vellum:case_type="commcare-user">{case}<update><external_id/>
+          <case_type/><status/><team/></update></case></w>
+          <p vellum:role="SaveToCase" vellum:case_type="patient">{case}<update><external_id/></update></case></p>"""
+    )
+    worker_row = f"{data}w[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}"
+    patient_row = f"{data}p[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}external_id[1]"
+
+    def worker_update(key):
+        return usercase_app(usercase_update={"condition": ALWAYS, "update": {key: _update("/data/q")}})
+
+    def worker_load(key):
+        auto = {"doc_type": "AutoSelectCase", "mode": "usercase", "value_key": ""}
+        return _advanced_app([_load("usercase", auto_select=auto, case_properties={key: _update("/data/q")})])
+
+    usercase_map = "/modules/0/forms/0/actions/usercase_update/update"
+    load_map = "/modules/0/forms/0/actions/load_update_cases/0/case_properties"
 
     choices = form(
         data="<s/><m/>",
@@ -4458,6 +4485,26 @@ def _data_binds_and_itext():
         "questions/attachment-inside-a-savetocase-block": (
             refused("form", nodes, node, f"{{{CASE_NS}}}case[1]/{{{CASE_NS}}}attachment[1]"),
             accepted("form", nodes, node, f"{data}other[1]/{data}attachment[1]"),
+        ),
+        "forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes": (
+            refused("form", worker_block, node, f"{worker_row}external_id[1]"),
+            refused("form", worker_block, node, f"{worker_row}case_type[1]"),  # the sync writes the case's type
+            refused("form", worker_block, node, f"{worker_row}status[1]"),
+            accepted("form", worker_block, node, f"{worker_row}team[1]"),  # a worker property's name
+            accepted("form", worker_block, node, patient_row),  # another case's block
+            refused("app", worker_update("first_name"), "schema:UpdateCaseAction.update", usercase_map),
+            refused("app", worker_update("Status"), "schema:UpdateCaseAction.update", usercase_map),
+            accepted("app", worker_update("team"), "schema:UpdateCaseAction.update", usercase_map),
+            accepted("app", worker_update("status"), "schema:UpdateCaseAction.update", usercase_map),  # the bar's
+            refused("app", worker_load("user_type"), "schema:LoadUpdateAction.case_properties", load_map),
+            accepted("app", worker_load("team"), "schema:LoadUpdateAction.case_properties", load_map),
+        ),
+        "questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts": (
+            refused("form", reserved, node, f"{update_row}status[1]"),
+            accepted("form", reserved, node, f"{update_row}size[1]"),  # a name Nova holds
+            accepted("form", reserved, node, hand_row),  # a hand-written case block's
+            accepted("form", worker_block, node, f"{worker_row}status[1]"),  # the worker's record's class
+            accepted("form", reserved, node, f"{data}plain[1]/{data}status[1]"),  # a question's node
         ),
         "questions/authored-data-meta-block": (
             refused("form", nodes, root_child, f"{data}meta[1]"),
