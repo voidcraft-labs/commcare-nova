@@ -47,11 +47,13 @@
 // block on short detail.
 //
 // Position counter convention: the 1-based position passed to the
-// per-column header-locale composer is the column's index in the complete
-// Results-ordered source sequence plus one. Hiding a column renumbers no
-// other — toggling `visibleInList` doesn't churn locale ids. Mirrors CCHQ's
-// `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
-// `column.id`-keyed numbering convention.
+// per-column header-locale composer is the field's index in the short
+// detail HQ JSON stores plus one (`CaseListShortField.position`), the
+// `column.id + 1` of `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`,
+// which `models/case_list.py::Detail.get_columns` numbers by the stored
+// detail's own list. A column hidden from Results is a field of that detail
+// and keeps its place; a column that is not on the list, or one a tile list
+// hides from Results, is none, and counts in no field's position.
 //
 // The compiler owns the shared title locale; this emitter returns column
 // strings only. Core has no ambient cchq.case mapping.
@@ -98,7 +100,6 @@ import {
 	type CaseTileGrouping,
 	effectiveCaseTypes,
 	type Module,
-	orderedColumns,
 	type TranslationUnitId,
 } from "@/lib/domain";
 import type { FormIconRef } from "@/lib/domain/builtinIcons";
@@ -377,20 +378,14 @@ export function buildShortDetail(args: {
 	const translationUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk the plan's fields, which keep the config's exact Results UUID
-	// permutation. A shown field's header locale keeps its 1-based position
-	// in the complete Results sequence, so hiding a column renumbers no
-	// other; a hidden field has no locale. Long detail deliberately uses its
-	// independent Details order instead.
-	const resultsPosition = new Map(
-		orderedColumns(config, "list").map((column, index) => [
-			column.uuid,
-			index + 1,
-		]),
-	);
+	// permutation. A shown field's header locale takes its 1-based position
+	// in the short detail HQ JSON stores, as HQ's build numbers it; a field
+	// hidden from Results has no locale. Long detail numbers its own stored
+	// detail instead.
 	for (const field of plan.fields) {
 		const emission = buildColumnField({
 			column: field.column,
-			position: resultsPosition.get(field.column.uuid) ?? field.position + 1,
+			position: field.position + 1,
 			ctx,
 			hidden: field.hidden,
 		});

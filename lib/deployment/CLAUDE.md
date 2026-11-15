@@ -267,7 +267,11 @@ the deployment `incomplete` rather than succeeding with a warning attached, and
 nothing externally visible has happened.
 
 `plan-features`, titled "What this project space needs", asks CommCare HQ
-nothing and comes before every edge that does. No API key reads a project
+nothing and comes before every edge that writes to CommCare HQ or asks a person
+about a write. `managed-data` alone precedes it: it only reads CommCare HQ and
+refreshes Nova's copy of the tables CommCare HQ manages, and the export boundary
+must validate the refreshed generation. A publish refused later keeps that
+refresh, which is CommCare HQ's current state and nothing of the publish. No API key reads a project
 space's plan or its privileges, whether it still sends its flat location list
 (`LocationFixtureConfiguration.sync_flat_fixture`), whether it holds a
 forwarder to CommCare Connect, whether it syncs cases on form entry, or whether
@@ -306,9 +310,10 @@ withdrawn row is kept with who withdrew it and when. The `worker-record-access`
 attention edge keeps only the device half of the worker's own record; its plan
 half is the `worker-records` plan feature.
 
-`project-data`, `organization` and `target-app` are the three edges that TALK
-to CommCare HQ during preflight, and each appears only when the app carries that
-thing: `target-app` whenever `plannedInPlaceUpdate` names an app. It reads the
+`managed-data`, `project-data`, `organization` and `target-app` are the four
+edges that talk to CommCare HQ during preflight, and each appears only when the
+app carries that thing: `managed-data` when a table the app reads is managed in
+CommCare HQ, and `target-app` whenever `plannedInPlaceUpdate` names an app. It reads the
 app's source (`lib/commcare/hq/appSource.ts::readHqAppSource`), and is the only
 edge that does. It is not the publish's only read of it: a first publish reads
 the source after it creates the empty app, and a publish that pushed a lookup
@@ -422,6 +427,30 @@ a space's flags. A project space the connected account has left is the
 `not-a-member` issue, and it stops every publish. The route to that state is a
 stored project-space list that outlived the membership.
 
+`managed-data`, titled "Data managed in CommCare HQ", comes right after the
+connection and before the export boundary (`managedData.ts::reReadManagedTablesForPublish`).
+It reads the tables managed in the target with the publisher's key, the list
+once and each table's rows, and where one changed in something the app reads
+(the table gone, a column the app reads gone, field properties, row
+attributes, rows limited to certain users, a field with several values, a cap,
+a field name outside the grammar, a character XML cannot carry) it refuses
+with `hq_managed_data_changed`, every change of every table listed in
+`details`, before any write; otherwise it refreshes each table whose content
+moved, each in its own short transaction, so the boundary validates and emits
+the generation that results. A read that fails is `hq_resource_state_unknown`.
+A table managed in another project space is read where the publisher's
+connection reaches it and refreshed where nothing stops it; otherwise it goes
+out from Nova's copy as it is, and never stops a publish. The export boundary
+then leaves every table managed in the target out of the workbook
+(`lookupTarget`), and `project-data` reuses the list `managed-data` read.
+
+The `organization` edge, for places CommCare HQ manages in the target, plans
+no place and pushes none: it reads that project space's places, holds the
+owner rules that pick a place beneath the case owner to them, and refreshes
+Nova's copy from that read (`managedData.ts::refreshManagedPlacesFromRead`); a
+copy it cannot refresh stops nothing. Another project space gets the copy as
+places Nova made there, with every existing refusal.
+
 ## Ownership, and why superseded rows are kept
 
 `app_deployment_resources` is the ledger. Nova repoints or updates what it
@@ -443,6 +472,22 @@ The ledger records who and when (`adopted_at`
 `store.ts::writeResourceMapping` so the failure names the call rather than the
 constraint). Once recorded, the decision stands: later publishes read the
 mapping rather than asking again.
+
+A lookup table's standing is the Project's (`lookupResourcePlan.ts`), and
+two arms beside the deployment's own mapping account for the table CommCare
+HQ holds under a tag. A live mapping of another app of the Project for that
+very table (`store.ts::readSiblingLookupMappings`, keyed by the Nova table id
+and the HQ table's id) lets the push inherit its standing, `adopted` with the
+earliest adoption's who and when where any sibling adopted it, and compares
+with the baseline that sibling's push wrote, which the Project shares. A
+person's Manage in Nova on the table, recorded on the table from this project
+space, is the decision to publish Nova's copy over CommCare HQ's: the push is
+`adopted`, attributed to that person and moment, and the drift check compares
+with the table's own record of CommCare HQ's table at its last refresh
+(`managedData.ts::baselineFromTableOrigin`). `recordPushedResources` writes
+the inherited pair. A table CommCare HQ manages in the target has no mapping
+and is in no workbook. A tag met when an app is brought in is bound by the
+review's rule before any app exists, never by a publish.
 
 `pushed_identity` is the external name a resource carries on CommCare HQ — a
 lookup table's tag, a place's site code, a worker's complete username. What
@@ -581,6 +626,24 @@ publish reaches the case it reached before. An operation whose type changed,
 every operation made in Nova, and every other project space take the
 derivation.
 
+### Accepting a reading
+
+`reading/acceptance.ts::acceptReading` is the one judge of a reading:
+complete accounting, the gate and the export readiness of a first publish
+under every declaration the review will offer, the exact fixed point over
+Nova's own emission of the document and of the split document a declaration
+can make, identity agreement between CommCare HQ's source and that emission,
+and agreement with CommCare HQ's own question summary. It is pure and runs on
+the request. A failure after a clean read is `read-back-differs`, Nova's own.
+It reads no expression's meaning: the reader's re-emission comparisons and
+the proof lane hold that. `reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES`
+is the closed list of what a first publish over an adopted app may change;
+what a person reviewed is kept on the read baseline and ends with the first
+push. `reading/readBack.ts::readBackDifferences` is the one comparison of a
+document with its read back, made by tests, by the proof lane and where Nova
+asks whether two readings of CommCare HQ's app are one document, and never by
+acceptance.
+
 ## Baselines
 
 A baseline is CommCare HQ's own read of what Nova publishes, never what Nova
@@ -598,7 +661,16 @@ each by its position. A baseline also holds the revision of the Nova app its
 source describes (`nova_revision`: the sequence a push sent, or the birth's),
 and, for an app brought in, which CommCare HQ file stood at each path the app
 publishes there when it came in (`media_files`, `hqMedia.ts::HqMediaRecord`),
-which a push keeps for the same HQ app.
+which a push keeps for the same HQ app. A baseline of origin `read` also
+holds `first_publish_changes`: the first-publish changes the person reviewed
+that do not depend on where the app runs, and the Web App setting CommCare HQ
+held. After changes made in CommCare HQ are brought in or recorded, a
+baseline can hold a list of the other kind in the same column: what the next
+publish changes there. The value's `of` says which kind it is. A `create` and
+an `unread` baseline hold none, and the one upsert clears it when a push
+replaces the baseline. `store.ts::readFirstPublishStates` returns it to a
+viewer and never the source, and `resources.ts::firstPublishOf` is the one
+rule that turns it into the list a surface shows.
 `targetFacts.ts::targetFactsFromBaseline` projects the stored source to
 `TargetFacts`, what the project space holds of the values Nova leaves to
 CommCare HQ, and `keptListFor` names the kept settings it holds differently
@@ -674,7 +746,12 @@ flags are invisible to the check. A change to a shell other than a menu is
 not seen. A baseline whose origin is `cutover` holds whatever HQ held when it
 was recorded, edits made in HQ before then included, so the first publish
 over it writes over them. A profile saved in HQ between the publish's last
-read and its import is not seen until the next publish, which stops.
+read and its import is not seen until the next publish, which stops. A table
+handed back to CommCare HQ between a publish's last read of that fact and its
+workbook upload is written once more: the publish reads who manages each
+table of its workbook in one statement just before the upload, and a table
+handed back by then stops it at `resources` with `managed_table_handed_back`,
+nothing of the workbook or the app's content sent.
 
 ## One publish lifecycle
 
@@ -1145,7 +1222,11 @@ resolve answers 201 with the worker standing nowhere. Hence
 required worker information a persona has no value for, and on a persona
 standing in a place the project space does not hold — and hence a create
 that DOES carry places sends them as a second call, because `obj_update`
-gathers the same errors into one 400.
+gathers the same errors into one 400. The places a persona stands in reach
+CommCare HQ's ids through the deployment's `location` mappings and, for
+places CommCare HQ manages in the target, through each place's
+`hq_location_id` (`managedData.ts::readManagedPlaceIds`): such places were
+never pushed, so no mapping names them.
 
 Nova speaks about a worker's places only when the app HAS an organization.
 `::_update_location` reads an empty list as "remove all", so an app with
@@ -1161,6 +1242,14 @@ Builder (the App setup Publishing section and the publish dialog) and MCP
 that keeps project-space compatibility checks off that surface. A deployment is
 durable state about somebody else's server, not authored vocabulary an
 agent designing an app should reason about.
+
+Data CommCare HQ manages is reached the same way: `managedData.ts` holds a
+table's Refresh, Manage in Nova (the Project's `delete`, reading nothing of
+CommCare HQ) and Let CommCare HQ manage it again, the places' Refresh, and
+the two views the table page and Organization banner read;
+`managedDataActions.ts` holds their Server Actions, each taking plain JSON and
+resolving the Project freshly from the id it was given. Every refusal of a
+refresh or a hand-back leaves the copy as it was.
 
 **The Builder splits the work: the dialog publishes, the section manages.**
 App setup's Publishing section (`components/builder/app-setup/

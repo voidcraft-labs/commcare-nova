@@ -16,27 +16,9 @@
 
 import "server-only";
 
-import { hqNestedSelectionFindings } from "@/lib/commcare/hqNestedSelection";
-
-import {
-	buildLookupFixtures,
-	type CompiledLookupFixtureSet,
-	lookupFixtureBudgetExcess,
-	type PreparedLookupWire,
-} from "@/lib/commcare/lookup/fixtures";
-import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
-import {
-	type LookupWireNaming,
-	lookupWireNaming,
-} from "@/lib/commcare/lookup/naming";
-import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
-import {
-	buildLookupWorkbook,
-	type LookupWorkbook,
-	MAX_HQ_FIXTURE_WORKBOOK_ROWS,
-	TYPES_SHEET,
-} from "@/lib/commcare/lookup/workbook";
-import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
+import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import {
 	type ValidationError,
 	validationError,
@@ -53,7 +35,6 @@ import {
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
-import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	MAX_MEDIA_EXPORT_ASSETS,
@@ -71,9 +52,19 @@ import {
 } from "@/lib/media/builtinIconAssets";
 import { exportBudgetExcess } from "@/lib/media/exportBudget";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import {
+	type ExportMode,
+	exportCarrierFindings,
+	type LookupTarget,
+	type ManagedLookupTable,
+} from "./boundaryFindings";
 
-export const EXPORT_MODES = ["ccz", "hq-json", "hq-upload"] as const;
-export type ExportMode = (typeof EXPORT_MODES)[number];
+export {
+	EXPORT_MODES,
+	type ExportMode,
+	type LookupTarget,
+	type ManagedLookupTable,
+} from "./boundaryFindings";
 
 export type AvailableLookupValidationContext = Extract<
 	LookupValidationContext,
@@ -105,6 +96,12 @@ export interface PrepareExportBoundaryInput {
 	 * Absent, every file takes its content-hash path.
 	 */
 	readonly heldMediaPaths?: ReadonlyMap<MediaAssetId, string>;
+	/**
+	 * The project space a direct upload writes to, which `hq-upload` passes
+	 * and the other two modes do not: a table CommCare HQ manages there is
+	 * left out of the workbook, so Nova never writes it there.
+	 */
+	readonly lookupTarget?: LookupTarget;
 }
 
 /**
@@ -145,12 +142,27 @@ export interface PreparedExportBoundary {
 	readonly attachmentTarget: AttachmentUrlTarget | null;
 	/**
 	 * The same tables as the workbook CommCare HQ's fixture upload reads.
-	 * Present on the two HQ modes when the doc references a table: the
-	 * upload pushes it before the app goes out, and the manual import
+	 * Present on the two HQ modes when some table the doc references goes:
+	 * the upload pushes it before the app goes out, and the manual import
 	 * artifact ships it beside the app JSON so a hand-imported app has its
-	 * data too.
+	 * data too. It holds every referenced table but those in
+	 * `managedLookupTables`, and is absent where no table goes.
 	 */
 	readonly lookupWorkbook?: LookupWorkbook;
+	/**
+	 * Every table the mode left out of `lookupWorkbook`, in the definitions'
+	 * order: for `hq-upload`, each table CommCare HQ manages in its
+	 * `lookupTarget`; for `hq-json`, each table CommCare HQ manages; for
+	 * `ccz`, none.
+	 */
+	readonly managedLookupTables: readonly ManagedLookupTable[];
+	/**
+	 * The HQ app file's second workbook: Nova's copy of every table CommCare
+	 * HQ manages, which a person importing into the project space that
+	 * manages them leaves out. Present on `hq-json` only, where a table is
+	 * managed.
+	 */
+	readonly managedLookupWorkbook?: LookupWorkbook;
 }
 
 export type PrepareExportBoundaryResult =
@@ -211,16 +223,17 @@ function availableLookupContext(
 /**
  * Load the Project-filtered media rows and run the sole complete export
  * evaluator. Export preparation calls this only after obtaining its exact
- * lookup context; the focused exported wrapper below fixes this to the
- * production registry for legacy media-rule coverage.
+ * lookup context, and hands it the mode's `rowFindings` from
+ * {@link exportCarrierFindings}; the focused exported wrapper below fixes
+ * this to the production registry, with no mode, for legacy media-rule
+ * coverage.
  */
 async function collectViolationsWithRegistry(
 	doc: BlueprintDoc,
 	projectId: string,
 	lookupContext: LookupValidationContext,
 	lookupReferenceExtractors: LookupReferenceExtractorRegistry,
-	mode?: ExportMode,
-	lookupRows?: LookupRowVerdictInput,
+	rowFindings: readonly ValidationError[] = [],
 	reads: ExportBoundaryReads = PRODUCTION_READS,
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
@@ -238,8 +251,7 @@ async function collectViolationsWithRegistry(
 				`This app references too many attachments to export: ${exportableRefCount} (the limit is ${MAX_MEDIA_EXPORT_ASSETS}). Remove some attachments, then export again.`,
 				{},
 			),
-			...lookupExportFindings(doc, mode, lookupRows),
-			...organizationExportFindings(doc, mode),
+			...rowFindings,
 		];
 	}
 
@@ -256,304 +268,8 @@ async function collectViolationsWithRegistry(
 	const budgetError = exportBudgetError(rows);
 	return [
 		...errors,
-		...lookupExportFindings(doc, mode, lookupRows),
-		...organizationExportFindings(doc, mode),
+		...rowFindings,
 		...(budgetError === null ? [] : [budgetError]),
-	];
-}
-
-/**
- * The one owner term that cannot cross an export boundary.
- *
- * The fixture is not what decides this. `owner-location-at-level`
- * reads `instance('locations')`, and that is CommCare's own restore
- * fixture on every mode alike (`jr://fixture/locations`; Nova emits no
- * copy, and native compatibility scripts execute HQ's actual serializer).
- * `fixed-location` reads no instance: `xpath/wire/fromExpression.ts` builds
- * only a string literal for that arm.
- * What decides this is WHOSE IDENTITIES the printed expression carries.
- *
- * `owner-location-at-level` carries none of Nova's.
- * `xpath/wire/fromExpression.ts` prints level CODES, which a publish puts on
- * the project space as `location_type_code` and which are therefore the
- * same word on both sides, and matches them against the case's own
- * `owner_id`, which is CommCare HQ's value at runtime. Every part of that
- * expression means the same thing over there, so it exports.
- *
- * What that expression DOES assume is four things about the target
- * project space, none of which Nova can see from here. A publish to a space
- * Nova pushed makes three of them true and asks the person about the
- * fourth. Each is stated because it
- * cannot be closed from here, not as a note to somebody later:
- *
- *   * **It spells its levels the way Nova does.** A publish writes each
- *     level's code as `location_type_code`, so a direct upload is sound by
- *     construction. A downloadable app or an import file dropped into a
- *     project space whose organization somebody built by hand can carry
- *     different codes, and the rule then selects nothing.
- *   * **It has the LOCATIONS privilege.**
- *     `locations/fixtures.py::should_sync_flat_fixture` answers False
- *     unless `domain/models.py::Domain.uses_locations` (that privilege,
- *     plus commtrack or at least one `LocationType`). A publish proves it,
- *     since the location push takes a 403 without it, and a `.ccz` or
- *     import file cannot. This one is not quiet: with no fixture the
- *     device fails to resolve the instance rather than matching nobody.
- *   * **It sends its flat location list.** Every app carries
- *     `project_default`, so `locations/fixtures.py::should_sync_flat_fixture`
- *     asks the project space's `LocationFixtureConfiguration.sync_flat_fixture`,
- *     which is on unless someone turned it off. A publish asks the person to
- *     confirm it; a `.ccz` or import file cannot.
- *   * **Its tree has no second place under the same owner at the
- *     destination level.** What makes this expression yield ONE `@id`
- *     rather than a node-set is
- *     `lib/organization/commitIntegrity.ts::assertReverseHopTargetsUnambiguous`,
- *     and that runs over `app_locations` — Nova's tree. CommCare HQ builds
- *     the fixture from its own `SQLLocation` rows, which can hold places
- *     Nova never created or ones added after the publish. A publish
- *     re-proves it over there:
- *     `lib/deployment/preflight.ts` blocks on
- *     `ambiguousReverseHopsOnTarget`. A `.ccz` or an import file has no
- *     target to prove it against.
- *
- * A publish settles three and asks about the fourth, and none is a reason to refuse an export:
- * they are the name-and-shape agreement every code-based binding Nova
- * emits already rests on, case types included, and refusing because a
- * target MIGHT disagree would refuse far more than this. What is left
- * unproved is the two modes that have no target to ask — and they are
- * named here rather than left to be noticed, because the first and fourth
- * fail QUIETLY: a predicate that matches nobody, or matches two, is not a
- * runtime error.
- *
- * `fixed-location` prints Nova's place UUID as a literal `owner_id`.
- * CommCare HQ keys its places by ids it minted itself, so that literal
- * names nobody there, and it does so quietly: an owner that resolves to
- * nothing is indistinguishable from an owner who is simply absent.
- *
- * This is a missing translation, not a missing feature, and it is not
- * permanent on any mode. The place mapping exists — the deployment
- * ledger holds Nova's place UUID against CommCare HQ's `location_id` —
- * and nothing threads it into emission yet. A direct upload knows its
- * target authoritatively and is where that will land first; the other two
- * resolve a target through the app's deployment record, exactly as
- * `PreparedExportBoundary.attachmentTarget` already does, and become
- * exportable for an app whose record names one project space. Hence one
- * message for all three: the reason is the same everywhere, and only the
- * availability of a target differs.
- */
-function organizationExportFindings(
-	doc: BlueprintDoc,
-	mode: ExportMode | undefined,
-): ValidationError[] {
-	if (mode === undefined) return [];
-	const findings: ValidationError[] = [];
-	for (const form of Object.values(doc.forms)) {
-		for (const [operationIndex, operation] of (
-			form.caseOperations ?? []
-		).entries()) {
-			if (operation.owner === undefined) continue;
-			let locationUuid: string | undefined;
-			walkExpressionTerms(operation.owner, (term) => {
-				if (term.kind === "fixed-location") locationUuid = term.locationUuid;
-			});
-			if (locationUuid === undefined) continue;
-			findings.push(
-				validationError(
-					"LOCATION_OWNER_EXPORT_NOT_ACTIVE",
-					"form",
-					`A case owner set to one particular place cannot be exported as ${EXPORT_MODE_LABELS[mode]} yet. The exported rule names that place by Nova's own id, and your CommCare HQ project knows its places by different ids, so the rule would match nobody. Setting it to a place beneath the current case owner exports fine, so use that instead, or remove this rule.`,
-					{
-						formUuid: form.uuid,
-					},
-					{
-						exportMode: mode,
-						operationIndex: String(operationIndex),
-						ownerKind: "fixed-location",
-						locationUuid,
-					},
-				),
-			);
-		}
-	}
-	return findings;
-}
-
-/** The row-bearing generation each mode's lookup verdicts are drawn from. */
-interface LookupRowVerdictInput {
-	readonly fixtureData: LookupFixtureDataSnapshot;
-	readonly textFindings: readonly ValidationError[];
-	/** Built for `ccz` only: the bytes the archive would embed. */
-	readonly fixtures?: CompiledLookupFixtureSet;
-	/**
-	 * The referenced tables' current wire identities, present on the two HQ
-	 * modes only. Read for the checks that are about a NAME rather than
-	 * about bytes, which must therefore run even when the workbook could
-	 * not be built.
-	 */
-	readonly hqNaming?: LookupWireNaming;
-	/** Built for the two HQ modes only: the bytes CommCare HQ would read. */
-	readonly workbook?: LookupWorkbook;
-}
-
-/**
- * The mode's complete lookup verdict.
- *
- * The row-dependent checks are common to all three, because a choice list
- * whose saved values are blank or duplicated is equally broken however the
- * table reached the device. What differs is what each CARRIER can hold:
- * `ccz` embeds fixture XML into the archive and is bounded by what an
- * unindexed runtime can carry, while the HQ modes hand CommCare HQ a
- * workbook and are bounded both by the rows its importer takes and by the
- * length of a spreadsheet sheet name.
- */
-function lookupExportFindings(
-	doc: BlueprintDoc,
-	mode: ExportMode | undefined,
-	lookupRows: LookupRowVerdictInput | undefined,
-): ValidationError[] {
-	if (mode === undefined || lookupRows === undefined) return [];
-	return [
-		...lookupRows.textFindings,
-		...lookupSelectSourceRowFindings(doc, lookupRows.fixtureData),
-		...(lookupRows.fixtures === undefined
-			? []
-			: lookupFixtureBudgetFindings(lookupRows.fixtures)),
-		...(lookupRows.hqNaming === undefined
-			? []
-			: lookupHqReservedTagFindings(lookupRows.hqNaming)),
-		...(lookupRows.workbook === undefined
-			? []
-			: lookupWorkbookBudgetFindings(lookupRows.workbook)),
-	];
-}
-
-/**
- * Whether any referenced tag is `types`, the one name a data sheet cannot
- * take.
- *
- * Read before the workbook is built, because the builder cannot name a
- * sheet it has no legal name for; the boundary refuses first so the
- * emitter stays total.
- */
-function hasUnpushableTag(naming: LookupWireNaming): boolean {
-	return naming.tables.some((table) => table.tag.toLowerCase() === TYPES_SHEET);
-}
-
-/**
- * The one tag CommCare HQ has already spent on itself.
- *
- * Every upload carries a mandatory sheet named `types` listing the tables
- * in it, so a table whose own tag is `types` has nowhere to put its rows.
- * Nova would throw appending the second sheet and CommCare HQ would read
- * the wrong one, so the boundary refuses first and the emitter stays
- * total. Sheet names are matched case-insensitively, so `Types` collides
- * just as `types` does.
- */
-function lookupHqReservedTagFindings(
-	naming: LookupWireNaming,
-): ValidationError[] {
-	return naming.tables
-		.filter((table) => table.tag.toLowerCase() === TYPES_SHEET)
-		.map((table) =>
-			validationError(
-				"LOOKUP_TAG_RESERVED_BY_HQ",
-				"app",
-				`CommCare HQ keeps the sheet name ${TYPES_SHEET} for its own list of the tables in an upload, so the export tag ${table.tag} has nowhere to put its rows. Rename it in Project data, then try again.`,
-				{},
-				{ tag: table.tag, reservedTag: TYPES_SHEET },
-			),
-		);
-}
-
-const EXPORT_MODE_LABELS: Readonly<Record<ExportMode, string>> = {
-	ccz: "a downloadable app",
-	"hq-json": "an HQ import file",
-	"hq-upload": "a direct HQ upload",
-};
-
-/**
- * What CommCare HQ's fixture importer will take in one workbook.
- *
- * The limit is a whole-workbook row total across every sheet, headers
- * included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, applied in
- * `util/workbook_json/excel.py::WorkbookJSONReader.__init__`). Nova's own
- * 5,000-row per-table cap puts it about a hundred tables away, so this
- * fires only for an app referencing an unusual number of them — but when
- * it does, CommCare HQ's own refusal names a limit nobody set in Nova, so
- * Nova measures it first and says which tables are large.
- */
-function lookupWorkbookBudgetFindings(
-	workbook: LookupWorkbook,
-): ValidationError[] {
-	if (workbook.totalWorkbookRows <= MAX_HQ_FIXTURE_WORKBOOK_ROWS) return [];
-	const largest = [...workbook.tables]
-		.sort((left, right) => right.rowCount - left.rowCount)
-		.slice(0, 3);
-	return [
-		validationError(
-			"LOOKUP_HQ_PUSH_TOO_LARGE",
-			"app",
-			`This app references more lookup data than CommCare HQ accepts in one upload: ${workbook.totalWorkbookRows.toLocaleString(
-				"en-US",
-			)} rows (the limit is ${MAX_HQ_FIXTURE_WORKBOOK_ROWS.toLocaleString(
-				"en-US",
-			)}). The largest tables are ${largest
-				.map((table) => table.tag)
-				.join(", ")}; shrink or split them, or remove some lookup references.`,
-			{},
-			{
-				rowsActual: String(workbook.totalWorkbookRows),
-				rowsAllowed: String(MAX_HQ_FIXTURE_WORKBOOK_ROWS),
-				largestTables: largest
-					.map((table) => `${table.tag}:${table.rowCount}`)
-					.join(","),
-			},
-		),
-	];
-}
-
-const BUDGET_AXIS_LABELS = {
-	rows: "rows",
-	cells: "cells",
-	bytes: "bytes of fixture data",
-} as const;
-
-function lookupFixtureBudgetFindings(
-	fixtures: CompiledLookupFixtureSet,
-): ValidationError[] {
-	const excess = lookupFixtureBudgetExcess(fixtures);
-	if (excess === null) return [];
-	const axisSummaries = excess.map(
-		(axis) =>
-			`${axis.actual.toLocaleString("en-US")} ${BUDGET_AXIS_LABELS[axis.axis]} (the limit is ${axis.allowed.toLocaleString("en-US")})`,
-	);
-	const largestTags = [
-		...new Set(
-			excess.flatMap((axis) => axis.largestTables.map((table) => table.tag)),
-		),
-	];
-	return [
-		validationError(
-			"LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
-			"app",
-			`This app references more lookup data than a downloadable app can bundle: ${axisSummaries.join(
-				" and ",
-			)}. The largest tables are ${largestTags.join(
-				", ",
-			)}; shrink or split them, or remove some lookup references, then export again.`,
-			{},
-			Object.fromEntries(
-				excess.flatMap((axis) => [
-					[`${axis.axis}Actual`, String(axis.actual)],
-					[`${axis.axis}Allowed`, String(axis.allowed)],
-					[
-						`${axis.axis}LargestTables`,
-						axis.largestTables
-							.map((table) => `${table.tag}:${table.amount}`)
-							.join(","),
-					],
-				]),
-			),
-		),
 	];
 }
 
@@ -621,32 +337,24 @@ async function prepareWithRegistry(
 	}
 	const lookupContext = availableLookupContext(lookupSnapshot);
 
-	/* The carrier for this mode is built BEFORE the verdict, so the size
-	 * limit measures the exact bytes that would go out rather than an
-	 * estimate of them, and the built artifact is reused on success rather
-	 * than rebuilt. An app referencing no table builds neither. */
-	const naming =
-		lookupTargets.tableIds.length === 0
-			? undefined
-			: lookupWireNaming(fixtureData.definitions);
-	const textFindings = [
-		...lookupXmlTextFindings(fixtureData),
-		...(input.mode === "ccz" ? [] : lookupHqCellTextFindings(fixtureData)),
-	];
-	const lookupWire =
-		naming === undefined || input.mode !== "ccz" || textFindings.length > 0
-			? undefined
-			: {
-					naming,
-					fixtures: buildLookupFixtures(naming, fixtureData.rowsByTable),
-				};
-	const lookupWorkbook =
-		naming === undefined ||
-		input.mode === "ccz" ||
-		hasUnpushableTag(naming) ||
-		textFindings.length > 0
-			? undefined
-			: buildLookupWorkbook(naming, fixtureData.rowsByTable);
+	/* The mode's carrier and its row and mode verdicts, over this one
+	 * snapshot. The selection findings are read only once the document's own
+	 * verdict has passed. */
+	const carrier = exportCarrierFindings({
+		doc: input.doc,
+		mode: input.mode,
+		fixtureData,
+		...(input.lookupTarget !== undefined && {
+			lookupTarget: input.lookupTarget,
+		}),
+	});
+	const {
+		naming,
+		lookupWire,
+		lookupWorkbook,
+		managedLookupTables,
+		managedLookupWorkbook,
+	} = carrier;
 
 	/* This subordinate loader evaluates the complete document gate with both
 	 * the exact lookup context and the Project-filtered media rows. It returns
@@ -656,28 +364,14 @@ async function prepareWithRegistry(
 		input.access.projectId,
 		lookupContext,
 		registry,
-		input.mode,
-		{
-			fixtureData,
-			textFindings,
-			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
-			...(naming !== undefined && input.mode !== "ccz" && { hqNaming: naming }),
-			...(lookupWorkbook !== undefined && { workbook: lookupWorkbook }),
-		},
+		carrier.rowFindings,
 		reads,
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
 	}
-	if (input.mode !== "ccz") {
-		const hqSelectionViolations = hqNestedSelectionFindings(
-			input.doc,
-			input.mode,
-			naming,
-		);
-		if (hqSelectionViolations.length > 0) {
-			return { ok: false, violations: hqSelectionViolations };
-		}
+	if (carrier.selectionFindings.length > 0) {
+		return { ok: false, violations: carrier.selectionFindings };
 	}
 
 	/* Bytes are resolved only after the complete boundary succeeds. All three
@@ -703,6 +397,8 @@ async function prepareWithRegistry(
 			...(lookupWire !== undefined && { lookupWire }),
 			attachmentTarget: input.attachmentTarget,
 			...(lookupWorkbook !== undefined && { lookupWorkbook }),
+			managedLookupTables,
+			...(managedLookupWorkbook !== undefined && { managedLookupWorkbook }),
 		},
 	};
 }

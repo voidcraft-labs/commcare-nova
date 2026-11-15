@@ -486,6 +486,19 @@ const OPTIONAL_TEXT: ReadonlySet<ItextOwner["slot"]> = new Set([
 ]);
 
 /**
+ * Whether a text blank in every language prints as none does, so a reading reads it as none: a
+ * hint, a help text or a validation message, and a group's, repeat's or section's label, which
+ * `builder.ts` writes no `<label>` for (the canonical row `blank-container-label-is-absent`).
+ */
+function blankPrintsAsNone(owner: ItextOwner): boolean {
+	return (
+		OPTIONAL_TEXT.has(owner.slot) ||
+		(owner.slot === "label" &&
+			(CONTAINER_KINDS as ReadonlySet<string>).has(owner.field.kind))
+	);
+}
+
+/**
  * The document without each hint, help text and validation message blank in every language, and
  * without its translations. `builder.ts::buildFieldParts` gives an unset text the template of no
  * parts, so the two print one source: no entry for a blank text, and for a help text with media
@@ -1234,7 +1247,7 @@ function readSlotText(
 		if (ref.inline === undefined) return none;
 		ref.claim(cursor, true, true);
 		const blank = isConsumerWhitespace(ref.inline);
-		if (!(blank && OPTIONAL_TEXT.has(owner.slot)))
+		if (!(blank && blankPrintsAsNone(owner)))
 			setTemplate(
 				owner,
 				canonicalProseTemplate(
@@ -1368,8 +1381,9 @@ function readSlotText(
 	)
 		setPlain(owner);
 	// A hint, a help text or a validation message blank in every language prints as none does
-	// (`builder.ts::buildFieldParts` writes its entry only for its media), so it reads as none.
-	if (!(blankEverywhere && OPTIONAL_TEXT.has(owner.slot)))
+	// (`builder.ts::buildFieldParts` writes its entry only for its media), and so does a
+	// container's label, so it reads as none.
+	if (!(blankEverywhere && blankPrintsAsNone(owner)))
 		setTemplate(owner, placeholderTemplate(ownValue.parts));
 	const registered: SourceOutput[] = [];
 	for (const part of ownValue.parts)

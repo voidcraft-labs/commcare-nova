@@ -47,6 +47,7 @@ import { organizationLevelsOf, personasOf } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { StoredLocation } from "@/lib/organization/types";
 import { DeploymentEndedError } from "./errors";
+import { readManagedPlaceIds } from "./managedData";
 import { deploymentEnding, publishedRemoteApp } from "./resources";
 import {
 	type DeploymentScope,
@@ -261,6 +262,9 @@ export async function provisionWorkers(
 	const planInput = {
 		workers,
 		mappings: deployment.active,
+		/* The places CommCare HQ manages for the app here were never pushed,
+		 * so a persona standing in one stands in CommCare HQ's own place. */
+		managedPlaceIds: await readManagedPlaceIds(input.scope, target),
 		workerDataGaps: requiredWorkerDataGaps(input.doc),
 		domain,
 	} as const;

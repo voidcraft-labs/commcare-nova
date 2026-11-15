@@ -831,3 +831,50 @@ export function rulesOnTheColumnsTheyLandOn(doc: BlueprintDoc): BlueprintDoc {
 		}
 	});
 }
+
+/**
+ * The reader's canonical choice `order-priorities-as-read`. The emitter writes a list's rules as
+ * sort elements in priority order, ties by Results position (`caseListOrder.ts`, rule 4), and
+ * writes no priority, so only the order of the priorities reaches an export, and the reader numbers
+ * the rules it reads from 0 in the order of their elements. A list whose rules hold any other
+ * numbers in that order prints what the list numbered from 0 prints, and the reader returns the
+ * list numbered from 0, in priority order, ties by Results position, then by the order of the
+ * columns.
+ */
+export function orderPrioritiesAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const renumbered = doc.moduleOrder.flatMap((moduleUuid) => {
+		const config = doc.modules[moduleUuid]?.caseListConfig;
+		if (config === undefined) return [];
+		const listed = new Map(
+			config.listColumnOrder.map((uuid, index) => [uuid, index]),
+		);
+		const sorted = config.columns
+			.map((column, index) => ({ column, index }))
+			.filter(({ column }) => column.sort !== undefined)
+			.sort(
+				(a, b) =>
+					(a.column.sort?.priority ?? 0) - (b.column.sort?.priority ?? 0) ||
+					(listed.get(a.column.uuid) ?? Number.POSITIVE_INFINITY) -
+						(listed.get(b.column.uuid) ?? Number.POSITIVE_INFINITY) ||
+					a.index - b.index,
+			);
+		if (sorted.every(({ column }, rank) => column.sort?.priority === rank))
+			return [];
+		return [
+			{
+				moduleUuid,
+				ranks: new Map(sorted.map(({ column }, rank) => [column.uuid, rank])),
+			},
+		];
+	});
+	if (renumbered.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const { moduleUuid, ranks } of renumbered)
+			for (const column of draft.modules[moduleUuid]?.caseListConfig?.columns ??
+				[]) {
+				const rank = ranks.get(column.uuid);
+				if (rank !== undefined && column.sort !== undefined)
+					column.sort.priority = rank;
+			}
+	});
+}

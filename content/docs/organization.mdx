@@ -13,7 +13,8 @@ them: the **levels** of your organization, the **information** its places
 carry, and the **places** themselves.
 
 Nova authors this model, and publishing puts these places on your CommCare HQ
-project space. Previewing as a persona shows what that worker's device would
+project space, except places managed in CommCare HQ, which Nova copies and never
+changes there. Previewing as a persona shows what that worker's device would
 hold: their assigned places ride their session identity, case delivery decides
 which cases their lists show, and place-based case-owner expressions run when
 a form submits.
@@ -60,7 +61,8 @@ Those two are independent, and all four combinations are useful:
 are authoring, and Preview applies it the same way. "Everything below" is the
 common answer. On a real project space, stopping at a particular level also
 needs a setting on the CommCare project itself, which Nova does not configure.
-Publishing puts the places themselves on the project space.
+Publishing puts the places themselves on the project space, except places
+managed in CommCare HQ, which Nova copies and never changes there.
 
 ### Address-book reach
 
@@ -194,6 +196,21 @@ Bringing a place back also restores the path to it, since a place is unreachable
 while anything above it is archived. It does not restore assignments — those are
 your edits now, and Nova will not overwrite a deliberate change with the memory
 of an older one.
+
+## Places managed in CommCare HQ
+
+When an app you brought in from CommCare HQ reads places, its places come in as
+a copy. They live in the project space on CommCare HQ. Nova keeps the copy so
+Preview can show them, and never changes them there.
+
+You can add or change places in CommCare HQ, then choose **Refresh from CommCare
+HQ** in Organization. Nova refreshes the copy before each publish too. Levels
+and place information stay yours to change in Nova.
+
+CommCare HQ doesn't tell Nova which levels hold workers or how far a worker's
+phone carries places. Nova assumes every level holds workers and each worker
+carries their own branch. If your project space is set up differently, you can
+match it in Organization so Preview shows what workers see.
 
 ## Assigning a persona
 

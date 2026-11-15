@@ -206,7 +206,9 @@ export function whitespaceOutput(
  * literal output, `<output value="'('"/>`, after the word: the worker reads
  * the same characters on every runtime, and the build's pattern finds no
  * `instance(` in the rendered form. Like the whitespace outputs, it carries no
- * Vellum shadow.
+ * Vellum shadow. An app brought in from CommCare HQ whose label holds such
+ * text shows a worker the same label after its first publish, since no
+ * runtime reads label text as a path, so nothing is declared for it.
  */
 function literalLabelNodes(
 	literal: string,
@@ -694,6 +696,10 @@ export function buildOwnerNodes(
 /**
  * `setvalues` ordered by where each target stands in the primary instance,
  * an attribute at its element. Setvalues on one element keep their order.
+ * An app brought in from CommCare HQ whose defaults stand in another order
+ * runs them in this one after its first publish with the same values, since
+ * no default there reads what another sets; one where a default does is
+ * refused when it is read.
  */
 export function inDataTreeOrder(
 	setvalues: readonly Element[],
@@ -724,7 +730,7 @@ export function inDataTreeOrder(
 
 /** The query repeats of one form whose position node (`query-position`)
  * some expression reads. */
-interface QueryRepeatNodeReads {
+export interface QueryRepeatNodeReads {
 	readonly positions: ReadonlySet<Uuid>;
 }
 
@@ -737,8 +743,10 @@ const queryRepeatReads = new WeakMap<FormStructure, QueryRepeatNodeReads>();
  * it is read; every other node of a query repeat is always written.
  * `doc` holds the same form and fields `form` was built from
  * (`formExpressionEmission` refuses any other).
+ * `generatedNodes.ts::generatedNodePaths` reads it to say which of a form's
+ * generated nodes the source holds.
  */
-function queryRepeatNodeReads(
+export function queryRepeatNodeReads(
 	doc: BlueprintDoc,
 	form: FormStructure,
 ): QueryRepeatNodeReads {
@@ -1405,6 +1413,9 @@ function buildFieldParts(
 	// CommCare requires an answer to the question that names a case the form
 	// creates. The stamp replaces an authored required condition, as HQ's
 	// build merged it onto this bind (`xform.py::XFormCaseBlock.add_create_block`).
+	// An app brought in from CommCare HQ reads its own stamp here back as no
+	// condition, and its build stamped the same bind, so its first publish
+	// changes nothing a worker meets.
 	// A Hidden Value takes no `required`: HQ's form builder marks one
 	// "Required is not allowed." on every save.
 	if (caseScalarText.createNames.has(fieldUuid) && field.kind !== "hidden") {
@@ -1419,6 +1430,9 @@ function buildFieldParts(
 	// `validate` on non-input kinds as its own error.
 	// The check stands beside the author's own validation, so the author's
 	// message shows for either failure; with none the runtime shows its own.
+	// An app brought in from CommCare HQ gains the check at its first
+	// publish where its source has none, which the first-publish register
+	// declares (`case-names-checked`).
 	const scalarCheck =
 		scalarGuard === undefined
 			? w.call("true")
@@ -1493,6 +1507,12 @@ function buildFieldParts(
 	// form read prints relative to this question as `current()/...`, with no
 	// `vellum:value`: HQ's form builder refuses a `#form/` reference in a
 	// default and reads an absolute `/data/` path back as one.
+	//
+	// A preload of an app brought in from CommCare HQ is this default, a read
+	// of the form's case, and its first publish stores no `case_preload`
+	// (`case-settings-respelled`). Where a later load-time value reads the
+	// question, the app is refused when it is read: the default runs at the
+	// question's place, which that value may not see as HQ's preload did.
 	if (defaultValue) {
 		setvalues.push(
 			xel(
@@ -1579,7 +1599,11 @@ function buildFieldParts(
 	}
 
 	// A date and time a case change reads as text, or that a trimmed sibling
-	// trims, takes its text from a sibling of its own.
+	// trims, takes its text from a sibling of its own. An app made in CommCare
+	// HQ that saves such a question straight to a case is refused when it is
+	// read; one holding the sibling in the spelling Nova wrote before
+	// `datetimeCaseValue` was CommCare HQ's is written in today's spelling at
+	// its first publish (`date-and-time-saved-as-hq-stores-it`).
 	const datetimeSibling =
 		holds("datetime") &&
 		(scalarGuard !== undefined ||
@@ -1621,7 +1645,9 @@ function buildFieldParts(
 	// as it stands, so the trim lives in the source both export paths share,
 	// and both store one value. A datetime answer is trimmed from its text
 	// value. Like every generated sibling it leaves with its question, so a
-	// question the worker never reaches leaves the case's value alone.
+	// question the worker never reaches leaves the case's value alone. An app
+	// brought in from CommCare HQ gains the sibling at its first publish,
+	// which the first-publish register declares (`case-names-checked`).
 	if (scalarGuard !== undefined) {
 		const valuePath = datetimeSibling
 			? datetimeCaseValuePath(generatedNodes, fieldUuid, nodePath)

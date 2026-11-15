@@ -174,6 +174,8 @@ export interface PublishResponseBody {
 	readonly left_behind?: DeploymentView["leftBehind"];
 	/** The settings the project space keeps in CommCare HQ, with their date, or null. */
 	readonly kept?: DeploymentView["kept"];
+	/** What the next publish there changes beyond the person's edits, or null. */
+	readonly first_publish?: DeploymentView["firstPublish"];
 	/** Why THIS attempt stopped, from the one publish lifecycle. */
 	readonly refusal?: PublishResponseRefusal | null;
 	/**
@@ -367,6 +369,8 @@ export function publishOutcome(
 					leftBehind: body.left_behind ?? [],
 					/* Absent reads as no kept list, which draws nothing. */
 					kept: body.kept ?? null,
+					/* Absent reads as no list, as `kept` does. */
+					firstPublish: body.first_publish ?? null,
 				}
 			: null;
 	if (responseOk && body.success === true) {

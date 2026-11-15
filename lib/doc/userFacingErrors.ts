@@ -49,6 +49,8 @@
  */
 
 import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
+import { changedByHqManagedRemedy } from "@/lib/commcare/lookup/hqCellText";
+import { unrepresentableManagedRemedy } from "@/lib/commcare/lookup/xmlText";
 import type {
 	ValidationError,
 	ValidationErrorCode,
@@ -1894,10 +1896,14 @@ const USER_MESSAGE_BY_CODE: Record<
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
 		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
-	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: (e) =>
-		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "this data table"))} has leading or trailing whitespace that CommCare HQ would remove. You can remove that whitespace in Project data.`,
-	LOOKUP_CELL_TEXT_UNREPRESENTABLE: (e) =>
-		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. You can remove them or retype the affected values in Project data.`,
+	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: (e) => {
+		const domain = e.details?.managedInDomain;
+		return `The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "this data table"))} has leading or trailing whitespace that CommCare HQ would remove. ${domain ? changedByHqManagedRemedy(domain) : "You can remove that whitespace in Project data."}`;
+	},
+	LOOKUP_CELL_TEXT_UNREPRESENTABLE: (e) => {
+		const domain = e.details?.managedInDomain;
+		return `The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. ${domain ? unrepresentableManagedRemedy(domain) : "You can remove them or retype the affected values in Project data."}`;
+	},
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>

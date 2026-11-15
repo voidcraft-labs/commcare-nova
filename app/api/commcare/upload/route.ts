@@ -73,6 +73,7 @@ import { leftBehindResources } from "@/lib/deployment/resources";
 import {
 	currentResourceIdentities,
 	landedDeploymentKept,
+	landedFirstPublish,
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import {
@@ -358,6 +359,19 @@ export async function POST(req: NextRequest) {
 			outcome.deployment === null
 				? null
 				: await landedDeploymentKept(scope, outcome.deployment, "publish");
+		/* What the next publish there changes beyond the person's edits, as
+		 * the baseline keeps it: none after a push, which ends the list, and
+		 * the list as it stood after a refused attempt. A read that faulted
+		 * leaves the key out, as `kept` does. */
+		const firstPublish =
+			outcome.deployment === null
+				? null
+				: await landedFirstPublish(
+						scope,
+						outcome.deployment,
+						doc.appSettings.runsOnlyOn,
+						"publish",
+					);
 		/* What an earlier publish left on this project space and the app no
 		 * longer points at. Derived here rather than in the dialog: telling a
 		 * rename (something really is sitting there) from a recreate
@@ -399,6 +413,7 @@ export async function POST(req: NextRequest) {
 						? []
 						: leftBehindResources(outcome.deployment, identities),
 				...(kept !== "unread" && { kept }),
+				...(firstPublish !== "unread" && { first_publish: firstPublish }),
 				/* Why THIS attempt stopped, when it did. The record cannot
 				 * carry it: a refusal against an already-live deployment
 				 * deliberately writes nothing durable. */

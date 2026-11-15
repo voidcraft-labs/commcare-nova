@@ -20,6 +20,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { readManagedLookupTableViewAction } from "@/lib/deployment/managedDataActions";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	getLookupDefinitionAction,
@@ -36,9 +37,18 @@ import type {
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 import {
 	useAccessPhase,
+	useCanDelete,
+	useProjectCanEdit,
 	useProjectId,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
+import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
+import {
+	freshestManifestEntry,
+	NO_TABLE_EDITS,
+	type TableEditability,
+	tableEditability,
+} from "./projectDataModel";
 import type { ProjectDataRead } from "./projectDataReadIdentity";
 import {
 	projectDataReadForIdentity,
@@ -379,4 +389,126 @@ export function useProjectDataDefinition(tableId: LookupTableId | undefined): {
 	});
 
 	return { state, reload };
+}
+
+/**
+ * The table's entry in the freshest manifest this tab holds: the one the
+ * stream pushed, which every open builder receives, or the one the workspace
+ * read. Who manages a table is read from here and never from the table's
+ * snapshot, so a change of it shows the moment a frame lands; the snapshot
+ * is refetched for the same change, since it stamps the table's definition.
+ */
+export function useManifestEntry(
+	tableId: LookupTableId | undefined,
+): LookupTableManifestEntry | undefined {
+	const projectId = useProjectId();
+	const pushed = usePushedManifest();
+	const workspace = useProjectDataWorkspace();
+	const read =
+		workspace?.manifest.kind === "data" ? workspace.manifest.value : null;
+	return useMemo(
+		() => freshestManifestEntry([pushed, read], projectId, tableId),
+		[pushed, read, projectId, tableId],
+	);
+}
+
+/**
+ * What this viewer may do with the table: their Project's `edit` and
+ * `delete`, and-ed with the table not being a copy CommCare HQ manages.
+ * Nothing is offered until the table's manifest entry is known, or once it
+ * has left the manifest.
+ */
+export function useTableIsEditable(
+	tableId: LookupTableId | undefined,
+): TableEditability {
+	const entry = useManifestEntry(tableId);
+	const canEdit = useProjectCanEdit();
+	const canDelete = useCanDelete();
+	return useMemo(
+		() =>
+			entry === undefined
+				? NO_TABLE_EDITS
+				: tableEditability(entry, canEdit, canDelete),
+		[entry, canEdit, canDelete],
+	);
+}
+
+/** What the table page shows of a table that came from CommCare HQ. */
+export type ManagedTableView = NonNullable<
+	Awaited<ReturnType<typeof readManagedLookupTableViewAction>>
+>;
+
+export type ManagedTableViewRead =
+	| { readonly kind: "idle" }
+	| { readonly kind: "loading" }
+	| { readonly kind: "data"; readonly value: ManagedTableView }
+	| { readonly kind: "failed" };
+
+type ScopedManagedTableViewRead = ManagedTableViewRead & {
+	readonly resourceIdentity: string;
+};
+
+/**
+ * The view of a table that came from CommCare HQ: where it lives, whether
+ * this viewer is connected there, and the apps that read it and each of its
+ * gone columns. Read again whenever the table's revision or who manages it
+ * moves, so the apps a confirmation names are the ones that read it now.
+ * Idle for a table that did not come from CommCare HQ.
+ */
+export function useManagedLookupTableView(
+	table:
+		| Pick<LookupTableSnapshot, "id" | "projectId" | "tableRevision" | "hq">
+		| undefined,
+	enabled = true,
+): {
+	readonly state: ManagedTableViewRead;
+	readonly reload: () => Promise<void>;
+} {
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const runtimeScopeId = useRuntimeScopeId();
+	const fromHq = enabled && table?.hq !== undefined;
+	const resourceIdentity = [
+		runtimeScopeId,
+		String(scopeEpoch),
+		table?.projectId ?? "",
+		accessPhase,
+		table?.id ?? "",
+		fromHq ? "from-hq" : "plain",
+	].join(" ");
+	const reloadToken = [
+		resourceIdentity,
+		table?.tableRevision ?? "",
+		table?.hq?.managedBy ?? "",
+	].join(" ");
+	const ready = fromHq && accessPhase === "authorized";
+	const { state, reload } = useReloadableResource<ScopedManagedTableViewRead>({
+		prepare: () => {
+			if (!ready || table === undefined) {
+				return { notReady: { kind: "idle", resourceIdentity } };
+			}
+			const { projectId, id } = table;
+			const owner = resourceIdentity;
+			return {
+				fetch: async (): Promise<ScopedManagedTableViewRead> => {
+					const view = await readManagedLookupTableViewAction(projectId, id);
+					return view === null
+						? { kind: "failed", resourceIdentity: owner }
+						: { kind: "data", value: view, resourceIdentity: owner };
+				},
+			};
+		},
+		loading: { kind: "loading", resourceIdentity },
+		toError: () => ({ kind: "failed", resourceIdentity }),
+		keepStale: (prev) =>
+			prev.resourceIdentity === resourceIdentity && prev.kind === "data",
+		reloadToken,
+	});
+	const shown: ManagedTableViewRead =
+		state.resourceIdentity === resourceIdentity
+			? state
+			: ready
+				? { kind: "loading" }
+				: { kind: "idle" };
+	return { state: shown, reload };
 }

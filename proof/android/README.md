@@ -585,6 +585,16 @@ hand, lists its tiles in the first hidden order rule's order, lays out each
 tile's placed cells and no other, offers those columns alone in its Sort
 menu, and finds a case by a value only the hidden order column holds.
 
+`test_missing_media.py` reads `targeted-missing-media` the same way, with
+its files taken away over a fork of the published app
+(`proof/formplayer/apps.py::with_missing_media`, every map entry but the one
+whose file it keeps): a question's screen whose image has no file shows
+Android's missing-image prompt and its sound's button, a select's screen
+shows its choice's sound button, each row of the case list lays out an image
+in its image cell, and the menus name the menu's icon and the form's sound
+with no file held for either. What a menu's or a form's tile and the
+Register action draw is not in the walk's record.
+
 `test_navigation.py` reads the corpus the same way, through the `nav`
 request. On `targeted-multi-select-destinations` home starts no screen at a
 menu that selects several cases, from its forms' commands or by taps, so a

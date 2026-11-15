@@ -95,6 +95,7 @@ import {
 	migrationRepeatCounts,
 	migrationSearchWorkflow,
 } from "./documents/migrations";
+import { missingMedia } from "./documents/missingMedia";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
 import {
 	formLinkSessionReads,
@@ -187,6 +188,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	saveToCaseRead,
 	saveToCaseShapes,
 	mediaSlots,
+	missingMedia,
 	captureWidgets,
 	noMatchesReturnIdentity,
 	hqSideLookup,

@@ -631,6 +631,18 @@ describe(MIGRATION, () => {
 					WHERE deployment_id = ${A}::uuid`.execute(db),
 			),
 		).toEqual(needsSource);
+		// The two other origins that hold a source keep a list too: a bring-in
+		// of changes, and the cutover's.
+		for (const [deployment, origin] of [
+			[A, "changes"],
+			[B, "cutover"],
+		] as const)
+			expect(
+				await refusal(() =>
+					sql`UPDATE public.app_deployment_baselines SET origin = ${origin}
+						WHERE deployment_id = ${deployment}::uuid`.execute(db),
+				),
+			).toBeUndefined();
 	});
 
 	it("pairs each push baseline with its live mapping's revision, revision 0 included, leaves every other origin null, and changes nothing on a replay", async () => {

@@ -68,6 +68,10 @@ export interface CaseScalarTextOptions {
  * value. A Hidden
  * Value is among them: it takes the trimmed sibling, and no runtime checks a
  * constraint on it.
+ *
+ * An app brought in from CommCare HQ gains the check and the trimmed sibling
+ * at its first publish wherever its source has neither, a change the
+ * first-publish register declares (`case-names-checked`).
  */
 export function caseScalarTextGuards(
 	doc: GuardDoc,

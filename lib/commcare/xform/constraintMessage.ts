@@ -70,6 +70,11 @@ export function bindCarriesConstraint(
  * no media, and every reader asks for a constraint's text with no form
  * (commcare-core `FormEntryPrompt.getConstraintText()`, which commcare-android
  * `FormEntryActivity` and formplayer `JsonActionUtils` call).
+ *
+ * An app brought in from CommCare HQ whose message shows an answer is
+ * written this way at its first publish, a change the first-publish register
+ * declares (`validation-messages-composed`): the composition does not claim
+ * the runtime's own handling of a message that cannot be shown.
  */
 export function protectConstraintMessage(
 	id: string,

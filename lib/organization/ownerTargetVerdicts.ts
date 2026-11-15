@@ -9,6 +9,7 @@ import {
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 
 /** The authored inputs shared by owner, assignment, and topology preflights. */
 export type OrganizationRuleInputs = Pick<
@@ -263,6 +264,24 @@ export function fixedLocationOwnerIssue(
 		return `"${target.name}" is outside ${persona.name}'s address book. Change that level's visibility or choose a destination this worker can carry on the device.`;
 	}
 	return undefined;
+}
+
+/** Every level an `owner-location-at-level` rule of `doc` names, sorted. */
+export function reverseHopDestinationLevelUuids(
+	doc: Pick<BlueprintDoc, "forms">,
+): readonly string[] {
+	const targets = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			if (operation.owner === undefined) continue;
+			walkExpressionTerms(operation.owner, (term) => {
+				if (term.kind === "owner-location-at-level") {
+					targets.add(term.levelUuid);
+				}
+			});
+		}
+	}
+	return [...targets].sort();
 }
 
 /** The exact reverse-hop scalar/footprint verdict for one destination level. */

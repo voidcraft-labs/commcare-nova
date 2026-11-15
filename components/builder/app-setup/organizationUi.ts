@@ -1,3 +1,4 @@
+import type { ManagedPlacesOutcome } from "@/lib/deployment/managedData";
 import {
 	ancestorLevels,
 	LEVEL_CODE_MAX_LENGTH,
@@ -7,8 +8,12 @@ import {
 	orderedOrganizationLevels,
 	organizationLevelsOf,
 } from "@/lib/domain";
-
 import type { OrganizationRuleInputs } from "@/lib/organization/ownerTargetVerdicts";
+import {
+	MANAGED_PLACES_ALREADY_MATCH,
+	managedPlacesKeptInUse,
+	managedPlacesRefreshed,
+} from "@/lib/publish/managedData";
 
 export const PERSONA_LOCATION_PAGE_SIZE = 50;
 
@@ -167,4 +172,43 @@ export function flattenRequiredReverseHopDescendants(
 	};
 	visit(descendants);
 	return out;
+}
+
+/**
+ * What the Organization banner offers in place of a refresh of places
+ * CommCare HQ manages: a member who can't edit is told who can, and one with
+ * no CommCare HQ connection on the places' server is invited to connect,
+ * since the refresh reads CommCare HQ with their own account.
+ */
+export function managedPlacesRefreshControl(
+	connected: boolean,
+	canEdit: boolean,
+): "offered" | "connect" | "needs-editor" {
+	if (!canEdit) return "needs-editor";
+	return connected ? "offered" : "connect";
+}
+
+/**
+ * What the banner says after a refresh of places it pressed: what changed,
+ * then the places gone from CommCare HQ that Nova kept because a persona or
+ * an owner rule still uses them. The places left out for a level the app
+ * lacks are the copy's standing fact, which the banner shows from the
+ * organization's own read, not from this answer. A refusal says its own
+ * sentence, and the copy is as it was.
+ */
+export function managedPlacesOutcomeLines(outcome: ManagedPlacesOutcome): {
+	readonly tone: "status" | "alert";
+	readonly lines: readonly string[];
+} {
+	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
+	const { added, changed, archived, keptInUse } = outcome.refresh;
+	return {
+		tone: "status",
+		lines: [
+			added === 0 && changed === 0 && archived === 0
+				? MANAGED_PLACES_ALREADY_MATCH
+				: managedPlacesRefreshed(added, changed, archived),
+			...(keptInUse.length === 0 ? [] : [managedPlacesKeptInUse(keptInUse)]),
+		],
+	};
 }

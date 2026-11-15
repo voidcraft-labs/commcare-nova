@@ -8,7 +8,14 @@ import {
 } from "@/lib/domain";
 import { organizationLevelSchema } from "@/lib/domain/organization";
 import {
+	MANAGED_PLACES_ALREADY_MATCH,
+	managedPlacesKeptInUse,
+	managedPlacesRefreshed,
+} from "@/lib/publish/managedData";
+import {
 	flattenRequiredReverseHopDescendants,
+	managedPlacesOutcomeLines,
+	managedPlacesRefreshControl,
 	personaLocationPage,
 	propertiesForLevel,
 	requiredReverseHopDescendants,
@@ -235,5 +242,57 @@ describe("organization authoring projections", () => {
 		expect(requiredReverseHopDescendants(doc, region)).toEqual([]);
 		expect(requiredReverseHopDescendants(doc, room)).toEqual([]);
 		expect(doc).toEqual(before);
+	});
+});
+
+describe("a refresh of places CommCare HQ manages", () => {
+	it("is offered to a connected editor, invites one with no connection to connect, and names who can for a viewer", () => {
+		expect(managedPlacesRefreshControl(true, true)).toBe("offered");
+		expect(managedPlacesRefreshControl(false, true)).toBe("connect");
+		expect(managedPlacesRefreshControl(true, false)).toBe("needs-editor");
+		expect(managedPlacesRefreshControl(false, false)).toBe("needs-editor");
+	});
+
+	const landed = (
+		counts: { added: number; changed: number; archived: number },
+		keptInUse: readonly string[] = [],
+	) =>
+		({
+			ok: true,
+			refreshedAt: "2026-11-03T09:00:00.000Z",
+			refresh: { ...counts, keptInUse, leftOut: { ward: 2 } },
+		}) as const;
+
+	it("says the copy already matched where nothing was added, changed or archived", () => {
+		expect(
+			managedPlacesOutcomeLines(landed({ added: 0, changed: 0, archived: 0 })),
+		).toEqual({ tone: "status", lines: [MANAGED_PLACES_ALREADY_MATCH] });
+	});
+
+	it("counts what changed, then names the places Nova kept for a persona or an owner rule, and never the places left out", () => {
+		expect(
+			managedPlacesOutcomeLines(
+				landed({ added: 2, changed: 0, archived: 1 }, ["North clinic"]),
+			),
+		).toEqual({
+			tone: "status",
+			lines: [
+				managedPlacesRefreshed(2, 0, 1),
+				managedPlacesKeptInUse(["North clinic"]),
+			],
+		});
+	});
+
+	it("says a refusal's own sentence", () => {
+		expect(
+			managedPlacesOutcomeLines({
+				ok: false,
+				reason: "unavailable",
+				message: "CommCare HQ didn't answer just now.",
+			}),
+		).toEqual({
+			tone: "alert",
+			lines: ["CommCare HQ didn't answer just now."],
+		});
 	});
 });

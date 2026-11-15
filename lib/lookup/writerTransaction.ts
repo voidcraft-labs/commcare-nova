@@ -12,6 +12,7 @@ import {
 	notifyLookupProject,
 } from "@/lib/db/pg";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { managedLookupTableRefusal } from "@/lib/publish/managedData";
 import { LookupError } from "./errors";
 import { maxLookupRevision, parseLookupRevision } from "./schema";
 import type { LookupRevision, LookupTableRevisions } from "./types";
@@ -57,12 +58,41 @@ export async function lockLookupProjectState(
 	return { revision: parseLookupRevision(state.revision) };
 }
 
+/** Why a writer locks a table, which decides what a table CommCare HQ manages allows. */
+export type LookupWritePurpose =
+	/** A person, the SA or an MCP client changing a table. Refused while CommCare HQ manages it. */
+	| "author"
+	/** Removing Nova's copy of a table. Allowed in every state: it changes nothing in CommCare HQ. */
+	| "remove-table"
+	/** Bringing CommCare HQ's content into the copy (`managed.ts`). */
+	| "hq-refresh"
+	/** Changing who manages the table (`managed.ts`). */
+	| "hq-management";
+
+/**
+ * Lock one table `FOR UPDATE` for a write, in this order: the row, or
+ * `not_found`; for an `author` write, the refusal of a table CommCare HQ
+ * manages (`hq_server` set, no takeover); then the revision compare. The
+ * managed check comes first, so a stale tab learns the table is managed
+ * rather than being sent to reload. Only `hq-refresh` and `hq-management`
+ * skip the compare, with a null `expectedRevision`: a refresh is no edit of
+ * what a person loaded, and the lock it holds makes its read current.
+ */
 export async function lockLookupTableForUpdate(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
 	tableId: LookupTableId,
-	expectedRevision: LookupRevision,
+	expectedRevision: LookupRevision | null,
+	purpose: LookupWritePurpose,
 ): Promise<StoredLookupTable> {
+	if (
+		expectedRevision === null &&
+		(purpose === "author" || purpose === "remove-table")
+	) {
+		throw new Error(
+			`A lookup table write for "${purpose}" must name the revision it was loaded at.`,
+		);
+	}
 	const table = await tx
 		.selectFrom("lookup_tables")
 		.selectAll()
@@ -73,6 +103,22 @@ export async function lockLookupTableForUpdate(
 	if (!table) {
 		throw new LookupError("not_found", "Lookup resource was not found.");
 	}
+	if (
+		purpose === "author" &&
+		table.hq_server !== null &&
+		table.hq_taken_over_at === null
+	) {
+		if (table.hq_domain === null) {
+			throw new Error(
+				"A lookup table's CommCare HQ origin was stored only in part.",
+			);
+		}
+		throw new LookupError(
+			"managed_in_hq",
+			managedLookupTableRefusal(table.name, table.hq_domain),
+		);
+	}
+	if (expectedRevision === null) return table;
 	const currentRevisions = lookupTableRevisions(table);
 	if (currentRevisions.tableRevision !== expectedRevision) {
 		throw new LookupError(

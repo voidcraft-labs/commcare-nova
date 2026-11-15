@@ -58,6 +58,20 @@ CommCare Android removes only the literal `default` locale from its language
 picker, so the named copy is required to let a worker switch back to the app's
 default language.
 
+`compiler.ts::compileCczParts` is `compileCcz`'s walk up to each language
+directory's app-string table, before any is serialized: every text entry but
+the app-string files, the media entries, the tables as values and each
+string's source unit. `compileCcz` writes the files from it and packages them.
+`appStrings.ts::localAppStringTable(doc, lookupDefinitions)` reads a
+document's app strings from it with no deployment: a fixed stand-in target,
+no media, and each table the document reads named by the definitions given
+(a column's type decides how a comparison over it prints, so no stand-in
+naming will do) and carried with no rows. It leaves out exactly the strings
+only a media manifest writes (a menu's media paths, an image map's alt
+texts, keyed by a file's path). It throws, as the compiler's oracles do, for
+a document the gate refuses; a reading asks the gate first
+(`lib/deployment/reading/appStrings.ts::readingAppStrings`).
+
 The app language catalog uses Nova identity tags until this boundary. A
 language's wire code is chosen here once, when the language is added, and
 stored in `localization.wireCodes`; every export reads the stored code, so

@@ -347,6 +347,61 @@ describe("organization authoring tools", () => {
 		expect(data.locations[0]).not.toHaveProperty("values");
 	});
 
+	it("says on every page that the places are CommCare HQ's while they are, and never otherwise", async () => {
+		const doc = withStoredLevel(
+			makeCanonicalGenesisDoc("Organization", APP_ID),
+			testUuid("level"),
+		);
+		const h = makeHarness(doc);
+		const locations = Array.from({ length: 3 }, (_, index) => ({
+			id: testUuid(`managed-${index}`),
+			levelUuid: testUuid("level"),
+			parentId: null,
+			siteCode: `clinic_${index}`,
+			name: `Clinic ${index}`,
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+			archivedAt: null,
+			orderKey: String(index),
+		}));
+		const read = vi.spyOn(organizationService, "readOrganization");
+		try {
+			read.mockResolvedValue({
+				revision: "4",
+				locations,
+				hq: {
+					server: "india",
+					domain: "district-health",
+					refreshedAt: "2026-11-02T09:30:00.000Z",
+					leftOut: {},
+				},
+			});
+			const first = await h.runTool(getOrganizationTool, { limit: 2 });
+			const second = await h.runTool(getOrganizationTool, {
+				cursor: continuation(first.data),
+				limit: 2,
+			});
+			for (const page of [first.data, second.data])
+				expect(page).toMatchObject({
+					places_managed_in_commcare_hq: {
+						project_space: "district-health",
+						refreshed_at: "2026-11-02T09:30:00.000Z",
+					},
+				});
+
+			read.mockResolvedValue({ revision: "4", locations });
+			const plain = await h.runTool(getOrganizationTool, { limit: 50 });
+			expect(organizationPageSchema.parse(plain.data).locations).toHaveLength(
+				3,
+			);
+			expect(plain.data).not.toHaveProperty("places_managed_in_commcare_hq");
+		} finally {
+			read.mockRestore();
+		}
+	});
+
 	it("bounds levels, place information, and places in one paged stream", async () => {
 		const doc = structuredClone(
 			makeCanonicalGenesisDoc("Organization", APP_ID),

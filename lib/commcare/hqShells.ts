@@ -358,8 +358,18 @@ export function applicationShell(
 		name: appName,
 		langs: options.langs ?? ["en"],
 		translations: options.translations ?? {},
+		// Over an app brought in from CommCare HQ whose Connect app leaves
+		// location capture off, the first publish turns it on, a change the
+		// first-publish register declares (`connect-app-captures-location`).
 		...(options.autoGpsCapture === true && { auto_gps_capture: true }),
+		// An app brought in that sends both location lists, or the flat one
+		// only, goes back to the project space's own setting, which the
+		// register declares (`location-list-setting-reset`); one that sends
+		// the hierarchical list only is refused when it is read.
 		location_fixture_restore: "project_default",
+		// Where the chosen declaration differs from the setting CommCare HQ
+		// held, the first publish turns Web Apps off or on, which the register
+		// declares (`web-apps-turned-off`, `web-apps-turned-on`).
 		cloudcare_enabled: options.cloudcareEnabled,
 		...(Object.keys(profile).length > 0 && { profile }),
 		...(addOns.length > 0 && {

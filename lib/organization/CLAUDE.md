@@ -54,6 +54,32 @@ this lock order (`writerTransaction.ts` — do not fork it in a new writer):
    transactional notification;
 7. commit.
 
+`lockOrganizationForWrite` takes a required `purpose`. `author` is the four
+place writers' (`createLocation`, `updateLocation`, `moveLocation`,
+`setLocationArchived`, all through `withOrganizationWrite`), and on an app
+whose places CommCare HQ manages (`app_organization_state.hq_server` set) it
+throws `managed-in-hq` with the sentence that sends the person to CommCare HQ
+and Refresh, before the revision compare, so a stale tab learns the places are
+managed rather than being sent to reload. `read` is `describeArchiveImpact`'s,
+never refused because it writes nothing. `hq-refresh` is the refresh's, and is
+refused where the app has no managed copy.
+
+A managed copy has two writers, both in `managed.ts` and both taking the
+caller's transaction. `writeManagedPlacesInTransaction` writes the copy at an
+app's birth, inside the genesis tail and before the tail's integrity step, so
+`applyOrganizationCommitIntegrity` proves the rows against the levels and
+location properties the same birth saves; it takes no lock, because the app row
+is that transaction's own insert. `refreshManagedPlacesInTransaction` matches
+CommCare HQ's places by site code: it inserts, updates, archives and restores,
+keeps live a place gone from CommCare HQ that `app_location_references` names
+(and its gone ancestors, so nothing live stands under an archived place),
+proves the result against the document as the place writers do, and advances
+the revision once, or not at all where the stored digest and left-out counts
+equal the plan's. A refresh never writes the document, so it never unassigns a
+persona: the person moves the persona and refreshes again, and a refresh that
+kept a place stores a digest no plan equals, so that next refresh compares the
+rows again.
+
 **This is the existing app-first prefix, not a new one.** Every run, commit,
 and thread write already takes the app row first, so a level removal inside a
 blueprint commit and a concurrent location insert at that level serialize on
@@ -123,7 +149,11 @@ verdict and before the entity write.
   an occupied level whose parent level changed. The document-side removal
   planner also refuses while an automation uses the level to filter descendant
   location recipients, naming the automation to repair before proposing the
-  destructive batch.
+  destructive batch. Where an app's places are managed in CommCare HQ, the
+  same three refusals (a removed level still occupied, a placement the change
+  breaks, a value the change no longer admits) say so and send the author to
+  CommCare HQ and Refresh. They read the origin on the refusal path only, so a
+  commit that passes reads nothing more.
 
 ## Archive is the reversible gesture, and it spans both stores
 

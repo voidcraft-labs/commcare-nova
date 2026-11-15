@@ -31,7 +31,12 @@ const SHOWN: DeploymentKept = {
 	observedAt: "2026-11-10T12:00:00.000Z",
 };
 const NOW = new Date("2026-11-13T12:00:00.000Z");
-const CONTEXT = { now: NOW, space: "clinic", locale: "en-GB" } as const;
+const CONTEXT = {
+	now: NOW,
+	space: "clinic",
+	locale: "en-GB",
+	firstPublish: null,
+} as const;
 
 /** A refreshed record carrying `kept`; the card reads nothing else of it here. */
 function refreshedView(
@@ -230,16 +235,48 @@ describe("keptNoticeApplies", () => {
 });
 
 describe("refreshedViewToShow", () => {
+	const shown = (kept: DeploymentKept | null) => ({
+		kept,
+		firstPublish: null,
+	});
+
 	it("keeps the list the card shows where the refresh landed and its list could not be read", () => {
-		expect(refreshedViewToShow(refreshedView("unread"), SHOWN).kept).toBe(
-			SHOWN,
-		);
-		expect(refreshedViewToShow(refreshedView("unread"), null).kept).toBeNull();
+		expect(
+			refreshedViewToShow(refreshedView("unread"), shown(SHOWN)).kept,
+		).toBe(SHOWN);
+		expect(
+			refreshedViewToShow(refreshedView("unread"), shown(null)).kept,
+		).toBeNull();
 	});
 
 	it("takes the refresh's own answer otherwise, an answer of no list included", () => {
 		const kept = { ...SHOWN, valuesDigest: "b".repeat(64) };
-		expect(refreshedViewToShow(refreshedView(kept), SHOWN).kept).toBe(kept);
-		expect(refreshedViewToShow(refreshedView(null), SHOWN).kept).toBeNull();
+		expect(refreshedViewToShow(refreshedView(kept), shown(SHOWN)).kept).toBe(
+			kept,
+		);
+		expect(
+			refreshedViewToShow(refreshedView(null), shown(SHOWN)).kept,
+		).toBeNull();
+	});
+
+	it("keeps the first-publish list the card shows where the refresh could not read it, and takes the refresh's answer otherwise", () => {
+		const list = {
+			ids: ["forms-and-settings-rewritten"],
+			touchesWorkers: false,
+			of: "first-publish",
+		} as const;
+		const unread = {
+			...refreshedView(SHOWN),
+			firstPublish: "unread",
+		} as const;
+		expect(
+			refreshedViewToShow(unread, { kept: SHOWN, firstPublish: list })
+				.firstPublish,
+		).toBe(list);
+		const answered = { ...refreshedView(SHOWN), firstPublish: null };
+		expect(
+			refreshedViewToShow(answered, { kept: SHOWN, firstPublish: list })
+				.firstPublish,
+		).toBeNull();
 	});
 });

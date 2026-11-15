@@ -143,7 +143,13 @@ async function readOrganizationInTransaction(
 	}
 	const state = await tx
 		.selectFrom("app_organization_state")
-		.select("revision")
+		.select([
+			"revision",
+			"hq_server",
+			"hq_domain",
+			"hq_refreshed_at",
+			"hq_left_out",
+		])
 		.where("app_id", "=", scope.appId)
 		.executeTakeFirst();
 	const locations = await tx
@@ -162,6 +168,21 @@ async function readOrganizationInTransaction(
 			revision:
 				state === undefined ? "0" : parseOrganizationRevision(state.revision),
 			locations: locations.map(toStoredLocation),
+			// The origin columns are all set or all null (a CHECK holds them
+			// whole), so `hq_server` alone decides.
+			...(state === undefined ||
+			state.hq_server === null ||
+			state.hq_domain === null ||
+			state.hq_refreshed_at === null
+				? {}
+				: {
+						hq: {
+							server: state.hq_server,
+							domain: state.hq_domain,
+							refreshedAt: state.hq_refreshed_at.toISOString(),
+							leftOut: state.hq_left_out ?? {},
+						},
+					}),
 		},
 	};
 }
@@ -704,6 +725,7 @@ async function withOrganizationWrite<R extends OrganizationWriteResult>(
 	return withAppTx(async (tx) => {
 		const locked = await lockOrganizationForWrite(tx, scope, {
 			capability: "edit",
+			purpose: "author",
 			exclusiveApp,
 		});
 		const inputDigest = canonicalJsonDigest({
@@ -1523,6 +1545,7 @@ export async function describeArchiveImpact(
 		// with each other.
 		const locked = await lockOrganizationForWrite(tx, scope, {
 			capability: "view",
+			purpose: "read",
 		});
 		const tree = await lockTree(tx, scope.appId);
 		if (!tree.byId.has(locationId)) throw organizationNotFound();

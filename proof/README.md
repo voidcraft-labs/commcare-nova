@@ -557,6 +557,7 @@ named here, rather than by every document's checks:
 | Finding 75's HQ half | the `csql` family's `datetime-equality` scenario | no lane check compares what HQ's search finds with Nova's meaning (`csql@A` is a refusal check, and proof 3 compares the readers with each other), so HQ's case search over cases its receiver saved returns the expected ids for `=`, `!=` and `in` on a date and time, as Postgres does |
 | Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports that nothing landed and that the plan lacks Lookup Tables (`upgradeRequired`) |
 | Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
+| A table CommCare HQ manages, left out of Nova's workbook | `proof/views/test_lookup_upload.py::test_a_replacing_upload_leaves_an_unnamed_table_alone` | HQ's upload with "replace" on, as Nova's push sends it, replaces only the tables its workbook names: another table of the project space keeps its id, its definition and every row under its own id, while the named table loses the row the workbook no longer holds |
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, its Case List page holds the control for each only under the flag, and Nova's publish asks for the flag before it sends any of them |
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | every app Nova publishes carries `project_default`, so a device's restore and Web Apps' agree: both hold the places where the project space syncs its flat list and neither does where it does not, and on a plan without Locations neither does; `both_fixtures`, written into the stored app, still gives a device the list whatever the project space says while Web Apps follows the project space (finding 69); HQ's Location Fixture page answers 404 without `HIERARCHICAL_LOCATION_FIXTURE` and, with it, turns the list off and on |
 | "20, CommTrack" | `proof/targeted/__tests__/unproducedInputs.test.ts`; the control `targeted-supply-point-read`, the manifest check and proof 4 | Nova's parser refuses the session's `supply_point_id` as an unknown datum, which no menu of a Nova app supplies, and a read of a datum the form's entry declares is admitted (finding 68) |
@@ -1461,6 +1462,16 @@ that carries uploaded media (`TargetedSpec.media`).
 write the form as Nova emitted it before defect 16 (`proof/formplayer/media_slots/`)
 over a fork of its published app, and of `media-rich`'s, and read the slots on
 Formplayer and in the Web Apps client.
+`targeted-missing-media` names a picture, a sound and a second picture on
+every slot a worker meets media on: a question's image and sound, a choice's
+sound, a menu's icon, a form's sound, a case list's image column and its
+Register action's icon. `proof/formplayer/apps.py::with_missing_media` takes
+their files away over a fork of its published app, as an app made in HQ can
+hold them: three paths lose their multimedia map entries, and the second
+picture's file is deleted from the project space while its entry stays.
+`proof/webapps/test_missing_media.py` and `proof/android/test_missing_media.py`
+read what each runtime then draws on each slot, the reading Nova's bring-in
+decides a reference with no file by.
 `targeted-capture-widgets` holds one question of each kind a worker answers
 with a gesture (an image, a sound, a video, a document, a signature and a
 location), which `proof/webapps/test_widgets.py` holds Formplayer's walk and
@@ -2609,6 +2620,7 @@ the client itself:
 | The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export and after the module settings save | `test_empty_list.py` |
 | The app's logo in Web Apps | the tile of an app Nova publishes shows the client's own icon and asks HQ for no image; after HQ's own uploader stores `hq_logo_web_apps` it shows HQ's URL for the uploaded file, served; a path-only entry written into the stored app shows HQ's URL for the mapped file | `test_app_list.py` |
 | `cc-show-incomplete`, as the app's incomplete forms setting stores it, and after the App Settings save (defect 7, finding 62) | the Incomplete Forms tile shows where the app turns incomplete forms on (`targeted-survey-menu`) and not where it leaves them off (`media-only`), and each is as it was after a save that changes nothing, the stored value unchanged; an app that stores no value (the create of the control `case-operation-query`) still loses the tile at the save | `test_app_list.py` |
+| A media reference with no file, on each slot (`targeted-missing-media`) | a question's sound with no map entry is a player with no address, its picture and a choice's sound show nothing, no menu, form row or list cell shows a picture, the Register action is offered by its label, and a question's picture whose entry stays while its file is deleted is laid out at the address the entry gives | `test_missing_media.py` |
 | Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the answer table's place, which the walk then gives as the client gave it; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
 | An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; HQ's receiver processes one submission each time, and the client shows the message it answered | `test_links.py` |
 | Each after-submit destination, end to end (defect 14, multi-select destinations) | each follow-up opened as Formplayer's walk opened it and submitted with its own Submit button: `module` leaves the worker on the menu's case list, `firstMenu` on the app's first screen, `parentMenu` and `previous` on the parent menu; HQ receives each submission once | `test_links.py` |
@@ -3797,7 +3809,7 @@ reused is only what a key names whole, and the reuse is audited:
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their
   ids, wrapping at the end, so every document is compared within the
-  corpus's size over 24 weeks, rounded up (twenty for 464), and the three
+  corpus's size over 24 weeks, rounded up (twenty for 465), and the three
   runs of a week check the same sample. The
   seed and the sample's documents are in each sampled lane's job summary,
   its verdict and a failed week's issue, and a dispatch that names the seed

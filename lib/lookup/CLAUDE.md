@@ -12,7 +12,11 @@ references and emits the exact CommCare fixture wire.
   and runtime schemas from the import-light `lib/domain/lookupIds` leaf. There
   is no public generic lookup id: a table id cannot satisfy a column- or row-id
   slot. Display names, table tags, column wire names, and order keys are mutable
-  projections, never identity.
+  projections, never identity. A table brought in from CommCare HQ takes table
+  and column ids that are UUIDv7 too, derived from the bring-in's reading id
+  and CommCare HQ's own names (`lib/deployment/reading/projectData/lookupIds.ts`),
+  so its read and its create name the same ones with nothing stored. Its rows
+  take server-minted ids, as every row does.
 - Row values are keyed by immutable column UUID. Never key or rewrite stored
   values by `wire_name`.
 - Every resource query includes both `project_id` and its resource UUID. A
@@ -36,13 +40,23 @@ lookup lock order:
    and issue the transactional lookup notification;
 6. commit.
 
+`lockLookupTableForUpdate` takes the write's purpose. A table managed in
+CommCare HQ (`hq_server` set, no takeover) refuses an `author` write with
+`managed_in_hq` before its revision is compared; `remove-table` is allowed in
+every state; `hq-refresh` and `hq-management` are `managed.ts`'s alone. No
+writer reaches a table row another way.
+
 Browser actions and accepted-design materialization enter that prefix directly:
 their exact Project authority is already established and they never need an app
 lock. App-bound SA/MCP writes first take the invocation's app row `FOR SHARE`,
 prove its unchanged Project, fresh membership, and, for chat, exact run holder,
 then enter the same Project-state/table prefix. No code may hold Project state
-or a lookup table and later request an app lock. The app-bound bridge is
-app-first; the direct Project writer is Project-first with no reverse edge.
+or a lookup table and later request an app lock. A birth that brings tables in
+from CommCare HQ is app-first like every app-bound writer: it inserts its own
+app row, which no other session can name, then takes Project state and writes
+the tables (`lib/db/appGenesis.ts`, the `afterAppInsert` seam), and requests no
+other app row after. The app-bound bridge is app-first; the direct Project
+writer is Project-first with no reverse edge.
 
 Case submissions also hold their app authority before locking the program's
 referenced lookup tables `FOR SHARE` in UUID order. These locks remain through
@@ -187,6 +201,40 @@ with the table named so an authorized caller can explicitly change its tag.
   table row. A delete/shrink returns capacity. Concurrent writers cannot cross a
   cap.
 
+## Tables from CommCare HQ
+
+A table is in one of three states, read from its origin columns and nothing
+else: plain (every `hq_*` column null, a table made in Nova); managed in
+CommCare HQ (`hq_server` set, `hq_taken_over_at` null: Nova holds a copy and
+refuses every author's edit); and managed in Nova, from CommCare HQ
+(`hq_taken_over_at` set: a person chose Manage in Nova, and the origin stays so
+the table can be handed back). Two CHECKs hold the origin whole or absent and a
+takeover attributed and only on a table with an origin. `LookupHqOrigin` is
+the state as every reader returns it (`hq` on the manifest entry, the snapshot
+and the definition, present exactly when `hq_server` is set).
+
+`managed.ts` holds the two writers of a copy. The create arm makes tables
+under the ids it is given, every column `text`, its label the field name's
+first 120 characters (`managedRules.ts::columnLabelFor`), its origin in the
+table's insert, with one revision and one notice. The refresh arm matches
+columns to CommCare HQ's fields by wire name: a new field adds a text column, a
+column with no field is removed unless an app's column edge or an accepted
+design names it, and then stays, empty, after CommCare HQ's columns; rows are
+replaced by CommCare HQ's, in its order, only where they differ. Every column
+of a managed table is text. Taking CommCare HQ's table over a Project table
+(`adopt`) sets every column to text with no stored value coerced, since the
+rows that follow are CommCare HQ's strings, clears a takeover, and stamps
+`definition_revision`. Both arms judge the caps before writing
+(`managedRules.ts::lookupCapExcess`, over Postgres's own measure of the rows,
+`measureLookupRows`) and refuse with `storage_limit`.
+
+`hq_canonical` is `lib/deployment`'s value for CommCare HQ's table at the last
+refresh; `lib/lookup` reads its `digest` and `fields[].name`
+(`managedCanonicalSchema`) and passes the rest through. A refresh whose digest
+and remote table are unchanged stamps only `hq_refreshed_at` and
+`hq_refreshed_by` and advances no revision. A change of who manages a table
+stamps `definition_revision`, because every client reads editability from it.
+
 ## Reads and realtime
 
 Manifest and full-table reads are authoritative snapshots, not change logs.
@@ -225,7 +273,9 @@ table's complete rows in authored `(order_key, id)` order, from one read-only
 `REPEATABLE READ` transaction (`fixtureSnapshot.ts`). Its consumers must not
 loop `getLookupTable`, whose per-call snapshots could mix generations: EVERY
 export mode validates and emits one generation (the `.ccz` embeds it as
-fixtures, the two CommCare HQ modes turn it into the fixapi workbook — so the
+fixtures, the two CommCare HQ modes turn it into the fixapi workbook, leaving
+out a table CommCare HQ manages in the project space the upload is for, and
+putting such tables in a second workbook of the HQ app file — so the
 generation Nova pushes is provably the generation it validated), and the
 preview's builder-session cache
 (`lib/preview/engine/lookupDataBinding.ts`) evaluates carriers over one.

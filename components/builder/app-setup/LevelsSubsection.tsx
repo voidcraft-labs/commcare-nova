@@ -58,6 +58,7 @@ import {
 	organizationLevelPatchIssue,
 } from "@/lib/organization/levelUpdateVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
+import { managedPlacesLevelsNote } from "@/lib/publish/managedData";
 import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
@@ -73,11 +74,16 @@ const NO_LEVEL_LIMIT = "__none__";
 export function LevelsSubsection({
 	occupiedLevelUuids,
 	locations,
+	managedDomain,
 }: {
 	/** Levels that currently hold at least one place, so a removal can say
 	 *  so immediately rather than after a round trip. */
 	occupiedLevelUuids: ReadonlySet<string>;
 	locations: readonly StoredLocation[];
+	/** The project space this app's places are a copy of, while CommCare HQ
+	 *  manages them. Levels stay Nova's to edit, and what Nova assumed about
+	 *  them is said above them. */
+	managedDomain?: string;
 }) {
 	const levels = useOrganizationLevels();
 	const canEdit = useCanEdit();
@@ -134,6 +140,14 @@ export function LevelsSubsection({
 			canEdit={canEdit && !adding}
 			addButtonRef={rowFocus.addRef}
 		>
+			{managedDomain !== undefined && (
+				<p
+					data-managed-places-levels-note
+					className="max-w-prose rounded-lg border border-nova-violet/30 bg-nova-violet/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
+				>
+					{managedPlacesLevelsNote(managedDomain)}
+				</p>
+			)}
 			{levels.length === 0 ? (
 				<SubsectionEmpty>
 					Start with the widest level, such as a region or state. Then add the

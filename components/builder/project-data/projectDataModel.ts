@@ -6,6 +6,7 @@
 // author sees (a size, a capacity phrase, a conflict verdict) lives here, and
 // the components only render it.
 
+import type { ManagedTableOutcome } from "@/lib/deployment/managedData";
 import type {
 	LookupColumnId,
 	LookupRowId,
@@ -17,18 +18,27 @@ import {
 	LOOKUP_MAX_TABLE_BYTES,
 } from "@/lib/lookup/constants";
 import { formatLookupBytes, formatLookupCount } from "@/lib/lookup/format";
+import { compareLookupRevisions } from "@/lib/lookup/schema";
 import type {
 	CreateLookupRowInput,
 	DeleteLookupRowInput,
 	LookupCellValue,
 	LookupColumn,
 	LookupDataType,
+	LookupHqOrigin,
 	LookupRevision,
 	LookupRow,
 	LookupRowValues,
+	LookupTableManifestEntry,
 	LookupTableSnapshot,
 	UpdateLookupRowInput,
 } from "@/lib/lookup/types";
+import {
+	MANAGED_TABLE_ALREADY_MATCHES,
+	MANAGED_TABLE_REFRESHED_COLUMNS,
+	MANAGED_TABLE_REFRESHED_ROWS,
+	managedColumnKept,
+} from "@/lib/publish/managedData";
 import { parseClockTime } from "@/lib/ui/clockTime";
 
 /* Sizes and counts come from `lib/lookup/format`, the same module the
@@ -854,4 +864,153 @@ export function columnsEqual(
 			);
 		})
 	);
+}
+
+// ---------------------------------------------------------------------------
+// Tables that came from CommCare HQ
+// ---------------------------------------------------------------------------
+
+/** What a viewer may do with one table, from its manifest entry and their two capabilities. */
+export interface TableEditability {
+	/** Rename, relabel, add or move a column, every row edit, order, CSV replacement. */
+	readonly edit: boolean;
+	/** The tag, a column's wire name or type, removing a column. */
+	readonly changeSchema: boolean;
+	/** Removing Nova's table. Allowed for a managed table too. */
+	readonly deleteTable: boolean;
+}
+
+/**
+ * A table CommCare HQ manages is a copy: no author edits it, whatever their
+ * role, and removing Nova's copy stays a `delete` like any table's removal.
+ * A table Nova manages, from CommCare HQ or not, is edited as any table is.
+ */
+export function tableEditability(
+	table: Pick<LookupTableManifestEntry, "hq">,
+	canEdit: boolean,
+	canDelete: boolean,
+): TableEditability {
+	const managed = table.hq?.managedBy === "commcare-hq";
+	return {
+		edit: canEdit && !managed,
+		changeSchema: canDelete && !managed,
+		deleteTable: canDelete,
+	};
+}
+
+/** Nothing offered: what a table answers before its manifest entry is known, or once it has left the manifest. */
+export const NO_TABLE_EDITS: TableEditability = {
+	edit: false,
+	changeSchema: false,
+	deleteTable: false,
+};
+
+/** A manifest as the workspace holds it: the Project it is of, its clock and its entries. */
+export interface ManifestView {
+	readonly projectId: string;
+	readonly projectRevision: LookupRevision;
+	readonly tables: readonly LookupTableManifestEntry[];
+}
+
+/**
+ * The table's entry in the freshest of the manifests this tab holds for the
+ * Project: the one the stream pushed and the one the workspace read. Who
+ * manages a table is read from here, never from the table's snapshot, so a
+ * change of it is right the moment a frame lands. A manifest of another
+ * Project is never consulted. `undefined` where no manifest is known yet, or
+ * the freshest one no longer holds the table.
+ */
+export function freshestManifestEntry(
+	manifests: readonly (ManifestView | null | undefined)[],
+	projectId: string | undefined,
+	tableId: LookupTableId | undefined,
+): LookupTableManifestEntry | undefined {
+	if (projectId === undefined || tableId === undefined) return undefined;
+	let freshest: ManifestView | undefined;
+	for (const manifest of manifests) {
+		if (manifest == null || manifest.projectId !== projectId) continue;
+		if (
+			freshest === undefined ||
+			compareLookupRevisions(
+				manifest.projectRevision,
+				freshest.projectRevision,
+			) > 0
+		) {
+			freshest = manifest;
+		}
+	}
+	return freshest?.tables.find((table) => table.id === tableId);
+}
+
+/**
+ * What the banner of a table that came from CommCare HQ offers. A control a
+ * person can't use says why: a role that can't do it names who can, and a
+ * person with no CommCare HQ connection on the table's server is invited to
+ * connect, since both the refresh and the hand-back read CommCare HQ with
+ * their own account. Manage in Nova reads nothing of CommCare HQ, so it
+ * needs no connection.
+ */
+export type ManagedTableBannerModel =
+	| {
+			readonly kind: "managed-in-hq";
+			readonly refresh: "offered" | "connect" | "needs-editor";
+			readonly manageInNova: "offered" | "needs-admin";
+	  }
+	| {
+			readonly kind: "managed-in-nova";
+			readonly handBack: "offered" | "connect" | "needs-admin";
+	  };
+
+export function managedTableBannerModel(
+	hq: Pick<LookupHqOrigin, "managedBy">,
+	connected: boolean,
+	canEdit: boolean,
+	canDelete: boolean,
+): ManagedTableBannerModel {
+	if (hq.managedBy === "commcare-hq") {
+		return {
+			kind: "managed-in-hq",
+			refresh: !canEdit ? "needs-editor" : connected ? "offered" : "connect",
+			manageInNova: canDelete ? "offered" : "needs-admin",
+		};
+	}
+	return {
+		kind: "managed-in-nova",
+		handBack: !canDelete ? "needs-admin" : connected ? "offered" : "connect",
+	};
+}
+
+/**
+ * What the banner says after one of its actions answered. A refresh that
+ * landed says what changed, and then each column it kept because an app
+ * still reads it; Manage in Nova says nothing, since the banner itself turns
+ * into the one for a table Nova manages. A refusal says its own sentence,
+ * and the copy is as it was.
+ */
+export function managedTableOutcomeLines(
+	outcome: ManagedTableOutcome,
+	domain: string,
+): { readonly tone: "status" | "alert"; readonly lines: readonly string[] } {
+	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
+	const receipt = outcome.receipt;
+	if (receipt === null) return { tone: "status", lines: [] };
+	const changed =
+		receipt.changed === "nothing"
+			? MANAGED_TABLE_ALREADY_MATCHES
+			: receipt.changed === "rows"
+				? MANAGED_TABLE_REFRESHED_ROWS
+				: MANAGED_TABLE_REFRESHED_COLUMNS;
+	return {
+		tone: "status",
+		lines: [
+			changed,
+			/* A column an accepted design names stays with no app reading it,
+			 * and the sentence about a kept column is about the apps that do. */
+			...receipt.keptGoneColumns
+				.filter((column) => column.apps.length > 0)
+				.map((column) =>
+					managedColumnKept(column.wireName, column.apps, domain),
+				),
+		],
+	};
 }

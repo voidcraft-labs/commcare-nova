@@ -86,7 +86,11 @@ export function PlacesSubsection({
 }) {
 	const levels = useOrganizationLevels();
 	const properties = useLocationProperties();
-	const canEdit = useCanEdit();
+	/* Places CommCare HQ manages are a copy: no add, edit, move or archive
+	 * control is offered while they are, whatever the member's role. They
+	 * change in CommCare HQ, and the banner above refreshes the copy. */
+	const managed = organization.hq !== undefined;
+	const canEdit = useCanEdit() && !managed;
 	const accessPhase = useAccessPhase();
 	const doc = useOrganizationRuleInputs();
 	const [openId, setOpenId] = useState<string | undefined>(undefined);
@@ -206,7 +210,9 @@ export function PlacesSubsection({
 				</p>
 			) : tree.rows.length === 0 && !adding ? (
 				<SubsectionEmpty>
-					Start with a place at the top level. Then add the places below it.
+					{managed
+						? "CommCare HQ holds no places at this app's levels yet. Once it does, you can refresh Nova's copy above."
+						: "Start with a place at the top level. Then add the places below it."}
 				</SubsectionEmpty>
 			) : (
 				<div className="flex flex-col gap-2">
@@ -225,6 +231,7 @@ export function PlacesSubsection({
 									doc={doc}
 									tree={tree}
 									organization={organization}
+									managed={managed}
 									open={openId === location.id}
 									onOpenChange={(next) => {
 										if (
@@ -347,6 +354,7 @@ function PlaceRow({
 	properties,
 	tree,
 	organization,
+	managed,
 	open,
 	onOpenChange,
 	onConflictChange,
@@ -360,6 +368,8 @@ function PlaceRow({
 	properties: readonly LocationProperty[];
 	tree: PlaceTree;
 	organization: Organization;
+	/** The place is a copy of CommCare HQ's: it reads, and nothing edits it. */
+	managed: boolean;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onConflictChange: (locationId: string, conflicted: boolean) => void;
@@ -369,7 +379,7 @@ function PlaceRow({
 	) => void;
 	rowFocusRef: (element: HTMLButtonElement | null) => void;
 }) {
-	const canEdit = useCanEdit();
+	const canEdit = useCanEdit() && !managed;
 	const sessionApi = useOptionalBuilderSessionApi();
 	const nameId = useId();
 	const nameDescriptionId = useId();

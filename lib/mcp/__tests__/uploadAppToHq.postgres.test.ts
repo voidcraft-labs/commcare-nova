@@ -32,6 +32,15 @@ import {
 	holdOperation,
 } from "@/lib/db/__tests__/heldPlacementApp";
 import {
+	acceptImport,
+	makeManagedCopy,
+	readerOf as managedReader,
+	type ServedTable,
+	serveRows,
+	serveSource,
+	serveTableList,
+} from "@/lib/deployment/__tests__/managedFixtures";
+import {
 	clinicVisitsDocument as document,
 	reloadHeadFor,
 	TARGET_OWNED_PROFILE,
@@ -53,6 +62,11 @@ import {
 	describeArchiveImpact,
 	setLocationArchived,
 } from "@/lib/organization/service";
+import {
+	MANAGED_DATA_CHANGED,
+	MANAGED_TABLE_HANDED_BACK_AFTER_CREATE,
+	managedColumnGoneItem,
+} from "@/lib/publish/managedData";
 import {
 	COMMTRACK_OFF,
 	FORM_ENTRY_SYNC_OFF,
@@ -2658,3 +2672,71 @@ describe("the placements an upload records", () => {
 function fail(): never {
 	throw new Error("Expected a value");
 }
+
+describe("a lookup table CommCare HQ manages in the project space", () => {
+	const facilities: ServedTable = {
+		id: "hq-facilities",
+		tag: "facilities",
+		fields: ["code", "name"],
+		rows: [{ code: "001", name: "North" }],
+	};
+	const lookup = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+
+	it("answers hq_managed_data_changed with each change's sentence, not as CommCare HQ refusing the upload", async () => {
+		const copy = await makeManagedCopy(h, lookup, facilities, TARGET);
+		await seed(managedReader([copy]));
+		const gone = {
+			...facilities,
+			fields: ["code"],
+			rows: [{ code: "001" }],
+		};
+		await withHttpPeer(async (peer) => {
+			serveTableList(peer, "clinic", [gone]);
+			serveRows(peer, "clinic", gone);
+			await asUser(async (client) => {
+				const refused = body(await call(client), true);
+				expect(refused.error_type).toBe("hq_managed_data_changed");
+				expect(refused.message).toBe(
+					`${MANAGED_DATA_CHANGED} ${managedColumnGoneItem("name", "facilities", 1)}`,
+				);
+			});
+		});
+	});
+
+	it("answers managed_table_handed_back where the table was handed back while the upload got ready", async () => {
+		const copy = await makeManagedCopy(h, lookup, facilities, TARGET);
+		await seed(managedReader([copy]));
+		await h
+			.db()
+			.updateTable("lookup_tables")
+			.set({
+				hq_taken_over_at: new Date("2026-11-03T08:00:00.000Z"),
+				hq_taken_over_by: ACTOR,
+			})
+			.where("id", "=", copy.tableId)
+			.execute();
+		await withHttpPeer(async (peer) => {
+			serveTableList(peer, "clinic", [facilities]);
+			serveRows(peer, "clinic", facilities);
+			acceptImport(peer, "clinic", 201, {
+				before: async () => {
+					await h
+						.db()
+						.updateTable("lookup_tables")
+						.set({ hq_taken_over_at: null, hq_taken_over_by: null })
+						.where("id", "=", copy.tableId)
+						.execute();
+				},
+			});
+			serveSource(peer, "clinic", "source-shell");
+			await asUser(async (client) => {
+				const refused = body(await call(client), true);
+				expect(refused.error_type).toBe("managed_table_handed_back");
+				expect(refused.message).toBe(MANAGED_TABLE_HANDED_BACK_AFTER_CREATE);
+			});
+			expect(
+				requests(peer).some((line) => line.endsWith("/fixtures/fixapi/")),
+			).toBe(false);
+		});
+	});
+});

@@ -40,12 +40,12 @@
 // Fields walk the config's exact Details UUID permutation,
 // so rearranging Results cannot disturb the confirmation screen. Position
 // counter convention: the 1-based position passed to the per-column header-
-// locale composer is the column's index in the complete Details-ordered source
-// sequence plus one. The visibility filter affects which fields render, not
-// their position numbers — toggling `visibleInDetail` doesn't churn locale ids.
-// Mirrors CCHQ's
-// `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
-// `column.id`-keyed numbering convention.
+// locale composer is the field's index among the columns Details shows plus
+// one: the long detail HQ JSON stores holds those alone
+// (`hqJson/caseList.ts::projectCaseListForHq`), and HQ's build numbers each
+// by its index in the stored detail (`column.id + 1` in
+// `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`,
+// over `models/case_list.py::Detail.get_columns`).
 //
 // The compiler owns the shared cchq.case title locale in every app-string
 // table. Core has no ambient mapping for this id.
@@ -177,16 +177,16 @@ export function buildLongDetail(args: {
 	const translationUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk every column in the config's exact Details UUID permutation,
-	// independently of Results. Position is 1-based against the complete long-
-	// detail sequence, including fields hidden from this surface, because CCHQ's
-	// header-locale suffix keys off the column's position in that array.
-	const sortedColumns = orderedColumns(config, "detail");
-	for (let i = 0; i < sortedColumns.length; i++) {
-		const column = sortedColumns[i];
-		// Visibility filter: absent slot ≡ visible. The schema
-		// preserves the slot's presence so the editor can distinguish
-		// "user explicitly toggled off" from "user never toggled".
-		if (column.visibleInDetail === false) continue;
+	// independently of Results. Position is 1-based among the columns Details
+	// shows, the stored long detail HQ's build numbers its header locales by.
+	// Visibility filter: absent slot ≡ visible. The schema preserves the
+	// slot's presence so the editor can distinguish "user explicitly toggled
+	// off" from "user never toggled".
+	const shownColumns = orderedColumns(config, "detail").filter(
+		(column) => column.visibleInDetail !== false,
+	);
+	for (let i = 0; i < shownColumns.length; i++) {
+		const column = shownColumns[i];
 		const emission = buildColumnField({
 			column,
 			position: i + 1,

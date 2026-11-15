@@ -69,6 +69,7 @@ function statusFor(code: LookupImportErrorCode): number {
 		case "referenced":
 		case "last_column":
 		case "incompatible_values":
+		case "managed_in_hq":
 			return 409;
 		case "row_limit":
 		case "storage_limit":

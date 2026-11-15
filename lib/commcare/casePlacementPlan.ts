@@ -263,7 +263,9 @@ function buildPlan(
 		// A case name or an external id reads the question's trimmed sibling
 		// where the form guards it (`lib/domain/caseScalarTextGuard.ts`: every
 		// question a basic or an advanced action reads one from), else the
-		// question itself.
+		// question itself. An app brought in from CommCare HQ whose action
+		// names the question itself names the sibling from its first publish,
+		// which the first-publish register declares (`case-names-checked`).
 		if (isCaseScalarTextProperty(property) && guarded.has(source.field))
 			return trimmedValuePath(nodes, source.field, path).toXPath();
 		const field = doc.fields[source.field];
@@ -314,7 +316,11 @@ function buildPlan(
 			put("owner_id", operation.owner, "owner_id", "always");
 		for (const write of operation.writes ?? []) {
 			// HQ maps `name` to the case's `case_name` element
-			// (`xform.py::XFormCaseBlock.add_case_updates`).
+			// (`xform.py::XFormCaseBlock.add_case_updates`). An external id is
+			// one of these writes, never `open_case.external_id`: HQ's build
+			// writes the same `<update>` leaf for either, so an app brought in
+			// that stores it in `open_case` is stored anew at its first publish
+			// with nothing a runtime reads changed (`case-settings-respelled`).
 			const property = write.property === "case_name" ? "name" : write.property;
 			const key =
 				write.via === undefined
@@ -367,6 +373,11 @@ function buildPlan(
 
 	// HQ's Case Management save writes `always` on every form that opens or
 	// requires a case (`case_config_ui.js::HQFormActions.from_case_transaction`).
+	// An app brought in from CommCare HQ whose own update stores `never` or
+	// `if` is read as this same state where CommCare HQ's build makes it one,
+	// and stored as `always` at its first publish (`case-settings-respelled`);
+	// the two shapes where it is not the same state are refused when the app
+	// is read.
 	// A registration opens one there only where its own arm takes the basic
 	// slot. Where the own arm takes Save to Case the form requires no case and
 	// opens none, and HQ's build refuses an active update on it ("To update a
@@ -445,7 +456,9 @@ function buildPlan(
 			},
 			// HQ's build names the index `parent` when the action holds none
 			// (`xform.py::XForm._create_casexml`, `subcase.reference_id or
-			// 'parent'`); the empty id keeps the bytes every Nova app holds.
+			// 'parent'`); the empty id keeps the bytes every Nova app holds. An
+			// app brought in that stores `parent` is stored anew at its first
+			// publish with the same index built (`case-settings-respelled`).
 			reference_id: "",
 			case_properties: caseProperties,
 			repeat_context: repeat === undefined ? "" : scopeOf(repeat).toXPath(),

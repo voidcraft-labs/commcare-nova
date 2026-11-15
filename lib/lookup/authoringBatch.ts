@@ -1,9 +1,9 @@
 import "server-only";
 
-import { sql, type Transaction } from "kysely";
+import { type Insertable, sql, type Transaction } from "kysely";
 import type { z } from "zod";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import type { AppDatabase } from "@/lib/db/pg";
+import type { AppDatabase, LookupTablesTable } from "@/lib/db/pg";
 import {
 	type LookupColumnId,
 	type LookupRowId,
@@ -618,6 +618,9 @@ async function loadWork(
 		scope.projectId,
 		input.tableId,
 		input.expectedTableRevision,
+		/* A delete removes only Nova's copy, which is allowed in every state;
+		 * every other change of the table is an author's edit. */
+		input.delete === true ? "remove-table" : "author",
 	);
 	const columns = await tx
 		.selectFrom("lookup_columns")
@@ -1122,17 +1125,46 @@ async function tableAccounting(
 	return { rowCount: accounting.row_count, dataBytes: accounting.data_bytes };
 }
 
-async function createTable(
+/** The ids a created table and its columns take, in the input's column order. */
+export interface LookupCreatedTableIds {
+	readonly tableId: LookupTableId;
+	readonly columnIds: readonly LookupColumnId[];
+}
+
+/** The CommCare HQ origin a created table carries, written in its insert. */
+export type LookupTableOriginColumns = Pick<
+	Insertable<LookupTablesTable>,
+	| "hq_server"
+	| "hq_domain"
+	| "hq_remote_id"
+	| "hq_canonical"
+	| "hq_brought_in_at"
+	| "hq_brought_in_by"
+	| "hq_refreshed_at"
+	| "hq_refreshed_by"
+>;
+
+/**
+ * Create one complete table under the ids it is given, with its rows under
+ * server-minted ids. The caller holds Project state and advances its
+ * revision; `revision` is the one that advance will reach. The public batch
+ * mints the ids; the managed-copy writers in `managed.ts` derive them and
+ * pass the table's CommCare HQ origin, which lands in the same insert.
+ */
+export async function createTable(
 	tx: Transaction<AppDatabase>,
 	scope: LookupScope,
 	revision: LookupRevision,
 	input: NonNullable<LookupAuthoringBatchInput["createTables"]>[number],
+	ids: LookupCreatedTableIds,
+	origin?: LookupTableOriginColumns,
 ) {
-	const [rawTableId] = await mintIds(tx, 1);
-	const tableId = lookupTableIdSchema.parse(rawTableId);
-	const columnIds = (await mintIds(tx, input.columns.length)).map((id) =>
-		lookupColumnIdSchema.parse(id),
-	);
+	if (ids.columnIds.length !== input.columns.length) {
+		throw new Error(
+			"A created lookup table needs exactly one id for each of its columns.",
+		);
+	}
+	const { tableId, columnIds } = ids;
 	const rowIds = (await mintIds(tx, input.rows.length)).map((id) =>
 		lookupRowIdSchema.parse(id),
 	);
@@ -1166,6 +1198,7 @@ async function createTable(
 			row_count: rows.length,
 			created_by: scope.actorId,
 			updated_by: scope.actorId,
+			...origin,
 		})
 		.execute();
 	await tx
@@ -1294,7 +1327,14 @@ export async function applyLookupAuthoringBatchInTransaction(
 
 	const createdReceipts = [];
 	for (const create of input.createTables ?? []) {
-		createdReceipts.push(await createTable(tx, scope, nextRevision, create));
+		const [tableId] = await mintIds(tx, 1);
+		const columnIds = await mintIds(tx, create.columns.length);
+		createdReceipts.push(
+			await createTable(tx, scope, nextRevision, create, {
+				tableId: lookupTableIdSchema.parse(tableId),
+				columnIds: columnIds.map((id) => lookupColumnIdSchema.parse(id)),
+			}),
+		);
 	}
 
 	const updatedReceipts = [];

@@ -105,6 +105,7 @@ import { type HqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
 import {
 	type HqFixtureRow,
 	type HqLookupTable,
+	LOOKUP_ROWS_READ_CONCURRENCY,
 	listHqLookupTables,
 	readHqLookupTableRows,
 	uploadLookupTableWorkbook,
@@ -203,6 +204,7 @@ import {
 } from "@/lib/domain/multimedia";
 import {
 	type ExportMode,
+	type LookupTarget,
 	type PreparedExportBoundary,
 	prepareExportBoundaryWithReads,
 } from "@/lib/export/boundaryValidation";
@@ -211,6 +213,7 @@ import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureDataSnapshot,
 	LookupFixtureRow,
+	LookupTableDefinition,
 	LookupTableId,
 } from "@/lib/lookup/types";
 import {
@@ -219,6 +222,7 @@ import {
 } from "@/lib/media/builtinIconAssets";
 import { classifyStoredMediaBytes } from "@/lib/media/validate";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { CORPUS_COMMCARE_VERSION } from "./configurations";
 import { type HqSideSaves, storedDocument } from "./documents";
 import {
@@ -233,6 +237,7 @@ import {
 } from "./entropy.mts";
 import {
 	type PeerRequest,
+	type PeerTable,
 	type TargetPeer,
 	withTargetPeer,
 } from "./targetPeer";
@@ -788,13 +793,15 @@ interface PreparedDocument {
  * The export boundary's own verdict and prepared export
  * (`lib/export/boundaryValidation.ts::prepareExportBoundaryWithReads`) for
  * the document, over its stored state, as preflight's `hq-upload` or the
- * compile route's `ccz` asks for it. A document that is not admitted at
- * all throws.
+ * compile route's `ccz` asks for it. A publish names the project space it
+ * writes to (`lookupTarget`), so a table CommCare HQ manages there is left
+ * out of its workbook. A document that is not admitted at all throws.
  */
 function exportBoundary(
 	source: PublishDocument,
 	mode: CaptureExportMode,
 	attachmentTarget: AttachmentUrlTarget | null,
+	lookupTarget?: LookupTarget,
 ) {
 	const doc = hydrateAdmittedDocument({
 		id: source.id,
@@ -812,6 +819,7 @@ function exportBoundary(
 			doc,
 			compiledAtSeq: source.compiledAtSeq,
 			attachmentTarget,
+			...(lookupTarget !== undefined && { lookupTarget }),
 		},
 		{
 			lookupFixtureData: async (_scope, tableIds) =>
@@ -839,8 +847,14 @@ async function prepareDocument(
 	source: PublishDocument,
 	mode: CaptureExportMode,
 	attachmentTarget: AttachmentUrlTarget | null,
+	lookupTarget?: LookupTarget,
 ): Promise<PreparedDocument> {
-	const result = await exportBoundary(source, mode, attachmentTarget);
+	const result = await exportBoundary(
+		source,
+		mode,
+		attachmentTarget,
+		lookupTarget,
+	);
 	if (!result.ok) {
 		throw new UnexportableDocumentError(source.id, mode, result.violations);
 	}
@@ -1339,19 +1353,160 @@ function tableName(prepared: PreparedDocument, tableId: LookupTableId): string {
 }
 
 /**
+ * Why CommCare HQ's table differs from Nova's copy of it, or null where it
+ * holds the copy exactly: the same remote id, a table every worker reads
+ * with no field property and no row attribute, the copy's columns as its
+ * fields in order, and the copy's rows, value for value, in order. Where it
+ * differs, Nova's `managed-data` edge would refresh its copy before the
+ * export, or stop the publish (`managedData.ts::reReadManagedTablesForPublish`).
+ */
+function managedCopyDifference(
+	definition: LookupTableDefinition,
+	copyRows: readonly LookupFixtureRow[],
+	table: HqLookupTable,
+	rows: readonly HqFixtureRow[],
+): string | null {
+	if (table.id !== definition.hq?.remoteId) {
+		return `CommCare HQ holds it under the id ${table.id}, and the copy names ${definition.hq?.remoteId}`;
+	}
+	if (
+		!table.isGlobal ||
+		table.itemAttributes.length > 0 ||
+		Object.values(table.fieldProperties).some(
+			(properties) => properties.length > 0,
+		)
+	) {
+		return "CommCare HQ's table holds what Nova's copy cannot";
+	}
+	const wireNames = definition.columns.map((column) => column.wireName);
+	if (JSON.stringify(table.fields) !== JSON.stringify(wireNames)) {
+		return `CommCare HQ's fields are ${JSON.stringify(table.fields)}, and the copy's columns ${JSON.stringify(wireNames)}`;
+	}
+	if (rows.length !== copyRows.length) {
+		return `CommCare HQ holds ${rows.length} rows, and the copy ${copyRows.length}`;
+	}
+	for (const [index, row] of rows.entries()) {
+		const copy = copyRows[index];
+		for (const column of definition.columns) {
+			const held = row.fields[column.wireName];
+			const value = copy?.values[column.id];
+			if (typeof held !== "string" || held !== String(value ?? "")) {
+				return `row ${index + 1}'s ${column.wireName} is ${JSON.stringify(held)} in CommCare HQ and ${JSON.stringify(value)} in the copy`;
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * Preflight's `managed-data` edge over the peer, as
+ * `lib/deployment/preflight.ts` runs it before every other edge that talks
+ * to CommCare HQ (`managedData.ts::reReadManagedTablesForPublish`): where a
+ * table the document reads is managed in CommCare HQ from the project space
+ * the capture publishes to, the table list, then each such table's rows, in
+ * table id order and as many at once as a publish reads
+ * (`LOOKUP_ROWS_READ_CONCURRENCY`). Null where none is, which reads nothing.
+ * Returns the list, which the `project-data` edge then reads again from
+ * nothing, and what the peer answered for each table, which the HQ side
+ * holds to HQ's own as it does a pushed table's.
+ *
+ * The capture models one project space holding each such table as Nova's
+ * copy holds it, the state a publish passes over unchanged: a table managed
+ * from another project space, which the capture's peer cannot answer for,
+ * and one the peer lacks or holds otherwise than the copy, over which Nova's
+ * publish would refresh its copy or stop, end the capture by name.
+ */
+async function managedDataEdge(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+): Promise<{
+	readonly hqTables: readonly HqLookupTable[];
+	readonly assumed: readonly AssumedLookupTable[];
+} | null> {
+	const { tableIds } = extractLookupReferenceTargets(prepared.export.doc);
+	const data = lookupFixtureData(prepared.source, tableIds);
+	const managed = data.definitions.filter(
+		(definition) => definition.hq?.managedBy === "commcare-hq",
+	);
+	if (managed.length === 0) return null;
+	const elsewhere = managed.filter(
+		(definition) =>
+			definition.hq?.server !== PROOF_SERVER ||
+			definition.hq.domain !== peer.state.domain,
+	);
+	if (elsewhere.length > 0) {
+		throw new Error(
+			`Corpus document ${prepared.source.id} reads ${elsewhere.map((definition) => definition.tag).join(", ")}, which CommCare HQ manages from another project space than ${peer.state.domain}. The capture's peer is one project space, so give the tables the origin of the project space the capture publishes to.`,
+		);
+	}
+	const hqTables = await readTables(peer, prepared);
+	const reads = await mapWithConcurrency(
+		managed,
+		LOOKUP_ROWS_READ_CONCURRENCY,
+		async (definition) => {
+			const table = hqTables.find(
+				(candidate) => candidate.tag === definition.tag,
+			);
+			if (table === undefined) {
+				throw new Error(
+					`Nova's publish of ${prepared.source.id} would stop with hq_managed_data_changed: the capture peer holds no table under ${definition.tag}, which CommCare HQ manages there. Give the capture that table (\`PublishInput.hqTables\`).`,
+				);
+			}
+			const rows = await readRows(peer, prepared, table.id);
+			return { definition, table, rows: rows.rows };
+		},
+	);
+	for (const { definition, table, rows } of reads) {
+		const difference = managedCopyDifference(
+			definition,
+			data.rowsByTable.get(definition.id) ?? [],
+			table,
+			rows,
+		);
+		if (difference !== null) {
+			throw new Error(
+				`Nova's publish of ${prepared.source.id} would refresh its copy of ${definition.tag} or stop before anything else, since ${difference}. The capture holds the peer's table as the copy holds it; give the peer the copy's table.`,
+			);
+		}
+	}
+	return {
+		hqTables,
+		assumed: reads.map(({ table, rows }) => ({
+			tag: table.tag,
+			table: servedDefinition(table),
+			rows: rows.map(servedRow),
+		})),
+	};
+}
+
+/** What the peer answered for the managed tables and for the tables a publish pushes, together. */
+function assumedOf(
+	managed: readonly AssumedLookupTable[] | undefined,
+	pushed: AssumedResources | undefined,
+): AssumedResources | undefined {
+	if (managed === undefined && pushed === undefined) return undefined;
+	return {
+		lookupTables: [...(managed ?? []), ...(pushed?.lookupTables ?? [])],
+	};
+}
+
+/**
  * Preflight's `project-data` edge over the peer, as
  * `lib/deployment/preflight.ts` runs it: the table list, the push plan
  * (`planLookupResourcePush`) over the tables the ledger maps, and for each
  * table the plan compares, where it is, then its definition, then its rows
  * (`hqResourceBaseline.ts`), the rows read only while the definition is
- * unchanged. Returns the plan's conflicts, or the changes it collected and
- * what the peer answered for each table the publish pushes.
+ * unchanged. The list is the one the `managed-data` edge read where it read
+ * one (`listed`), as preflight reuses it. Returns the plan's conflicts, or
+ * the changes it collected and what the peer answered for each table the
+ * publish pushes.
  */
 async function tableEdge(
 	peer: TargetPeer,
 	prepared: PreparedDocument,
 	ledger: CaptureLedger | null,
 	adopt: readonly string[],
+	listed: readonly HqLookupTable[] | null,
 ): Promise<
 	| { readonly unsupported: readonly LookupTableUnsupported[] }
 	| { readonly conflicts: readonly LookupTableConflict[] }
@@ -1363,7 +1518,7 @@ async function tableEdge(
 > {
 	const workbook = prepared.export.lookupWorkbook;
 	if (workbook === undefined) return null;
-	const hqTables = await readTables(peer, prepared);
+	const hqTables = listed ?? (await readTables(peer, prepared));
 	const mappings = [...(ledger?.tables ?? new Map()).entries()].map(
 		([tableId, mapped]): DeploymentResource => ({
 			deploymentId: "capture",
@@ -1393,6 +1548,10 @@ async function tableEdge(
 		mappings,
 		hqTables,
 		adoptTableIds: adopt,
+		/* The capture publishes one app of its own Project, and no table of it
+		 * was taken over from CommCare HQ: the ledger is the whole standing. */
+		siblings: [],
+		takenOver: [],
 	});
 	if (!plan.ok) {
 		return "unsupported" in plan
@@ -1688,8 +1847,9 @@ async function sendContent(
 
 /**
  * A first publish as `publishAppToHq` makes it once its target is
- * reachable: preflight's table list where the app pushes tables (no table is
- * mapped yet, so nothing is compared), the compatibility check (a blocked
+ * reachable: the `managed-data` edge's reads where the app reads a table
+ * CommCare HQ manages there (`managedDataEdge`), preflight's table list where
+ * the app pushes tables (no table is mapped yet, so nothing is compared), the compatibility check (a blocked
  * report stops the publish before any write), the empty shell's create, the
  * source read of the app it made, which the ledger records as the shell's
  * baseline, then the app's content (`sendContent`). The shell is created
@@ -1708,7 +1868,14 @@ async function firstPublish(
 > {
 	const domain = peer.state.domain;
 	const start = peer.requests.length;
-	const edge = await tableEdge(peer, prepared, null, []);
+	const managed = await managedDataEdge(peer, prepared);
+	const edge = await tableEdge(
+		peer,
+		prepared,
+		null,
+		[],
+		managed?.hqTables ?? null,
+	);
 	if (edge !== null && ("conflicts" in edge || "unsupported" in edge)) {
 		throw new Error(
 			`Nova's first publish of ${prepared.source.id} found lookup tables it cannot account for in the capture peer (${JSON.stringify(edge)}), which holds none before it.`,
@@ -1768,7 +1935,7 @@ async function firstPublish(
 			ownership: shell.ownership,
 			origin: "create",
 		},
-		edge?.assumed,
+		assumedOf(managed?.assumed, edge?.assumed),
 	);
 	return {
 		outcome: {
@@ -1788,7 +1955,8 @@ async function firstPublish(
 
 /**
  * A later publish as `publishAppToHq` makes it over an app it reached:
- * preflight's table edge (`tableEdge`), the compatibility check, the
+ * the `managed-data` edge (`managedDataEdge`), preflight's table edge
+ * (`tableEdge`), the compatibility check, the
  * `target-app` source read and its comparison with the ledger's baseline
  * (`appEdge`), the verdict over every change collected
  * (`remoteChanges.ts::decideRemoteChanges`, under what `confirm` names),
@@ -1806,7 +1974,14 @@ async function updateStep(
 	confirm: StopConfirmation | undefined,
 ): Promise<StepOutcome> {
 	const start = peer.requests.length;
-	const edge = await tableEdge(peer, prepared, ledger, confirm?.adopted ?? []);
+	const managed = await managedDataEdge(peer, prepared);
+	const edge = await tableEdge(
+		peer,
+		prepared,
+		ledger,
+		confirm?.adopted ?? [],
+		managed?.hqTables ?? null,
+	);
 	if (edge !== null && "unsupported" in edge) {
 		return {
 			status: "stopped",
@@ -1870,7 +2045,7 @@ async function updateStep(
 		PLACEHOLDER_APP_ID,
 		read,
 		{ ...ledger.app, normalized: current.normalized },
-		edge?.assumed,
+		assumedOf(managed?.assumed, edge?.assumed),
 	);
 	return {
 		status: "sent",
@@ -1977,6 +2152,14 @@ export interface PublishInput {
 	 * a change.
 	 */
 	readonly hqSide?: HqSideSaves;
+	/**
+	 * The lookup tables the project space holds before Nova's first publish,
+	 * as HQ's own upload made them, among them each table the document reads
+	 * that CommCare HQ manages there: the capture reads those as Nova's
+	 * `managed-data` edge does (`managedDataEdge`), and its peer answers from
+	 * them. By default the project space holds none.
+	 */
+	readonly hqTables?: readonly PeerTable[];
 }
 
 export type PublishCapture =
@@ -2186,11 +2369,11 @@ export async function capturePublish(
 		input.seed === undefined
 			? undefined
 			: { seed: input.seed, ordinal, configuration: configuration.id };
-	/* A publish knows its target exactly (`preflight.ts`). */
-	const attachmentTarget = attachmentUrlTarget({
-		server: PROOF_SERVER,
-		domain: configuration.domain,
-	});
+	/* A publish knows its target exactly (`preflight.ts`), for its links and
+	 * for the tables CommCare HQ manages there, which its workbook leaves out. */
+	const target = { server: PROOF_SERVER, domain: configuration.domain };
+	const lookupTarget: LookupTarget = target;
+	const attachmentTarget = attachmentUrlTarget(target);
 	/* Preflight reads D as stored before this publish; the placements it
 	 * records are committed before anything is sent, and the document they
 	 * leave is what the publish sends (`publishAppToHq`). */
@@ -2198,6 +2381,7 @@ export async function capturePublish(
 		input.create,
 		"hq-upload",
 		attachmentTarget,
+		lookupTarget,
 	);
 	const placements = firstPublishRecord(unrecorded.export.doc);
 	const create =
@@ -2217,6 +2401,7 @@ export async function capturePublish(
 					},
 					"hq-upload",
 					attachmentTarget,
+					lookupTarget,
 				);
 	const updates = await Promise.all(
 		input.updates.map(async (update) => ({
@@ -2225,6 +2410,7 @@ export async function capturePublish(
 				update.document,
 				"hq-upload",
 				attachmentTarget,
+				lookupTarget,
 			),
 		})),
 	);
@@ -2242,6 +2428,7 @@ export async function capturePublish(
 			...(input.source !== undefined && { sourceChanges: input.source }),
 		},
 		async (peer): Promise<PublishCapture | RepublishCapture> => {
+			if (input.hqTables !== undefined) peer.holdTables(input.hqTables);
 			const retained = input.retainedA;
 			let created: Extract<FirstPublishOutcome, { status: "sent" }> | null =
 				null;
@@ -2563,7 +2750,13 @@ export async function importFile(
 		"hq-json",
 		choice.kind === "project-space" ? attachmentUrlTarget(choice.target) : null,
 	);
-	const { doc, assets, lookupWorkbook } = prepared;
+	const {
+		doc,
+		assets,
+		lookupWorkbook,
+		managedLookupTables,
+		managedLookupWorkbook,
+	} = prepared;
 	const hqJson = expandDoc(doc, {
 		attachmentTarget: prepared.attachmentTarget,
 		...(assets.size > 0 && { assets }),
@@ -2574,6 +2767,8 @@ export async function importFile(
 		doc,
 		assets,
 		lookupWorkbook,
+		managedLookupWorkbook,
+		managedLookupTables,
 		attachmentTarget: prepared.attachmentTarget,
 		lookupNaming: prepared.lookupNaming,
 	});
@@ -2584,6 +2779,7 @@ export async function importFile(
 			hqJson,
 			assets,
 			lookupWorkbook,
+			managedLookupWorkbook,
 			renderManualImportGuide(guide),
 		),
 	);

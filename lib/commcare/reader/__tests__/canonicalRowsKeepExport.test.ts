@@ -1,9 +1,10 @@
 /**
  * Every canonical row keeps the export of every document the proof lane publishes.
  *
- * Contract: a row of `assemble.ts::READER_CANONICAL_CHOICES` rewrites one member of a pair into
- * the other, and both members print one export (`one-wire`) or the row removes what no export
- * carries (`not-carried`). So for each targeted and producer document `targetedReadBack.test.ts`
+ * Contract: a row of `canon.ts::CANONICALIZATIONS` (each of `assemble.ts::READER_CANONICAL_CHOICES`,
+ * then every expression slot's print collisions applied over the whole document) rewrites one
+ * member of a pair into the other, and both members print one export (`one-wire`) or the row
+ * removes what no export carries (`not-carried`). So for each targeted and producer document `targetedReadBack.test.ts`
  * reads, expanded as a publish expands it (`publishedDocuments.ts`), applying the rows in list
  * order leaves `expandDoc`'s output byte for byte as it was after every row that changes the
  * document.
@@ -17,7 +18,7 @@
 import { expect, it } from "vitest";
 import type { BlueprintDoc } from "@/lib/domain";
 import { type ExpandOptions, expandDoc } from "../../expander";
-import { READER_CANONICAL_CHOICES } from "../assemble";
+import { CANONICALIZATIONS } from "../canon";
 import {
 	hydrated,
 	publishExpansion,
@@ -48,7 +49,7 @@ it("applies no canonical row that changes a published document's export", {
 		const { options } = publishExpansion(document, doc);
 		let current = doc;
 		let before = printed(current, options);
-		for (const row of READER_CANONICAL_CHOICES) {
+		for (const row of CANONICALIZATIONS) {
 			const next = row.apply(current);
 			if (next === current) continue;
 			const after = printed(next, options);

@@ -13,6 +13,7 @@ import type {
 	RefreshedDeploymentView,
 } from "@/lib/deployment/actions";
 import type { DeploymentKept } from "@/lib/deployment/types";
+import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
 import {
 	KEPT_REFRESH_NOT_REACHED,
 	keptChanged,
@@ -51,21 +52,32 @@ export type ShownRefreshedView = DeploymentView &
 
 /**
  * The record a refresh handed back, as the card holds it. A refresh that
- * landed and could not read its kept list just now answers `unread`, and
- * the card keeps `shown`, the list it drew: the refresh's write is not
- * undone by a read after it, and an empty list would read as one.
+ * landed and could not read its kept list or its first-publish list just now
+ * answers `unread` for it, and the card keeps what `shown` holds, the list it
+ * drew: the refresh's write is not undone by a read after it, and an empty
+ * list would read as one.
  */
 export function refreshedViewToShow(
 	next: RefreshedDeploymentView,
-	shown: DeploymentKept | null,
+	shown: {
+		readonly kept: DeploymentKept | null;
+		readonly firstPublish: FirstPublishView | null;
+	},
 ): ShownRefreshedView {
-	return keptWasRead(next) ? next : { ...next, kept: shown };
+	if (bothWereRead(next)) return next;
+	return {
+		...next,
+		kept: next.kept === "unread" ? shown.kept : next.kept,
+		firstPublish:
+			next.firstPublish === "unread" ? shown.firstPublish : next.firstPublish,
+	};
 }
 
-function keptWasRead(
+/** Whether a refresh read both lists, so the record it handed back is the one to show, as it is. */
+function bothWereRead(
 	view: RefreshedDeploymentView,
 ): view is RefreshedDeploymentView & ShownRefreshedView {
-	return view.kept !== "unread";
+	return view.kept !== "unread" && view.firstPublish !== "unread";
 }
 
 /** What one refresh leaves on the card. */
@@ -141,6 +153,8 @@ export function keptRefreshNotice(
 		readonly now: Date;
 		readonly space: string;
 		readonly locale?: string;
+		/** The first-publish list the card shows, which an `unread` one keeps. */
+		readonly firstPublish: FirstPublishView | null;
 	},
 ): KeptRefreshNotice {
 	if (!result.success) {
@@ -152,7 +166,13 @@ export function keptRefreshNotice(
 		outcome.kind === "refreshed" || outcome.kind === "superseded"
 			? outcome.deployment
 			: null;
-	const view = answered === null ? null : refreshedViewToShow(answered, shown);
+	const view =
+		answered === null
+			? null
+			: refreshedViewToShow(answered, {
+					kept: shown,
+					firstPublish: context.firstPublish,
+				});
 	return {
 		sentence:
 			answered?.kept === "unread"

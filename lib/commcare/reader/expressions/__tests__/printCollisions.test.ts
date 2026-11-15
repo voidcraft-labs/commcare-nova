@@ -847,6 +847,34 @@ describe("every print collision prints one text and canonicalizes to its row's t
 		}
 	});
 
+	it("literal-pieces leaves a `concat` of one part that prints around it, and takes one of a literal that prints as its own pieces", () => {
+		const context = contextOf(app, filter);
+		const of = (part: Expression): Expression => ({
+			kind: "eq",
+			left: prop("p"),
+			right: { kind: "concat", parts: [part] },
+		});
+		const bare = (part: Expression): Expression => ({
+			kind: "eq",
+			left: prop("p"),
+			right: part,
+		});
+		// A read, and a literal of one piece, print `concat(…)` around them.
+		for (const part of [prop("q"), lit("abc")]) {
+			expect(printSlot(app, filter, of(part), env())).not.toBe(
+				printSlot(app, filter, bare(part), env()),
+			);
+			expect(canonicalExpression(of(part), context)).toEqual(of(part));
+		}
+		// A literal HQ's interpolation would read prints as the `concat` of its
+		// pieces alone and inside one.
+		const pieces = lit("#case/x");
+		expect(printSlot(app, filter, of(pieces), env())).toBe(
+			printSlot(app, filter, bare(pieces), env()),
+		);
+		expect(canonicalExpression(of(pieces), context)).toEqual(bare(pieces));
+	});
+
 	it("filter-identities in the search button's suite condition", () => {
 		const expressions = moduleExpressionContexts(
 			app,
@@ -1990,4 +2018,54 @@ describe("csql-parenthesized-join and selection-per-value: a Search field's cond
 			expect(canonicalExpression(joined, context)).toEqual(joined);
 		}
 	});
+});
+
+describe("a worker field read by name beside a worker property of its slug", () => {
+	const ROLE = testUuid("collision-worker-role");
+	const app: BlueprintDoc = {
+		...doc(),
+		userProperties: {
+			[ROLE]: { uuid: ROLE, slug: "role", label: "Role" },
+		},
+		userPropertyOrder: [ROLE],
+	} as BlueprintDoc;
+	const moduleUuid = app.moduleOrder[0] as Uuid;
+	const slots: readonly SlotContextRef[] = [
+		{
+			entity: "field",
+			uuid: fieldNamed(app, "q1"),
+			slot: "relevant",
+		} as SlotContextRef,
+		{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+	];
+	for (const slot of slots)
+		for (const source of [undefined, "worker-record"] as const)
+			it(`prints and canonicalizes as the property's read in ${slot.slot}${source === undefined ? "" : `, from the ${source}`}`, () => {
+				const provenance = source === undefined ? {} : { source };
+				const read = (one: Term): Expression => ({
+					kind: "eq",
+					left: term(one),
+					right: lit("chw"),
+				});
+				const byName = read({
+					kind: "session-user",
+					field: "role",
+					...provenance,
+				});
+				const canonical = read({
+					kind: "session-user-property",
+					userPropertyUuid: ROLE,
+					...provenance,
+				});
+				const readEnvironment = env();
+				expect(printSlot(app, slot, byName, readEnvironment)).toBe(
+					printSlot(app, slot, canonical, readEnvironment),
+				);
+				const context = contextOf(app, slot);
+				expect(canonicalExpression(byName, context)).toEqual(canonical);
+				expect(canonicalExpression(canonical, context)).toEqual(canonical);
+				// A name no property holds stays the name-backed read.
+				const unheld = read({ kind: "session-user", field: "district" });
+				expect(canonicalExpression(unheld, context)).toEqual(unheld);
+			});
 });

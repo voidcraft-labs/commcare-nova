@@ -86,7 +86,10 @@ import {
 	columnsOfAMenuThatListsNoCasesOffTheDetail,
 	columnsOffAScreenLast,
 } from "../caseList/details";
-import { implicitOrderRuleIsAbsent } from "../caseList/order";
+import {
+	implicitOrderRuleIsAbsent,
+	orderPrioritiesAsRead,
+} from "../caseList/order";
 import { tileColumnsShownNowhereAsRead } from "../caseList/tile";
 import { catalogAsRead } from "../caseManagement/catalog";
 import { updateBesideBareOwnAsOwnArm } from "../caseManagement/saveToCase";
@@ -1409,18 +1412,22 @@ describe("the reader's canonical choices", () => {
 		);
 	});
 
-	it("drops the rule a list with no rule writes, and reads a tile column shown nowhere as a reading gives it", () => {
-		// `caseList/__tests__/listCanon.test.ts` holds each pair, its export and
-		// its reading. Both read the rules where the row before them puts them.
+	it("drops the rule a list with no rule writes, numbers the rules as a reading does, and reads a tile column shown nowhere as a reading gives it", () => {
+		// `caseList/__tests__/listCanon.test.ts` and `canon.test.ts` hold each
+		// pair, its export and its reading. Each reads the rules where the row
+		// before it puts them.
 		const implicit = choice("implicit-order-rule-is-absent");
+		const priorities = choice("order-priorities-as-read");
 		const tile = choice("tile-columns-shown-nowhere-are-as-read");
 		expect(implicit.apply).toBe(implicitOrderRuleIsAbsent);
+		expect(priorities.apply).toBe(orderPrioritiesAsRead);
 		expect(tile.apply).toBe(tileColumnsShownNowhereAsRead);
 		const landing = READER_CANONICAL_CHOICES.indexOf(
 			choice("order-rules-on-the-columns-they-land-on"),
 		);
 		expect(READER_CANONICAL_CHOICES.indexOf(implicit)).toBe(landing + 1);
-		expect(READER_CANONICAL_CHOICES.indexOf(tile)).toBe(landing + 2);
+		expect(READER_CANONICAL_CHOICES.indexOf(priorities)).toBe(landing + 2);
+		expect(READER_CANONICAL_CHOICES.indexOf(tile)).toBe(landing + 3);
 	});
 
 	it("takes a column of a menu that lists no cases off the detail, before the detail is ordered", () => {

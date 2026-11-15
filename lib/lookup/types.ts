@@ -89,6 +89,21 @@ export interface LookupTableRevisions {
 	tableRevision: LookupRevision;
 }
 
+/** Where a table came from in CommCare HQ, and who manages it now. */
+export interface LookupHqOrigin {
+	/** One of CommCare HQ's servers, by the name the deployment ledger uses. */
+	readonly server: string;
+	readonly domain: string;
+	readonly remoteId: string;
+	readonly managedBy: "commcare-hq" | "nova";
+	readonly broughtInAt: string;
+	readonly refreshedAt: string;
+	readonly takenOverAt: string | null;
+	readonly takenOverBy: string | null;
+	/** Columns CommCare HQ's table no longer has, kept because an app still reads them. */
+	readonly goneColumnIds: readonly LookupColumnId[];
+}
+
 export interface LookupTableManifestEntry extends LookupTableRevisions {
 	id: LookupTableId;
 	name: string;
@@ -96,6 +111,9 @@ export interface LookupTableManifestEntry extends LookupTableRevisions {
 	columnCount: number;
 	rowCount: number;
 	dataBytes: number;
+	/** Present exactly when the table came from CommCare HQ. The manifest
+	 *  holds no columns, so its `goneColumnIds` is always empty. */
+	hq?: LookupHqOrigin;
 }
 
 export interface LookupManifest {
@@ -119,6 +137,8 @@ export interface LookupTableSnapshot extends LookupTableRevisions {
 	updatedBy: string;
 	createdAt: string;
 	updatedAt: string;
+	/** Present exactly when the table came from CommCare HQ. */
+	hq?: LookupHqOrigin;
 }
 
 /** Rows-free table definition used by validation and compilation contexts. */
@@ -135,6 +155,8 @@ export interface LookupTableDefinition {
 	rowsRevision?: LookupRevision;
 	tableRevision?: LookupRevision;
 	columns: readonly LookupColumn[];
+	/** Present exactly when the table came from CommCare HQ. */
+	hq?: LookupHqOrigin;
 }
 
 /** Exact requested definitions and Project clock from one database snapshot. */
@@ -417,6 +439,8 @@ export type LookupActionErrorCode =
 	| "referenced"
 	| "last_column"
 	| "incompatible_values"
+	/** The table is managed in CommCare HQ, so Nova refuses every edit of it. */
+	| "managed_in_hq"
 	| "internal_error";
 
 export type LookupImportErrorCode = LookupActionErrorCode | "invalid_csv";

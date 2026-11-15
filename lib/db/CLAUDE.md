@@ -345,6 +345,22 @@ use separate single-flight pumps whose retry delay is capped but whose attempts
 continue until success or stream teardown. The SQL and value rules live in
 `lib/lookup`, which is the only lookup write boundary.
 
+**Where a table or an app's places came from in CommCare HQ is columns on
+their own rows** (`20261202000000_hq_bring_in_project_data.ts`). On
+`lookup_tables`, the `hq_*` origin (server, project space, HQ id, the
+canonical value of the last refresh, who brought it in and refreshed it and
+when) is all set or all null, held by `lookup_tables_hq_origin_whole`, and
+`hq_taken_over_at` / `hq_taken_over_by` are set together and only beside an
+origin (`lookup_tables_hq_takeover_attributed`): all null is a table made in
+Nova, an origin with no takeover is a table CommCare HQ manages, and an
+origin with a takeover is one a person chose to manage in Nova. A partial
+index finds a Project's brought-in tables by project space.
+`app_organization_state` carries the same whole-or-absent origin for an
+app's places (with the places' digest and what the copy left out, by level
+code), and `app_locations.hq_location_id` is CommCare HQ's id of a managed
+place, never blank. Every one of these columns is nullable with no default,
+so a writer that names none of them leaves them as they were.
+
 **Lookup-reference carriers are dormant; authoritative writers are integrated.**
 `lookup_table_references` and `lookup_column_references` persist exact
 Project/resource/app identity edges; a column edge is impossible without its
