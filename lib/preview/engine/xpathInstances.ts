@@ -29,8 +29,10 @@ import type {
 } from "@/lib/preview/xpath/runtimeValues";
 import { XPathDate, type XPathValue } from "@/lib/preview/xpath/types";
 import type { CaseRow, JsonValue } from "./caseDataBindingTypes";
+import type { PreviewDataRefusalReason } from "./dataRefusal";
 import type { PreviewSearchSessionValues } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
+import { PREVIEW_UNKNOWN_WORKER_KEYS } from "./workerSessionKeys";
 
 /** The complete set of case rows the selected worker's restore would place on
  * their device. Rows are already authorization- and restore-scoped server-side;
@@ -80,6 +82,10 @@ export interface SearchResultsSnapshot {
 export type LoadSearchResultsSnapshotResult =
 	| { readonly kind: "data"; readonly snapshot: SearchResultsSnapshot }
 	| { readonly kind: "invalid-search"; readonly message: string }
+	| {
+			readonly kind: "data-refused";
+			readonly reason: PreviewDataRefusalReason;
+	  }
 	| {
 			readonly kind:
 				| "persona-unavailable"
@@ -521,7 +527,17 @@ export function caseDatabaseXPathInstance(
 	});
 }
 
-/** Project the browser/server-shared identity into the session instance. */
+/**
+ * Project the browser/server-shared identity into the session instance.
+ *
+ * `user/data` holds exactly the keys the worker's device holds: HQ's restore
+ * writes a key for each field the project space defines (`''` where the
+ * worker has none) and the built-in keys it gives that worker
+ * (`user_data.py::UserData.to_dict`, `models.py::get_user_session_data`), and
+ * nothing else, so a read of any other key is refused as Core refuses it
+ * (`DataInstance.hasTemplatePath`, then `XPathNodeset.unpack`): the place
+ * keys of a worker assigned nowhere, and a field nothing declares.
+ */
 export function commcareSessionXPathInstance(
 	session: PreviewSearchSessionValues,
 	data: Readonly<Record<string, string>> = {},
@@ -543,7 +559,7 @@ export function commcareSessionXPathInstance(
 				children: [
 					{
 						name: "data",
-						childTemplates: ["*"],
+						childTemplates: [...PREVIEW_UNKNOWN_WORKER_KEYS],
 						children: children(session.user),
 					},
 				],

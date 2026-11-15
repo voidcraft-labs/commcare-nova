@@ -69,10 +69,13 @@ depends on the module it sits in:
 
 - If **every form in the module opens an existing case**, people pick the case
   first. Nova checks the condition straight afterwards, for the case they
-  picked, so the condition can read that case's own information. If the module
-  holds only one form, picking a case normally opens it immediately, a case
-  the condition does not match stops at the list instead.
+  picked, so the condition can read that case's own information. The module
+  then lists its forms, even when it holds only one, and a form whose
+  condition the case does not match is left off that list.
 - If **any form in the module starts a new case** (or collects a plain survey),
+  or the module chooses some case apart from the rest (a case list in the
+  menu of a module CommCare HQ receives as an advanced one, see
+  [Case changes](/docs/case-changes#when-a-forms-link-opens-the-case-it-creates)),
   people choose the form before they pick a case. Nova checks the condition on
   that form list, where there is no case yet, so it can use fixed values and
   information about the person signed in.

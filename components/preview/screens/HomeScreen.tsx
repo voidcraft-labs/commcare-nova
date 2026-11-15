@@ -14,6 +14,7 @@ import {
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PreviewSetupNotice } from "@/components/builder/PreviewSetupNotice";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
+import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { Badge } from "@/components/shadcn/badge";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
@@ -32,6 +33,8 @@ import {
 	makeTranslationUnitId,
 	moduleLanding,
 } from "@/lib/domain";
+import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
+import type { NavigationItemVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -69,6 +72,9 @@ import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
 import { openModuleLanding } from "./moduleLanding";
 
 const FIRST_MENU: MenuScreen = { kind: "first-menu" };
+/** No entry's place, while the screen shows a refusal in place of its list. */
+const NO_ENTRY_VISIBILITY: ReadonlyMap<string, NavigationItemVisibility> =
+	new Map();
 
 /** The app's home: Android's device home screen while Preview running as
  *  Android is there, else the module list. Edit mode always shows the
@@ -153,18 +159,23 @@ function ModuleListHome() {
 	 * visibility; a form or case list row by the menus whose condition it
 	 * carries, then a form by its own condition. The first menu chooses no
 	 * case, so a form condition reads the session alone. */
-	const entryVisibility = useMemo(
+	/* A condition the screen reads over data the device lacks (a worker key
+	 * the worker has none of, a table with no rows) is Core's refusal of the
+	 * whole screen, which takes the list's place (`readPreviewScreen`). */
+	const screenRead = useMemo(
 		() =>
-			previewScreenEntryVisibility({
-				doc: menuSource.doc,
-				entries,
-				ownModuleVisibility,
-				authoring: mode === "edit",
-				session,
-				lookup,
-				deviceCases,
-				selectedCaseOf: () => undefined,
-			}),
+			readPreviewScreen(() =>
+				previewScreenEntryVisibility({
+					doc: menuSource.doc,
+					entries,
+					ownModuleVisibility,
+					authoring: mode === "edit",
+					session,
+					lookup,
+					deviceCases,
+					selectedCaseOf: () => undefined,
+				}),
+			),
 		[
 			entries,
 			ownModuleVisibility,
@@ -175,6 +186,8 @@ function ModuleListHome() {
 			deviceCases,
 		],
 	);
+	const entryVisibility =
+		screenRead.kind === "read" ? screenRead.value : NO_ENTRY_VISIBILITY;
 	const hiddenEntries = useMemo(
 		() =>
 			previewHiddenScreenEntries({
@@ -224,6 +237,13 @@ function ModuleListHome() {
 	);
 
 	if (!hasData) return null;
+	if (screenRead.kind === "refused")
+		return (
+			<PreviewDataRefusalPanel
+				surface="menu"
+				reason={screenRead.refusal.reason}
+			/>
+		);
 
 	const canEdit = mode === "edit" && isReady;
 

@@ -63,6 +63,7 @@ import {
 	ListFilterBox,
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
+import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import {
 	type PreviewWorkerLabel,
 	RestoreScopeNote,
@@ -159,6 +160,7 @@ import {
 	type CaseRowWithCalculated,
 	isPreviewUnavailable,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
 import {
 	formDisplayVisibility,
 	navigationSelectedCase,
@@ -198,10 +200,11 @@ import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPrevi
 import { useViewerPositionWatch } from "@/lib/preview/hooks/useViewerPosition";
 import {
 	moduleHasChildren,
-	previewAutomaticForm,
 	previewCaseDescendantModuleUuids,
+	previewCaseListFormRequest,
 	previewCaseListMenuEntry,
 	previewMenuCaseContext,
+	previewRequestedForm,
 } from "@/lib/preview/menuProjection";
 import {
 	addVisiblePreviewCaseChoices,
@@ -321,16 +324,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * CASE-LOADING form (followup / close: the form types that consume a
 	 * case), never registration or survey:
 	 *
-	 *   - Forms-first entry (the worker tapped a specific case-loading form in
-	 *     the module menu): `previewCaseTarget` names that form, and we go
-	 *     straight to it. This is the mixed-module path (registration + a
-	 *     case-loading form), where the form is chosen before the case.
-	 *   - Case-first entry (an all-case-loading module's landing, or Preview
-	 *     entered from the case workspace): no form was chosen yet. With exactly
-	 *     one case-loading form we go straight to it; with more than one, the
-	 *     app shows a FORM MENU after the case is picked (CommCare hoists the
-	 *     shared case datum, then asks which form: see `isCaseFirstModule`),
-	 *     so we render that menu.
+	 *   - A form chosen before the case (a case-loading form tapped in a
+	 *     forms-first menu, a link's form, a retained task's):
+	 *     `previewCaseTarget` names it, and we go straight to it.
+	 *   - Case-first entry (a case-first screen's landing, or Preview entered
+	 *     from the case workspace): no form was chosen yet, so the app shows
+	 *     the FORM MENU once the case is picked, however many forms it lists
+	 *     (CommCare collects the shared case datum, then asks for a command:
+	 *     `menuScreens.ts::screenChoosesCaseFirst`). A form the worker chose
+	 *     from that menu sits above the case, so a route back to this list
+	 *     holds no form (`menuProjection.ts::previewCaseListFormRequest`).
 	 *
 	 * A module with no case-loading form has nowhere to continue, so the
 	 * list reads as informational. */
@@ -362,14 +365,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * reads it to admit or refuse itself (`caseListRegistration.ts`). */
 	const searchState = usePreviewSearchState(moduleUuid);
 	const setPreviewSearchState = useSetPreviewSearchState();
-	/** The form a forms-first entry tapped to get here, when it's a real
-	 *  case-loading form in this module: otherwise undefined (case-first). */
-	const seededFormUuid = useMemo(() => {
-		const seeded = previewCaseTarget?.formUuid;
-		return seeded && caseLoadingForms.some((f) => f.uuid === seeded)
-			? seeded
-			: undefined;
-	}, [previewCaseTarget?.formUuid, caseLoadingForms]);
+	/** The form chosen before the case that brought the worker here, when
+	 *  it's a real case-loading form in this module: otherwise undefined (a
+	 *  case-first landing, or a list stepped back to past a form chosen after
+	 *  its case). */
+	const seededFormUuid = useMemo(
+		() =>
+			previewCaseListFormRequest(
+				previewCaseTarget,
+				caseLoadingForms.map((form) => form.uuid),
+			),
+		[previewCaseTarget, caseLoadingForms],
+	);
 	const taskContinuation = usePreviewTaskContinuation();
 	const retainedFormUuid =
 		taskContinuation?.moduleUuid === moduleUuid
@@ -421,16 +428,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						isCaseFirst: true,
 						hasSelectedCase: true,
 					}) !== undefined));
-	/* A case-first menu that holds its case list entry lists only its forms
-	 * once the case is chosen: the entry chooses that same case, which the
-	 * session holds, so CommCare does not list it
-	 * (`MenuLoader.addRelevantCommandEntries`). Core never opens a lone form
-	 * from a menu by itself (`CommCareSession.getNeededData` finds no entry
-	 * for the menu's id and asks for a command), but `previewAutomaticForm`
-	 * does (issue #915). This keeps that skip off here, as it was while this
-	 * menu listed the entry, so this shape shows its form menu as Core does;
-	 * it goes with the skip. */
-	const caseFirstMenuHoldsEntry = moduleCaseFirst && hasCaseListMenuItem;
 	const selectsForMenu =
 		selectsForParentRequest ||
 		(seededFormUuid === undefined &&
@@ -520,8 +517,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * SELECTED row in the session under the form's datum and the device's
 	 * cases to read it from: the wire's `<command relevant>` locus
 	 * (a case-first module's form menu renders after selection). The
-	 * decided list drives the auto-continue AND the post-selection menu,
-	 * so a false condition suppresses both. Edit-mode canvases never
+	 * decided list drives the post-selection menu AND whether a form chosen
+	 * before the case opens, so a false condition suppresses both. Edit-mode canvases never
 	 * reach this running-app pane, so no edit gate is needed here. A case
 	 * the choice just claimed is read once the device holds it: until then a
 	 * condition that reads the device's cases is still loading. */
@@ -644,34 +641,42 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * emitter can't lower, and stored pre-gate documents are migrated rather
 	 * than tolerated, so a throw here is a Nova bug and must surface, not
 	 * fail the action closed. */
-	const searchActionIsRelevant =
-		searchConfig !== undefined &&
-		(searchButtonCondition === undefined ||
-			(!predicateLookupsCovered(
+	/* A condition that reads data the device lacks (a place key of a worker
+	 * assigned nowhere) is Core's refusal of the list whose action it gates,
+	 * held as the screen's state (`readPreviewScreen`). */
+	const searchActionRead = readPreviewScreen(() => {
+		if (searchConfig === undefined) return false;
+		if (searchButtonCondition === undefined) return true;
+		/* A condition whose carriers the held snapshot doesn't cover (still
+		 * loading, or a valid edit the stale snapshot predates) is undecided:
+		 * keep the Search pane withheld rather than flashing a surface the
+		 * decided value may retract. */
+		if (
+			!predicateLookupsCovered(
 				searchButtonCondition,
 				lookupStatus.kind === "data" ? lookupStatus.data : undefined,
 			)
-				? /* A condition whose carriers the held snapshot doesn't cover
-					 * (still loading, or a valid edit the stale snapshot predates)
-					 * is undecided: keep the Search pane withheld rather than
-					 * flashing a surface the decided value may retract. */
-					false
-				: evaluatePreviewSearchPredicate(
-						searchButtonCondition,
-						previewExpressionContext(
-							menuSource.doc,
-							{
-								entity: "module",
-								uuid: moduleUuid,
-								slot: "search_button_display_condition",
-							},
-							searchEnvironment.lookup,
-						),
-						searchEnvironment,
-						config?.searchInputs ?? [],
-						searchSession,
-						EMPTY_SEARCH_INPUT_VALUES,
-					)));
+		)
+			return false;
+		return evaluatePreviewSearchPredicate(
+			searchButtonCondition,
+			previewExpressionContext(
+				menuSource.doc,
+				{
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "search_button_display_condition",
+				},
+				searchEnvironment.lookup,
+			),
+			searchEnvironment,
+			config?.searchInputs ?? [],
+			searchSession,
+			EMPTY_SEARCH_INPUT_VALUES,
+		);
+	});
+	const searchActionIsRelevant =
+		searchActionRead.kind === "read" && searchActionRead.value;
 	/* The menu's forms read the search (CommCare's inline search): the
 	 * search runs before the list exists, its context is what the forms and
 	 * the case list registration form read, and its claim sits in each
@@ -1520,8 +1525,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	/* A choice whose claim had not reached the device lands on the form menu
 	 * with its device-reading conditions still loading. Once the device holds
 	 * the claimed case, the menu decides, and continues on its own into the
-	 * one form it leaves, as the choice would have done had the case been
-	 * held already. Back, or another choice, ends the wait. */
+	 * form the worker chose before the case, where it shows, as the choice
+	 * would have done had the case been held already. Back, or another
+	 * choice, ends the wait. */
 	const [autoContinueCaseId, setAutoContinueCaseId] = useState<string | null>(
 		null,
 	);
@@ -1534,19 +1540,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			setAutoContinueCaseId(null);
 			return;
 		}
-		const decided = decideCaseLoadingForms(
-			displayedFormMenuCase,
-			inFlightCaseIds,
+		const read = readPreviewScreen(() =>
+			decideCaseLoadingForms(displayedFormMenuCase, inFlightCaseIds),
 		);
+		/* A condition that reads data the device lacks stops the screen, which
+		 * the form menu shows in its place; nothing opens. */
+		if (read.kind === "refused") {
+			setAutoContinueCaseId(null);
+			return;
+		}
+		const decided = read.value;
 		if (decided.some((entry) => entry.visibility === "pending")) return;
 		setAutoContinueCaseId(null);
-		const automaticForm =
-			retainedFormUuid ??
-			(caseFirstMenuHoldsEntry
-				? undefined
-				: previewAutomaticForm(decided, seededFormUuid));
-		if (automaticForm !== undefined)
-			openFormAfterClaimRef.current?.(automaticForm, displayedFormMenuCase);
+		const requestedForm =
+			retainedFormUuid ?? previewRequestedForm(decided, seededFormUuid);
+		if (requestedForm !== undefined)
+			openFormAfterClaimRef.current?.(requestedForm, displayedFormMenuCase);
 	});
 	/* Mirror the URL-backed or local selection into session so the sibling
 	 * breadcrumb names the same record the screen is actually showing. */
@@ -1901,6 +1910,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const openFormWithCases = async (
 		formUuid: Uuid,
 		cases: readonly PreviewCaseChoice[],
+		/** The worker chose the form from the menu listed after the case. */
+		chosenAfterCase = false,
 	) => {
 		if (!moduleUuid) return;
 		/* In a menu whose forms read the search the claim sits in the form's
@@ -1926,6 +1937,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setPreviewCaseTarget({
 			formUuid,
 			cases,
+			...(chosenAfterCase && { formChosenAfterCase: true }),
 			// What the worker typed into this list's filter, which the form's
 			// session holds as `stringquery`, as Android keeps a list's last
 			// search on its frame.
@@ -1944,8 +1956,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		});
 		navigate.openForm(moduleUuid, formUuid);
 	};
-	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) =>
-		openFormWithCases(formUuid, [previewCaseChoiceOf(row)]);
+	const openFormWithCase = (
+		formUuid: Uuid,
+		row: CaseRowWithCalculated,
+		chosenAfterCase = false,
+	) => openFormWithCases(formUuid, [previewCaseChoiceOf(row)], chosenAfterCase);
 	openFormAfterClaimRef.current = openFormWithCase;
 
 	const continueAfterMenuSelection = (
@@ -2044,8 +2059,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 
 	/* Proceed once a case is chosen (after the detail confirm, or directly
 	 * when there's no detail). Forms-first → straight into the tapped form;
-	 * case-first → the single case-loading form, or the form menu when there
-	 * are several. */
+	 * case-first → the menu's forms, however many it shows: a menu's command
+	 * names no entry, so CommCare lists the menu (`previewRequestedForm`). */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
 		const claimed = claimedAtResult(row);
 		if (claimed.length === 0) {
@@ -2077,22 +2092,30 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			]);
 			return;
 		}
-		const decided = decideCaseLoadingForms(row, claimed);
+		/* Core reads the menu's form conditions once the case is chosen
+		 * (`MenuLoader.addRelevantCommandEntries`); one that reads data the
+		 * device lacks fails the whole screen, which the form menu shows in its
+		 * place, and nothing opens. */
+		const read = readPreviewScreen(() => decideCaseLoadingForms(row, claimed));
+		if (read.kind === "refused") {
+			setFormMenuCase(row);
+			setAutoContinueCaseId(null);
+			focusNextFrame(() => formMenuBackRef.current);
+			return;
+		}
+		const decided = read.value;
 		const awaitingClaim =
 			claimed.length > 0 &&
 			decided.some((entry) => entry.visibility === "pending");
-		const automaticForm = awaitingClaim
+		const requestedForm = awaitingClaim
 			? undefined
-			: (retainedFormUuid ??
-				(caseFirstMenuHoldsEntry && seededFormUuid === undefined
-					? undefined
-					: previewAutomaticForm(decided, seededFormUuid)));
-		if (automaticForm !== undefined) {
-			void openFormWithCase(automaticForm, row);
+			: (retainedFormUuid ?? previewRequestedForm(decided, seededFormUuid));
+		if (requestedForm !== undefined) {
+			void openFormWithCase(requestedForm, row);
 		} else if (decided.length > 0) {
-			/* Several eligible forms, still-loading conditions, or none
-			 * eligible at all land on the menu: it renders placeholders and
-			 * the hidden-items reveal honestly. */
+			/* No form was requested, or the requested one does not show: the
+			 * menu lists its forms, with placeholders for still-loading
+			 * conditions and the hidden-items reveal. */
 			setFormMenuCase(row);
 			setAutoContinueCaseId(awaitingClaim ? row.case_id : null);
 			focusNextFrame(() => formMenuBackRef.current);
@@ -2187,10 +2210,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			return;
 		}
 		const decided = decideMultiCaseLoadingForms();
-		const automaticForm =
-			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
-		if (automaticForm !== undefined) {
-			await openFormWithCases(automaticForm, choices);
+		const requestedForm =
+			retainedFormUuid ?? previewRequestedForm(decided, seededFormUuid);
+		if (requestedForm !== undefined) {
+			await openFormWithCases(requestedForm, choices);
 			return;
 		}
 		if (decided.length > 0) {
@@ -2378,25 +2401,38 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						{CASE_SEARCH_BUTTON_LABEL}
 					</Button>
 				)}
-				{accessPhase === "authorized" && hasSearchInputs && (
-					<SearchInputForm
-						key={`${scopeEpoch}:${moduleUuid}`}
-						landmarkLabel={title ?? undefined}
-						scopeKey={moduleUuid}
-						searchInputs={config?.searchInputs ?? []}
-						filter={config?.filter}
-						caseType={caseType}
-						session={searchSession}
-						evaluateOnDevice={evaluateSearchScreenXPath}
-						environment={searchEnvironment}
-						value={searchRun.draft}
-						onChange={searchRun.changeDraft}
-						onSubmit={submitSearch}
-						submitLabel={CASE_SEARCH_BUTTON_LABEL}
-						localizeValidationMessage={localizeSearchValidationMessage}
-						platformRules={platformRules}
-					/>
-				)}
+				{accessPhase === "authorized" &&
+					hasSearchInputs &&
+					searchRun.refusal !== undefined && (
+						<PreviewDataRefusalPanel
+							surface="search"
+							reason={searchRun.refusal.reason}
+						/>
+					)}
+				{accessPhase === "authorized" &&
+					hasSearchInputs &&
+					searchRun.refusal === undefined && (
+						<SearchInputForm
+							key={`${scopeEpoch}:${moduleUuid}`}
+							landmarkLabel={title ?? undefined}
+							scopeKey={moduleUuid}
+							searchInputs={config?.searchInputs ?? []}
+							filter={config?.filter}
+							caseType={caseType}
+							session={searchSession}
+							evaluateOnDevice={evaluateSearchScreenXPath}
+							environment={searchEnvironment}
+							value={searchRun.draft}
+							onChange={searchRun.changeDraft}
+							onSubmit={submitSearch}
+							submitLabel={CASE_SEARCH_BUTTON_LABEL}
+							localizeValidationMessage={localizeSearchValidationMessage}
+							platformRules={platformRules}
+							renderRefusal={(reason) => (
+								<PreviewDataRefusalPanel surface="search" reason={reason} />
+							)}
+						/>
+					)}
 				{state.kind === "invalid-search" && (
 					<div
 						role="alert"
@@ -2532,6 +2568,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						description={message("signInCase")}
 						onSignIn={() => void signIn()}
 					/>
+				) : routeCaseState.kind === "data-refused" ? (
+					<PreviewDataRefusalPanel
+						surface="list"
+						reason={routeCaseState.reason}
+					/>
 				) : (
 					<CasesLoading />
 				)}
@@ -2543,10 +2584,13 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 *  now picks which form to run for it (Follow-up / Close / …). Mirrors
 	 *  CommCare resolving the shared case datum and THEN asking for the
 	 *  command. Each choice carries the chosen case into the form. */
-	const formMenuDecided =
+	const formMenuRead = readPreviewScreen(() =>
 		displayedFormMenuCase === null
 			? []
-			: decideCaseLoadingForms(displayedFormMenuCase, inFlightCaseIds);
+			: decideCaseLoadingForms(displayedFormMenuCase, inFlightCaseIds),
+	);
+	const formMenuDecided =
+		formMenuRead.kind === "read" ? formMenuRead.value : [];
 	const formMenuHidden = formMenuDecided
 		.filter((entry) => entry.visibility === "hidden")
 		.map((entry) => ({
@@ -2589,9 +2633,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			>
 				{displayedFormMenuCase.case_name || message("case")}
 			</h1>
-			<p className="mb-4 text-[13px] text-nova-text-muted">
-				{message("chooseCaseTask")}
-			</p>
+			{formMenuRead.kind === "refused" ? (
+				<PreviewDataRefusalPanel
+					surface="menu"
+					reason={formMenuRead.refusal.reason}
+				/>
+			) : (
+				<p className="mb-4 text-[13px] text-nova-text-muted">
+					{message("chooseCaseTask")}
+				</p>
+			)}
 			<div className="grid gap-2">
 				{formMenuDecided.map(({ form, visibility }) => {
 					const localizedFormName =
@@ -2613,7 +2664,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							type="button"
 							variant="outline"
 							onClick={() =>
-								void openFormWithCase(form.uuid, displayedFormMenuCase)
+								void openFormWithCase(form.uuid, displayedFormMenuCase, true)
 							}
 							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
 						>
@@ -2642,9 +2693,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			<HiddenItemsReveal items={formMenuHidden} />
 		</div>
 	);
-	const multiFormMenuDecided = multiFormMenuOpen
-		? decideMultiCaseLoadingForms()
-		: [];
+	const multiFormMenuRead = readPreviewScreen(() =>
+		multiFormMenuOpen ? decideMultiCaseLoadingForms() : [],
+	);
+	const multiFormMenuDecided =
+		multiFormMenuRead.kind === "read" ? multiFormMenuRead.value : [];
 	const multiFormMenuHidden = multiFormMenuDecided
 		.filter((entry) => entry.visibility === "hidden")
 		.map((entry) => ({
@@ -2681,9 +2734,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					{ count: selectedChoices.length },
 				)}
 			</h1>
-			<p className="mb-4 text-[13px] text-nova-text-muted">
-				{message("chooseCasesForm")}
-			</p>
+			{multiFormMenuRead.kind === "refused" ? (
+				<PreviewDataRefusalPanel
+					surface="menu"
+					reason={multiFormMenuRead.refusal.reason}
+				/>
+			) : (
+				<p className="mb-4 text-[13px] text-nova-text-muted">
+					{message("chooseCasesForm")}
+				</p>
+			)}
 			<div className="grid gap-2">
 				{multiFormMenuDecided.map(({ form, visibility }) => {
 					const localizedFormName =
@@ -2704,7 +2764,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							key={form.uuid}
 							type="button"
 							variant="outline"
-							onClick={() => void openFormWithCases(form.uuid, selectedChoices)}
+							onClick={() =>
+								void openFormWithCases(form.uuid, selectedChoices, true)
+							}
 							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
 						>
 							<Icon
@@ -2990,6 +3052,26 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		displayedFormMenuCase !== null ||
 		displayedOpenCase !== null ||
 		routeCaseId !== undefined;
+	/* A read Core makes as this screen loads that refuses data the device
+	 * lacks stops it on a phone: the Search action's condition stops the list,
+	 * and a Search screen's starting or hidden value stops the search, which a
+	 * menu that opens on its search or its results meets at once. A list that
+	 * opens first keeps its cases, and its Search pane shows the refusal. */
+	const screenRefusal =
+		searchActionRead.kind === "refused"
+			? { surface: "list" as const, refusal: searchActionRead.refusal }
+			: searchRun.refusal !== undefined && step !== "browse"
+				? { surface: "search" as const, refusal: searchRun.refusal }
+				: undefined;
+	if (screenRefusal !== undefined)
+		return (
+			<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
+				<PreviewDataRefusalPanel
+					surface={screenRefusal.surface}
+					reason={screenRefusal.refusal.reason}
+				/>
+			</ContentFrame>
+		);
 	return (
 		<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
 			{selectsForParentRequest && (
@@ -3181,6 +3263,12 @@ function ResultsBody({
 				deviceCasesFailed={deviceCasesFailed}
 			/>
 		);
+	}
+	/* The list's filter, a column, its order or its search reads data the
+	 * worker's device lacks (a place key of a worker assigned nowhere): the
+	 * list stops on a phone, so Preview shows why in its place. */
+	if (state.kind === "data-refused") {
+		return <PreviewDataRefusalPanel surface="list" reason={state.reason} />;
 	}
 	if (state.kind === "invalid-search") {
 		return searchErrorShown ? (

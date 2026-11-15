@@ -1032,8 +1032,8 @@ describe("readCases", () => {
 		const regionUuid = testUuid("00000000-0000-0000-0000-000000000b01");
 		const bindings = {
 			sessionContext: new Map([["userid", OWNER_A]]),
-			sessionUser: new Map<string, string>(),
-			sessionUserFallback: "",
+			sessionUser: new Map([["commcare_location_id", "north"]]),
+			sessionUserAbsent: { readsBlank: new Set(["commcare_project"]) },
 		};
 
 		const result = await readCases(store, {
@@ -1045,10 +1045,15 @@ describe("readCases", () => {
 			bindings,
 			caseListConfig: resolveCaseListConfig({
 				columns: [
-					calculatedColumn(regionUuid, "Region", term(sessionUser("region")), {
-						visibleInList: true,
-						sort: { direction: "asc", priority: 0 },
-					}),
+					calculatedColumn(
+						regionUuid,
+						"Place",
+						term(sessionUser("commcare_location_id")),
+						{
+							visibleInList: true,
+							sort: { direction: "asc", priority: 0 },
+						},
+					),
 				],
 				searchInputs: [],
 				filter: eq(prop("patient", "owner_id"), sessionContext("userid")),
@@ -1058,7 +1063,35 @@ describe("readCases", () => {
 
 		expect(result).toMatchObject({ kind: "rows", totalCount: 1 });
 		if (result.kind !== "rows") return;
-		expect(result.rows[0]?.calculated[regionUuid]).toBe("");
+		expect(result.rows[0]?.calculated[regionUuid]).toBe("north");
+
+		// A worker assigned nowhere holds no place key, so the list's read of
+		// it is Core's refusal, never a blank column.
+		await expect(
+			readCases(store, {
+				tileGrouping: "grouped",
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
+				bindings: { ...bindings, sessionUser: new Map() },
+				caseListConfig: resolveCaseListConfig({
+					columns: [
+						calculatedColumn(
+							regionUuid,
+							"Place",
+							term(sessionUser("commcare_location_id")),
+							{ visibleInList: true },
+						),
+					],
+					searchInputs: [],
+				}),
+				page: { offset: 0, limit: 50 },
+			}),
+		).rejects.toMatchObject({
+			name: "AbsentWorkerFieldError",
+			field: "commcare_location_id",
+		});
 	});
 });
 
@@ -2123,7 +2156,7 @@ describe("readCaseData", () => {
 		expect(Number(result.row.calculated[calculatedUuid])).toBe(30);
 	});
 
-	it("projects a session-backed Details value with the device blank fallback", async () => {
+	it("projects a session-backed Details value every device holds as blank before Preview knows it", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -2148,8 +2181,8 @@ describe("readCaseData", () => {
 				columns: [
 					calculatedColumn(
 						calculatedUuid,
-						"Region",
-						term(sessionUser("region")),
+						"Project space",
+						term(sessionUser("commcare_project")),
 						{ visibleInDetail: true },
 					),
 				],
@@ -2158,10 +2191,12 @@ describe("readCaseData", () => {
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			bindings: {
 				sessionUser: new Map(),
-				sessionUserFallback: "",
+				sessionUserAbsent: { readsBlank: new Set(["commcare_project"]) },
 			},
 		});
 
+		// Every device holds its project space; before a publish Preview knows
+		// none, so the read is blank rather than refused.
 		expect(result.kind).toBe("row");
 		if (result.kind !== "row") return;
 		expect(result.row.calculated[calculatedUuid]).toBe("");

@@ -80,6 +80,11 @@ export function compilerNavigationFixture(scenario: NavigationScenario) {
 	}
 	return buildDoc({
 		appName: "Patients & visits <Café>",
+		...(scenario === "conditions"
+			? { workerProperties: ["role"] }
+			: scenario === "owner"
+				? { workerProperties: ["excluded_owners"] }
+				: {}),
 		modules: [
 			{
 				name: "Patients",

@@ -1,5 +1,11 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	bindDeclaredWorkerReads,
+	buildDoc,
+	caseListConfig,
+	declareWorkerProperties,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	type BlueprintDoc,
@@ -321,6 +327,7 @@ export function searchEmissionFixture(
 		];
 	}
 	if (scenario === "remote-defaults") {
+		declareWorkerProperties(doc, ["excluded_owners", "default_name"]);
 		module.caseSearchConfig = {
 			searchScreenTitle: "Search patients",
 			excludedOwnerIds: term(sessionUser("excluded_owners")),
@@ -340,6 +347,8 @@ export function searchEmissionFixture(
 			default: term(sessionUser("default_name")),
 		};
 		config.searchInputs = [primary, echo];
+		// Each declared field is read by its identity, as the gate asks.
+		bindDeclaredWorkerReads(doc);
 	}
 	return doc;
 }

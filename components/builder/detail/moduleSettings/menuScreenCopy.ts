@@ -15,7 +15,7 @@ import {
 	menuTileScreenOf,
 	moduleHasCaseListMenuItem,
 	moduleShowsFormsInMenuAbove,
-	screenCaseFirstBlocker,
+	screenShapeBlocker,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -71,7 +71,7 @@ export function menuScreenLines(
 	)
 		added.push("Its submenus show on the app's first menu too.");
 	/* The screen above lists forms first because of a form of this menu. */
-	const blocker = screenCaseFirstBlocker(doc, menuScreenOf(doc, moduleUuid));
+	const blocker = screenShapeBlocker(doc, menuScreenOf(doc, moduleUuid));
 	if (
 		blocker?.reason === "opens-without-a-case" &&
 		blocker.moduleUuid === moduleUuid &&

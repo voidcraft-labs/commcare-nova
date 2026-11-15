@@ -496,3 +496,34 @@ export function requireClaimCaseIds(caseIds: readonly string[]): void {
 		throw new ClaimCasesInputError();
 	}
 }
+
+/**
+ * Thrown while a read or a submission compiles a read of the worker's session
+ * data by name (`session-user`) whose key the worker's device does not hold:
+ * the place keys of a worker assigned nowhere, which CommCare HQ writes only
+ * for a worker assigned somewhere (`models.py::get_user_session_data`). Core
+ * refuses such a read (`XPathNodeset.unpack` on a path
+ * `DataInstance.hasTemplatePath` misses), so the screen or the form that
+ * reads it stops on a device. The caller maps it to that refusal; it is the
+ * worker's data, never a fault.
+ */
+export class AbsentWorkerFieldError extends Error {
+	/** Stable error name for log filters and instanceof-style checks. */
+	readonly name = "AbsentWorkerFieldError";
+	/** The worker-data key the device lacks. */
+	readonly field: string;
+
+	constructor(field: string) {
+		super(
+			[
+				"A read of the worker's session data names a key the worker's device does not hold.",
+				``,
+				`${INDENT}field: '${field}'`,
+				``,
+				"CommCare refuses a read of a key the session lacks, so the screen or form",
+				"that reads it stops on a device.",
+			].join("\n"),
+		);
+		this.field = field;
+	}
+}

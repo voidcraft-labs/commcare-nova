@@ -68,6 +68,7 @@ import {
 	readingCaseMetadataType,
 } from "@/lib/domain/expression/temporalType";
 import type { RelationPath, Term } from "@/lib/domain/expression/types";
+import { AbsentWorkerFieldError } from "../errors";
 import { compileLiteral } from "./compileLiteral";
 import {
 	compileLookupColumnTerm,
@@ -144,12 +145,15 @@ export interface TermBindings {
 	userPropertySlugs?: ReadonlyMap<string, string>;
 
 	/**
-	 * Device-compatible fallback for an absent open-namespace user-data field.
-	 * Preview supplies the empty string because CommCare exposes a missing
-	 * worker-data field as blank; compiler callers that omit this keep the
+	 * What a read of a `sessionUser` key the bindings lack means, for a caller
+	 * whose `sessionUser` is a device's whole worker data. A key in
+	 * `readsBlank` is one every device holds whose value the caller does not
+	 * know yet, and reads `''`; any other absent key is one the device lacks,
+	 * which Core refuses (`XPathNodeset.unpack`), so the compile throws
+	 * `AbsentWorkerFieldError`. Compiler callers that omit this keep the
 	 * fail-closed missing-binding error.
 	 */
-	sessionUserFallback?: TermBindingValue;
+	sessionUserAbsent?: { readonly readsBlank: ReadonlySet<string> };
 
 	/**
 	 * Closed-namespace context fields (`userid` / `username` /
@@ -383,7 +387,7 @@ export function compileTerm(
 				term.field,
 				ctx.bindings.sessionUser,
 				`session user field '${term.field}'`,
-				ctx.bindings.sessionUserFallback,
+				absentSessionUserValue(term.field, ctx.bindings),
 			);
 		case "session-user-property": {
 			const slug = ctx.bindings.userPropertySlugs?.get(term.userPropertyUuid);
@@ -403,7 +407,7 @@ export function compileTerm(
 				slug,
 				ctx.bindings.sessionUser,
 				`session user field '${slug}'`,
-				ctx.bindings.sessionUserFallback,
+				absentSessionUserValue(slug, ctx.bindings),
 			);
 		}
 		case "session-context":
@@ -1385,6 +1389,24 @@ function lookupDataType(
  * Missing bindings throw rather than fall back to `NULL` —
  * silently emitting `NULL` would flip the predicate's truth value.
  */
+/**
+ * The value a read of a worker-data key the bindings lack takes: `undefined`
+ * where the caller states nothing about absent keys (the missing-binding
+ * invariant then holds), `''` for a key every device holds that the caller
+ * does not know yet, and otherwise Core's refusal, thrown. Only consulted
+ * for a key the bindings lack.
+ */
+function absentSessionUserValue(
+	field: string,
+	bindings: TermBindings,
+): RuntimeBindingValue | undefined {
+	const absent = bindings.sessionUserAbsent;
+	if (absent === undefined || bindings.sessionUser?.has(field) === true)
+		return undefined;
+	if (absent.readsBlank.has(field)) return "";
+	throw new AbsentWorkerFieldError(field);
+}
+
 export function compileBoundRef<Key extends string>(
 	key: Key,
 	bindings: ReadonlyMap<Key, RuntimeBindingValue> | undefined,
@@ -1453,7 +1475,7 @@ export function boundComparandValue(
 			return bound(
 				term.field,
 				ctx.bindings.sessionUser,
-				ctx.bindings.sessionUserFallback,
+				absentSessionUserValue(term.field, ctx.bindings),
 			);
 		case "session-user-property": {
 			if (term.source === "worker-record") return undefined;
@@ -1462,7 +1484,7 @@ export function boundComparandValue(
 			return bound(
 				slug,
 				ctx.bindings.sessionUser,
-				ctx.bindings.sessionUserFallback,
+				absentSessionUserValue(slug, ctx.bindings),
 			);
 		}
 		case "session-context":

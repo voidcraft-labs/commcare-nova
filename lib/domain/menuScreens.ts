@@ -13,12 +13,18 @@
 // Whether a screen asks for a case before a form is a fact of the screen:
 // Core asks one question of every entry the screen lists
 // (`CommCareSession.getDataNeededByAllEntries`), so `screenChoosesCaseFirst`
-// is the answer wherever a case must be chosen before a form is listed.
+// is the answer wherever a case must be chosen before a form is listed. It
+// reads whether a menu is emitted advanced, which reads the whole document,
+// so it takes a `BlueprintDoc` where the rest of this file takes a
+// `MenuScreenSource`.
 
+import { advancedLoadTags, menuEmittedAdvanced } from "./advancedEntryDatums";
 import type { BlueprintDoc } from "./blueprint";
 import {
+	type DatumEntry,
 	type EntrySelectionSource,
 	entrySelections,
+	rootSelectionAlignment,
 } from "./entryDatumSupplies";
 import { CASE_LOADING_FORM_TYPES } from "./forms";
 import { menuFormUuidsOf, type PreparedMenuForm } from "./menuForms";
@@ -192,11 +198,15 @@ export interface ScreenCaseFirstBlocker {
 		| "first-menu"
 		| "bare-case-list"
 		| "opens-without-a-case"
-		| "chooses-another-case";
+		| "chooses-another-case"
+		| "form-chooses-apart"
+		| "case-list-entry-apart";
 	/** The contributor that keeps the screen forms first; present for
-	 *  `opens-without-a-case` and `chooses-another-case`. */
+	 *  `opens-without-a-case`, `chooses-another-case`, `form-chooses-apart`
+	 *  and `case-list-entry-apart`. */
 	readonly moduleUuid?: Uuid;
-	/** Its first form that opens without a case; present for `opens-without-a-case`. */
+	/** Its first form that opens without a case, for `opens-without-a-case`;
+	 *  its form that asks for another datum first, for `form-chooses-apart`. */
 	readonly formUuid?: Uuid;
 }
 
@@ -210,38 +220,115 @@ function formTypeOf(
 		: doc.forms[formUuid]?.type;
 }
 
-/** The key of the first case the module's entries choose: its first menu
- *  form's entry, else its browse entry. A module's case-loading menu forms
- *  and its browse entry all start with that one selection. */
-function firstSelectionKey(
-	doc: MenuScreenSource,
-	moduleUuid: Uuid,
-	prepared: PreparedMenuForm | undefined,
-): string | undefined {
-	const firstForm = menuFormUuidsOf(doc, moduleUuid, prepared)[0];
-	const entry =
-		firstForm !== undefined && doc.forms[firstForm] !== undefined
-			? ({ kind: "form", module: moduleUuid, form: firstForm } as const)
-			: ({ kind: "browse", module: moduleUuid } as const);
-	return entrySelections(doc, entry)[0]?.key;
+/**
+ * The key of the first datum an advanced load asks for: its datum is
+ * `case_id_<tag>` (`models/form_actions.py::LoadUpdateAction.case_session_var`),
+ * so two loads, or a load and an advanced case list entry, ask for one datum
+ * exactly where their tags are one.
+ */
+function advancedDatumKey(tag: string): string {
+	return JSON.stringify(["advanced-datum", tag]);
 }
 
 /**
- * What keeps the screen forms first, or undefined where nothing does. The
- * first match of: the first menu (Core asks for a command while none is
- * chosen); a bare case list, which Core opens on its list; the first
- * contributor holding a menu form that opens without a case; the first
- * contributor other than the host whose first case differs from the host's.
+ * The key of the first datum a form's entry asks for, equal for two entries
+ * exactly where Core reads one datum id first
+ * (`CommCareSession.getDataNeededByAllEntries` compares `getDataId`), or
+ * undefined where the form asks for no case.
+ *
+ * A first selection aligned with the root menu's takes the id of the root's
+ * datum it matches (`formLinkProjection.ts::alignWithRootMenu`), so it reads
+ * the root entry's own key: its first form's, read the same way, or its
+ * basic case list's where it has no form (HQ aligns with nothing there and
+ * the child keeps its basic id). Otherwise a basic form starts with its
+ * first selection (`entrySelections`' key), and a form of a menu emitted
+ * advanced with its first load's datum, `case_id_<tag>`
+ * (`advancedEntryDatums.ts::advancedLoadTags`): a held tag as held, or
+ * `load_<type><n>` stepped past a name the form already holds. The one
+ * spelling this does not separate is an unaligned datum HQ renames by its
+ * case type because the root's entry holds the same id, which no two entries
+ * of one screen tell apart.
  */
-export function screenCaseFirstBlocker(
+function formFirstDatumKey(
+	doc: BlueprintDoc,
+	entry: Extract<DatumEntry, { kind: "form" }>,
+	visiting: ReadonlySet<Uuid> = new Set(),
+): string | undefined {
+	if (visiting.has(entry.module)) return undefined;
+	const [first] = entrySelections(doc, entry);
+	if (first === undefined) return undefined;
+	const alignment = rootSelectionAlignment(doc, entry);
+	const match = alignment.matches.find(
+		(pair) => pair.targetModuleUuid === first.module,
+	);
+	const parent = alignment.parentEntry;
+	if (match !== undefined && parent !== undefined) {
+		const [parentFirst] = entrySelections(doc, parent);
+		if (parentFirst?.module !== match.sourceModuleUuid) return first.key;
+		return parent.kind === "form"
+			? formFirstDatumKey(doc, parent, new Set([...visiting, entry.module]))
+			: parentFirst.key;
+	}
+	if (!menuEmittedAdvanced(doc, entry.module)) return first.key;
+	const [tag] = advancedLoadTags(doc, entry.form);
+	return tag === undefined ? first.key : advancedDatumKey(tag);
+}
+
+/**
+ * The key of the first datum the module's case list entry asks for, or
+ * undefined where it has none. On a basic menu the entry starts with the
+ * selection the menu's case-loading forms start with
+ * (`formLinkProjection.ts::caseListSessionDatums`). On a menu emitted
+ * advanced it is HQ's one datum `case_id_case_<type>`
+ * (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`), with no
+ * alignment: the datum of a load tagged `case_<type>`, so a form whose first
+ * load holds that tag starts with it too, and one tagged otherwise does not.
+ */
+function caseListEntryKey(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): string | undefined {
+	const mod = doc.modules[moduleUuid];
+	if (mod === undefined || !moduleHasCaseListMenuItem(mod)) return undefined;
+	if (menuEmittedAdvanced(doc, moduleUuid))
+		return advancedDatumKey(`case_${mod.caseType ?? ""}`);
+	return entrySelections(doc, { kind: "browse", module: moduleUuid })[0]?.key;
+}
+
+/** The module's menu forms on the screen, each with the key of the first
+ *  datum its entry asks for. */
+function menuFormKeys(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	prepared: PreparedMenuForm | undefined,
+): { readonly formUuid: Uuid; readonly key: string | undefined }[] {
+	return menuFormUuidsOf(doc, moduleUuid, prepared)
+		.filter((formUuid) => doc.forms[formUuid] !== undefined)
+		.map((formUuid) => ({
+			formUuid,
+			key: formFirstDatumKey(doc, {
+				kind: "form",
+				module: moduleUuid,
+				form: formUuid,
+			}),
+		}));
+}
+
+/**
+ * What keeps the screen forms first that the screen's shape alone says, or
+ * undefined where nothing does: the first menu (Core asks for a command
+ * while none is chosen); a bare case list, which Core opens on its list; the
+ * first contributor holding a menu form that opens without a case. It reads
+ * no case a form chooses, so it takes the narrower source.
+ */
+export function screenShapeBlocker(
 	doc: MenuScreenSource,
 	screen: MenuScreen,
 	prepared?: PreparedMenuForm,
 ): ScreenCaseFirstBlocker | undefined {
 	if (screen.kind === "first-menu") return { reason: "first-menu" };
 	if (screenIsBareCaseList(doc, screen)) return { reason: "bare-case-list" };
-	const contributors = menuScreenContributors(doc, screen);
-	for (const moduleUuid of contributors) {
+	for (const moduleUuid of menuScreenContributors(doc, screen)) {
 		// A form of a module with no case type loads no case, whatever its type.
 		const hasCaseType = doc.modules[moduleUuid]?.caseType !== undefined;
 		const formUuid = menuFormUuidsOf(doc, moduleUuid, prepared).find((uuid) => {
@@ -253,12 +340,51 @@ export function screenCaseFirstBlocker(
 		if (formUuid !== undefined)
 			return { reason: "opens-without-a-case", moduleUuid, formUuid };
 	}
-	const [host, ...others] = contributors;
+	return undefined;
+}
+
+/**
+ * What keeps the screen forms first, or undefined where nothing does: the
+ * first match of `screenShapeBlocker`; else, every entry on the screen
+ * compared with the first datum the host's first entry asks for (its first
+ * form's, else its case list entry's), the first that asks for another: a
+ * contributor other than the host whose first entry does
+ * (`chooses-another-case`), another form of a contributor whose first form
+ * agrees (`form-chooses-apart`, a menu emitted advanced whose forms load
+ * under different tags), then a case list entry (`case-list-entry-apart`, an
+ * advanced menu's entry beside forms whose first load is tagged otherwise).
+ * Core asks for a case first only where every entry needs one datum first
+ * (`CommCareSession.getDataNeededByAllEntries`).
+ */
+export function screenCaseFirstBlocker(
+	doc: BlueprintDoc,
+	screen: MenuScreen,
+	prepared?: PreparedMenuForm,
+): ScreenCaseFirstBlocker | undefined {
+	const shape = screenShapeBlocker(doc, screen, prepared);
+	if (shape !== undefined) return shape;
+	const contributors = menuScreenContributors(doc, screen);
+	const [host] = contributors;
 	if (host === undefined) return undefined;
-	const hostKey = firstSelectionKey(doc, host, prepared);
-	for (const moduleUuid of others) {
-		if (firstSelectionKey(doc, moduleUuid, prepared) !== hostKey)
+	const hostKey =
+		menuFormKeys(doc, host, prepared)[0]?.key ?? caseListEntryKey(doc, host);
+	for (const moduleUuid of contributors) {
+		const forms = menuFormKeys(doc, moduleUuid, prepared);
+		const firstKey = forms[0]?.key ?? caseListEntryKey(doc, moduleUuid);
+		if (moduleUuid !== host && firstKey !== hostKey)
 			return { reason: "chooses-another-case", moduleUuid };
+		const apart = forms.find((form) => form.key !== hostKey);
+		if (apart !== undefined)
+			return {
+				reason: "form-chooses-apart",
+				moduleUuid,
+				formUuid: apart.formUuid,
+			};
+	}
+	for (const moduleUuid of contributors) {
+		const key = caseListEntryKey(doc, moduleUuid);
+		if (key !== undefined && key !== hostKey)
+			return { reason: "case-list-entry-apart", moduleUuid };
 	}
 	return undefined;
 }
@@ -272,7 +398,7 @@ export function screenCaseFirstBlocker(
  * is `menuForms.ts::moduleIsCaseFirst` of that module.
  */
 export function screenChoosesCaseFirst(
-	doc: MenuScreenSource,
+	doc: BlueprintDoc,
 	screen: MenuScreen,
 	prepared?: PreparedMenuForm,
 ): boolean {

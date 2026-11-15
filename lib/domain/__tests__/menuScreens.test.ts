@@ -359,6 +359,26 @@ describe("a submenu that shows its forms in a parent that keeps its screen", () 
 		});
 	});
 
+	it("turns the screen forms first where an advanced menu's case list entry asks for its own datum", () => {
+		// A menu emitted advanced (its kind held by a publish) lists its case
+		// list under HQ's `case_id_case_<type>`, which the forms beside it do
+		// not start with, so Core finds no one datum every entry needs first
+		// (`CommCareSession.getDataNeededByAllEntries`).
+		const basic = build({ forms: [followup("e-visit")] });
+		basic.modules[patients].caseListMenuItem = {};
+		expect(screenChoosesCaseFirst(basic, screenOf(patients))).toBe(true);
+		// The answer reads the menu's kind once per document, so the advanced
+		// reading is a document of its own.
+		const own = build({ forms: [followup("e-visit")] });
+		own.modules[patients].heldKind = "advanced";
+		own.modules[patients].caseListMenuItem = {};
+		expect(screenChoosesCaseFirst(own, screenOf(patients))).toBe(false);
+		expect(screenCaseFirstBlocker(own, screenOf(patients))).toEqual({
+			reason: "case-list-entry-apart",
+			moduleUuid: patients,
+		});
+	});
+
 	it("asks for the case first on a screen of case lists alone, and not on one of menus alone", () => {
 		// Core asks for a case first wherever every entry the screen lists needs
 		// the same case, case lists included; a screen that lists no entry asks
@@ -475,5 +495,108 @@ describe("a bare case list", () => {
 		expect(screenChoosesCaseFirst(doc, screen)).toBe(
 			moduleIsCaseFirst(doc, testUuid("browse")),
 		);
+	});
+});
+
+describe("a menu emitted advanced, by the datum each entry asks for first", () => {
+	// Each load of an advanced form gives its entry `case_id_<tag>`
+	// (`LoadUpdateAction.case_session_var`), and the case list entry asks for
+	// `case_id_case_<type>` (`EntriesHelper.entry_for_module`). Core asks for
+	// a case first only where every entry asks for one datum first
+	// (`CommCareSession.getDataNeededByAllEntries` compares `getDataId`).
+	const patients = testUuid("patients");
+	const check = testUuid("check");
+	const review = testUuid("review");
+	const build = (options: {
+		readonly caseListMenuItem?: true;
+		readonly heldTags?: { readonly check?: string; readonly review?: string };
+		readonly reviewField?: string;
+	}): BlueprintDoc => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					uuid: "patients",
+					name: "Patients",
+					caseType: "patient",
+					...(options.caseListMenuItem && { caseListMenuItem: {} }),
+					forms: [
+						followup("check", "Check patient"),
+						{
+							...followup("review", "Review patient"),
+							fields: [
+								{
+									kind: "text",
+									id: options.reviewField ?? "note",
+									label: "Note",
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.modules[patients].heldKind = "advanced";
+		for (const [formUuid, tag] of [
+			[check, options.heldTags?.check],
+			[review, options.heldTags?.review],
+		] as const) {
+			const own = doc.forms[formUuid]?.caseOperations?.[0];
+			if (tag !== undefined && own !== undefined)
+				own.placement = { kind: "advanced", tag };
+		}
+		return doc;
+	};
+
+	it("asks for the case first where every form loads under one tag", () => {
+		const doc = build({});
+		expect(screenCaseFirstBlocker(doc, screenOf(patients))).toBeUndefined();
+		expect(screenChoosesCaseFirst(doc, screenOf(patients))).toBe(true);
+	});
+
+	it("lists forms first where a form's first load holds another tag", () => {
+		// `load_patient0` against a published app's `patient`.
+		const doc = build({ heldTags: { review: "patient" } });
+		expect(screenCaseFirstBlocker(doc, screenOf(patients))).toEqual({
+			reason: "form-chooses-apart",
+			moduleUuid: patients,
+			formUuid: review,
+		});
+		expect(screenChoosesCaseFirst(doc, screenOf(patients))).toBe(false);
+	});
+
+	it("lists forms first where a question takes a form's derived tag's block", () => {
+		// A root question named `case_load_patient0` steps that form's tag to
+		// `load_patient1` (`advancedTags.ts::allocateAdvancedTags`).
+		const doc = build({ reviewField: "case_load_patient0" });
+		expect(screenCaseFirstBlocker(doc, screenOf(patients))).toEqual({
+			reason: "form-chooses-apart",
+			moduleUuid: patients,
+			formUuid: review,
+		});
+	});
+
+	it("lists forms first where the case list entry asks for its own datum", () => {
+		const doc = build({ caseListMenuItem: true });
+		expect(screenCaseFirstBlocker(doc, screenOf(patients))).toEqual({
+			reason: "case-list-entry-apart",
+			moduleUuid: patients,
+		});
+	});
+
+	it("asks for the case first where every form loads under the entry's own tag", () => {
+		// A load tagged `case_patient` asks for `case_id_case_patient`, the
+		// entry's datum.
+		const doc = build({
+			caseListMenuItem: true,
+			heldTags: { check: "case_patient", review: "case_patient" },
+		});
+		expect(screenCaseFirstBlocker(doc, screenOf(patients))).toBeUndefined();
+		expect(screenChoosesCaseFirst(doc, screenOf(patients))).toBe(true);
 	});
 });

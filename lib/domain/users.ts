@@ -239,7 +239,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_location_id",
 		label: "Primary location",
 		description:
-			"The worker's primary location. It stays empty until this app has an organization structure and the persona is assigned somewhere in it.",
+			"The worker's primary location. It stays empty until this app has an organization structure and the persona is assigned somewhere in it. A worker assigned nowhere has none in the session: a menu, a case list, a search or a form that reads it there doesn't open on a phone, and a form that reads it from the worker's case reads it blank.",
 		availability: "needs-organization",
 		readByRuntime: false,
 	},
@@ -247,7 +247,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_location_ids",
 		label: "All locations",
 		description:
-			"Every location the worker is assigned to, separated by spaces. It stays empty until this app has an organization structure.",
+			"Every location the worker is assigned to, separated by spaces. It stays empty until this app has an organization structure. A worker assigned nowhere has none in the session: a menu, a case list, a search or a form that reads it there doesn't open on a phone, and a form that reads it from the worker's case reads it blank.",
 		availability: "needs-organization",
 		readByRuntime: true,
 	},
@@ -255,7 +255,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_primary_case_sharing_id",
 		label: "Primary case-sharing group",
 		description:
-			"The same id as the primary location. CommCare repeats it under this name. It stays empty until this app has an organization structure.",
+			"The same id as the primary location. CommCare repeats it under this name. It stays empty until this app has an organization structure. A worker assigned nowhere has none in the session: a menu, a case list, a search or a form that reads it there doesn't open on a phone, and a form that reads it from the worker's case reads it blank.",
 		availability: "needs-organization",
 		readByRuntime: false,
 	},

@@ -109,8 +109,8 @@ export function moduleDisplayVisibility(
 
 /**
  * Form conditions gate the case-list screen's post-selection form menu
- * (including the single-form auto-continue) and the module screen's
- * forms-first list. A read of the chosen case walks the device's cases from
+ * (including whether a form chosen before the case opens) and the module
+ * screen's forms-first list. A read of the chosen case walks the device's cases from
  * `session/data/<datum>`, which holds `selectedCase`, and a read of a case
  * chosen in an earlier menu walks them from that menu's datum, which the
  * menu's session holds beside it; the forms-first flow chooses none (the

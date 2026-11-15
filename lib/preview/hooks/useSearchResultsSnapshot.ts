@@ -28,6 +28,7 @@ import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
 import { loadSearchResultsSnapshotAction } from "@/lib/preview/engine/caseDataBinding";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { ParentCaseSelection } from "@/lib/preview/engine/caseDataBindingTypes";
+import { previewDataRefusalSubject } from "@/lib/preview/engine/dataRefusal";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import type {
 	LoadSearchResultsSnapshotResult,
@@ -39,6 +40,7 @@ import {
 	usePreviewPersonaUuid,
 } from "@/lib/session/hooks";
 import type { PreviewSearchState } from "@/lib/session/types";
+import { dataRefusalCopy } from "../runtimeMessages";
 import {
 	type SubmissionValuesState,
 	useCaseListStepSession,
@@ -77,6 +79,16 @@ export function searchResultsLoadState(
 				kind: "error",
 				message: "You're signed out, so what the search found can't load.",
 			};
+		/* The search read data the worker's device lacks: a phone stops it,
+		 * and trying again finds the same. */
+		case "data-refused": {
+			const copy = dataRefusalCopy(
+				undefined,
+				"search",
+				previewDataRefusalSubject(loaded.reason, undefined),
+			);
+			return { kind: "invalid-search", message: `${copy.title}. ${copy.body}` };
+		}
 		default:
 			return { kind: "error", message: loaded.message };
 	}

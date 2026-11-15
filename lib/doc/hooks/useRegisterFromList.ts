@@ -65,6 +65,12 @@ export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
 	const forms = useBlueprintDoc((state) => state.forms);
 	const formOrder = useBlueprintDoc((state) => state.formOrder);
 	const caseTypes = useBlueprintDoc((state) => state.caseTypes);
+	/* Whether the host's screen chooses a case first reads whether a menu is
+	 * emitted advanced, which reads the whole document, so it is its own
+	 * boolean selection. */
+	const caseFirst = useBlueprintDoc((state) =>
+		screenChoosesCaseFirst(state, menuScreenOf(state, hostUuid)),
+	);
 	return useMemo(() => {
 		const doc = { modules, moduleOrder, forms, formOrder, caseTypes };
 		const host = doc.modules[hostUuid];
@@ -86,7 +92,7 @@ export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
 					: doc.forms[afterEmptySearch]?.name,
 			choices: alwaysOfferedRegistrationChoices(doc, hostUuid),
 			bare: menuFormUuidsOf(doc, hostUuid).length === 0,
-			caseFirst: screenChoosesCaseFirst(doc, menuScreenOf(doc, hostUuid)),
+			caseFirst,
 			ownAfterSubmit:
 				returnTo?.kind === "own" &&
 				stored !== undefined &&
@@ -103,7 +109,7 @@ export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
 						}
 					: undefined,
 		};
-	}, [modules, moduleOrder, forms, formOrder, caseTypes, hostUuid]);
+	}, [modules, moduleOrder, forms, formOrder, caseTypes, caseFirst, hostUuid]);
 }
 
 /** The case lists that always offer the form, in module order, each with its

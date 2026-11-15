@@ -8,7 +8,7 @@ import {
 	eq,
 	formField,
 	literal,
-	sessionUser,
+	sessionContext,
 	term,
 } from "@/lib/domain/expression";
 
@@ -173,7 +173,7 @@ describe("formSchema — this-form and otherwise", () => {
 	const menuUuid = testUuid("mod-1");
 	const destination = {
 		uuid: testUuid("lnk-1"),
-		condition: eq(term(sessionUser("username")), term(literal("a"))),
+		condition: eq(term(sessionContext("username")), term(literal("a"))),
 		target: { type: "this-form" as const },
 	};
 	const datum = (value: string) => ({
@@ -312,7 +312,7 @@ describe("formSchema — displayCondition", () => {
 	};
 
 	it("stores a typed expression carrier", () => {
-		const displayCondition = eq(sessionUser("username"), literal("alice"));
+		const displayCondition = eq(sessionContext("username"), literal("alice"));
 		const parsed = formSchema.safeParse({ ...baseForm, displayCondition });
 		expect(parsed.success).toBe(true);
 		if (parsed.success)

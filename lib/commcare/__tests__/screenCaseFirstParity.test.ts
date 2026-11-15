@@ -172,6 +172,71 @@ it("answers as Core does for every screen of the menu-screens corpus", {
 	expect(screens - caseFirst).toBeGreaterThan(10);
 });
 
+/**
+ * The draw with every menu that has a case type emitted advanced (its kind
+ * held, `Module.heldKind`), each case-loading form's own load holding the
+ * drawn tag (none, the case list entry's own `case_<type>`, or another a
+ * published app could keep), where the gate admits it; else undefined.
+ */
+function advancedVariant(
+	base: BlueprintDoc,
+	tags: readonly (number | undefined)[],
+): BlueprintDoc | undefined {
+	const doc = structuredClone(base);
+	let at = 0;
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
+		if (mod?.caseType === undefined) continue;
+		mod.heldKind = "advanced";
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const own = doc.forms[formUuid]?.caseOperations?.find(
+				(operation) => operation.action === "own",
+			);
+			const drawn = tags[at++ % tags.length];
+			if (own === undefined || drawn === undefined) continue;
+			own.placement = {
+				kind: "advanced",
+				tag: drawn === 0 ? `case_${mod.caseType}` : `kept_${drawn}`,
+			};
+		}
+	}
+	rebuildFieldParent(doc);
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0
+		? doc
+		: undefined;
+}
+
+it("answers as Core does for every screen of the corpus with its menus emitted advanced", {
+	timeout: 60_000,
+}, () => {
+	let screens = 0;
+	let caseFirst = 0;
+	let admitted = 0;
+	assertGenerated(
+		fc.property(
+			menuScreenDocArbitrary,
+			fc.array(fc.option(fc.nat(2), { nil: undefined }), {
+				minLength: 1,
+				maxLength: 6,
+			}),
+			(base, tags) => {
+				const doc = advancedVariant(base, tags);
+				if (doc === undefined) return;
+				admitted++;
+				for (const answer of answers(doc)) {
+					screens++;
+					if (answer.core) caseFirst++;
+					expect(answer.nova, answer.menu).toBe(answer.core);
+				}
+			},
+		),
+		{ seed: 20261114, numRuns: 80 },
+	);
+	expect(admitted).toBeGreaterThan(20);
+	expect(caseFirst).toBeGreaterThan(5);
+	expect(screens - caseFirst).toBeGreaterThan(5);
+});
+
 const visit = (name: string) => ({
 	name,
 	type: "followup" as const,
@@ -277,5 +342,139 @@ describe("a screen two menus list forms on", () => {
 		expect(
 			parentScreen(sharedScreen({ bareCaseList: true, caseType: "household" })),
 		).toEqual({ menu: "Patients", nova: false, core: false });
+	});
+});
+
+/** A menu emitted advanced (its kind held by a publish, `Module.heldKind`)
+ *  holding two follow-up forms and, unless left out, its case list as an
+ *  entry of its own. `heldTags` gives a form's own load the tag a publish
+ *  recorded (its own operation's `placement`); `reviewQuestion` names the
+ *  second form's question. */
+function advancedWithCaseListEntry(
+	options: {
+		readonly caseListMenuItem?: false;
+		readonly heldTags?: readonly [string | undefined, string | undefined];
+		readonly reviewQuestion?: string;
+	} = {},
+): BlueprintDoc {
+	const review = visit("Review patient");
+	const doc = buildDoc({
+		appName: "Advanced entry",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: "advanced",
+				name: "Patients",
+				caseType: "patient",
+				...(options.caseListMenuItem !== false && { caseListMenuItem: {} }),
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					visit("Check patient"),
+					options.reviewQuestion === undefined
+						? review
+						: {
+								...review,
+								fields: [
+									f({
+										kind: "text",
+										id: options.reviewQuestion,
+										label: proseText("Note"),
+									}),
+								],
+							},
+				],
+			},
+		],
+	});
+	const moduleUuid = testUuid("advanced");
+	doc.modules[moduleUuid].heldKind = "advanced";
+	(doc.formOrder[moduleUuid] ?? []).forEach((formUuid, index) => {
+		const tag = options.heldTags?.[index];
+		const own = doc.forms[formUuid]?.caseOperations?.[0];
+		if (tag !== undefined && own?.action === "own")
+			own.placement = { kind: "advanced", tag };
+	});
+	rebuildFieldParent(doc);
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	return doc;
+}
+
+describe("an advanced menu, by the datum each entry asks for first", () => {
+	// Each load gives its entry `case_id_<tag>`
+	// (`models/form_actions.py::LoadUpdateAction.case_session_var`), and Core
+	// asks for a case first only where every entry needs one datum id first.
+	it("asks for the case first where both forms load under one tag", () => {
+		expect(
+			answers(advancedWithCaseListEntry({ caseListMenuItem: false })),
+		).toEqual([{ menu: "Patients", nova: true, core: true }]);
+	});
+
+	it("lists forms first where a published app keeps one form's load under another tag", () => {
+		expect(
+			answers(
+				advancedWithCaseListEntry({
+					caseListMenuItem: false,
+					heldTags: [undefined, "patient"],
+				}),
+			),
+		).toEqual([{ menu: "Patients", nova: false, core: false }]);
+	});
+
+	it("lists forms first where a question steps one form's derived tag", () => {
+		// `case_load_patient0` at the root takes the block of `load_patient0`,
+		// so that form's load is `load_patient1`.
+		expect(
+			answers(
+				advancedWithCaseListEntry({
+					caseListMenuItem: false,
+					reviewQuestion: "case_load_patient0",
+				}),
+			),
+		).toEqual([{ menu: "Patients", nova: false, core: false }]);
+	});
+
+	it("asks for the case first where both forms keep the entry's own tag", () => {
+		// A load tagged `case_patient` asks for `case_id_case_patient`, the
+		// datum of HQ's case list entry.
+		expect(
+			answers(
+				advancedWithCaseListEntry({
+					heldTags: ["case_patient", "case_patient"],
+				}),
+			),
+		).toEqual([{ menu: "Patients", nova: true, core: true }]);
+	});
+
+	it("asks for the case first where a submenu's forms align with its advanced parent's", () => {
+		// The submenu's selection takes the parent's `case_id_load_patient0`
+		// (`formLinkProjection.ts::alignWithRootMenu`).
+		const doc = sharedScreen({});
+		doc.modules[testUuid("parent")].heldKind = "advanced";
+		expect(answers(doc).find((answer) => answer.menu === "Patients")).toEqual({
+			menu: "Patients",
+			nova: true,
+			core: true,
+		});
+	});
+});
+
+describe("an advanced menu's case list entry", () => {
+	it("lists forms first, as Core does, because the entry asks for a datum of its own", () => {
+		// The forms load `case_id_load_patient0`, the entry asks for HQ's
+		// `case_id_case_patient` (`entries.py::EntriesHelper.entry_for_module`),
+		// so `getDataNeededByAllEntries` finds no one datum and Core lists
+		// the menu.
+		expect(answers(advancedWithCaseListEntry())).toEqual([
+			{ menu: "Patients", nova: false, core: false },
+		]);
+	});
+
+	it("asks for the case first, as Core does, once the menu holds no such entry", () => {
+		const doc = advancedWithCaseListEntry({ caseListMenuItem: false });
+		expect(answers(doc)).toEqual([
+			{ menu: "Patients", nova: true, core: true },
+		]);
 	});
 });

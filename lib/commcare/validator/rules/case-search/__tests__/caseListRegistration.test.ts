@@ -30,7 +30,7 @@ import {
 	registrationMintsOwnCaseId,
 	rootBasicSubcaseCreates,
 } from "@/lib/domain/basicCaseSlots";
-import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { eq, literal, sessionContext } from "@/lib/domain/expression";
 import { formField, gt, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { errorWithinScope, runValidation } from "../../../runner";
@@ -207,7 +207,7 @@ describe("caseListRegistrationForm", () => {
 			forms: [
 				visitForm(),
 				registerForm({
-					displayCondition: eq(sessionUser("username"), literal("ada")),
+					displayCondition: eq(sessionContext("username"), literal("ada")),
 					formLinks: [
 						{
 							uuid: testUuid("00000000-0000-4000-8000-0000000d0020"),
@@ -228,7 +228,7 @@ describe("caseListRegistrationForm", () => {
 				visitForm(),
 				registerForm({
 					postSubmit: "module",
-					displayCondition: eq(sessionUser("username"), literal("ada")),
+					displayCondition: eq(sessionContext("username"), literal("ada")),
 				}),
 			],
 		});
@@ -692,7 +692,7 @@ describe("caseListRegistrationApp: the always arm", () => {
 	it("admits the form's own links, after-submit, display condition and off-the-menu flag, which the after-empty-search arm refuses", () => {
 		const doc = alwaysDoc({
 			register: {
-				displayCondition: eq(sessionUser("username"), literal("ada")),
+				displayCondition: eq(sessionContext("username"), literal("ada")),
 				formLinks: [
 					{
 						uuid: testUuid("00000000-0000-4000-8000-0000000d0045"),

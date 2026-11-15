@@ -1,4 +1,8 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	bindDeclaredWorkerReads,
+	declareWorkerProperties,
+} from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import {
@@ -138,6 +142,7 @@ export function searchPromptFixture(scenario: PromptScenario) {
 	);
 	const id = PROMPT_IDS;
 	if (scenario === "prompt-widgets") {
+		declareWorkerProperties(doc, ["region_group"]);
 		const options = {
 			kind: "lookup",
 			tableId,
@@ -338,6 +343,8 @@ export function searchPromptFixture(scenario: PromptScenario) {
 	// Apps alone, and the remote fixture they are added to runs on both.
 	if (scenario === "prompt-widgets")
 		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
+	// Each declared field is read by its identity, as the gate asks.
+	bindDeclaredWorkerReads(doc);
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const findings = runValidation(doc, promptLookupContext);
 	if (findings.length) throw new Error(JSON.stringify({ scenario, findings }));

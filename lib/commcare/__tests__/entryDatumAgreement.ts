@@ -5,6 +5,11 @@ import {
 	entryDatumSupplies,
 } from "@/lib/domain";
 import {
+	advancedLoadTags,
+	menuEmittedAdvanced,
+} from "@/lib/domain/advancedEntryDatums";
+import { advancedFormLoads } from "../advancedSelections";
+import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
@@ -33,6 +38,14 @@ export function expectEntryDatumAgreement(doc: BlueprintDoc): number {
 				actual.sort(byIdentity),
 				`${doc.appName}: ${module}/${form}`,
 			).toEqual(expected.sort(byIdentity));
+			// The domain tags each load of an advanced form as the placement
+			// planner does, so the datum it reads first is the one the entry
+			// prints.
+			if (menuEmittedAdvanced(doc, module))
+				expect(
+					advancedLoadTags(doc, form),
+					`${doc.appName}: ${module}/${form} load tags`,
+				).toEqual(advancedFormLoads(doc, form).map((load) => load.tag));
 			entries++;
 		}
 	}

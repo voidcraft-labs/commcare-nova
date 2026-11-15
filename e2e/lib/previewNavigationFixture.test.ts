@@ -24,6 +24,9 @@ describe("Preview navigation fixtures", () => {
 		["case-list-entry", true],
 		["case-first-entry", false],
 		["child-list-above", false],
+		["submenus", false],
+		["place-condition", false],
+		["place-screens", false],
 	] as const)(
 		"%s (details %s) is an admitted app on both platforms",
 		(fixture: NavigationFixture, details) => {

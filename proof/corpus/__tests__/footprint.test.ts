@@ -927,7 +927,8 @@ describe("the footprint's derivations", () => {
 				...patch,
 			});
 		};
-	/** Exclude the owners a worker-record field names from `module`'s cases. */
+	/** Exclude the owners a worker field CommCare gives every assigned worker
+	 *  names from `module`'s cases. */
 	const excludeOwners =
 		(module: string, field: string) =>
 		(doc: BlueprintDoc): Mutation[] => {
@@ -1254,15 +1255,15 @@ describe("the footprint's derivations", () => {
 		{
 			name: "a module's owner exclusion reaches its case-loading forms, whose entries declare the session",
 			document: "tile",
-			batch: excludeOwners("Visits", "excluded_owners"),
+			batch: excludeOwners("Visits", "commcare_location_ids"),
 			reaches: (doc) => formOfType(doc, "Visits", "followup"),
 			leaves: (doc) => formOfType(doc, "Visits", "registration"),
 		},
 		{
 			name: "an owner exclusion that reads another worker field reaches none of its module's forms that load no case",
 			document: "tile",
-			setup: excludeOwners("Visits", "excluded_owners"),
-			batch: excludeOwners("Visits", "blocked_owners"),
+			setup: excludeOwners("Visits", "commcare_location_ids"),
+			batch: excludeOwners("Visits", "commcare_primary_case_sharing_id"),
 			reaches: (doc) => formOfType(doc, "Visits", "followup"),
 			leaves: (doc) => formOfType(doc, "Visits", "registration"),
 		},
@@ -1388,7 +1389,7 @@ describe("the footprint's derivations", () => {
 		{
 			name: "a menu's owner exclusion reaches none of the forms of the module nested under it",
 			document: "nested-menu-different",
-			batch: excludeOwners("Parents", "excluded_owners"),
+			batch: excludeOwners("Parents", "commcare_location_ids"),
 			reaches: (doc) => formsOf(doc, "Parents"),
 			leaves: (doc) => formsOf(doc, "Child care"),
 		},

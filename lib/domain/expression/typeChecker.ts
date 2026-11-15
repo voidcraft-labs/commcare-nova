@@ -23,6 +23,7 @@ import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 } from "../standardCaseProperties";
 import { itextUnitTranslationId } from "../translationUnits";
+import { BUILT_IN_USER_PROPERTY_SLUGS } from "../users";
 import type { Uuid } from "../uuid";
 import { term as termExpression } from "./builders";
 import { type ExpressionChild, expressionChildren } from "./children";
@@ -143,6 +144,8 @@ export type CheckErrorCode =
 	| "unknown-search-input"
 	| "unknown-form-field"
 	| "unknown-user-property"
+	| "undeclared-worker-field"
+	| "worker-property-read-by-name"
 	| "unknown-lookup-table"
 	| "unknown-lookup-column"
 	| "lookup-table-scope"
@@ -3012,7 +3015,32 @@ function inferTerm(
 				: nodes(input.data_type ?? "text", "string");
 		}
 		case "session-user":
-			return nodes("text", "string");
+			/* Worker information the app declares is read by its identity
+			 * (`session-user-property`), so a rename keeps the read and the
+			 * reference index names it where a removal would leave it
+			 * dangling; a read of a declared slug by name would do neither.
+			 * The name-backed leaf is CommCare's own information. From the
+			 * session it must be a key CommCare writes itself
+			 * (`models.py::get_user_session_data`): the session holds a
+			 * custom key only where the project space defines that field
+			 * (`user_data.py::UserData.to_dict`), Core refuses a read of a
+			 * key the device lacks (`XPathNodeset.unpack` on a path
+			 * `DataInstance.hasTemplatePath` misses), and a publish asks the
+			 * project space only for the fields the app declares. The
+			 * worker's record (`worker-record`) holds every property, `''`
+			 * where unset, so its reads of other names stand. */
+			if ([...ctx.facts.userPropertySlugs.values()].includes(term.field))
+				return fail(
+					"worker-property-read-by-name",
+					`This reads the worker's “${term.field}” by its name, but “${term.field}” is worker information this app declares. You can read it as that worker information, so the read stays right when the information is renamed.`,
+				);
+			return term.source !== "worker-record" &&
+				!BUILT_IN_USER_PROPERTY_SLUGS.has(term.field)
+				? fail(
+						"undeclared-worker-field",
+						`This reads the worker's “${term.field}”, which this app doesn't declare as worker information. Publishing asks the project space to define only the worker information an app declares, and a phone stops where it reads a field its project space doesn't define. You can add “${term.field}” as worker information in App setup and read that instead.`,
+					)
+				: nodes("text", "string");
 		case "session-context":
 			// Core writes every context value as text; `drift` and
 			// `window_width` name whole numbers (`SessionInstanceBuilder.addMetadata`).

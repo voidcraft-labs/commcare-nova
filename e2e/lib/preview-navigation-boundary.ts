@@ -29,6 +29,7 @@ import {
 	NAVIGATION_APP_ID,
 	NAVIGATION_CASES,
 	NAVIGATION_HOUSEHOLDS,
+	PLACED_PATIENTS_MODULE_UUID,
 } from "./previewNavigationFixture";
 
 const caseRow = (
@@ -73,6 +74,14 @@ const rows: CaseRowWithCalculated[] = [
 ];
 
 export const loadCasesAction: typeof Actions.loadCasesAction = async (args) => {
+	/* The list's filter reads the place of a worker assigned nowhere, which the
+	 * case store refuses as it compiles the read (`AbsentWorkerFieldError`),
+	 * and the action answers with the refusal. */
+	if (args.moduleUuid === PLACED_PATIENTS_MODULE_UUID)
+		return {
+			kind: "data-refused",
+			reason: { kind: "empty-instance", instanceId: "commcaresession" },
+		};
 	const chosen = rows.filter(
 		(candidate) =>
 			candidate.case_type === args.caseType &&

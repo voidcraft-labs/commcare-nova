@@ -116,6 +116,9 @@ export function caseListEmissionFixture(scenario: CaseListEmissionScenario) {
 	const search = scenario === "remote" || scenario === "inline";
 	const doc = buildDoc({
 		appName: "Case list proof",
+		workerProperties: search
+			? ["display_name"]
+			: ["display_name", "excluded_owners"],
 		// A menu whose forms read the search runs in Web Apps alone.
 		...(scenario === "inline"
 			? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }

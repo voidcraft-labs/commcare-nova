@@ -30,13 +30,13 @@ import { previousTaskFormSelectors } from "../engine/previousTask";
 import {
 	combineNavigationVisibility,
 	moduleHasChildren,
-	previewAutomaticForm,
 	previewCaseDescendantModuleUuids,
 	previewCaseListMenuEntry,
 	previewContributorVisibility,
 	previewMenuCaseContext,
 	previewModuleOwnVisibility,
 	previewModuleVisibility,
+	previewRequestedForm,
 	previewScreenEntries,
 } from "../menuProjection";
 import { previewPlatformRules } from "../platform";
@@ -488,13 +488,15 @@ export function selectAppTestRecords(
 	const forms = appTestForms(context, next, screen.moduleUuid, true);
 	if (forms.length === 0)
 		throw new AppTestActionError("This record list has no next task.");
-	const automatic = previewAutomaticForm(forms, screen.formUuid);
+	/* The form chosen before the case opens; otherwise the menu lists its
+	 * forms, however many it shows (`previewRequestedForm`). */
+	const requested = previewRequestedForm(forms, screen.formUuid);
 	return {
 		...next,
 		screen:
-			automatic === undefined
+			requested === undefined
 				? next.screen
-				: enterAppTestForm(context, next, screen.moduleUuid, automatic),
+				: enterAppTestForm(context, next, screen.moduleUuid, requested),
 	};
 }
 

@@ -153,12 +153,19 @@ export function prosePartTerm(part: ProsePart): Term | undefined {
 				caseType: part.caseType,
 				property: part.property,
 			};
+		/* Wording reads the worker's record, as the part's lowering does
+		 * (`proseExpression.ts::proseReferenceExpression`). */
 		case "user-property-ref":
 			return {
 				kind: "session-user-property",
 				userPropertyUuid: part.userPropertyUuid,
+				source: "worker-record",
 			};
 		case "user-ref":
-			return { kind: "session-user", field: part.property };
+			return {
+				kind: "session-user",
+				field: part.property,
+				source: "worker-record",
+			};
 	}
 }

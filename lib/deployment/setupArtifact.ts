@@ -380,7 +380,7 @@ function workerDataSection(
 		steps,
 		caveats: [
 			"Required always means required for mobile workers here. Nova creates mobile workers only, so web users are unaffected.",
-			"Property names are what the app reads. Changing one on CommCare HQ without changing it in Nova will make the app read a blank value.",
+			"Property names are what the app reads. If a field is missing on CommCare HQ or named differently there, a phone stops on every menu, case list, search and form that reads it from the worker's session, and a form that reads it from the worker's case reads it blank. You can rename a field in Nova and on CommCare HQ together.",
 			"CommCare HQ has no API for this page, so Nova cannot create these fields for you and cannot tell whether they already exist.",
 		],
 	};

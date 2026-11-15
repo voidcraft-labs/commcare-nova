@@ -14,19 +14,28 @@
  */
 
 import {
+	type BlueprintDoc,
 	type CaseOperation,
+	expressionSlotValues,
+	type Form,
 	type SearchInputDef,
 	searchInputOptions,
 	type Uuid,
 } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathInvalidPathError } from "../xpath/runtimeValues";
 import type { XPathRuntimeFailure } from "../xpath/workerProtocol";
 import type { PreviewLookupData } from "./lookupEvaluation";
+import { PREVIEW_UNKNOWN_WORKER_KEYS } from "./workerSessionKeys";
 
 /** The places instance's id, in every form and link that reads them. */
 const LOCATIONS_INSTANCE_ID = "locations";
+/** The session's id. Its only part Preview can leave a key out of is the
+ *  worker's data (`xpathInstances.ts::commcareSessionXPathInstance`). */
+const SESSION_INSTANCE_ID = "commcaresession";
 const SEARCH_INPUT_INSTANCE_PREFIX = "search-input:";
 
 export type PreviewDataRefusalReason =
@@ -43,6 +52,13 @@ export type PreviewDataRefusalReason =
 			readonly tableId: LookupTableId;
 			readonly fieldUuid?: Uuid;
 	  };
+
+/** A read of a worker-data key the worker's device lacks: the session is the
+ *  instance it misses in. */
+export const WORKER_INFORMATION_REFUSAL: PreviewDataRefusalReason = {
+	kind: "empty-instance",
+	instanceId: SESSION_INSTANCE_ID,
+};
 
 /** Where in an entry the refusal stopped it: the form, or its links once the
  * form is saved. */
@@ -86,6 +102,30 @@ export function previewDataRefusalOf(
 	return undefined;
 }
 
+/** What a screen read gives: its value, or Core's refusal of data the device
+ *  lacks, which the screen shows in its own place. */
+export type PreviewScreenRead<T> =
+	| { readonly kind: "read"; readonly value: T }
+	| { readonly kind: "refused"; readonly refusal: PreviewDataRefusal };
+
+/**
+ * Read a screen, holding Core's refusal as the screen's state rather than an
+ * error that leaves the render: a menu screen that reads a condition over
+ * data the device lacks (a worker key the worker has none of, a table with no
+ * rows) shows the refusal where its list would be, as a phone stops there,
+ * and nothing is logged, since the app is right and the data is empty. Every
+ * other error still throws.
+ */
+export function readPreviewScreen<T>(read: () => T): PreviewScreenRead<T> {
+	try {
+		return { kind: "read", value: read() };
+	} catch (error) {
+		const refusal = previewDataRefusalOf(error);
+		if (refusal === undefined) throw error;
+		return { kind: "refused", refusal };
+	}
+}
+
 /**
  * The error a failed worker evaluation raises on the host: Core's refusal of
  * empty data where the worker says so, else the diagnostic runtime error.
@@ -107,6 +147,9 @@ export type PreviewDataRefusalSubject =
 			readonly fieldUuid?: Uuid;
 	  }
 	| { readonly kind: "search-answers" }
+	/** A key of the worker's data the device holds none of: a place key of
+	 *  a worker assigned nowhere, or a field no one defined. */
+	| { readonly kind: "worker-information" }
 	| { readonly kind: "other" };
 
 function tableName(
@@ -136,6 +179,7 @@ export function previewDataRefusalSubject(
 	if (reason.kind === "owner-without-place") return { kind: "owner-place" };
 	const { instanceId } = reason;
 	if (instanceId === LOCATIONS_INSTANCE_ID) return { kind: "places" };
+	if (instanceId === SESSION_INSTANCE_ID) return { kind: "worker-information" };
 	if (instanceId.startsWith(SEARCH_INPUT_INSTANCE_PREFIX))
 		return { kind: "search-answers" };
 	const table = lookupData?.naming.tables.find(
@@ -196,6 +240,71 @@ export function ownerMovesToNoPlace(
 			),
 		),
 	};
+}
+
+/**
+ * Where a form reads, in what its case blocks print, a worker-data key the
+ * worker's device lacks (the place keys of a worker assigned nowhere): `form`
+ * when the form's own open or close condition or one of its own operations
+ * does, plus the repeats whose operations do, by uuid. A case block's values,
+ * owner, name and conditions are binds of the form, which Core evaluates as
+ * soon as their node exists (`Triggerable.apply`, whether or not the block is
+ * relevant), and a bare read of a key the session lacks is refused there
+ * (`XPathNodeset.unpack`): when the form opens for the form's own, and as
+ * soon as a row exists for one inside a repeat. Preview evaluates these in
+ * SQL at submission, so the engine refuses at those points instead. A read
+ * under an `if` branch the device never takes is refused here too, which the
+ * device would not do. `undefined` when nothing is refused.
+ */
+export function caseBlocksReadAbsentWorkerKey(
+	doc: BlueprintDoc,
+	form: Pick<Form, "uuid" | "caseOperations">,
+	sessionUser: Readonly<Record<string, string | undefined>>,
+): { readonly form: boolean; readonly repeats: ReadonlySet<Uuid> } | undefined {
+	let atForm = false;
+	const repeats = new Set<Uuid>();
+	for (const slot of expressionSlotValues(doc, {
+		entity: "form",
+		uuid: form.uuid,
+	})) {
+		const [head, index] = slot.path;
+		if (
+			head !== "caseOperations" &&
+			head !== "openCondition" &&
+			head !== "closeCondition"
+		)
+			continue;
+		if (!readsAbsentWorkerKey(slot.expression, sessionUser)) continue;
+		const repeat =
+			head === "caseOperations" && typeof index === "number"
+				? form.caseOperations?.[index]?.forEach?.repeat
+				: undefined;
+		if (repeat === undefined) atForm = true;
+		else repeats.add(repeat);
+	}
+	return atForm || repeats.size > 0 ? { form: atForm, repeats } : undefined;
+}
+
+/** Whether an expression reads, from the session by name, a worker-data key
+ *  `sessionUser` lacks and every device need not hold. */
+function readsAbsentWorkerKey(
+	expression: Expression,
+	sessionUser: Readonly<Record<string, string | undefined>>,
+): boolean {
+	let reads = false;
+	walkExpressionTerms(expression, (term) => {
+		if (
+			term.kind === "session-user" &&
+			term.source !== "worker-record" &&
+			!(
+				Object.hasOwn(sessionUser, term.field) &&
+				sessionUser[term.field] !== undefined
+			) &&
+			!PREVIEW_UNKNOWN_WORKER_KEYS.has(term.field)
+		)
+			reads = true;
+	});
+	return reads;
 }
 
 /**

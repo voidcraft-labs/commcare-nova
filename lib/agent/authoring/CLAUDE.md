@@ -147,7 +147,15 @@ over a coincidentally identical display label. External worker values print as
 when a predicate may legally contain both names. Canonical prose admission
 already rejects that collision for prose references.
 In record expressions, `user(...)` and `#user/...` require a declared worker property. Built-in identity
-uses `session(...)`; undeclared custom metadata requires `external-user(...)`.
+uses `session(...)`; `external-user(...)` reads only a key CommCare itself
+gives every worker (`BUILT_IN_USER_PROPERTY_SLUGS`). The checker refuses an
+`external-user` read of any other key (`undeclared-worker-field`): a project
+space defines a custom field only where a person defined it, a phone stops on
+a read of a field its project space lacks, and a publish asks only for the
+worker information the app declares, so custom data is declared first. An
+`external-user` read of a declared slug is refused too
+(`worker-property-read-by-name`): declared information is read by `user(...)`,
+its identity, which a rename keeps.
 Forms instead read built-in identity from the worker record through
 `#user/hq_user_id`, `#user/username` and `#user/case_name`. `workerIdentity.ts`
 projects these supported readings through the expressions guide and `getUsers`;
@@ -155,7 +163,12 @@ its runtime check executes the returned expressions in both scopes.
 The same worker-information read exposes primary place, all assigned places and
 the primary case-sharing group in form and record scopes. Preview projects them
 from actual or disposable persona assignments; HQ supplies the corresponding
-worker case and session facts. Missing assignments remain empty. Location IDs
+worker case and session facts. A worker assigned nowhere reads them blank in
+a form (the worker's record always holds them), but holds no such key in the
+session, so a record expression that reads one stops its screen on a phone,
+and a case owner that reads one stops the form as it opens; Preview stops at
+each of those places (`lib/preview/CLAUDE.md`).
+Location IDs
 are not new authored worker properties or a substitute for case-flow settings.
 An unknown property must never silently become an external metadata dependency.
 

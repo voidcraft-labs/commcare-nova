@@ -173,6 +173,7 @@ import {
 } from "./runtimeBindings";
 import type { SearchCsqlQuery } from "./searchCsqlRuntime";
 import { workerPlaceIds } from "./workerLocationFixture";
+import { PREVIEW_UNKNOWN_WORKER_KEYS } from "./workerSessionKeys";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 /**
@@ -2069,6 +2070,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 				),
 			),
 			sessionUser: new Map(Object.entries(session.user)),
+			sessionUserAbsent: { readsBlank: PREVIEW_UNKNOWN_WORKER_KEYS },
 			userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
 			sessionContext,
 			...(args.viewerTimeZone === undefined

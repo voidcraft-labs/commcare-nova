@@ -230,7 +230,11 @@ function labelledGroups(doc: BlueprintDoc): {
 /**
  * The SHA-256 of each original and expression document of the 24 at the
  * corpus seed, over the bytes the writer writes for it, as they were drawn
- * before the advanced family joined the sample.
+ * before the advanced family joined the sample. The suite and expression
+ * documents took new bytes, and no new draw, when the suite generator began
+ * declaring the worker fields its conditions read from the session and reading
+ * each by its identity (`suiteDocArbitrary.ts`, `undeclared-worker-field`,
+ * `worker-property-read-by-name`).
  */
 const ORIGINAL_DRAWS: Readonly<Record<string, string>> = {
 	"fuzz-xform-20260930-0":
@@ -258,45 +262,45 @@ const ORIGINAL_DRAWS: Readonly<Record<string, string>> = {
 	"fuzz-xform-20260930-11":
 		"c3db59e35973ed260663c9253dbd0ff1d43d6f0ba4be66bda886ec0e8f829154",
 	"fuzz-suite-20260930-0":
-		"9012db0aa580b5bb6d39048b1eea008fa5081a7b2547a4c2763024ae6c91fa6d",
+		"81e666b37892004fde4b2e12b48fd8f8cc73559c8d030fba7058eae10817d2ef",
 	"fuzz-suite-20260930-1":
-		"070fec06339e8bd634de6586fb59218855389269db5f0e4d42ce48db8cb0e46e",
+		"ecff26e43c7cd21a058ad0314f0986d9ee3acdbab6acb4801ca40187ba607aed",
 	"fuzz-suite-20260930-2":
-		"fa3771fe97dd84517561aae2687490e7813c3391f664e9d116979f22ad22da2f",
+		"24affccbefa845914b59526ae411497f1f85f5c583c25805da0c6a7b73e706dc",
 	"fuzz-suite-20260930-3":
-		"792e8c51ae490f59556b5288b6dc82b32d2aef4d11d2a3bc241369514d37a12f",
+		"ddff9a5fe7aff3e81ad55c0325381d58fa5b7f207912b607650ebc316acc8749",
 	"fuzz-suite-20260930-4":
-		"c94825a6f81e20076d492fc0517910682097f772cafa95cdf885435efe49914e",
+		"25eead83da909b8e12188c93de4c80129bfbd1c3b7cd50a31535dad034164bb5",
 	"fuzz-suite-20260930-5":
-		"df6ee025444dd197a90b4d518f002fc1bccbe1cfc25decfbb8517e3c56c21145",
+		"e03e878fd53b226cd7ba29ab689fee37f6cd7d595928d29a788ced02eb90da8c",
 	"fuzz-suite-20260930-6":
-		"221147d81c5b2f9281712ec21888a20a470a8c843d5721e526973892b117220b",
+		"f6c082356cb222879d3f81123ad6b6730f9e6999e298bca80301c3206f15d865",
 	"fuzz-suite-20260930-7":
-		"6bd41eb872535850d51d82059db03edc714c8bd615080a72691eed013114b720",
+		"f4da0f25cfb5bc39ca46e24011186724593e4508cf50d9079d960a7ec57c31df",
 	"fuzz-suite-20260930-8":
-		"380245eefb6ffce6e68303a8d20b2393b47b142a3e229f5eabd6490098307d4b",
+		"86e5a4a55aec9fc13d6b1c09307b47d5c27ade398d7c5b1aaa0d406596985fd3",
 	"fuzz-suite-20260930-9":
-		"da534503b5584854c2ca727c704bbe0b0e83215f6ed257b552432b1e436663d7",
+		"6eddb1823876724ba0dcd5aaeb4a2aefa8b596898fa3f69271056ae38af10263",
 	"fuzz-suite-20260930-10":
 		"9f0f59c5abdd8fbba3782ae4bde289319dd95bd5dd34a4b2bf4216d66a6568d2",
 	"fuzz-suite-20260930-11":
-		"c192946e80a4a7974d0608907ec0aed774843f2aeac39191361413ec36400155",
+		"6b43591fa7dbb94df92a709a05a9c43a4362327d4cdd65e269136a34231d4b41",
 	"fuzz-expression-20260930-0":
-		"eac8c4d0a39cc97c0f2887e1dddef9d317c70a3e910b84ae334c46b9d6355b98",
+		"d8c1f2b3bfc2bf87a81d7cecb0875ba56567fdb2ef7a3a504137b52d5f19d328",
 	"fuzz-expression-20260930-1":
-		"9a8bebdbc50739fbee63bc4f016f42330ac72d83478a4f10f967d3983b5ac066",
+		"6dfece4adca1ab64d0ca1710cfff270475422a2c27b7e25d8cf950db10bfd384",
 	"fuzz-expression-20260930-2":
-		"2c22993e36de75f18c7e95297fa7d37210e7415209b87f992918d1b748fdb747",
+		"0aa95909607a9a6ac608a724074c57db91612d9f41845619e2224658d0362599",
 	"fuzz-expression-20260930-3":
-		"322213ecfdfbc1226187808b22d9e9bee324245dd935c8fdbe5e5dba0dd604c2",
+		"caf533c176430046b9eb3875d049e82c26bacd14a7956450ac470c58c658f111",
 	"fuzz-expression-20260930-4":
-		"70e20115391e406b3cecef0a8a76ab76ebb836d4627fe380543d3dba9ea79634",
+		"47126db71c55db4bc669db6f836e320aebdc11e3ffae72db9c814be2f73decf6",
 	"fuzz-expression-20260930-5":
-		"788b829309a9f5b9139ea423c7f3a4cbbb26902d4e5b0967b30e9e1af3197983",
+		"b687d7fb769a23a6d67bcf915486a3e030a39c95eca69c6c3431fea4a379eb2c",
 	"fuzz-expression-20260930-6":
-		"69ffb84ac032f3fca9c54ccd1446d6c243d8e4ad07aa6f5519e83dabe8f2ca56",
+		"7953713af344a9edcae6daf816894a98d2fd43f967f65ba449dbcb68c8e138e9",
 	"fuzz-expression-20260930-7":
-		"5a75ff03f31e5531951b228c1eb7e46f5c0a03fbaa78bdc0f73d6bc5eeeb1002",
+		"34e857b8246782875568cd3786ad528287bf928c8e4ea2aa68680168764146bf",
 };
 
 /** The SHA-256 of the bytes the writer writes for a sampled document. */

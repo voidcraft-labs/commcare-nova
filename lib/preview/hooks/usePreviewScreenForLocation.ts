@@ -10,6 +10,7 @@ import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDevi
 import {
 	previewMenuCaseContext,
 	previewModuleVisibility,
+	previewRoutingModuleVisibility,
 } from "@/lib/preview/menuProjection";
 import { previewRunningScreenForLocation } from "@/lib/preview/screenProjection";
 import type { Location } from "@/lib/routing/types";
@@ -53,12 +54,15 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const moduleVisibility = useMemo(
 		() =>
-			previewModuleVisibility(menuSource.doc, {
-				authoring: mode === "edit" || bypass,
-				session,
-				lookup,
-				deviceCases,
-			}),
+			previewRoutingModuleVisibility(
+				menuSource.doc,
+				previewModuleVisibility(menuSource.doc, {
+					authoring: mode === "edit" || bypass,
+					session,
+					lookup,
+					deviceCases,
+				}),
+			),
 		[lookup, menuSource, mode, session, bypass, deviceCases],
 	);
 	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;

@@ -6,7 +6,13 @@ import {
 	type SearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, prop, sessionUser, term } from "@/lib/domain/expression";
+import {
+	eq,
+	literal,
+	prop,
+	sessionContext,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	admittedCaseListDoc,
@@ -98,7 +104,7 @@ describe("searchInputReservedName", () => {
 				testUuid("hidden-xpath-query"),
 				"_xpath_query",
 				"Hidden",
-				term(sessionUser("username")),
+				term(sessionContext("username")),
 			),
 		];
 		for (const input of routes) {

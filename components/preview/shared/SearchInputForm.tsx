@@ -40,6 +40,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerSearch from "@iconify-icons/tabler/search";
 import {
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useId,
@@ -73,6 +74,12 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { PLATFORMS } from "@/lib/domain/platforms";
+import {
+	PreviewDataRefusal,
+	type PreviewDataRefusalReason,
+	previewDataRefusalOf,
+	readPreviewScreen,
+} from "@/lib/preview/engine/dataRefusal";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import type { LookupChoice } from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
@@ -170,6 +177,11 @@ interface SearchInputFormProps {
 		PreviewPlatformRules,
 		"searchFieldChecks" | "searchScreenText" | "barcodeSearchField"
 	>;
+	/** What the screen shows in place of its fields where a required
+	 *  condition or a check reads data the worker's device lacks (a place key
+	 *  of a worker assigned nowhere), which a phone refuses as it shows the
+	 *  screen. Without it the refusal is thrown for the boundary above. */
+	readonly renderRefusal?: (reason: PreviewDataRefusalReason) => ReactNode;
 }
 
 const DEFAULT_SEARCH_RULES = previewPlatformRules(
@@ -199,6 +211,7 @@ export function SearchInputForm({
 	submitLabel = "Search",
 	localizeValidationMessage = (source) => source,
 	platformRules = DEFAULT_SEARCH_RULES,
+	renderRefusal,
 }: SearchInputFormProps) {
 	const [validationState, setValidationState] = useState({
 		scopeKey,
@@ -226,6 +239,13 @@ export function SearchInputForm({
 		validationFailure?.scopeKey === scopeKey
 			? validationFailure.message
 			: undefined;
+	/* A check that reads data the worker's device lacks (a place key of a
+	 * worker assigned nowhere) is Core's refusal of the Search screen, which
+	 * the screen shows in place of its fields. */
+	const [checkRefusal, setCheckRefusal] = useState<
+		| { readonly scopeKey: string; readonly reason: PreviewDataRefusalReason }
+		| undefined
+	>(undefined);
 
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
@@ -316,6 +336,11 @@ export function SearchInputForm({
 				return await validateSubmission(candidate);
 			} catch (error) {
 				lastValidatedDraftRef.current = candidate;
+				const refused = previewDataRefusalOf(error);
+				if (refused !== undefined) {
+					setCheckRefusal({ scopeKey, reason: refused.reason });
+					return undefined;
+				}
 				setValidationFailure({
 					scopeKey,
 					message: searchCheckFailureMessage(error),
@@ -337,19 +362,23 @@ export function SearchInputForm({
 	 * condition it can; a pattern-bearing one is judged in the Search
 	 * worker against the same draft, and shows no mark until that verdict
 	 * lands (never a guess). */
-	const requiredMarks = useMemo(
+	const requiredRead = useMemo(
 		() =>
-			session === undefined
-				? undefined
-				: searchInputRequiredMarks(
-						platformRules,
-						searchInputs,
-						draft,
-						session,
-						environment,
-					),
+			readPreviewScreen(() =>
+				session === undefined
+					? undefined
+					: searchInputRequiredMarks(
+							platformRules,
+							searchInputs,
+							draft,
+							session,
+							environment,
+						),
+			),
 		[draft, environment, platformRules, searchInputs, session],
 	);
+	const requiredMarks =
+		requiredRead.kind === "read" ? requiredRead.value : undefined;
 	const [deviceMarks, setDeviceMarks] = useState<
 		| {
 				readonly draft: SearchInputValues;
@@ -489,6 +518,18 @@ export function SearchInputForm({
 	// enforcing: a caller that forgets the guard doesn't surface a
 	// labelled-but-empty `<search>` landmark to assistive tech.
 	if (visibleInputs.length === 0) return null;
+
+	const refusalReason =
+		requiredRead.kind === "refused"
+			? requiredRead.refusal.reason
+			: checkRefusal?.scopeKey === scopeKey
+				? checkRefusal.reason
+				: undefined;
+	if (refusalReason !== undefined) {
+		if (renderRefusal === undefined)
+			throw new PreviewDataRefusal(refusalReason);
+		return renderRefusal(refusalReason);
+	}
 
 	return (
 		<search aria-label={landmarkLabel}>

@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SearchInputDef } from "@/lib/domain";
 import { PLATFORMS } from "@/lib/domain/platforms";
+import {
+	type PreviewDataRefusal,
+	readPreviewScreen,
+} from "../engine/dataRefusal";
 import type { PreviewSearchSessionValues } from "../engine/identity";
 import type { SearchInputValues } from "../engine/runtimeBindings";
 import type { PreviewSearchEnvironment } from "../engine/searchExpressionEvaluation";
@@ -48,6 +52,11 @@ export interface SearchInputRunState {
 	 *  ordinary field holding its starting value (manifest
 	 *  `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`). */
 	readonly drawnInputs: readonly SearchInputDef[];
+	/** Core's refusal of the Search screen: a starting value or a hidden
+	 *  value reads data the worker's device lacks (a place key of a worker
+	 *  assigned nowhere), which a phone reads as the screen opens and stops
+	 *  on. The state then holds no field, and the screen shows the refusal. */
+	readonly refusal?: PreviewDataRefusal;
 }
 
 /** The inputs a Search screen draws on a platform: Web Apps hides a hidden
@@ -74,15 +83,34 @@ export function useSearchInputRunState(args: {
 	/** The platform Preview plays; defaults to an app's default platform. */
 	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">;
 }): SearchInputRunState {
+	/* The screen's starting values are read as it opens, and its hidden values
+	 * as a search is sent, both over the same session, so a read either makes
+	 * of data the device lacks is the screen's refusal, held as state. */
+	const read = useMemo(
+		() =>
+			readPreviewScreen(() => {
+				const built = buildSearchRunState(
+					args.scopeKey,
+					args.searchInputs,
+					args.session,
+					args.environment,
+				);
+				built.resolveHidden();
+				return built;
+			}),
+		[args.scopeKey, args.searchInputs, args.session, args.environment],
+	);
 	const desired = useMemo(
 		() =>
-			buildSearchRunState(
-				args.scopeKey,
-				args.searchInputs,
-				args.session,
-				args.environment,
-			),
-		[args.scopeKey, args.searchInputs, args.session, args.environment],
+			read.kind === "read"
+				? read.value
+				: buildSearchRunState(
+						args.scopeKey,
+						[],
+						args.session,
+						args.environment,
+					),
+		[read, args.scopeKey, args.session, args.environment],
 	);
 	const [stored, setStored] = useState(desired);
 	// Project the new scope before the synchronization effect can commit.
@@ -117,5 +145,6 @@ export function useSearchInputRunState(args: {
 			args.searchInputs,
 			args.rules ?? DEFAULT_RULES,
 		),
+		...(read.kind === "refused" ? { refusal: read.refusal } : {}),
 	};
 }

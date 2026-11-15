@@ -29,6 +29,7 @@ import {
 	moduleSiblingUuids,
 } from "@/lib/domain/moduleHierarchy";
 import { caseListEntryStillNeedsDatum } from "@/lib/preview/engine/caseListEntryListing";
+import { previewDataRefusalOf } from "@/lib/preview/engine/dataRefusal";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import {
@@ -120,7 +121,7 @@ export function previewContributorGatingModules(
 /** The modules whose running screen chooses a case before a form, each a
  *  module with a screen of its own (`menuScreens.ts::screenChoosesCaseFirst`). */
 export function previewCaseFirstModuleUuids(
-	doc: MenuScreenSource,
+	doc: BlueprintDoc,
 ): ReadonlySet<Uuid> {
 	return new Set(
 		doc.moduleOrder.filter(
@@ -175,6 +176,113 @@ export function combineNavigationVisibility(
 	return "shown";
 }
 
+/**
+ * A visibility per module, each read only when asked and then kept. Core reads
+ * a menu's condition only on a screen that lists that menu or is its own
+ * (`MenuLoader.getMenuDisplayables`), so a condition Core refuses there, one
+ * that reads data the device lacks, stops only those screens: a screen asks
+ * for the menus it shows, and no other. A refusal is thrown again at every
+ * read. Iterating reads every module.
+ */
+class LazyModuleVisibility
+	implements ReadonlyMap<Uuid, NavigationItemVisibility>
+{
+	readonly #order: readonly Uuid[];
+	readonly #members: ReadonlySet<Uuid>;
+	readonly #read: (uuid: Uuid) => NavigationItemVisibility;
+	readonly #kept = new Map<
+		Uuid,
+		{ readonly value: NavigationItemVisibility } | { readonly error: unknown }
+	>();
+
+	constructor(
+		order: readonly Uuid[],
+		read: (uuid: Uuid) => NavigationItemVisibility,
+	) {
+		this.#order = order;
+		this.#members = new Set(order);
+		this.#read = read;
+	}
+
+	get(uuid: Uuid): NavigationItemVisibility | undefined {
+		if (!this.#members.has(uuid)) return undefined;
+		let kept = this.#kept.get(uuid);
+		if (kept === undefined) {
+			try {
+				kept = { value: this.#read(uuid) };
+			} catch (error) {
+				kept = { error };
+			}
+			this.#kept.set(uuid, kept);
+		}
+		if ("error" in kept) throw kept.error;
+		return kept.value;
+	}
+
+	has(uuid: Uuid): boolean {
+		return this.#members.has(uuid);
+	}
+
+	get size(): number {
+		return this.#order.length;
+	}
+
+	#all(): Map<Uuid, NavigationItemVisibility> {
+		return new Map(
+			this.#order.map((uuid) => [uuid, this.get(uuid) ?? "shown"] as const),
+		);
+	}
+
+	entries() {
+		return this.#all().entries();
+	}
+
+	keys() {
+		return this.#all().keys();
+	}
+
+	values() {
+		return this.#all().values();
+	}
+
+	[Symbol.iterator]() {
+		return this.#all()[Symbol.iterator]();
+	}
+
+	forEach(
+		callback: (
+			value: NavigationItemVisibility,
+			key: Uuid,
+			map: ReadonlyMap<Uuid, NavigationItemVisibility>,
+		) => void,
+		thisArg?: unknown,
+	): void {
+		for (const [uuid, value] of this.#all())
+			callback.call(thisArg, value, uuid, this);
+	}
+}
+
+/**
+ * Module visibility for choosing which screen a location runs, which happens
+ * outside every screen: a menu whose condition Core refuses
+ * (`engine/dataRefusal.ts`) reads as not shown, so the location lands on a
+ * screen above it, which reads that condition itself and shows the refusal as
+ * a phone does. Any other error still throws.
+ */
+export function previewRoutingModuleVisibility(
+	doc: ModuleHierarchySource,
+	visibility: ReadonlyMap<Uuid, NavigationItemVisibility>,
+): ReadonlyMap<Uuid, NavigationItemVisibility> {
+	return new LazyModuleVisibility(doc.moduleOrder, (uuid) => {
+		try {
+			return visibility.get(uuid) ?? "shown";
+		} catch (error) {
+			if (previewDataRefusalOf(error) !== undefined) return "hidden";
+			throw error;
+		}
+	});
+}
+
 /** Project each module's own condition onto its tile. A tile takes its
  *  parent's visibility only where the parent keeps its own screen: under a
  *  parent that shows its forms above, the tile lists on the first menu by
@@ -184,27 +292,24 @@ export function inheritedModuleVisibility(
 	doc: ModuleHierarchySource,
 	own: ReadonlyMap<Uuid, NavigationItemVisibility>,
 ): ReadonlyMap<Uuid, NavigationItemVisibility> {
-	const result = new Map<Uuid, NavigationItemVisibility>();
-	for (const uuid of doc.moduleOrder) {
-		const ownVisibility = own.get(uuid) ?? "shown";
-		const parentUuid = moduleParent(doc, uuid);
-		if (
-			parentUuid === undefined ||
-			parentUuid === null ||
-			moduleShowsFormsInMenuAbove(doc.modules[parentUuid])
-		) {
-			result.set(uuid, ownVisibility);
-			continue;
-		}
-		result.set(
-			uuid,
-			combineNavigationVisibility(
-				result.get(parentUuid) ?? own.get(parentUuid) ?? "shown",
+	const tiles: LazyModuleVisibility = new LazyModuleVisibility(
+		doc.moduleOrder,
+		(uuid) => {
+			const ownVisibility = own.get(uuid) ?? "shown";
+			const parentUuid = moduleParent(doc, uuid);
+			if (
+				parentUuid === undefined ||
+				parentUuid === null ||
+				moduleShowsFormsInMenuAbove(doc.modules[parentUuid])
+			)
+				return ownVisibility;
+			return combineNavigationVisibility(
+				tiles.get(parentUuid) ?? own.get(parentUuid) ?? "shown",
 				ownVisibility,
-			),
-		);
-	}
-	return result;
+			);
+		},
+	);
+	return tiles;
 }
 
 /** Whether a contributor's form and case list rows are on the screen that
@@ -243,9 +348,9 @@ export function previewContributorHiddenBy(
 export const OFF_THE_MENU_SUMMARY = "Off the menu";
 
 /** Each module's own visibility: its condition and `hiddenFromMenu`, read
- * once. Edit mode keeps authoring surfaces reachable, so every module is
- * shown there. A module off the menu is hidden without its condition being
- * read. */
+ * once, when first asked (`LazyModuleVisibility`). Edit mode keeps
+ * authoring surfaces reachable, so every module is shown there. A module off
+ * the menu is hidden without its condition being read. */
 export function previewModuleOwnVisibility(
 	doc: BlueprintDoc,
 	args: {
@@ -257,30 +362,25 @@ export function previewModuleOwnVisibility(
 		readonly deviceCases?: NavigationDeviceCases;
 	},
 ): ReadonlyMap<Uuid, NavigationItemVisibility> {
-	return new Map(
-		doc.moduleOrder.map((uuid) => {
-			const mod = doc.modules[uuid];
-			return [
-				uuid,
-				args.authoring || mod === undefined
-					? ("shown" as const)
-					: moduleDisplayVisibility({
-							condition: mod.displayCondition,
-							types: previewExpressionContext(
-								doc,
-								{ entity: "module", uuid, slot: "module_display_condition" },
-								args.lookup.kind === "data" ? args.lookup.data : undefined,
-							),
-							hiddenFromMenu: mod.hiddenFromMenu === true,
-							session: args.session,
-							lookup: args.lookup,
-							...(args.deviceCases === undefined
-								? {}
-								: { deviceCases: args.deviceCases }),
-						}),
-			] as const;
-		}),
-	);
+	return new LazyModuleVisibility(doc.moduleOrder, (uuid) => {
+		const mod = doc.modules[uuid];
+		return args.authoring || mod === undefined
+			? "shown"
+			: moduleDisplayVisibility({
+					condition: mod.displayCondition,
+					types: previewExpressionContext(
+						doc,
+						{ entity: "module", uuid, slot: "module_display_condition" },
+						args.lookup.kind === "data" ? args.lookup.data : undefined,
+					),
+					hiddenFromMenu: mod.hiddenFromMenu === true,
+					session: args.session,
+					lookup: args.lookup,
+					...(args.deviceCases === undefined
+						? {}
+						: { deviceCases: args.deviceCases }),
+				});
+	});
 }
 
 /** The one running-menu tile visibility projection used by tiles and
@@ -611,9 +711,20 @@ function emptyCaseContext(): PreviewMenuCaseContext {
 	};
 }
 
-/** After record selection, prefer the requested form if it is eligible;
- * otherwise skip the form menu only when exactly one form is known eligible. */
-export function previewAutomaticForm(
+/**
+ * The form that opens once a case is chosen: the form the worker chose
+ * before the case, or a link named, where it shows; otherwise none, and the
+ * menu lists its forms, however many it shows. A form's command names its
+ * entry, which needs nothing more once the case is chosen, so it opens; a
+ * menu's command names no entry, so `CommCareSession.getNeededData` asks for
+ * a command even where the menu holds one form (`getEntryForCommand` of the
+ * menu's id is null). Neither platform advances past such a menu by itself:
+ * Android opens `MenuActivity` on `STATE_COMMAND_ID`
+ * (`HomeScreenBaseActivity.handleGetCommand`), and Formplayer only under the
+ * app property `cc-auto-advance-menu` (`FormplayerPropertyManager.isAutoAdvanceMenu`,
+ * no by default), which Nova never writes.
+ */
+export function previewRequestedForm(
 	entries: readonly {
 		readonly form: { readonly uuid: Uuid };
 		readonly visibility: NavigationItemVisibility;
@@ -623,12 +734,51 @@ export function previewAutomaticForm(
 	const requested = entries.find(
 		(entry) => entry.form.uuid === requestedFormUuid,
 	);
-	if (requested?.visibility === "shown") return requested.form.uuid;
-	const shown = entries.filter((entry) => entry.visibility === "shown");
-	return !entries.some((entry) => entry.visibility === "pending") &&
-		shown.length === 1
-		? shown[0].form.uuid
+	return requested?.visibility === "shown" ? requested.form.uuid : undefined;
+}
+
+/** The case target a case list reads: the form it names and whether the
+ *  worker chose that form after its case (`PreviewCaseTarget`). */
+export interface PreviewCaseListTarget {
+	readonly formUuid: Uuid;
+	readonly formChosenAfterCase?: true;
+}
+
+/**
+ * The form a case list holds for the case chosen on it: the target's form,
+ * where it is one of the list's case-loading forms and the worker chose it
+ * before the case (a forms-first menu's form, a link's, a retained task's);
+ * otherwise none. A form chosen from a menu after its case sits above the
+ * case in the session, so the list a device steps back to holds no form:
+ * `CommCareSession.stepBack` pops the form's command (the menu waits for a
+ * command) and then the case (the list waits for a case), and choosing a
+ * case there lists the menu again.
+ */
+export function previewCaseListFormRequest(
+	target: PreviewCaseListTarget | undefined,
+	caseLoadingFormUuids: readonly Uuid[],
+): Uuid | undefined {
+	if (target === undefined || target.formChosenAfterCase === true)
+		return undefined;
+	return caseLoadingFormUuids.includes(target.formUuid)
+		? target.formUuid
 		: undefined;
+}
+
+/**
+ * The case target a route from a form back to its case list leaves, so the
+ * next case chosen there continues as a device's would: the form again where
+ * the worker chose it before its case, since stepping back off the case keeps
+ * the form's command; none where the worker chose it from a menu after its
+ * case, since the device steps back past both.
+ */
+export function previewCaseListReturnTarget(
+	target: PreviewCaseListTarget | undefined,
+	formUuid: Uuid,
+): { readonly formUuid: Uuid } | undefined {
+	return target?.formUuid === formUuid && target.formChosenAfterCase === true
+		? undefined
+		: { formUuid };
 }
 
 /** A module's case list as its own entry on the module's menu

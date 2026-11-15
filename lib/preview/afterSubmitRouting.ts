@@ -59,10 +59,12 @@ import {
 	type AfterSubmitPathStep,
 	afterSubmitPath,
 } from "./afterSubmitStack";
+import { readPreviewScreen } from "./engine/dataRefusal";
 import {
 	formDisplayVisibility,
 	moduleDisplayVisibility,
 	type NavigationDeviceCases,
+	type NavigationItemVisibility,
 	navigationSelectedCase,
 } from "./engine/displayConditionEvaluation";
 import { previewExpressionContext } from "./engine/expressionContext";
@@ -163,25 +165,27 @@ export function afterSubmitTargetVisibility(args: {
 }): AfterSubmitTargetVisibility {
 	const { doc, target } = args;
 	const lookupData = args.lookup.kind === "data" ? args.lookup.data : undefined;
-	const ownVisibility = (moduleUuid: Uuid) => {
+	const ownVisibility = (moduleUuid: Uuid): NavigationItemVisibility => {
 		const mod = doc.modules[moduleUuid];
-		if (mod === undefined) return "shown" as const;
-		return moduleDisplayVisibility({
-			condition: mod.displayCondition,
-			hiddenFromMenu: mod.hiddenFromMenu === true,
-			session: args.session,
-			types: previewExpressionContext(
-				doc,
-				{
-					entity: "module",
-					uuid: moduleUuid,
-					slot: "module_display_condition",
-				},
-				lookupData,
-			),
-			lookup: args.lookup,
-			deviceCases: args.deviceCases,
-		});
+		if (mod === undefined) return "shown";
+		return refusedAsHidden(() =>
+			moduleDisplayVisibility({
+				condition: mod.displayCondition,
+				hiddenFromMenu: mod.hiddenFromMenu === true,
+				session: args.session,
+				types: previewExpressionContext(
+					doc,
+					{
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "module_display_condition",
+					},
+					lookupData,
+				),
+				lookup: args.lookup,
+				deviceCases: args.deviceCases,
+			}),
+		);
 	};
 	/* The screens from the top: the first menu module the walk finds hidden
 	 * stops it on the screen that lists that module's tile, so a module still
@@ -228,23 +232,43 @@ export function afterSubmitTargetVisibility(args: {
 					chosen[0].caseId,
 				)
 			: undefined;
-	const visibility = formDisplayVisibility({
-		condition: form.displayCondition,
-		hiddenFromMenu: form.hiddenFromMenu === true,
-		session: args.session,
-		types: previewExpressionContext(
-			doc,
-			{ entity: "form", uuid: target.formUuid, slot: "form_display_condition" },
-			lookupData,
-		),
-		selectedCase,
-		lookup: args.lookup,
-		deviceCases: args.deviceCases,
-	});
+	const visibility = refusedAsHidden(() =>
+		formDisplayVisibility({
+			condition: form.displayCondition,
+			hiddenFromMenu: form.hiddenFromMenu === true,
+			session: args.session,
+			types: previewExpressionContext(
+				doc,
+				{
+					entity: "form",
+					uuid: target.formUuid,
+					slot: "form_display_condition",
+				},
+				lookupData,
+			),
+			selectedCase,
+			lookup: args.lookup,
+			deviceCases: args.deviceCases,
+		}),
+	);
 	if (visibility === "pending") return "pending";
 	return visibility === "hidden"
 		? { kind: "form-hidden", shownModuleUuid: landing }
 		: "shown";
+}
+
+/**
+ * A condition the walk reads, with Core's refusal of data the device lacks
+ * (a place key of a worker assigned nowhere) read as hidden: Formplayer's
+ * walk fails on the screen that reads it, and the walk stops on the screen
+ * that lists the item, which reads the same condition and shows the refusal
+ * in its place (`HomeScreen`, `ModuleScreen`, `engine/dataRefusal.ts`).
+ */
+function refusedAsHidden(
+	read: () => NavigationItemVisibility,
+): NavigationItemVisibility {
+	const result = readPreviewScreen(read);
+	return result.kind === "refused" ? "hidden" : result.value;
 }
 
 /** One exact ordered multi-case selection carried by an automatic compatible

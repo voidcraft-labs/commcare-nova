@@ -262,9 +262,11 @@ never stored raw-XPath validation codes. There is no printed-source checker.
   stored by stable identity and resolved to its current slug only at Preview,
   SQL, or CommCare emission. `source: "worker-record"` reads the worker's own
   case (a form's `#user/`); no `source` reads session user data. The separate
-  `session-user { field }` arm stays name-backed for CommCare-provided or
-  external worker fields that have no Nova entity, and authoring never infers
-  one arm from the other's text.
+  `session-user { field }` arm stays name-backed for fields with no Nova
+  entity: from the session only a key CommCare writes itself
+  (`undeclared-worker-field` refuses any other), and from either source never
+  a declared slug (`worker-property-read-by-name`), which the parser binds to
+  its identity instead.
 - A `via` of kind `self` collapses to the inner `where` (no identity join).
 - `any-relation` is direction-agnostic: for the canonical `parent` index its
   possible destination types are the origin's parent UNION its direct children,

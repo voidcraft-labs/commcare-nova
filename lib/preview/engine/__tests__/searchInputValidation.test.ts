@@ -32,6 +32,7 @@ import {
 import { WEB_APPS_RULES } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { toBoolean } from "../../xpath/coerce";
+import { previewDataRefusalOf } from "../dataRefusal";
 import type { PreviewSearchSessionValues } from "../identity";
 import type { SearchScreenXPath } from "../searchExpressionEvaluation";
 import {
@@ -526,9 +527,11 @@ describe("searchInputRuntimeQuoteErrors", () => {
 			),
 		).toBeUndefined();
 
-		const inherited = Object.create({
-			search_label: `O'Brien "Clinic"`,
-		}) as Record<string, string>;
+		/* The worker's own key is read, never one its prototype holds. */
+		const inherited = Object.assign(
+			Object.create({ search_label: `O'Brien "Clinic"` }),
+			{ search_label: "O'Brien Clinic" },
+		) as Record<string, string>;
 		expect(
 			searchInputRuntimeGlobalError(
 				config,
@@ -808,26 +811,47 @@ describe("searchFindsNothing", () => {
 	});
 
 	it("finds nothing, with no message, while a session value compared with date_opened is blank", () => {
-		for (const blank of [undefined, ""]) {
-			expect(
-				searchFindsNothing(
-					config,
-					"patient",
-					new Map(),
-					session(blank),
-					validationEnvironment(config),
-				),
-			).toBe(true);
-			expect(
-				searchInputRuntimeGlobalError(
-					config,
-					"patient",
-					new Map(),
-					session(blank),
-					validationEnvironment(config),
-				),
-			).toBeUndefined();
+		const blank = "";
+		expect(
+			searchFindsNothing(
+				config,
+				"patient",
+				new Map(),
+				session(blank),
+				validationEnvironment(config),
+			),
+		).toBe(true);
+		expect(
+			searchInputRuntimeGlobalError(
+				config,
+				"patient",
+				new Map(),
+				session(blank),
+				validationEnvironment(config),
+			),
+		).toBeUndefined();
+	});
+
+	/* A device that holds no such key refuses the read before it searches
+	 * (`XPathNodeset.unpack`), so the Search screen stops rather than finding
+	 * nothing. */
+	it("refuses the search while the device holds no such key", () => {
+		let refused: unknown;
+		try {
+			searchFindsNothing(
+				config,
+				"patient",
+				new Map(),
+				session(undefined),
+				validationEnvironment(config),
+			);
+		} catch (error) {
+			refused = error;
 		}
+		expect(previewDataRefusalOf(refused)?.reason).toEqual({
+			kind: "empty-instance",
+			instanceId: "commcaresession",
+		});
 	});
 
 	it("searches once the value holds a date", () => {

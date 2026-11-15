@@ -30,6 +30,7 @@ import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { CaseTile } from "./CaseTile";
+import { PreviewDataRefusalPanel } from "./PreviewDataRefusal";
 import { useColumnDisplayContext } from "./useColumnDisplayContext";
 import { useWorkerMessage } from "./WorkerText";
 
@@ -133,6 +134,11 @@ export function PersistentCaseTile({
 							className="h-14 w-full max-w-3xl rounded-lg"
 							aria-label={message("loadingCase")}
 						/>
+					) : state.kind === "data-refused" ? (
+						/* A field of the tile reads data the worker's device lacks
+						 * (a place key of a worker assigned nowhere), which a phone
+						 * refuses as it draws the tile. */
+						<PreviewDataRefusalPanel surface="list" reason={state.reason} />
 					) : (
 						<CaseUnavailableNotice
 							kind={state.kind}

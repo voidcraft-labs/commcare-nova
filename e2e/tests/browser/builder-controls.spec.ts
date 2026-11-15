@@ -896,20 +896,23 @@ test("raw user field requires a valid authored name and retains invalid edits lo
 	await name.fill("bad name");
 	await expect(name).toHaveAttribute("aria-invalid", "true");
 	await expect(apply).toBeDisabled();
-	await name.fill("assigned-region");
+	// A raw read from the session names a key CommCare writes itself: any
+	// other name is refused at the gate (`undeclared-worker-field`), which the
+	// fixture's commit check holds as the builder's gate does.
+	await name.fill("commcare_location_id");
 	await apply.click();
 	await expect(page.getByLabel("Saved source")).toHaveText(
-		'{"kind":"term","term":{"kind":"session-user","field":"assigned-region"}}',
+		'{"kind":"term","term":{"kind":"session-user","field":"commcare_location_id"}}',
 	);
 	const field = page.getByRole("textbox", { name: "User information field" });
 	await field.fill("bad name");
 	await page.getByRole("button", { name: "Leave source" }).click();
 	await expect(field).toHaveAttribute("aria-invalid", "true");
 	await expect(page.getByLabel("Source commits")).toHaveText("1");
-	await field.fill("assigned_region");
+	await field.fill("commcare_location_ids");
 	await page.getByRole("button", { name: "Leave source" }).click();
 	await expect(page.getByLabel("Saved source")).toHaveText(
-		'{"kind":"term","term":{"kind":"session-user","field":"assigned_region"}}',
+		'{"kind":"term","term":{"kind":"session-user","field":"commcare_location_ids"}}',
 	);
 });
 

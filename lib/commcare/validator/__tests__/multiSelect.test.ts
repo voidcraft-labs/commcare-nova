@@ -11,7 +11,7 @@ import {
 	formField,
 	literal,
 	neq,
-	sessionUser,
+	sessionContext,
 	term,
 } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -792,7 +792,7 @@ describe("multi-select absolute validation", () => {
 
 	it("allows plain unrelated exact session reads without filters", () => {
 		const doc = linkExpressionDoc({
-			condition: neq(sessionUser("user_id"), literal("")),
+			condition: neq(sessionContext("userid"), literal("")),
 		});
 
 		const link = doc.forms[SOURCE_FORM].formLinks?.[0];

@@ -1,4 +1,5 @@
 /** Navigation decisions shared by authoring reads and the running app. */
+import type { BlueprintDoc } from "./blueprint";
 import { resolveFormLinkTarget } from "./formLinkTargets";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -8,7 +9,6 @@ import {
 } from "./forms";
 import { afterEmptySearchRegistrationFormOf } from "./menuForms";
 import {
-	type MenuScreenSource,
 	moduleHasOwnScreen,
 	screenChoosesCaseFirst,
 	screenIsBareCaseList,
@@ -27,19 +27,24 @@ export type ModuleScreenLanding =
 	| { readonly kind: "open-case-list" };
 
 /**
- * Two module shapes make the form menu the wrong landing:
+ * Two screen shapes make the form menu the wrong landing:
  *
- * - A bare case list (`menuForms.ts::moduleIsBareCaseList`: a case list menu
- *   entry and no menu forms) has no forms in any mode, so the menu is always
- *   empty. It REPLACES history, because `{kind:"module"}`
- *   must never become a back-button stop for a formless module.
- * - A case-first module (every form case-loading) lands on the case list in the
- *   running app, since the shared case selection hoists. Edit mode keeps the
- *   menu: it is the authoring surface, so this arm is preview-only, and it
- *   PUSHES, because the module is a real reachable screen while authoring.
- *
- * The bare-case-list arm wins when both apply: it holds in edit mode too, and
- * its history replacement is the stronger claim.
+ * - A bare case list (`menuScreens.ts::screenIsBareCaseList`: a case list
+ *   menu entry and no forms) lists no form, so its menu is its list. It
+ *   REPLACES history, because `{kind:"module"}` must never become a
+ *   back-button stop for a formless module. Its submenus list once its case
+ *   is chosen, so with submenus the menu is a screen again after the choice,
+ *   and edit mode keeps it so an author reaches them.
+ * - A case-first screen (every entry it lists needs the same case first,
+ *   `menuScreens.ts::screenChoosesCaseFirst`) lands on the case list in the
+ *   running app, submenus or not: CommCare asks for the case before it lists
+ *   anything on the screen (`CommCareSession.getNeededData` reaches
+ *   `getDataNeededByAllEntries` over the entries of every `<menu>` with the
+ *   screen's id, and a submenu is a `<menu root>` of its own, no entry of
+ *   them), and `MenuLoader` lists the forms and the submenus once it is
+ *   chosen. Edit mode keeps the menu: it is the authoring surface, so this
+ *   arm is preview-only, and it PUSHES, because the module is a real
+ *   reachable screen while authoring.
  */
 export function moduleScreenLanding(args: {
 	readonly hasModule: boolean;
@@ -52,10 +57,11 @@ export function moduleScreenLanding(args: {
 }): ModuleScreenLanding {
 	if (!args.hasModule || args.preserveEntryPointMenu)
 		return { kind: "form-menu" };
-	/* A parent module is a real menu even when its own case workflow would
-	 * normally hoist selection. It must remain available to show child tiles. */
-	if (args.hasChildren) return { kind: "form-menu" };
-	if (args.isBareCaseList) return { kind: "replace-with-case-list" };
+	if (
+		args.isBareCaseList &&
+		!(args.hasChildren && (args.mode === "edit" || args.hasSelectedCase))
+	)
+		return { kind: "replace-with-case-list" };
 	if (args.mode !== "edit" && args.isCaseFirst && !args.hasSelectedCase)
 		return { kind: "open-case-list" };
 	return { kind: "form-menu" };
@@ -89,10 +95,10 @@ export function formLaunch(args: {
 export type ModuleLanding = "case-list" | "form-menu";
 
 /**
- * A bare case list (`moduleIsBareCaseList`) has no form menu to show, and a
- * case-first module (every form case-loading) hoists the case selection in
- * the running app; both land on the case list. Everything else lands on the
- * form menu.
+ * A bare case list has no form menu to show, and a case-first screen asks for
+ * its case before it lists anything, submenus included; both land on the
+ * case list in the running app until their case is chosen
+ * (`moduleScreenLanding`). Everything else lands on the form menu.
  */
 export function moduleLanding(args: {
 	readonly isCaseFirst: boolean;
@@ -148,7 +154,9 @@ export type NavigationDestination =
 			readonly findings?: readonly NavigationReadFinding[];
 	  };
 
-type NavigationDoc = MenuScreenSource;
+/** Whether a screen chooses a case first reads whether a menu is emitted
+ *  advanced, which reads the whole document. */
+type NavigationDoc = BlueprintDoc;
 
 /** An ordinary module entry, rather than an entry point that pins its menu.
  * Without a concrete session, preserve the selected-record alternative. A

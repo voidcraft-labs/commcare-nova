@@ -133,7 +133,13 @@ import {
 	choiceAnswerDiagnostic,
 } from "./choiceAnswerDiagnostic";
 import { DataInstance, type DataInstanceSnapshot } from "./dataInstance";
-import { ownerMovesToNoPlace, PreviewDataRefusal } from "./dataRefusal";
+import {
+	caseBlocksReadAbsentWorkerKey,
+	ownerMovesToNoPlace,
+	PreviewDataRefusal,
+	type PreviewDataRefusalReason,
+	WORKER_INFORMATION_REFUSAL,
+} from "./dataRefusal";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import {
 	type FormExpressionRuntime,
@@ -738,9 +744,13 @@ export class FormEngine {
 	/** The last refused insert of each repeat, by concrete repeat path. It
 	 * stays until an insert of that repeat succeeds or the entry restarts. */
 	private repeatInsertRefusals = new Map<string, SetvalueRefusalDetails>();
-	/** The repeats whose rows move a case to the place of a worker assigned
-	 * nowhere: Core refuses the form as soon as one of their rows exists. */
-	private readonly ownerRepeatsWithoutPlace: ReadonlySet<Uuid>;
+	/** The repeats whose rows Core refuses as soon as one exists, each with
+	 * why: a case moved to the place of a worker assigned nowhere, or a case
+	 * block that reads a worker-data key the worker's device lacks. */
+	private readonly refusedRowRepeats: ReadonlyMap<
+		Uuid,
+		PreviewDataRefusalReason
+	>;
 
 	constructor(
 		input: FormEngineInput,
@@ -779,7 +789,19 @@ export class FormEngine {
 		);
 		if (ownerWithoutPlace?.form === true)
 			throw new PreviewDataRefusal({ kind: "owner-without-place" });
-		this.ownerRepeatsWithoutPlace = ownerWithoutPlace?.repeats ?? new Set();
+		const absentWorkerKey = caseBlocksReadAbsentWorkerKey(
+			printableDocOf(input),
+			{ uuid: input.formUuid, caseOperations: input.form.caseOperations },
+			previewSessionValues(this.previewIdentity, this.device).user,
+		);
+		if (absentWorkerKey?.form === true)
+			throw new PreviewDataRefusal(WORKER_INFORMATION_REFUSAL);
+		const refusedRowRepeats = new Map<Uuid, PreviewDataRefusalReason>();
+		for (const repeat of absentWorkerKey?.repeats ?? [])
+			refusedRowRepeats.set(repeat, WORKER_INFORMATION_REFUSAL);
+		for (const repeat of ownerWithoutPlace?.repeats ?? [])
+			refusedRowRepeats.set(repeat, { kind: "owner-without-place" });
+		this.refusedRowRepeats = refusedRowRepeats;
 		this.secondaryInstances = secondaryXPathInstances({
 			session: previewSessionValues(this.previewIdentity, this.device),
 			lookupData: this.lookupData,
@@ -5150,30 +5172,37 @@ export class FormEngine {
 		this.refuseOwnerRowWithoutPlace();
 	}
 
-	/** Refuse the entry once a row exists whose case operation moves the case
-	 * to the place of a worker assigned nowhere, as Core does when it
-	 * calculates that row's owner. */
+	/** Refuse the entry once a row exists whose case block Core refuses as it
+	 * calculates it: one that moves the case to the place of a worker assigned
+	 * nowhere, or one that reads a worker-data key the device lacks. */
 	private refuseOwnerRowWithoutPlace(): void {
-		const repeats = this.ownerRepeatsWithoutPlace;
+		const repeats = this.refusedRowRepeats;
 		if (repeats.size === 0) return;
-		const rowExists = (
+		const refusedRow = (
 			nodes: readonly FieldTreeNode[],
 			prefix: string,
-		): boolean =>
-			nodes.some((node) => {
+		): PreviewDataRefusalReason | undefined => {
+			for (const node of nodes) {
 				const field = node.field;
 				const path = `${prefix}/${field.id}`;
-				if (field.kind === "group" || field.kind === "section")
-					return rowExists(node.children ?? [], path);
-				if (field.kind !== "repeat") return false;
+				if (field.kind === "group" || field.kind === "section") {
+					const found = refusedRow(node.children ?? [], path);
+					if (found !== undefined) return found;
+					continue;
+				}
+				if (field.kind !== "repeat") continue;
 				const count = this.instance.getRepeatCount(path);
-				if (count > 0 && repeats.has(field.uuid)) return true;
-				for (let index = 0; index < count; index++)
-					if (rowExists(node.children ?? [], `${path}[${index}]`)) return true;
-				return false;
-			});
-		if (rowExists(this.tree, "/data"))
-			throw new PreviewDataRefusal({ kind: "owner-without-place" });
+				const reason = repeats.get(field.uuid);
+				if (count > 0 && reason !== undefined) return reason;
+				for (let index = 0; index < count; index++) {
+					const found = refusedRow(node.children ?? [], `${path}[${index}]`);
+					if (found !== undefined) return found;
+				}
+			}
+			return undefined;
+		};
+		const reason = refusedRow(this.tree, "/data");
+		if (reason !== undefined) throw new PreviewDataRefusal(reason);
 	}
 
 	private async settleLiveRepeatsAsync(

@@ -1392,7 +1392,10 @@ it("reports its local clock and uses the same day in list calculations and forms
 	expect(
 		await step({ kind: "select", caseIds: ["appointment-1"] }),
 	).toMatchObject({ screen: "details" });
-	const opened = await step({ kind: "continue" });
+	/* CommCare lists the menu's one form once the case is chosen
+	 * (`CommCareSession.getNeededData`: a menu's command names no entry). */
+	expect(await step({ kind: "continue" })).toMatchObject({ screen: "menu" });
+	const opened = await step({ kind: "form", formUuid: form.uuid });
 	expect(opened).toMatchObject({
 		clock,
 		questions: expect.arrayContaining([
@@ -1633,9 +1636,11 @@ it.each([
 				answers: [{ path: "condition", value: "Fixed" }],
 			}),
 		).toMatchObject({ completed: false });
+		/* A case-first menu lists its forms once the case is chosen, however
+		 * many it holds; the form chosen before the case opens on its own. */
 		const openTask = async () => {
 			const continued = await step({ kind: "continue" });
-			if (chooser) {
+			if (chooser || !formsFirst) {
 				expect(continued).toMatchObject({
 					screen: "menu",
 					selected: [expect.objectContaining({ caseId: "repair-a" })],
@@ -3885,10 +3890,18 @@ it("finds a searched record beyond the session's restore and writes its claim ro
 	// search the claim posts only once a form is chosen.
 	await advance([{ action: { kind: "select", caseIds: ["p-bob"] } }]);
 	expect(await claimRows()).toEqual([]);
-	// Continue opens the module's one case form, which posts the claim: a
-	// claim row Alice owns in the journey's namespace, so the form opens with
-	// the record held and its case data preloaded.
+	// Continue lists the menu's one case form, as CommCare lists a menu's
+	// forms once its case is chosen, and posts nothing yet.
 	expect(await advance([{ action: { kind: "continue" } }])).toMatchObject({
+		screen: "menu",
+	});
+	expect(await claimRows()).toEqual([]);
+	// Choosing the form posts the claim: a claim row Alice owns in the
+	// journey's namespace, so the form opens with the record held and its
+	// case data preloaded.
+	expect(
+		await advance([{ action: { kind: "form", formUuid: FOLLOWUP_FORM } }]),
+	).toMatchObject({
 		screen: "form",
 		questions: expect.arrayContaining([
 			expect.objectContaining({ path: "seen_name", value: "Maya" }),

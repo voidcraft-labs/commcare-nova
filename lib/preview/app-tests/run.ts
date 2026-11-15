@@ -29,9 +29,11 @@ import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
+import { previewDataRefusalSubject } from "../engine/dataRefusal";
 import { evaluateForm } from "../engine/evaluateForm";
 import { appReadsPlaces } from "../engine/expressionCaseReads";
 import { availablePages } from "../engine/sectionPaging";
+import { serverPreviewDataRefusalOf } from "../engine/serverDataRefusal";
 import {
 	recordsReadSearch,
 	searchedReading,
@@ -42,7 +44,11 @@ import {
 	formReadsSearchResults,
 	type SearchResultsSnapshot,
 } from "../engine/xpathInstances";
-import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
+import {
+	dataRefusalCopy,
+	runtimeLanguage,
+	runtimeMessage,
+} from "../runtimeMessages";
 import {
 	claimableCaseIds,
 	claimPostsAtResult,
@@ -476,7 +482,11 @@ export async function observeAppTest(
 	scope: AppTestScope,
 	state: AppTestSessionState,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
-	return observeAppTestWithEvaluation(context, scope, state);
+	try {
+		return await observeAppTestWithEvaluation(context, scope, state);
+	} catch (error) {
+		throw appTestDataRefusal(context, error);
+	}
 }
 
 async function observeAppTestWithEvaluation(
@@ -667,8 +677,38 @@ async function postAppTestClaims(
 	};
 }
 
-/** Only actions available on the observed screen can advance this worker. */
+/** Only actions available on the observed screen can advance this worker. A
+ *  screen a phone stops on, because a menu reads data the device lacks, is the
+ *  worker's refusal, in the words Preview shows it in. */
 export async function advanceAppTest(
+	context: AppTestContext,
+	scope: Scope,
+	state: AppTestSessionState,
+	action: AppTestAction,
+): Promise<{ state: AppTestSessionState; observation: Observation }> {
+	try {
+		return await advanceAppTestOnScreen(context, scope, state, action);
+	} catch (error) {
+		throw appTestDataRefusal(context, error);
+	}
+}
+
+/** Core's refusal of data the device lacks while a screen lists its menus
+ *  or its cases, or while a form opens or goes on
+ *  (`engine/serverDataRefusal.ts`), as the action's refusal; any other error
+ *  as it is. */
+function appTestDataRefusal(context: AppTestContext, error: unknown): unknown {
+	const refusal = serverPreviewDataRefusalOf(error);
+	if (refusal === undefined) return error;
+	const copy = dataRefusalCopy(
+		context.language,
+		refusal.stage === "links" ? "links" : "menu",
+		previewDataRefusalSubject(refusal.reason, context.lookup),
+	);
+	return new AppTestActionError(`${copy.title}. ${copy.body}`);
+}
+
+async function advanceAppTestOnScreen(
 	context: AppTestContext,
 	scope: Scope,
 	state: AppTestSessionState,

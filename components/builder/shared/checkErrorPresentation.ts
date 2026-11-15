@@ -75,6 +75,10 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"unknown-search-input": () => "Choose an available Search field",
 	"unknown-form-field": () => "Choose an available form answer",
 	"unknown-user-property": () => "Choose available worker information",
+	"undeclared-worker-field": () =>
+		"Add this as worker information in App setup, then choose it here",
+	"worker-property-read-by-name": () =>
+		"Choose this worker information from the list",
 	"unknown-operation-id": () => "Choose an earlier case operation",
 	"operation-context-value": () =>
 		"Choose a value available in this part of the app",

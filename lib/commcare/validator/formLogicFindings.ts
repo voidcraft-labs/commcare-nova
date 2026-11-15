@@ -316,6 +316,17 @@ export function formLogicFinding(
 				details = { identity: "place" };
 			break;
 		}
+		case "undeclared-worker-field":
+		case "worker-property-read-by-name":
+			code = "INVALID_REF";
+			details = {
+				identity:
+					error.code === "undeclared-worker-field"
+						? "worker-field"
+						: "worker-property-by-name",
+				...(term?.kind === "session-user" ? { workerField: term.field } : {}),
+			};
+			break;
 		case "form-answer-unavailable":
 			code = "INVALID_REF";
 			if (ctx?.profile.scope === "session") message = SESSION_FORM_READ_MESSAGE;

@@ -7,6 +7,10 @@ import {
 import { moduleUuidOfForm } from "@/lib/domain";
 import { createEvaluationApp } from "@/lib/preview/engine/__tests__/evaluationFixture";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import {
+	previewDataRefusalOf,
+	previewDataRefusalSubject,
+} from "@/lib/preview/engine/dataRefusal";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import {
 	previewAsMe,
@@ -151,13 +155,30 @@ it("the worker readings returned to authors execute in their stated scopes and f
 		// The case changes that save these answers run at submission, which
 		// a form check does not perform; the answers above are what they save.
 		expect(result.submission).toMatchObject({ kind: "registration" });
-		const searchValues = resolveSearchHiddenValues(
-			searchInputs,
-			previewSessionValues(identity, webAppsDevice()),
-			{ doc, moduleUuid },
-		);
-		for (const key of searchKeys)
-			expect(searchValues.get(key) ?? "").toBe(expected[key]);
+		// A record expression reads the session, which holds a place key only
+		// for a worker assigned somewhere (`models.py::get_user_session_data`):
+		// for a worker assigned nowhere Core refuses the read, never a blank.
+		for (const key of searchKeys) {
+			const read = () =>
+				resolveSearchHiddenValues(
+					searchInputs.filter((input) => input.name === key),
+					previewSessionValues(identity, webAppsDevice()),
+					{ doc, moduleUuid },
+				).get(key) ?? "";
+			if (expected[key] === "") {
+				let refused: unknown;
+				try {
+					read();
+				} catch (error) {
+					refused = error;
+				}
+				const refusal = previewDataRefusalOf(refused);
+				expect(
+					refusal && previewDataRefusalSubject(refusal.reason, null),
+					key,
+				).toEqual({ kind: "worker-information" });
+			} else expect(read(), key).toBe(expected[key]);
+		}
 	}
 	expect(doc.userPropertyOrder ?? []).toEqual([]);
 });

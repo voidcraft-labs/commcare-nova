@@ -85,6 +85,12 @@ export interface PreviewCaseTarget {
 	 * last search, as Web Apps rebuilds a linked form's query step
 	 * (`caseListRegistration.ts::formSearchAnswers`). */
 	openedByLink?: true;
+	/** The worker chose the form from a menu after its case: the session
+	 * holds the case beneath the form's command, so a step back off the form
+	 * lands on that menu and a second on a case list that holds no form
+	 * (`CommCareSession.stepBack`). A list reached with this target opens no
+	 * form once a case is chosen (`menuProjection.ts::previewCaseListFormRequest`). */
+	formChosenAfterCase?: true;
 }
 
 /** A command retained by after-submit navigation. Its exact task may finish

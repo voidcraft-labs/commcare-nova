@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-navigation-client";
@@ -758,6 +758,187 @@ async function closeNavigation(page: Page) {
 const [FIRST_CASE] = NAVIGATION_CASES;
 const [RAO_HOUSEHOLD] = NAVIGATION_HOUSEHOLDS;
 
+/* A worker assigned nowhere has no place key in the session
+ * (`models.py::get_user_session_data`), and Core refuses a read of a key the
+ * device lacks, failing the menu that reads it (`MenuLoader`, shown by
+ * Formplayer's `MenuScreen.init` and Android's `MenuAdapter`). */
+for (const platform of ["web-apps", "android"] as const)
+	test(`${platform}: a first menu whose condition reads a place the worker lacks stops as a phone does, saying what to change`, async ({
+		page,
+	}) => {
+		try {
+			await page.setViewportSize({ width: 390, height: 800 });
+			await page.goto(
+				`${navigationPeer.origin}/?fixture=place-condition&platform=${platform}`,
+			);
+			const main = page.locator("main");
+			const refusal = main.locator(
+				'[data-preview-data-refusal="worker-information"]',
+			);
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toHaveAttribute(
+				"data-preview-data-refusal-surface",
+				"menu",
+			);
+			await expect(
+				refusal.getByRole("heading", {
+					name: "This menu doesn't open on a phone",
+				}),
+			).toBeVisible();
+			await expect(refusal).toContainText(
+				"This menu reads worker information you don't have",
+			);
+			await expect(refusal).toContainText(
+				"you can preview as a persona who has a place",
+			);
+			// No menu of the screen lists in its place.
+			await expect(
+				main.getByRole("button", { name: /^Patients\b/ }),
+			).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+/* Every other screen that reads the place of a worker assigned nowhere stops
+ * as a phone stops there, with the refusal held as the screen's state, so
+ * nothing reaches the console (the error guard). */
+async function openPlaceScreen(page: Page, platform: string, menu: RegExp) {
+	await page.setViewportSize({ width: 390, height: 800 });
+	await page.goto(
+		`${navigationPeer.origin}/?fixture=place-screens&platform=${platform}`,
+	);
+	const main = page.locator("main");
+	await main.getByRole("button", { name: menu }).click({ timeout: 20_000 });
+	return main;
+}
+
+function workerRefusal(main: Locator) {
+	return main.locator('[data-preview-data-refusal="worker-information"]');
+}
+
+for (const platform of ["web-apps", "android"] as const) {
+	test(`${platform}: a menu whose submenu's condition reads a place the worker lacks stops on its own screen`, async ({
+		page,
+	}) => {
+		try {
+			const main = await openPlaceScreen(page, platform, /^Districts\b/);
+			const refusal = workerRefusal(main);
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toHaveAttribute(
+				"data-preview-data-refusal-surface",
+				"menu",
+			);
+			await expect(
+				refusal.getByRole("heading", {
+					name: "This menu doesn't open on a phone",
+				}),
+			).toBeVisible();
+			await expect(
+				main.getByRole("button", { name: /^District survey\b/ }),
+			).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+	test(`${platform}: a case-first menu whose form's condition reads a place the worker lacks stops once the case is chosen`, async ({
+		page,
+	}) => {
+		try {
+			const main = await openPlaceScreen(page, platform, /^Patients\b/);
+			await main
+				.getByRole("button", { name: `Continue with ${FIRST_CASE}` })
+				.click({ timeout: 20_000 });
+			const refusal = workerRefusal(main);
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toHaveAttribute(
+				"data-preview-data-refusal-surface",
+				"menu",
+			);
+			// No form of the menu lists or opens in its place.
+			await expect(main.locator("[data-form-menu-choice-label]")).toHaveCount(
+				0,
+			);
+			await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+	test(`${platform}: a list whose filter reads a place the worker lacks stops in place of its cases`, async ({
+		page,
+	}) => {
+		try {
+			const main = await openPlaceScreen(page, platform, /^Placed patients\b/);
+			const refusal = workerRefusal(main);
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toHaveAttribute(
+				"data-preview-data-refusal-surface",
+				"list",
+			);
+			await expect(
+				refusal.getByRole("heading", {
+					name: "This case list doesn't open on a phone",
+				}),
+			).toBeVisible();
+			await expect(
+				main.getByRole("button", { name: `Continue with ${FIRST_CASE}` }),
+			).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+}
+
+/* A Search field that starts on the place: Web Apps opens the menu on its
+ * Search screen, which reads the value as it opens, so the screen stops;
+ * Android opens the list first and stops only the search. */
+test("web-apps: a Search screen that starts a field on a place the worker lacks stops as it opens", async ({
+	page,
+}) => {
+	try {
+		const main = await openPlaceScreen(page, "web-apps", /^Find patients\b/);
+		const refusal = workerRefusal(main);
+		await expect(refusal).toBeVisible({ timeout: 20_000 });
+		await expect(refusal).toHaveAttribute(
+			"data-preview-data-refusal-surface",
+			"search",
+		);
+		await expect(
+			refusal.getByRole("heading", {
+				name: "This search doesn't open on a phone",
+			}),
+		).toBeVisible();
+		await expect(refusal).toContainText(
+			"This search reads worker information you don't have",
+		);
+		await expect(main.getByLabel("Place")).toHaveCount(0);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("android: a list that opens first keeps its cases, and its Search stops on a place the worker lacks", async ({
+	page,
+}) => {
+	try {
+		const main = await openPlaceScreen(page, "android", /^Find patients\b/);
+		const refusal = workerRefusal(main);
+		await expect(refusal).toBeVisible({ timeout: 20_000 });
+		await expect(refusal).toHaveAttribute(
+			"data-preview-data-refusal-surface",
+			"search",
+		);
+		await expect(main.getByLabel("Place")).toHaveCount(0);
+		await expect(
+			main.getByRole("button", { name: `Continue with ${FIRST_CASE}` }),
+		).toBeVisible();
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
 test("a menu that searches first opens on Search in Web Apps", async ({
 	page,
 }) => {
@@ -840,7 +1021,7 @@ test("a case-first menu lists only its forms once the case is chosen, without it
 			.getByRole("button", { name: `Continue with ${FIRST_CASE}` })
 			.click({ timeout: 20_000 });
 		// The entry chooses the case already chosen, so CommCare does not list
-		// it, and CommCare never opens a menu's lone form by itself.
+		// it, and it lists the menu's one form rather than opening it.
 		await expect(main.locator("[data-form-menu-choice-label]")).toHaveText([
 			"Visit",
 		]);
@@ -852,26 +1033,36 @@ test("a case-first menu lists only its forms once the case is chosen, without it
 	}
 });
 
-test("once a household is chosen, the menu lists its members' case list entry, which opens their list", async ({
+test("a case-first menu showing another menu's forms opens on its case list, and lists its forms and its members' case list entry once a household is chosen", async ({
 	page,
 }) => {
 	try {
 		await page.setViewportSize({ width: 390, height: 800 });
-		// CommCare opens Households on its case list. The peer starts there,
-		// so the test does not depend on how Preview lands on a case-first
-		// menu with submenus (issue #914).
 		await page.goto(
-			`${navigationPeer.origin}/?fixture=child-list-above&platform=web-apps&at=households`,
+			`${navigationPeer.origin}/?fixture=child-list-above&platform=web-apps`,
 		);
 		const main = page.locator("main");
 		const entry = main.locator("[data-case-list-menu-entry]");
 		await main
-			.getByRole("button", { name: `Continue with ${RAO_HOUSEHOLD.name}` })
+			.getByRole("button", { name: /^Households\b/ })
 			.click({ timeout: 20_000 });
+		// CommCare asks for the household before it lists anything on the
+		// screen, the members' forms and case list entry included.
+		const chooseHousehold = main.getByRole("button", {
+			name: `Continue with ${RAO_HOUSEHOLD.name}`,
+		});
+		await expect(chooseHousehold).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByLabel("Location")).toHaveText("cases");
+		await expect(main.getByRole("button", { name: "Cases" })).toHaveCount(0);
+		await expect(entry).toHaveCount(0);
+		await chooseHousehold.click();
 		// The households' own entry would choose the household again, so
 		// only the members' entry is listed, after the forms.
 		await expect(entry).toHaveCount(1, { timeout: 20_000 });
 		await expect(entry).toHaveText("People");
+		await expect(
+			main.getByRole("button", { name: /^Visit household\b/ }),
+		).toBeVisible();
 		await entry.click();
 		// It opens the chosen household's members.
 		const [member] = RAO_HOUSEHOLD.members;
@@ -887,6 +1078,89 @@ test("once a household is chosen, the menu lists its members' case list entry, w
 		await expect(page.getByLabel("Location")).toHaveText("cases");
 		await expect(choose).toBeVisible();
 		await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+/* A submenu that keeps its own screen is a `<menu root>` of its own, no entry
+ * of its parent's command, so CommCare asks for the parent's case before it
+ * lists the submenu's tile (`CommCareSession.getNeededData` over
+ * `getEntriesForCommand`), whether the parent chooses its case for its forms
+ * or is only its case list. */
+for (const shape of [
+	{
+		menu: "Households",
+		submenu: "Household notes",
+		form: "Visit household",
+		describe: "a case-first menu",
+	},
+	{
+		menu: "Household list",
+		submenu: "Household checks",
+		form: undefined,
+		describe: "a menu that is only its case list",
+	},
+] as const)
+	test(`${shape.describe} with a submenu of its own opens on its case list, and lists the submenu once a household is chosen`, async ({
+		page,
+	}) => {
+		try {
+			await page.setViewportSize({ width: 390, height: 800 });
+			await page.goto(
+				`${navigationPeer.origin}/?fixture=submenus&platform=web-apps`,
+			);
+			const main = page.locator("main");
+			await main
+				.getByRole("button", { name: new RegExp(`^${shape.menu}\\b`) })
+				.click({ timeout: 20_000 });
+			const chooseHousehold = main.getByRole("button", {
+				name: `Continue with ${RAO_HOUSEHOLD.name}`,
+			});
+			await expect(chooseHousehold).toBeVisible({ timeout: 20_000 });
+			await expect(page.getByLabel("Location")).toHaveText("cases");
+			// Nothing of the menu's screen shows before the household: no
+			// submenu tile and no way past the list.
+			await expect(
+				main.getByRole("button", { name: new RegExp(`^${shape.submenu}\\b`) }),
+			).toHaveCount(0);
+			await expect(main.getByRole("button", { name: "Cases" })).toHaveCount(0);
+			await chooseHousehold.click();
+			const submenuTile = main.getByRole("button", {
+				name: new RegExp(`^${shape.submenu}\\b`),
+			});
+			await expect(submenuTile).toBeVisible({ timeout: 20_000 });
+			if (shape.form !== undefined)
+				await expect(
+					main.getByRole("button", { name: new RegExp(`^${shape.form}\\b`) }),
+				).toBeVisible();
+			await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+test("on Android a case-first menu of one form lists that form once the case is chosen", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "search-first",
+			platform: "android",
+		});
+		await main
+			.getByRole("button", { name: `Continue with ${FIRST_CASE}` })
+			.click({ timeout: 20_000 });
+		// A menu's command names no entry, so CommCare asks for a command
+		// (`CommCareSession.getNeededData`), and Android lists the menu.
+		await expect(main.locator("[data-form-menu-choice-label]")).toHaveText([
+			"Visit",
+		]);
+		await expect(main.getByRole("button", { name: "Finish" })).toHaveCount(0);
+		await main.getByRole("button", { name: "Visit", exact: true }).click();
+		await expect(main.getByRole("textbox", { name: /Note$/ })).toBeVisible({
+			timeout: 20_000,
+		});
 	} finally {
 		await closeNavigation(page);
 	}

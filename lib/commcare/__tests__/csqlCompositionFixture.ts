@@ -13,7 +13,11 @@
  */
 
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	declareSessionWorkerFields,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -478,6 +482,7 @@ function scenarioDoc(
 			};
 		}),
 	});
+	declareSessionWorkerFields(doc);
 	return admitted(withAuthoredSearchWorkflows(doc));
 }
 

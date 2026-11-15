@@ -210,9 +210,14 @@ export interface CaseOperationProgram {
 	 * across the whole envelope (including a schema-heal retry).
 	 */
 	readonly lookupTableSchemas?: LookupTableSchemas;
-	/** Open-namespace worker data for `sessionUser` terms; absent keys
-	 * resolve blank, the device's missing-worker-data semantic. */
+	/** Open-namespace worker data for `sessionUser` terms: the keys the
+	 * worker's device holds. */
 	readonly sessionUser?: ReadonlyMap<string, string>;
+	/** What a read of a key `sessionUser` lacks means
+	 * (`TermBindings.sessionUserAbsent`): blank for a key every device holds
+	 * that the caller does not know yet, else `AbsentWorkerFieldError`, as a
+	 * device refuses the form that reads it. */
+	readonly sessionUserAbsent?: { readonly readsBlank: ReadonlySet<string> };
 	/** Stable custom worker-information UUID → current wire slug. */
 	readonly userPropertySlugs?: ReadonlyMap<string, string>;
 	/** Closed-namespace context fields for `sessionContext` terms. */

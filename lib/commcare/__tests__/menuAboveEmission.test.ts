@@ -268,6 +268,9 @@ function hqShapeDoc(): BlueprintDoc {
 function menuShapesDoc(): BlueprintDoc {
 	const doc = buildDoc({
 		appName: "Menu shapes",
+		// The conditions read the worker's role, a worker property the app
+		// declares.
+		workerProperties: ["role"],
 		caseTypes: [{ name: "patient", properties: [] }],
 		modules: [
 			{

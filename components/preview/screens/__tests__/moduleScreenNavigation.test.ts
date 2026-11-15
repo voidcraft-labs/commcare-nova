@@ -46,21 +46,49 @@ describe("moduleScreenLanding", () => {
 		});
 	});
 
-	it("keeps parent and already-selected case-first modules on their menus", () => {
+	it("opens a case-first parent's case list before its submenus, and its menu once the case is chosen", () => {
+		// CommCare asks for the case before it lists anything on the screen,
+		// submenu tiles included (`CommCareSession.getNeededData` over the
+		// entries of every `<menu>` with the screen's id; a submenu is a
+		// `<menu root>` of its own, no entry of them), and `MenuLoader` lists
+		// the forms and the submenus once the case is chosen. The Core class
+		// `MenuScreensRuntimeTest` holds this landing on the menu-screens
+		// documents.
 		expect(
 			moduleScreenLanding({
 				...CASE_FIRST,
 				mode: "preview",
 				hasChildren: true,
 			}),
-		).toEqual({ kind: "form-menu" });
+		).toEqual({ kind: "open-case-list" });
+		for (const hasChildren of [false, true])
+			expect(
+				moduleScreenLanding({
+					...CASE_FIRST,
+					mode: "preview",
+					hasChildren,
+					hasSelectedCase: true,
+				}),
+			).toEqual({ kind: "form-menu" });
+	});
+
+	it("opens a bare case list with submenus on its list, and lists the submenus once its case is chosen", () => {
+		const bare = {
+			hasModule: true,
+			isBareCaseList: true,
+			isCaseFirst: false,
+			hasChildren: true,
+		} as const;
+		expect(moduleScreenLanding({ ...bare, mode: "preview" })).toEqual({
+			kind: "replace-with-case-list",
+		});
 		expect(
-			moduleScreenLanding({
-				...CASE_FIRST,
-				mode: "preview",
-				hasSelectedCase: true,
-			}),
+			moduleScreenLanding({ ...bare, mode: "preview", hasSelectedCase: true }),
 		).toEqual({ kind: "form-menu" });
+		// Authoring keeps the menu, where the author reaches the submenus.
+		expect(moduleScreenLanding({ ...bare, mode: "edit" })).toEqual({
+			kind: "form-menu",
+		});
 	});
 
 	it("replaces history for a bare case list in either mode", () => {

@@ -17,6 +17,7 @@ import {
 	literal,
 	matchesPattern,
 	prop,
+	sessionUser,
 	tableColumn,
 	tableLookup,
 	term,
@@ -632,12 +633,64 @@ describe("a piece only the XPath worker runs", () => {
 		);
 	});
 
+	it("names the session as the data a worker assigned nowhere lacks, where a value reads a place key", async () => {
+		const { doc, moduleUuid } = withRule(
+			eq(
+				prop("member", "case_name"),
+				term(sessionUser("commcare_location_id")),
+			),
+			[],
+		);
+		const caseListConfig = doc.modules[moduleUuid]?.caseListConfig;
+		if (caseListConfig === undefined) throw new Error("No case list.");
+		const evaluated = (session: PreviewSearchSessionValues) =>
+			evaluateSearchCsqlRuntime({
+				doc,
+				moduleUuid,
+				caseListConfig,
+				answers: new Map(),
+				session,
+				sessionData: caseListStepSession(doc, moduleUuid, {
+					menuSelections: choosingNorth,
+					caseDatabase: device,
+					session,
+				}).data,
+				caseDatabase: device,
+			});
+		expect((await evaluated(SESSION))?.dataRefusal).toEqual({
+			instanceId: "commcaresession",
+		});
+		const placed = await evaluated({
+			...SESSION,
+			user: { commcare_location_id: "place-north" },
+		});
+		expect(placed?.dataRefusal).toBeUndefined();
+		expect(Object.values(placed?.segments ?? {})).toContain("place-north");
+	});
+
 	it("keeps the mark across the wire and refuses any other value of it", async () => {
 		const wire = { segments: {}, choices: {}, unevaluated: true };
 		expect(parseSearchCsqlRuntimeWire(wire)).toEqual(wire);
 		expect(() =>
 			parseSearchCsqlRuntimeWire({ ...wire, unevaluated: false }),
 		).toThrow(SearchCsqlRuntimeError);
+		// A refusal of data the device lacks crosses as the instance it missed.
+		const refused = {
+			segments: {},
+			choices: {},
+			unevaluated: true,
+			dataRefusal: { instanceId: "commcaresession" },
+		};
+		expect(parseSearchCsqlRuntimeWire(refused)).toEqual(refused);
+		for (const dataRefusal of [
+			"commcaresession",
+			{},
+			{ instanceId: 1 },
+			{ instanceId: "commcaresession", extra: true },
+		])
+			expect(() =>
+				parseSearchCsqlRuntimeWire({ ...refused, dataRefusal }),
+			).toThrow(SearchCsqlRuntimeError);
 	});
 });
 

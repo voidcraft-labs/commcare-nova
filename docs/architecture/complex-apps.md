@@ -739,7 +739,7 @@ The validator's restrictions are wire-forced, not stylistic:
 - Counts, `exists`/`missing`, and non-self reads are refused.
 
 The form-condition evaluation locus for a case-first module is the case-list
-screen after selection — including suppressing the single-form auto-continue;
+screen after selection — including whether a form chosen before the case opens;
 the module screen's form list is a gating site only for the forms-first flow.
 That locus is a product requirement as well as a validator rule, because it
 decides what the editor may offer: `CaseDataScope` is `per-case` (case rows
@@ -1135,11 +1135,31 @@ role/persona values. Every slot stores
 `session-user-property { userPropertyUuid }`; every target resolves the
 property's current saved slug only when it projects the tree, so a rename
 rewrites nothing and takes effect everywhere immediately. The name-backed
-`session-user { field }` leaf is the final vocabulary for CommCare-provided or
-external fields that have no Nova entity, not a compatibility spelling of the
-identity leaf. The builder exposes the two
+`session-user { field }` leaf is the final vocabulary for CommCare-provided
+fields that have no Nova entity, not a compatibility spelling of the
+identity leaf. A read of it from the session, `session/user/data/<name>`, is
+admitted only for a key CommCare gives every worker
+(`BUILT_IN_USER_PROPERTY_SLUGS`); any other is refused by the checker
+(`undeclared-worker-field`, every slot, issue #913), and a slug the app
+declares is never read by name from either source
+(`worker-property-read-by-name`), so the reference index finds every read of a
+declared property and a rename keeps it.
+HQ's restore holds a key only for a field the project space defines, `''`
+where the worker has none (`user_data.py::UserData.to_dict`), and the place
+keys only for a worker assigned somewhere (`models.py::get_user_session_data`);
+Core refuses a read of a key the device holds no node for
+(`DataInstance.hasTemplatePath`, `XPathNodeset.unpack`), which fails the whole
+menu screen that reads it (`MenuLoader`'s load exception, which Formplayer's
+`MenuScreen.init` and Android's `MenuAdapter.showAnyLoadErrors` show) and a
+form at entry. A publish asks the project space to define each declared
+property (the setup artifact's worker information), so a custom field is
+declared, never read by name. A read of the worker's record (`#user/<name>`)
+reads blank where unset (casedb's wildcard template) and stays admitted.
+Preview refuses a read of an absent key as the device does
+(`lib/preview/CLAUDE.md`): on a menu, a case-first menu's forms, a case list,
+Details, a Search and a form whose case blocks read it, and in App Tests. The builder exposes the two
 as **Worker information** (UUID catalog only) and **Other user field**
-(external name only, never inferring identity from text); textual XPath
+(name only, never inferring identity from text); textual XPath
 parsing converts a custom `#user/<slug>` to identity only on an exact, unique,
 valid match, and every other spelling stays name-backed permanently
 (`components/builder/CLAUDE.md` holds the editor's concurrent-rename rebase
@@ -2898,9 +2918,26 @@ only when each entry needs the same case choice first. So
 `menuScreens.ts::screenChoosesCaseFirst` answers for a screen and never for a module alone:
 the app's first menu lists forms first, since no command is chosen yet; a screen that is a
 bare case list opens on its list; a screen holding a form that opens without a case lists
-forms first; and so does a screen whose contributors choose different cases.
+forms first; and so does a screen any of whose entries asks for another datum first. Each
+entry's first datum is read by what supplies it: a basic form's first selection, a selection
+aligned with a root menu's taking that datum's id (`formLinkProjection.ts::alignWithRootMenu`),
+and an advanced form's first load's `case_id_<tag>`
+(`models/form_actions.py::LoadUpdateAction.case_session_var`), the tag held where a publish
+keeps it or derived as `load_<type><n>` and stepped past a name the form's root already holds
+(`advancedEntryDatums.ts::advancedLoadTags`, the domain's allocation that
+`lib/commcare/placement.ts` names the actions with). The case list entry of a menu emitted
+advanced asks for HQ's `case_id_case_<type>` (`entries.py::EntriesHelper.entry_for_module`),
+the datum of a load tagged `case_<type>`. So contributors that choose different cases
+(`chooses-another-case`), two forms of an advanced menu kept under different tags
+(`form-chooses-apart`), and an advanced entry beside forms loaded under another tag
+(`case-list-entry-apart`) each keep the screen forms first, while forms kept under the
+entry's own tag ask for its case first with it. A submenu is a `<menu root>` of its own, no entry of the screen's
+command, so it never keeps a screen forms first: Core asks for a case-first screen's case
+before it lists anything there, the submenu tiles included, and Preview opens such a screen on
+its case list, submenus or not (`navigation.ts::moduleScreenLanding`).
 `lib/commcare/__tests__/screenCaseFirstParity.test.ts` holds that answer to the first datum
-the wire gives every entry. A form of a submenu that creates a case of the type its parent's
+the wire gives every entry, and `MenuScreensRuntimeTest` holds Preview's landing
+(`landsOnCaseList`) to Core over the `menu-screens` documents. A form of a submenu that creates a case of the type its parent's
 first form opens never stands on such a screen: HQ's `entries.py::EntriesHelper.add_parent_datums`
 matches its new case's `uuid()` datum to the parent's selection by case type alone
 (`_same_case`) and gives it the selection's id, so HQ's build would list the screen case first
@@ -2923,9 +2960,19 @@ screen collects nothing of its own, yet it does not list an entry whose case a s
 way already chose: a forms-first submenu under a case-first parent of the same case type is
 one. Core never opens a lone form from a menu by itself: where the menu's command holds one
 entry, `getNeededData` asks `getEntryForCommand` for the menu's id, finds no entry and returns
-`STATE_COMMAND_ID`. (Formplayer's `cc-auto-advance-menu`, off by default and never emitted,
-is the one exception.) Preview still opens a menu's one form after its case is chosen
-(`menuProjection.ts::previewAutomaticForm`), which issue #915 tracks.
+`STATE_COMMAND_ID`; Android opens `MenuActivity` on it (`HomeScreenBaseActivity.handleGetCommand`)
+and Formplayer advances past a menu only under `cc-auto-advance-menu`
+(`FormplayerPropertyManager.isAutoAdvanceMenu`, off by default), which Nova never writes. So
+once a case is chosen Preview opens a form only where one was requested (chosen before the
+case, a link's, a retained command's), and otherwise lists the menu
+(`menuProjection.ts::previewRequestedForm`). A form chosen from the menu after its case sits
+above the case in the session, so a device that steps back from it to the case list
+(`CommCareSession.stepBack` pops the form's command, where the menu waits, then the case)
+holds no form there: Preview marks that target `formChosenAfterCase`, a route back to the
+list leaves no form (`previewCaseListReturnTarget`), the list ignores one so marked
+(`previewCaseListFormRequest`), and the next case lists the menu again. A form chosen before
+its case stays beneath it, and the list opens it again. `MenuScreensRuntimeTest` replays both
+in Core (`stepBacks`).
 Preview replays the collection over the suite's datums
 (`lib/preview/engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`), and
 `proof/native/core/MenuScreensRuntimeTest.java` holds Preview's listing to Core's.

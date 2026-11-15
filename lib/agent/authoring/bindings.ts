@@ -292,7 +292,7 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 					`Worker information ${name} is ambiguous or has different capitalization.`,
 				);
 			throw new AuthoringInputError(
-				`Worker information ${name} is not declared. Choose an app worker property, session('userid') or session('username') for built-in identity, or external-user(${quote(name)}) for custom data supplied outside this app.`,
+				`Worker information ${name} is not declared. Declare it as an app worker property and read that, use session('userid') or session('username') for built-in identity, or external-user(${quote(name)}) where ${name} is information CommCare itself gives every worker.`,
 			);
 		}
 		if (
