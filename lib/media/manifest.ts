@@ -25,6 +25,7 @@ import {
 	ASSET_SIZE_CAPS_BYTES,
 	asMediaAssetId,
 	isMediaKind,
+	type MediaAssetId,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
 import { downloadAssetBytes } from "@/lib/storage/media";
@@ -50,13 +51,22 @@ export interface ResolveManifestOptions {
 	 * which needs only the wire paths the references resolve to.
 	 */
 	withBytes: boolean;
+	/**
+	 * The paths the export's target holds for its uploaded files, by asset:
+	 * a file that came in from CommCare HQ keeps the path HQ holds it under
+	 * on the project space it came from. An asset with no entry, and every
+	 * built-in icon (which has no asset row and is never held), takes its
+	 * content-hash path.
+	 */
+	heldPaths?: ReadonlyMap<MediaAssetId, string>;
 }
 
 /**
  * Build the `AssetManifest` for a blueprint: walk every media reference,
  * load the project's matching rows in one batch, keep only the `ready`
- * ones, derive each asset's content-hash wire path, and (when
- * `withBytes`) stream its bytes from GCS.
+ * ones, give each asset its wire path (the path `heldPaths` names for it,
+ * else its content-hash path), and (when `withBytes`) stream its bytes
+ * from GCS.
  *
  * The scope is the doc's referenced ids filtered to `projectId` — a
  * reference to a foreign-PROJECT asset is filtered out (it never lands
@@ -136,7 +146,9 @@ export async function resolveMediaManifest(
 				id,
 				{
 					assetId: id,
-					wirePath: wirePathFor(row.contentHash, row.extension),
+					wirePath:
+						options.heldPaths?.get(id) ??
+						wirePathFor(row.contentHash, row.extension),
 					kind: row.kind,
 					mimeType: row.mimeType,
 					contentHash: row.contentHash,

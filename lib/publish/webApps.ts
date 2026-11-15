@@ -9,37 +9,69 @@
  * shape and every sentence those two stops say.
  */
 
+import {
+	type DriftDateOptions,
+	type DriftReference,
+	driftDate,
+} from "./driftReference";
 import { namesInWords, type PlatformNarrowing } from "./planFeatures";
 
 /**
  * The change an update would make to the app's Web App setting on CommCare
  * HQ: `from` is the value HQ holds, `to` the value the app's declaration
  * writes. `changedInHq` is true where the value moved in CommCare HQ since
- * Nova last published, false where it is the declaration that moved, and
- * null where Nova cannot tell.
+ * the baseline Nova holds of the app, false where it is the declaration
+ * that moved, and null where Nova cannot tell. `since` is what that
+ * baseline is: Nova's last publish, the read that brought the app in, or
+ * the last bring-in of changes.
  */
 export interface WebAppsChange {
 	readonly from: boolean;
 	readonly to: boolean;
 	readonly changedInHq: boolean | null;
+	readonly since: DriftReference;
 }
 
 /** The heading the publish dialog shows over the question. */
 export const WEB_APPS_CHANGE_HEADING = "Web Apps for this app";
 
-/** The refusal's message: what changes, who moved it, and what workers meet. */
+/**
+ * The refusal's message: what changes, who moved it, and what workers meet.
+ * `options` is whose calendar day a brought-in date names.
+ */
 export function webAppsChangeMessage(
 	space: string,
 	change: WebAppsChange,
+	options?: DriftDateOptions,
 ): string {
 	if (change.to) {
 		return change.changedInHq === true
-			? `Someone turned this app's Web App setting off in CommCare HQ since Nova last published it to “${space}”. This app runs in Web Apps, so publishing turns it back on, and workers there can open it in Web Apps from the next version Web Apps serves, usually the next one you release. Where a project space's plan doesn't include Web Apps, saving the app's settings in CommCare HQ turns it off.`
+			? `Someone turned this app's Web App setting off in CommCare HQ ${sinceSpace(change.since, space, options)}. This app runs in Web Apps, so publishing turns it back on, and workers there can open it in Web Apps from the next version Web Apps serves, usually the next one you release. Where a project space's plan doesn't include Web Apps, saving the app's settings in CommCare HQ turns it off.`
 			: `This app runs in Web Apps, and its Web App setting on “${space}” is off. Publishing turns it on, so workers there can open it in Web Apps from the next version Web Apps serves, usually the next one you release.`;
 	}
 	return change.changedInHq === true
-		? `Someone turned this app's Web App setting on in CommCare HQ since Nova last published it to “${space}”. This app runs on Android only, so publishing turns it back off, and from the next version Web Apps serves, nobody there can open the app in Web Apps.`
+		? `Someone turned this app's Web App setting on in CommCare HQ ${sinceSpace(change.since, space, options)}. This app runs on Android only, so publishing turns it back off, and from the next version Web Apps serves, nobody there can open the app in Web Apps.`
 		: `This app runs on Android only, and its Web App setting on “${space}” is on. Publishing turns it off, so from the next version Web Apps serves, nobody there can open the app in Web Apps.`;
+}
+
+/** Since when the setting moved, naming the project space. */
+function sinceSpace(
+	since: DriftReference,
+	space: string,
+	options: DriftDateOptions | undefined,
+): string {
+	switch (since.kind) {
+		case "published":
+			return `since Nova last published it to “${space}”`;
+		case "brought-in":
+			return `since Nova brought it in from “${space}” on ${driftDate(since.at, options)}`;
+		case "changes-brought-in":
+			return `since Nova last brought in changes from “${space}”`;
+		default: {
+			const unplaced: never = since;
+			return unplaced;
+		}
+	}
 }
 
 /** The checkbox that answers the question with the declaration's value. */

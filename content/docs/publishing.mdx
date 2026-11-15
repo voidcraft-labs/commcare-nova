@@ -217,11 +217,12 @@ archive or delete a place.
 Your app is now on the project space. It is not something workers can open yet.
 
 Publishing again **updates this same app in place**, name included, so the
-project space keeps one app that tracks what you build in Nova. The one
-exception: if the app was deleted on CommCare HQ since Nova put it there, Nova
-tells you so when you try, and publishing once more makes a fresh one there.
-A phone that has the app from a CCZ still points at the deleted app until it
-takes the next CCZ through Offline Update.
+project space keeps one app that tracks what you build in Nova. There are two
+exceptions. If the app was deleted on CommCare HQ, Nova tells you so when you
+try, and publishing once more makes a fresh one there. A phone that has the app
+from a CCZ still points at the deleted app until it takes the next CCZ through
+Offline Update. And if someone stopped publishing this app to that project
+space, the next publish makes a new app beside the one that stays.
 
 Each publish keeps every menu's and every form's ID in CommCare HQ. So anything
 there that opens a form by its ID, such as an SMS keyword or a scheduled
@@ -330,7 +331,8 @@ goes to the app's page for you to work on. It is not the link workers use.
 ## Changes made in CommCare HQ
 
 Each publish remembers what CommCare HQ held just after it: the app, each
-lookup table and each place. Before the next publish sends anything, Nova reads
+lookup table and each place. An app you brought in from CommCare HQ starts from
+what it held when it came in. Before the next publish sends anything, Nova reads
 them again. If something your app publishes isn't the same as when Nova last
 published it, Nova stops before sending anything and lists what changed, such
 as a form in a menu, the app's name, a table's columns or rows, or a place's
@@ -342,6 +344,11 @@ each one you're happy to replace with this app's version, then choose
 tick is for the state Nova showed you, so if something changes again in
 CommCare HQ before you publish, Nova asks again. Closing the dialog or changing
 the destination clears the ticks.
+
+**You can also stop publishing here.** The app in CommCare HQ stays as it is,
+this app stops publishing to it, and it can be brought in to Nova again as a
+new app. If you publish to that project space later, Nova makes a new app
+there. A Project's admins and owners can do this.
 
 **A save in CommCare HQ can show up here even when it changed no value.**
 CommCare HQ's settings pages and its form builder write things Nova doesn't, so
@@ -400,7 +407,9 @@ section lists the ones your project space holds differently from a new app,
 with the date Nova last read them, and **Refresh from CommCare HQ** reads them
 again. A CCZ you download for that project space follows them. Two things it
 can't carry, your Android logos and a practice mobile worker, it tells you about
-when you download it.
+when you download it. An app you brought in from CommCare HQ keeps these
+settings exactly as it had them, including the ones it never set. Nova fills in
+its own defaults only on an app it created there.
 
 ## Making workers
 

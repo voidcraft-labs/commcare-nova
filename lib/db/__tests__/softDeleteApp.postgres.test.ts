@@ -3,6 +3,7 @@
 import { expect, it } from "vitest";
 import { loadAppProjectId, restoreApp, softDeleteApp } from "../apps";
 import { CommitReauthError } from "../commitGuard";
+import { claimHqAppInTransaction } from "../hqAppClaims";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("app_deletion_", { authSchema: "migrated" });
@@ -49,7 +50,9 @@ it.each(["complete", "error"] as const)(
 		).toBe(2_592_000_000);
 		expect(deadline).toBe(deleted.recoverable_until.toISOString());
 		expect(await loadAppProjectId(app)).toEqual({ kind: "not-found" });
-		await restoreApp(app, "co-admin");
+		await expect(restoreApp(app, "co-admin")).resolves.toEqual({
+			stoppedPublishing: [],
+		});
 		expect(await h.readAppRow(app)).toEqual(before);
 		expect(await loadAppProjectId(app)).toEqual({
 			kind: "found",
@@ -88,4 +91,110 @@ it("refuses nonexistent targets without creating a ghost row", async () => {
 		);
 	}
 	expect(await h.db().selectFrom("apps").selectAll().execute()).toEqual([]);
+});
+
+async function seedPublishedApp(appId: string): Promise<string> {
+	await h.seedApp({ id: appId, owner: "creator", project_id: "project" });
+	const deployment = await h
+		.db()
+		.insertInto("app_deployments")
+		.values({
+			app_id: appId,
+			project_id: "project",
+			server: "production",
+			domain: "acme",
+			state: "uploaded",
+			phases: JSON.stringify({}),
+			created_by: "creator",
+		})
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	return deployment.id;
+}
+
+async function mapApp(
+	deploymentId: string,
+	appId: string,
+	remoteAppId: string,
+): Promise<void> {
+	await h
+		.db()
+		.insertInto("app_deployment_resources")
+		.values({
+			deployment_id: deploymentId,
+			kind: "app",
+			nova_resource_id: appId,
+			remote_id: remoteAppId,
+			ownership: "nova-created",
+			pushed_revision: 1,
+			pushed_at: new Date("2026-11-02T00:00:00.000Z"),
+		})
+		.execute();
+}
+
+it("deletes a published app without writing a deployment row, and restores it as it was", async () => {
+	const remoteAppId = "a".repeat(32);
+	const deployment = await seedPublishedApp("published");
+	await mapApp(deployment, "published", remoteAppId);
+	const ledger = async () => ({
+		deployments: await h
+			.db()
+			.selectFrom("app_deployments")
+			.selectAll()
+			.execute(),
+		mappings: await h
+			.db()
+			.selectFrom("app_deployment_resources")
+			.selectAll()
+			.execute(),
+	});
+	const before = await ledger();
+
+	await softDeleteApp("published", "creator");
+	expect(await ledger()).toEqual(before);
+
+	await expect(restoreApp("published", "creator")).resolves.toEqual({
+		stoppedPublishing: [],
+	});
+	expect(await ledger()).toEqual(before);
+});
+
+it("answers the project spaces a restore stopped publishing to", async () => {
+	const remoteAppId = "a".repeat(32);
+	const deleted = await seedPublishedApp("given-up");
+	await mapApp(deleted, "given-up", remoteAppId);
+	await softDeleteApp("given-up", "creator");
+	const taker = await seedPublishedApp("taker");
+	await h.withTransaction(async (tx) => {
+		await claimHqAppInTransaction(tx, {
+			server: "production",
+			domain: "acme",
+			remoteAppId,
+		});
+		await tx
+			.insertInto("app_deployment_resources")
+			.values({
+				deployment_id: taker,
+				kind: "app",
+				nova_resource_id: "taker",
+				remote_id: remoteAppId,
+				ownership: "adopted",
+				adopted_at: new Date("2026-11-10T00:00:00.000Z"),
+				adopted_by: "creator",
+				pushed_revision: 1,
+			})
+			.execute();
+	});
+
+	await expect(restoreApp("given-up", "creator")).resolves.toEqual({
+		stoppedPublishing: [{ server: "production", domain: "acme" }],
+	});
+	expect(
+		await h
+			.db()
+			.selectFrom("app_deployments")
+			.select(["state", "endings"])
+			.where("id", "=", deleted)
+			.executeTakeFirstOrThrow(),
+	).toEqual({ state: "ended", endings: 1 });
 });

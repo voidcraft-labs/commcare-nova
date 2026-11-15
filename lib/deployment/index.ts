@@ -2,17 +2,32 @@
 //
 // The public face of deployments. Client surfaces import types and pure
 // helpers from here; only server modules reach the store, the preflight,
-// and the service.
+// the service and what an adoption records (`adoption.ts`, whose functions
+// build the app's import body and compress its source).
 
+export type {
+	AdoptedIdentityRows,
+	AdoptedKeyedCaseId,
+	AdoptedMediaFile,
+	MediaPathAssignment,
+	MediaPathRederivedReason,
+} from "./adoption";
 export { DeploymentError, type DeploymentErrorCode } from "./errors";
 export type { PreflightCheck, PreflightCheckStatus } from "./preflight";
 export {
 	APP_PREVIEW_NOTE,
 	BASELINE_UNKNOWN_SENTENCE,
+	baselineUnknownSentence,
+	driftReferenceOf,
 	HQ_CHANGED_DURING_PUSH_MESSAGE,
+	hqChangedMessage,
+	hqChangesConfirmedDetail,
+	hqChangesNoneDetail,
 	LOOKUP_ADOPTION_NOTE,
 } from "./remoteChanges";
 export {
+	type DeploymentEnding,
+	deploymentEnding,
 	leftBehindResources,
 	type NextPublishAction,
 	nextPublishAction,
@@ -34,8 +49,10 @@ export {
 	deploymentProgressIndex,
 	deploymentResumeState,
 } from "./stateMachine";
+export type { AdoptedDeploymentWrite, HqAppClaimView } from "./store";
 export {
 	type CommCareServer,
+	DEPLOYMENT_END_REASONS,
 	DEPLOYMENT_PHASE_ENTRY_STATE,
 	DEPLOYMENT_PHASE_SUCCESS_STATE,
 	DEPLOYMENT_PHASES,
@@ -43,6 +60,7 @@ export {
 	DEPLOYMENT_STATE_PRODUCING_PHASE,
 	DEPLOYMENT_STATES,
 	type DeploymentAttemptRefusal,
+	type DeploymentEndReason,
 	type DeploymentFailure,
 	type DeploymentIdentityOverride,
 	type DeploymentPhase,

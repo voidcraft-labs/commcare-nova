@@ -552,6 +552,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MEDIA_LOCATION_UNKNOWN_AUTHORITY: "oracle",
 	MEDIA_RESOURCE_DUPLICATE_ID: "oracle",
 	MEDIA_LOCATION_PATH_NOT_BUNDLED: "oracle",
+	MEDIA_INSTALL_PATH_MISMATCH: "oracle",
 	// ── Media asset-context rules + export-budget guard ──────────────
 	MEDIA_ASSET_NOT_FOUND: "environment",
 	MEDIA_ASSET_NOT_READY: "environment",

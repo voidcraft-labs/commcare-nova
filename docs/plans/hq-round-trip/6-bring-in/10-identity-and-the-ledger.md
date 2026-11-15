@@ -786,7 +786,13 @@ rule.
   a key a worker enters again after the first publish reaches the case it reached before; an
   operation whose type was changed, every operation made in Nova and every other project space take
   the derivation, as an id with no identity row does. Without the rows the first publish would
-  change which case such a key reaches, which no first-publish register entry declares.
+  change which case such a key reaches, which no first-publish register entry declares. Both
+  rules are pure functions of `adoption.ts`: `adoptedKeyedCaseIdRows(read):
+  readonly AdoptedKeyedCaseId[]` (`{ operationUuid, caseType, prefix }`, one per entry, sorted by
+  operation; an operation listed twice throws) gives the rows the birth inserts, and
+  `keyedCaseIdPrefixesFor(doc, rows): ReadonlyMap<Uuid, string>` gives the map a publish passes,
+  each row whose operation the document holds with `operationCaseType` equal to the row's
+  `caseType`.
 
 Real form ids exist nowhere but HQ's application resource (`ApplicationResource.dehydrate_module`
 returns `form.unique_id`; `Application.scrub_source` re-mints it in every source read), which needs
@@ -813,16 +819,25 @@ Part 15 adds one more of each: a bring-in of changes inserts a row for a file Co
 or replaced, and where the replaced file's own asset holds that path it deletes that row first
 (its section 7.6). That is a delete and an insert, never an update.
 
+`app_deployment_keyed_case_ids` (3.1) has the identity rows' insert and delete and no other:
+`recordAdoptedDeploymentInTransaction` inserts one row per `read.keyedCreates` entry the
+document keeps, and `endDeploymentInTransaction` deletes every row of the deployment with its
+identity rows. Its DDL is statement 11b of section 11.
+
 `lib/db/privilegeConvergence.ts`: `app_deployment_identities` leaves `RUNTIME_READ_ONLY_TABLES` and
-joins `RUNTIME_INSERT_DELETE_TABLES`, with `app_deployment_media_paths`. That set's comment gains "A
+joins `RUNTIME_INSERT_DELETE_TABLES`, with `app_deployment_media_paths` and
+`app_deployment_keyed_case_ids`. That set's comment gains "A
 deployment's identity and media-path rows are inserted when an app or a change made in CommCare HQ
 is brought in and deleted when the deployment is ended; a Project move deletes an app's media-path
 rows and inserts them under the destination Project's asset ids; a file replaced in CommCare HQ
-replaces its path's row; no row is ever changed." The `RUNTIME_READ_ONLY_TABLES` comment
+replaces its path's row; no row is ever changed. A deployment's keyed case id prefixes are inserted
+and deleted with its identity rows. The deployment row's lock serializes their writers, so none of
+them is ever row-locked." The `RUNTIME_READ_ONLY_TABLES` comment
 loses "the identity overrides a deployment target holds (a publish writes none)". The classification
-of the identities table moves from `control` to `application` with the set. Both tables stay in
-`RUNTIME_TABLES_WITHOUT_ROW_LOCKS`: the deployment row's lock serializes their writers, and the birth
-writes them for a deployment only its own transaction can see. Grants converge in the step's own
+of the identities table moves from `control` to `application` with the set. All three tables are in
+`RUNTIME_TABLES_WITHOUT_ROW_LOCKS`, which the capability derives: the deployment row's lock
+serializes their writers, and the birth writes them for a deployment only its own transaction can
+see. Grants converge in the step's own
 deploy: the migration Job converges privileges after the migrations apply and before the new revision
 serves (`scripts/migrate.ts`, `lib/db/privilegeConvergence.ts::convergeDatabasePrivileges`); no
 migration statement grants anything.
@@ -845,12 +860,12 @@ CREATE TABLE IF NOT EXISTS app_deployment_media_paths (
 	CONSTRAINT app_deployment_media_paths_path_unique UNIQUE (deployment_id, wire_path),
 	CONSTRAINT app_deployment_media_paths_path_shape CHECK (
 		char_length(wire_path) <= 255
-		AND wire_path ~ '^[^/\\[:cntrl:]]+(/[^/\\[:cntrl:]]+)+$'
+		AND wire_path COLLATE "C" ~ '^[^/\\\x01-\x1f\x7f-\x9f]+(/[^/\\\x01-\x1f\x7f-\x9f]+)+$'
 		AND wire_path !~ '(^|/)\.{1,2}(/|$)'
 		AND wire_path !~ '^ | $')
 );
 CREATE UNIQUE INDEX IF NOT EXISTS app_deployment_media_paths_path_folded
-	ON app_deployment_media_paths (deployment_id, lower(wire_path));
+	ON app_deployment_media_paths (deployment_id, lower(wire_path COLLATE "C"));
 ```
 
 `wire_path` is HQ's path without `jr://file/`, the form `ResolvedMediaAsset.wirePath` already has.
@@ -862,8 +877,10 @@ deleting a file from the library removes its path. `lib/db/pg.ts` gains `AppDepl
 (`media_asset_id: MediaAssetId`) and its `AppDatabase` entry. In the same file,
 `lib/db/pg.ts::AppDatabase` types the baseline's new column of section 11, statement 10,
 `first_publish_changes`, as `JSONColumnType<{ readonly ids: readonly string[]; readonly
-webAppsOnInHq: boolean; readonly of: "first-publish" | "next-publish" }> | null` on
-`AppDeploymentBaselinesTable` (`of` says which kind of list it is: part 09, section 11.1; part
+webAppsOnInHq: boolean; readonly of: "first-publish" | "next-publish" } | null, string | null |
+undefined, string | null>` on `AppDeploymentBaselinesTable` (the null inside the select type, as
+the file's other nullable JSON columns hold it: a `JSONColumnType<…> | null` would make the column
+required on every typed insert) (`of` says which kind of list it is: part 09, section 11.1; part
 15, section 4.4). The row type holds `string`
 ids and not part 09's `StoredFirstPublish` (`lib/publish/firstPublishChangeIds.ts`), because a
 stored list can hold an id the registry has since dropped, which the column's reader takes out
@@ -872,9 +889,16 @@ before it parses the value (part 09, section 12.3).
 The CHECK and the folded index are the floor the database can state without leaning on its locale:
 a directory and a name (any directory, since HQ's build writes whichever one the path names,
 `MediaSuiteGenerator.media_resources`), no empty segment, no `.` or `..` segment, no backslash, no
-ASCII control character, no space at either end, and no two paths of one deployment that differ only
-by case as `lower()` folds them. The rule itself is `isHoldableWirePath` and `assignMediaPaths` (4.2),
-in TypeScript, and every row a writer inserts has passed it.
+control character (the code points of `\p{Cc}`, U+0001 to U+001F and U+007F to U+009F, named; a
+`text` value holds no U+0000), no space at either end, and no two paths of one deployment that differ
+only by ASCII letter case. Neither leans on the locale: under a libc UTF-8 locale PostgreSQL's
+`[:cntrl:]` also takes U+2028 and U+2029 (glibc and musl both count them as controls), which
+`isHoldableWirePath` holds inside a name, and its `lower()` maps each code point alone (Σ to σ, İ to
+i) where `toLowerCase()` and Python's `str.lower()` give a final sigma ς and i̇, so a locale's floor
+would refuse rows the rule writes. So the control class is named code point by code point, and the
+index folds under the C collation, where `lower()` folds A to Z alone: two paths that fold together
+there also fold together under `toLowerCase()`. The rule itself is `isHoldableWirePath` and `assignMediaPaths` (4.2), in
+TypeScript, and every row a writer inserts has passed it.
 
 ### 4.2 Which path a file keeps
 
@@ -903,15 +927,26 @@ export type MediaPathRederivedReason =
 	| "names-another-file"
 	/** Only letter case tells it from a path of another file, and HQ's upload matches without case. */
 	| "differs-only-by-case";
-/** `path` is HQ's path without `jr://file/`. */
+/** `path` is HQ's path without `jr://file/`. Declared in `lib/deployment/hqMedia.ts`, which part 15
+ *  declares pure and client-safe and whose `hqMediaRecordSchema` refines on it, and re-exported here:
+ *  `adoption.ts` loads `node:zlib`, the expander and the import body, which a client import of the
+ *  media record must not pull in. */
 export function isHoldableWirePath(path: string): boolean;
 export function assignMediaPaths(files: readonly AdoptedMediaFile[]): MediaPathAssignment;
 ```
 
-`isHoldableWirePath` answers true exactly when the path has at most 255 code points; has a directory
+`isHoldableWirePath` answers true exactly when the path is well-formed UTF-16 (no lone surrogate);
+has at most 255 code points; has a directory
 and a name, with no empty segment and no `.` or `..` segment; holds no backslash and no control
 character (`\p{Cc}`); and neither starts nor ends with a character Python's `str.strip()` removes
-(`\p{Zs}`, U+2028, U+2029; the controls it removes are already refused). Each clause has a reason:
+(`\p{Zs}`, U+2028, U+2029; the controls it removes are already refused). Checked at the pin:
+`str.isspace()`, which `strip()` with no argument removes, holds for exactly `\p{Zs}` (U+0020,
+U+00A0, U+1680, U+2000 to U+200A, U+202F, U+205F, U+3000), U+2028, U+2029 and the ten controls
+U+0009 to U+000D, U+001C to U+001F and U+0085, the same set Node's `\p{Zs}` gives with the two
+separators. Each clause has a reason:
+
+- **Well-formed.** A lone surrogate has no UTF-8 spelling: the bulk upload's zip entry and the
+  ledger's `text` column would both hold another string than HQ's path.
 
 - **Any directory is held, and a path with none is not.** HQ's build writes `install_path = '../../' +
   directory` and `local = './' + directory + '/' + name` for whatever directory the path names
@@ -1000,7 +1035,11 @@ export async function readDeploymentMediaPaths(
 - **`.ccz`**: `downloadTarget.ts::resolveDownloadTarget`'s `ccz` arm gains
   `mediaPaths: ReadonlyMap<MediaAssetId, string>`, read beside `identity` for the chosen target;
   `app/api/compile/prepareCompileRequest.ts` and `lib/mcp/tools/compileApp.ts` pass it to
-  `prepareExportBoundary`.
+  `prepareExportBoundary`. The same arm gains `keyedCaseIdPrefixes: ReadonlyMap<Uuid, string>`
+  (`adoption.ts::keyedCaseIdPrefixesFor` over `store.ts::readDeploymentKeyedCaseIds` for that
+  target), which `lib/export/localArchive.ts::compileLocalArchive` takes as a required member of
+  its `deployment` argument and hands `expandDoc`, so a `.ccz` made for the project space an app
+  was brought in from files a key entered again under the case HQ already holds.
 - **The HQ app file** and every other project space pass none and take the derivation, as for ids.
 
 ### 4.4 The `.ccz` media suite
@@ -1428,6 +1467,9 @@ export interface AdoptedDeploymentWrite {
 	readonly baseline: AppBaselineWrite & { readonly origin: "read" };
 	readonly identities: readonly DeploymentIdentityOverride[];
 	readonly mediaPaths: readonly { readonly assetId: MediaAssetId; readonly wirePath: string }[];
+	/** `adoption.ts::adoptedKeyedCaseIdRows(draft.identities)`: the rows of
+	 *  `app_deployment_keyed_case_ids` (3.1, 3.2). */
+	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly confirmations: readonly DeploymentConfirmationKey[];
 	readonly at: Date;
 }
@@ -1449,24 +1491,34 @@ references it) and in this order: read the app row and require `project_id` equa
 `write.projectId` and `deleted_at` null (the tail asserted the person's membership in this
 transaction, so the role is not read again); insert the deployment row; `writeResourceMapping`;
 `writeAppBaseline`; insert the identity rows in one statement; insert the media-path rows in one
-statement; `insertDeploymentConfirmationsInTransaction`; `notifyAppDeployments`; return
-`loadWithinTransaction`. It takes no row lock: every row is new, and the claim (5.2) has already
-serialized births of this HQ app.
+statement; insert the keyed-case-id rows in one statement; `insertDeploymentConfirmationsInTransaction`;
+`notifyAppDeployments`; return `loadWithinTransaction`. It takes no row lock: every row is new, and
+the claim (5.2) has already serialized births of this HQ app. Where `writeResourceMapping`'s insert
+meets a unique violation on `HQ_APP_CLAIM_INDEX`, it throws `HqAppAlreadyClaimedError` with a null
+holder (5.2). The keyed-case-id rows are read for a target by
+`store.ts::readDeploymentKeyedCaseIds(scope, target): Promise<readonly AdoptedKeyedCaseId[]>`, at
+`view`, beside `readDeploymentIdentityOverrides`, and handed to `adoption.ts::keyedCaseIdPrefixesFor`.
 
 Refactors of `store.ts`:
 
 | Symbol | Change |
 |---|---|
 | `writeAppBaseline(tx, deploymentId, scope, baseline)` | takes `observedBy: string` in place of `scope` (it reads only the actor). Both arms write `nova_revision` as given, `media_files` by `baseline.mediaFiles` (part 15, section 7.2, which holds the rule), and `first_publish_changes` by the clause part 09 gives them (its section 12.3) |
-| `lockAppForDeploymentWrite(tx, scope, capability)` | returns the role it read under the lock (`ProjectRole`), which `endDeployment` reads (8.3); every other caller ignores it |
+| `lockAppForDeploymentWrite(tx, scope, capability)` | returns the role it read under the lock, as `auth_member` stores it (`string`: Better Auth may store several roles comma-joined, which `roleAllowsApp` reads and `ProjectRole` cannot name), which `endDeployment` reads (8.3); every other caller ignores it |
 | the confirmation insert inside `foldDeploymentAttempt` | moves to `insertDeploymentConfirmationsInTransaction(tx, deploymentId, actorUserId, keys)`, same statement and conflict rule; `foldDeploymentAttempt` calls it and keeps its "only with a preflight that passed" refusal, which is a rule of the fold and not of the table |
 | `writeResourceMapping` | unchanged signature; exported to the module's own callers only, as today |
 | `withDeploymentRow` | gains `expectedEndings` and the ended rule (8.5) |
 | `toDeploymentRecord`, `toDeploymentResource`, `loadResources` | read `endings`; `endedReason`, `releasedAt`; resolve `adoptedByName` and `endedByName` through `confirmerNames` |
 | `readAppBaseline` | admits `read` and `changes`; reports `storedOrigin` on an unverified row (6.3); answers `novaRevision`, `mediaFiles` and `sourceBytes` (part 15, sections 3, 7.2 and 2.7) |
 
-`lib/deployment/index.ts` exports `recordAdoptedDeploymentInTransaction`, `AdoptedDeploymentWrite`,
-`readDeploymentMediaPaths`, `readHqAppClaims`, `HqAppClaimView` and the `adoption.ts` functions.
+`lib/deployment/index.ts` is the barrel client components import (`PublishDialogBody.tsx`,
+`DeploymentStatus.tsx` and others), so it exports the types alone: `AdoptedDeploymentWrite`,
+`HqAppClaimView` and the `adoption.ts` types (`AdoptedIdentityRows`, `AdoptedKeyedCaseId`,
+`AdoptedMediaFile`, `MediaPathAssignment`, `MediaPathRederivedReason`). A value export would load
+`store.ts` (Postgres) or `adoption.ts` (`node:zlib` and the expander) into the browser bundle.
+Server callers import `recordAdoptedDeploymentInTransaction`, `readDeploymentMediaPaths` and
+`readHqAppClaims` from `@/lib/deployment/store`, and the `adoption.ts` functions from
+`@/lib/deployment/adoption`, as they import the service and the preflight today.
 
 ### 6.3 The `read` origin
 
@@ -1741,7 +1793,10 @@ export async function settleReleasedClaims(scope: DeploymentScope): Promise<
   `identity = targetWireIdentity(overrides)`, the dense rows, so every menu id, form id and `xmlns` is
   HQ's own (`_merge_source_into_app` replaces `modules` whole and writes ids as sent). It carries
   `languageNames` and `seeds` at `"target"`, so each language's name and each seeded setting HQ
-  holds no value for stay as HQ has them (6.3).
+  holds no value for stay as HQ has them (6.3). It also carries
+  `keyedCaseIdPrefixes` (a required member of `HqImportApplicationInput`, which `expandDoc`
+  receives): `keyedCaseIdPrefixesFor` over the target's `app_deployment_keyed_case_ids` rows,
+  computed over the document each body is built from, and an empty map on every other target.
 - **The read-back** is the new baseline: origin `push`, the ownership of the body sent,
   `nova_revision` the sequence sent (part 15, section 3). The same upsert sets
   `first_publish_changes` null, which ends the list the person reviewed (part 09, section 12.3),
@@ -1840,12 +1895,14 @@ writer of the app. `<all null>` below is this module's `NO_PHASE_OUTCOMES_JSON` 
    reason, released_at = NULL WHERE deployment_id = $1 AND kind = 'app' AND superseded_at IS NULL`. No
    row: return `{ ended: false }` and change nothing.
 2. `DELETE FROM app_deployment_identities WHERE deployment_id = $1`.
-3. `DELETE FROM app_deployment_media_paths WHERE deployment_id = $1`.
-4. `UPDATE app_deployments SET state = 'ended', resume_phase = NULL, phases = <all null>,
+3. `DELETE FROM app_deployment_keyed_case_ids WHERE deployment_id = $1` (3.2: the prefixes go with
+   the identity rows they were read beside).
+4. `DELETE FROM app_deployment_media_paths WHERE deployment_id = $1`.
+5. `UPDATE app_deployments SET state = 'ended', resume_phase = NULL, phases = <all null>,
    endings = endings + 1, content_generation = gen_random_uuid(), entry_point_manifest = NULL,
    entry_point_observation = NULL, offered_logo_content_hash = NULL,
    target_empty_case_list_text = NULL, last_observed_at = NULL, updated_at = at WHERE id = $1`.
-5. `notifyAppDeployments(tx, appId)`, so every open tab re-resolves Preview's project space.
+6. `notifyAppDeployments(tx, appId)`, so every open tab re-resolves Preview's project space.
 
 Kept: the baseline row ("its baseline stays as history"; the next create there replaces it, since
 `writeAppBaseline` replaces a row for another HQ app); every confirmation (they are about the project
@@ -1864,6 +1921,7 @@ export async function endDeployment(
 /** `lib/deployment/service.ts`. The one lifecycle the builder and MCP share. */
 export async function stopPublishing(
 	scope: DeploymentScope, target: DeploymentTargetKey, doc: BlueprintDoc,
+	locations?: readonly StoredLocation[],
 ): Promise<{ readonly deployment: DeploymentWithResources; readonly artifact: SetupArtifact }>;
 /** `lib/deployment/actions.ts`. Input: `deploymentTargetSchema`. */
 export async function stopPublishingAction(input: unknown):
@@ -1942,6 +2000,12 @@ whose forms have HQ's: every form's `xmlns` would change.
   `finishDeploymentContentWrite` takes it and, on a mismatch, returns false and writes nothing (the
   ending already cleared the manifest and rotated the generation).
   `workers.ts::provisionWorkers` passes the count from its own read to `recordPushedResources`.
+  The count travels as `store.ts::DeploymentFence` (`{ readonly expectedEndings: number }`): a
+  member of the input object of `foldDeploymentAttempt` (its options, now required),
+  `recordCreatedRemoteApp`, `recordRemoteResource` (`RecordRemoteAppInput`) and
+  `recordRefreshedAppBaseline`; and a last parameter of `beginDeploymentContentWrite`,
+  `finishDeploymentContentWrite` and `markResourceBaselinesUnread`. `recordPushedResources`' last
+  parameter becomes `DeploymentFence & { readonly baselines?: readonly ResourceBaselineWrite[] }`.
 - Four `withDeploymentRow` users take none, each for its own reason.
   `applyDeploymentObservation` folds only while the live `app` mapping still carries the remote id
   and the `push_token` the observation read, and `recordEntryPointObservation` only for the
@@ -2337,6 +2401,24 @@ UPDATE app_deployment_baselines b SET nova_revision = r.pushed_revision
 --     CREATE TABLE IF NOT EXISTS app_deployment_media_paths (...), then
 --     CREATE UNIQUE INDEX IF NOT EXISTS app_deployment_media_paths_path_folded.
 
+-- 11b. The id prefix each kept keyed create writes on the project space the app was brought in
+--      from (section 3.1). The prefix CHECK is the shape
+--      lib/domain/caseOperationIdentity.ts::authoredCaseIdPrefix writes; the case type's cap is
+--      CommCare HQ's column (corehq/form_processor/models/cases.py::CommCareCase.type,
+--      max_length=255).
+CREATE TABLE IF NOT EXISTS app_deployment_keyed_case_ids (
+	deployment_id uuid NOT NULL REFERENCES app_deployments(id) ON DELETE CASCADE,
+	nova_operation_uuid uuid NOT NULL,
+	case_type text NOT NULL,
+	case_id_prefix text NOT NULL,
+	recorded_at timestamptz(3) NOT NULL DEFAULT now(),
+	PRIMARY KEY (deployment_id, nova_operation_uuid),
+	CONSTRAINT app_deployment_keyed_case_ids_case_type_named
+		CHECK (btrim(case_type) <> '' AND char_length(case_type) <= 255),
+	CONSTRAINT app_deployment_keyed_case_ids_prefix_shape CHECK (case_id_prefix
+		~ '^nova-case-v1:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:$')
+);
+
 -- 12. Hand the batch back as it was found.
 SET LOCAL lock_timeout = 0;
 ```
@@ -2347,6 +2429,13 @@ readers and its rule. Its DDL is here because it is three more clauses of this t
 7.2), here for the same reason. The migration
 `lib/case-store/migrations/20261201010000_hq_changes_app_change_kind.ts` is part 15's own file
 (its section 4.2) and is no statement here.
+
+Statement 11b is the table section 3.1 records the keyed creates in. Its rows are written with
+the identity rows and never changed (3.2). Its CHECKs are the floor the database can hold: a case
+type that is not blank and fits CommCare HQ's column, and a prefix in the one shape Nova derives,
+`nova-case-v1:`, a lowercase version-5 UUID and a colon (50 code units,
+`AUTHORED_CASE_ID_PREFIX_LENGTH`). That floor binds the reader too: a prefix the reader holds as
+a keyed create must be in that shape, or the birth's insert of its row is refused.
 
 In the TypeScript source each backslash of the path CHECK is doubled inside the `sql` template. The
 guard's message names no script: a migration is immutable once applied, and
@@ -2409,6 +2498,7 @@ reconcile, never `app`, so `writeResourceMapping`'s is the one that can meet a r
 | `app_deployment_baselines_origin_check`, `app_deployment_baselines_nova_revision_is_a_sequence`, `app_deployment_baselines_media_files_is_a_map` | the origin check is wider, and it writes neither new column, so each stays null or as 10b filled it |
 | `app_deployment_baselines_first_publish_changes_need_a_source` | it writes the column nowhere, and no row holds a list until the new revision's first birth |
 | `app_deployment_media_paths`, its CHECKs and its index | it never reads or writes the table |
+| `app_deployment_keyed_case_ids` and its CHECKs | it never reads or writes the table |
 
 The one constraint that can be met by that revision at all is the last CHECK of statement 10, and
 only in a state this plan does not support: after the new revision has brought an app in, traffic
@@ -2423,9 +2513,10 @@ rules `CONCURRENTLY` out, and the table holds one row per published resource, so
 and writes, and hold them until the batch commits. Statement 11's new table holds a foreign key to
 `media_assets`, and PostgreSQL takes `SHARE ROW EXCLUSIVE` on a table a new foreign key points at:
 that holds back the serving revision's writes of `media_assets` (an upload, a deletion) and none of
-its reads, and it too is held until the batch commits. A lock request that queues behind one long
+its reads, and it too is held until the batch commits. Statement 11b's table points only at
+`app_deployments`, whose lock the batch already holds. A lock request that queues behind one long
 reader would stall every deployment read behind it, so statement 0 bounds each wait at five seconds,
-as `20261112000000_incremental_transcripts` does, and statement 12, which follows statement 11, sets
+as `20261112000000_incremental_transcripts` does, and statement 12, which follows statement 11b, sets
 the timeout back to `0`, as `20260724030000_opaque_case_ids` does, for whatever migration shares the
 batch. A timeout raises SQLSTATE `55P03` and fails the migration Job with nothing changed, since the
 batch is one transaction; the Job's failure blocks the deploy, and running the deploy again tries
@@ -2580,7 +2671,9 @@ Each line names the failure it would catch.
   derived path is held; two files whose paths differ only by case are both `differs-only-by-case`
   and neither gets a row, while a third path of one of them is still held; a path with `..`, with no
   directory, or with a space at either end is `not-holdable`; a path outside `jr://file/` throws.
-  One list of paths, exported from the test's fixtures, is run through `isHoldableWirePath` here and
+  One list of paths with the CHECK's verdict on each
+  (`lib/case-store/migrations/__tests__/mediaPathFloor.ts::MEDIA_PATH_FLOOR_CASES`) is run through
+  `isHoldableWirePath` here and
   through the table's CHECK in `hqBringInLedger.postgres.test.ts`: the function refuses every path
   the CHECK refuses, and the two agree on every ASCII path of the list, so the floor cannot come to
   admit what the rule refuses there.
@@ -2612,7 +2705,10 @@ Each line names the failure it would catch.
   `commcare/` gives `<media path="../../media">` and `./media/<name>`, and the bundle's zip entry is
   each path; a manifest of derived paths gives the bytes it gives today (the existing golden).
   `lib/commcare/validator/mediaSuiteOracle.ts` reads each such suite and joins every resource to a
-  bundled path: the independent reader of this change. Core and Android read it in the lane on the
+  bundled path, and holds each local location `./<dir>/<name>` to its block's `path="../../<dir>"`
+  (`MEDIA_INSTALL_PATH_MISMATCH`: CommCare Android installs a media file at
+  `jr://file/commcare/media/` + `/` + path + its name, `MediaFileAndroidInstaller`, while Core
+  ignores the path): the independent reader of this change. Core and Android read it in the lane on the
   base `hq-media` (part 14, section 6.2), whose hop also holds 4.7's assertion on held paths.
 
 **Postgres**
@@ -2643,7 +2739,13 @@ Each line names the failure it would catch.
   case part 09 asks of this file; a media path under any directory is admitted; a second path of
   one deployment that differs from a held one only by case is refused by
   `app_deployment_media_paths_path_folded`; a media path row whose asset is deleted from the
-  library is gone, and so is one whose deployment is deleted. `up`
+  library is gone, and so is one whose deployment is deleted; **a keyed create's prefix**: the one
+  `authoredCaseIdPrefix` derives is admitted, and a blank one, one without its trailing colon,
+  one with an upper-case or non-version-5 UUID, one of another version marker and one with text
+  after the colon are refused by `app_deployment_keyed_case_ids_prefix_shape`; a blank case type
+  and one over 255 characters by `app_deployment_keyed_case_ids_case_type_named`; a second row for
+  one operation of one deployment by its primary key; and its rows are gone with their
+  deployment. `up`
   run a second time over its own result, with the ledger row erased as the adoption tests erase it,
   raises nothing and changes no catalog row and no data row: this is the run that fails if statement
   2 drops the constraint statement 6's foreign key depends on. After `up`, `SHOW lock_timeout` in
@@ -2655,9 +2757,12 @@ Each line names the failure it would catch.
   second connection is released in a `finally`. This is the case that fails if statement 0 is
   lost.
 - `lib/db/__tests__/privilegeConvergence.postgres.test.ts` and `privilegeConvergence.test.ts`
-  (additions). The runtime role inserts and deletes rows of both tables and is refused an UPDATE with
-  `42501`; the new routine is in the expected inventory. `runtimeRowLockPrivileges.test.ts` keeps
-  refusing a row lock on either table.
+  (additions). The runtime role inserts and deletes rows of `app_deployment_identities`,
+  `app_deployment_media_paths` and `app_deployment_keyed_case_ids` and is refused an UPDATE and a
+  row lock with `42501`; its insert of a mapping gets the deployment's server and project space
+  from the trigger; the new routine is in the expected inventory (convergence over the full chain
+  refuses an unknown routine). `runtimeRowLockPrivileges.test.ts` keeps refusing a row lock and an
+  update on each of the three tables.
 - `lib/deployment/__tests__/adoptedLedger.postgres.test.ts`. Inside one transaction that births an app
   through the production genesis writer and then calls `recordAdoptedDeploymentInTransaction`: every
   column of 6.1 holds its value; `publishedRemoteApp` is the adopted mapping; `nextPublishAction` is
@@ -2667,7 +2772,16 @@ Each line names the failure it would catch.
   written; an upsert that leaves both columns alone (the previous revision's) keeps them as they
   were. A throw after
   the writer leaves no row of any table (the birth and the ledger are one transaction). A baseline
-  whose stored bytes are corrupted reads `unread` with `storedOrigin` `read`.
+  whose stored bytes are corrupted reads `unread` with `storedOrigin` `read`. The keyed-case-id
+  rows are written and `readDeploymentKeyedCaseIds` returns them; an app row that is not the born
+  app throws the Copy sentence; a mapping insert that meets the claim index throws
+  `HqAppAlreadyClaimedError` with a null holder; `recordRefreshedAppBaseline` over a `read`
+  baseline keeps its `nova_revision`, its `media_files` and its stored first-publish list. And
+  `readHqAppClaims`, over the claims these births take: `open` to a member and `elsewhere` to a
+  non-member, owners named where the person left the Project, never a deleted holder, and `at` as
+  `adopted_at` for an adopted mapping and the mapping's `created_at` for one Nova created, with no
+  key that says which, and a free HQ app absent. They sit here rather than in `lib/db`'s file
+  because `readHqAppClaims` is the store's and reads what this file's births write.
 - `lib/db/__tests__/hqAppClaims.postgres.test.ts`. Two transactions claim one key: the second waits
   on the first and throws `HqAppAlreadyClaimedError` once it commits, having written nothing. A holder
   in recently deleted is released by a claim, and a concurrent restore of that holder, held in real
@@ -2680,10 +2794,7 @@ Each line names the failure it would catch.
   each hold what the other gave up, both in recently deleted and restored at once in two real
   transactions, both commit with no deadlock and each HQ app has exactly one live claim. A restore
   whose released claims change between its first read and its locks starts again and settles what
-  it then finds. `readHqAppClaims` answers `open` to a member and `elsewhere` to a non-member, names
-  owners where the person left the Project, never returns a deleted holder, and gives `at` as
-  `adopted_at` for an adopted mapping and the mapping's `created_at` for one Nova created, with no
-  key that says which.
+  it then finds. (`readHqAppClaims`' cases are in `adoptedLedger.postgres.test.ts`.)
 - `lib/deployment/__tests__/endDeployment.postgres.test.ts`. An editor is refused `not_permitted`
   with the sentence that names who can, a viewer `not_found`, and an admin and an owner succeed
   (through `stopPublishingAction`, the editor's result carries the code `not_permitted` and not
@@ -2691,12 +2802,18 @@ Each line names the failure it would catch.
   person and `stopped`, no identity or media-path row remains, the baseline and the confirmations
   remain, the claim is free, and `previewProjectSpaceFor` no longer names the project space. A second
   call answers "nothing to stop". Each fenced writer, called with the count read before the ending,
-  throws `DeploymentEndedError` and writes nothing.
+  throws `DeploymentEndedError` and writes nothing (`recordRefreshedAppBaseline` among them), and
+  `finishDeploymentContentWrite` answers false; a fold that carries the count after the ending
+  passes, and the ending still stands. A released mapping on a live app is not named by Preview
+  until `settleReleasedClaims` takes the HQ app back; a settle meeting a live holder ends the
+  deployment `claimed-elsewhere` and names the project space; a viewer cannot settle.
 - `lib/deployment/__tests__/publishSequence.postgres.test.ts` (additions, over the controlled HQ
   adapter of `publishFixtures.ts`). A first publish over an adopted deployment: the import body's
   menu ids, form ids and `xmlns` are the rows'; the mapping stays `adopted` with its first
   `adopted_by` and `adopted_at`; the baseline becomes `push` with `nova_revision` the sequence
-  sent, and its `media_files` holds the id CommCare HQ reported for each held path;
+  sent, and its `media_files` keeps the record the birth wrote (the id CommCare HQ reports for
+  each held path is written after the upload by part 15's `recordDeploymentMediaFiles`, its
+  section 7.8, whose case asserts it);
   `appPreviewNote` is given; no shell is created. Over an untouched app with no Search, the
   `push` baseline that publish writes holds the same ownership as the `read` baseline it replaced;
   with an effective Search and the advisory `available`, the two differ in `profileCustomProperties`
@@ -2714,10 +2831,11 @@ Each line names the failure it would catch.
   is read of HQ, and until then `previewProjectSpaceFor` does not name its project space.
 - `lib/deployment/__tests__/refreshKeptValues.postgres.test.ts` (part 01's file, additions). On an
   ended deployment the refresh throws the ended sentence and reads nothing of HQ; over a live `app`
-  mapping that is released it answers `no-baseline` and reads nothing of HQ; a refresh over a `read`
-  baseline keeps its `nova_revision`, its `media_files` and its stored first-publish list; and
-  `recordRefreshedAppBaseline`, called with the count of endings read before an ending, throws
-  `DeploymentEndedError` and writes nothing.
+  mapping that is released it answers `no-baseline` and reads nothing of HQ; and a refresh over a
+  `read` baseline, through `refreshKeptValues` and the controlled peer, keeps its `nova_revision`,
+  its `media_files` and its stored first-publish list. (The store's own halves, the write over a
+  `read` baseline and the fence, are in `adoptedLedger.postgres.test.ts` and
+  `endDeployment.postgres.test.ts`.)
 - `app/api/commcare/upload/__tests__/route.test.ts` (addition). A body with `viewer` reaches
   `publishAppToHq` as `driftDate`; a malformed `viewer` reaches it as absent and refuses nothing.
 - `lib/db/__tests__/projectMove.postgres.test.ts` (addition). A moved app's media-path rows name the
@@ -2733,8 +2851,12 @@ Each line names the failure it would catch.
   `lib/mcp/__tests__/compileApp.postgres.test.ts` (additions). A `.ccz` made for an adopted project
   space holds each media file at HQ's path and each form under HQ's `xmlns`; one made for another
   project space holds the derived ones.
-- `lib/mcp/__tests__/servedSchemas.test.ts`. The served enums gain `ended` and `publishing_stopped`.
-  The keys `ending`, `brought_in` and `since` on served objects are part 13's (its section 14.7).
+- `lib/mcp/__tests__/servedSchemas.test.ts`. Unchanged at this layer: what MCP serves is each
+  tool's input schema and description, and no served schema enumerates a deployment state or an
+  error tag (`describeDeployment`'s `state` is typed `DeploymentState`, `ended` among them, and
+  `UPLOAD_ERROR_TAGS` gains `publishing_stopped`, both of which are output). The description
+  sentences that name `ended` and `publishing_stopped`, and the keys `ending`, `brought_in` and
+  `since` on served objects, are part 13's (its section 14.7), with their assertions there.
 - `proof/corpus/__tests__/publish.postgres.test.ts` (part 14's case, its section 2.5; changed here).
   The case that sends Nova's real `publishAppToHq` over a peer holding `hq-plain`'s retained source
   builds its ledger through this part's writers: the rows of `adoptedIdentityRows`, the baseline of
@@ -2779,11 +2901,17 @@ Each sentence below is written with the behavior that makes it true, in the same
   CommCare HQ keeps each of that app's media files under; a Project move writes those rows again
   under the destination Project's asset ids, a file replaced in CommCare HQ and brought in
   replaces its path's row, and deleting a file from the library removes its row."
+  Until part 15 lands, this bullet and the first "Ownership" bullet name only what this part
+  builds, as the `lib/db/CLAUDE.md` sentence below does; part 15 adds "or a change made in
+  CommCare HQ", the menus and forms a change brings in, and the replaced file's row.
 - "Baselines", old: "the normalized source HQ answered right after Nova's push (`push`), right after
   the empty app was made (`create`), or at the cutover (`cutover`)". New: the same list with ", or
-  when the app was brought in (`read`), or as a bring-in of changes left it (`changes`), each of
-  which is compared as a push is" and, after the sentence on form ids, the sentence part 15 gives
-  for the pair and the media record (its "Contracts and docs these changes make false").
+  when the app was brought in (`read`), which is compared as a push is" and, after the sentence on
+  form ids, the pair and the media record as this part writes them: `nova_revision` (the sequence a
+  push sent, or the birth's) and, for an app brought in, the HQ file at each held path when it came
+  in, which a push keeps for the same HQ app. Part 15, which writes origin `changes` and the record
+  from CommCare HQ's report of an upload, adds `changes` to the list and replaces the media clause
+  with its own sentence (its "Contracts and docs these changes make false").
 - "Preflight is a graph", old: "written only by the fold of a passed preflight
   (`foldDeploymentAttempt`'s `confirmations`), so a refused publish stores none and the caller
   resends them; the one exception is the resources fold of `hq_plan_lacks_web_apps`, which withdraws
@@ -2821,7 +2949,11 @@ Each sentence below is written with the behavior that makes it true, in the same
   are runtime insert-and-delete: rows are written when an app or a change made in CommCare HQ is
   brought in and deleted when its deployment is ended, never changed and never row-locked. A
   Project move deletes an app's media-path rows and inserts them under the destination Project's
-  asset ids, and a file replaced in CommCare HQ and brought in replaces its path's row."
+  asset ids, and a file replaced in CommCare HQ and brought in replaces its path's row.
+  `app_deployment_keyed_case_ids` (the id prefix a create keyed by an answer writes on the project
+  space an app was brought in from) is inserted and deleted with the identity rows." Until part 15
+  lands, the sentence names only what this part builds: rows written when an app is brought in, and
+  the Project move; part 15 adds "or a change made in CommCare HQ" and the replaced file's row.
 - The sentence on `app_deployment_baselines` also gains `first_publish_changes`, in the words of
   part 09's "Contracts".
 - Old: "The three runtime-written tables are insert/update, never deleted or row-locked. The first
@@ -2842,14 +2974,17 @@ Each sentence below is written with the behavior that makes it true, in the same
   again where what it read before the locks no longer holds. A birth from CommCare HQ takes the same
   advisory lock before the one existing app row it may lock."
 
-**`lib/media/CLAUDE.md`**, under "Manifest": "An uploaded asset's wire path is the path the
+**`lib/media/CLAUDE.md`**, in "The export boundary" (the file has no "Manifest" section; its
+paragraph naming `resolveMediaManifest` is there): "An uploaded asset's wire path is the path the
 export's target holds for it (`app_deployment_media_paths`, for a file that came in from CommCare
 HQ, on the project space it came from) or, with none, the content-hash path."
 
 **`lib/commcare/CLAUDE.md`.** Old: "so every menu and form id is `lib/commcare/wireIdentity.ts`'s
-derivation or the target's recorded override (`ExpandOptions.identity`)". Unchanged and still true;
-the media paragraph that says all media lives flat under `commcare/` gains "except a path a target
-holds, which keeps its directory; the media suite writes each file's own".
+derivation or the target's recorded override (`ExpandOptions.identity`)". Unchanged and still true.
+The file held no paragraph saying all media lives flat under `commcare/` (that sentence was the
+comment on `mediaSuiteXml.ts::MEDIA_INSTALL_PATH`), so the sentence goes after "Nova sends no
+`multimedia_map` in any mode": every media file lives at its content-hash path under `commcare/`,
+"except a path a target holds, which keeps its directory; the media suite writes each file's own".
 
 **`docs/architecture/contracts.md`, "HQ deployment safety".**
 
@@ -2872,8 +3007,9 @@ that exact Nova id records it, attributed to who and when." New: the same, then 
 `adopted` by one route alone, bringing it in from CommCare HQ, which records who did. A Project's
 lookup table is accounted for in a project space when any app of the Project holds a live mapping
 for the table CommCare HQ has under that tag, so a second app publishes it without being asked."
-The second sentence states part 11's rule (`11-project-data.md`, section 10); it is written here
-because both follow one sentence of the file.
+The second sentence states part 11's rule (`11-project-data.md`, section 10), which this part's
+layer does not yet hold, so part 11 writes it, after this part's sentence, in the change that
+makes the rule true.
 
 **Root `CLAUDE.md`, mental model 3.** Old: "A form's `xmlns` and every HQ menu and form id are
 derived from the Nova entity's UUID and stored nowhere in the document." New: "A form's `xmlns` and
@@ -3061,7 +3197,8 @@ Each entry names what the file holds of this part. A symbol's design is in the s
   `matchingResolver` (2.1 to 2.3). `lib/commcare/reader/__tests__/identity.test.ts`.
 - `lib/commcare/reader/identityMap.ts`: `externalIdentityMap` (2.5).
   `lib/commcare/reader/__tests__/identityMap.test.ts` and `identityMapParity.test.ts`.
-- `lib/deployment/adoption.ts`: `adoptedIdentityRows` (3.1), `isHoldableWirePath` and
+- `lib/deployment/adoption.ts`: `adoptedIdentityRows`, `adoptedKeyedCaseIdRows` and
+  `keyedCaseIdPrefixesFor` (3.1), `isHoldableWirePath` and
   `assignMediaPaths` (4.2), `adoptedAppBaselineWrite` (6.3), `adoptionPlanFeatureConfirmations`
   (6.5). `lib/deployment/__tests__/adoption.test.ts`.
 - `lib/db/hqAppClaims.ts`: `claimHqAppInTransaction`, `HqAppAlreadyClaimedError`, `HqAppKey`,
@@ -3071,14 +3208,17 @@ Each entry names what the file holds of this part. A symbol's design is in the s
   `remapDeploymentMediaPathsInTransaction` (4.6). `lib/db/__tests__/hqAppClaims.postgres.test.ts`.
 - `lib/case-store/migrations/20261201000000_hq_bring_in_ledger.ts`: section 11, with the DDL of 4.1,
   the three clauses for `first_publish_changes`, and part 15's two columns with their fill
-  (statements 10 and 10b).
-  `lib/case-store/migrations/__tests__/hqBringInLedger.postgres.test.ts`.
+  (statements 10 and 10b), and the keyed case id table (statement 11b).
+  `lib/case-store/migrations/__tests__/hqBringInLedger.postgres.test.ts`, and
+  `lib/case-store/migrations/__tests__/mediaPathFloor.ts` (`MEDIA_PATH_FLOOR_CASES`, the path list
+  it shares with `adoption.test.ts`).
 - `lib/publish/driftReference.ts`: `DriftReference`, `DriftDateOptions`, `DEFAULT_DRIFT_DATE`,
   `driftDate`, `viewerDriftDate` (9.1).
 - `lib/publish/stopPublishing.ts`: the strings and four functions of "Copy".
 - `lib/publish/hqAppClaims.ts`: the two row labels and the action, and no line ("Copy").
 - `lib/deployment/__tests__/adoptedLedger.postgres.test.ts`, `endDeployment.postgres.test.ts` and
-  `hqAppClaimsVocabulary.test.ts`.
+  `hqAppClaimsVocabulary.test.ts`; `lib/deployment/__tests__/adoptedBirth.ts`, the birth the two
+  Postgres files share (claim, production genesis writer, adopted ledger, in one transaction).
 - `scripts/scan-hq-app-claims.ts`: the claim scan ("Written and not yet run"). It is removed in the
   last commit before the merge, once it has run.
 - Only where 4.7's assertion fails: `withoutHeldMedia` in `lib/deployment/service.ts`, with
@@ -3087,10 +3227,11 @@ Each entry names what the file holds of this part. A symbol's design is in the s
 **Changed.**
 
 - `lib/case-store/migrations/index.ts`: registers the migration.
-- `lib/db/pg.ts`: `AppDeploymentMediaPathsTable` and its `AppDatabase` entry; the new columns of
+- `lib/db/pg.ts`: `AppDeploymentMediaPathsTable`, `AppDeploymentKeyedCaseIdsTable` and their
+  `AppDatabase` entries; the new columns of
   `app_deployments`, `app_deployment_resources` and `app_deployment_baselines`, with
   `first_publish_changes` typed as 4.1 says.
-- `lib/db/privilegeConvergence.ts`: the two tables in `RUNTIME_INSERT_DELETE_TABLES`, the two
+- `lib/db/privilegeConvergence.ts`: the three tables in `RUNTIME_INSERT_DELETE_TABLES`, the two
   comments, the new routine in `EXPECTED_PUBLIC_ROUTINES` (3.2, 5.1).
 - `lib/db/apps.ts`: `restoreApp`, `RestoredApp`, `RestoreClaimsChangedError` (5.4);
   `commitAppProjectMoveInTransaction` calls the remap (4.6).
@@ -3105,7 +3246,7 @@ Each entry names what the file holds of this part. A symbol's design is in the s
   (7.1).
 - `lib/deployment/store.ts`: `recordAdoptedDeploymentInTransaction`,
   `insertDeploymentConfirmationsInTransaction` and the refactors of 6.2; `readDeploymentMediaPaths`
-  (4.3); `readHqAppClaims` (5.5); `settleReleasedClaims` (7.1); `endDeployment` (8.3); the
+  (4.3); `readDeploymentKeyedCaseIds` (6.2); `DeploymentFence` (8.5); `readHqAppClaims` (5.5); `settleReleasedClaims` (7.1); `endDeployment` (8.3); the
   `expectedEndings` fence on each writer 8.5 names; the Preview filter of 8.6;
   `recordRefreshedAppBaseline`'s fence (6.3, 8.5).
 - `lib/deployment/service.ts`: the four changes to `publishAppToHq` (7.1) and its catch of
@@ -3135,8 +3276,9 @@ Each entry names what the file holds of this part. A symbol's design is in the s
 - `app/api/commcare/upload/route.ts`: the `viewer` field (9.1).
 - `lib/mcp/tools/uploadAppToHq.ts`: the `publishing_stopped` tag. `lib/mcp/errors.ts`: that tag,
   and `not_permitted` to `permission_denied`. `lib/apiError.ts`: `not_permitted` to 403.
-  `lib/mcp/tools/deploymentProjection.ts`: the state `ended` in its served enum, so the projection
-  stays total (8.3, 8.5).
+  `lib/mcp/tools/deploymentProjection.ts`: `DeploymentProjection.state` is typed `DeploymentState`,
+  so `ended` passes through and the projection stays total; no served schema enumerates a state
+  (8.3, 8.5).
 - `app/(app)/(site)/app-actions.ts`: `RestoreAppResult.stoppedPublishing`, and
   `RESTORE_CLAIMS_CHANGED` for `RestoreClaimsChangedError` (5.4).
 - `components/builder/DeploymentStatus.tsx`: the one sentence that moves to

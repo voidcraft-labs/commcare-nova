@@ -187,6 +187,10 @@ export type HqToolErrorType =
  *     moving in `accept_placement_moves` are no longer the ones Nova would
  *     move, because the app changed since the offer. Nothing was moved or
  *     sent; the payload's `placement_moves` is the offer as it stands now.
+ *   - `publishing_stopped`: someone stopped publishing the app to that
+ *     project space while this upload was getting ready or running, so
+ *     Nova recorded nothing more of it. The message says whether CommCare
+ *     HQ may hold part of it; uploading again makes a new app there.
  */
 export type UploadErrorType =
 	| HqToolErrorType
@@ -203,7 +207,8 @@ export type UploadErrorType =
 	| "hq_build_profile_language_missing"
 	| "hq_plan_lacks_web_apps"
 	| "app_changed_while_publishing"
-	| "hq_placement_moves_changed";
+	| "hq_placement_moves_changed"
+	| "publishing_stopped";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can
@@ -233,7 +238,9 @@ export type UploadErrorType =
  *     an app, an editor inviting a member). Deliberately NOT collapsed
  *     to `"not_found"`: a member legitimately knows the Project exists,
  *     so the honest answer is what's missing and who can fix it.
- *     Surfaces via `ProjectPermissionError` (`lib/projects/manage`).
+ *     Surfaces via `ProjectPermissionError` (`lib/projects/manage`), and
+ *     as a `DeploymentError` of code `not_permitted` (an editor stopping
+ *     publishing, which an admin or owner may do).
  *   - `UploadErrorType` — HQ connection, compatibility, target-state, and
  *     upload rejections.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
@@ -503,7 +510,11 @@ export function toMcpErrorResult(
 					? "domain_not_authorized"
 					: err.code === "not_found"
 						? "not_found"
-						: "invalid_input";
+						: /* A member who may see the deployment and may not do
+							 * this to it; the message names who may. */
+							err.code === "not_permitted"
+							? "permission_denied"
+							: "invalid_input";
 		log.warn("[mcp] deployment rejected", {
 			userId: ctx?.userId ?? null,
 			appId: ctx?.appId ?? null,

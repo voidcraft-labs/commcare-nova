@@ -19,7 +19,11 @@
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
-import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
+import {
+	RestoreClaimsChangedError,
+	restoreApp as restoreAppDoc,
+	softDeleteApp,
+} from "@/lib/db/apps";
 import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
@@ -29,7 +33,12 @@ import {
 	AppRunStateCorruptError,
 	moveAppToProject,
 } from "@/lib/db/moveAppToProject";
+import {
+	deploymentServerLabel,
+	isDeploymentServer,
+} from "@/lib/deployment/types";
 import { log } from "@/lib/logger";
+import { RESTORE_CLAIMS_CHANGED } from "@/lib/publish/stopPublishing";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -38,9 +47,19 @@ export type DeleteAppResult =
 	| { success: true; recoverableUntil: string }
 	| { success: false; error: string };
 
-/** Result of `restoreApp`. */
+/** A project space a restore stopped publishing to, as the home list words it. */
+export interface RestoreStoppedPublishing {
+	readonly domain: string;
+	/** The server's short label ("US", "India", "EU"). */
+	readonly serverLabel: string;
+}
+
+/** Result of `restoreApp`. `stoppedPublishing` is empty for a restore that ended nothing. */
 export type RestoreAppResult =
-	| { success: true }
+	| {
+			success: true;
+			stoppedPublishing: readonly RestoreStoppedPublishing[];
+	  }
 	| { success: false; error: string };
 
 export type MoveAppErrorCode =
@@ -85,6 +104,23 @@ function validateAppMutationInput(appId: string): AuthResult {
 		return { ok: false, error: "Missing app identifier." };
 	}
 	return { ok: true };
+}
+
+/**
+ * The label of a server a deployment row names. The column's CHECK admits
+ * only the servers Nova knows, so an unknown one is a ledger fault: it is
+ * logged and the stored text stands in, because the restore has committed.
+ */
+function serverLabelOf(server: string): string {
+	if (isDeploymentServer(server)) return deploymentServerLabel(server);
+	log.error(
+		"[home/restore-app] a deployment names a server Nova does not know",
+		undefined,
+		{
+			server,
+		},
+	);
+	return server;
 }
 
 // ── Actions ────────────────────────────────────────────────────────
@@ -137,12 +173,21 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 		const auth = validateAppMutationInput(appId);
 		if (!auth.ok) return { success: false, error: auth.error };
 
-		await restoreAppDoc(appId, session.user.id);
+		const restored = await restoreAppDoc(appId, session.user.id);
 		revalidatePath("/");
-		return { success: true };
+		return {
+			success: true,
+			stoppedPublishing: restored.stoppedPublishing.map((space) => ({
+				domain: space.domain,
+				serverLabel: serverLabelOf(space.server),
+			})),
+		};
 	} catch (err) {
 		if (err instanceof CommitReauthError) {
 			return { success: false, error: "App not found." };
+		}
+		if (err instanceof RestoreClaimsChangedError) {
+			return { success: false, error: RESTORE_CLAIMS_CHANGED };
 		}
 		log.error("[home/restore-app] error", err);
 		return {

@@ -12,8 +12,16 @@
  * so there a missing file fails the install.
  *
  * Core accepts an empty media block and ignores its path attribute in
- * InstallerFactory.getMediaInstaller; neither is a runtime refusal. Nova's
- * compiler tests independently assert the intended emitted descriptor shape.
+ * InstallerFactory.getMediaInstaller; neither is a runtime refusal there.
+ * CommCare Android reads the path: it installs each file of a block into
+ * `jr://file/commcare/media/` + `/` + path + `/` + the location's file name
+ * (`AndroidResourceInstallerFactory.getMediaInstaller`,
+ * `MediaFileAndroidInstaller`, `FileSystemInstaller.resolveEmptyLocalReference`),
+ * so a file whose location is `./<dir>/<name>` is where its reference
+ * `jr://file/<dir>/<name>` reads it only under `path="../../<dir>"`, the rule
+ * CommCare HQ's build writes (`suite_xml/generator.py::media_resources`). The
+ * oracle holds every local location to its block's path, whatever directory
+ * it names, nested or not.
  */
 
 import { type Element, isTag } from "domhandler";
@@ -104,12 +112,20 @@ export function validateMediaSuite(
 	const seenResourceIds = new Set<string>();
 
 	for (const media of findAll((el) => el.name === "media", suiteEl.children)) {
+		const installPath = getAttributeValue(media, "path");
 		const resources = getChildren(media).filter(
 			(c): c is Element => isTag(c) && c.name === "resource",
 		);
 
 		for (const resource of resources) {
-			checkResource(resource, seenResourceIds, bundledPaths, loc, errors);
+			checkResource(
+				resource,
+				installPath,
+				seenResourceIds,
+				bundledPaths,
+				loc,
+				errors,
+			);
 		}
 	}
 
@@ -126,6 +142,7 @@ export function validateMediaSuite(
  */
 function checkResource(
 	resource: Element,
+	installPath: string | undefined,
 	seenResourceIds: Set<string>,
 	bundledPaths: ReadonlySet<string> | undefined,
 	loc: ValidationLocation,
@@ -200,7 +217,7 @@ function checkResource(
 	}
 
 	for (const location of locations) {
-		checkLocation(location, id, bundledPaths, loc, errors);
+		checkLocation(location, id, installPath, bundledPaths, loc, errors);
 	}
 }
 
@@ -211,11 +228,12 @@ function checkResource(
  * (absent, remote, or unrecognized) fails install. The text content is
  * the resource path; an empty value leaves the installer with nothing to
  * resolve. When the path starts with `./`, the suffix is checked against
- * the bundled-file set.
+ * the bundled-file set, and its directory against the block's install path.
  */
 function checkLocation(
 	location: Element,
 	resourceId: string | undefined,
+	installPath: string | undefined,
 	bundledPaths: ReadonlySet<string> | undefined,
 	loc: ValidationLocation,
 	errors: ValidationError[],
@@ -265,10 +283,27 @@ function checkLocation(
 		return;
 	}
 
-	// C2 — local-path resolution. Nova emits `./commcare/<hash><ext>`; the
-	// location resolves relative to the archive root. Core ignores the media
-	// path attribute when choosing its installer. The compiler writes
-	// the bytes at that path. A mismatch means the suite points the runtime
+	// C2 — install directory. Android installs the file at
+	// `commcare/media/` + path + its name, relative to the app's storage root,
+	// which is `<dir>/<name>` only when the path is `../../<dir>`.
+	if (authority?.toLowerCase() === "local" && pathText.startsWith("./")) {
+		const local = pathText.slice(2);
+		const expected = `../../${local.slice(0, Math.max(local.lastIndexOf("/"), 0))}`;
+		if (installPath !== expected) {
+			errors.push(
+				validationError(
+					"MEDIA_INSTALL_PATH_MISMATCH",
+					"app",
+					`The generated media_suite.xml has a <location>${where} at "${pathText}" inside a <media> block whose path is ${installPath === undefined ? "missing" : `"${installPath}"`}. CommCare Android installs each file under the block's path, so the file is read from "jr://file/${local}" only when that path is "${expected}". This is a bug in the media-suite generator.`,
+					loc,
+				),
+			);
+		}
+	}
+
+	// C2 — local-path resolution. The location resolves relative to the
+	// archive root, in whatever directory the wire path names. The compiler
+	// writes the bytes at that path. A mismatch means the suite points the runtime
 	// at a file that isn't in the archive: Android's install, which copies
 	// each file out of the archive, fails, while Core's and Formplayer's
 	// archive installs do not notice (the file header), so this join is the

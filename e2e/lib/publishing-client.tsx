@@ -56,6 +56,7 @@ const view: DeploymentView = {
 			lastObservedAt: null,
 			offeredLogoContentHash: null,
 			targetEmptyCaseListText: null,
+			endings: 0,
 		},
 		active: [],
 		superseded: [],

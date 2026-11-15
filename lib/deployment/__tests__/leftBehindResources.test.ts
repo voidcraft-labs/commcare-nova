@@ -7,7 +7,8 @@
  * exists to prevent. Report too much and they make a trip to CommCare HQ
  * to clean up a table that is not there.
  *
- * So the test is the NAME, not the supersession.
+ * So the test is the NAME, not the supersession. An app a deployment ended
+ * at is not left behind either: the card's ended line names it.
  */
 
 import { describe, expect, it } from "vitest";
@@ -34,6 +35,10 @@ function resource(over: Partial<DeploymentResource>): DeploymentResource {
 		remoteObservedAt: null,
 		supersededAt: "2026-08-18T00:00:00.000Z",
 		remoteMissingAt: null,
+		adoptedByName: null,
+		releasedAt: null,
+		endedReason: null,
+		endedByName: null,
 		...over,
 	};
 }
@@ -57,6 +62,7 @@ function view(
 			lastObservedAt: null,
 			offeredLogoContentHash: null,
 			targetEmptyCaseListText: null,
+			endings: 0,
 		},
 		active: [],
 		superseded,
@@ -94,6 +100,32 @@ describe("leftBehindResources", () => {
 			}),
 			identities: new Map<string, string>(),
 			report: true,
+		},
+		{
+			label: "app a deployment ended at",
+			resource: resource({
+				kind: "app",
+				novaResourceId: "app-1",
+				remoteId: "ended-app",
+				pushedIdentity: null,
+				endedReason: "stopped",
+				endedByName: "Ada",
+			}),
+			identities: new Map<string, string>(),
+			report: false,
+		},
+		{
+			label: "app another Nova app now publishes to",
+			resource: resource({
+				kind: "app",
+				novaResourceId: "app-1",
+				remoteId: "claimed-app",
+				pushedIdentity: null,
+				endedReason: "claimed-elsewhere",
+				endedByName: "Grace",
+			}),
+			identities: null,
+			report: false,
 		},
 		{
 			label: "archived place",

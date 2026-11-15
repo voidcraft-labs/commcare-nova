@@ -442,6 +442,7 @@ export type ValidationErrorCode =
 	| "MEDIA_LOCATION_UNKNOWN_AUTHORITY"
 	| "MEDIA_RESOURCE_DUPLICATE_ID"
 	| "MEDIA_LOCATION_PATH_NOT_BUNDLED"
+	| "MEDIA_INSTALL_PATH_MISMATCH"
 	// Media — the four asset-context rules under `rules/media/`. Each
 	// fires only when the validator runs with a resolved asset manifest
 	// (the SA validation loop's path); structural rules (e.g. image-map

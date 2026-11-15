@@ -20,8 +20,8 @@ import { compilerBugMessage } from "@/lib/domain/expression/errors";
 import type { AssetManifest, ResolvedMediaAsset } from "./assetWirePath";
 import { buildMediaSuiteXml } from "./mediaSuiteXml";
 
-/** One file to write into the CCZ archive: the wire path (zip entry)
- *  and its validated bytes. */
+/** One file to write into the CCZ archive: the wire path (zip entry,
+ *  in whatever directory the path names) and its validated bytes. */
 export interface MediaCczEntry {
 	readonly path: string;
 	readonly bytes: Buffer;
@@ -55,7 +55,9 @@ export function buildMediaBundle(
 	// dedup the bundle would emit two `<media>` blocks with identical
 	// `<resource id>` siblings + collide on the zip entry path (silent
 	// `AdmZip.addFile` overwrite). Same wire path = same content hash =
-	// same bytes, so picking either entry is byte-equivalent.
+	// same bytes, so picking either entry is byte-equivalent. A path a
+	// target holds keeps that premise: it is held for one asset alone, and
+	// never where it spells the content-hash path of other bytes.
 	const deduped = new Map<string, ResolvedMediaAsset>();
 	for (const asset of manifest.values()) {
 		deduped.set(asset.wirePath, asset);

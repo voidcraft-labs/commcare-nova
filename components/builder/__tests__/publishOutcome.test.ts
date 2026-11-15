@@ -66,6 +66,7 @@ const RECORD: DeploymentRecord = {
 	lastObservedAt: null,
 	offeredLogoContentHash: null,
 	targetEmptyCaseListText: null,
+	endings: 0,
 };
 const VIEW: NonNullable<PublishResponseBody["deployment"]> = {
 	deployment: RECORD,
@@ -275,7 +276,12 @@ describe("a publish that was refused", () => {
 	});
 
 	it("carries the Web Apps question from the refusal, and none where it carries none", () => {
-		const change = { from: false, to: true, changedInHq: true };
+		const change = {
+			from: false,
+			to: true,
+			changedInHq: true,
+			since: { kind: "published" as const },
+		};
 		expect(
 			publishOutcome(true, {
 				success: false,
@@ -314,6 +320,8 @@ describe("a publish that was refused", () => {
 			note: null,
 			observedDigest: "digest-shown",
 			baselineKnown: true,
+			since: { kind: "published" as const },
+			canBringIn: false,
 		};
 		const outcome = publishOutcome(true, {
 			success: false,
@@ -338,6 +346,82 @@ describe("a publish that was refused", () => {
 			remoteChanges: [change],
 		});
 	});
+	it("reads a change and a Web Apps question from a server that names no reference as measured against the last publish", () => {
+		const {
+			since: _,
+			canBringIn: __,
+			...older
+		} = {
+			kind: "app" as const,
+			novaResourceId: "app-1",
+			name: "Clinic visits",
+			identity: "hq-1",
+			parts: ["The menu Patients"],
+			note: null,
+			observedDigest: "digest-shown",
+			baselineKnown: true,
+			since: { kind: "published" as const },
+			canBringIn: false,
+		};
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: {
+				...REFUSAL,
+				failure: {
+					code: "hq_changed",
+					message: HQ_CHANGED_MESSAGE,
+					details: ["Clinic visits"],
+				},
+				remoteChanges: [older],
+				webAppsChange: { from: false, to: true, changedInHq: true },
+			},
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			remoteChanges: [
+				{ ...older, since: { kind: "published" }, canBringIn: false },
+			],
+			webAppsChange: {
+				from: false,
+				to: true,
+				changedInHq: true,
+				since: { kind: "published" },
+			},
+		});
+	});
+
+	it("keeps the reference a change names: the day Nova brought the app in", () => {
+		const since = {
+			kind: "brought-in" as const,
+			at: "2026-11-10T23:30:00.000Z",
+		};
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: {
+				...REFUSAL,
+				failure: { code: "hq_changed", message: "Changed.", details: [] },
+				remoteChanges: [
+					{
+						kind: "app",
+						novaResourceId: "app-1",
+						name: "Clinic visits",
+						identity: "hq-1",
+						parts: [],
+						note: null,
+						observedDigest: "digest-shown",
+						baselineKnown: false,
+						since,
+						canBringIn: false,
+					},
+				],
+			},
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			remoteChanges: [{ since }],
+		});
+	});
+
 	it("does not synthesize setup instructions when the response has a record alone", () => {
 		const outcome = publishOutcome(true, { success: true, deployment: VIEW });
 		expect(outcome.kind).toBe("landed");

@@ -132,6 +132,12 @@ import {
 	refundStaleReservation,
 	type StaleRunReapOutcome,
 } from "./credits";
+import {
+	isHqAppClaimIndexViolation,
+	lockReleasedClaimsInTransaction,
+	remapDeploymentMediaPathsInTransaction,
+	settleReleasedClaimsInTransaction,
+} from "./hqAppClaims";
 import { LEASE_COLUMNS, leaseView, rowReservation } from "./leaseView";
 import {
 	lockLookupTablesForReferenceWrite,
@@ -1289,6 +1295,12 @@ export async function commitAppProjectMoveInTransaction(
 		.set({ project_id: args.toProjectId })
 		.where("app_id", "=", args.appId)
 		.execute();
+	/* A media path CommCare HQ keeps names an asset of the source Project; the
+	 * document now names the destination's copy, so the path follows it. */
+	await remapDeploymentMediaPathsInTransaction(tx, {
+		appId: args.appId,
+		assetIdMap: args.assetIdMap,
+	});
 	await copyPlaceBaselinesToProject(tx, {
 		appId: args.appId,
 		fromProjectId: args.expectedFromProjectId,
@@ -2308,30 +2320,86 @@ export async function softDeleteApp(
 	return recoverableUntil.toISOString();
 }
 
-/** Restore a soft-deleted app — clears both soft-delete fields as a pair;
- *  status untouched; `updated_at` deliberately not bumped. */
+/** What a restore ended. */
+export interface RestoredApp {
+	/** The project spaces this app stopped publishing to, because another Nova app publishes there now. */
+	readonly stoppedPublishing: readonly {
+		readonly server: string;
+		readonly domain: string;
+	}[];
+}
+
+/** Thrown after three tries whose locks each found the claims changed. Nothing was written. */
+export class RestoreClaimsChangedError extends Error {
+	readonly name = "RestoreClaimsChangedError";
+	constructor() {
+		super(
+			"Where this app publishes changed under the restore three times in a row, so nothing was restored.",
+		);
+	}
+}
+
+const RESTORE_CLAIM_TRIES = 3;
+
+/**
+ * Restore a soft-deleted app: clear both soft-delete fields as a pair, status
+ * untouched and `updated_at` deliberately not bumped, and settle each CommCare
+ * HQ app it gave up while it was deleted (`hqAppClaims.ts`). It takes each
+ * back, from a holder in recently deleted too, or ends that deployment where a
+ * live Nova app holds it, and answers which project spaces it ended.
+ *
+ * The settle's locks are the transaction's only lock-taking before the
+ * capability check. Where what it read before them no longer holds under them,
+ * the transaction ends having written nothing and starts again, three times at
+ * most.
+ */
 export async function restoreApp(
 	appId: string,
 	actorUserId: string,
-): Promise<void> {
-	await withAppTx(async (tx) => {
-		const fresh = await lockAppRow(tx, appId);
-		if (!fresh) {
-			throw new CommitReauthError("App not found.");
+): Promise<RestoredApp> {
+	for (let attempt = 0; attempt < RESTORE_CLAIM_TRIES; attempt++) {
+		let restored: RestoredApp | null;
+		try {
+			restored = await withAppTx(async (tx) => {
+				const locks = await lockReleasedClaimsInTransaction(tx, appId);
+				if (locks === null) return null;
+				const fresh = locks.app;
+				if (!fresh) {
+					throw new CommitReauthError("App not found.");
+				}
+				await assertAppCapabilityInTransaction(
+					tx,
+					fresh,
+					actorUserId,
+					"delete",
+					"You no longer have permission to restore this app.",
+				);
+				const stoppedPublishing = await settleReleasedClaimsInTransaction(tx, {
+					appId,
+					actorUserId,
+					at: new Date(),
+					locks,
+				});
+				await tx
+					.updateTable("apps")
+					.set({ deleted_at: null, recoverable_until: null })
+					.where("id", "=", appId)
+					.execute();
+				return { stoppedPublishing };
+			});
+		} catch (error) {
+			if (isHqAppClaimIndexViolation(error)) {
+				log.error(
+					"[restoreApp] a settle read under its locks met the one-HQ-app-one-Nova-app index",
+					error,
+					{ appId },
+				);
+			}
+			throw error;
 		}
-		await assertAppCapabilityInTransaction(
-			tx,
-			fresh,
-			actorUserId,
-			"delete",
-			"You no longer have permission to restore this app.",
-		);
-		await tx
-			.updateTable("apps")
-			.set({ deleted_at: null, recoverable_until: null })
-			.where("id", "=", appId)
-			.execute();
-	});
+		if (restored !== null) return restored;
+	}
+	throw new RestoreClaimsChangedError();
 }
 
 // ── Loads ───────────────────────────────────────────────────────────

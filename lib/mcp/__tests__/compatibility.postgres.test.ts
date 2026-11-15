@@ -537,6 +537,7 @@ it("returns what an upload there asks to confirm, each with its state from the d
 		{
 			ensure: true,
 			confirmations: [{ kind: "plan-feature", subject: "data-forwarding" }],
+			expectedEndings: 0,
 		},
 	);
 	await withHttpPeer(async () => {
@@ -677,7 +678,11 @@ it("asks about CommCare Supply for an advanced menu whose case list is its own m
 		{ server: "india", domain: "clinic" },
 		"preflight",
 		{ status: "succeeded", at: "2026-11-01T00:00:00.000Z" },
-		{ ensure: true, confirmations: [{ kind: "commtrack-off" }] },
+		{
+			ensure: true,
+			confirmations: [{ kind: "commtrack-off" }],
+			expectedEndings: 0,
+		},
 	);
 	await withHttpPeer(async () => {
 		await asUser(async (client) => {

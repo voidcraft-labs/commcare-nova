@@ -95,6 +95,9 @@ function unreadBaseline(
 		ownership: null,
 		observedAt,
 		discard: null,
+		novaRevision: null,
+		mediaFiles: { kind: "set", files: null },
+		firstPublish: { kind: "set", list: null },
 	};
 }
 
@@ -124,6 +127,9 @@ function readBaseline(
 		ownership: OWNERSHIP,
 		observedAt: options.observedAt ?? AT,
 		discard: options.discard ?? null,
+		novaRevision: null,
+		mediaFiles: { kind: "set", files: null },
+		firstPublish: { kind: "set", list: null },
 	};
 }
 
@@ -131,9 +137,13 @@ function preflightPassed() {
 	return { status: "succeeded" as const, at: AT };
 }
 
+/** The fence of a write to a deployment that was never ended. */
+const NEVER_ENDED = { expectedEndings: 0 } as const;
+
 async function create(scope: DeploymentScope, target = TARGET) {
 	return foldDeploymentAttempt(scope, target, "preflight", preflightPassed(), {
 		ensure: true,
+		...NEVER_ENDED,
 	});
 }
 
@@ -145,6 +155,7 @@ async function publish(
 ) {
 	await create(scope);
 	return recordRemoteResource(scope, TARGET, {
+		...NEVER_ENDED,
 		kind: "app",
 		novaResourceId: scope.appId,
 		remoteId,
@@ -189,7 +200,13 @@ describe("creating a deployment", () => {
 	it("refuses to fold against a record that does not exist", async () => {
 		const scope = await seed();
 		await expect(
-			foldDeploymentAttempt(scope, TARGET, "preflight", preflightPassed()),
+			foldDeploymentAttempt(
+				scope,
+				TARGET,
+				"preflight",
+				preflightPassed(),
+				NEVER_ENDED,
+			),
 		).rejects.toThrow(/isn't available/);
 	});
 });
@@ -199,15 +216,21 @@ describe("attempt folds", () => {
 		const scope = await seed();
 		await create(scope);
 
-		const refused = await foldDeploymentAttempt(scope, TARGET, "upload", {
-			status: "failed",
-			at: AT,
-			failure: {
-				code: "hq_rejected_upload",
-				message: "CommCare HQ refused the app.",
-				details: [],
+		const refused = await foldDeploymentAttempt(
+			scope,
+			TARGET,
+			"upload",
+			{
+				status: "failed",
+				at: AT,
+				failure: {
+					code: "hq_rejected_upload",
+					message: "CommCare HQ refused the app.",
+					details: [],
+				},
 			},
-		});
+			NEVER_ENDED,
+		);
 
 		expect(refused.deployment.state).toBe("incomplete");
 		expect(refused.deployment.resumePhase).toBe("upload");
@@ -218,15 +241,21 @@ describe("attempt folds", () => {
 		const scope = await seed();
 		const live = await publish(scope, "hq-1", 7);
 
-		const after = await foldDeploymentAttempt(scope, TARGET, "preflight", {
-			status: "failed",
-			at: "2026-08-07T00:00:00.000Z",
-			failure: {
-				code: "hq_not_connected",
-				message: "The caller's key expired.",
-				details: [],
+		const after = await foldDeploymentAttempt(
+			scope,
+			TARGET,
+			"preflight",
+			{
+				status: "failed",
+				at: "2026-08-07T00:00:00.000Z",
+				failure: {
+					code: "hq_not_connected",
+					message: "The caller's key expired.",
+					details: [],
+				},
 			},
-		});
+			NEVER_ENDED,
+		);
 
 		// The record still describes the target: same state, same phases,
 		// no stale attempt failure for a later reader to misattribute.
@@ -298,6 +327,7 @@ describe("ownership mappings", () => {
 				Promise.allSettled(
 					remotes.map((remoteId, index) =>
 						recordRemoteResource(scope, TARGET, {
+							...NEVER_ENDED,
 							kind: "app",
 							novaResourceId: scope.appId,
 							remoteId,
@@ -438,6 +468,7 @@ describe("pushed Project data", () => {
 				remoteRevision: null,
 			})),
 			{ status: "complete", kinds: ["location"], pushedAt: AT },
+			NEVER_ENDED,
 		);
 	}
 
@@ -462,6 +493,7 @@ describe("pushed Project data", () => {
 				},
 			],
 			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+			NEVER_ENDED,
 		);
 	}
 
@@ -516,6 +548,7 @@ describe("pushed Project data", () => {
 			TARGET,
 			[partialMapping(TABLE, "hq-districts", "districts")],
 			{ status: "partial" },
+			NEVER_ENDED,
 		);
 		expect(first.deployment.state).toBe("preflight");
 
@@ -524,6 +557,7 @@ describe("pushed Project data", () => {
 			TARGET,
 			[partialMapping(OTHER_TABLE, "hq-regions", "regions")],
 			{ status: "partial" },
+			NEVER_ENDED,
 		);
 
 		expect(
@@ -646,6 +680,7 @@ describe("pushed Project data", () => {
 				},
 			],
 			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+			NEVER_ENDED,
 		);
 
 		expect(
@@ -753,6 +788,7 @@ describe("pushed Project data", () => {
 				},
 			],
 			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+			NEVER_ENDED,
 		);
 
 		expect(view.deployment.phases.resources).toEqual({
@@ -796,6 +832,7 @@ describe("pushed Project data", () => {
 					},
 				],
 				{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+				NEVER_ENDED,
 			),
 		).rejects.toMatchObject({
 			code: "23514",
@@ -889,6 +926,7 @@ describe("pushed Project data", () => {
 			TARGET,
 			[place(COLORADO, "colorado"), place(DENVER, "denver")],
 			{ status: "partial" },
+			NEVER_ENDED,
 		);
 
 		// The places really are on the project space, so they are recorded;
@@ -906,6 +944,7 @@ describe("pushed Project data", () => {
 			TARGET,
 			[place(COLORADO, "colorado")],
 			{ status: "partial" },
+			NEVER_ENDED,
 		);
 
 		// A place this call did not name may simply not have been reached
@@ -971,6 +1010,7 @@ describe("provisioned workers", () => {
 				remoteRevision: null,
 			})),
 			{ status: "reconciled", kind: "worker", stillUsed },
+			NEVER_ENDED,
 		);
 	}
 
@@ -1234,6 +1274,7 @@ describe("the empty app and HQ reporting it gone", () => {
 		const scope = await seed();
 		const created = await create(scope);
 		const view = await recordCreatedRemoteApp(scope, TARGET, {
+			...NEVER_ENDED,
 			remoteId: "hq-shell",
 			baseline: unreadBaseline("hq-shell"),
 		});
@@ -1280,6 +1321,7 @@ describe("the empty app and HQ reporting it gone", () => {
 		await publish(scope, "hq-app", 3);
 		await observe(scope, "failed");
 		const replaced = await recordCreatedRemoteApp(scope, TARGET, {
+			...NEVER_ENDED,
 			remoteId: "hq-new",
 			baseline: unreadBaseline("hq-new"),
 		});
@@ -1299,12 +1341,14 @@ describe("the empty app and HQ reporting it gone", () => {
 		const shellOnly = { server: "production" as const, domain: "shell" };
 		await create(scope, shellOnly);
 		await recordCreatedRemoteApp(scope, shellOnly, {
+			...NEVER_ENDED,
 			remoteId: "hq-shell",
 			baseline: unreadBaseline("hq-shell"),
 		});
 		const goneTarget = { server: "india" as const, domain: "gone" };
 		await create(scope, goneTarget);
 		const gonePublished = await recordRemoteResource(scope, goneTarget, {
+			...NEVER_ENDED,
 			kind: "app",
 			novaResourceId: scope.appId,
 			remoteId: "hq-gone",
@@ -1329,6 +1373,7 @@ describe("the empty app and HQ reporting it gone", () => {
 		const refilled = { server: "india" as const, domain: "refilled" };
 		await create(scope, refilled);
 		await recordRemoteResource(scope, refilled, {
+			...NEVER_ENDED,
 			kind: "app",
 			novaResourceId: scope.appId,
 			remoteId: "hq-before",
@@ -1339,6 +1384,7 @@ describe("the empty app and HQ reporting it gone", () => {
 			baseline: unreadBaseline("hq-before"),
 		});
 		const shellAfter = await recordCreatedRemoteApp(scope, refilled, {
+			...NEVER_ENDED,
 			remoteId: "hq-shell-after",
 			baseline: unreadBaseline("hq-shell-after"),
 		});
@@ -1381,6 +1427,7 @@ describe("the empty app and HQ reporting it gone", () => {
 					},
 				],
 				{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+				NEVER_ENDED,
 			);
 		const reached = async () => (await readReachedDeploymentTargets(scope))[0];
 		expect(await reached()).toMatchObject({
@@ -1399,6 +1446,7 @@ describe("the empty app and HQ reporting it gone", () => {
 		await create(scope);
 		const upload = (targetEmptyCaseListText?: boolean) =>
 			recordRemoteResource(scope, TARGET, {
+				...NEVER_ENDED,
 				kind: "app",
 				novaResourceId: scope.appId,
 				remoteId: "hq-1",
@@ -1576,6 +1624,7 @@ describe("reads", () => {
 			TARGET,
 			"preflight",
 			preflightPassed(),
+			NEVER_ENDED,
 		);
 		expect(folded.confirmations).toEqual(read?.confirmations);
 	});
@@ -1603,10 +1652,13 @@ describe("tenancy", () => {
 					]);
 				},
 				() =>
-					foldDeploymentAttempt(scope, TARGET, "upload", {
-						status: "succeeded",
-						at: AT,
-					}),
+					foldDeploymentAttempt(
+						scope,
+						TARGET,
+						"upload",
+						{ status: "succeeded", at: AT },
+						NEVER_ENDED,
+					),
 				async (settled, pg) => {
 					expect(settled).toBe(false);
 					await pg.query(
@@ -1627,15 +1679,21 @@ describe("tenancy", () => {
 		await sql`DELETE FROM auth_member WHERE "userId" = 'u1'`.execute(h.db());
 
 		await expect(
-			foldDeploymentAttempt(scope, TARGET, "upload", {
-				status: "failed",
-				at: AT,
-				failure: {
-					code: "hq_rejected_upload",
-					message: "refused",
-					details: [],
+			foldDeploymentAttempt(
+				scope,
+				TARGET,
+				"upload",
+				{
+					status: "failed",
+					at: AT,
+					failure: {
+						code: "hq_rejected_upload",
+						message: "refused",
+						details: [],
+					},
 				},
-			}),
+				NEVER_ENDED,
+			),
 		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
 	});
 });
@@ -1644,7 +1702,11 @@ describe("entry point release evidence", () => {
 	it("invalidates before dependencies change and rejects a stale observation", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 1);
-		const generation = await beginDeploymentContentWrite(scope, TARGET);
+		const generation = await beginDeploymentContentWrite(
+			scope,
+			TARGET,
+			NEVER_ENDED,
+		);
 		const manifest = {
 			generation,
 			remoteAppId: "hq-1",
@@ -1653,7 +1715,13 @@ describe("entry point release evidence", () => {
 			dependencies: [],
 		};
 		expect(
-			await finishDeploymentContentWrite(scope, TARGET, generation, manifest),
+			await finishDeploymentContentWrite(
+				scope,
+				TARGET,
+				generation,
+				manifest,
+				NEVER_ENDED,
+			),
 		).toBe(true);
 		const observation = {
 			generation,
@@ -1667,7 +1735,7 @@ describe("entry point release evidence", () => {
 		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
 			true,
 		);
-		await beginDeploymentContentWrite(scope, TARGET);
+		await beginDeploymentContentWrite(scope, TARGET, NEVER_ENDED);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
 		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
 			false,
@@ -1679,39 +1747,65 @@ describe("entry point release evidence", () => {
 	it("a superseded completion invalidates a newer manifest instead of blessing uncertain remote write order", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 1);
-		const first = await beginDeploymentContentWrite(scope, TARGET);
-		const second = await beginDeploymentContentWrite(scope, TARGET);
+		const first = await beginDeploymentContentWrite(scope, TARGET, NEVER_ENDED);
+		const second = await beginDeploymentContentWrite(
+			scope,
+			TARGET,
+			NEVER_ENDED,
+		);
 		expect(
-			await finishDeploymentContentWrite(scope, TARGET, second, {
-				generation: second,
-				remoteAppId: "hq-1",
-				sourceSequence: 2,
-				entries: [],
-				dependencies: [],
-			}),
+			await finishDeploymentContentWrite(
+				scope,
+				TARGET,
+				second,
+				{
+					generation: second,
+					remoteAppId: "hq-1",
+					sourceSequence: 2,
+					entries: [],
+					dependencies: [],
+				},
+				NEVER_ENDED,
+			),
 		).toBe(true);
 		expect(
-			await finishDeploymentContentWrite(scope, TARGET, first, {
-				generation: first,
-				remoteAppId: "hq-1",
-				sourceSequence: 0,
-				entries: [],
-				dependencies: [],
-			}),
+			await finishDeploymentContentWrite(
+				scope,
+				TARGET,
+				first,
+				{
+					generation: first,
+					remoteAppId: "hq-1",
+					sourceSequence: 0,
+					entries: [],
+					dependencies: [],
+				},
+				NEVER_ENDED,
+			),
 		).toBe(false);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
 	});
 	it("refuses entry point evidence when the persisted source sequence has advanced", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 1);
-		const generation = await beginDeploymentContentWrite(scope, TARGET);
-		await finishDeploymentContentWrite(scope, TARGET, generation, {
+		const generation = await beginDeploymentContentWrite(
+			scope,
+			TARGET,
+			NEVER_ENDED,
+		);
+		await finishDeploymentContentWrite(
+			scope,
+			TARGET,
 			generation,
-			remoteAppId: "hq-1",
-			sourceSequence: 0,
-			entries: [],
-			dependencies: [],
-		});
+			{
+				generation,
+				remoteAppId: "hq-1",
+				sourceSequence: 0,
+				entries: [],
+				dependencies: [],
+			},
+			NEVER_ENDED,
+		);
 		await sql`UPDATE apps SET mutation_seq = mutation_seq + 1 WHERE id = ${scope.appId}`.execute(
 			h.db(),
 		);
@@ -1810,6 +1904,7 @@ describe("baselines", () => {
 		const scope = await seed();
 		await create(scope);
 		await recordCreatedRemoteApp(scope, TARGET, {
+			...NEVER_ENDED,
 			remoteId: "hq-shell",
 			baseline: readBaseline("hq-shell", "Shell", { origin: "create" }),
 		});
@@ -1827,6 +1922,7 @@ describe("baselines", () => {
 		await create(scope);
 		await expect(
 			recordRemoteResource(scope, TARGET, {
+				...NEVER_ENDED,
 				kind: "app",
 				novaResourceId: scope.appId,
 				remoteId: "hq-app",
@@ -1848,6 +1944,7 @@ describe("baselines", () => {
 		await create(scope);
 		const record = (baseline: AppBaselineWrite) =>
 			recordRemoteResource(scope, TARGET, {
+				...NEVER_ENDED,
 				kind: "app",
 				novaResourceId: scope.appId,
 				remoteId: "hq-app",
@@ -1886,6 +1983,7 @@ describe("baselines", () => {
 			discarded_by: "u1",
 		});
 		await recordCreatedRemoteApp(scope, TARGET, {
+			...NEVER_ENDED,
 			remoteId: "hq-other",
 			baseline: unreadBaseline("hq-other", AT),
 		});
@@ -1904,6 +2002,7 @@ describe("baselines", () => {
 		const scope = await seed();
 		await create(scope);
 		await recordCreatedRemoteApp(scope, TARGET, {
+			...NEVER_ENDED,
 			remoteId: "hq-shell",
 			baseline: readBaseline("hq-shell", "Shell", { origin: "create" }),
 		});
@@ -1914,9 +2013,12 @@ describe("baselines", () => {
 			.execute();
 		expect(await readAppBaseline(scope, TARGET)).toEqual({
 			origin: "unread",
+			storedOrigin: "create",
 			remoteAppId: "hq-shell",
 			observedAt: AT,
 			observedBy: "u1",
+			novaRevision: null,
+			mediaFiles: null,
 		});
 	});
 
@@ -1941,7 +2043,10 @@ describe("baselines", () => {
 					),
 				),
 				{ status: "partial" },
-				order.map((remoteId) => tableBaseline(remoteId, at)),
+				{
+					baselines: order.map((remoteId) => tableBaseline(remoteId, at)),
+					...NEVER_ENDED,
+				},
 			);
 		await Promise.all([
 			push(first, ["hq-a", "hq-b"], AT),
@@ -1993,7 +2098,13 @@ describe("baselines", () => {
 				),
 			],
 			{ status: "complete", kinds: ["lookup-table", "location"], pushedAt: AT },
-			[tableBaseline("hq-theirs"), placeBaseline("hq-place", "Colorado")],
+			{
+				baselines: [
+					tableBaseline("hq-theirs"),
+					placeBaseline("hq-place", "Colorado"),
+				],
+				...NEVER_ENDED,
+			},
 		);
 		const baselines = await readResourceBaselines(scope, TARGET, [
 			{ kind: "lookup-table", remoteId: "hq-theirs" },
@@ -2015,9 +2126,12 @@ describe("baselines", () => {
 	it("marks what a push could not read back as unread, and a later read replaces it", async () => {
 		const scope = await seed();
 		await create(scope);
-		await markResourceBaselinesUnread(scope, TARGET, [
-			{ kind: "location", remoteId: "hq-place" },
-		]);
+		await markResourceBaselinesUnread(
+			scope,
+			TARGET,
+			[{ kind: "location", remoteId: "hq-place" }],
+			NEVER_ENDED,
+		);
 		expect(
 			await readResourceBaselines(scope, TARGET, [
 				{ kind: "location", remoteId: "hq-place" },
@@ -2040,13 +2154,16 @@ describe("baselines", () => {
 				),
 			],
 			{ status: "partial" },
-			[
-				placeBaseline(
-					"hq-place",
-					"Colorado",
-					new Date(Date.now() + 60_000).toISOString(),
-				),
-			],
+			{
+				baselines: [
+					placeBaseline(
+						"hq-place",
+						"Colorado",
+						new Date(Date.now() + 60_000).toISOString(),
+					),
+				],
+				...NEVER_ENDED,
+			},
 		);
 		expect(
 			await readResourceBaselines(scope, TARGET, [
@@ -2062,6 +2179,7 @@ describe("what a landed publish read of the target", () => {
 		await create(scope);
 		const land = (offeredLogoContentHash?: string | null) =>
 			recordRemoteResource(scope, TARGET, {
+				...NEVER_ENDED,
 				kind: "app",
 				novaResourceId: scope.appId,
 				remoteId: "hq-1",

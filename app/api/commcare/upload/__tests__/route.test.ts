@@ -208,6 +208,47 @@ describe("POST /api/commcare/upload — target resolution", () => {
 	});
 });
 
+describe("POST /api/commcare/upload — the reader's day", () => {
+	it("hands the reader's locale and time zone to the publish as the day its sentences name", async () => {
+		const { status } = await read(
+			await POST(
+				req({
+					domain: DOMAIN,
+					appName: "App",
+					appId: "app-1",
+					viewer: { locale: "en-NZ", timeZone: "Pacific/Auckland" },
+				}),
+			),
+		);
+		expect(status).toBe(201);
+		expect(vi.mocked(publishAppToHq).mock.calls[0]?.[0].driftDate).toEqual({
+			locale: "en-NZ",
+			timeZone: "Pacific/Auckland",
+		});
+	});
+
+	it.each([
+		["a string", "Pacific/Auckland"],
+		["an array", ["en-NZ", "Pacific/Auckland"]],
+		["an object missing its zone", { locale: "en-NZ" }],
+		["an object whose zone is no string", { locale: "en-NZ", timeZone: 13 }],
+		["null", null],
+	])(
+		"publishes with no viewer, refusing nothing, when the viewer is %s",
+		async (_, viewer) => {
+			const { status } = await read(
+				await POST(
+					req({ domain: DOMAIN, appName: "App", appId: "app-1", viewer }),
+				),
+			);
+			expect(status).toBe(201);
+			const input = vi.mocked(publishAppToHq).mock.calls[0]?.[0];
+			expect(input).toBeDefined();
+			expect(input).not.toHaveProperty("driftDate");
+		},
+	);
+});
+
 describe("POST /api/commcare/upload — answering with the record", () => {
 	it("answers 201 with the deployment and its setup artifact", async () => {
 		const res = await POST(

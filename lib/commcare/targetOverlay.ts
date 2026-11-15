@@ -13,12 +13,16 @@
  * - `translations`: per language, the target's keys (`appStringKeys.ts`)
  *   kept verbatim, and Nova's values for its own. A generated key HQ holds
  *   is dropped, since it would name the wrong menu or form after a rename,
- *   as is the name of a language the app no longer has.
+ *   as is the name of a language the app no longer has. On a deployment
+ *   whose app Nova brought in from CommCare HQ (`languageNames: "target"`),
+ *   every language's display name is the target's: a name it holds is
+ *   carried and an absent one stays absent.
  * - `add_ons`: the needed slugs `true` over the target's map. Nova never
  *   writes `false`.
  * - `profile`: the two settings Nova holds always at Nova's value; the
  *   fifteen seeded constants (`appProfileSettings.ts`) only where the target
- *   holds no value; the derived custom property as the target's Search
+ *   holds no value, and never on a deployment whose app Nova brought in
+ *   (`seeds: "target"`); the derived custom property as the target's Search
  *   advisory allows; every other key and section kept.
  *
  * Beside the body it returns the ownership descriptor the drift baseline
@@ -57,6 +61,23 @@ export interface TargetOwnership {
 	readonly autoGpsCapture: boolean;
 }
 
+/**
+ * Who fills what an app made in CommCare HQ never set. `"target"` on a
+ * deployment whose live app mapping is `adopted` (Nova brought the app in),
+ * `"nova"` everywhere else.
+ */
+export type TargetFill = "nova" | "target";
+
+/** Whose display name a language carries on the target. */
+export interface TranslationsOverlayOptions {
+	readonly languageNames: TargetFill;
+}
+
+/** Who writes a seeded setting the target holds no value for. */
+export interface ProfileOverlayOptions {
+	readonly seeds: TargetFill;
+}
+
 type Translations = Record<string, Record<string, string>>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -82,12 +103,20 @@ function holdsNoValue(bag: Record<string, unknown>, key: string): boolean {
  * The `translations` an update sends, or `undefined` where it equals the
  * target's. Its languages are Nova's and every one the target holds, and an
  * entry left with no key is left out.
+ *
+ * A key that is a language's code is that language's display name. With
+ * `languageNames: "nova"` Nova writes its own label where it has one and
+ * drops every name the target holds; with `"target"`
+ * the key is carried as the target holds it, an absent one stays absent,
+ * and Nova's label is not written.
  */
 export function projectTranslationsForTarget(
 	application: Pick<HqApplication, "langs" | "translations">,
 	current: Pick<HqAppSource, "langs" | "translations">,
+	options: TranslationsOverlayOptions,
 ): Translations | undefined {
 	const codes = new Set([...application.langs, ...current.langs]);
+	const targetNames = options.languageNames === "target";
 	const languages = [
 		...new Set([
 			...application.langs,
@@ -101,11 +130,17 @@ export function projectTranslationsForTarget(
 		for (const [key, value] of Object.entries(
 			current.translations[language] ?? {},
 		)) {
-			if (translationKeyOwner(key, codes) === "target") entry[key] = value;
+			const owner = translationKeyOwner(key, codes);
+			if (owner === "target" || (targetNames && owner === "language-name")) {
+				entry[key] = value;
+			}
 		}
 		for (const [key, value] of Object.entries(
 			application.translations?.[language] ?? {},
 		)) {
+			if (targetNames && translationKeyOwner(key, codes) === "language-name") {
+				continue;
+			}
 			if (value !== "") entry[key] = value;
 		}
 		if (Object.keys(entry).length > 0) projected[language] = entry;
@@ -159,17 +194,19 @@ const SEEDED_KEYS: ReadonlySet<string> = new Set(
  * target's.
  *
  * `properties`: each of the two settings Nova holds at Nova's value; each
- * seeded constant at the target's value where it holds one, else Nova's;
- * every other key as the target holds it. `custom_properties`: under
- * `unverified` the target's bag unchanged, since an inconclusive advisory
- * cannot justify changing it; otherwise the derived keys set where the
- * state is `available` and removed where it is not. Every other section
- * is kept.
+ * seeded constant at the target's value where it holds one, else Nova's
+ * under `seeds: "nova"` and left as the target holds it (absent, or a value
+ * HQ's build writes nothing for) under `seeds: "target"`; every other key as
+ * the target holds it. `custom_properties`: under `unverified` the target's
+ * bag unchanged, since an inconclusive advisory cannot justify changing it;
+ * otherwise the derived keys set where the state is `available` and removed
+ * where it is not. Every other section is kept.
  */
 export function projectProfileForTarget(
 	application: Pick<HqApplication, "profile">,
 	current: HqApplicationProfile,
 	targetState: DerivedProfileTargetState,
+	options: ProfileOverlayOptions,
 ): HqApplicationProfile | undefined {
 	const generated = application.profile?.properties ?? {};
 	const currentProperties = isRecord(current.properties)
@@ -177,7 +214,10 @@ export function projectProfileForTarget(
 		: {};
 	const properties: Record<string, unknown> = { ...currentProperties };
 	for (const [key, value] of Object.entries(generated)) {
-		if (SEEDED_KEYS.has(key) && !holdsNoValue(currentProperties, key)) {
+		if (
+			SEEDED_KEYS.has(key) &&
+			(options.seeds === "target" || !holdsNoValue(currentProperties, key))
+		) {
 			continue;
 		}
 		properties[key] = value;
@@ -216,22 +256,28 @@ export function projectProfileForTarget(
 /**
  * The body an update sends and its ownership: `application` with the three
  * keys projected onto `current`, each left out where it equals HQ's, and
- * `_attachments` kept last.
+ * `_attachments` kept last. `options` says who fills what the target never
+ * set: its language names (`projectTranslationsForTarget`) and its seeded
+ * settings (`projectProfileForTarget`).
  */
 export function projectApplicationForTarget(
 	application: HqApplication,
 	current: HqAppSource,
 	targetState: DerivedProfileTargetState,
+	options: TranslationsOverlayOptions & ProfileOverlayOptions,
 ): {
 	readonly application: HqApplication;
 	readonly ownership: TargetOwnership;
 } {
-	const translations = projectTranslationsForTarget(application, current);
+	const translations = projectTranslationsForTarget(application, current, {
+		languageNames: options.languageNames,
+	});
 	const addOns = projectAddOnsForTarget(application, current);
 	const profile = projectProfileForTarget(
 		application,
 		current.profile,
 		targetState,
+		{ seeds: options.seeds },
 	);
 	/* `_attachments` must stay last in serialized HQ JSON. HQ consumes it as
 	 * upload bytes rather than ordinary app source, and Nova's stable JSON

@@ -49,6 +49,9 @@ function baseline(
 		ownership: ownership(autoGpsCapture),
 		observedAt: OBSERVED_AT,
 		observedBy: "u1",
+		novaRevision: null,
+		mediaFiles: null,
+		sourceBytes: 0,
 	};
 }
 
@@ -146,6 +149,7 @@ const PLANTED: Readonly<Record<KeptLabelId, Partial<TargetFacts>>> = {
 	),
 	"case-detail-view-logging": withSetting("cc-log-entity-detail-enabled", "no"),
 	"reworded-commcare-screens": { uiTextKeys: ["home.start"] },
+	"language-names": { languageNames: { en: { en: "English" } } },
 	"android-logos": { androidLogos: ["login"] },
 	"mobile-report-version": { mobileReportVersion: "1.0" },
 	"location-with-every-form": { autoGpsCapture: true },

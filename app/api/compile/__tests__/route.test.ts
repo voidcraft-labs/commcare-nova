@@ -275,6 +275,8 @@ function cczFor(
 			appId: target.hqAppId,
 		},
 		identity: DERIVED_WIRE_IDENTITY,
+		mediaPaths: new Map(),
+		keyedCaseIdPrefixes: new Map(),
 		attachmentTarget: attachmentUrlTarget(target),
 		reached: [target],
 		targetFacts,

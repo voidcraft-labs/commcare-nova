@@ -53,6 +53,7 @@ function fresh(): DeploymentRecord {
 		lastObservedAt: null,
 		offeredLogoContentHash: null,
 		targetEmptyCaseListText: null,
+		endings: 0,
 	};
 }
 // Authored lifecycle expectations, not projections of the implementation tables.
@@ -234,4 +235,27 @@ it("clears only observations when a new published app replaces their subject", (
 		probe: null,
 	});
 	expect(original).toEqual(snapshot);
+});
+
+it("reaches, displays and observes nothing at an ended deployment, and keeps it ended through every refused attempt", () => {
+	const ended: DeploymentRecord = { ...fresh(), state: "ended", endings: 1 };
+	expect(deploymentProgressIndex("ended")).toBeNull();
+	for (const { success } of phases) {
+		expect(deploymentHasReached(ended, success)).toBe(false);
+		expect(deploymentDisplaysAsReached(ended, success)).toBe(false);
+	}
+	expect(deploymentIsObservable(ended)).toBe(false);
+	expect(deploymentResumeState(ended)).toBeNull();
+	for (const phase of ["preflight", "resources", "upload"] as const) {
+		expect(applyAttemptOutcome(ended, phase, failed)).toBe(ended);
+		expect(applyAttemptOutcome(ended, phase, pending)).toBe(ended);
+	}
+	/* A preflight that passes goes on as a first publish. */
+	expect(applyAttemptOutcome(ended, "preflight", succeeded)).toEqual({
+		...ended,
+		state: "preflight",
+		resumePhase: null,
+		phases: { ...ended.phases, preflight: succeeded },
+		updatedAt: NOW,
+	});
 });

@@ -36,6 +36,10 @@ function mapping(ownership: DeploymentResourceOwnership): DeploymentResource {
 		remoteObservedAt: null,
 		supersededAt: null,
 		remoteMissingAt: null,
+		adoptedByName: ownership === "adopted" ? "Actor" : null,
+		releasedAt: null,
+		endedReason: null,
+		endedByName: null,
 	};
 }
 /** A global table with no field property and no row attribute, which a push keeps whole. */

@@ -174,7 +174,6 @@ export const FINDING_COPY: Readonly<
 	"app-name": {},
 	"app-settings": {
 		never: "This uses an app setting, which Nova doesn't bring in.",
-		"not-yet": "This uses an app setting, which Nova can't hold yet.",
 	},
 	"auto-select": {
 		"not-yet":

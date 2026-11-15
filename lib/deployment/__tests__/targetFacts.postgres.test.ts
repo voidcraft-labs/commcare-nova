@@ -110,6 +110,9 @@ function readBaseline(
 		},
 		observedAt: options.observedAt ?? AT,
 		discard: null,
+		novaRevision: null,
+		mediaFiles: { kind: "set", files: null },
+		firstPublish: { kind: "set", list: null },
 	};
 }
 
@@ -123,6 +126,9 @@ function unreadBaseline(remoteAppId: string): AppBaselineWrite {
 		ownership: null,
 		observedAt: AT,
 		discard: null,
+		novaRevision: null,
+		mediaFiles: { kind: "set", files: null },
+		firstPublish: { kind: "set", list: null },
 	};
 }
 
@@ -136,9 +142,10 @@ async function publish(
 		TARGET,
 		"preflight",
 		{ status: "succeeded", at: AT },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	return recordRemoteResource(scope, TARGET, {
+		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: scope.appId,
 		remoteId: baseline.remoteAppId,
@@ -222,11 +229,12 @@ describe("readTargetFacts", () => {
 			TARGET,
 			"preflight",
 			{ status: "succeeded", at: AT },
-			{ ensure: true },
+			{ ensure: true, expectedEndings: 0 },
 		);
 		expect(await readTargetFacts(scope, TARGET)).toBeNull();
 
 		await recordCreatedRemoteApp(scope, TARGET, {
+			expectedEndings: 0,
 			remoteId: "hq-shell",
 			baseline: readBaseline("hq-shell", "yes", { origin: "create" }),
 		});

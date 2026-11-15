@@ -3,16 +3,20 @@
 // The wire-path layer for media: the bridge between a Nova `MediaAssetId`
 // (an opaque UUID) and the strings CommCare's wire formats expect.
 //
-// Two derived strings per asset, both content-hash-keyed so they're
-// stable and deterministic across compiles:
+// Two strings per asset, from its wire path:
 //
-//   - the CCZ entry path / media-suite location: `commcare/<hash><ext>`
+//   - the CCZ entry path / media-suite location: the wire path itself,
+//     `commcare/<hash><ext>` (content-hash-keyed, so stable and
+//     deterministic across compiles) unless the export's target holds
+//     another path for the file (one that came in from CommCare HQ keeps
+//     its HQ path, in whatever directory HQ holds it);
 //   - the `jr://file/...` reference used inside itext `<value>`,
 //     `<media_image>`/`<media_audio>` locales, enum-image templates,
 //     and the app-logo profile property.
 //
-// CommCare resolves a `jr://file/commcare/<hash><ext>` reference to the
-// installed file at `commcare/<hash><ext>` (relative to the suite).
+// CommCare resolves a `jr://file/<dir>/<name>` reference to the installed
+// file at `<dir>/<name>` under the app's storage root, where the media
+// suite's `../../<dir>` installs it (`mediaSuiteXml.ts`).
 // commcare-core's `BasicInstaller::install` returns false on the
 // remote-authority branch, so the media-suite resource emits an
 // `authority="local"` location and the compiler writes the bytes into the
@@ -35,7 +39,7 @@ import type { MediaKind } from "@/lib/domain/multimedia";
 
 /**
  * The `jr://file/` prefix every CommCare media reference carries. A
- * reference is this prefix + the wire path (`commcare/<hash><ext>`).
+ * reference is this prefix + the wire path.
  * Verified against `commcare-hq/.../suite_xml/generator.py::media_resources`
  * (the `PREFIX = 'jr://file/'` it strips to compute the install path) and
  * the fixture `tests/data/suite/form_with_media_refs.xml`.
@@ -43,10 +47,9 @@ import type { MediaKind } from "@/lib/domain/multimedia";
 const JR_FILE_PREFIX = "jr://file/";
 
 /**
- * The single install directory all Nova media lives under. CommCare
- * treats `jr://file/commcare/...` as the on-device install root for
- * app media; the media-suite `<media path="../../commcare">` and the
- * CCZ entry path both derive from this segment.
+ * The directory of every content-hash wire path. A path a target holds for
+ * a file that came in from CommCare HQ keeps its own directory; the media
+ * suite writes each file's directory as its `<media path>`.
  */
 const MEDIA_DIR = "commcare";
 
@@ -65,7 +68,12 @@ const MEDIA_DIR = "commcare";
  */
 export interface ResolvedMediaAsset {
 	readonly assetId: IconRef;
-	/** `commcare/<contentHash><extension>` — CCZ entry path + media-suite location stem. */
+	/**
+	 * HQ's path without `jr://file/`, a directory and a file name: the path
+	 * the export's target holds for the file, or `commcare/<contentHash><extension>`.
+	 * The CCZ entry path, the bulk-upload ZIP entry and the media-suite
+	 * location stem.
+	 */
 	readonly wirePath: string;
 	readonly kind: MediaKind;
 	readonly mimeType: string;
@@ -93,9 +101,9 @@ export interface ResolvedMediaAsset {
 export type AssetManifest = ReadonlyMap<IconRef, ResolvedMediaAsset>;
 
 /**
- * Derive the CCZ entry path / media-suite location stem for an asset:
- * `commcare/<contentHash><extension>`. `extension` already carries its
- * leading dot (`.png`), so it concatenates directly.
+ * Derive an asset's content-hash wire path, the one it has wherever no
+ * target holds another: `commcare/<contentHash><extension>`. `extension`
+ * already carries its leading dot (`.png`), so it concatenates directly.
  */
 export function wirePathFor(contentHash: string, extension: string): string {
 	return `${MEDIA_DIR}/${contentHash}${extension}`;
@@ -103,8 +111,7 @@ export function wirePathFor(contentHash: string, extension: string): string {
 
 /**
  * Wrap a wire path as the `jr://file/...` reference CommCare resolves at
- * runtime. `wirePath` is the `commcare/<hash><ext>` stem from
- * `wirePathFor`.
+ * runtime. `wirePath` is a `ResolvedMediaAsset.wirePath`.
  */
 export function jrFileRef(wirePath: string): string {
 	return `${JR_FILE_PREFIX}${wirePath}`;

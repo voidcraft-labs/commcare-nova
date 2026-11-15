@@ -89,9 +89,10 @@ async function publish(server: "india" | "production", domain: string) {
 		target,
 		"preflight",
 		{ status: "succeeded", at: AT },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	return recordRemoteResource(OWNER, target, {
+		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: APP,
 		remoteId: hqAppId(server, domain),
@@ -108,6 +109,9 @@ async function publish(server: "india" | "production", domain: string) {
 			ownership: null,
 			observedAt: AT,
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 }
@@ -119,9 +123,10 @@ async function shellOnly(server: "india" | "production", domain: string) {
 		target,
 		"preflight",
 		{ status: "succeeded", at: AT },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	await recordCreatedRemoteApp(OWNER, target, {
+		expectedEndings: 0,
 		remoteId: hqAppId(server, domain),
 		baseline: {
 			origin: "unread",
@@ -132,6 +137,9 @@ async function shellOnly(server: "india" | "production", domain: string) {
 			ownership: null,
 			observedAt: AT,
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 }
@@ -714,6 +722,70 @@ it("makes a CCZ for one deployment with its addresses, its HQ app and its record
 		expect(
 			elements(suite, "query").map((query) => query.attribs.url),
 		).toContain(`https://india.commcarehq.org/a/clinic/phone/search/${id}/`);
+	});
+});
+
+it("makes a CCZ for the project space an app was brought in from with HQ's media paths and form ids, and derived ones for another", async () => {
+	const doc = document(
+		f({
+			uuid: FIELD,
+			id: "patient_name",
+			kind: "text",
+			label: proseText("Patient name"),
+			label_media: { image: IMAGE },
+		}),
+	);
+	await seed(doc);
+	await seedImage();
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	const brought = await publish("india", "clinic");
+	await publish("india", "district");
+	const [formUuid] = doc.formOrder[doc.moduleOrder[0]];
+	const held = "media/patient-photo.png";
+	const hqXmlns = "http://openrosa.org/formdesigner/hq-own-xmlns";
+	await h
+		.db()
+		.insertInto("app_deployment_identities")
+		.values({
+			deployment_id: brought.deployment.id,
+			entity_kind: "form",
+			nova_entity_uuid: formUuid,
+			unique_id: "b".repeat(32),
+			xmlns: hqXmlns,
+		})
+		.execute();
+	await h
+		.db()
+		.insertInto("app_deployment_media_paths")
+		.values({
+			deployment_id: brought.deployment.id,
+			media_asset_id: IMAGE,
+			wire_path: held,
+		})
+		.execute();
+	await asUser(async (client) => {
+		const clinic = archive(
+			await call(client, "ccz", { domain: "clinic" }),
+			"ccz",
+		);
+		const clinicForm = clinic.readAsText("modules-0/forms-0.xml");
+		expect(elements(clinicForm, "data")[0].attribs.xmlns).toBe(hqXmlns);
+		expect(clinicForm).toContain(`jr://file/${held}`);
+		expect(clinicForm).not.toContain(WIRE);
+		expect(requiredFile(clinic, held)).toEqual(PNG);
+		expect(clinic.getEntry(WIRE)).toBeNull();
+
+		const district = archive(
+			await call(client, "ccz", { domain: "district" }),
+			"ccz",
+		);
+		const districtForm = district.readAsText("modules-0/forms-0.xml");
+		expect(elements(districtForm, "data")[0].attribs.xmlns).toBe(
+			derivedFormXmlns(formUuid),
+		);
+		expect(districtForm).toContain(`jr://file/${WIRE}`);
+		expect(requiredFile(district, WIRE)).toEqual(PNG);
+		expect(district.getEntry(held)).toBeNull();
 	});
 });
 

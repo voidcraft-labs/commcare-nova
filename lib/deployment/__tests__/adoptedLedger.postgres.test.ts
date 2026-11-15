@@ -1,0 +1,598 @@
+/**
+ * The adopted ledger in real Postgres: what one birth from CommCare HQ
+ * records, in the transaction that births the app, and what every reader
+ * makes of it. Also the picker's read of which HQ apps a Nova app already
+ * publishes to (`readHqAppClaims`), which reads the claims these births take.
+ */
+
+import { gzipSync } from "node:zlib";
+import { sql } from "kysely";
+import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { softDeleteApp } from "@/lib/db/apps";
+import { HqAppAlreadyClaimedError } from "@/lib/db/hqAppClaims";
+import { previewProjectSpaceFor } from "../previewSpace";
+import { nextPublishAction, publishedRemoteApp } from "../resources";
+import { deploymentIsObservable } from "../stateMachine";
+import {
+	foldDeploymentAttempt,
+	readAppBaseline,
+	readDeployment,
+	readDeploymentIdentityOverrides,
+	readDeploymentKeyedCaseIds,
+	readDeploymentMediaPaths,
+	readHqAppClaims,
+	readReachedDeploymentTargets,
+	recordRefreshedAppBaseline,
+	recordRemoteResource,
+} from "../store";
+import {
+	BIRTH_AT,
+	birthAdoptedApp,
+	HELD_PATH,
+	MEDIA_FILES,
+	OWNERSHIP,
+	READ_AT,
+	SOURCE,
+} from "./adoptedBirth";
+
+const h = setupAppStateTestDb("adopted_ledger_", {
+	authSchema: "migrated",
+	poolMax: 4,
+});
+
+const ACTOR = "bringer";
+const PROJECT = "project-clinic";
+const TARGET = { server: "production" as const, domain: "clinic" };
+const HQ_APP = "c".repeat(32);
+const APP = testUuid("adopted-app");
+
+async function born(
+	options: Partial<Parameters<typeof birthAdoptedApp>[1]> = {},
+) {
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	return birthAdoptedApp(h, {
+		appId: APP,
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		target: TARGET,
+		remoteAppId: HQ_APP,
+		...options,
+	});
+}
+
+async function count(
+	table:
+		| "app_deployments"
+		| "app_deployment_resources"
+		| "app_deployment_baselines"
+		| "app_deployment_identities"
+		| "app_deployment_media_paths"
+		| "app_deployment_keyed_case_ids"
+		| "app_deployment_confirmations",
+): Promise<number> {
+	const row = await h
+		.db()
+		.selectFrom(table)
+		.select((eb) => eb.fn.countAll<string>().as("n"))
+		.executeTakeFirstOrThrow();
+	return Number(row.n);
+}
+
+describe("recordAdoptedDeploymentInTransaction", () => {
+	it("records every column of an adopted deployment in the transaction that births its app", async () => {
+		const birth = await born();
+		const db = h.db();
+
+		const deployment = await db
+			.selectFrom("app_deployments")
+			.selectAll()
+			.executeTakeFirstOrThrow();
+		expect(deployment).toMatchObject({
+			app_id: APP,
+			project_id: PROJECT,
+			server: "production",
+			domain: "clinic",
+			state: "uploaded",
+			resume_phase: null,
+			phases: {
+				preflight: null,
+				resources: null,
+				upload: null,
+				build: null,
+				release: null,
+				probe: null,
+			},
+			created_by: ACTOR,
+			last_observed_at: null,
+			content_generation: null,
+			entry_point_manifest: null,
+			entry_point_observation: null,
+			offered_logo_content_hash: null,
+			target_empty_case_list_text: null,
+			endings: 0,
+		});
+
+		const mapping = await db
+			.selectFrom("app_deployment_resources")
+			.selectAll()
+			.executeTakeFirstOrThrow();
+		expect(mapping).toMatchObject({
+			deployment_id: deployment.id,
+			kind: "app",
+			nova_resource_id: APP,
+			remote_id: HQ_APP,
+			ownership: "adopted",
+			adopted_at: BIRTH_AT,
+			adopted_by: ACTOR,
+			pushed_identity: null,
+			pushed_at: BIRTH_AT,
+			remote_observed_at: BIRTH_AT,
+			superseded_at: null,
+			remote_missing_at: null,
+			released_at: null,
+			ended_by: null,
+			ended_reason: null,
+			server: "production",
+			domain: "clinic",
+		});
+		expect(Number(mapping.pushed_revision)).toBe(1);
+		expect(Number(mapping.remote_revision)).toBe(41);
+		expect(mapping.push_token).toMatch(/^[0-9a-f-]{36}$/);
+
+		const baseline = await db
+			.selectFrom("app_deployment_baselines")
+			.selectAll()
+			.executeTakeFirstOrThrow();
+		expect(baseline).toMatchObject({
+			deployment_id: deployment.id,
+			remote_app_id: HQ_APP,
+			origin: "read",
+			ownership: OWNERSHIP,
+			observed_at: new Date(READ_AT),
+			observed_by: ACTOR,
+			discarded_digest: null,
+			discarded_by: null,
+			discarded_at: null,
+			media_files: MEDIA_FILES,
+			first_publish_changes: {
+				ids: ["forms-and-settings-rewritten"],
+				webAppsOnInHq: true,
+				of: "first-publish",
+			},
+		});
+		expect(Number(baseline.nova_revision)).toBe(1);
+
+		expect(
+			await db
+				.selectFrom("app_deployment_identities")
+				.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
+				.orderBy("entity_kind")
+				.execute(),
+		).toEqual([
+			{
+				entity_kind: "form",
+				nova_entity_uuid: birth.formUuid,
+				unique_id: "b".repeat(32),
+				xmlns:
+					"http://openrosa.org/formdesigner/5A2C1F0E-0000-4000-8000-000000000001",
+			},
+			{
+				entity_kind: "module",
+				nova_entity_uuid: birth.moduleUuid,
+				unique_id: "a".repeat(32),
+				xmlns: null,
+			},
+		]);
+		expect(
+			await db
+				.selectFrom("app_deployment_media_paths")
+				.select(["media_asset_id", "wire_path"])
+				.execute(),
+		).toEqual([{ media_asset_id: birth.assetId, wire_path: HELD_PATH }]);
+		expect(
+			await db
+				.selectFrom("app_deployment_keyed_case_ids")
+				.select(["nova_operation_uuid", "case_type", "case_id_prefix"])
+				.execute(),
+		).toEqual([
+			{
+				nova_operation_uuid: birth.operationUuid,
+				case_type: "patient",
+				case_id_prefix: birth.prefix,
+			},
+		]);
+		expect(
+			await db
+				.selectFrom("app_deployment_confirmations")
+				.select(["kind", "subject", "confirmed_by", "withdrawn_at"])
+				.execute(),
+		).toEqual([
+			{
+				kind: "plan-feature",
+				subject: "web-apps",
+				confirmed_by: ACTOR,
+				withdrawn_at: null,
+			},
+		]);
+	});
+
+	it("is a published, reached and observable target from its first minute", async () => {
+		const birth = await born();
+		const view = await readDeployment(birth.scope, TARGET);
+		if (view === null) throw new Error("Expected the adopted deployment");
+		expect(birth.deployment).toEqual(view);
+		expect(publishedRemoteApp(view)).toMatchObject({
+			remoteId: HQ_APP,
+			ownership: "adopted",
+			adoptedBy: ACTOR,
+			adoptedByName: ACTOR,
+			pushedRevision: 1,
+			remoteRevision: 41,
+			releasedAt: null,
+			endedReason: null,
+			endedByName: null,
+		});
+		expect(nextPublishAction(view)).toBe("updates");
+		expect(deploymentIsObservable(view.deployment)).toBe(true);
+		expect(view.confirmations).toEqual([
+			expect.objectContaining({
+				kind: "plan-feature",
+				subject: "web-apps",
+				confirmedByName: ACTOR,
+			}),
+		]);
+		expect(await readReachedDeploymentTargets(birth.scope)).toEqual([
+			{
+				server: "production",
+				domain: "clinic",
+				hqAppId: HQ_APP,
+				emptyCaseListText: false,
+				earlierHqApps: 0,
+			},
+		]);
+		expect(await previewProjectSpaceFor(birth.scope)).toBe("clinic");
+		expect(await readDeploymentIdentityOverrides(birth.scope, TARGET)).toEqual([
+			{
+				entityKind: "form",
+				novaEntityUuid: birth.formUuid,
+				uniqueId: "b".repeat(32),
+				xmlns:
+					"http://openrosa.org/formdesigner/5A2C1F0E-0000-4000-8000-000000000001",
+			},
+			{
+				entityKind: "module",
+				novaEntityUuid: birth.moduleUuid,
+				uniqueId: "a".repeat(32),
+				xmlns: null,
+			},
+		]);
+		expect(await readDeploymentMediaPaths(birth.scope, TARGET)).toEqual(
+			new Map([[birth.assetId, HELD_PATH]]),
+		);
+		expect(await readDeploymentKeyedCaseIds(birth.scope, TARGET)).toEqual([
+			{
+				operationUuid: birth.operationUuid,
+				caseType: "patient",
+				prefix: birth.prefix,
+			},
+		]);
+		const elsewhere = { server: "india" as const, domain: "clinic" };
+		expect(await readDeploymentMediaPaths(birth.scope, elsewhere)).toEqual(
+			new Map(),
+		);
+		expect(await readDeploymentKeyedCaseIds(birth.scope, elsewhere)).toEqual(
+			[],
+		);
+	});
+
+	it("reads the read baseline back with its ownership, revision, media record and size", async () => {
+		const birth = await born();
+		expect(await readAppBaseline(birth.scope, TARGET)).toEqual({
+			origin: "read",
+			remoteAppId: HQ_APP,
+			observedAt: READ_AT,
+			observedBy: ACTOR,
+			novaRevision: 1,
+			mediaFiles: MEDIA_FILES,
+			source: SOURCE,
+			sourceDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+			ownership: OWNERSHIP,
+			sourceBytes: Buffer.byteLength(JSON.stringify(SOURCE), "utf8"),
+		});
+	});
+
+	it("keeps the revision, the media record and the list through an upsert that names none of them", async () => {
+		await born();
+		const db = h.db();
+		const before = await db
+			.selectFrom("app_deployment_baselines")
+			.select(["deployment_id", "nova_revision", "media_files"])
+			.select("first_publish_changes")
+			.executeTakeFirstOrThrow();
+		/* The upsert the revision before these columns runs, which names none
+		 * of the three. */
+		const text = JSON.stringify({ name: "Clinic visits, read again" });
+		await sql`
+			INSERT INTO app_deployment_baselines AS existing (
+				deployment_id, remote_app_id, origin, source_gzip, source_bytes,
+				source_digest, ownership, observed_at, observed_by,
+				discarded_digest, discarded_by, discarded_at
+			) VALUES (
+				${before.deployment_id}, ${HQ_APP}, 'read',
+				${gzipSync(Buffer.from(text))}, ${Buffer.byteLength(text)},
+				${"e".repeat(64)}, ${JSON.stringify(OWNERSHIP)}::jsonb,
+				'2026-11-11T00:00:00.000Z'::timestamptz, ${ACTOR},
+				NULL, NULL, NULL
+			)
+			ON CONFLICT (deployment_id) DO UPDATE SET
+				remote_app_id = EXCLUDED.remote_app_id,
+				origin = EXCLUDED.origin,
+				source_gzip = EXCLUDED.source_gzip,
+				source_bytes = EXCLUDED.source_bytes,
+				source_digest = EXCLUDED.source_digest,
+				ownership = EXCLUDED.ownership,
+				observed_at = EXCLUDED.observed_at,
+				observed_by = EXCLUDED.observed_by
+			WHERE existing.remote_app_id <> EXCLUDED.remote_app_id
+				OR existing.observed_at <= EXCLUDED.observed_at
+		`.execute(db);
+		const after = await db
+			.selectFrom("app_deployment_baselines")
+			.select([
+				"deployment_id",
+				"nova_revision",
+				"media_files",
+				"source_digest",
+			])
+			.select("first_publish_changes")
+			.executeTakeFirstOrThrow();
+		expect(after.source_digest).toBe("e".repeat(64));
+		expect({
+			nova_revision: after.nova_revision,
+			media_files: after.media_files,
+			first_publish_changes: after.first_publish_changes,
+		}).toEqual({
+			nova_revision: before.nova_revision,
+			media_files: before.media_files,
+			first_publish_changes: before.first_publish_changes,
+		});
+	});
+
+	it("keeps the revision, the media record and the list through a refresh that compared equal", async () => {
+		const birth = await born();
+		const stored = await readAppBaseline(birth.scope, TARGET);
+		if (stored === null || stored.origin === "unread")
+			throw new Error("Expected a read baseline");
+		const text = JSON.stringify(SOURCE);
+		const written = await recordRefreshedAppBaseline(birth.scope, TARGET, {
+			expectedEndings: 0,
+			remoteAppId: HQ_APP,
+			comparedDigest: stored.sourceDigest,
+			read: {
+				sourceGzip: gzipSync(Buffer.from(text, "utf8")),
+				sourceBytes: Buffer.byteLength(text, "utf8"),
+				sourceDigest: stored.sourceDigest,
+				observedAt: "2026-11-12T00:00:00.000Z",
+			},
+		});
+		expect(written.outcome).toBe("current");
+		const row = await h
+			.db()
+			.selectFrom("app_deployment_baselines")
+			.select([
+				"origin",
+				"observed_at",
+				"nova_revision",
+				"media_files",
+				"first_publish_changes",
+			])
+			.executeTakeFirstOrThrow();
+		expect(row).toMatchObject({
+			origin: "read",
+			observed_at: new Date("2026-11-12T00:00:00.000Z"),
+			media_files: MEDIA_FILES,
+			first_publish_changes: {
+				ids: ["forms-and-settings-rewritten"],
+				webAppsOnInHq: true,
+				of: "first-publish",
+			},
+		});
+		expect(Number(row.nova_revision)).toBe(1);
+	});
+
+	it("reads a read baseline whose stored bytes do not verify as unread, saying it was a read", async () => {
+		const birth = await born();
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({ source_gzip: gzipSync(Buffer.from('{"tampered":true}')) })
+			.execute();
+		expect(await readAppBaseline(birth.scope, TARGET)).toEqual({
+			origin: "unread",
+			storedOrigin: "read",
+			remoteAppId: HQ_APP,
+			observedAt: READ_AT,
+			observedBy: ACTOR,
+			novaRevision: 1,
+			mediaFiles: MEDIA_FILES,
+		});
+	});
+
+	it("leaves no row of any table when the birth's transaction throws after the writer", async () => {
+		await expect(
+			born({
+				afterWrite: async () => {
+					throw new Error("the rest of the birth failed");
+				},
+			}),
+		).rejects.toThrow("the rest of the birth failed");
+		expect(await h.readAppRow(APP)).toBeUndefined();
+		for (const table of [
+			"app_deployments",
+			"app_deployment_resources",
+			"app_deployment_baselines",
+			"app_deployment_identities",
+			"app_deployment_media_paths",
+			"app_deployment_keyed_case_ids",
+			"app_deployment_confirmations",
+		] as const) {
+			expect(await count(table)).toBe(0);
+		}
+	});
+
+	it("refuses to record where an app came from when the app row is not the born app", async () => {
+		await expect(
+			born({ writeOverrides: { projectId: "project-other" } }),
+		).rejects.toThrow(
+			`Nova tried to record where app ${APP} came from and found no such app in Project project-other. The app's birth and its deployment are written together, so this is Nova's fault to fix: check the order of the creation transaction.`,
+		);
+		expect(await h.readAppRow(APP)).toBeUndefined();
+		expect(await count("app_deployments")).toBe(0);
+	});
+
+	it("answers the claim index with no holder when a birth meets it without the claim", async () => {
+		await born();
+		const second = testUuid("second-adopted-app");
+		const refusal = await born({ appId: second, skipClaim: true }).then(
+			() => null,
+			(error: unknown) => error,
+		);
+		expect(refusal).toBeInstanceOf(HqAppAlreadyClaimedError);
+		expect(refusal).toMatchObject({
+			key: { server: "production", domain: "clinic", remoteAppId: HQ_APP },
+			holder: null,
+		});
+		expect(await h.readAppRow(second)).toBeUndefined();
+		expect(await count("app_deployments")).toBe(1);
+	});
+});
+
+describe("readHqAppClaims", () => {
+	const VIEWER = "picker";
+	const OWNER = "project-owner";
+
+	async function claims(viewerUserId: string, remoteAppIds: string[]) {
+		return readHqAppClaims({
+			viewerUserId,
+			server: "production",
+			domain: "clinic",
+			remoteAppIds,
+		});
+	}
+
+	it("answers open to a member of the holding Project and leaves a free HQ app out", async () => {
+		await born();
+		await h.seedProjectMember(VIEWER, PROJECT, "viewer");
+		const app = await h.readAppRow(APP);
+		expect(await claims(VIEWER, [HQ_APP, "f".repeat(32)])).toEqual([
+			{
+				remoteAppId: HQ_APP,
+				kind: "open",
+				appId: APP,
+				appName: app?.app_name,
+			},
+		]);
+	});
+
+	it("answers elsewhere to a non-member, naming the person while they are a member and no app or Project", async () => {
+		await born();
+		await h.seedProjectMember(VIEWER, "project-viewer", "owner");
+		expect(await claims(VIEWER, [HQ_APP])).toEqual([
+			{
+				remoteAppId: HQ_APP,
+				kind: "elsewhere",
+				at: BIRTH_AT.toISOString(),
+				contact: { role: "person", names: [ACTOR] },
+			},
+		]);
+	});
+
+	it("names the Project's owners where the person who brought the app in has left it", async () => {
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await h.seedProjectMember(ACTOR, PROJECT, "admin");
+		await birthAdoptedApp(h, {
+			appId: APP,
+			projectId: PROJECT,
+			actorUserId: ACTOR,
+			target: TARGET,
+			remoteAppId: HQ_APP,
+		});
+		await sql`DELETE FROM auth_member WHERE "userId" = ${ACTOR}`.execute(
+			h.db(),
+		);
+		expect(await claims(VIEWER, [HQ_APP])).toEqual([
+			{
+				remoteAppId: HQ_APP,
+				kind: "elsewhere",
+				at: BIRTH_AT.toISOString(),
+				contact: { role: "owners", names: [OWNER] },
+			},
+		]);
+	});
+
+	it("never returns a holder in recently deleted", async () => {
+		await born();
+		await softDeleteApp(APP, ACTOR);
+		expect(await claims(VIEWER, [HQ_APP])).toEqual([]);
+	});
+
+	it("gives an HQ app Nova created the date its mapping began, with nothing that says how", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const appId = await h.seedApp({
+			id: testUuid("created-app"),
+			owner: ACTOR,
+			project_id: PROJECT,
+		});
+		const scope = {
+			appId,
+			projectId: PROJECT,
+			role: "owner",
+			actorUserId: ACTOR,
+		};
+		await foldDeploymentAttempt(
+			scope,
+			TARGET,
+			"preflight",
+			{ status: "succeeded", at: READ_AT },
+			{ ensure: true, expectedEndings: 0 },
+		);
+		await recordRemoteResource(scope, TARGET, {
+			expectedEndings: 0,
+			kind: "app",
+			novaResourceId: appId,
+			remoteId: HQ_APP,
+			ownership: "nova-created",
+			pushedRevision: 1,
+			remoteRevision: null,
+			uploadedAt: READ_AT,
+			baseline: {
+				origin: "unread",
+				remoteAppId: HQ_APP,
+				sourceGzip: null,
+				sourceBytes: null,
+				sourceDigest: null,
+				ownership: null,
+				observedAt: READ_AT,
+				discard: null,
+				novaRevision: null,
+				mediaFiles: { kind: "set", files: null },
+				firstPublish: { kind: "set", list: null },
+			},
+		});
+		const mapping = await h
+			.db()
+			.selectFrom("app_deployment_resources")
+			.select("created_at")
+			.executeTakeFirstOrThrow();
+		expect(await claims(VIEWER, [HQ_APP])).toEqual([
+			{
+				remoteAppId: HQ_APP,
+				kind: "elsewhere",
+				at: mapping.created_at.toISOString(),
+				contact: { role: "person", names: [ACTOR] },
+			},
+		]);
+	});
+});

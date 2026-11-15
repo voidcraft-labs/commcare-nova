@@ -148,6 +148,11 @@ export async function prepareCompileRequest<
 		doc: docWithParent,
 		compiledAtSeq: app.mutation_seq,
 		attachmentTarget: download.attachmentTarget,
+		/* A `.ccz` names each file where CommCare HQ keeps it on the project
+		 * space it is made for; the import file is made for none. */
+		...(download.format === "ccz" && {
+			heldMediaPaths: download.mediaPaths,
+		}),
 	});
 	if (!boundary.ok) {
 		// The concise builder copy on the detail lines: this is a

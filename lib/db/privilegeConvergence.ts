@@ -247,22 +247,30 @@ const RUNTIME_INSERT_UPDATE_TABLES = [
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
- * row in place: writers insert, reconcilers delete, and every other path reads. */
+ * row in place: writers insert, reconcilers delete, and every other path reads.
+ * A deployment's identity and media-path rows are inserted when an app or a
+ * change made in CommCare HQ is brought in and deleted when the deployment is
+ * ended; a Project move deletes an app's media-path rows and inserts them
+ * under the destination Project's asset ids; a file replaced in CommCare HQ
+ * replaces its path's row; no row is ever changed. A deployment's keyed case
+ * id prefixes are inserted and deleted with its identity rows. The deployment
+ * row's lock serializes their writers, so none of them is ever row-locked. */
 const RUNTIME_INSERT_DELETE_TABLES = [
 	"media_asset_refs",
 	"app_location_references",
 	"thread_media_refs",
 	"design_lookup_protections",
+	"app_deployment_identities",
+	"app_deployment_media_paths",
+	"app_deployment_keyed_case_ids",
 ] as const;
 
 /** Only a migration writes these, as the migration role: fold baselines,
- * the identity overrides a deployment target holds (a publish writes none),
  * and the migration notices with their key-reader rows, so serving code
  * cannot forge one. */
 const RUNTIME_READ_ONLY_TABLES = [
 	"conversation_source_cutover",
 	"app_change_fold_baselines",
-	"app_deployment_identities",
 	"app_migration_notices",
 	"app_migration_notice_key_readers",
 ] as const;
@@ -655,6 +663,7 @@ const EXPECTED_PUBLIC_ROUTINES = [
 	...APP_TEST_RUNTIME_ROUTINES,
 	{ name: "nova_dispose_deleted_app_test", identityArguments: "" },
 	{ name: "rotate_deployment_push_token", identityArguments: "" },
+	{ name: "nova_fill_deployment_resource_target", identityArguments: "" },
 	{
 		name: "nova_admit_app_change_fold_baseline_insert",
 		identityArguments: "",

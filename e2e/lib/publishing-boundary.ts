@@ -24,6 +24,9 @@ export function refreshKeptValuesAction(args: unknown) {
 export function withdrawDeploymentConfirmationAction(args: unknown) {
 	return post("/publishing/withdraw", args);
 }
+export function stopPublishingAction(args: unknown) {
+	return post("/publishing/stop", args);
+}
 export function getEntryPointLinkAction(args: unknown) {
 	return post("/publishing/link", args);
 }

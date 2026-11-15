@@ -913,9 +913,10 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					target,
 					"preflight",
 					{ status: "succeeded", at },
-					{ ensure: true },
+					{ ensure: true, expectedEndings: 0 },
 				);
 				await recordRemoteResource(scope, target, {
+					expectedEndings: 0,
 					kind: "app",
 					novaResourceId: appId,
 					remoteId: "hq-1",
@@ -932,6 +933,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 						ownership: null,
 						observedAt: at,
 						discard: null,
+						novaRevision: null,
+						mediaFiles: { kind: "set", files: null },
+						firstPublish: { kind: "set", list: null },
 					},
 				});
 			},
@@ -988,6 +992,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			});
 			if ("malformed" in read) throw new Error(read.malformed);
 			await recordRemoteResource(scope, target, {
+				expectedEndings: 0,
 				kind: "app",
 				novaResourceId: appId,
 				remoteId: "hq-1",
@@ -1004,6 +1009,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					ownership,
 					observedAt: at,
 					discard: null,
+					novaRevision: null,
+					mediaFiles: { kind: "set", files: null },
+					firstPublish: { kind: "set", list: null },
 				},
 			});
 		};
@@ -1062,7 +1070,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					target,
 					"preflight",
 					{ status: "succeeded", at },
-					{ ensure: true },
+					{ ensure: true, expectedEndings: 0 },
 				);
 				/* A deployment short of uploaded: still no facts, so no frame. */
 				await laneFinishedRunThatRead(() =>
@@ -1135,6 +1143,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			});
 			if ("malformed" in read) throw new Error(read.malformed);
 			await recordRemoteResource(scope, target, {
+				expectedEndings: 0,
 				kind: "app",
 				novaResourceId: appId,
 				remoteId: "hq-1",
@@ -1156,6 +1165,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					},
 					observedAt: at,
 					discard: null,
+					novaRevision: null,
+					mediaFiles: { kind: "set", files: null },
+					firstPublish: { kind: "set", list: null },
 				},
 			});
 		};
@@ -1164,7 +1176,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			target,
 			"preflight",
 			{ status: "succeeded", at },
-			{ ensure: true },
+			{ ensure: true, expectedEndings: 0 },
 		);
 		await publishWith({ "cc-fuzzy-search-enabled": "yes" });
 		const fuzzyOnly = { fuzzyListSearch: true, markRequiredQuestions: false };

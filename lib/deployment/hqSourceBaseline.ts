@@ -163,12 +163,15 @@ interface Projection {
 
 /**
  * Nova's part of `translations`: per language, every key the target does not
- * own (`appStringKeys.ts`), a generated key or a language's name. A language
- * left with no such key is left out.
+ * own (`appStringKeys.ts`), a generated key or a language's name. With
+ * `languageNames: "target"` (the app mapping is `adopted`) a language's name
+ * is the project space's, as the overlay carries it, and no part of Nova's.
+ * A language left with no such key is left out.
  */
 function ownedTranslations(
 	translations: unknown,
 	codes: ReadonlySet<string>,
+	languageNames: "nova" | "target",
 ): JsonObject {
 	if (!isObject(translations)) return {};
 	const owned: JsonObject = {};
@@ -177,9 +180,13 @@ function ownedTranslations(
 			owned[language] = entry;
 			continue;
 		}
-		const keys = Object.keys(entry).filter(
-			(key) => translationKeyOwner(key, codes) !== "target",
-		);
+		const keys = Object.keys(entry).filter((key) => {
+			const owner = translationKeyOwner(key, codes);
+			return (
+				owner === "generated" ||
+				(owner === "language-name" && languageNames === "nova")
+			);
+		});
 		if (keys.length > 0) owned[language] = pick(entry, keys);
 	}
 	return owned;
@@ -188,6 +195,7 @@ function ownedTranslations(
 function project(
 	normalized: unknown,
 	ownership: AppOwnership,
+	languageNames: "nova" | "target",
 	codes: ReadonlySet<string> = new Set(langsOf(normalized)),
 ): Projection {
 	const source = isObject(normalized) ? normalized : {};
@@ -205,7 +213,11 @@ function project(
 	/* The body carries the target's own keys back, so only Nova's part of
 	 * `translations` is compared, and a key a person saved in HQ is none. */
 	if (Object.hasOwn(source, "translations")) {
-		text.translations = ownedTranslations(source.translations, codes);
+		text.translations = ownedTranslations(
+			source.translations,
+			codes,
+			languageNames,
+		);
 	}
 	return {
 		modules: Array.isArray(source.modules) ? source.modules : [],
@@ -223,13 +235,15 @@ function project(
  * update never writes from its body (`models/applications.py::
  * ApplicationBase._update_excluded_fields`, `build_spec`, `_attachments`
  * beyond the forms' own), `last_modified`, `logo_refs`, and every key Nova
- * never sends.
+ * never sends. `languageNames` is the publish's: `"target"` where the app
+ * mapping is `adopted`, whose language names are the project space's.
  */
 export function ownedProjection(
 	normalized: unknown,
 	ownership: AppOwnership,
+	languageNames: "nova" | "target",
 ): unknown {
-	const projection = project(normalized, ownership);
+	const projection = project(normalized, ownership, languageNames);
 	return {
 		modules: projection.modules,
 		attachments: projection.attachments,
@@ -391,6 +405,10 @@ function langsOf(normalized: unknown): readonly string[] {
  * `menu-list`, and no menu or form part. Otherwise each menu's own keys and
  * its count of forms decide its `menu` part, and each form, with its
  * attachment, its `form` part. Names come from HQ's current read.
+ *
+ * `languageNames` is the publish's own: `"target"` where the live app
+ * mapping is `adopted`, so a language's display name, which the project
+ * space keeps there, is no part of the comparison.
  */
 export function diffHqAppSource(input: {
 	readonly baseline: unknown;
@@ -398,6 +416,7 @@ export function diffHqAppSource(input: {
 	readonly ownership: AppOwnership;
 	readonly shell: boolean;
 	readonly schemaDefault: SchemaDefaultReader;
+	readonly languageNames: "nova" | "target";
 }): readonly AppChangePart[] {
 	const reader = input.schemaDefault;
 	/* One set of language codes for both reads, so a key is classed alike on
@@ -406,8 +425,18 @@ export function diffHqAppSource(input: {
 		...langsOf(input.baseline),
 		...langsOf(input.current),
 	]);
-	const before = project(input.baseline, input.ownership, codes);
-	const after = project(input.current, input.ownership, codes);
+	const before = project(
+		input.baseline,
+		input.ownership,
+		input.languageNames,
+		codes,
+	);
+	const after = project(
+		input.current,
+		input.ownership,
+		input.languageNames,
+		codes,
+	);
 	const langs = langsOf(input.current);
 	const parts: AppChangePart[] = [];
 

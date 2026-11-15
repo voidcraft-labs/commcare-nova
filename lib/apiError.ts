@@ -244,7 +244,11 @@ export function handleApiError(err: ApiError | Error): NextResponse {
 	if (err.name === "DeploymentError") {
 		const code = (err as { code?: string }).code;
 		const status =
-			code === "not_found" ? 404 : code === "domain_not_authorized" ? 403 : 400;
+			code === "not_found"
+				? 404
+				: code === "domain_not_authorized" || code === "not_permitted"
+					? 403
+					: 400;
 		log.warn("[apiError] deployment rejected", { code: code ?? null });
 		return NextResponse.json({ error: err.message }, { status });
 	}
