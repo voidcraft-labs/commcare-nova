@@ -74,6 +74,7 @@ import {
 	addPreloadCandidate,
 	fieldAt,
 	holdsDefault,
+	hqBuildRefusesProperty,
 	writeDefault,
 } from "./preloads";
 
@@ -256,6 +257,14 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	),
 	preloadNoDefault: refuse(
 		`${F}/case-preload-into-a-question-that-holds-no-default`,
+		"schema:LoadUpdateAction.preload",
+	),
+	preloadOtherCase: refuse(
+		`${F}/index-path-through-a-case-type-the-app-does-not-fix`,
+		"schema:LoadUpdateAction.preload",
+	),
+	illegalPreload: refuse(
+		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
 		"schema:LoadUpdateAction.preload",
 	),
 	labelQuestion: refuse(
@@ -1081,13 +1090,7 @@ export function readAdvancedActions(
 				consume(
 					L.take("case_index", ADVANCED_CLAIMS.caseIndex, (value) => value),
 				);
-				indexRead = {
-					tag: indexTag,
-					identifier:
-						typeof index.reference_id === "string" && index.reference_id !== ""
-							? index.reference_id
-							: "parent",
-				};
+				indexRead = { tag: indexTag, identifier: chainIndexName(index) };
 			}
 		}
 		if (
@@ -1122,7 +1125,24 @@ export function readAdvancedActions(
 			},
 			indexed,
 		);
-		readLoadPreloads(r, L, load, caseType as string, indexed);
+		// A `form-case` read walks `index/parent` from the form's own case as many
+		// times as its type's depth in the catalog (`formCaseRead.ts::formCasePropertyRead`).
+		// HQ chose each later load among the cases whose index the load names points
+		// at the load before (`index/<reference_id>`), so the load `distance` loads
+		// before the own is reached by that walk exactly where every later load's
+		// index is `parent` and the type sits that deep.
+		const distance = chosenIndexes.length - 1 - position;
+		const byParent = chosenIndexes.slice(position + 1).every((later) => {
+			const stored = storedLoads[later] as Record<string, unknown> | undefined;
+			const laterIndex = isJsonObject(stored?.case_index)
+				? stored.case_index
+				: {};
+			return chainIndexName(laterIndex) === "parent";
+		});
+		readLoadPreloads(r, L, load, caseType as string, indexed, {
+			depth: distance,
+			byParent,
+		});
 		const closeStored = load.close_condition;
 		const closes = activeCondition(closeStored);
 		// A close that never runs is read as no close. HQ's page stores one with its question,
@@ -1523,11 +1543,21 @@ export function readAdvancedActions(
 		// A name question the reader refused is that finding already.
 		if (name === undefined) return;
 		createNames.push(name.field);
+		// HQ's build sets no owner on an open action that names no `owner_id`
+		// and carries indices that are all extensions, and writes `-`
+		// (`xform.py::autoset_owner_id_for_advanced_action`, `add_create_block`):
+		// the case is unowned, which Nova states as `unowned()` and prints with
+		// no owner node (`generatedNodes.ts::advancedOwnerNodeValue`).
+		const unownedByLinks =
+			links.length > 0 &&
+			links.every((link) => link.relationship === "extension");
 		/** The operation's owner: an owner node it names settled once the operation has its id. */
 		const ownerOfOpen = (id: string) =>
-			properties.ownerNode === undefined
-				? properties.owner
-				: settleOwner(r, properties.ownerNode, id, repeat);
+			properties.ownerNode !== undefined
+				? settleOwner(r, properties.ownerNode, id, repeat)
+				: properties.owner === undefined && unownedByLinks
+					? ("unowned" as const)
+					: properties.owner;
 		const placementTag = tag as string;
 		const row =
 			repeat !== undefined && (repeatsWithIndices.get(context) ?? 0) < 2
@@ -1802,6 +1832,15 @@ function readAutoSelectLoad(
 	return { tag, caseType: "commcare-user", detailsModule: "", changes: true };
 }
 
+/** The index name a load's `case_index` gives the case it chooses: its
+ *  `reference_id`, `parent` where it names none (`CaseIndex.reference_id`'s
+ *  default). */
+function chainIndexName(index: Readonly<Record<string, unknown>>): string {
+	return typeof index.reference_id === "string" && index.reference_id !== ""
+		? index.reference_id
+		: "parent";
+}
+
 function refuseLoad(
 	r: Reading,
 	L: JsonCursor,
@@ -1814,16 +1853,40 @@ function refuseLoad(
 
 /** A load's `preload`: each into a question outside any repeat, from a
  *  property with no `/`, read as the question's default; any other is the
- *  finding that it would hold its place at the end of the load. */
+ *  finding that it would hold its place at the end of the load. HQ's build
+ *  reads each load's preload from that load's own case
+ *  (`xform.py::XForm._create_casexml_advanced`, `session_case_id`), and the
+ *  default is a `form-case` read, which walks `index/parent` from the form's
+ *  own case as deep as the load's type sits in the catalog. `reach` is that
+ *  load's place in the chain: `depth` loads before the own, reached through
+ *  `parent` indices only where `byParent`. A load reached through another
+ *  index is the finding that Nova's read would name another case
+ *  (`preloadOtherCase`) here; one whose type the catalog does not place
+ *  `depth` deep (another load of the chain nearer the own shares its type,
+ *  or a link of the app gives a type of the chain another parent) is the
+ *  same finding once the catalog is read (`preloads.ts::settlePreloads`). */
 function readLoadPreloads(
 	r: Reading,
 	L: JsonCursor,
 	load: Readonly<Record<string, unknown>>,
 	caseType: string,
 	indexed: boolean,
+	reach: { readonly depth: number; readonly byParent: boolean },
 ): void {
 	const preload = isJsonObject(load.preload) ? load.preload : {};
 	if (Object.keys(preload).length === 0) return;
+	// HQ's build refuses the form for a property its validator refuses
+	// (`LoadUpdateAction.get_property_names` → `check_case_properties`).
+	if (
+		Object.values(preload).some(
+			(property) =>
+				typeof property === "string" && hqBuildRefusesProperty(property),
+		)
+	) {
+		L.refuse("preload", ADVANCED_CLAIMS.illegalPreload);
+		r.ok = false;
+		return;
+	}
 	if (
 		indexed &&
 		Object.values(preload).some(
@@ -1867,6 +1930,11 @@ function readLoadPreloads(
 		r.ok = false;
 		return;
 	}
+	if (!reach.byParent) {
+		L.refuse("preload", ADVANCED_CLAIMS.preloadOtherCase);
+		r.ok = false;
+		return;
+	}
 	consume(L.take("preload", ADVANCED_CLAIMS.preload, (value) => value));
 	// Nova writes the load as each question's default, never as a stored
 	// preload: the first publish respells the case settings.
@@ -1888,6 +1956,11 @@ function readLoadPreloads(
 			field: question,
 			place: question.place,
 			moves: ADVANCED_CLAIMS.preloadLater,
+			load: {
+				caseType,
+				depth: reach.depth,
+				otherCase: ADVANCED_CLAIMS.preloadOtherCase,
+			},
 		});
 	}
 }

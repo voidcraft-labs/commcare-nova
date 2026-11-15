@@ -1375,7 +1375,10 @@ A `LaneReadInput` with `identity: "mint"` and no `projectData`, or with `identit
    type each index of the document's case types reaches (`knownCaseTypesOf(doc)`,
    `reader/caseManagement/knownCaseTypes.ts`; part 07, section 7), since its export holds
    `parent/<property>` or `host/<property>` with the ancestor's type nowhere where only its catalog
-   or its typed steps name it, and none for a base authored in HQ, whose reading is a first reading. Nova's
+   or its typed steps name it, and none for a base authored in HQ, whose reading is a first reading;
+   and `knownLanguageCodes`, for a Nova-born document, its own codes (`knownLanguageCodesOf(doc)`,
+   `reader/languages.ts`), so a code stored under a spelling the minter has since changed reads back
+   to the language the document holds, and none for a base authored in HQ. Nova's
    publish of the document
    created those in HQ from the same data, or, for a base, left HQ's as they were. No acceptance
    runs: the read back is itself the fixed point, and `offered` comes from the draft's

@@ -114,6 +114,63 @@ describe("a search filter row's CSQL", () => {
 		}
 	});
 
+	it("reads a row that fails closed under its author's own condition as that choice", () => {
+		// The source sends `match-none()` under a condition of its author's,
+		// which is no guard of Nova's: the row is read with the condition as a
+		// choice its tree holds, never as Nova's guard with the condition
+		// dropped. Nova's print guards the answer's read for no rows.
+		const text = `if(${ANSWER} = 'x', 'match-none()', "village = 'open'")`;
+		expect(readSearchFilterRow(text, filter, env)).toEqual({
+			ok: true,
+			predicate: {
+				kind: "if",
+				cond: eq(term(input(REGION)), term(literal("x"))),
+				// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+				then: { kind: "match-none" },
+				else: eq(village, term(literal("open"))),
+			},
+			level: "guards",
+			rewrites: ["empty-rows-guard"],
+		});
+	});
+
+	it("holds no reading that drops its author's own condition for failing closed", () => {
+		// Read as a choice, Nova's print puts its own guards of the quoted
+		// answer inside the choice, which the guards level compares as one
+		// device value, so the row is not held; read as Nova's guard, the
+		// condition would be dropped and Nova would search where the source
+		// showed no case.
+		const text = `if(${ANSWER} = '', 'match-none()', concat("village = '", ${ANSWER}, "'"))`;
+		expect(readSearchFilterRow(text, filter, env).ok).toBe(false);
+	});
+
+	it("holds a row whose wrapper fails closed under Nova's own quote guard, spelled in either order", () => {
+		const text = `if(contains(${ANSWER}, '"') and contains(${ANSWER}, "'"), 'match-none()', concat('village = "', ${ANSWER}, '"'))`;
+		expect(readSearchFilterRow(text, filter, env)).toEqual({
+			ok: true,
+			predicate: eq(village, term(input(REGION))),
+			level: "guards",
+			rewrites: ["search-value-guards"],
+		});
+	});
+
+	it("reads no quote cascade whose single-quoted branch searches for something else", () => {
+		const text = `if(contains(${ANSWER}, '"'), if(contains(${ANSWER}, "'"), 'match-none()', "village = 'other'"), concat('village = "', ${ANSWER}, '"'))`;
+		const reading = readSearchFilterRow(text, filter, env);
+		expect(
+			reading.ok &&
+				JSON.stringify(reading.predicate) ===
+					JSON.stringify(eq(village, term(input(REGION)))),
+			JSON.stringify(reading),
+		).toBe(false);
+		// Nova's own cascade of the same row is still one.
+		const own = novaRow(eq(village, term(input(REGION))), filter);
+		expect(readSearchFilterRow(own, filter, env)).toMatchObject({
+			ok: true,
+			level: "exact",
+		});
+	});
+
 	it("reads Nova's own presence cascade back as the tree that wrote it, exactly", () => {
 		const predicate = whenInput(
 			input(REGION),

@@ -129,15 +129,53 @@ export function crossesSourceRepeatInRowPredicate(
 	);
 }
 
+/** Whether a read a Save to Case block prints through its place binding
+ * (`xform/caseOps.ts::bindFieldPaths`: an answer of the block's own repeat,
+ * from `current()`) prints its absolute path instead, because `rewrites`
+ * withholds the relocation. The binding is a relocation site only for a read
+ * stored `absolute`, the spelling an author's absolute path is read as; it is
+ * `row-predicate-current` where the read crosses the repeat in a row
+ * predicate, a runtime target's included, which the block prints inside the
+ * `casedb` row predicate that selects the case (`xform/caseOps.ts`, through
+ * `rowScope.ts::caseById`), and `default-reads-current` elsewhere, where Core
+ * resolves both spellings to the bind's own entry
+ * (`TreeReference.contextualize`). A read stored with no spelling prints the
+ * binding in every print and reaches neither, since its source is the
+ * binding's own `current()` path. */
+export function placeBindingWithheld(
+	term: FormReadTerm,
+	types: ExpressionContext,
+	projection: FormNodeProjection,
+	rewrites: RewriteControl | undefined,
+): boolean {
+	if (rewrites === undefined) return false;
+	if (term.kind !== "field" || term.spelling !== "absolute") return false;
+	const coordinates = projection.graph.path(formReadNode(term));
+	if (coordinates === undefined) return false;
+	const selector =
+		types.slot.entity === "form" &&
+		(types.slot.slot === "case_operation_target_expression" ||
+			types.slot.slot === "case_operation_link_target_expression");
+	return rewriteWithheld(
+		rewrites,
+		selector ||
+			crossesSourceRepeatInRowPredicate(coordinates, types, projection)
+			? "row-predicate-current"
+			: "default-reads-current",
+	);
+}
+
 /** Lower one form read from the shared identity graph. The source slot remains
  * current()'s origin while predicates replace only the lexical context node.
  *
  * At its two relocation sites (a `default_value` slot, and a read
  * `crossesSourceRepeatInRowPredicate` holds for) a read that stores no
- * spelling, `absolute` or `current` prints `current()/…`, which `rewrites`
- * reports there as `row-predicate-current` where the read crosses the repeat
- * and as `default-reads-current` elsewhere; withheld, it prints its absolute
- * path. A `relative` read is never relocated. */
+ * spelling or `absolute` prints `current()/…`, which `rewrites` reports there
+ * as `row-predicate-current` where the read crosses the repeat and as
+ * `default-reads-current` elsewhere; withheld, it prints its absolute path, as
+ * it did before the relocation existed. A read stored `current` prints
+ * `current()/…` whether the rewrite is withheld or not, and reaches no
+ * rewrite, since nothing relocates it; a `relative` read is never relocated. */
 export function formReadToWire(
 	term: FormReadTerm,
 	types: ExpressionContext,
@@ -183,7 +221,8 @@ export function formReadToWire(
 		projection,
 	);
 	const relocated =
-		(defaultValue || crosses) && term.spelling !== "relative"
+		(defaultValue || crosses) &&
+		(term.spelling === undefined || term.spelling === "absolute")
 			? rewriteWithheld(
 					rewrites,
 					crosses ? "row-predicate-current" : "default-reads-current",

@@ -15,6 +15,7 @@ import {
 	type AppLanguageIdentity,
 	type AppLocalization,
 	type BlueprintDoc,
+	effectiveAppLocalization,
 	effectiveCaseSearchConfig,
 	isEnglishOnlyLocalization,
 	type LanguageTag,
@@ -22,6 +23,7 @@ import {
 	languageTag,
 	languageWireCodeSchema,
 	makeTranslationUnitId,
+	parseLanguageTag,
 	type TranslationEntry,
 	translationSourceFingerprint,
 } from "@/lib/domain";
@@ -56,9 +58,10 @@ import { inventoryIndex } from "../surface/inventory";
 import { withCandidate } from "./candidate";
 import { type Claim, defineClaims, refuse, take } from "./claims";
 import type { ReadContext } from "./context";
-import { isJsonObject } from "./jsonCursor";
+import { isJsonObject, sameJson } from "./jsonCursor";
 import { languagesPlace } from "./place";
 import { systemSentenceHolders } from "./search/systemSentences";
+import type { ReaderKnownLanguageCodes } from "./types";
 
 const AREA = "application-and-settings";
 const LANGS = "schema:Application.langs";
@@ -243,7 +246,8 @@ function displayNameOf(
  * finding is raised at the languages place with the code as its name: an
  * empty code, a code outside HQ's grammar or one the list holds twice, and a
  * code Nova's registry cannot name or that names a language an earlier code
- * already named. The draft's localization holds every code the reading
+ * already named. A code the held document stores (`ReaderInput.knownLanguageCodes`)
+ * names the language it stores the code for. The draft's localization holds every code the reading
  * named, the first named the default language and the source the one
  * `readingSourceCode` gives among them.
  */
@@ -299,10 +303,14 @@ export function readLanguages(ctx: ReadContext): HqLanguages {
 			continue;
 		}
 		seen.add(code);
-		const identity = languageIdentityForHqCode(
-			code,
-			first === undefined ? undefined : displayNameOf(ctx, first, code),
-		);
+		const known = ctx.input.knownLanguageCodes?.get(code);
+		const identity =
+			known !== undefined
+				? parseLanguageTag(known)
+				: languageIdentityForHqCode(
+						code,
+						first === undefined ? undefined : displayNameOf(ctx, first, code),
+					);
 		const tag = identity === undefined ? undefined : languageTag(identity);
 		if (
 			identity === undefined ||
@@ -358,6 +366,18 @@ export function readLanguages(ctx: ReadContext): HqLanguages {
 		first,
 		source: source === undefined ? undefined : sourceCode,
 	};
+}
+
+/** The language each CommCare HQ code of `doc` names, for `ReaderInput.knownLanguageCodes` on a
+ *  re-read of an app Nova holds: its stored wire codes, inverted. An English-only document holds
+ *  `en` for English. */
+export function knownLanguageCodesOf(
+	doc: BlueprintDoc,
+): ReaderKnownLanguageCodes {
+	const { wireCodes } = effectiveAppLocalization(doc.localization);
+	return new Map(
+		Object.entries(wireCodes).map(([tag, code]) => [code, tag as LanguageTag]),
+	);
 }
 
 // ── The source language ─────────────────────────────────────────────────
@@ -434,11 +454,6 @@ export function readingSourceCode(
 }
 
 // ── The source language of a document Nova made ─────────────────────────
-
-/** Two stored values alike, as JSON. */
-function sameValue(a: unknown, b: unknown): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
-}
 
 /** `value` with every HQ XPath printed as its text, as the stored app holds it. */
 function printed(value: unknown): unknown {
@@ -700,7 +715,7 @@ export function resourcedDocument(
 	const requiredDefaultMoves =
 		requiredDefault !== undefined &&
 		requiredDefaultRead !== undefined &&
-		!sameValue(requiredDefaultRead, requiredDefault.unit.source);
+		!sameJson(requiredDefaultRead, requiredDefault.unit.source);
 	return withCandidate(doc, (draft) => {
 		const translations: Record<
 			string,
@@ -714,7 +729,7 @@ export function resourcedDocument(
 			const read = byLanguage.find(([language]) => language === target)?.[1];
 			const next =
 				write === undefined || read === undefined ? unit.source : read;
-			if (write !== undefined && !sameValue(next, unit.source))
+			if (write !== undefined && !sameJson(next, unit.source))
 				write(draft, next);
 			const sourceFingerprint = translationSourceFingerprint(
 				unit.valueKind,
@@ -722,7 +737,7 @@ export function resourcedDocument(
 			);
 			for (const [language, value] of byLanguage) {
 				const into = translations[language];
-				if (into === undefined || sameValue(value, next)) continue;
+				if (into === undefined || sameJson(value, next)) continue;
 				into[unit.id] = {
 					value,
 					sourceFingerprint,
@@ -752,7 +767,7 @@ export function resourcedDocument(
 					);
 					for (const [language, value] of requiredDefault.byLanguage) {
 						const into = translations[language];
-						if (into === undefined || sameValue(value, message)) continue;
+						if (into === undefined || sameJson(value, message)) continue;
 						into[unit] = {
 							value,
 							sourceFingerprint,

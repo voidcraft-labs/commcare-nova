@@ -84,6 +84,7 @@ import {
 	multiSelectFormSemantics,
 } from "./multiSelect";
 import { casePropertyNameFormBuilderCannotKeep } from "./sourceCaseWrites";
+import { unwrittenValidationMessageReads } from "./validationMessageRead";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -1394,6 +1395,7 @@ export function runFormRules(
 	errors.push(...menuAboveLinkTargets(doc, form, baseLocation(ctx)));
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...formTextReadAsInstance(doc, ctx));
+	errors.push(...unwrittenValidationMessageReads(doc, ctx));
 	errors.push(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
 	);

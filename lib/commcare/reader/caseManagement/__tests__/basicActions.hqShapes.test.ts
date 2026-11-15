@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FormSpec, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, CaseOperation, Expression } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CaseOperation,
+	type Expression,
+	NEW_APP_SETTINGS,
+	plainColumn,
+} from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import { caseListOf } from "../../../../../proof/targeted/build";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
@@ -559,6 +566,18 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			expect(codes(slash)).toContain(
 				`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
 			);
+			// HQ's reserved words hold the hyphenated `date-opened` and `external-id` too, which
+			// Nova's name grammar takes apart from its own spelling: HQ's build refuses either.
+			for (const key of ["date-opened", "external-id"]) {
+				const reserved = await readCases(app([visit]), {
+					edit: child({
+						case_properties: { [key]: { question_path: "/data/notes" } },
+					}),
+				});
+				expect(codes(reserved), key).toContain(
+					`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
+				);
+			}
 			const edit = await readCases(app([visit]), {
 				saveOnlyEditedApplied: true,
 				edit: child({
@@ -735,6 +754,57 @@ describe("a basic form's actions accepted by re-emission, leaving out what the b
 				`${F}/form-requires-none-with-close-case-active-and-no-open-in-a-module-with-a`
 			],
 		).toBeGreaterThan(0);
+	});
+
+	it("reads a follow-up whose close is active in a menu that selects several cases as a follow-up: HQ's build closes nothing there", async () => {
+		const several = buildDoc({
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListOf(
+						[plainColumn(testUuid("several-close-name"), "case_name", "Name")],
+						{ selection: { kind: "multiple", maximum: 10 } },
+					),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "done" })],
+						},
+					],
+				},
+			],
+		});
+		for (const condition of [
+			{ type: "always", doc_type: "FormActionCondition" },
+			{
+				type: "if",
+				question: "/data/done",
+				answer: "yes",
+				operator: "=",
+				doc_type: "FormActionCondition",
+			},
+		]) {
+			const reading = await readMenusOf(several, (json) => {
+				const actions = json.modules[0]?.forms[0]?.actions as Record<
+					string,
+					unknown
+				>;
+				actions.close_case = { doc_type: "FormAction", condition };
+			});
+			expect(codesOf(reading)).toEqual([]);
+			const form = Object.values(reading.doc?.forms ?? {})[0];
+			expect(form?.type).toBe("followup");
+			expect(form?.closeCondition).toBeUndefined();
+			expect(form?.ownClosePlacement).toBeUndefined();
+			expect(
+				reading.outcome.claims.counts[
+					`${F}/update-case-close-case-on-a-requires-case-form-that-does-not`
+				],
+			).toBeGreaterThan(0);
+		}
 	});
 
 	it("holds an open action active on a form that requires a case: HQ's build never reads it", async () => {

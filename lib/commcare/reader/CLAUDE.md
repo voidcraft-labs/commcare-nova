@@ -15,7 +15,9 @@ builder, `planFormCaseWire`, `projectCaseListForHq`, `toWire` in the slot's own 
 compares the parsed trees with the source's. A match is the reading; a mismatch is a finding or
 the next candidate. Nothing is recognized by a text pattern, and no XPath is read with a regular
 expression: XPath text is read through `syntaxRead.ts` and compared through
-`syntaxCompare.ts::sameXPathText`.
+`syntaxCompare.ts::sameXPathText`. Two stored values (JSON, a document's slot, an expression tree)
+are compared through one equality, `jsonCursor.ts::sameJson`: key order never matters, and a key
+whose value is `undefined` is absent, as JSON leaves it out.
 
 Four rules hold everywhere here:
 
@@ -86,8 +88,46 @@ which `identityMapParity.test.ts` holds to `externalIdentityMap`), the source pr
 lookup tables, organization levels and media files, the app strings Nova's build gives a
 document, the record dialect's judge, whether the project space applies "save only if changed",
 and, for an app Nova already holds, `knownCaseTypes`, the case type each index of a type reaches,
-consulted only where the app itself fixes none. A test builds the input through
+consulted only where the app itself fixes none, and `knownLanguageCodes`
+(`languages.ts::knownLanguageCodesOf`), the language each stored wire code names, read before
+`languageIdentityForHqCode` because a stored code is never re-minted while the minter's spelling
+for an identity can change. A first reading is told neither. A test builds the input through
 `__tests__/readerInput.ts` and `__tests__/novaExport.ts`, never by hand.
+
+`matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
+map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
+from its old key, under its new one, so an entity CommCare HQ later adds under the old key must not
+take it. A canonical row that gives an entity the UUID a re-read gives it asks
+`identityMap.ts::reReadUuidOf` (the same rule over the document's own map, `identity.ts::matchingUuidOf`)
+or claims through a matching resolver over the document's entities of that kind
+(`worldEntities.ts::heldResolver`), and never calls `mintEntityUuid` itself.
+
+A document holds a media slot's asset and no path, so a projection prints each asset at one path,
+the first in code-unit order of those the source spells for it (`projectionInputs.ts`). Where
+CommCare HQ holds one file under several paths, every comparison of a stored media path reads it
+through `projectionInputs.ts::keptMediaPaths`, so no comparison depends on which path is kept: the
+first publish keeps one by its own rule (`assignMediaPaths`, which first drops a path it cannot
+hold, and declares each move), not necessarily this one. The media reader
+holds several paths the index resolves to one asset as that one file (`xform/media.ts`).
+
+A stored text or media map is read as each language shows it, never taken literally. A menu's,
+form's, case list item's or Register button's media map is read through
+`menus/navMedia.ts::shownNavMedia` (HQ's `NavMenuItemMediaMixin`: a language with no path of its own
+shows the `default` table's, and `use_default_*_for_all` shows the first language's everywhere), an
+app string's through `hqText.ts::shownText` (but the search title, which HQ's build reads per
+language and not through `clean_trans`, through `search/settings.ts::shownTitles`: a language with
+no title of its own shows the first language's), and a form's itext by its default translation
+(`xform/itext.ts::ItextReading.defaultLanguage`: the first language's where the form holds it, else
+the first it holds): a language whose translation lacks a text, its default value, a media form or
+the whole translation shows the default's, the source language included, and a blank beside the
+default's text is the form builder's to fill from it (`prose.ts::finishText`). Only two such
+absences keep a form out: a text the default translation holds no default value of, and a
+question's or choice's label with no value in the source's first `<translation>` in document
+order, whatever its language, which HQ's build reads every label in
+(`itext.ts::ItextReading.buildRefusesLabel`). Nova then prints every language's text or path in full, so a
+first publish fills the languages a stored map or translation left out: a media map's under
+`media-maps-respelled`, which `navMedia.ts::recordRespelling` records with each stored map Nova
+writes again, and a form's under `forms-and-settings-rewritten`.
 
 What the project space holds rather than the app (levels, worker and location properties) is read
 from what the reading is told and what the logic reads, so its canonical rows run the reading's

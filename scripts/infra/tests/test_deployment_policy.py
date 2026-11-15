@@ -166,10 +166,6 @@ class JobExecutionTests(unittest.TestCase):
             ["select-starting-value-scan.cjs", "--app", "app_123"],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute"],
-            ["several-case-close-scan.cjs"],
-            ["several-case-close-scan.cjs", "--app", "app_123"],
-            ["several-case-close-repair.cjs", "--plan-base64", encoded],
-            ["several-case-close-repair.cjs", "--plan-base64", encoded, "--execute"],
         ):
             job = job_fixture()
             job["name"] = job_name
@@ -211,21 +207,11 @@ class JobExecutionTests(unittest.TestCase):
             ["select-starting-value-repair.cjs", "--plan-base64", ""],
             ["select-starting-value-repair.cjs", "--plan-base64", "not base64"],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute", "--extra"],
-            ["several-case-close-scan.cjs", "--execute"],
-            ["several-case-close-scan.cjs", "--app", "../app"],
-            ["several-case-close-scan.cjs", "--plan-out", "/tmp/plan.json"],
-            ["several-case-close-repair.cjs", "--execute"],
-            ["several-case-close-repair.cjs", "--plan", "/tmp/plan.json", "--execute"],
-            ["several-case-close-repair.cjs", "--plan-base64", ""],
-            ["several-case-close-repair.cjs", "--plan-base64", "not base64"],
-            ["several-case-close-repair.cjs", "--plan-base64", encoded, "--execute", "--extra"],
         ):
             with self.subTest(args=args), self.assertRaises(deploy.DeploymentPolicyError):
                 deploy._effective_execution_args("commcare-nova-historical-repair", args)
         with self.assertRaises(deploy.DeploymentPolicyError):
             deploy._effective_execution_args(JOB, ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute"])
-        with self.assertRaises(deploy.DeploymentPolicyError):
-            deploy._effective_execution_args(JOB, ["several-case-close-repair.cjs", "--plan-base64", encoded, "--execute"])
 
 
 class MigrationAdmissionTests(unittest.TestCase):

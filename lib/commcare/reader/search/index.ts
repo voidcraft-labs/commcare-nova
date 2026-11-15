@@ -45,7 +45,11 @@ import {
 	rowEarlyReads,
 	type SearchRow,
 } from "./rows";
-import { readSearchSettings, settleSearchSettings } from "./settings";
+import {
+	holdsText,
+	readSearchSettings,
+	settleSearchSettings,
+} from "./settings";
 import { offersSearch, readSearchWorkflow, searchPlace } from "./workflow";
 
 export { classifySearchRows } from "./rows";
@@ -234,8 +238,11 @@ function readDefaultFilters(
 		"DefaultCaseSearchProperty",
 		markersOnly ? C.markers : C.rows,
 	);
-	const ownersExpression = cursor.used("blacklisted_owner_ids_expression");
-	const relatedPropertySet = cursor.used("custom_related_case_property");
+	const ownersExpression = holdsText(
+		cursor,
+		"blacklisted_owner_ids_expression",
+	);
+	const relatedPropertySet = holdsText(cursor, "custom_related_case_property");
 	const rows: SearchRow[] = [];
 	const names = new Set<string>();
 	let ok = true;
@@ -351,8 +358,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 					? (module.json.peek("search_config") as object)
 					: {},
 			))
-				if (key !== "blacklisted_owner_ids_expression")
-					cursor.derived(key, C.inactive);
+				if (!settings.claimed.has(key)) cursor.derived(key, C.inactive);
 			if (
 				settings.owners !== undefined &&
 				config.excludedOwnerIds !== undefined

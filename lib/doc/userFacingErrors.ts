@@ -1779,6 +1779,8 @@ const USER_MESSAGE_BY_CODE: Record<
 			return `A formula on ${q(fieldName(e))} in ${q(formName(e))} uses a choice that ${q(det(e, "choiceFieldName", "that question"))} no longer has. You can choose one of its current choices.`;
 		if (e.details?.identity === "wording")
 			return `${formulaSubject(e)} reads wording that its form no longer has. You can read a question's current wording, or remove that read.`;
+		if (e.details?.identity === "validation-message")
+			return `${formulaSubject(e)} reads the validation message of ${q(det(e, "questionId", "a question"))}, which its form holds only while that question has a validation condition. You can give it a validation condition, or read other wording.`;
 		if (e.details?.identity === "place")
 			return `${formulaSubject(e)} reads a place level or a piece of place information that no longer exists. You can choose a current one, or remove that read.`;
 		if (e.details?.identity === "worker-field")

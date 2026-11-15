@@ -264,11 +264,54 @@ export function mintingResolver(appId: string): IdentityResolver {
 	return resolver((key) => mintEntityUuid(appId, key));
 }
 
-/** Answers a key `known` holds with its UUID and mints the rest. */
+/**
+ * The UUID a key `known` lacks takes on a re-read: `mintEntityUuid(appId, key)`
+ * where `taken` holds it not, else the mint of the key with `["taken", n]`
+ * appended to its parts, for the smallest `n` from 1 whose UUID `taken` holds
+ * not. A map holds the UUID an entity was minted under against the key it has
+ * now, so an entity renamed in Nova keeps the UUID of its old key, and a new
+ * entity CommCare HQ then gives that old key must not take it. The answer is a
+ * function of `appId`, `key` and `taken` alone, so two readings told one map
+ * give an added entity one UUID whatever order they claim in. No real key's
+ * last part is a `["taken", n]` array.
+ */
+export function freeEntityUuid(
+	appId: string,
+	key: ExternalKey,
+	taken: (uuid: Uuid) => boolean,
+): Uuid {
+	let uuid = mintEntityUuid(appId, key);
+	for (let n = 1; taken(uuid); n += 1)
+		uuid = mintEntityUuid(appId, {
+			kind: key.kind,
+			parts: [...key.parts, ["taken", n]],
+		});
+	return uuid;
+}
+
+/**
+ * Answers a key `known` holds with its UUID and mints the rest, each a UUID
+ * `known` holds under no key (`freeEntityUuid`), so a reading never gives one
+ * UUID to an entity `known` names and to another.
+ */
 export function matchingResolver(
 	appId: string,
 	known: readonly IdentityMapEntry[],
 ): IdentityResolver {
+	return resolver(matchingUuidOf(appId, known));
+}
+
+/**
+ * The UUID `matchingResolver(appId, known)` gives a key it has not been asked
+ * for before: `known`'s UUID where it holds the key, else `freeEntityUuid`
+ * against the UUIDs `known` holds. A canonical row that gives an entity the
+ * UUID a re-read gives it asks here (`identityMap.ts::reReadUuidOf`), so the
+ * row and the reading cannot disagree.
+ */
+export function matchingUuidOf(
+	appId: string,
+	known: readonly IdentityMapEntry[],
+): (key: ExternalKey) => Uuid {
 	const byKey = new Map<string, Uuid>();
 	const keyOfUuid = new Map<Uuid, string>();
 	for (const entry of known) {
@@ -285,7 +328,7 @@ export function matchingResolver(
 		byKey.set(text, entry.uuid);
 		keyOfUuid.set(entry.uuid, text);
 	}
-	return resolver(
-		(key) => byKey.get(externalKeyText(key)) ?? mintEntityUuid(appId, key),
-	);
+	return (key) =>
+		byKey.get(externalKeyText(key)) ??
+		freeEntityUuid(appId, key, (uuid) => keyOfUuid.has(uuid));
 }

@@ -1074,14 +1074,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`title_label{lang}` non-empty in every app language",
+		"item": "`title_label` showing text in every app language: text in the app's first language, and in each other language text of its own or none (blank or absent), which shows the first language's",
 		"surfaceKeys": [
 			"schema:CaseSearch.title_label",
 			"parser:SessionDatumParser/title"
 		],
 		"valueClass": "non-empty",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchScreenTitle`, a text; absent is \"Search\"",
+		"dispositionCell": "**HELD**: `searchScreenTitle`, a text; absent is \"Search\". Read as HQ's build shows it in each language: a language's own file holds `title_label.get(lang) or ''` and drops a blank (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`), and the `default` table it falls back to holds the first language's (`create_default_app_strings`, `CaseSearch.get_search_title_label` with `for_default`); a map spelled otherwise is written as shown by the first publish",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1137,14 +1137,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`title_label` blank in some app languages and not in others",
+		"item": "`title_label` showing a blank title in some app languages and text in others: blank or absent in the app's first language while another holds text, or only whitespace in a language",
 		"surfaceKeys": [
 			"schema:CaseSearch.title_label",
 			"parser:SessionDatumParser/title"
 		],
 		"valueClass": "blank-in-some-languages",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a search title blank in one language where another holds text: HQ shows a blank title there, where Nova's translation fill would show the default language's",
+		"dispositionCell": "**HELD-NEW**: a search title shown blank in one language where another shows text: a language with no title of its own shows the first language's (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`, `create_default_app_strings`), so the title shows blank there only where the first language's is blank too, or where a language holds only whitespace; Nova's translation fill would show the source's text",
 		"subject": "search-setup",
 		"owner": "case-search",
 		"platforms": {
@@ -1354,8 +1354,9 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`additional_case_types[]`",
+		"item": "`additional_case_types[]` naming a type other than the menu's own",
 		"surfaceKeys": ["schema:CaseSearch.additional_case_types"],
+		"valueClass": "another-type",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.additionalCaseTypes`",
 		"subject": "search-setup",
@@ -1377,16 +1378,37 @@
 		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
+		"id": "case-search/additional-case-types-naming-only-the-menu-s-own-type",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`additional_case_types[]` naming only the menu's own `case_type`, once or more",
+		"surfaceKeys": ["schema:CaseSearch.additional_case_types"],
+		"valueClass": "own-type-only",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: every reader widens the menu's list by `set(additional_case_types) - {case_type}` (`suite_xml/utils.py::get_ordered_case_types`, `remote_requests.py::RemoteRequestFactory._build_datum_nodeset`), so the menu's own type widens nothing; the module settings page saves whatever is posted (`views/modules.py`, `additional_case_types`). The key absent",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/data-registry-data-registry-workflow-additional-registry-cases",
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`data_registry`, `data_registry_workflow`, `additional_registry_cases`",
+		"item": "`data_registry` holding text, with whatever `data_registry_workflow` and `additional_registry_cases` stand beside it",
 		"surfaceKeys": [
 			"schema:CaseSearch.data_registry",
 			"schema:CaseSearch.data_registry_workflow",
 			"schema:CaseSearch.additional_registry_cases"
 		],
+		"valueClass": "registry-named",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (DATA_REGISTRY)",
 		"subject": "data-registry",
@@ -1406,6 +1428,58 @@
 			"markers": []
 		},
 		"gates": ["toggle/DATA_REGISTRY"]
+	},
+	{
+		"id": "case-search/the-registry-workflow-and-cases-where-no-registry-is-named",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`data_registry_workflow` or `additional_registry_cases` at any value where `data_registry` is absent or blank",
+		"surfaceKeys": [
+			"schema:CaseSearch.data_registry_workflow",
+			"schema:CaseSearch.additional_registry_cases"
+		],
+		"valueClass": "no-registry",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ reads both only behind `util.py::module_offers_registry_search`, which tests `data_registry` by truth (`module_loads_registry_case`, `module_uses_smart_links`, `entries.py::EntriesHelper.get_data_registry_case_datums`). On a project space with the data registry, HQ's Case List page binds the workflow's `<select>` even while its row is hidden, and Knockout sets the model to its first option, so every save there stores `data_registry: \"\"` beside `data_registry_workflow: \"load_case\"` (`case_search_properties.html`, `case_claim.js::searchConfigModel`, `views/modules.py::_gather_and_update_search_properties`). The keys absent",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-blank-text-in-a-search-key-hq-reads-only-where-it-holds-text",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "a blank `\"\"` in `search_button_display_condition`, `blacklisted_owner_ids_expression`, `data_registry`, `custom_related_case_property`, `instance_name`, or a prompt's `receiver_expression` or `default_value`; a prompt's `required` whose `test` is blank or `null`, whatever its `text`",
+		"surfaceKeys": [
+			"schema:CaseSearch.search_button_display_condition",
+			"schema:CaseSearch.blacklisted_owner_ids_expression",
+			"schema:CaseSearch.data_registry",
+			"schema:CaseSearch.custom_related_case_property",
+			"schema:CaseSearch.instance_name",
+			"schema:CaseSearchProperty.receiver_expression",
+			"schema:CaseSearchProperty.default_value",
+			"schema:CaseSearchProperty.required"
+		],
+		"valueClass": "blank",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's Case List page writes `\"\"` into these five search keys on every save, `receiver_expression` for every plain or lookup prompt and `default_value` for every multi-select prompt (`views/modules.py::_gather_and_update_search_properties`, `_update_search_properties`), and every reader tests each by truth: `details.py` (the button condition), `remote_requests.py` (the owner list, the related-case property, a prompt's default, and its `<required>` and required text, `if prop.required.test`), `util.py::module_offers_registry_search` (the registry), `CaseSearch.get_instance_name`, and Web Apps' `query.js` (`receive`). A blank is the key absent",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "case-search/custom-related-case-property",
@@ -1792,7 +1866,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`name` (prompt key) matching `^[A-Za-z_][A-Za-z0-9_-]*$`",
+		"item": "`name` (prompt key) matching `^[A-Za-z_][A-Za-z0-9_-]*$`, which, on a prompt without `exclude`, is a case property Nova can name",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.name",
 			"parser:QueryPromptParser/prompt@key",
@@ -1823,7 +1897,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "a prompt named `case_id`, `owner_id` or `status` without `exclude`",
+		"item": "a prompt named `case_id`, `owner_id`, `status` or `name` without `exclude`",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.name",
 			"parser:QueryPromptParser/prompt@key",
@@ -1832,7 +1906,7 @@
 		],
 		"valueClass": "attribute-name-not-excluded",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Search field over a case attribute that HQ's search reads by its own rule (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`); Nova writes such a field excluded, with its own `@<name>` clause (`simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`)",
+		"dispositionCell": "**HELD-NEW**: a Search field over a case attribute, or over the case's name, that HQ's search reads by its own rule (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`; `case_search/const.py::INDEXED_METADATA_BY_KEY` indexes the case's name under `name`); Nova writes such a field excluded, with its own clause, `@<name>` or `case_name` (`simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`)",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {
@@ -1850,7 +1924,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`name` (prompt key) holding `/` (an ancestor path) or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`",
+		"item": "`name` (prompt key) holding `/` (an ancestor path) or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`, or, on a prompt without `exclude`, a case property Nova cannot name (`_x`, `date-opened`, `external-id`)",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.name",
 			"parser:QueryPromptParser/prompt@key",
@@ -2943,6 +3017,38 @@
 		},
 		"emission": {
 			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-required-or-validation-test-with-no-message-in-any-language",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`required` with a `test` and `validations[0]` with a `test`, whose `text` is blank in every app language (`{}` included)",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.required",
+			"schema:CaseSearchProperty.validations",
+			"schema:Assertion.text"
+		],
+		"valueClass": "check-without-a-message",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Search field check with no message of its own. HQ's Case List page keeps a blank message (`views/modules.py::_update_search_properties`); its build writes a requirement's text blank, and no text for such a validation, whose worker then reads the runtime's own sentence (`remote_requests.py`, `validation.has_text`; `QueryPrompt.getValidationMessage`). Nova's required field with no message shows Nova's sentence, and a validation always carries a message",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "`required.text`, `validations[0].text`",
 			"markers": []
 		},
 		"gates": []

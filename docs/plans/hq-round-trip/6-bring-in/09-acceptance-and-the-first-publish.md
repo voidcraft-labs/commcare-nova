@@ -98,8 +98,8 @@ changes a byte Nova emits or what an App Test journey replays, so nothing here m
     reports it.** Nine are. Every other place the emitter writes something a source would spell another
     way is decided in section 11.4: read exactly, refused, or declared by a register entry
     (section 10).
-16. **`FIRST_PUBLISH_CHANGES` holds 31 entries**, each with its predicate over the reading, the
-    stored-source paths it allows and whether it touches workers. Twenty-nine sentences say them
+16. **`FIRST_PUBLISH_CHANGES` holds 34 entries**, each with its predicate over the reading, the
+    stored-source paths it allows and whether it touches workers. Thirty sentences say them
     (section 11).
 17. **Per candidate change the decision is one of three**: read the original's behavior exactly, refuse,
     or declare. Section 11.4 gives the decision for every candidate the research, the manifest,
@@ -741,7 +741,7 @@ compiler error (`multimedia/assetWirePath.ts::AssetManifest`), so the map holds 
 | Member | Value |
 |---|---|
 | `assetId` | the reference's `assetId` |
-| `wirePath` | a path the source spells for that asset (`ReadMediaReference.path`), less `jr://file/`; where its references spell several, the first in code-unit order, which is the one `assignMediaPaths` keeps (part 10, section 4.2, step 5) |
+| `wirePath` | a path the source spells for that asset (`ReadMediaReference.path`), less `jr://file/`; where its references spell several, the first in code-unit order, the path `readProjectionInputs` keeps (part 07). It is the one `assignMediaPaths` keeps (part 10, section 4.2) only where its steps 2 to 4 drop none of the asset's paths; the re-read compares the source's paths, whatever path the first publish later keeps |
 | `kind` | the reference's `mediaKind` |
 | `contentHash`, `extension` | the file's own (`AdoptedMediaFile`) |
 | `mimeType` | `application/octet-stream` |
@@ -1538,7 +1538,7 @@ rewrite over the typed document.
 | `create-name-required-is-absent` | one-wire | a `required` condition on a question in `caseCreateNameFields` that is no Hidden Value; none | none | `builder.ts::buildFieldParts` deletes `vellum:requiredCondition` and writes `required="true()"` there whatever the slot holds | part 07, section 3.2 |
 | `write-via-steps-are-typed` | one-wire | a save to the case above whose `parent` step names the type it reaches; one whose step names none | typed | `relationDestination.ts::resolveRelationDestination` resolves an untyped `parent` step to the catalog's `parent_type`, and the emitter prints the step as its identifier alone (`parent/<property>`) | part 07, section 3.2 |
 | `opened-case-owner-acting-user-is-absent` | one-wire | a case a form opens (a create, or a registration's own case) owned by `actingUser()`; one with no owner | no owner | `xform/caseOps.ts` writes `/data/meta/userID` for an opened case with no owner, `generatedNodes.ts::advancedOwnerNodeValue` prints the acting user's node for both, and HQ's build sets a basic action's owner so | part 07, section 4.4 |
-| `update-beside-a-bare-own-arm-is-the-own-arm` | one-wire | in a follow-up or close form of a menu that chooses one case, an update of the session's case beside an own arm that changes nothing, the update named with the id a reading gives that bare own arm (its menu's case type's), writing no answer as it is, unconditional, in no repeat, with the guards the own arm would take; the form's own arm in a block of that name | the own arm, under the UUID its block's key mints | both print the block `nova_operations/<id>` beside a basic block that writes nothing, and the reader reads that block as the own arm; the update's UUID cannot stay, because an operation's external key spells its action | part 07, section 5.2 (`caseManagement/saveToCase.ts::updateBesideBareOwnAsOwnArm`) |
+| `update-beside-a-bare-own-arm-is-the-own-arm` | one-wire | in a follow-up or close form of a menu that chooses one case, an update of the session's case beside an own arm that changes nothing, the update named with the id a reading gives that bare own arm (its menu's case type's), writing no answer as it is, unconditional, in no repeat, with the guards the own arm would take; the form's own arm in a block of that name | the own arm, under the UUID a re-read gives its block's key (`identityMap.ts::reReadUuidOf`, part 10, section 2.3) | both print the block `nova_operations/<id>` beside a basic block that writes nothing, and the reader reads that block as the own arm; the update's UUID cannot stay, because an operation's external key spells its action | part 07, section 5.2 (`caseManagement/saveToCase.ts::updateBesideBareOwnAsOwnArm`) |
 | `basic-slot-operation-ids-are-derived` | one-wire | a case operation a slot of Case Management keeps (the own arm, a child case and the close that shares its place, the worker's record) under any id; the same operation under `ownCaseOperationId` of its case type, minted in the order a reading meets the slots (the own arm, each child case in `subcases` order with its close, the worker's record) and free among the ids the form's other operations hold | the derived id | HQ's form actions name no operation, and the emitter names no node by such an operation's id, so both print one source | part 07, sections 3.2 and 3.4 (`assemble.ts::basicSlotOperationIdsAsRead`) |
 | `case-management-operations-in-reading-order` | one-wire | a form's case operations in any order that prints one source, and an operation an advanced action keeps under any id; the same operations with the own arm first, then those Case Management keeps (in a basic form each child case in `subcases` order with its close, then the worker's record; in an advanced form each load's update and close in `load_update_cases` order, each create in `open_cases` order with its close, then the worker's record), then Save to Case's in the order they hold, each advanced one named as a reading names it (its owner node's name where free, else `ownCaseOperationId` of its case type, free among the ids the form's Save to Case blocks carry and those named before it) | the reading's order and ids | HQ's form actions list a form's changes in their own order and name no operation, so both print one source | part 07, sections 4.4 and 5.2 (`caseManagement/operationOrder.ts::caseManagementOperationsAsRead`) |
 | `default-post-submit-is-absent` | one-wire | a form with no destinations whose `postSubmit` equals `defaultPostSubmit` for its type and menu; no `postSubmit` | none | every consumer reads `lib/domain/postSubmit.ts::effectivePostSubmit`, which answers the same destination for both | part 07, section 9.1 |
@@ -1547,7 +1547,7 @@ rewrite over the typed document.
 | `match-all-list-filter-is-absent` | one-wire | a case list filter that simplifies to `match-all`; none | none | `projectCaseListFilter` reads a filter through `effectiveFilterForEmission`, which gives none for such a filter | part 07, section 11.1 |
 | `order-rules-on-the-columns-they-land-on` | one-wire | an order rule whose element is a property element, which the validator admits on a column other than the one its element lands on; the same rule on the landing column | on the landing column | the two order by the same key (`sortPropertyOwnership.ts`) and print the element the landing column's own rule prints; a positional element (`_cc_calculated_<n>`) names the column its rule is on, so the row moves no such rule and the reader reads it on column `n`; the row runs before `unsorted-hidden-tile-columns-are-off-the-list` | part 07, section 11.4 (`caseList/order.ts::rulesOnTheColumnsTheyLandOn`) |
 | `implicit-order-rule-is-absent` | one-wire | an unsorted list whose first field is hidden from Results; the same list whose one rule is ascending, with blanks first, on the first field shown, compared as text | no rule | `lib/domain/caseListOrder.ts`, rule 7, writes the element that rule writes, `type` `plain` included, so a rule over the raw value of a property of the date class, whose element's `type` is `date`, is no such rule, nor is a whole-number or decimal comparison. The row runs after `order-rules-on-the-columns-they-land-on` | part 07, section 11.4 (`caseList/order.ts::implicitOrderRuleIsAbsent`) |
-| `tile-columns-shown-nowhere-are-as-read` | not-carried | in a tile list, a column hidden from Results and from Details as authored | one that holds an order rule written as an element over its property as a plain column, whatever its kind, with no header, after the list's other columns in the order of its rule, under the identity a re-read gives a plain column there (the document's own plain column under that key, else `mintEntityUuid(doc.appId, …)`); none for one whose rule no element carries (unsorted, calculated, over `case_id`) | such a column is no field of either detail (`caseListOrder.ts`, rule 2), so only its rule's element reaches an export, and the element's `type` is the property's, never the column's kind. The row runs after `order-rules-on-the-columns-they-land-on` | part 07, section 11.6 (`caseList/tile.ts::tileColumnsShownNowhereAsRead`) |
+| `tile-columns-shown-nowhere-are-as-read` | not-carried | in a tile list, a column hidden from Results and from Details as authored | one that holds an order rule written as an element over its property as a plain column, whatever its kind, with no header, after the list's other columns in the order of its rule, under the identity a re-read gives a plain column there (the document's own plain column under that key, else `identityMap.ts::reReadUuidOf(doc, …)` of the key, part 10, section 2.3); none for one whose rule no element carries (unsorted, calculated, over `case_id`) | such a column is no field of either detail (`caseListOrder.ts`, rule 2), so only its rule's element reaches an export, and the element's `type` is the property's, never the column's kind. The row runs after `order-rules-on-the-columns-they-land-on` | part 07, section 11.6 (`caseList/tile.ts::tileColumnsShownNowhereAsRead`) |
 | `unsorted-hidden-tile-columns-are-off-the-list` | one-wire | in a tile list, a column hidden from Results, shown on Details and holding no order rule, with `notOnList` and without it | the one that holds `notOnList` | in a tile list a column hidden from Results with no order rule is no field of the short detail either way (`lib/domain/caseListOrder.ts`, rule 1), so neither document writes one | part 07, section 11.6 |
 | `registration-form-last` | one-wire | a registration form a list offers after an empty search at any place in its menu; the same form last | last | the emission plan moves the form into its own hidden menu, so its place among the menu's forms reaches no wire | part 07, section 8.7 |
 | `unheld-placements-are-held` | one-wire | a document with a placement it does not hold (a case change, a form's own close in its own block, a query repeat, a menu emitted advanced); the same document holding every placement `lib/commcare/placementHolds.ts::placementsToHold` derives | holding | holding what the emission derives changes no byte (`lib/commcare/__tests__/heldPlacementEmission.test.ts`). `apply` is `holdPlacements` over `placementsToHold(doc)` | part 07, section 1 |
@@ -1559,12 +1559,12 @@ rewrite over the typed document.
 | `exact-search-mode-is-absent` | one-wire | a simple Search field of a text, date, barcode or choice widget whose `mode` is `{ kind: "exact" }`; the same field with no `mode` | no `mode` | every print reads the mode through `effectiveSimpleSearchModeKind`, whose default for each of those widgets is exact; a date range field's mode is required and is not touched | part 07, section 12.2 (`search/prompts.ts::exactSearchModeIsAbsent`) |
 | `required-messages-as-read` | one-wire | where a required Search field's own message is Nova's sentence (`SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`) in the source language, the required messages held anywhere that prints the same text in every language; the document where the first required field, in menu and field order, whose source text is that sentence holds no message, Nova's message takes that field's texts, every required field whose texts are those in every language holds none and every other holds its texts as its own | the second | each required field prints its own message or Nova's whole (`searchPrompts.ts::buildRequired`), so the stored bytes are each field's text in each language alone; the row reads the source language `source-language-is-as-read` settles | part 07, section 12.2 (`search/systemSentences.ts::requiredMessagesAsRead`) |
 | `derived-search-conditions-are-simple-fields` | one-wire | an advanced Search field whose condition is a simple field's derivation, where the rows come out in one order either way; that simple field | the simple field | `simpleArmDerivation.ts::deriveSimpleArmPredicate` writes the simple field's row as the advanced field's condition prints it | part 07, section 12.3 (`search/rows.ts::derivedConditionsAreSimpleFields`) |
-| `columns-of-a-menu-that-lists-no-cases-are-off-the-detail` | not-carried | a menu with a case type whose forms are all surveys and which offers no case list entry, whatever its list (columns, header translations, order rules, tile, filter, selection, Search fields) and its search settings hold | one plain `case_name` column headed "Name", off the detail, and nothing else: no search settings, no other column, no translation of what is gone | the expander writes such a menu the pair every new menu holds in CommCare HQ (`expander.ts`, `hasCases`, `emptyShortListColumns`), one `name` column headed "Name" in every language, and the search's shell defaults; the column keeps the identity of the menu's own first plain `case_name` column, else `mintEntityUuid(doc.appId, …)` of the key a re-read claims; the row runs before `columns-off-a-screen-last-in-its-order` | part 07, section 11.3 (`caseList/details.ts::columnsOfAMenuThatListsNoCasesOffTheDetail`) |
+| `columns-of-a-menu-that-lists-no-cases-are-off-the-detail` | not-carried | a menu with a case type whose forms are all surveys and which offers no case list entry, whatever its list (columns, header translations, order rules, tile, filter, selection, Search fields) and its search settings hold | one plain `case_name` column headed "Name", off the detail, and nothing else: no search settings, no other column, no translation of what is gone | the expander writes such a menu the pair every new menu holds in CommCare HQ (`expander.ts`, `hasCases`, `emptyShortListColumns`), one `name` column headed "Name" in every language, and the search's shell defaults; the column keeps the identity of the menu's own first plain `case_name` column, else `identityMap.ts::reReadUuidOf(doc, …)` of the key a re-read claims (part 10, section 2.3); the row runs before `columns-off-a-screen-last-in-its-order` | part 07, section 11.3 (`caseList/details.ts::columnsOfAMenuThatListsNoCasesOffTheDetail`) |
 | `columns-off-a-screen-last-in-its-order` | one-wire | a case list holding a column the detail does not show (`visibleInDetail: false`) anywhere in `detailColumnOrder`, or a column not on the list (`notOnList`) anywhere in `listColumnOrder`; the same list with each such column after the screen's own columns, those off the detail in the list's order and those off the list in the detail's | the second | `projectCaseListForHq` writes the long detail from the detail's shown columns and the short one from the list's, so neither holds a place for a column off it | part 07, section 11.3, rule 5 (`caseList/details.ts::columnsOffAScreenLast`) |
 | `purpose-notes-are-absent` | not-carried | `Module.purpose` and `Form.purpose` (`lib/domain/modules.ts`, `lib/domain/forms.ts`) | absent | purpose notes are outside the wire inventory (`lib/commcare/CLAUDE.md`, "`APP_TEXT_UNREPRESENTABLE`") | part 06, section 16.2 (`assemble.ts`) |
 | `app-logo-is-absent` | not-carried | `logo` | absent | a publish writes no `logo_refs` (`importApplication.ts`), and a logo reaches an app on CommCare HQ only when a person adds it there (`expander.ts::ExpandOptions`) | part 06, section 16.2 (`assemble.ts`) |
 | `menu-and-form-ids-as-read` | not-carried | `Module.id` and `Form.id` as authored | the id a reading mints: a menu's the slug of its name in the source language, else in the first language that holds one, fallback `menu`; a form's the slug of its name in the source language, fallback `form`; each suffixed `_2`, `_3` past the ids of its kind before it in menu and form order | every HQ menu and form id is derived from the entity's UUID, so no export carries either | part 06, section 16.2 (`provisional.ts::menuAndFormIdsAsRead`, beside `menus/modules.ts::writeMenuIds`) |
-| `worker-fields-read-by-name-are-properties` | one-wire | a worker field the logic reads by name (`session-user`, a prose `user-ref`) that no worker property names; the same read beside a worker property of that slug, labelled with it, under `mintEntityUuid(doc.appId, userProperty(slug))` | the second | both print `#user/<slug>` or the session path of the slug, and a reading mints the property (part 08, section 2.5) under the UUID a re-read under the app's own id gives; the reads themselves stay as stored, judged slot by slot as every expression is | part 06, section 16.2 (`worldEntities.ts::namedWorkerReadsAreProperties`) |
+| `worker-fields-read-by-name-are-properties` | one-wire | a worker field the logic reads by name (`session-user`, a prose `user-ref`) that no worker property names; the same read beside a worker property of that slug, labelled with it, under the UUID a re-read gives `userProperty(slug)` (`freeEntityUuid` against the document's own properties, part 10, section 2.3) | the second | both print `#user/<slug>` or the session path of the slug, and a reading mints the property (part 08, section 2.5) under the UUID a re-read under the app's own id gives; the reads themselves stay as stored, judged slot by slot as every expression is | part 06, section 16.2 (`worldEntities.ts::namedWorkerReadsAreProperties`) |
 | `world-properties-as-read` | not-carried | the worker and location properties as authored | each one the logic reads, labelled with its slug, with no choices and no requirement, in the code-unit order of the slugs; none that nothing reads | no export carries a property, only the slug a read prints (`worldEntities.ts::worldEntitiesFromReads`, run over what the document's logic reads) | part 06, section 16.2 (`worldEntities.ts::worldPropertiesAsRead`) |
 | `organization-levels-as-read` | not-carried | the organization's levels as authored | each level as `levelsFromHq` reads it from the list a publish sets up (`levelsAsPublished`): holding workers, its descendant cases all or none, its own branch's address book, no description, parent before child | the export carries no level, and CommCare HQ's list says only a level's code, name, parent, whether it shares cases and whether it views descendants (part 11, O3) | part 06, section 16.2 (`worldEntities.ts::levelsAsRead`) |
 
@@ -1738,7 +1738,7 @@ clause (b). The register is the closed list of what a first publish over an adop
 
 ```ts
 // lib/publish/firstPublishChangeIds.ts  (client-safe; lib/publish may not import lib/commcare)
-export const FIRST_PUBLISH_CHANGE_IDS = [ /* the 31 ids of 11.2, in its order */ ] as const;
+export const FIRST_PUBLISH_CHANGE_IDS = [ /* the 34 ids of 11.2, in its order */ ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 export interface FirstPublishView {
 	readonly ids: readonly FirstPublishChangeId[];
@@ -1753,6 +1753,8 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<Record<FirstPublishChangeId
 export const FIRST_PUBLISH_SAID_BY = {
 	"search-filter-rows-recut": "forms-and-settings-rewritten",
 	"list-settings-respelled": "forms-and-settings-rewritten",
+	"names-respelled": "forms-and-settings-rewritten",
+	"media-maps-respelled": "forms-and-settings-rewritten",
 } as const satisfies Partial<Record<FirstPublishChangeId, FirstPublishChangeId>>;
 /** The ids that have a sentence of their own. */
 export type FirstPublishSentenceId =
@@ -1883,7 +1885,7 @@ holds it to the slots part 11's `hqMediaReferencesOf` reads.
 
 ### 11.2 Every entry
 
-Thirty-one entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
+Thirty-four entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
 predicate is given: `f.source` is CommCare HQ's source, `f.doc` the document under the choice,
 `f.facts` the reader's `ReadFacts`, `f.generated` the generated difference, `f.media` the path
 assignment, `f.mediaLeftOut` and `f.choice` as typed above. The first column is the entry's place in
@@ -1905,7 +1907,7 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 12 | `case-settings-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/forms/*/actions`; `/_attachments/*` | no |
 | 13 | `search-filter-rows-recut` | the same test for its id | `/modules/*/search_config/default_properties` | no |
 | 14 | `sort-rule-kept-as-hidden-column` | the same | `/modules/*/case_details/short/columns`; `/modules/*/case_details/short/sort_elements/*/type`; `/modules/*/case_details/short/sort_elements/*/display` | no |
-| 15 | `list-settings-respelled` | the same | `/modules/*/case_details/short/max_select_value`; `/modules/*/case_details/short/sort_elements`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description` (the last two for a search text map that lacks a language where every language is blank, part 07, section 12.4); `/modules/*/case_list/label` (a case list menu item's label with no text, read as "Case List", part 07, section 8.6) | no |
+| 15 | `list-settings-respelled` | the same | `/modules/*/case_details/short/max_select_value`; `/modules/*/case_details/short/sort_elements`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description` (the last two for a search text map that lacks a language where every language is blank, or a title or description spelled other than as HQ's build shows it, part 07, section 12.4); `/modules/*/search_config/<key>` for a blank `""` in a key HQ reads only where it holds text, a `data_registry_workflow` or `additional_registry_cases` where no registry is named, or an `additional_case_types` naming only the menu's own type, and `/modules/*/search_config/properties/*/<key>` for a Search field's text map spelled other than as the build shows it, a blank `receiver_expression` or `default_value`, or a `required` whose test is blank (part 07, sections 12.2 and 12.4); `/modules/*/case_list/label` (a case list menu item's label with no text, read as "Case List", part 07, section 8.6) | no |
 | 16 | `search-filter-joined-to-list` | the same | `/modules/*/case_details/short/filter` | no |
 | 17 | `search-restates-list-filter` | the same | `/modules/*/search_config/default_properties` | yes |
 | 18 | `link-held-case-guards-added` | the same | `/modules/*/forms/*/form_links/*/xpath` | yes |
@@ -1922,6 +1924,9 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 29 | `media-files-renamed` | `f.media.rederived` is not empty | `/multimedia_map/*`; `MEDIA_REFERENCE_PATHS` | yes |
 | 30 | `media-references-with-no-file-removed` | `f.mediaLeftOut` is above zero (part 11, section 3.2) | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | no |
 | 31 | `unused-media-entries-removed` | some path of `f.source.multimediaMap` is the `path` of no entry of `f.facts.mediaReferences` and of no entry of `f.source.logoRefs` | `/multimedia_map/*` | no |
+| 32 | `names-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/name`; `/modules/*/forms/*/name` | no |
+| 33 | `media-maps-respelled` | the same | `/modules/*/media_image`; `/modules/*/media_audio`; `/modules/*/use_default_image_for_all`; `/modules/*/use_default_audio_for_all`; the same four under `/modules/*/forms/*`, `/modules/*/case_list` and `/modules/*/case_list_form` | no |
+| 34 | `name-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name` | yes |
 
 `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`. Every other entry has
 `reading`. `date-and-time-questions-split` reads what the chosen declaration did to the document at
@@ -1953,6 +1958,42 @@ through `gettext` and a toggle of the project space
 (`app_strings.py::_create_case_list_form_app_strings`), so a build could show other words before.
 After the first publish every build shows the label Nova writes. A worker reads that text, so the
 entry touches workers.
+
+**`names-respelled`.** A menu's or a form's `name` map is read as the text CommCare HQ's build shows
+in each language (part 06, sections 7.3 and 7.4): `app_strings.py::_create_custom_app_strings` writes
+`clean_trans(name, [lang] + langs)` for each language, a blank falls back to the `default` locale, and
+`xforms_extras.py::_trans` takes the first of those languages the map holds with a value other than
+`None`, else the map's least key. Nova prints every language's text, so a map that lacks a language,
+holds `null`, holds a blank beside another language's text or holds a language the app no longer
+lists is written again by the first publish, each language showing the same text. The structure
+stage appends a record under this id at the map's pointer wherever Nova's print of the reading
+differs from the stored map, and never for a map Nova prints back exactly, which every map Nova
+writes is. No worker meets the change, so `forms-and-settings-rewritten` says it.
+
+**`name-spaces-dropped`.** Nova holds no name a worker reads as blank in one language while the
+source language's name holds text (`translationUnits.ts::NONBLANK_TRANSLATION_ROLES`), and no name
+with a space at either end (`localeFile.ts::localeFileValueIssue`). HQ's build writes a name that is
+only spaces in a language as one non-breaking space (`commcare_translations.py::dumps`), which a
+device shows as a blank name, and keeps a space at a name's start, which Core's locale reader keeps
+(`LocalizationUtils.parseAndAdd` trims the line, so only a name's end loses its spaces). The
+structure stage reads such a name as part 06 holds it (sections 7.3 and 7.4,
+`structure.ts::heldName`): the language takes the source language's name, and the space at the
+start is dropped. A worker reads that name after the first publish, so the entry touches workers.
+The stage appends a record under this id at the map's pointer in place of `names-respelled`, and so
+does the fold of a generated key over a name that leaves such a text (part 06, section 16.5).
+
+**`media-maps-respelled`.** A menu's, a form's, a case list item's or a Register button's
+`media_image` or `media_audio` map is read as the file CommCare HQ's build shows in each language
+(part 07, section 8.6, `navMedia.ts::shownNavMedia`): HQ's page stores an icon under the language
+being edited alone (`views/media_utils.py::handle_media_edits`), the build writes that path into the
+`default` app strings (`models/mixins.py::NavMenuItemMediaMixin.icon_app_string` with `for_default`),
+and Core shows a language with no path of its own the `default` table's. Nova writes the file under
+every app language with `use_default_image_for_all` and `use_default_audio_for_all` off
+(`multimedia/navMenuMedia.ts::buildNavMediaDicts`), so a map stored otherwise, or a switch on, is
+written again by the first publish, each language showing the same file. The menus reader appends a
+record under this id at the map's pointer, and at the switch's where it is on
+(`navMedia.ts::recordRespelling`). No worker meets the change, so `forms-and-settings-rewritten`
+says it.
 
 **`date-and-time-saved-as-hq-stores-it`.** Part 03 changes the text Nova writes for a date and time
 on a case: the moment as CommCare HQ stores it, where Nova wrote the device's own clock with its
@@ -1993,8 +2034,13 @@ document, check 4 reads no expression, and check 5 reads only whether a calculat
 - **By the reader's same-state rules.** `firstPublishChanges.test.ts` requires every record of
   `ReadFacts.sameStateRewrites`, over every retained read, to name an id of this table whose `paths`
   cover the record's `path`. Part 07's `rewrites.test.ts` requires every same-state rule in its code to
-  carry an id. The one id recorded outside part 07's rules, `date-and-time-saved-as-hq-stores-it`,
-  has its two recording sites held by two cases of `firstPublishChanges.test.ts` (Tests).
+  carry an id. Four ids are recorded outside part 07's rules: `date-and-time-saved-as-hq-stores-it`,
+  whose two recording sites are held by two cases of `firstPublishChanges.test.ts` (Tests);
+  `names-respelled` and `name-spaces-dropped`, recorded by part 06's structure stage and its fold
+  of generated keys and held by `lib/commcare/reader/__tests__/names.test.ts`; and
+  `media-maps-respelled`, recorded by part 07's
+  `menus/navMedia.ts::recordRespelling` and held by
+  `lib/commcare/reader/menus/__tests__/navMedia.test.ts`.
 - **By the lane.** Part 14's both-ways judge (14-proof.md, section 9.3) runs on every HQ-authored
   base, in the dispatches over the bases that the session starts before the merge and in every
   scheduled lane after it. Where it reports a difference no applying entry holds, the session
@@ -2035,6 +2081,8 @@ entry above). None is left undecided.
 | `location_fixture_restore` of `only_hierarchical_fixture` | refuse | manifest row `application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture`, `never` |
 | `created_from_template` | exact | CommCare HQ's import view sets it on every import and no body can prevent it. No page and no runtime reads it, so no line says it. The pointer is one of `forms-and-settings-rewritten`'s |
 | The pruned media map | declare, `unused-media-entries-removed` | HQ's import runs the prune and saves |
+| A menu's, form's, case list item's or Register button's icon or audio stored under some languages only, beside a blank or a language the app no longer lists, or under `use_default_*_for_all` | declare, `media-maps-respelled` | part 07, section 8.6: the map is read as the file HQ's build shows in each language (`navMedia.ts::shownNavMedia`), and Nova writes that file under every language with the switch off, which every language shows alike |
+| A form's text, or a media form of it, that a translation lacks, or a translation the form lacks | exact | part 06, sections 12.1, 12.4 and 12.5: a language with no value shows the form's default language's on Core, which the reading reads as its text, and Nova writes it in that language. Covered, as spelling, by `forms-and-settings-rewritten` |
 | A generated translation key in `translations` | exact where it has no effect or is blank; declare where it folds (`translation-overrides-folded`); refuse otherwise | part 01, section 7.1; part 06, section 16.5 |
 | The translation keys Nova writes itself (`homescreen.title`, `app.display.name`, a language's name) | exact | the first two are the app's name where it differs by language, read into the name's translations; a language's name is kept at CommCare HQ's value on an adopted deployment (part 10) |
 | Preload order | exact where no later load-time value reads the question; refuse otherwise | part 07, section 3.7 (`laterLoadReaders`), `not-yet` |
@@ -2066,6 +2114,8 @@ entry above). None is left undecided.
 | A form's name, or a CommCare Connect block's name or description, holding `instance(` and a quoted id | refuse | part 03, section 5.1: no spelling of plain text keeps CommCare HQ's instance scan out, so the gate refuses the text (`FORM_TEXT_READ_AS_INSTANCE`), and the reader raises `forms-and-case-writes/form-name-read-as-an-instance` and `questions/connect-block-text-read-as-an-instance` for an app that holds it (part 06, sections 7.4 and 15). No register entry is added |
 | Label text holding `instance(` | exact | part 03, section 5: Nova splits the text with a literal output, and no runtime reads label text as a path |
 | A Register button's label with no text, in every language or in one | declare, `registration-label-fixed` | part 02, section 11.8: read as "Create a new Case" in each such language, the words HQ's build writes; a build could show other words before |
+| A menu's or a form's name map Nova would print another way: a language with no key, a `null`, a blank beside another language's text, a key of a language the app no longer lists, spaces at a name's end | declare, `names-respelled` | part 06, sections 7.3 and 7.4: read as the text CommCare HQ's build shows in each language (`hqText.ts::shownText`), the source language's in the slot, so every language shows what it showed and only the stored map is new. A map Nova prints back exactly, every map Nova writes among them, reads exactly and records nothing |
+| A menu's or a form's name that is only spaces in a language where the source language's name holds text, or that begins with a space | declare, `name-spaces-dropped` | part 06, section 7.4: Nova holds no blank name translation and no name with a space at either end, so the language takes the source language's name and the space is dropped. Refusing would keep out an app CommCare HQ builds over a blank-looking name; a deliberately blank name in one language is not a concept Nova holds, as a blank form text is not (`blank-translations-filled`) |
 | A case list menu item's label with no text | exact | part 07, section 8.6: HQ's build writes the literal "Case List" in every language, and Nova holds that label. The stored map's spelling is `list-settings-respelled`'s |
 | The expression rewrites | declare, `instant-comparison` to `search-today-device-day` | part 08, section 2.3 |
 
@@ -2359,7 +2409,7 @@ one comparison, which part 14 writes (its section 9.3):
   `forms-and-settings-rewritten`'s: Nova does not write back what no runtime reads. The judge matches
   it with no row (part 14, 9.3).
 
-With `source` an observed check, every one of the thirty-one ids is one some check can show.
+With `source` an observed check, every one of the thirty-four ids is one some check can show.
 
 ### 13.3 What the judge then holds
 
@@ -2628,7 +2678,8 @@ constants and writes no heading, lead, label, reassurance or note of its own (se
 | `FIRST_PUBLISH_FORM_BUILDER_NOTE` | If your team opens these forms in CommCare HQ's form builder, some hidden details will look different there. |
 
 **C2. The sentences** (`FIRST_PUBLISH_SENTENCES`), one for each id that has a line of its own:
-twenty-nine. `search-filter-rows-recut` and `list-settings-respelled` are said by the first. The
+thirty. `search-filter-rows-recut`, `list-settings-respelled`, `names-respelled` and
+`media-maps-respelled` are said by the first. The
 sentences of part 08's rewrites and of part 07's same-state readings are written here, because the
 register is their home.
 
@@ -2663,6 +2714,7 @@ register is their home.
 | `media-files-renamed` | Some pictures, sounds and videos get new names in CommCare HQ, because Nova can't keep the names they had. Phones download them again with the next version of the app. |
 | `media-references-with-no-file-removed` | References to pictures, sounds and videos that have no file in CommCare HQ are removed. Workers saw nothing there. |
 | `unused-media-entries-removed` | CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ. |
+| `name-spaces-dropped` | A menu or form name that is only spaces in one language now shows its name in the source language there, and spaces at the start of a name are dropped. Before, workers saw a blank name or the spaces. |
 
 **C3. `read-back-differs`.** The block is part 01's (01-the-bar-and-the-manifest.md, section 9.3).
 This part writes no title, body or next step for it (section 14.4).

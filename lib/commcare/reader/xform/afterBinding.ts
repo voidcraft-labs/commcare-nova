@@ -53,6 +53,7 @@ import { withCandidate } from "../candidate";
 import { claimRegistry } from "../claims";
 import type { ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
+import { sameJson } from "../jsonCursor";
 import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { ownText } from "../xmlCursor";
@@ -667,32 +668,6 @@ function settleProtectedMessage(
 			else xform.cursor.derivedSubtree(value, G.messageForms);
 }
 
-/** Two stored values alike key by key, whatever order their keys were written in. */
-function sameStored(a: unknown, b: unknown): boolean {
-	if (a === b) return true;
-	if (
-		typeof a !== "object" ||
-		typeof b !== "object" ||
-		a === null ||
-		b === null
-	)
-		return false;
-	if (Array.isArray(a) !== Array.isArray(b)) return false;
-	const aKeys = Object.keys(a);
-	const bKeys = Object.keys(b);
-	return (
-		aKeys.length === bKeys.length &&
-		aKeys.every(
-			(key) =>
-				Object.hasOwn(b, key) &&
-				sameStored(
-					(a as Record<string, unknown>)[key],
-					(b as Record<string, unknown>)[key],
-				),
-		)
-	);
-}
-
 /** Each Connect slot the emitter fills from its default where the slot is unset
  *  (`connectDefaults.ts::effectiveAssessmentUserScore`, `effectiveDeliverEntities`). */
 const CONNECT_DEFAULTS = [
@@ -730,7 +705,7 @@ export function connectDefaultsUnset(doc: BlueprintDoc): BlueprintDoc {
 		if (connect === undefined) continue;
 		for (const { block, slot, value } of CONNECT_DEFAULTS) {
 			const held = connect[block]?.[slot];
-			if (held !== undefined && sameStored(held, value))
+			if (held !== undefined && sameJson(held, value))
 				unset.push({ form: formUuid, block, slot });
 		}
 	}

@@ -32,7 +32,7 @@ const ORDER_LABELS = ["b", "B", "a", "é", "Z", "a", "10", "9", "a"];
 const output = process.argv[2];
 if (!output)
 	throw new Error(
-		"Usage: node --import tsx proof/native/producers/emit-prompt-evidence.ts OUTPUT_DIRECTORY",
+		"Usage: node --conditions=react-server --import tsx proof/native/producers/emit-prompt-evidence.ts OUTPUT_DIRECTORY",
 	);
 mkdirSync(output, { recursive: true });
 function emit(scenario: string, doc: BlueprintDoc): void {

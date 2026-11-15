@@ -6,10 +6,11 @@
  * What the pass decides is written into the menu's draft; what the second
  * pass compares is kept in the reading (`caseListReading`).
  */
-import { produce } from "immer";
+import { type Draft, produce } from "immer";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseProperty,
 	type Column,
 	type ColumnSort,
 	casePropertyOptionTranslationUnitId,
@@ -23,6 +24,7 @@ import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { caseListColumnTextShows } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { emptyShortListColumns } from "../../hqJson/caseList";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
@@ -38,19 +40,21 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
-import { externalKey, mintEntityUuid } from "../identity";
+import { externalKey } from "../identity";
+import { reReadUuidOf } from "../identityMap";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sameXPathText } from "../syntaxCompare";
 import type { SameStateRegister } from "../types";
 import {
+	appCodes,
 	type ColumnOptions,
 	type ColumnProposal,
 	type ColumnReading,
-	languageMap,
 	readDetailColumn,
 	type SelectProperty,
+	shownTexts,
 	sourceText,
 	translatedTexts,
 } from "./columns";
@@ -661,7 +665,10 @@ function menuOffersSearch(module: DraftModule): boolean {
  * the default in every language of every menu, a menu with no case type included. Whether the
  * detail is still whole.
  */
-function readDetailTexts(detail: JsonCursor): boolean {
+function readDetailTexts(
+	detail: JsonCursor,
+	codes: readonly string[],
+): boolean {
 	let ok = true;
 	const texts = (
 		key: string,
@@ -669,8 +676,12 @@ function readDetailTexts(detail: JsonCursor): boolean {
 		inert: Claim<"drop">,
 		other: Claim<"refuse">,
 	) => {
-		const map = languageMap(detail.peek(key));
-		if (Object.values(map).every((text) => text === fallback))
+		// Each language as HQ's build shows it (`app_strings.py`, `clean_trans`): a language the
+		// map lacks or holds blank shows another's text. A text the reader cannot know (a number,
+		// an object) is left unclaimed, for the close to name at its key.
+		const shown = shownTexts(detail.peek(key), codes);
+		if (shown === undefined) ok = false;
+		else if (Object.values(shown).every((text) => text === fallback))
 			detail.drop(key, inert);
 		else {
 			detail.refuse(key, other);
@@ -741,7 +752,7 @@ function readDetailKeys(
 		detail.refuse("custom_variables_dict", D.customVariables);
 		ok = false;
 	}
-	ok = readDetailTexts(detail) && ok;
+	ok = readDetailTexts(detail, appCodes(ctx)) && ok;
 	const stored = detail.peek("tabs");
 	const tabs = Array.isArray(stored) ? stored.filter(isJsonObject) : [];
 	if (tabs.length > 0) {
@@ -914,6 +925,20 @@ function withholdRawShownChoices(
 	});
 }
 
+/** A catalog entry for a standard property, named by its name and kept in name order, as
+ *  `caseManagement/catalog.ts::noteProperty` keeps every other. */
+function declaredStandard(
+	properties: Draft<CaseProperty>[],
+	name: string,
+): Draft<CaseProperty> | undefined {
+	if (!isStandardCaseListProperty(name)) return undefined;
+	const declared = { name, label: proseText(name) };
+	const at = properties.findIndex((one) => one.name > name);
+	if (at === -1) properties.push(declared);
+	else properties.splice(at, 0, declared);
+	return properties.find((one) => one.name === name);
+}
+
 /** The properties each reading's label-showing columns have stated choices for, by case type and
  *  property. */
 const SHOWN_STATED = new WeakMap<ReadContext, Set<string>>();
@@ -948,7 +973,14 @@ function declareShownChoices(
 		const type = draft.find((one) => one.name === caseType);
 		for (const { property, choices } of shown) {
 			const key = `${caseType}\u0000${property}`;
-			const entry = type?.properties.find((one) => one.name === property);
+			// A standard property the catalog does not list (`noteProperty` lists none) is
+			// declared here: its choices are the label projection's, which Nova prints only
+			// from a catalog entry (`hqJson/caseList.ts::projectColumnToDetail`).
+			const entry =
+				type?.properties.find((one) => one.name === property) ??
+				(type === undefined || stated.has(key)
+					? undefined
+					: declaredStandard(type.properties, property));
 			if (
 				stated.has(key) ||
 				entry === undefined ||
@@ -1018,7 +1050,7 @@ export function readCaseDetails(
 		for (const detail of [short, long]) {
 			detail.drop("columns", D.surveyColumns);
 			detail.drop("display", D.display);
-			readDetailTexts(detail);
+			readDetailTexts(detail, appCodes(ctx));
 		}
 		return;
 	}
@@ -1337,13 +1369,16 @@ export function columnsOffAScreenLast(doc: BlueprintDoc): BlueprintDoc {
  * selection, its Search fields or its search settings, and the reader returns the list that pair
  * reads as: that one plain `case_name` column off the detail and nothing else. The column keeps
  * the identity of the menu's own first plain `case_name` column where it has one, the identity a
- * re-read gives it, and is otherwise minted under the app's id, as a re-read mints it. It runs
+ * re-read gives it, and otherwise the UUID a re-read gives a key the document lacks
+ * (`identityMap.ts::reReadUuidOf`), which is not the key's own mint where the document holds
+ * that under another column (one whose property was changed in Nova). It runs
  * before `columns-off-a-screen-last-in-its-order`.
  */
 export function columnsOfAMenuThatListsNoCasesOffTheDetail(
 	doc: BlueprintDoc,
 ): BlueprintDoc {
 	const lists = new Map<Uuid, CaseListConfig>();
+	const reRead = reReadUuidOf(doc, DERIVED_WIRE_IDENTITY);
 	for (const uuid of doc.moduleOrder) {
 		const module = doc.modules[uuid];
 		if (
@@ -1361,8 +1396,7 @@ export function columnsOfAMenuThatListsNoCasesOffTheDetail(
 		const column = {
 			...plainColumn(
 				own?.uuid ??
-					mintEntityUuid(
-						doc.appId,
+					reRead(
 						externalKey.caseListColumn(
 							DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
 							"plain",

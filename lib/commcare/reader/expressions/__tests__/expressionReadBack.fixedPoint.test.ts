@@ -11,9 +11,10 @@
  * unguarded read of a table, a bare read of the screen width, a case list
  * filter opening with `true() and`, a validation holding a count, and two
  * search rows, one hand-written with fixed quotes around a Search field's
- * answer and one calling `today()`. Each text reaches its own rewrite: Nova's
- * print of the tree read reaches it, and the reading reports it exactly
- * where a worker meets the change.
+ * answer and one calling `today()`. Each text reaches its own rewrite: the
+ * reading reports it exactly where a worker meets the change, and Nova's
+ * print of the tree read reaches it, but for the two relocations into
+ * `current()`, whose tree read is spelled from `current()` already.
  *
  * Plausible failures: a reading that keeps HQ's spelling where Nova's print
  * differs, so a second reading of Nova's own export reads another tree (the
@@ -295,6 +296,12 @@ function heldAt(reading: EmissionReading, key: string): Expression | undefined {
 	)?.outcome.expression;
 }
 
+/** The two relocations into `current()`, which a read stored `current` never reaches. */
+const RELOCATIONS: ReadonlySet<EmissionRewriteId> = new Set([
+	"default-reads-current",
+	"row-predicate-current",
+]);
+
 /** The rewrites whose report a worker reads: those that change what one meets. */
 function reported(id: EmissionRewriteId): EmissionRewriteId[] {
 	return EMISSION_REWRITES[id].behavior === "changes" ? [id] : [];
@@ -325,7 +332,12 @@ describe("a reading of an HQ author's text, written back and read again", () => 
 			printSlot(read, ref, tree, first.env, {
 				rewrites: { withhold: new Set(), reached: (id) => reached.add(id) },
 			});
-			expect([...reached], text).toContain(rewrite);
+			if (RELOCATIONS.has(rewrite)) {
+				// The tree read is spelled from `current()` already, as Nova's print
+				// writes it, so nothing relocates it again.
+				expect(JSON.stringify(tree), text).toContain('"spelling":"current"');
+				expect([...reached], text).not.toContain(rewrite);
+			} else expect([...reached], text).toContain(rewrite);
 			expect(
 				first.rewrites
 					.filter(

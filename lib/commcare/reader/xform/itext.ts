@@ -72,11 +72,27 @@ export interface ItextReading extends ItextTable {
 	allValues(id: string): ReadonlyMap<LanguageTag, readonly Element[]>;
 	/** The source language's tag (`HqLanguages.source`): the language whose text a slot holds. */
 	readonly source: LanguageTag | undefined;
-	/** The default language's tag, the first the reading named: the language whose text the
-	 *  form builder writes over a blank value on every save. */
+	/** The form's default language: the app's first where the form holds its translation, else
+	 *  the first translation the form holds, in document order. That is the translation HQ's
+	 *  build marks default (`xform.py::XForm.exclude_languages` keeps the build languages' in
+	 *  their order, `set_default_language(langs[0])` marks `langs[0]`'s where there is one) or,
+	 *  where none is marked, the one Core takes (`XFormParser.parseIText`, the first available
+	 *  locale). A text id it lacks is fatal (`XFormParser.verifyTextMappings`); every other
+	 *  language shows its text where its own holds none (`Localizer.getLocaleData`,
+	 *  `FormDef.initLocale`), and the form builder fills a blank value from it. */
 	readonly defaultLanguage: LanguageTag | undefined;
 	/** The tags of the languages the reading named, in HQ's order. */
 	readonly languages: readonly LanguageTag[];
+	/** Whether HQ's build refuses a question's or choice's label that references `id`: its
+	 *  `text` in the source's first `<translation>` holds no `value` without a `form`. HQ's build
+	 *  reads every label of the stored source in that translation whatever its language
+	 *  (`models/forms.py::FormBase.cached_get_questions` passes no languages, so
+	 *  `xform.py::XForm._get_label_text` calls `localize(ref, None)`, which takes the first key of
+	 *  `translations()`, an `OrderedDict` by `lang` whose value is the last translation of that
+	 *  `lang`) and raises "has no <value>" for such a text (`XForm.localize`), which
+	 *  `helpers/validators.py` makes a build error. A label that translation holds no `text` of
+	 *  builds. */
+	buildRefusesLabel(id: string): boolean;
 }
 
 /** The table of a source that holds no text: no id, no value, no owner. */
@@ -136,6 +152,8 @@ export function readItext(input: ReadItextInput): ItextReading {
 	const owners = new Map<string, ItextOwner[]>();
 	const ids: string[] = [];
 	const seenLanguages = new Set<string>();
+	/** The tags of the translations read, in document order. */
+	const held: LanguageTag[] = [];
 	const tags = languages.codes
 		.filter((code) => !languages.refused.has(code))
 		.map((code) => languages.tagOf.get(code))
@@ -164,6 +182,7 @@ export function readItext(input: ReadItextInput): ItextReading {
 		const tag = languages.tagOf.get(code);
 		if (tag === undefined || seenLanguages.has(code)) continue;
 		seenLanguages.add(code);
+		held.push(tag);
 		cursor.derived({ element: translation }, X.translationElement);
 		cursor.take({ element: translation, attribute: "lang" }, X.translationLang)
 			.value;
@@ -207,7 +226,29 @@ export function readItext(input: ReadItextInput): ItextReading {
 		}
 	}
 
+	// The texts HQ's build reads a label in and finds no `value` without a `form` in: the last
+	// translation of the first translation's `lang` (`translations()` keeps the key's first place
+	// and the last element under it).
+	const firstLang = translations[0]?.attribs.lang;
+	const hqFirst =
+		firstLang === undefined
+			? undefined
+			: translations.filter((t) => t.attribs.lang === firstLang).at(-1);
+	const labelRefused = new Set<string>();
+	if (hqFirst !== undefined)
+		for (const text of xformsChildren(hqFirst, scope, "text")) {
+			const id = text.attribs.id;
+			if (
+				id !== undefined &&
+				!xformsChildren(text, scope, "value").some(
+					(value) => value.attribs.form === undefined,
+				)
+			)
+				labelRefused.add(id);
+		}
+
 	return {
+		buildRefusesLabel: (id) => labelRefused.has(id),
 		values: (id) => values.get(id),
 		owners: (id) => owners.get(id) ?? [],
 		ids: () => ids,
@@ -219,7 +260,10 @@ export function readItext(input: ReadItextInput): ItextReading {
 			else known.push(owner);
 		},
 		source,
-		defaultLanguage: tags[0],
+		defaultLanguage:
+			tags[0] !== undefined && held.includes(tags[0])
+				? tags[0]
+				: (held[0] ?? tags[0]),
 		languages: tags,
 	};
 }

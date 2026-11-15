@@ -295,8 +295,23 @@ def hq_source_hashes(paths):
     return {path: sha256((Path(HQ_ROOT) / path).read_bytes()) for path in paths}
 
 
+# The suffix of a proof's evidence record (``write_evidence``), which ``app_sources`` never takes for an app.
+EVIDENCE_SUFFIX = ".evidence.json"
+
+
 def write_evidence(directory: Path, name: str, evidence: dict) -> Path:
     """Write a proof's evidence record (what ran, on which inputs, with which result) beside its artifacts."""
-    path = directory / f"{name}.evidence.json"
+    path = directory / f"{name}{EVIDENCE_SUFFIX}"
     path.write_text(json.dumps(evidence, indent=2, default=str) + "\n")
     return path
+
+
+def app_sources(directory: Path, pattern: str = "*.json") -> list[Path]:
+    """The app sources a family's producer wrote into ``directory`` that match ``pattern``, in name order.
+
+    A proof writes its evidence into the same directory (``write_evidence``), and a proof that reads only the
+    family's corpus can do that before anything runs the family's HQ step. So a step that takes every match of
+    its pattern would import that evidence as an app (``Application.from_source``) and fail, or answer for a
+    source the producer never wrote. Every step selects its sources here, never by its own glob.
+    """
+    return sorted(path for path in directory.glob(pattern) if not path.name.endswith(EVIDENCE_SUFFIX))

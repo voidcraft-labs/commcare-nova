@@ -21,7 +21,7 @@ regenerated form.
 
 from xml.etree.ElementTree import Element, fromstring, tostring
 
-from proof.native.hq_support import import_source, native_check, regenerate_form, sha256
+from proof.native.hq_support import app_sources, import_source, native_check, regenerate_form, sha256
 from proof.native.steps.session_reads import session_reads
 
 TARGETED = "targeted-instance-reads"
@@ -141,7 +141,7 @@ def locations(session):
     )
     model = fromstring((targeted / "hq.0.xml").read_bytes()).find(f".//{XFORMS}model")
     return {
-        "sources": sorted(path.stem for path in exports.glob("*.json")),
+        "sources": sorted(path.stem for path in app_sources(exports)),
         "fixtures": fixtures,
         "forms": forms,
         "targeted": {

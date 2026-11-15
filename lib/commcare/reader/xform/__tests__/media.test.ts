@@ -1,14 +1,18 @@
 /**
  * Media on a text (12.4), read through the reader's own stages over an index
  * that answers `asset`, `no-entry` and `unreadable`. A held slot (a label, a
- * choice) takes the asset where every language holds the one path, and a path
+ * choice) takes the asset where every language holds the one file (one path,
+ * or paths the index answers one asset for, each listed), and a path
  * with no file is handed off with its node and listed, never claimed and never
- * `unrecognized`; a path that differs by language, or is held in one language
- * only, is refused. A hint's or a group label's media, which no slot holds, is
- * inert where the file is there and handed off as `unheld_itext` where it is
- * not. Each question that references one text reads its media as its own. A
- * map of paths by language reads by the same rule: a path one app language
- * holds and another does not differs.
+ * `unrecognized`; a language whose text holds no media form shows the form's
+ * default language's (Core loads the default locale's keys under every
+ * locale), so a path the default holds alone is held, and a file that differs
+ * by language, or one only another language holds, is refused. A hint's or a
+ * group label's media, which no slot holds, is inert where the file is there
+ * and handed off as `unheld_itext` where it is not. Each question that
+ * references one text reads its media as its own. A map of paths by language
+ * reads as HQ's build shows it in each language: a language the map lacks or
+ * holds blank shows another's path, so only two files shown differ.
  */
 
 import { describe, expect, it } from "vitest";
@@ -40,6 +44,11 @@ function index(path: string): ReaderMediaResolution {
 		assetId: `asset-${path.slice(path.lastIndexOf("/") + 1)}`,
 		mediaKind: "image",
 	};
+}
+
+/** `index`, with a French path that names the file of the path without `_fr`. */
+function oneFile(path: string): ReaderMediaResolution {
+	return index(path.replace("_fr.", "."));
 }
 
 function itext(translations: Readonly<Record<string, string>>): string {
@@ -183,7 +192,36 @@ describe("media on a text", () => {
 		expect(reading.closed.defects).toEqual([]);
 	});
 
-	it("refuses a path that differs by language, and one held in one language only", async () => {
+	it("holds two paths of one file, one per language, as that file, listed at both", async () => {
+		const reading = await readForm(
+			source({
+				en: texts({ label: "jr://file/commcare/q.png" }),
+				fr: texts({ label: "jr://file/commcare/q_fr.png" }),
+			}),
+			{ langs: ["en", "fr"], media: oneFile },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(unclaimedMedia(reading)).toEqual([]);
+		expect(field(reading, "q").label_media).toEqual({ image: "asset-q.png" });
+		expect(
+			reading.ctx.facts.mediaReferences.map((reference) => reference.path),
+		).toEqual(["jr://file/commcare/q.png", "jr://file/commcare/q_fr.png"]);
+	});
+
+	it("holds a path the default language holds alone, which every language shows", async () => {
+		const reading = await readForm(
+			source({
+				en: texts({ label: "jr://file/commcare/q.png" }),
+				fr: texts({}),
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(unclaimedMedia(reading)).toEqual([]);
+		expect(field(reading, "q").label_media).toEqual({ image: "asset-q.png" });
+	});
+
+	it("refuses a path that differs by language, and one only a language other than the default holds", async () => {
 		const differing = await readForm(
 			source({
 				en: texts({ label: "jr://file/commcare/q.png" }),
@@ -196,8 +234,8 @@ describe("media on a text", () => {
 		]);
 		const oneOnly = await readForm(
 			source({
-				en: texts({ label: "jr://file/commcare/q.png" }),
-				fr: texts({}),
+				en: texts({}),
+				fr: texts({ label: "jr://file/commcare/q.png" }),
 			}),
 			{ langs: ["en", "fr"], media: index },
 		);
@@ -311,14 +349,39 @@ describe("a map of paths by language", () => {
 		]);
 	});
 
-	it("answers differs for a path one app language holds and another does not", async () => {
-		const ctx = await context(index);
-		expect(readMediaMap(ctx, { en: "jr://file/a.png" }, at(ctx))).toEqual({
-			kind: "differs",
-		});
+	it("answers the asset for two paths of one file, listing both", async () => {
+		const ctx = await context(oneFile);
 		expect(
-			readMediaMap(ctx, { en: "jr://file/a.png", fr: "" }, at(ctx)),
-		).toEqual({ kind: "differs" });
+			readMediaMap(
+				ctx,
+				{ en: "jr://file/a.png", fr: "jr://file/a_fr.png" },
+				at(ctx),
+			),
+		).toEqual({ kind: "asset", assetId: "asset-a.png" });
+		expect(ctx.facts.mediaReferences.map((one) => one.path)).toEqual([
+			"jr://file/a.png",
+			"jr://file/a_fr.png",
+		]);
+	});
+
+	it("reads a path one app language holds, and another lacks or holds blank, as the asset both show", async () => {
+		const ctx = await context(index);
+		for (const map of [
+			{ en: "jr://file/a.png" },
+			{ fr: "jr://file/a.png" },
+			{ en: "jr://file/a.png", fr: "" },
+			// No app language holds it: HQ's build takes the map's least key.
+			{ de: "jr://file/a.png" },
+		])
+			expect(readMediaMap(ctx, map, at(ctx))).toEqual({
+				kind: "asset",
+				assetId: "asset-a.png",
+			});
+	});
+
+	it("answers differs for a value whose printed text it cannot know", async () => {
+		const ctx = await context(index);
+		expect(readMediaMap(ctx, { en: 5 }, at(ctx))).toEqual({ kind: "differs" });
 		expect(ctx.facts.mediaReferences).toEqual([]);
 	});
 

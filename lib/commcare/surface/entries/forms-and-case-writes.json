@@ -143,7 +143,7 @@
 		"id": "forms-and-case-writes/form-requires-case-no-close",
 		"area": "forms-and-case-writes",
 		"section": "Form types",
-		"item": "`Form`, `requires: case`, no close",
+		"item": "`Form`, `requires: case`, no close, or a `close_case` in a multi-select or data-registry-loading module, where HQ's build writes no close (`default_case_management` false, `xform.py::_create_casexml`)",
 		"surfaceKeys": [
 			"schema:Form.requires",
 			"schema:Form.actions",
@@ -175,7 +175,7 @@
 		"id": "forms-and-case-writes/form-requires-case-close-case",
 		"area": "forms-and-case-writes",
 		"section": "Form types",
-		"item": "`Form`, `requires: case` + `close_case`",
+		"item": "`Form`, `requires: case` + `close_case`, outside a multi-select or data-registry-loading module",
 		"surfaceKeys": [
 			"schema:Form.requires",
 			"schema:Form.actions",
@@ -731,7 +731,7 @@
 		"id": "forms-and-case-writes/media-image-media-audio-same-asset-every-language",
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
-		"item": "`media_image`, `media_audio` (same asset every language); the same path in every language the app has reads as the one shared slot",
+		"item": "`media_image`, `media_audio` (same asset every language); a map that shows one file in every language, read as HQ's build shows it (a language with no path of its own shows the `default` table's), reads as the one shared slot",
 		"surfaceKeys": [
 			"schema:Form.media_image",
 			"schema:Form.media_audio",
@@ -765,7 +765,7 @@
 		"id": "forms-and-case-writes/media-image-media-audio-differing-by-language",
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
-		"item": "`media_image`, `media_audio` differing by language; a path present in one language and absent in another counts as differing",
+		"item": "`media_image`, `media_audio` differing by language: two files shown in two languages, each language read as HQ's build shows it (a language with no path of its own shows the `default` table's)",
 		"surfaceKeys": [
 			"schema:Form.media_image",
 			"schema:Form.media_audio",
@@ -3160,16 +3160,18 @@
 		"id": "forms-and-case-writes/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key failing HQ's grammar or in `case-reserved-words.json`, or a child case's property key holding `/`",
+		"item": "update key failing HQ's grammar or in `case-reserved-words.json`, or a child case's property key holding `/`, or a preloaded property (a `case_preload` on a form that requires a case, an advanced load's `preload`) failing that grammar or whose last step is in that list",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.update",
-			"schema:OpenSubCaseAction.case_properties"
+			"schema:OpenSubCaseAction.case_properties",
+			"schema:PreloadAction.preload",
+			"schema:LoadUpdateAction.preload"
 		],
 		"valueClass": "illegal-or-reserved-key",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-buildable: `update_case word illegal` / `update_case uses reserved word` (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties`: no parent properties for a subcase)",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `update_case word illegal` / `update_case uses reserved word` (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties`, which reads every preloaded property too, `FormActions.all_property_names`, `LoadUpdateAction.get_property_names`: no parent properties for a subcase)",
 		"subject": "case-property-names",
 		"reasons": [
 			{
@@ -7212,13 +7214,14 @@
 		"id": "forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type",
+		"item": "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type (an advanced form's preload on a load other than its own that the read of its case type does not reach: a later load of the chain is chosen through an index other than `parent`, or the catalog places the load's type at another depth, as where a load nearer the form's own has that type)",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.update",
 			"schema:FormActions.case_preload",
-			"schema:PreloadAction.preload"
+			"schema:PreloadAction.preload",
+			"schema:LoadUpdateAction.preload"
 		],
 		"valueClass": "ancestor-type-unknown",
 		"disposition": "HELD-NEW",

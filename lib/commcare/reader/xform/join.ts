@@ -45,6 +45,7 @@ import {
 	type ControlNode,
 	isFieldListAppearance,
 	type ReadControls,
+	wrapsRepeat,
 } from "./body";
 import { X } from "./claims";
 import {
@@ -627,6 +628,10 @@ export function joinForm(input: JoinInput): JoinedForm {
 			});
 	};
 
+	/** Nodes with element children refused whole, whose fields stand in as groups. */
+	const refusedContainers = new Set<DataNode>();
+	/** Every field a control made, for the agreement of its two places. */
+	const placed: DraftField[] = [];
 	// 4. Every node a control names, in body order.
 	for (const control of input.controls.all) {
 		const node = control.node;
@@ -653,13 +658,8 @@ export function joinForm(input: JoinInput): JoinedForm {
 		let made: DraftField | undefined;
 		if (control.tag === "group") {
 			if (queryWrapperGroup(control)) continue;
-			if (
-				!isFieldListAppearance(control.appearance) &&
-				control.children.filter((child) => child.tag === "repeat").length === 1
-			) {
-				// A repeat's wrapping group with a `ref`: the repeat makes the field.
-				continue;
-			}
+			// A repeat's wrapping group with a `ref`: the repeat makes the field.
+			if (wrapsRepeat(control)) continue;
 			const stood = idFinding(node);
 			claimNode(node);
 			made = make(
@@ -751,17 +751,29 @@ export function joinForm(input: JoinInput): JoinedForm {
 			if (queryCounted && placement !== undefined)
 				readCountPlacement(field, at, read.node, placement);
 			made = field;
+		} else if (node.children.length > 0) {
+			// A question's control on a node with element children (8.5): refused whole at the
+			// question, and the node stands in as a group, so each node under it reads as a
+			// field under that group, at the data path it has.
+			const place = placeOf(node);
+			cursor.refuseSubtree(control.element, X.questionWithChildren, place);
+			cursor.refuseSubtree(node.element, X.questionWithChildren, place);
+			refusedContainers.add(node);
+			made = make(node, parent, undefined, "group", true);
 		} else made = readQuestion(node, control, parent);
-		if (made === undefined) continue;
-		// A control's place and its node's place must agree (8.5).
+		if (made !== undefined) placed.push(made);
+	}
+
+	// A control's place and its node's place must agree (8.5), once every field a control makes
+	// is made: a data parent whose control stands later in the body is a field by now.
+	for (const made of placed) {
 		const expected = dataParent(made.node);
-		if (expected !== made.parent) {
-			const crossing = repeatOf(expected) !== repeatOf(made.parent);
-			accounting.finding(
-				crossing ? X.dataParentCrossingRepeat : X.dataParentOtherGroup,
-				made.place,
-			);
-		}
+		if (expected === made.parent) continue;
+		const crossing = repeatOf(expected) !== repeatOf(made.parent);
+		accounting.finding(
+			crossing ? X.dataParentCrossingRepeat : X.dataParentOtherGroup,
+			made.place,
+		);
 	}
 
 	// The head's `odkx:intent`s an input's `intent:<id>` names (8.2): a callout question's own
@@ -818,7 +830,6 @@ export function joinForm(input: JoinInput): JoinedForm {
 	// 6 first: a node with element children and no control is refused whole and stands in as a
 	// group, before the leaves are read, so each leaf under it stands under that group, at the
 	// data path it has. A container under one already refused stands in under it.
-	const refusedContainers = new Set<DataNode>();
 	for (const node of tree.order) {
 		if (!open(node) || node.children.length === 0) continue;
 		let within = false;

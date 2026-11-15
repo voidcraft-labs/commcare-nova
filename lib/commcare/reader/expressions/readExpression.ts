@@ -363,12 +363,6 @@ function scopeWith(
 		form !== undefined && caseOperationSlot(pending.ref)
 			? operationPlaceReads(doc, form, pending.ref, env)
 			: undefined;
-	const structure = form === undefined ? undefined : formStructure(doc, form);
-	const projection =
-		sourceProjection ??
-		(structure === undefined
-			? undefined
-			: formNodeProjection(doc, structure, { surface: "authoring" }));
 	const reading: FormReadingHooks = {
 		functions: READ_FUNCTIONS,
 		itextUnit: (id) => itextUnits?.get(id),
@@ -380,7 +374,6 @@ function scopeWith(
 				operationIdPaths,
 				withdrawn,
 				sites,
-				...(projection === undefined ? {} : { projection }),
 				...(place === undefined ? {} : { place }),
 				...(root === undefined ? {} : { root }),
 			}),
@@ -418,7 +411,6 @@ function proposeFold(
 		readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 		readonly withdrawn: ReadonlySet<string>;
 		readonly sites: FoldSites;
-		readonly projection?: FormNodeProjection;
 		readonly place?: OperationPlaceReads;
 		readonly root?: FormSyntax;
 	},
@@ -433,9 +425,6 @@ function proposeFold(
 			doc: options.doc,
 			operationIdPaths: options.operationIdPaths,
 			withdrawn: options.withdrawn,
-			...(options.projection === undefined
-				? {}
-				: { projection: options.projection }),
 			...(options.place === undefined ? {} : { place: options.place }),
 			...(options.root === undefined ? {} : { root: options.root }),
 			bindPlain(at, context) {
@@ -997,6 +986,7 @@ export function printSlot(
 					formUuid,
 					expression,
 					ref,
+					print.rewrites,
 				),
 			);
 		if (caseOperationSlot(ref)) {
@@ -1010,11 +1000,14 @@ export function printSlot(
 				formEmission(doc, formUuid, naming, {}).emission,
 			).get(caseOperationPlaceKey(ref));
 			if (place !== undefined) {
+				// The control reaches this print as it reaches every other, so a
+				// guard or a lowering the block's value holds is withheld here too.
 				const build = {
 					target: "xform",
 					types: emission.context(ref),
 					form: emission.projection,
 					bindings: place,
+					...(print.rewrites === undefined ? {} : { rewrites: print.rewrites }),
 				} as const;
 				return text(
 					writesStoredInstantLiteral(doc, formUuid, ref, expression)

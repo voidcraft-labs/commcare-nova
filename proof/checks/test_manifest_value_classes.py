@@ -2710,6 +2710,26 @@ def _search_and_menus():
                 f"{config}/default_properties/0/property",
             ),
         ),
+        "case-search/data-registry-data-registry-workflow-additional-registry-cases": (
+            refused(
+                "app",
+                search(_search_module(data_registry="r", data_registry_workflow="load_case")),
+                "schema:CaseSearch.data_registry_workflow",
+                f"{config}/data_registry_workflow",
+            ),
+            refused(
+                "app",
+                search(_search_module(data_registry="r")),
+                "schema:CaseSearch.data_registry",
+                f"{config}/data_registry",
+            ),
+            accepted(
+                "app",
+                search(_search_module(data_registry="", data_registry_workflow="load_case")),
+                "schema:CaseSearch.data_registry_workflow",
+                f"{config}/data_registry_workflow",
+            ),
+        ),
         "case-search/default-properties-entry-keyed-x-commcare-endpoint-id": (
             refused(
                 "app",
@@ -3268,6 +3288,10 @@ def _search_and_menus():
             refused(
                 "app", columns_app(_column("property:dob")), "detail-field-type:property", f"{short}/columns/0/field"
             ),
+            accepted("app", columns_app(_column("dob")), "detail-field-type:property", f"{short}/columns/0/field"),
+        ),
+        "menus-and-case-lists/case-id-as-a-property-column-s-field": (
+            refused("app", columns_app(_column("case_id")), "detail-field-type:property", f"{short}/columns/0/field"),
             accepted("app", columns_app(_column("dob")), "detail-field-type:property", f"{short}/columns/0/field"),
         ),
         "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": (
@@ -4357,6 +4381,17 @@ def _data_binds_and_itext():
     detail_keys = _app([_detail_module([_column(foo=1, calc_xpath=".")], short={"foo": 1, "custom_variables": None})])
     form_keys = _app([_module([{**_form_json("none"), "bar": 1, "no_vellum": False}])])
     short = "/modules/0/case_details/short"
+    nested = form(
+        data="<asked><part/></asked><grp><inner/></grp><plain/>",
+        body="""<input ref="/data/asked"/><group ref="/data/grp"><input ref="/data/grp/inner"/></group>
+          <input ref="/data/plain"/>""",
+    )
+    rooted = form(
+        data="<q/>",
+        model="""<bind nodeset="/data" relevant="/data/q = 'yes'"/><bind nodeset="/data/q" relevant="true()"/>
+          <bind nodeset="/data/." relevant="true()"/>""",
+        body='<input ref="/data/q"/>',
+    )
     return {
         "questions/question-id-failing-the-grammar-or-meta-in-any-case": (
             refused("form", nodes, root_child, f"{data}_bad[1]"),
@@ -4370,6 +4405,12 @@ def _data_binds_and_itext():
         "questions/hidden-value-with-children": (
             refused("form", nodes, root_child, f"{data}holder[1]"),
             accepted("form", nodes, root_child, f"{data}grp[1]"),  # a group's node
+        ),
+        "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": (
+            refused("form", nested, root_child, f"{data}asked[1]"),
+            accepted("form", nested, root_child, f"{data}grp[1]"),  # a group's node
+            accepted("form", nested, root_child, f"{data}plain[1]"),  # a question with no child
+            accepted("form", nodes, root_child, f"{data}holder[1]"),  # no control: the Hidden Value's class
         ),
         "questions/default-data-value-datavalue-instance-text": (
             refused("form", nodes, root_child, f"{data}filled[1]"),
@@ -4445,6 +4486,11 @@ def _data_binds_and_itext():
         "questions/bind-calculate-on-a-visible-question": (
             refused("form", binds, "xform:model/bind@calculate", "bind[7]/@calculate"),
             accepted("form", binds, "xform:model/bind@calculate", "bind[8]/@calculate"),
+        ),
+        "questions/bind-whose-path-names-the-data-root-itself-data-data-or-a": (
+            refused("form", rooted, "xform:model/bind@nodeset", "bind[1]/@nodeset"),
+            refused("form", rooted, "xform:model/bind@nodeset", "bind[3]/@nodeset"),
+            accepted("form", rooted, "xform:model/bind@nodeset", "bind[2]/@nodeset"),
         ),
         "questions/bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model": (
             refused("form", binds, "xform:model/bind@nodeset", "bind[9]/@nodeset"),
@@ -4860,6 +4906,83 @@ def observed(hq, core_runner):
 )
 def test_a_reader_places_each_shape_read_with_the_observations_readings(entry_id, manifest, observed):
     _holds_its_shapes(entry_id, manifest, observed)
+
+
+def _entry_suite(*datum_ids):
+    """A suite whose one entry opens the form ``FORM`` writes (namespace ``http://example.org/t``), writing
+    ``datum_ids`` into the session."""
+    datums = "".join(
+        f"<datum id={quoteattr(datum_id)} value='./@case_id'"
+        f" nodeset=\"instance('casedb')/casedb/case[@case_type='patient']\"/>"
+        for datum_id in datum_ids
+    )
+    return (
+        '<suite version="1"><entry><form>http://example.org/t</form><command id="m0-f0"><text><locale id="c"/>'
+        f'</text></command><instance id="casedb" src="jr://instance/casedb"/><session>{datums}</session></entry>'
+        "</suite>"
+    ).encode()
+
+
+def test_an_app_json_forms_session_reads_are_judged_by_the_entries_hq_built_of_its_upload(hq, core_runner, manifest):
+    """Contract: ``expressions-and-data/session-data-datum-the-entry-does-not-supply`` reads an app JSON form's
+    ``session/data/<id>`` against the entries that open the form in HQ's build of the upload that carried it
+    (``manifest_usage.export_uses``: A's state for a first publish), falls back to the local archive Nova built of
+    the same export only where HQ built nothing, and is undecided only where neither says. The plausible failures:
+    a document that declares no Android, so Nova hands it no local archive, whose every session read is undecided
+    (which no register entry may hold); and a judge that reads Nova's own suite where HQ's build, which is what
+    runs the app JSON, writes other datums."""
+    from types import SimpleNamespace
+
+    from proof.observe.record import ConfigurationRecords, DocumentRecords
+
+    form = _form(
+        data="<c/><p/>",
+        model="""<bind nodeset="/data/c" calculate="instance('commcaresession')/session/data/case_id"/>
+          <bind nodeset="/data/p" calculate="instance('commcaresession')/session/data/parent_id"/>""",
+    )
+    app = _with_forms(_app([_module([{**_form_json("none"), "unique_id": "f"}])]), f=form)
+    built_suite, local_suite = _entry_suite("case_id"), _entry_suite("parent_id", "case_id")
+    table = observed_manifest.readings(core_runner, forms=[form], runtimes=[local_suite], apps=[app])
+    document = SimpleNamespace(
+        id="datum-reads",
+        exports={"minimum": SimpleNamespace(two_imports=False, republish=None, configuration=PLAIN)},
+        edit=None,
+        migration_witness=False,
+        hq_side=None,
+    )
+    reader = classes.VALUE_CLASSES["expressions-and-data/session-data-datum-the-entry-does-not-supply"]
+    binds = {"bind[1]/@calculate": "case_id", "bind[2]/@calculate": "parent_id"}
+
+    def judged(built, local):
+        records = DocumentRecords(document.id, "corpus")
+        blobs = records.blobs
+        a = {"kind": "a"}
+        if built is not None:  # HQ built A: its files, each a blob, as ``outcome_record`` keeps them
+            a["state"] = {"build": {"files": {"suite.xml": blobs.put(built)}}}
+        records.configurations["minimum"] = ConfigurationRecords("minimum", {}, a=a)
+        observed = {
+            "uploads": {"minimum/create": blobs.put(json.dumps(app).encode())},
+            "archives": {} if local is None else {"local.ccz": {"suite.xml": blobs.put(local)}},
+            "readings": blobs.put_json(table),
+        }
+        records.local = {"kind": "local", "hooks": {"manifest": observed}}
+        found = manifest_usage.export_uses(document, records, manifest)
+        uses = [use for use in found.uses if use.key == "session-path:session/data/*" and use.artifact == "form:0.0"]
+        return {
+            datum_id: reader(use, manifest)
+            for use in uses
+            for where, datum_id in binds.items()
+            if use.where.endswith(where)
+        }
+
+    # No local archive (an app declared for Web Apps alone): HQ's build of the upload decides.
+    assert judged(built_suite, None) == {"case_id": False, "parent_id": True}
+    # HQ's build decides where Nova's local archive writes more.
+    assert judged(built_suite, local_suite) == {"case_id": False, "parent_id": True}
+    # HQ built nothing (it refused the publish, which the bar reports): the local archive of the same export.
+    assert judged(None, local_suite) == {"case_id": False, "parent_id": False}
+    # Neither says what opens the form: the reader cannot tell.
+    assert judged(None, None) == {"case_id": None, "parent_id": None}
 
 
 # REFUSED classes the inventory keys whose reader the registry does not hold, each a gap: every use of their keys

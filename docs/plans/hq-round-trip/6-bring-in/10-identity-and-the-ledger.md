@@ -560,7 +560,7 @@ What a reading also meets and the schemas hold no `uuid` for, each with what its
 | a form's own close | none of its own: `Form.ownClosePlacement` is a slot of the form; the own case is the `caseOperation` whose action is `own` |
 | a sort rule | the `sort` slot of its column |
 | a tile cell | the `tile` slot of its column |
-| a language | its code; `localization.wireCodes[code]` holds HQ's code as read |
+| a language | its code; `localization.wireCodes[code]` holds HQ's code as read. A re-read of an app Nova holds is told the held document's codes (`ReaderInput.knownLanguageCodes`, `knownLanguageCodesOf(D)`), and a code it holds names the language stored for it, since a stored code is never re-minted while the minter's spelling for an identity can change |
 | a Connect block | its `id`, HQ's own block id (`connectIds.ts::connectBlocks`) |
 | a prose part | none: a `field-ref` holds a field UUID this table mints, a `user-property-ref` a worker property's |
 | an options source | inline options are `selectOption`; a lookup source holds a table id and column ids |
@@ -626,20 +626,47 @@ export interface IdentityResolver {
 
 /** Mints every key: `mintEntityUuid(appId, key)`. A reading of an HQ app uses this. */
 export function mintingResolver(appId: string): IdentityResolver;
-/** Answers a key `known` holds with its UUID and mints the rest. */
+/** Answers a key `known` holds with its UUID and mints the rest, each a UUID `known` holds
+ *  under no key. */
 export function matchingResolver(
 	appId: string, known: readonly IdentityMapEntry[],
 ): IdentityResolver;
+/** `mintEntityUuid(appId, key)` where `taken` holds it not, else the mint of the key with
+ *  `["taken", n]` appended to its parts, for the smallest `n` from 1 that `taken` holds not. */
+export function freeEntityUuid(
+	appId: string, key: ExternalKey, taken: (uuid: Uuid) => boolean,
+): Uuid;
 ```
 
 `matchingResolver` throws at construction if `known` holds one key twice or one UUID under two keys.
+A key `known` lacks takes `freeEntityUuid(appId, key, uuid => known holds uuid)`. A map holds the
+UUID an entity was minted under against the key it has now (2.5), so it can hold a key's own mint
+under another key: a field read as `a` and renamed `b` in Nova keeps `v5([a])`, and a column of `x`
+at ordinal 1 keeps `v5(x, 1)` at ordinal 0 once the column before it was removed. An entity
+CommCare HQ then adds under `a`, or a second column of `x`, mints that same UUID, and without the
+rule two entities of one reading would share it and one would replace the other in the document.
+The answer is a function of the app's id, the key and the map alone, so part 15's two readings,
+told one map, give an added entity one UUID whatever order they claim in. No real key's last part
+is a `["taken", n]` array, and two minted keys share a UUID only where UUIDv5 collides. A
+canonical row that gives an entity the UUID a re-read gives it never calls `mintEntityUuid`
+itself: it asks `identityMap.ts::reReadUuidOf(doc, identity)`, the resolver's rule
+(`identity.ts::matchingUuidOf`) over `externalIdentityMap(doc, identity)`
+(`columns-of-a-menu-that-lists-no-cases-are-off-the-detail`'s name column,
+`tile-columns-shown-nowhere-are-as-read`'s carried column,
+`update-beside-a-bare-own-arm-is-the-own-arm`'s own arm), or claims through a matching resolver
+over the document's own entities of that kind (`worldEntities.ts::namedWorkerReadsAreProperties`).
+Otherwise a menu that lists no cases, whose name column's property was changed in Nova, would be
+given the name column's own mint by the row and another UUID by the reading, and a property
+renamed from a slug its logic still reads by name would be replaced.
 Its first two callers are acceptance's re-read of a split document (part 09
 (`09-acceptance-and-the-first-publish.md`), section 5.4) and proof 6, which reads Nova's own
 emission of a Nova-born document and must get that document's UUIDs back: it passes
 `externalIdentityMap(D, identity)` (part 14 (`14-proof.md`), section 5.2).
 Acceptance passes `matchingResolver(input.appId, externalIdentityMap(expected, identity))`, so the
 questions a split made keep their UUIDs. Part 15's two readings are its third caller (its section
-2.2).
+2.2). Each re-read of a document Nova holds (proof 6, part 15's two readings) is also told its
+language codes, `knownLanguageCodes: knownLanguageCodesOf(D)` (part 06, `ReaderInput`), beside
+`knownCaseTypes`; a first bring-in passes neither.
 
 A reader module that knows a duplicate by its manifest entry claims that entry first (two forms of
 one `xmlns`; two options of one value). Any other `ok: false` is the reader frame's to report (part

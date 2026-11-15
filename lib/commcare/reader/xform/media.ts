@@ -2,10 +2,16 @@
  * Media on a text (12.4): the `image`, `audio` and `video` values of a text on
  * the slots Nova holds media for (a question's label, its help, an inline
  * choice), and the same rule for a map of paths by language, which the menu
- * and list readers call. A path must be one in every app language that holds
- * the text. Its file is the media index's to answer: an asset fills the slot
- * and is listed; a path with no file is handed off to project data with its
- * node, since which entry it stands under is project data's rule.
+ * and list readers call. A file must be one in every app language, read as
+ * each language shows it (a language with no media form of its own shows the
+ * form's default language's, a map is read as HQ's build shows it): one
+ * path, or several paths the media index resolves to one asset,
+ * which is one file CommCare HQ holds under several names (a Nova document
+ * holds the asset, and its publish keeps one of the paths,
+ * `media-paths-joined`). Its file is the media index's to answer: an asset
+ * fills the slot and is listed at every path that names it; a path with no
+ * file is handed off to project data with its node, since which entry it
+ * stands under is project data's rule.
  */
 
 import type { Element } from "domhandler";
@@ -15,12 +21,30 @@ import type { ClaimSite } from "../accounting";
 import { applicationReading } from "../appShell";
 import type { Claim } from "../claims";
 import type { ReadContext } from "../context";
+import { shownText } from "../hqText";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
 import { formText, type SlotText, valueIsBlank } from "./prose";
 
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
+
+/** The one asset every one of several paths resolves to, or undefined where one does not
+ *  resolve to an asset or two resolve to two. */
+function oneAsset(
+	ctx: ReadContext,
+	paths: readonly string[],
+): { readonly assetId: string; readonly mediaKind: MediaKind } | undefined {
+	let found: { assetId: string; mediaKind: MediaKind } | undefined;
+	for (const path of paths) {
+		const resolution = ctx.input.media.resolve(path);
+		if (resolution.kind !== "asset") return undefined;
+		if (found !== undefined && found.assetId !== resolution.assetId)
+			return undefined;
+		found = { assetId: resolution.assetId, mediaKind: resolution.mediaKind };
+	}
+	return found;
+}
 
 /** The slot string of `ReadMediaReference.slot` for a held slot of a field's text. */
 function slotString(holding: SlotText["media"]): string {
@@ -69,6 +93,7 @@ function readSlotMedia(
 	ctx: ReadContext,
 	cursor: XmlCursor,
 	slot: SlotText,
+	defaultLanguage: LanguageTag | undefined,
 ): void {
 	const place = slot.place;
 	const first = slot.first;
@@ -107,30 +132,52 @@ function readSlotMedia(
 			}
 			continue;
 		}
-		const paths = new Set(
-			[...values.values()].map((value) => ownText(value).trim()),
-		);
-		if (values.size !== slot.forms.size || paths.size !== 1) {
+		const paths = [
+			...new Set([...values.values()].map((value) => ownText(value).trim())),
+		];
+		const joined = paths.length === 1 ? undefined : oneAsset(ctx, paths);
+		// A language whose text holds no form of the kind, or no text, shows the form's default
+		// language's, since Core loads the default locale's keys under every locale
+		// (`Localizer.getLocaleData`) and shows the default locale in a language the form holds
+		// no translation of (`FormDef.initLocale`); so the paths shown are the paths held. A form
+		// the default language lacks is a key Core refuses when it loads the language that holds
+		// it, so it differs.
+		if (
+			defaultLanguage === undefined ||
+			!values.has(defaultLanguage) ||
+			(paths.length !== 1 && joined === undefined)
+		) {
 			if (first)
 				for (const value of values.values())
 					cursor.refuseSubtree(value, X.mediaDiffering[kind], place);
 			else ctx.accounting.finding(X.mediaDiffering[kind], place);
 			continue;
 		}
-		const path = [...paths][0] as string;
-		const resolution = ctx.input.media.resolve(path);
-		if (resolution.kind === "asset") {
+		const hold = (asset: {
+			readonly assetId: string;
+			readonly mediaKind: MediaKind;
+		}) => {
 			if (first)
 				for (const value of values.values())
 					cursor.takeSubtree(value, heldClaim(slot.media, kind)).value;
-			setMedia(slot, kind, resolution.assetId);
-			ctx.facts.mediaReferences.push({
-				path,
-				assetId: resolution.assetId,
-				mediaKind: resolution.mediaKind,
-				place,
-				slot: slotString(slot.media),
-			});
+			setMedia(slot, kind, asset.assetId);
+			for (const one of paths)
+				ctx.facts.mediaReferences.push({
+					path: one,
+					assetId: asset.assetId,
+					mediaKind: asset.mediaKind,
+					place,
+					slot: slotString(slot.media),
+				});
+		};
+		if (joined !== undefined) {
+			hold(joined);
+			continue;
+		}
+		const path = paths[0] as string;
+		const resolution = ctx.input.media.resolve(path);
+		if (resolution.kind === "asset") {
+			hold(resolution);
 			continue;
 		}
 		if (first)
@@ -168,7 +215,7 @@ export function readMediaForms(ctx: ReadContext, form: ReadXForm): void {
 	const text = formText(form);
 	if (text === undefined) return;
 	for (const slot of text.slots) {
-		readSlotMedia(ctx, text.cursor, slot);
+		readSlotMedia(ctx, text.cursor, slot, text.itext.defaultLanguage);
 		if (emptyChoice(slot))
 			ctx.accounting.finding(
 				slot.owner.field.control?.tag === "select"
@@ -179,10 +226,11 @@ export function readMediaForms(ctx: ReadContext, form: ReadXForm): void {
 	}
 }
 
-/** One shared path of a `{ lang: path }` map, resolved; or why there is none. */
+/** The one file of a `{ lang: path }` map, resolved: one shared path, or several paths the
+ *  media index resolves to one asset; or why there is none. */
 export function readMediaMap(
 	ctx: ReadContext,
-	byLanguage: Readonly<Record<string, string>>,
+	byLanguage: unknown,
 	at: {
 		readonly site: ClaimSite;
 		readonly place: HqPlace;
@@ -194,31 +242,44 @@ export function readMediaMap(
 	| { readonly kind: "none" }
 	| { readonly kind: "handed-off" }
 	| { readonly kind: "differs" } {
-	const codes = applicationReading(ctx)?.languages.codes;
-	const held = Object.entries(byLanguage).filter(
-		([language, path]) =>
-			typeof path === "string" &&
-			path !== "" &&
-			(codes === undefined || codes.includes(language)),
-	);
-	if (held.length === 0) return { kind: "none" };
-	// A path present in one app language and absent in another differs, as two paths do.
-	if (codes !== undefined && held.length < codes.length)
-		return { kind: "differs" };
-	const paths = new Set(held.map(([, path]) => path));
-	if (paths.size !== 1) return { kind: "differs" };
-	const path = held[0]?.[1] as string;
-	const resolution = ctx.input.media.resolve(path);
-	if (resolution.kind === "asset") {
-		ctx.facts.mediaReferences.push({
-			path,
-			assetId: resolution.assetId,
-			mediaKind: resolution.mediaKind,
-			place: at.place,
-			slot: at.slot,
-		});
-		return { kind: "asset", assetId: resolution.assetId };
+	// Each app language's path is the one HQ's build shows there (`hqText.ts::shownText`): a
+	// language the map lacks, or holds blank, shows another language's path, so a map is read
+	// as built and never taken literally. A caller that reads a map by another rule
+	// (`menus/navMedia.ts::shownNavMedia`) passes the path every language shows, which this
+	// rule reads as it is.
+	const codes = applicationReading(ctx)?.languages.codes ?? [];
+	const shown: string[] = [];
+	for (const code of codes) {
+		const one = shownText(byLanguage, code, codes);
+		if (!one.ok) return { kind: "differs" };
+		shown.push(one.text);
 	}
+	if (shown.every((path) => path === "")) return { kind: "none" };
+	// A language that shows no file beside one that shows a file differs, as two files do.
+	if (shown.includes("")) return { kind: "differs" };
+	const paths = [...new Set(shown)];
+	const hold = (asset: {
+		readonly assetId: string;
+		readonly mediaKind: MediaKind;
+	}) => {
+		for (const path of paths)
+			ctx.facts.mediaReferences.push({
+				path,
+				assetId: asset.assetId,
+				mediaKind: asset.mediaKind,
+				place: at.place,
+				slot: at.slot,
+			});
+		return { kind: "asset", assetId: asset.assetId } as const;
+	};
+	// Several paths are one file where the media index gives every one the same asset.
+	if (paths.length !== 1) {
+		const joined = oneAsset(ctx, paths);
+		return joined === undefined ? { kind: "differs" } : hold(joined);
+	}
+	const path = paths[0] as string;
+	const resolution = ctx.input.media.resolve(path);
+	if (resolution.kind === "asset") return hold(resolution);
 	ctx.accounting.handOffAt(at.site, "media-reference", path);
 	ctx.facts.pendingMedia.push({
 		path,

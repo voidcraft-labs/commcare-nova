@@ -22,6 +22,8 @@ import { withCandidate } from "../candidate";
 import {
 	appCodes,
 	languageMap,
+	sameShownTexts,
+	shownTexts,
 	sourceText,
 	translatedTexts,
 } from "../caseList/columns";
@@ -39,6 +41,13 @@ import type { PromptReading } from "./prompts";
 import { searchPlace } from "./workflow";
 
 const S = "case-search/";
+
+/** The entry a blank `""` is dropped under in a key CommCare HQ reads only where it holds text. */
+export const BLANK_IS_ABSENT = `${S}a-blank-text-in-a-search-key-hq-reads-only-where-it-holds-text`;
+
+/** The entry the registry's workflow and its extra cases are dropped under where no registry is
+ *  named. */
+const NO_REGISTRY = `${S}the-registry-workflow-and-cases-where-no-registry-is-named`;
 
 export const SETTING_CLAIMS = defineClaims("search.settings", {
 	title: take(
@@ -101,6 +110,10 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}additional-case-types`,
 		"schema:CaseSearch.additional_case_types",
 	),
+	additionalOwnType: drop(
+		`${S}additional-case-types-naming-only-the-menu-s-own-type`,
+		"schema:CaseSearch.additional_case_types",
+	),
 	relatedProperty: refuse(
 		`${S}custom-related-case-property`,
 		"schema:CaseSearch.custom_related_case_property",
@@ -133,6 +146,28 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}data-registry-data-registry-workflow-additional-registry-cases`,
 		"schema:CaseSearch.additional_registry_cases",
 	),
+	blankButtonCondition: drop(
+		BLANK_IS_ABSENT,
+		"schema:CaseSearch.search_button_display_condition",
+	),
+	blankOwners: drop(
+		BLANK_IS_ABSENT,
+		"schema:CaseSearch.blacklisted_owner_ids_expression",
+	),
+	blankRegistry: drop(BLANK_IS_ABSENT, "schema:CaseSearch.data_registry"),
+	noRegistryWorkflow: drop(
+		NO_REGISTRY,
+		"schema:CaseSearch.data_registry_workflow",
+	),
+	noRegistryCases: drop(
+		NO_REGISTRY,
+		"schema:CaseSearch.additional_registry_cases",
+	),
+	blankRelated: drop(
+		BLANK_IS_ABSENT,
+		"schema:CaseSearch.custom_related_case_property",
+	),
+	blankInstance: drop(BLANK_IS_ABSENT, "schema:CaseSearch.instance_name"),
 	removed: drop(
 		`${S}removed-keys-dynamic-search-additional-relevant-search-filter`,
 		"schema:CaseSearch",
@@ -141,6 +176,87 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 });
 
 const T = SETTING_CLAIMS;
+
+/**
+ * The text keys of `search_config` that CommCare HQ reads only where they hold text, each with
+ * the claim its blank is dropped under. HQ's Case List page writes `""` into each of them on
+ * every save (`views/modules.py::_gather_and_update_search_properties`, which builds
+ * `CaseSearch` with `search_button_display_condition`, `blacklisted_owner_ids_expression`,
+ * `data_registry`, `custom_related_case_property` and `instance_name` defaulting to `""`), and
+ * every reader tests them by truth: `details.py` (the button condition), `remote_requests.py`
+ * (the owner list, the related-case property), `util.py::module_offers_registry_search` (the
+ * registry) and `CaseSearch.get_instance_name`. A blank is the key absent. The registry's
+ * workflow is read only behind a named registry, whatever it holds (`readRegistry`).
+ */
+const BLANK_KEYS = [
+	["search_button_display_condition", T.blankButtonCondition],
+	["blacklisted_owner_ids_expression", T.blankOwners],
+	["data_registry", T.blankRegistry],
+	["custom_related_case_property", T.blankRelated],
+	["instance_name", T.blankInstance],
+] as const;
+
+/** Whether `key` holds a value other than HQ's default and other than a blank `""`, the one use
+ *  of a key HQ reads only where it holds text. */
+export function holdsText(cursor: JsonCursor, key: string): boolean {
+	return cursor.used(key) && cursor.peek(key) !== "";
+}
+
+/**
+ * Reads a searching menu's data registry keys, and answers whether the search can still be held.
+ * A named registry (`data_registry` holding text) is refused with whatever workflow and extra
+ * cases stand beside it. Where none is named, HQ reads neither of those: each reader stands behind
+ * `util.py::module_offers_registry_search` (`module_loads_registry_case`, `module_uses_smart_links`,
+ * `entries.py::EntriesHelper.get_data_registry_case_datums`). HQ's Case List page on a project
+ * space with the data registry binds the workflow's `<select>` even while its row is hidden, and
+ * Knockout's `value` binding sets the model to the first option, `load_case`, so every save there
+ * stores `data_registry: ""` beside `data_registry_workflow: "load_case"`
+ * (`case_search_properties.html`, `case_claim.js::searchConfigModel`,
+ * `views/modules.py::_gather_and_update_search_properties`). Without a registry both are dropped.
+ */
+function readRegistry(
+	ctx: ReadContext,
+	cursor: JsonCursor,
+	claimed: ReadonlySet<string>,
+): boolean {
+	const others = [
+		["data_registry_workflow", T.registryWorkflow, T.noRegistryWorkflow],
+		["additional_registry_cases", T.registryCases, T.noRegistryCases],
+	] as const;
+	if (!claimed.has("data_registry") && cursor.used("data_registry")) {
+		cursor.refuse("data_registry", T.registry);
+		for (const [key, named] of others)
+			if (cursor.used(key)) cursor.refuse(key, named);
+		return false;
+	}
+	for (const [key, , unnamed] of others)
+		if (cursor.used(key)) {
+			cursor.drop(key, unnamed);
+			sameState(
+				ctx,
+				unnamed.entry,
+				`${cursor.pointer}/${key}`,
+				"list-settings-respelled",
+			);
+		}
+	return true;
+}
+
+/**
+ * Whether a stored `additional_case_types` widens the menu's list: every reader of it takes
+ * `set(additional_case_types) - {case_type}` (`suite_xml/utils.py::get_ordered_case_types`,
+ * `remote_requests.py::RemoteRequestFactory._build_datum_nodeset`), so a list naming only the
+ * menu's own type, once or more, widens nothing. A value that is no list of texts is read as
+ * widening, and refused.
+ */
+function widensTheList(stored: unknown, module: DraftModule): boolean {
+	const own = module.json.peek("case_type");
+	return (
+		!Array.isArray(stored) ||
+		typeof own !== "string" ||
+		stored.some((type) => type !== own)
+	);
+}
 
 /** The keys HQ's model removed (`models/case_search.py::CaseSearch`). */
 const REMOVED_KEYS = new Set([
@@ -387,6 +503,9 @@ export interface SettingsReading {
 	readonly ok: boolean;
 	readonly owners?: number;
 	readonly button?: number;
+	/** The keys this pass claimed: on a menu that offers no search, every other key is its
+	 *  caller's to claim as inactive. */
+	readonly claimed: ReadonlySet<string>;
 }
 
 /**
@@ -402,6 +521,37 @@ export function readSearchSettings(
 ): SettingsReading {
 	const place = searchPlace(module);
 	let ok = true;
+	const claimed = new Set<string>();
+	for (const [key, claim] of BLANK_KEYS)
+		if (cursor.peek(key) === "") {
+			cursor.drop(key, claim);
+			claimed.add(key);
+			if (offers)
+				sameState(
+					ctx,
+					claim.entry,
+					`${cursor.pointer}/${key}`,
+					"list-settings-respelled",
+				);
+		}
+	// The menu's own list shows the additional types whether or not it searches
+	// (`entries.py::EntriesHelper.get_datum_meta_module`, `additional_types`).
+	if (cursor.used("additional_case_types")) {
+		claimed.add("additional_case_types");
+		if (widensTheList(cursor.peek("additional_case_types"), module)) {
+			cursor.refuse("additional_case_types", T.additionalTypes);
+			ok = false;
+		} else {
+			cursor.drop("additional_case_types", T.additionalOwnType);
+			if (offers)
+				sameState(
+					ctx,
+					T.additionalOwnType.entry,
+					`${cursor.pointer}/additional_case_types`,
+					"list-settings-respelled",
+				);
+		}
+	}
 	const register = (
 		slot: "excluded_owner_ids" | "search_button_display_condition",
 		key: string,
@@ -426,7 +576,8 @@ export function readSearchSettings(
 	const clash = instanceClash(ctx, module);
 	let owners: number | undefined;
 	const filter = filterWithOwnerClause(module);
-	if (cursor.used("blacklisted_owner_ids_expression")) {
+	if (holdsText(cursor, "blacklisted_owner_ids_expression")) {
+		claimed.add("blacklisted_owner_ids_expression");
 		if (filter === undefined) {
 			cursor.refuse("blacklisted_owner_ids_expression", T.ownerWithoutClause);
 			ok = false;
@@ -478,16 +629,23 @@ export function readSearchSettings(
 			ctx.accounting.finding(T.instanceClash, place);
 			ok = false;
 		}
-		return { ok, ...(owners !== undefined && { owners }) };
+		return { ok, claimed, ...(owners !== undefined && { owners }) };
 	}
 
 	const codes = appCodes(ctx);
-	const title = languageMap(cursor.peek("title_label"));
-	const blank = codes.filter((code) => (title[code] ?? "").trim() === "");
-	if (blank.length === codes.length) {
+	const storedTitle = cursor.peek("title_label");
+	const title = shownTitles(storedTitle, codes);
+	const blank = codes.filter((code) => (title?.[code] ?? "").trim() === "");
+	if (title === undefined) {
+		ctx.accounting.circumstance("unrecognized", place, {
+			name: "schema:CaseSearch.title_label",
+		});
+		ok = false;
+	} else if (blank.length === codes.length) {
 		cursor.take("title_label", T.titleBlank, languageMap).value;
 		config.searchScreenTitle = NO_SEARCH_SCREEN_TITLE;
-		if (codes.some((code) => !(code in title)))
+		const shell = Object.fromEntries(codes.map((code) => [code, ""]));
+		if (!spelledAsShown(storedTitle, shell, codes))
 			sameState(
 				ctx,
 				T.titleBlank.entry,
@@ -508,9 +666,24 @@ export function readSearchSettings(
 			"text",
 			translatedTexts(ctx, title),
 		);
+		if (!spelledAsShown(storedTitle, title, codes))
+			sameState(
+				ctx,
+				T.title.entry,
+				`${cursor.pointer}/title_label`,
+				"list-settings-respelled",
+			);
 	}
-	const description = languageMap(cursor.peek("description"));
-	if (codes.some((code) => (description[code] ?? "") !== "")) {
+	const storedDescription = cursor.peek("description");
+	// The subtitle as HQ's build shows it in each language (`app_strings.py`, `clean_trans` of the
+	// map): a language the map lacks, or holds blank, shows another's text.
+	const description = shownTexts(storedDescription ?? {}, codes);
+	if (description === undefined) {
+		ctx.accounting.circumstance("unrecognized", place, {
+			name: "schema:CaseSearch.description",
+		});
+		ok = false;
+	} else if (codes.some((code) => (description[code] ?? "") !== "")) {
 		cursor.take("description", T.description, languageMap).value;
 		config.searchScreenSubtitle = sourceText(ctx, description);
 		ctx.translations.set(
@@ -518,10 +691,17 @@ export function readSearchSettings(
 			"text",
 			translatedTexts(ctx, description),
 		);
+		if (!spelledAsShown(storedDescription, description, codes))
+			sameState(
+				ctx,
+				T.description.entry,
+				`${cursor.pointer}/description`,
+				"list-settings-respelled",
+			);
 	} else if (cursor.used("description")) {
 		// Blank in every language is no subtitle, as an absent map is.
 		cursor.take("description", T.description, languageMap).value;
-		if (codes.some((code) => !(code in description)))
+		if (!spelledAsShown(storedDescription, description, codes))
 			sameState(
 				ctx,
 				T.description.entry,
@@ -543,7 +723,9 @@ export function readSearchSettings(
 	if (buttonIndex !== undefined)
 		config.searchButtonDisplayCondition = pendingPlaceholder("condition");
 
-	const instance = cursor.peek("instance_name");
+	const instance = claimed.has("instance_name")
+		? undefined
+		: cursor.peek("instance_name");
 	const named = typeof instance === "string" && instance !== "";
 	if (
 		named &&
@@ -562,19 +744,16 @@ export function readSearchSettings(
 		ok = false;
 	}
 	const findings: [string, typeof T.additionalTypes][] = [
-		["additional_case_types", T.additionalTypes],
 		["custom_related_case_property", T.relatedProperty],
 		["custom_sort_properties", T.customSort],
 		["case_search_endpoint_id", T.endpoint],
-		["data_registry", T.registry],
-		["data_registry_workflow", T.registryWorkflow],
-		["additional_registry_cases", T.registryCases],
 	];
 	for (const [key, claim] of findings)
-		if (cursor.used(key)) {
+		if (!claimed.has(key) && cursor.used(key)) {
 			cursor.refuse(key, claim);
 			ok = false;
 		}
+	if (!readRegistry(ctx, cursor, claimed)) ok = false;
 	if (cursor.used("search_on_clear")) {
 		const details = module.json.peek("case_details");
 		const short = isJsonObject(details) ? details.short : undefined;
@@ -591,9 +770,67 @@ export function readSearchSettings(
 		cursor.drop(key, REMOVED_KEYS.has(key) ? T.removed : T.unknown);
 	return {
 		ok,
+		claimed,
 		...(owners !== undefined && { owners }),
 		...(buttonIndex !== undefined && { button: buttonIndex }),
 	};
+}
+
+/**
+ * The search title each app language shows, or `undefined` where a value's printed text cannot be
+ * known. The title is no `clean_trans` text: a language's file holds `title_label.get(lang) or ''`
+ * (`app_strings.py::_create_case_search_app_strings`, `CaseSearch.get_search_title_label`) and drops it
+ * where blank (`AppStringsBase.create_custom_app_strings`, `non_empty_only`), and the `default`
+ * table every such language falls back to holds the first language's
+ * (`create_default_app_strings`, `for_default`, which reads `app.default_language`, `langs[0]`).
+ * So a language whose own title is blank or absent shows the first language's.
+ */
+function shownTitles(
+	stored: unknown,
+	codes: readonly string[],
+): Record<string, string> | undefined {
+	const map = stored === undefined ? {} : stored;
+	if (!isJsonObject(map)) return undefined;
+	const files: Record<string, string> = {};
+	for (const code of codes) {
+		const value = map[code];
+		// Python's `or ''`: every falsy value is the blank.
+		if (pythonFalsy(value)) files[code] = "";
+		else if (typeof value === "string") files[code] = value;
+		else return undefined;
+	}
+	const first = codes.length === 0 ? "" : files[codes[0]];
+	return Object.fromEntries(
+		codes.map((code) => [code, files[code] !== "" ? files[code] : first]),
+	);
+}
+
+function pythonFalsy(value: unknown): boolean {
+	return (
+		value === undefined ||
+		value === null ||
+		value === false ||
+		value === 0 ||
+		value === "" ||
+		(Array.isArray(value) && value.length === 0) ||
+		(isJsonObject(value) && Object.keys(value).length === 0)
+	);
+}
+
+/** Whether a stored `{lang: text}` map is spelled exactly as HQ's build shows it, `shown`: a key
+ *  for each app language and none other, each holding the text shown. Another spelling prints
+ *  the same text and is written as shown by the first publish. */
+export function spelledAsShown(
+	stored: unknown,
+	shown: Readonly<Record<string, string>>,
+	codes: readonly string[],
+): boolean {
+	if (!isJsonObject(stored)) return codes.length === 0;
+	const keys = Object.keys(stored);
+	return (
+		keys.length === codes.length &&
+		codes.every((code) => stored[code] === shown[code])
+	);
 }
 
 // ── The whole menu's (R2) ───────────────────────────────────────────────
@@ -618,10 +855,22 @@ function sameXPathValue(a: unknown, b: unknown): boolean {
 	return typeof a === "string" && typeof b === "string" && sameXPathText(a, b);
 }
 
+/** Whether two stored text maps show one text in each app language, as HQ's build shows each
+ *  (`hqText.ts::shownText`): a language a map lacks shows another language's text. A map that
+ *  is absent is no text. */
 function sameTexts(codes: readonly string[], a: unknown, b: unknown): boolean {
-	const left = languageMap(a);
-	const right = languageMap(b);
-	return codes.every((code) => (left[code] ?? "") === (right[code] ?? ""));
+	return sameShownTexts(codes, a ?? {}, b ?? {});
+}
+
+/** Whether two stored titles show one text in each app language (`shownTitles`). */
+function sameTitles(codes: readonly string[], a: unknown, b: unknown): boolean {
+	const left = shownTitles(a, codes);
+	const right = shownTitles(b, codes);
+	return (
+		left !== undefined &&
+		right !== undefined &&
+		codes.every((code) => left[code] === right[code])
+	);
 }
 
 const PROMPT_TEXT_KEYS = ["label", "hint"] as const;
@@ -652,24 +901,16 @@ function promptDifference(
 		return "schema:Itemset.instance_id";
 	for (const key of ["nodeset", "label", "value", "sort"] as const)
 		if (!sameXPathValue(itemA[key], itemB[key])) return `schema:Itemset.${key}`;
-	// HQ's model default, a blank test with no text, is no requirement: its build writes none
-	// (`remote_requests.py`, `if prop.required.test`) and the reading reads none.
-	const reqA =
-		isJsonObject(stored.required) &&
-		!(
-			BLANK(stored.required.test) &&
-			Object.values(languageMap(stored.required.text)).every(
-				(one) => one === "",
-			)
-		)
-			? stored.required
-			: undefined;
-	const reqB = isJsonObject(ours.required) ? ours.required : undefined;
+	// A blank test is no requirement, whatever its text: HQ's build writes no `<required>` and no
+	// text for it (`remote_requests.py`, `app_strings.py`: `if prop.required.test`).
+	const requirement = (value: unknown) =>
+		isJsonObject(value) && !BLANK(value.test) ? value : undefined;
+	const reqA = requirement(stored.required);
+	const reqB = requirement(ours.required);
 	if ((reqA === undefined) !== (reqB === undefined))
 		return "schema:CaseSearchProperty.required";
 	if (reqA !== undefined && reqB !== undefined) {
-		const testA = BLANK(reqA.test) ? "true()" : reqA.test;
-		if (!sameXPathValue(testA, reqB.test)) return "schema:Assertion.test";
+		if (!sameXPathValue(reqA.test, reqB.test)) return "schema:Assertion.test";
 		if (!sameTexts(codes, reqA.text, reqB.text)) return "schema:Assertion.text";
 	}
 	const valA = Array.isArray(stored.validations)
@@ -709,9 +950,10 @@ function searchDifference(
 	for (const key of ["auto_launch", "default_search", "inline_search"] as const)
 		if ((stored.peek(key) === true) !== (ours[key] === true))
 			return `schema:CaseSearch.${key}`;
-	for (const key of ["title_label", "description"] as const)
-		if (!sameTexts(codes, stored.peek(key), ours[key]))
-			return `schema:CaseSearch.${key}`;
+	if (!sameTitles(codes, stored.peek("title_label"), ours.title_label))
+		return "schema:CaseSearch.title_label";
+	if (!sameTexts(codes, stored.peek("description"), ours.description))
+		return "schema:CaseSearch.description";
 	for (const key of [
 		"search_button_display_condition",
 		"blacklisted_owner_ids_expression",

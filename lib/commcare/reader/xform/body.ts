@@ -84,6 +84,39 @@ export function isFieldListAppearance(appearance: string | undefined): boolean {
 	return appearance?.toLowerCase() === "field-list";
 }
 
+/** The element names Core's parser makes a child of a group from (`XFormParser`'s
+ *  `groupLevelHandlers` less `label`), matched by local name whatever the namespace, as
+ *  `parseElement` matches them. */
+const GROUP_CHILD_NAMES = new Set([...CONTROL_TAGS, "repeat"]);
+
+/** Whether a group element's one child control is a `repeat`: the group Core collapses into the
+ *  repeat it wraps (`XFormParser.collapseRepeatGroups`, `group.getChildren().size() == 1`). A
+ *  group holding a repeat and anything else Core keeps as a group, with the repeat inside it. */
+function holdsOnlyARepeat(group: Element): boolean {
+	const children = group.children
+		.filter(isTag)
+		.filter((child) => GROUP_CHILD_NAMES.has(splitName(child.name).local));
+	return (
+		children.length === 1 &&
+		splitName((children[0] as Element).name).local === "repeat"
+	);
+}
+
+/**
+ * Whether a group control is a repeat's wrapper: no Question List, and its one child control the
+ * repeat. Every repeat the body admits has such a parent (`readControls`). The repeat's field is
+ * made from its own node, or from a query repeat's wrapper node; this group gives it only its
+ * label and appearance, and makes no field of its own.
+ */
+export function wrapsRepeat(control: ControlNode): boolean {
+	return (
+		control.tag === "group" &&
+		!isFieldListAppearance(control.appearance) &&
+		control.children.length === 1 &&
+		control.children[0]?.tag === "repeat"
+	);
+}
+
 export interface ReadControlsInput {
 	readonly parsed: ParsedXForm;
 	readonly tree: DataTree;
@@ -209,21 +242,14 @@ export function readControls(input: ReadControlsInput): ReadControls {
 				continue;
 			}
 			if (isRepeat) {
-				const repeats =
-					parent === null
-						? []
-						: parent.element.children
-								.filter(isTag)
-								.filter(
-									(child) =>
-										elementNamespace(child, parsed.scope(child)) ===
-											XFORMS_NS && splitName(child.name).local === "repeat",
-								);
+				// A repeat is held only inside the group Core collapses into it: one that holds no
+				// other control. Beside another control the group stays a group in Core, so its label
+				// is no repeat's, and the repeat has no wrapper.
 				if (
 					parent === null ||
 					parent.tag !== "group" ||
 					isFieldListAppearance(parent.appearance) ||
-					repeats.length !== 1
+					!holdsOnlyARepeat(parent.element)
 				) {
 					cursor.refuseSubtree(element, X.bareRepeat, formPlace);
 					continue;

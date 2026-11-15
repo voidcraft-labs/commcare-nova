@@ -31,8 +31,8 @@ import {
 	type IdentityMapEntry,
 	type IdentityResolver,
 	matchingResolver,
-	mintEntityUuid,
 } from "./identity";
+import { sameJson } from "./jsonCursor";
 import { whereText } from "./place";
 
 const ORGANIZATION = { kind: "organization" } as const;
@@ -144,7 +144,7 @@ export function levelsFromHq(
 
 /** Whether a name read of the worker's own data is one a reading holds as a worker property: a
  *  slug Nova can hold and none CommCare supplies itself. */
-function holdsWorkerProperty(slug: string): boolean {
+export function holdsWorkerProperty(slug: string): boolean {
 	return (
 		!BUILT_IN_USER_PROPERTY_SLUGS.has(slug) &&
 		userPropertySlugVerdict(slug, new Set()).ok &&
@@ -257,7 +257,7 @@ function heldResolver(doc: BlueprintDoc): IdentityResolver {
 export function levelsAsRead(doc: BlueprintDoc): BlueprintDoc {
 	if (doc.organizationLevels === undefined) return doc;
 	const { levels } = levelsFromHq(levelsAsPublished(doc), heldResolver(doc));
-	if (JSON.stringify(levels) === JSON.stringify(orderedLevels(doc))) return doc;
+	if (sameJson(levels, orderedLevels(doc))) return doc;
 	return withCandidate(doc, (draft) => {
 		if (levels.length === 0) {
 			delete draft.organizationLevels;
@@ -335,7 +335,9 @@ function worldReadsOf(doc: BlueprintDoc): {
  * `doc` with a worker property for each field its logic reads by name that no property of its
  * names: the name-backed read and the read of a property of that slug print one source, and a
  * reading mints the property, labelled with its slug, under the UUID a re-read of the app gives
- * it. The reads themselves are judged slot by slot, as every expression is.
+ * it, which is none the document's own properties hold (`identity.ts::freeEntityUuid`: a
+ * property renamed from that slug keeps the UUID the slug mints). The reads themselves are
+ * judged slot by slot, as every expression is.
  */
 export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
 	const held = new Set(
@@ -345,11 +347,17 @@ export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
 		(slug) => !held.has(slug) && holdsWorkerProperty(slug),
 	);
 	if (minted.length === 0) return doc;
+	const resolver = heldResolver(doc);
 	return withCandidate(doc, (draft) => {
 		const properties = { ...(draft.userProperties ?? {}) };
 		const order = [...(draft.userPropertyOrder ?? [])];
 		for (const slug of minted) {
-			const uuid = mintEntityUuid(doc.appId, externalKey.userProperty(slug));
+			const claim = resolver.claim(
+				externalKey.userProperty(slug),
+				whereText(APP),
+			);
+			if (!claim.ok) continue;
+			const uuid = claim.uuid;
 			properties[uuid] = { uuid, slug, label: slug };
 			order.push(uuid);
 		}
@@ -376,8 +384,10 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 		record: Record<Uuid, T> | undefined,
 		order: readonly Uuid[] | undefined,
 	) =>
-		JSON.stringify(read) ===
-		JSON.stringify((order ?? []).map((uuid) => record?.[uuid]));
+		sameJson(
+			read,
+			(order ?? []).map((uuid) => record?.[uuid]),
+		);
 	if (
 		same(userProperties, doc.userProperties, doc.userPropertyOrder) &&
 		same(locationProperties, doc.locationProperties, doc.locationPropertyOrder)

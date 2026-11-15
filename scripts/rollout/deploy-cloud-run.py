@@ -562,16 +562,9 @@ def _effective_execution_args(
             and APP_ID_RE.fullmatch(requested[2]) is not None
         ):
             return requested
-        if requested == ("several-case-close-scan.cjs",) or (
-            len(requested) == 3
-            and requested[:2] == ("several-case-close-scan.cjs", "--app")
-            and APP_ID_RE.fullmatch(requested[2]) is not None
-        ):
-            return requested
         if (
             len(requested) in (3, 4)
-            and requested[0] in ("select-starting-value-repair.cjs", "several-case-close-repair.cjs")
-            and requested[1] == "--plan-base64"
+            and requested[:2] == ("select-starting-value-repair.cjs", "--plan-base64")
             and requested[3:] in ((), ("--execute",))
         ):
             # The bundled writer owns the plan's schema, digests and leases.

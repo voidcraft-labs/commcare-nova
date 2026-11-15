@@ -66,6 +66,7 @@ import {
 } from "../../validator/rules/displayConditions";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { noteProperty } from "../caseManagement/catalog";
+import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReadSourceNames } from "../xform";
@@ -253,7 +254,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 	if ("property" in ref.member)
 		return (
 			item.property === ref.member.property &&
-			JSON.stringify(item.via) === JSON.stringify(ref.member.via)
+			sameJson(item.via, ref.member.via)
 		);
 	return false;
 }
@@ -763,8 +764,7 @@ export function readExpressions(
 			leveled.size !== settled.size ||
 			[...leveled].some(
 				([index, tree]) =>
-					JSON.stringify(tree) !==
-					JSON.stringify(settled.get(index) ?? bindings.get(index)?.candidate),
+					!sameJson(tree, settled.get(index) ?? bindings.get(index)?.candidate),
 			);
 		if (!again || rounds >= EXPRESSION_ROUND_LIMIT) break;
 		settled = leveled;
@@ -1292,9 +1292,14 @@ function declarationClaims(
 	return claims;
 }
 
-/** The tree a slot's unwithheld print reads back as: the tree acceptance's
+/** The tree a slot's unwithheld print `P` reads back as: the tree acceptance's
  *  re-read of Nova's emission gives, which a held slot at the second level
- *  stores so the document equals its own re-read. */
+ *  stores so the document equals its own re-read. The re-read is a reading of
+ *  `P` like any other: every fold is a proposal, so a binding of `P` is judged
+ *  against `P` and a fold site whose print differs is withdrawn, as the first
+ *  level withdraws one from the source, until the binding prints `P` exactly.
+ *  Where none does, the slot keeps `candidate`, which prints `P` by
+ *  construction: a tree that prints something else is never stored. */
 function readBack(
 	doc: BlueprintDoc,
 	pending: PendingExpression,
@@ -1314,8 +1319,20 @@ function readBack(
 		return candidate;
 	}
 	if (!readFormSyntax(text).ok) return candidate;
-	const again = bindSlot(doc, { ...pending, text }, env, new Set());
-	return again.kind === "bound" ? again.bound.candidate : candidate;
+	const print: PendingExpression = { ...pending, text };
+	const withdrawn = new Set<string>();
+	// Each turn withdraws a site not withdrawn before, and a binding uses
+	// finitely many, so the loop ends.
+	for (;;) {
+		const again = bindSlot(doc, print, env, withdrawn);
+		if (again.kind === "refused") return candidate;
+		const judged = judgeSlot(doc, print, env, again.bound);
+		if (judged.kind !== "bound") return candidate;
+		if (judged.equal) return judged.candidate;
+		if (judged.withdraw === undefined || withdrawn.has(judged.withdraw))
+			return candidate;
+		withdrawn.add(judged.withdraw);
+	}
 }
 
 /** The validator's display-condition rule a held display condition breaks:

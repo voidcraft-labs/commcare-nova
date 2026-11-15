@@ -14,6 +14,7 @@ import {
 	type TranslationUnitId,
 	translationSourceFingerprint,
 } from "@/lib/domain";
+import { sameJson } from "./jsonCursor";
 
 export interface TranslationSink {
 	/** One unit's value in each app language that holds one. The source language's value is the
@@ -63,36 +64,6 @@ function isBlank(value: LocalizedValue): boolean {
 	return typeof value === "string" ? value === "" : proseTemplateIsEmpty(value);
 }
 
-/** Two values alike part by part: equal text, or templates whose parts are alike key by key. */
-function sameValue(a: unknown, b: unknown): boolean {
-	if (a === b) return true;
-	if (Array.isArray(a))
-		return (
-			Array.isArray(b) &&
-			a.length === b.length &&
-			a.every((item, index) => sameValue(item, b[index]))
-		);
-	if (
-		typeof a === "object" &&
-		a !== null &&
-		typeof b === "object" &&
-		b !== null &&
-		!Array.isArray(b)
-	) {
-		const left = a as Record<string, unknown>;
-		const right = b as Record<string, unknown>;
-		const keys = Object.keys(left).filter((key) => left[key] !== undefined);
-		return (
-			keys.length ===
-				Object.keys(right).filter((key) => right[key] !== undefined).length &&
-			keys.every(
-				(key) => Object.hasOwn(right, key) && sameValue(left[key], right[key]),
-			)
-		);
-	}
-	return false;
-}
-
 /**
  * The entry a language's value makes, or undefined where it makes none: a
  * value absent, deeply equal to the source, or blank where the source is not
@@ -107,7 +78,7 @@ export function translationEntryFor(
 	sourceLanguage: LanguageTag,
 ): TranslationEntry | undefined {
 	if (target === undefined) return undefined;
-	if (sameValue(source, target)) return undefined;
+	if (sameJson(source, target)) return undefined;
 	if (isBlank(target) && !isBlank(source)) return undefined;
 	return {
 		value: target,

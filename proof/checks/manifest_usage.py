@@ -1577,12 +1577,15 @@ def archive_uses(entries: dict, manifest: Manifest, artifact: str, found: Uses, 
     link_entry_suites(found, artifact, f"{artifact}/")
 
 
-def link_entry_suites(found: Uses, archive: str, form_prefix: str):
+def link_entry_suites(found: Uses, archive: str, form_prefix: str, only_unlinked=False):
     """Gives each form whose artifact begins ``form_prefix`` the suite of the local archive ``archive``
-    (``Form.entry_suite``): the entries that open a form are a suite's, so the value classes that read what an
-    entry writes into the session read them there. A form of an archive takes the archive's own suite; a form of
-    an app JSON takes the suite of the local archive Nova built of the same export, which holds an entry for each
-    of its forms under the same namespace."""
+    (``Form.entry_suites``), and nothing where the archive holds no suite: the entries that open a form are a
+    suite's, so the value classes that read what an entry writes into the session read them there.
+
+    ``archive_uses`` gives an archive's forms the archive's own suite. With ``only_unlinked``, a form that already
+    has entry suites keeps them: ``export_uses`` first gives each form of an app JSON the suites HQ built of its
+    upload (``built_suites``), and then gives the local archive of the same export, which holds an entry for each
+    of its forms under the same namespace, only to the app JSON forms HQ built nothing for."""
     suite = next(
         (
             document
@@ -1595,7 +1598,35 @@ def link_entry_suites(found: Uses, archive: str, form_prefix: str):
         return
     for document in found.documents:
         if isinstance(document, Form) and document.artifact.startswith(f"{form_prefix}form:"):
-            document.entry_suite = suite
+            if not (only_unlinked and document.entry_suites):
+                document.entry_suites = (suite.root,)
+
+
+# The state HQ builds of each upload: the first publish (its create, and its content where it is two imports) is
+# built as A, a republish as B over A, and the edit's update as B-edit over A (``proof.observe.unit``).
+BUILT_FROM = {"create": "a", "content": "a", "republish": "b", "update": "b_edit"}
+
+
+def built_suites(document, records, states, parsed=None) -> tuple:
+    """The suite HQ built of each of ``states`` (``(configuration, part)``, the part's ``state``), parsed: none for
+    a state HQ did not build (it refused the publish, or Nova stopped the republish). ``parsed`` keeps each suite's
+    parse by its blob, so a suite several uploads were built into is parsed once."""
+    parsed = {} if parsed is None else parsed
+    found = []
+    for name, part in states:
+        held = records.configurations.get(name)
+        if held is None:
+            raise ObservationMissing(f"The records of {document.id} hold no {name} configuration, which it sends.")
+        state = (held.part(part) or {}).get("state")
+        files = ((state or {}).get("build") or {}).get("files")
+        ref = (files or {}).get("suite.xml")
+        if ref is None:
+            continue
+        if ref not in parsed:
+            parsed[ref] = _parse(records.blobs.get(ref), f"{name}/{part}: HQ's suite.xml")
+        if not any(root is parsed[ref] for root in found):
+            found.append(parsed[ref])
+    return tuple(found)
 
 
 def _form_position(name):
@@ -2093,9 +2124,12 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
             f"The records of {document.id} hold the publishes {sorted(observed['uploads'])}, and the document"
             f" sends {sorted(expected)}."
         )
-    sent = {}  # (artifact, ref) -> (the first upload that sent it, the configurations it was sent under)
+    # (artifact, ref) -> (the first upload that sent it, the configurations it was sent under, and the states HQ
+    # built of it, each (configuration, part))
+    sent = {}
     for key, ref in sorted(observed["uploads"].items()):
-        if document.migration_witness and key.rpartition("/")[2] in ("create", "content"):
+        step = key.rpartition("/")[2]
+        if document.migration_witness and step in ("create", "content"):
             # A witness's first publish is the retained export from before its migration, which Nova's current code
             # did not write: the check judges its republish.
             continue
@@ -2103,25 +2137,35 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
         artifact = "edit/app.json" if edit else "app.json"
         name = key.removeprefix("edit/").rpartition("/")[0]
         configuration = (document.edit.exports if edit else document.exports)[name].configuration
-        _, configurations = sent.setdefault((artifact, ref), (key, []))
+        _, configurations, states = sent.setdefault((artifact, ref), (key, [], []))
         if configuration not in configurations:
             configurations.append(configuration)
-    for (artifact, ref), (key, configurations) in sent.items():
+        state = (name, BUILT_FROM[step])
+        if state not in states:
+            states.append(state)
+    suites = {}  # each built suite's blob, parsed once
+    for (artifact, ref), (key, configurations, states) in sent.items():
         try:
             app = json.loads(blobs.get(ref))
         except json.JSONDecodeError as error:
             raise ManifestError(f"{document.id}'s {key} app_file is not JSON ({error}).") from error
+        first = len(found.documents)
         app_json_uses(
             as_imported(app), manifest, artifact, found, carried=document.hq_side, configurations=configurations
         )
+        # An app JSON's forms are opened by the entries HQ's build of it writes: each state HQ built of this upload.
+        built = built_suites(document, records, states, suites)
+        for exported in found.documents[first:]:
+            if isinstance(exported, Form):
+                exported.entry_suites = built
     for artifact, entries in sorted(observed["archives"].items()):
         archive_uses(
             {name: blobs.get(ref) for name, ref in entries.items()}, manifest, artifact, found, document.hq_side
         )
-    # An app JSON's forms are opened by the entries HQ builds from it, which the export does not carry: the local
-    # archive of the same export (``local.ccz``, ``edit/local.ccz``) holds Nova's entry for each.
+    # Where HQ built no state of an upload (it refused the publish, or the build failed, which the bar reports), the
+    # local archive of the same export (``local.ccz``, ``edit/local.ccz``) holds Nova's entry for each of its forms.
     for prefix in ("", "edit/"):
-        link_entry_suites(found, f"{prefix}local.ccz", prefix)
+        link_entry_suites(found, f"{prefix}local.ccz", prefix, only_unlinked=True)
     read_observed(found, manifest, Readings.of(blobs.get_json(observed["readings"])))
     return found
 

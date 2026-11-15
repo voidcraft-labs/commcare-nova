@@ -104,9 +104,15 @@ export type NodePathRead =
 			/** An attribute's name where the path's last step is one. */
 			readonly attribute?: string;
 	  }
-	/** A chain of steps that names no node of the tree. */
+	/** A chain of steps that names the data root itself, or an attribute of it: `/data`, `/data/.`,
+	 *  and a relative `.` from the root, which Core resolves to the root as well
+	 *  (`XFormParser.getAbsRef` from the FormDef's own reference, `/data`). No question of the
+	 *  form owns it. A path that steps down and back up to the root is no path (below). */
+	| { readonly kind: "root"; readonly attribute?: string }
+	/** A chain of steps that names no node of the tree, `/` above the data root included. */
 	| { readonly kind: "none" }
-	/** Not a chain of child steps with at most one final attribute step. */
+	/** Not a chain of child steps with at most one final attribute step, or one Core's reference
+	 *  parser refuses: a `..` in an absolute path, or after a name step of a relative one. */
 	| { readonly kind: "not-a-path" };
 
 /** The text's steps, `/` first for an absolute path; undefined where the text is no chain of
@@ -154,7 +160,9 @@ export function pathSteps(text: string): readonly string[] | undefined {
 /**
  * What a path names, read as Vellum's `processPath` reads a bind's: an absolute path from the
  * form's root, whose first step must be the data root's name, or a relative path from `base`
- * (the data root where `base` is null).
+ * (the data root where `base` is null). A `..` step anywhere but among the leading steps of a
+ * relative path is no path: Core's reference parser refuses it (`XPathPathExpr.getReference`),
+ * so the form does not load.
  */
 export function readNodePath(
 	text: string,
@@ -162,10 +170,21 @@ export function readNodePath(
 	base: DataNode | null,
 ): NodePathRead {
 	const steps = pathSteps(text);
-	if (steps === undefined) return { kind: "not-a-path" };
+	if (steps === undefined) {
+		// `/` alone is the document's root, above the data root: a path naming no node.
+		const read = readFormSyntax(text);
+		return read.ok && read.node?.kind === "root"
+			? { kind: "none" }
+			: { kind: "not-a-path" };
+	}
 	let at: DataNode | null = base;
 	let rest = steps;
+	// Core takes a `..` step only before every other step of a relative path
+	// (`XPathPathExpr.getReference`, `parentsAllowed`), and refuses to load a form whose
+	// reference holds one anywhere else.
+	let parentsAllowed = steps[0] !== "/";
 	if (steps[0] === "/") {
+		if (steps[1] === "..") return { kind: "not-a-path" };
 		if (steps[1] !== tree.root.name) return { kind: "none" };
 		at = null;
 		rest = steps.slice(2);
@@ -178,16 +197,21 @@ export function readNodePath(
 		}
 		if (step === ".") continue;
 		if (step === "..") {
+			if (!parentsAllowed) return { kind: "not-a-path" };
 			if (at === null) return { kind: "none" };
 			at = at.parent;
 			continue;
 		}
+		parentsAllowed = false;
 		const children: readonly DataNode[] = at === null ? tree.top : at.children;
 		const next = children.find((child) => child.name === step);
 		if (next === undefined) return { kind: "none" };
 		at = next;
 	}
-	if (at === null) return { kind: "none" };
+	if (at === null)
+		return attribute === undefined
+			? { kind: "root" }
+			: { kind: "root", attribute };
 	return attribute === undefined
 		? { kind: "node", node: at }
 		: { kind: "node", node: at, attribute };
@@ -360,6 +384,18 @@ export function readBinds(
 		if (read.kind === "not-a-path") continue;
 		if (read.kind === "none") {
 			cursor.dropSubtree(element, X.bindNoNode);
+			continue;
+		}
+		// Core applies a bind on the root, which no question holds. A bind on `/`, the literal path
+		// or a relative `..` from the root, names no node and was dropped above: Core ignores it
+		// (`XFormParser.verifyBindings`). One on a root attribute is any other attribute's.
+		if (read.kind === "root") {
+			cursor.refuseSubtree(
+				element,
+				read.attribute === undefined ? X.bindOnDataRoot : X.bindAttributePath,
+				formPlace,
+				{ name: path.text },
+			);
 			continue;
 		}
 		if (read.attribute !== undefined) {

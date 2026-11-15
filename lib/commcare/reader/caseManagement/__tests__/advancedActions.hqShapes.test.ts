@@ -15,20 +15,26 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
-import { unowned } from "@/lib/domain/expression/builders";
+import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import { formField, term, unowned } from "@/lib/domain/expression/builders";
 import {
 	advancedFixture,
 	chosen,
+	HOUSEHOLD_VISIT,
 	HOUSEHOLDS,
 	MEMBERS,
 	OP,
 	read,
 	U,
+	VISITS,
 } from "../../../__tests__/advancedPlacementFixture";
 import { planFormCaseWire } from "../../../casePlacementPlan";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
-import { readMenusOf as readMenusOfDoc } from "../../menus/__tests__/menuReading";
+import {
+	codesOf,
+	type AppJson as MenuAppJson,
+	readMenusOf as readMenusOfDoc,
+} from "../../menus/__tests__/menuReading";
 import {
 	judgeLoads,
 	type StoredLoad,
@@ -46,7 +52,7 @@ const readCases = namingFromHqPages(readCasesOf);
 const readMenusOf = namingFromHqPages(readMenusOfDoc);
 
 /** The stored actions of the form under test, the first advanced form. */
-function actionsOf(app: AppJson): Record<string, unknown> & {
+function actionsOf(app: AppJson | MenuAppJson): Record<string, unknown> & {
 	load_update_cases: Record<string, unknown>[];
 	open_cases: Record<string, unknown>[];
 } {
@@ -315,6 +321,230 @@ describe("an advanced form's loads and open actions", () => {
 			.flatMap((form) => form.form.caseOperations ?? [])
 			.find((operation) => operation.action === "create");
 		expect(pet?.owner).toEqual(unowned());
+	});
+
+	it("reads an open action whose indices are all extensions and that names no owner as unowned, as HQ's build leaves it", async () => {
+		const extension = (owner?: CaseOperation["owner"]): CaseOperation => ({
+			...kid,
+			...(owner !== undefined && { owner }),
+			links: (kid.links ?? []).map((link) => ({
+				...link,
+				relationship: "extension" as const,
+			})),
+		});
+		// Nova's export of an unowned extension case names no `owner_id`, the
+		// shape HQ's page stores for one (`autoset_owner_id_for_advanced_action`).
+		const { doc } = registration([extension(unowned())]);
+		const opens = (app: AppJson) => actionsOf(app).open_cases;
+		let stored: Record<string, unknown> | undefined;
+		const reading = await readCases(doc, {
+			edit: (app) => {
+				stored = opens(app)[1]?.case_properties as Record<string, unknown>;
+			},
+		});
+		expect(stored).toBeDefined();
+		expect(stored).not.toHaveProperty("owner_id");
+		expect(actionFindings(reading)).toEqual([]);
+		expect(findingCodes(reading)).toEqual([]);
+		const member = reading.forms
+			.flatMap((form) => form.form.caseOperations ?? [])
+			.find((operation) => operation.action === "create");
+		expect(member?.owner).toEqual(unowned());
+		// The worker's extension case carries Nova's owner node, which reads as no owner.
+		const worker = await readCases(registration([extension()]).doc);
+		expect(actionFindings(worker)).toEqual([]);
+		expect(
+			worker.forms
+				.flatMap((form) => form.form.caseOperations ?? [])
+				.find((operation) => operation.action === "create")?.owner,
+		).toBeUndefined();
+	});
+
+	describe("a preload on an earlier load, which HQ's build reads from that load's own case", () => {
+		const OTHER_CASE = `${F}/index-path-through-a-case-type-the-app-does-not-fix`;
+		/** The form's stored actions with a preload of the case's name into `name` on load `at`. */
+		const preloadOn = (at: number) => (app: MenuAppJson) => {
+			const load = actionsOf(app).load_update_cases[at] as Record<
+				string,
+				unknown
+			>;
+			load.preload = { "/data/name": "name" };
+		};
+		/** The default a whole reading gives the form under test's question `name`. */
+		const nameDefault = (doc: BlueprintDoc | undefined) =>
+			(
+				Object.values(doc?.fields ?? {}).find((field) => field.id === "name") as
+					| { readonly default_value?: unknown }
+					| undefined
+			)?.default_value;
+		const householdName = {
+			kind: "term",
+			term: { kind: "form-case", caseType: "household", property: "case_name" },
+		};
+		/** Visits chosen under Members, which holds households chosen under a household:
+		 *  the chain household, household, visit, the form's own last. */
+		const visitUnderTwoHouseholds = () =>
+			advancedFixture({
+				formType: "followup",
+				menu: "visits",
+				configure: (built) => {
+					built.modules[MEMBERS] = {
+						...built.modules[MEMBERS],
+						caseType: "household",
+					} as never;
+					built.modules[VISITS] = {
+						...built.modules[VISITS],
+						parentCaseModuleUuid: MEMBERS,
+					} as never;
+				},
+				operations: () => [
+					{
+						uuid: OP("own"),
+						id: "visit",
+						action: "own",
+						writes: [{ property: "remark", value: read("name") }],
+					},
+				],
+			});
+
+		it("reads it as the read of the load's case type where the type sits that deep", async () => {
+			const { doc } = memberFollowup();
+			const reading = await readMenusOf(doc, preloadOn(0));
+			expect(codesOf(reading)).toEqual([]);
+			expect(nameDefault(reading.doc)).toEqual(householdName);
+		});
+
+		it("refuses a preloaded property HQ's build refuses, and reads `owner_id`, which it does not", async () => {
+			// `LoadUpdateAction.get_property_names` → `check_case_properties`: a reserved word or a
+			// name outside the grammar keeps the form out of HQ's build.
+			const { doc } = memberFollowup();
+			const ILLEGAL = `${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`;
+			for (const property of ["status", "case_type", "dob+1"]) {
+				const reading = await readMenusOf(doc, (app) => {
+					const load = actionsOf(app).load_update_cases[0] as Record<
+						string,
+						unknown
+					>;
+					load.preload = { "/data/name": property };
+				});
+				expect(codesOf(reading), property).toContain(ILLEGAL);
+			}
+			const owner = await readMenusOf(doc, (app) => {
+				const load = actionsOf(app).load_update_cases[0] as Record<
+					string,
+					unknown
+				>;
+				load.preload = { "/data/name": "owner_id" };
+			});
+			expect(codesOf(owner)).toEqual([]);
+			expect(nameDefault(owner.doc)).toEqual({
+				kind: "term",
+				term: {
+					kind: "form-case",
+					caseType: "household",
+					property: "owner_id",
+				},
+			});
+		});
+
+		it("reads one on the load next to the own where the load before it shares its type", async () => {
+			const { doc } = visitUnderTwoHouseholds();
+			const plain = await readMenusOf(doc, (app) => {
+				expect(
+					actionsOf(app).load_update_cases.map((one) => one.case_type),
+				).toEqual(["household", "household", "visit"]);
+			});
+			expect(codesOf(plain)).toEqual([]);
+			// The read walks one `parent` index from the visit: the household HQ reads it from.
+			const reading = await readMenusOf(doc, preloadOn(1));
+			expect(codesOf(reading)).toEqual([]);
+			expect(nameDefault(reading.doc)).toEqual(householdName);
+		});
+
+		it("refuses one on a load the read of its type does not reach, a nearer load holding that type", async () => {
+			const { doc } = visitUnderTwoHouseholds();
+			const reading = await readMenusOf(doc, preloadOn(0));
+			expect(codesOf(reading).filter((code) => code === OTHER_CASE)).toEqual([
+				OTHER_CASE,
+			]);
+			// Members holds households too: a household chosen under a household.
+			const { doc: twoHouseholds } = advancedFixture({
+				formType: "followup",
+				menu: "members",
+				configure: (built) => {
+					built.modules[MEMBERS] = {
+						...built.modules[MEMBERS],
+						caseType: "household",
+					} as never;
+				},
+				operations: () => [
+					{
+						uuid: OP("own"),
+						id: "household",
+						action: "own",
+						writes: [{ property: "remark", value: read("name") }],
+					},
+				],
+			});
+			expect(codesOf(await readMenusOf(twoHouseholds))).toEqual([]);
+			const own = await readMenusOf(twoHouseholds, preloadOn(0));
+			expect(codesOf(own).filter((code) => code === OTHER_CASE)).toEqual([
+				OTHER_CASE,
+			]);
+		});
+
+		it("refuses one reached through an index other than `parent`, which the read does not walk", async () => {
+			// The app links a member to its household as `mother`, so Nova's chain chooses
+			// the member by that index.
+			const { doc } = advancedFixture({
+				formType: "followup",
+				menu: "members",
+				configure: (built) => {
+					const remark = built.fieldOrder[HOUSEHOLD_VISIT]?.[0] as Uuid;
+					built.forms[HOUSEHOLD_VISIT] = {
+						...built.forms[HOUSEHOLD_VISIT],
+						caseOperations: [
+							{
+								uuid: OP("baby"),
+								id: "baby",
+								action: "create",
+								caseType: "member",
+								target: { kind: "new" },
+								name: term(formField(remark)),
+								links: [
+									{
+										identifier: "mother",
+										targetType: "household",
+										target: { kind: "session" },
+										relationship: "child",
+									},
+								],
+							},
+						],
+					} as never;
+				},
+				operations: () => [
+					{
+						uuid: OP("own"),
+						id: "member",
+						action: "own",
+						writes: [{ property: "age", value: read("age") }],
+					},
+				],
+			});
+			const plain = await readMenusOf(doc, (app) => {
+				const [, own] = actionsOf(app).load_update_cases;
+				const index = own?.case_index as
+					| { readonly reference_id?: unknown }
+					| undefined;
+				expect(index?.reference_id).toBe("mother");
+			});
+			expect(codesOf(plain)).toEqual([]);
+			const reading = await readMenusOf(doc, preloadOn(0));
+			expect(codesOf(reading).filter((code) => code === OTHER_CASE)).toEqual([
+				OTHER_CASE,
+			]);
+		});
 	});
 
 	it("refuses an auto-selected load in a mode Nova does not hold", async () => {

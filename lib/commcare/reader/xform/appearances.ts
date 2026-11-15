@@ -21,7 +21,7 @@ import { UPLOAD_MEDIATYPE_BY_CAPTURE_KIND } from "../../xform/captureUpload";
 import type { Accounting } from "../accounting";
 import { account, type Claim, defineClaims, refuse } from "../claims";
 import type { XmlCursor } from "../xmlCursor";
-import { type ControlNode, isFieldListAppearance } from "./body";
+import { type ControlNode, isFieldListAppearance, wrapsRepeat } from "./body";
 import { stripXsd } from "./kinds";
 import type { BindFacts } from "./model";
 
@@ -226,15 +226,6 @@ type RowControl =
 
 const written = (kind: Parameters<typeof fieldKindBindType>[0]) =>
 	stripXsd(fieldKindBindType(kind) ?? "");
-
-/** Whether a group wraps a repeat: it holds exactly one `repeat` child and is no Question List. */
-function wrapsRepeat(control: ControlNode): boolean {
-	return (
-		control.tag === "group" &&
-		!isFieldListAppearance(control.appearance) &&
-		control.children.filter((child) => child.tag === "repeat").length === 1
-	);
-}
 
 function rowControl(
 	control: ControlNode,

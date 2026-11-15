@@ -34,6 +34,7 @@ import { finishForms } from "./xform/afterBinding";
 import { finishText } from "./xform/prose";
 
 export { knownCaseTypesOf } from "./caseManagement/knownCaseTypes";
+export { knownLanguageCodesOf } from "./languages";
 export type * from "./types";
 
 /** One stage of a reading: reads what it claims, writes the drafts, the facts or the document. */

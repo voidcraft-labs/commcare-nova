@@ -27,10 +27,8 @@ FLAGS = ("CASE_SEARCH_ADVANCED", "CASE_SEARCH_RELATED_LOOKUPS")
 
 def test_hq_builds_exactly_the_csql_the_reader_does_not_refuse_as_hqs(native):
     exports = native.family("csql")
-    source = exports / "csql-reader.json"
-    payload = json.loads(source.read_bytes())
-    assert payload["schemaVersion"] == 1
-    vectors = payload["vectors"]
+    source = exports / "csql-reader.jsonl"
+    vectors = [json.loads(line) for line in source.read_text().splitlines() if line]
     assert vectors, "the producer wrote no reader vectors"
     results = []
     with native_check(DOMAIN, flags=FLAGS, case_search_enabled=True):

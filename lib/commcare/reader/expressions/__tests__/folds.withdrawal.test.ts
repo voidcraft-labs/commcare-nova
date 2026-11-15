@@ -250,6 +250,77 @@ describe("a fold whose print differs is withdrawn at its site", () => {
 	});
 });
 
+describe("a fold that declines a node binds none of it", () => {
+	// A fold that bound a node's arguments and then declined would have the
+	// plain binding bind them again, doubling the work at every level: forty
+	// levels would never finish.
+	const DEPTH = 40;
+	const ref = (doc: ReturnType<typeof formDoc>) =>
+		({
+			entity: "field",
+			uuid: fieldNamed(doc, "h"),
+			slot: "calculate",
+		}) as const;
+
+	it("reads a forty-deep chain of ifs, the lookup HQ authors write by hand", () => {
+		const doc = formDoc();
+		let text = "''";
+		for (let level = DEPTH; level > 0; level--)
+			text = `if(/data/q1 = 'v${level}', 'n${level}', ${text})`;
+		const reading = readExpressions(
+			doc,
+			[registration(doc, ref(doc), text)],
+			readEnv(),
+		);
+		expect(reading.circumstances).toEqual([]);
+		expect(reading.bound[0]).toBeDefined();
+	});
+
+	it("reads forty nested concats with no run of literals to join", () => {
+		const doc = formDoc();
+		let text = "concat(/data/q1, 'end')";
+		for (let level = 0; level < DEPTH; level++)
+			text = `concat(/data/q1, ${text})`;
+		const reading = readExpressions(
+			doc,
+			[registration(doc, ref(doc), text)],
+			readEnv(),
+		);
+		expect(reading.circumstances).toEqual([]);
+		expect(reading.bound[0]).toBeDefined();
+	});
+
+	it("reads a forty-deep case list filter of three-clause ands inside ors", () => {
+		// The relation test's fold reads a run of two clauses of a longer
+		// `and`; an `and` with no such run is declined before any clause of it
+		// is bound, so the `or` and the `and` each bind a level once.
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [{ name: "p", label: "P" }] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [{ name: "Visit", type: "followup", fields: [] }],
+				},
+			],
+		});
+		const filter = {
+			entity: "module",
+			uuid: doc.moduleOrder[0] as (typeof doc.moduleOrder)[number],
+			slot: "case_list_filter",
+		} as const;
+		let text = "p = 'end'";
+		for (let level = DEPTH; level > 0; level--)
+			text = `p = 'a${level}' and p != 'b${level}' and (p = 'c${level}' or ${text})`;
+		const judgment = readExpression(
+			doc,
+			registration(doc, filter, text),
+			readEnv(),
+		);
+		expect(judgment).toMatchObject({ kind: "bound", equal: true });
+	});
+});
+
 describe("a weighted checklist Nova moved into the branches of its pair", () => {
 	const table = "01890000-0000-7000-8000-000000000011" as LookupTableId;
 	const name = "01890000-0000-7000-8000-000000000012" as LookupColumnId;

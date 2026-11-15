@@ -49,6 +49,7 @@ import type { FormNodeProjection } from "../../xpath/formNodeProjection";
 import { crossesSourceRepeatInRowPredicate } from "../../xpath/wire/formReads";
 import { literalArguments } from "../../xpath/wire/serialize";
 import type { WireMode } from "../../xpath/wire/tree";
+import { sameJson } from "../jsonCursor";
 import { shapedLiteral as shapedLiteralText } from "./folds";
 
 /** What the emitter's print of the slot binds beside its context: the
@@ -129,11 +130,6 @@ function choiceOf(
 	};
 }
 
-/** Two subtrees equal as stored data. */
-function sameTree(a: unknown, b: unknown): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
-}
-
 type Selection = Extract<Expression, { kind: "multi-select-contains" }>;
 
 /** A test of one value, `selected(q, v)`, its fixed value named as the
@@ -191,7 +187,7 @@ function joinedSelection(node: Expression): Selection | undefined {
 			clause.kind !== "multi-select-contains" ||
 			clause.property.kind !== "prop" ||
 			clause.values.length !== 1 ||
-			(property !== undefined && !sameTree(property, clause.property))
+			(property !== undefined && !sameJson(property, clause.property))
 		)
 			return undefined;
 		const [value] = clause.values;
@@ -224,7 +220,7 @@ function joinedMembership(node: Expression): Expression | undefined {
 	if (first?.kind !== "eq") return undefined;
 	const values: Literal[] = [];
 	for (const clause of node.clauses) {
-		if (clause.kind !== "eq" || !sameTree(clause.left, first.left))
+		if (clause.kind !== "eq" || !sameJson(clause.left, first.left))
 			return undefined;
 		const literal = termOf(clause.right);
 		if (literal?.kind !== "literal") return undefined;
@@ -611,7 +607,7 @@ function instantOperand(text: Expression, record: boolean): Expression {
 			cond.kind === "eq" &&
 			isCall(cond.left, "string-length", 1) &&
 			numberLiteral(cond.right) === 10 &&
-			sameTree(cond.left.args[0], text.else)
+			sameJson(cond.left.args[0], text.else)
 		)
 			return coerce(text.else);
 		if (
@@ -855,7 +851,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		rewrite(node, context, at) {
 			if (node.kind === "table-lookup") {
 				const where = simplifyForEmission(node.where);
-				if (!sameTree(where, node.where)) return { ...node, where };
+				if (!sameJson(where, node.where)) return { ...node, where };
 			}
 			if (!at.root || !simplifiedSlot(context)) return undefined;
 			const slot = context.slot;
@@ -863,7 +859,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 				slot.entity === "module" && slot.slot === "case_list_filter"
 					? (effectiveFilterForEmission(node) ?? { kind: "match-all" })
 					: simplifyForEmission(node);
-			return sameTree(simplified, node) ? undefined : simplified;
+			return sameJson(simplified, node) ? undefined : simplified;
 		},
 	},
 	{
@@ -923,7 +919,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			if (
 				(lower?.kind !== "gte" && lower?.kind !== "gt") ||
 				(upper?.kind !== "lte" && upper?.kind !== "lt") ||
-				!sameTree(lower.left, upper.left)
+				!sameJson(lower.left, upper.left)
 			)
 				return undefined;
 			return {
@@ -1088,7 +1084,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 				const when = termOf(at.cond.right);
 				if (when?.kind !== "literal") break;
 				if (on === undefined) on = at.cond.left;
-				else if (!sameTree(on, at.cond.left)) break;
+				else if (!sameJson(on, at.cond.left)) break;
 				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
 				cases.push({ when, then: at.then });
 				at = at.else;
@@ -1145,25 +1141,25 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 				numberLiteral(zero.right) !== 0 ||
 				division.kind !== "arith" ||
 				division.op !== "div" ||
-				!sameTree(zero.left, division.right)
+				!sameJson(zero.left, division.right)
 			)
 				return undefined;
 			const whole = node.else;
 			if (
 				whole.kind !== "arith" ||
 				whole.op !== "div" ||
-				!sameTree(whole.right, division.right)
+				!sameJson(whole.right, division.right)
 			)
 				return undefined;
 			const remainder = whole.left;
 			if (
 				remainder.kind !== "arith" ||
 				remainder.op !== "-" ||
-				!sameTree(remainder.left, division.left) ||
+				!sameJson(remainder.left, division.left) ||
 				remainder.right.kind !== "arith" ||
 				remainder.right.op !== "mod" ||
-				!sameTree(remainder.right.left, division.left) ||
-				!sameTree(remainder.right.right, division.right)
+				!sameJson(remainder.right.left, division.left) ||
+				!sameJson(remainder.right.right, division.right)
 			)
 				return undefined;
 			return {
@@ -1230,7 +1226,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			if (only === undefined) return undefined;
 			const result: Expression =
 				more.length === 0 ? only : { kind: "concat", parts: [only, ...more] };
-			return sameTree(result, node) ? undefined : result;
+			return sameJson(result, node) ? undefined : result;
 		},
 	},
 	{
@@ -1423,7 +1419,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 					caseTypes: context.facts.caseTypes,
 					...(rowType === undefined ? {} : { currentCaseType: rowType }),
 				});
-				return sameTree(normalized, node) ? undefined : normalized;
+				return sameJson(normalized, node) ? undefined : normalized;
 			} catch {
 				// A tree the normalizer refuses is the checker's to refuse.
 				return undefined;
@@ -1451,7 +1447,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 						caseTypes: context.facts.caseTypes,
 						...(origin === undefined ? {} : { currentCaseType: origin }),
 					}).via;
-					return sameTree(canonical, via) ? undefined : canonical;
+					return sameJson(canonical, via) ? undefined : canonical;
 				} catch {
 					// A path the catalog cannot resolve is the checker's to refuse.
 					return undefined;

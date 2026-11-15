@@ -35,6 +35,7 @@ import { serializeWire } from "../../xpath/wire/serialize";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { isJsonObject, sameJson } from "../jsonCursor";
+import { keptMediaPaths } from "../projectionInputs";
 import { sameXPathText } from "../syntaxCompare";
 import {
 	appLanguageCodes,
@@ -51,7 +52,7 @@ import {
 	withReadTranslations,
 	writeBuiltLabel,
 } from "./modules";
-import { readNavMedia } from "./navMedia";
+import { readNavMedia, shownBlockMedia } from "./navMedia";
 
 const M = "menus-and-case-lists";
 
@@ -832,7 +833,14 @@ export function settleRegistrations(
 		}
 		if (block.media) {
 			const differs = (["media_image", "media_audio"] as const).find(
-				(key) => !sameJson(source[key] ?? {}, emitted[key] ?? {}),
+				(key) =>
+					!sameJson(
+						keptMediaPaths(
+							ctx,
+							shownBlockMedia((one) => source[one], key, langs),
+						),
+						shownBlockMedia((one) => emitted[one], key, langs),
+					),
 			);
 			if (differs !== undefined) {
 				unrecognized(`schema:CaseListForm.${differs}`);
