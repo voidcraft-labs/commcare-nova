@@ -28,7 +28,11 @@ import {
 	type CaseListStepSession,
 	caseListStepSession,
 } from "@/lib/preview/engine/entrySessionData";
-import { previewSessionValues } from "@/lib/preview/engine/identity";
+import {
+	awaitsPreviewIdentity,
+	type PreviewSearchSessionValues,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import {
@@ -134,8 +138,11 @@ export function submittedSearchDeviceValues(
 }
 
 /**
- * Whether the world a search's values read is there to read. The lookup
- * tables must not still be loading. The device's cases matter only to a
+ * Whether the world a search's values read is there to read. The worker
+ * must have arrived: a session still waiting for its worker holds none of
+ * the worker's keys, and a read of one would be refused
+ * (`identity.ts::awaitsPreviewIdentity`). The lookup tables must not still
+ * be loading. The device's cases matter only to a
  * search with a runtime piece that reads them
  * (`searchCsqlRuntime.ts::moduleSearchReadsCaseDatabase`, the predicate the
  * case database provider loads them by): such a search waits for them, as a
@@ -146,11 +153,13 @@ export function submittedSearchDeviceValues(
  * installs the requirement the same commit computed.
  */
 export function searchWorld(args: {
+	readonly session: Pick<PreviewSearchSessionValues, "identityPending">;
 	readonly readsCaseDatabase: boolean;
 	readonly deviceCases: CaseDatabaseSnapshot | null;
 	readonly deviceCasesLoad: "idle" | "loading" | "ready" | "error";
 	readonly lookup: { readonly kind: string };
 }): SearchWorld {
+	if (awaitsPreviewIdentity(args.session)) return "waiting";
 	if (args.readsCaseDatabase && args.deviceCases === null)
 		return args.deviceCasesLoad === "error" ? "failed" : "waiting";
 	return args.lookup.kind === "loading" ? "waiting" : "ready";
@@ -198,7 +207,12 @@ export function useSubmittedSearchDeviceValues(args: {
 			: args.doc.modules[args.moduleUuid];
 	const readsCaseDatabase =
 		module !== undefined && moduleSearchReadsCaseDatabase(module);
+	const session = useMemo(
+		() => previewSessionValues(identity, withNavigationWidth(device)),
+		[identity, device],
+	);
 	const world = searchWorld({
+		session,
 		readsCaseDatabase,
 		deviceCases: deviceCases.snapshot,
 		deviceCasesLoad: deviceCasesLoad.status,
@@ -218,16 +232,14 @@ export function useSubmittedSearchDeviceValues(args: {
 	const latest = useRef({
 		args,
 		deviceCases,
-		identity,
-		device,
+		session,
 		lookupStatus,
 		engine,
 	});
 	latest.current = {
 		args,
 		deviceCases,
-		identity,
-		device,
+		session,
 		lookupStatus,
 		engine,
 	};
@@ -265,10 +277,7 @@ export function useSubmittedSearchDeviceValues(args: {
 				moduleUuid,
 				caseListConfig,
 				answers: submission.answers,
-				session: previewSessionValues(
-					input.identity,
-					withNavigationWidth(input.device),
-				),
+				session: input.session,
 				sessionData: input.args.sessionData,
 				caseDatabase: input.deviceCases.snapshot,
 				...(lookup === undefined ? {} : { lookup }),

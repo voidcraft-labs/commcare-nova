@@ -15,17 +15,26 @@ import {
 	combineNavigationVisibility,
 	inheritedModuleVisibility,
 	previewCaseDescendantModuleUuids,
+	previewCaseListContinuation,
 	previewCaseListFormRequest,
+	previewCaseListHeldChoices,
+	previewCaseListMenuChoice,
 	previewCaseListMenuEntry,
-	previewCaseListReturnTarget,
+	previewCaseListReturn,
 	previewContributorVisibility,
 	previewMenuCaseContext,
+	previewMenuScreenChoice,
+	previewMenuScreenLanding,
+	previewMenuSelectionsLetGo,
 	previewModuleOwnVisibility,
 	previewModuleVisibility,
+	previewRequestedForm,
 	previewRoutingModuleVisibility,
 	previewRunningModuleScreen,
 	previewScreenEntries,
 	previewScreenEntryVisibility,
+	previewTargetAboveForm,
+	previewTargetHoldingMenu,
 } from "../menuProjection";
 import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
@@ -776,28 +785,122 @@ describe("Preview menu projection", () => {
 
 describe("the form a case list holds for the case chosen on it", () => {
 	// A device's session holds a form chosen before its case beneath the
-	// case, and one chosen from the menu after its case above it, so stepping
-	// back from the form to the list keeps the first and drops the second
-	// (`CommCareSession.stepBack`). `proof/native/core/MenuScreensRuntimeTest`
-	// holds the screens built on this to Core.
+	// case, and one chosen from the menu after its case above it. Stepping
+	// back from the first reaches the list, which keeps the form; stepping
+	// back from the second stops on the menu with the case held, and a second
+	// step back reaches the list with nothing chosen (`CommCareSession.stepBack`,
+	// `shouldPopNext`). `proof/native/core/MenuScreensRuntimeTest` holds the
+	// screens built on this to Core.
+	const menu = testUuid("menu");
+	const parentMenu = testUuid("parent-menu");
 	const visit = testUuid("visit");
 	const review = testUuid("review");
 	const forms = [visit, review];
+	const ana = { caseId: "ana", caseName: "Ana" };
+	const ownList = {
+		moduleUuid: menu,
+		caseLoadingFormUuids: forms,
+		continuation: "form-menu",
+	} as const;
+	const chosenOnOwnMenu = {
+		formUuid: visit,
+		cases: [ana],
+		formChosenAfterCase: { caseListModuleUuid: menu, fromCaseListMenu: true },
+	} as const;
 
-	it("holds a form chosen before the case, there and after a step back", () => {
-		const target = { formUuid: visit };
+	it("holds a form chosen before the case, on its own list, there and after a step back", () => {
+		const target = { formUuid: visit, cases: [ana] };
 		expect(previewCaseListFormRequest(target, forms)).toBe(visit);
-		const back = previewCaseListReturnTarget(target, visit);
-		expect(back).toEqual({ formUuid: visit });
-		expect(previewCaseListFormRequest(back, forms)).toBe(visit);
+		expect(previewCaseListHeldChoices(target, ownList)).toBeUndefined();
+		const back = previewCaseListReturn(target, {
+			moduleUuid: menu,
+			formUuid: visit,
+		});
+		expect(back).toEqual({ moduleUuid: menu, target: { formUuid: visit } });
+		expect(previewCaseListFormRequest(back.target, forms)).toBe(visit);
 	});
 
-	it("holds no form chosen from the menu after the case, before or after a step back", () => {
-		const target = { formUuid: visit, formChosenAfterCase: true } as const;
-		expect(previewCaseListFormRequest(target, forms)).toBeUndefined();
-		const back = previewCaseListReturnTarget(target, visit);
-		expect(back).toBeUndefined();
-		expect(previewCaseListFormRequest(back, forms)).toBeUndefined();
+	it("shows the list's own form menu with the case held for a form chosen from it", () => {
+		expect(previewCaseListFormRequest(chosenOnOwnMenu, forms)).toBeUndefined();
+		expect(previewCaseListHeldChoices(chosenOnOwnMenu, ownList)).toEqual([ana]);
+	});
+
+	it("holds nothing on a list that continues into a menu screen, or on another list", () => {
+		expect(
+			previewCaseListHeldChoices(chosenOnOwnMenu, {
+				...ownList,
+				continuation: "menu-selection",
+			}),
+		).toBeUndefined();
+		expect(
+			previewCaseListHeldChoices(chosenOnOwnMenu, {
+				...ownList,
+				moduleUuid: parentMenu,
+			}),
+		).toBeUndefined();
+		// A menu screen listed the form: it holds the case itself.
+		expect(
+			previewCaseListHeldChoices(
+				{
+					...chosenOnOwnMenu,
+					formChosenAfterCase: { caseListModuleUuid: menu },
+				},
+				ownList,
+			),
+		).toBeUndefined();
+	});
+
+	it("returns a form chosen after its case to the list that chose the case, holding nothing", () => {
+		const back = previewCaseListReturn(chosenOnOwnMenu, {
+			moduleUuid: menu,
+			formUuid: visit,
+		});
+		expect(back).toEqual({ moduleUuid: menu, target: undefined });
+		expect(previewCaseListHeldChoices(back.target, ownList)).toBeUndefined();
+		// A submenu's form whose case its parent's list chose returns there.
+		expect(
+			previewCaseListReturn(
+				{
+					formUuid: review,
+					cases: [ana],
+					formChosenAfterCase: { caseListModuleUuid: parentMenu },
+				},
+				{ moduleUuid: menu, formUuid: review },
+			),
+		).toEqual({ moduleUuid: parentMenu, target: undefined });
+	});
+
+	it("lets the case go once the worker steps back past the menu, and holds it again as the form shows", () => {
+		const past = previewTargetHoldingMenu(chosenOnOwnMenu, false);
+		expect(past.formChosenAfterCase).toEqual({
+			caseListModuleUuid: menu,
+			fromCaseListMenu: true,
+			steppedPastMenu: true,
+		});
+		// The target keeps its form and cases, so a step forward reopens the
+		// form, and the list it reaches holds nothing.
+		expect(past.cases).toEqual([ana]);
+		expect(previewCaseListHeldChoices(past, ownList)).toBeUndefined();
+		expect(previewCaseListFormRequest(past, forms)).toBeUndefined();
+		const again = previewTargetHoldingMenu(past, true);
+		expect(again).toEqual(chosenOnOwnMenu);
+		expect(previewCaseListHeldChoices(again, ownList)).toEqual([ana]);
+		// Nothing to change returns the target itself, so no write follows.
+		expect(previewTargetHoldingMenu(chosenOnOwnMenu, true)).toBe(
+			chosenOnOwnMenu,
+		);
+		const onMenuScreen = {
+			formUuid: review,
+			cases: [ana],
+			formChosenAfterCase: { caseListModuleUuid: parentMenu },
+		};
+		expect(previewTargetHoldingMenu(onMenuScreen, false)).toBe(onMenuScreen);
+	});
+
+	it("lets go of a case held beneath a form chosen after it on a route to a menu, and keeps any other target", () => {
+		expect(previewTargetAboveForm(chosenOnOwnMenu)).toBeUndefined();
+		const before = { formUuid: visit, cases: [ana] };
+		expect(previewTargetAboveForm(before)).toBe(before);
 	});
 
 	it("holds no form the list does not open with a case", () => {
@@ -805,5 +908,103 @@ describe("the form a case list holds for the case chosen on it", () => {
 			previewCaseListFormRequest({ formUuid: testUuid("register") }, forms),
 		).toBeUndefined();
 		expect(previewCaseListFormRequest(undefined, forms)).toBeUndefined();
+	});
+});
+
+describe("what choosing a case goes on to", () => {
+	const ana = { caseId: "ana", caseName: "Ana" };
+	const household = { caseType: "household", cases: [ana] };
+
+	it("continues a case-first list into its own form menu, its menu screen, or a requested form", () => {
+		const doc = source();
+		expect(previewCaseListContinuation(doc, OTHER_ROOT)).toBe("form-menu");
+		// A menu with submenus lists them once its case is chosen.
+		expect(previewCaseListContinuation(doc, ROOT)).toBe("menu-selection");
+		expect(
+			previewCaseListContinuation(doc, ROOT, { seededFormUuid: ROOT_FORM }),
+		).toBe("form");
+		expect(
+			previewCaseListContinuation(doc, OTHER_ROOT, {
+				retainedFormUuid: OTHER_ROOT_FORM,
+			}),
+		).toBe("form");
+		expect(
+			previewCaseListContinuation(doc, OTHER_ROOT, {
+				selectsForParentRequest: true,
+			}),
+		).toBe("menu-selection");
+	});
+
+	it("opens a requested form whatever its condition, as Core lists no menu once its entry holds the case", () => {
+		expect(previewRequestedForm([ROOT_FORM, CHILD_FORM], CHILD_FORM)).toBe(
+			CHILD_FORM,
+		);
+		expect(previewRequestedForm([ROOT_FORM], CHILD_FORM)).toBeUndefined();
+		expect(previewRequestedForm([ROOT_FORM])).toBeUndefined();
+	});
+
+	it("lands a case-first menu on its list until its case is chosen, then on its menu", () => {
+		const doc = source();
+		const menuSource = { ...doc, doc };
+		expect(
+			previewMenuScreenLanding(menuSource, ROOT, {}, { mode: "preview" }).kind,
+		).toBe("open-case-list");
+		expect(
+			previewMenuScreenLanding(
+				menuSource,
+				ROOT,
+				{ [ROOT]: household },
+				{ mode: "preview" },
+			).kind,
+		).toBe("form-menu");
+		expect(
+			previewMenuScreenLanding(menuSource, ROOT, {}, { mode: "edit" }).kind,
+		).toBe("form-menu");
+	});
+
+	it("names the list that chose the case a menu screen's form goes on with", () => {
+		const doc = source();
+		expect(previewMenuScreenChoice(doc, CHILD, { [ROOT]: household })).toEqual({
+			caseListModuleUuid: ROOT,
+		});
+		expect(previewMenuScreenChoice(doc, CHILD, {})).toEqual({
+			caseListModuleUuid: CHILD,
+		});
+		expect(previewCaseListMenuChoice(OTHER_ROOT)).toEqual({
+			caseListModuleUuid: OTHER_ROOT,
+			fromCaseListMenu: true,
+		});
+	});
+
+	it("keeps only the cases chosen on the menus above the screen a crumb names", () => {
+		const doc = source();
+		const selections = {
+			[ROOT]: household,
+			[CHILD]: household,
+			[OTHER_ROOT]: { caseType: "visit", cases: [ana] },
+		};
+		const sorted = (uuids: readonly string[]) => [...uuids].sort();
+		// A submenu's crumb keeps its parent's case, chosen before it.
+		expect(
+			sorted(
+				previewMenuSelectionsLetGo(doc, selections, { moduleUuid: CHILD }),
+			),
+		).toEqual(sorted([CHILD, OTHER_ROOT]));
+		// A case's crumb keeps the case itself.
+		expect(
+			previewMenuSelectionsLetGo(doc, selections, {
+				moduleUuid: CHILD,
+				through: true,
+			}),
+		).toEqual([OTHER_ROOT]);
+		// A top-level menu's crumb asks for its case again.
+		expect(
+			sorted(previewMenuSelectionsLetGo(doc, selections, { moduleUuid: ROOT })),
+		).toEqual(sorted([ROOT, CHILD, OTHER_ROOT]));
+		expect(
+			sorted(
+				previewMenuSelectionsLetGo(doc, selections, { moduleUuid: undefined }),
+			),
+		).toEqual(sorted([ROOT, CHILD, OTHER_ROOT]));
 	});
 });

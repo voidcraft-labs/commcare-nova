@@ -8,6 +8,12 @@
  * the doc it always did, and a peer's concurrent edit to a different
  * collection merges instead of being clobbered.
  *
+ * Giving worker information a slug, by adding it or renaming it, is more
+ * than a write too: a read of the worker's record by that name stood while
+ * nothing held the name, and the gate refuses a read by name of a declared
+ * slug, so the same batch rebinds each such read to the information's
+ * identity.
+ *
  * Two removals are more than a delete:
  *
  *   - Removing a PROPERTY strands every value bag that names it. The plan
@@ -37,8 +43,10 @@ import {
 	userPropertiesOf,
 	userPropertyTargetKey,
 	userTypesOf,
+	workerFieldNameTargetKey,
 } from "@/lib/domain";
-import { referencingSlotsOf } from "./referenceIndex";
+import { referencingCarrierUuids, referencingSlotsOf } from "./referenceIndex";
+import { slotReadRewriteMutations } from "./slotReadRewrites";
 
 type UserEntityPatch<T> = {
 	[K in Exclude<keyof T, "uuid">]?: T[K] | null;
@@ -61,19 +69,116 @@ function appendAfter(order: readonly Uuid[] | undefined): Uuid | null {
 	return sequence.at(-1) ?? null;
 }
 
-/** Mint the `addUserProperty` for a new piece of worker information. */
+/**
+ * The reads by name of the worker field `slug`, rebound to the worker
+ * information `userPropertyUuid`: an expression's `session-user` becomes
+ * `session-user-property` with the same source, and a prose `user-ref`
+ * becomes `user-property-ref`. Each prints the path its name-backed twin
+ * printed, so the app reads what it read before, now by identity, and a
+ * later rename or removal finds it.
+ */
+export function rebindWorkerReadsByName(
+	doc: BlueprintDoc,
+	slug: string,
+	userPropertyUuid: Uuid,
+): Mutation[] {
+	const carriers = referencingCarrierUuids(doc, workerFieldNameTargetKey(slug));
+	if (carriers.length === 0) return [];
+	return slotReadRewriteMutations(doc, carriers, {
+		mapTerm: (term) =>
+			term.kind === "session-user" && term.field === slug
+				? {
+						kind: "session-user-property",
+						userPropertyUuid,
+						...(term.source !== undefined && { source: term.source }),
+					}
+				: undefined,
+		mapProsePart: (part) =>
+			part.kind === "user-ref" && part.property === slug
+				? { kind: "user-property-ref", userPropertyUuid }
+				: undefined,
+	});
+}
+
+/**
+ * A write of worker information and the reads it rebinds. The two travel in
+ * one batch, but they are different in kind: `write` is what the author
+ * asked for, and `rebind` changes which identity a read names while keeping
+ * every word of the text that holds it. A caller that shapes the authored
+ * part of a batch (the Builder's worker-language lens moves edited wording
+ * into a translation) shapes `write` alone and sends `rebind` as it is, since
+ * a rebind is a source-document change in every language.
+ */
+export interface UserPropertyPlan {
+	readonly write: Mutation;
+	readonly rebind: readonly Mutation[];
+}
+
+/** The plan's batch: the write, then its rebinds. */
+function planBatch(plan: UserPropertyPlan): Mutation[] {
+	return [plan.write, ...plan.rebind];
+}
+
+/**
+ * Plan a new piece of worker information, with every read by name of its slug
+ * rebound to it in the same batch: a read the app made of a field nobody had
+ * declared becomes a read of the information declared for it.
+ */
+export function planAddUserProperty(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	property: Omit<UserProperty, "uuid">,
+): UserPropertyPlan {
+	return {
+		write: {
+			kind: "addUserProperty",
+			property: { ...property, uuid },
+			after: appendAfter(doc.userPropertyOrder),
+		},
+		rebind: rebindWorkerReadsByName(doc, property.slug, uuid),
+	};
+}
+
+/** `planAddUserProperty` as one batch. */
 export function addUserPropertyMutations(
 	doc: BlueprintDoc,
 	uuid: Uuid,
 	property: Omit<UserProperty, "uuid">,
 ): Mutation[] {
-	return [
-		{
-			kind: "addUserProperty",
-			property: { ...property, uuid },
-			after: appendAfter(doc.userPropertyOrder),
-		},
-	];
+	return planBatch(planAddUserProperty(doc, uuid, property));
+}
+
+/**
+ * Plan an edit of worker information. A new slug takes with it every read
+ * by name of that slug, rebound to this information in the same batch, as
+ * an add does. Reads of the information itself are its identity, so its
+ * rename rewrites none of them. `undefined` where the information is gone.
+ */
+export function planUpdateUserProperty(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	patch: UserEntityPatch<UserProperty>,
+): UserPropertyPlan | undefined {
+	const current = ownRecordValue(userPropertiesOf(doc), uuid);
+	if (current === undefined) return undefined;
+	return {
+		write: { kind: "updateUserProperty", uuid, patch },
+		rebind:
+			typeof patch.slug === "string" && patch.slug !== current.slug
+				? rebindWorkerReadsByName(doc, patch.slug, uuid)
+				: [],
+	};
+}
+
+/** `planUpdateUserProperty` as one batch; empty where the information is
+ *  gone. */
+export function updateUserPropertyMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	patch: UserEntityPatch<UserProperty>,
+): Mutation[] {
+	const plan = planUpdateUserProperty(doc, uuid, patch);
+	return plan === undefined ? [] : planBatch(plan);
 }
 
 /** Mint the `addUserType` for a new role. */

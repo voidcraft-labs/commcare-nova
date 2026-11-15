@@ -185,9 +185,10 @@ In record expressions, worker references such as `#user/region` name information
 declared in the app. `session('userid')` and `session('username')` read built-in
 identity. `external-user('key')` reads worker information CommCare itself
 gives every worker, such as `commcare_location_id`. Custom worker data, even
-data your project space already holds, is declared as worker information first:
-publishing asks the project space to define it, and a phone stops where it
-reads a field its project space doesn't define.
+data your project space already holds, is declared as worker information first.
+The setup list a publish shows names each piece of worker information for you
+to add as a user field on CommCare HQ, since Nova can't create those fields, and
+a phone stops where it reads a field its project space doesn't define.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
 filter, `#row/column` reads the current row. A case-list filter, an advanced

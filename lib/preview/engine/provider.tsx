@@ -142,9 +142,8 @@ export function BuilderFormEngineProvider({
 		if (docStore) c.setDocStore(docStore);
 		c.setPresentationLanguage(presentationLanguage);
 		c.setPreviewIdentityBlocked(identityState.kind === "persona-unavailable");
-		if (identityState.kind === "ready") {
-			c.setPreviewIdentity(identityState.identity);
-		}
+		if (identityState.kind === "ready")
+			c.installSessionIdentity(identityState.identity);
 		return c;
 	});
 
@@ -184,7 +183,7 @@ export function BuilderFormEngineProvider({
 			return;
 		}
 		controller.setPreviewIdentityBlocked(false);
-		controller.setPreviewIdentity(identityState.identity);
+		controller.installSessionIdentity(identityState.identity);
 	}, [controller, identityState]);
 
 	/* URL-owned language changes must reach the engine before paint so a

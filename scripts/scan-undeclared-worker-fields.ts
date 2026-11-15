@@ -7,8 +7,8 @@
  *   (`BUILT_IN_USER_PROPERTY_SLUGS`) nor a worker property the app declares
  *   (`undeclared-worker-field`, issue #913): HQ's restore holds a key only for
  *   a field the project space defines, Core refuses a read of a key the device
- *   holds no node for, and a publish asks the project space only for the
- *   worker properties the app declares;
+ *   holds no node for, and the setup list a publish shows names only the
+ *   worker properties the app declares, for someone to add on CommCare HQ;
  * - a read by name, from the session or the worker's record (an expression's
  *   `session-user`, a prose `user-ref` part), of a slug the app declares
  *   (`worker-property-read-by-name`), which the gate asks to be read by the

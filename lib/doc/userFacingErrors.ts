@@ -518,10 +518,10 @@ const dayOnlyCopy = (e: ValidationError) =>
 	});
 
 /** Why a read of worker information the app never declares is refused, and
- *  what to do: a project space defines a field only where a person defined
- *  it, and publishing asks only for what the app declares. */
+ *  what to do: a project space defines a field only where a person added it
+ *  on CommCare HQ, and the setup list names only what the app declares. */
 const UNDECLARED_WORKER_FIELD_CONSEQUENCE =
-	"Publishing asks the project space to define only the worker information an app declares, and a phone stops where it reads a field its project space doesn't define. You can add it as worker information in App setup and read that instead.";
+	"The setup list names only the worker information an app declares, for someone to add on CommCare HQ, and a phone stops where it reads a field its project space doesn't define. You can add it as worker information in App setup and read that instead.";
 
 const UNDECLARED_WORKER_FIELD_SENTENCE = `reads worker information this app doesn't declare. ${UNDECLARED_WORKER_FIELD_CONSEQUENCE}`;
 

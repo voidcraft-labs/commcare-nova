@@ -73,6 +73,50 @@ export function caseListStep(args: {
 	return "browse";
 }
 
+/**
+ * The step the running list shows while the Search action's condition may be
+ * undecided: the session is still waiting for its worker, or its lookup
+ * tables are still loading. Where the step depends on that condition (Web
+ * Apps launching the Search action on its own) the screen `waiting`s,
+ * showing neither the worker's list nor the Search screen nor Results: Core
+ * decides the step from the condition before it shows any of them
+ * (`EntityScreen.evaluateAutoLaunch`), so a list drawn before the condition
+ * is decided is one no device shows. Where the step does not depend on it,
+ * the step is the one the condition cannot change.
+ */
+export function caseListScreenStep(
+	args: Omit<Parameters<typeof caseListStep>[0], "searchRelevant"> & {
+		readonly searchRelevant: boolean | "undecided";
+	},
+): CaseListStep | "waiting" {
+	if (args.searchRelevant !== "undecided") {
+		return caseListStep({ ...args, searchRelevant: args.searchRelevant });
+	}
+	const ifRelevant = caseListStep({ ...args, searchRelevant: true });
+	const ifNot = caseListStep({ ...args, searchRelevant: false });
+	return ifRelevant === ifNot ? ifRelevant : "waiting";
+}
+
+/**
+ * Whether the list's Results query runs on this step. The Search screen and
+ * a waiting screen have no list. Results with nothing submitted are the menu
+ * opening on its default search (skip to results), which has not launched
+ * yet: their rows are the default search's, carrying its hidden values, so
+ * nothing is read before it runs. Results of a case a registration just
+ * created read that case.
+ */
+export function caseListReadsResults(
+	step: CaseListStep | "waiting",
+	run: {
+		readonly hasSubmitted: boolean;
+		readonly readsRegisteredCase: boolean;
+	},
+): boolean {
+	if (step === "browse") return true;
+	if (step === "results") return run.hasSubmitted || run.readsRegisteredCase;
+	return false;
+}
+
 function opensOn(
 	workflow: Exclude<SearchWorkflow, "listFirst">,
 	run: { readonly hasSubmitted: boolean; readonly searchReopened?: boolean },
@@ -91,7 +135,7 @@ function opensOn(
  * keeps naming the rules that emptied it.
  */
 export function resultsConstraintContext(
-	step: CaseListStep,
+	step: CaseListStep | "waiting",
 	source: CaseQueryConstraintSource,
 ): CaseQueryConstraintSource {
 	if (step === "results" && source === "unconstrained") return "worker-search";

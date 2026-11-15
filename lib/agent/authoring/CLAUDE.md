@@ -151,8 +151,9 @@ uses `session(...)`; `external-user(...)` reads only a key CommCare itself
 gives every worker (`BUILT_IN_USER_PROPERTY_SLUGS`). The checker refuses an
 `external-user` read of any other key (`undeclared-worker-field`): a project
 space defines a custom field only where a person defined it, a phone stops on
-a read of a field its project space lacks, and a publish asks only for the
-worker information the app declares, so custom data is declared first. An
+a read of a field its project space lacks, and the setup list a publish shows
+names only the worker information the app declares, so custom data is declared
+first. An
 `external-user` read of a declared slug is refused too
 (`worker-property-read-by-name`): declared information is read by `user(...)`,
 its identity, which a rename keeps.

@@ -273,6 +273,71 @@ describe("previewBreadcrumbTrail — form screens", () => {
 		expect(trail[3].key).toBe("cases:c1");
 	});
 
+	it("a form chosen from the menu after its case: the case before the form, its crumb reaching the menu that holds it", () => {
+		// Web Apps' trail follows the session's steps, menu then case then
+		// form, and the case's crumb cuts the selections back to the case.
+		const trail = run({
+			loc: formLoc(followupUuid),
+			previewCaseTarget: {
+				formUuid: followupUuid,
+				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
+				formChosenAfterCase: {
+					caseListModuleUuid: moduleUuid,
+					fromCaseListMenu: true,
+				},
+			},
+		});
+		expect(trail.map((t) => t.label)).toEqual([
+			"Home",
+			"Households",
+			"Yusuf Patel",
+			"Household Visit",
+		]);
+		expect(trail[2]).toMatchObject({
+			key: "cases:c1",
+			location: { kind: "cases", moduleUuid },
+			holdsCaseOn: moduleUuid,
+		});
+		// The form's crumb is where the worker is: it re-enters no selection.
+		expect(trail[3].reselectCaseFor).toBeUndefined();
+		expect(trail[3].location).toEqual(formLoc(followupUuid));
+	});
+
+	it("puts a case a parent's menu screen holds after that menu's crumb", () => {
+		const parentUuid = testUuid("module-parent");
+		const trail = previewBreadcrumbTrail({
+			loc: formLoc(followupUuid),
+			baseBreadcrumbs: [
+				home,
+				{
+					key: `m:${parentUuid}`,
+					label: "Care",
+					location: { kind: "module", moduleUuid: parentUuid },
+				},
+				moduleCrumb,
+			],
+			moduleUuid,
+			moduleForms: forms,
+			previewCaseTarget: {
+				formUuid: followupUuid,
+				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
+				formChosenAfterCase: { caseListModuleUuid: parentUuid },
+			},
+			previewSelectedCase: undefined,
+		});
+		expect(trail.map((t) => t.label)).toEqual([
+			"Home",
+			"Care",
+			"Yusuf Patel",
+			"Households",
+			"Household Visit",
+		]);
+		expect(trail[2]).toMatchObject({
+			location: { kind: "module", moduleUuid: parentUuid },
+			holdsCaseOn: parentUuid,
+		});
+	});
+
 	it("REGRESSION: a register form ignores a follow-up's leftover case target", () => {
 		const trail = run({
 			loc: formLoc(registerUuid),
@@ -363,7 +428,9 @@ describe("previewBreadcrumbTrail — case-list screens", () => {
 		expect(trail.map((t) => t.label)).toEqual(["Home", "Households"]);
 	});
 
-	it("names the sole case-loading form even before one is picked", () => {
+	it("names no form where the list holds none, even a lone case-loading form", () => {
+		// With no form chosen before the case, choosing one lists the menu
+		// (`menuProjection.ts::previewRequestedForm`), so no form is next.
 		const trail = run({
 			loc: { kind: "cases", moduleUuid },
 			moduleForms: [
@@ -375,10 +442,28 @@ describe("previewBreadcrumbTrail — case-list screens", () => {
 				{ uuid: followupUuid, name: "Household Visit", type: "followup" },
 			],
 		});
+		expect(trail.map((t) => t.label)).toEqual(["Home", "Households"]);
+	});
+
+	it("names no form chosen from the menu after its case, and names the case the menu holds", () => {
+		// A step back off that form lands on the menu with the case held
+		// (`CommCareSession.stepBack`), whose trail is the menu and the case.
+		const trail = run({
+			loc: { kind: "cases", moduleUuid },
+			previewCaseTarget: {
+				formUuid: followupUuid,
+				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
+				formChosenAfterCase: {
+					caseListModuleUuid: moduleUuid,
+					fromCaseListMenu: true,
+				},
+			},
+			previewSelectedCase: { caseId: "c1", caseName: "Yusuf Patel" },
+		});
 		expect(trail.map((t) => t.label)).toEqual([
 			"Home",
 			"Households",
-			"Household Visit",
+			"Yusuf Patel",
 		]);
 	});
 

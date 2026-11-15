@@ -22,6 +22,7 @@ import { projectLocalizedCaseProperties } from "../localizedCaseProperties";
 import { previewMenuCaseContext } from "../menuProjection";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
+import { readingSurface } from "./dataRefusal";
 import { AppTestActionError } from "./errors";
 import type { AppTestSessionState } from "./types";
 
@@ -41,6 +42,7 @@ export async function appTestDetails(
 	);
 	if (!mod?.caseType)
 		throw new AppTestActionError("This menu has no record type.");
+	const { caseType, caseListConfig } = mod;
 	const selected = previewMenuCaseContext(
 		context.doc,
 		screen.moduleUuid,
@@ -50,38 +52,40 @@ export async function appTestDetails(
 		throw new AppTestActionError("Select the required parent record first.");
 	const searched = recordsReadSearch(mod, screen.source);
 	const reading = searchedReading(searched);
-	const result = await readCaseData(context.store, {
-		appId: scope.appId,
-		caseType: mod.caseType,
-		caseId: screen.caseId,
-		// Details of a Search's result is the results row.
-		reading,
-		ancestorDepth: 0,
-		caseListConfig: mod.caseListConfig,
-		caseTypeSchemas: context.caseTypeSchemas,
-		bindings: previewCaseStoreBindings(
-			previewSessionValues(context.identity, context.device),
-			context.rules,
-			undefined,
-			undefined,
-			context.clock.timeZone,
-		),
-		lookupTableSchemas: new Map(
-			context.lookup.definitions.map((table) => [
-				table.id,
-				new Map(table.columns.map((column) => [column.id, column.dataType])),
-			]),
-		),
-		// A record chosen from a search's Results reads as the search found it.
-		...(searched
-			? { searchPopulation: { heldBy: context.restoreScope } }
-			: { restoreScope: context.restoreScope }),
-		parentCase: parentCaseConstraint(
-			context.doc,
-			screen.moduleUuid,
-			selected.parentCase,
-		),
-	});
+	const result = await readingSurface("list", () =>
+		readCaseData(context.store, {
+			appId: scope.appId,
+			caseType,
+			caseId: screen.caseId,
+			// Details of a Search's result is the results row.
+			reading,
+			ancestorDepth: 0,
+			caseListConfig,
+			caseTypeSchemas: context.caseTypeSchemas,
+			bindings: previewCaseStoreBindings(
+				previewSessionValues(context.identity, context.device),
+				context.rules,
+				undefined,
+				undefined,
+				context.clock.timeZone,
+			),
+			lookupTableSchemas: new Map(
+				context.lookup.definitions.map((table) => [
+					table.id,
+					new Map(table.columns.map((column) => [column.id, column.dataType])),
+				]),
+			),
+			// A record chosen from a search's Results reads as the search found it.
+			...(searched
+				? { searchPopulation: { heldBy: context.restoreScope } }
+				: { restoreScope: context.restoreScope }),
+			parentCase: parentCaseConstraint(
+				context.doc,
+				screen.moduleUuid,
+				selected.parentCase,
+			),
+		}),
+	);
 	const project = appTestCellProjector(
 		context,
 		screen.moduleUuid,

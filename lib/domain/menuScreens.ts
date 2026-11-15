@@ -231,30 +231,42 @@ function advancedDatumKey(tag: string): string {
 }
 
 /**
- * The key of the first datum a form's entry asks for, equal for two entries
- * exactly where Core reads one datum id first
+ * The key of the first datum an entry asks for, a form's or a case list
+ * entry's, equal for two entries exactly where Core reads one datum id first
  * (`CommCareSession.getDataNeededByAllEntries` compares `getDataId`), or
- * undefined where the form asks for no case.
+ * undefined where the entry asks for no case.
  *
- * A first selection aligned with the root menu's takes the id of the root's
- * datum it matches (`formLinkProjection.ts::alignWithRootMenu`), so it reads
- * the root entry's own key: its first form's, read the same way, or its
- * basic case list's where it has no form (HQ aligns with nothing there and
- * the child keeps its basic id). Otherwise a basic form starts with its
- * first selection (`entrySelections`' key), and a form of a menu emitted
- * advanced with its first load's datum, `case_id_<tag>`
- * (`advancedEntryDatums.ts::advancedLoadTags`): a held tag as held, or
- * `load_<type><n>` stepped past a name the form already holds. The one
- * spelling this does not separate is an unaligned datum HQ renames by its
+ * The case list entry of a menu emitted advanced is HQ's one datum
+ * `case_id_case_<type>` (`suite_xml/sections/entries.py::
+ * EntriesHelper.entry_for_module`), with no alignment: the datum of a load
+ * tagged `case_<type>`, so a form whose first load holds that tag starts with
+ * it too, and one tagged otherwise does not.
+ *
+ * Every other entry's first selection, aligned with the root menu's, takes
+ * the id of the root's datum it matches (`formLinkProjection.ts::
+ * alignWithRootMenu`, which a basic case list entry passes through as a
+ * form's does, HQ's `add_parent_datums` over `entry_for_module`), so it reads
+ * the root entry's own key: its first form's, read the same way, so an
+ * advanced root's `case_id_<tag>`, or its basic case list's where it has no
+ * form (HQ aligns with nothing there and the child keeps its basic id).
+ * Otherwise a basic entry starts with its first selection (`entrySelections`'
+ * key), and a form of a menu emitted advanced with its first load's datum,
+ * `case_id_<tag>` (`advancedEntryDatums.ts::advancedLoadTags`): a held tag as
+ * held, or `load_<type><n>` stepped past a name the form already holds. The
+ * one spelling this does not separate is an unaligned datum HQ renames by its
  * case type because the root's entry holds the same id, which no two entries
  * of one screen tell apart.
  */
-function formFirstDatumKey(
+function entryFirstDatumKey(
 	doc: BlueprintDoc,
-	entry: Extract<DatumEntry, { kind: "form" }>,
+	entry: DatumEntry,
 	visiting: ReadonlySet<Uuid> = new Set(),
 ): string | undefined {
 	if (visiting.has(entry.module)) return undefined;
+	if (entry.kind === "browse" && menuEmittedAdvanced(doc, entry.module))
+		return advancedDatumKey(
+			`case_${doc.modules[entry.module]?.caseType ?? ""}`,
+		);
 	const [first] = entrySelections(doc, entry);
 	if (first === undefined) return undefined;
 	const alignment = rootSelectionAlignment(doc, entry);
@@ -266,33 +278,24 @@ function formFirstDatumKey(
 		const [parentFirst] = entrySelections(doc, parent);
 		if (parentFirst?.module !== match.sourceModuleUuid) return first.key;
 		return parent.kind === "form"
-			? formFirstDatumKey(doc, parent, new Set([...visiting, entry.module]))
+			? entryFirstDatumKey(doc, parent, new Set([...visiting, entry.module]))
 			: parentFirst.key;
 	}
-	if (!menuEmittedAdvanced(doc, entry.module)) return first.key;
+	if (entry.kind === "browse" || !menuEmittedAdvanced(doc, entry.module))
+		return first.key;
 	const [tag] = advancedLoadTags(doc, entry.form);
 	return tag === undefined ? first.key : advancedDatumKey(tag);
 }
 
-/**
- * The key of the first datum the module's case list entry asks for, or
- * undefined where it has none. On a basic menu the entry starts with the
- * selection the menu's case-loading forms start with
- * (`formLinkProjection.ts::caseListSessionDatums`). On a menu emitted
- * advanced it is HQ's one datum `case_id_case_<type>`
- * (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`), with no
- * alignment: the datum of a load tagged `case_<type>`, so a form whose first
- * load holds that tag starts with it too, and one tagged otherwise does not.
- */
+/** The key of the first datum the module's case list entry asks for, or
+ *  undefined where it has none (`entryFirstDatumKey` of its browse entry). */
 function caseListEntryKey(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): string | undefined {
 	const mod = doc.modules[moduleUuid];
 	if (mod === undefined || !moduleHasCaseListMenuItem(mod)) return undefined;
-	if (menuEmittedAdvanced(doc, moduleUuid))
-		return advancedDatumKey(`case_${mod.caseType ?? ""}`);
-	return entrySelections(doc, { kind: "browse", module: moduleUuid })[0]?.key;
+	return entryFirstDatumKey(doc, { kind: "browse", module: moduleUuid });
 }
 
 /** The module's menu forms on the screen, each with the key of the first
@@ -306,7 +309,7 @@ function menuFormKeys(
 		.filter((formUuid) => doc.forms[formUuid] !== undefined)
 		.map((formUuid) => ({
 			formUuid,
-			key: formFirstDatumKey(doc, {
+			key: entryFirstDatumKey(doc, {
 				kind: "form",
 				module: moduleUuid,
 				form: formUuid,

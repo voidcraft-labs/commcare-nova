@@ -7,7 +7,10 @@ import {
 	type PreviewDataRefusal,
 	readPreviewScreen,
 } from "../engine/dataRefusal";
-import type { PreviewSearchSessionValues } from "../engine/identity";
+import {
+	awaitsPreviewIdentity,
+	type PreviewSearchSessionValues,
+} from "../engine/identity";
 import type { SearchInputValues } from "../engine/runtimeBindings";
 import type { PreviewSearchEnvironment } from "../engine/searchExpressionEvaluation";
 import {
@@ -60,6 +63,11 @@ export interface SearchInputRunState {
 	 *  screen opens and stops on, on both platforms. The state then holds no
 	 *  field, and the screen shows the refusal. */
 	readonly refusal?: PreviewDataRefusal;
+	/** The session is still waiting for its worker
+	 *  (`identity.ts::awaitsPreviewIdentity`): the screen has read nothing of
+	 *  the worker's, holds no field and waits, and a search pressed now would
+	 *  carry no hidden value. The worker's arrival opens it as above. */
+	readonly pending?: true;
 }
 
 /** The inputs a Search screen draws on a platform: Web Apps hides a hidden
@@ -89,22 +97,28 @@ export function useSearchInputRunState(args: {
 	/* The screen reads what Core's query manager reads as it opens (its
 	 * starting values, hidden values, required conditions and the checks its
 	 * starting values answer), so a read any of them makes of data the device
-	 * lacks is the screen's refusal on both platforms, held as state. */
+	 * lacks is the screen's refusal on both platforms, held as state. A
+	 * session still waiting for its worker is read not at all. */
+	const pending = awaitsPreviewIdentity(args.session);
 	const read = useMemo(
 		() =>
-			readPreviewScreen(() =>
-				openSearchRunState(
-					args.scopeKey,
-					args.searchInputs,
-					args.session,
-					args.environment,
-				),
-			),
-		[args.scopeKey, args.searchInputs, args.session, args.environment],
+			pending
+				? undefined
+				: readPreviewScreen(() =>
+						openSearchRunState(
+							args.scopeKey,
+							args.searchInputs,
+							args.session,
+							args.environment,
+						),
+					),
+		[pending, args.scopeKey, args.searchInputs, args.session, args.environment],
 	);
+	/* A screen that waits or refuses holds no field: the state of a screen
+	 * with no inputs, which the opened screen replaces as a new revision. */
 	const desired = useMemo(
 		() =>
-			read.kind === "read"
+			read?.kind === "read"
 				? read.value
 				: buildSearchRunState(
 						args.scopeKey,
@@ -147,6 +161,7 @@ export function useSearchInputRunState(args: {
 			args.searchInputs,
 			args.rules ?? DEFAULT_RULES,
 		),
-		...(read.kind === "refused" ? { refusal: read.refusal } : {}),
+		...(read?.kind === "refused" ? { refusal: read.refusal } : {}),
+		...(pending ? { pending: true as const } : {}),
 	};
 }

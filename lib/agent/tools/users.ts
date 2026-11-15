@@ -25,6 +25,7 @@ import {
 	removeUserTypePlan,
 	updatePersonaMutations,
 	updatePersonaValueMutations,
+	updateUserPropertyMutations,
 	updateUserTypeMutations,
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
@@ -365,7 +366,7 @@ export const updateUserPropertyTool = {
 			}
 			return await commit(
 				ctx,
-				[{ kind: "updateUserProperty", uuid, patch }],
+				updateUserPropertyMutations(doc, uuid, patch),
 				"users:workerInformation:update",
 				{ subject: current.label },
 			);

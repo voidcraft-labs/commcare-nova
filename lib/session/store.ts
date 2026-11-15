@@ -1497,7 +1497,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						current?.caseDatabase === target?.caseDatabase &&
 						current?.searchLaunch?.moduleUuid ===
 							target?.searchLaunch?.moduleUuid &&
-						current?.searchLaunch?.attempt === target?.searchLaunch?.attempt
+						current?.searchLaunch?.attempt === target?.searchLaunch?.attempt &&
+						current?.caseListSearchText === target?.caseListSearchText &&
+						current?.openedByLink === target?.openedByLink &&
+						current?.formChosenAfterCase?.caseListModuleUuid ===
+							target?.formChosenAfterCase?.caseListModuleUuid &&
+						current?.formChosenAfterCase?.fromCaseListMenu ===
+							target?.formChosenAfterCase?.fromCaseListMenu &&
+						current?.formChosenAfterCase?.steppedPastMenu ===
+							target?.formChosenAfterCase?.steppedPastMenu
 					) {
 						return;
 					}

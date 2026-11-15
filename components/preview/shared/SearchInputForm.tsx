@@ -80,9 +80,17 @@ import {
 	previewDataRefusalOf,
 	readPreviewScreen,
 } from "@/lib/preview/engine/dataRefusal";
-import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
+import {
+	awaitsPreviewIdentity,
+	type PreviewSearchSessionValues,
+} from "@/lib/preview/engine/identity";
 import type { LookupChoice } from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import {
+	type HeldCheckRefusal,
+	heldCheckRefusal,
+	type SearchCheckWorld,
+} from "@/lib/preview/engine/searchCheckRefusal";
 import {
 	type PreviewSearchEnvironment,
 	resolveSearchInputChoices,
@@ -239,13 +247,24 @@ export function SearchInputForm({
 		validationFailure?.scopeKey === scopeKey
 			? validationFailure.message
 			: undefined;
+	/* What the screen reads the worker's data from: none while the session
+	 * still waits for its worker (`awaitsPreviewIdentity`), whose reads would
+	 * be refused for a worker who holds every key they read. */
+	const awaitingWorker =
+		session !== undefined && awaitsPreviewIdentity(session);
+	const readSession = awaitingWorker ? undefined : session;
+	/* What a check is judged against. A refusal judged against one of them
+	 * stands only while every one is still the same. */
+	const judgedWorld = useMemo<SearchCheckWorld>(
+		() => ({ scopeKey, searchInputs, filter, environment, session }),
+		[scopeKey, searchInputs, filter, environment, session],
+	);
 	/* A check that reads data the worker's device lacks (a place key of a
 	 * worker assigned nowhere) is Core's refusal of the Search screen, which
-	 * the screen shows in place of its fields. */
-	const [checkRefusal, setCheckRefusal] = useState<
-		| { readonly scopeKey: string; readonly reason: PreviewDataRefusalReason }
-		| undefined
-	>(undefined);
+	 * the screen shows in place of its fields until what it was judged
+	 * against changes: an edit, new lookup data or another worker can give
+	 * the device what it lacked, and the fields come back. */
+	const [checkRefusal, setCheckRefusal] = useState<HeldCheckRefusal>();
 
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
@@ -297,6 +316,7 @@ export function SearchInputForm({
 			if (superseded()) return undefined;
 			lastValidatedDraftRef.current = candidate;
 			setValidationFailure(undefined);
+			setCheckRefusal(undefined);
 			setValidationState({
 				scopeKey,
 				attempted: errors.size > 0,
@@ -338,7 +358,7 @@ export function SearchInputForm({
 				lastValidatedDraftRef.current = candidate;
 				const refused = previewDataRefusalOf(error);
 				if (refused !== undefined) {
-					setCheckRefusal({ scopeKey, reason: refused.reason });
+					setCheckRefusal({ world: judgedWorld, reason: refused.reason });
 					return undefined;
 				}
 				setValidationFailure({
@@ -348,15 +368,19 @@ export function SearchInputForm({
 				return undefined;
 			}
 		},
-		[scopeKey, validateSubmission],
+		[judgedWorld, scopeKey, validateSubmission],
 	);
 
 	useEffect(() => {
-		if (!validationAttempted || lastValidatedDraftRef.current === draft) {
+		if (
+			awaitingWorker ||
+			!validationAttempted ||
+			lastValidatedDraftRef.current === draft
+		) {
 			return;
 		}
 		void judgeSubmission(draft);
-	}, [draft, judgeSubmission, validationAttempted]);
+	}, [awaitingWorker, draft, judgeSubmission, validationAttempted]);
 
 	/* Which prompts are required right now. The scalar thread judges every
 	 * condition it can; a pattern-bearing one is judged in the Search
@@ -365,17 +389,36 @@ export function SearchInputForm({
 	const requiredRead = useMemo(
 		() =>
 			readPreviewScreen(() =>
-				session === undefined
+				readSession === undefined
 					? undefined
 					: searchInputRequiredMarks(
 							platformRules,
 							searchInputs,
 							draft,
-							session,
+							readSession,
 							environment,
 						),
 			),
-		[draft, environment, platformRules, searchInputs, session],
+		[draft, environment, platformRules, searchInputs, readSession],
+	);
+	/* Each choice prompt's rows, read with the screen: a table with no rows,
+	 * or a filter over data the device lacks, is Core's refusal of the Search
+	 * screen (`RemoteQuerySessionManager.populateItemSetChoices`), held as
+	 * its state, never an error leaving the render. */
+	const choicesRead = useMemo(
+		() =>
+			readPreviewScreen(() => {
+				const choices = new Map<string, readonly LookupChoice[] | undefined>();
+				if (readSession === undefined) return choices;
+				for (const input of searchInputs)
+					if (input.kind !== "hidden" && "options" in input)
+						choices.set(
+							input.uuid,
+							resolveSearchInputChoices(input, readSession, environment),
+						);
+				return choices;
+			}),
+		[environment, readSession, searchInputs],
 	);
 	const requiredMarks =
 		requiredRead.kind === "read" ? requiredRead.value : undefined;
@@ -392,7 +435,7 @@ export function SearchInputForm({
 	useEffect(() => {
 		if (
 			!needsDeviceMarks ||
-			session === undefined ||
+			readSession === undefined ||
 			evaluateOnDevice === undefined
 		) {
 			return;
@@ -402,7 +445,7 @@ export function SearchInputForm({
 			platformRules,
 			searchInputs,
 			draft,
-			session,
+			readSession,
 			environment,
 			{ evaluateOnDevice },
 		).then(
@@ -422,8 +465,8 @@ export function SearchInputForm({
 		environment,
 		needsDeviceMarks,
 		platformRules,
+		readSession,
 		searchInputs,
-		session,
 	]);
 	const requiredNow = (input: VisibleSearchInputDef): boolean =>
 		requiredMarks?.get(input.name) ??
@@ -522,9 +565,9 @@ export function SearchInputForm({
 	const refusalReason =
 		requiredRead.kind === "refused"
 			? requiredRead.refusal.reason
-			: checkRefusal?.scopeKey === scopeKey
-				? checkRefusal.reason
-				: undefined;
+			: choicesRead.kind === "refused"
+				? choicesRead.refusal.reason
+				: heldCheckRefusal(checkRefusal, judgedWorld);
 	if (refusalReason !== undefined) {
 		if (renderRefusal === undefined)
 			throw new PreviewDataRefusal(refusalReason);
@@ -536,7 +579,7 @@ export function SearchInputForm({
 			<form
 				onSubmit={async (event) => {
 					event.preventDefault();
-					if (!submitAvailable || validating) return;
+					if (!submitAvailable || validating || awaitingWorker) return;
 					setValidating(true);
 					try {
 						const errors = await judgeSubmission(draft);
@@ -563,8 +606,8 @@ export function SearchInputForm({
 								}
 								required={requiredNow(input)}
 								choices={
-									"options" in input && session !== undefined
-										? resolveSearchInputChoices(input, session, environment)
+									choicesRead.kind === "read"
+										? choicesRead.value.get(input.uuid)
 										: undefined
 								}
 								error={

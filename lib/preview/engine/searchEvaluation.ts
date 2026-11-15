@@ -33,6 +33,7 @@ import {
 	restoreSearchRun,
 	withHiddenValues,
 } from "./searchRunState";
+import { readingSurfaceNow, surfacedRefusal } from "./surfacedDataRefusal";
 
 export interface SearchEvaluationInput {
 	language?: LanguageTag;
@@ -49,8 +50,24 @@ export interface SearchEvaluationInput {
 }
 
 /** Runs the authored Search screen in the same bounded worker as FormEngine.
- * The caller supplies answers, never an expression or a replacement condition. */
+ * The caller supplies answers, never an expression or a replacement condition.
+ * A read of data the device lacks is the refusal of the surface Preview shows
+ * it on (`surfacedDataRefusal.ts`): the Search action's condition stops the
+ * case list that offers the action, and every other read here is the Search
+ * screen's. */
 export async function evaluateSearchSnapshot(
+	doc: BlueprintDoc,
+	input: SearchEvaluationInput,
+	context: FormEvaluationContext,
+) {
+	try {
+		return await searchSnapshot(doc, input, context);
+	} catch (error) {
+		throw surfacedRefusal(error, "search");
+	}
+}
+
+async function searchSnapshot(
 	doc: BlueprintDoc,
 	input: SearchEvaluationInput,
 	context: FormEvaluationContext,
@@ -75,16 +92,19 @@ export async function evaluateSearchSnapshot(
 		input.moduleUuid,
 		lookup.naming,
 	);
+	const actionCondition = search?.searchButtonDisplayCondition;
 	const relevant =
 		search !== undefined &&
-		(search.searchButtonDisplayCondition === undefined ||
-			evaluatePreviewSearchPredicate(
-				search.searchButtonDisplayCondition,
-				expressions({ slot: "search_button_display_condition" }),
-				environment,
-				inputs,
-				session,
-				new Map(),
+		(actionCondition === undefined ||
+			readingSurfaceNow("list", () =>
+				evaluatePreviewSearchPredicate(
+					actionCondition,
+					expressions({ slot: "search_button_display_condition" }),
+					environment,
+					inputs,
+					session,
+					new Map(),
+				),
 			));
 	let run = buildSearchRunState(input.moduleUuid, inputs, session, environment);
 	if (input.submitted !== undefined)

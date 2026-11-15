@@ -635,8 +635,8 @@ describe("conditionVerdict — comparison operators", () => {
 	// HQ's restore holds a session key only for a field the project space
 	// defines (`user_data.py::UserData.to_dict`) and the keys CommCare writes
 	// itself (`models.py::get_user_session_data`); Core refuses a read of any
-	// other key (`XPathNodeset.unpack`). A publish asks the project space to
-	// define only the worker properties the app declares, and a declared
+	// other key (`XPathNodeset.unpack`). The setup list a publish shows names
+	// only the worker properties the app declares, and a declared
 	// property is read by its identity, so a rename keeps the read: a read of
 	// a field the app never declares is refused, and so is a read of a
 	// declared slug by its name, from the session or the worker's record; a

@@ -9,8 +9,8 @@
  * - "Registration" shows its one registration form on the first menu, with
  *   an icon and a display condition, which then gate that form there. The
  *   condition reads the worker's role, a worker property the app declares,
- *   so a publish asks the project space for the field and a worker with no
- *   role holds it blank.
+ *   which the setup list a publish shows names for someone to add on
+ *   CommCare HQ, and a worker with no role holds it blank.
  * - "Clinic" is an ordinary case-first menu between the two menus above. Its
  *   follow-up form links to "Visit", a form listed on the first menu.
  * - "Visits" shows on the first menu a follow-up form with no stored

@@ -13,6 +13,7 @@ import {
 	serverRecordsRead,
 } from "../engine/serverSearchRead";
 import type { AppTestContext } from "./context";
+import { readingSurface } from "./dataRefusal";
 import { AppTestActionError } from "./errors";
 import type { AppTestSessionState } from "./types";
 
@@ -53,21 +54,26 @@ export async function prepareAppTestRecords(
 		throw new AppTestActionError("Open a record list first.");
 	const registeredCaseId =
 		answers === undefined ? screen.registeredCaseId : undefined;
-	const { search, searched, read, refusal } = await serverRecordsRead(
-		appTestSearchWorld(context, scope, state),
-		{
-			moduleUuid: screen.moduleUuid,
-			submitted: screen.searchAnswers,
-			entry: screen.searchEntry,
-			answers,
-			registeredCaseId,
-		},
-		(reason) =>
-			new AppTestActionError(
-				reason === "parent-required"
-					? "Select the required parent record first."
-					: "This menu has no record list.",
-			),
+	/* The Search evaluation names its own reads' surfaces (the Search
+	 * action's condition the list's, the Search screen's the search's); what
+	 * is left is the Results read, the list's, as Preview shows it. */
+	const { search, searched, read, refusal } = await readingSurface("list", () =>
+		serverRecordsRead(
+			appTestSearchWorld(context, scope, state),
+			{
+				moduleUuid: screen.moduleUuid,
+				submitted: screen.searchAnswers,
+				entry: screen.searchEntry,
+				answers,
+				registeredCaseId,
+			},
+			(reason) =>
+				new AppTestActionError(
+					reason === "parent-required"
+						? "Select the required parent record first."
+						: "This menu has no record list.",
+				),
+		),
 	);
 	const next = {
 		...state,
@@ -100,10 +106,12 @@ export async function appTestRecords(
 				} as const)
 			: read === undefined
 				? undefined
-				: await readCases(context.store, {
-						...read,
-						page: { offset: screen.offset ?? 0, limit: 50 },
-					});
+				: await readingSurface("list", () =>
+						readCases(context.store, {
+							...read,
+							page: { offset: screen.offset ?? 0, limit: 50 },
+						}),
+					);
 	const candidateUuid = afterEmptySearchRegistrationFormOf(
 		context.doc,
 		screen.moduleUuid,

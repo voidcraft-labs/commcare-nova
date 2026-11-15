@@ -49,15 +49,23 @@ write its current saved key as `#user/<saved-key>`. In the condition builder,
 choose **Worker information** and select it by name; this stores the stable
 identity, so changing the saved key updates what Preview and CommCare read
 without breaking the condition or calculation. **Other user field** is a
-separate choice for the names CommCare provides on its own and always stays
-literal, even when its text happens to match a custom key.
+separate choice for the keys CommCare keeps for every worker on its own, such
+as `commcare_first_name`. It never stands in for worker information your app
+declares: if you type the key of a piece of worker information there, Nova asks
+you to choose it from **Worker information** instead, so the read follows a
+rename.
 
 Information your project space already keeps about workers is worker
-information here too: add it with the same key. Publishing asks the project
-space to define each piece of worker information, and a worker who has no
-value reads it blank. A field the project space doesn't define isn't there at
-all, and a phone stops on any menu, list or form that reads it, so Nova asks
-you to add a field before a condition or calculation reads it.
+information here too: add it with the same key. If a condition, a calculation
+or a text in your app already reads that key, adding it, or renaming other
+worker information to it, points those reads at the worker information, so a
+later rename keeps them. The setup list Nova shows when you publish names each
+piece of worker information for you to add as a user field on CommCare HQ;
+Nova can't create those fields for you or tell whether they're already there.
+Once a field is there, a worker who has no value reads it blank. A field the
+project space doesn't define isn't there at all, and a phone stops on any menu,
+list or form that reads it, so Nova asks you to add worker information before a
+condition or calculation reads it.
 
 While an XPath editor is open, a teammate's rename appears live when your draft
 is clean, whether they renamed worker information, a question, a Search answer,
@@ -234,7 +242,7 @@ A few things that follow from how CommCare works:
   deletes every case that worker owns, so Nova will not do it. The account is
   reported as left behind, and removing it is yours to do on CommCare HQ.
 - **Roles are separate.** Nova does not create CommCare user roles, and it does
-  not set up your project's custom user-data schema — CommCare offers no way in
+  not set up your project's custom user-data schema. CommCare offers no way in
   for either, so both stay on the setup list Nova shows you.
 - **Worker information marked required has to have a value.** CommCare will not
   save a worker without one, so a persona missing one is named before anything

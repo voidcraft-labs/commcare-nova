@@ -45,7 +45,10 @@ import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunct
 import type { XPathInstance } from "../xpath/runtimeValues";
 import { dayNumberEpochOf, type EvalContext } from "../xpath/types";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
-import type { PreviewSearchSessionValues } from "./identity";
+import {
+	awaitsPreviewIdentity,
+	type PreviewSearchSessionValues,
+} from "./identity";
 import {
 	type PreviewLookupData,
 	predicateLookupsCovered,
@@ -191,7 +194,7 @@ function conditionVisibility(
 	// other condition is evaluated as stored.
 	const effective = displayConditionForEmission(args.condition);
 	if (effective === undefined) return "shown";
-	if (args.session.identityPending) return "pending";
+	if (awaitsPreviewIdentity(args.session)) return "pending";
 
 	/* A carrier-bearing condition is decidable only over a snapshot that
 	 * COVERS its identities: a bare "data exists" test is not enough,

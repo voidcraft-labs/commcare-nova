@@ -457,10 +457,13 @@ UUID or stale name would corrupt behavior. The name-backed
 `session-user { field }` leaf is exclusively
 for CommCare-provided fields with no Nova entity: read from the session, the
 checker admits it only for a built-in key (`undeclared-worker-field`), since
-Core refuses a read of a key the device lacks and a publish asks the project
-space only for declared properties, and it refuses a declared slug read by
-name from either source (`worker-property-read-by-name`), which is the
-identity leaf's. Worker-property
+Core refuses a read of a key the device lacks, a project space holds a custom
+field only where a person defined it, and the setup list a publish shows names
+only the worker information an app declares (`lib/deployment/setupArtifact.ts`),
+and it refuses a declared slug read by name from either source
+(`worker-property-read-by-name`), which is the identity leaf's; declaring
+worker information under a name a read already uses rebinds that read to the
+identity leaf in the same batch (`lib/doc/userMutations.ts`). Worker-property
 slugs begin with a letter or underscore and admit hyphens only after that first
 character: both session and usercase emit the slug as an XML element, so this
 XML-safe intersection is stricter than HQ's Django slug validator. The HQ JSON,

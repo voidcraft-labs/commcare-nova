@@ -5,7 +5,10 @@
  * URL is the case-selection step for a case-loading form, so its trailing
  * crumb names that FORM (never "Search" / "Results" / "Details") and
  * the picked case appends after it; a form URL names the form and, when the
- * session's case target binds THIS form, the bound case.
+ * session's case target binds THIS form, the bound case: after the form where
+ * the worker chose the form before the case, and before it, after the menu
+ * that chose it, where the form was chosen from the menu the case opened, in
+ * the order of the session's steps, as Web Apps' trail reads.
  *
  * This derivation shares the case-binding predicate with PreviewShell. Its
  * state tests cover naming and destinations; browser journeys check the
@@ -16,6 +19,7 @@ import type { Uuid } from "@/lib/doc/types";
 import { CASE_LOADING_FORM_TYPES, type FormType } from "@/lib/domain";
 import type { LanguageTag } from "@/lib/domain/localization";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { previewCaseListFormRequest } from "@/lib/preview/menuProjection";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import type { Location } from "@/lib/routing/types";
 import type {
@@ -47,6 +51,15 @@ export interface PreviewBreadcrumbItem extends BreadcrumbItem {
 	 * plain terminal location).
 	 */
 	reselectCaseFor?: Uuid;
+	/**
+	 * Present on the crumb of a case the worker chose before choosing the
+	 * form from the menu it opened: the module whose screen holds that case.
+	 * Web Apps' trail names the case before the form, and its crumb cuts the
+	 * session's selections back to the case (`spliceSelections`), so the
+	 * screen it reaches is the menu with the case held, where a step back off
+	 * the form lands too.
+	 */
+	holdsCaseOn?: Uuid;
 }
 
 /**
@@ -198,38 +211,76 @@ export function previewBreadcrumbTrail(
 		const form = moduleForms.find((f) => f.uuid === loc.formUuid);
 		const isCaseLoading =
 			form !== undefined && CASE_LOADING_FORM_TYPES.has(form.type);
-		const items: PreviewBreadcrumbItem[] = [
-			...homeAndModule,
-			{
-				key: `f:${loc.formUuid}`,
-				label: form?.name ?? "Form",
-				location: { kind: "form", moduleUuid, formUuid: loc.formUuid },
-				...(isCaseLoading ? { reselectCaseFor: loc.formUuid } : {}),
-			},
-		];
 		/* Name the bound selection ONLY when the session target binds THIS form —
 		 * the same predicate PreviewShell grafts the cases on, so the crumb
 		 * and the loaded case never disagree. A target carried over from
 		 * another form (e.g. a follow-up's case when a register form opens) is
 		 * not this form's, so no case crumb appears. */
-		const boundCases = previewCaseTargetBindsLocation(loc, previewCaseTarget)
-			? previewCaseTarget?.cases
+		const bound = previewCaseTargetBindsLocation(loc, previewCaseTarget)
+			? previewCaseTarget
 			: undefined;
-		if (boundCases !== undefined && boundCases.length > 0) {
-			const only = boundCases.length === 1 ? boundCases[0] : undefined;
-			const label = only
-				? only.caseName ||
-					runtimeMessage(language, "caseCountOne", { count: 1 })
-				: runtimeMessage(language, "caseCountMany", {
-						count: boundCases.length,
-					});
-			items.push({
-				key: `cases:${boundCases.map((choice) => choice.caseId).join(",")}`,
-				label,
-				location: { kind: "form", moduleUuid, formUuid: loc.formUuid },
-			});
+		const boundCases = bound?.cases ?? [];
+		const formLocation: Location = {
+			kind: "form",
+			moduleUuid,
+			formUuid: loc.formUuid,
+		};
+		const caseCrumb =
+			boundCases.length === 0
+				? undefined
+				: {
+						key: `cases:${boundCases.map((choice) => choice.caseId).join(",")}`,
+						label:
+							boundCases.length === 1
+								? boundCases[0].caseName ||
+									runtimeMessage(language, "caseCountOne", { count: 1 })
+								: runtimeMessage(language, "caseCountMany", {
+										count: boundCases.length,
+									}),
+					};
+		const chosenAfter = bound?.formChosenAfterCase;
+		/* A form chosen from a menu after its case sits above the case, as
+		 * Web Apps' trail reads: the case after the menu that chose it, then
+		 * the form. The case's crumb reaches that menu with the case held. */
+		if (chosenAfter !== undefined && caseCrumb !== undefined) {
+			const holder = chosenAfter.caseListModuleUuid;
+			const held: PreviewBreadcrumbItem = {
+				...caseCrumb,
+				location:
+					chosenAfter.fromCaseListMenu === true
+						? { kind: "cases", moduleUuid: holder }
+						: { kind: "module", moduleUuid: holder },
+				holdsCaseOn: holder,
+			};
+			const formCrumb: PreviewBreadcrumbItem = {
+				key: `f:${loc.formUuid}`,
+				label: form?.name ?? "Form",
+				location: formLocation,
+			};
+			const at = homeAndModule.findIndex((b) => b.key === `m:${holder}`);
+			return at < 0
+				? [...homeAndModule, held, formCrumb]
+				: [
+						...homeAndModule.slice(0, at + 1),
+						held,
+						...homeAndModule.slice(at + 1),
+						formCrumb,
+					];
 		}
-		return items;
+		/* A form chosen before its case: the form, then the case, and the
+		 * form's crumb re-enters the case selection that holds the form. */
+		return [
+			...homeAndModule,
+			{
+				key: `f:${loc.formUuid}`,
+				label: form?.name ?? "Form",
+				location: formLocation,
+				...(isCaseLoading ? { reselectCaseFor: loc.formUuid } : {}),
+			},
+			...(caseCrumb === undefined
+				? []
+				: [{ ...caseCrumb, location: formLocation }]),
+		];
 	}
 
 	if (
@@ -242,18 +293,18 @@ export function previewBreadcrumbTrail(
 		loc.kind === "data-review"
 	) {
 		const items: PreviewBreadcrumbItem[] = [...homeAndModule];
-		/* Name the case-loading form this list feeds: the form tapped to get
-		 * here, else the module's sole case-loading form. With several unchosen
-		 * (a case-first module's form menu), there's no single form yet, so the
-		 * crumb is omitted until one is picked. */
+		/* Name the case-loading form this list opens once a case is chosen:
+		 * the form the worker chose before the case, which the list holds
+		 * (`previewCaseListFormRequest`). With none held the list goes on to
+		 * the menu, however many forms it lists, so no form is named. */
 		const caseLoading = moduleForms.filter((f) =>
 			CASE_LOADING_FORM_TYPES.has(f.type),
 		);
-		const seeded = previewCaseTarget?.formUuid
-			? caseLoading.find((f) => f.uuid === previewCaseTarget.formUuid)
-			: undefined;
-		const targetForm =
-			seeded ?? (caseLoading.length === 1 ? caseLoading[0] : undefined);
+		const heldFormUuid = previewCaseListFormRequest(
+			previewCaseTarget,
+			caseLoading.map((form) => form.uuid),
+		);
+		const targetForm = caseLoading.find((f) => f.uuid === heldFormUuid);
 		if (targetForm) {
 			items.push({
 				key: `pf:${targetForm.uuid}`,

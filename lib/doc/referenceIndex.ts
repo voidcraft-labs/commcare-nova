@@ -89,6 +89,7 @@ import {
 	type Uuid,
 	userPropertyTargetKey,
 	uuidSchema,
+	workerFieldNameTargetKey,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import type {
@@ -900,6 +901,7 @@ function termEdges(
 				sink.edge(entityTargetKey(ctx.formUuid), slot);
 			return;
 		case "session-user":
+			sink.edge(workerFieldNameTargetKey(term.field), slot);
 			if (term.source === "worker-record" && ctx.formUuid !== undefined)
 				sink.edge(entityTargetKey(ctx.formUuid), slot);
 			return;
@@ -1047,10 +1049,12 @@ function extractProseRefs(
 	for (const part of template.parts) {
 		switch (part.kind) {
 			case "text":
-			case "user-ref":
 			// A calculated value's reads are the expression enumeration's,
 			// under this same prose slot.
 			case "value":
+				break;
+			case "user-ref":
+				sink.edge(workerFieldNameTargetKey(part.property), slot);
 				break;
 			case "field-ref":
 				sink.edge(entityTargetKey(part.uuid), slot);

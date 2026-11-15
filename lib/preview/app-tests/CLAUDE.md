@@ -171,8 +171,9 @@ menu whose case list to open, needed where the screen lists several and
 omitted on a menu for its own. Choosing a menu lands where Preview lands it
 (`moduleDestination`): a case-first or bare case list screen on its records,
 submenus or not. Once a case is chosen, `continue` opens a form only where the
-worker chose it before the case (or a retained command names it); otherwise
-the observation is the menu, listing its forms however many there are, and the
+worker chose it before the case (or a retained command names it), and then
+the menu is not listed and no condition is read; otherwise the observation is
+the menu, listing its forms however many there are, and the
 `form` action opens one (`menuProjection.ts::previewRequestedForm`), as a
 device lists a menu after its case. A next-task failure preserves an
 already successful test submission.
@@ -180,8 +181,17 @@ An action rejected before submission leaves no partial effects.
 A screen Core would fail because a
 condition it reads asks for data the device lacks (a worker key the worker has
 none of, a table with no rows) is the action's refusal too, in the data
-refusal's words (`run.ts::appTestDataRefusal` over `engine/dataRefusal.ts`),
-never an aborted call.
+refusal's words (`dataRefusal.ts::appTestDataRefusal` over
+`engine/dataRefusal.ts`), never an aborted call. It is worded for the surface
+Preview shows it on, the inner read's name winning
+(`dataRefusal.ts::readingSurface`, `engine/surfacedDataRefusal.ts`): a case
+list's filter, columns, order and Results read and the Search action's
+condition the list's, the Search screen's starting and hidden values and
+checks the search's, a form's the form's, the links after it the links', and
+an unnamed read a menu's display condition; and for the worker the session
+runs as, by the persona's name. A refusal met after a submission saved (the
+links' conditions, the next screen's menu) keeps the save and is the
+observation's `nextTaskError`, as Preview shows it on the saved form.
 
 Retained sessions expose held-open interleavings: open a form in A, submit in B,
 then observe or submit A. Explicit sync refreshes only the addressed session's

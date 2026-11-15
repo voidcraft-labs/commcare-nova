@@ -772,7 +772,7 @@ function EditableTermCard({
 										id={replacementUserFieldHelpId}
 										className="text-[13px] leading-5 text-nova-text-secondary"
 									>
-										Use the field name saved on the user, like assigned_region
+										{USER_FIELD_HELP}
 									</p>
 								) : (
 									<FieldError
@@ -2346,6 +2346,13 @@ function userFieldTerm(field: string): Term {
 	return sessionUser(field);
 }
 
+/** What the raw source takes: a key CommCare keeps for every worker. Any
+ * other name is refused at commit (`undeclared-worker-field`), and a name the
+ * app declares is read through Worker information
+ * (`worker-property-read-by-name`), so the help points there. */
+const USER_FIELD_HELP =
+	"Use a key CommCare keeps for every worker, like commcare_first_name. For information your app declares, choose Worker information.";
+
 function userFieldError(value: string): string {
 	return value.length === 0
 		? "Enter a user field name"
@@ -2529,7 +2536,7 @@ function UserFieldInput({
 					id={helpId}
 					className="mt-2 text-[13px] leading-5 text-nova-text-secondary"
 				>
-					Use the field name saved on the user, like assigned_region
+					{USER_FIELD_HELP}
 				</p>
 			)}
 		</div>

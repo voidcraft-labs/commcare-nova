@@ -26,8 +26,8 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 	/* Every choice of a record lists the menu's one form, as CommCare does,
 	 * and the worker chooses it. The worker chose the form after the record,
 	 * so the session holds the form above the record: each route back to the
-	 * list steps back past both (`CommCareSession.stepBack`), and the next
-	 * choice lists the menu again rather than opening the form. */
+	 * list goes past both (`CommCareSession.stepBack`), and the next choice
+	 * lists the menu again rather than opening the form. */
 	const openWith = async (caseName: string) => {
 		await main
 			.getByRole("button", {
@@ -83,5 +83,71 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 		await openWith(opens.caseName);
 		await expect(submit).toBeVisible({ timeout: 20_000 });
 		await expect(refusal).toHaveCount(0);
+	});
+
+	await test.step("Back from the form lands on the menu with the record held, again after a step forward", async () => {
+		/* The form sits above the record in the session, so one step back
+		 * pops only the form's command and stops on the menu
+		 * (`CommCareSession.stepBack`, `shouldPopNext`), where the record is
+		 * still chosen; a second pops the record. A step forward reopens the
+		 * form, which holds the record beneath it again. */
+		const trail = page.getByRole("navigation", { name: "Page navigation" });
+		const menuTitle = main.locator("[data-form-menu-case-title]");
+		const expectHeldMenu = async () => {
+			await expect(submit).toHaveCount(0);
+			await expect(menuTitle).toHaveText(opens.caseName, { timeout: 20_000 });
+			await expect(form).toBeVisible();
+			await expect(trail).toContainText(opens.caseName);
+			await expect(trail).not.toContainText(FORM_REFUSED_SEED.formName);
+		};
+		const expectForm = async () => {
+			await expect(submit).toBeVisible({ timeout: 20_000 });
+			/* Web Apps' trail follows the session's steps: the menu, the
+			 * record chosen there, then the form chosen after it. */
+			await expect(trail).toContainText(
+				new RegExp(
+					`${FORM_REFUSED_SEED.moduleName}.*${opens.caseName}.*${FORM_REFUSED_SEED.formName}`,
+				),
+			);
+		};
+		await expectForm();
+		await trail.getByRole("button", { name: "Go back", exact: true }).click();
+		await expectHeldMenu();
+		await page.goForward();
+		await expectForm();
+		await page.goBack();
+		await expectHeldMenu();
+
+		/* The menu's Back pops the record, past the detail the choice went
+		 * through, and the list holds nothing. */
+		await main
+			.getByRole("button", { name: "Back to results", exact: true })
+			.click();
+		await expect(menuTitle).toHaveCount(0);
+		await expect(cases).toBeVisible({ timeout: 20_000 });
+		await expect(trail).not.toContainText(opens.caseName);
+	});
+
+	await test.step("the record's crumb reaches the menu holding it, and the menu's crumb asks for a record again", async () => {
+		const trail = page.getByRole("navigation", { name: "Page navigation" });
+		const menuTitle = main.locator("[data-form-menu-case-title]");
+		await openWith(opens.caseName);
+		await expect(submit).toBeVisible({ timeout: 20_000 });
+		await trail
+			.getByRole("button", { name: opens.caseName, exact: true })
+			.click();
+		await expect(submit).toHaveCount(0);
+		await expect(menuTitle).toHaveText(opens.caseName, { timeout: 20_000 });
+		await expect(form).toBeVisible();
+
+		await form.click();
+		await expect(submit).toBeVisible({ timeout: 20_000 });
+		await trail
+			.getByRole("button", { name: FORM_REFUSED_SEED.moduleName, exact: true })
+			.click();
+		await expect(submit).toHaveCount(0);
+		await expect(menuTitle).toHaveCount(0);
+		await expect(cases).toBeVisible({ timeout: 20_000 });
+		await expect(trail).not.toContainText(opens.caseName);
 	});
 });

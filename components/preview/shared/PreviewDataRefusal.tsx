@@ -7,12 +7,12 @@
  * place of the screen, and reports nothing: the app is right, the data is
  * empty.
  *
- * A form's refusal arrives on the engine's entry state, and a menu screen
- * holds its conditions' refusal as its own state
- * (`engine/dataRefusal.ts::readPreviewScreen`), so neither leaves the render
- * as an error a framework would log. A Search prompt's choices are read while
- * their screen renders, so {@link PreviewDataRefusalBoundary} catches the
- * refusal there and passes every other error to the boundary above it.
+ * A form's refusal arrives on the engine's entry state, and a menu, Search or
+ * form screen holds the refusal of what it reads as its own state
+ * (`engine/dataRefusal.ts::readPreviewScreen`), so none leaves the render as
+ * an error a framework would log. {@link PreviewDataRefusalBoundary} stays
+ * around each menu screen as the backstop for a read no screen holds yet; it
+ * passes every other error to the boundary above it.
  */
 
 import React from "react";
@@ -33,6 +33,7 @@ import {
 	searchInputForTable,
 } from "@/lib/preview/engine/dataRefusal";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
 	type DataRefusalCopyNames,
 	type DataRefusalSurface,
@@ -137,8 +138,8 @@ interface BoundaryProps {
 	 * Search screen's, whatever this says. */
 	readonly surface: "menu";
 	readonly moduleUuid?: Uuid;
-	/** Changing it tries the screen again: the screen itself and the lookup
-	 * data each can make the data there. */
+	/** Changing it tries the screen again: the screen itself, the lookup data
+	 * and the worker each can make the data there. */
 	readonly resetKeys: readonly unknown[];
 	/** The document, which the boundary watches only while it shows a
 	 * refusal: any edit can be the one that fixes it, so each tries the
@@ -289,8 +290,8 @@ export class PreviewDataRefusalBoundary extends React.Component<
 
 /**
  * A menu or Search screen under the refusal boundary. It tries the screen
- * again when the document, the lookup data or the screen itself changes,
- * since each can give the device the data it lacked.
+ * again when the document, the lookup data, the worker or the screen itself
+ * changes, since each can give the device the data it lacked.
  */
 export function PreviewDataRefusalScope({
 	screenKey,
@@ -303,11 +304,12 @@ export function PreviewDataRefusalScope({
 }) {
 	const doc = useBlueprintDocApi();
 	const lookup = usePreviewLookupStatus();
+	const worker = useSelectedPreviewIdentity();
 	return (
 		<PreviewDataRefusalBoundary
 			surface="menu"
 			{...(moduleUuid === undefined ? {} : { moduleUuid })}
-			resetKeys={[screenKey, lookup]}
+			resetKeys={[screenKey, lookup, worker]}
 			doc={doc}
 		>
 			{children}

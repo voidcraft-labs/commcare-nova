@@ -10,6 +10,7 @@ import {
 	type MenuScreenSource,
 	type Module,
 	type ModuleIconRef,
+	type ModuleScreenLanding,
 	makeTranslationUnitId,
 	menuFormUuidsOf,
 	menuScreenEntries,
@@ -17,6 +18,7 @@ import {
 	menuTileScreenOf,
 	moduleHasCaseListMenuItem,
 	moduleHasOwnScreen,
+	moduleScreenLanding,
 	moduleShowsFormsInMenuAbove,
 	screenChoosesCaseFirst,
 	screenIsBareCaseList,
@@ -31,7 +33,11 @@ import {
 import { caseListEntryStillNeedsDatum } from "@/lib/preview/engine/caseListEntryListing";
 import { previewDataRefusalOf } from "@/lib/preview/engine/dataRefusal";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
-import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import type {
+	PreviewCaseChoice,
+	PreviewFormChosenAfterCase,
+	PreviewMenuCaseSelection,
+} from "@/lib/session/types";
 import {
 	formDisplayVisibility,
 	moduleDisplayVisibility,
@@ -713,35 +719,158 @@ function emptyCaseContext(): PreviewMenuCaseContext {
 
 /**
  * The form that opens once a case is chosen: the form the worker chose
- * before the case, or a link named, where it shows; otherwise none, and the
- * menu lists its forms, however many it shows. A form's command names its
- * entry, which needs nothing more once the case is chosen, so it opens; a
- * menu's command names no entry, so `CommCareSession.getNeededData` asks for
- * a command even where the menu holds one form (`getEntryForCommand` of the
- * menu's id is null). Neither platform advances past such a menu by itself:
- * Android opens `MenuActivity` on `STATE_COMMAND_ID`
- * (`HomeScreenBaseActivity.handleGetCommand`), and Formplayer only under the
- * app property `cc-auto-advance-menu` (`FormplayerPropertyManager.isAutoAdvanceMenu`,
- * no by default), which Nova never writes.
+ * before the case, or a link's or a retained command's, where it is one of
+ * the list's forms; otherwise none, and the menu lists its forms, however
+ * many it shows. A form's command names its entry, which needs nothing more
+ * once the case is chosen, so the form opens and no menu is listed, which
+ * means no display condition is read: Core reads a command's condition only
+ * as `MenuLoader` lists a menu (`addRelevantCommandEntries`), never as the
+ * session steps past a datum. A menu's command names no entry, so
+ * `CommCareSession.getNeededData` asks for a command even where the menu
+ * holds one form (`getEntryForCommand` of the menu's id is null). Neither
+ * platform advances past such a menu by itself: Android opens `MenuActivity`
+ * on `STATE_COMMAND_ID` (`HomeScreenBaseActivity.handleGetCommand`), and
+ * Formplayer only under the app property `cc-auto-advance-menu`
+ * (`FormplayerPropertyManager.isAutoAdvanceMenu`, no by default), which Nova
+ * never writes.
  */
 export function previewRequestedForm(
-	entries: readonly {
-		readonly form: { readonly uuid: Uuid };
-		readonly visibility: NavigationItemVisibility;
-	}[],
+	formUuids: readonly Uuid[],
 	requestedFormUuid?: Uuid,
 ): Uuid | undefined {
-	const requested = entries.find(
-		(entry) => entry.form.uuid === requestedFormUuid,
-	);
-	return requested?.visibility === "shown" ? requested.form.uuid : undefined;
+	return requestedFormUuid !== undefined &&
+		formUuids.includes(requestedFormUuid)
+		? requestedFormUuid
+		: undefined;
 }
 
-/** The case target a case list reads: the form it names and whether the
- *  worker chose that form after its case (`PreviewCaseTarget`). */
+/** What choosing a case on a module's case list goes on to. */
+export type PreviewCaseListContinuation =
+	/** A menu holds the case: the module's own menu screen, whose submenus
+	 *  are listed once it is chosen, or the menu that asked this list for its
+	 *  parent case. */
+	| "menu-selection"
+	/** The list was opened from its case list menu entry, which holds no
+	 *  form, so nothing opens (`caseListMenuItemSelection`). */
+	| "menu-entry"
+	/** A form requested before the case opens once it is chosen
+	 *  (`previewRequestedForm`). */
+	| "form"
+	/** The list's own form menu lists the module's forms for the case. */
+	| "form-menu";
+
+/**
+ * Where a case list goes once its case is chosen. A list opened with no form
+ * requested is its module's case selection on a case-first screen, which
+ * continues into the module's menu: its own menu screen where it has
+ * submenus, else its own form menu. A list reached through its case list
+ * menu entry (a bare case list, a forms-first menu's entry, or the entry a
+ * case-first screen lists of a menu showing its forms there that goes on
+ * past the screen's case, `previewCaseListMenuEntry`) holds no form.
+ * `CaseListScreen` and the menu-screens evidence producer both read this.
+ */
+export function previewCaseListContinuation(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	request: {
+		/** The form the list holds, chosen before the case
+		 *  (`previewCaseListFormRequest`). */
+		readonly seededFormUuid?: Uuid;
+		/** The form of a retained command (`PreviewTaskContinuation`). */
+		readonly retainedFormUuid?: Uuid;
+		/** Another menu asked this list for its parent case. */
+		readonly selectsForParentRequest?: boolean;
+	} = {},
+): PreviewCaseListContinuation {
+	const mod = doc.modules[moduleUuid];
+	if (request.selectsForParentRequest === true) return "menu-selection";
+	const hasChildren = moduleHasChildren(doc, moduleUuid);
+	const listingScreen = menuScreenOf(doc, moduleUuid);
+	const openedFromMenuEntry =
+		mod !== undefined &&
+		moduleHasCaseListMenuItem(mod) &&
+		request.seededFormUuid === undefined &&
+		request.retainedFormUuid === undefined &&
+		(screenIsBareCaseList(doc, listingScreen)
+			? !hasChildren
+			: !screenChoosesCaseFirst(doc, listingScreen) ||
+				(listingScreen.kind === "menu" &&
+					listingScreen.moduleUuid !== moduleUuid &&
+					previewCaseListMenuEntry(doc, moduleUuid, {
+						isCaseFirst: true,
+						hasSelectedCase: true,
+					}) !== undefined));
+	if (openedFromMenuEntry) return "menu-entry";
+	if (request.seededFormUuid === undefined && hasChildren)
+		return "menu-selection";
+	return (request.seededFormUuid ?? request.retainedFormUuid) !== undefined
+		? "form"
+		: "form-menu";
+}
+
+/**
+ * Where a module's route lands in the running app, read from the module and
+ * the case its menu holds: the case list until a case-first screen's case is
+ * chosen, then the menu (`navigation.ts::moduleScreenLanding`). `ModuleScreen`
+ * and the menu-screens evidence producer both read this.
+ */
+export function previewMenuScreenLanding(
+	source: PreviewMenuSource & { readonly doc: BlueprintDoc },
+	moduleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	args: {
+		readonly mode: "edit" | "preview";
+		readonly preserveEntryPointMenu?: boolean;
+	},
+): ModuleScreenLanding {
+	return moduleScreenLanding({
+		...(args.preserveEntryPointMenu !== undefined && {
+			preserveEntryPointMenu: args.preserveEntryPointMenu,
+		}),
+		hasModule: source.modules[moduleUuid] !== undefined,
+		hasChildren: moduleHasChildren(source, moduleUuid),
+		hasSelectedCase:
+			previewMenuCaseContext(source, moduleUuid, selections).selectedCase !==
+			undefined,
+		isBareCaseList: previewModuleScreenIsBareCaseList(source.doc, moduleUuid),
+		isCaseFirst:
+			moduleHasOwnScreen(source.doc, moduleUuid) &&
+			screenChoosesCaseFirst(source.doc, { kind: "menu", moduleUuid }),
+		mode: args.mode,
+	});
+}
+
+/** The case target a case list reads: the form it names, the cases the form
+ *  opens, and, where the worker chose the form from a menu after its case,
+ *  the module whose case list chose that case (`PreviewCaseTarget`). */
 export interface PreviewCaseListTarget {
 	readonly formUuid: Uuid;
-	readonly formChosenAfterCase?: true;
+	readonly cases?: readonly PreviewCaseChoice[];
+	readonly formChosenAfterCase?: PreviewFormChosenAfterCase;
+}
+
+/** The mark of a form the worker chose from a case list's own form menu
+ *  after choosing its case there (`CaseListScreen`). */
+export function previewCaseListMenuChoice(
+	caseListModuleUuid: Uuid,
+): PreviewFormChosenAfterCase {
+	return { caseListModuleUuid, fromCaseListMenu: true };
+}
+
+/** The mark of a form the worker chose from a menu screen after its case
+ *  (`ModuleScreen`): the list that chose the case is the form's own module's
+ *  or a parent's whose case the form's menu goes on with
+ *  (`previewMenuCaseContext`'s `selectedByModuleUuid`). */
+export function previewMenuScreenChoice(
+	source: PreviewMenuSource,
+	formModuleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+): PreviewFormChosenAfterCase {
+	return {
+		caseListModuleUuid:
+			previewMenuCaseContext(source, formModuleUuid, selections)
+				.selectedByModuleUuid ?? formModuleUuid,
+	};
 }
 
 /**
@@ -749,16 +878,16 @@ export interface PreviewCaseListTarget {
  * where it is one of the list's case-loading forms and the worker chose it
  * before the case (a forms-first menu's form, a link's, a retained task's);
  * otherwise none. A form chosen from a menu after its case sits above the
- * case in the session, so the list a device steps back to holds no form:
- * `CommCareSession.stepBack` pops the form's command (the menu waits for a
- * command) and then the case (the list waits for a case), and choosing a
- * case there lists the menu again.
+ * case in the session, so a list a device reaches back to holds no form:
+ * `CommCareSession.stepBack` pops the form's command and stops on the menu,
+ * which waits for a command (`shouldPopNext`), a second step back pops the
+ * case, and choosing a case on the list lists the menu again.
  */
 export function previewCaseListFormRequest(
 	target: PreviewCaseListTarget | undefined,
 	caseLoadingFormUuids: readonly Uuid[],
 ): Uuid | undefined {
-	if (target === undefined || target.formChosenAfterCase === true)
+	if (target === undefined || target.formChosenAfterCase !== undefined)
 		return undefined;
 	return caseLoadingFormUuids.includes(target.formUuid)
 		? target.formUuid
@@ -766,19 +895,123 @@ export function previewCaseListFormRequest(
 }
 
 /**
- * The case target a route from a form back to its case list leaves, so the
- * next case chosen there continues as a device's would: the form again where
- * the worker chose it before its case, since stepping back off the case keeps
- * the form's command; none where the worker chose it from a menu after its
- * case, since the device steps back past both.
+ * Where a route from a form back to a case list goes, and the case target it
+ * leaves there, so the next case chosen continues as a device's would. A form
+ * the worker chose before its case returns to its own module's list holding
+ * the form again, since the case sits above the form's command. A form the
+ * worker chose from a menu after its case returns to the list that chose the
+ * case, the form's own or a parent's whose case its menu goes on with,
+ * holding nothing: that list continues into the menu the case opens, never
+ * into a form, and once it shows nothing is chosen.
  */
-export function previewCaseListReturnTarget(
+export function previewCaseListReturn(
 	target: PreviewCaseListTarget | undefined,
-	formUuid: Uuid,
-): { readonly formUuid: Uuid } | undefined {
-	return target?.formUuid === formUuid && target.formChosenAfterCase === true
-		? undefined
-		: { formUuid };
+	form: { readonly moduleUuid: Uuid; readonly formUuid: Uuid },
+): {
+	readonly moduleUuid: Uuid;
+	readonly target: { readonly formUuid: Uuid } | undefined;
+} {
+	const chosenAfter =
+		target?.formUuid === form.formUuid ? target.formChosenAfterCase : undefined;
+	return chosenAfter !== undefined
+		? { moduleUuid: chosenAfter.caseListModuleUuid, target: undefined }
+		: { moduleUuid: form.moduleUuid, target: { formUuid: form.formUuid } };
+}
+
+/**
+ * The cases a case list shows its form menu for as it opens: those of the
+ * target's form, where the worker chose it from this list's own form menu
+ * after choosing them here (`fromCaseListMenu`) and has not stepped back past
+ * that menu since (`steppedPastMenu`), and none otherwise. The session holds
+ * the cases beneath the form's command, so a step back off the form lands on
+ * that menu with them held (`CommCareSession.stepBack` pops the form's
+ * command and stops where the session waits for a command, `shouldPopNext`),
+ * and only a second step back reaches the list with nothing chosen. A list
+ * that continues into a menu of its own (a module with submenus) holds the
+ * case on that menu instead, so its list holds nothing here.
+ */
+export function previewCaseListHeldChoices(
+	target: PreviewCaseListTarget | undefined,
+	list: {
+		readonly moduleUuid: Uuid;
+		readonly caseLoadingFormUuids: readonly Uuid[];
+		/** What choosing a case on the list goes on to
+		 *  (`previewCaseListContinuation`). */
+		readonly continuation: PreviewCaseListContinuation;
+	},
+): readonly PreviewCaseChoice[] | undefined {
+	const chosenAfter = target?.formChosenAfterCase;
+	if (
+		target === undefined ||
+		chosenAfter === undefined ||
+		list.continuation !== "form-menu" ||
+		chosenAfter.fromCaseListMenu !== true ||
+		chosenAfter.steppedPastMenu === true ||
+		chosenAfter.caseListModuleUuid !== list.moduleUuid ||
+		!list.caseLoadingFormUuids.includes(target.formUuid) ||
+		target.cases === undefined ||
+		target.cases.length === 0
+	)
+		return undefined;
+	return target.cases;
+}
+
+/**
+ * The case target with the form's menu holding its case or not. A step back
+ * off the form's menu to its list (`held` false) lets the case go
+ * (`steppedPastMenu`); the form showing again, or the trail's crumb of its
+ * case, holds the case beneath the form once more (`held` true), so a step
+ * back lands on the menu again. The target keeps its form and cases either
+ * way, and a target the mark does not describe is returned as it is.
+ */
+export function previewTargetHoldingMenu<T extends PreviewCaseListTarget>(
+	target: T,
+	held: boolean,
+): T {
+	const chosenAfter = target.formChosenAfterCase;
+	if (chosenAfter?.fromCaseListMenu !== true) return target;
+	if (held === (chosenAfter.steppedPastMenu !== true)) return target;
+	const { steppedPastMenu: _held, ...rest } = chosenAfter;
+	return {
+		...target,
+		formChosenAfterCase: held ? rest : { ...rest, steppedPastMenu: true },
+	};
+}
+
+/**
+ * The case target a route to a menu or to the first menu leaves (a
+ * breadcrumb): a case the worker chose before choosing a form from the menu
+ * the case opened is no longer held on any list, as Web Apps' breadcrumb
+ * ends the session's steps at the screen it names. Every other target stays.
+ */
+export function previewTargetAboveForm<T extends PreviewCaseListTarget>(
+	target: T | undefined,
+): T | undefined {
+	return target?.formChosenAfterCase === undefined ? target : undefined;
+}
+
+/**
+ * The menus whose chosen cases a route to a screen lets go, as Web Apps'
+ * breadcrumb cuts the session's selections back to the step it names
+ * (`spliceSelections`). The session is one path: a case chosen on a menu
+ * above the screen's menu precedes that menu's command and stays, every
+ * other case is chosen after it or on no path to it, and goes. `through`
+ * keeps the screen's own menu's case too: the crumb of a case names the
+ * screen with that case chosen.
+ */
+export function previewMenuSelectionsLetGo(
+	doc: ModuleHierarchySource,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	screen: { readonly moduleUuid: Uuid | undefined; readonly through?: boolean },
+): Uuid[] {
+	const kept = new Set<string>();
+	let current: Uuid | null | undefined = screen.moduleUuid;
+	if (current !== undefined && screen.through === true) kept.add(current);
+	while (current !== undefined && current !== null) {
+		current = moduleParent(doc, current);
+		if (current !== undefined && current !== null) kept.add(current);
+	}
+	return Object.keys(selections).filter((uuid) => !kept.has(uuid)) as Uuid[];
 }
 
 /** A module's case list as its own entry on the module's menu
