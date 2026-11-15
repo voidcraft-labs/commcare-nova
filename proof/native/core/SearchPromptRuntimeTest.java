@@ -17,6 +17,8 @@ import org.javarosa.core.model.instance.*;
 import org.javarosa.core.model.instance.utils.InstanceUtils;
 import org.javarosa.core.model.instance.utils.TreeUtilities;
 import org.javarosa.core.services.locale.*;
+import org.javarosa.xpath.XPathException;
+import org.json.JSONObject;
 import org.junit.After;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -54,11 +56,16 @@ public class SearchPromptRuntimeTest {
     private final class Data extends TestInstanceInitializer {
         final TreeElement regionGroup;
         private final String regions;
+        private final Map<String, String> userData;
         Data() { this("A", "regions.fixture.xml"); }
-        Data(String group, String regions) {
+        Data(String group, String regions) { this(group, regions, null); }
+        /** A worker whose session's user data holds exactly {@code userData}, as HQ's restore writes it. */
+        Data(Map<String, String> userData) { this("A", "regions.fixture.xml", userData); }
+        private Data(String group, String regions, Map<String, String> userData) {
             super(MockDataUtils.getStaticStorage());
             regionGroup = node("region_group", group);
             this.regions = regions;
+            this.userData = userData;
         }
         @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
             String id = instance.getInstanceId();
@@ -67,7 +74,9 @@ public class SearchPromptRuntimeTest {
             if (id.equals("commcaresession")) {
                 root = node("session", null);
                 TreeElement user = node("user", null), data = node("data", null);
-                data.addChild(regionGroup); user.addChild(data); root.addChild(user);
+                if (userData == null) data.addChild(regionGroup);
+                else for (Map.Entry<String, String> field : userData.entrySet()) data.addChild(node(field.getKey(), field.getValue()));
+                user.addChild(data); root.addChild(user);
             } else if (id.equals("item-list:regions")) {
                 try (InputStream stream = resource(regions)) {
                     root = TreeUtilities.xmlStreamToTreeElement(stream, id).getChild("regions_list", 0);
@@ -78,16 +87,20 @@ public class SearchPromptRuntimeTest {
         }
     }
     private RemoteQuerySessionManager manager(String scenario, boolean hq, Data data) throws Exception {
+        return manager(scenario, hq, data, "search_command.m0", Arrays.asList("date", "daterange", "select", "select1"));
+    }
+    /** The query manager for {@code command}'s search, built over a fresh parse of the suite. */
+    private RemoteQuerySessionManager manager(String scenario, boolean hq, Data data, String command, List<String> supportedPrompts) throws Exception {
         localize(scenario);
         Suite suite;
         try (InputStream stream = resource(scenario + (hq ? ".hq-suite.xml" : ".suite.xml"))) { suite = new Parser(stream).parse(); }
         CommCarePlatform platform = new CommCarePlatform(2, 53, 0);
         platform.registerSuite(suite);
         CommCareSession session = new CommCareSession(platform);
-        session.setCommand("search_command.m0");
-        Hashtable<String, DataInstance> instances = suite.getEntry("search_command.m0").getInstances(null);
+        session.setCommand(command);
+        Hashtable<String, DataInstance> instances = suite.getEntry(command).getInstances(null);
         for (String id : new ArrayList<>(instances.keySet())) instances.put(id, instances.get(id).initialize(data, id));
-        RemoteQuerySessionManager manager = RemoteQuerySessionManager.buildQuerySessionManager(session, new EvaluationContext(null, instances), Arrays.asList("date", "daterange", "select", "select1"));
+        RemoteQuerySessionManager manager = RemoteQuerySessionManager.buildQuerySessionManager(session, new EvaluationContext(null, instances), supportedPrompts);
         assertNotNull(manager);
         return manager;
     }
@@ -201,5 +214,53 @@ public class SearchPromptRuntimeTest {
             assertTrue(manager.getErrors().isEmpty());
             assertEquals(Arrays.asList("first_name = \"Ada'\"", "match-all()", "match-all()"), new ArrayList<>(manager.getRawQueryParams(false).get("_xpath_query")));
         }
+    }
+    /** The prompt types Formplayer's query screen supports (commcare-core cli {@code QueryScreen.getSupportedPrompts}). */
+    private static final List<String> FORMPLAYER_PROMPTS = Arrays.asList("select1", "select", "date", "daterange", "checkbox", "address");
+    /** The prompt types Android's query screen supports ({@code QueryRequestActivity.getSupportedPrompts}). */
+    private static final List<String> ANDROID_PROMPTS = Arrays.asList("select1", "daterange", "checkbox");
+    /**
+     * A Search screen that reads a field a worker's session lacks ({@code prompt-worker-place}: each menu's search reads
+     * the worker's primary place, which HQ writes only for a worker assigned somewhere, in one slot). Core's query
+     * manager reads every supported prompt's starting value, hidden values among them, every select prompt's choices,
+     * every required condition and the check of each prompt a starting value answers as it is built
+     * ({@code RemoteQuerySessionManager}'s constructor: {@code initUserAnswers}, {@code refreshItemSetChoices},
+     * {@code validateUserAnswers}), and Formplayer's {@code QueryScreen.init} and Android's
+     * {@code QueryRequestActivity.initRemoteQuerySessionManager} each build it as the screen opens, with their own
+     * supported prompt types. So for a worker assigned nowhere the manager is refused on exactly the menus Preview
+     * stops ({@code prompt-worker-place.openings.jsonl}, from {@code searchRunState.ts::openSearchRunState} and the
+     * choice lists the form draws), on both paths and with both platforms' prompt types, naming the place it read,
+     * and is built for a placed worker; a check no starting value answers is not read. Each reading parses the suite
+     * again, since Core checks a parsed path only until the check first passes
+     * ({@code XPathPathExpr.templatePathChecked}).
+     */
+    @Test public void aSearchScreenThatReadsAWorkerFieldTheDeviceLacksFailsWhereNovaSays() throws Exception {
+        List<JSONObject> openings = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(resource("prompt-worker-place.openings.jsonl"), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) if (!line.isEmpty()) openings.add(new JSONObject(line));
+        }
+        int refused = 0, built = 0;
+        for (JSONObject opening : openings) {
+            Map<String, String> user = new LinkedHashMap<>();
+            JSONObject fields = opening.getJSONObject("user");
+            for (String key : fields.keySet()) user.put(key, fields.getString(key));
+            String command = opening.getString("command");
+            for (boolean hq : new boolean[]{false, true}) for (List<String> prompts : Arrays.asList(FORMPLAYER_PROMPTS, ANDROID_PROMPTS)) {
+                String label = opening.getString("menu") + " user=" + user + " hq=" + hq + " prompts=" + prompts;
+                XPathException failure = null;
+                try { manager("prompt-worker-place", hq, new Data(user), command, prompts); }
+                catch (XPathException e) { failure = e; }
+                assertEquals(label, opening.getBoolean("refused"), failure != null);
+                if (failure != null) {
+                    assertTrue(label + ": " + failure.getMessage(), failure.getMessage().contains("commcare_location_id"));
+                    refused++;
+                } else built++;
+            }
+        }
+        // Five of the seven menus refuse the worker assigned nowhere, four readings each (two paths, two platforms'
+        // prompt types); the other two menus build for that worker, and all seven build for the placed one.
+        assertEquals(20, refused);
+        assertEquals(36, built);
     }
 }

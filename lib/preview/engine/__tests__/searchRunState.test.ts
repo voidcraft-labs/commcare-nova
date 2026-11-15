@@ -5,17 +5,25 @@ import type { SearchInputDef } from "@/lib/domain";
 import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import {
 	dateLiteral,
+	eq,
 	literal,
 	now,
 	sessionContext,
+	sessionUser,
 	term,
 } from "@/lib/domain/expression";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
-import { previewAsMe, previewSessionValues } from "../identity";
+import { previewDataRefusalOf, readPreviewScreen } from "../dataRefusal";
+import {
+	type PreviewSearchSessionValues,
+	previewAsMe,
+	previewSessionValues,
+} from "../identity";
 import {
 	buildSearchRunState,
 	changeSearchRunDraft,
 	clearSearchRun,
+	openSearchRunState,
 	reconcileSearchRunState,
 	restoreSearchRun,
 	withHiddenValues,
@@ -236,6 +244,81 @@ describe("search run commands", () => {
 				true,
 			).submittedHidden.get("time"),
 		).toBe("2026-09-07");
+	});
+});
+
+/* Core's query manager reads each prompt's starting value, each hidden
+ * value, each required condition and the check of each prompt a starting
+ * value answers as the Search screen opens, on Web Apps and Android alike
+ * (`RemoteQuerySessionManager.java`'s constructor), so a read of a place key
+ * a worker assigned nowhere lacks stops the screen there, while a check no
+ * starting value answers is not read until the worker answers. */
+describe("the Search screen as it opens", () => {
+	const PLACED: PreviewSearchSessionValues = {
+		...SESSION,
+		user: {
+			...SESSION.user,
+			commcare_location_id: "place-north",
+			commcare_location_ids: "place-north",
+			commcare_primary_case_sharing_id: "place-north",
+		},
+	};
+	const placedNorth = eq(
+		sessionUser("commcare_location_id"),
+		literal("place-north"),
+	);
+	const opened = (
+		inputs: readonly SearchInputDef[],
+		session: PreviewSearchSessionValues,
+	) => {
+		const read = readPreviewScreen(() =>
+			openSearchRunState("module-a", inputs, session, runEnvironment(inputs)),
+		);
+		return read.kind === "refused"
+			? previewDataRefusalOf(read.refusal)?.reason
+			: "opened";
+	};
+	const refusal = { kind: "empty-instance", instanceId: "commcaresession" };
+	const screens: Record<string, readonly SearchInputDef[]> = {
+		"a starting value": [
+			simpleSearchInputDef(INPUT, "name", "Name", "text", "case_name", {
+				default: term(sessionUser("commcare_location_id")),
+			}),
+		],
+		"a hidden value": [
+			hiddenSearchInputDef(
+				HIDDEN,
+				"place",
+				"Place",
+				term(sessionUser("commcare_location_id")),
+			),
+		],
+		"a required condition": [
+			simpleSearchInputDef(INPUT, "name", "Name", "text", "case_name", {
+				required: { when: placedNorth, message: "Add a name" },
+			}),
+		],
+		"the check of a prompt its starting value answers": [
+			simpleSearchInputDef(INPUT, "name", "Name", "text", "case_name", {
+				default: term(literal("Ada")),
+				validation: { rule: placedNorth, message: "Search from your place" },
+			}),
+		],
+	};
+	for (const [slot, inputs] of Object.entries(screens)) {
+		it(`stops on ${slot} for a worker assigned nowhere, and opens for one placed`, () => {
+			expect(opened(inputs, SESSION)).toEqual(refusal);
+			expect(opened(inputs, PLACED)).toBe("opened");
+		});
+	}
+
+	it("leaves a check no starting value answers unread", () => {
+		const inputs = [
+			simpleSearchInputDef(INPUT, "name", "Name", "text", "case_name", {
+				validation: { rule: placedNorth, message: "Search from your place" },
+			}),
+		];
+		expect(opened(inputs, SESSION)).toBe("opened");
 	});
 });
 

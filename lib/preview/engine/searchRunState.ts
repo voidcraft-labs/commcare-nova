@@ -7,6 +7,7 @@ import {
 	resolveSearchHiddenValues,
 	resolveSearchInputDefaults,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { readSearchScreenConditionsAtOpen } from "@/lib/preview/engine/searchInputConstraints";
 
 export interface SearchRunState {
 	readonly scopeKey: string;
@@ -145,6 +146,38 @@ export function buildSearchRunState(
 		hasSubmitted: false,
 		touched: new Set(),
 	};
+}
+
+/**
+ * The Search screen's run state as the screen opens, having made every read
+ * Core's query manager makes there (`RemoteQuerySessionManager.java`'s
+ * constructor): each prompt's starting value and each hidden value
+ * (`initUserAnswers`), then each required condition and the check of each
+ * prompt a starting value answers (`validateUserAnswers`,
+ * `searchInputConstraints.ts::readSearchScreenConditionsAtOpen`). A read of
+ * data the worker's device lacks throws Core's refusal, which stops the
+ * screen on Web Apps and Android alike.
+ */
+export function openSearchRunState(
+	scopeKey: string,
+	searchInputs: readonly SearchInputDef[],
+	session: PreviewSearchSessionValues,
+	environment: PreviewSearchEnvironment,
+): SearchRunState {
+	const built = buildSearchRunState(
+		scopeKey,
+		searchInputs,
+		session,
+		environment,
+	);
+	built.resolveHidden();
+	readSearchScreenConditionsAtOpen(
+		searchInputs,
+		built.defaults,
+		session,
+		environment,
+	);
+	return built;
 }
 
 /** Pure reconciliation shared by render-time and effect-time stale guards. */
