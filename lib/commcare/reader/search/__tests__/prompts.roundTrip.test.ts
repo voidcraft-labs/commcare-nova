@@ -554,13 +554,20 @@ describe("Search fields over a table and over dates", () => {
 describe("a Search field's test that reads an answer without Nova's guard on its rows", () => {
 	// CommCare HQ's page keeps any test an author types, so a test may read
 	// `instance('search-input:results')/input/field[@name = '…']` bare where Nova prints it inside
-	// `if(count(…/input/field) > 0, …, '')`. The reading compares it with the print that leaves
-	// that rewrite out (`emissionRewrites.ts`, `empty-rows-guard`), so it is an account with a
-	// finding at the test and never a reader defect. The failure it catches: a Search field's
+	// `if(count(…/input/field) > 0, …, '')`, at every read or at some. The reading compares it with
+	// the print that leaves that rewrite out (`emissionRewrites.ts`, `empty-rows-guard`) at every
+	// site, or at the sites the source leaves it out (`expressions/index.ts::siteLevel`), and the
+	// whole search is settled with each slot printed at the level it was held at
+	// (`settings.ts::heldSearchLevels`), so the field is held and the rewrite recorded, a worker
+	// then seeing a blank answer where there are no rows. The failures it catches: a Search field's
 	// slots printed without the reader's rewrite control, so a bare read is left unrecognized at
-	// both levels and ends in `expression-not-written-back`.
-	const answer = (name: string) =>
-		`instance('search-input:results')/input/field[@name = '${name}']`;
+	// both levels and ends in `expression-not-written-back`; a test spelling the rewrite at one
+	// read and not at another, which no whole level prints; and a settle that compares the stored
+	// search with the print that applies every rewrite, refusing what the slot held.
+	const rows = "instance('search-input:results')/input/field";
+	const answer = (name: string) => `${rows}[@name = '${name}']`;
+	const guarded = (name: string) =>
+		`if(count(${rows}) > 0, ${answer(name)}, '')`;
 	const cases: readonly {
 		readonly title: string;
 		readonly edit: (props: Record<string, unknown>[]) => void;
@@ -584,9 +591,22 @@ describe("a Search field's test that reads an answer without Nova's guard on its
 				one.required.test = `${answer("case_name")} = ''`;
 			},
 		},
+		{
+			title:
+				"a validation that reads one answer inside the guard and another bare",
+			edit: (props) => {
+				const one = props[0] as Record<string, unknown>;
+				one.validations = [
+					{
+						test: `${guarded("case_name")} != 'x' and ${answer("phone")} != 'y'`,
+						text: { es: "No x", en: "Not x" },
+					},
+				];
+			},
+		},
 	];
 	for (const one of cases)
-		it(`in ${one.title} is refused at the test, with no defect`, async () => {
+		it(`in ${one.title} is held, with the rewrite recorded and no defect`, async () => {
 			const body = exportedBody(localizationWireFixture("prompts"));
 			const modules = body.modules as {
 				search_config: { properties: Record<string, unknown>[] };
@@ -594,14 +614,162 @@ describe("a Search field's test that reads an answer without Nova's guard on its
 			one.edit(modules[0]?.search_config.properties ?? []);
 			const outcome = readHqApp(await inputFor(body));
 			expect(outcome.defects).toEqual([]);
-			expect(outcome.kind).toBe("account");
-			if (outcome.kind !== "account") return;
 			expect(
-				outcome.findings.map((finding) => [
+				outcome.kind === "account"
+					? outcome.findings.map((finding) => finding.code)
+					: [],
+			).toEqual([]);
+			if (outcome.kind !== "read") return;
+			expect(
+				outcome.draft.facts.rewrites.map((rewrite) => [
+					rewrite.id,
+					rewrite.key,
+					rewrite.place.kind,
+				]),
+			).toEqual([["empty-rows-guard", "schema:Assertion.test", "search"]]);
+		});
+
+	// The control: the same test spelled as Nova prints it is held exact, with no rewrite.
+	it("spelled inside the guard at every read is held with no rewrite", async () => {
+		const body = exportedBody(localizationWireFixture("prompts"));
+		const modules = body.modules as {
+			search_config: { properties: Record<string, unknown>[] };
+		}[];
+		const first = modules[0]?.search_config.properties[0] as Record<
+			string,
+			unknown
+		>;
+		first.validations = [
+			{
+				test: `${guarded("case_name")} != 'x' and ${guarded("phone")} != 'y'`,
+				text: { es: "No x", en: "Not x" },
+			},
+		];
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") return;
+		expect(outcome.draft.facts.rewrites).toEqual([]);
+	});
+
+	// A test whose reads are spelled bare at more sites than any fixed number of steps reaches:
+	// the site level flips one site a step, each moving the first difference on, so it ends
+	// whatever the number of sites. The failure it catches: a search capped at a number of steps,
+	// whose slot then ends in `expression-not-written-back`.
+	it("bare at seventy reads and inside the guard at one is held, with the rewrite recorded", async () => {
+		const body = exportedBody(localizationWireFixture("prompts"));
+		const modules = body.modules as {
+			search_config: { properties: Record<string, unknown>[] };
+		}[];
+		const first = modules[0]?.search_config.properties[0] as Record<
+			string,
+			unknown
+		>;
+		const bare = Array.from(
+			{ length: 70 },
+			(_, at) => `${answer("case_name")} != 'x${at}'`,
+		);
+		first.validations = [
+			{
+				test: [...bare, `${guarded("phone")} != 'y'`].join(" and "),
+				text: { es: "No x", en: "Not x" },
+			},
+		];
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") return;
+		expect(
+			outcome.draft.facts.rewrites.map((rewrite) => [
+				rewrite.id,
+				rewrite.key,
+				rewrite.place.kind,
+			]),
+		).toEqual([["empty-rows-guard", "schema:Assertion.test", "search"]]);
+	});
+});
+
+describe("a stored validation that carries Nova's runtime guard under a message edited in HQ", () => {
+	// Nova writes the guard's message after the field's own in every language
+	// (`searchPrompts.ts::buildValidation`). A message an author edited in HQ so no language ends
+	// with the guard's text tells nothing of the guard, so the check is registered whole and its
+	// refusal waits for the settle, which finds the stored test ending with the guard Nova's
+	// projection joins to the field (`settings.ts::endsWithRuntimeGuard`). Nova prints the guard's
+	// sentence after the field's message in the source language, so what keeps the field out is
+	// the message. The failure it catches: a check whose reads no whole level prints, ending in
+	// `expression-not-written-back`; and the field refused as a check outside what Nova types,
+	// which blames the guard Nova wrote.
+	const edited = (properties: Record<string, unknown>[]) => {
+		const status = properties[2] as {
+			validations: { text: Record<string, string> }[];
+		};
+		const validation = status.validations[0];
+		if (validation === undefined) throw new Error("No stored validation.");
+		validation.text = { es: "algo", en: "Use lowercase." };
+	};
+	const findingsOf = async (body: Record<string, unknown>) => {
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		return outcome.kind === "account"
+			? outcome.findings.map((finding) => [
 					finding.code,
 					finding.detail?.name,
 					finding.place.kind,
-				]),
-			).toEqual([["unrecognized", "schema:Assertion.test", "search"]]);
+				])
+			: [];
+	};
+
+	it("joined after the field's own rule is unrecognized at the message, with no defect", async () => {
+		const body = exportedBody(localizationWireFixture("prompts"));
+		const modules = body.modules as {
+			search_config: { properties: Record<string, unknown>[] };
+		}[];
+		edited(modules[0]?.search_config.properties ?? []);
+		expect(await findingsOf(body)).toEqual([
+			["unrecognized", "schema:Assertion.text", "search"],
+		]);
+	});
+
+	it("alone is unrecognized at the message, with no defect", async () => {
+		const doc = produce(localizationWireFixture("prompts"), (draft) => {
+			for (const mod of Object.values(draft.modules))
+				for (const one of mod.caseListConfig?.searchInputs ?? [])
+					if (one.name === "status" && one.kind !== "hidden")
+						delete one.validation;
 		});
+		const body = exportedBody(doc);
+		const modules = body.modules as {
+			search_config: { properties: Record<string, unknown>[] };
+		}[];
+		edited(modules[0]?.search_config.properties ?? []);
+		expect(await findingsOf(body)).toEqual([
+			["unrecognized", "schema:Assertion.text", "search"],
+		]);
+	});
+
+	// The control: a check with no guard of Nova's whose rule is refused keeps its own refusal.
+	it("leaves a refused rule that ends with no guard its own refusal", async () => {
+		const guarded = (name: string) =>
+			`if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = '${name}'], '')`;
+		const body = exportedBody(localizationWireFixture("prompts"));
+		const modules = body.modules as {
+			search_config: { properties: Record<string, unknown>[] };
+		}[];
+		const first = modules[0]?.search_config.properties[0] as Record<
+			string,
+			unknown
+		>;
+		first.validations = [
+			{
+				test: `${guarded("case_name")} != 'x' and instance('casedb')/casedb/case[@case_id = 'a']/name = 'y'`,
+				text: { es: "No x", en: "Not x" },
+			},
+		];
+		const findings = await findingsOf(body);
+		expect(findings.map(([, name]) => name)).not.toContain(
+			"schema:Assertion.text",
+		);
+		expect(findings.length).toBeGreaterThan(0);
+	});
 });

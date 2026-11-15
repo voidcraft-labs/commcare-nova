@@ -28,7 +28,8 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
-import type { JsonCursor } from "../jsonCursor";
+import { pythonBlank } from "../heldText";
+import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { sameXPathText } from "../syntaxCompare";
 import {
 	appCodes,
@@ -531,9 +532,17 @@ export function readSortElements(
 		// The label as HQ's build shows it in each language (`create_temp_sort_column` makes it
 		// the appended column's header); one the reader cannot know (a number, an object) is
 		// left unclaimed, for the close to name at its key.
-		const display = shownTexts(cursor.peek("display"), codes);
+		// HQ's build writes it only where some stored value is not blank to Python
+		// (`SortElement.has_display_values`: `s.strip() != ''`).
+		const storedDisplay = cursor.peek("display");
+		const display = shownTexts(storedDisplay, codes);
 		if (display === undefined) ok = false;
-		else if (Object.values(display).every((one) => one.trim() === ""))
+		else if (
+			isJsonObject(storedDisplay) &&
+			Object.values(storedDisplay).every(
+				(one) => typeof one === "string" && pythonBlank(one),
+			)
+		)
 			cursor.derived("display", O.display);
 		else if (sortOnly || column === undefined) {
 			cursor.refuse("display", O.displaySortOnly);

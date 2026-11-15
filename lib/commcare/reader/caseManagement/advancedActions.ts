@@ -57,6 +57,7 @@ import { isAllocatedName } from "../xform/generated";
 import type { DataNode } from "../xform/model";
 import {
 	dropCreateNameRequired,
+	isServerDivertedWrite,
 	type PropertyNameClass,
 	type ProposedValue,
 	propertyNameClass,
@@ -243,6 +244,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		"schema:LoadUpdateAction.case_properties",
 	),
+	loadLocationKeys: refuse(
+		`${F}/update-keys-location-id-hq-user-id`,
+		"schema:LoadUpdateAction.case_properties",
+	),
 	slashPreloadOnIndexedLoad: refuse(
 		`${F}/loadupdateaction-preload-or-case-properties-property-with-on-a`,
 		"schema:LoadUpdateAction.preload",
@@ -385,6 +390,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		"schema:AdvancedOpenCaseAction.case_properties",
 	),
+	openLocationKeys: refuse(
+		`${F}/update-keys-location-id-hq-user-id`,
+		"schema:AdvancedOpenCaseAction.case_properties",
+	),
 	openRepeat: take(
 		`${F}/advancedopencaseaction-repeat-context-equal-to-the-name-question`,
 		"schema:AdvancedOpenCaseAction.repeat_context",
@@ -462,6 +471,7 @@ const LOAD_PROPERTY_CLAIMS = {
 		"non-core": ADVANCED_CLAIMS.loadNonCoreKey,
 		"non-ascii": ADVANCED_CLAIMS.loadNonAsciiKey,
 	},
+	diverted: ADVANCED_CLAIMS.loadLocationKeys,
 };
 
 // ── What the first pass proposes ────────────────────────────────────────
@@ -720,6 +730,9 @@ function readProperties(
 		readonly names: Readonly<
 			Record<Exclude<PropertyNameClass, "too-long">, Claim<"refuse">>
 		>;
+		/** The row of a key HQ's server stores apart from the case's properties
+		 *  (`basicActions.ts::isServerDivertedWrite`). */
+		readonly diverted: Claim<"refuse">;
 	},
 	indexed: boolean,
 	/** An open action's: whose `owner_id` may name Nova's owner node, which the open action
@@ -761,6 +774,18 @@ function readProperties(
 					name: "schema:LoadUpdateAction.case_properties",
 				});
 			r.ok = false;
+			out.refused = true;
+			continue;
+		}
+		// HQ's build writes a load's and an open action's keys into the case
+		// block's `<update>` as it writes a basic update's
+		// (`xform.py::XForm._create_casexml_advanced` → `add_case_updates`), so
+		// HQ's server stores these two apart from the case's properties there too,
+		// unless the key's question is an upload, which names an attachment.
+		if (isServerDivertedWrite(r.form, key, cursor.peek("question_path"))) {
+			cursor.refuseWhole(claims.diverted, { name: key });
+			r.ok = false;
+			out.refused = true;
 			continue;
 		}
 		// `name` and `owner_id` are the case's name and owner; every other key is a
@@ -805,6 +830,7 @@ function readProperties(
 			r.ctx.accounting.circumstance("unrecognized", r.form.place, {
 				name: "schema:ConditionalCaseUpdate.question_path",
 			});
+			out.refused = true;
 			continue;
 		}
 		// An open action's owner may name the owner node Nova folds beside it.
@@ -821,6 +847,7 @@ function readProperties(
 				name: key,
 			});
 			r.ok = false;
+			out.refused = true;
 			continue;
 		}
 		if (key === "name") out.name = read.value;
@@ -1440,6 +1467,7 @@ export function readAdvancedActions(
 					"non-core": ADVANCED_CLAIMS.openNonCoreKey,
 					"non-ascii": ADVANCED_CLAIMS.openNonAsciiKey,
 				},
+				diverted: ADVANCED_CLAIMS.openLocationKeys,
 			},
 			false,
 			true,
@@ -1838,7 +1866,8 @@ function readAutoSelectLoad(
 	const tag = load.case_tag;
 	const properties = readProperties(r, L, LOAD_PROPERTY_CLAIMS, false);
 	if (
-		// A load whose only writes were refused writes something HQ's build refuses, each
+		// A load whose only writes were refused (a key HQ's build refuses, a key HQ's
+		// server stores apart, a value Nova cannot hold) writes something, each
 		// refusal its own finding, and the rest of the load is read on.
 		(properties.writes.length === 0 && properties.refused !== true) ||
 		activeCondition(load.close_condition) ||

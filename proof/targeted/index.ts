@@ -17,6 +17,7 @@ import {
 	extensionCarried,
 	rootCaseBlockNames,
 } from "./documents/advancedModules";
+import { ancestorIndexNames } from "./documents/ancestorIndexNames";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
@@ -270,6 +271,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	tileGroupFilter,
 	keptValues,
 	severalCaseClose,
+	ancestorIndexNames,
 ];
 
 /** Every targeted document, in a fixed order. */

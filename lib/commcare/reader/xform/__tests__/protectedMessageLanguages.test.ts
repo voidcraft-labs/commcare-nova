@@ -10,12 +10,16 @@
  * document whose language holds the default's message, and the publish writes the composition
  * over every language with each language's own forms. A language whose own text says something
  * else than the message it shows is a real difference and stays a finding, and so does a default
- * language missing one of its forms, which falls back to the text itself.
+ * language missing one of its forms, which falls back to the text itself. The branch of a
+ * language HQ removed stays in the expression, and no language a device shows reads it, so it is
+ * rebuilt from the expression alone, whether the source keeps that language's translation, keeps
+ * it without its pieces, or lost it to a save in HQ's form builder.
  *
  * Plausible failures: a language HQ added after the publish refused because the stored
  * composition has no branch for it; a renamed or reordered language refused because the
  * composition was rebuilt in the document's order and codes; a language whose own text differs
- * read as that text though a device shows the default's.
+ * read as that text though a device shows the default's; a removed language's branch refused
+ * once its translation or its words are gone, or where the message names one reference twice.
  */
 
 import { cloneNode, type Element, isTag, isText } from "domhandler";
@@ -60,21 +64,35 @@ function withLanguage(
 	});
 }
 
+/** Spanish's own message: the fixture's references, with words of its own. */
+const SPANISH_MESSAGE: ProseTemplate = {
+	parts: [
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal `${` is what makes a message protected
+		{ kind: "text", text: "Literal en español ${0}; " },
+		{ kind: "field-ref", uuid: CONSTRAINT_VALUE },
+		{ kind: "text", text: " / " },
+		{ kind: "field-ref", uuid: CONSTRAINT_CHECKED },
+	],
+};
+
+/** `doc` with the checked question's message replaced by `message`. */
+function withMessage(doc: BlueprintDoc, message: ProseTemplate): BlueprintDoc {
+	return produce(doc, (draft) => {
+		(
+			draft.fields[CONSTRAINT_CHECKED] as { validate_msg: ProseTemplate }
+		).validate_msg = message;
+	});
+}
+
 /** The app in English and Spanish, Spanish with a message of its own. */
-function spanishTranslated(): BlueprintDoc {
-	const doc = withLanguage(englishApp(), "spa", "es");
+function spanishTranslated(
+	english: BlueprintDoc = englishApp(),
+	spanish: ProseTemplate = SPANISH_MESSAGE,
+): BlueprintDoc {
+	const doc = withLanguage(english, "spa", "es");
 	const source = (
 		doc.fields[CONSTRAINT_CHECKED] as { validate_msg: ProseTemplate }
 	).validate_msg;
-	const spanish: ProseTemplate = {
-		parts: [
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal `${` is what makes a message protected
-			{ kind: "text", text: "Literal en español ${0}; " },
-			{ kind: "field-ref", uuid: CONSTRAINT_VALUE },
-			{ kind: "text", text: " / " },
-			{ kind: "field-ref", uuid: CONSTRAINT_CHECKED },
-		],
-	};
 	return produce(doc, (draft) => {
 		const translations = draft.localization?.translations as Record<
 			string,
@@ -214,6 +232,38 @@ const englishLocaleRemoved = () =>
 		);
 	});
 
+/** `lang`'s translation removed, as a save in HQ's form builder of an app that no longer lists
+ *  it leaves the form (`javaRosa/plugin.js::loadXML` reads no language the app does not list),
+ *  `markDefault` then marked the default, as the save marks the app's first language. */
+const translationDropped = (lang: string, markDefault: string) =>
+	editMessage((root) => {
+		const translation = translationOf(root, lang);
+		const itext = translation?.parent;
+		if (
+			translation === null ||
+			itext === null ||
+			itext === undefined ||
+			!isTag(itext)
+		)
+			throw new Error(`No translation of ${lang}.`);
+		itext.children = itext.children.filter((child) => child !== translation);
+		const kept = translationOf(root, markDefault);
+		if (kept === null) throw new Error(`No translation of ${markDefault}.`);
+		kept.attribs.default = "";
+	});
+
+/** `lang`'s `__nova_piece_` forms of the message removed. */
+const piecesDropped = (lang: string) =>
+	editMessage((root) => {
+		const text = messageText(root, lang);
+		if (text === null) throw new Error(`No text of the message in ${lang}.`);
+		text.children = text.children.filter(
+			(child) =>
+				!isTag(child) ||
+				!(child.attribs.form ?? "").startsWith("__nova_piece_"),
+		);
+	});
+
 async function reading(
 	doc: BlueprintDoc,
 	langs: readonly string[],
@@ -323,6 +373,111 @@ describe("a protected validation message in each language Core shows it in", () 
 		]);
 		expect(questionFindings(outcome)).toEqual([]);
 		expect(outcome.defects).toEqual([]);
+	});
+
+	// `edit_app_langs` changes `langs` alone: the removed language's branch stays in the stored
+	// expression, which no language a device shows reads (HQ's build drops the translation,
+	// `XForm.exclude_languages`), and its translation stays in the form until a save in HQ's form
+	// builder drops it. The branch is rebuilt from the expression alone, whatever the source keeps
+	// of the translation, and the first publish writes the composition over the languages left,
+	// with no translation of the removed one.
+	for (const [name, edit] of [
+		["keeps its translation", undefined],
+		[
+			"a save in HQ's form builder dropped its translation",
+			() => translationDropped("es", "en"),
+		],
+		["its translation lacks its pieces", () => piecesDropped("es")],
+	] as const)
+		it(`reads a message whose stored composition keeps the branch of a language CommCare HQ removed, the last, where ${name}`, async () => {
+			const counted = edit?.();
+			// One document, so both readings hold one menu (the fixture mints its menu's UUID).
+			const english = englishApp();
+			const edited = await reading(
+				spanishTranslated(english),
+				["en"],
+				counted?.xml,
+			);
+			if (counted !== undefined) expect(counted.edits()).toBeGreaterThan(0);
+			expect(questionFindings(edited)).toEqual([]);
+			expect(edited.defects).toEqual([]);
+			expect(readDoc(edited)).toEqual(readDoc(await reading(english, ["en"])));
+			expect(exportedLocales(readDoc(edited), ["en", "es"])).toEqual({
+				en: "en",
+			});
+		});
+
+	for (const [name, edit] of [
+		["keeps its translation", undefined],
+		[
+			"a save in HQ's form builder dropped its translation",
+			() => translationDropped("en", "es"),
+		],
+		["its translation lacks its pieces", () => piecesDropped("en")],
+	] as const)
+		it(`reads a message whose stored composition keeps the branch of a language CommCare HQ removed, one it tests first, where ${name}`, async () => {
+			const counted = edit?.();
+			const edited = await reading(spanishTranslated(), ["es"], counted?.xml);
+			if (counted !== undefined) expect(counted.edits()).toBeGreaterThan(0);
+			expect(questionFindings(edited)).toEqual([]);
+			expect(edited.defects).toEqual([]);
+			const message = Object.values(readDoc(edited).fields)
+				.map(
+					(field) => (field as { validate_msg?: ProseTemplate }).validate_msg,
+				)
+				.find((template) => template !== undefined);
+			// The reading mints its fields' UUIDs: the words, and a reference at each place.
+			const shape = (template: ProseTemplate | undefined) =>
+				template?.parts.map((part) =>
+					part.kind === "text" ? part : part.kind,
+				);
+			expect(shape(message)).toEqual(shape(SPANISH_MESSAGE));
+			expect(exportedLocales(readDoc(edited), ["en", "es"])).toEqual({
+				es: "es",
+			});
+		});
+
+	it("reads a message whose removed language alone wrote the words that protect it", async () => {
+		const english = withMessage(englishApp(), {
+			parts: [{ kind: "text", text: "Check the value" }],
+		});
+		const both = spanishTranslated(english, {
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal `${` is what makes a message protected
+			parts: [{ kind: "text", text: "Revise ${0}" }],
+		});
+		const edit = translationDropped("es", "en");
+		const edited = await reading(both, ["en"], edit.xml);
+		expect(edit.edits()).toBeGreaterThan(0);
+		expect(questionFindings(edited)).toEqual([]);
+		expect(edited.defects).toEqual([]);
+		expect(readDoc(edited)).toEqual(readDoc(await reading(english, ["en"])));
+	});
+
+	it("reads a message that names one reference twice, beside the branch of a language CommCare HQ removed", async () => {
+		const repeated: ProseTemplate = {
+			parts: [
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal `${` is what makes a message protected
+				{ kind: "text", text: "Literal ${0}; " },
+				{ kind: "field-ref", uuid: CONSTRAINT_VALUE },
+				{ kind: "text", text: " / " },
+				{ kind: "field-ref", uuid: CONSTRAINT_CHECKED },
+				{ kind: "text", text: " / " },
+				{ kind: "field-ref", uuid: CONSTRAINT_VALUE },
+			],
+		};
+		const english = withMessage(englishApp(), repeated);
+		const both = spanishTranslated(english, {
+			parts: [...SPANISH_MESSAGE.parts, ...repeated.parts.slice(-2)],
+		});
+		const whole = await reading(both, ["en", "es"]);
+		expect(questionFindings(whole)).toEqual([]);
+		expect(whole.defects).toEqual([]);
+		const edit = translationDropped("es", "en");
+		const edited = await reading(both, ["en"], edit.xml);
+		expect(edit.edits()).toBeGreaterThan(0);
+		expect(questionFindings(edited)).toEqual([]);
+		expect(edited.defects).toEqual([]);
+		expect(readDoc(edited)).toEqual(readDoc(await reading(english, ["en"])));
 	});
 
 	it("leaves the message unclaimed where a language's own text is not the message it shows", async () => {

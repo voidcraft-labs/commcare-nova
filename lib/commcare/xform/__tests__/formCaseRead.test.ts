@@ -65,7 +65,11 @@ const householdRemark: Expression = {
  * `identifier`, and whose follow-up shows its note only while the household
  * has no remark.
  */
-function members(identifier: string, advanced: boolean): BlueprintDoc {
+function members(
+	identifier: string,
+	advanced: boolean,
+	relationship: "child" | "extension" = "child",
+): BlueprintDoc {
 	return advancedFixture({
 		formType: "followup",
 		menu: "members",
@@ -101,7 +105,7 @@ function members(identifier: string, advanced: boolean): BlueprintDoc {
 								identifier,
 								targetType: "household",
 								target: { kind: "session" },
-								relationship: "child",
+								relationship,
 							},
 						],
 					},
@@ -276,14 +280,64 @@ describe("a read of the household from a member", () => {
 		).toBe("the chosen household");
 	});
 
+	it("reads the household an evaluation's records extend, under the extension's own name and relationship", () => {
+		// The member's catalog relationship is child, but the app extends the
+		// household as `host`: the record's edge carries the link's name and
+		// relationship, as a submitted member's does.
+		const doc = members("host", false, "extension");
+		const snapshot = evaluationScenarioCases(doc, "worker-1", {
+			records: [
+				{
+					id: "chosen",
+					caseType: "household",
+					properties: { remark: "the extended household" },
+				},
+				{ id: "member-1", caseType: "member", parentId: "chosen" },
+			],
+		});
+		expect(
+			snapshot.indices.map((index) => [index.identifier, index.relationship]),
+		).toEqual([["host", "extension"]]);
+		expect(
+			snapshot.rows.find((row) => row.case_id === "member-1")?.parent_case_id,
+		).toBeNull();
+		const text = serializeWire(
+			formSessionBindings(doc, UNDER_TEST).formCaseProperty(
+				"household",
+				"remark",
+			),
+			{ target: "preview" },
+		).text;
+		expect(text).toContain("/index/host]");
+		const casedb = caseDatabaseXPathInstance(snapshot, doc.caseTypes ?? []);
+		const session = commcareSessionXPathInstance(
+			{ context: {}, user: {}, userPropertySlugs: {} } as never,
+			{ case_id: "member-1" },
+		);
+		expect(
+			evaluate(text, {
+				getValue: () => undefined,
+				contextPath: "/data",
+				position: undefined,
+				resolveXPathInstance: (id) =>
+					id === "casedb"
+						? casedb
+						: id === "commcaresession"
+							? session
+							: undefined,
+			}),
+		).toBe("the extended household");
+	});
+
 	it.each([
-		["parent", "an advanced", true],
-		["home", "an advanced", true],
-		["home", "a basic", false],
-	])(
+		["parent", "an advanced", true, "child"],
+		["home", "an advanced", true, "child"],
+		["home", "a basic", false, "child"],
+		["host", "a basic", false, "extension"],
+	] as const)(
 		"reads a walk through `%s` in %s menu back from its export to the same document, with no finding",
-		async (identifier, _menu, advanced) => {
-			const doc = members(identifier, advanced);
+		async (identifier, _menu, advanced, relationship) => {
+			const doc = members(identifier, advanced, relationship);
 			const told = {
 				resolver: matchingResolver(
 					"app-1",

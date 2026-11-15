@@ -277,19 +277,74 @@ describe("blank values", () => {
 });
 
 describe("more forms of a text", () => {
-	it("refuses a markdown copy that some languages hold and others do not", async () => {
-		const reading = await readForm(
-			oneLabel("l", {
-				en: `<text id="l"><value>A</value><value form="markdown">A</value></text>`,
-				fr: `<text id="l"><value>B</value></text>`,
-			}),
-			{ langs: ["en", "fr"] },
-		);
-		expect(codes(reading)).toEqual([
-			Q("a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk"),
-		]);
-		expect(unclaimedText(reading)).toEqual([]);
-	});
+	// Core shows a language without the copy the default's copy where a runtime asks for it
+	// (`Localizer.getLocaleData`) and the language's own text where it reads the text alone
+	// (Android's form hierarchy, `getLongText`).
+	for (const [name, en, fr] of [
+		[
+			"a language that lacks it holds other text than the default's copy",
+			`<text id="l"><value>A</value><value form="markdown">A</value></text>`,
+			`<text id="l"><value>B</value></text>`,
+		],
+		[
+			"the default language lacks it",
+			`<text id="l"><value>A</value></text>`,
+			`<text id="l"><value>A</value><value form="markdown">A</value></text>`,
+		],
+		[
+			"a language holds it beside no text of its own, other than the default's text",
+			`<text id="l"><value>A</value><value form="markdown">A</value></text>`,
+			`<text id="l"><value form="markdown">B</value></text>`,
+		],
+	] as const)
+		it(`refuses a markdown copy that some languages hold where ${name}`, async () => {
+			const reading = await readForm(oneLabel("l", { en, fr }), {
+				langs: ["en", "fr"],
+			});
+			expect(codes(reading)).toEqual([
+				Q("a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk"),
+			]);
+			expect(unclaimedText(reading)).toEqual([]);
+		});
+
+	for (const [name, fr, blanks] of [
+		[
+			"lacks it holds the default's copy as its text",
+			`<text id="l"><value>**A**</value></text>`,
+			0,
+		],
+		[
+			"lacks it holds a blank the form builder fills from the default",
+			`<text id="l"><value/></text>`,
+			1,
+		],
+		// The language shows the default's text where a runtime reads the text alone
+		// (`new Localizer(true, true)` lays the default's keys under its own) and its own copy,
+		// the same text, where a runtime asks for the copy: it reads as untranslated.
+		[
+			"holds no text of its own holds the default's text as its copy",
+			`<text id="l"><value form="markdown">**A**</value></text>`,
+			0,
+		],
+	] as const)
+		it(`holds a markdown copy the default holds where each language that ${name}`, async () => {
+			const reading = await readForm(
+				oneLabel("l", {
+					en: `<text id="l"><value>**A**</value><value form="markdown">**A**</value></text>`,
+					fr,
+					es: `<text id="l"><value>**A**</value><value form="markdown">**A**</value></text>`,
+				}),
+				{ langs: ["en", "fr", "es"] },
+			);
+			expect(codes(reading)).toEqual([]);
+			expect(unclaimedText(reading)).toEqual([]);
+			expect(field(reading, "q").label).toEqual(proseText("**A**"));
+			// Markdown on: the text shows its copy in every language.
+			expect(field(reading, "q").plainLabel).toBeUndefined();
+			expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(
+				blanks,
+			);
+		});
 
 	it("refuses a big image, a QR code and a spoken form on a label", async () => {
 		const reading = await readForm(

@@ -234,8 +234,9 @@ export interface SearchPromptWire {
 /**
  * Lower one search input through its actual owning slots. The module factory
  * supplies the current search-input identities and each slot's lexical scope.
- * `rewrites` is the reader's control over the rewrites each slot's print
- * reaches (`emissionRewrites.ts`); an export passes none.
+ * `rewrites` gives the reader's control over the rewrites one slot's print
+ * reaches (`emissionRewrites.ts`), asked once per print of that slot, so each
+ * slot of the input is printed under its own control; an export passes none.
  */
 export function searchPromptWire(
 	input: SearchInputDef,
@@ -243,14 +244,14 @@ export function searchPromptWire(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	searchInputInstanceId?: `search-input:${string}`,
-	rewrites?: RewriteControl,
+	rewrites?: SearchPromptRewrites,
 ): SearchPromptWire {
 	const emission: PromptEmissionContext = {
 		types: (slot) =>
 			expressions({ slot, member: { searchInputUuid: input.uuid } }),
 		lookupNaming,
 		searchInputInstanceId,
-		...(rewrites === undefined ? {} : { rewrites }),
+		rewrites: (slot) => rewrites?.(slot),
 	};
 	const mapping = promptAttributeMapping(input);
 	// When `input.label` is empty the locale registers `input.name`
@@ -487,16 +488,32 @@ export function getAdvancedArmPredicates(
 
 // ── Internal helpers ─────────────────────────────────────────────
 
-/** What one prompt's lowering reads, and where it records its instances. */
-type PromptSlot = Extract<
+/** A Search field's expression slot: the prompt's own slots of the module's expressions. */
+export type SearchPromptSlot = Extract<
 	ModuleExpressionSlotRef,
 	{ member: { searchInputUuid: unknown } }
 >["slot"];
+
+/** The reader's control over the rewrites one Search field slot's print reaches, by slot, asked
+ *  once per print of the slot; undefined where the slot prints as an export does. */
+export type SearchPromptRewrites = (
+	slot: SearchPromptSlot,
+) => RewriteControl | undefined;
+
+/** A print's options carrying `rewrites` where there is one. */
+function withRewrites(rewrites: RewriteControl | undefined): {
+	readonly rewrites?: RewriteControl;
+} {
+	return rewrites === undefined ? {} : { rewrites };
+}
+
+/** What one prompt's lowering reads, and where it records its instances. */
 interface PromptEmissionContext {
-	readonly types: (slot: PromptSlot) => ExpressionContext;
+	readonly types: (slot: SearchPromptSlot) => ExpressionContext;
 	readonly searchInputInstanceId?: `search-input:${string}`;
 	readonly lookupNaming: LookupWireNaming | undefined;
-	readonly rewrites?: RewriteControl;
+	/** The control one slot's print takes, asked once per print. */
+	readonly rewrites: SearchPromptRewrites;
 }
 
 /**
@@ -574,9 +591,7 @@ function buildItemset(
 			types: emission.types("search_input_options"),
 			naming: lookupNaming,
 			instanceScope: "suite",
-			...(emission.rewrites === undefined
-				? {}
-				: { rewrites: emission.rewrites }),
+			...withRewrites(emission.rewrites("search_input_options")),
 		}),
 		label: w.context([w.step(table.wireNameFor(options.labelColumnId))]),
 		value: w.context([w.step(table.wireNameFor(options.valueColumnId))]),
@@ -698,7 +713,7 @@ function emitScreenPredicate(
 				? {}
 				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 		},
-		...(emission.rewrites === undefined ? {} : { rewrites: emission.rewrites }),
+		...withRewrites(emission.rewrites(slot)),
 	});
 }
 
@@ -758,6 +773,6 @@ function compileDefaultExpression(
 				? {}
 				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 		},
-		...(emission.rewrites === undefined ? {} : { rewrites: emission.rewrites }),
+		...withRewrites(emission.rewrites(slot)),
 	});
 }

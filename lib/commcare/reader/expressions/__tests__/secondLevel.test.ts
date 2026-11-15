@@ -426,3 +426,73 @@ describe("the tree a slot held at the second level stores", () => {
 		).toBe(true);
 	});
 });
+
+describe("a case choices filter held at the second level", () => {
+	// The filter prints inside the itemset's `casedb` row through `caseOptionsNodeset`, which
+	// takes the reader's control like every other print. The failure it catches: the control
+	// dropped before the filter's print, so a filter spelled without a rewrite Nova's print
+	// reaches is left unrecognized at both levels.
+	function choicesDoc(): BlueprintDoc {
+		return buildDoc({
+			caseTypes: [
+				{
+					name: "clinic",
+					properties: [
+						{ name: "clinic_name", label: "Clinic name" },
+						{ name: "kind", label: "Kind" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "r",
+									label: "Members",
+									repeat_mode: "user_controlled",
+									children: [
+										f({ kind: "text", id: "k", label: "Kind" }),
+										f({
+											kind: "single_select",
+											id: "pick",
+											label: "Clinic",
+											optionsSource: {
+												kind: "cases",
+												caseType: "clinic",
+												labelProperty: "clinic_name",
+											},
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("holds a filter keyed by its repeat's answer by the absolute path, reporting its relocation", () => {
+		const text = "kind = /data/r/k";
+		const { reading, prints } = readSlot(
+			choicesDoc(),
+			(doc) => ({
+				entity: "field",
+				uuid: fieldNamed(doc, "pick"),
+				slot: "lookup_options_source",
+			}),
+			text,
+		);
+		expect(reading.circumstances).toEqual([]);
+		expect(reading.rewrites.map((one) => one.id)).toEqual([
+			"row-predicate-current",
+		]);
+		expect(prints?.own).toContain("current()/../k");
+	});
+});

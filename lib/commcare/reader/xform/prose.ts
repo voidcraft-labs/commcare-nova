@@ -1354,7 +1354,7 @@ function readSlotText(
 			} else cursor.take({ element: value.element }, X.itext.value).value;
 		}
 
-		claimMarkdown(input, owner, place, read, markdown);
+		claimMarkdown(input, owner, place, read, markdown, defaultLanguage);
 		for (const values of itext.allValues(id).values())
 			for (const value of values) claimOtherForm(input, owner, place, value);
 	}
@@ -1395,13 +1395,32 @@ function readSlotText(
 	};
 }
 
-/** The markdown copy of a text, by the table of 12.2. */
+/**
+ * The markdown copy of a text, by the table of 12.2.
+ *
+ * Core shows a language the default language's copy where the language's own text holds none
+ * (`Localizer.getLocaleData` lays the language's keys over the default locale's, and
+ * `FormEntryCaption.getMarkdownText` reads `<id>;markdown` from that merge), while the places
+ * that read the text without its copy show the language's own value (Android's form hierarchy,
+ * `FormHierarchyBuilder` through `getLongText`; Web Apps' `caption`), and the default's where
+ * the language holds a copy and no value of its own (the same merge; the form's localizer is
+ * `new Localizer(true, true)`, `XFormParser`). So a copy some languages lack, or a copy a
+ * language holds beside no value, is held only where each language that lacks the copy holds
+ * the default's copy as its value, or a blank the form builder fills from the default, and each
+ * language that lacks the value holds the default's value as its copy: every place then shows
+ * one text, the language read as untranslated where it holds no value, which Nova writes with
+ * markdown on in every language, what the first publish adds a spelling of the same text
+ * (`forms-and-settings-rewritten`). A copy the default lacks breaks the language that holds it
+ * (`getLocaleData` refuses a key the default locale lacks), and a language whose copy and shown
+ * value differ shows two texts in one language.
+ */
 function claimMarkdown(
 	input: ReadTextInput,
 	owner: ItextOwner,
 	place: HqPlace,
 	read: ReadonlyMap<LanguageTag, ReadValue>,
 	markdown: ReadonlyMap<LanguageTag, Element>,
+	defaultLanguage: LanguageTag,
 ): void {
 	const { cursor } = input;
 	if (markdown.size === 0) return;
@@ -1423,23 +1442,36 @@ function claimMarkdown(
 		refuseAll(X.markdownFormattingOff);
 		return;
 	}
-	const someOnly =
-		markdown.size !== read.size ||
-		[...markdown.keys()].some((language) => !read.has(language));
-	if (someOnly) {
+	const defaultCopy = markdown.get(defaultLanguage);
+	const defaultValue = read.get(defaultLanguage);
+	const lacking = [...read].filter(([language]) => !markdown.has(language));
+	const bare = [...markdown].filter(([language]) => !read.has(language));
+	const showsOneText =
+		defaultCopy !== undefined &&
+		defaultValue !== undefined &&
+		bare.every(([, copy]) => sameValueNodes(defaultValue.element, copy)) &&
+		lacking.every(
+			([, value]) =>
+				sameValueNodes(value.element, defaultCopy) ||
+				(valueIsBlank(value) && !valueIsBlank(defaultValue)),
+		);
+	if (!showsOneText) {
 		refuseAll(X.markdownSomeLanguages);
 		return;
 	}
 	const equal = [...markdown].every(([language, value]) => {
 		const own = read.get(language);
-		return own !== undefined && sameValueNodes(own.element, value);
+		return own === undefined || sameValueNodes(own.element, value);
 	});
 	if (!equal) {
 		refuseAll(X.markdownDiffering);
 		return;
 	}
-	for (const value of markdown.values())
-		cursor.takeSubtree(value, X.markdownEqual).value;
+	const claim =
+		lacking.length === 0 && bare.length === 0
+			? X.markdownEqual
+			: X.markdownSomeLanguagesOneText;
+	for (const value of markdown.values()) cursor.takeSubtree(value, claim).value;
 }
 
 /** A value of a form other than the default, markdown and media: by the table of 12.2. */

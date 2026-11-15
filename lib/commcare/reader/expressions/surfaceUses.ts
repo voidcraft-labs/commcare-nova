@@ -282,8 +282,15 @@ function instanceClass(
 			return inlineForm ? "inline-search-form" : "non-inline-search-form";
 		case "search-input":
 			// A Search field's own slots run while the query is built, where
-			// the legacy id reads too.
-			if (inModule && slot.startsWith("search_input_")) return "query-build";
+			// the legacy id reads too, and so does the owner exclusion: HQ's
+			// build writes it as a query datum (`remote_requests.py`,
+			// `x_commcare_blacklisted_owner_ids`), which Core evaluates with the
+			// answers (`RemoteQuerySessionManager.getRawQueryParams`).
+			if (
+				inModule &&
+				(slot.startsWith("search_input_") || slot === "excluded_owner_ids")
+			)
+				return "query-build";
 			// The legacy id is provided only while the query is built.
 			if (!id.includes(":")) return "legacy-after-query";
 			if (inModule)

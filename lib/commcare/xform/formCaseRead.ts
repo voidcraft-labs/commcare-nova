@@ -38,8 +38,13 @@ export function formCaseWalk(
  * where `<id>` is the selected case's session datum (`session/data/case_id`
  * unless root alignment renamed it); each ancestor is one index hop further
  * up, under the index the app links each type to its parent by
- * (`caseTypeDepths.ts::caseTypeHopMap`), so an advanced form reads the case
- * its chained load was chosen through. A registration form's own `case_id`
+ * (`caseTypeDepths.ts::caseTypeHopMap`). Where the app's child links between
+ * two types use one name, the walk is that name, the one an advanced chain
+ * lists a case under (`index/<reference_id>`) and the only child index a
+ * basic parent selection lists it under, so a form reads the case its parent
+ * selection chose; where that name is not on every case the app links, the
+ * gate refuses the read (`FORM_CASE_READ_ACROSS_SEVERAL_LINKS`). A
+ * registration form's own `case_id`
  * is the id its entry allocated, `session/data/case_id_new_<type>_0`.
  */
 export function formCasePropertyRead(args: {

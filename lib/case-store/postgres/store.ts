@@ -1958,6 +1958,10 @@ export class PostgresCaseStore implements CaseStore {
 			project_id: this.requireProjectId(),
 			owner_id: args.ownerId ?? this.requireOwnerId(),
 			...creationStamps(args.row),
+			parent_case_id: parentColumn(
+				args.row.parent_case_id,
+				args.parentIdentifier,
+			),
 			properties: JSON.stringify(propertiesObject),
 		};
 		const plain = trx.insertInto("cases").values(insertRow);
@@ -2227,6 +2231,10 @@ export class PostgresCaseStore implements CaseStore {
 								),
 							}),
 					...creationStamps(row),
+					parent_case_id: parentColumn(
+						row.parent_case_id,
+						args.parentIdentifier,
+					),
 					properties: JSON.stringify(propertiesObject),
 				};
 			},
@@ -2316,6 +2324,7 @@ export class PostgresCaseStore implements CaseStore {
 			caseId: string;
 			patch: CaseUpdate;
 			parentRelationship?: CaseIndicesTable["relationship"];
+			parentIdentifier?: string;
 		},
 	): Promise<void> {
 		// Discover the immutable type without a row lock, then acquire its schema
@@ -2375,9 +2384,19 @@ export class PostgresCaseStore implements CaseStore {
 			});
 		}
 
-		const { properties: _patchProperties, ...patchRest } = args.patch;
+		const {
+			properties: _patchProperties,
+			parent_case_id: patchParent,
+			...patchRest
+		} = args.patch;
+		const parentIdentifier = args.parentIdentifier ?? "parent";
 		const normalizedPatch = {
 			...patchRest,
+			// The column is the case's `parent` index alone (`parentColumn`), so
+			// a parent assigned under another index leaves it as it stands.
+			...(patchParent === undefined || parentIdentifier !== "parent"
+				? {}
+				: { parent_case_id: patchParent }),
 			...(args.patch.case_name === undefined
 				? {}
 				: {
@@ -2414,6 +2433,7 @@ export class PostgresCaseStore implements CaseStore {
 		if (args.patch.parent_case_id === null) {
 			await this.rebuildParentEdge(trx, {
 				caseId: args.caseId,
+				identifier: parentIdentifier,
 				newParent: null,
 			});
 		} else if (args.patch.parent_case_id !== undefined) {
@@ -2429,6 +2449,7 @@ export class PostgresCaseStore implements CaseStore {
 			}
 			await this.rebuildParentEdge(trx, {
 				caseId: args.caseId,
+				identifier: parentIdentifier,
 				newParent: args.patch.parent_case_id,
 				targetCaseType: parentTargetType,
 				relationship: args.parentRelationship,
@@ -3408,7 +3429,8 @@ export class PostgresCaseStore implements CaseStore {
 		const { caseIds } = await this.insertManyInTransaction(trx, {
 			appId: args.appId,
 			rows,
-			parentRelationship: args.caseType.relationship ?? "child",
+			parentRelationship:
+				args.parentRelationship ?? args.caseType.relationship ?? "child",
 			...(args.parentIdentifier === undefined
 				? {}
 				: { parentIdentifier: args.parentIdentifier }),
@@ -3531,6 +3553,9 @@ export class PostgresCaseStore implements CaseStore {
 				...(args.parentIdentifier === undefined
 					? {}
 					: { parentIdentifier: args.parentIdentifier }),
+				...(args.parentRelationship === undefined
+					? {}
+					: { parentRelationship: args.parentRelationship }),
 			});
 
 			return { deleted, inserted };
@@ -4726,11 +4751,13 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Re-derive the parent edge in `case_indices` after an UPDATE
-	 * that changed `parent_case_id`. Direct edges only — recursive
-	 * walks compose at read time via `compileRelationPath`.
+	 * Re-derive the parent edge in `case_indices` after an UPDATE that
+	 * assigned or cleared a parent, under `identifier`, the index the
+	 * caller names the parent by (`parent` unless it says otherwise, as
+	 * `insert` takes it). Direct edges only — recursive walks compose at
+	 * read time via `compileRelationPath`.
 	 *
-	 * The DELETE is broad — every `'parent'` edge for the case —
+	 * The DELETE is broad — every edge of the case under `identifier` —
 	 * so leftover edges from any prior shape don't accumulate. The
 	 * INSERT skips when `newParent` is null (clearing the edge). A non-null
 	 * assignment requires its authoritative relationship explicitly; preserving
@@ -4742,26 +4769,28 @@ export class PostgresCaseStore implements CaseStore {
 		args:
 			| {
 					readonly caseId: string;
+					readonly identifier: string;
 					readonly newParent: string;
 					readonly targetCaseType: string;
 					readonly relationship: CaseIndicesTable["relationship"];
 			  }
 			| {
 					readonly caseId: string;
+					readonly identifier: string;
 					readonly newParent: null;
 			  },
 	): Promise<void> {
 		await trx
 			.deleteFrom("case_indices")
 			.where("case_indices.case_id", "=", args.caseId)
-			.where("case_indices.identifier", "=", "parent")
+			.where("case_indices.identifier", "=", args.identifier)
 			.execute();
 		if (args.newParent !== null) {
 			const edge: Insertable<CaseIndicesTable> = {
 				case_id: args.caseId,
 				ancestor_id: args.newParent,
 				target_case_type: args.targetCaseType,
-				identifier: "parent",
+				identifier: args.identifier,
 				relationship: args.relationship,
 				depth: 1,
 			};
@@ -5422,4 +5451,25 @@ function assertSafeIdentifierFragment(fragment: string): void {
 			}),
 		);
 	}
+}
+
+/**
+ * What `cases.parent_case_id` holds for a case whose parent `parent` is
+ * named under `identifier` (`parent` where omitted): the target of the case's
+ * `parent` index, and nothing for an index named otherwise. Every writer
+ * keeps this one meaning: `insert`, the bulk sample path, `update`, and a
+ * submission's link (`submissionEnvelope.ts::applyLinkEffect`), so a case's
+ * column never depends on which writer made it. It is denormalized: every
+ * read of a relationship (the device casedb, relation walks, the restore
+ * scope, a parent selection, the sample detach) reads `case_indices`.
+ */
+function parentColumn(
+	parent: string | null | undefined,
+	identifier: string | undefined,
+): string | null {
+	return parent !== null &&
+		parent !== undefined &&
+		(identifier ?? "parent") === "parent"
+		? parent
+		: null;
 }

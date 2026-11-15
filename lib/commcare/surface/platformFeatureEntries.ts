@@ -183,6 +183,8 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"A saved form's name on Android, derived from the form's name.",
 	"questions/markdown-form-equal-to-the-default-text":
 		"How each platform renders every label's markdown; stated once in the public docs.",
+	"questions/a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s":
+		"The same markdown text as a copy in every language; renderer only.",
 	"questions/label-image-audio-video-same-asset-every-language":
 		"Renderer only.",
 	"questions/hint-text":

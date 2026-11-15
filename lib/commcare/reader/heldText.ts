@@ -10,19 +10,24 @@
  * What a worker reads is the bar (`hqDeviceText`). HQ's build writes each
  * text on one line of a locale file (`commcare_translations.py::dumps`): a
  * text Python reads as blank as one non-breaking space, which a device shows
- * as a blank text, and a line break as the two characters `\n`. CommCare
- * Core's locale reader trims each line (`LocalizationUtils.parseAndAdd`,
- * Java's `String.trim()`) and only then turns `\n` back into a line break
- * (`parseValue`), so the characters up to U+0020 at a text's end are gone,
- * but for a line break, and those at its start stay. Nova's gate admits no
- * text with a character up to U+0020 at either end
- * (`localeFile.ts::localeFileValueIssue`) and no blank translation of a text
- * whose role requires one (`translationUnits.ts`,
+ * as a blank text, and a line break as the two characters `\n`, which it
+ * also writes for a text that holds those two characters. CommCare Core's
+ * locale reader ends a line at a carriage return (`BufferedReader.readLine`),
+ * trims each line (`LocalizationUtils.parseAndAdd`, Java's `String.trim()`)
+ * and only then turns `\n` back into a line break (`parseValue`), so the
+ * characters up to U+0020 at a text's end are gone, but for a line break,
+ * those at its start stay, the two characters `\n` show as a line break, and
+ * only the text before a carriage return shows, each line after it read as an
+ * app string of its own (`keyDefinedAfterLineEnd`). Nova's gate admits no
+ * text with a character up to U+0020 at either end, a carriage return or the
+ * two characters `\n` (`localeFile.ts::localeFileValueIssue`) and no blank
+ * translation of a text whose role requires one (`translationUnits.ts`,
  * `contentPolicy: "require-nonblank"`), so a reading holds:
  *
- * - each language's text with the characters up to U+0020 at both ends
- *   dropped, unless it is only spaces, which Nova writes blank as HQ's build
- *   does (`holdText`);
+ * - each language's text as a device shows it: the text before a carriage
+ *   return, each `\n` a line break, and the characters up to U+0020 at both
+ *   ends dropped, unless it is only spaces, which Nova writes blank as HQ's
+ *   build does (`holdText`);
  * - the source language's text in the slot, and each other language's as a
  *   translation where it differs, except a blank-looking one beside a source
  *   that is not, for a role that requires text: that language takes the
@@ -34,26 +39,49 @@
  * respelling id; where it does (a blank-looking language that takes the
  * source's text, a space dropped at a text's start, a line break dropped at
  * either end) the reading records `text-spaces-dropped`
- * (`recordTextRewrite`). A text with a literal `\n`, a carriage return or a
- * character XML cannot hold has no spelling Nova's gate admits, and its reader
- * leaves it unclaimed.
+ * (`recordTextRewrite`). A text whose rest after a carriage return defines
+ * another app string is refused
+ * (`application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`):
+ * a held text where its rewrite is recorded (`refuseLineEndKey`), a text
+ * compared with HQ's default and an app translation at its own key. A text a
+ * device shows none of, or that holds a character XML cannot hold, has no
+ * spelling Nova's gate admits, and its reader leaves it unclaimed.
  */
 
 import {
 	type TranslationUnitRole,
 	translationRoleRequiresNonblank,
 } from "@/lib/domain/translationUnits";
+import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
 	hqLocaleFileValue,
 	isPythonSpace,
 	localeFileValueIssue,
 } from "../localeFile";
 import { xmlTextIssue } from "../xmlText";
+import { defineClaims, refuse } from "./claims";
 import type { ReadContext } from "./context";
+import { shownText } from "./hqText";
+import { isJsonObject } from "./jsonCursor";
+import { appPlace } from "./place";
 import type { SameStateRegister } from "./types";
 
+const CLAIMS = defineClaims("heldText", {
+	/** A text whose rest after a carriage return HQ's build writes as a line that defines an
+	 *  app string: a finding where the text's rewrite is recorded (`refuseLineEndKey`), and a
+	 *  key's own claim where a reader refuses the key that holds such a text. */
+	lineEndDefinesKey: refuse(
+		"application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string",
+		null,
+	),
+});
+
+/** The claim of a text whose rest after a carriage return defines an app string, for a reader
+ *  that refuses such a text at its own key. */
+export const LINE_END_DEFINES_KEY = CLAIMS.lineEndDefinesKey;
+
 /** Whether Python's `str.strip()` leaves `text` empty: every character of it is a space. */
-function pythonBlank(text: string): boolean {
+export function pythonBlank(text: string): boolean {
 	for (let index = 0; index < text.length; index += 1)
 		if (!isPythonSpace(text.charCodeAt(index))) return false;
 	return true;
@@ -65,23 +93,96 @@ function trimmedByCore(text: string, index: number): boolean {
 	return text.charCodeAt(index) <= 0x20;
 }
 
+/** Java's `String.trim()`: every character up to U+0020 at both ends dropped. */
+function javaTrim(text: string): string {
+	let start = 0;
+	let end = text.length;
+	while (start < end && trimmedByCore(text, start)) start += 1;
+	while (end > start && trimmedByCore(text, end - 1)) end -= 1;
+	return text.slice(start, end);
+}
+
+/** Core's `LocalizationUtils.replace`: every occurrence, left to right, none overlapping. */
+function coreReplace(text: string, pattern: string, by: string): string {
+	return text.split(pattern).join(by);
+}
+
+/**
+ * The app string one line of a locale file defines, as CommCare Core's
+ * `LocalizationUtils.parseAndAdd` reads it: the line trimmed, a `#` no
+ * backslash precedes and what follows it dropped, then the key before the
+ * first `=` and the value after it, `\#` read as `#` and then `\n` as a line
+ * break (`parseValue`). Undefined where the line defines nothing: no `=`, or
+ * nothing after it.
+ */
+function coreLocaleLine(
+	text: string,
+): { readonly key: string; readonly value: string } | undefined {
+	let line = javaTrim(text);
+	let dec = line.length;
+	for (;;) {
+		const at = line.slice(0, dec).lastIndexOf("#");
+		if (at === -1) break;
+		if (at === 0 || line[at - 1] !== "\\") {
+			line = line.slice(0, at);
+			dec = line.length;
+		} else dec = at;
+	}
+	const equal = line.indexOf("=");
+	if (equal === -1 || equal === line.length - 1) return undefined;
+	return {
+		key: line.slice(0, equal),
+		value: coreReplace(
+			coreReplace(line.slice(equal + 1), "\\#", "#"),
+			"\\n",
+			"\n",
+		),
+	};
+}
+
+/** The lines Core reads of the one line HQ's build writes for `text` under a key: `dumps`'
+ *  spelling of it, split where `BufferedReader.readLine` ends a line. */
+function writtenLines(text: string): readonly string[] {
+	return hqLocaleFileValue(text).split("\r");
+}
+
+/** The key a text's line is written under here: one with no `=`, `#` or space, since only the
+ *  value's place in the line matters to what Core reads of it. */
+const SOME_KEY = "k";
+
 /**
  * The text a device or Web Apps shows for an app string CommCare HQ's build
  * writes as `text`, `""` for one that shows blank. `commcare_translations.py::dumps`
  * writes a text Python reads as blank as one non-breaking space, a line break
  * as `\n` and a `#` no backslash precedes as `\#` (`localeFile.ts::hqLocaleFileValue`);
- * Core's `LocalizationUtils.parseAndAdd` reads the file a line at a time, a
- * carriage return ending one, trims the line, so the characters up to U+0020
- * at its end are gone, and then reads `\#` as `#` and `\n` as a line break
- * (`parseValue`). A line break at a text's end is therefore shown, and a
- * text's start keeps its spaces.
+ * Core reads the line HQ writes up to a carriage return, trims it, so the
+ * characters up to U+0020 at its end are gone, and then reads `\#` as `#` and
+ * `\n` as a line break (`coreLocaleLine`). A line break at a text's end is
+ * therefore shown, and a text's start keeps its spaces. Where the line holds
+ * nothing after its key, the language's file defines no string, which this
+ * gives as `""` and `holdText` holds no spelling of.
  */
 export function hqDeviceText(text: string): string {
 	if (pythonBlank(text)) return "";
-	const line = hqLocaleFileValue(text).split("\r")[0] ?? "";
-	let end = line.length;
-	while (end > 0 && trimmedByCore(line, end - 1)) end -= 1;
-	return line.slice(0, end).replaceAll("\\#", "#").replaceAll("\\n", "\n");
+	const first = writtenLines(text)[0] ?? "";
+	return coreLocaleLine(`${SOME_KEY}=${first}`)?.value ?? "";
+}
+
+/**
+ * The app string the rest of `text` defines in the locale file HQ's build
+ * writes it into, or undefined where it defines none: HQ's build leaves a
+ * carriage return as it is (`dumps`), Core ends a line there, and reads each
+ * line after it as a line of its own (`coreLocaleLine`), so a rest that holds
+ * `=` with text after it sets the string its key names. A rest whose key is
+ * empty sets no string a runtime asks for, and is none.
+ */
+export function keyDefinedAfterLineEnd(text: string): string | undefined {
+	if (pythonBlank(text)) return undefined;
+	for (const line of writtenLines(text).slice(1)) {
+		const defined = coreLocaleLine(line);
+		if (defined !== undefined && defined.key !== "") return defined.key;
+	}
+	return undefined;
 }
 
 /** Whether a text is blank-looking: what the domain's content policy reads as blank. */
@@ -91,22 +192,30 @@ function blankLooking(text: string): boolean {
 
 /**
  * The text Nova holds for an app string a language shows as `text`, or
- * undefined where Nova's gate admits no spelling of it (a literal `\n` or a
- * carriage return, `localeFileValueIssue`, or a character XML cannot hold,
- * `xmlText.ts::xmlTextIssue`). A text that is only spaces is held as it is, a
- * carriage return in it as a space, since Nova writes it blank as HQ's build
- * does; any other loses the characters up to U+0020 at both ends: the spaces
- * at its end no device showed, and those at its start and a line break at
- * either end a device did (`hqDeviceText`).
+ * undefined where Nova's gate admits no spelling of it: a text a device shows
+ * none of (the line HQ's build writes holds nothing after its key before a
+ * carriage return, so the language defines no string) or one holding a
+ * character XML cannot hold (`xmlText.ts::xmlTextIssue`). A text that is only
+ * spaces is held as it is, a carriage return in it as a space, since Nova
+ * writes it blank as HQ's build does. Any other is held as a device shows it:
+ * the text before a carriage return, each two characters `\n` the line break
+ * Core reads them as (left to right, as `parseValue` reads them: `dumps`
+ * writes a line break as those two characters, so HQ's build writes the same
+ * line for either), and the characters up to U+0020 dropped at both ends: the
+ * spaces at its end no device showed, and those at its start and a line break
+ * at either end a device did (`hqDeviceText`). What the rest after a carriage
+ * return defines is `keyDefinedAfterLineEnd`'s to say.
  */
 export function holdText(text: string): string | undefined {
 	let held = text.replaceAll("\r", " ");
 	if (!blankLooking(text)) {
-		let start = 0;
-		let end = text.length;
-		while (start < end && trimmedByCore(text, start)) start += 1;
-		while (end > start && trimmedByCore(text, end - 1)) end -= 1;
-		held = text.slice(start, end);
+		if (
+			!pythonBlank(text) &&
+			coreLocaleLine(`${SOME_KEY}=${writtenLines(text)[0] ?? ""}`) === undefined
+		)
+			return undefined;
+		const line = text.split("\r")[0] ?? "";
+		held = javaTrim(coreReplace(line, "\\n", "\n"));
 	}
 	return localeFileValueIssue(held) === undefined &&
 		xmlTextIssue(held) === undefined
@@ -199,11 +308,137 @@ const TEXT_REGISTERS: ReadonlySet<SameStateRegister> = new Set([
 	"text-spaces-dropped",
 ]);
 
+/** The value of the source app at a JSON pointer, undefined where none stands there. */
+function sourceValueAt(ctx: ReadContext, path: string): unknown {
+	let node: unknown = ctx.input.source.raw;
+	for (const token of path.split("/").slice(1)) {
+		const step = token.replaceAll("~1", "/").replaceAll("~0", "~");
+		if (Array.isArray(node)) node = node[Number(step)];
+		else if (isJsonObject(node) && Object.hasOwn(node, step)) node = node[step];
+		else return undefined;
+	}
+	return node;
+}
+
+/** The build's languages: the source's `langs`, as HQ's build writes a file for each. */
+function buildLanguages(ctx: ReadContext): readonly string[] {
+	const raw = ctx.input.source.raw;
+	const langs = isJsonObject(raw) ? raw.langs : undefined;
+	return Array.isArray(langs)
+		? langs.filter((one): one is string => typeof one === "string")
+		: [];
+}
+
+/**
+ * Where a finding about the app string stored at `path` stands: a form's text at the form, a
+ * case list's, case detail's or search's at that part of its menu, a menu's at the menu, and
+ * the app's name and its translations at the app.
+ */
+function textPlace(ctx: ReadContext, path: string): HqPlace {
+	const steps = path.split("/").slice(1);
+	if (steps[0] !== "modules") return appPlace();
+	const module = ctx.draft.modules.find(
+		(one) => one.index === Number(steps[1]),
+	);
+	if (module === undefined) return appPlace();
+	if (steps[2] === "forms")
+		return (
+			module.forms.find((one) => one.index === Number(steps[3]))?.place ??
+			module.place
+		);
+	const part =
+		steps[2] === "search_config"
+			? "search"
+			: steps[2] === "case_details" && steps[3] === "long"
+				? "case-detail"
+				: steps[2] === "case_details" ||
+						steps[2] === "case_list" ||
+						steps[2] === "case_list_form"
+					? "case-list"
+					: undefined;
+	if (part === undefined || module.place.kind !== "menu") return module.place;
+	return { kind: part, menu: module.index, name: module.place.name };
+}
+
+const LINE_END_REFUSED = new WeakMap<ReadContext, Set<string>>();
+
+/**
+ * Refuses the app string stored at `path` where a text HQ's build writes of it, in some build
+ * language (`hqText.ts::shownText` over a `{lang: text}` map, the value itself for a string),
+ * holds a rest after a carriage return that defines another app string
+ * (`keyDefinedAfterLineEnd`): the reading holds what devices show of the text, and the rest
+ * would set the wording of the string it names, which no document holds. Once per path.
+ * `recordTextRewrite` calls it; a site that holds a text whose rewrite another register records
+ * (a Register label's `registration-label-fixed`) calls it itself.
+ */
+export function refuseLineEndKey(ctx: ReadContext, path: string): void {
+	const refused = LINE_END_REFUSED.get(ctx) ?? new Set<string>();
+	LINE_END_REFUSED.set(ctx, refused);
+	if (refused.has(path)) return;
+	const key = storedKeyDefinedAfterLineEnd(
+		sourceValueAt(ctx, path),
+		buildLanguages(ctx),
+	);
+	if (key === undefined) return;
+	refused.add(path);
+	ctx.accounting.finding(CLAIMS.lineEndDefinesKey, textPlace(ctx, path), {
+		name: key,
+	});
+}
+
+/**
+ * The app string the rest of a stored text defines after a carriage return
+ * (`keyDefinedAfterLineEnd`) in some language of `langs` HQ's build writes it
+ * in: a `{lang: text}` map as each language shows it (`hqText.ts::shownText`),
+ * a string as it stands. Undefined where none does.
+ */
+export function storedKeyDefinedAfterLineEnd(
+	stored: unknown,
+	langs: readonly string[],
+): string | undefined {
+	const texts: string[] = [];
+	if (typeof stored === "string") texts.push(stored);
+	else if (isJsonObject(stored))
+		for (const code of langs) {
+			const shown = shownText(stored, code, langs);
+			if (shown.ok) texts.push(shown.text);
+		}
+	for (const text of texts) {
+		const key = keyDefinedAfterLineEnd(text);
+		if (key !== undefined) return key;
+	}
+	return undefined;
+}
+
+/**
+ * Whether a device shows `text` in every language of `codes` for a stored
+ * `{lang: text}` app string (`hqText.ts::shownText`, then `hqDeviceText`):
+ * HQ's default, however the map spells it, where `text` is the default's.
+ * Undefined where the build prints a value the reader cannot know.
+ */
+export function showsInEveryLanguage(
+	stored: unknown,
+	codes: readonly string[],
+	text: string,
+): boolean | undefined {
+	let every = true;
+	for (const code of codes) {
+		const shown = shownText(stored, code, codes);
+		if (!shown.ok) return undefined;
+		if (hqDeviceText(shown.text) !== text) every = false;
+	}
+	return every;
+}
+
 /**
  * Records that the first publish rewrites a held text's stored map at `at`:
  * under `text-spaces-dropped` where a worker then reads another text in some
  * language, else under `respelled`, the surface's respelling id. A map is
- * recorded once, the worker's change over the respelling.
+ * recorded once, the worker's change over the respelling. A held text with a
+ * carriage return is always rewritten, since Nova prints none, so a site
+ * records it here, or under another register where it calls
+ * `refuseLineEndKey` itself, and this is where such a text is refused if its
+ * rest defines another app string.
  */
 export function recordTextRewrite(
 	ctx: ReadContext,
@@ -211,6 +446,7 @@ export function recordTextRewrite(
 	respelled: TextRespellingRegister,
 	workersSeeAnother: boolean,
 ): void {
+	refuseLineEndKey(ctx, at.path);
 	const register: SameStateRegister = workersSeeAnother
 		? "text-spaces-dropped"
 		: respelled;

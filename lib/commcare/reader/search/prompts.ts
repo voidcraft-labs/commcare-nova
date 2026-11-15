@@ -712,6 +712,7 @@ function readPrompt(
 		at: { json: JsonCursor; key: string },
 		interpolation: "none" | "no-case" | "no-dots",
 		key: string,
+		deferRefusal = false,
 	) =>
 		ctx.pending.register(
 			{
@@ -725,6 +726,7 @@ function readPrompt(
 				mode: { target: "hq-json", interpolation },
 				place,
 				key,
+				...(deferRefusal && { deferRefusal: true as const }),
 			},
 			at,
 		);
@@ -801,6 +803,8 @@ function readPrompt(
 					{ json: first, key: "test" },
 					"no-dots",
 					"schema:Assertion.test",
+					// Whether the refusal is the rule's or the message's the settle tells.
+					validation.untold,
 				);
 			validationMessage = sourceText(ctx, validation.messages);
 			ctx.translations.set(
@@ -917,6 +921,10 @@ type ValidationReading =
 			/** Whether Nova's join of a message and the guard's text shows another text than the
 			 *  stored text did in some language: the message's end lost a space. */
 			readonly workersSeeAnother: boolean;
+			/** No language's message told whether Nova's runtime guard is joined after the rule:
+			 *  the rule is the whole stored test, and the settle tells by its structure
+			 *  (`settings.ts::settleUntoldChecks`). */
+			readonly untold: boolean;
 	  };
 
 /** `stored`, a prompt's first validation, as `ValidationReading`; `"unreadable"` where its text
@@ -962,6 +970,7 @@ function readValidation(
 		messages,
 		held,
 		workersSeeAnother,
+		untold: authored.kind === "whole",
 	};
 }
 

@@ -8251,15 +8251,15 @@
 		"id": "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "a text with a `markdown` form in some languages only (as HQ's bulk translation upload adds, `upload_form.py::_add_or_remove_translations`)",
+		"item": "a text with a `markdown` form in some languages only (as HQ's bulk translation upload adds, `upload_form.py::_add_or_remove_translations`), or a `markdown` form beside no text of its own, where a language shows two texts or breaks: the default language lacks the form, a language holds it beside no text of its own and other than the default's text, or a language that lacks it holds text other than the default's `markdown` form",
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
 			"itext-form:hq/markdown"
 		],
-		"valueClass": "in-some-languages-only",
+		"valueClass": "in-some-languages-only-showing-two-texts",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime where a non-default language holds one the default lacks, since Core throws `NoLocalizedTextException` when that language loads (executed), and otherwise not HQ-editable, since a Vellum save writes each language's own markdown (`javaRosa/plugin.js`; meanwhile the other languages show the default language's markdown, executed)",
+		"dispositionCell": "**REFUSED**: broken at runtime where a non-default language holds one the default lacks, since Core throws `NoLocalizedTextException` when that language loads (executed), and otherwise not HQ-editable, since a Vellum save writes the language one text where it showed two, its text and its `markdown` form both from one value (`javaRosa/plugin.js::loadXML` loads a `markdown` form as the text and skips a language's own text once a `markdown` form is read, and the save fills a language without one from the default, `getValueOrDefault`; meanwhile the language shows the default language's markdown, executed)",
 		"subject": "question-text",
 		"reasons": [
 			{
@@ -8269,7 +8269,7 @@
 			},
 			{
 				"kind": "not-hq-editable",
-				"named": "since a Vellum save writes each language's own markdown (`javaRosa/plugin.js`; meanwhile the other languages show the default language's markdown, executed)",
+				"named": "since a Vellum save writes the language one text where it showed two, its text and its `markdown` form both from one value (`javaRosa/plugin.js::loadXML` loads a `markdown` form as the text and skips a language's own text once a `markdown` form is read, and the save fills a language without one from the default, `getValueOrDefault`; meanwhile the language shows the default language's markdown, executed)",
 				"condition": "otherwise"
 			}
 		],
@@ -8279,6 +8279,38 @@
 		},
 		"emission": {
 			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "a text with a `markdown` form, equal to its text, in the default language and some others only, where each language that lacks it holds the default's `markdown` form as its text, or a blank the form builder fills from the default, and each language that holds it beside no text of its own holds the default's text in it (Core lays the default's keys under each language's own, `Localizer.getLocaleData`: such a language shows the default's `markdown` form, or its own, where a runtime asks for it, and its own text, or the default's, where a runtime reads the text without its form, Android's form hierarchy through `getLongText`: one text either way)",
+		"surfaceKeys": [
+			"itext-form:android/markdown",
+			"itext-form:core/markdown",
+			"itext-form:hq/markdown"
+		],
+		"valueClass": "in-some-languages-only-showing-one-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the text with markdown on, a language holding no text of its own read as untranslated; the first publish writes the text and its `markdown` form in every language, a spelling of the text each language already shows (a Vellum save writes the same, filling the language from the default, `javaRosa/plugin.js::loadXML`, `getValueOrDefault`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (markdown-it) / DIFFERENT (Markwon: single newlines join, images alt-only)",
+			"webApps": {
+				"reading": "runs",
+				"note": "markdown-it"
+			},
+			"android": {
+				"reading": "different",
+				"note": "Markwon: single newlines join, images alt-only"
+			}
+		},
+		"emission": {
+			"cell": "`form=\"markdown\"` copy in every language",
 			"markers": []
 		},
 		"gates": []

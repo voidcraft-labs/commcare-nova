@@ -987,14 +987,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`blacklisted_owner_ids_expression` lifting into ValueExpression, with the case-list filter carrying the matching owner-exclusion clause",
+		"item": "`blacklisted_owner_ids_expression` lifting into ValueExpression, with the case-list filter carrying the matching owner-exclusion clause, or none where the list reads a Search answer alone",
 		"surfaceKeys": [
 			"schema:CaseSearch.blacklisted_owner_ids_expression",
 			"csql-key:commcare_blacklisted_owner_ids"
 		],
 		"valueClass": "value-expression-with-list-clause-alone",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.excludedOwnerIds`, which Nova applies to the device list as well (`nodesetFilter.ts::emitExcludedOwnerFilterExpression` writes that clause)",
+		"dispositionCell": "**HELD**: `caseSearchConfig.excludedOwnerIds`, which Nova applies to the device list as well (`nodesetFilter.ts::emitExcludedOwnerFilterExpression` writes that clause), but for a list that reads a Search answer alone, which a list read before any search sees blank, so Nova writes no clause (`excludedOwnerClauseWritten`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1017,7 +1017,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`blacklisted_owner_ids_expression` without that clause",
+		"item": "`blacklisted_owner_ids_expression` without that clause, where Nova's list would write one",
 		"surfaceKeys": ["schema:CaseSearch.blacklisted_owner_ids_expression"],
 		"valueClass": "without-list-clause-alone",
 		"disposition": "HELD-NEW",
@@ -1074,14 +1074,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`title_label` showing text in every app language: text in the app's first language, and in each other language text of its own or none (blank or absent), which shows the first language's",
+		"item": "`title_label` showing text in the language a reading takes as its source: text there, and in each other language text of its own, none (blank or absent), which shows the first language's, or only whitespace, a blank title there",
 		"surfaceKeys": [
 			"schema:CaseSearch.title_label",
 			"parser:SessionDatumParser/title"
 		],
 		"valueClass": "non-empty",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchScreenTitle`, a text; absent is \"Search\". Read as HQ's build shows it in each language: a language's own file holds `title_label.get(lang) or ''` and drops a blank (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`), and the `default` table it falls back to holds the first language's (`create_default_app_strings`, `CaseSearch.get_search_title_label` with `for_default`); a map spelled otherwise is written as shown by the first publish",
+		"dispositionCell": "**HELD**: `searchScreenTitle`, a text; absent is \"Search\". Read as HQ's build shows it in each language: a language's own file holds `title_label.get(lang) or ''` and drops a blank (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`), and the `default` table it falls back to holds the first language's (`create_default_app_strings`, `CaseSearch.get_search_title_label` with `for_default`); a language that shows a blank title takes the source language's, as every app string blank in one language does (`text-spaces-dropped`); a map spelled otherwise is written as shown by the first publish",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1137,14 +1137,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`title_label` showing a blank title in some app languages and text in others: blank or absent in the app's first language while another holds text, or only whitespace in a language",
+		"item": "`title_label` showing a blank title in the language a reading takes as its source and text in another: blank, absent or only whitespace there while another language shows text",
 		"surfaceKeys": [
 			"schema:CaseSearch.title_label",
 			"parser:SessionDatumParser/title"
 		],
 		"valueClass": "blank-in-some-languages",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a search title shown blank in one language where another shows text: a language with no title of its own shows the first language's (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`, `create_default_app_strings`), so the title shows blank there only where the first language's is blank too, or where a language holds only whitespace; Nova's translation fill would show the source's text",
+		"dispositionCell": "**HELD-NEW**: a search title shown blank in the source language where another language shows text: a language with no title of its own shows the first language's (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`, `create_default_app_strings`), so the title shows blank there only where the first language's is blank too, or where a language holds only whitespace. Nova holds the source language's title as the search's own, text or no title in every language, so no document shows it blank in the source alone; a title blank in another language is held as the source's there, as every app string is (`text-spaces-dropped`)",
 		"subject": "search-setup",
 		"owner": "case-search",
 		"platforms": {
@@ -1191,7 +1191,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`search_button_label` = HQ default `{en: Search All Cases}`",
+		"item": "`search_button_label` a device shows as HQ's default `Search All Cases` in every app language, however the map spells it (`{en: Search All Cases}`, a space at its end, the default in a second language)",
 		"surfaceKeys": ["schema:CaseSearch.search_button_label"],
 		"valueClass": "hq-default",
 		"disposition": "HELD",

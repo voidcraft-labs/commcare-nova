@@ -69,8 +69,10 @@ evaluate a list of values as they do today (8.3).
    number spelling) inside the proof, which a `WireExpr` comparison would leave out.
 3. **Two acceptance levels** (2.3). Exact: Nova's print equals the source. Up to named rewrites: Nova's
    print equals the source once the emitter withholds a closed set of rewrites (the nine rows of
-   `EMISSION_REWRITES`, which this part holds whole), and each one that changes behavior is reported
-   for the first-publish register. Anything else is the circumstance `unrecognized`.
+   `EMISSION_REWRITES`, which this part holds whole) at every site, or at the sites the source leaves
+   them out (a source can spell a rewrite at one read and not at another), and each one withheld that
+   changes behavior is reported for the first-publish register. Anything else is the circumstance
+   `unrecognized`.
 4. **Folds are proposals, withdrawn where they do not re-emit** (2.4). Every fold is tried first. Where
    the print differs, the fold whose source span holds the first differing node is withdrawn and the app
    is bound again, until the print is equal or no fold is left there.
@@ -664,6 +666,9 @@ export interface RewriteControl {
 	readonly withhold: ReadonlySet<EmissionRewriteId>;
 	/** Called once per site a print reaches, whether it applied the rewrite or withheld it. */
 	readonly reached?: (id: EmissionRewriteId) => void;
+	/** Where present, answers in place of `withhold` at each site, once per site in the order the
+	 *  print reaches them: whether that one site leaves its rewrite out. */
+	readonly withholdSite?: (id: EmissionRewriteId) => boolean;
 }
 ```
 
@@ -679,9 +684,16 @@ of `filter-identities-dropped` reads the control from the wire build context it 
 optional last argument where it builds none; `planConstraintCollections` takes it as an optional last
 argument. A Search field's slots (its default or hidden value, required condition, validation
 rule and choices' filter) print through `suite/case-search/searchPrompts.ts::searchPromptWire`,
-which takes `rewrites?: RewriteControl` as an optional last argument and hands it to the `toWire`
-call and the `lookupOptionsNodeset` call of each slot, so a read of a Search answer without the
-guard on its rows is compared at the second level as every other slot's is. Absent, the emitter prints as today, so no production caller changes. Withheld, each site
+which takes `rewrites?: SearchPromptRewrites` as an optional last argument, the control of each
+slot asked once per print of it, and hands each slot's to that slot's `toWire` call and
+`lookupOptionsNodeset` call, so a read of a Search answer without the guard on its rows is compared
+at the second level as every other slot's is, and the reader's print of one slot (`printSlot`)
+withholds nothing in the field's other slots. The owner exclusion's list prints through
+`suite/case-list/nodesetFilter.ts::emitNormalizedExcludedOwnerIdsExpression`, which takes
+`rewrites?: RewriteControl` as an optional last argument. `hqJson/caseList.ts::projectCaseListForHq`
+takes `searchRewrites?: SearchConfigRewrites`, a control by slot for the search's button condition,
+owner list and each Search field slot, which the search settle passes (section 2.3, "The settle
+prints at the level held"). Absent, the emitter prints as today, so no production caller changes. Withheld, each site
 prints what it printed before the rewrite existed: `compareSides` takes the `bare` plan; the three
 guards return the read; the search text prints its bare path; each of the six sites skips
 `simplifyForEmission` and prints the tree as stored; `planConstraintCollections` returns the
@@ -736,12 +748,48 @@ boolean identity in a row is a conjunct of its own and is classified there.
 - **Exact.** `sameSyntax(S, P)` with no rewrite withheld. The slot is held and reports nothing.
 - **Up to named rewrites.** Not exact, and `sameSyntax(S, P')` where `P'` is the print with
   `withhold` holding every id of `EMISSION_REWRITE_IDS`: every rewrite that has a switch is left
-  out, and a site with none prints as it does today. The slot is held. The reader reports each id
-  the withheld print reached whose `behavior` is `changes`, with the slot's place:
-  `{ id, place, key }`. Part 09's register reads these reports: the predicate of each of its
+  out, and a site with none prints as it does today. Where that print differs too, `P'` is a print
+  that withholds the rewrite at some of its sites and applies it at the others
+  (`expressions/index.ts::siteLevel`, through the control's `withholdSite`): a source may read one
+  Search answer inside Nova's guard on its rows and another bare, which no whole level prints.
+  Starting from every rewrite applied, each step flips a site whose flip moves the first difference
+  with the source on, trying first the sites the print reaches after the one flipped last. A flip
+  changes the print only where its site prints, so each step settles the leftmost site that differs
+  and moves the difference strictly on through the source's text: the search ends whatever the
+  number of sites, with no bound on its steps. The slot is held. The reader reports each id withheld at some site of `P'` whose
+  `behavior` is `changes`, with the slot's place: `{ id, place, key }`, and keeps the level
+  (`expressions/printLevel.ts::PrintLevel`, every rewrite withheld or the sites withheld) as the
+  registration's outcome. Part 09's register reads these reports: the predicate of each of its
   entries from `instant-comparison` to `search-today-device-day` is "the reading's `rewrites` hold
   the id", and `validation-counts-moved`'s reads the generated difference (its section 11.2).
-- **Neither.** The slot is the circumstance `unrecognized` (9.2).
+- **Neither.** Where the print reaches a rewrite (a site called `reached`), the source spells a
+  rewrite in a way no level the search finds prints (two rewrites at one node, one inside the
+  other's spelling, each spelled otherwise than the source, which no single flip moves): a spelling
+  Nova does not hold yet, refused under the slot's own entry with the reason
+  `rewrites:<ids>`, never a reader defect. Elsewhere the slot is the circumstance `unrecognized`
+  (9.2).
+
+**The settle prints at the level held.** A stage that settles a whole menu after the expression
+stage by its projection prints each slot at the level the expression stage held it
+(`printLevel.ts::levelControl` of the registration's `level`), so a slot held with a rewrite withheld
+is compared as its source spells it and the rewrite stays reported. The search settle does this for
+the button condition, the owner list and every Search field slot
+(`search/settings.ts::heldSearchLevels`, through `projectCaseListForHq`'s `searchRewrites`), for a
+slot whose tree the candidate document still holds; a candidate that changed the slot (a validation
+without the runtime guard's conjunct) prints it as an export does. The case list settle does the same
+for each calculated column and the list's filter (`caseList/index.ts::heldListLevels`, through
+`projectCaseListForHq`'s `listRewrites`, `orderPlanOptions.ts::caseListOrderOptions`'
+`columnRewrites` and `hqExpressionField`'s `rewrites`, so the order plan joins a column by the text
+it prints at its level). The search's owner exclusion, which the filter writes as a clause of its
+own, is the search's slot; its clause in the filter is no slot and prints as an export prints it,
+so the two places may be spelled apart.
+The menus settle compares a display condition, a menu's or a form's, held at a level with the slot's
+own print at that level (`menus/index.ts::heldAtLevel`), where the slot's print with no control is
+the expansion's, so it is the function the expansion printed with. A calculated column's and a case
+choices filter's own print takes the control too (`readExpression.ts::printSlot` through
+`hqExpressionField` and `caseOptions.ts::caseOptionsNodeset`), so neither is left unrecognized at
+both levels. The after-submit settle (`menus/afterSubmit.ts::compareLinks`) still compares a link's
+condition and carried values with the expansion's print, which applies every rewrite.
 
 **What is stored is what the unwithheld print reads back as.** Acceptance check 3 re-reads Nova's
 emission of D and requires D (part 09, section 5). So at the second level the tree the reader writes
@@ -750,7 +798,12 @@ judged as any reading is (2.4): `P` is bound with every fold on, the binding is 
 with `P`, and a fold site whose print differs is withdrawn, until the binding prints `P` exactly; a
 fold the source's reading withdrew is proposed again over `P` and must be withdrawn again, or the
 slot would store another expression (a clinic's case read as the worker's own record). Where no
-binding prints `P`, the slot keeps the candidate, which prints `P` by construction. So: a read at a
+binding prints `P`, the slot keeps the candidate, which prints `P` by construction. The level was
+found for the candidate, whose sites a settle's print counts, so a re-read tree that is another tree
+is judged at that level again and leveled afresh where it does not print the source there
+(`expressions/index.ts::storedAtLevel`): a settle that prints the stored tree at its level prints the
+source. Where no level does, the tree keeps the candidate's level; it then differs from the source
+only where a rewrite no runtime tells apart applies (`default-reads-current`). So: a read at a
 relocation site is spelled `current` (5.2); in each of the six slots the tree is
 `simplifyForEmission` of the candidate, and a table lookup's `where` anywhere in a tree likewise; the
 case list filter is `effectiveFilterForEmission` of the candidate, absent where that is all-true
@@ -761,8 +814,21 @@ print gives the same arm (5.3). `expressionReadBack.fixedPoint.test.ts` holds
 
 Nova prints a whole expression at once, so an expression Nova wrote is exact and one an HQ author wrote
 carries no rewrite. An expression that mixes the two (a person edited Nova's lowered formula in HQ's
-form builder and left a bare date-and-time comparison beside a lowered one) is neither, and is
-`unrecognized`: the two comparisons cannot both be what one stored tree prints.
+form builder and left a bare date-and-time comparison beside a lowered one) is held site by site
+where the search finds the level, and refused under the slot's own entry where it finds none.
+
+**A Search field's check whose message tells nothing of the guard.** Nova joins the runtime guard
+after a field's own rule and its sentence after the field's message (`searchPrompts.ts::buildValidation`),
+and the search reader splits the rule from the guard by the message (`search/systemSentences.ts::withoutRuntimeGuard`).
+A message an author edited in HQ so no language ends with the guard's sentence tells nothing, so the
+whole test is registered as the rule, with `deferRefusal`: the expression stage's refusal of it
+waits for the search settle (`provisional.ts::settleDeferredRefusal`). Once the menu's rows are placed
+the settle asks the projection for the guard it joins to the field and compares the stored test's
+last top-level conjuncts with it as parsed trees (`search/settings.ts::endsWithRuntimeGuard`). Where
+they are the guard, Nova prints the guard's sentence in the source language and no message ends
+with it, so the field is `unrecognized` at `schema:Assertion.text` and the refusal of the guard's
+reads is dropped; elsewhere the refusal stands as the expression stage made it. A check the
+expression stage holds whole is split by the settle's own candidates (`ruleCandidates`).
 
 ### 2.4 Folds are proposals
 
@@ -1498,7 +1564,7 @@ property apart and every other slot reading it prints by its type.
 | Id | Rule sets | Shape | Proposal |
 |---|---|---|---|
 | `form-read` | both | an absolute path `/data/…` to a question or a repeat row's attribute; in a Save to Case block's slot, a path whose syntax is what the emitter prints through `current()` from the slot's node for an answer of the block's repeat (`FoldEnv.place`), which proposes that question's read with no spelling | the same read with no stored spelling, the hashtag an author sees as `#form/…`, at `formReadToWire`'s two relocation sites too (a `default_value` slot, or a row predicate that crosses a repeat the slot is in, `formReads.ts::crossesSourceRepeatInRowPredicate`), where the emitter prints it `current()/…` and, withheld, as the absolute path the author wrote |
-| `own-case-read` | form | a path `instance('casedb')/casedb/case[@case_id = X]/<step>` where `X` is a session datum read, or the same shape again ending `/index/<identifier>`, nested to any depth (`folds.ts::ownCaseWalk` gives the identifiers walked, from the own case up) | `form-case { caseType, property }`: `caseType` the form's reachable type whose walk is exactly those identifiers (`caseTypeDepths.ts::caseTypeHopMap`: the own type none, each ancestor one more, under the index the app's child links between the two types use, `parent` where none or several do, `advancedModule.ts::ancestorIndex`), `property` the step (`@case_id`, `@owner_id`, `@status` as the standard properties `rowValue` gives). A walk no reachable type has, `index/parent` where the app links the two types only as `home` among them, proposes nothing, since the emitter would print the read through `index/home` |
+| `own-case-read` | form | a path `instance('casedb')/casedb/case[@case_id = X]/<step>` where `X` is a session datum read, or the same shape again ending `/index/<identifier>`, nested to any depth (`folds.ts::ownCaseWalk` gives the identifiers walked, from the own case up) | `form-case { caseType, property }`: `caseType` the form's reachable type whose walk is exactly those identifiers (`caseTypeDepths.ts::caseTypeHopMap`: the own type none, each ancestor one more, under an index on every case the app links between the two types, a child or an extension link's alike, the one name the app's child links use where they use one, `parent` where no link joins them, `advancedModule.ts::ancestorWalk`; a read across a hop no one name walks, or whose child links' one name is not on every case, is refused by the gate, `FORM_CASE_READ_ACROSS_SEVERAL_LINKS`), `property` the step (`@case_id`, `@owner_id`, `@status` as the standard properties `rowValue` gives). A walk no reachable type has, `index/parent` where the app links the two types only as `home` among them, proposes nothing, since the emitter would print the read through `index/home` |
 | `own-case-read` | record, case operation slots | the same shape at depth 0 | `prop { caseType: <the module's>, property }` with no `via`, which the operation context prints anchored on the own-case datum |
 | `own-case-read` | record, a question's choice filter | the same shape, nested to any depth | `form-case { caseType, property }` as in form logic: among a query's rows a `prop` is the candidate's |
 | `own-case-read` | form, and a link's condition and values | a session datum read the entry gives the form's own case (the case its menu chose, or the one a registration creates) | `form-case { caseType: <the module's>, property: "case_id" }`, `#<own>/case_id`; in a form slot of a loading form it prints as a `casedb` read and is withdrawn |
@@ -2718,7 +2784,7 @@ export function expressionSurfaceUses(
 |---|---|
 | `jr-fn:<name>` | `expressions-and-data/<name>`: at `1f103305` every `jr-fn:` key of the manifest is held by the one entry of that name |
 | `jr-handler:<name>` | `jr:itext`, `expressions-and-data/jr-itext-id`; `jr:choice-name` by the select's source, `expressions-and-data/jr-choice-name-value-path-on-a-static-choice-select` (`static-choice-select`) or `expressions-and-data/jr-choice-name-on-a-lookup-itemset-select` (`lookup-itemset-select`); `here` by the slot, `expressions-and-data/here-in-a-form` (`in-a-form`) or `expressions-and-data/here-in-a-case-list-calculated-column-or-sort` (`case-list-row-context`) |
-| `instance-scheme:<scheme>`, `instance-source:<src>` | the entry whose `surfaceKeys` hold the key; in a form, the scheme of the id the source the form declares for the read id names (`formPathBinding.ts::canonicalInstanceId`), since Core reads the instance its source gives: a table Nova declares under its bare tag with `jr://fixture/item-list:<tag>` is `item-list`; `item-list` by carrier (`item-list-tag-read-through-nova-s-typed-lookup-carriers`, `typed-lookup-carrier`, for a choice list's source; `item-list-tag-read-in-any-other-expression`, `other-expression`, otherwise); `results` by where the slot runs: `results-results-inline-results-name-in-search-details` (`search-detail`), `results-read-in-form-expressions-of-an-inline-search-module` (`inline-search-form`), `results-read-in-form-expressions-reached-through-a-search-that` (`non-inline-search-form`); `search-input` the same way: `search-input-results-and-legacy-search-input-read-while-the` (`query-build`), `search-input-results-read-in-the-search-results-detail` (`results-detail`), `search-input-results-read-in-the-case-list-of-an-inline-search` (`inline-search-list`), `legacy-search-input-read-after-the-query-in-the-results-detail` (`legacy-after-query`), `search-input-read-in-form-expressions-of-an-inline-search-module` (`inline-search-form`), M8 (`child-menu-of-inline-search-form`, a form whose menu is a child of a menu whose forms read the search), `search-input-read-in-form-expressions-reached-through-a-search` (`non-inline-search-form`) |
+| `instance-scheme:<scheme>`, `instance-source:<src>` | the entry whose `surfaceKeys` hold the key; in a form, the scheme of the id the source the form declares for the read id names (`formPathBinding.ts::canonicalInstanceId`), since Core reads the instance its source gives: a table Nova declares under its bare tag with `jr://fixture/item-list:<tag>` is `item-list`; `item-list` by carrier (`item-list-tag-read-through-nova-s-typed-lookup-carriers`, `typed-lookup-carrier`, for a choice list's source; `item-list-tag-read-in-any-other-expression`, `other-expression`, otherwise); `results` by where the slot runs: `results-results-inline-results-name-in-search-details` (`search-detail`), `results-read-in-form-expressions-of-an-inline-search-module` (`inline-search-form`), `results-read-in-form-expressions-reached-through-a-search-that` (`non-inline-search-form`); `search-input` the same way: `search-input-results-and-legacy-search-input-read-while-the` (`query-build`: a Search field's own slots and the owner exclusion, which HQ's build writes as the `x_commcare_blacklisted_owner_ids` query datum and Core evaluates with the answers, `RemoteQuerySessionManager.getRawQueryParams`), `search-input-results-read-in-the-search-results-detail` (`results-detail`), `search-input-results-read-in-the-case-list-of-an-inline-search` (`inline-search-list`), `legacy-search-input-read-after-the-query-in-the-results-detail` (`legacy-after-query`), `search-input-read-in-form-expressions-of-an-inline-search-module` (`inline-search-form`), M8 (`child-menu-of-inline-search-form`, a form whose menu is a child of a menu whose forms read the search), `search-input-read-in-form-expressions-reached-through-a-search` (`non-inline-search-form`) |
 | `session-path:session/data/*` | `session-data-datum` (`supplied`), M1 (`not-supplied`), `session-data-stringquery`, `session-data-fingerprintquery`, and for `supply_point_id` the two entries 9.2 names |
 | `session-path:session/context/*`, `session/user/data/*` | by the step: `session-context-userid-context-username`, `session-context-deviceid`, `session-context-appversion`, `session-context-drift`, `session-context-applanguage`, `session-user-data-field`; `window_width` by rule set, `session-context-window-width` (`outside-form-logic`) in a record slot and `session-context-window-width-in-form-logic` (`in-form-logic`) in form logic |
 | `xpath-expr:*`, `xpath-axis:*`, `xpath-test:*`, `xpath-token:*` | `xpath-location-paths`, `xpath-operators-and-literals`, `relative-paths-q-current-x`, `instance-id-current-path-roots`, or the REFUSED entry the parse issue names |
@@ -3162,11 +3228,11 @@ Files of parts 06, 07 and 11 that call this part's exports are listed in those p
 
 | File | Holds |
 |---|---|
-| `lib/commcare/reader/pendingExpressions.ts` | `ReadMode`, `PendingExpression`, `pendingPlaceholder` (2.5); part 06 adds its `PendingRegistry` to the same file |
+| `lib/commcare/reader/pendingExpressions.ts` | `ReadMode`, `PendingExpression` (with `deferRefusal`, a refusal its registrar settles, 2.3), `pendingPlaceholder` (2.5); part 06 adds its `PendingRegistry` to the same file |
 | `lib/commcare/reader/syntaxCompare.ts` | `sameSyntax`, `firstDifference`, `sameXPathText`, `CompareOptions`, with the eight rows of 3.2 |
 | `lib/commcare/reader/hqInterpolation.ts` | `interpolateHqXPath`, `dotInterpolate`, `syntaxOf`, `hqInterpolationSlot`, `HqInterpolationSlot`, `HqInterpolated`, `HQ_USERCASE_XPATH`, `hqCaseByIdXPath` (6.1) |
 | `lib/commcare/emissionRewrites.ts` | `EMISSION_REWRITE_IDS`, `EmissionRewriteId`, `EMISSION_REWRITES`, `EmissionRewrite`, `RewriteControl` (2.3) |
-| `lib/commcare/reader/expressions/index.ts` | `readExpressions`, `ExpressionReadEnv`, `ExpressionReading`, `ExpressionClaim`, `GeneratedValue`, `RecordDialectJudge`, `EXPRESSION_ROUND_LIMIT` (2.5) |
+| `lib/commcare/reader/expressions/index.ts` | `readExpressions`, `ExpressionReadEnv`, `ExpressionReading`, `ExpressionClaim`, `GeneratedValue`, `RecordDialectJudge`, `EXPRESSION_ROUND_LIMIT` (2.5); `siteLevel`, `levelOf` and `storedAtLevel`, the second level and the tree it stores (2.3) |
 | `lib/commcare/reader/expressions/readExpression.ts` | `readExpression` (one slot: bind, print, compare), `SlotJudgment`, `readingScope`, `sourceNodeProjection`, `slotReadMode` (4.3, 5.5) |
 | `lib/commcare/reader/expressions/folds.ts` | `EXPRESSION_FOLDS`, `Fold`, `FoldId`, `FoldEnv` (5) |
 | `lib/commcare/reader/expressions/canonical.ts` | `PRINT_COLLISIONS`, `PrintCollision`, `canonicalExpression` (5.5) |
@@ -3192,7 +3258,9 @@ Files of parts 06, 07 and 11 that call this part's exports are listed in those p
 | `lib/commcare/xpath/wire/formReads.ts` | `formReadToWire` reads `rewrites` at its two relocation sites and calls `reached` there (2.3) |
 | `lib/commcare/xpath/wire/serialize.ts` | exports `literalArguments` (for `canonical.ts`, 5.5) |
 | `lib/commcare/hqJson/caseList.ts`, `lib/commcare/suite/case-list/nodesetFilter.ts`, `lib/commcare/lookupOptions.ts`, `lib/commcare/suite/case-list/shortDetail.ts` | the sites of `filter-identities-dropped` skip `simplifyForEmission` where the control withholds it; `projectCaseListFilter` is exported (2.1, 2.3) |
-| `lib/commcare/suite/case-search/searchPrompts.ts` | `searchPromptWire` takes `rewrites?: RewriteControl` as its last argument and hands it to each slot's `toWire` and `lookupOptionsNodeset` (2.3) |
+| `lib/commcare/suite/case-search/searchPrompts.ts` | `searchPromptWire` takes `rewrites?: SearchPromptRewrites` as its last argument, a control by slot, and hands each slot's to that slot's `toWire` and `lookupOptionsNodeset` (2.3) |
+| `lib/commcare/hqJson/caseList.ts`, `lib/commcare/suite/case-list/nodesetFilter.ts` | `projectCaseListForHq` takes `searchRewrites?: SearchConfigRewrites` and hands each search slot its control; `emitNormalizedExcludedOwnerIdsExpression` takes `rewrites?: RewriteControl` (2.3) |
+| `lib/commcare/reader/expressions/printLevel.ts` | `PrintLevel` and `levelControl`, the level a held slot was read at and the control that prints it there again (2.3) |
 | `lib/commcare/xform/constraintCollections.ts` | `planConstraintCollections` takes `rewrites?: RewriteControl`, returns the expression unchanged with no calculation where `validation-counts-moved` is withheld, and calls `reached` (2.3) |
 | `lib/commcare/csql/emitter.ts` | no change to `CsqlEmissionContext`, which is `Omit<WireBuildContext, "target">` and so holds `rewrites`; the emitter hands it to the `toWire` call of each runtime value (2.3) |
 | `lib/commcare/xform/formExpressions.ts`, `lib/commcare/expressionContext.ts`, `lib/commcare/suite/case-search/xpathQuery.ts` | export the slot build contexts the emitters use, so the reader prints with the same one (2.1) |

@@ -633,11 +633,29 @@ function settleProtectedMessage(
 			? undefined
 			: wireCodes.get(text.itext.defaultLanguage);
 	const stored = message.bind.attribs[message.attribute] ?? "";
+	// Each atom once, with the syntax of the source output it was bound from, for a branch no
+	// language's forms name. A message that names one reference twice holds it once here, as
+	// `outputOf` and `holeFor` do.
+	const atomSyntax = [
+		...new Map(atoms.map((atom) => [JSON.stringify(atom), atom])).values(),
+	].flatMap((atom) => {
+		const read = readFormSyntax(outputOf.get(JSON.stringify(atom)) ?? "");
+		return read.ok && read.node !== undefined
+			? [{ atom, node: read.node }]
+			: [];
+	});
 	const branches = messageBranches(
 		stored,
 		message.textId,
 		owned,
 		localization.languages,
+		(code) => localization.prose(code, unitId),
+		(node) => {
+			const found = atomSyntax.filter((one) =>
+				sameSyntax(node, one.node, { ruleSet: "form" }),
+			);
+			return found.length === 1 ? found[0]?.atom : undefined;
+		},
 	);
 	// The branches the stored composition holds, each the message of the language whose forms
 	// it was written from, printed back against the source.
@@ -652,10 +670,7 @@ function settleProtectedMessage(
 		const used = new Map<string, string | undefined>();
 		const composed = protectConstraintMessage(
 			message.textId,
-			order.map(({ label, writer: code }) => ({
-				language: label,
-				template: localization.prose(code, unitId),
-			})),
+			order.map(({ label, template }) => ({ language: label, template })),
 			(part) => {
 				const hole = holeFor(part);
 				used.set(hole, outputOf.get(JSON.stringify(part)));
@@ -681,7 +696,11 @@ function settleProtectedMessage(
 		if (!sameExpression) continue;
 		held = {
 			forms: composed.forms,
-			writerOf: new Map(order.map(({ label, writer: code }) => [label, code])),
+			writerOf: new Map(
+				order.flatMap(({ label, writer }) =>
+					writer === undefined ? [] : [[label, writer] as const],
+				),
+			),
 		};
 		break;
 	}
@@ -716,11 +735,20 @@ function settleProtectedMessage(
 			else xform.cursor.derivedSubtree(value, G.messageForms);
 }
 
-/** One branch of a stored protected message: the `__nova_locale` value that chooses it and the
- *  language whose forms hold that value, whose message the branch composes. */
+/** One branch of a stored protected message: the `__nova_locale` value that chooses it, the
+ *  message it composes, and the language whose forms hold that value and whose message it is.
+ *  A branch rebuilt from the stored expression alone, which no language's forms name, has no
+ *  such language. */
 interface MessageBranch {
 	readonly label: string;
-	readonly writer: string;
+	readonly template: ProseTemplate;
+	readonly writer: string | undefined;
+}
+
+/** A language's own forms of a protected message, by its wire code where the app lists it. */
+interface OwnedForms {
+	readonly code: string | undefined;
+	readonly values: readonly Element[];
 }
 
 /**
@@ -729,77 +757,111 @@ interface MessageBranch {
  * was written for wrote (`protectConstraintMessage` writes a language's code); its message is
  * that language's: the one of that code where it still holds the value, else the first in the
  * app's order that does (a language CommCare HQ renamed keeps the forms written under its old
- * code). The order is the one the stored expression tests the values in, read from its tree, and
- * the value no test names is the last branch's; where several could be, each is an order.
- * Only a proposal: the composition over it is printed back and compared whole.
+ * code). A branch no language's forms name is the branch of a language CommCare HQ removed
+ * (`views/apps.py::edit_app_langs` changes `langs` alone, so the expression keeps the branch;
+ * HQ's build drops the language's translation, `xform.py::XForm.exclude_languages`, and a save in
+ * HQ's form builder drops it from the source, `javaRosa/plugin.js::loadXML` reading no language
+ * the app does not list): a tested value no language's forms hold, or, where every value a
+ * language's forms hold is tested, the chain's tail. No language a device shows reads it, so its
+ * message is rebuilt from the stored branch alone (`rebuiltMessage`), so the expression prints
+ * back. The order is the one the stored expression tests the values in, read from its tree, and
+ * the value no test names is the last branch's; where several could be, each is an order. Only a
+ * proposal: the composition over it is printed back and compared whole.
  */
 function messageBranches(
 	stored: string,
 	id: string,
-	owned: readonly {
-		readonly code: string | undefined;
-		readonly values: readonly Element[];
-	}[],
+	owned: readonly OwnedForms[],
 	languages: readonly string[],
+	templateOf: (code: string) => ProseTemplate,
+	atomOf: (node: FormSyntax) => ProseAtomPart | undefined,
 ): MessageBranch[][] {
-	const ownLocale = (code: string): string | undefined => {
-		const values = owned
-			.filter((one) => one.code === code)
-			.flatMap(({ values }) => values)
-			.filter((value) => value.attribs.form === "__nova_locale");
-		return values.length === 1 && values[0] !== undefined
-			? ownText(values[0])
+	const localeOf = (values: readonly Element[]): string | undefined => {
+		const locales = values.filter(
+			(value) => value.attribs.form === "__nova_locale",
+		);
+		return locales.length === 1 && locales[0] !== undefined
+			? ownText(locales[0])
 			: undefined;
 	};
 	const writerOf = new Map<string, string>();
 	for (const code of languages) {
-		const label = ownLocale(code);
+		const label = localeOf(
+			owned.filter((one) => one.code === code).flatMap(({ values }) => values),
+		);
 		if (label === undefined) continue;
 		if (label === code || !writerOf.has(label)) writerOf.set(label, code);
 	}
-	const tested = testedLocales(stored, id);
-	if (tested === undefined) return [];
-	const branch = (label: string): MessageBranch | undefined => {
+	const read = testedLocales(stored, id);
+	if (read === undefined) return [];
+	const tested = read.tested.map(({ label }) => label);
+	const branch = (
+		label: string,
+		node: FormSyntax | undefined,
+	): MessageBranch | undefined => {
 		const writer = writerOf.get(label);
-		return writer === undefined ? undefined : { label, writer };
+		if (writer !== undefined)
+			return { label, template: templateOf(writer), writer };
+		const template =
+			node === undefined ? undefined : rebuiltMessage(node, id, atomOf);
+		return template === undefined
+			? undefined
+			: { label, template, writer: undefined };
 	};
-	const head = tested.map(branch);
+	const head = read.tested.map(({ label, node }) => branch(label, node));
 	if (head.some((one) => one === undefined)) return [];
-	const lasts = [...writerOf.keys()].filter((label) => !tested.includes(label));
-	return lasts.map((last) => [
-		...(head as MessageBranch[]),
-		{ label: last, writer: writerOf.get(last) as string },
-	]);
+	const untested = [...writerOf.keys()].filter(
+		(label) => !tested.includes(label),
+	);
+	// Every value a language's forms hold is tested, so the tail is a removed language's, whose
+	// value the expression never prints: any value no test names stands for it.
+	let removed = "";
+	while (tested.includes(removed)) removed += "_";
+	return (untested.length > 0 ? untested : [removed]).flatMap((last) => {
+		const tail = branch(last, read.rest);
+		return tail === undefined ? [] : [[...(head as MessageBranch[]), tail]];
+	});
 }
 
 /**
- * The `__nova_locale` values a stored protected message tests, in order: the chain
- * `if(jr:itext('<id>;__nova_locale') = '<value>', …, …)` inside its outer `__nova_mode` test,
- * read from the parsed tree. Undefined where the text does not parse; a chain of another shape
- * ends the list, and the print-back refuses it.
+ * The `__nova_locale` values a stored protected message tests, in order, each with the branch
+ * it chooses: the chain `if(jr:itext('<id>;__nova_locale') = '<value>', <branch>, …)` inside its
+ * outer `__nova_mode` test, read from the parsed tree, and what the chain ends in, the last
+ * branch. Undefined where the text does not parse; a chain of another shape ends the list, and
+ * the print-back refuses it.
  */
-function testedLocales(stored: string, id: string): string[] | undefined {
+function testedLocales(
+	stored: string,
+	id: string,
+):
+	| {
+			readonly tested: readonly {
+				readonly label: string;
+				readonly node: FormSyntax | undefined;
+			}[];
+			readonly rest: FormSyntax | undefined;
+	  }
+	| undefined {
 	const read = readFormSyntax(stored);
 	if (!read.ok || read.node === undefined) return undefined;
-	const strip = (node: FormSyntax): FormSyntax =>
-		node.kind === "group" ? strip(node.value) : node;
 	const branchesOf = (node: FormSyntax): FormSyntax | undefined => {
-		const call = strip(node);
+		const call = stripGroups(node);
 		return call.kind === "call" && call.name === "if" && call.args.length === 3
 			? call
 			: undefined;
 	};
-	const tested: string[] = [];
+	const tested: { label: string; node: FormSyntax | undefined }[] = [];
 	const outer = branchesOf(read.node);
-	if (outer === undefined || outer.kind !== "call") return tested;
+	if (outer === undefined || outer.kind !== "call")
+		return { tested, rest: undefined };
 	let chain = outer.args[2];
 	while (chain !== undefined) {
 		const call = branchesOf(chain);
 		if (call === undefined || call.kind !== "call") break;
-		const test = strip(call.args[0] as FormSyntax);
+		const test = stripGroups(call.args[0] as FormSyntax);
 		if (test.kind !== "binary" || test.op !== "=") break;
-		const left = strip(test.left);
-		const right = strip(test.right);
+		const left = stripGroups(test.left);
+		const right = stripGroups(test.right);
 		if (
 			left.kind !== "call" ||
 			left.name !== "jr:itext" ||
@@ -807,12 +869,101 @@ function testedLocales(stored: string, id: string): string[] | undefined {
 			right.kind !== "string"
 		)
 			break;
-		const name = strip(left.args[0] as FormSyntax);
+		const name = stripGroups(left.args[0] as FormSyntax);
 		if (name.kind !== "string" || name.value !== `${id};__nova_locale`) break;
-		tested.push(right.value);
+		tested.push({ label: right.value, node: call.args[1] });
 		chain = call.args[2];
 	}
-	return tested;
+	return { tested, rest: chain };
+}
+
+function stripGroups(node: FormSyntax): FormSyntax {
+	return node.kind === "group" ? stripGroups(node.value) : node;
+}
+
+/**
+ * The words of a literal in a branch no language reads. The composition prints a literal at
+ * place `n` as `json-property(jr:itext('<id>;__nova_piece_<n>'), 'v')` whatever it holds, so its
+ * words reach no expression, and since no language reads the branch they reach no document and
+ * no device either. They are `${` because a stored composition was written for a message that
+ * needed protection, and a literal `${` is the one text that needs it without a reference
+ * (`constraintMessage.ts::constraintMessageNeedsProtection`): the proposal then never fails on
+ * words it cannot know.
+ */
+const UNREAD_LITERAL = "${";
+
+/**
+ * The message a stored branch no language reads composes, rebuilt from the branch alone, as
+ * `protectConstraintMessage` composes a branch: `''`, one part or `concat` of the parts in
+ * order, where a literal at place `n` is `json-property(jr:itext('<id>;__nova_piece_<n>'), 'v')`
+ * (`UNREAD_LITERAL`), and a reference is the expression of the one atom whose source output has
+ * its syntax (`atomOf`). A branch that reads an answer stands under the guard
+ * `if(count(…) > 1 or …, '', …)`, and one that reads none does not. Undefined where a part is
+ * neither. Only a proposal: the composition over it is printed back and compared whole.
+ */
+function rebuiltMessage(
+	node: FormSyntax,
+	id: string,
+	atomOf: (node: FormSyntax) => ProseAtomPart | undefined,
+): ProseTemplate | undefined {
+	const partsOf = (
+		composed: FormSyntax,
+	): ProseTemplate["parts"][number][] | undefined => {
+		const whole = stripGroups(composed);
+		if (whole.kind === "string" && whole.value === "") return [];
+		const args =
+			whole.kind === "call" && whole.name === "concat" ? whole.args : [whole];
+		const parts: ProseTemplate["parts"][number][] = [];
+		for (const [index, arg] of args.entries()) {
+			const call = stripGroups(arg);
+			const property =
+				call.kind === "call" &&
+				call.name === "json-property" &&
+				call.args.length === 2
+					? call.args
+					: undefined;
+			const itext =
+				property === undefined
+					? undefined
+					: stripGroups(property[0] as FormSyntax);
+			const key =
+				property === undefined
+					? undefined
+					: stripGroups(property[1] as FormSyntax);
+			const name =
+				itext?.kind === "call" &&
+				itext.name === "jr:itext" &&
+				itext.args.length === 1
+					? stripGroups(itext.args[0] as FormSyntax)
+					: undefined;
+			if (
+				name?.kind === "string" &&
+				name.value === `${id};__nova_piece_${index}` &&
+				key?.kind === "string" &&
+				key.value === "v"
+			) {
+				parts.push({ kind: "text", text: UNREAD_LITERAL });
+				continue;
+			}
+			const atom = atomOf(arg);
+			if (atom === undefined) return undefined;
+			parts.push(atom);
+		}
+		return parts;
+	};
+	const counted = (parts: readonly ProseTemplate["parts"][number][]) =>
+		parts.some((part) => part.kind !== "text" && part.kind !== "value");
+	const whole = stripGroups(node);
+	if (whole.kind === "call" && whole.name === "if" && whole.args.length === 3) {
+		const empty = stripGroups(whole.args[1] as FormSyntax);
+		const guarded =
+			empty.kind === "string" && empty.value === ""
+				? partsOf(whole.args[2] as FormSyntax)
+				: undefined;
+		if (guarded !== undefined && counted(guarded)) return { parts: guarded };
+	}
+	const parts = partsOf(node);
+	return parts !== undefined && !counted(parts) ? { parts } : undefined;
 }
 
 /**
@@ -828,10 +979,7 @@ function testedLocales(stored: string, id: string): string[] | undefined {
  * comparison fails.
  */
 function shownForms(
-	owned: readonly {
-		readonly code: string | undefined;
-		readonly values: readonly Element[];
-	}[],
+	owned: readonly OwnedForms[],
 	code: string,
 	defaultCode: string | undefined,
 ): Map<string, string> | undefined {

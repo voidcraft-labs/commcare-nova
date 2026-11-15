@@ -8,7 +8,7 @@
  * that one expansion.
  */
 import type { HqApplication } from "@/lib/commcare";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { caseListMenuItemLabelUnit } from "../../emissionPlan";
 import { expandDoc } from "../../expander";
 import { firstMenuSharedCaseFrames } from "../../validator/rules/formsInMenuAbove";
@@ -16,11 +16,14 @@ import { rootSelectionTakesNewCase } from "../../validator/rules/parentSelection
 import { type Claim, defineClaims, refuse } from "../claims";
 import type { DraftApp, ReadContext } from "../context";
 import { readerDefect } from "../defects";
+import { levelControl } from "../expressions/printLevel";
+import { printSlot } from "../expressions/readExpression";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace } from "../place";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
+import { expressionEnvOf } from "../xform";
 import {
 	acceptAfterSubmit,
 	readAfterSubmit,
@@ -106,6 +109,68 @@ function sameFilter(a: unknown, b: unknown): boolean {
 		typeof value !== "string" || value.trim() === "";
 	if (blank(a) || blank(b)) return blank(a) && blank(b);
 	return sameXPathText(a as string, b as string);
+}
+
+/**
+ * Whether a display condition the expression stage held at a level other than exact
+ * (`expressions/printLevel.ts`) is the stored one: the document still holds the tree the stage
+ * stored, the slot's own print (`readExpression.ts::printSlot`) with no control is the
+ * expansion's, so it is the function the expansion printed the slot with, and its print at the
+ * held level is the stored text. The reading has recorded each rewrite the level withholds.
+ */
+function heldAtLevel(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	ref:
+		| {
+				readonly entity: "module";
+				readonly uuid: Uuid;
+				readonly slot: "module_display_condition";
+		  }
+		| {
+				readonly entity: "form";
+				readonly uuid: Uuid;
+				readonly slot: "form_display_condition";
+		  },
+	stored: unknown,
+	ours: unknown,
+): boolean {
+	if (typeof stored !== "string") return false;
+	const index = ctx.pending
+		.list()
+		.findIndex(
+			(one) =>
+				one.ref.entity === ref.entity &&
+				one.ref.uuid === ref.uuid &&
+				one.ref.slot === ref.slot,
+		);
+	if (index < 0) return false;
+	const { expression, level } = ctx.pending.outcome(index);
+	const tree =
+		ref.entity === "module"
+			? doc.modules[ref.uuid]?.displayCondition
+			: doc.forms[ref.uuid]?.displayCondition;
+	if (
+		expression === undefined ||
+		level === undefined ||
+		tree === undefined ||
+		!sameJson(tree, expression)
+	)
+		return false;
+	const env = expressionEnvOf(ctx);
+	try {
+		return (
+			sameFilter(printSlot(doc, ref, expression, env), ours) &&
+			sameFilter(
+				printSlot(doc, ref, expression, env, {
+					rewrites: levelControl(level),
+				}),
+				stored,
+			)
+		);
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -195,7 +260,20 @@ function acceptMenus(
 			continue;
 		}
 		const own = doc.modules[module.uuid];
-		if (!sameFilter(source.module_filter, ours.module_filter)) {
+		if (
+			!sameFilter(source.module_filter, ours.module_filter) &&
+			!heldAtLevel(
+				ctx,
+				doc,
+				{
+					entity: "module",
+					uuid: module.uuid,
+					slot: "module_display_condition",
+				},
+				source.module_filter,
+				ours.module_filter,
+			)
+		) {
 			unrecognized(`schema:${module.docType}.module_filter`);
 			continue;
 		}
@@ -286,7 +364,16 @@ function acceptMenus(
 			if (ownForm === undefined || ourForm === undefined) continue;
 			const formUnrecognized = (name: string) =>
 				ctx.accounting.circumstance("unrecognized", form.place, { name });
-			if (!sameFilter(form.json.peek("form_filter"), ourForm.form_filter))
+			if (
+				!sameFilter(form.json.peek("form_filter"), ourForm.form_filter) &&
+				!heldAtLevel(
+					ctx,
+					doc,
+					{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
+					form.json.peek("form_filter"),
+					ourForm.form_filter,
+				)
+			)
 				formUnrecognized(`schema:${form.docType}.form_filter`);
 			if (
 				ownForm.icon !== undefined &&

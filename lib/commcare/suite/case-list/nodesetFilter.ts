@@ -116,9 +116,12 @@ export function emitExcludedOwnerFilterExpression(
 	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 ): WireExpr | undefined {
-	if (excludedOwnerIds === undefined) return undefined;
+	if (
+		excludedOwnerIds === undefined ||
+		!excludedOwnerClauseWritten(excludedOwnerIds)
+	)
+		return undefined;
 	const unanswered = substituteUnansweredSearchInputs(excludedOwnerIds);
-	if (staticallyBlankExclusion(unanswered)) return undefined;
 	const expression = emitNormalizedExcludedOwnerIdsExpression(
 		unanswered,
 		relationContext,
@@ -127,6 +130,22 @@ export function emitExcludedOwnerFilterExpression(
 	return w.or(
 		w.eq(expression, w.str("")),
 		w.not(w.call("selected", [expression, w.context([w.attr("owner_id")])])),
+	);
+}
+
+/**
+ * Whether an ordinary case list carries a clause for `excludedOwnerIds`
+ * (`emitExcludedOwnerFilterExpression`): not where the exclusion is blank once
+ * every Search answer reads unanswered, which a list read before any Search
+ * runs sees. A search whose exclusion reads a Search answer alone excludes on
+ * its results and nowhere else, as HQ's `blacklisted_owner_ids_expression`
+ * does, which the reader of HQ's apps asks this to tell.
+ */
+export function excludedOwnerClauseWritten(
+	excludedOwnerIds: Expression,
+): boolean {
+	return !staticallyBlankExclusion(
+		substituteUnansweredSearchInputs(excludedOwnerIds),
 	);
 }
 
@@ -151,13 +170,15 @@ function staticallyBlankExclusion(expression: Expression): boolean {
  * literal space character and can retain empty tokens. Normalizing once in the
  * emitted XPath makes trailing, repeated, tab, and newline whitespace mean the
  * same token list on the ordinary case list, local remote request, HQ JSON
- * upload, and Preview.
+ * upload, and Preview. `rewrites` is the reader's control over the rewrites
+ * the list's print reaches (`emissionRewrites.ts`); an export passes none.
  */
 export function emitNormalizedExcludedOwnerIdsExpression(
 	excludedOwnerIds: Expression,
 	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 	searchInputInstanceId?: `search-input:${string}`,
+	rewrites?: RewriteControl,
 ): WireExpr {
 	return normalizeSpace(
 		toWire(excludedOwnerIds, {
@@ -169,6 +190,7 @@ export function emitNormalizedExcludedOwnerIdsExpression(
 					? {}
 					: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 			},
+			...(rewrites === undefined ? {} : { rewrites }),
 		}),
 	);
 }

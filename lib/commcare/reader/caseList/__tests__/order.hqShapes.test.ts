@@ -162,6 +162,55 @@ describe("CommCare HQ's sort elements", () => {
 		);
 	});
 
+	// HQ's build writes a sort-only element's label only where some stored value is not blank to
+	// Python (`SortElement.has_display_values`, `s.strip() != ''`), which is not JavaScript's trim:
+	// U+001F is a space to Python and not to JavaScript, U+FEFF the other way round.
+	it("reads a label of characters Python reads as spaces as no label, as HQ's build does", async () => {
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
+		const sortOnly = (display: Record<string, string>) =>
+			readLists(doc, {
+				edit: (app) => {
+					const short = app.modules[0]?.case_details.short;
+					if (short !== undefined)
+						short.sort_elements = [element("notes", { display })];
+				},
+			});
+		const spaces = await sortOnly({ en: "\u001f \u2003" });
+		const none = await sortOnly({});
+		// Read whole, with nothing left unclaimed, and the label claimed as HQ's derived blank.
+		expect(closedCodes(spaces)).toEqual([]);
+		expect(
+			[...spaces.ctx.close().claims.records()]
+				.filter((record) => record.key === "schema:SortElement.display")
+				.map((record) => record.entry),
+		).toEqual(["menus-and-case-lists/display"]);
+		// The same list as a sort-only element with no label: a hidden column, last, that sorts.
+		expect(comparableList(listOf(spaces))).toEqual(
+			comparableList(listOf(none)),
+		);
+		const read = comparableList(listOf(spaces)) as {
+			list: Record<string, unknown>[];
+		};
+		expect(read.list.at(-1)?.sort).toEqual(columnSort("asc", 0));
+	});
+
+	it("raises a label of a character Python does not read as a space, which HQ's build writes", async () => {
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const short = app.modules[0]?.case_details.short;
+				if (short !== undefined)
+					short.sort_elements = [
+						element("notes", { display: { en: "\ufeff" } }),
+					];
+			},
+			firstPassOnly: true,
+		});
+		expect(codes(reading)).toContain(
+			"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
+		);
+	});
+
 	it("declares `int` on a property no writer types, so the plan derives the stored comparator", async () => {
 		const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
 		const reading = await readLists(doc, {

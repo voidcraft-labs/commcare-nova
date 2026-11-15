@@ -4259,6 +4259,41 @@ def _data_binds_and_itext():
             <text id="t3"><value/></text><text id="t4"><value/></text></translation>
           <translation lang="es"><text id="t4"><value>Hola</value></text></translation></itext>""",
     )
+    # A copy en (the default) holds and fr lacks: t1's fr text is en's copy, so fr shows one text; t2's copy is fr's
+    # alone, which the default lacks; t3's fr text is a blank the form builder fills from en's. A copy fr holds beside
+    # no text of its own, where fr shows en's text: t4's is en's text, one text; t5's is another, two.
+    copied = form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="t1"><value>A</value><value form="markdown">A</value></text>
+            <text id="t2"><value>A</value></text>
+            <text id="t3"><value>A</value><value form="markdown">A</value></text>
+            <text id="t4"><value>A</value><value form="markdown">A</value></text>
+            <text id="t5"><value>A</value><value form="markdown">A</value></text></translation>
+          <translation lang="fr"><text id="t1"><value>A</value></text>
+            <text id="t2"><value>A</value><value form="markdown">A</value></text>
+            <text id="t3"><value/></text>
+            <text id="t4"><value form="markdown">A</value></text>
+            <text id="t5"><value form="markdown">B</value></text></translation></itext>""",
+    )
+    # The translations the reader reads: es is no app language (HQ removed it, and its build drops the translation),
+    # so its stale t1 lacking the copy is not read; the app's first language, fr, is the default though the source
+    # marks en, so t2's copy only fr holds, beside en's text equal to it, shows one text, and t3's copy, which en holds
+    # and the default fr lacks, breaks en.
+    relanguaged = _with_forms(
+        _app([_module([_form_json("none")])], langs=["fr", "en"]),
+        f=form(
+            data="<q/>",
+            model="""<itext><translation lang="en" default="">
+                <text id="t1"><value>A</value><value form="markdown">A</value></text>
+                <text id="t2"><value>A</value></text>
+                <text id="t3"><value>A</value><value form="markdown">A</value></text></translation>
+              <translation lang="fr"><text id="t1"><value>A</value><value form="markdown">A</value></text>
+                <text id="t2"><value>A</value><value form="markdown">A</value></text>
+                <text id="t3"><value>B</value></text></translation>
+              <translation lang="es"><text id="t1"><value>Hola</value></text></translation></itext>""",
+        ),
+    )
     # A hint's and a label's copy that differs from its text: the hint's is no runtime's to read.
     hinted = form(
         data="<q/>",
@@ -4587,8 +4622,21 @@ def _data_binds_and_itext():
             refused("form", hinted, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form", readings=True),
         ),
         "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": (
+            # fr's text beside no copy is A, en's copy B: fr's hierarchy and its question show two texts
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
             accepted("form", translations, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
+            # fr's text is en's copy, or a blank filled from en's text: one text in every language
+            accepted("form", copied, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
+            accepted("form", copied, "itext-form:core/markdown", "translation[1]/text[3]/value[2]/@form"),
+            # a copy the default lacks
+            refused("form", copied, "itext-form:core/markdown", "translation[2]/text[2]/value[2]/@form"),
+            # a copy beside no text of its own: en's text, one text; another, two
+            accepted("form", copied, "itext-form:core/markdown", "translation[1]/text[4]/value[2]/@form"),
+            refused("form", copied, "itext-form:core/markdown", "translation[1]/text[5]/value[2]/@form"),
+            # a removed language's stale text is no language's; the app's first language is the default
+            accepted("app", relanguaged, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
+            accepted("app", relanguaged, "itext-form:core/markdown", "translation[2]/text[2]/value[2]/@form"),
+            refused("app", relanguaged, "itext-form:core/markdown", "translation[1]/text[3]/value[2]/@form"),
         ),
         "questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text": (
             # fr is the app's first language: its blank t3 beside en's text is refused; en's blank t4 is no first's

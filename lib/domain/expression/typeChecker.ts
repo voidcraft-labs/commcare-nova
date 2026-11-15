@@ -2935,6 +2935,15 @@ function inferTerm(
 					"property-scope",
 					`Form record '${term.caseType}' is not available in this scope.`,
 				);
+			const unresolved = ctx.form.ancestorHopsUnresolved.get(term.caseType);
+			if (unresolved !== undefined)
+				return fail(
+					"relation-ambiguous",
+					unresolved.why.kind === "child-name"
+						? `This app links a '${unresolved.childType}' record to its '${unresolved.parentType}' record under several names (${unresolved.identifiers.join(", ")}), and lists a '${unresolved.childType}' under its '${unresolved.parentType}' through '${unresolved.why.identifier}', which is not on every '${unresolved.childType}' it links, so a read of '${term.caseType}' would be blank, or another record than the one chosen, for some records.`
+						: `This app links a '${unresolved.childType}' record to its '${unresolved.parentType}' record under several names (${unresolved.identifiers.join(", ")}), and no one of them is on every '${unresolved.childType}' it links, so a read of '${term.caseType}' would be blank for the records linked under another name.`,
+					"ancestor-link-names",
+				);
 			return propertyType(term.caseType, term.property, ctx, fail, "casedb");
 		}
 		case "prop": {

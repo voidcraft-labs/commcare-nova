@@ -20,11 +20,15 @@ import { resolveRelationDestination } from "@/lib/domain/expression/relationDest
 import { defaultSortBlanks } from "@/lib/domain/modules";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { projectCaseListForHq } from "../../hqJson/caseList";
+import {
+	type CaseListRewrites,
+	projectCaseListForHq,
+} from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { withCandidate } from "../candidate";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
+import { levelControl, type PrintLevel } from "../expressions/printLevel";
 import { dotInterpolate } from "../hqInterpolation";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
@@ -448,7 +452,57 @@ function caseListPlace(module: DraftModule): HqPlace {
 	};
 }
 
-/** The difference between one menu's stored details and the projection's, as a surface key. */
+/**
+ * The control that prints each expression slot of a menu's details at the level the reading
+ * held it (`expressions/printLevel.ts`): a calculated column's expression and the list's filter,
+ * each only while the document holds the tree the expression stage stored for it. The search's
+ * owner exclusion, which the filter writes as a clause of its own, is the search's slot, held in
+ * `search_config`; its clause in the filter prints as an export prints it, since nothing reads
+ * that clause as a slot of its own.
+ */
+function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
+	const held = new Map<string, { tree: Expression; level: PrintLevel }>();
+	ctx.pending.list().forEach((registration, index) => {
+		const ref = registration.ref;
+		if (ref.entity !== "module" || ref.uuid !== mod.uuid) return;
+		const { expression, level } = ctx.pending.outcome(index);
+		if (expression === undefined || level === undefined) return;
+		const member = (ref as { readonly member?: { columnUuid?: string } })
+			.member;
+		held.set(
+			member?.columnUuid === undefined
+				? ref.slot
+				: `${ref.slot}/${member.columnUuid}`,
+			{ tree: expression, level },
+		);
+	});
+	if (held.size === 0) return {};
+	const at = (key: string, tree: Expression | undefined) => {
+		const one = held.get(key);
+		return one !== undefined && tree !== undefined && sameJson(tree, one.tree)
+			? one.level
+			: undefined;
+	};
+	return {
+		column: (columnUuid) => {
+			const column = mod.caseListConfig?.columns.find(
+				(one) => one.uuid === columnUuid,
+			);
+			return column?.kind === "calculated"
+				? levelControl(
+						at(`case_list_column_expression/${columnUuid}`, column.expression),
+					)
+				: undefined;
+		},
+		filter: () =>
+			levelControl(at("case_list_filter", mod.caseListConfig?.filter)),
+	};
+}
+
+/** The difference between one menu's stored details and the projection's, as a surface key.
+ *  Each expression slot prints at the level the reading held it (`heldListLevels`), so a slot
+ *  held with a rewrite withheld is compared as its source spells it, and the reading records
+ *  the rewrite. */
 function listDifference(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -461,6 +515,8 @@ function listDifference(
 		withReadTexts(doc, ctx.translations),
 		inputs.assets,
 		inputs.lookupNaming,
+		undefined,
+		heldListLevels(ctx, mod),
 	);
 	const pair = printed(projected.caseDetails) as {
 		short: JsonObject;

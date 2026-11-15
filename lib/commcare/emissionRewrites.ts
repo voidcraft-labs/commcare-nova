@@ -62,6 +62,11 @@ export interface RewriteControl {
 	readonly withhold: ReadonlySet<EmissionRewriteId>;
 	/** Called once per site a print reaches, whether it applied the rewrite or withheld it. */
 	readonly reached?: (id: EmissionRewriteId) => void;
+	/** Where present, answers in place of `withhold` at each site the print reaches, called once
+	 *  per site in the order the print reaches them: whether that one site leaves its rewrite out.
+	 *  The reader's level for a source that spells a rewrite at some of a slot's sites and not at
+	 *  others. */
+	readonly withholdSite?: (id: EmissionRewriteId) => boolean;
 }
 
 /** A site whose rewrite applies to this print: reports it to the control
@@ -73,5 +78,7 @@ export function rewriteWithheld(
 ): boolean {
 	if (control === undefined) return false;
 	control.reached?.(id);
-	return control.withhold.has(id);
+	return control.withholdSite === undefined
+		? control.withhold.has(id)
+		: control.withholdSite(id);
 }

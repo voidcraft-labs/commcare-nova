@@ -31,10 +31,7 @@ import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression/builders";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
-import {
-	sampleParentIdentifier,
-	seedSampleCases,
-} from "../caseDataBindingHelpers";
+import { sampleParentLink, seedSampleCases } from "../caseDataBindingHelpers";
 import { formSessionBindings } from "../formExpressionRuntime";
 import {
 	caseDatabaseXPathInstance,
@@ -58,8 +55,11 @@ beforeEach(async () => {
 });
 
 /** Members chosen under their household, where the household's visit
- *  registers a member linked to it as `identifier`. */
-function members(identifier: string): BlueprintDoc {
+ *  registers a member linked to it as `identifier`, under `relationship`. */
+function members(
+	identifier: string,
+	relationship: "child" | "extension" = "child",
+): BlueprintDoc {
 	return advancedFixture({
 		formType: "followup",
 		menu: "members",
@@ -95,7 +95,7 @@ function members(identifier: string): BlueprintDoc {
 								identifier,
 								targetType: "household",
 								target: { kind: "session" },
-								relationship: "child",
+								relationship,
 							},
 						],
 					},
@@ -153,60 +153,76 @@ function householdRemarkOf(
 }
 
 describe("sample members of an app that links them to their household as `home`", () => {
-	it("carry the `home` index, and a member's form reads the household it was generated under", async () => {
-		const doc = members("home");
-		const store = storeFor();
-		const { household, member } = await materialize(store, doc);
-		expect(sampleParentIdentifier(doc, member)).toBe("home");
-		for (const caseType of [household, member]) {
-			const seeded = await seedSampleCases(store, {
-				appId: APP_ID,
-				caseType,
-				parentIdentifier: sampleParentIdentifier(doc, caseType),
+	it.each([
+		["home", "child"],
+		// The catalog calls a member a child; the app extends the household
+		// as `host`, and a sample member carries that link as a submitted
+		// one does, so a list that leaves extensions out leaves it out too.
+		["host", "extension"],
+	] as const)(
+		"carry the `%s` index under its %s relationship, and a member's form reads the household it was generated under",
+		async (identifier, relationship) => {
+			const doc = members(identifier, relationship);
+			const store = storeFor();
+			const { household, member } = await materialize(store, doc);
+			expect(sampleParentLink(doc, member)).toEqual({
+				parentIdentifier: identifier,
+				parentRelationship: relationship,
 			});
-			expect(seeded.kind).toBe("ok");
-		}
-		const ids = (
-			await (dbHandle.db as unknown as Kysely<Database>)
-				.selectFrom("cases")
-				.select("case_id")
-				.where("app_id", "=", APP_ID)
-				.execute()
-		).map((row) => row.case_id);
-		const world = await store.readCaseDatabasePatch({
-			appId: APP_ID,
-			caseIds: ids,
-		});
-		const members_ = world.rows.filter((row) => row.case_type === "member");
-		expect(members_.length).toBeGreaterThan(0);
-		expect(
-			new Set(
-				world.indices
-					.filter((index) => index.target_case_type === "household")
-					.map((index) => index.identifier),
-			),
-		).toEqual(new Set(["home"]));
-		const households = new Map(
-			world.rows
-				.filter((row) => row.case_type === "household")
-				.map((row) => [row.case_id, row]),
-		);
-		let readNonBlank = 0;
-		for (const row of members_) {
-			const parent =
-				row.parent_case_id === null
-					? undefined
-					: households.get(row.parent_case_id);
-			if (parent === undefined)
-				throw new Error("A sample member has a household.");
-			const remark = String(parent.properties.remark ?? "");
-			expect(householdRemarkOf(doc, world, row.case_id)).toBe(remark);
-			if (remark !== "") readNonBlank += 1;
-		}
-		// The read finds the household's value, not a blank that agrees with
-		// a blank remark.
-		expect(readNonBlank).toBeGreaterThan(0);
-	});
+			for (const caseType of [household, member]) {
+				const seeded = await seedSampleCases(store, {
+					appId: APP_ID,
+					caseType,
+					...sampleParentLink(doc, caseType),
+				});
+				expect(seeded.kind).toBe("ok");
+			}
+			const ids = (
+				await (dbHandle.db as unknown as Kysely<Database>)
+					.selectFrom("cases")
+					.select("case_id")
+					.where("app_id", "=", APP_ID)
+					.execute()
+			).map((row) => row.case_id);
+			const world = await store.readCaseDatabasePatch({
+				appId: APP_ID,
+				caseIds: ids,
+			});
+			const members_ = world.rows.filter((row) => row.case_type === "member");
+			expect(members_.length).toBeGreaterThan(0);
+			expect(
+				new Set(
+					world.indices
+						.filter((index) => index.target_case_type === "household")
+						.map((index) => `${index.identifier} ${index.relationship}`),
+				),
+			).toEqual(new Set([`${identifier} ${relationship}`]));
+			const households = new Map(
+				world.rows
+					.filter((row) => row.case_type === "household")
+					.map((row) => [row.case_id, row]),
+			);
+			let readNonBlank = 0;
+			for (const row of members_) {
+				// The column holds a `parent` index alone, so a member named under
+				// another index holds none there; its household is its edge.
+				expect(row.parent_case_id).toBeNull();
+				const edge = world.indices.find(
+					(index) => index.case_id === row.case_id,
+				);
+				const parent =
+					edge === undefined ? undefined : households.get(edge.ancestor_id);
+				if (parent === undefined)
+					throw new Error("A sample member has a household.");
+				const remark = String(parent.properties.remark ?? "");
+				expect(householdRemarkOf(doc, world, row.case_id)).toBe(remark);
+				if (remark !== "") readNonBlank += 1;
+			}
+			// The read finds the household's value, not a blank that agrees with
+			// a blank remark.
+			expect(readNonBlank).toBeGreaterThan(0);
+		},
+	);
 
 	it("an inserted record with a supplied household carries the index it is named", async () => {
 		const doc = members("home");
@@ -229,7 +245,7 @@ describe("sample members of an app that links them to their household as `home`"
 				properties: {},
 			},
 			parentRelationship: "child",
-			parentIdentifier: sampleParentIdentifier(doc, member),
+			parentIdentifier: sampleParentLink(doc, member).parentIdentifier,
 		});
 		const world = await store.readCaseDatabasePatch({
 			appId: APP_ID,
@@ -239,5 +255,118 @@ describe("sample members of an app that links them to their household as `home`"
 		expect(householdRemarkOf(doc, world, memberId)).toBe(
 			"the chosen household",
 		);
+	});
+
+	it("holds the household in `parent_case_id` only under a `parent` index, through every writer", async () => {
+		const doc = members("home");
+		const store = storeFor();
+		await materialize(store, doc);
+		const db = dbHandle.db as unknown as Kysely<Database>;
+		const household = async (remark: string) =>
+			(
+				await store.insert({
+					appId: APP_ID,
+					row: {
+						case_type: "household",
+						case_name: remark,
+						properties: { remark },
+					},
+				})
+			).caseId;
+		const first = await household("first");
+		const second = await household("second");
+		const state = async (caseId: string) => ({
+			column: (
+				await db
+					.selectFrom("cases")
+					.select("parent_case_id")
+					.where("case_id", "=", caseId)
+					.executeTakeFirstOrThrow()
+			).parent_case_id,
+			edges: (
+				await db
+					.selectFrom("case_indices")
+					.select(["identifier", "ancestor_id"])
+					.where("case_id", "=", caseId)
+					.orderBy("identifier")
+					.execute()
+			).map((edge) => [edge.identifier, edge.ancestor_id]),
+		});
+		const member = async (parentIdentifier?: string) =>
+			(
+				await store.insert({
+					appId: APP_ID,
+					row: {
+						case_type: "member",
+						case_name: "Member",
+						parent_case_id: first,
+						properties: {},
+					},
+					parentRelationship: "child",
+					...(parentIdentifier === undefined ? {} : { parentIdentifier }),
+				})
+			).caseId;
+
+		const underParent = await member();
+		expect(await state(underParent)).toEqual({
+			column: first,
+			edges: [["parent", first]],
+		});
+		const underHome = await member("home");
+		expect(await state(underHome)).toEqual({
+			column: null,
+			edges: [["home", first]],
+		});
+
+		// An update names the parent under the index it is told, and leaves
+		// the column to the `parent` index.
+		await store.update({
+			appId: APP_ID,
+			caseId: underParent,
+			patch: { parent_case_id: second },
+			parentRelationship: "child",
+			parentIdentifier: "home",
+		});
+		expect(await state(underParent)).toEqual({
+			column: first,
+			edges: [
+				["home", second],
+				["parent", first],
+			],
+		});
+		await store.update({
+			appId: APP_ID,
+			caseId: underHome,
+			patch: { parent_case_id: second },
+			parentRelationship: "child",
+			parentIdentifier: "home",
+		});
+		expect(await state(underHome)).toEqual({
+			column: null,
+			edges: [["home", second]],
+		});
+		await store.update({
+			appId: APP_ID,
+			caseId: underParent,
+			patch: { parent_case_id: second },
+			parentRelationship: "child",
+		});
+		expect(await state(underParent)).toEqual({
+			column: second,
+			edges: [
+				["home", second],
+				["parent", second],
+			],
+		});
+		await store.update({
+			appId: APP_ID,
+			caseId: underParent,
+			patch: { parent_case_id: null },
+			parentIdentifier: "home",
+		});
+		expect(await state(underParent)).toEqual({
+			column: second,
+			edges: [["parent", second]],
+		});
 	});
 });

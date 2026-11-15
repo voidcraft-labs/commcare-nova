@@ -883,6 +883,32 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "an app text (a name, a label, a header, a Search field's text, the search screen's title or subtitle, an app translation) holding a carriage return after which the rest of the text, as HQ's build writes it into the app strings file, is a line that defines an app string",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The text is a value of the key that stores it, a menu's or form's name, a label, a header or a translation, which other entries hold; what the value does is a line of the app strings file HQ's build writes, which the check reads only in Nova's own archives, and Nova's gate admits no carriage return in an app string (`localeFile.ts::localeFileValueIssue`).",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build writes each app string on one line of the language's `app_strings.txt` (`commcare_translations.py::dumps`, which turns a line break into `\\n` and leaves a carriage return as it is), and Core reads the file a line at a time, a carriage return ending one (`LocalizationUtils.parseLocaleInput`, `BufferedReader.readLine`), so a device shows only the text before it and reads each line after it as an app string of its own (`parseAndAdd`), which can set the wording of another text",
+		"subject": "translation-overrides",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's build writes each app string on one line of the language's `app_strings.txt` (`commcare_translations.py::dumps`, which turns a line break into `\\n` and leaves a carriage return as it is), and Core reads the file a line at a time, a carriage return ending one (`LocalizationUtils.parseLocaleInput`, `BufferedReader.readLine`), so a device shows only the text before it and reads each line after it as an app string of its own (`parseAndAdd`), which can set the wording of another text"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/translations-key-no-runtime-reads",
 		"area": "application-and-settings",
 		"section": "Application",

@@ -40,11 +40,13 @@ export interface RestoreCase {
 	readonly owner?: string;
 	/** Custom properties, in the order the case's update writes them. */
 	readonly properties?: Readonly<Record<string, string>>;
-	/** The case's child indices, each naming the case it points at and that case's type. */
+	/** The case's indices, each naming the case it points at and that case's
+	 *  type, and `extension` where it extends that case. */
 	readonly indices?: readonly {
 		readonly identifier: string;
 		readonly caseType: string;
 		readonly caseId: string;
+		readonly relationship?: "extension";
 	}[];
 }
 
@@ -83,10 +85,19 @@ function caseBlock(entry: RestoreCase): ChildNode {
 			el(
 				"index",
 				{},
+				// HQ writes a relationship only for an extension
+				// (`casexml/apps/case/xml/generator.py::CaseXMLGeneratorBase.get_index_element`).
 				indices.map((index) =>
-					el(index.identifier, { case_type: index.caseType }, [
-						text(index.caseId),
-					]),
+					el(
+						index.identifier,
+						{
+							case_type: index.caseType,
+							...(index.relationship === undefined
+								? {}
+								: { relationship: index.relationship }),
+						},
+						[text(index.caseId)],
+					),
 				),
 			),
 		);

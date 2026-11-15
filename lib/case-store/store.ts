@@ -145,7 +145,7 @@ export interface CaseUpdate {
 	readonly opened_on?: Date | string | null;
 	/** When the case was closed. Setting `null` is the "reopen" path; the dedicated `close()` method stamps this column to `now()` for forward closure. */
 	readonly closed_on?: Date | string | null;
-	/** Denormalized first-parent identifier. Patching triggers `case_indices` re-derivation in the same transaction. `null` clears the parent edge. */
+	/** The case's parent. Patching re-derives its `case_indices` edge, under the update's `parentIdentifier`, in the same transaction; `null` clears that edge. The stored column holds the target of the case's `parent` index alone (`postgres/store.ts::parentColumn`). */
 	readonly parent_case_id?: string | null;
 	/** The user-defined case-property document. The implementation JSONB-merges the patch into the existing document and re-validates against the case-type's JSON Schema. */
 	readonly properties?: JsonObject | string;
@@ -170,10 +170,16 @@ export type CaseUpdateArgs = {
 				readonly parent_case_id: string;
 			};
 			readonly parentRelationship: "child" | "extension";
+			/** The index the parent is named under, `parent` where omitted, as
+			 *  `insert` takes it. `parent_case_id` follows only a `parent` index. */
+			readonly parentIdentifier?: string;
 	  }
 	| {
 			readonly patch: CaseUpdateWithoutParent;
 			readonly parentRelationship?: never;
+			/** With `parent_case_id: null`, the index whose edge is cleared,
+			 *  `parent` where omitted. */
+			readonly parentIdentifier?: string;
 	  }
 );
 
@@ -888,9 +894,12 @@ export interface GenerateSampleDataArgs {
 	count: number;
 	seed: string;
 	/** The index each generated child names its parent by: the one a form's
-	 *  read of the parent walks (`lib/domain/advancedModule.ts::ancestorIndex`),
+	 *  read of the parent walks (`lib/domain/advancedModule.ts::ancestorLink`),
 	 *  `parent` where omitted. */
 	parentIdentifier?: string;
+	/** That index's relationship: the one the app's links under it state
+	 *  (`ancestorLink`), the case type's catalog relationship where omitted. */
+	parentRelationship?: "child" | "extension";
 }
 
 /**
@@ -905,6 +914,8 @@ export interface ResetSampleDataArgs {
 	count: number;
 	/** As on {@link GenerateSampleDataArgs}. */
 	parentIdentifier?: string;
+	/** As on {@link GenerateSampleDataArgs}. */
+	parentRelationship?: "child" | "extension";
 }
 
 /**
@@ -1156,7 +1167,8 @@ export interface CaseStore extends SchemaCaseStore {
 		/** The index a supplied `parent_case_id` is written under: the one a
 		 *  form's read of the parent walks
 		 *  (`lib/domain/advancedModule.ts::ancestorIndex`), `parent` where
-		 *  omitted. */
+		 *  omitted. The stored column keeps the parent only under `parent`
+		 *  (`postgres/store.ts::parentColumn`). */
 		parentIdentifier?: string;
 	}): Promise<{
 		caseId: string;

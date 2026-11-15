@@ -1579,6 +1579,22 @@ const USER_MESSAGE_BY_CODE: Record<
 			: `${formulaSubject(e)} reads what the search found by its order. CommCare's search returns its cases in no fixed order, so the first or last result can change from one search to the next. You can count the results, or read a value of the case the worker chose.`,
 	LOCATIONS_READ_NEEDS_ORGANIZATION: (e) =>
 		`${carrierSubject(e)} reads places, but this app has no organization yet. You can add your organization's levels in App setup first.`,
+	FORM_CASE_READ_ACROSS_SEVERAL_LINKS: (e) => {
+		const child = det(e, "childCaseType", "a");
+		const parent = det(e, "parentCaseType", "its parent");
+		const names = det(e, "identifiers", "")
+			.split(" ")
+			.filter((name) => name !== "");
+		const listed =
+			names.length < 2
+				? ""
+				: `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+		const named = listed === "" ? "several names" : `several names (${listed})`;
+		const childName = e.details?.childIdentifier;
+		if (typeof childName === "string" && childName !== "")
+			return `${formulaSubject(e)} reads ${q(det(e, "hashtag", "a case value"))}, but this app links a ${child} case to its ${parent} case as ${childName}, the one name a ${child} case is listed under its ${parent} case by, and not every ${child} case it links carries ${childName}${listed === "" ? "" : ` (it links them under ${listed})`}. A form reads through one name, so this read would be blank for the ${child} cases without ${childName}, or read a ${parent} case other than the one they are listed under. You can link every ${child} case to its ${parent} case as ${childName}, or remove this read.`;
+		return `${formulaSubject(e)} reads ${q(det(e, "hashtag", "a case value"))}, but this app links a ${child} case to its ${parent} case under ${named}, and no one name is on every ${child} case it links. A form reads through one name, so this read would be blank for the cases linked under another. You can link every ${child} case to its ${parent} case under one name, or remove this read.`;
+	},
 	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: (e) => {
 		const property = det(e, "property", "that property");
 		const operationId = e.details?.operationId;

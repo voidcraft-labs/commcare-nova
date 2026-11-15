@@ -7,6 +7,7 @@
  * `writeBasicOperations` writes the proposals into the draft once every
  * question has its UUID. `settleCaseManagement` accepts them by re-emission.
  */
+import { type Element, isTag } from "domhandler";
 import {
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
 	type BlueprintDoc,
@@ -39,6 +40,12 @@ import {
 	isMultiSelectMenu,
 	menuMayLoadRegistryCase,
 } from "../../hq/publishedCaseBlocks";
+import {
+	isElement,
+	type NamespaceScope,
+	scopeOf,
+	XFORMS_NS,
+} from "../../xmlNamespaces";
 import type { Admitted } from "../accounting";
 import {
 	type Claim,
@@ -54,6 +61,7 @@ import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { whereText } from "../place";
 import type { DraftField, ReadXForm } from "../xform";
 import type { DataNode } from "../xform/model";
+import type { ParsedXForm } from "../xform/parse";
 import {
 	CONDITION_CLAIMS,
 	conditionField,
@@ -208,6 +216,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	locationKeys: refuse(
 		`${F}/update-keys-location-id-hq-user-id`,
 		"schema:UpdateCaseAction.update",
+	),
+	locationChildKeys: refuse(
+		`${F}/update-keys-location-id-hq-user-id`,
+		"schema:OpenSubCaseAction.case_properties",
 	),
 	illegalKey: refuse(
 		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
@@ -869,6 +881,74 @@ export function propertyNameClass(key: string): PropertyNameClass | undefined {
 	return "non-ascii";
 }
 
+/**
+ * A key CommCare HQ's server stores apart from the case's properties once a
+ * case block's `<update>` holds it: `location_id` becomes the case's own
+ * location column and `hq_user_id` is also copied to its external id
+ * (`form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy.
+ * _apply_update_action`). Nova holds it nowhere
+ * (`standardCaseProperties.ts::FORBIDDEN_CASE_WRITE_PROPERTIES`). Whether a
+ * written key reaches `<update>` is `isServerDivertedWrite`'s.
+ */
+export function isServerDivertedKey(property: string): boolean {
+	return property === "location_id" || property === "hq_user_id";
+}
+
+/** Each form's upload refs, collected once per parsed source. */
+const UPLOAD_REFS = new WeakMap<ParsedXForm, ReadonlySet<string>>();
+
+/** The `ref` of every `<upload>` under the form's body, as HQ's build collects
+ *  them (`xform.py::XFormCaseBlock.is_attachment`: `.//{f}upload[@ref]` under
+ *  `{h}body`). */
+function uploadRefs(parsed: ParsedXForm): ReadonlySet<string> {
+	const known = UPLOAD_REFS.get(parsed);
+	if (known !== undefined) return known;
+	const refs = new Set<string>();
+	const walk = (element: Element, scope: NamespaceScope) => {
+		for (const child of element.children) {
+			if (!isTag(child)) continue;
+			const own = scopeOf(child, scope);
+			if (
+				isElement(child, own, XFORMS_NS, "upload") &&
+				Object.hasOwn(child.attribs, "ref")
+			)
+				refs.add(child.attribs.ref as string);
+			walk(child, own);
+		}
+	};
+	// The source's root element has no ancestor but the document.
+	walk(parsed.body, scopeOf(parsed.body, scopeOf(parsed.html, new Map())));
+	UPLOAD_REFS.set(parsed, refs);
+	return refs;
+}
+
+/**
+ * Whether HQ's build writes `property`, read from `questionPath`, into a case
+ * block's `<update>` as a key its server stores apart (`isServerDivertedKey`).
+ * Every action's keys go through `xform.py::XFormCaseBlock.add_case_updates`
+ * (a basic update, a case above it, the worker's record, a child case, an
+ * advanced load and an open action), which writes a key into `<update>`
+ * unless its `question_path` is the `ref` of an `<upload>` in the form's
+ * body (`is_attachment`, by the stored text), where the key names an
+ * `<attachment>` instead and is no location or external id: that write is
+ * the upload question's row (`BASIC_CLAIMS.uploadQuestion`), which reading
+ * the value raises. The diverted key's row is
+ * `update-keys-location-id-hq-user-id`, under the key of the map that holds it.
+ */
+export function isServerDivertedWrite(
+	form: DraftForm,
+	property: string,
+	questionPath: unknown,
+): boolean {
+	if (!isServerDivertedKey(property)) return false;
+	const parsed = form.xform?.parsed;
+	return (
+		parsed === undefined ||
+		typeof questionPath !== "string" ||
+		!uploadRefs(parsed).has(questionPath)
+	);
+}
+
 /** The claim of a basic update's (`child` false) or child's property key
  *  outside Nova's grammar (`propertyNameClass`), under the key's own surface;
  *  `unrecognized` for one past Nova's length. */
@@ -1244,11 +1324,12 @@ function readUpdateMap(
 			}
 			via = steps.steps as CaseWriteVia;
 		}
-		if (slot === "own" && indices.length === 0) {
-			if (property === "location_id" || property === "hq_user_id") {
-				refuseEntry(cursor, BASIC_CLAIMS.locationKeys, key);
-				continue;
-			}
+		// HQ's server stores these two elsewhere wherever a case block's
+		// `<update>` holds them (`update_strategy.py::_apply_update_action`): the
+		// form's own case's, a case's above it and the worker's record's alike.
+		if (isServerDivertedWrite(r.form, property, cursor.peek("question_path"))) {
+			refuseEntry(cursor, BASIC_CLAIMS.locationKeys, key);
+			continue;
 		}
 		const facet =
 			indices.length === 0 && (property === "name" || property === "owner_id");
@@ -1938,6 +2019,11 @@ function readSubcases(
 		for (const [key, cursor] of properties) {
 			if (key.includes("/")) {
 				refuseEntry(cursor, BASIC_CLAIMS.illegalChildKey, key);
+				ok = false;
+				continue;
+			}
+			if (isServerDivertedWrite(r.form, key, cursor.peek("question_path"))) {
+				refuseEntry(cursor, BASIC_CLAIMS.locationChildKeys, key);
 				ok = false;
 				continue;
 			}

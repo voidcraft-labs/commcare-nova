@@ -4,6 +4,7 @@ import type { HqPlace } from "@/lib/publish/hqFindings";
 import type { HqInterpolation } from "../hqJson/xpath";
 import type { ClaimSite } from "./accounting";
 import type { ExpressionClaim } from "./expressions";
+import type { PrintLevel } from "./expressions/printLevel";
 
 /** How an expression's text is printed and compared: the XForm attribute it
  *  was read from, or an HQ JSON slot under the interpolation HQ's build
@@ -28,6 +29,11 @@ export interface PendingExpression {
 	readonly place: HqPlace;
 	/** The surface key the claim is logged under: `xform:model/bind@relevant`, `schema:Detail.filter`. */
 	readonly key: string;
+	/** The expression stage's refusal of this registration waits for the stage that registered
+	 *  it, which applies it at its settle or names there what else keeps the slot out
+	 *  (`provisional.ts::settleDeferredRefusal`): a Search field's check whose message no longer
+	 *  tells whether Nova's runtime guard is joined to the rule. */
+	readonly deferRefusal?: true;
 }
 
 /** What a slot that must hold a tree holds until the expression stage fills
@@ -45,6 +51,9 @@ export type DefaultEvent = "xforms-ready" | "jr-insert";
 export interface PendingOutcome {
 	readonly expression: Expression | undefined;
 	readonly claim: ExpressionClaim | undefined;
+	/** The level the tree was held at, where it is not exact (`expressions/printLevel.ts`): a stage
+	 *  that prints the slot again prints it through `levelControl` of it. */
+	readonly level?: PrintLevel;
 }
 
 /**
@@ -76,11 +85,13 @@ export interface AnsweredPendingRegistry extends PendingRegistry {
 	/**
 	 * Records the expression stage's answer: per registration, the tree it held
 	 * (`bound[i]`) and the slot's own claim, the one whose `source` is `i` and
-	 * whose `key` is the registration's own. Answering again replaces the answer.
+	 * whose `key` is the registration's own, and, by registration, the level a tree held other
+	 * than exact was held at. Answering again replaces the answer.
 	 */
 	answer(
 		bound: readonly (Expression | undefined)[],
 		claims: readonly ExpressionClaim[],
+		levels?: ReadonlyMap<number, PrintLevel>,
 	): void;
 }
 
@@ -116,7 +127,7 @@ export function pendingRegistry(): AnsweredPendingRegistry {
 			inRange(index);
 			return outcomes[index] ?? NOTHING_BOUND;
 		},
-		answer(bound, claims) {
+		answer(bound, claims, levels) {
 			const own = new Map<number, ExpressionClaim>();
 			for (const claim of claims) {
 				const registration = expressions[claim.source];
@@ -130,9 +141,10 @@ export function pendingRegistry(): AnsweredPendingRegistry {
 			outcomes = expressions.map((_, index) => {
 				const expression = bound[index];
 				const claim = own.get(index);
+				const level = expression === undefined ? undefined : levels?.get(index);
 				return expression === undefined && claim === undefined
 					? NOTHING_BOUND
-					: { expression, claim };
+					: { expression, claim, ...(level === undefined ? {} : { level }) };
 			});
 		},
 	};

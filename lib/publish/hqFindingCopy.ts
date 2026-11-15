@@ -533,6 +533,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"A question ID here is one CommCare HQ's form builder can't keep.",
 	},
+	"translation-overrides": {
+		"breaks-when-run":
+			"A text here holds a carriage return, where CommCare HQ ends the text's line in the app's wording. Devices show only the part before it, and the part after it sets the wording of another text in the app.",
+	},
 };
 
 /** The sentence a `fix-in-hq` finding of this subject and cause reads. */

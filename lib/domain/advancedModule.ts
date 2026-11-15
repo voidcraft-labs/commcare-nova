@@ -127,24 +127,253 @@ export function advancedChainIndex(
 	return { kind: "several", identifiers: [...identifiers] };
 }
 
+/** One case operation's links between one pair of case types: the
+ *  identifiers it writes to a case with a target, whatever their
+ *  relationship, and whether the operation creates the case it links. */
+interface PairLinking {
+	readonly identifiers: readonly string[];
+	readonly creates: boolean;
+}
+
+/** What the app's case operations write between one pair of case types. */
+interface PairFacts {
+	/** Each operation that links the pair, in document order. */
+	readonly linkings: readonly PairLinking[];
+	/** Each identifier a link with no target removes from the case. */
+	readonly removed: ReadonlySet<string>;
+	/** Each identifier's relationship, from the first link that writes it,
+	 *  a creating operation's first. */
+	readonly relationships: ReadonlyMap<string, "child" | "extension">;
+}
+
+/** Every pair's facts by `(childType, parentType)` pair, and the number of
+ *  operations that create a case of each type (a registration form's own
+ *  case, whether or not it holds its own arm, and every create). Memoized
+ *  per document object. */
+interface LinkFacts {
+	readonly pairs: ReadonlyMap<string, PairFacts>;
+	readonly creates: ReadonlyMap<string, number>;
+}
+
+const linkFacts = new WeakMap<BlueprintDoc, LinkFacts>();
+
+function linkFactsOf(doc: BlueprintDoc): LinkFacts {
+	const cached = linkFacts.get(doc);
+	if (cached !== undefined) return cached;
+	const pairs = new Map<
+		string,
+		{
+			linkings: PairLinking[];
+			removed: Set<string>;
+			relationships: Map<string, "child" | "extension">;
+			created: Map<string, "child" | "extension">;
+		}
+	>();
+	const creates = new Map<string, number>();
+	const pairOf = (key: string) => {
+		let pair = pairs.get(key);
+		if (pair === undefined) {
+			pair = {
+				linkings: [],
+				removed: new Set(),
+				relationships: new Map(),
+				created: new Map(),
+			};
+			pairs.set(key, pair);
+		}
+		return pair;
+	};
+	for (const moduleUuid of doc.moduleOrder) {
+		const moduleType = doc.modules[moduleUuid]?.caseType;
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (form === undefined) continue;
+			const registration = form.type === "registration";
+			// A registration creates its menu's case even where it holds no
+			// own arm, and that case carries no link.
+			if (
+				registration &&
+				moduleType !== undefined &&
+				!form.caseOperations?.some((operation) => operation.action === "own")
+			)
+				creates.set(moduleType, (creates.get(moduleType) ?? 0) + 1);
+			for (const operation of form.caseOperations ?? []) {
+				const childType = operationCaseType(doc, formUuid, operation);
+				if (childType === undefined) continue;
+				const creating =
+					operation.action === "create" ||
+					(operation.action === "own" && registration);
+				if (creating) creates.set(childType, (creates.get(childType) ?? 0) + 1);
+				const byTarget = new Map<string, string[]>();
+				for (const link of operation.links ?? []) {
+					const pair = pairOf(pairKey(childType, link.targetType));
+					if (link.target === null) {
+						pair.removed.add(link.identifier);
+						continue;
+					}
+					const order = creating ? pair.created : pair.relationships;
+					if (!order.has(link.identifier))
+						order.set(link.identifier, link.relationship);
+					const identifiers = byTarget.get(link.targetType);
+					if (identifiers === undefined)
+						byTarget.set(link.targetType, [link.identifier]);
+					else if (!identifiers.includes(link.identifier))
+						identifiers.push(link.identifier);
+				}
+				for (const [targetType, identifiers] of byTarget)
+					pairOf(pairKey(childType, targetType)).linkings.push({
+						identifiers,
+						creates: creating,
+					});
+			}
+		}
+	}
+	const facts: LinkFacts = {
+		pairs: new Map(
+			[...pairs].map(([key, pair]) => [
+				key,
+				{
+					linkings: pair.linkings,
+					removed: pair.removed,
+					relationships: new Map([...pair.relationships, ...pair.created]),
+				},
+			]),
+		),
+		creates,
+	};
+	linkFacts.set(doc, facts);
+	return facts;
+}
+
 /**
- * The index a form's read of an ancestor case (`#<type>/<property>`) follows
+ * The index a form's read of an ancestor case (`#<type>/<property>`) walks
  * from a `childType` case to its `parentType` case, the type's `parent_type`
- * in the catalog: the one identifier the app's child links between the two
- * types use, as `advancedChainIndex` finds it, so the read reaches the case an
- * advanced menu chose through that index (`[index/<identifier>=…]`); `parent`
- * where no link joins them or where they are linked under several names. An
- * advanced menu is never chained over a pair linked under several names
- * (`chain-index`), so in every advanced form the read follows the index its
- * load was chosen through.
+ * in the catalog. A read walks an index by its identifier whatever its
+ * relationship, so a child link and an extension link (whose host CommCare
+ * HQ's own convention names `host`, `casexml/apps/case/const.py::
+ * DEFAULT_CASE_INDEX_IDENTIFIERS`) count alike.
+ *
+ * A name is on every case the app links between the two types where no
+ * operation removes it and every operation that links them writes it, or,
+ * for an operation that does not create its case, every operation that
+ * creates a `childType` case writes it (so every case it can link already
+ * holds it); a create that links nothing to `parentType` writes no name.
+ *
+ * - `one`: where the app names one, that name; where no link joins them,
+ *   `parent`, HQ's own name for a subcase's index
+ *   (`xform.py::_create_casexml`). Where the app names several: the one
+ *   name its child links use (`advancedChainIndex`, the name a parent
+ *   selection of an advanced menu lists a `childType` case under, and the
+ *   only one a basic parent selection lists it under), so a form reads the
+ *   case a worker chose it under; where its child links use none or
+ *   several, a name on every such case, `parent` first, then the first in
+ *   document order.
+ * - `several`: no one name is on every such case (`why: "no-name"`), or
+ *   the one name the child links use is not (`why: "child-name"`), so a
+ *   read through any one name reads blank for some cases, or reads a case
+ *   other than the one a worker chose
+ *   (`FORM_CASE_READ_ACROSS_SEVERAL_LINKS` refuses the read).
+ */
+export type AncestorWalk =
+	| {
+			readonly kind: "one";
+			readonly identifier: string;
+			/** The relationship the app's links under `identifier` state,
+			 *  `undefined` where no link of the app writes it. */
+			readonly relationship: "child" | "extension" | undefined;
+	  }
+	| {
+			readonly kind: "several";
+			readonly identifiers: readonly string[];
+			readonly why:
+				| { readonly kind: "no-name" }
+				| { readonly kind: "child-name"; readonly identifier: string };
+	  };
+
+export function ancestorWalk(
+	doc: BlueprintDoc,
+	childType: string,
+	parentType: string,
+): AncestorWalk {
+	const facts = linkFactsOf(doc);
+	const pair = facts.pairs.get(pairKey(childType, parentType));
+	const linkings = pair?.linkings ?? [];
+	const names: string[] = [];
+	for (const linking of linkings)
+		for (const identifier of linking.identifiers)
+			if (!names.includes(identifier)) names.push(identifier);
+	const one = (identifier: string): AncestorWalk => ({
+		kind: "one",
+		identifier,
+		relationship: pair?.relationships.get(identifier),
+	});
+	if (pair === undefined || names.length === 0) return one("parent");
+	if (names.length === 1) return one(names[0]);
+	const createCount = facts.creates.get(childType) ?? 0;
+	const everyCreateWrites = (name: string) =>
+		createCount > 0 &&
+		linkings.filter(
+			(linking) => linking.creates && linking.identifiers.includes(name),
+		).length === createCount;
+	const onEveryCase = (name: string) =>
+		!pair.removed.has(name) &&
+		linkings.every(
+			(linking) =>
+				linking.identifiers.includes(name) ||
+				(!linking.creates && everyCreateWrites(name)),
+		);
+	const chain = advancedChainIndex(doc, childType, parentType);
+	if (chain.kind === "one" && names.includes(chain.identifier))
+		return onEveryCase(chain.identifier)
+			? one(chain.identifier)
+			: {
+					kind: "several",
+					identifiers: names,
+					why: { kind: "child-name", identifier: chain.identifier },
+				};
+	const common = names.filter(onEveryCase);
+	if (common.length === 0)
+		return { kind: "several", identifiers: names, why: { kind: "no-name" } };
+	return one(common.includes("parent") ? "parent" : common[0]);
+}
+
+/**
+ * The identifier `ancestorWalk` gives, the one a form's read of the parent
+ * prints and Nova's own rows name a sample or supplied child's parent by;
+ * `parent` where no one name walks to every case, a walk the commit gate
+ * refuses every read of.
  */
 export function ancestorIndex(
 	doc: BlueprintDoc,
 	childType: string,
 	parentType: string,
 ): string {
-	const index = advancedChainIndex(doc, childType, parentType);
-	return index.kind === "one" ? index.identifier : "parent";
+	const walk = ancestorWalk(doc, childType, parentType);
+	return walk.kind === "one" ? walk.identifier : "parent";
+}
+
+/**
+ * The index Nova's own rows name a sample or supplied `childType` case's
+ * `parentType` parent by, with its relationship: `ancestorIndex`'s name,
+ * under the relationship the app's links under that name state, or the
+ * catalog's (`fallback`) where no link of the app writes it.
+ */
+export function ancestorLink(
+	doc: BlueprintDoc,
+	childType: string,
+	parentType: string,
+	fallback: "child" | "extension",
+): {
+	readonly identifier: string;
+	readonly relationship: "child" | "extension";
+} {
+	const walk = ancestorWalk(doc, childType, parentType);
+	return walk.kind === "one"
+		? {
+				identifier: walk.identifier,
+				relationship: walk.relationship ?? fallback,
+			}
+		: { identifier: "parent", relationship: fallback };
 }
 
 /** The modules of `moduleUuid`'s parent selection, root first, ending at

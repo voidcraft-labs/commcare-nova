@@ -35,6 +35,7 @@ import {
 	neq,
 	prop,
 	today,
+	whenInput,
 } from "@/lib/domain/expression/builders";
 import { plainColumn } from "@/lib/domain/modules";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
@@ -436,17 +437,87 @@ describe("a search title held in only some app languages", () => {
 		},
 	);
 
-	it("is a finding where the first language's is blank and another's is not", async () => {
+	// A language whose own title is only spaces holds it in its own table, which a device shows
+	// blank (`app_strings.py::create_custom_app_strings` keeps a title Python reads as text, and
+	// `commcare_translations.py::dumps` writes it blank). The title is held as every app string
+	// is (`heldText.ts::heldText`): that language takes the source's title, which a worker there
+	// then reads, so the reading records `text-spaces-dropped`.
+	it("holds a title only spaces in another language as the source's, and records the change", async () => {
 		const reading = await readLists(titled(), {
 			edit: (app) => {
 				(app as Record<string, unknown>).langs = ["en", "es"];
-				searchConfig(app).title_label = { en: "", es: "Buscar" };
+				searchConfig(app).title_label = { en: "Find patients", es: "  " };
 			},
-			firstPassOnly: true,
 		});
-		expect(codes(reading)).toContain(
-			"case-search/title-label-blank-in-some-languages",
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({
+			searchScreenTitle: "Find patients",
+		});
+		expect(registers(reading)).toContain("text-spaces-dropped");
+	});
+
+	// The default table holds the first language's title (`get_search_title_label` reads
+	// `app.default_language`, `langs[0]`, for it), so where that title is blank every language
+	// with none of its own shows blank. Where the reading's source is another language, which the
+	// app's name tells, that language holds the title and the first takes it.
+	it("holds a title blank in the first language where the source holds text", async () => {
+		const reading = await readLists(titled(), {
+			edit: (app) => {
+				const root = app as Record<string, unknown>;
+				root.langs = ["es", "en"];
+				const translations = (root.translations ?? {}) as Record<
+					string,
+					Record<string, string>
+				>;
+				translations.es = {
+					...translations.es,
+					"app.display.name": "Pacientes",
+				};
+				root.translations = translations;
+				searchConfig(app).title_label = { es: "", en: "Find patients" };
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({
+			searchScreenTitle: "Find patients",
+		});
+		expect(registers(reading)).toContain("text-spaces-dropped");
+	});
+
+	// The source language's title is the document's slot, which holds text or no title in every
+	// language, so a title the source shows blank beside another's text has no document. The
+	// refusal is the only finding: the search's rows, which the settle never reaches, stand under it.
+	it("is a finding where the source's is blank and another's is not", async () => {
+		const status: SearchInputDef = {
+			uuid: uuid(10),
+			name: "status",
+			label: "Status",
+			kind: "advanced",
+			type: "text",
+			predicate: whenInput(
+				input(uuid(10)),
+				eq(prop("patient", "status"), input(uuid(10))),
+			),
+		};
+		const reading = await readLists(
+			bilingual(
+				patients(COLUMNS, {
+					searchInputs: [NOTES, status],
+					search: { searchScreenTitle: "Find patients" },
+				}),
+			),
+			{
+				edit: (app) => {
+					(app as Record<string, unknown>).langs = ["en", "es"];
+					searchConfig(app).title_label = { en: "", es: "Buscar" };
+					// The advanced field's condition is a row of the search's default filters.
+					expect(searchConfig(app).default_properties).toHaveLength(1);
+				},
+			},
 		);
+		expect(closedCodes(reading)).toEqual([
+			"case-search/title-label-blank-in-some-languages",
+		]);
 	});
 });
 

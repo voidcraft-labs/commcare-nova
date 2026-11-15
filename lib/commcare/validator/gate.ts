@@ -347,6 +347,13 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// An app with no organization pushes no places, so a read of places
 	// could only name places made in HQ, which Preview cannot show.
 	LOCATIONS_READ_NEEDS_ORGANIZATION: "soundness",
+	// A read of an ancestor walks one index by name; where the app links a
+	// type to its catalog parent under several names and no one of them is
+	// on every case it links, or the one its child links use (the name a
+	// parent selection lists a case under) is not, the read is blank for some
+	// cases or reads another case than the one chosen
+	// (`advancedModule.ts::ancestorWalk`).
+	FORM_CASE_READ_ACROSS_SEVERAL_LINKS: "soundness",
 	// HQ's form builder can't open, or closes the case on, a form whose
 	// Save to Case block writes one of these property names.
 	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: "soundness",

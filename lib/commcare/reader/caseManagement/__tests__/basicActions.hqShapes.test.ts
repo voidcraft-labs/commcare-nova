@@ -1153,3 +1153,270 @@ describe("a save to the case above, read back from Nova's own emission", () => {
 		}
 	});
 });
+
+describe("a key HQ's server stores apart from a case's properties, wherever a basic form writes it", () => {
+	// HQ's build writes every action's keys from a question that is not an upload as
+	// elements of its case block's `<update>` (`xform.py::XFormCaseBlock.add_case_updates`,
+	// for the own case, a case above it, the worker's record and a child case), and HQ's
+	// server stores `location_id` as the case's location and copies `hq_user_id` to its
+	// external id wherever a block holds them (`update_strategy.py::_apply_update_action`).
+	// Nova holds neither as a write (`FORBIDDEN_CASE_WRITE_PROPERTIES`), so a reading that
+	// took one as a property would hold a document that writes something else.
+	const DIVERTED = `${F}/update-keys-location-id-hq-user-id`;
+
+	/** Every finding a whole reading raises at a form's case actions. */
+	function atActions(reading: Awaited<ReturnType<typeof readMenusOf>>) {
+		return codesOf(reading).filter(
+			(code) =>
+				code.startsWith(`${F}/`) ||
+				code.startsWith("unrecognized:schema:FormActions.") ||
+				code.startsWith("unrecognized:schema:OpenSubCaseAction.") ||
+				code.startsWith("unrecognized:schema:ConditionalCaseUpdate.") ||
+				code === "unrecognized:schema:Form.actions",
+		);
+	}
+
+	/** The stored map of Nova's own export holding `from`, its key renamed `to`. */
+	function renameKey(
+		map: Record<string, unknown> | undefined,
+		from: string,
+		to: string,
+	): void {
+		if (map === undefined || !(from in map))
+			throw new Error(`The export writes the key ${from}.`);
+		map[to] = map[from];
+		delete map[from];
+	}
+
+	const SIZE = testUuid("diverted-size");
+	const KID_NAME = testUuid("diverted-kid-name");
+
+	/** An image question every site's form holds and writes nothing from. */
+	const photo = () => f({ kind: "image", id: "photo" });
+	const withPhoto = (form: FormSpec): FormSpec => ({
+		...form,
+		fields: [...(form.fields ?? []), photo()],
+	});
+
+	/** Members chosen under their household, whose visit saves the household's size. */
+	function aboveDoc(): BlueprintDoc {
+		const VISIT = testUuid("diverted-visit");
+		return buildDoc(
+			{
+				caseTypes: [
+					{
+						name: "household",
+						properties: [{ name: "size", label: "Size", data_type: "int" }],
+					},
+					{ name: "member", parent_type: "household", properties: [] },
+				],
+				modules: [
+					{
+						uuid: "diverted-households",
+						name: "Households",
+						caseType: "household",
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "name",
+										caseWrite: { caseType: "household", property: "case_name" },
+									}),
+								],
+							},
+						],
+					},
+					{
+						name: "Members",
+						caseType: "member",
+						parentCaseModuleUuid: "diverted-households",
+						forms: [
+							{
+								uuid: "diverted-visit",
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "int", id: "size", uuid: SIZE }), photo()],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				doc.forms[VISIT] = {
+					...doc.forms[VISIT],
+					caseOperations: [
+						{
+							uuid: testUuid("diverted-own"),
+							id: "member",
+							action: "own",
+							writes: [
+								{
+									property: "size",
+									value: term(formField(SIZE)),
+									via: [{ identifier: "parent", throughCaseType: "household" }],
+								},
+							],
+						} as CaseOperation,
+					],
+				} as never;
+			},
+		);
+	}
+
+	/** A follow-up that opens a child case writing `size`. */
+	function childDoc(): BlueprintDoc {
+		const VISIT = testUuid("diverted-child-visit");
+		return buildDoc(
+			{
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								uuid: "diverted-child-visit",
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({ kind: "text", id: "kid", uuid: KID_NAME }),
+									f({ kind: "int", id: "size", uuid: SIZE }),
+									photo(),
+								],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				doc.forms[VISIT] = {
+					...doc.forms[VISIT],
+					caseOperations: [
+						{
+							uuid: testUuid("diverted-child-own"),
+							id: "patient",
+							action: "own",
+						},
+						{
+							uuid: testUuid("diverted-create"),
+							id: "patient_1",
+							action: "create",
+							caseType: "patient",
+							target: { kind: "new" },
+							name: term(formField(KID_NAME)),
+							writes: [{ property: "size", value: term(formField(SIZE)) }],
+							links: [
+								{
+									identifier: "parent",
+									targetType: "patient",
+									target: { kind: "session" },
+									relationship: "child",
+								},
+							],
+						},
+					] as CaseOperation[],
+				} as never;
+			},
+		);
+	}
+
+	const SITES: readonly {
+		readonly where: string;
+		readonly doc: () => BlueprintDoc;
+		/** The key Nova's export writes, and the key the edit names in its place. */
+		readonly from: string;
+		readonly to: (key: string) => string;
+		readonly map: (json: AppJson) => Record<string, unknown> | undefined;
+	}[] = [
+		{
+			where: "the form's own case",
+			doc: () => app([withPhoto(visit)]),
+			from: "notes",
+			to: (key) => key,
+			map: (json) =>
+				actionsOf(json).update_case?.update as Record<string, unknown>,
+		},
+		{
+			where: "the case above it",
+			doc: aboveDoc,
+			from: "parent/size",
+			to: (key) => `parent/${key}`,
+			map: (json) =>
+				actionsOf(json, 1).update_case?.update as Record<string, unknown>,
+		},
+		{
+			where: "the worker's record",
+			doc: () => app([withPhoto(workerVisit)]),
+			from: "mood",
+			to: (key) => key,
+			map: (json) =>
+				actionsOf(json).usercase_update?.update as Record<string, unknown>,
+		},
+		{
+			where: "a child case",
+			doc: childDoc,
+			from: "size",
+			to: (key) => key,
+			map: (json) => {
+				const [subcase] = actionsOf(json).subcases as unknown as Record<
+					string,
+					unknown
+				>[];
+				return subcase?.case_properties as Record<string, unknown>;
+			},
+		},
+	];
+
+	for (const site of SITES)
+		it(`refuses \`location_id\` and \`hq_user_id\` written to ${site.where} once, where Nova's own write there reads with none`, async () => {
+			// The pair: Nova's own export of the write reads with no finding at its actions.
+			const plain = await readMenusOf(site.doc(), (json) => {
+				site.map(json as AppJson);
+			});
+			expect(atActions(plain)).toEqual([]);
+			expect(plain.outcome.defects).toEqual([]);
+			for (const key of ["location_id", "hq_user_id"]) {
+				const stored = site.to(key);
+				const reading = await readMenusOf(site.doc(), (json) =>
+					renameKey(site.map(json as AppJson), site.from, stored),
+				);
+				expect(atActions(reading), key).toEqual([DIVERTED]);
+				expect(reading.outcome.defects, key).toEqual([]);
+				const found = reading.findings.filter((one) => one.code === DIVERTED);
+				expect(found[0]?.detail?.name, key).toBe(stored);
+				expect(reading.doc, key).toBeUndefined();
+			}
+		});
+
+	// HQ's build writes a key whose question is an `<upload>` into the block's
+	// `<attachment>`, not its `<update>` (`XFormCaseBlock.add_case_updates` over
+	// `is_attachment`), so HQ's server neither stores it as the case's location nor
+	// copies it to the external id: such a write is the upload question's row alone.
+	const UPLOAD = `${F}/update-from-an-upload-question-attachment-mode`;
+	for (const site of SITES)
+		it(`reads \`location_id\` and \`hq_user_id\` from an upload question written to ${site.where} as the upload question's write, as any key from one reads`, async () => {
+			/** The stored map with the export's key renamed `to` and read from the image question. */
+			const fromPhoto = (to: string) => (json: unknown) => {
+				const map = site.map(json as AppJson);
+				if (to !== site.from) renameKey(map, site.from, to);
+				(map?.[to] as Record<string, unknown>).question_path = "/data/photo";
+			};
+			// The pair: the export's own key read from the image question.
+			const plain = await readMenusOf(site.doc(), fromPhoto(site.from));
+			expect(atActions(plain)).toEqual([UPLOAD]);
+			expect(plain.outcome.defects).toEqual([]);
+			for (const key of ["location_id", "hq_user_id"]) {
+				const stored = site.to(key);
+				const reading = await readMenusOf(site.doc(), fromPhoto(stored));
+				expect(atActions(reading), key).toEqual([UPLOAD]);
+				expect(reading.outcome.defects, key).toEqual([]);
+				expect(
+					reading.findings.find((one) => one.code === UPLOAD)?.detail?.name,
+					key,
+				).toBe(key);
+				expect(reading.doc, key).toBeUndefined();
+			}
+		});
+});
