@@ -21,9 +21,16 @@ import {
 	moduleUuidOfForm,
 } from "@/lib/domain";
 import {
+	type PreviewScreenRead,
+	readPreviewScreen,
+} from "@/lib/preview/engine/dataRefusal";
+import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
+import {
 	type SearchInputValues,
 	searchInputInstanceValues,
 } from "@/lib/preview/engine/runtimeBindings";
+import type { PreviewSearchEnvironment } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
 import type {
 	PreviewSearchAnswers,
 	PreviewSearchLaunch,
@@ -186,7 +193,7 @@ export function formSearchAnswers(args: {
 	/** A form link opened the form (`PreviewCaseTarget.openedByLink`). */
 	readonly openedByLink: boolean;
 	/** The Search fields' starting values, as the Search screen fills its
-	 * prompts (`searchExpressionEvaluation.ts::resolveSearchInputDefaults`). */
+	 * prompts as it opens (`searchRunState.ts::openSearchRunState`). */
 	readonly defaults: SearchInputValues;
 }): SearchInputValues | undefined {
 	const { searchInputs, admission, formsReadSearch, searchState, defaults } =
@@ -203,6 +210,70 @@ export function formSearchAnswers(args: {
 				new Map(Object.entries(searchState.answers)),
 			)
 		: searchInputInstanceValues(searchInputs, defaults);
+}
+
+/**
+ * Whether the form reaches its `#search/` answers through its menu's Search
+ * screen opening now: a form of a menu whose forms read the search, opened
+ * with no completed search behind it (a form link, an entry point). Web Apps
+ * rebuilds such a form's query step with a query manager built as the Search
+ * screen is built (`RemoteQuerySessionManager`'s constructor).
+ */
+export function formOpensSearchScreen(args: {
+	readonly admission: CaseListRegistrationAdmission;
+	readonly formsReadSearch: boolean;
+	readonly searchState: PreviewSearchState | undefined;
+	readonly openedByLink: boolean;
+}): boolean {
+	return (
+		args.formsReadSearch &&
+		args.admission.kind === "not-applicable" &&
+		!formReadsCompletedSearch(args.searchState, args.openedByLink)
+	);
+}
+
+const NO_STARTING_VALUES: SearchInputValues = new Map();
+
+/**
+ * What a form's `#search/<name>` reads (`formSearchAnswers`), read as its
+ * screen reads it (`readPreviewScreen`). Where the form reaches them through
+ * its menu's Search screen opening (`formOpensSearchScreen`), that screen
+ * opens as Preview's Search screen opens, App Tests' and the form check's
+ * too (`searchRunState.ts::openSearchRunState`): every starting value, hidden
+ * value and required condition, and the check of each field a starting value
+ * answers, is read, and a read of data the worker's device lacks refuses the
+ * form as it refuses that screen. `world` is undefined while what those reads
+ * read (the worker, the lookups, the device's cases) still loads; nothing is
+ * read then, and the form reads no starting value.
+ */
+export function readFormSearchAnswers(args: {
+	readonly searchInputs: readonly SearchInputDef[];
+	readonly admission: CaseListRegistrationAdmission;
+	readonly formsReadSearch: boolean;
+	readonly searchState: PreviewSearchState | undefined;
+	readonly openedByLink: boolean;
+	readonly world:
+		| {
+				readonly session: PreviewSearchSessionValues;
+				readonly environment: PreviewSearchEnvironment;
+		  }
+		| undefined;
+}): PreviewScreenRead<SearchInputValues | undefined> {
+	let defaults = NO_STARTING_VALUES;
+	if (formOpensSearchScreen(args) && args.world !== undefined) {
+		const { session, environment } = args.world;
+		const opened = readPreviewScreen(() =>
+			openSearchRunState(
+				environment.moduleUuid,
+				args.searchInputs,
+				session,
+				environment,
+			),
+		);
+		if (opened.kind === "refused") return opened;
+		defaults = opened.value.defaults;
+	}
+	return { kind: "read", value: formSearchAnswers({ ...args, defaults }) };
 }
 
 /** Whether a form of a menu whose forms read the search reads its module's

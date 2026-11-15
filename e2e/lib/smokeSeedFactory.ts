@@ -98,6 +98,11 @@ import {
 	LOCALIZATION_SEED,
 } from "./localizationSeed";
 import {
+	buildMenuHeldCaseBlueprint,
+	MENU_HELD_CASE_SEED,
+	menuHeldCaseRoute,
+} from "./menuHeldCaseSeed";
+import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildPreviewAndroidMediaBlueprint,
@@ -105,6 +110,7 @@ import {
 	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
+	buildSearchStartRefusedBlueprint,
 	buildSearchValueListBlueprint,
 	FORM_REFUSED_SEED,
 	formRefusedRoute,
@@ -117,8 +123,10 @@ import {
 	SEARCH_CHOICE_SEED,
 	SEARCH_CLAIM_SEED,
 	SEARCH_RESULTS_SEED,
+	SEARCH_START_REFUSED_SEED,
 	SEARCH_VALUE_LIST_SEED,
 	searchChoiceRoute,
+	searchStartRefusedRoute,
 	searchValueListRoute,
 } from "./previewRuntimeSeeds";
 import {
@@ -131,6 +139,10 @@ import {
 	reactProfileInitialRoute,
 	reactProfileRoute,
 } from "./reactProfileSeed";
+import {
+	buildSearchStandingBlueprint,
+	SEARCH_STANDING_SEED,
+} from "./searchStandingSeed";
 import { buildSessionStorageState } from "./session";
 
 import { SMOKE_TEXT } from "./smokeText";
@@ -1338,6 +1350,56 @@ export async function createSmokeBuilders(
 				},
 			};
 		},
+		"menu-held-case": async () => {
+			const seed = MENU_HELD_CASE_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildMenuHeldCaseBlueprint,
+			);
+			/* As the refused preload's: the imported row is written as an import
+			 * leaves it, since the case store's own writers refuse a date
+			 * property that is not a date. */
+			const db = await getCaseStoreDatabase();
+			const now = new Date();
+			const ada = await db
+				.insertInto("cases")
+				.values({
+					app_id: appId,
+					project_id: seedProjectId,
+					owner_id: SEED.userId,
+					case_type: seed.caseType,
+					case_name: seed.refused.caseName,
+					status: "open",
+					opened_on: now,
+					modified_on: now,
+					closed_on: null,
+					external_id: null,
+					parent_case_id: null,
+					properties: JSON.stringify({ [seed.property]: seed.refused.value }),
+				})
+				.returning("case_id")
+				.executeTakeFirstOrThrow();
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.pregnancies.caseType,
+					case_name: seed.pregnancies.caseName,
+					status: "open",
+					parent_case_id: ada.case_id,
+					properties: {},
+				},
+			});
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.opens.caseName,
+					status: "open",
+					properties: { [seed.property]: seed.opens.value },
+				},
+			});
+			return { menuHeldCase: { appId, route: menuHeldCaseRoute(appId) } };
+		},
 		"here-column": async () => {
 			const seed = HERE_COLUMN_SEED;
 			const appId = await seedRuntimeApp(
@@ -1437,6 +1499,48 @@ export async function createSmokeBuilders(
 					appId,
 					route: `/build/${appId}`,
 					caseId: match.caseId,
+				},
+			};
+		},
+		"search-standing": async () => {
+			const seed = SEARCH_STANDING_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchStandingBlueprint,
+			);
+			for (const patient of [seed.searched, seed.other])
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: seed.caseType,
+						case_name: patient.caseName,
+						status: "open",
+						properties: {},
+					},
+				});
+			return { searchStanding: { appId, route: `/build/${appId}` } };
+		},
+		"search-start-refused": async () => {
+			const seed = SEARCH_START_REFUSED_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchStartRefusedBlueprint,
+			);
+			// The seeded member's own record, so the deep link offers it.
+			const patient = await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.patient.caseName,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				searchStartRefused: {
+					appId,
+					route: searchStartRefusedRoute(appId),
+					caseId: patient.caseId,
 				},
 			};
 		},

@@ -117,6 +117,37 @@ export function caseListReadsResults(
 	return false;
 }
 
+/**
+ * Whether the list runs its default search now: the step is Results with
+ * nothing submitted (skip to results), the screen is the worker's, and no
+ * registered case is what Results read. A search the session already holds
+ * for a menu whose forms read the search (the worker searched, then a form of
+ * the menu returned to its list) is that menu's standing query, which the
+ * screen takes back with its own answers rather than replacing it with the
+ * default search: Web Apps sends the session's query answers with the request
+ * that shows the screen again, and Formplayer answers the prompts from them
+ * before it runs the query (`MenuSessionRunnerService.java::handleQueryScreen`,
+ * `answerQueryPrompts` over `QueryData.getInputs`, then `doQuery`).
+ */
+export function caseListLaunchesDefaultSearch(args: {
+	readonly step: CaseListStep | "waiting";
+	readonly hasSubmitted: boolean;
+	/** The session is still waiting for its worker. */
+	readonly pending: boolean;
+	readonly readsRegisteredCase: boolean;
+	/** The session holds this menu's search (running, failed or completed),
+	 *  which the screen restores. */
+	readonly standingSearch: boolean;
+}): boolean {
+	return (
+		args.step === "results" &&
+		!args.hasSubmitted &&
+		!args.pending &&
+		!args.readsRegisteredCase &&
+		!args.standingSearch
+	);
+}
+
 function opensOn(
 	workflow: Exclude<SearchWorkflow, "listFirst">,
 	run: { readonly hasSubmitted: boolean; readonly searchReopened?: boolean },

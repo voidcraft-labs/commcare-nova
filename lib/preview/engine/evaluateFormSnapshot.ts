@@ -214,39 +214,55 @@ export async function evaluateFormSnapshot(
 		caseDatabase: context.cases,
 		session: previewSessionValues(context.identity, context.device),
 	});
-	const engine = new FormEngine(
-		engineInput,
-		module.caseType,
-		caseData,
-		context.identity,
-		previewLookupData(context.lookup),
-		context.cases,
-		{
-			stagedAsync: true,
-			device: context.device,
-			sessionData: session.data,
-			selectedCases: session.selectedCases,
-			...(session.searchResults === undefined
-				? {}
-				: { searchResults: session.searchResults }),
-			...(context.entry && context.entry.language !== engineInput.language
-				? {
-						restoredEntry: {
-							checkpoint: context.entry.checkpoint,
-							preserveAllValues: true,
-						},
-					}
-				: {}),
-			searchAnswers: searchInputInstanceValues(
-				module.caseListConfig?.searchInputs ?? [],
-				new Map(
-					(input.searchAnswers ?? context.searchAnswers ?? []).map(
-						({ name, value }) => [name, value],
+	/* The engine refuses a form as it opens where Core does (a case block
+	 * reading worker information the worker lacks, an owner moved to no
+	 * place), so that refusal is the form's, worded as Preview words it. */
+	const dataRefusalInputError = (error: unknown) => {
+		const dataRefusal = previewDataRefusalOf(error);
+		return dataRefusal === undefined
+			? error
+			: new FormEvaluationInputError(
+					dataRefusalSentence(doc, dataRefusal, context, language),
+				);
+	};
+	let engine: FormEngine;
+	try {
+		engine = new FormEngine(
+			engineInput,
+			module.caseType,
+			caseData,
+			context.identity,
+			previewLookupData(context.lookup),
+			context.cases,
+			{
+				stagedAsync: true,
+				device: context.device,
+				sessionData: session.data,
+				selectedCases: session.selectedCases,
+				...(session.searchResults === undefined
+					? {}
+					: { searchResults: session.searchResults }),
+				...(context.entry && context.entry.language !== engineInput.language
+					? {
+							restoredEntry: {
+								checkpoint: context.entry.checkpoint,
+								preserveAllValues: true,
+							},
+						}
+					: {}),
+				searchAnswers: searchInputInstanceValues(
+					module.caseListConfig?.searchInputs ?? [],
+					new Map(
+						(input.searchAnswers ?? context.searchAnswers ?? []).map(
+							({ name, value }) => [name, value],
+						),
 					),
 				),
-			),
-		},
-	);
+			},
+		);
+	} catch (error) {
+		throw dataRefusalInputError(error);
+	}
 	const runtime = new XPathRuntime({
 		workerFactory: createInProcessXPathWorkerFactory(),
 	});
@@ -613,11 +629,8 @@ export async function evaluateFormSnapshot(
 			throw new FormRefusedError(
 				formRefusal(doc, error.details, context.cases, language),
 			);
-		const dataRefusal = previewDataRefusalOf(error);
-		if (dataRefusal !== undefined)
-			throw new FormEvaluationInputError(
-				dataRefusalSentence(doc, dataRefusal, context, language),
-			);
+		if (previewDataRefusalOf(error) !== undefined)
+			throw dataRefusalInputError(error);
 		if (error instanceof FormEvaluationXPathError)
 			throw new FormEvaluationInputError(
 				"An expression could not be evaluated.",

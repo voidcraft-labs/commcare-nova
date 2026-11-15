@@ -4,10 +4,14 @@
  * (`run.ts::appTestDataRefusal`). A worker assigned nowhere holds no place
  * key in the session, so a case list whose filter or Search action's
  * condition reads one stops the list, a menu whose condition reads one stops
- * the menu, a Search field whose starting value reads one stops the Search
- * screen, and a form's link whose condition reads one stops the links after
- * the form. The Search screen and the links are read in a bounded worker
+ * the menu, a Search field whose starting value, hidden value or required
+ * condition reads one stops the Search screen as Preview's opens (or its
+ * Search pane, on a list that opens first), a registration's open condition
+ * stops the form, and a form's link whose condition reads one, or the list
+ * the link opens, stops the next step after the save, which the journey
+ * keeps. The Search screen and the links are read in a bounded worker
  * thread, so these also hold that a refusal crosses the thread as one. */
+import { sql } from "kysely";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -16,8 +20,14 @@ import {
 	f,
 	withUserSequences,
 } from "@/lib/__tests__/docHelpers";
+import { appTestNamespace } from "@/lib/case-store/appTestNamespace";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	hiddenSearchInputDef,
+	type SearchInputDef,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import {
 	eq,
 	literal,
@@ -25,6 +35,15 @@ import {
 	sessionUser,
 	term,
 } from "@/lib/domain/expression/builders";
+import type { Platform } from "@/lib/domain/platforms";
+import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
+import {
+	previewAsPersona,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
+import { previewLookupData } from "@/lib/preview/engine/lookupEvaluation";
+import { serverPreviewDevice } from "@/lib/preview/engine/previewDevice";
+import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
 import { continueAppTest, startAppTest } from "../service";
 import type { AppTestAction } from "../types";
 
@@ -42,6 +61,10 @@ const ASHA = testUuid("refusal-asha");
 const NAME_INPUT = testUuid("refusal-name-input");
 const SURVEY_FORM = testUuid("refusal-survey-form");
 const SURVEY_LINK = testUuid("refusal-survey-link");
+const HIDDEN_INPUT = testUuid("refusal-hidden-input");
+const INTAKE_MODULE = testUuid("refusal-intake-module");
+const INTAKE_FORM = testUuid("refusal-intake-form");
+const INTAKE_LINK = testUuid("refusal-intake-link");
 
 function placeKey() {
 	return term(sessionUser("commcare_location_id"));
@@ -49,24 +72,54 @@ function placeKey() {
 
 /** Where the app reads the place key: the case list's filter, the menu's
  *  display condition, the case list's Search action's condition, a Search
- *  field's starting value, or the condition of a link after the survey. */
+ *  field's starting value, hidden value or required condition, the
+ *  condition of a link after the survey, a registration's open condition,
+ *  or the filter of the list a registration's link opens after its save. */
 type PlaceRead =
 	| "list-filter"
 	| "menu"
 	| "search-action"
 	| "search-default"
-	| "link";
+	| "search-hidden"
+	| "search-required"
+	| "link"
+	| "registration-open"
+	| "next-screen";
+
+/** The Search fields of an app whose Search screen reads the place key. */
+function searchInputsReading(reads: PlaceRead): SearchInputDef[] | undefined {
+	switch (reads) {
+		case "search-default":
+			return [
+				simpleSearchInputDef(NAME_INPUT, "name", "Name", "text", "case_name", {
+					default: placeKey(),
+				}),
+			];
+		case "search-hidden":
+			return [
+				simpleSearchInputDef(NAME_INPUT, "name", "Name", "text", "case_name"),
+				hiddenSearchInputDef(HIDDEN_INPUT, "place", "Place", placeKey()),
+			];
+		case "search-required":
+			return [
+				simpleSearchInputDef(NAME_INPUT, "name", "Name", "text", "case_name", {
+					required: {
+						when: eq(placeKey(), literal("north")),
+						message: "Add a name",
+					},
+				}),
+			];
+		default:
+			return undefined;
+	}
+}
 
 function refusalDoc(reads: PlaceRead): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
-	if (reads === "list-filter")
+	if (reads === "list-filter" || reads === "next-screen")
 		config.filter = eq(prop("patient", "district"), placeKey());
-	if (reads === "search-default")
-		config.searchInputs = [
-			simpleSearchInputDef(NAME_INPUT, "name", "Name", "text", "case_name", {
-				default: placeKey(),
-			}),
-		];
+	const searchInputs = searchInputsReading(reads);
+	if (searchInputs !== undefined) config.searchInputs = searchInputs;
 	return withUserSequences({
 		...buildDoc({
 			appId: scope.appId,
@@ -123,6 +176,50 @@ function refusalDoc(reads: PlaceRead): BlueprintDoc {
 						},
 					],
 				},
+				...(reads === "registration-open" || reads === "next-screen"
+					? [
+							{
+								uuid: INTAKE_MODULE,
+								name: "Intake",
+								caseType: "patient",
+								caseListConfig: caseListConfig([
+									{ field: "case_name", header: "Name" },
+								]),
+								forms: [
+									{
+										uuid: INTAKE_FORM,
+										name: "Register",
+										type: "registration" as const,
+										fields: [
+											f({
+												kind: "text",
+												id: "case_name",
+												label: "Name",
+												caseWrite: {
+													caseType: "patient",
+													property: "case_name",
+												},
+											}),
+										],
+										...(reads === "registration-open" && {
+											openCondition: eq(placeKey(), literal("north")),
+										}),
+										...(reads === "next-screen" && {
+											formLinks: [
+												{
+													uuid: INTAKE_LINK,
+													target: {
+														type: "module" as const,
+														moduleUuid: LIST_MODULE,
+													},
+												},
+											],
+										}),
+									},
+								],
+							},
+						]
+					: []),
 			],
 		}),
 		personas: { [ASHA]: { uuid: ASHA, name: "Asha" } },
@@ -138,20 +235,34 @@ async function seed(reads: PlaceRead) {
 	});
 }
 
-function start(personaUuid: string | null) {
+function start(personaUuid: string | null, platform?: Platform) {
 	return startAppTest(scope, {
 		requestId: "start",
 		expectedBlueprintSeq: 0,
 		input: {
 			purpose: "Open a menu as a worker assigned nowhere",
-			sessions: [{ id: "worker", personaUuid }],
+			sessions: [
+				{
+					id: "worker",
+					personaUuid,
+					...(platform === undefined ? {} : { platform }),
+				},
+			],
 		},
 	});
 }
 
-async function begin(reads: PlaceRead, personaUuid: string | null) {
+/** The journey `begin` started last, whose namespace a test reads. */
+let testId = "";
+
+async function begin(
+	reads: PlaceRead,
+	personaUuid: string | null,
+	platform?: Platform,
+) {
 	await seed(reads);
-	let current = await start(personaUuid);
+	let current = await start(personaUuid, platform);
+	testId = current.testId;
 	let request = 0;
 	return async (action: AppTestAction) => {
 		current = await continueAppTest(scope, {
@@ -219,4 +330,112 @@ it("keeps the saved form and words a refusal of a link's condition for the links
 		nextTaskError:
 			"This form's next step stops on a phone. This form's links read worker information Asha doesn't have, so a phone stops here. If it reads Asha's place, you can give Asha a place under Users and personas in App setup.",
 	});
+});
+
+/** Whether Preview's Search screen for the list opens for Asha, as
+ *  `useSearchInputRunState` opens it: the state model the browser runs over
+ *  the same app the journey runs. */
+function previewSearchOpens(reads: PlaceRead): "opened" | "refused" {
+	const doc = refusalDoc(reads);
+	const persona = doc.personas?.[ASHA];
+	if (persona === undefined) throw new Error("The fixture has no Asha.");
+	const identity = previewAsPersona(
+		{ id: scope.actorUserId, name: "Author" },
+		persona,
+		doc,
+	);
+	const inputs = doc.modules[LIST_MODULE]?.caseListConfig?.searchInputs ?? [];
+	const read = readPreviewScreen(() =>
+		openSearchRunState(
+			LIST_MODULE,
+			inputs,
+			previewSessionValues(
+				identity,
+				serverPreviewDevice({ platform: "web-apps", appLanguage: "en" }),
+			),
+			{
+				doc,
+				moduleUuid: LIST_MODULE,
+				lookup: previewLookupData({
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				}),
+			},
+		),
+	);
+	return read.kind === "read" ? "opened" : "refused";
+}
+
+const SEARCH_REFUSAL =
+	"This search doesn't open on a phone. This search reads worker information Asha doesn't have, so a phone stops here. If it reads Asha's place, you can give Asha a place under Users and personas in App setup.";
+
+for (const [reads, slot] of [
+	["search-hidden", "a hidden value"],
+	["search-required", "a required condition"],
+] as const) {
+	it(`stops the Search screen where Preview's stops when ${slot} reads worker information the worker lacks`, async () => {
+		// Core's query manager reads each hidden value and each required
+		// condition as it is built, so Preview's Search screen refuses as it
+		// opens, and a menu that opens on its search stops there.
+		expect(previewSearchOpens(reads)).toBe("refused");
+		const step = await begin(reads, "Asha");
+		const refused = await step({ kind: "menu", moduleUuid: LIST_MODULE });
+		expect(refused).toMatchObject({ completed: false });
+		expect(refused.error).toBe(SEARCH_REFUSAL);
+	});
+}
+
+it("keeps a list that opens first and refuses its Search, as Preview's Search pane does", async () => {
+	// On Android the menu opens on its case list, which keeps its cases; the
+	// Search pane is the refusal, and pressing Search meets it.
+	const step = await begin("search-hidden", "Asha", "android");
+	await step({ kind: "continue" });
+	const list = await step({ kind: "menu", moduleUuid: LIST_MODULE });
+	expect(list).toMatchObject({
+		screen: "browse",
+		search: { refusal: SEARCH_REFUSAL },
+	});
+	expect(list.actions).not.toContain("search");
+	const searched = await step({ kind: "search", answers: [] });
+	expect(searched).toMatchObject({ completed: false, error: SEARCH_REFUSAL });
+});
+
+it("words a refusal as a form opens for the form and the persona", async () => {
+	// The registration's open condition is a case block Core calculates as
+	// the form opens, so the form stops there.
+	const step = await begin("registration-open", "Asha");
+	await step({ kind: "menu", moduleUuid: INTAKE_MODULE });
+	const refused = await step({ kind: "form", formUuid: INTAKE_FORM });
+	expect(refused).toMatchObject({ completed: false });
+	expect(refused.error).toBe(
+		"This form stops here on a phone. This form reads worker information Asha doesn't have, so a phone stops here. If it reads Asha's place, you can give Asha a place under Users and personas in App setup.",
+	);
+});
+
+it("keeps a saved registration when the screen after it refuses, as Preview does", async () => {
+	// The registration saves, then its link opens the case list whose filter
+	// reads the place key: Preview shows that list's refusal after the save,
+	// and the case the form made stays made.
+	const step = await begin("next-screen", "Asha");
+	await step({ kind: "menu", moduleUuid: INTAKE_MODULE });
+	await step({ kind: "form", formUuid: INTAKE_FORM });
+	await step({
+		kind: "answer",
+		answers: [{ path: "case_name", value: "Zed" }],
+	});
+	const submitted = await step({ kind: "submit" });
+	expect(submitted).toMatchObject({
+		screen: "after-submit",
+		savedInTest: true,
+		evidence: { caseTransaction: "committed" },
+		nextTaskError:
+			"This case list doesn't open on a phone. This case list reads worker information Asha doesn't have, so a phone stops here. If it reads Asha's place, you can give Asha a place under Users and personas in App setup.",
+	});
+	const saved = await sql<{
+		case_name: string;
+	}>`SELECT case_name FROM ${sql.id(appTestNamespace(testId), "cases")} WHERE case_type = 'patient'`.execute(
+		h.db(),
+	);
+	expect(saved.rows).toEqual([{ case_name: "Zed" }]);
 });

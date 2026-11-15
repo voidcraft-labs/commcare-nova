@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BuilderHistoryScope,
 	builderNavigationUrl,
 	reconcileBuilderHistoryEntry,
 	scopedBuilderHistoryState,
 } from "../historyPolicy";
+import { builderEntryState, readPreviewHeldMenu } from "../previewHeldMenu";
 
 const active: BuilderHistoryScope = {
 	scopeId: "runtime-a",
@@ -75,6 +77,35 @@ describe("Builder history policy", () => {
 			).toBeUndefined();
 		},
 	);
+
+	it("drops a prior generation's held form menu, which names its cases, and keeps a current one", () => {
+		const held = {
+			moduleUuid: testUuid("menu"),
+			cases: [{ caseId: "ana" }],
+			session: "worker",
+		};
+		const list = "/build/app-a/module-a/results";
+		/** The menu's entry, pushed after the list's under `scope`. */
+		const heldEntry = (scope: typeof active) =>
+			builderEntryState(
+				{ pathname: list, state: state(scope) },
+				{ pathname: list, replace: false, held },
+			);
+		const stale = entry(heldEntry({ ...active, epoch: 1 }), list);
+		const reconciled = reconcileBuilderHistoryEntry(stale, active, "pop");
+		// The entry it was pushed after goes too: a form's would name the cases.
+		expect(reconciled?.state).toEqual(state(active));
+		expect(readPreviewHeldMenu(reconciled?.state)).toBeUndefined();
+		const fresh = entry(
+			heldEntry({ ...active, scopeId: "previous-mount" }),
+			list,
+		);
+		expect(
+			readPreviewHeldMenu(
+				reconcileBuilderHistoryEntry(fresh, active, "activate")?.state,
+			),
+		).toEqual(held);
+	});
 
 	it("does not let an outgoing app runtime rewrite another app or a newly mounted runtime", () => {
 		for (const other of [

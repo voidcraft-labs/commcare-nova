@@ -11,7 +11,10 @@
  * that stopped and the worker the session runs as.
  */
 
-import { previewDataRefusalSubject } from "../engine/dataRefusal";
+import {
+	type PreviewDataRefusalReason,
+	previewDataRefusalSubject,
+} from "../engine/dataRefusal";
 import { serverPreviewDataRefusalOf } from "../engine/serverDataRefusal";
 import {
 	SurfacedDataRefusal,
@@ -49,6 +52,22 @@ export function appTestDataRefusal(
 	const surfaced = error instanceof SurfacedDataRefusal ? error : undefined;
 	const refusal = surfaced?.refusal ?? serverPreviewDataRefusalOf(error);
 	if (refusal === undefined) return error;
+	return new AppTestActionError(
+		appTestRefusalSentence(
+			context,
+			surfaced?.surface ?? (refusal.stage === "links" ? "links" : "menu"),
+			refusal.reason,
+		),
+	);
+}
+
+/** A refusal's sentence on `surface`, for the worker the session runs as,
+ *  as Preview's refusal panel words it. */
+export function appTestRefusalSentence(
+	context: AppTestContext,
+	surface: DataRefusalSurface,
+	reason: PreviewDataRefusalReason,
+): string {
 	const personaUuid = context.identity.personaUuid;
 	const worker =
 		personaUuid === undefined
@@ -56,9 +75,9 @@ export function appTestDataRefusal(
 			: context.doc.personas?.[personaUuid]?.name;
 	const copy = dataRefusalCopy(
 		context.language,
-		surfaced?.surface ?? (refusal.stage === "links" ? "links" : "menu"),
-		previewDataRefusalSubject(refusal.reason, context.lookup),
+		surface,
+		previewDataRefusalSubject(reason, context.lookup),
 		worker === undefined ? {} : { worker },
 	);
-	return new AppTestActionError(`${copy.title}. ${copy.body}`);
+	return `${copy.title}. ${copy.body}`;
 }

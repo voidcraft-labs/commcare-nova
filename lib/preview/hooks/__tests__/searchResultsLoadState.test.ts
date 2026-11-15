@@ -30,6 +30,29 @@ it("keeps a refused search's own message apart from a failed load", () => {
 	});
 });
 
+// A search that reads worker information the worker's device lacks is the
+// search's refusal, worded in the worker's language and naming the persona
+// the session runs as, as Preview's refusal panel words it.
+it("words a refused search for the persona and in the worker's language", () => {
+	const refused = {
+		kind: "data-refused",
+		reason: { kind: "empty-instance", instanceId: "commcaresession" },
+	} as const;
+	expect(
+		searchResultsLoadState(refused, { language: "spa", worker: "Asha" }),
+	).toEqual({
+		kind: "invalid-search",
+		message:
+			"Esta búsqueda no se abre en un teléfono. Esta búsqueda lee información del trabajador que Asha no tiene, así que un teléfono se detiene aquí. Si lee el lugar de Asha, puede darle un lugar a Asha en Usuarios y personas, en la configuración de la app.",
+	});
+	// Previewing as oneself names no persona.
+	expect(searchResultsLoadState(refused, { language: "eng" })).toEqual({
+		kind: "invalid-search",
+		message:
+			"This search doesn't open on a phone. This search reads worker information you don't have, so a phone stops here. If it reads your place, you can preview as a persona who has a place.",
+	});
+});
+
 // The form's snapshot and Results read one search: both are keyed by what the
 // device worked out for its `_xpath_query` rows, so a value that arrives
 // later (the device's cases, a lookup table) reads the snapshot again.

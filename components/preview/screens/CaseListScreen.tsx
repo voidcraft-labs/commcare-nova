@@ -63,6 +63,10 @@ import {
 	ListFilterBox,
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
+import {
+	PinnedCaseTile,
+	usePinnedCaseTile,
+} from "@/components/preview/shared/PinnedCaseTile";
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import {
 	type PreviewWorkerLabel,
@@ -121,6 +125,7 @@ import {
 	caseListMenuItemSelection,
 } from "@/lib/preview/caseListMenuItemRoute";
 import {
+	caseListLaunchesDefaultSearch,
 	caseListReadsResults,
 	caseListScreenStep,
 	resultsConstraintContext,
@@ -205,7 +210,7 @@ import {
 	previewCaseListHeldChoices,
 	previewCaseListMenuChoice,
 	previewMenuCaseContext,
-	previewTargetHoldingMenu,
+	previewSelectionsBefore,
 } from "@/lib/preview/menuProjection";
 import {
 	addVisiblePreviewCaseChoices,
@@ -226,7 +231,12 @@ import {
 	previewCaseChoiceOf,
 } from "@/lib/preview/searchClaims";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
-import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import {
+	useLocation,
+	useNavigate,
+	usePreviewHeldMenu,
+} from "@/lib/routing/hooks";
+import { stepBackOffPreviewHeldMenu } from "@/lib/routing/useClientPath";
 import {
 	useAccessPhase,
 	useAppId,
@@ -240,6 +250,7 @@ import {
 	usePreviewPlatform,
 	usePreviewPlatformRules,
 	usePreviewSearchState,
+	usePreviewSessionId,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
 	useSetPreviewAtDeviceHome,
@@ -417,21 +428,26 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	);
 	const openedFromCaseListMenuItem = continuation === "menu-entry";
 	const selectsForMenu = continuation === "menu-selection";
-	/** The cases this list's form menu holds as it shows: those of a form the
-	 *  worker chose from that menu after choosing them here, which a step back
-	 *  off the form lands on with the cases held, as CommCare's does
-	 *  (`menuProjection.ts::previewCaseListHeldChoices`), until the menu's
-	 *  Back lets them go (`previewTargetHoldingMenu`). */
+	/** The cases this list's form menu holds: the step the history entry
+	 *  shows, opened by choosing them here (`holdFormMenu`), which a step back
+	 *  off a form chosen from the menu lands on again and a step back off the
+	 *  menu leaves, as CommCare's does
+	 *  (`menuProjection.ts::previewCaseListHeldChoices`,
+	 *  `lib/routing/previewHeldMenu.ts`). */
+	const heldMenu = usePreviewHeldMenu();
+	/* The worker's Preview session: a menu another session held (another
+	 * worker, platform or Preview run) holds nothing here. */
+	const previewSessionId = usePreviewSessionId();
 	const heldChoices = useMemo(
 		() =>
 			moduleUuid === undefined
 				? undefined
-				: previewCaseListHeldChoices(previewCaseTarget, {
+				: previewCaseListHeldChoices(heldMenu, {
 						moduleUuid,
-						caseLoadingFormUuids: caseLoadingForms.map((form) => form.uuid),
 						continuation,
+						session: previewSessionId,
 					}),
-		[caseLoadingForms, continuation, moduleUuid, previewCaseTarget],
+		[continuation, heldMenu, moduleUuid, previewSessionId],
 	);
 	/** Whether selecting a case can continue at all. */
 	const canContinue =
@@ -832,11 +848,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		],
 	);
 	const [openCase, setOpenCase] = useState<CaseRowWithCalculated | null>(null);
-	/** When set, the case has been picked (and confirmed) and the running app
-	 *  is on the form menu: choosing among the module's case-loading forms.
-	 *  Only reached on a case-first entry with more than one such form. */
-	const [formMenuCase, setFormMenuCase] = useState<FormMenuCase | null>(null);
-	const [multiFormMenuOpen, setMultiFormMenuOpen] = useState(false);
 	const surfaceRef = useRef<HTMLDivElement>(null);
 	const searchPaneRef = useRef<HTMLDivElement>(null);
 	const detailBackRef = useRef<HTMLButtonElement>(null);
@@ -912,8 +923,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		previousRouteModuleUuidRef.current = moduleUuid;
 		if (routeCaseId !== undefined) return;
 		setOpenCase(null);
-		setFormMenuCase(null);
-		setMultiFormMenuOpen(false);
 		if (exitedRouteDetail && previousRouteModuleUuid === moduleUuid) {
 			const explicitlyClosed =
 				explicitRouteCloseRef.current === previousRouteCaseId;
@@ -952,8 +961,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * when a same-app move leaves the module UUID unchanged. */
 		setFilterText("");
 		setOpenCase(null);
-		setFormMenuCase(null);
-		setMultiFormMenuOpen(false);
 		originatingCaseIdRef.current = null;
 		routeFallbackOwnedFocusRef.current = null;
 	}, [moduleUuid, scopeEpoch]);
@@ -962,7 +969,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	useEffect(() => {
 		if (!routeCaseReplaced || !moduleUuid) return;
 		setOpenCase(null);
-		setFormMenuCase(null);
 		setPreviewSelectedCase(undefined);
 		navigate.replace({ kind: "cases", moduleUuid });
 	}, [routeCaseReplaced, moduleUuid, navigate, setPreviewSelectedCase]);
@@ -1057,8 +1063,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		)
 			return;
 		setOpenCase(null);
-		setFormMenuCase(null);
-		setMultiFormMenuOpen(false);
 		setSelectedChoices([]);
 	}, [taskContinuation, moduleUuid, setSelectedChoices]);
 	useEffect(() => {
@@ -1532,8 +1536,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		: stateBelongsToModule && !routeDrivenExit
 			? openCase
 			: null;
-	/* A form chosen from the menu after its case leaves the case held there,
-	 * so the menu shows again for it once the worker steps back off the form. */
+	/* The case the menu holds, on the history entry choosing it opened and
+	 * each time the worker steps back to that entry off a form chosen there. */
 	const heldFormMenuCase = useMemo<FormMenuCase | null>(() => {
 		const [held, ...more] = heldChoices ?? [];
 		if (held === undefined || more.length > 0 || multipleSelection) return null;
@@ -1543,39 +1547,77 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			...(held.claimable === true && { heldOnDevice: false }),
 		};
 	}, [heldChoices, multipleSelection]);
-	const displayedFormMenuCase =
-		stateBelongsToModule && !routeDrivenExit
-			? (formMenuCase ?? heldFormMenuCase)
-			: null;
-	/* The several-case form menu, open on this visit's choice or held for the
-	 * cases a form chosen from it opened. */
+	const displayedFormMenuCase = stateBelongsToModule ? heldFormMenuCase : null;
+	/* The several-case form menu, held for the cases chosen together. */
 	const multiFormMenuChoices: readonly PreviewCaseChoice[] | undefined =
-		multiFormMenuOpen
-			? selectedChoices
-			: multipleSelection && heldChoices !== undefined && stateBelongsToModule
-				? heldChoices
-				: undefined;
+		multipleSelection && heldChoices !== undefined && stateBelongsToModule
+			? heldChoices
+			: undefined;
 	/* The held menu takes focus as it shows, as a menu reached by choosing a
 	 * case does. It shows again each time the worker steps back to it. */
-	const heldMenuShown =
-		stateBelongsToModule &&
-		!routeDrivenExit &&
-		formMenuCase === null &&
-		!multiFormMenuOpen &&
-		heldChoices !== undefined;
+	const heldMenuShown = stateBelongsToModule && heldChoices !== undefined;
+	/* A step back off the menu, by its Back, the strip's or the browser's,
+	 * returns focus to the case it was opened for, while the list is the
+	 * screen on show. */
+	const listOnScreen = loc.kind === "cases" && loc.moduleUuid === moduleUuid;
+	const heldMenuWasShownRef = useRef(heldMenuShown);
 	useEffect(() => {
+		const wasShown = heldMenuWasShownRef.current;
+		heldMenuWasShownRef.current = heldMenuShown;
 		if (heldMenuShown) focusNextFrame(() => formMenuBackRef.current);
-	}, [focusNextFrame, heldMenuShown]);
-	/** The menu's Back: back to the list past a case detail the choice went
-	 *  through, and, where the menu held the cases of a form chosen from it,
-	 *  letting them go as a second step back does
-	 *  (`menuProjection.ts::previewTargetHoldingMenu`). */
-	const leaveFormMenu = () => {
-		setFormMenuCase(null);
-		setMultiFormMenuOpen(false);
-		if (heldChoices !== undefined && previewCaseTarget !== undefined)
-			setPreviewCaseTarget(previewTargetHoldingMenu(previewCaseTarget, false));
+		else if (wasShown && listOnScreen) restoreResultsFocus();
+	}, [focusNextFrame, heldMenuShown, listOnScreen, restoreResultsFocus]);
+	/** Choosing the cases opens the menu as a step of its own, an entry at
+	 *  the list's URL after the list (`navigate.holdPreviewMenu`). A choice
+	 *  made on a case's details replaces them: a device leaves the details
+	 *  behind once the case is chosen, so a step back off the menu reaches
+	 *  the list (`CommCareSession.stepBack`). */
+	const holdFormMenu = (cases: readonly PreviewCaseChoice[]) => {
+		if (!moduleUuid) return;
+		if (routeCaseId !== undefined) explicitRouteCloseRef.current = routeCaseId;
+		setOpenCase(null);
+		navigate.holdPreviewMenu(
+			{ moduleUuid, cases, session: previewSessionId },
+			{ replace: routeCaseId !== undefined },
+		);
 	};
+	/* The cases this screen's session holds, in the order they were chosen:
+	 * those chosen before this list, and the case its form menu holds. They
+	 * pin the tile of the first whose list keeps its tile on screen, above
+	 * the list, its search where the platform draws one there, a case's
+	 * details and the form menu (`lib/preview/pinnedCaseTile.ts`). */
+	const heldCases = useMemo(
+		() =>
+			moduleUuid === undefined
+				? []
+				: [
+						...previewSelectionsBefore(
+							menuSource,
+							moduleUuid,
+							menuCaseSelections,
+						),
+						...(heldChoices === undefined || !stateBelongsToModule
+							? []
+							: [{ moduleUuid, cases: heldChoices }]),
+					],
+		[
+			heldChoices,
+			menuCaseSelections,
+			menuSource,
+			moduleUuid,
+			stateBelongsToModule,
+		],
+	);
+	const pinnedTile = usePinnedCaseTile(
+		heldCases,
+		multiFormMenuChoices !== undefined || displayedFormMenuCase !== null
+			? "menu"
+			: step === "search" &&
+					displayedOpenCase === null &&
+					routeCaseId === undefined
+				? "search"
+				: "case-list",
+	);
 	/* Mirror the URL-backed or local selection into session so the sibling
 	 * breadcrumb names the same record the screen is actually showing. */
 	const selectedCase = stateBelongsToModule
@@ -1720,12 +1762,20 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		!hasSearchInputs && searchActionIsRelevant && searchRun.pending !== true;
 	/* Skip to results runs its default search as the menu opens: the step
 	 * is `results` with nothing submitted (`default_search`). A registered
-	 * case's Results read that case instead, so nothing launches then. */
-	const automaticallyLaunchesDefaultSearch =
-		step === "results" &&
-		!searchRun.hasSubmitted &&
-		searchRun.pending !== true &&
-		registeredCaseIds === undefined;
+	 * case's Results read that case instead, and a search the session holds
+	 * for a menu whose forms read it is the standing query the restore
+	 * effect below takes back with the worker's answers, so nothing launches
+	 * then (`caseListLaunchesDefaultSearch`). */
+	const automaticallyLaunchesDefaultSearch = caseListLaunchesDefaultSearch({
+		step,
+		hasSubmitted: searchRun.hasSubmitted,
+		pending: searchRun.pending === true,
+		readsRegisteredCase: registeredCaseIds !== undefined,
+		standingSearch:
+			formsReadSearch &&
+			searchState !== undefined &&
+			searchState.kind !== "not-searched",
+	});
 	/* A hidden input is part of the search the automatic launch performs
 	 * (the device seeds it on every query-screen build), so editing one
 	 * launches again rather than leaving the previous values in the query. */
@@ -1778,8 +1828,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			label: registerLabel,
 			onClick: () => {
 				setOpenCase(null);
-				setFormMenuCase(null);
-				setMultiFormMenuOpen(false);
 				setPreviewCaseTarget({
 					formUuid: registrationForm.uuid,
 					searchLaunch: { moduleUuid, attempt },
@@ -1811,8 +1859,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			icon,
 			onClick: () => {
 				setOpenCase(null);
-				setFormMenuCase(null);
-				setMultiFormMenuOpen(false);
 				/* A registration form opens with no case; the launch is its
 				 * own fact, naming the entry it opens, so it ends with that
 				 * entry rather than with whatever next sets the case target. */
@@ -1954,8 +2000,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		)
 			return;
 		setOpenCase(null);
-		setFormMenuCase(null);
-		setMultiFormMenuOpen(false);
 		const caseDatabase =
 			retainedFormUuid === formUuid
 				? taskContinuation?.caseDatabase
@@ -1997,8 +2041,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	) => {
 		if (!moduleUuid || !mod.caseType) return;
 		setOpenCase(null);
-		setFormMenuCase(null);
-		setMultiFormMenuOpen(false);
 		setPreviewSelectedCase(undefined);
 		if (taskContinuation?.formUuid === undefined)
 			setPreviewCaseTarget(undefined);
@@ -2133,10 +2175,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * menu shows in its place. A condition that reads a claimed case the
 		 * device does not hold yet shows as loading until it does. */
 		const read = readPreviewScreen(() => decideCaseLoadingForms(row, claimed));
-		if (read.kind === "refused" || read.value.length > 0) {
-			setFormMenuCase(row);
-			focusNextFrame(() => formMenuBackRef.current);
-		}
+		if (read.kind === "refused" || read.value.length > 0)
+			holdFormMenu([previewCaseChoiceOf(row)]);
 	};
 
 	/* Where a choice made from the case list menu entry lands: Web Apps
@@ -2238,10 +2278,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * reads data the device lacks fails the whole screen, which the form
 		 * menu shows in its place. */
 		const read = readPreviewScreen(() => decideMultiCaseLoadingForms());
-		if (read.kind === "refused" || read.value.length > 0) {
-			setMultiFormMenuOpen(true);
-			focusNextFrame(() => formMenuBackRef.current);
-		}
+		if (read.kind === "refused" || read.value.length > 0) holdFormMenu(choices);
 	};
 	const continueWithSelectedCases = async () => {
 		if (
@@ -2350,7 +2387,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			explicitRouteCloseRef.current = routeCaseId;
 		}
 		setOpenCase(null);
-		setFormMenuCase(null);
 		if (moduleUuid) navigate.openCaseList(moduleUuid);
 		restoreResultsFocus();
 	};
@@ -2644,20 +2680,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		}));
 	const formMenuPane = displayedFormMenuCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
-			{/* Back lets the case go and returns to the list, past a case
-			 *  detail the choice went through: CommCare's step back pops the
-			 *  case (`CommCareSession.stepBack`), which Android follows to its
-			 *  case list and Web Apps to its list, where the detail is a step of
-			 *  choosing the case and never a screen of the session. */}
+			{/* Back is a step back: it leaves the menu's history entries for
+			 *  the list's, letting the case go, as CommCare's step back pops the
+			 *  case (`CommCareSession.stepBack`). The case's details the choice
+			 *  went through are no step of the session, and the menu's entry
+			 *  replaced them (`holdFormMenu`). */}
 			<Button
 				ref={formMenuBackRef}
 				type="button"
 				variant="ghost"
-				onClick={() => {
-					leaveFormMenu();
-					if (displayedOpenCase !== null) closeCaseDetail();
-					else restoreResultsFocus();
-				}}
+				onClick={stepBackOffPreviewHeldMenu}
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
@@ -2753,10 +2785,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				ref={formMenuBackRef}
 				type="button"
 				variant="ghost"
-				onClick={() => {
-					leaveFormMenu();
-					restoreResultsFocus();
-				}}
+				onClick={stepBackOffPreviewHeldMenu}
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
@@ -2908,19 +2937,33 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						{alwaysRegisterAction.label}
 					</Button>
 				)}
-			{zeroInputSearchActionIsRelevant && step === "browse" && (
-				<Button
-					type="button"
-					onClick={() => {
-						submitSearch(EMPTY_SEARCH_INPUT_VALUES);
-						focusNextFrame(() => resultsTitleRef.current);
-					}}
-					className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
-				>
-					<Icon icon={tablerSearch} width="16" height="16" />
-					{CASE_SEARCH_BUTTON_LABEL}
-				</Button>
-			)}
+			{/* A Search screen with no field to fill in that refused data the
+			 * device lacks as it opened holds no search: its hidden values were
+			 * never worked out, so the action shows the refusal a press meets on
+			 * a device rather than searching without them. */}
+			{zeroInputSearchActionIsRelevant &&
+				step === "browse" &&
+				searchRun.refusal !== undefined && (
+					<PreviewDataRefusalPanel
+						surface="search"
+						reason={searchRun.refusal.reason}
+					/>
+				)}
+			{zeroInputSearchActionIsRelevant &&
+				step === "browse" &&
+				searchRun.refusal === undefined && (
+					<Button
+						type="button"
+						onClick={() => {
+							submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+							focusNextFrame(() => resultsTitleRef.current);
+						}}
+						className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
+					>
+						<Icon icon={tablerSearch} width="16" height="16" />
+						{CASE_SEARCH_BUTTON_LABEL}
+					</Button>
+				)}
 			{state.kind === "rows" && loadedRows.length > 0 && (
 				<div className="mb-3">
 					<ListFilterBox
@@ -3113,38 +3156,41 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			</ContentFrame>
 		);
 	return (
-		<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
-			{selectsForParentRequest && (
-				<Button
-					type="button"
-					variant="ghost"
-					onClick={cancelParentCaseSelection}
-					className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+		<>
+			{pinnedTile !== undefined && <PinnedCaseTile pinned={pinnedTile} />}
+			<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
+				{selectsForParentRequest && (
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={cancelParentCaseSelection}
+						className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+					>
+						<Icon icon={tablerChevronLeft} width="15" height="15" />
+						<WorkerText message="back" />
+					</Button>
+				)}
+				<div
+					ref={surfaceRef}
+					className={`flex gap-5 ${split ? "flex-row items-start" : "flex-col"}`}
 				>
-					<Icon icon={tablerChevronLeft} width="15" height="15" />
-					<WorkerText message="back" />
-				</Button>
-			)}
-			<div
-				ref={surfaceRef}
-				className={`flex gap-5 ${split ? "flex-row items-start" : "flex-col"}`}
-			>
-				{/* Stacked + a sub-screen open = the narrow experience: the
-				 *  sub-screen takes the whole canvas, search waits behind Back. */}
-				{(split || !onSubScreen) && searchPane}
-				{step === "search" && !onSubScreen
-					? null
-					: multiFormMenuChoices !== undefined
-						? multiFormMenuPane
-						: displayedFormMenuCase !== null
-							? formMenuPane
-							: displayedOpenCase !== null
-								? detailPane
-								: routeCaseId !== undefined
-									? routeCaseFallbackPane
-									: resultsPane}
-			</div>
-		</ContentFrame>
+					{/* Stacked + a sub-screen open = the narrow experience: the
+					 *  sub-screen takes the whole canvas, search waits behind Back. */}
+					{(split || !onSubScreen) && searchPane}
+					{step === "search" && !onSubScreen
+						? null
+						: multiFormMenuChoices !== undefined
+							? multiFormMenuPane
+							: displayedFormMenuCase !== null
+								? formMenuPane
+								: displayedOpenCase !== null
+									? detailPane
+									: routeCaseId !== undefined
+										? routeCaseFallbackPane
+										: resultsPane}
+				</div>
+			</ContentFrame>
+		</>
 	);
 }
 

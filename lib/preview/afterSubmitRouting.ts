@@ -68,7 +68,11 @@ import {
 	navigationSelectedCase,
 } from "./engine/displayConditionEvaluation";
 import { previewExpressionContext } from "./engine/expressionContext";
-import type { PreviewSearchSessionValues } from "./engine/identity";
+import {
+	type PreviewSearchSessionValues,
+	type ResolvedPreviewIdentity,
+	samePreviewIdentity,
+} from "./engine/identity";
 import type { PreviousTask } from "./engine/previousTask";
 import type { PreviewLookupStatus } from "./engine/useLookupPreviewData";
 import type { PreviewPlatformRules } from "./platform";
@@ -288,6 +292,54 @@ export interface PreviewTargetCaseCollection {
 export interface PreviewAfterSubmitFrame {
 	readonly route: AfterSubmitRoute;
 	readonly collection?: PreviewTargetCaseCollection;
+}
+
+/** A frame's route once the screen has waited for its target's data: the
+ *  route to push, `stale` when the attempt or its worker changed meanwhile,
+ *  or `lookup-unavailable` when the lookup data it waits on failed to load. */
+export type SettledAfterSubmitRoute =
+	| {
+			readonly kind: "route";
+			readonly route: Exclude<AfterSubmitRoute, { readonly kind: "pending" }>;
+	  }
+	| { readonly kind: "stale" }
+	| { readonly kind: "lookup-unavailable" };
+
+/**
+ * Route one after-submit frame, waiting while its target's visibility waits
+ * on lookup data (`afterSubmitTargetVisibility`'s `pending`). The route reads
+ * the session of the entry it routes (`entryIdentity`), never the running
+ * worker's; with that worker and the device's cases in hand a pending target
+ * waits only on lookup data, so a failed load brings no later change to wake
+ * on. Each wake reads the route again, unless the attempt is no longer
+ * current or the running worker is no longer the entry's: a route for one
+ * worker is never pushed onto another's session.
+ */
+export async function settleAfterSubmitRoute(args: {
+	readonly route: () => AfterSubmitRoute;
+	/** The lookup status the target reads now. */
+	readonly lookup: () => PreviewLookupStatus;
+	/** Resolves on the next change of the lookup status or the running
+	 *  worker, or when the screen lets go of the route. */
+	readonly nextInputs: () => Promise<void>;
+	readonly isCurrent: () => boolean;
+	/** The worker running Preview now. */
+	readonly runningIdentity: () => ResolvedPreviewIdentity | null;
+	/** The worker whose entry was submitted. */
+	readonly entryIdentity: ResolvedPreviewIdentity;
+}): Promise<SettledAfterSubmitRoute> {
+	let route = args.route();
+	while (route.kind === "pending") {
+		if (args.lookup().kind === "error") return { kind: "lookup-unavailable" };
+		await args.nextInputs();
+		if (
+			!args.isCurrent() ||
+			!samePreviewIdentity(args.runningIdentity(), args.entryIdentity)
+		)
+			return { kind: "stale" };
+		route = args.route();
+	}
+	return { kind: "route", route };
 }
 
 export function afterSubmitRoute(args: {

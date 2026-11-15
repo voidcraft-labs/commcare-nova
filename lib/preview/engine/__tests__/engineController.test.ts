@@ -40,6 +40,7 @@ import {
 	type ControllerDocSource,
 	type ControllerFieldSource,
 } from "./fixtures/controllerDoc";
+import { androidDevice } from "./fixtures/previewDevices";
 
 const controllers = new Set<EngineController>();
 function ownedController() {
@@ -347,15 +348,19 @@ describe("EngineController", () => {
 			const store = createLoadedStore();
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
+			ctrl.setPreviewDevice(androidDevice());
 			ctrl.activateForm(FORM_UUID);
 			const entryKey = ctrl.entryKey;
 
 			ctrl.rebuildActiveForm(FORM_UUID, new Map());
 			expect(ctrl.entryKey).toBe(entryKey);
 
-			ctrl.setPreviewIdentity(
-				previewAsMe({ id: "worker-1", email: "amina@example.org" }),
-			);
+			/* The session's device arriving on the same platform rebuilds the
+			 * same entry in place. */
+			ctrl.setPreviewDevice({
+				...androidDevice(),
+				androidDeviceId: "5b7d0c1e-2f43-4a65-8b9c-0d1e2f3a4b5c",
+			});
 			expect(ctrl.entryKey).toBe(entryKey);
 
 			ctrl.activateForm(FORM_UUID);
@@ -2111,16 +2116,18 @@ describe("EngineController", () => {
 			expect(ctrl.store.getState()[WHO_UUID].value).toBe("amina@example.org");
 		});
 
-		it("an identity arriving after activation rebuilds the active engine", () => {
+		it("an identity arriving after activation opens the entry again in its world", () => {
 			const store = createLoadedStore(docWithUserCalc());
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 
 			ctrl.activateForm(FORM_UUID);
+			const entryKey = ctrl.entryKey;
 			expect(ctrl.store.getState()[WHO_UUID].value).toBe("");
 
 			ctrl.setPreviewIdentity(previewAsMe(ME));
 			expect(ctrl.store.getState()[WHO_UUID].value).toBe("amina@example.org");
+			expect(ctrl.entryKey).not.toBe(entryKey);
 		});
 
 		it("a re-derived identical identity is a no-op preserving entered values", () => {
@@ -2152,20 +2159,18 @@ describe("EngineController", () => {
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
 		});
 
-		it("a session resolving mid-entry preserves answers typed under the anonymous world", () => {
+		it("a first identity arriving mid-entry discards answers taken with no worker", () => {
 			const store = createLoadedStore(docWithUserCalc());
 			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 
 			ctrl.activateForm(FORM_UUID);
-			ctrl.onValueChange(Q1_UUID, "typed before session resolved");
+			ctrl.onValueChange(Q1_UUID, "typed with no worker");
 			ctrl.onTouch(Q1_UUID);
 
 			ctrl.setPreviewIdentity(previewAsMe(ME));
 
-			expect(ctrl.store.getState()[Q1_UUID].value).toBe(
-				"typed before session resolved",
-			);
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
 			expect(ctrl.store.getState()[WHO_UUID].value).toBe("amina@example.org");
 		});
 

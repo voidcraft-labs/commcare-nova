@@ -14,6 +14,10 @@ import {
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { previewParentCaseRequestFor } from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
+import {
+	PinnedCaseTile,
+	usePinnedCaseTile,
+} from "@/components/preview/shared/PinnedCaseTile";
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -58,6 +62,7 @@ import {
 	previewCaseListMenuEntry,
 	previewHiddenScreenEntries,
 	previewMenuCaseContext,
+	previewMenuHeldSelections,
 	previewMenuScreenChoice,
 	previewMenuScreenLanding,
 	previewModuleOwnVisibility,
@@ -156,6 +161,16 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	);
 	const selectedMenuCase = menuCaseContext.selectedCase;
 	const requiredParentCase = menuCaseContext.requiredParentCase;
+	/* The cases this menu's session holds pin the tile of the first whose
+	 * list keeps its tile on screen (`lib/preview/pinnedCaseTile.ts`). */
+	const heldCases = useMemo(
+		() =>
+			mode === "edit"
+				? []
+				: previewMenuHeldSelections(menuSource, moduleUuid, menuCaseSelections),
+		[menuCaseSelections, menuSource, mode, moduleUuid],
+	);
+	const pinnedTile = usePinnedCaseTile(heldCases, "menu");
 	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 
 	/* The running preview gates the screen exactly as a device would
@@ -491,173 +506,176 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		(localizedValues.get(moduleNameUnitId) as string | undefined) ?? mod.name;
 
 	return (
-		<ContentFrame width="5xl" className="p-6 space-y-4">
-			<div className="flex items-center gap-2">
-				{canEdit ? (
-					<EditableTitle
-						value={localizedModuleName}
-						onSave={saveModuleName}
-						ariaLabel="Module name"
-					/>
-				) : (
-					<EditableTitle
-						value={localizedModuleName}
-						readOnly
-						ariaLabel="Module name"
-					/>
-				)}
-				{/* Module-settings gear: the module-level analog of
-				 *  `FormScreen`'s `FormSettingsButton` on the form header.
-				 *  Edit-mode only (matches the form-header gate) and only once
-				 *  the module uuid has resolved from the URL. Its `ml-auto`
-				 *  trigger pushes it to the right edge of this header row. */}
-				{canEdit && moduleUuid && (
-					<ModuleSettingsButton moduleUuid={moduleUuid} />
-				)}
-			</div>
+		<>
+			{pinnedTile !== undefined && <PinnedCaseTile pinned={pinnedTile} />}
+			<ContentFrame width="5xl" className="p-6 space-y-4">
+				<div className="flex items-center gap-2">
+					{canEdit ? (
+						<EditableTitle
+							value={localizedModuleName}
+							onSave={saveModuleName}
+							ariaLabel="Module name"
+						/>
+					) : (
+						<EditableTitle
+							value={localizedModuleName}
+							readOnly
+							ariaLabel="Module name"
+						/>
+					)}
+					{/* Module-settings gear: the module-level analog of
+					 *  `FormScreen`'s `FormSettingsButton` on the form header.
+					 *  Edit-mode only (matches the form-header gate) and only once
+					 *  the module uuid has resolved from the URL. Its `ml-auto`
+					 *  trigger pushes it to the right edge of this header row. */}
+					{canEdit && moduleUuid && (
+						<ModuleSettingsButton moduleUuid={moduleUuid} />
+					)}
+				</div>
 
-			{/* One list in the projection's order, as a device lists the
-			 *  screen: a submenu's tile stands where its module stands among
-			 *  the forms of the menus that show them here. */}
-			<div className="space-y-2">
-				{entries.map((entry, fIdx) => {
-					if (entry.kind === "menu") return renderTile(entry, fIdx);
-					const key = menuScreenEntryKey(entry);
-					const visibility = entryVisibility.get(key) ?? "shown";
-					if (visibility === "hidden") return null;
-					if (visibility === "pending") {
-						return (
-							<Skeleton key={key} className="h-[58px] w-full rounded-lg" />
-						);
-					}
-					if (entry.kind === "case-list") {
-						const caseListEntry = caseListEntryOf(entry.moduleUuid);
-						if (caseListEntry === undefined) return null;
-						return (
-							<PreviewCaseListRow
-								key={key}
-								entry={caseListEntry}
-								index={fIdx}
-								label={
-									(localizedValues.get(caseListEntry.labelUnitId) as
-										| string
-										| undefined) ?? caseListEntry.label
+				{/* One list in the projection's order, as a device lists the
+				 *  screen: a submenu's tile stands where its module stands among
+				 *  the forms of the menus that show them here. */}
+				<div className="space-y-2">
+					{entries.map((entry, fIdx) => {
+						if (entry.kind === "menu") return renderTile(entry, fIdx);
+						const key = menuScreenEntryKey(entry);
+						const visibility = entryVisibility.get(key) ?? "shown";
+						if (visibility === "hidden") return null;
+						if (visibility === "pending") {
+							return (
+								<Skeleton key={key} className="h-[58px] w-full rounded-lg" />
+							);
+						}
+						if (entry.kind === "case-list") {
+							const caseListEntry = caseListEntryOf(entry.moduleUuid);
+							if (caseListEntry === undefined) return null;
+							return (
+								<PreviewCaseListRow
+									key={key}
+									entry={caseListEntry}
+									index={fIdx}
+									label={
+										(localizedValues.get(caseListEntry.labelUnitId) as
+											| string
+											| undefined) ?? caseListEntry.label
+									}
+									onClick={() => chooseCaseListEntry(entry.moduleUuid)}
+								/>
+							);
+						}
+						const form = menuSource.forms[entry.formUuid];
+						if (form === undefined) return null;
+						const formModuleUuid = entry.moduleUuid;
+						const localizedFormName =
+							(localizedValues.get(
+								makeTranslationUnitId("form", form.uuid, "name"),
+							) as string | undefined) ?? form.name;
+
+						const handleClick = () => {
+							const formModule = menuSource.modules[formModuleUuid];
+							const launch = formLaunch({
+								formType: form.type,
+								moduleHasCaseType: formModule?.caseType !== undefined,
+							});
+							/* The case chosen on this screen, as the form's own menu
+							 * reads it: its own selection, the same-type selection of
+							 * this menu, or this menu's case as its parent case. */
+							const formMenuCase = previewMenuCaseContext(
+								menuSource,
+								formModuleUuid,
+								menuCaseSelections,
+							).selectedCase;
+							const continuedWorld =
+								taskContinuation?.moduleUuid === moduleUuid
+									? taskContinuation.caseDatabase
+									: undefined;
+							if (continuedWorld) {
+								const selectingModuleUuids = previousTaskFormSelectors(
+									docApi.getState(),
+									form.uuid,
+									menuCaseSelections,
+								);
+								setTaskContinuation({
+									moduleUuid: formModuleUuid,
+									formUuid: form.uuid,
+									returnModuleUuid: moduleUuid,
+									selectingModuleUuids,
+									caseDatabase: continuedWorld,
+								});
+								setPreviewCaseTarget({
+									formUuid: form.uuid,
+									...(launch.kind === "select-case-first"
+										? formMenuCase && { cases: formMenuCase.cases }
+										: { cases: [] }),
+									caseDatabase: continuedWorld,
+									caseData:
+										formMenuCase?.cases.length === 1
+											? caseDatabaseToFormPreloads(
+													continuedWorld,
+													formMenuCase.cases[0].caseId,
+													reachableCaseTypes(
+														formModule?.caseType,
+														menuSource.caseTypes,
+													),
+												)
+											: undefined,
+								});
+								const [first, ...remaining] = selectingModuleUuids;
+								if (first === undefined)
+									navigate.openForm(formModuleUuid, form.uuid);
+								else {
+									if (remaining.length > 0 || first !== formModuleUuid)
+										setPreviewParentCaseRequest({
+											selectingModuleUuid: first,
+											returnModuleUuids:
+												remaining.length > 0 ? remaining : [formModuleUuid],
+											resumeLocation:
+												remaining.length > 0
+													? { kind: "cases", moduleUuid: formModuleUuid }
+													: {
+															kind: "form",
+															moduleUuid: formModuleUuid,
+															formUuid: form.uuid,
+														},
+											cancelLocation: { kind: "module", moduleUuid },
+										});
+									navigate.openCaseList(first);
 								}
-								onClick={() => chooseCaseListEntry(entry.moduleUuid)}
+								return;
+							}
+							if (launch.kind === "select-case-first") {
+								if (formMenuCase) {
+									void openFormWithMenuCase(
+										formModuleUuid,
+										form.uuid,
+										formMenuCase.cases,
+									);
+								} else {
+									setPreviewCaseTarget({ formUuid: form.uuid });
+									navigate.openCaseList(formModuleUuid);
+								}
+							} else {
+								/* A form opened from its menu is no Register launch,
+								 * whatever an earlier visit left on the target. */
+								setPreviewCaseTarget(undefined);
+								navigate.openForm(formModuleUuid, form.uuid);
+							}
+						};
+
+						return (
+							<PreviewFormRow
+								key={key}
+								form={form}
+								index={fIdx}
+								label={localizedFormName}
+								onClick={handleClick}
 							/>
 						);
-					}
-					const form = menuSource.forms[entry.formUuid];
-					if (form === undefined) return null;
-					const formModuleUuid = entry.moduleUuid;
-					const localizedFormName =
-						(localizedValues.get(
-							makeTranslationUnitId("form", form.uuid, "name"),
-						) as string | undefined) ?? form.name;
-
-					const handleClick = () => {
-						const formModule = menuSource.modules[formModuleUuid];
-						const launch = formLaunch({
-							formType: form.type,
-							moduleHasCaseType: formModule?.caseType !== undefined,
-						});
-						/* The case chosen on this screen, as the form's own menu
-						 * reads it: its own selection, the same-type selection of
-						 * this menu, or this menu's case as its parent case. */
-						const formMenuCase = previewMenuCaseContext(
-							menuSource,
-							formModuleUuid,
-							menuCaseSelections,
-						).selectedCase;
-						const continuedWorld =
-							taskContinuation?.moduleUuid === moduleUuid
-								? taskContinuation.caseDatabase
-								: undefined;
-						if (continuedWorld) {
-							const selectingModuleUuids = previousTaskFormSelectors(
-								docApi.getState(),
-								form.uuid,
-								menuCaseSelections,
-							);
-							setTaskContinuation({
-								moduleUuid: formModuleUuid,
-								formUuid: form.uuid,
-								returnModuleUuid: moduleUuid,
-								selectingModuleUuids,
-								caseDatabase: continuedWorld,
-							});
-							setPreviewCaseTarget({
-								formUuid: form.uuid,
-								...(launch.kind === "select-case-first"
-									? formMenuCase && { cases: formMenuCase.cases }
-									: { cases: [] }),
-								caseDatabase: continuedWorld,
-								caseData:
-									formMenuCase?.cases.length === 1
-										? caseDatabaseToFormPreloads(
-												continuedWorld,
-												formMenuCase.cases[0].caseId,
-												reachableCaseTypes(
-													formModule?.caseType,
-													menuSource.caseTypes,
-												),
-											)
-										: undefined,
-							});
-							const [first, ...remaining] = selectingModuleUuids;
-							if (first === undefined)
-								navigate.openForm(formModuleUuid, form.uuid);
-							else {
-								if (remaining.length > 0 || first !== formModuleUuid)
-									setPreviewParentCaseRequest({
-										selectingModuleUuid: first,
-										returnModuleUuids:
-											remaining.length > 0 ? remaining : [formModuleUuid],
-										resumeLocation:
-											remaining.length > 0
-												? { kind: "cases", moduleUuid: formModuleUuid }
-												: {
-														kind: "form",
-														moduleUuid: formModuleUuid,
-														formUuid: form.uuid,
-													},
-										cancelLocation: { kind: "module", moduleUuid },
-									});
-								navigate.openCaseList(first);
-							}
-							return;
-						}
-						if (launch.kind === "select-case-first") {
-							if (formMenuCase) {
-								void openFormWithMenuCase(
-									formModuleUuid,
-									form.uuid,
-									formMenuCase.cases,
-								);
-							} else {
-								setPreviewCaseTarget({ formUuid: form.uuid });
-								navigate.openCaseList(formModuleUuid);
-							}
-						} else {
-							/* A form opened from its menu is no Register launch,
-							 * whatever an earlier visit left on the target. */
-							setPreviewCaseTarget(undefined);
-							navigate.openForm(formModuleUuid, form.uuid);
-						}
-					};
-
-					return (
-						<PreviewFormRow
-							key={key}
-							form={form}
-							index={fIdx}
-							label={localizedFormName}
-							onClick={handleClick}
-						/>
-					);
-				})}
-			</div>
-			<HiddenItemsReveal items={hiddenEntries} />
-		</ContentFrame>
+					})}
+				</div>
+				<HiddenItemsReveal items={hiddenEntries} />
+			</ContentFrame>
+		</>
 	);
 }

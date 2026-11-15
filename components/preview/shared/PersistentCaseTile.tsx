@@ -1,8 +1,9 @@
 // components/preview/shared/PersistentCaseTile.tsx
 //
-// The tile pinned above every form in a module whose case list asked to
-// keep it there (`caseListConfig.tile.persistOnForms`). It is the same
-// tile Results draws: same projection, same cells, same geometry:
+// The tile a running screen pins once its session holds a case whose list
+// asked to keep it there (`caseListConfig.tile.persistOnForms`); which case
+// and which screens is `PinnedCaseTile`'s rule. It is the same tile Results
+// draws: same projection, same cells, same geometry:
 // because both surfaces are driven by the one short detail, and a worker
 // who picked a case from a tile must recognise the band above the form
 // as that exact case.
@@ -39,7 +40,7 @@ interface PersistentCaseTileProps {
 	readonly moduleUuid: Uuid;
 	readonly appId: string | undefined;
 	readonly caseType: string | undefined;
-	/** The case the form is running against; absent means no tile at all. */
+	/** The case the screen's session holds; absent means no tile at all. */
 	readonly caseId: string | undefined;
 	readonly config: CaseListConfig;
 	/** The live compiler catalog, paired with `config` for the projection. */
@@ -79,8 +80,7 @@ export function PersistentCaseTile({
 		blueprint,
 		moduleUuid,
 		caseTypes,
-		// The tile pinned above a running form draws the case the worker
-		// selected on their device.
+		// The pinned tile draws the case the worker selected on their device.
 		deviceScoped: true,
 		scopeKey: restoreScopeKey,
 		// Its cells are the list's tile, so a `here()` cell reads the latest

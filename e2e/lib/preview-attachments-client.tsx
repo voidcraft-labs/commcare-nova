@@ -11,6 +11,7 @@ import { createBlueprintDocStore } from "@/lib/doc/store";
 import { isCaptureField, proseText, type Uuid } from "@/lib/domain";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import { EngineController } from "@/lib/preview/engine/engineController";
+import { previewAsMe } from "@/lib/preview/engine/identity";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 
@@ -50,6 +51,15 @@ const session = createBuilderSessionStore();
 session.getState().setPreviewing(true);
 const controller = new EngineController();
 controller.setDocStore(docStore);
+/* The signed-in member's session, installed as the engine provider installs
+ * it, so the entry opens for a worker as every running form does. */
+controller.installSessionIdentity(
+	previewAsMe({
+		id: "native-attachments-member",
+		name: "Amina Diallo",
+		email: "amina@example.org",
+	}),
+);
 controller.activateForm(FORM);
 const entryKey = controller.entryKey;
 if (!entryKey) throw new Error("Missing active entry");

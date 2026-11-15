@@ -503,6 +503,9 @@ export function PreviewShell() {
 			formScreenRef.current = zustandScreen;
 			break;
 	}
+	/* The form screen's Back, which its refusal backstop offers as the form's
+	 * own refusal panel does. */
+	const formModuleUuid = formScreenRef.current?.moduleUuid;
 
 	/* ── Per-screen scroll position save/restore ───────────────────────
 	 * All Activity-wrapped screens share a single scroll container. Save
@@ -750,10 +753,19 @@ export function PreviewShell() {
 					>
 						<PortaledContentDirectionProvider direction={direction}>
 							<div dir={direction} className="contents">
-								<FormScreen
-									key={screenKey(formScreenRef.current)}
-									screen={formScreenRef.current}
-								/>
+								<PreviewDataRefusalScope
+									screenKey={screenKey(formScreenRef.current)}
+									surface="form"
+									moduleUuid={formScreenRef.current.moduleUuid}
+									{...(formModuleUuid === undefined
+										? {}
+										: { back: () => navigate.openModule(formModuleUuid) })}
+								>
+									<FormScreen
+										key={screenKey(formScreenRef.current)}
+										screen={formScreenRef.current}
+									/>
+								</PreviewDataRefusalScope>
 							</div>
 						</PortaledContentDirectionProvider>
 					</Activity>

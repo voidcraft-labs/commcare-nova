@@ -1,5 +1,7 @@
 /** History metadata and URL policy. The browser adapter performs the returned
  * replacement synchronously before notifying path subscribers. */
+import { withoutPreviewHistorySteps } from "./previewHeldMenu";
+
 export interface BuilderHistoryScope {
 	scopeId: string;
 	appId: string | null;
@@ -67,9 +69,12 @@ export function reconcileBuilderHistoryEntry(
 		stale && isCaseRecord
 			? `/${[parts[0], parts[1], parts[2], "results"].join("/")}`
 			: entry.pathname;
+	const state = scopedBuilderHistoryState(entry.state, active);
 	return {
 		url: `${pathname}${entry.search}`,
-		state: scopedBuilderHistoryState(entry.state, active),
+		/* A held menu, and the one an entry was pushed after, name cases of
+		 * the older generation's Project too. */
+		state: stale ? withoutPreviewHistorySteps(state) : state,
 	};
 }
 

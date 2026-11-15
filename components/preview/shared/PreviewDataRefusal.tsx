@@ -11,8 +11,10 @@
  * form screen holds the refusal of what it reads as its own state
  * (`engine/dataRefusal.ts::readPreviewScreen`), so none leaves the render as
  * an error a framework would log. {@link PreviewDataRefusalBoundary} stays
- * around each menu screen as the backstop for a read no screen holds yet; it
- * passes every other error to the boundary above it.
+ * around each menu screen and the form screen as the backstop for a read no
+ * screen holds yet; it passes every other error to the boundary above it.
+ * It catches only while Preview runs the app: the authoring canvas reads no
+ * worker's data, so a refusal there is a fault and is reported as one.
  */
 
 import React from "react";
@@ -28,6 +30,7 @@ import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/domain";
 import {
 	type PreviewDataRefusalReason,
+	type PreviewDataRefusalStage,
 	previewDataRefusalOf,
 	previewDataRefusalSubject,
 	searchInputForTable,
@@ -38,15 +41,16 @@ import {
 	type DataRefusalCopyNames,
 	type DataRefusalSurface,
 	dataRefusalCopy,
+	runtimeMessage,
 } from "@/lib/preview/runtimeMessages";
-import { usePreviewPersonaUuid } from "@/lib/session/hooks";
+import { useEditMode, usePreviewPersonaUuid } from "@/lib/session/hooks";
 
-interface PanelProps {
+export interface PanelProps {
 	readonly surface: DataRefusalSurface;
 	readonly reason: PreviewDataRefusalReason;
 	/** The module whose Search screen refused, which names its prompt. */
 	readonly moduleUuid?: Uuid;
-	readonly action?: { readonly label: string; readonly onClick: () => void };
+	readonly action?: PanelAction;
 }
 
 export function PreviewDataRefusalPanel(props: PanelProps) {
@@ -133,13 +137,28 @@ function RefusalPanel({
 	);
 }
 
+/** The screen a refusal boundary stands around. */
+export type RefusalBoundarySurface = "menu" | "form";
+
+interface PanelAction {
+	readonly label: string;
+	readonly onClick: () => void;
+}
+
 interface BoundaryProps {
-	/** `menu` for a menu screen; a case list's refused choice list is its
-	 * Search screen's, whatever this says. */
-	readonly surface: "menu";
+	/** `menu` for a menu screen, `form` for the form screen; a refused choice
+	 * list is its Search screen's, whatever this says. */
+	readonly surface: RefusalBoundarySurface;
 	readonly moduleUuid?: Uuid;
-	/** Changing it tries the screen again: the screen itself, the lookup data
-	 * and the worker each can make the data there. */
+	/** The panel's next step: the form screen's Back. */
+	readonly action?: PanelAction;
+	/** Whether Preview is running the app. The same screens render the
+	 * authoring canvas, which reads no worker's data and shows no phone's
+	 * stop, so a refusal caught there is passed on as the fault it is. */
+	readonly previewing: boolean;
+	/** Changing it tries the screen again: the screen itself, the lookup data,
+	 * the worker and the mode each can make the data there or take the read
+	 * away. */
 	readonly resetKeys: readonly unknown[];
 	/** The document, which the boundary watches only while it shows a
 	 * refusal: any edit can be the one that fixes it, so each tries the
@@ -191,6 +210,36 @@ export function refusalWatchStep(args: {
 	};
 }
 
+/**
+ * The panel the boundary shows for an error a screen threw as it rendered,
+ * or `undefined` for one it rethrows: an error that is not Core's data
+ * refusal, and any error on the authoring canvas, where no screen reads a
+ * worker's data. A refused choice list is its Search screen's; on the form
+ * screen the refusal names its own stage, since a read at the links comes
+ * after the form was saved. The screen's next step rides along.
+ */
+export function boundaryRefusalPanel(
+	error: unknown,
+	screen: Pick<
+		BoundaryProps,
+		"surface" | "moduleUuid" | "action" | "previewing"
+	>,
+): PanelProps | undefined {
+	if (!screen.previewing) return undefined;
+	const refusal = previewDataRefusalOf(error);
+	if (refusal === undefined) return undefined;
+	const stage: PreviewDataRefusalStage | "menu" =
+		screen.surface === "form" ? refusal.stage : "menu";
+	return {
+		surface: refusal.reason.kind === "empty-choice-table" ? "search" : stage,
+		reason: refusal.reason,
+		...(screen.moduleUuid === undefined
+			? {}
+			: { moduleUuid: screen.moduleUuid }),
+		...(screen.action === undefined ? {} : { action: screen.action }),
+	};
+}
+
 /** The state that renders the screen again. */
 const RETRY: BoundaryState = {
 	error: undefined,
@@ -199,8 +248,10 @@ const RETRY: BoundaryState = {
 };
 
 /**
- * Catch Core's data refusal while a menu or Search screen renders; let every
- * other error reach the boundary above, which reports it as the fault it is.
+ * Catch Core's data refusal while Preview renders a menu, Search or form
+ * screen, and show the screen's refusal panel in its place; let every other
+ * error, and every error on the authoring canvas, reach the boundary above,
+ * which reports it as the fault it is.
  */
 export class PreviewDataRefusalBoundary extends React.Component<
 	BoundaryProps,
@@ -249,7 +300,7 @@ export class PreviewDataRefusalBoundary extends React.Component<
 		const step = refusalWatchStep({
 			refused:
 				this.state.error !== undefined &&
-				previewDataRefusalOf(this.state.error) !== undefined,
+				boundaryRefusalPanel(this.state.error, this.props) !== undefined,
 			watched: this.#watch?.doc,
 			doc,
 			caughtAt: this.state.caughtAt,
@@ -269,47 +320,54 @@ export class PreviewDataRefusalBoundary extends React.Component<
 	render() {
 		const { error } = this.state;
 		if (error === undefined) return this.props.children;
-		const refusal = previewDataRefusalOf(error);
+		const panel = boundaryRefusalPanel(error, this.props);
 		/* Not the data's doing: rethrow so the outer boundary reports it. */
-		if (refusal === undefined) throw error;
-		const surface =
-			refusal.reason.kind === "empty-choice-table"
-				? "search"
-				: this.props.surface;
-		return (
-			<PreviewDataRefusalPanel
-				surface={surface}
-				reason={refusal.reason}
-				{...(this.props.moduleUuid === undefined
-					? {}
-					: { moduleUuid: this.props.moduleUuid })}
-			/>
-		);
+		if (panel === undefined) throw error;
+		return <PreviewDataRefusalPanel {...panel} />;
 	}
 }
 
 /**
- * A menu or Search screen under the refusal boundary. It tries the screen
- * again when the document, the lookup data, the worker or the screen itself
- * changes, since each can give the device the data it lacked.
+ * A menu, Search or form screen under the refusal boundary. It tries the
+ * screen again when the document, the lookup data, the worker or the screen
+ * itself changes, since each can give the device the data it lacked, and
+ * when Preview starts or stops running the app, since the authoring canvas
+ * reads none of it. The form screen passes `back`, the Back its own refusal
+ * panel offers, so a phone's stop on a form reads the same whichever of the
+ * two shows it.
  */
 export function PreviewDataRefusalScope({
 	screenKey,
+	surface = "menu",
 	moduleUuid,
+	back,
 	children,
 }: {
 	readonly screenKey: string;
+	readonly surface?: RefusalBoundarySurface;
 	readonly moduleUuid?: Uuid;
+	readonly back?: () => void;
 	readonly children: React.ReactNode;
 }) {
 	const doc = useBlueprintDocApi();
 	const lookup = usePreviewLookupStatus();
 	const worker = useSelectedPreviewIdentity();
+	const mode = useEditMode();
+	const { language } = useBuilderLanguage();
 	return (
 		<PreviewDataRefusalBoundary
-			surface="menu"
+			surface={surface}
 			{...(moduleUuid === undefined ? {} : { moduleUuid })}
-			resetKeys={[screenKey, lookup, worker]}
+			{...(back === undefined
+				? {}
+				: {
+						action: {
+							label: runtimeMessage(language, "back"),
+							onClick: back,
+						},
+					})}
+			previewing={mode === "preview"}
+			resetKeys={[screenKey, lookup, worker, mode]}
 			doc={doc}
 		>
 			{children}

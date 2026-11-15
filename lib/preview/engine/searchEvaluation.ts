@@ -15,6 +15,7 @@ import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
+import { readPreviewScreen } from "./dataRefusal";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import { previewSessionValues } from "./identity";
@@ -30,6 +31,7 @@ import { searchInputSubmissionErrorsOnDevice } from "./searchInputValidation";
 import {
 	buildSearchRunState,
 	changeSearchRunDraft,
+	openSearchRunState,
 	restoreSearchRun,
 	withHiddenValues,
 } from "./searchRunState";
@@ -106,14 +108,43 @@ async function searchSnapshot(
 					new Map(),
 				),
 			));
-	let run = buildSearchRunState(input.moduleUuid, inputs, session, environment);
-	if (input.submitted !== undefined)
+	const workflow = moduleSearchWorkflow(mod);
+	const formsReadSearch = moduleFormsReadSearch(mod);
+	/* The Search screen opens as Preview opens it (`openSearchRunState`),
+	 * making every read Core's query manager makes as it is built. A read of
+	 * data the device lacks stops a menu that opens on its search or its
+	 * results (the step is not `browse`); a list that opens first keeps its
+	 * cases, holds no field and no search, and its Search pane is the
+	 * refusal, so the worker's Search is refused as the device refuses it
+	 * when the press builds the query screen (`CaseListScreen`'s
+	 * `screenRefusal` and its refused pane). */
+	const opened = readPreviewScreen(() =>
+		openSearchRunState(input.moduleUuid, inputs, session, environment),
+	);
+	if (opened.kind === "refused") {
+		const step = caseListStep({
+			workflow,
+			formsReadSearch,
+			searchRelevant: relevant,
+			hasSubmitted: false,
+			rules,
+		});
+		if (step !== "browse" || (relevant && input.answers !== undefined))
+			throw opened.refusal;
+	}
+	const paneRefusal =
+		opened.kind === "refused" && relevant ? opened.refusal.reason : undefined;
+	let run =
+		opened.kind === "read"
+			? opened.value
+			: buildSearchRunState(input.moduleUuid, [], session, environment);
+	if (opened.kind === "read" && input.submitted !== undefined)
 		run = restoreSearchRun(
 			run,
 			run,
 			new Map(input.submitted.map(({ name, value }) => [name, value])),
 		);
-	if (input.entry)
+	if (opened.kind === "read" && input.entry)
 		run = changeSearchRunDraft(
 			run,
 			run,
@@ -181,8 +212,6 @@ async function searchSnapshot(
 	/* The case list's step decides what the worker sees, as on the running
 	 * app: where it is Results with nothing submitted, the default search
 	 * runs as the menu opens (skip to results). */
-	const workflow = moduleSearchWorkflow(mod);
-	const formsReadSearch = moduleFormsReadSearch(mod);
 	if (
 		!run.hasSubmitted &&
 		caseListStep({
@@ -213,6 +242,11 @@ async function searchSnapshot(
 				);
 	return {
 		relevant,
+		/** The Search pane's refusal on a list that opens first: the screen
+		 *  refused data the worker's device lacks as it opened, so the list
+		 *  holds no search and a Search press is refused. Plain data, so it
+		 *  crosses the worker thread. */
+		...(paneRefusal === undefined ? {} : { paneRefusal }),
 		/** The module's search workflow; undefined with no effective search. */
 		workflow,
 		/** The menu's forms read the search (`moduleFormsReadSearch`). */

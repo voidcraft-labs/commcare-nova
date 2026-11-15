@@ -101,8 +101,11 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **Profiles include their own prerequisites.** App-list and delete journeys need
   another active app or destination Project for the UI they assert. Organization,
   case changes, after-submit, forms-read-search, localization and deep-link journeys
-  each own the full authored fixture, as do the refused-preload, location-column
-  and search-claim Preview journeys (`e2e/lib/previewRuntimeSeeds.ts`). The
+  each own the full authored fixture, as do the refused-preload, location-column,
+  search-claim and search-start-refused Preview journeys
+  (`e2e/lib/previewRuntimeSeeds.ts`), the menu-holding-a-case journey
+  (`e2e/lib/menuHeldCaseSeed.ts`) and the standing-search journey
+  (`e2e/lib/searchStandingSeed.ts`). The
   refused preload's record is written straight into `cases`, as an import leaves
   it, because the case store's own writers refuse a date property that is not a
   date. A journey may switch its active Project or change a member's role

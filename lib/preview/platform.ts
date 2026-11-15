@@ -127,6 +127,14 @@ export interface PreviewPlatformRules {
 	 *  `case-search/title-label-lang-non-empty`, `description-lang-markdown`,
 	 *  `hint-lang`, which Android ignores). */
 	readonly searchScreenText: boolean;
+	/** The pinned case tile above the search screen. Formplayer sets it on
+	 *  every response, a search's included
+	 *  (`MenuSessionRunnerService.getNextMenu`, `setPersistentCaseTile`);
+	 *  Android's search (`QueryRequestUiController`, `http_request_layout.xml`)
+	 *  holds no `universal_frame_tile`, where
+	 *  `BreadcrumbBarHelper.addUniversalFrameTile` places it, so its search
+	 *  draws none (`lib/preview/pinnedCaseTile.ts`). */
+	readonly searchScreenCaseTile: boolean;
 	/** A Search field's required condition and checks (manifest
 	 *  `case-search/required-test-text`, `validations-0-test-text`). */
 	readonly searchFieldChecks: boolean;
@@ -260,6 +268,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileVerticalAlign: "as-authored",
 		linkColumnInList: "link",
 		searchScreenText: true,
+		searchScreenCaseTile: true,
 		searchFieldChecks: true,
 		hiddenSearchFieldWithDefault: "hidden",
 		barcodeSearchField: "text",
@@ -308,6 +317,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileVerticalAlign: "middle-only",
 		linkColumnInList: "raw-text",
 		searchScreenText: false,
+		searchScreenCaseTile: false,
 		searchFieldChecks: false,
 		hiddenSearchFieldWithDefault: "editable",
 		barcodeSearchField: "scan-or-text",

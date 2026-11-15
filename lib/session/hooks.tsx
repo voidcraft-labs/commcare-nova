@@ -225,6 +225,14 @@ export function usePreviewMenuCaseSelections(): Readonly<
 	return useBuilderSession((s) => s.previewMenuCaseSelections);
 }
 
+/** The identity of the worker's running Preview session, new each time the
+ * session starts over (another worker, platform, Preview run, entry point
+ * launch or Project). A step the browser's history keeps stands only in the
+ * session that took it. */
+export function usePreviewSessionId(): string {
+	return useBuilderSession((s) => s.previewSessionId);
+}
+
 /** Set or clear the selected case owned by one module menu. */
 export function useSetPreviewMenuCaseSelection(): (
 	moduleUuid: string,

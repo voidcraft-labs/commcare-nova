@@ -25,7 +25,10 @@ import {
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ChoiceAnswerCheck } from "@/components/preview/shared/ChoiceAnswerCheck";
-import { PersistentCaseTile } from "@/components/preview/shared/PersistentCaseTile";
+import {
+	PinnedCaseTile,
+	usePinnedCaseTile,
+} from "@/components/preview/shared/PinnedCaseTile";
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { useReconcilerContext } from "@/lib/collab/context";
@@ -67,6 +70,7 @@ import {
 	type PreviewAfterSubmitFrame,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
+	settleAfterSubmitRoute,
 } from "@/lib/preview/afterSubmitRouting";
 import {
 	afterSubmitPath,
@@ -80,9 +84,9 @@ import {
 	caseListRegistrationAdmission,
 	caseListRegistrationPostSubmit,
 	caseListRegistrationRefusalCopy,
-	formReadsCompletedSearch,
-	formSearchAnswers,
+	formOpensSearchScreen,
 	isCaseListRegistrationForm,
+	readFormSearchAnswers,
 	registeredCaseOnDevice,
 	selectionsAfterRegistrationReturn,
 } from "@/lib/preview/caseListRegistration";
@@ -101,10 +105,7 @@ import {
 	overlayCaseDatabasePatch,
 	submissionWorkerValues,
 } from "@/lib/preview/engine/caseDatabasePatch";
-import {
-	previewDataRefusalOf,
-	readPreviewScreen,
-} from "@/lib/preview/engine/dataRefusal";
+import { previewDataRefusalOf } from "@/lib/preview/engine/dataRefusal";
 import type { EngineValidationCompletion } from "@/lib/preview/engine/engineController";
 import {
 	afterSubmitSessionDatums,
@@ -124,7 +125,6 @@ import {
 import {
 	previewSessionValues,
 	type ResolvedPreviewIdentity,
-	samePreviewIdentity,
 } from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import {
@@ -132,7 +132,6 @@ import {
 	selectionsForModuleTask,
 } from "@/lib/preview/engine/previousTask";
 import { moduleSearchReadsCaseDatabase } from "@/lib/preview/engine/searchCsqlRuntime";
-import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import {
 	type PreviewLookupStatus,
@@ -170,7 +169,7 @@ import {
 	previewCaseFirstModuleUuids,
 	previewCaseListReturn,
 	previewMenuCaseContext,
-	previewTargetHoldingMenu,
+	previewSelectionsBefore,
 } from "@/lib/preview/menuProjection";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
@@ -460,9 +459,6 @@ function stringArrayValuesEqual(
  * no primary case-data map and keeps the complete casedb snapshot separate.
  */
 /** The focusable control inside an invalid question, or the question itself. */
-/** No starting values: the form reads a completed search's answers, or none. */
-const NO_SEARCH_DEFAULTS: ReadonlyMap<string, string> = new Map();
-
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
@@ -588,9 +584,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * captures its search answers once, at activation. */
 	const readsSearchDefaults =
 		mode === "preview" &&
-		formsReadSearch &&
-		noMatchesAdmission.kind === "not-applicable" &&
-		!formReadsCompletedSearch(searchState, openedByLink);
+		formOpensSearchScreen({
+			admission: noMatchesAdmission,
+			formsReadSearch,
+			searchState,
+			openedByLink,
+		});
 	const searchDefaultsLookup = usePreviewLookupStatus();
 	const searchDefaultsCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const searchDefaultsCasesLoad = useDeviceCaseDatabaseLoad();
@@ -613,47 +612,44 @@ export function FormScreen({ screen }: FormScreenProps) {
 		menuSource.doc,
 		formsReadSearch ? moduleUuid : undefined,
 	);
-	/* The starting values are read only once their world is there
+	/* The menu's Search screen opens once its world is there
 	 * (`searchDefaultsReady`): the worker, the lookups and the device's
-	 * cases. A read of data the device lacks (a place key of a worker
-	 * assigned nowhere) is the refusal a device meets building the search
-	 * the form reads, held as the screen's state and shown in place of the
-	 * form (`readPreviewScreen`), never an error leaving the render. */
+	 * cases. It opens as the Search screen itself does, reading every
+	 * starting value, hidden value, required condition and check a starting
+	 * value answers (`caseListRegistration.ts::readFormSearchAnswers`). A read
+	 * of data the device lacks (a place key of a worker assigned nowhere) is
+	 * the refusal a device meets building the search the form reads, held as
+	 * the screen's state and shown in place of the form, never an error
+	 * leaving the render. */
 	const searchAnswersRead = useMemo(() => {
 		if (mode !== "preview") return undefined;
-		const searchInputs = hostSearchInputs ?? [];
-		const defaults =
-			readsSearchDefaults && moduleUuid !== undefined && searchDefaultsReady
-				? readPreviewScreen(() =>
-						resolveSearchInputDefaults(searchInputs, searchDefaultsSession, {
-							doc: menuSource.doc,
-							moduleUuid,
-							...(searchDefaultsLookup.kind === "data" && {
-								lookup: searchDefaultsLookup.data,
-							}),
-							sessionData: searchDefaultsStep.data,
-							caseDatabase: searchDefaultsCases.snapshot,
-						}),
-					)
-				: { kind: "read" as const, value: NO_SEARCH_DEFAULTS };
-		if (defaults.kind === "refused") return defaults;
-		return {
-			kind: "read" as const,
-			value: formSearchAnswers({
-				searchInputs,
-				admission: noMatchesAdmission,
-				formsReadSearch,
-				searchState,
-				openedByLink,
-				defaults: defaults.value,
-			}),
-		};
+		return readFormSearchAnswers({
+			searchInputs: hostSearchInputs ?? [],
+			admission: noMatchesAdmission,
+			formsReadSearch,
+			searchState,
+			openedByLink,
+			world:
+				moduleUuid !== undefined && searchDefaultsReady
+					? {
+							session: searchDefaultsSession,
+							environment: {
+								doc: menuSource.doc,
+								moduleUuid,
+								...(searchDefaultsLookup.kind === "data" && {
+									lookup: searchDefaultsLookup.data,
+								}),
+								sessionData: searchDefaultsStep.data,
+								caseDatabase: searchDefaultsCases.snapshot,
+							},
+						}
+					: undefined,
+		});
 	}, [
 		mode,
 		noMatchesAdmission,
 		hostSearchInputs,
 		formsReadSearch,
-		readsSearchDefaults,
 		searchDefaultsReady,
 		openedByLink,
 		moduleUuid,
@@ -787,6 +783,42 @@ export function FormScreen({ screen }: FormScreenProps) {
 		!severalCaseForm && effectiveCaseIds?.length === 1
 			? effectiveCaseIds[0]
 			: undefined;
+	/* The cases this form's session holds, in the order they were chosen:
+	 * those chosen before its own, then its own, chosen on the list a menu
+	 * after its case names, else the list that chose the menu's case, else
+	 * its own module's. They pin the case tile above the form
+	 * (`lib/preview/pinnedCaseTile.ts`), in Preview only: edit mode has no
+	 * bound case, and a band that appeared while authoring would claim a case
+	 * the author never chose. */
+	const heldCases = useMemo(() => {
+		if (mode !== "preview") return [];
+		const ownListModuleUuid =
+			(explicitCases !== undefined
+				? previewCaseTarget?.formUuid === formUuid
+					? previewCaseTarget.formChosenAfterCase?.caseListModuleUuid
+					: undefined
+				: menuCaseContext.selectedByModuleUuid) ?? moduleUuid;
+		const before = previewSelectionsBefore(
+			menuSource,
+			moduleUuid,
+			menuCaseSelections,
+		).filter((selection) => selection.moduleUuid !== ownListModuleUuid);
+		return effectiveCases === undefined || severalCaseForm
+			? before
+			: [...before, { moduleUuid: ownListModuleUuid, cases: effectiveCases }];
+	}, [
+		effectiveCases,
+		explicitCases,
+		formUuid,
+		menuCaseContext.selectedByModuleUuid,
+		menuCaseSelections,
+		menuSource,
+		mode,
+		moduleUuid,
+		previewCaseTarget,
+		severalCaseForm,
+	]);
+	const pinnedTile = usePinnedCaseTile(heldCases, "form");
 	const carriedTargetMatches =
 		previewCaseTarget?.formUuid === formUuid &&
 		previewCaseChoiceIdsEqual(previewCaseTarget.cases, effectiveCases);
@@ -1028,9 +1060,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * waits for the next change, as the menus' own visibility reads do. The
 	 * route reads the session of the entry it routes
 	 * (`SubmittedContextSnapshot.identity`), never the running worker's: a
-	 * running worker who is no longer that one makes the waiting route stale.
-	 * Unmounting releases a waiting route, which then finds its attempt
-	 * stale. */
+	 * running worker who is no longer that one makes the waiting route stale
+	 * (`afterSubmitRouting.ts::settleAfterSubmitRoute`). Unmounting releases a
+	 * waiting route, which then finds its attempt stale. */
 	const lookupStatus = usePreviewLookupStatus();
 	const visibilityInputsRef = useRef({ lookupStatus, previewIdentity });
 	const visibilityWaitersRef = useRef(new Set<() => void>());
@@ -1203,15 +1235,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const clearRunning = clearTargetEntryKey !== undefined;
 	const submissionAttemptRef = useRef(0);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
-	/* The form showing holds its case beneath it again, as the session does
-	 * while the form is open: a step back lands on the menu that listed it
-	 * with the case held, whatever the worker did on that menu before a step
-	 * forward reopened the form (`menuProjection.ts::previewTargetHoldingMenu`). */
-	useEffect(() => {
-		if (!routeMatchesScreen || previewCaseTarget?.formUuid !== formUuid) return;
-		const held = previewTargetHoldingMenu(previewCaseTarget, true);
-		if (held !== previewCaseTarget) setPreviewCaseTarget(held);
-	}, [formUuid, previewCaseTarget, routeMatchesScreen, setPreviewCaseTarget]);
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
 	/* Capture imperatively at the final write boundary. Post-write routing keeps
@@ -1893,32 +1916,27 @@ export function FormScreen({ screen }: FormScreenProps) {
 								caseSelections: projectedSelections,
 							}),
 					});
-				let frameRoute = routeOnce();
-				while (frameRoute.kind === "pending") {
-					/* With the entry's worker and the device's cases in hand, a
-					 * still pending target waits only on lookup data, and a failed
-					 * read brings no later change to wake on. */
-					if (targetLookup().kind === "error") {
-						failAfterSave(
-							"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
-							"target-lookup-unavailable",
-						);
-						return;
-					}
-					await nextVisibilityInputs();
-					if (
-						!isCurrent() ||
-						!samePreviewIdentity(
-							visibilityInputsRef.current.previewIdentity,
-							entryIdentity,
-						)
-					) {
-						announceWrite();
-						settleAttempt({ kind: "idle" });
-						return;
-					}
-					frameRoute = routeOnce();
+				const settled = await settleAfterSubmitRoute({
+					route: routeOnce,
+					lookup: targetLookup,
+					nextInputs: nextVisibilityInputs,
+					isCurrent,
+					runningIdentity: () => visibilityInputsRef.current.previewIdentity,
+					entryIdentity,
+				});
+				if (settled.kind === "lookup-unavailable") {
+					failAfterSave(
+						"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
+						"target-lookup-unavailable",
+					);
+					return;
 				}
+				if (settled.kind === "stale") {
+					announceWrite();
+					settleAttempt({ kind: "idle" });
+					return;
+				}
+				const frameRoute = settled.route;
 				if (frameRoute.kind === "unresolvable") {
 					failAfterSave(
 						"Your answers were saved, but the next screen could not be found. Reload the app and try again.",
@@ -3602,35 +3620,18 @@ export function FormScreen({ screen }: FormScreenProps) {
 		</>
 	);
 
-	/* The module's persistent case tile: the same tile Results draws, kept
-	 * on screen above every form in the module (`persistOnForms`). Preview
-	 * only: edit mode has no bound case, and a band that appeared while
-	 * authoring would claim a case the author never chose. It carries no
-	 * motion of its own, so a reduced-motion preference has nothing to
-	 * suppress; it adds a uniform offset above the field list, which the
-	 * flipbook's anchor-based scroll sync already corrects for on a mode
-	 * flip. */
+	/* The pinned case tile: the same tile Results draws, kept on screen
+	 * above the form while its session holds the case (`heldCases`). It
+	 * carries no motion of its own, so a reduced-motion preference has
+	 * nothing to suppress; it adds a uniform offset above the field list,
+	 * which the flipbook's anchor-based scroll sync already corrects for on a
+	 * mode flip. */
 	const persistentTile =
-		mode === "preview" &&
-		mod?.caseListConfig?.tile?.persistOnForms === true &&
-		effectiveCaseId !== undefined &&
+		pinnedTile !== undefined &&
 		/* A case the phone lacks has no tile there: Android's breadcrumb
 		 * builds no context tile for a case it does not hold. */
-		!(entryPointLaunch?.blankCaseIds ?? []).includes(effectiveCaseId) ? (
-			<PersistentCaseTile
-				blueprint={menuSource.doc}
-				moduleUuid={moduleUuid}
-				appId={appId}
-				caseType={mod.caseType}
-				caseId={effectiveCaseId}
-				config={mod.caseListConfig}
-				caseTypes={caseTypes}
-				fallbackProperties={
-					caseTypes.find((candidate) => candidate.name === mod.caseType)
-						?.properties ?? []
-				}
-				restoreScopeKey={restoreScopeKey}
-			/>
+		!(entryPointLaunch?.blankCaseIds ?? []).includes(pinnedTile.caseId) ? (
+			<PinnedCaseTile pinned={pinnedTile} />
 		) : null;
 
 	/* The band is the only reason this frame grows. A sticky element can

@@ -1766,11 +1766,15 @@ where it sits in a sequence.
 
 One short detail drives all three tile surfaces. `models/modules.py::Module.search_detail`
 deep-copies it for search results, and `caseListConfig.tile.persistOnForms` turns
-the same detail into the persistent tile above every form in the module
-(`detail-persistent` on each case-loading datum;
+the same detail into the persistent tile (`detail-persistent` on each datum the
+list chooses). Formplayer sets the earliest held such datum's tile on every
+response, menus, case lists, searches and forms alike
+(`MenuSessionRunnerService.getStepToFrame`), and
 `cloudcare/.../formplayer/menus/views.js::PersistentCaseTileView` renders it in a
 sticky region, suppressed only inside HQ's own App Preview pane, which Nova does
-not target). The case-detail screen stays a plain field list.
+not target; Android draws the same tile on every screen whose layout holds its
+frame, the search screen excepted (`BreadcrumbBarHelper`). Preview follows both
+(`lib/preview/pinnedCaseTile.ts`). The case-detail screen stays a plain field list.
 
 Nova emits only HQ's `custom` tile vocabulary — `case_tile_template = "custom"`
 plus per-column grid fields — and never the named templates `person_simple` or
@@ -2978,8 +2982,11 @@ above the case in the session, so one step back from it stops on that menu with 
 command, `shouldPopNext`; Android shows `MenuActivity`, Web Apps the selections less the form),
 and a second reaches the case list with nothing chosen. Preview marks that target
 `formChosenAfterCase` with the list that chose the case: a list whose own form menu listed the
-form shows that menu for the held case whenever it opens (`previewCaseListHeldChoices`), until the
-menu's Back steps past it (`steppedPastMenu`) and the form showing again holds it there once more,
+form holds that menu with the case on a history entry of its own at the list's URL, so a step
+back off the form shows it and a step back off the menu shows the list with nothing chosen
+(`previewCaseListHeldChoices`, `lib/routing/previewHeldMenu.ts`); the entry stands only in the
+Preview session that took it, so after a change of worker, platform or Preview run Back shows the
+list, as a case the previous worker chose has no standing in the next one's session;
 a menu screen holds it in its selection, the trail reads menu, case, form as Web Apps' does, each
 crumb cutting the session back to its screen (`previewMenuSelectionsLetGo`), a route back to a list goes to the one that chose the case holding no
 form (`previewCaseListReturn`), the list ignores a form so chosen

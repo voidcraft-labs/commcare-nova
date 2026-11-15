@@ -90,9 +90,9 @@ export interface PreviewCaseTarget {
 	 * lands on that menu with the case held and a second on a case list that
 	 * holds no form (`CommCareSession.stepBack`). A list reached with this
 	 * target opens no form once a case is chosen
-	 * (`menuProjection.ts::previewCaseListFormRequest`), and the list that
-	 * chose the case shows its form menu for it
-	 * (`menuProjection.ts::previewCaseListHeldChoices`). */
+	 * (`menuProjection.ts::previewCaseListFormRequest`); the menu the form
+	 * was chosen on is the history entry the form was opened from
+	 * (`lib/routing/previewHeldMenu.ts`). */
 	formChosenAfterCase?: PreviewFormChosenAfterCase;
 }
 
@@ -104,15 +104,11 @@ export interface PreviewCaseTarget {
 export interface PreviewFormChosenAfterCase {
 	readonly caseListModuleUuid: Uuid;
 	/** The form was chosen from that case list's own form menu (a menu with
-	 *  no submenus, `CaseListScreen`), which a step back off the form shows
-	 *  again with the case held. Absent where a menu screen listed the form
-	 *  (`ModuleScreen`), which holds the case in `previewMenuCaseSelections`. */
+	 *  no submenus, `CaseListScreen`), which holds the case on a history entry
+	 *  of its own (`lib/routing/previewHeldMenu.ts`). Absent where a menu
+	 *  screen listed the form (`ModuleScreen`), which holds the case in
+	 *  `previewMenuCaseSelections`. */
 	readonly fromCaseListMenu?: true;
-	/** The worker stepped back past that form menu to the list, which then
-	 *  holds nothing: a second step back pops the case. The form showing
-	 *  again holds the case beneath it once more, so its screen clears this
-	 *  (`menuProjection.ts::previewTargetHoldingMenu`). */
-	readonly steppedPastMenu?: true;
 }
 
 /** A command retained by after-submit navigation. Its exact task may finish

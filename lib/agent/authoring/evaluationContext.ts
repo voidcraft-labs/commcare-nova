@@ -43,7 +43,7 @@ import {
 	serverPreviewDevice,
 } from "@/lib/preview/engine/previewDevice";
 import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
-import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
 import { serverPreviewDataRefusalOf } from "@/lib/preview/engine/serverDataRefusal";
 import {
 	serverRecordsRead,
@@ -237,7 +237,6 @@ export function formsReadSearchFormAnswers(
 		"identity" | "device" | "cases" | "lookup"
 	>,
 ): readonly { name: string; value: string }[] | undefined {
-	if (form.searchAnswers !== undefined) return undefined;
 	const moduleUuid = moduleUuidOfForm(doc, form.formUuid);
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	if (
@@ -246,19 +245,28 @@ export function formsReadSearchFormAnswers(
 		!moduleFormsReadSearch(module)
 	)
 		return undefined;
-	let defaults: ReturnType<typeof resolveSearchInputDefaults>;
+	/* The form is reached only through its menu's Search screen, which opens
+	 * as Preview opens it (`openSearchRunState`, which Preview's form screen
+	 * reaches through `caseListRegistration.ts::readFormSearchAnswers`): a
+	 * starting value, hidden value, required condition or check that reads
+	 * data the worker's device lacks stops the search before the form, with
+	 * answers supplied or not. None of those slots can read a session datum
+	 * (`lib/domain/expression/context.ts::slotContext` gives datum supplies
+	 * only to the case list filter and an advanced field's condition), so
+	 * the screen opens over no case list step's datums. */
+	let defaults: ReturnType<typeof openSearchRunState>["defaults"];
 	try {
-		defaults = resolveSearchInputDefaults(
+		defaults = openSearchRunState(
+			moduleUuid,
 			module.caseListConfig?.searchInputs ?? [],
 			previewSessionValues(world.identity, world.device),
 			{
 				doc,
 				moduleUuid,
 				lookup: previewLookupData(world.lookup),
-				sessionData: {},
 				caseDatabase: world.cases,
 			},
-		);
+		).defaults;
 	} catch (error) {
 		throw searchRefusalInputError(
 			error,
@@ -266,8 +274,10 @@ export function formsReadSearchFormAnswers(
 			world.identity.personaUuid === undefined
 				? undefined
 				: doc.personas?.[world.identity.personaUuid]?.name,
+			world.lookup,
 		);
 	}
+	if (form.searchAnswers !== undefined) return undefined;
 	return [...defaults].map(([name, value]) => ({ name, value }));
 }
 
@@ -282,6 +292,7 @@ function searchRefusalInputError(
 	error: unknown,
 	language: ReturnType<typeof resolveAppLanguage>,
 	worker: string | undefined,
+	lookup: FormEvaluationContext["lookup"],
 ): unknown {
 	const surfaced = error instanceof SurfacedDataRefusal ? error : undefined;
 	const refused = surfaced?.refusal ?? serverPreviewDataRefusalOf(error);
@@ -289,7 +300,7 @@ function searchRefusalInputError(
 	const copy = dataRefusalCopy(
 		language,
 		surfaced?.surface ?? "search",
-		previewDataRefusalSubject(refused.reason, undefined),
+		previewDataRefusalSubject(refused.reason, previewLookupData(lookup)),
 		worker === undefined ? {} : { worker },
 	);
 	return new FormEvaluationInputError(`${copy.title}. ${copy.body}`);
@@ -358,6 +369,7 @@ export async function formSearchResults(
 				world.identity.personaUuid === undefined
 					? undefined
 					: doc.personas?.[world.identity.personaUuid]?.name,
+				world.lookup,
 			);
 		}
 	};
