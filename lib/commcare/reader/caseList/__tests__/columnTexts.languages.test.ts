@@ -272,9 +272,36 @@ describe("an image map's alt text", () => {
 			true,
 		);
 
-	it("holds an alt text blank in every language", async () => {
+	const altRespelled = (reading: ListReading) =>
+		respelled(reading).filter((tail) => tail === "/alt_text");
+
+	it("holds an alt text blank in every language, and records the map Nova writes as none", async () => {
 		expect(closedCodes(await readAlt({ fr: "" }))).toEqual([]);
-		expect(closedCodes(await readAlt({ en: "", fr: "" }))).toEqual([]);
+		const blank = await readAlt({ en: "", fr: "" });
+		expect(closedCodes(blank)).toEqual([]);
+		expect(altRespelled(blank)).toEqual(["/alt_text", "/alt_text"]);
+		// Nova's own export writes none, which reads with nothing to respell.
+		expect(altRespelled(await readAlt({}))).toEqual([]);
+	});
+
+	// Blank is what a device shows, not JavaScript's trim: HQ's build writes a text Python reads as
+	// blank (U+001F) as one non-breaking space, a device's blank, and writes U+FEFF, which a device
+	// keeps, as it is.
+	it("holds an alt text a device shows blank, and refuses one it shows, whatever JavaScript's trim says", async () => {
+		const unitSeparator = await readAlt({ en: "\u001f", fr: "\u001f" });
+		expect(closedCodes(unitSeparator)).toEqual([]);
+		expect(altRespelled(unitSeparator)).toEqual(["/alt_text", "/alt_text"]);
+		expect(codes(await readAlt({ en: "﻿" }))).toContain(
+			"menus-and-case-lists/enum-mappingitem-alt-text-non-blank",
+		);
+	});
+
+	it("refuses an alt text whose rest after a carriage return defines another app string, under that entry alone", async () => {
+		const reading = await readAlt({ en: "\rmodules.m0=Patients" });
+		expect(closedCodes(reading)).toEqual([
+			"application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string",
+			"application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string",
+		]);
 	});
 
 	it("refuses an alt text a null makes HQ show as `None`", async () => {
@@ -313,6 +340,11 @@ describe("an image map's alt text", () => {
 });
 
 describe("a detail's two texts and a sort element's label", () => {
+	const detailRespelled = (reading: ListReading) =>
+		respelled(reading).filter(
+			(tail) => tail === "/no_items_text" || tail === "/select_text",
+		);
+
 	it("reads HQ's default text saved in one language, blank in the other, as the default", async () => {
 		const reading = await readBilingual(village(), (app) => {
 			const short = shortOf(app);
@@ -320,6 +352,59 @@ describe("a detail's two texts and a sort element's label", () => {
 			short.select_text = { fr: "Continue" };
 		});
 		expect(closedCodes(reading)).toEqual([]);
+		// Nova writes the empty list's default in every language and leaves the continue text at
+		// HQ's model default, so the first publish respells both maps.
+		expect(detailRespelled(reading)).toEqual([
+			"/no_items_text",
+			"/select_text",
+		]);
+	});
+
+	it("records no respelling of the two texts as Nova writes them", async () => {
+		const reading = await readBilingual(village(), () => {});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(detailRespelled(reading)).toEqual([]);
+	});
+
+	it("reads HQ's default text with spaces at its end, which no device shows, as the default", async () => {
+		const reading = await readBilingual(village(), (app) => {
+			const short = shortOf(app);
+			short.no_items_text = { en: "List is empty. ", fr: "List is empty.\t" };
+			short.select_text = { en: "Continue  ", fr: "Continue" };
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(detailRespelled(reading)).toEqual([
+			"/no_items_text",
+			"/select_text",
+		]);
+	});
+
+	it("reads HQ's default text before a carriage return, whose rest defines no string, as the default", async () => {
+		const reading = await readBilingual(village(), (app) => {
+			shortOf(app).no_items_text = {
+				en: "List is empty.\rno cases yet",
+				fr: "List is empty.",
+			};
+		});
+		expect(closedCodes(reading)).toEqual([]);
+	});
+
+	it("refuses HQ's default text with a space at its start, which a device shows, as wording of its own", async () => {
+		const reading = await readBilingual(village(), (app) => {
+			shortOf(app).no_items_text = { en: " List is empty.", fr: "" };
+		});
+		expect(closedCodes(reading)).toEqual([
+			"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
+		]);
+	});
+
+	it("refuses a text whose rest after a carriage return defines another app string, under that entry alone", async () => {
+		const reading = await readBilingual(village(), (app) => {
+			shortOf(app).select_text = { en: "Continue\rmodules.m0=Patients" };
+		});
+		expect(closedCodes(reading)).toEqual([
+			"application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string",
+		]);
 	});
 
 	it("refuses a sort-only label a null makes HQ show as `None`", async () => {

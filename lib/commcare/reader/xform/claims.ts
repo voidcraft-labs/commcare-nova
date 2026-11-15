@@ -1143,6 +1143,13 @@ export const X = {
 		Q("a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk"),
 		"itext-form:core/markdown",
 	),
+	markdownSomeLanguagesOneText: one(
+		"take",
+		Q(
+			"a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s",
+		),
+		"itext-form:core/markdown",
+	),
 	markdownFormattingOff: one(
 		"refuse",
 		Q("a-markdown-form-in-a-form-whose-text-formatting-is-off"),

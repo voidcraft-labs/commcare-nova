@@ -94,7 +94,7 @@ import {
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
-	sampleParentIdentifier,
+	sampleParentLink,
 	seedSampleCases,
 	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
@@ -1352,7 +1352,7 @@ export async function populateSampleCasesAction(
 		return await seedSampleCases(context.store, {
 			appId,
 			caseType,
-			parentIdentifier: sampleParentIdentifier(
+			...sampleParentLink(
 				context.blueprint === undefined
 					? undefined
 					: hydratePersistedBlueprint(context.blueprint),
@@ -1412,7 +1412,7 @@ export async function resetSampleCasesAction(
 		return await resetSampleCases(context.store, {
 			appId,
 			caseType,
-			parentIdentifier: sampleParentIdentifier(
+			...sampleParentLink(
 				context.blueprint === undefined
 					? undefined
 					: hydratePersistedBlueprint(context.blueprint),

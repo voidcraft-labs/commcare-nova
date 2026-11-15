@@ -44,7 +44,13 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
-import { heldText, recordTextRewrite } from "../heldText";
+import {
+	heldText,
+	hqDeviceText,
+	LINE_END_DEFINES_KEY,
+	recordTextRewrite,
+	storedKeyDefinedAfterLineEnd,
+} from "../heldText";
 import { dotInterpolate } from "../hqInterpolation";
 import { HQ_PAGE_LABELS } from "../hqPageLabels";
 import { shownText } from "../hqText";
@@ -881,21 +887,41 @@ function enumEntriesOf(
  * alone, the formats `detail_screen.py::EnumImage` builds an `<alt_text>` for): blank in every
  * language by its HELD row; on a format that builds no image, inert whatever it holds; with text
  * in any language by its finding (a `null` HQ prints `None`); and left unclaimed, for the close to
- * name, where the build prints a value the reader cannot know. Whether the entry's alt text is
- * Nova's.
+ * name, where the build prints a value the reader cannot know. Blank is what a device shows
+ * (`heldText.ts::hqDeviceText`), not JavaScript's trim: U+001F, which HQ's build writes as a
+ * non-breaking space, is blank, and U+FEFF, which it writes and a device keeps, is text. On a
+ * format that builds an image, a rest after a carriage return that defines an app string is
+ * refused, and a blank map spelled otherwise than Nova writes it (none) is respelled by the first
+ * publish. Whether the entry's alt text is Nova's.
  */
 function claimAltText(
+	ctx: ReadContext,
 	item: JsonCursor,
 	codes: readonly string[],
 	buildsImage: boolean,
 ): boolean {
-	const alt = shownTexts(item.peek("alt_text"), codes);
+	const stored = item.peek("alt_text");
+	const alt = shownTexts(stored, codes);
+	const lineEnd = buildsImage
+		? storedKeyDefinedAfterLineEnd(stored, codes)
+		: undefined;
+	if (lineEnd !== undefined) {
+		item.refuse("alt_text", LINE_END_DEFINES_KEY, { name: lineEnd });
+		return false;
+	}
 	if (
 		alt !== undefined &&
-		Object.values(alt).every((text) => text.trim() === "")
-	)
+		Object.values(alt).every((text) => hqDeviceText(text) === "")
+	) {
 		item.derived("alt_text", C.altTextBlank);
-	else if (!buildsImage) item.drop("alt_text", C.altTextNoImage);
+		if (buildsImage && item.used("alt_text"))
+			recordTextRewrite(
+				ctx,
+				{ entry: C.altTextBlank.entry, path: `${item.pointer}/alt_text` },
+				"list-settings-respelled",
+				false,
+			);
+	} else if (!buildsImage) item.drop("alt_text", C.altTextNoImage);
 	else if (alt === undefined) return false;
 	else {
 		item.refuse("alt_text", C.altText);
@@ -916,7 +942,7 @@ function claimAltTexts(
 ): boolean {
 	let ok = true;
 	for (const item of column.list("enum", "MappingItem", C.enumMapping)) {
-		if (!claimAltText(item, codes, false)) ok = false;
+		if (!claimAltText(ctx, item, codes, false)) ok = false;
 		item.derived("key", derivedEnumKey);
 		const value = heldTextsIn(
 			item.peek("value"),
@@ -1550,7 +1576,7 @@ function readImageMap(
 	let ok = true;
 	items.forEach((item, index) => {
 		item.derived("key", ITEM_CLAIMS.imageKey);
-		if (!claimAltText(item, codes, true)) ok = false;
+		if (!claimAltText(ctx, item, codes, true)) ok = false;
 		const asset = readImageAsset(ctx, item);
 		const value = values[index];
 		if (asset === undefined || value === undefined) ok = false;
@@ -1798,7 +1824,7 @@ function readProjection(
 					value,
 				);
 			}
-			claimAltText(item, codes, false);
+			claimAltText(ctx, item, codes, false);
 		}
 	}
 	if (

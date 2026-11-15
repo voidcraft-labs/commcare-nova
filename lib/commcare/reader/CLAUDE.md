@@ -129,9 +129,17 @@ are read the same way, form by form, as Core merges the default locale's keys un
 language's (`xform/afterBinding.ts::shownForms`), and its `jr:constraintMsg` is rebuilt over the
 branches the source holds, in the order it tests them, each the message of the language whose
 forms name it (`messageBranches`), never over the document's languages: CommCare HQ rewrites
-neither when it adds, renames or reorders a language. So a language HQ added after the publish,
-one that lacks the forms and one holding the default's copy a save in HQ's form builder writes
-show the default's message through the default's branch. Nova then prints every language's text or path in full, so a
+neither when it adds, renames, reorders or removes a language. So a language HQ added after the
+publish, one that lacks the forms and one holding the default's copy a save in HQ's form builder
+writes show the default's message through the default's branch, and the branch of a language HQ
+removed, which no language's forms name, is rebuilt from the stored expression alone
+(`rebuiltMessage`), whether the source keeps that language's translation or a save in HQ's form
+builder dropped it, since no language a device shows reads it. A text's `markdown` copy is read the
+same way (`prose.ts::claimMarkdown`): a language whose text lacks it shows the default's copy where
+a runtime asks for it and its own value elsewhere, and one whose text holds it beside no value shows
+its copy and the default's value, so the copy is held where each language shows one text (the
+default's copy, or a blank, as the value; the default's value as the copy) and refused where the
+two differ. Nova then prints every language's text or path in full, so a
 first publish fills the languages a stored map or translation left out: a media map's under
 `media-maps-respelled`, which `navMedia.ts::recordRespelling` records with each stored map Nova
 writes again, and a form's under `forms-and-settings-rewritten`.
@@ -141,19 +149,43 @@ and a Register button's label, a column's header, a mapping's label, an interval
 field's texts, the search screen's title and subtitle, and a text a generated key folds over) is
 held through one function, `heldText.ts::heldText`, by its translation unit's role: what a device
 shows is the bar (`hqDeviceText`: HQ's build writes a blank text as a non-breaking space and a line
-break as `\n`, and Core's locale reader trims a line's end before it reads `\n` back, so a line
-break at a text's end is shown and its spaces are not), each text loses the characters up to
-U+0020 at both ends unless it is only spaces, and for a role whose translation is never blank
+break as `\n`, and Core's locale reader ends a line at a carriage return and trims its end before it
+reads `\n` back, so a line break at a text's end is shown and its spaces are not, the two characters
+`\n` show as a line break, and nothing after a carriage return shows), each text is held as a device
+shows it (the text before a carriage return, each `\n` a line break, `holdText`) less the characters
+up to U+0020 at both ends unless it is only spaces, and for a role whose translation is never blank
 (`translationRoleRequiresNonblank`) a blank-looking language beside a source that holds text takes
 the source's text. A Search field's validation message is held apart from the runtime guard's text
-joined after it (`search/prompts.ts::readValidation`, `search/guardSplit.ts::sharedGuardText`). A
+joined after it (`search/prompts.ts::readValidation`, `search/guardSplit.ts::sharedGuardText`); where
+no language's message tells whether the guard is joined, the whole test is the rule, its refusal
+waits for the search settle (`PendingExpression.deferRefusal`), and a test ending with the guard the
+projection joins to the field (`search/settings.ts::endsWithRuntimeGuard`) is `unrecognized` at its
+message, which keeps it out, rather than refused for the guard's reads. A
 respelling no worker meets is recorded under the surface's own id (`names-respelled`,
 `list-settings-respelled`), and one a worker meets under `text-spaces-dropped`
-(`heldText.ts::recordTextRewrite`). A text with a literal `\n`, a carriage return or a character
-XML cannot hold has no spelling the gate admits and is left unclaimed, and a generated key folded
-over one is refused (`assemble.ts::decideGeneratedKeys`). A comparison of a stored text with
-Nova's print compares both as held. A form's itext is no app string: Core trims a value at both ends as it
-parses the form, so it is read as stored.
+(`heldText.ts::recordTextRewrite`). A text whose rest after a carriage return is a line that
+defines an app string (`keyDefinedAfterLineEnd`) is refused under
+`app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`: a held text where its
+rewrite is recorded (`heldText.ts::recordTextRewrite`, which every held text with a carriage return
+reaches, or `refuseLineEndKey` where another register records the rewrite, a Register label's
+`registration-label-fixed`), at the app, menu, form, case list or search the pointer names; and at
+its own key every value of an app language's `translations`, whatever the key names, since HQ's
+build writes each non-empty one into the language's file (`appShell.ts::readTranslations`), the
+search screen's title, and each text compared with HQ's default (a detail's empty-list and continue
+texts, the Search button's label, an image map's alt text). A text a device shows none of (nothing
+after the line's key before a carriage return) or holding a character XML cannot hold has no
+spelling the gate admits and is left unclaimed, and a generated key folded over one is refused
+(`assemble.ts::decideGeneratedKeys`); every other fold is held as a device shows it, a choice
+label's too. The app's `name` is also the profile's `name`, which Android's app picker shows as
+stored, so one holding `\n` or a carriage return stays `unrecognized` (`appShell.ts::holdAppName`);
+a form's name read with a line break is written into its `<h:title>` and data node, which no screen
+a worker reads shows (part 09's decision table). A comparison of a stored text with Nova's print
+compares both as held, and a text compared with HQ's default (a detail's empty-list and continue
+texts, the Search button's label) is the default where a device shows the default in every
+language, its map respelled by the first publish under `list-settings-respelled` where Nova writes
+it another way. Blank is what a device shows (`hqDeviceText`), never JavaScript's `trim`: an image
+map's alt text and the search screen's title read U+001F as blank and U+FEFF as text. A form's
+itext is no app string: Core trims a value at both ends as it parses the form, so it is read as stored.
 
 What the project space holds rather than the app (levels, worker and location properties) is read
 from what the reading is told and what the logic reads, so its canonical rows run the reading's

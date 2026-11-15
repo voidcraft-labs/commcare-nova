@@ -3129,15 +3129,18 @@
 		"id": "forms-and-case-writes/update-keys-location-id-hq-user-id",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update keys `location_id`, `hq_user_id`",
+		"item": "update keys `location_id`, `hq_user_id`, on the form's own case, a case above it (`parent/location_id`) or the worker's record (`usercase_update`), and the same keys of a child case's, an advanced load's or an advanced open action's `case_properties`, each from a question that is not an upload",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
-			"schema:UpdateCaseAction.update"
+			"schema:UpdateCaseAction.update",
+			"schema:OpenSubCaseAction.case_properties",
+			"schema:LoadUpdateAction.case_properties",
+			"schema:AdvancedOpenCaseAction.case_properties"
 		],
 		"valueClass": "location-id-hq-user-id-keys",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a write CommCare HQ stores elsewhere: `location_id` becomes the case's own column and `hq_user_id` is copied to its external id (`update_strategy.py::_apply_update_action`)",
+		"dispositionCell": "**HELD-NEW**: a write CommCare HQ stores elsewhere: `location_id` becomes the case's own column and `hq_user_id` is copied to its external id (`update_strategy.py::_apply_update_action`), whichever action wrote the key, since HQ's build writes every one of them as an element of the case block's `<update>` (`xform.py::XFormCaseBlock.add_case_updates`, called for a basic update, a case above, the worker's record, a child case, an advanced load and an open action); a key whose question is an upload names an `<attachment>` instead (`is_attachment`), which is the upload question's row (`update-from-an-upload-question-attachment-mode`)",
 		"subject": "case-property-names",
 		"owner": "forms-and-case-management",
 		"platforms": {

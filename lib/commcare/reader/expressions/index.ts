@@ -88,6 +88,7 @@ import {
 	slotEntries,
 	visitSyntax,
 } from "./findings";
+import { levelControl, type PrintLevel } from "./printLevel";
 import {
 	type BoundSlot,
 	bindSlot,
@@ -178,6 +179,9 @@ export interface ExpressionReading {
 		readonly place: HqPlace;
 		readonly key: string;
 	}[];
+	/** By registration, the level each tree held other than exact was held at
+	 *  (`printLevel.ts`), which a stage that prints the slot again prints it at. */
+	readonly levels: ReadonlyMap<number, PrintLevel>;
 	/** Case properties the app reads and nothing in it writes, which step 1 declared. */
 	readonly declaredProperties: readonly {
 		readonly caseType: string;
@@ -663,6 +667,7 @@ export function readExpressions(
 	let outcomes = new Map<number, Outcome>();
 	let rewrites: ExpressionReading["rewrites"][number][] = [];
 	let leveled = new Map<number, Expression>();
+	let levels = new Map<number, PrintLevel>();
 	for (;;) {
 		const start =
 			settled.size === 0 ? base : written(base, pending, sites, settled);
@@ -697,11 +702,13 @@ export function readExpressions(
 		}
 
 		// 4. Level: a slot still unequal is compared with the print that leaves
-		// every rewrite out, and held at that level as the tree Nova's own print
-		// reads back as.
+		// every rewrite out, then with prints that leave out the rewrite at some
+		// of its sites (`siteLevel`), and held at the level whose print is the
+		// source, as the tree Nova's own print reads back as.
 		outcomes = new Map<number, Outcome>();
 		rewrites = [];
 		leveled = new Map<number, Expression>();
+		levels = new Map<number, PrintLevel>();
 		for (const [index, judgment] of judgments) {
 			const registration = pending[index] as PendingExpression;
 			const bound = bindings.get(index) as BoundSlot;
@@ -716,12 +723,26 @@ export function readExpressions(
 				withhold: WITHHOLD_ALL,
 				reached: (id) => reached.add(id),
 			});
-			if (withheld.kind === "bound" && withheld.equal) {
-				const tree = readBack(current, registration, env, bound.candidate);
+			const found =
+				withheld.kind === "bound" && withheld.equal
+					? { level: { kind: "withheld" } as const, withheld: reached }
+					: siteLevel(current, registration, env, bound);
+			if (found !== undefined) {
+				const { tree, sited } = storedAtLevel(
+					current,
+					registration,
+					env,
+					bound,
+					found,
+				);
 				leveled.set(index, tree);
+				levels.set(index, sited.level);
 				outcomes.set(index, { kind: "held", tree });
 				for (const id of EMISSION_REWRITE_IDS)
-					if (reached.has(id) && EMISSION_REWRITES[id].behavior === "changes")
+					if (
+						sited.withheld.has(id) &&
+						EMISSION_REWRITES[id].behavior === "changes"
+					)
 						rewrites.push({
 							id,
 							place: registration.place,
@@ -744,6 +765,19 @@ export function readExpressions(
 						reason: XML_ELEMENT_NAME_PATTERN.test(relation)
 							? `relation:${relation}`
 							: "name:index-identifier",
+					},
+				});
+				continue;
+			}
+			if (reached.size > 0) {
+				// The print reaches rewrites and no choice of where to apply them the search finds
+				// prints the source: a spelling Nova does not hold yet, under the slot's own entry.
+				outcomes.set(index, {
+					kind: "refused",
+					resolution: {
+						kind: "entry",
+						entryId: slotDefault(current, registration.ref, () => M3),
+						reason: `rewrites:${[...reached].sort().join(",")}`,
 					},
 				});
 				continue;
@@ -1059,6 +1093,7 @@ export function readExpressions(
 		claims,
 		circumstances,
 		rewrites,
+		levels,
 		declaredProperties: kept,
 		worldReads: {
 			userFields: [...userFields].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
@@ -1290,6 +1325,137 @@ function declarationClaims(
 		}
 	}
 	return claims;
+}
+
+/**
+ * The site level of a slot that neither whole level prints: the sites of its
+ * print, in the order the print reaches them, whose rewrite is withheld, so
+ * that the print is the source; undefined where the search finds none.
+ * A source can spell a rewrite at some sites and not at others (a Search test
+ * that reads one answer inside Nova's guard on its rows and another bare).
+ * Starting from every rewrite applied, each step flips a site whose flip moves
+ * the first difference with the source on, trying first the sites the print
+ * reaches after the one flipped last. A site's flip
+ * changes the print only where the site prints, so a flip moves the difference
+ * on only where the site prints at it, and the sites before it already print
+ * the source. Each step moves the difference strictly on through the source's
+ * text, so the search ends, whatever the number of sites. Where no single flip
+ * moves it (two rewrites that print at one node, one inside the other's
+ * spelling, each spelled otherwise than the source) the search finds no level,
+ * and the slot is refused under its own entry (`readExpressions`, step 4).
+ * `withheld` names the rewrites withheld at some site, the ones a worker meets
+ * once Nova prints the slot.
+ */
+function siteLevel(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+	bound: BoundSlot,
+):
+	| {
+			readonly level: PrintLevel;
+			readonly withheld: ReadonlySet<EmissionRewriteId>;
+	  }
+	| undefined {
+	const judge = (sites: ReadonlySet<number>) => {
+		const level: PrintLevel = { kind: "sites", withheld: sites };
+		const withheld = new Set<EmissionRewriteId>();
+		let reached = 0;
+		const judgment = judgeSlot(
+			doc,
+			pending,
+			env,
+			bound,
+			levelControl(level, (id, out) => {
+				reached += 1;
+				if (out) withheld.add(id);
+			}),
+		);
+		return judgment.kind === "bound"
+			? { level, withheld, reached, judgment }
+			: undefined;
+	};
+	type Judged = NonNullable<ReturnType<typeof judge>>;
+	const flipped = (from: Judged, sites: readonly number[]) => {
+		const withheld = new Set(
+			from.level.kind === "sites" ? from.level.withheld : [],
+		);
+		for (const site of sites) if (!withheld.delete(site)) withheld.add(site);
+		return judge(withheld);
+	};
+	let now = judge(new Set());
+	// The site after the last one flipped: the difference moves on through the source as the
+	// print reaches the sites, so the next site to flip is most often the next one reached.
+	let next = 0;
+	while (now !== undefined) {
+		const from = now.judgment.difference?.from;
+		if (now.judgment.equal || from === undefined) return undefined;
+		const current = now;
+		let best: Judged | undefined;
+		const order = Array.from(
+			{ length: current.reached },
+			(_, at) => (next + at) % current.reached,
+		);
+		for (const site of order) {
+			const tried = flipped(current, [site]);
+			if (tried === undefined) continue;
+			if (tried.judgment.equal) return tried;
+			const at = tried.judgment.difference?.from;
+			if (at !== undefined && at > from) {
+				best = tried;
+				next = site + 1;
+				break;
+			}
+		}
+		now = best;
+	}
+	return undefined;
+}
+
+/** A level a slot's print reads the source at: every rewrite withheld, else site by site. */
+function levelOf(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+	bound: BoundSlot,
+): ReturnType<typeof siteLevel> {
+	const reached = new Set<EmissionRewriteId>();
+	const withheld = judgeSlot(doc, pending, env, bound, {
+		withhold: WITHHOLD_ALL,
+		reached: (id) => reached.add(id),
+	});
+	return withheld.kind === "bound" && withheld.equal
+		? { level: { kind: "withheld" }, withheld: reached }
+		: siteLevel(doc, pending, env, bound);
+}
+
+/**
+ * The tree a slot held at a level other than exact stores, and the level that tree prints the
+ * source at. The tree is `readBack` of Nova's own print, so the document equals its own re-read;
+ * the level was found for the bound candidate, whose sites a settle's print counts, so where the
+ * re-read tree is another tree it is judged at that level again, and leveled afresh where the
+ * level does not print the source from it (its sites reached in another order), so a settle that
+ * prints the stored tree at its level prints the source. Where no level does, the re-read tree
+ * keeps `found`: it differs from the source only where a rewrite no runtime tells apart applies
+ * (`default-reads-current`, which spells one node two ways), and a settle that prints it otherwise
+ * than the source refuses with a finding.
+ */
+function storedAtLevel(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+	bound: BoundSlot,
+	found: NonNullable<ReturnType<typeof siteLevel>>,
+): {
+	readonly tree: Expression;
+	readonly sited: NonNullable<ReturnType<typeof siteLevel>>;
+} {
+	const tree = readBack(doc, pending, env, bound.candidate);
+	if (sameJson(tree, bound.candidate)) return { tree, sited: found };
+	const reread: BoundSlot = { ...bound, candidate: tree };
+	const same = judgeSlot(doc, pending, env, reread, levelControl(found.level));
+	if (same.kind === "bound" && same.equal) return { tree, sited: found };
+	return { tree, sited: levelOf(doc, pending, env, reread) ?? found };
 }
 
 /** The tree a slot's unwithheld print `P` reads back as: the tree acceptance's

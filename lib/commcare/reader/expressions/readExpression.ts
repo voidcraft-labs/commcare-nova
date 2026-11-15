@@ -896,6 +896,7 @@ export function printSlot(
 							expressions({ slot: ref.slot }),
 							naming,
 							searchInstanceOf(mod),
+							rewrites,
 						),
 					),
 				);
@@ -915,6 +916,7 @@ export function printSlot(
 						"details",
 						naming,
 						expressions,
+						rewrites,
 					),
 				);
 			}
@@ -928,13 +930,16 @@ export function printSlot(
 					throw new Error(
 						`The Search field ${ref.member.searchInputUuid} is not in its menu.`,
 					);
+				// The control reaches this slot's print alone: the field's other slots print too, as
+				// the export prints them.
+				const slot = ref.slot;
 				const wire = searchPromptWire(
-					withSearchSlot(input, ref.slot, expression),
+					withSearchSlot(input, slot, expression),
 					undefined,
 					expressions,
 					naming,
 					searchInstanceOf(mod),
-					rewrites,
+					(one) => (one === slot ? rewrites : undefined),
 				);
 				switch (ref.slot) {
 					case "search_input_default":
@@ -1078,6 +1083,7 @@ export function printSlot(
 								lookup: { naming, instanceScope: "xform" },
 							},
 							projection,
+							print.rewrites,
 						),
 						1,
 					),

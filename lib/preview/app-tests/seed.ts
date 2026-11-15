@@ -179,25 +179,28 @@ export async function seedAppTest(
 		},
 	);
 	const pending = new Map(cases.rows.map((row) => [row.case_id, row]));
+	// A record names its parent by its one index edge, whatever its name:
+	// the row's `parent_case_id` holds only a `parent` index.
+	const parentEdges = new Map(
+		cases.indices.map((index) => [index.case_id, index]),
+	);
 	while (pending.size > 0) {
 		let inserted = false;
 		for (const [id, row] of pending) {
-			if (row.parent_case_id !== null && pending.has(row.parent_case_id))
-				continue;
+			const edge = parentEdges.get(id);
+			if (edge !== undefined && pending.has(edge.ancestor_id)) continue;
 			await withAppTestNamespace(
 				caseTx,
 				{ ...scope, ownerId: owners.get(id) ?? scope.actorUserId },
 				async (store) => {
 					const { app_id: _app, owner_id: _owner, ...record } = row;
-					const edge = cases.indices.find(
-						(index) =>
-							index.case_id === id && index.ancestor_id === row.parent_case_id,
-					);
 					await store.insert({
 						appId: scope.appId,
-						row: record,
+						row: { ...record, parent_case_id: edge?.ancestor_id ?? null },
 						parentRelationship:
-							types.get(row.case_type)?.relationship ?? "child",
+							edge?.relationship ??
+							types.get(row.case_type)?.relationship ??
+							"child",
 						...(edge === undefined
 							? {}
 							: { parentIdentifier: edge.identifier }),

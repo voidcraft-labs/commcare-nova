@@ -3758,7 +3758,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.no_items_text` equal to HQ's default text (`List is empty.`), in any of the app's languages",
+		"item": "`Detail.no_items_text` a device shows as HQ's default text (`List is empty.`) in every app language, however the map spells it",
 		"surfaceKeys": [
 			"parser:DetailParser/no_items_text",
 			"schema:Detail.no_items_text"
@@ -3781,7 +3781,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.select_text` = default `{en: Continue}`",
+		"item": "`Detail.select_text` a device shows as HQ's default `Continue` in every app language, however the map spells it",
 		"surfaceKeys": [
 			"parser:DetailParser/select_text",
 			"schema:Detail.select_text"
@@ -4133,7 +4133,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`enum[]` `MappingItem.alt_text{lang}`, blank",
+		"item": "`enum[]` `MappingItem.alt_text{lang}`, blank as a device shows it in every language",
 		"surfaceKeys": [
 			"parser:DetailFieldParser/alt_text",
 			"schema:MappingItem.alt_text"

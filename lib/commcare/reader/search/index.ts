@@ -20,20 +20,29 @@ import type {
 	OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
+import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import { withCandidate } from "../candidate";
 import { caseListReadings } from "../caseList/details";
 import { dateSortDeclarations } from "../caseList/order";
 import { noteProperty } from "../caseManagement/catalog";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftModule, ReadContext } from "../context";
+import { readExpression } from "../expressions/readExpression";
 import {
 	scanReads,
 	searchRowProperties,
 	searchRowRelations,
 } from "../expressions/scanReads";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { pendingPlaceholder } from "../pendingExpressions";
+import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
-import { provisionalDocument } from "../provisional";
+import {
+	provisionalDocument,
+	refusalDeferred,
+	settleDeferredRefusal,
+	settleDeferredRefusals,
+} from "../provisional";
 import { readFormSyntax } from "../syntaxRead";
 import { expressionEnvOf } from "../xform";
 import { type PromptReading, readSearchPrompts } from "./prompts";
@@ -46,7 +55,10 @@ import {
 	type SearchRow,
 } from "./rows";
 import {
+	endsWithRuntimeGuard,
+	holdsOwnersWithoutClause,
 	holdsText,
+	ownersWithoutClauseRegistration,
 	readSearchSettings,
 	settleSearchSettings,
 } from "./settings";
@@ -434,6 +446,9 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			if (settled === undefined) delete target.caseSearchConfig;
 			else target.caseSearchConfig = settled;
 		});
+		const ownersHeld =
+			settings.ownersWithoutClause !== true ||
+			readOwnersWithoutClause(ctx, module, cursor);
 		const declared = Array.isArray(cursor.peek("properties"))
 			? (cursor.peek("properties") as unknown[]).length
 			: 0;
@@ -448,11 +463,58 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			whole:
 				filters.ok &&
 				settings.ok &&
+				ownersHeld &&
 				workflow !== undefined &&
 				prompts.length === declared,
 		});
 	}
 	declareDateFieldsBeforeBinding(ctx, app, readings);
+}
+
+/**
+ * A search's owner exclusion stored with no clause in the list filter, decided once the menu's
+ * fields are in the draft: the stored list is bound as a proposal over the provisional document
+ * (`expressions/readExpression.ts::readExpression`), and where Nova's list writes no clause for
+ * the tree (`settings.ts::holdsOwnersWithoutClause`) the list is registered for the expression
+ * stage and the search holds it; the settle's projection then holds the whole search. Returns
+ * whether the exclusion is held.
+ */
+function readOwnersWithoutClause(
+	ctx: ReadContext,
+	module: DraftModule,
+	cursor: JsonCursor,
+): boolean {
+	const registration = ownersWithoutClauseRegistration(module, cursor);
+	if (registration === undefined) return true;
+	const placeholder = pendingPlaceholder("value");
+	const trial = withCandidate(provisionalDocument(ctx), (draft) => {
+		const mod = draft.modules[module.uuid];
+		if (mod === undefined) return;
+		mod.caseSearchConfig = {
+			...(mod.caseSearchConfig ?? {}),
+			excludedOwnerIds: placeholder,
+		} as CaseSearchConfig;
+	});
+	const judged = readExpression(trial, registration, expressionEnvOf(ctx));
+	if (
+		!holdsOwnersWithoutClause(
+			cursor,
+			judged.kind === "refused" ? undefined : judged.candidate,
+		)
+	)
+		return false;
+	ctx.pending.register(registration, {
+		json: cursor,
+		key: "blacklisted_owner_ids_expression",
+	});
+	ctx.writeDraft(() => {
+		const target = module.module as { caseSearchConfig?: CaseSearchConfig };
+		target.caseSearchConfig = {
+			...(target.caseSearchConfig ?? {}),
+			excludedOwnerIds: placeholder,
+		} as CaseSearchConfig;
+	});
+	return true;
 }
 
 /** The types the catalog gives a menu's case type's properties: declared, else its writers'. */
@@ -667,22 +729,55 @@ function fieldOverAnotherType(ctx: ReadContext, reading: SearchReading): void {
 }
 
 /**
+ * A menu whose search a finding keeps from the settle places none of its rows: each row's value
+ * stands under that finding, the first at the search or at its menu, so the close names no row
+ * the reading never reached as unrecognized beside the finding that kept it out.
+ */
+function coverUnsettledRows(ctx: ReadContext, reading: SearchReading): void {
+	const search = searchPlace(reading.module);
+	if (search.kind !== "search") return;
+	const menu = whereText({
+		kind: "menu",
+		menu: search.menu,
+		name: search.name,
+	});
+	const findings = ctx.accounting.findings();
+	const finding =
+		findings.find((one) => whereText(one.place) === whereText(search)) ??
+		findings.find((one) => whereText(one.place) === menu);
+	if (finding === undefined) return;
+	for (const row of reading.rows)
+		ctx.accounting.cover({ json: row.cursor, key: "defaultValue" }, finding);
+}
+
+/**
  * Step 8, pass 2: each searching menu's rows placed, its fields' arms decided, and its whole
  * search accepted by the projection.
  */
 export function settleSearches(ctx: ReadContext, app: DraftApp): void {
+	try {
+		settleEachSearch(ctx, app);
+	} finally {
+		// A check's refusal no settle reached stands as the expression stage made it.
+		settleDeferredRefusals(ctx);
+	}
+}
+
+function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
 	if (ctx.doc === undefined) return;
 	const readings = READINGS.get(ctx);
 	if (readings === undefined) return;
 	ctx.doc = takeBackWriterTypedDeclarations(ctx, ctx.doc);
 	for (const module of app.modules) {
 		const reading = readings.get(module.uuid);
-		if (
-			reading === undefined ||
-			!reading.whole ||
-			ctx.doc.modules[module.uuid] === undefined
-		)
+		if (reading === undefined) continue;
+		if (!reading.whole || ctx.doc.modules[module.uuid] === undefined) {
+			for (const prompt of reading.prompts)
+				if (prompt.validationRule !== undefined)
+					settleDeferredRefusal(ctx, prompt.validationRule);
+			coverUnsettledRows(ctx, reading);
 			continue;
+		}
 		classifySearchRows(ctx, module, {
 			rows: reading.rows,
 			prompts: reading.prompts,
@@ -691,6 +786,42 @@ export function settleSearches(ctx: ReadContext, app: DraftApp): void {
 			markersOnly: reading.markersOnly,
 		});
 		fieldOverAnotherType(ctx, reading);
+		settleUntoldChecks(ctx, reading);
 		settleSearchSettings(ctx, module, reading.cursor, reading.prompts);
+	}
+}
+
+/**
+ * Each Search field's check whose message told nothing of Nova's runtime guard and whose rule the
+ * expression stage refused (`prompts.ts::ValidationReading.untold`, `PendingExpression.deferRefusal`),
+ * settled over the menu's placed rows. Where the stored test ends with the guard Nova's projection
+ * joins to the field's check (`settings.ts::endsWithRuntimeGuard`), the guard is Nova's and what
+ * keeps the field out is its message: Nova prints the guard's sentence after the field's own in
+ * the source language and no language's message ends with it, so the field is `unrecognized` at
+ * `schema:Assertion.text` and the expression stage's refusal of the guard's reads is dropped.
+ * Elsewhere the rule is the whole test, and its refusal stands.
+ */
+function settleUntoldChecks(ctx: ReadContext, reading: SearchReading): void {
+	const doc = ctx.doc;
+	const mod = doc?.modules[reading.module.uuid];
+	for (const prompt of reading.prompts) {
+		const index = prompt.validationRule;
+		if (index === undefined || !refusalDeferred(ctx, index)) continue;
+		if (
+			doc === undefined ||
+			mod === undefined ||
+			!endsWithRuntimeGuard(ctx, doc, mod, prompt)
+		) {
+			settleDeferredRefusal(ctx, index);
+			continue;
+		}
+		const place = searchPlace(reading.module);
+		const detail = { name: "schema:Assertion.text" };
+		ctx.accounting.circumstance("unrecognized", place, detail);
+		settleDeferredRefusal(
+			ctx,
+			index,
+			circumstanceFinding("unrecognized", place, detail),
+		);
 	}
 }

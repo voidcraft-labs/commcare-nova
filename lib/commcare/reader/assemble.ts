@@ -74,7 +74,12 @@ import {
 	type HeldGeneratedKey,
 	repositionGeneratedKey,
 } from "./generatedTranslationKeys";
-import { heldText, holdText, recordTextRewrite } from "./heldText";
+import {
+	heldText,
+	holdText,
+	hqDeviceText,
+	recordTextRewrite,
+} from "./heldText";
 import { pointerToken, sameJson } from "./jsonCursor";
 import { resourcedDocument, sourceLanguageAsRead } from "./languages";
 import {
@@ -1206,14 +1211,19 @@ function decideGeneratedKeys(
 			held.json.account(held.key, CLAIMS.generatedNoEffect);
 			continue;
 		}
-		// A fold over a text Nova's gate admits no spelling of (a literal `\n`, a carriage return,
-		// a character XML cannot hold, `heldText.ts::holdText`) is no text Nova can hold.
+		// A value whose rest after a carriage return defines another app string never reaches here:
+		// `appShell.ts::readTranslations` refuses it at its key, whatever the key names.
+		// A fold over a text Nova's gate admits no spelling of (one a device shows none of, a
+		// character XML cannot hold, `heldText.ts::holdText`) is no text Nova can hold. Every other
+		// fold is held as every app string is: a text unit's in `keepShownText`, and a choice's
+		// label, whose value is prose, here, as a device shows it (`holdText`).
+		const kept = verdict.kind === "fold" ? holdText(verdict.value) : undefined;
 		if (
 			verdict.kind !== "fold" ||
 			!foldable ||
 			tag === undefined ||
 			unit === undefined ||
-			holdText(verdict.value) === undefined
+			kept === undefined
 		) {
 			held.json.refuse(held.key, CLAIMS.generatedAnythingElse, {
 				name: held.key,
@@ -1232,8 +1242,24 @@ function decideGeneratedKeys(
 		const once = `${verdict.unit}\u0000${tag}`;
 		if (folded.has(once)) continue;
 		folded.add(once);
-		const value =
-			unit.valueKind === "prose" ? proseText(verdict.value) : verdict.value;
+		// A choice's label is held here as a device shows it: the two characters `\n` a line
+		// break, the text before a carriage return, and no space at either end. Where a worker then
+		// reads another text (a space dropped at its start, a line break at either end) the reading
+		// records it at the key, as `keepShownText` does for a text unit.
+		if (
+			unit.valueKind === "prose" &&
+			hqDeviceText(verdict.value) !== hqDeviceText(kept)
+		)
+			recordTextRewrite(
+				ctx,
+				{
+					entry: CLAIMS.generatedOverOneText.entry,
+					path: `${held.json.pointer}/${pointerToken(held.key)}`,
+				},
+				"list-settings-respelled",
+				true,
+			);
+		const value = unit.valueKind === "prose" ? proseText(kept) : verdict.value;
 		const byTag = foldValues.get(verdict.unit) ?? new Map();
 		byTag.set(tag, value);
 		foldValues.set(verdict.unit, byTag);
@@ -1341,7 +1367,18 @@ function keepShownText(
 		after: string;
 	}[] = [];
 	if (localization === undefined || languages === undefined) {
-		for (const [unit, value] of sourceFolds) {
+		for (const [unit, stored] of sourceFolds) {
+			// Held as every app string is (`heldText.ts::holdText`, which the fold has already
+			// asked): a device's text, recorded where a worker then reads another.
+			const value = holdText(stored) ?? stored;
+			sourceFolds.set(unit, value);
+			if (hqDeviceText(stored) !== hqDeviceText(value)) {
+				const name = namesRead(ctx).get(unit);
+				const site = foldSites.get(unit);
+				if (name !== undefined) recordNameRewrite(ctx, name, true);
+				else if (site !== undefined)
+					recordTextRewrite(ctx, site, "list-settings-respelled", true);
+			}
 			const current = units.get(unit)?.source;
 			if (typeof current === "string")
 				wireNames.push({ unit, before: current, after: value });

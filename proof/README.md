@@ -1415,6 +1415,15 @@ and update have identical bytes with a real case-writing form. The intent
 self-check independently observes B and B-edit with matching complete keys,
 requires a parsed form and its authored data-dictionary property, and retains
 both records under the block's `witnesses/wire-equal-intent/` directory.
+`targeted-ancestor-index-names` witnesses a form's read of a case above its
+own through the index the app links it by (`advancedModule.ts::ancestorWalk`):
+a member linked to its household as `home`, read from a basic menu and from
+an advanced one (each a Hidden Value, a question starting on the read and a
+note shown while it is blank), and a pledge extending its household as `host`.
+Its intent values open each form on a case the restore links to the Hill farm
+only under that name (and a member holding a `parent` index to another
+household beside it), on HQ's build and on Nova's archive, so a read through
+`parent` would read blank or the other household.
 `targeted-save-to-case-read` is defect 3's last clause: one form writes a
 property through a case operation alone and another validates an answer
 against it and against a property an ordinary field writes, so HQ's form

@@ -34,7 +34,7 @@ import {
 import { serializeWire } from "../../xpath/wire/serialize";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
-import { recordTextRewrite } from "../heldText";
+import { recordTextRewrite, refuseLineEndKey } from "../heldText";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { keptMediaPaths } from "../projectionInputs";
 import { sameXPathText } from "../syntaxCompare";
@@ -483,16 +483,22 @@ function readLabel(
 		labelAsBuilt(stored, langs, CREATE_A_NEW_CASE),
 		"case-list-registration-label",
 	);
-	// A label Nova's gate admits no spelling of (a literal `\n`, a carriage return) is kept as
-	// built here, and the settle's comparison leaves it unrecognized.
+	// A label Nova's gate admits no spelling of (one a device shows none of, a character XML
+	// cannot hold, `heldText.ts::holdText`) is kept as built here, and the settle's comparison
+	// leaves it unrecognized.
 	const built = held?.texts ?? labelAsBuilt(stored, langs, CREATE_A_NEW_CASE);
 	const fixed = !anyText || langs.some((lang) => stored[lang] === "");
-	if (fixed)
+	if (fixed) {
 		ctx.facts.sameStateRewrites.push({
 			entry: claim.entry,
 			path: `${cursor.pointer}/label`,
 			register: "registration-label-fixed",
 		});
+		// The fix records the rewrite under its own register, which `recordTextRewrite` below may
+		// not reach, so a label whose rest after a carriage return defines another app string is
+		// refused here too.
+		refuseLineEndKey(ctx, `${cursor.pointer}/label`);
+	}
 	// Any other map Nova prints another way (a language with no key, a `null`, a language the app
 	// no longer lists, a text held without the spaces at its ends) is written again by the first
 	// publish: under `text-spaces-dropped` where a worker then reads another text, else under

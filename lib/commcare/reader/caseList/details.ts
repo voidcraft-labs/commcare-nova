@@ -40,6 +40,12 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import {
+	hqDeviceText,
+	keyDefinedAfterLineEnd,
+	LINE_END_DEFINES_KEY,
+	recordTextRewrite,
+} from "../heldText";
 import { externalKey } from "../identity";
 import { reReadUuidOf } from "../identityMap";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
@@ -661,13 +667,21 @@ function menuOffersSearch(module: DraftModule): boolean {
 
 /**
  * Claims a detail's two texts, the words an empty list shows and the words of its continue
- * button: inert where every language holds HQ's own default, a finding otherwise. Nova writes
- * the default in every language of every menu, a menu with no case type included. Whether the
- * detail is still whole.
+ * button: inert where every language shows HQ's own default on a device, a finding otherwise.
+ * Each is an app string, compared as a device shows it (`heldText.ts::hqDeviceText`: spaces at
+ * its end no device shows, nor the text after a carriage return), and one whose rest after a
+ * carriage return defines another app string is refused under that entry
+ * (`heldText.ts::keyDefinedAfterLineEnd`). Nova writes the empty list's default in every app
+ * language on every menu's case list, a menu with no case type included, and leaves the case
+ * detail's and both continue texts to HQ's model default (`{en: …}`), so a default map spelled
+ * another way is respelled by the first publish, which the reading records under
+ * `list-settings-respelled`. Whether the detail is still whole.
  */
 function readDetailTexts(
+	ctx: ReadContext,
 	detail: JsonCursor,
 	codes: readonly string[],
+	screen: "short" | "long",
 ): boolean {
 	let ok = true;
 	const texts = (
@@ -675,21 +689,49 @@ function readDetailTexts(
 		fallback: string,
 		inert: Claim<"drop">,
 		other: Claim<"refuse">,
+		printed: unknown,
 	) => {
 		// Each language as HQ's build shows it (`app_strings.py`, `clean_trans`): a language the
 		// map lacks or holds blank shows another's text. A text the reader cannot know (a number,
 		// an object) is left unclaimed, for the close to name at its key.
 		const shown = shownTexts(detail.peek(key), codes);
-		if (shown === undefined) ok = false;
-		else if (Object.values(shown).every((text) => text === fallback))
+		if (shown === undefined) {
+			ok = false;
+			return;
+		}
+		const texts = Object.values(shown);
+		const lineEnd = texts
+			.map(keyDefinedAfterLineEnd)
+			.find((one) => one !== undefined);
+		if (lineEnd !== undefined) {
+			detail.refuse(key, LINE_END_DEFINES_KEY, { name: lineEnd });
+			ok = false;
+		} else if (texts.every((text) => hqDeviceText(text) === fallback)) {
 			detail.drop(key, inert);
-		else {
+			if (!sameJson(detail.peek(key), printed))
+				recordTextRewrite(
+					ctx,
+					{ entry: inert.entry, path: `${detail.pointer}/${key}` },
+					"list-settings-respelled",
+					false,
+				);
+		} else {
 			detail.refuse(key, other);
 			ok = false;
 		}
 	};
-	texts("no_items_text", NO_ITEMS_DEFAULT, D.noItemsDefault, D.noItemsOther);
-	texts("select_text", SELECT_DEFAULT, D.selectDefault, D.selectOther);
+	texts(
+		"no_items_text",
+		NO_ITEMS_DEFAULT,
+		D.noItemsDefault,
+		D.noItemsOther,
+		screen === "short"
+			? Object.fromEntries(codes.map((code) => [code, NO_ITEMS_DEFAULT]))
+			: { en: NO_ITEMS_DEFAULT },
+	);
+	texts("select_text", SELECT_DEFAULT, D.selectDefault, D.selectOther, {
+		en: SELECT_DEFAULT,
+	});
 	return ok;
 }
 
@@ -752,7 +794,7 @@ function readDetailKeys(
 		detail.refuse("custom_variables_dict", D.customVariables);
 		ok = false;
 	}
-	ok = readDetailTexts(detail, appCodes(ctx)) && ok;
+	ok = readDetailTexts(ctx, detail, appCodes(ctx), screen) && ok;
 	const stored = detail.peek("tabs");
 	const tabs = Array.isArray(stored) ? stored.filter(isJsonObject) : [];
 	if (tabs.length > 0) {
@@ -1047,10 +1089,13 @@ export function readCaseDetails(
 	if (module.module.caseType === undefined) {
 		// A menu with no case type shows neither screen: each detail's columns, its screen word
 		// and its two texts, which read by the rule of a menu with a case type.
-		for (const detail of [short, long]) {
+		for (const [detail, screen] of [
+			[short, "short"],
+			[long, "long"],
+		] as const) {
 			detail.drop("columns", D.surveyColumns);
 			detail.drop("display", D.display);
-			readDetailTexts(detail, appCodes(ctx));
+			readDetailTexts(ctx, detail, appCodes(ctx), screen);
 		}
 		return;
 	}

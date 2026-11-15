@@ -147,8 +147,8 @@ HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixi
 | `Detail.custom_variables_dict` non-empty | **REFUSED**: freeform + retiring (CASE_LIST_CUSTOM_VARIABLES) | — | — |
 | legacy `Detail.custom_variables` key | **INERT**: pre-migration key with no reader | n/a | omit (Nova emits `null` today: unproducible) |
 | `Detail.no_items_text` other than HQ's default `{en: "List is empty."}` | **HELD-NEW**: `caseListConfig.emptyText` | RUNS / IGNORED | `no_items_text{lang}`; USH_EMPTY_CASE_LIST_TEXT on the target (HQ emits the text only there, `feature_support.py::supports_empty_case_list_text`) |
-| `Detail.no_items_text` equal to HQ's default text (`List is empty.`), in any of the app's languages | **INERT**: HQ's model default (`models/case_list.py::Detail`), which HQ emits in a target with the flag whether or not the app carries it | n/a | omit |
-| `Detail.select_text` = default `{en: Continue}` | **INERT**: default | n/a | omit |
+| `Detail.no_items_text` a device shows as HQ's default text (`List is empty.`) in every app language, however the map spells it | **INERT**: HQ's model default (`models/case_list.py::Detail`), which HQ emits in a target with the flag whether or not the app carries it | n/a | omit |
+| `Detail.select_text` a device shows as HQ's default `Continue` in every app language, however the map spells it | **INERT**: default | n/a | omit |
 | `Detail.select_text` non-default | **HELD-NEW**: `caseListConfig.selectButtonText` (editor: Bulk App Translations edits the existing string; saves keep it) | DIFFERENT (labels only the multi-select Continue) / IGNORED | `select_text{lang}` |
 | `Detail.lookup_*` (callout) | → Case list callout | — | — |
 | `Detail.sort_elements` | → Sorting | — | — |
@@ -171,7 +171,7 @@ HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixi
 | calculated column reading `results`/`search-input` instances in a non-search detail without auto-launch | **REFUSED**: not HQ-buildable: `case search instance used in casedb case details` | — | — |
 | `format` | → Column formats | — | — |
 | `enum[]` `MappingItem.key` / `.value{lang}` | → Column formats (id-mapping, image-map, conditional and translated-text entries) | — | — |
-| `enum[]` `MappingItem.alt_text{lang}`, blank | **HELD**: derived: a blank alt text for each key of an image map, in every language, as HQ's build gives a mapping with none (`suite/case-list/columns.ts::imageMapAltText`) | RUNS / IGNORED | `alt_text` |
+| `enum[]` `MappingItem.alt_text{lang}`, blank as a device shows it in every language | **HELD**: derived: a blank alt text for each key of an image map, in every language, as HQ's build gives a mapping with none (`suite/case-list/columns.ts::imageMapAltText`) | RUNS / IGNORED | `alt_text` |
 | `MappingItem.alt_text{lang}` holding text, on an image map or a clickable icon | **HELD-NEW**: `imageMap[].altText` and the clickable icon mapping's alt text | RUNS / IGNORED | `alt_text` |
 | `MappingItem.alt_text{lang}` holding text, on a column whose format builds no image (`enum`, `translatable-enum`) | **INERT**: HQ's build gives an alt text on `enum-image` and `clickable-icon` alone (`detail_screen.py::EnumImage.alt_text`, `app_strings.py`), and its column editor saves none | n/a | omit |
 | `graph_configuration` non-empty on a `graph` column | → Column formats, `graph` (refused) | — | — |

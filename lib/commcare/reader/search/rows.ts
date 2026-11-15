@@ -54,6 +54,7 @@ import {
 } from "../expressions/searchRows";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { readProjectionInputs } from "../projectionInputs";
+import { refusalDeferredAt } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
 import type { PromptReading } from "./prompts";
 import { searchPlace } from "./workflow";
@@ -1405,7 +1406,8 @@ export function classifySearchRows(
 	);
 	const extraAllowed = input.formsReadSearch ? unrestated.length : 0;
 	if (settled.unmatched.length > 0 || settled.extra.length > extraAllowed) {
-		if (!ctx.accounting.hasFindingAt(place))
+		// A field's check whose refusal its settle has yet to apply stands at the search too.
+		if (!ctx.accounting.hasFindingAt(place) && !refusalDeferredAt(ctx, place))
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:DefaultCaseSearchProperty.defaultValue",
 			});

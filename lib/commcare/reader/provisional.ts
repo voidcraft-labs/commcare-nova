@@ -482,50 +482,115 @@ function slotWords(ref: {
 	return `${ref.slot} of ${uuid}`;
 }
 
+/** By reading, each refused registration whose refusal waits for its registrar
+ *  (`PendingExpression.deferRefusal`), with the steps that apply the refusal. */
+const DEFERRED = new WeakMap<ReadContext, Map<number, (() => void)[]>>();
+
+/** Whether the expression stage refused the registration at `index` and its refusal waits for
+ *  the stage that registered it. */
+export function refusalDeferred(ctx: ReadContext, index: number): boolean {
+	return DEFERRED.get(ctx)?.has(index) === true;
+}
+
+/** Whether a refusal that waits for its registrar stands at `place`: a check that is skipped
+ *  where a finding stands there skips where one will. */
+export function refusalDeferredAt(ctx: ReadContext, place: HqPlace): boolean {
+	const where = whereText(place);
+	const pending = ctx.pending.list();
+	return [...(DEFERRED.get(ctx)?.keys() ?? [])].some(
+		(index) =>
+			pending[index] !== undefined && whereText(pending[index].place) === where,
+	);
+}
+
 /**
- * Applies the expression stage's answer: the bound document becomes `ctx.doc`, each claim is
- * applied to the node its registration was read from, each `unrecognized` row is raised and
+ * Settles the refusal of the registration at `index` that waited for its registrar: with no
+ * `instead`, the expression stage's claims and rows are applied as they were; with `instead`, a
+ * finding the registrar raised for what keeps the slot out, the registration's node stands under
+ * it and the expression stage's refusal is dropped.
+ */
+export function settleDeferredRefusal(
+	ctx: ReadContext,
+	index: number,
+	instead?: Finding,
+): void {
+	const steps = DEFERRED.get(ctx)?.get(index);
+	if (steps === undefined) return;
+	DEFERRED.get(ctx)?.delete(index);
+	if (instead === undefined) for (const step of steps) step();
+	else ctx.accounting.cover(ctx.pending.site(index).at, instead);
+}
+
+/** Applies every refusal still waiting for its registrar, as the expression stage made it. */
+export function settleDeferredRefusals(ctx: ReadContext): void {
+	for (const index of [...(DEFERRED.get(ctx)?.keys() ?? [])])
+		settleDeferredRefusal(ctx, index);
+}
+
+/**
+ * Applies the expression stage's answer: the bound document becomes `ctx.doc`, each held tree and
+ * the level it was held at become its registration's outcome, each claim is applied to the node its
+ * registration was read from, each `unrecognized` row is raised and
  * covers its node, each registration with no owner stands under the finding at or above its
- * place, and the run's tables, rewrites and rounds join the reading's facts.
+ * place, and the run's tables, rewrites and rounds join the reading's facts. A refusal whose
+ * registration defers it (`PendingExpression.deferRefusal`) waits for its registrar's settle
+ * (`settleDeferredRefusal`).
  */
 export function applyExpressionReading(
 	ctx: ReadContext,
 	reading: ExpressionReading,
 ): void {
 	ctx.doc = freeze(reading.doc, true);
-	ctx.pending.answer(reading.bound, reading.claims);
+	ctx.pending.answer(reading.bound, reading.claims, reading.levels);
 	const pending = ctx.pending.list();
+	// A refusal its registrar settles waits for it (`PendingExpression.deferRefusal`).
+	const deferred = new Map<number, (() => void)[]>();
+	const apply = (source: number, step: () => void) => {
+		if (
+			source < 0 ||
+			pending[source]?.deferRefusal !== true ||
+			reading.bound[source] !== undefined
+		) {
+			step();
+			return;
+		}
+		deferred.set(source, [...(deferred.get(source) ?? []), step]);
+	};
 	for (const claim of reading.claims) {
 		if (claim.source < 0) continue;
-		ctx.accounting.claimEntry(
-			ctx.pending.site(claim.source).at,
-			claim.entryId,
-			claim.key,
-			claim.place,
-			claim.detail,
+		apply(claim.source, () =>
+			ctx.accounting.claimEntry(
+				ctx.pending.site(claim.source).at,
+				claim.entryId,
+				claim.key,
+				claim.place,
+				claim.detail,
+			),
 		);
 	}
 	claimDeclarations(ctx, reading);
-	for (const row of reading.circumstances) {
-		const detail = { name: row.detail.name };
-		ctx.accounting.circumstance("unrecognized", row.place, detail);
-		ctx.accounting.defect(
-			row.place,
-			row.detail.name,
-			readerDefect.expressionNotWrittenBack(row.place, row.detail.reason),
-		);
-		if (row.detail.reason === "no-case-datum")
+	for (const row of reading.circumstances)
+		apply(row.source, () => {
+			const detail = { name: row.detail.name };
+			ctx.accounting.circumstance("unrecognized", row.place, detail);
 			ctx.accounting.defect(
 				row.place,
 				row.detail.name,
-				readerDefect.noCaseDatum(row.place),
+				readerDefect.expressionNotWrittenBack(row.place, row.detail.reason),
 			);
-		if (row.source >= 0)
-			ctx.accounting.cover(
-				ctx.pending.site(row.source).at,
-				circumstanceFinding("unrecognized", row.place, detail),
-			);
-	}
+			if (row.detail.reason === "no-case-datum")
+				ctx.accounting.defect(
+					row.place,
+					row.detail.name,
+					readerDefect.noCaseDatum(row.place),
+				);
+			if (row.source >= 0)
+				ctx.accounting.cover(
+					ctx.pending.site(row.source).at,
+					circumstanceFinding("unrecognized", row.place, detail),
+				);
+		});
+	DEFERRED.set(ctx, deferred);
 	for (const at of reading.ownerless) {
 		const registration = pending[at];
 		if (registration === undefined) continue;

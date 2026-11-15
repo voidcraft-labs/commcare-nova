@@ -1,6 +1,6 @@
 /**
  * Contract: a search's title reads by language (text in every language, blank in every language
- * or `{}`, blank in some raising its entry), the owner exclusion's clause leaves the list filter's
+ * or `{}`, blank in the source language beside another's text raising its entry), the owner exclusion's clause leaves the list filter's
  * registered text, and the whole menu's search written back by the projection equals the stored
  * one. The failure it catches: the owner exclusion doubled in the filter; a blank title read as
  * "Search"; a setting the emitter writes back differently read as held.
@@ -9,6 +9,9 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { SearchInputDef } from "@/lib/domain";
 import {
+	concat,
+	eq,
+	input,
 	literal,
 	neq,
 	prop,
@@ -19,6 +22,7 @@ import { NO_SEARCH_SCREEN_TITLE, plainColumn } from "@/lib/domain/modules";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	type AppJson,
+	closedCodes,
 	codes,
 	listOf,
 	readLists,
@@ -89,9 +93,10 @@ describe("a search's settings", () => {
 		).toContain("list-settings-respelled");
 	});
 
-	it("raises a title shown blank in some languages", async () => {
-		// A language with no title of its own shows the first language's, so only a blank first
-		// language shows blank beside another's text.
+	it("raises a title shown blank in the source language beside another's text", async () => {
+		// A language with no title of its own shows the first language's, so a blank first
+		// language, here the source, shows blank beside another's text. The refusal stands alone:
+		// the search's rows, which the settle never reaches, stand under it.
 		const reading = await readLists(doc({ searchScreenTitle: "Find" }), {
 			edit: (app) => {
 				(app as Record<string, unknown>).langs = ["en", "fra"];
@@ -99,11 +104,10 @@ describe("a search's settings", () => {
 				if (config !== undefined)
 					config.title_label = { en: "", fra: "Trouver" };
 			},
-			firstPassOnly: true,
 		});
-		expect(codes(reading)).toContain(
+		expect(closedCodes(reading)).toEqual([
 			"case-search/title-label-blank-in-some-languages",
-		);
+		]);
 	});
 
 	it("reads an owner exclusion, and the list filter's clause for it leaves the filter", async () => {
@@ -132,6 +136,47 @@ describe("a search's settings", () => {
 		expect(searchOf(reading)).toMatchObject({
 			excludedOwnerIds: term(literal("abc")),
 		});
+	});
+
+	// Nova's list writes no clause for an exclusion that reads a Search answer alone, since a list
+	// read before any Search sees it blank (`nodesetFilter.ts::excludedOwnerClauseWritten`); HQ's
+	// build writes the list as a query datum, evaluated with the answers. The failure it catches:
+	// the stored list refused as a search-only exclusion though Nova wrote it, and a Search answer
+	// in the list read as one in the results detail.
+	it.each([
+		["a Search answer alone", true],
+		["text joined to a Search answer", false],
+	] as const)("reads back an owner exclusion of %s", async (_shape, alone) => {
+		const answer = term(input(field.uuid));
+		const reading = await readLists(
+			doc({
+				excludedOwnerIds: alone
+					? answer
+					: concat(term(literal("abc ")), answer),
+			}),
+		);
+		expect(closedCodes(reading)).toEqual([]);
+		const read = term(input(listOf(reading).searchInputs[0]?.uuid ?? ""));
+		expect(searchOf(reading)?.excludedOwnerIds).toEqual(
+			alone ? read : concat(term(literal("abc ")), read),
+		);
+	});
+
+	it("refuses a stored owner exclusion the list filter holds no clause for, where Nova's list would", async () => {
+		const reading = await readLists(
+			doc({ excludedOwnerIds: term(literal("abc")) }),
+			{
+				edit: (app) => {
+					const short = (
+						app.modules[0] as { case_details: { short: { filter?: unknown } } }
+					).case_details.short;
+					short.filter = null;
+				},
+			},
+		);
+		expect(closedCodes(reading)).toEqual([
+			"case-search/blacklisted-owner-ids-expression-without-that-clause",
+		]);
 	});
 
 	it("reads the owner exclusion of a menu that offers no search from the list filter's clause alone", async () => {
@@ -193,6 +238,60 @@ describe("a search's settings", () => {
 			excludedOwnerIds: term(literal("abc")),
 		});
 	});
+
+	// HQ's page keeps the text an author types, so a session value Nova reads inside its guard
+	// (`if(count(P) > 0, P, '')`, `absent-session-value-guard`) may be read bare. The expression
+	// stage holds the slot with the rewrite withheld, and the settle prints the whole search with
+	// each slot at the level it was held at (`settings.ts::heldSearchLevels`), so the setting is
+	// held and the rewrite recorded. The failure it catches: a settle that compares the stored
+	// search with the print that applies every rewrite, refusing a setting its slot held; and the
+	// owner list printed with no rewrite control, so no level prints it and the reading ends in a
+	// reader defect.
+	it.each([
+		[
+			"search_button_display_condition",
+			"schema:CaseSearch.search_button_display_condition",
+		],
+		[
+			"blacklisted_owner_ids_expression",
+			"schema:CaseSearch.blacklisted_owner_ids_expression",
+		],
+	] as const)(
+		"holds a %s that reads a session value bare, and records the rewrite",
+		async (key, surfaceKey) => {
+			const language =
+				"instance('commcaresession')/session/context/applanguage";
+			const guarded = `if(count(${language}) > 0, ${language}, '')`;
+			const reading = await readLists(
+				doc({
+					searchButtonDisplayCondition: eq(
+						term(sessionContext("applanguage")),
+						literal("en"),
+					),
+					excludedOwnerIds: concat(
+						term(literal("abc ")),
+						term(sessionContext("applanguage")),
+					),
+				}),
+				{
+					edit: (app) => {
+						const config = app.modules[0]?.search_config as Record<
+							string,
+							unknown
+						>;
+						const stored = String(config[key]);
+						expect(stored).toContain(guarded);
+						config[key] = stored.split(guarded).join(language);
+					},
+				},
+			);
+			expect(closedCodes(reading)).toEqual([]);
+			expect(reading.ctx.close().defects).toEqual([]);
+			expect(
+				reading.ctx.facts.rewrites.map((one) => [one.id, one.key]),
+			).toEqual([["absent-session-value-guard", surfaceKey]]);
+		},
+	);
 
 	it("derives `include_all_related_cases` where no field reads a related case", async () => {
 		const reading = await readLists(doc());

@@ -33,12 +33,17 @@ import {
 	type LanguageTag,
 	makeTranslationUnitId,
 } from "@/lib/domain";
+import { formWireName } from "@/lib/domain/formWireName";
 import {
 	idMappingColumn,
 	idMappingEntry,
+	NO_SEARCH_SCREEN_TITLE,
 	plainColumn,
 } from "@/lib/domain/modules";
+import { proseText } from "@/lib/domain/prose";
 import { SEARCH_RUNTIME_VALIDATION_MESSAGES } from "@/lib/domain/searchRuntimeValidationMessages";
+import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUnits";
+import type { Uuid } from "@/lib/domain/uuid";
 import { expandDoc } from "../../expander";
 import { commCareLocalization } from "../../localization";
 import { runValidation } from "../../validator/runner";
@@ -60,13 +65,14 @@ const LANGS = ["es", "en"] as const;
 /**
  * What a device shows for an app string HQ's build writes as `text`, `""` for one that shows
  * blank: `dumps` writes a text Python strips to nothing as one non-breaking space and a line
- * break as `\n`, and Core trims the line, dropping every character up to U+0020 at its end,
- * before it reads `\n` as a line break. The test's texts hold ASCII spaces and line breaks
- * only.
+ * break as `\n`, Core ends the line at a carriage return and trims it, dropping every character
+ * up to U+0020 at its end, before it reads `\n`, whether `dumps` wrote it or the text held it,
+ * as a line break. The test's texts hold ASCII spaces, line breaks, carriage returns and
+ * backslashes only.
  */
 function onDevice(text: string): string {
 	if (text.trim() === "") return "";
-	const line = text.replaceAll("\n", "\\n");
+	const line = text.replaceAll("\n", "\\n").split("\r")[0] ?? "";
 	let end = line.length;
 	while (end > 0 && line.charCodeAt(end - 1) <= 0x20) end -= 1;
 	return line.slice(0, end).replaceAll("\\n", "\n");
@@ -146,6 +152,11 @@ function guardOf(text: string): string {
 		throw new Error("The fixture's validation joins a runtime guard.");
 	return guard.message;
 }
+
+/** The entry a text whose rest after a carriage return defines another app string is refused
+ *  under. */
+const LINE_END_ENTRY =
+	"application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string";
 
 const TEXT_REGISTERS = new Set([
 	"names-respelled",
@@ -261,6 +272,18 @@ function menuItemDoc(): BlueprintDoc {
 
 const SEARCH = ["modules", 0, "search_config"] as const;
 const SURFACES = {
+	menuName: {
+		title: "a menu's name",
+		doc: PROMPTS,
+		at: [["modules", 0, "name"]],
+		shows,
+	},
+	formName: {
+		title: "a form's name",
+		doc: PROMPTS,
+		at: [["modules", 0, "forms", 0, "name"]],
+		shows,
+	},
 	header: {
 		title: "a column's header",
 		doc: PROMPTS,
@@ -357,7 +380,10 @@ describe("an app string read from CommCare HQ", () => {
 		 *  reads another text; else what they showed. */
 		readonly novaShows?: (before: Texts) => Texts;
 		/** The record of the stored map's rewrite, if any. */
-		readonly register?: "list-settings-respelled" | "text-spaces-dropped";
+		readonly register?:
+			| "names-respelled"
+			| "list-settings-respelled"
+			| "text-spaces-dropped";
 	}[] = [
 		{
 			surface: SURFACES.header,
@@ -553,6 +579,65 @@ describe("an app string read from CommCare HQ", () => {
 			stored: () => ({ en: "New patient" }),
 			register: "list-settings-respelled",
 		},
+		// The two characters `\n` show as the line break `dumps` writes the same way, so the
+		// reading holds that line break and only the stored map is new.
+		{
+			surface: SURFACES.menuName,
+			case: "with the two characters `\\n` inside a language's text",
+			stored: (map) => ({ ...map, es: "Todos\\nlos pacientes" }),
+			register: "names-respelled",
+		},
+		{
+			surface: SURFACES.formName,
+			case: "with the two characters `\\n` inside the source's text",
+			stored: (map) => ({ ...map, en: "Visit\\nnow" }),
+			register: "names-respelled",
+		},
+		{
+			surface: SURFACES.header,
+			case: "with the two characters `\\n` inside a language's text",
+			stored: (map) => ({ ...map, es: "Nom\\nbre" }),
+			register: "list-settings-respelled",
+		},
+		{
+			surface: SURFACES.header,
+			case: "with the two characters `\\n` after a backslash inside a language's text",
+			stored: (map) => ({ ...map, es: "Nom\\\\nbre" }),
+			register: "list-settings-respelled",
+		},
+		{
+			surface: SURFACES.header,
+			case: "with the two characters `\\n` at the end of a language's text",
+			stored: (map) => ({ ...map, es: `${map.es}\\n` }),
+			novaShows: breakless,
+			register: "text-spaces-dropped",
+		},
+		{
+			surface: SURFACES.label,
+			case: "with the two characters `\\n` inside the source's text",
+			stored: (map) => ({ ...map, en: "Patient\\nname" }),
+			register: "list-settings-respelled",
+		},
+		// A device shows only the text before a carriage return, and a rest with no `=` defines
+		// no app string, so the reading holds what it showed.
+		{
+			surface: SURFACES.menuItem,
+			case: "with a carriage return inside a language's text, whose rest defines nothing",
+			stored: () => ({ es: "Todos\rlos pacientes", en: "All patients" }),
+			register: "list-settings-respelled",
+		},
+		{
+			surface: SURFACES.menuName,
+			case: "with a carriage return inside the source's text, whose rest defines nothing",
+			stored: (map) => ({ ...map, en: `${map.en}\r(old)` }),
+			register: "names-respelled",
+		},
+		{
+			surface: SURFACES.description,
+			case: "with a carriage return inside a language's text, whose rest ends in `=`",
+			stored: () => ({ es: "Buscar\rx=", en: "Find a patient" }),
+			register: "list-settings-respelled",
+		},
 	];
 
 	for (const one of cases)
@@ -736,7 +821,7 @@ describe("an app translation folded over an app string", () => {
 		]);
 	});
 
-	it("over a literal backslash and n, which no spelling Nova's gate admits holds, is refused at the key", async () => {
+	it("over the two characters `\\n` is held as the line break a device shows there", async () => {
 		const body = exportedBody(PROMPTS);
 		const translations = body.translations as Record<string, JsonObject>;
 		translations.es = {
@@ -749,14 +834,56 @@ describe("an app translation folded over an app string", () => {
 			appStrings: headerStrings,
 		});
 		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error(
+				JSON.stringify(outcome.findings.map((one) => [one.code, one.detail])),
+			);
+		const draft = outcome.draft;
+		expect(draft.facts.foldedTranslationKeys).toBe(2);
+		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const column =
+			draft.doc.modules[draft.doc.moduleOrder[0] as string]?.caseListConfig
+				?.columns[0];
+		expect(
+			draft.doc.localization?.translations.spa?.[
+				makeTranslationUnitId("column", column?.uuid ?? "", "header")
+			]?.value,
+		).toBe("Nom\nbre");
+		// No worker reads another header: HQ's build writes the line break as those two characters.
+		expect(
+			draft.facts.sameStateRewrites.filter(
+				(record) => record.register === "text-spaces-dropped",
+			),
+		).toEqual([]);
+	});
+
+	it("whose rest after a carriage return defines another app string is refused at the key, under that entry", async () => {
+		const body = exportedBody(PROMPTS);
+		const translations = body.translations as Record<string, JsonObject>;
+		translations.es = {
+			...translations.es,
+			[SHORT_HEADER]: "Nombre\rmodules.m0=Otro",
+			[LONG_HEADER]: "Nombre\rmodules.m0=Otro",
+		};
+		const outcome = readHqApp({
+			...(await inputFor(body)),
+			appStrings: headerStrings,
+		});
+		expect(outcome.defects).toEqual([]);
 		expect(outcome.kind).toBe("account");
 		if (outcome.kind !== "account") return;
+		// Both keys stand at the app and name one string: one finding.
 		expect(
 			outcome.findings
-				.map((one) => one.detail?.name)
-				.filter((name) => name === SHORT_HEADER || name === LONG_HEADER)
-				.sort(),
-		).toEqual([LONG_HEADER, SHORT_HEADER]);
+				.filter((one) => one.code === LINE_END_ENTRY)
+				.map((one) => one.detail?.name),
+		).toEqual(["modules.m0"]);
+		expect(
+			outcome.findings.filter(
+				(one) =>
+					one.detail?.name === SHORT_HEADER || one.detail?.name === LONG_HEADER,
+			),
+		).toEqual([]);
 	});
 });
 
@@ -765,7 +892,8 @@ describe("a case list menu item's label Nova's gate admits no spelling of", () =
 		const body = exportedBody(menuItemDoc());
 		const path = ["modules", 0, "case_list"] as const;
 		const caseList = get(body, path) as JsonObject;
-		caseList.label = { es: "Todos\\n", en: "All patients" };
+		// A character XML 1.0 cannot hold.
+		caseList.label = { es: "To\u0001dos", en: "All patients" };
 		caseList.custom_icons = [{ form: "badge", text: {}, xpath: "1" }];
 		const outcome = readHqApp(await inputFor(body));
 		expect(outcome.defects).toEqual([]);
@@ -786,5 +914,430 @@ describe("a case list menu item's label Nova's gate admits no spelling of", () =
 					one.detail?.name !== "schema:CaseList.label",
 			),
 		).toEqual([]);
+	});
+});
+
+describe("an app string whose rest after a carriage return defines another app string", () => {
+	// HQ's build leaves a carriage return in the line it writes (`dumps`), and Core reads the rest
+	// as a line of its own, `modules.m0=Hacked` setting the first menu's name.
+	const cases: readonly {
+		readonly title: string;
+		readonly doc: BlueprintDoc;
+		readonly at: readonly Path[];
+		/** Where each stored text is refused: each is an app string of its own. */
+		readonly places: readonly string[];
+	}[] = [
+		{
+			title: "a menu's name",
+			doc: PROMPTS,
+			at: [["modules", 0, "name"]],
+			places: ["menu"],
+		},
+		{
+			title: "a form's name",
+			doc: PROMPTS,
+			at: [["modules", 0, "forms", 0, "name"]],
+			places: ["form"],
+		},
+		{
+			title: "a column's header",
+			doc: PROMPTS,
+			at: SURFACES.header.at,
+			places: ["case-list", "case-detail"],
+		},
+		{
+			title: "a Search field's label",
+			doc: PROMPTS,
+			at: [[...SEARCH, "properties", 0, "label"]],
+			places: ["search"],
+		},
+		{
+			title: "a case list menu item's label",
+			doc: menuItemDoc(),
+			at: [["modules", 0, "case_list", "label"]],
+			places: ["case-list"],
+		},
+	];
+	for (const one of cases)
+		it(`in ${one.title} is refused at its place under that entry alone`, async () => {
+			const body = exportedBody(one.doc);
+			for (const path of one.at) {
+				const map = (get(body, path) ?? {}) as Texts;
+				set(body, path, { ...map, es: "Uno\rmodules.m0=Hacked" });
+			}
+			const outcome = readHqApp(await inputFor(body));
+			expect(outcome.defects).toEqual([]);
+			expect(outcome.kind).toBe("account");
+			if (outcome.kind !== "account") return;
+			expect(
+				outcome.findings.map((finding) => [
+					finding.code,
+					finding.place.kind,
+					finding.detail?.name,
+				]),
+			).toEqual(
+				one.places.map((place) => [LINE_END_ENTRY, place, "modules.m0"]),
+			);
+		});
+
+	// HQ fixes a Register label a language holds blank, recorded under its own register, so the
+	// refusal cannot ride on the text's respelling record.
+	it("in a Register button's label beside a language HQ's build fills is refused at the case list", async () => {
+		const body = exportedBody(registrationDoc());
+		set(body, ["modules", 1, "case_list_form", "label"], {
+			en: "",
+			es: "Nuevo\rmodules.m0=Hacked",
+		});
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") return;
+		expect(
+			outcome.findings.map((finding) => [
+				finding.code,
+				finding.place.kind,
+				finding.detail?.name,
+			]),
+		).toEqual([[LINE_END_ENTRY, "case-list", "modules.m0"]]);
+	});
+
+	// HQ's build writes every non-empty value of an app language's translations into its file,
+	// whatever the key names (`SelectKnownAppStrings.app_strings_parts`, `non_empty_only`).
+	const translationCases: readonly {
+		readonly title: string;
+		readonly language: string;
+		readonly key: string;
+	}[] = [
+		{
+			title:
+				"the source language's app display name, which a reading takes as the app's name",
+			language: "en",
+			key: "app.display.name",
+		},
+		{
+			title: "a translation of a key no runtime reads",
+			language: "es",
+			key: "zz.not.a.string",
+		},
+		{
+			title:
+				"a translation of a generated key that names no string of this app",
+			language: "es",
+			key: "m0.case_short.case_nothing_9.header",
+		},
+	];
+	for (const one of translationCases)
+		it(`in ${one.title} is refused at the key under that entry`, async () => {
+			const body = exportedBody(PROMPTS);
+			const translations = body.translations as Record<string, JsonObject>;
+			translations[one.language] = {
+				...translations[one.language],
+				[one.key]: "Salud\rmodules.m0=Hacked",
+			};
+			const outcome = readHqApp({
+				...(await inputFor(body)),
+				appStrings: () => ({ languages: { es: {}, en: {} }, units: {} }),
+			});
+			expect(outcome.defects).toEqual([]);
+			expect(outcome.kind).toBe("account");
+			if (outcome.kind !== "account") return;
+			expect(
+				outcome.findings.map((finding) => [
+					finding.code,
+					finding.place.kind,
+					finding.detail?.name,
+				]),
+			).toContainEqual([LINE_END_ENTRY, "app", "modules.m0"]);
+			// The key itself, and no other text, is refused under that entry.
+			expect(
+				outcome.findings.filter((finding) => finding.code === LINE_END_ENTRY),
+			).toHaveLength(1);
+		});
+
+	it("in the app's name is refused at the app under that entry alone", async () => {
+		const body = exportedBody(PROMPTS);
+		body.name = "Health app\rmodules.m0=Hacked";
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") return;
+		expect(
+			outcome.findings.map((finding) => [
+				finding.code,
+				finding.place.kind,
+				finding.detail?.name,
+			]),
+		).toEqual([[LINE_END_ENTRY, "app", "modules.m0"]]);
+	});
+});
+
+describe("a name a device shows with a line break where CommCare HQ stores `\\n`", () => {
+	it("in a form's name writes the line break into the form's title and data node, which no screen shows", async () => {
+		const { draft } = await read(PROMPTS, (body) => {
+			set(body, ["modules", 0, "forms", 0, "name"], {
+				es: "Visita\\nhoy",
+				en: "Visit\\nnow",
+			});
+		});
+		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const formUuid =
+			draft.doc.formOrder[draft.doc.moduleOrder[0] as string]?.[0];
+		// The default language, Spanish, names the form in its own source.
+		expect(formWireName(draft.doc, formUuid as Uuid)).toBe("Visita\nhoy");
+	});
+
+	it("in the app's `name` is refused at the app: Android's app picker shows the profile's name as stored", async () => {
+		const body = exportedBody(PROMPTS);
+		body.name = "Health\\napp";
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") return;
+		expect(
+			outcome.findings.map((finding) => [finding.code, finding.place.kind]),
+		).toEqual([["unrecognized", "app"]]);
+	});
+});
+
+/**
+ * A text compared with HQ's default is compared as a device shows it in every language: the
+ * Search button's label is `clean_trans` of its map, so a space at its end, the default in a
+ * second language or a language the map lacks all show "Search All Cases", which Nova writes as
+ * `{en: "Search All Cases"}`. The search screen's title is blank where a device shows it blank,
+ * not where JavaScript's trim does.
+ */
+describe("a Search text compared with what CommCare HQ shows", () => {
+	const BUTTON = [...SEARCH, "search_button_label"] as const;
+	const buttonRecords = (
+		records: readonly { path: string; register: string }[],
+	) => records.filter((one) => one.path === pointer(BUTTON));
+
+	it("reads the Search button's default spelled another way as the default, and records the respelling", async () => {
+		for (const label of [
+			{ en: "Search All Cases " },
+			{ es: "Search All Cases", en: "Search All Cases" },
+			{ es: "Search All Cases" },
+		]) {
+			const { draft } = await read(PROMPTS, (body) => {
+				set(body, BUTTON, label);
+			});
+			expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+			expect(buttonRecords(draft.facts.sameStateRewrites)).toEqual([
+				{
+					entry:
+						"case-search/search-button-label-hq-default-en-search-all-cases",
+					path: pointer(BUTTON),
+					register: "list-settings-respelled",
+				},
+			]);
+			// Nova's export shows the default in every language.
+			expect(shows(get(republished(draft.doc), BUTTON))).toEqual({
+				es: "Search All Cases",
+				en: "Search All Cases",
+			});
+		}
+	});
+
+	it("records nothing for the Search button's label as Nova writes it", async () => {
+		const { draft } = await read(PROMPTS, () => {});
+		expect(buttonRecords(draft.facts.sameStateRewrites)).toEqual([]);
+	});
+
+	it("refuses a Search button's label whose rest after a carriage return defines another app string", async () => {
+		const body = exportedBody(PROMPTS);
+		set(body, BUTTON, { en: "Search All Cases\rmodules.m0=Hacked" });
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") return;
+		expect(
+			outcome.findings.map((finding) => [
+				finding.code,
+				finding.place.kind,
+				finding.detail?.name,
+			]),
+		).toEqual([[LINE_END_ENTRY, "search", "modules.m0"]]);
+	});
+
+	it("refuses a search title whose rest after a carriage return defines another app string, a title a device shows blank included", async () => {
+		for (const title of [
+			{ es: "Buscar\rmodules.m0=Hacked", en: "Search" },
+			{ es: "\rmodules.m0=Hacked", en: "" },
+		]) {
+			const body = exportedBody(PROMPTS);
+			set(body, [...SEARCH, "title_label"], title);
+			const outcome = readHqApp(await inputFor(body));
+			expect(outcome.defects).toEqual([]);
+			expect(outcome.kind).toBe("account");
+			if (outcome.kind !== "account") return;
+			expect(
+				outcome.findings.map((finding) => [
+					finding.code,
+					finding.place.kind,
+					finding.detail?.name,
+				]),
+			).toEqual([[LINE_END_ENTRY, "search", "modules.m0"]]);
+		}
+	});
+
+	it("reads a search title a device shows blank in every language as no title, though JavaScript's trim keeps it", async () => {
+		const { draft } = await read(PROMPTS, (body) => {
+			set(body, [...SEARCH, "title_label"], { es: "\u001f", en: "\u0001" });
+		});
+		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const config =
+			draft.doc.modules[draft.doc.moduleOrder[0] as string]?.caseSearchConfig;
+		expect(
+			config !== undefined && "searchScreenTitle" in config
+				? config.searchScreenTitle
+				: undefined,
+		).toEqual(NO_SEARCH_SCREEN_TITLE);
+	});
+
+	it("leaves a search title a device shows (U+FEFF) and Nova reads as blank unrecognized, never no title", async () => {
+		const body = exportedBody(PROMPTS);
+		set(body, [...SEARCH, "title_label"], { es: "﻿", en: "﻿" });
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") return;
+		expect(
+			outcome.findings.map((finding) => [
+				finding.code,
+				finding.place.kind,
+				finding.detail?.name,
+			]),
+		).toEqual([["unrecognized", "search", "schema:CaseSearch.title_label"]]);
+	});
+});
+
+/**
+ * A choice's label folded from an app translation is held as a device shows it, as a text unit's
+ * fold is: the two characters `\n` a line break, the text before a carriage return whose rest
+ * defines no string, no space at either end. The failure it catches: such a fold refused as
+ * wording Nova cannot hold, or folded raw into a document the gate refuses.
+ */
+describe("an app translation folded over a choice's label", () => {
+	const KEY = "m0.case_short.case_stage_1.enum.ka";
+	const UNIT = casePropertyOptionTranslationUnitId("patient", "stage", "a");
+	const fra = "fra" as LanguageTag;
+	const optionDoc = (): BlueprintDoc => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "stage",
+							label: "Stage",
+							data_type: "single_select",
+							options: [{ value: "a", label: "Active" }],
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									kind: "single_select",
+									id: "stage",
+									label: "Stage",
+									options: [{ value: "a", label: "Active" }],
+									caseWrite: { caseType: "patient", property: "stage" },
+								}),
+							],
+						},
+					],
+					// A list column over the property is what makes its choices' labels app strings.
+					caseListConfig: {
+						columns: [
+							plainColumn(uuid(1), "case_name", "Name"),
+							plainColumn(uuid(2), "stage", "Stage"),
+						],
+						searchInputs: [],
+					},
+				},
+			],
+		});
+		return {
+			...doc,
+			localization: {
+				sourceLanguage: "eng" as LanguageTag,
+				defaultLanguage: "eng" as LanguageTag,
+				languageOrder: ["eng", fra] as LanguageTag[],
+				wireCodes: { eng: "en", [fra]: "fr" },
+				translations: { [fra]: {} },
+			},
+		};
+	};
+	/** Nova's build of the choice's label under one generated key, the unit's text in each
+	 *  language. */
+	const optionStrings = (): AppStringTable => ({
+		languages: { en: { [KEY]: "Active" }, fr: { [KEY]: "Active" } },
+		units: { [KEY]: UNIT },
+	});
+	const fold = async (value: string) => {
+		const body = exportedBody(optionDoc());
+		const translations = body.translations as Record<string, JsonObject>;
+		translations.fr = { ...translations.fr, [KEY]: value };
+		const outcome = readHqApp({
+			...(await inputFor(body)),
+			appStrings: optionStrings,
+		});
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error(
+				JSON.stringify(outcome.findings.map((one) => [one.code, one.detail])),
+			);
+		const draft = outcome.draft;
+		expect(draft.facts.foldedTranslationKeys).toBe(1);
+		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		return {
+			value: (
+				draft.doc.localization?.translations[fra] as
+					| Record<string, { value: unknown }>
+					| undefined
+			)?.[UNIT]?.value,
+			workerRecords: draft.facts.sameStateRewrites.filter(
+				(record) => record.register === "text-spaces-dropped",
+			),
+		};
+	};
+
+	it("over the two characters `\\n` is held as the line break a device shows, which no worker reads otherwise", async () => {
+		const read = await fold("Act\\nive");
+		expect(read.value).toEqual(proseText("Act\nive"));
+		expect(read.workerRecords).toEqual([]);
+	});
+
+	it("with a carriage return whose rest defines no string is held as the text before it", async () => {
+		const read = await fold("Activo\rtodavía activo");
+		expect(read.value).toEqual(proseText("Activo"));
+		expect(read.workerRecords).toEqual([]);
+	});
+
+	it("with a space at its start is held without it, which workers then read, recorded at the key", async () => {
+		const read = await fold(" Activo");
+		expect(read.value).toEqual(proseText("Activo"));
+		expect(read.workerRecords).toEqual([
+			{
+				entry:
+					"application-and-settings/translations-generated-key-over-one-text",
+				path: `/translations/fr/${KEY}`,
+				register: "text-spaces-dropped",
+			},
+		]);
 	});
 });

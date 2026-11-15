@@ -6769,21 +6769,71 @@ def markdown_differing(use, manifest):
 
 def markdown_in_some_languages(use, manifest):
     """``questions/a-label-with-a-markdown-form-in-some-languages-only-…``: a ``markdown`` value for a text whose
-    entry in another language holds no ``markdown`` value."""
+    entry in another language holds no ``markdown`` value or no value of its own, where the languages show two texts:
+    the default translation holds no ``markdown`` value of the text, an entry holds one beside no value of its own
+    and other than the default's value, or an entry without one holds a value other than the default's ``markdown``
+    value and not a blank the form builder fills from the default's text. Core lays the default language's keys under
+    each language's own (``Localizer.getLocaleData``, the form's ``new Localizer(true, true)``), so a language without
+    the copy shows the default's copy and its own value where a runtime reads the text without its form (Android's
+    hierarchy, ``getLongText``), and a language without the value the default's value; only where these differ do
+    the languages show two texts; the rest of the class is
+    ``questions/a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s``, HELD.
+
+    The translations read are the reader's (``lib/commcare/reader/xform/itext.ts``): where an app JSON carries the
+    form, those of its ``langs``, a removed language's left to ``translation-for-a-language-not-in-langs``, and the
+    default is the first language's where the form holds it, else the first held, as HQ's build marks it
+    (``xform.py::XForm.exclude_languages``, ``set_default_language(langs[0])``); a form outside an app JSON says only
+    its own translations, and its default is ``FormFile.default_translation``."""
     form, value = _itext_value(use)
     if form is None:
         return None
     if value is None or value.get("form") != "markdown":
         return False
-    text = value.getparent()
-    translation = text.getparent()
-    for other in form.translations:
-        if other is translation:
-            continue
-        for entry in _children(other):
-            if _local(entry) == "text" and entry.get("id") == text.get("id"):
-                if not any(_local(held) == "value" and held.get("form") == "markdown" for held in _children(entry)):
-                    return True
+    text_id = value.getparent().get("id")
+    translations = list(form.translations)
+    default_translation = form.default_translation
+    if form.app_form is not None:
+        app, _ = form.app_form
+        langs = [lang for lang in app.doc.get("langs") or [] if isinstance(lang, str)]
+        if langs:
+            if value.getparent().getparent().get("lang") not in langs:
+                return False
+            translations = [translation for translation in translations if translation.get("lang") in langs]
+            first = [translation for translation in translations if translation.get("lang") == langs[0]]
+            default_translation = (first or translations or [None])[0]
+
+    def values_of(translation):
+        """The text's default and ``markdown`` values in one translation, or None where it holds no entry."""
+        for entry in _children(translation) if translation is not None else ():
+            if _local(entry) == "text" and entry.get("id") == text_id:
+                values = [held for held in _children(entry) if _local(held) == "value"]
+                plain = next((held for held in values if held.get("form") is None), None)
+                copy = next((held for held in values if held.get("form") == "markdown"), None)
+                return plain, copy
+        return None
+
+    def blank(element):
+        return not (element.text or "").strip() and not _children(element)
+
+    entries = [
+        held for held in (values_of(other) for other in translations) if held is not None and held != (None, None)
+    ]
+    if all(plain is not None and copy is not None for plain, copy in entries):
+        return False
+    default = values_of(default_translation)
+    if default is None or default[0] is None or default[1] is None:
+        return True
+    default_plain, default_copy = default
+    for plain, copy in entries:
+        if plain is None and _inner(copy) != _inner(default_plain):
+            return True
+        if (
+            plain is not None
+            and copy is None
+            and _inner(plain) != _inner(default_copy)
+            and not (blank(plain) and not blank(default_plain))
+        ):
+            return True
     return False
 
 

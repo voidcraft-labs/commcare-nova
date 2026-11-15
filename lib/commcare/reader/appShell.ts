@@ -26,7 +26,12 @@ import {
 	take,
 } from "./claims";
 import type { ReadContext } from "./context";
-import { heldText, recordTextRewrite } from "./heldText";
+import {
+	heldText,
+	keyDefinedAfterLineEnd,
+	LINE_END_DEFINES_KEY,
+	recordTextRewrite,
+} from "./heldText";
 import {
 	isJsonObject,
 	type JsonCursor,
@@ -687,7 +692,9 @@ function appliedDisplayName(value: unknown): value is string {
  * the assembly; any other, read by no runtime. A language the app does not
  * hold is read by nothing, and every key of a language the reading could not
  * name stands under that language's finding, a generated key once the
- * assembly meets it.
+ * assembly meets it. A value of an app language's strings whose rest after a
+ * carriage return defines an app string is refused at its key, whatever the
+ * key is: HQ's build writes every non-empty value into the language's file.
  *
  * HQ's build writes `app.display.name` from `name` in every language and puts
  * a non-empty stored value over it (`app_strings.py::_create_custom_app_strings`,
@@ -724,6 +731,17 @@ function readTranslations(
 		const refusedLanguage = languages.refused.get(language);
 		for (const key of keysOf(strings)) {
 			const value = strings.peek(key);
+			// HQ's build writes every non-empty value of an app language's strings into its file,
+			// whatever the key names (`SelectKnownAppStrings.app_strings_parts`,
+			// `non_empty_only(app.translations.get(lang))`), so a value whose rest after a carriage
+			// return is a line that defines an app string sets that string's wording too
+			// (`heldText.ts::keyDefinedAfterLineEnd`), whatever the key itself does.
+			const lineEnd =
+				typeof value === "string" ? keyDefinedAfterLineEnd(value) : undefined;
+			if (lineEnd !== undefined) {
+				strings.refuse(key, LINE_END_DEFINES_KEY, { name: lineEnd });
+				continue;
+			}
 			const kind = translationKeyKind(key, languages);
 			if (kind === "generated") {
 				held.push({ language, key, value, json: strings });
@@ -784,7 +802,15 @@ function readTranslations(
 		ctx.facts.foldedTranslationKeys += 1;
 	}
 	const translated = new Map(
-		[...holdAppName(ctx, languages, name, appNames)].flatMap(([code, text]) => {
+		[
+			...holdAppName(
+				ctx,
+				languages,
+				name,
+				appNames,
+				firstLanguageName !== undefined,
+			),
+		].flatMap(([code, text]) => {
 			const tag = languages.tagOf.get(code);
 			return tag === undefined || languages.refused.has(code)
 				? []
@@ -806,16 +832,22 @@ function readTranslations(
  * every app string is (`heldText.ts::heldText`): no space at either end, and a language whose
  * name shows blank beside a source that does not takes the source's name. The source's text is
  * written into the draft, and each other language's translation is returned by code. A name
- * Nova's gate admits no spelling of is named `unrecognized` at the app, and the names are
- * returned as stored. Where the first publish writes a stored value again, the reading records
- * it: under `text-spaces-dropped` where a worker then reads another name, else under
- * `names-respelled`.
+ * Nova's gate admits no spelling of, and a `name` holding the two characters `\n` or a carriage
+ * return, which the profile's `name` shows otherwise than the app strings do, is named
+ * `unrecognized` at the app, a `name` whose rest after a carriage return defines another app
+ * string is refused at the app under its own entry, and the names are returned as stored. Where
+ * the first publish writes a stored value again, the reading records it, the source language's at
+ * its `app.display.name` where that supplied the name (`fromDisplayName`) and at `name`
+ * otherwise: under `text-spaces-dropped` where a worker then reads another name, else under
+ * `names-respelled`. An `app.display.name` whose rest after a carriage return defines an app
+ * string never reaches here: `readTranslations` refuses it at its key.
  */
 function holdAppName(
 	ctx: ReadContext,
 	languages: HqLanguages,
 	name: Admitted<string> | undefined,
 	appNames: ReadonlyMap<string, string>,
+	fromDisplayName: boolean,
 ): ReadonlyMap<string, string> {
 	const source = languages.source;
 	const sourceName = ctx.draft.appName?.value;
@@ -827,7 +859,22 @@ function holdAppName(
 			code,
 			code === source ? sourceName : (appNames.get(code) ?? name.value),
 		);
-	const held = heldText(shown, languages.codes, source, "app-name");
+	// HQ's build also writes `name` as it stands into the profile's `name`, which Android's app
+	// picker shows (`profile.xml`, Core's `ProfileParser`, `ApplicationRecord.setPropertiesFromProfile`):
+	// a name whose two characters `\n` a device's app strings show as a line break, or whose text
+	// after a carriage return they do not show, the picker shows whole, and Nova can print only
+	// one of the two.
+	const lineEnd = keyDefinedAfterLineEnd(name.value);
+	if (lineEnd !== undefined) {
+		ctx.accounting.finding(LINE_END_DEFINES_KEY, appPlace(), {
+			name: lineEnd,
+		});
+		return appNames;
+	}
+	const held =
+		name.value.includes("\\n") || name.value.includes("\r")
+			? undefined
+			: heldText(shown, languages.codes, source, "app-name");
 	if (held === undefined) {
 		ctx.accounting.circumstance("unrecognized", appPlace(), {
 			name: key("name"),
@@ -841,7 +888,7 @@ function holdAppName(
 	for (const code of languages.codes) {
 		const before = shown.get(code);
 		if (before === undefined || before === held.printed[code]) continue;
-		const own = code !== source && appNames.has(code);
+		const own = code === source ? fromDisplayName : appNames.has(code);
 		recordTextRewrite(
 			ctx,
 			own

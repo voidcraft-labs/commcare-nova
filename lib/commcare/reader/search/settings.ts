@@ -14,8 +14,12 @@ import {
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
-import { projectCaseListForHq } from "../../hqJson/caseList";
+import {
+	projectCaseListForHq,
+	type SearchConfigRewrites,
+} from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
+import { excludedOwnerClauseWritten } from "../../suite/case-list/nodesetFilter";
 import { normalizeSpace } from "../../suite/wire";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
@@ -35,11 +39,24 @@ import { withReadTexts } from "../caseList/readTexts";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
-import { heldText, recordTextRewrite } from "../heldText";
+import { clauses } from "../expressions/folds";
+import { levelControl, type PrintLevel } from "../expressions/printLevel";
+import {
+	heldText,
+	hqDeviceText,
+	keyDefinedAfterLineEnd,
+	LINE_END_DEFINES_KEY,
+	recordTextRewrite,
+	showsInEveryLanguage,
+	storedKeyDefinedAfterLineEnd,
+} from "../heldText";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
-import { pendingPlaceholder } from "../pendingExpressions";
+import {
+	type PendingExpression,
+	pendingPlaceholder,
+} from "../pendingExpressions";
 import { readProjectionInputs } from "../projectionInputs";
-import { sameXPathText } from "../syntaxCompare";
+import { sameSyntax, sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import type { PromptReading } from "./prompts";
 import { searchPlace } from "./workflow";
@@ -510,6 +527,9 @@ export interface SettingsReading {
 	/** The keys this pass claimed: on a menu that offers no search, every other key is its
 	 *  caller's to claim as inactive. */
 	readonly claimed: ReadonlySet<string>;
+	/** The search stores an owner exclusion and the list filter holds no clause for it: the
+	 *  caller decides it once the menu's fields are drafted (`holdsOwnersWithoutClause`). */
+	readonly ownersWithoutClause?: true;
 }
 
 /**
@@ -580,9 +600,14 @@ export function readSearchSettings(
 	const clash = instanceClash(ctx, module);
 	let owners: number | undefined;
 	const filter = filterWithOwnerClause(module);
+	let ownersWithoutClause = false;
 	if (holdsText(cursor, "blacklisted_owner_ids_expression")) {
 		claimed.add("blacklisted_owner_ids_expression");
-		if (filter === undefined) {
+		if (filter === undefined && offers)
+			// Nova's list writes no clause for an exclusion that reads a Search answer alone, which
+			// only the bound tree tells: `readOwnersWithoutClause`, once the menu's fields are drafted.
+			ownersWithoutClause = true;
+		else if (filter === undefined) {
 			cursor.refuse("blacklisted_owner_ids_expression", T.ownerWithoutClause);
 			ok = false;
 		} else {
@@ -637,13 +662,30 @@ export function readSearchSettings(
 	}
 
 	const codes = appCodes(ctx);
+	const source = sourceCode(ctx);
 	const storedTitle = cursor.peek("title_label");
 	const title = shownTitles(storedTitle, codes);
-	const blank = codes.filter((code) => (title?.[code] ?? "").trim() === "");
+	// A language whose title a device shows blank (`heldText.ts::hqDeviceText`: a text Python reads
+	// as blank, or one Core's trim empties), not one JavaScript's trim empties: U+FEFF is a title a
+	// device keeps, and U+0001 one it shows as none.
+	const blank = codes.filter(
+		(code) => hqDeviceText(title?.[code] ?? "") === "",
+	);
+	// Each language's file holds its own title (`shownTitles`), so a rest after a carriage return
+	// that defines an app string is read there, a title a device shows blank included.
+	const titleLineEnd =
+		title === undefined
+			? undefined
+			: Object.values(title)
+					.map(keyDefinedAfterLineEnd)
+					.find((one) => one !== undefined);
 	if (title === undefined) {
 		ctx.accounting.circumstance("unrecognized", place, {
 			name: "schema:CaseSearch.title_label",
 		});
+		ok = false;
+	} else if (titleLineEnd !== undefined) {
+		cursor.refuse("title_label", LINE_END_DEFINES_KEY, { name: titleLineEnd });
 		ok = false;
 	} else if (blank.length === codes.length) {
 		cursor.take("title_label", T.titleBlank, languageMap).value;
@@ -656,14 +698,21 @@ export function readSearchSettings(
 				`${cursor.pointer}/title_label`,
 				"list-settings-respelled",
 			);
-	} else if (blank.length > 0) {
+	} else if (source === undefined || blank.includes(source)) {
+		// The source language's title is the slot's, which Nova holds nonblank or not at all
+		// beside every language's: a title a device shows blank in the source language and not in
+		// another has no document that prints it.
 		cursor.refuse("title_label", T.titleSome);
 		ok = false;
 	} else {
-		// Held as every app string is (`heldText.ts::heldText`): no space at either end. A title
-		// Nova's gate admits no spelling of is left for the close to name.
-		const held = heldTitles(title, codes, sourceCode(ctx));
-		if (held === undefined) {
+		// Held as every app string is (`heldText.ts::heldText`): no space at either end, and a
+		// language that shows a blank title beside the source's text shows the source's, which the
+		// reading records under `text-spaces-dropped`. A title Nova's gate admits no spelling of is
+		// left for the close to name.
+		const held = heldTitles(title, codes, source);
+		// A source title a device shows (U+FEFF alone) that Nova's content policy reads as blank
+		// has no document that prints it either.
+		if (held === undefined || (held.texts[source] ?? "").trim() === "") {
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:CaseSearch.title_label",
 			});
@@ -737,10 +786,33 @@ export function readSearchSettings(
 				"list-settings-respelled",
 			);
 	}
-	const button = languageMap(cursor.peek("search_button_label"));
-	if (sameJson(button, { en: BUTTON_DEFAULT }))
+	// The button's label is an app string (`app_strings.py`, `clean_trans` of the map), compared
+	// with HQ's default as a device shows it in each language (`heldText.ts::showsInEveryLanguage`):
+	// spaces at its end, a second language holding the default, or a language the map lacks show
+	// the default, which Nova writes as `{en: "Search All Cases"}`, so the first publish only
+	// respells the map. A rest after a carriage return that defines an app string is refused.
+	const storedButton = cursor.peek("search_button_label");
+	const buttonLineEnd = storedKeyDefinedAfterLineEnd(storedButton, codes);
+	if (buttonLineEnd !== undefined) {
+		cursor.refuse("search_button_label", LINE_END_DEFINES_KEY, {
+			name: buttonLineEnd,
+		});
+		ok = false;
+	} else if (
+		showsInEveryLanguage(storedButton, codes, BUTTON_DEFAULT) === true
+	) {
 		cursor.take("search_button_label", T.buttonDefault, languageMap).value;
-	else if (cursor.used("search_button_label")) {
+		if (!sameJson(storedButton, { en: BUTTON_DEFAULT }))
+			recordTextRewrite(
+				ctx,
+				{
+					entry: T.buttonDefault.entry,
+					path: `${cursor.pointer}/search_button_label`,
+				},
+				"list-settings-respelled",
+				false,
+			);
+	} else if (cursor.used("search_button_label")) {
 		cursor.refuse("search_button_label", T.buttonOther);
 		ok = false;
 	}
@@ -801,7 +873,47 @@ export function readSearchSettings(
 		claimed,
 		...(owners !== undefined && { owners }),
 		...(buttonIndex !== undefined && { button: buttonIndex }),
+		...(ownersWithoutClause && { ownersWithoutClause: true as const }),
 	};
+}
+
+/**
+ * The owner exclusion a search stores with no clause for it in the list filter, as a registration
+ * of the menu's `excluded_owner_ids` slot: the list beside its `normalize-space` wrapper, which
+ * the projection writes again.
+ */
+export function ownersWithoutClauseRegistration(
+	module: DraftModule,
+	cursor: JsonCursor,
+): PendingExpression | undefined {
+	const stored = cursor.peek("blacklisted_owner_ids_expression");
+	if (typeof stored !== "string" || stored.trim() === "") return undefined;
+	return {
+		ref: { entity: "module", uuid: module.uuid, slot: "excluded_owner_ids" },
+		text: withoutNormalizeSpace(stored),
+		mode: { target: "hq-json", interpolation: "none" },
+		place: searchPlace(module),
+		key: "schema:CaseSearch.blacklisted_owner_ids_expression",
+	};
+}
+
+/**
+ * A stored owner exclusion with no clause in the list filter: HQ applies it to the search's
+ * results alone (`remote_requests.py`, the `x_commcare_blacklisted_owner_ids` query datum), and
+ * so does Nova's print of an exclusion that reads a Search answer alone, which its list cannot
+ * see (`nodesetFilter.ts::excludedOwnerClauseWritten`). `candidate` is the tree the reading
+ * proposes for the stored text; it is registered and held where Nova's list writes no clause for
+ * it, and the settle's projection then holds the whole search. Any other exclusion, or one the
+ * reading cannot bind, is a search-only exclusion Nova cannot hold, refused under its entry.
+ */
+export function holdsOwnersWithoutClause(
+	cursor: JsonCursor,
+	candidate: Expression | undefined,
+): boolean {
+	if (candidate !== undefined && !excludedOwnerClauseWritten(candidate))
+		return true;
+	cursor.refuse("blacklisted_owner_ids_expression", T.ownerWithoutClause);
+	return false;
 }
 
 /**
@@ -920,6 +1032,11 @@ function sameTitles(
 ): boolean {
 	const shownA = shownTitles(a, codes);
 	const shownB = shownTitles(b, codes);
+	// A title a device shows blank in every language is no title, as the reading reads it.
+	const none = (shown: Record<string, string> | undefined) =>
+		shown !== undefined &&
+		codes.every((code) => hqDeviceText(shown[code] ?? "") === "");
+	if (none(shownA) || none(shownB)) return none(shownA) && none(shownB);
 	const left =
 		shownA === undefined ? undefined : heldTitles(shownA, codes, source);
 	const right =
@@ -1026,8 +1143,91 @@ function promptDifference(
 	return undefined;
 }
 
+/** One search slot of a menu, as `SearchConfigRewrites` names it. */
+type SearchSlotRef = Parameters<SearchConfigRewrites>[0];
+
+/** The key a search slot's level is kept under. */
+function searchSlotKey(ref: SearchSlotRef): string {
+	return "searchInputUuid" in ref
+		? `${ref.slot}/${ref.searchInputUuid}`
+		: ref.slot;
+}
+
+/** The tree `mod` holds in one of its search slots. */
+function searchSlotTree(
+	mod: Module,
+	ref: SearchSlotRef,
+): Expression | undefined {
+	if (!("searchInputUuid" in ref)) {
+		const config = mod.caseSearchConfig;
+		if (config === undefined) return undefined;
+		if (ref.slot === "excluded_owner_ids") return config.excludedOwnerIds;
+		return "searchButtonDisplayCondition" in config
+			? config.searchButtonDisplayCondition
+			: undefined;
+	}
+	const input = mod.caseListConfig?.searchInputs.find(
+		(one) => one.uuid === ref.searchInputUuid,
+	);
+	if (input === undefined) return undefined;
+	switch (ref.slot) {
+		case "search_input_hidden_value":
+			return input.kind === "hidden" ? input.value : undefined;
+		case "search_input_default":
+			return input.kind !== "hidden" && "default" in input
+				? input.default
+				: undefined;
+		case "search_input_required_when":
+			return input.kind === "hidden" ? undefined : input.required?.when;
+		case "search_input_validation_rule":
+			return input.kind === "hidden" ? undefined : input.validation?.rule;
+		case "search_input_options":
+			return input.kind !== "hidden" &&
+				"options" in input &&
+				input.options?.kind === "lookup"
+				? input.options.filter
+				: undefined;
+		default:
+			return undefined;
+	}
+}
+
+/**
+ * The control each of `mod`'s search slots prints under in the settle: the level the expression
+ * stage held the slot's tree at (`expressions/printLevel.ts`), so a slot held with a rewrite
+ * withheld prints as its source does; none for a slot held exact, and none where `mod` holds
+ * another tree there than the one held (a candidate without the runtime guard's conjunct), which
+ * prints as an export does.
+ */
+function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
+	const held = new Map<string, { tree: Expression; level: PrintLevel }>();
+	ctx.pending.list().forEach((registration, index) => {
+		const ref = registration.ref;
+		if (ref.entity !== "module" || ref.uuid !== mod.uuid) return;
+		const { expression, level } = ctx.pending.outcome(index);
+		if (expression === undefined || level === undefined) return;
+		const member = (ref as { readonly member?: { searchInputUuid?: string } })
+			.member;
+		const key =
+			member?.searchInputUuid === undefined
+				? ref.slot
+				: `${ref.slot}/${member.searchInputUuid}`;
+		held.set(key, { tree: expression, level });
+	});
+	return (ref) => {
+		const one = held.get(searchSlotKey(ref));
+		if (one === undefined) return undefined;
+		const tree = searchSlotTree(mod, ref);
+		return tree !== undefined && sameJson(tree, one.tree)
+			? levelControl(one.level)
+			: undefined;
+	};
+}
+
 /** The surface key of the first difference between the stored search and the projection's,
- *  `default_properties` aside (the rows are held by `rows.ts`). */
+ *  `default_properties` aside (the rows are held by `rows.ts`). Each expression slot prints at
+ *  the level the reading held it (`heldSearchLevels`), so a slot held with a rewrite withheld is
+ *  compared as its source spells it, and the reading records the rewrite. */
 function searchDifference(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -1042,6 +1242,7 @@ function searchDifference(
 			withReadTexts(doc, ctx.translations),
 			inputs.assets,
 			inputs.lookupNaming,
+			heldSearchLevels(ctx, mod),
 		).searchConfig,
 	) as JsonObject;
 	const codes = appCodes(ctx);
@@ -1099,6 +1300,75 @@ function searchDifference(
 	)
 		return "schema:CaseSearch.include_all_related_cases";
 	return undefined;
+}
+
+/**
+ * Whether the stored test of `prompt`'s first validation is Nova's runtime guard, or ends with it
+ * as its last top-level conjuncts: the guard the projection joins to the field's check
+ * (`searchPrompts.ts::buildValidation`), printed by the production projection of `mod` with the
+ * field holding no check of its own, compared conjunct by conjunct as parsed trees. The guard
+ * reads the menu's rows, so it is asked once they are placed.
+ */
+export function endsWithRuntimeGuard(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	mod: Module,
+	prompt: PromptReading,
+): boolean {
+	const validations = prompt.cursor.peek("validations");
+	const first = Array.isArray(validations) ? validations[0] : undefined;
+	const stored = isJsonObject(first) ? first.test : undefined;
+	if (typeof stored !== "string") return false;
+	const unchecked = withCandidate(doc, (draft) => {
+		const one = draft.modules[mod.uuid]?.caseListConfig?.searchInputs.find(
+			(input) => input.uuid === prompt.uuid,
+		);
+		if (one !== undefined && one.kind !== "hidden") delete one.validation;
+	});
+	const without = unchecked.modules[mod.uuid];
+	if (without === undefined) return false;
+	const inputs = readProjectionInputs(ctx);
+	let guard: unknown;
+	try {
+		const ours = printed(
+			projectCaseListForHq(
+				without,
+				withReadTexts(unchecked, ctx.translations),
+				inputs.assets,
+				inputs.lookupNaming,
+			).searchConfig,
+		) as JsonObject;
+		const property = (
+			Array.isArray(ours.properties) ? ours.properties : []
+		).find((one) => isJsonObject(one) && one.name === prompt.name);
+		const printedChecks = isJsonObject(property)
+			? property.validations
+			: undefined;
+		const check = Array.isArray(printedChecks) ? printedChecks[0] : undefined;
+		guard = isJsonObject(check) ? check.test : undefined;
+	} catch {
+		return false;
+	}
+	if (typeof guard !== "string") return false;
+	const storedSyntax = readFormSyntax(stored);
+	const guardSyntax = readFormSyntax(guard);
+	if (
+		!storedSyntax.ok ||
+		!guardSyntax.ok ||
+		storedSyntax.node === undefined ||
+		guardSyntax.node === undefined
+	)
+		return false;
+	const storedClauses = clauses(storedSyntax.node, "and");
+	const guardClauses = clauses(guardSyntax.node, "and");
+	const offset = storedClauses.length - guardClauses.length;
+	return (
+		offset >= 0 &&
+		guardClauses.every((clause, at) => {
+			const one = storedClauses[offset + at];
+			return one !== undefined && sameSyntax(one, clause);
+		})
+	);
 }
 
 function topLevel(expression: Expression): Expression[] {

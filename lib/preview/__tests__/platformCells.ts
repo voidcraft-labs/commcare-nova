@@ -270,6 +270,10 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/markdown-form-equal-to-the-default-text@android": browser(
 		"label-markdown-android",
 	),
+	// Read as a label with markdown on in every language, the same text Preview plays for the
+	// markdown form equal to the default's text.
+	"questions/a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s@android":
+		browser("label-markdown-android"),
 	"case-search/title-label-lang-non-empty@android": browser(
 		"search-screen-text-android",
 	),

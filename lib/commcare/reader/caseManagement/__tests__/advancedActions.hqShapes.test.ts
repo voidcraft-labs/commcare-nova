@@ -15,7 +15,13 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import {
+	type BlueprintDoc,
+	type CaseOperation,
+	proseText,
+	type Uuid,
+} from "@/lib/domain";
 import { formField, term, unowned } from "@/lib/domain/expression/builders";
 import {
 	advancedFixture,
@@ -304,7 +310,7 @@ describe("an advanced form's loads and open actions", () => {
 		).toEqual([]);
 	});
 
-	describe("a written key outside Nova's property grammar", () => {
+	describe("a written key outside Nova's property grammar, or one HQ's server stores apart", () => {
 		// HQ's build holds every key of every advanced action, a load's and an open
 		// action's, to `validate_property` with parents and its reserved words on the
 		// last step (`AdvancedFormValidator.check_actions` over `get_all_actions` →
@@ -313,7 +319,14 @@ describe("an advanced form's loads and open actions", () => {
 		const ILLEGAL = `${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`;
 		const NON_CORE = `${F}/update-key-holding-a-character-validate-property-accepts-that-is`;
 		const NON_ASCII = `${F}/update-key-holding-a-non-ascii-core-name-character`;
+		// HQ's build writes a load's and an open action's keys into the case block's
+		// `<update>` as it writes a basic update's (`_create_casexml_advanced` →
+		// `add_case_updates`), and HQ's server stores these two apart from the case's
+		// properties there (`update_strategy.py::_apply_update_action`).
+		const DIVERTED = `${F}/update-keys-location-id-hq-user-id`;
 		const CASES: readonly (readonly [string, string])[] = [
+			["location_id", DIVERTED],
+			["hq_user_id", DIVERTED],
 			["dob+1", ILLEGAL],
 			["status", ILLEGAL],
 			["date-opened", ILLEGAL],
@@ -365,6 +378,9 @@ describe("an advanced form's loads and open actions", () => {
 			for (const [key, entry] of [
 				["status", ILLEGAL],
 				["mood\n", NON_CORE],
+				// The worker's record is a case HQ's server updates as any other.
+				["location_id", DIVERTED],
+				["hq_user_id", DIVERTED],
 			] as const) {
 				// The key replaces the load's one write, which would leave it writing nothing.
 				const reading = await readMenusOf(doc, (app) => {
@@ -429,6 +445,100 @@ describe("an advanced form's loads and open actions", () => {
 					}`,
 				]);
 			});
+
+		// HQ's build writes a key whose question is an `<upload>` into the block's
+		// `<attachment>`, not its `<update>` (`XFormCaseBlock.add_case_updates` over
+		// `is_attachment`), so HQ's server neither stores it as the case's location nor
+		// copies it to the external id: the write is the upload question's row alone.
+		const UPLOAD = `${F}/update-from-an-upload-question-attachment-mode`;
+
+		/** The fixture with an image question at the form under test's root, which writes nothing. */
+		function withPhoto(fixture: {
+			readonly doc: BlueprintDoc;
+			readonly formUuid: Uuid;
+		}): BlueprintDoc {
+			return produce(fixture.doc, (draft) => {
+				const uuid = testUuid("adv-photo");
+				draft.fields[uuid] = {
+					uuid,
+					kind: "image",
+					id: "photo",
+					label: proseText("Photo"),
+				} as never;
+				draft.fieldOrder[fixture.formUuid]?.push(uuid);
+				rebuildFieldParent(draft);
+			});
+		}
+
+		/** A whole reading with `key` written from the image question in `stored`'s map. */
+		function fromPhoto(
+			doc: BlueprintDoc,
+			key: string,
+			stored: (app: MenuAppJson) => Record<string, unknown>,
+			only = false,
+		) {
+			return readMenusOf(doc, (app) => {
+				const load = stored(app);
+				const properties = load.case_properties as Record<string, unknown>;
+				const [first] = Object.values(properties);
+				const write = {
+					...(first as Record<string, unknown>),
+					question_path: "/data/photo",
+				};
+				load.case_properties = only
+					? { [key]: write }
+					: { ...properties, [key]: write };
+			});
+		}
+
+		for (const [surface, fixture, stored] of [
+			["a load's", () => withPhoto(memberFollowup()), lastLoad],
+			["an open action's", () => withPhoto(registration()), ownOpen],
+		] as const)
+			it(`reads ${surface} \`location_id\` and \`hq_user_id\` from an upload question as the upload question's write, as any key from one reads`, async () => {
+				const doc = fixture();
+				// The pair: a key HQ's server keeps as a property, read from the image question.
+				const plain = await fromPhoto(doc, "size", stored);
+				expect(codesOf(plain)).toEqual([UPLOAD]);
+				expect(plain.outcome.defects).toEqual([]);
+				for (const key of ["location_id", "hq_user_id"]) {
+					const reading = await fromPhoto(doc, key, stored);
+					expect(reading.outcome.defects, key).toEqual([]);
+					expect(codesOf(reading), key).toEqual([UPLOAD]);
+					expect(reading.findings[0]?.detail?.name, key).toBe(key);
+				}
+			});
+
+		it("reads the worker's load whose one write is from an upload question as that write's finding alone, never as a load writing nothing", async () => {
+			const { doc, formUuid } = memberFollowup([
+				{
+					uuid: OP("worker"),
+					id: "commcare_user",
+					action: "update",
+					caseType: "commcare-user",
+					target: { kind: "worker-record" },
+					writes: [{ property: "last_household", value: read("name") }],
+				},
+			]);
+			const workerLoad = (app: MenuAppJson) => {
+				const worker = actionsOf(app).load_update_cases.find(
+					(load) => load.auto_select !== null,
+				);
+				if (worker === undefined)
+					throw new Error("The form loads the worker's record.");
+				return worker;
+			};
+			for (const key of ["last_household", "location_id", "hq_user_id"]) {
+				const reading = await fromPhoto(
+					withPhoto({ doc, formUuid }),
+					key,
+					workerLoad,
+					true,
+				);
+				expect(reading.outcome.defects, key).toEqual([]);
+				expect(codesOf(reading), key).toEqual([UPLOAD]);
+			}
+		});
 	});
 
 	it("reads an open action that names Nova's owner node of no owner as unowned", async () => {

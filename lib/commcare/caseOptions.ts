@@ -5,6 +5,7 @@ import type {
 	SingleSelectField,
 } from "@/lib/domain";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
+import type { RewriteControl } from "./emissionRewrites";
 import type { FormNodeProjection } from "./xpath/formNodeProjection";
 import { w } from "./xpath/wire/builders";
 import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
@@ -12,12 +13,15 @@ import { caseDbInstance } from "./xpath/wire/instances";
 import type { WireExpr } from "./xpath/wire/tree";
 
 /** Standard device itemsets, evaluated against the worker's local case database.
- * current() is the question, so candidate relations use immediate-scope joins. */
+ * current() is the question, so candidate relations use immediate-scope joins.
+ * `rewrites` is the reader's control over the rewrites the filter's print
+ * reaches (`emissionRewrites.ts`); an export passes none. */
 export function caseOptionsNodeset(
 	source: CaseOptionsSource,
 	types: ExpressionContext,
 	bindings: WireTermBindings,
 	form: FormNodeProjection,
+	rewrites?: RewriteControl,
 ): WireExpr {
 	const predicates = [
 		w.eq(w.context([w.attr("case_type")]), w.str(source.caseType)),
@@ -30,6 +34,7 @@ export function caseOptionsNodeset(
 				form,
 				anchor: { kind: "unaddressable" },
 				bindings,
+				...(rewrites === undefined ? {} : { rewrites }),
 			}),
 		);
 	return w.instance(caseDbInstance(), [

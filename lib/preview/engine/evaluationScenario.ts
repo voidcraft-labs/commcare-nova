@@ -3,7 +3,7 @@ import addFormats from "ajv-formats";
 import { z } from "zod";
 import type { CaseRow } from "@/lib/case-store";
 import { type BlueprintDoc, materializableCaseTypes } from "@/lib/domain";
-import { ancestorIndex } from "@/lib/domain/advancedModule";
+import { ancestorLink } from "@/lib/domain/advancedModule";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { FormEvaluationInputError } from "@/lib/preview/engine/formEvaluationTypes";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
@@ -92,6 +92,7 @@ export function evaluationScenarioCases(
 			throw new FormEvaluationInputError(
 				`Test record ${record.id} has invalid properties: ${ajv.errorsText(validate.errors)}.`,
 			);
+		let parentIdentifier: string | undefined;
 		if (record.parentId !== undefined) {
 			const parent = records.get(record.parentId);
 			if (
@@ -102,14 +103,23 @@ export function evaluationScenarioCases(
 				throw new FormEvaluationInputError(
 					`Test record ${record.id} needs a supplied parent of its declared parent type.`,
 				);
+			// The index a form's read of the parent walks, under the
+			// relationship the app's links under it state, so the record's
+			// form reads the parent the test supplied and its lists list it
+			// as they list a submitted one.
+			const link = ancestorLink(
+				doc,
+				record.caseType,
+				parent.caseType,
+				type.relationship ?? "child",
+			);
+			parentIdentifier = link.identifier;
 			indices.push({
 				case_id: record.id,
 				ancestor_id: parent.id,
 				target_case_type: parent.caseType,
-				// The index a form's read of the parent walks, so the record's
-				// form reads the parent the test supplied.
-				identifier: ancestorIndex(doc, record.caseType, parent.caseType),
-				relationship: type.relationship ?? "child",
+				identifier: parentIdentifier,
+				relationship: link.relationship,
 				depth: 1,
 			});
 		}
@@ -124,7 +134,11 @@ export function evaluationScenarioCases(
 			modified_on: record.modifiedOn ? new Date(record.modifiedOn) : null,
 			closed_on: record.closedOn ? new Date(record.closedOn) : null,
 			external_id: record.externalId ?? null,
-			parent_case_id: record.parentId ?? null,
+			// The case's `parent` index alone, as the case store keeps it
+			// (`lib/case-store/postgres/store.ts::parentColumn`); the edge above
+			// names the parent under any other index.
+			parent_case_id:
+				parentIdentifier === "parent" ? (record.parentId ?? null) : null,
 			properties,
 		});
 	}
