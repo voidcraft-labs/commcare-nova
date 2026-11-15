@@ -3,6 +3,7 @@ import type { Page, Request, Route } from "@playwright/test";
 import { EXTRACTOR_VERSION } from "../../../lib/domain/multimedia";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../../lib/projects/moveTargets";
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import {
 	CASE_CHANGES_ROUTINE,
 	CASE_CHANGES_SEED,
@@ -2824,15 +2825,7 @@ test.describe("authenticated builder", () => {
 					historyLength,
 				);
 				const selectedUrl = page.url();
-				const breadcrumbMenu = page.getByRole("button", {
-					name: "Show breadcrumb path",
-				});
-				await expect(breadcrumbMenu).toBeVisible();
-				await breadcrumbMenu.click();
-				await expect(
-					page.getByRole("button", { name: "Home", exact: true }),
-				).toBeVisible();
-				await page.getByRole("button", { name: "Home", exact: true }).click();
+				await pressTrailCrumb(page, "Home");
 				await expect(page).toHaveURL(
 					`${new URL(page.url()).origin}/build/${fixture.appId}?lang=eng`,
 				);

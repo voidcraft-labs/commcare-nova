@@ -25,9 +25,14 @@ import {
 } from "./suiteDocArbitrary";
 
 it("compiles 400 workflow samples with valid schema, HQ import, bindings, and archived resources", {
-	// The complete synchronous corpus took 45s on a shared CI runner before
-	// native media-byte comparison. Keep all 400 samples and scheduling margin.
-	timeout: 60_000,
+	// The 400 seeded samples are the corpus this test holds the compiler to,
+	// so the budget follows their cost rather than the sample following the
+	// budget. The body is synchronous, so Vitest cannot stop it early: the
+	// timeout only fails a run that finished every sample and every check but
+	// took longer. It takes 16 s alone on a laptop and took 45 s on a shared
+	// CI runner, and it passed 60 s twice in a full parallel local run, where
+	// every worker draws on the same cores; 180 s holds that load.
+	timeout: 180_000,
 }, () => {
 	const census = {
 		total: 0,

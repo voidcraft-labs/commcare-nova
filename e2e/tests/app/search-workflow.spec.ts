@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import { openBuilder } from "../../lib/pageLoads";
 import { SEARCH_STANDING_SEED } from "../../lib/searchStandingSeed";
 
@@ -133,7 +134,6 @@ test("a list that opens on Results keeps the worker's search when history return
 		SEARCH_STANDING_SEED;
 	test.setTimeout(90_000);
 	const main = page.locator("main");
-	const trail = page.getByRole("navigation", { name: "Page navigation" });
 	const searchScreen = main.getByRole("search", { name: "Search" });
 	const rows = main
 		.getByRole("list", { name: "Cases", exact: true })
@@ -168,7 +168,7 @@ test("a list that opens on Results keeps the worker's search when history return
 	});
 
 	await test.step("the worker opens the other list from the menu", async () => {
-		await trail.getByRole("button", { name: clinic.name, exact: true }).click();
+		await pressTrailCrumb(page, clinic.name);
 		await menuItem(browsing.name).click({ timeout: 20_000 });
 		await expectRows([searched.caseName, other.caseName]);
 	});
@@ -203,7 +203,6 @@ test("a list that opens on Results runs its default search again once the worker
 		SEARCH_STANDING_SEED;
 	test.setTimeout(120_000);
 	const main = page.locator("main");
-	const trail = page.getByRole("navigation", { name: "Page navigation" });
 	const searchScreen = main.getByRole("search", { name: "Search" });
 	const rows = main
 		.getByRole("list", { name: "Cases", exact: true })
@@ -238,7 +237,7 @@ test("a list that opens on Results runs its default search again once the worker
 	});
 
 	await test.step("after the clinic's crumb, another list and a step back, Patients runs its default search", async () => {
-		await trail.getByRole("button", { name: clinic.name, exact: true }).click();
+		await pressTrailCrumb(page, clinic.name);
 		await menuItem(browsing.name).click({ timeout: 20_000 });
 		await expectRows([searched.caseName, other.caseName]);
 		await page.goBack();
@@ -299,9 +298,7 @@ test("a list that opens on Results runs its default search again once the worker
 		await expect(
 			main.getByRole("button", { name: "Submit", exact: true }),
 		).toBeVisible({ timeout: 20_000 });
-		await trail
-			.getByRole("button", { name: searching.name, exact: true })
-			.click();
+		await pressTrailCrumb(page, searching.name);
 		await expectRows([searched.caseName, other.caseName]);
 	});
 
@@ -346,7 +343,6 @@ test("a list lets its Search action's search, and a Search screen asked for agai
 		SEARCH_STANDING_SEED;
 	test.setTimeout(150_000);
 	const main = page.locator("main");
-	const trail = page.getByRole("navigation", { name: "Page navigation" });
 	const searchScreen = main.getByRole("search", { name: "Search" });
 	const rows = main
 		.getByRole("list", { name: "Cases", exact: true })
@@ -379,7 +375,7 @@ test("a list lets its Search action's search, and a Search screen asked for agai
 			.click();
 	};
 	const openFrom = async (list: string) => {
-		await trail.getByRole("button", { name: "Home", exact: true }).click();
+		await pressTrailCrumb(page, "Home");
 		await menuItem(clinic.name).click({ timeout: 20_000 });
 		await menuItem(list).click({ timeout: 20_000 });
 	};
@@ -403,7 +399,7 @@ test("a list lets its Search action's search, and a Search screen asked for agai
 		// (`CloudcareUrl.spliceSelections`), so the list's query goes with it.
 		await searchFor(searched.answer);
 		await expectRows([searched.caseName]);
-		await trail.getByRole("button", { name: clinic.name, exact: true }).click();
+		await pressTrailCrumb(page, clinic.name);
 		await menuItem(finding.name).click({ timeout: 20_000 });
 		await expectDefaultSearch();
 	});

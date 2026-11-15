@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import { openBuilder } from "../../lib/pageLoads";
 import { FORM_REFUSED_SEED } from "../../lib/previewRuntimeSeeds";
 
@@ -159,9 +160,7 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 		 * then reaches the list, never the form. */
 		await openWith(opens.caseName);
 		await expectForm();
-		await trail
-			.getByRole("button", { name: opens.caseName, exact: true })
-			.click();
+		await pressTrailCrumb(page, opens.caseName);
 		await expectHeldMenu();
 		await menuBack.click();
 		await expectList();
@@ -172,15 +171,11 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 	});
 
 	await test.step("the menu's crumb asks for a record again", async () => {
-		await trail
-			.getByRole("button", { name: opens.caseName, exact: true })
-			.click();
+		await pressTrailCrumb(page, opens.caseName);
 		await expectHeldMenu();
 		await form.click();
 		await expectForm();
-		await trail
-			.getByRole("button", { name: FORM_REFUSED_SEED.moduleName, exact: true })
-			.click();
+		await pressTrailCrumb(page, FORM_REFUSED_SEED.moduleName);
 		await expect(submit).toHaveCount(0);
 		await expect(menuTitle).toHaveCount(0);
 		await expect(cases).toBeVisible({ timeout: 20_000 });
@@ -244,7 +239,6 @@ test("a menu held on a linked case's details shows the list in place when nothin
 		name: "Back to results",
 		exact: true,
 	});
-	const trail = page.getByRole("navigation", { name: "Page navigation" });
 	await openBuilder(
 		page,
 		`${formRefused.route}/cases/${encodeURIComponent(formRefused.opensCaseId)}`,
@@ -276,9 +270,7 @@ test("a menu held on a linked case's details shows the list in place when nothin
 	 * list, whose Back reaches the list. */
 	await page.goForward();
 	await expect(submit).toBeVisible({ timeout: 20_000 });
-	await trail
-		.getByRole("button", { name: opens.caseName, exact: true })
-		.click();
+	await pressTrailCrumb(page, opens.caseName);
 	await expect(menuTitle).toHaveText(opens.caseName, { timeout: 20_000 });
 	await expect(submit).toHaveCount(0);
 	await menuBack.click();
