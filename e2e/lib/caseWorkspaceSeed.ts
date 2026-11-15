@@ -299,11 +299,11 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 				name: "Patient tile",
 				caseType: ids.caseType,
 				// Nothing is shown on Details on purpose: with no confirm screen the
-				// running tile continues straight into the follow-up form, which is
-				// the shortest honest path to the persistent tile.
+				// running tile continues straight into the menu of its follow-up
+				// form, which is the shortest honest path to the persistent tile.
 				caseListConfig: {
 					// Presence is the switch; `persistOnForms` additionally keeps the
-					// same tile above every form in this module.
+					// same tile on every screen once its case is chosen.
 					tile: { persistOnForms: true },
 					columns: [
 						plainColumn(ids.tile.columns.patientName, "case_name", "Patient", {

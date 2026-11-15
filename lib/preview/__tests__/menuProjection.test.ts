@@ -23,6 +23,7 @@ import {
 	previewCaseListReturn,
 	previewContributorVisibility,
 	previewMenuCaseContext,
+	previewMenuHeldSelections,
 	previewMenuScreenChoice,
 	previewMenuScreenLanding,
 	previewMenuSelectionsLetGo,
@@ -33,9 +34,11 @@ import {
 	previewRunningModuleScreen,
 	previewScreenEntries,
 	previewScreenEntryVisibility,
+	previewSelectionsBefore,
 	previewTargetAboveForm,
-	previewTargetHoldingMenu,
 } from "../menuProjection";
+import { previewPinnedCaseTile } from "../pinnedCaseTile";
+import { previewPlatformRules } from "../platform";
 import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
 const ROOT = testUuid("root");
@@ -799,9 +802,11 @@ describe("the form a case list holds for the case chosen on it", () => {
 	const ana = { caseId: "ana", caseName: "Ana" };
 	const ownList = {
 		moduleUuid: menu,
-		caseLoadingFormUuids: forms,
 		continuation: "form-menu",
+		session: "worker-a",
 	} as const;
+	/** The history entry choosing Ana on the list opened. */
+	const heldMenu = { moduleUuid: menu, cases: [ana], session: "worker-a" };
 	const chosenOnOwnMenu = {
 		formUuid: visit,
 		cases: [ana],
@@ -811,7 +816,6 @@ describe("the form a case list holds for the case chosen on it", () => {
 	it("holds a form chosen before the case, on its own list, there and after a step back", () => {
 		const target = { formUuid: visit, cases: [ana] };
 		expect(previewCaseListFormRequest(target, forms)).toBe(visit);
-		expect(previewCaseListHeldChoices(target, ownList)).toBeUndefined();
 		const back = previewCaseListReturn(target, {
 			moduleUuid: menu,
 			formUuid: visit,
@@ -820,33 +824,39 @@ describe("the form a case list holds for the case chosen on it", () => {
 		expect(previewCaseListFormRequest(back.target, forms)).toBe(visit);
 	});
 
-	it("shows the list's own form menu with the case held for a form chosen from it", () => {
+	it("shows the list's own form menu with the case held on the entry that holds it", () => {
 		expect(previewCaseListFormRequest(chosenOnOwnMenu, forms)).toBeUndefined();
-		expect(previewCaseListHeldChoices(chosenOnOwnMenu, ownList)).toEqual([ana]);
+		expect(previewCaseListHeldChoices(heldMenu, ownList)).toEqual([ana]);
+		// The list's own entry, a step back off the menu, holds nothing.
+		expect(previewCaseListHeldChoices(undefined, ownList)).toBeUndefined();
 	});
 
 	it("holds nothing on a list that continues into a menu screen, or on another list", () => {
 		expect(
-			previewCaseListHeldChoices(chosenOnOwnMenu, {
+			previewCaseListHeldChoices(heldMenu, {
 				...ownList,
 				continuation: "menu-selection",
 			}),
 		).toBeUndefined();
 		expect(
-			previewCaseListHeldChoices(chosenOnOwnMenu, {
+			previewCaseListHeldChoices(heldMenu, {
 				...ownList,
 				moduleUuid: parentMenu,
 			}),
 		).toBeUndefined();
-		// A menu screen listed the form: it holds the case itself.
 		expect(
 			previewCaseListHeldChoices(
-				{
-					...chosenOnOwnMenu,
-					formChosenAfterCase: { caseListModuleUuid: menu },
-				},
+				{ moduleUuid: menu, cases: [], session: "worker-a" },
 				ownList,
 			),
+		).toBeUndefined();
+	});
+
+	it("holds nothing for a step another Preview session took", () => {
+		// A worker, platform or Preview run change starts a new session; Back
+		// onto the menu's entry shows the list, not the last worker's case.
+		expect(
+			previewCaseListHeldChoices(heldMenu, { ...ownList, session: "worker-b" }),
 		).toBeUndefined();
 	});
 
@@ -856,7 +866,7 @@ describe("the form a case list holds for the case chosen on it", () => {
 			formUuid: visit,
 		});
 		expect(back).toEqual({ moduleUuid: menu, target: undefined });
-		expect(previewCaseListHeldChoices(back.target, ownList)).toBeUndefined();
+		expect(previewCaseListFormRequest(back.target, forms)).toBeUndefined();
 		// A submenu's form whose case its parent's list chose returns there.
 		expect(
 			previewCaseListReturn(
@@ -870,33 +880,6 @@ describe("the form a case list holds for the case chosen on it", () => {
 		).toEqual({ moduleUuid: parentMenu, target: undefined });
 	});
 
-	it("lets the case go once the worker steps back past the menu, and holds it again as the form shows", () => {
-		const past = previewTargetHoldingMenu(chosenOnOwnMenu, false);
-		expect(past.formChosenAfterCase).toEqual({
-			caseListModuleUuid: menu,
-			fromCaseListMenu: true,
-			steppedPastMenu: true,
-		});
-		// The target keeps its form and cases, so a step forward reopens the
-		// form, and the list it reaches holds nothing.
-		expect(past.cases).toEqual([ana]);
-		expect(previewCaseListHeldChoices(past, ownList)).toBeUndefined();
-		expect(previewCaseListFormRequest(past, forms)).toBeUndefined();
-		const again = previewTargetHoldingMenu(past, true);
-		expect(again).toEqual(chosenOnOwnMenu);
-		expect(previewCaseListHeldChoices(again, ownList)).toEqual([ana]);
-		// Nothing to change returns the target itself, so no write follows.
-		expect(previewTargetHoldingMenu(chosenOnOwnMenu, true)).toBe(
-			chosenOnOwnMenu,
-		);
-		const onMenuScreen = {
-			formUuid: review,
-			cases: [ana],
-			formChosenAfterCase: { caseListModuleUuid: parentMenu },
-		};
-		expect(previewTargetHoldingMenu(onMenuScreen, false)).toBe(onMenuScreen);
-	});
-
 	it("lets go of a case held beneath a form chosen after it on a route to a menu, and keeps any other target", () => {
 		expect(previewTargetAboveForm(chosenOnOwnMenu)).toBeUndefined();
 		const before = { formUuid: visit, cases: [ana] };
@@ -908,6 +891,101 @@ describe("the form a case list holds for the case chosen on it", () => {
 			previewCaseListFormRequest({ formUuid: testUuid("register") }, forms),
 		).toBeUndefined();
 		expect(previewCaseListFormRequest(undefined, forms)).toBeUndefined();
+	});
+});
+
+describe("the cases a screen's session holds, and the tile it pins", () => {
+	// Formplayer and Android pin the tile of the EARLIEST chosen case whose
+	// datum names a persistent detail (`MenuSessionRunnerService.getStepToFrame`,
+	// `BreadcrumbBarHelper.loadTile`), and Nova's wire names one on every datum
+	// a list that keeps its tile on screen chose.
+	const ana = { caseId: "ana", caseName: "Ana" };
+	const bo = { caseId: "bo", caseName: "Bo" };
+	const keepsTile = (
+		doc: BlueprintDoc,
+		uuids: readonly string[],
+	): Record<string, Module> =>
+		Object.fromEntries(
+			Object.entries(doc.modules).map(([uuid, mod]) => [
+				uuid,
+				uuids.includes(uuid) && mod.caseListConfig !== undefined
+					? {
+							...mod,
+							caseListConfig: {
+								...mod.caseListConfig,
+								tile: { persistOnForms: true as const },
+							},
+						}
+					: mod,
+			]),
+		);
+	const web = previewPlatformRules("web-apps");
+	const android = previewPlatformRules("android");
+
+	it("holds a parent case before the menu's own, in the order they were chosen", () => {
+		const doc = source("person");
+		const selections = {
+			[ROOT]: { caseType: "household", cases: [ana] },
+			[CHILD]: { caseType: "person", cases: [bo] },
+		};
+		expect(previewSelectionsBefore(doc, CHILD, selections)).toEqual([
+			{ moduleUuid: ROOT, cases: [ana] },
+		]);
+		expect(previewMenuHeldSelections(doc, CHILD, selections)).toEqual([
+			{ moduleUuid: ROOT, cases: [ana] },
+			{ moduleUuid: CHILD, cases: [bo] },
+		]);
+		// Before its own case is chosen the menu holds its parent's alone.
+		expect(
+			previewMenuHeldSelections(doc, CHILD, { [ROOT]: selections[ROOT] }),
+		).toEqual([{ moduleUuid: ROOT, cases: [ana] }]);
+	});
+
+	it("holds a same-type case a submenu goes on with as the parent list's choice", () => {
+		const doc = source();
+		expect(
+			previewMenuHeldSelections(doc, CHILD, {
+				[ROOT]: { caseType: "household", cases: [ana] },
+			}),
+		).toEqual([{ moduleUuid: ROOT, cases: [ana] }]);
+		expect(previewMenuHeldSelections(doc, ROOT, {})).toEqual([]);
+	});
+
+	it("pins the earliest held case whose list keeps its tile on screen", () => {
+		const doc = source("person");
+		const held = [
+			{ moduleUuid: ROOT, cases: [ana] },
+			{ moduleUuid: CHILD, cases: [bo] },
+		];
+		expect(
+			previewPinnedCaseTile(keepsTile(doc, [ROOT, CHILD]), held, "form", web),
+		).toEqual({ moduleUuid: ROOT, caseId: "ana" });
+		expect(
+			previewPinnedCaseTile(keepsTile(doc, [CHILD]), held, "menu", android),
+		).toEqual({ moduleUuid: CHILD, caseId: "bo" });
+		expect(previewPinnedCaseTile(doc.modules, held, "form", web)).toBe(
+			undefined,
+		);
+		// Several cases chosen together are a step neither platform reads.
+		expect(
+			previewPinnedCaseTile(
+				keepsTile(doc, [ROOT, CHILD]),
+				[{ moduleUuid: ROOT, cases: [ana, bo] }, held[1]],
+				"case-list",
+				web,
+			),
+		).toEqual({ moduleUuid: CHILD, caseId: "bo" });
+	});
+
+	it("pins the tile above a search on Web Apps and not on Android", () => {
+		const doc = source("person");
+		const held = [{ moduleUuid: ROOT, cases: [ana] }];
+		expect(
+			previewPinnedCaseTile(keepsTile(doc, [ROOT]), held, "search", web),
+		).toEqual({ moduleUuid: ROOT, caseId: "ana" });
+		expect(
+			previewPinnedCaseTile(keepsTile(doc, [ROOT]), held, "search", android),
+		).toBe(undefined);
 	});
 });
 

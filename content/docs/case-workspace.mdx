@@ -174,9 +174,12 @@ those behave in ways worth knowing up front:
 
 The tile is the layout for Results everywhere Results appear, so the list
 people search into looks the same as the list they browse. You can also ask for
-the tile to stay on screen above every form in the module, so the person
-filling in a form can always see which case they are working on. Details keeps
-its own arrangement either way.
+the tile to stay on screen once a case is chosen from the list, so the person
+can always see which case they are working on: above the menu of forms the case
+opens, above each form, and above the screens after it, a search included in
+Web Apps. Where cases are chosen from more than one list, the first chosen
+case whose list keeps its tile is the one shown, as CommCare does. Details
+keeps its own arrangement either way.
 
 Going back to a row of columns keeps every placement. Nothing you arranged is
 lost, so you can try a tile, switch back, and switch to it again without
@@ -268,7 +271,7 @@ every selected parent before the worker makes the child's own selection.
 
 A tile can still group cases, but it cannot stay pinned above a several-case
 form: that banner has room for one current case, not a batch. When several-case
-selection is enabled, Nova turns off **Keep tile visible in forms** and explains
+selection is enabled, Nova turns off **Keep the tile on screen during forms** and explains
 the change before saving it.
 
 ## Choose which cases people can find
@@ -376,7 +379,9 @@ Each choice says what workers see:
   Results then shows only what that search found, with **Search again** at the
   top to start over.
 - **Results first**: workers see the cases the search finds with its starting
-  values, and can search again to narrow them.
+  values, and can search again to narrow them. When the menu's forms read the
+  search, coming back to the list after a form, or with the browser's Back,
+  keeps the search the worker ran, with their answers.
 - **Case list first**: workers see their cases and can search from the list. In
   an app that runs in Web Apps the choice says **Not available in Web Apps. You
   can open this menu on Search first, which Android still opens on its case

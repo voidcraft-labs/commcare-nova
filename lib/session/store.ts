@@ -24,6 +24,7 @@ import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchType
  */
 
 import type { VirtualItem } from "@tanstack/react-virtual";
+import { v7 as uuidv7 } from "uuid";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type {
@@ -297,6 +298,15 @@ export interface BuilderSessionState {
 
 	/** Pending case-type parent selection, independent of menu ancestry. */
 	previewParentCaseRequest: PreviewParentCaseRequest | undefined;
+
+	/** The identity of the worker's running Preview session: a new one each
+	 *  time the session starts over for another worker, another platform,
+	 *  another Preview run, an entry point's launch or another Project
+	 *  (`newPreviewSessionId`). A step the browser's history keeps (a case
+	 *  list's held form menu, `lib/routing/previewHeldMenu.ts`) records the
+	 *  session that took it and stands only in that session, as a case the
+	 *  previous worker chose has no standing in the next worker's session. */
+	previewSessionId: string;
 
 	/** Each module's search context in the running app, keyed by module
 	 * uuid; an absent entry is "not searched". Cleared with the other
@@ -839,6 +849,15 @@ export interface SessionStoreInit {
 	canEdit?: boolean;
 }
 
+/** A new identity for the worker's running Preview session
+ *  (`previewSessionId`). `uuid` draws on `crypto.getRandomValues`, which
+ *  every browsing context holds, where `crypto.randomUUID` needs a secure
+ *  one. Unique per page load as well, so a history entry a reloaded page
+ *  wrote never matches the session the page now runs. */
+export function newPreviewSessionId(): string {
+	return uuidv7();
+}
+
 /** Create a scoped Zustand session store. Called once per BuilderProvider
  *  mount — the parent provider's `buildId` controls the store lifetime.
  *
@@ -923,6 +942,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
 				previewAndroidDeviceId: crypto.randomUUID(),
+				previewSessionId: newPreviewSessionId(),
 
 				/* Chrome */
 				sidebars: {
@@ -1118,6 +1138,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewEntryPointLaunch: undefined,
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
+										previewSessionId: newPreviewSessionId(),
 										previewParentCaseRequest: undefined,
 										previewSearchStates: {},
 										previewPersonaUuid: undefined,
@@ -1321,6 +1342,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewCaseTarget: launch.formTarget,
 						previewCaseListRegistrationEntry: undefined,
 						previewMenuCaseSelections: launch.menuSelections,
+						previewSessionId: newPreviewSessionId(),
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
@@ -1364,6 +1386,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							previewEntryPointLaunch: undefined,
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
+							previewSessionId: newPreviewSessionId(),
 							previewParentCaseRequest: undefined,
 							previewSearchStates: {},
 							previewAtDeviceHome: android && at?.atHome === true,
@@ -1401,6 +1424,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
+						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						sidebars: {
@@ -1431,6 +1455,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
+						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						/* The identity menu also navigates home; a new worker on a
@@ -1455,6 +1480,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
+						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						previewAtDeviceHome: android,
@@ -1503,9 +1529,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						current?.formChosenAfterCase?.caseListModuleUuid ===
 							target?.formChosenAfterCase?.caseListModuleUuid &&
 						current?.formChosenAfterCase?.fromCaseListMenu ===
-							target?.formChosenAfterCase?.fromCaseListMenu &&
-						current?.formChosenAfterCase?.steppedPastMenu ===
-							target?.formChosenAfterCase?.steppedPastMenu
+							target?.formChosenAfterCase?.fromCaseListMenu
 					) {
 						return;
 					}
@@ -1954,6 +1978,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
+						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						previewPersonaUuid: undefined,

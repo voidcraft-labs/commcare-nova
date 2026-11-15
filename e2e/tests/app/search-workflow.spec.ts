@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openBuilder } from "../../lib/pageLoads";
+import { SEARCH_STANDING_SEED } from "../../lib/searchStandingSeed";
 
 /**
  * When this menu opens: the Search panel's three choices and the Forms read
@@ -109,4 +110,76 @@ test("an app on Web Apps alone offers Forms read the search and withholds Case l
 	await expect(formsReadSearchSwitch).toBeChecked();
 	// No platform the app runs on withholds it.
 	await expect(formsReadSearch).not.toContainText(ANDROID_PICKER_LINE);
+});
+
+/**
+ * A list that opens on Results first and whose forms read the search keeps
+ * the search the worker ran when the browser's history returns to it. Web
+ * Apps restores each step's query with the page's address
+ * (`cloudcare/js/formplayer/utils/utils.js::CloudcareUrl.fromJson`) and
+ * Formplayer answers the query prompts from it before it runs the query
+ * again (`MenuSessionRunnerService.java::handleQueryScreen`), so the
+ * worker sees their own search, never the menu's default search over every
+ * case. Opening the other list in between makes Preview build the Patients
+ * screen afresh, where taking the standing search back and launching the
+ * default search are two effects of one mount
+ * (`caseListPhase.ts::caseListLaunchesDefaultSearch`).
+ */
+test("a list that opens on Results keeps the worker's search when history returns to it", {
+	tag: "@seed:search-standing",
+}, async ({ scenario, page }) => {
+	const { searchStanding } = seedFor(scenario, "search-standing");
+	const { clinic, searching, browsing, searched, other, prompt } =
+		SEARCH_STANDING_SEED;
+	test.setTimeout(90_000);
+	const main = page.locator("main");
+	const trail = page.getByRole("navigation", { name: "Page navigation" });
+	const searchScreen = main.getByRole("search", { name: "Search" });
+	const rows = main
+		.getByRole("list", { name: "Cases", exact: true })
+		.getByRole("listitem");
+	const menuItem = (name: string) =>
+		main.getByRole("button", { name: new RegExp(`^${name}\\b`) });
+	const expectRows = async (names: readonly string[]) => {
+		await expect(rows).toHaveCount(names.length, { timeout: 20_000 });
+		for (const name of names)
+			await expect(rows.filter({ hasText: name })).toHaveCount(1);
+	};
+
+	await openBuilder(page, searchStanding.route);
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+
+	await test.step("Patients opens on its default search, which finds both patients", async () => {
+		await menuItem(clinic.name).click();
+		await menuItem(searching.name).click();
+		await expectRows([searched.caseName, other.caseName]);
+	});
+
+	await test.step("the worker searches for one patient", async () => {
+		await main.getByRole("button", { name: "Search again" }).click();
+		await expect(searchScreen).toBeVisible({ timeout: 20_000 });
+		await searchScreen
+			.getByRole("textbox", { name: prompt.label })
+			.fill(searched.answer);
+		await searchScreen
+			.getByRole("button", { name: "Search All Cases", exact: true })
+			.click();
+		await expectRows([searched.caseName]);
+	});
+
+	await test.step("the worker opens the other list from the menu", async () => {
+		await trail.getByRole("button", { name: clinic.name, exact: true }).click();
+		await menuItem(browsing.name).click({ timeout: 20_000 });
+		await expectRows([searched.caseName, other.caseName]);
+	});
+
+	await test.step("history returns to Patients, where the worker's search still stands", async () => {
+		await page.goBack();
+		await expect(menuItem(browsing.name)).toBeVisible({ timeout: 20_000 });
+		await page.goBack();
+		await expectRows([searched.caseName]);
+		await expect(
+			main.getByRole("button", { name: "Search again" }),
+		).toBeVisible();
+	});
 });

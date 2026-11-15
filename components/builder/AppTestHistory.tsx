@@ -325,6 +325,7 @@ function RecordedObservation({
 					))}
 				</dl>
 			) : null}
+			{search.refusal ? <p role="status">{text(search.refusal)}</p> : null}
 			{questions.length ? (
 				<dl className="space-y-3">
 					{questions.map((question, index) => (

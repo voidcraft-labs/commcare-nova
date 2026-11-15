@@ -912,7 +912,7 @@ review confirms the new mode; the maximum is a local text draft that requests a
 change only on blur or Enter and restores the committed value on Escape or a
 cancelled review. The review names every linked module whose selection must
 change, follows those direct-form dependencies transitively in both directions,
-and clears **Keep tile visible in forms** in the same gated batch because that
+and clears **Keep the tile on screen during forms** in the same gated batch because that
 banner requires one scalar case. It states every tile consequence before
 commit. A starting answer or calculation is called out because it will update
 every selected case even when the worker leaves it alone. Other form or

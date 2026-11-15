@@ -19,10 +19,14 @@ import type { Uuid } from "@/lib/doc/types";
 import { CASE_LOADING_FORM_TYPES, type FormType } from "@/lib/domain";
 import type { LanguageTag } from "@/lib/domain/localization";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import { previewCaseListFormRequest } from "@/lib/preview/menuProjection";
+import {
+	type PreviewHeldCaseSelection,
+	previewCaseListFormRequest,
+} from "@/lib/preview/menuProjection";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import type { Location } from "@/lib/routing/types";
 import type {
+	PreviewCaseChoice,
 	PreviewCaseTarget,
 	PreviewSelectedCase,
 } from "@/lib/session/types";
@@ -60,6 +64,14 @@ export interface PreviewBreadcrumbItem extends BreadcrumbItem {
 	 * the form lands too.
 	 */
 	holdsCaseOn?: Uuid;
+	/**
+	 * Present beside `holdsCaseOn` where the menu that holds the case is a
+	 * case list's own form menu, on the crumb of the case of a form chosen
+	 * there: the cases that menu holds, which the crumb reaches again on the
+	 * menu's own history entry (`lib/routing/previewHeldMenu.ts`). Absent on
+	 * a menu screen's case crumb, which reaches the menu screen.
+	 */
+	holdsCaseListMenu?: readonly PreviewCaseChoice[];
 }
 
 /**
@@ -113,6 +125,51 @@ export interface PreviewTrailInput {
 	 *  of their own: the trail names the screen that lists their forms, never
 	 *  the menu. */
 	screenlessModuleUuids?: ReadonlySet<string>;
+	/** The cases the rendered menu screen's session holds, in the order they
+	 *  were chosen (`menuProjection.ts::previewMenuHeldSelections`). */
+	menuHeldCases?: readonly PreviewHeldCaseSelection[];
+}
+
+/** The label of a crumb naming the cases a step chose. */
+function caseCrumbLabel(
+	cases: readonly { readonly caseName?: string }[],
+	language: LanguageTag | undefined,
+): string {
+	return cases.length === 1
+		? cases[0].caseName ||
+				runtimeMessage(language, "caseCountOne", { count: 1 })
+		: runtimeMessage(language, "caseCountMany", { count: cases.length });
+}
+
+/**
+ * A menu screen's trail with a crumb for each case its session holds, after
+ * the crumb of the menu that chose it, as Web Apps' trail adds one crumb per
+ * selection (`MenuSession` adds each screen's breadcrumb as the session steps
+ * past it). A case chosen on a menu the trail does not name (a parent case a
+ * list off the trail chose) has no place in it. Each case's crumb reaches the
+ * menu that holds it (`holdsCaseOn`), as the case crumb of a form chosen
+ * after its case does.
+ */
+function withHeldCaseCrumbs(
+	trail: PreviewBreadcrumbItem[],
+	held: readonly PreviewHeldCaseSelection[],
+	language: LanguageTag | undefined,
+): PreviewBreadcrumbItem[] {
+	const items = [...trail];
+	for (const selection of held) {
+		if (selection.cases.length === 0) continue;
+		const at = items.findIndex(
+			(crumb) => crumb.key === `m:${selection.moduleUuid}`,
+		);
+		if (at < 0) continue;
+		items.splice(at + 1, 0, {
+			key: `held:${selection.moduleUuid}:${selection.cases.map((choice) => choice.caseId).join(",")}`,
+			label: caseCrumbLabel(selection.cases, language),
+			location: { kind: "module", moduleUuid: selection.moduleUuid },
+			holdsCaseOn: selection.moduleUuid,
+		});
+	}
+	return items;
 }
 
 /** The crumb of the phone's home screen above Android's module list; its
@@ -180,7 +237,12 @@ export function previewBreadcrumbTrail(
 		const targetIndex = baseBreadcrumbs.findIndex(
 			(crumb) => crumb.key === targetKey,
 		);
-		if (targetIndex >= 0) return baseBreadcrumbs.slice(0, targetIndex + 1);
+		if (targetIndex >= 0)
+			return withHeldCaseCrumbs(
+				baseBreadcrumbs.slice(0, targetIndex + 1),
+				input.menuHeldCases ?? [],
+				language,
+			);
 	}
 
 	if (!moduleUuid) return baseBreadcrumbs;
@@ -230,13 +292,7 @@ export function previewBreadcrumbTrail(
 				? undefined
 				: {
 						key: `cases:${boundCases.map((choice) => choice.caseId).join(",")}`,
-						label:
-							boundCases.length === 1
-								? boundCases[0].caseName ||
-									runtimeMessage(language, "caseCountOne", { count: 1 })
-								: runtimeMessage(language, "caseCountMany", {
-										count: boundCases.length,
-									}),
+						label: caseCrumbLabel(boundCases, language),
 					};
 		const chosenAfter = bound?.formChosenAfterCase;
 		/* A form chosen from a menu after its case sits above the case, as
@@ -244,14 +300,19 @@ export function previewBreadcrumbTrail(
 		 * the form. The case's crumb reaches that menu with the case held. */
 		if (chosenAfter !== undefined && caseCrumb !== undefined) {
 			const holder = chosenAfter.caseListModuleUuid;
-			const held: PreviewBreadcrumbItem = {
-				...caseCrumb,
-				location:
-					chosenAfter.fromCaseListMenu === true
-						? { kind: "cases", moduleUuid: holder }
-						: { kind: "module", moduleUuid: holder },
-				holdsCaseOn: holder,
-			};
+			const held: PreviewBreadcrumbItem =
+				chosenAfter.fromCaseListMenu === true
+					? {
+							...caseCrumb,
+							location: { kind: "cases", moduleUuid: holder },
+							holdsCaseOn: holder,
+							holdsCaseListMenu: boundCases,
+						}
+					: {
+							...caseCrumb,
+							location: { kind: "module", moduleUuid: holder },
+							holdsCaseOn: holder,
+						};
 			const formCrumb: PreviewBreadcrumbItem = {
 				key: `f:${loc.formUuid}`,
 				label: form?.name ?? "Form",

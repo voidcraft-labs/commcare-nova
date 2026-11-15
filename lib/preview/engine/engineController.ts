@@ -1616,25 +1616,20 @@ export class EngineController {
 	 * refetches mint new object references) is a no-op, so entered
 	 * preview values survive it.
 	 *
-	 * Replacing a non-null identity discards — a sign-out or a different
-	 * worker is a different evaluation world, and restoring would leak
-	 * one worker's entries into another's session.
-	 *
-	 * Under the engine provider (`installSessionIdentity`) no entry runs
-	 * without a worker: one is held until the worker arrives, so an arriving
-	 * identity finds no live entry. Only a controller that never installs a
-	 * session (Vitest, the field harnesses) runs an entry with no identity;
-	 * there an arriving identity rebuilds that entry and keeps its touched
-	 * values through the engine's shared snapshot/restore path, since it is
-	 * the same human's answers (identity-backed reads still re-evaluate).
+	 * Replacing an identity discards: a sign-out or a different worker is a
+	 * different evaluation world, and restoring would leak one worker's
+	 * entries into another's session. A first identity is no exception:
+	 * the engine provider and the standalone harnesses install the session
+	 * through `installSessionIdentity`, which holds each entry until the
+	 * worker arrives, so a first identity finds no live entry there; on a
+	 * controller that never installs one, the answers its entries took with
+	 * no worker are not the arriving worker's.
 	 */
 	setPreviewIdentity(identity: ResolvedPreviewIdentity | null): void {
 		if (samePreviewIdentity(this.previewIdentity, identity)) {
 			this.previewIdentity = identity;
 			return;
 		}
-		const coldIdentityArrival =
-			this.previewIdentity === null && identity !== null;
 		this.previewIdentity = identity;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) {
@@ -1646,23 +1641,15 @@ export class EngineController {
 				return;
 			}
 			/* A rebuild waiting for lookup data resumes the same entry with its
-			 * answers, which belong to the previous worker unless this is the
-			 * same human's session arriving; a different worker starts anew. */
+			 * answers, which belong to the previous worker: this one starts
+			 * anew. */
 			const wait = this.lookupWait;
-			if (wait?.resume !== undefined && !coldIdentityArrival)
+			if (wait?.resume !== undefined)
 				this.lookupWait = { formUuid: wait.formUuid };
 			return;
 		}
-		if (coldIdentityArrival) {
-			if (this.xpathRuntime) {
-				this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
-					() => undefined,
-				);
-			} else this.rebuildActiveForm(formUuid, this.activeCaseData);
-			return;
-		}
-		// A different concrete worker (or sign-out) is a new answer world,
-		// not a same-entry rebuild. Rotate the capture namespace with it.
+		// A different worker (or sign-out) is a new answer world, not a
+		// same-entry rebuild. Rotate the capture namespace with it.
 		if (this.xpathRuntime) {
 			this.activateFormAsync(formUuid, this.activeCaseData).catch(
 				() => undefined,
@@ -1796,8 +1783,7 @@ export class EngineController {
 	 * against a session that is not the worker's: a session that stops
 	 * resolving holds the entry before the identity goes, and an arriving one
 	 * installs the identity before the held entry opens. The engine provider
-	 * is the one caller; a controller that never calls it runs without a
-	 * worker, as Vitest and the field harnesses do.
+	 * and the standalone field harnesses install their session here.
 	 */
 	installSessionIdentity(identity: ResolvedPreviewIdentity | null): void {
 		if (identity === null) {
@@ -2406,9 +2392,15 @@ export class EngineController {
 	}
 
 	/**
-	 * Rebuild the same live entry after cold identity/lookup/case context arrives.
-	 * The answer world may be reconstructed, but the upload namespace must not
-	 * rotate underneath already staged captures.
+	 * Rebuild the same live entry when context it already runs in changes:
+	 * lookup data or case context arriving, the case database, the worker
+	 * language, the session's device naming a different install id, or an
+	 * edit to the form's type, case type, case selection or worker
+	 * properties. The answer world may be
+	 * reconstructed, but the upload namespace must not rotate underneath
+	 * already staged captures. An identity never takes this path: a different
+	 * worker, a first one included, starts the entry anew
+	 * (`setPreviewIdentity`).
 	 */
 	rebuildActiveForm(
 		formUuid: Uuid,

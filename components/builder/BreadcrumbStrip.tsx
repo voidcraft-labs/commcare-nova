@@ -41,12 +41,13 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { moduleShowsFormsInMenuAbove } from "@/lib/domain";
+import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import {
 	previewCaseListReturn,
+	previewMenuHeldSelections,
 	previewMenuSelectionsLetGo,
 	previewTargetAboveForm,
-	previewTargetHoldingMenu,
 } from "@/lib/preview/menuProjection";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -60,6 +61,7 @@ import {
 	usePreviewAtDeviceHome,
 	usePreviewCaseTarget,
 	usePreviewing,
+	usePreviewMenuCaseSelections,
 	usePreviewPlatformRules,
 	usePreviewSelectedCase,
 	useSetPreviewAtDeviceHome,
@@ -163,6 +165,25 @@ export function BreadcrumbStrip() {
 		[orderedModules],
 	);
 
+	/* The cases a running menu screen holds, each named in its trail. */
+	const menuSource = usePreviewMenuSource();
+	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const renderedMenuUuid =
+		renderedPreviewScreen.type === "module"
+			? renderedPreviewScreen.moduleUuid
+			: undefined;
+	const menuHeldCases = useMemo(
+		() =>
+			previewing && renderedMenuUuid !== undefined
+				? previewMenuHeldSelections(
+						menuSource,
+						renderedMenuUuid,
+						menuCaseSelections,
+					)
+				: [],
+		[menuCaseSelections, menuSource, previewing, renderedMenuUuid],
+	);
+
 	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
 		if (!previewing) return breadcrumbs;
 		return previewBreadcrumbTrail({
@@ -178,8 +199,10 @@ export function BreadcrumbStrip() {
 			atDeviceHome,
 			appName,
 			screenlessModuleUuids,
+			menuHeldCases,
 		});
 	}, [
+		menuHeldCases,
 		appName,
 		screenlessModuleUuids,
 		atDeviceHome,
@@ -238,17 +261,27 @@ export function BreadcrumbStrip() {
 				};
 			}
 			if (holder !== undefined) {
-				/* The menu that holds the case: a case list's own form menu
-				 * holds it through the target, a menu screen through its
-				 * selection, which stays with the selections above it. */
+				/* The menu that holds the case. A case list's own form menu, on
+				 * the crumb of a form chosen there, holds the cases the crumb
+				 * names on a history entry of its own, reached again by a step
+				 * back where the form was opened from it
+				 * (`navigate.reopenPreviewHeldMenu`). A menu screen holds the
+				 * case in its selection, which stays with the selections above
+				 * it, and lets a form's target go, whatever list chose it. */
+				const caseListMenu = item.holdsCaseListMenu;
 				return () => {
-					const target = sessionApi.getState().previewCaseTarget;
-					setPreviewCaseTarget(
-						target?.formChosenAfterCase?.fromCaseListMenu === true
-							? previewTargetHoldingMenu(target, true)
-							: previewTargetAboveForm(target),
-					);
 					letGo({ moduleUuid: holder, through: true });
+					if (caseListMenu !== undefined && caseListMenu.length > 0) {
+						navigate.reopenPreviewHeldMenu({
+							moduleUuid: holder,
+							cases: caseListMenu,
+							session: sessionApi.getState().previewSessionId,
+						});
+						return;
+					}
+					setPreviewCaseTarget(
+						previewTargetAboveForm(sessionApi.getState().previewCaseTarget),
+					);
 					navigate.push(item.location);
 				};
 			}

@@ -189,9 +189,15 @@ list's filter, columns, order and Results read and the Search action's
 condition the list's, the Search screen's starting and hidden values and
 checks the search's, a form's the form's, the links after it the links', and
 an unnamed read a menu's display condition; and for the worker the session
-runs as, by the persona's name. A refusal met after a submission saved (the
-links' conditions, the next screen's menu) keeps the save and is the
-observation's `nextTaskError`, as Preview shows it on the saved form.
+runs as, by the persona's name. The Search screen opens as Preview opens it
+(`engine/searchRunState.ts::openSearchRunState`, through
+`engine/searchEvaluation.ts::evaluateSearchSnapshot`): a menu that opens on
+its search or its results refuses as it opens, and a list that opens first
+keeps its records, holds no search, observes `search.refusal` and refuses
+the `search` action, as Preview's Search pane shows the refusal. A refusal
+met after a submission saved (the links' conditions, the next screen's menu
+or list) keeps the save and is the observation's `nextTaskError`, as Preview
+shows it on the next step (`__tests__/dataRefusal.postgres.test.ts`).
 
 Retained sessions expose held-open interleavings: open a form in A, submit in B,
 then observe or submit A. Explicit sync refreshes only the addressed session's

@@ -100,8 +100,9 @@ export function BuilderFormEngineProvider({
 	 * install we did in this component's own `useEffect` would land too
 	 * late — descendants would already have called `activateForm` against
 	 * an unwired controller. For the identity that lateness would mean
-	 * every warm-session form mount builds its engine identity-less and
-	 * immediately rebuilds when the parent effect lands. The `useState`
+	 * every warm-session form mount opens its entry with no worker and no
+	 * hold, and the parent effect's install then discards that entry and
+	 * starts it again for the worker (`setPreviewIdentity`). The `useState`
 	 * initializer runs during render, before any descendant mounts, so
 	 * both are in place before anyone needs them (`previewAsMe` is pure,
 	 * and Better Auth resolves a warm client session synchronously). */

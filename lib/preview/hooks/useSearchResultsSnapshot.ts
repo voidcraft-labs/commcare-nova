@@ -24,12 +24,14 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
-import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, CaseType, LanguageTag, Uuid } from "@/lib/domain";
 import { loadSearchResultsSnapshotAction } from "@/lib/preview/engine/caseDataBinding";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { ParentCaseSelection } from "@/lib/preview/engine/caseDataBindingTypes";
 import { previewDataRefusalSubject } from "@/lib/preview/engine/dataRefusal";
+import type { PreviewLookupData } from "@/lib/preview/engine/lookupEvaluation";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
+import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import type {
 	LoadSearchResultsSnapshotResult,
 	SearchResultsSnapshot,
@@ -63,11 +65,22 @@ export type SearchResultsSnapshotState =
 			readonly reason?: "device-cases";
 	  };
 
+/** Who and what a refusal's copy names: the language the worker reads, the
+ *  persona the session runs as (absent previewing as oneself), and the
+ *  lookup data a table is named from, as Preview's refusal panel names
+ *  them (`PreviewDataRefusal.tsx`). */
+export interface SearchRefusalNames {
+	readonly language?: LanguageTag;
+	readonly worker?: string;
+	readonly lookup?: PreviewLookupData;
+}
+
 /** What one load of the snapshot leaves the form with. A search its inputs
  * or settings refuse keeps its own message and is not retried; any other
  * failure can be tried again. */
 export function searchResultsLoadState(
 	loaded: LoadSearchResultsSnapshotResult,
+	names: SearchRefusalNames = {},
 ): Exclude<SearchResultsSnapshotState, { kind: "idle" | "loading" }> {
 	switch (loaded.kind) {
 		case "data":
@@ -83,9 +96,10 @@ export function searchResultsLoadState(
 		 * and trying again finds the same. */
 		case "data-refused": {
 			const copy = dataRefusalCopy(
-				undefined,
+				names.language,
 				"search",
-				previewDataRefusalSubject(loaded.reason, undefined),
+				previewDataRefusalSubject(loaded.reason, names.lookup),
+				names.worker === undefined ? {} : { worker: names.worker },
 			);
 			return { kind: "invalid-search", message: `${copy.title}. ${copy.body}` };
 		}
@@ -147,7 +161,7 @@ export function useSearchResultsSnapshot(args: {
 	readonly searchState: PreviewSearchState | undefined;
 	readonly parentCase?: ParentCaseSelection;
 	readonly caseTypes: readonly CaseType[];
-	readonly language: string;
+	readonly language: LanguageTag;
 }): { readonly state: SearchResultsSnapshotState; readonly retry: () => void } {
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
@@ -202,17 +216,21 @@ export function useSearchResultsSnapshot(args: {
 	 * whether one starts. */
 	const csqlRuntime =
 		deviceValues.kind === "ready" ? deviceValues.value : undefined;
+	const lookupStatus = usePreviewLookupStatus();
+	const lookup = lookupStatus.kind === "data" ? lookupStatus.data : undefined;
 	const latest = useRef({
 		...args,
 		personaUuid,
 		csqlRuntime,
 		device,
+		lookup,
 	});
 	latest.current = {
 		...args,
 		personaUuid,
 		csqlRuntime,
 		device,
+		lookup,
 	};
 	const [result, setResult] = useState<{
 		readonly key: string;
@@ -266,9 +284,17 @@ export function useSearchResultsSnapshot(args: {
 		}).then(
 			(loaded) => {
 				if (!current) return;
+				const worker =
+					input.personaUuid === undefined
+						? undefined
+						: input.doc.personas?.[input.personaUuid]?.name;
 				setResult({
 					key,
-					state: searchResultsLoadState(loaded),
+					state: searchResultsLoadState(loaded, {
+						language: input.language,
+						...(worker === undefined ? {} : { worker }),
+						...(input.lookup === undefined ? {} : { lookup: input.lookup }),
+					}),
 				});
 			},
 			() => {

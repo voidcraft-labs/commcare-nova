@@ -57,6 +57,29 @@ is separate and remains the running case-record deep link.
 
 Navigation uses `pushState` / `replaceState` directly. Calling Next's router for selection changes triggers a server-side RSC re-render for every click, which is catastrophic on a canvas where selection flips constantly. The history events still work (back/forward traverse them), but we pay zero server cost for same-app navigation.
 
+One Preview step lives in history state rather than the path: a case
+list's own form menu holding its chosen cases (`previewHeldMenu.ts`). It is an
+entry at the list's URL whose state carries the held cases and the Preview
+session that held them, written only by `navigate.holdPreviewMenu` (pushed
+after the list, or replacing the case's details the choice went through) and
+`navigate.reopenPreviewHeldMenu` (a case crumb on a form chosen there, which
+steps back onto the menu where the form was opened from it, and otherwise
+pushes the menu again). `previewHeldMenu.ts::builderEntryState` decides every
+write's state and `useClientPath.ts` applies it: every other write drops the
+mark, so no entry inherits a menu it did not open, and each pushed entry
+records the entry it was pushed after (a replace keeps the replaced entry's),
+which is how a menu knows its list's entry is behind it (`afterList`) and how
+a form knows the menu is. `usePreviewHeldMenu` reads the current entry's, on
+writes and on Back and Forward alike, and the list honors it only in the
+session that took it (`menuProjection.ts::previewCaseListHeldChoices`). A
+language change is a lens on the screen, so `pushBuilderLensHistory` keeps the
+mark one lens deeper, and `stepBackOffPreviewHeldMenu` (the menu's own Back)
+steps past the menu's entries at once and keeps the language where its list's
+entry is behind it, and otherwise shows the list in the menu's own entry
+(`previewHeldMenuBack`). A stale Project generation's entry loses the mark,
+and the entry it was pushed after, with its case link
+(`reconcileBuilderHistoryEntry`), since the held cases are Project data.
+
 The `lang` query parameter is the independent worker-content lens. Path
 serialization changes only the location path and preserves the current query;
 changing language changes only that parameter and preserves the typed location.
@@ -70,7 +93,7 @@ shared field link and back/forward history must reopen in the same locale.
 
 For a module with the case list in its menu (`caseListMenuItem`) that has neither forms nor child menus (`moduleIsBareCaseList`), the module IS its Results screen, so its trail collapses: the module crumb points at `{kind:"cases"}` and the redundant trailing "Results" crumb is dropped. Such a module with children instead points at `{kind:"module"}` so its menu remains reachable, with Results as a separate destination. Beside forms the entry is one more destination on the module's menu, and the trail does not collapse. The same identity drives `recoverLocation` (`location.ts`): a Search / Results / Details location whose module has no case type (e.g. the type was cleared, which also drops its case list menu entry) degrades to `{kind:"module"}` rather than stranding the user on a blank workspace.
 
-**`previewCaseTargetBindsLocation(loc, target)` is the one predicate both consumers gate on** — `PreviewShell` grafts the bound `caseId` onto the form with it, the breadcrumb names the bound case with it. Anything that reads `previewCaseTarget` to decide "is this form's case the active one?" MUST go through it, or the loaded case and the displayed case can drift again (the original bug: a follow-up's case named on a register form that never loaded it). A case-loading form chosen before its case reads form then case, and its crumb carries `reselectCaseFor`, so clicking it re-opens the case list holding the form rather than re-navigating to the form you're already on. A form chosen from the menu after its case reads case then form, in the session's order as Web Apps' trail does, and the case's crumb carries `holdsCaseOn`: clicking it reaches that menu with the case held. In Preview each crumb cuts the session back to the screen it names, as Web Apps' breadcrumb does (`BreadcrumbStrip`, `menuProjection.ts::previewMenuSelectionsLetGo`).
+**`previewCaseTargetBindsLocation(loc, target)` is the one predicate both consumers gate on** — `PreviewShell` grafts the bound `caseId` onto the form with it, the breadcrumb names the bound case with it. Anything that reads `previewCaseTarget` to decide "is this form's case the active one?" MUST go through it, or the loaded case and the displayed case can drift again (the original bug: a follow-up's case named on a register form that never loaded it). A case-loading form chosen before its case reads form then case, and its crumb carries `reselectCaseFor`, so clicking it re-opens the case list holding the form rather than re-navigating to the form you're already on. A form chosen from the menu after its case reads case then form, in the session's order as Web Apps' trail does, and the case's crumb carries `holdsCaseOn`: clicking it reaches that menu with the case held. A running menu screen names each case its session holds after the crumb of the menu that chose it (`menuHeldCases`), with the same `holdsCaseOn` crumb, which reaches that menu screen whatever case target a list's form menu left in the session. In Preview each crumb cuts the session back to the screen it names, as Web Apps' breadcrumb does (`BreadcrumbStrip`, `menuProjection.ts::previewMenuSelectionsLetGo`); the crumb of a case a list's own form menu holds also carries those cases (`holdsCaseListMenu`) and reaches that menu's history entry again (`navigate.reopenPreviewHeldMenu`).
 
 App setup's **Deep links** section owns `/setup/deep-links/{entryPointUuid}`.
 The optional entry-point UUID selects its detail; it is not ephemeral local

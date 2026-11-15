@@ -261,6 +261,34 @@ describe("BuilderSession store", () => {
 		expect(store.getState().previewPersonaUuid).toBeUndefined();
 	});
 
+	it("starts a new Preview session for another worker, platform or run, and keeps it through navigation", () => {
+		const store = createBuilderSessionStore();
+		const sessions = new Set<string>();
+		/** The session the store runs after `act`, which must be new. */
+		const startsOver = (act: () => void) => {
+			act();
+			const id = store.getState().previewSessionId;
+			expect(sessions.has(id)).toBe(false);
+			sessions.add(id);
+		};
+		sessions.add(store.getState().previewSessionId);
+		startsOver(() => store.getState().setPreviewing(true));
+		startsOver(() => store.getState().setPreviewPersonaUuid("persona-a"));
+		startsOver(() => store.getState().setPreviewPlatform("android"));
+		const running = store.getState().previewSessionId;
+		// The worker's own steps keep the session a held menu was taken in.
+		store.getState().setPreviewMenuCaseSelection("menu", {
+			caseType: "patient",
+			cases: [{ caseId: "ana" }],
+		});
+		store.getState().setPreviewCaseTarget({ formUuid: testUuid("form") });
+		store.getState().clearPreviewNavigation();
+		// Choosing the worker already running changes nothing.
+		store.getState().setPreviewPersonaUuid("persona-a");
+		expect(store.getState().previewSessionId).toBe(running);
+		startsOver(() => store.getState().setPreviewing(false));
+	});
+
 	it("4. setPreviewing(true) with chat already closed: restores chat-closed state exactly", () => {
 		const store = createBuilderSessionStore();
 
@@ -375,28 +403,10 @@ describe("BuilderSession store", () => {
 		});
 
 		/* So is every other fact of the same form and cases: where the form
-		 * was chosen (the menu's held case lets go, and is held again, by the
-		 * mark alone), the list's search text, and a link's opening. */
+		 * was chosen, the list's search text, and a link's opening. */
 		const menuModuleUuid = testUuid("module-1");
 		const cases = [{ caseId: "case-1" }];
 		for (const target of [
-			{
-				formUuid,
-				cases,
-				formChosenAfterCase: {
-					caseListModuleUuid: menuModuleUuid,
-					fromCaseListMenu: true as const,
-				},
-			},
-			{
-				formUuid,
-				cases,
-				formChosenAfterCase: {
-					caseListModuleUuid: menuModuleUuid,
-					fromCaseListMenu: true as const,
-					steppedPastMenu: true as const,
-				},
-			},
 			{
 				formUuid,
 				cases,

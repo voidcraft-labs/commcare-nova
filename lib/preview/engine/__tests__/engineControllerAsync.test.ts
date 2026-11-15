@@ -27,7 +27,7 @@ import {
 	EngineController,
 	type EngineValidationCompletion,
 } from "../engineController";
-import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
+import type { ResolvedPreviewIdentity } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import {
 	admittedControllerDoc,
@@ -35,8 +35,20 @@ import {
 	type ControllerDocSource,
 	type ControllerFieldSource,
 } from "./fixtures/controllerDoc";
-import { androidDevice } from "./fixtures/previewDevices";
+import {
+	androidDevice,
+	TEST_ANDROID_DEVICE_ID,
+} from "./fixtures/previewDevices";
 import { sectionEntryDoc } from "./fixtures/sectionEntry";
+
+/** The install id of the session's Android device, which arrives after an
+ *  entry began on another: the same platform, so the entry rebuilds in
+ *  place with its context healed. */
+const ARRIVING_DEVICE_ID = "5b7d0c1e-2f43-4a65-8b9c-0d1e2f3a4b5c";
+const arrivingAndroidDevice = () => ({
+	...androidDevice(),
+	androidDeviceId: ARRIVING_DEVICE_ID,
+});
 
 const controllers = new Set<EngineController>();
 function ownedController(
@@ -1471,8 +1483,8 @@ it.each([false, true])(
 			uuid: who,
 			id: "who",
 			kind: "text",
-			label: proseText("Worker"),
-			default_value: "#user/username",
+			label: proseText("Device"),
+			default_value: "instance('commcaresession')/session/context/deviceid",
 		};
 		doc.fieldOrder[assets.uuid].push(selected, who);
 		const store = createBlueprintDocStore();
@@ -1500,14 +1512,14 @@ it.each([false, true])(
 			value: "",
 			edited: true,
 		});
-		ctrl.setPreviewIdentity(
-			previewAsMe({ id: "worker-1", email: "inspector@example.org" }),
-		);
+		/* The session's device arriving on the same platform heals the same
+		 * entry's context in place. */
+		ctrl.setPreviewDevice(arrivingAndroidDevice());
 		await ctrl.awaitSettled();
 		expect(ctrl.entryKey).toBe(entry);
 		expect(ctrl.store.getState()[`${row}/selected`]?.value).toBe("tank");
 		expect(ctrl.store.getState()[`${row}/who`]?.value).toBe(
-			"inspector@example.org",
+			`commcare_${ARRIVING_DEVICE_ID}`,
 		);
 		expect(ctrl.store.getState()[`${row}/note`]).toMatchObject({
 			value: "",
@@ -1614,15 +1626,15 @@ it.each([false, true])(
 			id: "rounds",
 			kind: "repeat",
 			repeat_mode: "query_bound",
-			data_source: { ids_query: "if(#user/username = '', '', 'round')" },
+			data_source: {
+				ids_query: `if(instance('commcaresession')/session/context/deviceid = 'commcare_${TEST_ANDROID_DEVICE_ID}', '', 'round')`,
+			},
 		};
 		const ctrl = controllerForDoc(doc);
 		ctrl.setPreviewDevice(androidDevice());
 		await ctrl.activateFormAsync(form);
 		if (visited) await ctrl.enterSectionAsync(second.uuid);
-		ctrl.setPreviewIdentity(
-			previewAsMe({ id: "worker-1", email: "inspector@example.org" }),
-		);
+		ctrl.setPreviewDevice(arrivingAndroidDevice());
 		await ctrl.awaitSettled();
 		await ctrl.enterSectionAsync(second.uuid);
 		expect(ctrl.store.getState()[rounds.uuid]?.repeatCount).toBe(
@@ -1632,24 +1644,23 @@ it.each([false, true])(
 	},
 );
 
-it("applies a cold identity arriving alongside a presentation rebuild", async () => {
+it("applies the session's device arriving alongside a presentation rebuild", async () => {
 	const ctrl = controller({
 		uuid: FIELD_UUID,
-		id: "who",
+		id: "device",
 		kind: "text",
-		label: proseText("Worker"),
-		default_value: "#user/username",
+		label: proseText("Device"),
+		default_value: "instance('commcaresession')/session/context/deviceid",
 	});
+	ctrl.setPreviewDevice(androidDevice());
 	await ctrl.activateFormAsync(FORM_UUID);
 	const entry = ctrl.entryKey;
 	ctrl.setPresentationLanguage("en");
-	ctrl.setPreviewIdentity(
-		previewAsMe({ id: "worker-1", email: "inspector@example.org" }),
-	);
+	ctrl.setPreviewDevice(arrivingAndroidDevice());
 	await ctrl.awaitSettled();
 	expect(ctrl.entryKey).toBe(entry);
 	expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe(
-		"inspector@example.org",
+		`commcare_${ARRIVING_DEVICE_ID}`,
 	);
 	expect(ctrl.entryStore.getState().fault).toBeUndefined();
 });

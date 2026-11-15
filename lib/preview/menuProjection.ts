@@ -918,64 +918,114 @@ export function previewCaseListReturn(
 		: { moduleUuid: form.moduleUuid, target: { formUuid: form.formUuid } };
 }
 
-/**
- * The cases a case list shows its form menu for as it opens: those of the
- * target's form, where the worker chose it from this list's own form menu
- * after choosing them here (`fromCaseListMenu`) and has not stepped back past
- * that menu since (`steppedPastMenu`), and none otherwise. The session holds
- * the cases beneath the form's command, so a step back off the form lands on
- * that menu with them held (`CommCareSession.stepBack` pops the form's
- * command and stops where the session waits for a command, `shouldPopNext`),
- * and only a second step back reaches the list with nothing chosen. A list
- * that continues into a menu of its own (a module with submenus) holds the
- * case on that menu instead, so its list holds nothing here.
- */
-export function previewCaseListHeldChoices(
-	target: PreviewCaseListTarget | undefined,
-	list: {
-		readonly moduleUuid: Uuid;
-		readonly caseLoadingFormUuids: readonly Uuid[];
-		/** What choosing a case on the list goes on to
-		 *  (`previewCaseListContinuation`). */
-		readonly continuation: PreviewCaseListContinuation;
-	},
-): readonly PreviewCaseChoice[] | undefined {
-	const chosenAfter = target?.formChosenAfterCase;
-	if (
-		target === undefined ||
-		chosenAfter === undefined ||
-		list.continuation !== "form-menu" ||
-		chosenAfter.fromCaseListMenu !== true ||
-		chosenAfter.steppedPastMenu === true ||
-		chosenAfter.caseListModuleUuid !== list.moduleUuid ||
-		!list.caseLoadingFormUuids.includes(target.formUuid) ||
-		target.cases === undefined ||
-		target.cases.length === 0
-	)
-		return undefined;
-	return target.cases;
+/** A case list's own form menu, held with its chosen cases: the step of
+ *  the session between choosing the cases on the list and choosing a form,
+ *  which Preview keeps on its own history entry
+ *  (`lib/routing/previewHeldMenu.ts`). `session` is the worker's Preview
+ *  session that took the step (the session store's `previewSessionId`). */
+export interface PreviewHeldCaseListMenu {
+	readonly moduleUuid: Uuid;
+	readonly cases: readonly PreviewCaseChoice[];
+	readonly session: string;
 }
 
 /**
- * The case target with the form's menu holding its case or not. A step back
- * off the form's menu to its list (`held` false) lets the case go
- * (`steppedPastMenu`); the form showing again, or the trail's crumb of its
- * case, holds the case beneath the form once more (`held` true), so a step
- * back lands on the menu again. The target keeps its form and cases either
- * way, and a target the mark does not describe is returned as it is.
+ * The cases a case list shows its form menu for: those the step it shows
+ * holds, where the worker chose them on this list and the list goes on into
+ * its own form menu, and none otherwise. Choosing the cases opens that step,
+ * and choosing a form from its menu opens the form above it, so a step back
+ * off the form lands on the menu with the cases held
+ * (`CommCareSession.stepBack` pops the form's command and stops where the
+ * session waits for a command, `shouldPopNext`), and a step back off the
+ * menu reaches the list with nothing chosen. A list that continues into a
+ * menu of its own (a module with submenus) holds the case on that menu
+ * instead, so its list holds nothing here. A step another session took holds
+ * nothing either: a case the previous worker, platform or Preview run chose
+ * has no standing in the session running now.
  */
-export function previewTargetHoldingMenu<T extends PreviewCaseListTarget>(
-	target: T,
-	held: boolean,
-): T {
-	const chosenAfter = target.formChosenAfterCase;
-	if (chosenAfter?.fromCaseListMenu !== true) return target;
-	if (held === (chosenAfter.steppedPastMenu !== true)) return target;
-	const { steppedPastMenu: _held, ...rest } = chosenAfter;
-	return {
-		...target,
-		formChosenAfterCase: held ? rest : { ...rest, steppedPastMenu: true },
+export function previewCaseListHeldChoices(
+	held: PreviewHeldCaseListMenu | undefined,
+	list: {
+		readonly moduleUuid: Uuid;
+		/** What choosing a case on the list goes on to
+		 *  (`previewCaseListContinuation`). */
+		readonly continuation: PreviewCaseListContinuation;
+		/** The worker's Preview session running now. */
+		readonly session: string;
+	},
+): readonly PreviewCaseChoice[] | undefined {
+	if (
+		held === undefined ||
+		list.continuation !== "form-menu" ||
+		held.moduleUuid !== list.moduleUuid ||
+		held.session !== list.session ||
+		held.cases.length === 0
+	)
+		return undefined;
+	return held.cases;
+}
+
+/** A case the session holds, with the module whose case list chose it. */
+export interface PreviewHeldCaseSelection {
+	readonly moduleUuid: Uuid;
+	readonly cases: readonly PreviewCaseChoice[];
+}
+
+/**
+ * The cases the session holds before a module's own case is chosen, in the
+ * order they were chosen: its parent case, chosen first, and that one's
+ * parent before it (`previewMenuCaseContext`'s `parentCase`). The wire's
+ * entry lists the same chain root first
+ * (`formLinkProjection.ts::entrySessionDatums`).
+ */
+export function previewSelectionsBefore(
+	source: PreviewMenuSource,
+	moduleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+): PreviewHeldCaseSelection[] {
+	const chain: PreviewHeldCaseSelection[] = [];
+	const seen = new Set<string>([moduleUuid]);
+	let current: Uuid = moduleUuid;
+	for (;;) {
+		const context = previewMenuCaseContext(source, current, selections);
+		const parent = context.parentModuleUuid;
+		if (
+			context.parentCase === undefined ||
+			parent === undefined ||
+			seen.has(parent)
+		)
+			break;
+		seen.add(parent);
+		chain.unshift({ moduleUuid: parent, cases: context.parentCase.cases });
+		current = parent;
+	}
+	return chain;
+}
+
+/**
+ * The cases a module's menu holds, in the order they were chosen: those
+ * chosen before its own (`previewSelectionsBefore`), then its own where it is
+ * chosen, with the list that chose it (its own, or the menu above whose
+ * same-type case it goes on with).
+ */
+export function previewMenuHeldSelections(
+	source: PreviewMenuSource,
+	moduleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+): PreviewHeldCaseSelection[] {
+	const context = previewMenuCaseContext(source, moduleUuid, selections);
+	if (context.selectedCase === undefined)
+		return previewSelectionsBefore(source, moduleUuid, selections);
+	const own: PreviewHeldCaseSelection = {
+		moduleUuid: context.selectedByModuleUuid ?? moduleUuid,
+		cases: context.selectedCase.cases,
 	};
+	return [
+		...previewSelectionsBefore(source, moduleUuid, selections).filter(
+			(selection) => selection.moduleUuid !== own.moduleUuid,
+		),
+		own,
+	];
 }
 
 /**

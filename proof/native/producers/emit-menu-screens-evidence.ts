@@ -738,9 +738,10 @@ let loneFormStepBacks = 0;
  *
  * `oneStepBack` is the screen one Back lands on: `menu`, the screen's menu
  * with the case held, where the form was chosen after its case (the list's
- * own form menu where `previewCaseListHeldChoices` holds the case as the list
- * shows, a menu screen where `previewMenuScreenLanding` lists its forms for
- * the case its selection holds), else `case-list`, where the list holds the
+ * own form menu where `previewCaseListHeldChoices` holds the case on the
+ * history entry choosing it opened, which the form was opened from, a menu
+ * screen where `previewMenuScreenLanding` lists its forms for the case its
+ * selection holds), else `case-list`, where the list holds the
  * form. `afterStepBack` is the form's command where the list a route back
  * reaches (`previewCaseListReturn`) opens the form once a case is chosen
  * (`previewCaseListFormRequest`, then `previewRequestedForm`), or null where
@@ -842,14 +843,22 @@ function stepBacksOf(
 								? previewCaseListMenuChoice(listModuleUuid)
 								: previewMenuScreenChoice(source, entry.moduleUuid, selections),
 						};
-			/* One step back: the list shows its form menu for the held case
-			 * (`previewCaseListHeldChoices`), or the menu screen lands on its
-			 * menu for the case its selection holds (`previewMenuScreenLanding`). */
-			const heldOnList = previewCaseListHeldChoices(chosen, {
-				moduleUuid: listModuleUuid,
-				caseLoadingFormUuids: caseLoadingOf(listModuleUuid),
-				continuation: previewCaseListContinuation(doc, listModuleUuid),
-			});
+			/* One step back: the list's history entry the form was opened from,
+			 * where choosing the case on the list held its form menu
+			 * (`CaseListScreen`'s `holdFormMenu`), shows that menu for the held
+			 * case (`previewCaseListHeldChoices`), or the menu screen lands on
+			 * its menu for the case its selection holds
+			 * (`previewMenuScreenLanding`). */
+			const heldOnList = previewCaseListHeldChoices(
+				reading.chosen !== undefined && listsOwnFormMenu
+					? { moduleUuid: listModuleUuid, cases, session: "worker" }
+					: undefined,
+				{
+					moduleUuid: listModuleUuid,
+					continuation: previewCaseListContinuation(doc, listModuleUuid),
+					session: "worker",
+				},
+			);
 			const menuHoldsCase =
 				reading.chosen !== undefined &&
 				!listsOwnFormMenu &&

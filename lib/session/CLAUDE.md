@@ -29,6 +29,16 @@ The running menu keeps three distinct case facts, and they must not collapse:
   compatible same-type child may reuse it without turning the Form target into
   shared state.
 
+`previewSessionId` names the worker's running Preview session. It is new each
+time the session starts over: entering or leaving Preview, a change of
+worker or platform, an entry point's launch, a confirmed Project change and
+`reset()`; a store made on a page load starts with its own. The worker's own
+steps (menu selections, case targets, Home) keep it. A step the browser's
+history keeps, a case list's held form menu (`lib/routing/previewHeldMenu.ts`),
+records the session that took it and stands only in that session, so Back
+onto it after a change of worker shows the list rather than the previous
+worker's case.
+
 `previewParentCaseRequest` is a separate selector plus ordered return chain, so
 multi-level case ancestry can visit each required selector before the original
 module. A direct running leaf also records its exact `resumeLocation` (including

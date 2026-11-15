@@ -4,7 +4,8 @@
 // starting-layout menu, the grid itself, the columns hidden from
 // Results that the tile leaves out of its search, and the one setting
 // that belongs to the layout rather than to a field: whether the tile
-// stays on screen above this module's forms.
+// stays on screen once its case is chosen, above the menu it opens and the
+// forms (`lib/preview/pinnedCaseTile.ts`).
 
 "use client";
 
@@ -116,7 +117,7 @@ export function TileLayoutCanvas({
 			{canEdit && (
 				<ToggleRow
 					label="Keep the tile on screen during forms"
-					description="Workers see the case they picked above every question in this module."
+					description="Workers see the case they picked above the menu it opens and above every question of its forms."
 					checked={tile.persistOnForms === true}
 					onChange={onPersistOnFormsChange}
 				/>

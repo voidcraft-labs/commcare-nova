@@ -28,6 +28,12 @@
  *   Preview; it offers the list beside Age's ordering only disabled, with
  *   the gate's reason. Four clients live in four regions.
  *
+ * - **search-start-refused**: a menu whose forms read the search, whose one
+ *   Search field starts on the worker's primary place, and whose visit form
+ *   has a deep link. Opened through that link with no search behind it, the
+ *   form reads the field's starting value as a phone builds the search it
+ *   reads, and for a worker assigned nowhere a phone stops there.
+ *
  * - **preview-android-media**: an app that runs only on Android whose one
  *   question's label carries an AMR recording, which only Android plays, so
  *   Preview, which plays media in the browser, shows its line in the player's
@@ -55,6 +61,7 @@ import {
 	literal,
 	matchAll,
 	prop,
+	sessionUser,
 	term,
 	whenInput,
 	within,
@@ -692,5 +699,92 @@ export function registerFromListRoute(appId: string): string {
 	return buildUrl(`/build/${appId}`, {
 		kind: "cases",
 		moduleUuid: REGISTER_FROM_LIST_SEED.hostUuid,
+	});
+}
+
+export const SEARCH_START_REFUSED_SEED = {
+	appName: "Smoke — Search start refused",
+	moduleUuid: testUuid("search-start-refused-module"),
+	moduleName: "Patients",
+	formUuid: testUuid("search-start-refused-form"),
+	formName: "Visit",
+	caseType: "patient",
+	columnUuid: testUuid("search-start-refused-name-column"),
+	searchInputUuid: testUuid("search-start-refused-place-input"),
+	prompt: { name: "place", label: "Place" },
+	noteLabel: "Visit note",
+	entryPoint: {
+		uuid: testUuid("search-start-refused-entry-point"),
+		id: "visit_patient",
+	},
+	patient: { caseName: "Kofi Mensah" },
+} as const;
+
+export function buildSearchStartRefusedBlueprint(appId: string): BlueprintDoc {
+	const seed = SEARCH_START_REFUSED_SEED;
+	const doc = buildDoc({
+		appId,
+		appName: seed.appName,
+		caseTypes: [
+			{
+				name: seed.caseType,
+				properties: [
+					{ name: "note", label: proseText(seed.noteLabel), data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: seed.moduleUuid,
+				name: seed.moduleName,
+				caseType: seed.caseType,
+				caseListConfig: {
+					columns: [plainColumn(seed.columnUuid, "case_name", "Patient")],
+					searchInputs: [
+						simpleSearchInputDef(
+							seed.searchInputUuid,
+							seed.prompt.name,
+							seed.prompt.label,
+							"text",
+							"case_name",
+							// The worker's primary place, which a worker assigned
+							// nowhere holds no key for.
+							{ default: term(sessionUser("commcare_location_id")) },
+						),
+					],
+				},
+				caseSearchConfig: { formsReadSearch: true },
+				forms: [
+					{
+						uuid: seed.formUuid,
+						name: seed.formName,
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: proseText(seed.noteLabel),
+								caseWrite: { caseType: seed.caseType, property: "note" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const form = doc.forms[seed.formUuid];
+	if (form === undefined) throw new Error("The visit form is missing.");
+	doc.forms[seed.formUuid] = {
+		...form,
+		entryPoint: { uuid: seed.entryPoint.uuid, id: seed.entryPoint.id },
+	};
+	return doc;
+}
+
+/** The deep link's own page in App setup, where Preview launches it. */
+export function searchStartRefusedRoute(appId: string): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "app-setup",
+		section: "deep-links",
 	});
 }

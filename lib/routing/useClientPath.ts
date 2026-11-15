@@ -13,12 +13,21 @@
 "use client";
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import type { PreviewHeldCaseListMenu } from "@/lib/preview/menuProjection";
 import {
 	type BuilderHistoryScope,
 	builderNavigationUrl,
 	reconcileBuilderHistoryEntry,
 	scopedBuilderHistoryState,
 } from "./historyPolicy";
+import {
+	type BuilderHistoryWrite,
+	builderEntryState,
+	previewHeldMenuBack,
+	previewHeldMenuIsPrevious,
+	previewHeldMenuOf,
+	readPreviewHeldMenu,
+} from "./previewHeldMenu";
 
 /** Module-level listener set for notifying subscribers of programmatic
  *  `pushState`/`replaceState` calls (which don't fire `popstate`). */
@@ -102,16 +111,120 @@ export function deactivateBuilderHistoryScope(scopeId: string): void {
 	if (activeProjectScope?.scopeId === scopeId) activeProjectScope = null;
 }
 
-/** The only write path for intra-builder screen history. */
-export function pushBuilderHistory(url: string, replace = false): void {
+/** The state of a builder history write from the current entry
+ * (`previewHeldMenu.ts::builderEntryState`), scoped to the active Project. */
+function writtenState(
+	write: (relative: string) => BuilderHistoryWrite,
+	relative: string,
+): Record<string, unknown> {
+	return builderEntryState(
+		{
+			pathname: window.location.pathname,
+			state: scopedBuilderHistoryState(
+				window.history.state,
+				activeProjectScope,
+			),
+		},
+		write(new URL(relative, window.location.href).pathname),
+	);
+}
+
+/** The only write path for intra-builder screen history. An entry carries a
+ * Preview case list's held form menu only where the write names one
+ * (`previewHeldMenu.ts`); every other entry drops it. */
+export function pushBuilderHistory(
+	url: string,
+	replace = false,
+	heldMenu?: PreviewHeldCaseListMenu,
+): void {
 	const relative = builderNavigationUrl(url, window.location.href);
-	const state = scopedBuilderHistoryState(
-		window.history.state,
-		activeProjectScope,
+	const state = writtenState(
+		(pathname) => ({ pathname, replace, held: heldMenu }),
+		relative,
 	);
 	if (replace) window.history.replaceState(state, "", relative);
 	else window.history.pushState(state, "", relative);
 	notifyPathChange();
+}
+
+/** A write that keeps the screen on show and changes only its lens (a
+ * language): a new entry that keeps the held form menu the current entry
+ * carries, one lens deeper (`previewHeldMenu.ts`). */
+export function pushBuilderLensHistory(url: string): void {
+	const relative = builderNavigationUrl(url, window.location.href);
+	const state = writtenState(
+		(pathname) => ({ pathname, lens: true }),
+		relative,
+	);
+	window.history.pushState(state, "", relative);
+	notifyPathChange();
+}
+
+/** A device's Back off a Preview case list's held form menu
+ * (`previewHeldMenu.ts::previewHeldMenuBack`): back past every entry of the
+ * menu's one step, its language changes included, to its list's entry before
+ * it, which takes the menu's language as it lands, since a device's Back keeps
+ * the language the worker reads; or, where no list entry is behind the menu
+ * (a menu a crumb opened again from a form, a deep-linked case's details with
+ * nothing before them), the menu's entry becomes the list's. */
+export function stepBackOffPreviewHeldMenu(): void {
+	const { pathname, search } = window.location;
+	const back = previewHeldMenuBack(window.history.state);
+	if (back.kind === "show-list") {
+		pushBuilderHistory(`${pathname}${search}`, true);
+		return;
+	}
+	/* The entry stepped back to exists, so the step always fires one
+	 * popstate, the listener's first and last. */
+	const keepLens = () => {
+		window.removeEventListener("popstate", keepLens);
+		if (
+			window.location.pathname !== pathname ||
+			window.location.search === search
+		)
+			return;
+		window.history.replaceState(
+			window.history.state,
+			"",
+			`${pathname}${search}${window.location.hash}`,
+		);
+		notifyPathChange();
+	};
+	window.addEventListener("popstate", keepLens);
+	window.history.go(-back.steps);
+}
+
+/** The crumb of the case a Preview case list's form menu holds: where the
+ * entry before this one is that menu's own (a form opened from it), a step
+ * back onto it, as a device's step back off the form lands there; otherwise
+ * the menu on an entry of its own (`previewHeldMenu.ts`). */
+export function reopenPreviewHeldMenu(
+	url: string,
+	held: PreviewHeldCaseListMenu,
+): void {
+	if (previewHeldMenuIsPrevious(window.history.state, held)) {
+		window.history.back();
+		return;
+	}
+	pushBuilderHistory(url, false, held);
+}
+
+function heldMenuSnapshot(): string {
+	const held = readPreviewHeldMenu(window.history.state);
+	return held === undefined ? "" : JSON.stringify(held);
+}
+
+/** The Preview case list's held form menu the current history entry carries
+ * (`previewHeldMenu.ts`). It changes with the entry, on a write and on Back
+ * and Forward, whose URL stays the list's, so it subscribes to the same
+ * notification channel as the path. */
+export function usePreviewHeldMenu(): PreviewHeldCaseListMenu | undefined {
+	const snapshot = useSyncExternalStore(subscribe, heldMenuSnapshot, () => "");
+	return useMemo(
+		() =>
+			snapshot === "" ? undefined : previewHeldMenuOf(JSON.parse(snapshot)),
+		[snapshot],
+	);
 }
 
 /** URL-owned builder query state. Uses the same history notification channel

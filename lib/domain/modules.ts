@@ -2341,11 +2341,13 @@ export function tileGroupHeaderRowChoices(
 
 export const caseTileLayoutSchema = z.strictObject({
 	/**
-	 * Keep the tile on screen above every form in this module.
+	 * Keep the tile on screen once a case is chosen from this list: above
+	 * the menu its case opens, the forms and every screen after it while the
+	 * session holds the case (`lib/preview/pinnedCaseTile.ts` says which).
 	 *
-	 * Emits as `detail-persistent="m{N}_case_short"` on the entry's
-	 * case datum; Web Apps renders it in the sticky
-	 * `#persistent-case-tile` region above the form
+	 * Emits as `detail-persistent="m{N}_case_short"` on each datum the list
+	 * chooses; Web Apps renders it in the sticky
+	 * `#persistent-case-tile` region above the screen
 	 * (`cloudcare/.../formplayer/menus/views.js::PersistentCaseTileView`,
 	 * stickiness from `.case-tile-container` in
 	 * `hqwebapp/static/cloudcare/scss/formplayer-webapp/case-tile.scss`).

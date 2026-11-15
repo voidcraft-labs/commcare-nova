@@ -46,6 +46,7 @@ import type { Location } from "@/lib/routing/types";
 import {
 	getBuilderPathSegmentsSnapshot,
 	pushBuilderHistory,
+	reopenPreviewHeldMenu,
 	subscribeBuilderPathChange,
 	useIsBuilderFieldPathSelected,
 } from "@/lib/routing/useClientPath";
@@ -74,6 +75,7 @@ import {
 export type { BreadcrumbItem } from "./breadcrumbs";
 export type { NavigateActions, SelectAction } from "./navigation";
 export { parentLocation } from "./navigation";
+export { usePreviewHeldMenu } from "./useClientPath";
 
 /**
  * Reactive parse of the current URL path into a `Location`. Path and document
@@ -355,6 +357,7 @@ function navigationPort(docApi: BlueprintDocStore): NavigationPort {
 		getSegments: getBuilderPathSegmentsSnapshot,
 		getDoc: docApi.getState,
 		write: pushBuilderHistory,
+		reopenHeldMenu: reopenPreviewHeldMenu,
 		back: () => window.history.back(),
 	};
 }

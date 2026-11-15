@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import type { SearchWorkflow } from "@/lib/domain";
 import {
+	caseListLaunchesDefaultSearch,
 	caseListReadsResults,
 	caseListScreenStep,
 	caseListStep,
@@ -238,6 +239,53 @@ describe("caseListReadsResults", () => {
 			expect(caseListReadsResults("search", run(submitted))).toBe(false);
 			expect(caseListReadsResults("waiting", run(submitted, true))).toBe(false);
 		}
+	});
+});
+
+describe("caseListLaunchesDefaultSearch", () => {
+	const launch = (
+		overrides: Partial<Parameters<typeof caseListLaunchesDefaultSearch>[0]>,
+	) =>
+		caseListLaunchesDefaultSearch({
+			step: "results",
+			hasSubmitted: false,
+			pending: false,
+			readsRegisteredCase: false,
+			standingSearch: false,
+			...overrides,
+		});
+
+	it("runs the default search as a skip to results menu opens", () => {
+		expect(launch({})).toBe(true);
+	});
+
+	it("keeps a standing search the worker ran when the list shows again", () => {
+		// A menu whose forms read the search, shown again after one of its
+		// forms (a fresh screen, nothing submitted on it yet): the step is
+		// Results, and the session's search is what Formplayer runs again with
+		// its own answers, so no default search replaces it, before or after
+		// the screen takes the search back.
+		const shownAgain = step({
+			workflow: "skipToResults",
+			formsReadSearch: true,
+			rules: WEB_APPS_RULES,
+		});
+		expect(shownAgain).toBe("results");
+		expect(launch({ step: shownAgain, standingSearch: true })).toBe(false);
+		expect(
+			launch({ step: shownAgain, standingSearch: true, hasSubmitted: true }),
+		).toBe(false);
+	});
+
+	it("runs nothing while the worker is pending, a search stands submitted, or a registered case is read", () => {
+		expect(launch({ pending: true })).toBe(false);
+		expect(launch({ hasSubmitted: true })).toBe(false);
+		expect(launch({ readsRegisteredCase: true })).toBe(false);
+	});
+
+	it("runs nothing off Results", () => {
+		for (const other of ["browse", "search", "waiting"] as const)
+			expect(launch({ step: other })).toBe(false);
 	});
 });
 

@@ -2414,7 +2414,7 @@ test.describe("authenticated builder", () => {
 	 * statement about what a CommCare client draws, so a regression here is
 	 * a preview that has stopped agreeing with the device.
 	 */
-	test("a tile-laid-out case list renders at parity and pins its tile above the form", {
+	test("a tile-laid-out case list renders at parity and pins its tile above the form menu and the form", {
 		tag: "@seed:workspace",
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "workspace");
@@ -2506,9 +2506,43 @@ test.describe("authenticated builder", () => {
 			await expect(phone).toBeFocused();
 		});
 
-		await test.step("the same tile pins above the module's form", async () => {
+		await test.step("the same tile pins above the menu the chosen case opens", async () => {
+			/* Choosing the case lists the menu's form, as CommCare does, and the
+			 * session holds the case there: Formplayer sets the tile on every
+			 * menu response once it does, and Android's menu holds the tile's
+			 * frame (`lib/preview/pinnedCaseTile.ts`). */
 			await rows.first().locator("[data-case-result-action]").click();
 			const persistent = page.locator("[data-persistent-case-tile]");
+			const menuTitle = page.locator("[data-form-menu-case-title]");
+			await expect(menuTitle).toBeVisible({ timeout: 20_000 });
+			await expect(persistent).toBeVisible({ timeout: 20_000 });
+			await expect(persistent).toHaveCount(1);
+			await expect(
+				persistent.locator('[data-case-tile="persistent"]'),
+			).toHaveAttribute("data-tile-columns", "6");
+			// Context, not a chooser: nothing in the band opens a case.
+			await expect(persistent.locator("[data-case-result-action]")).toHaveCount(
+				0,
+			);
+			const [band, menu] = await Promise.all([
+				persistent.boundingBox(),
+				menuTitle.boundingBox(),
+			]);
+			expect(band).not.toBeNull();
+			expect(menu).not.toBeNull();
+			if (band === null || menu === null) return;
+			expect(band.y + band.height).toBeLessThanOrEqual(menu.y + 1);
+		});
+
+		await test.step("the same tile pins above the module's form", async () => {
+			await page
+				.locator("main")
+				.getByRole("button", { name: "Record a visit", exact: true })
+				.click();
+			const persistent = page.locator("[data-persistent-case-tile]");
+			await expect(page.locator("[data-form-header]")).toBeVisible({
+				timeout: 20_000,
+			});
 			await expect(persistent).toBeVisible({ timeout: 20_000 });
 			await expect(
 				persistent.locator('[data-case-tile="persistent"]'),

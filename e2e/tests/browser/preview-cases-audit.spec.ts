@@ -227,12 +227,19 @@ test("Several-case selection survives pagination in order and rejects a validati
 			.getByRole("button", { name: "Back to results", exact: true })
 			.click();
 		await expect(menuHeading).toHaveCount(0);
+		/* The menu's Back is a step back off the menu's own history entry: the
+		 * target keeps the form and the cases, and the list it reaches holds
+		 * neither, so a step forward shows the menu with both still chosen. */
 		expect(
 			await page.evaluate(() => window.previewCasesAudit.target()),
 		).toMatchObject({
 			cases: [{ caseId: "patient-2" }, { caseId: "patient-1" }],
-			formChosenAfterCase: { fromCaseListMenu: true, steppedPastMenu: true },
+			formChosenAfterCase: { fromCaseListMenu: true },
 		});
+		await page.goForward();
+		await expect(menuHeading).toBeVisible();
+		await page.goBack();
+		await expect(menuHeading).toHaveCount(0);
 	} finally {
 		release.resolve();
 		try {

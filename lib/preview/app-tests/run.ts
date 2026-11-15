@@ -51,7 +51,11 @@ import {
 } from "../searchClaims";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
-import { appTestDataRefusal, readingSurface } from "./dataRefusal";
+import {
+	appTestDataRefusal,
+	appTestRefusalSentence,
+	readingSurface,
+} from "./dataRefusal";
 import { appTestCellProjector, appTestDetails } from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
@@ -347,20 +351,31 @@ async function observeScreen(
 					}),
 					worker,
 					name: mod.name,
-					search: search.relevant
-						? {
-								questions: (mod.caseListConfig?.searchInputs ?? [])
-									.filter((input) => input.kind !== "hidden")
-									.map((input) => ({
-										name: input.name,
-										label: input.label,
-										type: input.type,
-										hint: input.hint,
-									})),
-								answers: search.draft,
-								errors: search.errors,
-							}
-						: undefined,
+					/* A list that opens first whose Search screen refused data the
+					 * device lacks as it opened shows the refusal in its Search
+					 * pane, as Preview does, and offers no Search. */
+					search: !search.relevant
+						? undefined
+						: search.paneRefusal !== undefined
+							? {
+									refusal: appTestRefusalSentence(
+										context,
+										"search",
+										search.paneRefusal,
+									),
+								}
+							: {
+									questions: (mod.caseListConfig?.searchInputs ?? [])
+										.filter((input) => input.kind !== "hidden")
+										.map((input) => ({
+											name: input.name,
+											label: input.label,
+											type: input.type,
+											hint: input.hint,
+										})),
+									answers: search.draft,
+									errors: search.errors,
+								},
 					results: read.result,
 					renderedResults:
 						read.result?.kind === "rows"
@@ -514,7 +529,11 @@ async function observeAppTestWithEvaluation(
 		if (result.observation.recordsAvailable) actions.push("records");
 	}
 	if (screen.kind === "records") {
-		if (result.observation.search) actions.push("search");
+		const search = result.observation.search as
+			| { readonly refusal?: string }
+			| undefined;
+		if (search !== undefined && search.refusal === undefined)
+			actions.push("search");
 		if (
 			result.observation.screen === "results" ||
 			result.observation.screen === "browse"

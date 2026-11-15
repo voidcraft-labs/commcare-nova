@@ -142,6 +142,64 @@ describe("previewBreadcrumbTrail — form screens", () => {
 		expect(trail.map((crumb) => crumb.label)).toEqual(["Home", "Care"]);
 	});
 
+	it("names each case a menu screen holds after the menu that chose it, as Web Apps' trail does", () => {
+		const parentUuid = testUuid("module-parent");
+		const parentCrumb: BreadcrumbItem = {
+			key: `m:${parentUuid}`,
+			label: "Care",
+			location: { kind: "module", moduleUuid: parentUuid },
+		};
+		const onMenu = (
+			renderedModule: typeof moduleUuid,
+			menuHeldCases: Parameters<
+				typeof previewBreadcrumbTrail
+			>[0]["menuHeldCases"],
+		) =>
+			previewBreadcrumbTrail({
+				loc: { kind: "module", moduleUuid: renderedModule },
+				baseBreadcrumbs:
+					renderedModule === parentUuid
+						? [home, parentCrumb]
+						: [home, parentCrumb, moduleCrumb],
+				moduleUuid: renderedModule,
+				moduleForms: forms,
+				previewCaseTarget: undefined,
+				previewSelectedCase: undefined,
+				renderedScreen: { type: "module", moduleUuid: renderedModule },
+				menuHeldCases,
+			});
+		// App / Menu / Case: the case's crumb reaches the menu holding it.
+		const own = onMenu(parentUuid, [
+			{ moduleUuid: parentUuid, cases: [{ caseId: "c1", caseName: "Ana" }] },
+		]);
+		expect(own.map((crumb) => crumb.label)).toEqual(["Home", "Care", "Ana"]);
+		expect(own[2]).toMatchObject({
+			location: { kind: "module", moduleUuid: parentUuid },
+			holdsCaseOn: parentUuid,
+		});
+		// A menu screen's case crumb reaches that menu screen, never a case
+		// list's form menu, whatever case target the session still holds.
+		expect(own[2].holdsCaseListMenu).toBeUndefined();
+		// A submenu going on with its parent's case: the case after the
+		// parent's crumb, then the submenu; a case chosen on a list the trail
+		// does not name has no crumb.
+		const child = onMenu(moduleUuid, [
+			{ moduleUuid: testUuid("elsewhere"), cases: [{ caseId: "x" }] },
+			{ moduleUuid: parentUuid, cases: [{ caseId: "c1", caseName: "Ana" }] },
+		]);
+		expect(child.map((crumb) => crumb.label)).toEqual([
+			"Home",
+			"Care",
+			"Ana",
+			"Households",
+		]);
+		// Nothing held, nothing added.
+		expect(onMenu(parentUuid, []).map((crumb) => crumb.label)).toEqual([
+			"Home",
+			"Care",
+		]);
+	});
+
 	it("names no menu without a screen on a submenu's own screen, its case list or its forms", () => {
 		const aboveUuid = testUuid("module-above");
 		const aboveCrumb: BreadcrumbItem = {
@@ -293,10 +351,13 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			"Yusuf Patel",
 			"Household Visit",
 		]);
+		// The list's own form menu held the case: the crumb carries the cases
+		// that menu holds, to reach its history entry again.
 		expect(trail[2]).toMatchObject({
 			key: "cases:c1",
 			location: { kind: "cases", moduleUuid },
 			holdsCaseOn: moduleUuid,
+			holdsCaseListMenu: [{ caseId: "c1", caseName: "Yusuf Patel" }],
 		});
 		// The form's crumb is where the worker is: it re-enters no selection.
 		expect(trail[3].reselectCaseFor).toBeUndefined();
@@ -336,6 +397,8 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			location: { kind: "module", moduleUuid: parentUuid },
 			holdsCaseOn: parentUuid,
 		});
+		// A menu screen holds it: the crumb reaches the menu screen.
+		expect(trail[2].holdsCaseListMenu).toBeUndefined();
 	});
 
 	it("REGRESSION: a register form ignores a follow-up's leftover case target", () => {
