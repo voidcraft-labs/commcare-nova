@@ -6,9 +6,11 @@ import {
 	fieldSchema,
 	type Module,
 	makeTranslationUnitId,
+	screenChoosesCaseFirst,
 } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import {
+	caseListMenuEntryOf,
 	combineNavigationVisibility,
 	inheritedModuleVisibility,
 	previewCaseDescendantModuleUuids,
@@ -499,7 +501,6 @@ describe("Preview menu projection", () => {
 				label: doc.modules[OTHER_ROOT].name,
 				icon: undefined,
 				audioLabel: undefined,
-				action: "open-case-list",
 			});
 		});
 
@@ -546,21 +547,140 @@ describe("Preview menu projection", () => {
 			).toBeUndefined();
 		});
 
-		it("is listed in a case-first menu only once the case is chosen, as the selection itself", () => {
+		it("is never listed by a case-first menu that chooses its case, which the session already holds", () => {
 			const doc = source();
 			doc.modules[OTHER_ROOT].caseListMenuItem = {};
+			assertAdmittedPreviewDoc(doc);
+			for (const hasSelectedCase of [false, true])
+				expect(
+					previewCaseListMenuEntry(doc, OTHER_ROOT, {
+						isCaseFirst: true,
+						hasSelectedCase,
+					}),
+				).toBeUndefined();
+			// Edit mode still shows the entry after the forms.
+			expect(caseListMenuEntryOf(doc, OTHER_ROOT)).toMatchObject({
+				label: doc.modules[OTHER_ROOT].name,
+			});
+		});
+
+		/** ROOT (household, case first) with CHILD (person, whose parent
+		 *  case is ROOT's) showing its follow-up and its case list on ROOT's
+		 *  screen. */
+		function childListAbove(): BlueprintDoc {
+			const doc = source("person");
+			doc.modules[CHILD].formsInMenuAbove = true;
+			doc.modules[CHILD].caseListMenuItem = {};
+			doc.modules[ROOT].caseListMenuItem = {};
+			assertAdmittedPreviewDoc(doc);
+			return doc;
+		}
+
+		it("is listed on a case-first screen once its case is chosen where it goes on to choose a child of that case", () => {
+			const doc = childListAbove();
+			const screen = { kind: "menu", moduleUuid: ROOT } as const;
+			expect(previewScreenEntries(doc, screen)).toEqual([
+				{ kind: "form", moduleUuid: ROOT, formUuid: ROOT_FORM },
+				{ kind: "case-list", moduleUuid: ROOT },
+				{ kind: "form", moduleUuid: CHILD, formUuid: CHILD_FORM },
+				{ kind: "case-list", moduleUuid: CHILD },
+			]);
+			expect(screenChoosesCaseFirst(doc, screen)).toBe(true);
 			expect(
-				previewCaseListMenuEntry(doc, OTHER_ROOT, {
+				previewCaseListMenuEntry(doc, CHILD, {
 					isCaseFirst: true,
 					hasSelectedCase: false,
 				}),
 			).toBeUndefined();
 			expect(
-				previewCaseListMenuEntry(doc, OTHER_ROOT, {
+				previewCaseListMenuEntry(doc, CHILD, {
 					isCaseFirst: true,
 					hasSelectedCase: true,
 				}),
-			).toMatchObject({ action: "selection" });
+			).toMatchObject({ label: doc.modules[CHILD].name });
+			// The household's own entry chooses the household, already chosen.
+			expect(
+				previewCaseListMenuEntry(doc, ROOT, {
+					isCaseFirst: true,
+					hasSelectedCase: true,
+				}),
+			).toBeUndefined();
+		});
+
+		it("is not listed on a submenu's case-first screen whose cases the screens on the way chose", () => {
+			const doc = source("person");
+			doc.modules[CHILD].caseListMenuItem = {};
+			assertAdmittedPreviewDoc(doc);
+			expect(
+				screenChoosesCaseFirst(doc, { kind: "menu", moduleUuid: CHILD }),
+			).toBe(true);
+			expect(
+				previewCaseListMenuEntry(doc, CHILD, {
+					isCaseFirst: true,
+					hasSelectedCase: true,
+				}),
+			).toBeUndefined();
+		});
+
+		it("is listed by a forms-first menu whose list chooses its parent case first", () => {
+			const doc = buildDoc({
+				caseTypes: [
+					{ name: "household", properties: [] },
+					{ name: "person", parent_type: "household", properties: [] },
+				],
+				modules: [
+					{
+						uuid: ROOT,
+						name: "Households",
+						caseType: "household",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								uuid: ROOT_FORM,
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "text", id: "notes" })],
+							},
+						],
+					},
+					{
+						uuid: CHILD,
+						name: "People",
+						caseType: "person",
+						parentCaseModuleUuid: ROOT,
+						caseListMenuItem: {},
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								uuid: CHILD_FORM,
+								name: "Check",
+								type: "followup",
+								fields: [f({ kind: "text", id: "notes" })],
+							},
+							{
+								uuid: SURVEY_FORM,
+								name: "Survey",
+								type: "survey",
+								fields: [f({ kind: "text", id: "answer" })],
+							},
+						],
+					},
+				],
+			});
+			assertAdmittedPreviewDoc(doc);
+			expect(
+				screenChoosesCaseFirst(doc, { kind: "menu", moduleUuid: CHILD }),
+			).toBe(false);
+			expect(
+				previewCaseListMenuEntry(doc, CHILD, {
+					isCaseFirst: false,
+					hasSelectedCase: false,
+				}),
+			).toMatchObject({ label: "People" });
 		});
 	});
 });

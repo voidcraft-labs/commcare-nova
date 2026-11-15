@@ -1180,19 +1180,34 @@ parent's filter only for a submenu that is above, `menus.py::_generate_menu`). B
 `ModuleScreen` and `CaseListScreen` take `screenChoosesCaseFirst` for the screen they draw:
 
 - **A case-first screen** opens on the host's case list, as today. After the case is chosen the screen
-  lists every entry. A contributor's form opens with that case where `previewMenuCaseContext` gives it
+  lists every form, and a case list entry only where it still needs a datum the screen has not
+  collected (below). A contributor's form opens with that case where `previewMenuCaseContext` gives it
   one: it already inherits a same-type structural parent's selection; from step 6 it also takes the
   host's selection as the parent case of a contributor whose parent case type is the host's, whichever
   module `parentCaseModuleUuid` names, because the wire gives both one datum id (section 4.3, rule 4).
 - **Any other screen** lists its entries at once. A form that opens a case then opens its own menu's
   case list, as a form does today in a menu that is forms first (`lib/domain/navigation.ts::formLaunch`),
   whether or not its own menu alone would be case first.
-- **A case list row** on a screen that is not case first opens the menu's case list; on a case-first
-  screen choosing it is the selection (`previewCaseListMenuEntry`'s two actions, with `isCaseFirst`
-  from the screen).
+- **A case list row** is listed exactly while the session still needs one of its datums, and
+  choosing it opens the list of the first one it needs. A case list entry is a view command, and Core
+  skips a view whose datums are all collected (`MenuLoader.addRelevantCommandEntries`:
+  `if (e.isView())`, `getNeededDatum(e) == null`), where Formplayer and Android both list through
+  `MenuLoader`. Before Core lists a screen it collects every datum all of the screen's entries need
+  first, on each screen on the way (`CommCareSession.getNeededData` → `getDataNeededByAllEntries`).
+  No screen shape short-cuts the rule. A case-first screen lists, once its case is chosen, only the
+  entries whose datums go past it (a contributor whose list chooses a child of the chosen case), never
+  the entry of a menu that chooses exactly that case; a forms-first screen collects nothing of its own,
+  but does not list an entry whose case a screen on the way chose (a forms-first submenu under a
+  case-first parent of the same case type). `lib/preview/engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`
+  replays that over the suite's datums (`caseListSessionDatums`, `entrySessionDatums`) and
+  `previewCaseListMenuEntry` lists by it. Core never opens a lone form from a menu by itself: with one
+  entry under the menu's command, `getNeededData` finds no entry for the menu's id
+  (`getEntryForCommand`) and returns `STATE_COMMAND_ID` (Formplayer's `cc-auto-advance-menu`, off by
+  default and never emitted, is the one exception).
 
 `previewAutomaticForm` (one shown form opens by itself after a case is chosen) counts the screen's form
-rows.
+rows. That skip is Preview's, not Core's (see the rule above), and issue #915 removes it; this step
+only keeps it counting the screen it stands on.
 
 ### 8.4 Routes
 

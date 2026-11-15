@@ -155,13 +155,14 @@ export interface PlatformFeature {
 
 /**
  * What a worker meets in Web Apps after choosing a case from a case list
- * menu entry. Formplayer steps a view command back to the screen before the
- * choice (`session/MenuSession.java::getNextScreen`, `isViewCommand` then
- * `stepBack`), so the case list shows again, or the menu again where the
- * menu chose the case first.
+ * menu entry. Formplayer steps a view command back over the choice
+ * (`session/MenuSession.java::getNextScreen`, `isViewCommand` then
+ * `stepBack`), and the entry still needs it, so the case list shows again.
+ * A menu that chose its case first does not list its own entry, since that
+ * case is already chosen (`MenuLoader.addRelevantCommandEntries`).
  */
 const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
-	"choosing a case shows the case list again, or the menu again where the menu chose the case first";
+	"choosing a case shows the case list again";
 
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",

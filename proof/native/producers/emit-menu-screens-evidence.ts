@@ -358,7 +358,9 @@ function listedCommands(
 /** Whether Preview lists an entry at all where it is a case list row: the
  *  first menu lists one as a forms-first menu does, and a menu screen as its
  *  module screen does, by whether it chooses a case first and has one
- *  chosen. Any other entry is listed by its visibility alone. */
+ *  chosen, and whether the entry still needs a case past the ones chosen
+ *  (`previewCaseListMenuEntry`). Any other entry is listed by its
+ *  visibility alone. */
 function caseListRowListed(
 	read: ScreenRead,
 	entry: MenuScreenEntry,

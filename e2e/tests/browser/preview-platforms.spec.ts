@@ -5,7 +5,10 @@ import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-navigation-client";
 import type {} from "../../lib/preview-platforms-client";
 import type {} from "../../lib/preview-search-client";
-import { NAVIGATION_CASES } from "../../lib/previewNavigationFixture";
+import {
+	NAVIGATION_CASES,
+	NAVIGATION_HOUSEHOLDS,
+} from "../../lib/previewNavigationFixture";
 import {
 	PREVIEW_PLATFORM_SCENARIOS,
 	type PreviewPlatformScenarioId,
@@ -753,6 +756,7 @@ async function closeNavigation(page: Page) {
 }
 
 const [FIRST_CASE] = NAVIGATION_CASES;
+const [RAO_HOUSEHOLD] = NAVIGATION_HOUSEHOLDS;
 
 test("a menu that searches first opens on Search in Web Apps", async ({
 	page,
@@ -819,6 +823,70 @@ test("in Web Apps a case chosen from the case list entry beside forms shows the 
 		await expect(choose).toBeVisible();
 		await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
 		await expect(page.getByLabel("At the device home")).toHaveText("false");
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("a case-first menu lists only its forms once the case is chosen, without its own case list entry", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "case-first-entry",
+			platform: "web-apps",
+		});
+		await main
+			.getByRole("button", { name: `Continue with ${FIRST_CASE}` })
+			.click({ timeout: 20_000 });
+		// The entry chooses the case already chosen, so CommCare does not list
+		// it, and CommCare never opens a menu's lone form by itself.
+		await expect(main.locator("[data-form-menu-choice-label]")).toHaveText([
+			"Visit",
+		]);
+		await expect(main.locator("[data-case-list-menu-entry]")).toHaveCount(0);
+		await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+		await expect(page.getByLabel("Location")).toHaveText("cases");
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("once a household is chosen, the menu lists its members' case list entry, which opens their list", async ({
+	page,
+}) => {
+	try {
+		await page.setViewportSize({ width: 390, height: 800 });
+		// CommCare opens Households on its case list. The peer starts there,
+		// so the test does not depend on how Preview lands on a case-first
+		// menu with submenus (issue #914).
+		await page.goto(
+			`${navigationPeer.origin}/?fixture=child-list-above&platform=web-apps&at=households`,
+		);
+		const main = page.locator("main");
+		const entry = main.locator("[data-case-list-menu-entry]");
+		await main
+			.getByRole("button", { name: `Continue with ${RAO_HOUSEHOLD.name}` })
+			.click({ timeout: 20_000 });
+		// The households' own entry would choose the household again, so
+		// only the members' entry is listed, after the forms.
+		await expect(entry).toHaveCount(1, { timeout: 20_000 });
+		await expect(entry).toHaveText("People");
+		await entry.click();
+		// It opens the chosen household's members.
+		const [member] = RAO_HOUSEHOLD.members;
+		const choose = main.getByRole("button", {
+			name: `Continue with ${member}`,
+		});
+		await expect(choose).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: /^Continue with Kofi Mensah/ }),
+		).toHaveCount(0);
+		await choose.click();
+		// Nothing opens from the entry: the list shows again, nothing chosen.
+		await expect(page.getByLabel("Location")).toHaveText("cases");
+		await expect(choose).toBeVisible();
+		await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
 	} finally {
 		await closeNavigation(page);
 	}

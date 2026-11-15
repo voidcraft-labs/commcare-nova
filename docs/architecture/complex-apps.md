@@ -2908,6 +2908,28 @@ and the form, whose case block reads `case_id_new_<type>_0`, could not open ther
 refuses that form (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`), in a submenu that shows its forms
 above as in one that keeps its screen.
 
+**Which case list entry a screen lists.** A case list entry is a view command, and Core lists
+a view only while the session still needs one of its datums (`MenuLoader.addRelevantCommandEntries`:
+`if (e.isView())`, skipped where `getNeededDatum(e) == null`); Formplayer and Android both list
+through `MenuLoader`. Before listing, Core has collected every datum all the screen's entries
+need first, on this screen and each screen on the way (`CommCareSession.getNeededData` →
+`getDataNeededByAllEntries`, asked over every entry of the command, relevant or not). The
+rule has no shortcut by screen shape: an entry is listed exactly while one of its datums is
+still missing after that collection, and choosing it opens the list of the first one. A
+case-first screen lists, once its case is chosen, only an entry whose datums go past that
+case, such as a menu above whose list chooses a child of the chosen case; the entry of a menu
+that chooses exactly that case is not listed, and the menu shows its forms alone. A forms-first
+screen collects nothing of its own, yet it does not list an entry whose case a screen on the
+way already chose: a forms-first submenu under a case-first parent of the same case type is
+one. Core never opens a lone form from a menu by itself: where the menu's command holds one
+entry, `getNeededData` asks `getEntryForCommand` for the menu's id, finds no entry and returns
+`STATE_COMMAND_ID`. (Formplayer's `cc-auto-advance-menu`, off by default and never emitted,
+is the one exception.) Preview still opens a menu's one form after its case is chosen
+(`menuProjection.ts::previewAutomaticForm`), which issue #915 tracks.
+Preview replays the collection over the suite's datums
+(`lib/preview/engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`), and
+`proof/native/core/MenuScreensRuntimeTest.java` holds Preview's listing to Core's.
+
 **No chosen case ahead of a command.** Core keeps what a frame collected (`syncState`), and an
 entry's next question is its first datum whose id the session lacks (`getFirstMissingDatum`).
 A frame that held a chosen case and no command would leave that case on the first menu, where

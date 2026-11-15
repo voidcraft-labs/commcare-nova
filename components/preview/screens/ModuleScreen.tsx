@@ -36,7 +36,6 @@ import {
 	moduleScreenLanding,
 	reachableCaseTypes,
 } from "@/lib/domain";
-import { caseListMenuItemSelection } from "@/lib/preview/caseListMenuItemRoute";
 import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
 import { navigationSelectedCase } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
@@ -50,6 +49,7 @@ import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
 	authoringScreenEntries,
+	caseListMenuEntryOf,
 	menuScreenEntryKey,
 	moduleHasChildren,
 	OFF_THE_MENU_SUMMARY,
@@ -74,9 +74,7 @@ import {
 	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
-	usePreviewPlatformRules,
 	usePreviewTaskContinuation,
-	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseTarget,
 	useSetPreviewParentCaseRequest,
 	useSetPreviewTaskContinuation,
@@ -108,8 +106,6 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const taskContinuation = usePreviewTaskContinuation();
 	const setTaskContinuation = useSetPreviewTaskContinuation();
 	const caseFirstModules = useCaseFirstModuleUuids();
-	const platformRules = usePreviewPlatformRules();
-	const setPreviewAtDeviceHome = useSetPreviewAtDeviceHome();
 	const { claim: claimSearchedCases } = useClaimSearchedCases();
 
 	/** Activity keeps a visited module mounted after the URL moves elsewhere,
@@ -370,29 +366,21 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		navigate.openForm(formModuleUuid, formUuid);
 	};
 
-	/* A menu's case list as its own entry, after its menu's forms. On a
-	 * case-first screen it is listed once the case is chosen, and choosing it
-	 * then is the selection: Web Apps steps back to this menu, Android goes
-	 * to the phone's home screen. Edit mode lists it after the forms and
-	 * opens the case list. */
+	/* A menu's case list as its own entry, after its menu's forms. The
+	 * running screen lists it only while it still needs a case the screen
+	 * has not chosen (`previewCaseListMenuEntry`): on a case-first screen
+	 * that is an entry that goes on past the chosen case, never the menu's
+	 * own. Edit mode lists every entry. Choosing it opens its case list. */
 	const caseListEntryOf = (entryModuleUuid: Uuid) =>
-		previewCaseListMenuEntry(menuSource.doc, entryModuleUuid, {
-			isCaseFirst: mode !== "edit" && isCaseFirst,
-			hasSelectedCase: selectedMenuCase !== undefined,
-		});
-	const chooseCaseListEntry = (
-		entryModuleUuid: Uuid,
-		caseListEntry: NonNullable<ReturnType<typeof caseListEntryOf>>,
-	) => {
-		if (caseListEntry.action === "open-case-list") {
-			setPreviewCaseTarget(undefined);
-			navigate.openCaseList(entryModuleUuid);
-			return;
-		}
-		if (caseListMenuItemSelection(platformRules).kind === "device-home") {
-			navigate.goHome();
-			setPreviewAtDeviceHome(true);
-		}
+		mode === "edit"
+			? caseListMenuEntryOf(menuSource.doc, entryModuleUuid)
+			: previewCaseListMenuEntry(menuSource.doc, entryModuleUuid, {
+					isCaseFirst,
+					hasSelectedCase: selectedMenuCase !== undefined,
+				});
+	const chooseCaseListEntry = (entryModuleUuid: Uuid) => {
+		setPreviewCaseTarget(undefined);
+		navigate.openCaseList(entryModuleUuid);
 	};
 
 	/* A submenu that keeps its own screen, as a tile in its place. */
@@ -576,9 +564,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 										| string
 										| undefined) ?? caseListEntry.label
 								}
-								onClick={() =>
-									chooseCaseListEntry(entry.moduleUuid, caseListEntry)
-								}
+								onClick={() => chooseCaseListEntry(entry.moduleUuid)}
 							/>
 						);
 					}

@@ -40,7 +40,6 @@ import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCurrentLocation from "@iconify-icons/tabler/current-location";
-import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerLogin2 from "@iconify-icons/tabler/login-2";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -401,27 +400,37 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		listingScreen !== undefined &&
 		screenIsBareCaseList(menuSource.doc, listingScreen);
 	/** This list was opened from the module's case list menu entry: a bare
-	 *  case list (the menu is its list), or a forms-first menu's entry, the
-	 *  one way such a menu reaches its list with no form chosen. A
-	 *  case-first menu's list with no form chosen is the menu's own case
-	 *  selection, which then lists the forms and the entry. The entry holds
-	 *  no form, so choosing a case routes by `caseListMenuItemSelection`. */
+	 *  case list (the menu is its list), a forms-first menu's entry, the one
+	 *  way such a menu reaches its list with no form chosen, or, on a
+	 *  case-first screen, the entry of a menu showing its forms there that
+	 *  goes on past the case the screen chose, the only entry such a screen
+	 *  lists (`previewCaseListMenuEntry`). The screen's own list with no form
+	 *  chosen is its case selection. The entry holds no form, so choosing a
+	 *  case routes by `caseListMenuItemSelection`. */
 	const openedFromCaseListMenuItem =
 		hasCaseListMenuItem &&
 		!selectsForParentRequest &&
 		seededFormUuid === undefined &&
 		retainedFormUuid === undefined &&
-		(bareCaseList ? !hasChildren : !moduleCaseFirst);
-	/* A case-first menu with the entry lists it on its form menu, after the
-	 * forms, once the case is chosen; with it there the menu has more than
-	 * one command, so the choice never skips the menu. */
-	const caseFirstMenuEntry =
-		moduleUuid !== undefined && moduleCaseFirst
-			? previewCaseListMenuEntry(menuSource.doc, moduleUuid, {
-					isCaseFirst: true,
-					hasSelectedCase: true,
-				})
-			: undefined;
+		(bareCaseList
+			? !hasChildren
+			: !moduleCaseFirst ||
+				(listingScreen?.kind === "menu" &&
+					listingScreen.moduleUuid !== moduleUuid &&
+					previewCaseListMenuEntry(menuSource.doc, moduleUuid, {
+						isCaseFirst: true,
+						hasSelectedCase: true,
+					}) !== undefined));
+	/* A case-first menu that holds its case list entry lists only its forms
+	 * once the case is chosen: the entry chooses that same case, which the
+	 * session holds, so CommCare does not list it
+	 * (`MenuLoader.addRelevantCommandEntries`). Core never opens a lone form
+	 * from a menu by itself (`CommCareSession.getNeededData` finds no entry
+	 * for the menu's id and asks for a command), but `previewAutomaticForm`
+	 * does (issue #915). This keeps that skip off here, as it was while this
+	 * menu listed the entry, so this shape shows its form menu as Core does;
+	 * it goes with the skip. */
+	const caseFirstMenuHoldsEntry = moduleCaseFirst && hasCaseListMenuItem;
 	const selectsForMenu =
 		selectsForParentRequest ||
 		(seededFormUuid === undefined &&
@@ -1533,7 +1542,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setAutoContinueCaseId(null);
 		const automaticForm =
 			retainedFormUuid ??
-			(caseFirstMenuEntry !== undefined
+			(caseFirstMenuHoldsEntry
 				? undefined
 				: previewAutomaticForm(decided, seededFormUuid));
 		if (automaticForm !== undefined)
@@ -2075,7 +2084,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		const automaticForm = awaitingClaim
 			? undefined
 			: (retainedFormUuid ??
-				(caseFirstMenuEntry !== undefined && seededFormUuid === undefined
+				(caseFirstMenuHoldsEntry && seededFormUuid === undefined
 					? undefined
 					: previewAutomaticForm(decided, seededFormUuid)));
 		if (automaticForm !== undefined) {
@@ -2091,9 +2100,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	};
 
 	/* Where a choice made from the case list menu entry lands: Web Apps
-	 * steps back over the choice to the list with nothing chosen (in a
-	 * case-first menu the form menu stays, since the case was chosen before
-	 * the entry), and Android ends the session at its home screen. */
+	 * steps back over the choice, and the entry still needs it, so the list
+	 * shows again with nothing chosen; Android ends the session at its home
+	 * screen. */
 	const routeCaseListMenuItemSelection = () => {
 		const route = caseListMenuItemSelection(platformRules);
 		if (route.kind === "device-home") {
@@ -2101,7 +2110,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			setPreviewAtDeviceHome(true);
 			return;
 		}
-		if (displayedFormMenuCase !== null) return;
 		if (displayedOpenCase !== null) closeCaseDetail();
 	};
 
@@ -2630,40 +2638,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						</Button>
 					);
 				})}
-				{/* The case list menu entry, after the forms. The case is
-				 *  already chosen, so choosing the entry is the selection. */}
-				{caseFirstMenuEntry !== undefined && (
-					<Button
-						type="button"
-						variant="outline"
-						data-case-list-menu-entry
-						onClick={routeCaseListMenuItemSelection}
-						className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
-					>
-						{caseFirstMenuEntry.icon ? (
-							<ProjectMediaImage
-								assetId={caseFirstMenuEntry.icon}
-								alt=""
-								className="size-7 rounded-lg object-cover shrink-0"
-							/>
-						) : (
-							<Icon
-								icon={tablerListDetails}
-								width="18"
-								height="18"
-								className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
-							/>
-						)}
-						<span
-							data-form-menu-choice-label
-							className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
-						>
-							{(localizedValues.get(caseFirstMenuEntry.labelUnitId) as
-								| string
-								| undefined) ?? caseFirstMenuEntry.label}
-						</span>
-					</Button>
-				)}
 			</div>
 			<HiddenItemsReveal items={formMenuHidden} />
 		</div>

@@ -9,6 +9,7 @@ import {
 	moduleHasCaseListMenuItem,
 	moduleIsBareCaseList,
 	moduleSearchWorkflow,
+	screenChoosesCaseFirst,
 } from "@/lib/domain";
 import {
 	buildNavigationDoc,
@@ -21,6 +22,8 @@ describe("Preview navigation fixtures", () => {
 		["search-first", false],
 		["case-list-entry", false],
 		["case-list-entry", true],
+		["case-first-entry", false],
+		["child-list-above", false],
 	] as const)(
 		"%s (details %s) is an admitted app on both platforms",
 		(fixture: NavigationFixture, details) => {
@@ -45,6 +48,19 @@ describe("Preview navigation fixtures", () => {
 				forms.flatMap((form) => (form === undefined ? [] : [form.type])),
 				true,
 			),
+		).toBe(true);
+	});
+
+	it("holds the case list entry in a case-first menu", () => {
+		const doc = buildNavigationDoc("case-first-entry", false);
+		const module = doc.modules[NAVIGATION_MODULE_UUID];
+		if (module === undefined) throw new Error("module missing");
+		expect(moduleHasCaseListMenuItem(module)).toBe(true);
+		expect(
+			screenChoosesCaseFirst(doc, {
+				kind: "menu",
+				moduleUuid: NAVIGATION_MODULE_UUID,
+			}),
 		).toBe(true);
 	});
 
