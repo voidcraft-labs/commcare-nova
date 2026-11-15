@@ -27,97 +27,21 @@
  *
  * A held tag (where a published app keeps the action) is kept as held, and
  * taken before any tag is derived.
+ *
+ * The allocation is the domain's (`lib/domain/advancedTags.ts`), because an
+ * entry's first datum is `case_id_<tag>` of its first load, which decides
+ * whether a menu asks for its case first (`lib/domain/menuScreens.ts`).
  */
 
-import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
-import { CASE_TYPE_REGEX } from "./constants";
+export {
+	type AdvancedTagLoad,
+	type AdvancedTagOpen,
+	advancedCaseBlockName,
+	allocateAdvancedTags,
+} from "@/lib/domain/advancedTags";
 
 /**
  * The tag check of HQ's case configuration page
  * (`static/app_manager/js/forms/advanced/actions.js::actionBase.validate`).
  */
 export const HQ_CASE_TAG_PATTERN = /^[a-zA-Z][\w_-]*(\/[a-zA-Z][\w_-]*)*$/;
-
-/** The data-root element HQ writes an advanced action's case block at. */
-export function advancedCaseBlockName(tag: string): string {
-	return `case_${tag}`;
-}
-
-export interface AdvancedTagLoad {
-	readonly caseType: string;
-	/** The worker's own record, loaded from the session's user case. */
-	readonly worker: boolean;
-	readonly held?: string;
-}
-
-export interface AdvancedTagOpen {
-	readonly caseType: string;
-	readonly held?: string;
-	/** Where the open action runs in a repeat: every name the repeat's rows
-	 *  hold, beside which HQ's build appends its `case_<tag>` when another
-	 *  open action shares the repeat. */
-	readonly rowNames?: ReadonlySet<string>;
-}
-
-/**
- * The tag of every load (in `load_update_cases` order) and every open action
- * (in `open_cases` order) of one advanced form. `rootNames` is every element
- * name the form's data root holds: its root questions' ids, Nova's generated
- * root names and the root Connect block ids.
- */
-export function allocateAdvancedTags(input: {
-	readonly loads: readonly AdvancedTagLoad[];
-	readonly opens: readonly AdvancedTagOpen[];
-	readonly rootNames: ReadonlySet<string>;
-}): { readonly loads: readonly string[]; readonly opens: readonly string[] } {
-	const taken = new Set<string>();
-	for (const action of [...input.loads, ...input.opens])
-		if (action.held !== undefined) taken.add(action.held);
-	const free = (tag: string, rowNames: ReadonlySet<string> | undefined) =>
-		!taken.has(tag) &&
-		!input.rootNames.has(advancedCaseBlockName(tag)) &&
-		rowNames?.has(advancedCaseBlockName(tag)) !== true;
-	const derive = (
-		caseType: string,
-		position: number,
-		spell: (type: string, n: number) => string,
-		rowNames?: ReadonlySet<string>,
-	): string => {
-		// A case type holds letters, digits, `-` and `_`, and every tag
-		// spelled from one starts with its prefix's letter, so it passes HQ's
-		// check and holds no `/`.
-		if (!CASE_TYPE_REGEX.test(caseType))
-			throw new Error(
-				`Nova was asked for the case tag of an advanced action on the case type "${caseType}", which is not a case type CommCare accepts: a case type holds only letters, digits, "-" and "_". The app's case types are checked before it is emitted, so this one should not have reached the tags.`,
-			);
-		// The tag names the data-root element `case_<tag>`, and a tag is held
-		// to `advancedTagSchema`, which holds no `-`, so the case type's `-`
-		// is spelled `_` (`commcare-user` gives `autoload_commcare_user0`). Two
-		// types that differ only there step `n` apart below, so tags stay
-		// distinct.
-		const spelledType = caseType.replaceAll("-", "_");
-		let n = position;
-		while (!free(spell(spelledType, n), rowNames)) n++;
-		const tag = spell(spelledType, n);
-		taken.add(tag);
-		return tag;
-	};
-	const loads = input.loads.map((load, position) => {
-		if (load.held !== undefined) return load.held;
-		const caseType = load.worker ? USERCASE_CASE_TYPE : load.caseType;
-		return derive(caseType, position, (type, n) =>
-			load.worker ? `autoload_${type}${n}` : `load_${type}${n}`,
-		);
-	});
-	const opens = input.opens.map(
-		(open, position) =>
-			open.held ??
-			derive(
-				open.caseType,
-				position,
-				(type, n) => `open_${type}_${n}`,
-				open.rowNames,
-			),
-	);
-	return { loads, opens };
-}

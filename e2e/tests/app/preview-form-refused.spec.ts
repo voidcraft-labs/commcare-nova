@@ -19,6 +19,15 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 	const cases = main.getByRole("list", { name: "Cases", exact: true });
 	const refusal = main.locator('[data-form-refusal="preload"]');
 	const submit = main.getByRole("button", { name: "Submit", exact: true });
+	const form = main.getByRole("button", {
+		name: FORM_REFUSED_SEED.formName,
+		exact: true,
+	});
+	/* Every choice of a record lists the menu's one form, as CommCare does,
+	 * and the worker chooses it. The worker chose the form after the record,
+	 * so the session holds the form above the record: each route back to the
+	 * list steps back past both (`CommCareSession.stepBack`), and the next
+	 * choice lists the menu again rather than opening the form. */
 	const openWith = async (caseName: string) => {
 		await main
 			.getByRole("button", {
@@ -26,6 +35,10 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 			})
 			.click();
 		await main.getByRole("button", { name: "Continue", exact: true }).click();
+		await expect(form).toBeVisible({ timeout: 20_000 });
+		await expect(submit).toHaveCount(0);
+		await expect(refusal).toHaveCount(0);
+		await form.click();
 	};
 	const expectRefusal = async () => {
 		await expect(refusal).toBeVisible({ timeout: 20_000 });

@@ -47,7 +47,10 @@
  */
 
 import * as fc from "fast-check";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	declareSessionWorkerFields,
+	resolveCaseListConfig,
+} from "@/lib/__tests__/docHelpers";
 import { declaredForContent } from "@/lib/doc/platformDeclaration";
 import { authoredSearchWorkflow } from "@/lib/doc/searchWorkflowPlan";
 import {
@@ -1005,28 +1008,27 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// stored app (`mappedAsTheCutoverMaps`), then the platforms the drawn
 	// content runs on, with each date-and-time question split where that is
 	// the only way it runs anywhere (`declaredForContent`).
+	const drawn = resolveArbitraryDocument({
+		appId: "suite-fuzz-app",
+		appName: "Suite Fuzz App",
+		connectType: null,
+		appSettings: { ...NEW_APP_SETTINGS },
+		caseTypes,
+		modules,
+		forms,
+		fields,
+		moduleOrder,
+		formOrder,
+		fieldOrder,
+		// Expression resolution binds against the completed ancestry.
+		fieldParent: {},
+		...(logo ? { logo } : {}),
+	});
+	// The worker fields the drawn conditions read from the session, declared
+	// as the gate asks (`undeclared-worker-field`), with no random draw.
+	declareSessionWorkerFields(drawn);
 	return declaredForContent(
-		mappedAsTheCutoverMaps(
-			orderRulesTheGateAdmits(
-				resolveArbitraryDocument({
-					appId: "suite-fuzz-app",
-					appName: "Suite Fuzz App",
-					connectType: null,
-					appSettings: { ...NEW_APP_SETTINGS },
-					caseTypes,
-					modules,
-					forms,
-					fields,
-					moduleOrder,
-					formOrder,
-					fieldOrder,
-					// Expression resolution binds against the completed ancestry.
-					fieldParent: {},
-					...(logo ? { logo } : {}),
-				}),
-			),
-			caseWrites,
-		),
+		mappedAsTheCutoverMaps(orderRulesTheGateAdmits(drawn), caseWrites),
 	);
 }
 

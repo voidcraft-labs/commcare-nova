@@ -29,7 +29,28 @@
  * `MenuScreensRuntimeTest` and `RegisterFromListRuntimeTest` hold Core to
  * them.
  *
- * The two refused documents: `step-back-control`, two top-level menus above
+ * `menu-landings` is built here and admitted by Nova's gate: a case-first
+ * menu with a submenu, a case list menu with a submenu, a case-first menu of
+ * one form, and three advanced menus whose entries ask for the datum each
+ * load's tag names: a case list entry beside forms loaded under another tag,
+ * two forms a published app keeps under two tags, and two forms kept under
+ * the case list entry's own tag. Every screen of every document also writes
+ * where Preview opens it (`landsOnCaseList`) and, for each case-loading form
+ * on it, what its case list continues into once the worker steps back to it
+ * from the form and chooses a case again (`stepBacks`).
+ *
+ * Four documents are read for a list of workers' data rather than roles, each
+ * listing a screen as refused where a condition it reads asks for a user field
+ * the worker's device lacks: `worker-place-read`, a menu whose condition reads
+ * the worker's place, which a worker assigned nowhere lacks;
+ * `worker-place-forms`, a case-first menu's form whose condition reads it,
+ * which Core reads once the case is chosen; `worker-place-menus`, a form shown
+ * on the first menu, a submenu's form shown in its parent's screen and a
+ * submenu's tile, each under such a condition; and
+ * `undeclared-worker-field-control`, built past the gate, a menu whose
+ * condition reads a field the app never declares.
+ *
+ * The two other refused documents: `step-back-control`, two top-level menus above
  * each holding one follow-up form of its own case type and an ordinary menu
  * of the first type whose follow-up links to the first of them, whose link
  * frame HQ builds through the first menu with the chosen case first; and
@@ -62,16 +83,19 @@ import type { Mutation } from "../../../lib/doc/types";
 import {
 	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
 	caseListRegistrationReturnOf,
 	conditionModulesOf,
 	effectivePostSubmit,
 	type MenuScreen,
 	type MenuScreenEntry,
+	menuFormUuidsOf,
 	menuScreenEntries,
 	menuScreenOf,
 	moduleFormsReadSearch,
 	moduleHasOwnScreen,
+	moduleLanding,
 	moduleUuidOfForm,
 	orderedUserProperties,
 	proseText,
@@ -79,8 +103,15 @@ import {
 	screenIsBareCaseList,
 	type Uuid,
 } from "../../../lib/domain";
-import { formField, term } from "../../../lib/domain/expression";
+import {
+	eq,
+	formField,
+	literal,
+	sessionUser,
+	term,
+} from "../../../lib/domain/expression";
 import { alwaysOfferedRegistrationReturn } from "../../../lib/preview/engine/caseListRegisterAction";
+import { previewDataRefusalOf } from "../../../lib/preview/engine/dataRefusal";
 import {
 	type NavigationDeviceCases,
 	type NavigationItemVisibility,
@@ -93,10 +124,16 @@ import {
 import type { PreviewSearchSessionValues } from "../../../lib/preview/engine/identity";
 import {
 	menuScreenEntryKey,
+	moduleHasChildren,
+	previewCaseFirstModuleUuids,
+	previewCaseListFormRequest,
 	previewCaseListMenuEntry,
+	previewCaseListReturnTarget,
 	previewContributorVisibility,
 	previewMenuCaseContext,
 	previewModuleOwnVisibility,
+	previewModuleScreenIsBareCaseList,
+	previewRequestedForm,
 	previewScreenEntryVisibility,
 } from "../../../lib/preview/menuProjection";
 import { lookupContextOf } from "../../corpus/documents";
@@ -145,6 +182,16 @@ mkdirSync(output, { recursive: true });
  */
 const WORKER_ROLES = ["", "registrar", "visitor", "checker"] as const;
 
+/** The worker data Core's session holds for one reading: the key and value of
+ *  each user field the worker's device holds (`MenuScreensRuntimeTest.session`
+ *  sets each). */
+type WorkerData = Readonly<Record<string, string>>;
+
+/** A worker holding each role of `WORKER_ROLES`. */
+const ROLE_WORKERS: readonly WorkerData[] = WORKER_ROLES.map((role) => ({
+	role,
+}));
+
 /**
  * The property values of the cases the device holds of each case type a
  * screen chooses first, one case per entry, so a form's display condition
@@ -166,10 +213,10 @@ interface DeviceCase {
 	readonly properties: Readonly<Record<string, string>>;
 }
 
-/** One reading of a screen: the worker's role and, on a screen that chooses
+/** One reading of a screen: the worker's data and, on a screen that chooses
  *  a case first, the case chosen there and the menu that chose it. */
 interface Reading {
-	readonly role: string;
+	readonly user: WorkerData;
 	readonly chosen?: { readonly moduleUuid: Uuid; readonly case: DeviceCase };
 }
 
@@ -211,15 +258,16 @@ function deviceCasesOf(doc: BlueprintDoc): DeviceCase[] {
 	);
 }
 
-/** The readings of a screen: each role, and on a screen that chooses a case
+/** The readings of a screen: each worker, and on a screen that chooses a case
  *  first, each case of its menu's type, chosen there. */
 function readingsOf(
 	doc: BlueprintDoc,
 	screen: MenuScreen,
 	cases: readonly DeviceCase[],
+	workers: readonly WorkerData[] = ROLE_WORKERS,
 ): Reading[] {
 	if (screen.kind !== "menu" || !chosenFirst(doc, screen))
-		return WORKER_ROLES.map((role) => ({ role }));
+		return workers.map((user) => ({ user }));
 	const { moduleUuid } = screen;
 	const caseType = doc.modules[moduleUuid]?.caseType;
 	const chosen = cases.filter((held) => held.type === caseType);
@@ -227,8 +275,8 @@ function readingsOf(
 		throw new Error(
 			`The device holds no case for the menu "${doc.modules[moduleUuid]?.name}" to choose first.`,
 		);
-	return WORKER_ROLES.flatMap((role) =>
-		chosen.map((held) => ({ role, chosen: { moduleUuid, case: held } })),
+	return workers.flatMap((user) =>
+		chosen.map((held) => ({ user, chosen: { moduleUuid, case: held } })),
 	);
 }
 
@@ -262,14 +310,14 @@ function deviceSnapshot(
 }
 
 /** The worker Core's session holds (`MenuScreensRuntimeTest.session`), with
- *  `role` among its data, under the slug each declared worker property has. */
+ *  `user` as its data, under the slug each declared worker property has. */
 function workerSession(
 	doc: BlueprintDoc,
-	role: string,
+	user: WorkerData,
 ): PreviewSearchSessionValues {
 	return {
 		context: { userid: "worker-id", username: "worker" },
-		user: { role },
+		user: { ...user },
 		userPropertySlugs: Object.fromEntries(
 			orderedUserProperties(doc).map((property) => [
 				property.uuid,
@@ -279,15 +327,16 @@ function workerSession(
 	};
 }
 
-/** Each module's own visibility for a worker holding `role`. */
+/** Each module's own visibility for a worker holding `user`, each read when
+ *  a screen asks for it (`menuProjection.ts::previewModuleOwnVisibility`). */
 function ownVisibility(
 	doc: BlueprintDoc,
 	cases: readonly DeviceCase[],
-	role: string,
+	user: WorkerData,
 ) {
 	return previewModuleOwnVisibility(doc, {
 		authoring: false,
-		session: workerSession(doc, role),
+		session: workerSession(doc, user),
 		lookup: { kind: "idle" },
 		deviceCases: deviceSnapshot(doc, cases),
 	});
@@ -297,7 +346,7 @@ function ownVisibility(
  *  that condition's effect unread: refuse it by name. */
 function assertEveryMenuConditionHolds(name: string, doc: BlueprintDoc): void {
 	const cases = deviceCasesOf(doc);
-	const holding = WORKER_ROLES.map((role) => ownVisibility(doc, cases, role));
+	const holding = ROLE_WORKERS.map((user) => ownVisibility(doc, cases, user));
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
 		if (mod?.displayCondition === undefined || mod.hiddenFromMenu === true)
@@ -328,6 +377,23 @@ interface ScreenRead {
 	readonly screen: MenuScreen;
 }
 
+/** `own` with one module read as shown, every other module read from `own`
+ *  only when asked, as a screen asks. */
+function withModuleShown(
+	own: ReadonlyMap<Uuid, NavigationItemVisibility>,
+	shownUuid: Uuid,
+): ReadonlyMap<Uuid, NavigationItemVisibility> {
+	return new Proxy(own, {
+		get(target, key) {
+			if (key === "get")
+				return (uuid: Uuid) =>
+					uuid === shownUuid ? "shown" : target.get(uuid);
+			const value: unknown = Reflect.get(target, key, target);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
+}
+
 /** The commands a worker meets on a screen in a reading, in order, as
  *  Preview shows them (`ModuleScreen`, `HomeScreen`): a menu tile by its own
  *  condition, which is all Core reads when it lists that screen, a form or
@@ -339,7 +405,7 @@ function listedCommands(
 	entries: readonly MenuScreenEntry[],
 	reading: Reading,
 ): string[] {
-	const own = ownVisibility(read.doc, read.cases, reading.role);
+	const own = ownVisibility(read.doc, read.cases, reading.user);
 	const shown = entryVisibility(read, entries, own, reading);
 	return entries.flatMap((entry) => {
 		if (!caseListRowListed(read, entry, reading)) return [];
@@ -410,7 +476,7 @@ function entryVisibility(
 		entries,
 		ownModuleVisibility: own,
 		authoring: false,
-		session: workerSession(doc, reading.role),
+		session: workerSession(doc, reading.user),
 		lookup: { kind: "idle" },
 		deviceCases: deviceSnapshot(doc, read.cases),
 		selectedCaseOf: (entry) => {
@@ -442,7 +508,7 @@ function parentHiddenCommands(
 	reading: Reading,
 ): string[] {
 	const { doc } = read;
-	const own = ownVisibility(doc, read.cases, reading.role);
+	const own = ownVisibility(doc, read.cases, reading.user);
 	const shown = entryVisibility(read, entries, own, reading);
 	return entries.flatMap((entry) => {
 		const parent =
@@ -459,7 +525,7 @@ function parentHiddenCommands(
 		const alone = entryVisibility(
 			read,
 			[entry],
-			new Map([...own, [parent, "shown"]]),
+			withModuleShown(own, parent),
 			reading,
 		);
 		return shown.get(key) === "hidden" && alone.get(key) === "shown"
@@ -533,7 +599,7 @@ function assertEveryCaseConditionIsRead(
 			continue;
 		const seen = new Set<NavigationItemVisibility | undefined>();
 		for (const reading of readingsOf(doc, screen, cases)) {
-			const own = ownVisibility(doc, cases, reading.role);
+			const own = ownVisibility(doc, cases, reading.user);
 			if (previewContributorVisibility(doc, own, entry.moduleUuid) !== "shown")
 				continue;
 			seen.add(
@@ -595,10 +661,168 @@ function formLanding(
 	return screenOfFrame(ctx, []);
 }
 
+/** What Preview shows a worker on a screen in a reading: the commands it
+ *  lists and those a parent's condition alone takes off it, or, where a
+ *  condition the screen reads refuses data the device lacks
+ *  (`engine/dataRefusal.ts::previewDataRefusalOf`), the refusal that stands in
+ *  for the whole screen, as Core's `MenuLoader` lists nothing there and holds
+ *  its load exception. */
+function listingOf(
+	read: ScreenRead,
+	entries: readonly MenuScreenEntry[],
+	reading: Reading,
+) {
+	try {
+		return {
+			refused: false,
+			commands: listedCommands(read, entries, reading),
+			parentHides: parentHiddenCommands(read, entries, reading),
+		};
+	} catch (error) {
+		if (previewDataRefusalOf(error) === undefined) throw error;
+		return { refused: true, commands: [], parentHides: [] };
+	}
+}
+
+/**
+ * Whether Preview opens a menu's screen on a case list when a worker chooses
+ * the menu: the parent's list where the menu needs a parent case chosen
+ * first, else the landing the home screen's tile takes
+ * (`navigation.ts::moduleLanding`, over the menu's own screen, its submenus
+ * included). The first menu is reached with no command.
+ */
+function landsOnCaseList(doc: BlueprintDoc, screen: MenuScreen): boolean {
+	if (screen.kind !== "menu") return false;
+	const { moduleUuid } = screen;
+	if (
+		previewMenuCaseContext(
+			{ ...doc, caseTypes: doc.caseTypes ?? [] },
+			moduleUuid,
+			{},
+		).requiredParentCase !== undefined
+	)
+		return true;
+	return (
+		moduleLanding({
+			isCaseFirst: previewCaseFirstModuleUuids(doc).has(moduleUuid),
+			isBareCaseList: previewModuleScreenIsBareCaseList(doc, moduleUuid),
+			hasChildren: moduleHasChildren(doc, moduleUuid),
+		}) === "case-list"
+	);
+}
+
+/** How many step backs, over every document, are read on a screen that
+ *  chooses its case first and then lists exactly one form: the shape where
+ *  Preview once opened that form by itself. */
+let loneFormStepBacks = 0;
+
+/**
+ * For each case-loading form a worker can choose on the screen, what the case
+ * list continues into once the worker steps back to it from the form and
+ * chooses a case again, as Preview decides it: the form's command, or null
+ * where it lists the menu. The worker chooses the form as the screen offers
+ * it: from the menu after the case on a screen that chooses its case first
+ * (`ModuleScreen` and `CaseListScreen` mark that target `formChosenAfterCase`),
+ * before any case otherwise. The route back is `FormScreen`'s
+ * (`previewCaseListReturnTarget`, and `CaseListScreen` ignoring a form chosen
+ * after its case), and the choice is `CaseListScreen`'s
+ * (`previewCaseListFormRequest`, then `previewRequestedForm` over the forms
+ * shown). A form whose menu reads the search is left out: its search step
+ * is no case list a worker steps back to. `MenuScreensRuntimeTest` replays the
+ * same path in Core and steps back with `CommCareSession.stepBack`.
+ */
+function stepBacksOf(
+	read: ScreenRead,
+	entries: readonly MenuScreenEntry[],
+	readings: readonly Reading[],
+	asksCaseFirst: boolean,
+) {
+	const { doc, ctx } = read;
+	return entries.flatMap((entry) => {
+		if (entry.kind !== "form") return [];
+		const mod = doc.modules[entry.moduleUuid];
+		const type = doc.forms[entry.formUuid]?.type;
+		if (
+			mod?.caseType === undefined ||
+			type === undefined ||
+			!CASE_LOADING_FORM_TYPES.has(type) ||
+			moduleFormsReadSearch(mod)
+		)
+			return [];
+		for (const reading of readings) {
+			if (asksCaseFirst !== (reading.chosen !== undefined)) continue;
+			let shown: ReadonlyMap<string, NavigationItemVisibility>;
+			try {
+				shown = entryVisibility(
+					read,
+					entries,
+					ownVisibility(doc, read.cases, reading.user),
+					reading,
+				);
+			} catch (error) {
+				if (previewDataRefusalOf(error) === undefined) throw error;
+				continue;
+			}
+			const forms = entries.flatMap((candidate) =>
+				candidate.kind === "form"
+					? [
+							{
+								entry: candidate,
+								form: { uuid: candidate.formUuid },
+								visibility:
+									shown.get(menuScreenEntryKey(candidate)) ?? "hidden",
+							},
+						]
+					: [],
+			);
+			if (
+				forms.find((form) => form.form.uuid === entry.formUuid)?.visibility !==
+				"shown"
+			)
+				continue;
+			if (
+				asksCaseFirst &&
+				forms.filter((form) => form.visibility === "shown").length === 1
+			)
+				loneFormStepBacks++;
+			const chosen = asksCaseFirst
+				? { formUuid: entry.formUuid, formChosenAfterCase: true as const }
+				: { formUuid: entry.formUuid };
+			const caseLoading = menuFormUuidsOf(doc, entry.moduleUuid).filter(
+				(uuid) => {
+					const formType = doc.forms[uuid]?.type;
+					return (
+						formType !== undefined && CASE_LOADING_FORM_TYPES.has(formType)
+					);
+				},
+			);
+			const opened = previewRequestedForm(
+				forms.filter((form) => form.entry.moduleUuid === entry.moduleUuid),
+				previewCaseListFormRequest(
+					previewCaseListReturnTarget(chosen, entry.formUuid),
+					caseLoading,
+				),
+			);
+			return [
+				{
+					command: formCommandId(ctx, entry.moduleUuid, entry.formUuid),
+					caseId: reading.chosen?.case.id ?? "case-one",
+					afterStepBack:
+						opened === undefined
+							? null
+							: formCommandId(ctx, entry.moduleUuid, opened),
+				},
+			];
+		}
+		return [];
+	});
+}
+
 function screensOf(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	cases: readonly DeviceCase[],
+	workers: readonly WorkerData[],
 ) {
 	const screens: MenuScreen[] = [
 		{ kind: "first-menu" },
@@ -609,18 +833,21 @@ function screensOf(
 	return screens.map((screen) => {
 		const entries = menuScreenEntries(doc, screen);
 		const read = { doc, ctx, cases, screen };
+		const asksCaseFirst = chosenFirst(doc, screen);
+		const readings = readingsOf(doc, screen, cases, workers);
 		return {
 			menuId:
 				screen.kind === "first-menu"
 					? "root"
 					: `m${moduleIndexOf(ctx, screen.moduleUuid)}`,
-			asksCaseFirst: chosenFirst(doc, screen),
-			listings: readingsOf(doc, screen, cases).map((reading) => ({
-				role: reading.role,
+			asksCaseFirst,
+			landsOnCaseList: landsOnCaseList(doc, screen),
+			listings: readings.map((reading) => ({
+				user: reading.user,
 				caseId: reading.chosen?.case.id ?? null,
-				commands: listedCommands(read, entries, reading),
-				parentHides: parentHiddenCommands(read, entries, reading),
+				...listingOf(read, entries, reading),
 			})),
+			stepBacks: stepBacksOf(read, entries, readings, asksCaseFirst),
 			entries: entries.map((entry) => {
 				const mod = doc.modules[entry.moduleUuid];
 				const landing =
@@ -688,7 +915,39 @@ function offersOf(doc: BlueprintDoc, ctx: FormLinkProjectionContext) {
 	});
 }
 
-function write(name: string, doc: BlueprintDoc, withScreens: boolean): void {
+/** How a document is read: each screen for a worker holding each role
+ *  (`roles`), each screen for each worker of a list (`workers`), or not at
+ *  all (`none`, the step-back and two-registrations controls). */
+type Readings =
+	| { readonly kind: "roles" }
+	| { readonly kind: "workers"; readonly workers: readonly WorkerData[] }
+	| { readonly kind: "none" };
+
+const ROLES: Readings = { kind: "roles" };
+const NONE: Readings = { kind: "none" };
+
+/** A document read for a list of workers witnesses a refusal: some screen
+ *  must refuse for some worker and list for another, or the list leaves the
+ *  refusal, or its absence, unread. */
+function assertEveryScreenIsReadBothWays(
+	name: string,
+	screens: readonly {
+		readonly menuId: string;
+		readonly listings: readonly { readonly refused: boolean }[];
+	}[],
+): void {
+	const read = screens.some(
+		(screen) =>
+			screen.listings.some((listing) => listing.refused) &&
+			screen.listings.some((listing) => !listing.refused),
+	);
+	if (!read)
+		throw new Error(
+			`No screen of ${name} both refuses for one worker and lists for another; give the worker list a worker who lacks the field and one who holds it.`,
+		);
+}
+
+function write(name: string, doc: BlueprintDoc, readings: Readings): void {
 	const hq = expandDoc(doc);
 	const zip = new AdmZip(
 		compileCcz(hq, doc.appName, doc, { runtimeTarget: MENU_SCREENS_TARGET }),
@@ -699,19 +958,26 @@ function write(name: string, doc: BlueprintDoc, withScreens: boolean): void {
 		zip.readAsText("suite.xml"),
 	);
 	const ctx = formLinkProjectionContext(doc);
-	if (withScreens) {
+	if (readings.kind === "roles") {
 		assertEveryMenuConditionHolds(name, doc);
 		assertEveryConjunctionIsRead(name, doc, ctx);
 		for (const moduleUuid of ctx.moduleOrder)
 			if (moduleHasOwnScreen(doc, moduleUuid))
 				assertEveryCaseConditionIsRead(name, doc, ctx, ownScreen(moduleUuid));
+	}
+	if (readings.kind !== "none") {
 		const cases = deviceCasesOf(doc);
+		const screens = screensOf(
+			doc,
+			ctx,
+			cases,
+			readings.kind === "workers" ? readings.workers : ROLE_WORKERS,
+		);
+		if (readings.kind === "workers")
+			assertEveryScreenIsReadBothWays(name, screens);
 		writeFileSync(
 			resolve(output, `${name}.screens.json`),
-			JSON.stringify({
-				deviceCases: cases,
-				screens: screensOf(doc, ctx, cases),
-			}),
+			JSON.stringify({ deviceCases: cases, screens }),
 		);
 	}
 	const offers = offersOf(doc, ctx);
@@ -769,12 +1035,12 @@ for (const [name, make] of [
 ] as const) {
 	const document = make();
 	const doc = hydratePersistedBlueprint(document.doc);
-	write(name, doc, true);
+	write(name, doc, ROLES);
 	if (name.startsWith("register-from-case-list"))
 		write(
 			`${name}-other-returns`,
 			otherReturns(name, doc, document.lookup),
-			true,
+			ROLES,
 		);
 }
 
@@ -923,5 +1189,376 @@ function twoRegistrationsControl(): BlueprintDoc {
 	return doc;
 }
 
-write("step-back-control", stepBackControl(), false);
-write("two-registrations-control", twoRegistrationsControl(), false);
+write("step-back-control", stepBackControl(), NONE);
+write("two-registrations-control", twoRegistrationsControl(), NONE);
+
+/** A survey menu of one form with one question. */
+function surveyMenu(key: string, name: string, extra: object = {}) {
+	return {
+		uuid: key,
+		name,
+		...extra,
+		forms: [
+			{
+				uuid: `${key}-form`,
+				name,
+				type: "survey" as const,
+				fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+			},
+		],
+	};
+}
+
+/** The worker data of a worker assigned to `place`, which HQ writes as all
+ *  three place keys or none (`models.py::get_user_session_data`). */
+function placedAt(place: string): WorkerData {
+	return {
+		commcare_location_id: place,
+		commcare_location_ids: place,
+		commcare_primary_case_sharing_id: place,
+	};
+}
+
+/**
+ * The worker-place document: a menu whose condition reads the worker's
+ * primary place from the session (`external-user('commcare_location_id')`),
+ * which Nova's gate admits, beside a menu with no condition. HQ writes the
+ * place keys only for a worker assigned somewhere, so for a worker assigned
+ * nowhere Core refuses the read: the first menu, which reads the condition,
+ * and the menu's own screen list nothing and hold the load exception, while
+ * the other menu's screen, which never reads it, lists its form. Preview
+ * shows that refusal on those two screens alone.
+ */
+function workerPlaceRead(): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Worker place read",
+		modules: [
+			surveyMenu("worker-place-placed", "Placed visits", {
+				displayCondition: eq(
+					sessionUser("commcare_location_id"),
+					literal("place-north"),
+				),
+			}),
+			surveyMenu("worker-place-anyone", "Anyone"),
+		],
+	});
+	const verdict = mutationCommitVerdict(doc, [], lookupContextOf(undefined));
+	if (!verdict.ok)
+		throw new Error(
+			`Nova's commit gate refused the worker-place document (${verdict.findings
+				.map((finding) => finding.code)
+				.join(", ")}).`,
+		);
+	return doc;
+}
+
+/**
+ * The undeclared-field control: built past the gate, which refuses a read of
+ * worker data the app never declares (`undeclared-worker-field`). The menu's
+ * condition reads `region` from the session. A project space that defines
+ * the field gives every worker the key, `''` where unset
+ * (`user_data.py::UserData.to_dict`); one that does not gives none, and Core
+ * refuses the read, which is why Nova's gate asks for the field to be
+ * declared, so a publish asks the project space to define it.
+ */
+function undeclaredWorkerFieldControl(): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Undeclared worker field control",
+		modules: [
+			surveyMenu("undeclared-field-region", "North visits", {
+				displayCondition: eq(sessionUser("region"), literal("north")),
+			}),
+			surveyMenu("undeclared-field-anyone", "Anyone"),
+		],
+	});
+	const verdict = mutationCommitVerdict(doc, [], lookupContextOf(undefined));
+	if (
+		verdict.ok ||
+		!verdict.findings.some(
+			(finding) => finding.details?.checkCode === "undeclared-worker-field",
+		)
+	)
+		throw new Error(
+			"Nova's commit gate no longer refuses a read of a worker field the app never declares.",
+		);
+	return doc;
+}
+
+/** The commit gate's verdict on a worker-place document, which must admit
+ *  it: each reads the worker's place by name, as Nova admits. */
+function admitted(name: string, doc: BlueprintDoc): BlueprintDoc {
+	const verdict = mutationCommitVerdict(doc, [], lookupContextOf(undefined));
+	if (!verdict.ok)
+		throw new Error(
+			`Nova's commit gate refused the ${name} document (${verdict.findings
+				.map((finding) => finding.code)
+				.join(", ")}).`,
+		);
+	return verdict.nextDoc;
+}
+
+/** A condition that holds for a worker placed at `place-north`, and that Core
+ *  refuses for a worker assigned nowhere. */
+function placedNorth() {
+	return eq(sessionUser("commcare_location_id"), literal("place-north"));
+}
+
+/**
+ * The worker-place forms document: a case-first menu, "Visits", whose second
+ * form's condition reads the worker's place. Core reads a form's condition
+ * once the case is chosen (`MenuLoader.addRelevantCommandEntries`), so for a
+ * worker assigned nowhere the menu's screen fails with the case chosen, and
+ * Preview's form menu shows the refusal there; the first menu, which reads no
+ * such condition, lists the menu.
+ */
+function workerPlaceForms(): BlueprintDoc {
+	const followUp = (uuid: string, name: string, extra: object = {}) => ({
+		uuid,
+		name,
+		type: "followup" as const,
+		...extra,
+		fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+	});
+	return admitted(
+		"worker-place forms",
+		buildDoc({
+			appName: "Worker place forms",
+			caseTypes: [{ name: "visit", properties: [] }],
+			modules: [
+				{
+					uuid: "worker-place-visits",
+					name: "Visits",
+					caseType: "visit",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						followUp("worker-place-visit-check", "Check visit"),
+						followUp("worker-place-visit-placed", "Placed visit", {
+							displayCondition: placedNorth(),
+						}),
+					],
+				},
+			],
+		}),
+	);
+}
+
+/**
+ * The worker-place menus document, one refusing read per screen:
+ *
+ * - "Placed reports" shows its form on the first menu with a condition that
+ *   reads the worker's place, so that form's row carries it
+ *   (`menus.py::_generate_menu`) and the first menu fails for a worker
+ *   assigned nowhere.
+ * - "Districts" keeps its screen, and its submenu "District rounds" shows its
+ *   form there under a condition that reads the place, conjoined into the
+ *   `<menu>` Districts' screen reads: that screen fails.
+ * - "Wards" keeps its screen, and its submenu "Ward notes" keeps its own
+ *   under a condition that reads the place: Wards' screen, which lists that
+ *   submenu's tile, fails, and so does the submenu's own screen.
+ */
+function workerPlaceMenus(): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Worker place menus",
+		modules: [
+			surveyMenu("worker-place-reports", "Placed reports", {
+				displayCondition: placedNorth(),
+			}),
+			surveyMenu("worker-place-districts", "Districts"),
+			surveyMenu("worker-place-district-rounds", "District rounds", {
+				displayCondition: placedNorth(),
+			}),
+			surveyMenu("worker-place-wards", "Wards"),
+			surveyMenu("worker-place-ward-notes", "Ward notes", {
+				displayCondition: placedNorth(),
+			}),
+		],
+	});
+	doc.modules[testUuid("worker-place-reports")].formsInMenuAbove = true;
+	doc.modules[testUuid("worker-place-district-rounds")].parentModuleUuid =
+		testUuid("worker-place-districts");
+	doc.modules[testUuid("worker-place-district-rounds")].formsInMenuAbove = true;
+	doc.modules[testUuid("worker-place-ward-notes")].parentModuleUuid =
+		testUuid("worker-place-wards");
+	return admitted("worker-place menus", doc);
+}
+
+/** A worker assigned nowhere, and one at each of two places. */
+const PLACE_WORKERS: readonly WorkerData[] = [
+	{},
+	placedAt("place-north"),
+	placedAt("place-south"),
+];
+
+write("worker-place-read", workerPlaceRead(), {
+	kind: "workers",
+	workers: PLACE_WORKERS,
+});
+write("worker-place-forms", workerPlaceForms(), {
+	kind: "workers",
+	workers: PLACE_WORKERS,
+});
+write("worker-place-menus", workerPlaceMenus(), {
+	kind: "workers",
+	workers: PLACE_WORKERS,
+});
+write("undeclared-worker-field-control", undeclaredWorkerFieldControl(), {
+	kind: "workers",
+	workers: [{}, { region: "north" }, { region: "" }],
+});
+
+/**
+ * The menu-landings document: where Preview opens each menu, and what it
+ * shows once the case is chosen, on the shapes it once read apart from Core.
+ *
+ * - "Wards" asks for its ward first and keeps a submenu, "Ward beds", with a
+ *   screen of its own: Core opens the wards' case list before it lists the
+ *   submenu's tile.
+ * - "Clinics" is only its case list, with a submenu, "Clinic rooms": Core
+ *   opens the list, and lists the submenu once a clinic is chosen.
+ * - "Rooms" asks for its room first and holds one form: Core lists that form
+ *   once the room is chosen and never opens it by itself.
+ * - "Patients" is emitted advanced (its kind held by a publish,
+ *   `Module.heldKind`) and lists two follow-up forms beside its case list
+ *   entry, which asks for HQ's `case_id_case_patient` while the forms load
+ *   `case_id_load_patient0`: no one datum is first for every entry, so Core
+ *   lists forms first, the entry among them.
+ * - "Reviews" is emitted advanced, and a publish keeps its second form's
+ *   load under the tag `review` (`placement`), so that form asks for
+ *   `case_id_review` while the first asks for `case_id_load_review0`: Core
+ *   lists forms first.
+ * - "Checks" is emitted advanced, beside its case list entry, and a publish
+ *   keeps both forms' loads under the tag `case_check`, so every entry asks
+ *   for `case_id_case_check` first: Core asks for the check first.
+ *
+ * Each step back from a form of a case-first menu here lands on a list that
+ * holds no form, and from a form of a forms-first one on a list that holds it.
+ */
+function menuLandings(): BlueprintDoc {
+	const list = () => caseListConfig([{ field: "case_name", header: "Name" }]);
+	const followUp = (uuid: string, name: string) => ({
+		uuid,
+		name,
+		type: "followup" as const,
+		fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+	});
+	const doc = buildDoc({
+		appName: "Menu landings",
+		caseTypes: [
+			{ name: "ward", properties: [] },
+			{ name: "clinic", properties: [] },
+			{ name: "room", properties: [] },
+			{ name: "patient", properties: [] },
+			{ name: "review", properties: [] },
+			{ name: "check", properties: [] },
+		],
+		modules: [
+			{
+				uuid: "landings-wards",
+				name: "Wards",
+				caseType: "ward",
+				caseListConfig: list(),
+				forms: [followUp("landings-ward-round", "Ward round")],
+			},
+			{
+				uuid: "landings-ward-beds",
+				name: "Ward beds",
+				caseType: "ward",
+				caseListConfig: list(),
+				forms: [followUp("landings-bed-check", "Bed check")],
+			},
+			{
+				uuid: "landings-clinics",
+				name: "Clinics",
+				caseType: "clinic",
+				caseListMenuItem: {},
+				caseListConfig: list(),
+				forms: [],
+			},
+			{
+				uuid: "landings-clinic-rooms",
+				name: "Clinic rooms",
+				caseType: "clinic",
+				caseListConfig: list(),
+				forms: [followUp("landings-clinic-inspection", "Inspect clinic")],
+			},
+			{
+				uuid: "landings-rooms",
+				name: "Rooms",
+				caseType: "room",
+				caseListConfig: list(),
+				forms: [followUp("landings-room-clean", "Clean room")],
+			},
+			{
+				uuid: "landings-patients",
+				name: "Patients",
+				caseType: "patient",
+				caseListMenuItem: {},
+				caseListConfig: list(),
+				forms: [
+					followUp("landings-patient-check", "Check patient"),
+					followUp("landings-patient-review", "Review patient"),
+				],
+			},
+			{
+				uuid: "landings-reviews",
+				name: "Reviews",
+				caseType: "review",
+				caseListConfig: list(),
+				forms: [
+					followUp("landings-review-open", "Open review"),
+					followUp("landings-review-close", "Close review"),
+				],
+			},
+			{
+				uuid: "landings-checks",
+				name: "Checks",
+				caseType: "check",
+				caseListMenuItem: {},
+				caseListConfig: list(),
+				forms: [
+					followUp("landings-check-start", "Start check"),
+					followUp("landings-check-finish", "Finish check"),
+				],
+			},
+		],
+	});
+	/* Where a publish keeps a form's own load: its own case operation's
+	 * held placement, the tag HQ's case configuration holds. */
+	const keepLoadUnder = (formKey: string, tag: string) => {
+		const own = doc.forms[testUuid(formKey)]?.caseOperations?.find(
+			(operation) => operation.action === "own",
+		);
+		if (own === undefined)
+			throw new Error(`"${formKey}" holds no own case to keep a load for.`);
+		own.placement = { kind: "advanced", tag };
+	};
+	doc.modules[testUuid("landings-ward-beds")].parentModuleUuid =
+		testUuid("landings-wards");
+	doc.modules[testUuid("landings-clinic-rooms")].parentModuleUuid =
+		testUuid("landings-clinics");
+	doc.modules[testUuid("landings-patients")].heldKind = "advanced";
+	doc.modules[testUuid("landings-reviews")].heldKind = "advanced";
+	keepLoadUnder("landings-review-close", "review");
+	doc.modules[testUuid("landings-checks")].heldKind = "advanced";
+	keepLoadUnder("landings-check-start", "case_check");
+	keepLoadUnder("landings-check-finish", "case_check");
+	const verdict = mutationCommitVerdict(doc, [], lookupContextOf(undefined));
+	if (!verdict.ok)
+		throw new Error(
+			`Nova's commit gate refused the menu-landings document (${verdict.findings
+				.map((finding) => finding.code)
+				.join(", ")}).`,
+		);
+	return verdict.nextDoc;
+}
+
+write("menu-landings", menuLandings(), ROLES);
+
+// Some step back is read on a screen that chooses its case first and lists one
+// form, where Core lists the menu and Preview once opened the form by itself.
+if (loneFormStepBacks === 0)
+	throw new Error(
+		"No step back is read on a case-first screen that lists one form; give a document a case-first menu of one form.",
+	);

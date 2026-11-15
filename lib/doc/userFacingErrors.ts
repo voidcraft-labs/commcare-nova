@@ -517,9 +517,38 @@ const dayOnlyCopy = (e: ValidationError) =>
 			: {}),
 	});
 
+/** Why a read of worker information the app never declares is refused, and
+ *  what to do: a project space defines a field only where a person defined
+ *  it, and publishing asks only for what the app declares. */
+const UNDECLARED_WORKER_FIELD_CONSEQUENCE =
+	"Publishing asks the project space to define only the worker information an app declares, and a phone stops where it reads a field its project space doesn't define. You can add it as worker information in App setup and read that instead.";
+
+const UNDECLARED_WORKER_FIELD_SENTENCE = `reads worker information this app doesn't declare. ${UNDECLARED_WORKER_FIELD_CONSEQUENCE}`;
+
+const undeclaredWorkerFieldSentence = (e: ValidationError): string => {
+	const field = e.details?.workerField;
+	return typeof field === "string" && field.length > 0
+		? `reads the worker's ${q(field)}, which this app doesn't declare as worker information. ${UNDECLARED_WORKER_FIELD_CONSEQUENCE}`
+		: UNDECLARED_WORKER_FIELD_SENTENCE;
+};
+
+/** Why a read of declared worker information by its name is refused: the
+ *  read takes the information itself, so a rename keeps it. */
+const WORKER_PROPERTY_BY_NAME_SENTENCE =
+	"reads worker information this app declares by its name, so renaming that information would leave the read behind. You can choose the worker information itself.";
+
+const workerPropertyByNameSentence = (e: ValidationError): string => {
+	const field = e.details?.workerField;
+	return typeof field === "string" && field.length > 0
+		? `reads the worker's ${q(field)} by its name, so renaming that worker information would leave the read behind. You can choose ${q(field)} from the worker information itself.`
+		: WORKER_PROPERTY_BY_NAME_SENTENCE;
+};
+
 /** The sentence after a record setting's subject for a checker finding of a
  * search's shape, keyed by the checker code. */
 const RECORD_CHECK_SENTENCES: Readonly<Record<string, string>> = {
+	"undeclared-worker-field": UNDECLARED_WORKER_FIELD_SENTENCE,
+	"worker-property-read-by-name": WORKER_PROPERTY_BY_NAME_SENTENCE,
 	"case-type-ordering":
 		"orders case types. Case types can be compared only as equal or not equal. You can check whether the case type is one you choose.",
 	"epoch-fraction-on-device":
@@ -972,6 +1001,10 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `${lead} Its forms show with ${blockingMenu}'s on one screen, and ${q(det(e, "blockingFormName", ""))} there opens without a case, so a worker chooses a form before any case.`;
 			case "chooses-another-case":
 				return `${lead} Its forms show with ${blockingMenu}'s on one screen, and those forms choose a different case first, so a worker chooses a form before any case.`;
+			case "form-chooses-apart":
+				return `${lead} ${q(det(e, "blockingFormName", ""))} on that screen chooses its case apart from the forms beside it, so a worker chooses a form before any case.`;
+			case "case-list-entry-apart":
+				return `${lead} ${blockingMenu}'s case list entry on that screen chooses its case apart from the forms beside it, so a worker chooses a form before any case.`;
 			default:
 				return `${lead} Use information from the selected case only when this module chooses a case first, or use current-user information.`;
 		}
@@ -1748,6 +1781,10 @@ const USER_MESSAGE_BY_CODE: Record<
 			return `${formulaSubject(e)} reads wording that its form no longer has. You can read a question's current wording, or remove that read.`;
 		if (e.details?.identity === "place")
 			return `${formulaSubject(e)} reads a place level or a piece of place information that no longer exists. You can choose a current one, or remove that read.`;
+		if (e.details?.identity === "worker-field")
+			return `${formulaSubject(e)} ${undeclaredWorkerFieldSentence(e)}`;
+		if (e.details?.identity === "worker-property-by-name")
+			return `${formulaSubject(e)} ${workerPropertyByNameSentence(e)}`;
 		if (e.details?.ref !== "/data")
 			return `A formula on ${q(fieldName(e))} in ${q(formName(e))} points to a field that isn't here. Check for a typo, or a field that was renamed or removed.`;
 		/* A Connect setting's formula belongs to the form, not a field. */

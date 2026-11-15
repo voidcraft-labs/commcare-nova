@@ -31,14 +31,13 @@ test("a form reading search results opens after a search and asks for one after 
 	const note = main.getByRole("textbox", {
 		name: new RegExp(`${noteLabel}$`),
 	});
-	/** Continue from the record; a module menu may list its form first. */
+	/** Continue from the record, then choose the form: CommCare lists the
+	 *  menu's form once the record is chosen. */
 	const continueToForm = async (opened: Locator) => {
 		await main.getByRole("button", { name: "Continue", exact: true }).click();
-		const formButton = main.getByRole("button", {
-			name: new RegExp(`^${formName}\\b`),
-		});
-		await expect(opened.or(formButton)).toBeVisible({ timeout: 20_000 });
-		if (await formButton.isVisible()) await formButton.click();
+		await main
+			.getByRole("button", { name: new RegExp(`^${formName}\\b`) })
+			.click({ timeout: 20_000 });
 		await expect(opened).toBeVisible({ timeout: 20_000 });
 	};
 

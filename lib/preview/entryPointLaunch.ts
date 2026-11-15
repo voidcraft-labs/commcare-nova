@@ -11,6 +11,7 @@ import { moduleParent } from "@/lib/domain/moduleHierarchy";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
+import { readPreviewScreen } from "./engine/dataRefusal";
 import {
 	formDisplayVisibility,
 	moduleDisplayVisibility,
@@ -35,6 +36,13 @@ import type { PreviewPlatformRules } from "./platform";
 /** What Preview says when a form off the menu is launched from an entry point
  * that does not ignore display conditions. Only Web Apps reaches it: Android
  * ignores display conditions on an entry point. */
+/** A condition on the way to the destination reads data the worker's device
+ *  lacks, so Web Apps' navigation stops on the screen that reads it, as
+ *  Formplayer's does when a menu it walks fails to load
+ *  (`engine/dataRefusal.ts`). */
+export const ENTRY_POINT_DATA_REFUSAL =
+	"This destination reads worker information the selected Preview worker doesn't have, such as a place, so a phone stops on the way to it. You can give the worker a place under Users and personas in App setup, or preview as a persona who has one.";
+
 export const FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL =
 	"This form is off the menu, and in Web Apps an entry point opens it only when the entry point ignores display conditions. You can set it to ignore them.";
 
@@ -222,7 +230,7 @@ export function prepareEntryPointLaunch(args: {
 		for (const moduleUuid of gatingModules) {
 			const mod = args.doc.modules[moduleUuid];
 			if (mod === undefined) continue;
-			if (
+			const read = readPreviewScreen(() =>
 				moduleDisplayVisibility({
 					condition: mod.displayCondition,
 					hiddenFromMenu: mod.hiddenFromMenu === true,
@@ -238,13 +246,16 @@ export function prepareEntryPointLaunch(args: {
 					),
 					lookup: args.lookup,
 					deviceCases,
-				}) !== "shown"
-			)
+				}),
+			);
+			if (read.kind === "refused") return refuse(ENTRY_POINT_DATA_REFUSAL);
+			if (read.value !== "shown")
 				return refuse(
 					"This destination is hidden for the selected Preview worker.",
 				);
 		}
 		if (item.target.kind === "form") {
+			const { formUuid } = item.target;
 			const selection = previewMenuCaseContext(
 				{ ...args.doc, caseTypes: args.doc.caseTypes ?? [] },
 				item.target.moduleUuid,
@@ -264,17 +275,16 @@ export function prepareEntryPointLaunch(args: {
 							}).data,
 						)
 					: undefined;
-			if (
+			const read = readPreviewScreen(() =>
 				formDisplayVisibility({
-					condition: args.doc.forms[item.target.formUuid].displayCondition,
-					hiddenFromMenu:
-						args.doc.forms[item.target.formUuid].hiddenFromMenu === true,
+					condition: args.doc.forms[formUuid].displayCondition,
+					hiddenFromMenu: args.doc.forms[formUuid].hiddenFromMenu === true,
 					session: args.session,
 					types: previewExpressionContext(
 						args.doc,
 						{
 							entity: "form",
-							uuid: item.target.formUuid,
+							uuid: formUuid,
 							slot: "form_display_condition",
 						},
 						args.lookup.kind === "data" ? args.lookup.data : undefined,
@@ -282,8 +292,10 @@ export function prepareEntryPointLaunch(args: {
 					selectedCase,
 					deviceCases,
 					lookup: args.lookup,
-				}) !== "shown"
-			)
+				}),
+			);
+			if (read.kind === "refused") return refuse(ENTRY_POINT_DATA_REFUSAL);
+			if (read.value !== "shown")
 				return refuse(
 					"This form is hidden for the selected cases or Preview worker.",
 				);

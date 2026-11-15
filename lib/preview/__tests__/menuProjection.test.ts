@@ -9,16 +9,20 @@ import {
 	screenChoosesCaseFirst,
 } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { previewDataRefusalOf } from "../engine/dataRefusal";
 import {
 	caseListMenuEntryOf,
 	combineNavigationVisibility,
 	inheritedModuleVisibility,
 	previewCaseDescendantModuleUuids,
+	previewCaseListFormRequest,
 	previewCaseListMenuEntry,
+	previewCaseListReturnTarget,
 	previewContributorVisibility,
 	previewMenuCaseContext,
 	previewModuleOwnVisibility,
 	previewModuleVisibility,
+	previewRoutingModuleVisibility,
 	previewRunningModuleScreen,
 	previewScreenEntries,
 	previewScreenEntryVisibility,
@@ -226,6 +230,91 @@ describe("Preview menu projection", () => {
 			previewModuleVisibility(doc, {
 				authoring: true,
 				session: { context: {}, user: {}, userPropertySlugs: {} },
+				lookup: { kind: "idle" },
+			}).get(ROOT),
+		).toBe("shown");
+	});
+
+	/* Core reads a menu's condition only on the screens that list it or are
+	 * its own (`MenuLoader.getMenuDisplayables`): a condition that reads a
+	 * worker key the device lacks fails those screens and no other. */
+	it("reads a menu's condition only where a screen asks, so its refusal stops only those screens", () => {
+		const doc = source();
+		doc.modules[ROOT].displayCondition = eq(
+			sessionUser("commcare_location_id"),
+			literal("north"),
+		);
+		const session = { context: {}, user: {}, userPropertySlugs: {} };
+		const own = previewModuleOwnVisibility(doc, {
+			authoring: false,
+			session,
+			lookup: { kind: "idle" },
+		});
+		expect(own.get(OTHER_ROOT)).toBe("shown");
+		const refusalOf = (read: () => unknown) => {
+			try {
+				read();
+			} catch (error) {
+				return previewDataRefusalOf(error)?.reason;
+			}
+			return undefined;
+		};
+		const refused = {
+			kind: "empty-instance",
+			instanceId: "commcaresession",
+		};
+		expect(refusalOf(() => own.get(ROOT))).toEqual(refused);
+		// Read again, the refusal stands.
+		expect(refusalOf(() => own.get(ROOT))).toEqual(refused);
+		// The other menu's own screen never reads the refusing condition.
+		const otherScreen = previewScreenEntryVisibility({
+			doc,
+			entries: previewScreenEntries(doc, {
+				kind: "menu",
+				moduleUuid: OTHER_ROOT,
+			}),
+			ownModuleVisibility: own,
+			authoring: false,
+			session,
+			lookup: { kind: "idle" },
+			selectedCaseOf: () => undefined,
+		});
+		expect([...otherScreen.values()].every((v) => v === "shown")).toBe(true);
+		// The first menu lists the menu's tile, so it reads the condition.
+		expect(
+			refusalOf(() =>
+				previewScreenEntryVisibility({
+					doc,
+					entries: previewScreenEntries(doc, { kind: "first-menu" }),
+					ownModuleVisibility: own,
+					authoring: false,
+					session,
+					lookup: { kind: "idle" },
+					selectedCaseOf: () => undefined,
+				}),
+			),
+		).toEqual(refused);
+		// Routing reads the refused menu as not shown, so a location lands on
+		// the screen that shows the refusal.
+		const routing = previewRoutingModuleVisibility(
+			doc,
+			previewModuleVisibility(doc, {
+				authoring: false,
+				session,
+				lookup: { kind: "idle" },
+			}),
+		);
+		expect(routing.get(ROOT)).toBe("hidden");
+		expect(routing.get(OTHER_ROOT)).toBe("shown");
+		// A worker assigned to a place lists it by its condition.
+		expect(
+			previewModuleOwnVisibility(doc, {
+				authoring: false,
+				session: {
+					context: {},
+					user: { commcare_location_id: "north" },
+					userPropertySlugs: {},
+				},
 				lookup: { kind: "idle" },
 			}).get(ROOT),
 		).toBe("shown");
@@ -682,5 +771,39 @@ describe("Preview menu projection", () => {
 				}),
 			).toMatchObject({ label: "People" });
 		});
+	});
+});
+
+describe("the form a case list holds for the case chosen on it", () => {
+	// A device's session holds a form chosen before its case beneath the
+	// case, and one chosen from the menu after its case above it, so stepping
+	// back from the form to the list keeps the first and drops the second
+	// (`CommCareSession.stepBack`). `proof/native/core/MenuScreensRuntimeTest`
+	// holds the screens built on this to Core.
+	const visit = testUuid("visit");
+	const review = testUuid("review");
+	const forms = [visit, review];
+
+	it("holds a form chosen before the case, there and after a step back", () => {
+		const target = { formUuid: visit };
+		expect(previewCaseListFormRequest(target, forms)).toBe(visit);
+		const back = previewCaseListReturnTarget(target, visit);
+		expect(back).toEqual({ formUuid: visit });
+		expect(previewCaseListFormRequest(back, forms)).toBe(visit);
+	});
+
+	it("holds no form chosen from the menu after the case, before or after a step back", () => {
+		const target = { formUuid: visit, formChosenAfterCase: true } as const;
+		expect(previewCaseListFormRequest(target, forms)).toBeUndefined();
+		const back = previewCaseListReturnTarget(target, visit);
+		expect(back).toBeUndefined();
+		expect(previewCaseListFormRequest(back, forms)).toBeUndefined();
+	});
+
+	it("holds no form the list does not open with a case", () => {
+		expect(
+			previewCaseListFormRequest({ formUuid: testUuid("register") }, forms),
+		).toBeUndefined();
+		expect(previewCaseListFormRequest(undefined, forms)).toBeUndefined();
 	});
 });

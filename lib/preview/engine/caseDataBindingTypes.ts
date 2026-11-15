@@ -32,6 +32,7 @@ import type {
 	SubmissionRejection,
 } from "@/lib/case-store";
 import type { CasePropertyDataType } from "@/lib/domain";
+import type { PreviewDataRefusalReason } from "./dataRefusal";
 
 // `CaseRow` re-exported as a barrel surface so consumers have one
 // import path for the binding's types. `CaseRowWithCalculated`
@@ -164,8 +165,18 @@ export type LoadCasesResult =
 			repair: "inputs" | "settings";
 	  }
 	| PreviewUnavailableResult
+	| PreviewDataRefusedResult
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
+
+/** A read a phone stops on because it reads data the worker's device lacks
+ *  (`dataRefusal.ts`): a worker-data key such as the place of a worker
+ *  assigned nowhere. The screen shows the refusal in its place, and nothing
+ *  is reported: the app is right and the data is the worker's. */
+export type PreviewDataRefusedResult = {
+	kind: "data-refused";
+	reason: PreviewDataRefusalReason;
+};
 
 /** What Preview runs as or on is no longer the app's: the selected persona
  * was removed, the app no longer declares the platform Preview plays, or no
@@ -387,6 +398,7 @@ export type LoadCaseDataResult =
 	  }
 	| { kind: "missing" }
 	| PreviewUnavailableResult
+	| PreviewDataRefusedResult
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 

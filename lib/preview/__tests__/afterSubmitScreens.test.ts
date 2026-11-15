@@ -15,7 +15,7 @@ import {
 	moduleFrameChildren,
 } from "@/lib/commcare/formLinkProjection";
 import type { BlueprintDoc, ResolvedFormLinkTarget } from "@/lib/domain";
-import { eq, literal } from "@/lib/domain/expression";
+import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import {
 	afterSubmitRoute,
 	afterSubmitTargetVisibility,
@@ -116,6 +116,54 @@ function visibilityOf(doc: BlueprintDoc, target: ResolvedFormLinkTarget) {
 		caseSelections: [],
 	});
 }
+
+// Formplayer's frame walk fails on a screen whose menu or form condition
+// reads a worker-data key the session lacks (a place key of a worker
+// assigned nowhere): Preview's walk reads that condition as hidden, so it
+// stops on the screen that lists the item, which reads the same condition
+// and shows the refusal there, rather than throwing out of the save.
+describe("after submit to a target whose condition reads a place the worker lacks", () => {
+	const placed = () =>
+		eq(sessionUser("commcare_location_id"), literal("place-north"));
+	it("stops on the screen that lists a menu or a form that refuses, and opens where the worker has the place", () => {
+		const menu = nested();
+		menu.modules[OWN].displayCondition = placed();
+		const ownTarget = { type: "module", moduleUuid: OWN } as const;
+		expect(visibilityOf(menu, ownTarget)).toEqual({
+			kind: "module-hidden",
+			shownModuleUuid: PARENT,
+		});
+		const form = nested();
+		form.forms[PARENT_FORM].displayCondition = placed();
+		const formTarget = {
+			type: "form",
+			moduleUuid: PARENT,
+			formUuid: PARENT_FORM,
+		} as const;
+		expect(visibilityOf(form, formTarget)).toEqual({
+			kind: "form-hidden",
+			shownModuleUuid: PARENT,
+		});
+		const atNorth = {
+			...SESSION,
+			user: {
+				commcare_location_id: "place-north",
+				commcare_location_ids: "place-north",
+				commcare_primary_case_sharing_id: "place-north",
+			},
+		};
+		expect(
+			afterSubmitTargetVisibility({
+				doc: menu,
+				target: ownTarget,
+				session: atNorth,
+				lookup: { kind: "idle" },
+				deviceCases: { snapshot: null, caseTypes: menu.caseTypes ?? [] },
+				caseSelections: [],
+			}),
+		).toBe("shown");
+	});
+});
 
 describe("after submit with forms in the menu above", () => {
 	it("lands a link to a hidden form of a submenu shown above on the screen that lists it", () => {

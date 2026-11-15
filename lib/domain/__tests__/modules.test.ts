@@ -7,7 +7,7 @@ import { emptyCaseListConfig } from "@/lib/domain";
 // do not establish runtime or CommCare acceptance.
 
 import { describe, expect, it } from "vitest";
-import { eq, literal, sessionUser, term } from "../expression";
+import { eq, literal, sessionContext, term } from "../expression";
 import {
 	afterEmptySearchRegistrationFormOf,
 	menuFormUuidsOf,
@@ -84,7 +84,7 @@ describe("moduleSchema — caseListConfig presence", () => {
 	});
 
 	it("stores a typed display condition", () => {
-		const displayCondition = eq(sessionUser("username"), literal("alice"));
+		const displayCondition = eq(sessionContext("username"), literal("alice"));
 		const parsed = moduleSchema.safeParse({
 			uuid: u(1),
 			id: "patients",

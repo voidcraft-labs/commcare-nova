@@ -27,7 +27,7 @@ import {
 	and,
 	eq,
 	literal,
-	sessionUser,
+	sessionContext,
 	term,
 } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -50,7 +50,7 @@ const TARGETS = [toNote, toVisit, toCare] as const;
 
 /** Original condition `i`: an opaque boolean the claim assigns. */
 const atom = (i: number): Expression =>
-	eq(sessionUser("username"), literal(`u${i}`));
+	eq(sessionContext("username"), literal(`u${i}`));
 
 const link = (
 	uuid: string,

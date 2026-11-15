@@ -7,10 +7,12 @@
  * place of the screen, and reports nothing: the app is right, the data is
  * empty.
  *
- * A form's refusal arrives on the engine's entry state. A menu's display
- * condition and a Search prompt's choices are read while their screen
- * renders, so {@link PreviewDataRefusalBoundary} catches the refusal there
- * and passes every other error to the boundary above it.
+ * A form's refusal arrives on the engine's entry state, and a menu screen
+ * holds its conditions' refusal as its own state
+ * (`engine/dataRefusal.ts::readPreviewScreen`), so neither leaves the render
+ * as an error a framework would log. A Search prompt's choices are read while
+ * their screen renders, so {@link PreviewDataRefusalBoundary} catches the
+ * refusal there and passes every other error to the boundary above it.
  */
 
 import React from "react";

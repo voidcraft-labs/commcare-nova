@@ -625,8 +625,72 @@ describe("conditionVerdict — comparison operators", () => {
 	// Comparing a text-typed property against a session-user reference
 	// is the canonical shape; pinning it locks the resolution rule.
 	it("accepts text prop = session-user field (both resolve to text)", () => {
-		const p = eq(prop("patient", "case_name"), sessionUser("display_name"));
+		const p = eq(
+			prop("patient", "case_name"),
+			sessionUser("commcare_first_name"),
+		);
 		expect(conditionVerdict(p, ctx).ok).toBe(true);
+	});
+
+	// HQ's restore holds a session key only for a field the project space
+	// defines (`user_data.py::UserData.to_dict`) and the keys CommCare writes
+	// itself (`models.py::get_user_session_data`); Core refuses a read of any
+	// other key (`XPathNodeset.unpack`). A publish asks the project space to
+	// define only the worker properties the app declares, and a declared
+	// property is read by its identity, so a rename keeps the read: a read of
+	// a field the app never declares is refused, and so is a read of a
+	// declared slug by its name, from the session or the worker's record; a
+	// built-in key and any other read of the worker's record are admitted.
+	describe("a worker field read by its name", () => {
+		const declared = {
+			...ctx,
+			userPropertySlugs: new Map([[testUuid("region-property"), "region"]]),
+		};
+		const read = (
+			term: ReturnType<typeof sessionUser>,
+			context: typeof ctx = ctx,
+		) => conditionVerdict(eq(prop("patient", "case_name"), term), context);
+		const codes = (result: ReturnType<typeof read>) =>
+			result.ok ? [] : result.errors.map((error) => error.code);
+		it("refuses a field the app never declares, naming it", () => {
+			const result = read(sessionUser("region"));
+			expect(codes(result)).toEqual(["undeclared-worker-field"]);
+			if (!result.ok) expect(result.errors[0].message).toContain("“region”");
+		});
+		it("admits a key CommCare gives every worker", () => {
+			expect(read(sessionUser("commcare_location_id")).ok).toBe(true);
+			expect(read(sessionUser("user_type")).ok).toBe(true);
+		});
+		it("refuses a declared slug read by its name, from the session and from the worker's record", () => {
+			const result = read(sessionUser("region"), declared);
+			expect(codes(result)).toEqual(["worker-property-read-by-name"]);
+			if (!result.ok) expect(result.errors[0].message).toContain("“region”");
+			expect(
+				codes(
+					read(
+						{ kind: "session-user", field: "region", source: "worker-record" },
+						declared,
+					),
+				),
+			).toEqual(["worker-property-read-by-name"]);
+		});
+		it("admits the declared property read by its identity", () => {
+			expect(
+				conditionVerdict(
+					eq(prop("patient", "case_name"), {
+						kind: "session-user-property",
+						userPropertyUuid: testUuid("region-property"),
+					}),
+					declared,
+				).ok,
+			).toBe(true);
+		});
+		it("admits an undeclared field read from the worker's record, which reads blank where unset", () => {
+			expect(
+				read({ kind: "session-user", field: "region", source: "worker-record" })
+					.ok,
+			).toBe(true);
+		});
 	});
 
 	// Session-context refs (closed-enum `/session/context/<field>`)
@@ -2092,8 +2156,10 @@ describe("conditionVerdict — matches-pattern admission", () => {
 	it("accepts a session read and a computed subject", () => {
 		const pmCtx: QueryFixture = { ...inputCtx, patternMatching: true };
 		expect(
-			conditionVerdict(matchesPattern(sessionUser("region"), "^[A-Z]"), pmCtx)
-				.ok,
+			conditionVerdict(
+				matchesPattern(sessionUser("commcare_location_id"), "^[A-Z]"),
+				pmCtx,
+			).ok,
 		).toBe(true);
 		expect(
 			conditionVerdict(
@@ -2133,7 +2199,7 @@ describe("conditionVerdict — is-blank operand-shape rules", () => {
 	});
 
 	it("accepts is-blank on a session-user reference", () => {
-		const p = isBlank(sessionUser("region"));
+		const p = isBlank(sessionUser("commcare_location_id"));
 		expect(conditionVerdict(p, ctx).ok).toBe(true);
 	});
 

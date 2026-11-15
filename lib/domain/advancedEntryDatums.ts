@@ -21,15 +21,20 @@
 //   (`lib/commcare/moduleKind.ts::emittedModuleKind`, `advancedKindReasons`);
 // - `advancedEntryActions`: the attachment loop of
 //   `lib/commcare/placement.ts::planAdvancedCore`, for the open actions and
-//   the worker's load (the chain's loads are there whatever they carry).
+//   the worker's load (the chain's loads are there whatever they carry);
+// - `advancedLoadTags`: the tag each load takes, so the datum it gives the
+//   entry, which `menuScreens.ts` reads to say whether a menu asks for its
+//   case first.
 //
 // `lib/commcare/__tests__/entryDatumAgreement.ts` holds the entry supplies
-// to the wire's datums over every admitted fuzz document.
+// to the wire's datums, and the load tags to the planner's, over every
+// admitted fuzz document.
 //
 // Pure, and memoized per document object (documents are replaced, never
 // changed in place).
 
 import { advancedChainIndex, advancedKindBlockers } from "./advancedModule";
+import { allocateAdvancedTags } from "./advancedTags";
 import {
 	basicCaseSlots,
 	type CaseSlotFacts,
@@ -41,6 +46,7 @@ import {
 } from "./basicCaseSlots";
 import type { BlueprintDoc } from "./blueprint";
 import { caseWriteValueField } from "./caseWriteViews";
+import { formConnectIds } from "./connectIds";
 import { entrySelections, rootSelectionAlignment } from "./entryDatumSupplies";
 import { CASE_TYPE_PATTERN, type Expression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
@@ -58,6 +64,7 @@ import {
 } from "./forms";
 import { moduleParent, projectedModulePreorder } from "./moduleHierarchy";
 import type { AdvancedIneligibility } from "./placements";
+import { USERCASE_CASE_TYPE } from "./usercase";
 import type { Uuid } from "./uuid";
 
 function owningModule(doc: BlueprintDoc, formUuid: Uuid): Uuid | undefined {
@@ -800,7 +807,20 @@ function heldWorkerBlockExpresses(
 	return held.path.length === shape;
 }
 
-const actions = new WeakMap<BlueprintDoc, Map<Uuid, AdvancedEntryActions>>();
+/** The actions of an advanced form, with the tag each takes from a held
+ *  placement (`placement.ts::planAdvancedCore`'s `attach`: an action takes
+ *  the held tag of the first change it carries whose tag no earlier change
+ *  took). */
+interface EntryActionPlan {
+	readonly actions: AdvancedEntryActions;
+	/** By chain load, root first. */
+	readonly chainHeld: readonly (string | undefined)[];
+	readonly workerHeld: string | undefined;
+	/** By open action, in `opens` order. */
+	readonly openHeld: readonly (string | undefined)[];
+}
+
+const actions = new WeakMap<BlueprintDoc, Map<Uuid, EntryActionPlan>>();
 
 /**
  * The open actions and the worker's load of `formUuid` planned as an
@@ -814,6 +834,10 @@ export function advancedEntryActions(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): AdvancedEntryActions {
+	return entryActionPlan(doc, formUuid).actions;
+}
+
+function entryActionPlan(doc: BlueprintDoc, formUuid: Uuid): EntryActionPlan {
 	let forms = actions.get(doc);
 	if (forms === undefined) {
 		forms = new Map();
@@ -833,6 +857,19 @@ export function advancedEntryActions(
 	>();
 	const opens: AdvancedEntryOpen[] = [];
 	let workerLoad = false;
+	const chainHeld: (string | undefined)[] = advancedLoadChain(
+		doc,
+		formUuid,
+	).map(() => undefined);
+	let workerHeld: string | undefined;
+	const openHeld: (string | undefined)[] = [];
+	const usedHeld = new Set<string>();
+	const heldTagOf = (op: CaseOperation): string | undefined => {
+		const held = op.placement;
+		if (held?.kind !== "advanced" || usedHeld.has(held.tag)) return undefined;
+		usedHeld.add(held.tag);
+		return held.tag;
+	};
 	for (const op of orderedCaseOperations(f.form)) {
 		const createUuid = sharedBy.get(op.uuid);
 		if (createUuid !== undefined && opened.has(createUuid)) continue;
@@ -846,7 +883,11 @@ export function advancedEntryActions(
 			continue;
 		const load = advancedLoadOf(f, op);
 		if (load !== undefined && loadClause(f, op, load) === undefined) {
-			if (load.kind === "worker") workerLoad = true;
+			if (load.kind === "worker") {
+				workerLoad = true;
+				workerHeld ??= heldTagOf(op);
+			} else if (chainHeld[load.index] === undefined)
+				chainHeld[load.index] = heldTagOf(op);
 			continue;
 		}
 		if (
@@ -861,11 +902,98 @@ export function advancedEntryActions(
 				own: op.action === "own",
 				repeat,
 			});
+			openHeld.push(heldTagOf(op));
 			view.set(op.uuid, { repeat, indexed: (op.links ?? []).length > 0 });
 			opened.add(op.uuid);
 		}
 	}
-	const result: AdvancedEntryActions = { opens, workerLoad };
+	const result: EntryActionPlan = {
+		actions: { opens, workerLoad },
+		chainHeld,
+		workerHeld,
+		openHeld,
+	};
 	forms.set(formUuid, result);
 	return result;
+}
+
+/** Every element name the form's data root holds that a load's
+ *  `case_<tag>` block must not take (`placement.ts::advancedRootNames`): its
+ *  root questions' ids, its Connect block ids, and the first segment of each
+ *  Save to Case block held at the root, the own close's included. */
+function advancedRootNames(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ReadonlySet<string> {
+	const names = new Set<string>(formConnectIds(doc, formUuid));
+	for (const uuid of doc.fieldOrder[formUuid] ?? []) {
+		const field = doc.fields[uuid];
+		if (field !== undefined) names.add(field.id);
+	}
+	const form = doc.forms[formUuid];
+	for (const op of form?.caseOperations ?? [])
+		if (
+			op.placement?.kind === "save-to-case" &&
+			op.placement.repeat === undefined
+		)
+			names.add(op.placement.path[0]);
+	if (form?.ownClosePlacement !== undefined)
+		names.add(form.ownClosePlacement.path[0]);
+	return names;
+}
+
+const tagsByDoc = new WeakMap<BlueprintDoc, Map<Uuid, readonly string[]>>();
+
+/**
+ * The tag of each load of `formUuid` planned as an advanced form, in
+ * `load_update_cases` order: the chain's, root first, then the worker's where
+ * a change takes it, as `placement.ts::planAdvancedCore` tags them
+ * (`advancedTags.ts::allocateAdvancedTags`). A load gives the form's entry the
+ * datum `case_id_<tag>` (`models/form_actions.py::LoadUpdateAction.case_session_var`),
+ * so the first tag names the first case the entry asks for, unless the load is
+ * aligned with a root menu's. Loads are tagged before every open action, so an
+ * open action counts only by the held tag it takes.
+ */
+export function advancedLoadTags(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): readonly string[] {
+	let forms = tagsByDoc.get(doc);
+	if (forms === undefined) {
+		forms = new Map();
+		tagsByDoc.set(doc, forms);
+	}
+	const known = forms.get(formUuid);
+	if (known !== undefined) return known;
+	const plan = entryActionPlan(doc, formUuid);
+	const chain = advancedLoadChain(doc, formUuid);
+	const tags = allocateAdvancedTags({
+		loads: [
+			...chain.map((load, index) => ({
+				caseType: load.caseType,
+				worker: false,
+				...(plan.chainHeld[index] !== undefined && {
+					held: plan.chainHeld[index],
+				}),
+			})),
+			...(plan.actions.workerLoad
+				? [
+						{
+							caseType: USERCASE_CASE_TYPE,
+							worker: true,
+							...(plan.workerHeld !== undefined && {
+								held: plan.workerHeld,
+							}),
+						},
+					]
+				: []),
+		],
+		opens: plan.actions.opens.flatMap((open, index) => {
+			const held = plan.openHeld[index];
+			return held === undefined ? [] : [{ caseType: open.caseType, held }];
+		}),
+		rootNames: advancedRootNames(doc, formUuid),
+	}).loads;
+	forms.set(formUuid, tags);
+	return tags;
 }

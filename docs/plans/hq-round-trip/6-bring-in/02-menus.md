@@ -1179,9 +1179,12 @@ parent's filter only for a submenu that is above, `menus.py::_generate_menu`). B
 
 `ModuleScreen` and `CaseListScreen` take `screenChoosesCaseFirst` for the screen they draw:
 
-- **A case-first screen** opens on the host's case list, as today. After the case is chosen the screen
-  lists every form, and a case list entry only where it still needs a datum the screen has not
-  collected (below). A contributor's form opens with that case where `previewMenuCaseContext` gives it
+- **A case-first screen** opens on the host's case list, submenus or not: a submenu is a
+  `<menu root>` of its own, no entry of the screen's command, so Core asks for the case before it
+  lists anything there, the submenu tiles included (`lib/domain/navigation.ts::moduleScreenLanding`
+  has no submenu arm, and `ModuleScreen` has no **Cases** button). After the case is chosen the
+  screen lists every form, its submenu tiles, and a case list entry only where it still needs a datum
+  the screen has not collected (below). A contributor's form opens with that case where `previewMenuCaseContext` gives it
   one: it already inherits a same-type structural parent's selection; from step 6 it also takes the
   host's selection as the parent case of a contributor whose parent case type is the host's, whichever
   module `parentCaseModuleUuid` names, because the wire gives both one datum id (section 4.3, rule 4).
@@ -1202,12 +1205,25 @@ parent's filter only for a submenu that is above, `menus.py::_generate_menu`). B
   replays that over the suite's datums (`caseListSessionDatums`, `entrySessionDatums`) and
   `previewCaseListMenuEntry` lists by it. Core never opens a lone form from a menu by itself: with one
   entry under the menu's command, `getNeededData` finds no entry for the menu's id
-  (`getEntryForCommand`) and returns `STATE_COMMAND_ID` (Formplayer's `cc-auto-advance-menu`, off by
-  default and never emitted, is the one exception).
+  (`getEntryForCommand`) and returns `STATE_COMMAND_ID`; Android opens `MenuActivity` on it, and
+  Formplayer advances past a menu only under `cc-auto-advance-menu`, off by default and never
+  emitted.
+- **Every entry's first datum is read by what supplies it** (`menuScreens.ts::screenCaseFirstBlocker`):
+  an advanced form starts with its first load's `case_id_<tag>`, the tag held or derived
+  (`advancedEntryDatums.ts::advancedLoadTags`), and an advanced menu's case list entry with
+  `case_id_case_<type>`, the datum of a load tagged `case_<type>`. Two forms of an advanced menu
+  kept under different tags keep the screen forms first (reason `form-chooses-apart`), and so does
+  the entry beside forms loaded under another tag (reason `case-list-entry-apart`); forms kept
+  under `case_<type>` ask for the entry's case first with it.
 
-`previewAutomaticForm` (one shown form opens by itself after a case is chosen) counts the screen's form
-rows. That skip is Preview's, not Core's (see the rule above), and issue #915 removes it; this step
-only keeps it counting the screen it stands on.
+Once a case is chosen Preview opens a form only where one was requested (the form chosen before the
+case, a link's, a retained command's), and otherwise lists the menu, however many forms it shows
+(`menuProjection.ts::previewRequestedForm`, which replaced the one-form skip `previewAutomaticForm`).
+A form chosen from the menu after its case sits above the case in the session, so stepping back
+from it to the list leaves no form there (`CommCareSession.stepBack`), and the next case lists the
+menu again (`menuProjection.ts::previewCaseListReturnTarget`, `previewCaseListFormRequest`).
+`MenuScreensRuntimeTest` holds the landing (`landsOnCaseList`) and each step back from a form
+(`stepBacks`) to Core over the `menu-screens` documents, `menu-landings` among them.
 
 ### 8.4 Routes
 

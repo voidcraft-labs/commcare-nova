@@ -428,8 +428,13 @@ source menus keep **Worker information** (UUID catalog only) separate from
 **Other user field** (explicit raw built-in/external name); typing a custom
 slug in the raw source never upgrades it to identity, and a missing custom UUID
 stays visible as an unavailable reference rather than exposing the identifier.
-Built-in or external worker fields remain name-backed and admit XML-safe
-hyphens after their first character. Removing custom worker
+Built-in worker fields remain name-backed and admit XML-safe hyphens after
+their first character. A raw name that is not built in is refused at commit
+(`undeclared-worker-field`, with the inline presentation "Add this as worker
+information in App setup, then choose it here"; a declared slug typed there is
+`worker-property-read-by-name`, "Choose this worker information from the
+list"), and the source family's admission probe names a built-in key so the
+family itself stays offered (`termEditorModel.ts::buildTermAdmissionProbe`). Removing custom worker
 information first queries the shared reference index: while a condition or
 calculation reads it, the subsection lists the owning settings and offers no
 destructive action; once unreferenced, one gated batch clears its role/persona
@@ -887,9 +892,9 @@ The unified case-list authoring surface has three config tabs (Search / Results 
 **The media pickers judge a file by where the app runs.** A Library file a platform the app runs on can't play shows as unavailable with `assetUnavailableReason` ("Web Apps can't play MP4 (HEVC)", or "No CommCare app can play this file") and can't be chosen; the Upload tab leaves out of its file filter a format none of whose variants plays on every declared platform, refusing a dropped one with `formatUnavailableReason`; and the account menu's file manager, which belongs to no app, says where each media file plays (`playsOnLine`).
 
 **Preview is the running app, not a per-screen mockup — its navigation is read from CommCare's runtime, never approximated.** The shape matches `commcare-core`'s `CommCareSession.getDataNeededByAllEntries` (proven by its own `TemplateStructureTest`): entering a module hoists any datum ALL its forms share.
-- **Case-first module** (every form case-loading — `isCaseFirstModule`): the case list IS the module's landing (the home screen / `ModuleScreen` route there) → pick case → detail confirm → **form menu** (when >1 case-loading form) → form. One case-loading form skips the menu.
+- **Case-first module** (every form case-loading — `isCaseFirstModule`): the case list IS the module's landing (the home screen / `ModuleScreen` route there), submenus or not → pick case → detail confirm → **form menu**, however many forms it lists (a menu's command names no entry, so CommCare lists it, `menuProjection.ts::previewRequestedForm`) → form. A form chosen before the case opens once the case is chosen.
 - **Forms-first module** (a registration form needs a fresh `case_id_new`, breaking the shared datum): the form menu first; tapping a case-loading form → case list → confirm → that form.
-- **Display conditions gate these running lists as the device would** (`lib/preview/CLAUDE.md` § One printing path for every surface): the home screen's modules, the forms-first menu (session-only), and the case-first post-selection form menu + single-form auto-continue against the SELECTED row — the eligible set drives the menu-vs-skip decision, and a seeded target whose condition is false for that case falls back to it. Hidden entries stay reachable through the ghosted "Hidden items (N)" reveal; edit-mode canvases never hide.
+- **Display conditions gate these running lists as the device would** (`lib/preview/CLAUDE.md` § One printing path for every surface): the home screen's modules, the forms-first menu (session-only), and the case-first post-selection form menu against the SELECTED row — a seeded target opens where its condition holds for that case and otherwise falls back to the menu. Hidden entries stay reachable through the ghosted "Hidden items (N)" reveal; edit-mode canvases never hide.
 
 Opening Details never silently defaults to a form. Continue records
 `previewCaseTarget` as the chosen case-loading Form plus an ordered `cases`

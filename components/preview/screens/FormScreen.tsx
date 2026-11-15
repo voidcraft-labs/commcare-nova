@@ -161,6 +161,7 @@ import { useSearchResultsSnapshot } from "@/lib/preview/hooks/useSearchResultsSn
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
 	previewCaseFirstModuleUuids,
+	previewCaseListReturnTarget,
 	previewMenuCaseContext,
 } from "@/lib/preview/menuProjection";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
@@ -1209,7 +1210,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 			return;
 		setSubmitStatus({ kind: "idle" });
 		setPreviewSelectedCase(undefined);
-		setPreviewCaseTarget({ formUuid });
+		setPreviewCaseTarget(
+			previewCaseListReturnTarget(
+				session.getState().previewCaseTarget,
+				formUuid,
+			),
+		);
 		navigate.replace({ kind: "cases", moduleUuid });
 	}, [
 		caseBindingReplaced,
@@ -1217,6 +1223,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		moduleUuid,
 		formUuid,
 		navigate,
+		session,
 		setPreviewCaseTarget,
 		setPreviewSelectedCase,
 	]);
@@ -2904,7 +2911,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 				caseName={caseName}
 				onChooseAnotherRecord={() => {
 					setPreviewSelectedCase(undefined);
-					setPreviewCaseTarget({ formUuid });
+					setPreviewCaseTarget(
+						previewCaseListReturnTarget(
+							session.getState().previewCaseTarget,
+							formUuid,
+						),
+					);
 					navigate.replace({ kind: "cases", moduleUuid });
 				}}
 				onBackToList={() => navigate.openCaseList(moduleUuid)}
@@ -3042,7 +3054,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 					className={FORM_PRIMARY_ACTION_CLS}
 					onClick={() => {
 						setPreviewSelectedCase(undefined);
-						setPreviewCaseTarget({ formUuid });
+						setPreviewCaseTarget(
+							previewCaseListReturnTarget(
+								session.getState().previewCaseTarget,
+								formUuid,
+							),
+						);
 						navigate.replace({ kind: "cases", moduleUuid });
 					}}
 				>
@@ -3583,7 +3600,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 				? {
 						onChooseAnotherRecord: () => {
 							setPreviewSelectedCase(undefined);
-							setPreviewCaseTarget({ formUuid });
+							setPreviewCaseTarget(
+								previewCaseListReturnTarget(
+									session.getState().previewCaseTarget,
+									formUuid,
+								),
+							);
 							navigate.replace({ kind: "cases", moduleUuid });
 						},
 					}

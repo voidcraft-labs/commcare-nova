@@ -104,6 +104,8 @@ test(
 			.getByRole("button", { name: /^View details for East clinic/ })
 			.click();
 		await main.getByRole("button", { name: "Continue", exact: true }).click();
+		/* CommCare lists the menu's one form once the clinic is chosen. */
+		await main.getByRole("button", { name: "Attendance", exact: true }).click();
 		await expect(main.getByRole("checkbox")).toHaveCount(30);
 		const ready = main.getByText("Your attendance is ready to save", {
 			exact: true,

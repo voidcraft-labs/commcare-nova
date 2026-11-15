@@ -31,7 +31,7 @@ import {
 	type FormLink,
 	type FormOtherwise,
 } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/expression/builders";
+import { eq, literal, sessionContext } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -70,12 +70,12 @@ function fixture(): BlueprintDoc {
 						formLinks: [
 							{
 								uuid: "lnk-1",
-								condition: eq(sessionUser("username"), literal("a")),
+								condition: eq(sessionContext("username"), literal("a")),
 								target: { type: "form", moduleUuid: M1, formUuid: TARGET_A },
 							},
 							{
 								uuid: "lnk-2",
-								condition: eq(sessionUser("username"), literal("b")),
+								condition: eq(sessionContext("username"), literal("b")),
 								target: { type: "module", moduleUuid: M1 },
 							},
 						],
@@ -128,7 +128,7 @@ const linkOrder = (doc: BlueprintDoc) =>
 
 const newLink = (): FormLink => ({
 	uuid: L3,
-	condition: eq(sessionUser("username"), literal("c")),
+	condition: eq(sessionContext("username"), literal("c")),
 	target: { type: "form", moduleUuid: M1, formUuid: TARGET_B },
 });
 
@@ -490,12 +490,12 @@ describe("document diff", () => {
 			const [first, second] = form.formLinks;
 			// Patch the conditional link, clear nothing, add a third, then
 			// reorder so the else stays last.
-			first.condition = eq(sessionUser("username"), literal("b"));
+			first.condition = eq(sessionContext("username"), literal("b"));
 			form.formLinks = [
 				first,
 				{
 					uuid: L3,
-					condition: eq(sessionUser("username"), literal("c")),
+					condition: eq(sessionContext("username"), literal("c")),
 					target: { type: "form", moduleUuid: M1, formUuid: TARGET_B },
 				},
 				second,
@@ -712,7 +712,7 @@ describe("otherwise identity", () => {
 				formUuid: SOURCE,
 				link: {
 					uuid: L2,
-					condition: eq(sessionUser("username"), literal("b")),
+					condition: eq(sessionContext("username"), literal("b")),
 					target: { type: "module", moduleUuid: M1 },
 				},
 			},
@@ -848,7 +848,7 @@ describe("otherwise diff and undo", () => {
 				form.formLinks[0] as FormLink,
 				{
 					uuid: OTHERWISE,
-					condition: eq(sessionUser("username"), literal("c")),
+					condition: eq(sessionContext("username"), literal("c")),
 					target: { type: "form", moduleUuid: M1, formUuid: TARGET_B },
 				},
 			];

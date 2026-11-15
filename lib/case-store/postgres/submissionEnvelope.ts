@@ -1177,7 +1177,9 @@ async function resolveOperationProgram(
 			...(program.userPropertySlugs === undefined
 				? {}
 				: { userPropertySlugs: program.userPropertySlugs }),
-			sessionUserFallback: "",
+			...(program.sessionUserAbsent === undefined
+				? {}
+				: { sessionUserAbsent: program.sessionUserAbsent }),
 			...(program.sessionContext === undefined
 				? {}
 				: { sessionContext: program.sessionContext }),

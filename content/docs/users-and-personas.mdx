@@ -49,8 +49,15 @@ write its current saved key as `#user/<saved-key>`. In the condition builder,
 choose **Worker information** and select it by name; this stores the stable
 identity, so changing the saved key updates what Preview and CommCare read
 without breaking the condition or calculation. **Other user field** is a
-separate choice for CommCare-provided or external names and always stays
+separate choice for the names CommCare provides on its own and always stays
 literal, even when its text happens to match a custom key.
+
+Information your project space already keeps about workers is worker
+information here too: add it with the same key. Publishing asks the project
+space to define each piece of worker information, and a worker who has no
+value reads it blank. A field the project space doesn't define isn't there at
+all, and a phone stops on any menu, list or form that reads it, so Nova asks
+you to add a field before a condition or calculation reads it.
 
 While an XPath editor is open, a teammate's rename appears live when your draft
 is clean, whether they renamed worker information, a question, a Search answer,
@@ -77,6 +84,12 @@ when Nova has no honest value for them. Target-dependent keys, such as the
 CommCare project space, remain absent until a deployment supplies one. Nova
 never invents a value that would make a condition pass in Preview and fail on a
 real device.
+
+A worker assigned nowhere has no locations at all. A form that reads them
+from the worker's own record reads them blank, but a menu, case list, Search or
+form that reads one from the worker's session stops on a phone, and so does a
+form that gives a case to the worker's place. Preview shows each of those stops
+for a persona with no place, with a way to give them one.
 
 Three of them actually change how CommCare behaves; the rest are simply
 carried along for your app to read. The screen says which is which.

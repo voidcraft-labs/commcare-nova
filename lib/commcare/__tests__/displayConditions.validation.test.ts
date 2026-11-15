@@ -194,7 +194,7 @@ const CASE_OPERATION_ONLY_CONDITIONS: readonly (readonly [
 describe("module display-condition validation", () => {
 	it("allows user/session values and rejects case reads", () => {
 		expect(
-			validateModule(eq(sessionUser("role"), literal("supervisor"))),
+			validateModule(eq(sessionUser("user_type"), literal("supervisor"))),
 		).toEqual([]);
 		expect(
 			validateModule(eq(prop("patient", "status"), literal("open"))),
@@ -210,7 +210,7 @@ describe("module display-condition validation", () => {
 });
 
 describe("a display condition that spells off the menu", () => {
-	const supervisor = eq(sessionUser("role"), literal("supervisor"));
+	const supervisor = eq(sessionUser("user_type"), literal("supervisor"));
 
 	it("refuses never and never and x on a module, naming the flag", () => {
 		for (const condition of [matchNone(), and(matchNone(), supervisor)]) {

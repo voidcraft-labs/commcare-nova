@@ -1,6 +1,6 @@
 """HQ's menus, frames and endpoints for menus that show their forms above equal Nova's.
 
-Contract: for each document of the ``menu-screens`` family but its two controls, every ``<menu>``, every
+Contract: for each document of the ``menu-screens`` family but its three controls, every ``<menu>``, every
 ``<entry>/<stack>`` and every ``<endpoint>`` HQ's suite contributors build from Nova's HQ import body equal the
 ones Nova's local suite writes, compared whole (every attribute, leaf text and child, in order), with known
 XPath carriers compared as HQ's parser's complete expression trees. ``MenuScreensRuntimeTest`` then runs the
@@ -25,8 +25,12 @@ DOCUMENTS = (
     "register-from-case-list-web-apps",
     "register-from-case-list-other-returns",
     "register-from-case-list-web-apps-other-returns",
+    "worker-place-read",
+    "worker-place-forms",
+    "worker-place-menus",
+    "menu-landings",
 )
-CONTROLS = ("step-back-control", "two-registrations-control")
+CONTROLS = ("step-back-control", "two-registrations-control", "undeclared-worker-field-control")
 SELECTORS = ("menu", "entry/stack", "endpoint")
 
 

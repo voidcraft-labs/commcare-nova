@@ -39,6 +39,10 @@ import {
 } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { coreDaysSinceEpoch } from "@/lib/preview/xpath/coreDays";
 import {
+	previewDataRefusalOf,
+	previewDataRefusalSubject,
+} from "../dataRefusal";
+import {
 	formDisplayVisibility as evaluateFormDisplayVisibility,
 	moduleDisplayVisibility as evaluateModuleDisplayVisibility,
 	type NavigationDeviceCases,
@@ -224,7 +228,9 @@ describe("moduleDisplayVisibility", () => {
 					condition,
 					session: {
 						...SESSION,
-						user: {},
+						// A declared property the worker holds no value for is
+						// present and blank, as HQ's restore seeds it.
+						user: { role: "" },
 						userPropertySlugs: { [property]: "role" },
 					},
 					lookup: NO_LOOKUP,
@@ -275,38 +281,72 @@ describe("moduleDisplayVisibility", () => {
 		expect(
 			moduleDisplayVisibility({
 				condition,
-				session: { context: {}, user: {}, userPropertySlugs: {} },
+				session: {
+					context: {},
+					user: { role: "visitor" },
+					userPropertySlugs: {},
+				},
 				lookup: NO_LOOKUP,
 			}),
 		).toBe("hidden");
 	});
 
-	it("an absent user value string-unpacks to '' (raw comparison, no guard)", () => {
-		const blankEqualsAbsent = eq(
-			term({ kind: "session-user", field: "missing_flag" }),
-			literal(""),
-		);
-		expect(
-			moduleDisplayVisibility({
-				condition: blankEqualsAbsent,
-				session: SESSION,
-				lookup: NO_LOOKUP,
-			}),
-		).toBe("shown");
-	});
-
-	it("numeric ordering over an absent value yields NaN and hides", () => {
-		const condition = gt(
-			term({ kind: "session-user", field: "missing_count" }),
-			literal(0),
-		);
-		expect(
+	/* Core refuses a read of a user-data key the device holds no node for
+	 * (`DataInstance.hasTemplatePath`, then `XPathNodeset.unpack`), whatever
+	 * the comparison: the screen fails rather than reading a blank. */
+	it.each([
+		[
+			"a blank comparison",
+			eq(term({ kind: "session-user", field: "missing_flag" }), literal("")),
+		],
+		[
+			"a numeric ordering",
+			gt(term({ kind: "session-user", field: "missing_count" }), literal(0)),
+		],
+		[
+			"a place a worker assigned nowhere lacks",
+			eq(
+				term({ kind: "session-user", field: "commcare_location_id" }),
+				literal("north"),
+			),
+		],
+	] as const)("refuses %s over a key the device lacks", (_name, condition) => {
+		let refused: unknown;
+		try {
 			moduleDisplayVisibility({
 				condition,
 				session: SESSION,
 				lookup: NO_LOOKUP,
+			});
+		} catch (error) {
+			refused = error;
+		}
+		const refusal = previewDataRefusalOf(refused);
+		expect(refusal?.reason).toEqual({
+			kind: "empty-instance",
+			instanceId: "commcaresession",
+		});
+		expect(
+			refusal === undefined
+				? undefined
+				: previewDataRefusalSubject(refusal.reason, undefined),
+		).toEqual({ kind: "worker-information" });
+	});
+
+	/* The project space is one key every device holds that Preview leaves out
+	 * until the app is published to one: a read of it stays blank rather
+	 * than refusing a screen no phone refuses. */
+	it("reads the project space blank while Preview does not know it", () => {
+		expect(
+			moduleDisplayVisibility({
+				condition: eq(
+					term({ kind: "session-user", field: "commcare_project" }),
+					literal(""),
+				),
+				session: SESSION,
+				lookup: NO_LOOKUP,
 			}),
-		).toBe("hidden");
+		).toBe("shown");
 	});
 
 	it("evaluates never as false", () => {

@@ -158,6 +158,7 @@ import {
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
+import { serverPreviewDataRefusalOf } from "./serverDataRefusal";
 import type { ViewerLocation } from "./viewerLocation";
 import { workerLocationFixture } from "./workerLocationFixture";
 import type {
@@ -497,6 +498,17 @@ async function prepareRunningCaseRead(
 			searchSession,
 			requireEnvironment(),
 		);
+		/* A runtime value of the search read data the worker's device lacks:
+		 * Core refuses the request as it sends it, so the search stops on a
+		 * phone. */
+		if (csqlRuntime?.dataRefusal !== undefined)
+			return {
+				kind: "data-refused",
+				reason: {
+					kind: "empty-instance",
+					instanceId: csqlRuntime.dataRefusal.instanceId,
+				},
+			};
 		/* An obligation with no prompt that reads what only the browser holds
 		 * (the device's cases, places, a lookup or a session datum) is judged
 		 * there, and reaches this read as the search's `refusal`; its message
@@ -714,6 +726,12 @@ export async function loadCasesAction(
 				repair: "inputs",
 			};
 		}
+		// A read of data the worker's device lacks (a place key of a worker
+		// assigned nowhere): the screen stops on a phone, so it shows the
+		// refusal, and nothing is reported.
+		const refusal = serverPreviewDataRefusalOf(err);
+		if (refusal !== undefined)
+			return { kind: "data-refused", reason: refusal.reason };
 		reportUnexpectedActionError("loadCases", err, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -771,6 +789,9 @@ export async function loadSearchResultsSnapshotAction(
 			return { kind: "error", message: "App not found." };
 		if (err instanceof SearchInputValuesError)
 			return { kind: "invalid-search", message: err.message };
+		const refusal = serverPreviewDataRefusalOf(err);
+		if (refusal !== undefined)
+			return { kind: "data-refused", reason: refusal.reason };
 		reportUnexpectedActionError("loadSearchResultsSnapshot", err, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -1242,6 +1263,9 @@ export async function loadCaseDataAction(
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
 			return { kind: "error", message: "App not found." };
+		const refusal = serverPreviewDataRefusalOf(err);
+		if (refusal !== undefined)
+			return { kind: "data-refused", reason: refusal.reason };
 		reportUnexpectedActionError("loadCaseData", err, { appId, caseType });
 		return {
 			kind: "error",
@@ -1738,6 +1762,15 @@ export async function loadFilterPreviewAction(args: {
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
 			return { kind: "error", message: "App not found." };
+		/* The sample reads as the author, who is assigned nowhere: a rule
+		 * that reads a place stops this list on a phone for such a worker,
+		 * which is no fault to report. */
+		if (serverPreviewDataRefusalOf(err) !== undefined)
+			return {
+				kind: "error",
+				message:
+					"These rules read a place, and you're assigned nowhere, so a phone would stop this list for you. You can preview the list as a persona who has a place.",
+			};
 		reportUnexpectedActionError("loadFilterPreview", err, {
 			appId: args.appId,
 			caseType: args.caseType,

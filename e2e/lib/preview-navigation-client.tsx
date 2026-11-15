@@ -8,15 +8,11 @@ import type { Platform } from "@/lib/domain/platforms";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { useLocation } from "@/lib/routing/hooks";
-import { buildUrl } from "@/lib/routing/location";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { usePreviewAtDeviceHome } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
-import {
-	buildNavigationDoc,
-	NAVIGATION_HOUSEHOLDS_MODULE_UUID,
-} from "./previewNavigationFixture";
+import { buildNavigationDoc } from "./previewNavigationFixture";
 
 /**
  * The component peer of `preview-platforms.spec.ts`'s navigation tests: the
@@ -32,9 +28,14 @@ import {
  *   holds its case list as an entry of its own.
  * - `?fixture=child-list-above`: a case-first menu of households and a
  *   menu of their members showing its follow-up and its case list entry
- *   there. `?at=households` starts on the households' case list, where
- *   CommCare opens that menu; Preview's own landing on a case-first menu
- *   with submenus differs from CommCare's (issue #914).
+ *   there.
+ * - `?fixture=submenus`: a case-first menu of households and a menu that is
+ *   only their case list, each keeping a submenu with a screen of its own.
+ * - `?fixture=place-condition`: "Patients" beside a menu whose condition
+ *   reads the worker's place, for a worker assigned nowhere.
+ * - `?fixture=place-screens`: a submenu, a case-first menu's form and a
+ *   Search field that each read that place, under a first menu that reads
+ *   nothing of it.
  */
 
 const params = new URLSearchParams(location.search);
@@ -44,7 +45,10 @@ if (
 	fixture !== "search-first" &&
 	fixture !== "case-list-entry" &&
 	fixture !== "case-first-entry" &&
-	fixture !== "child-list-above"
+	fixture !== "child-list-above" &&
+	fixture !== "submenus" &&
+	fixture !== "place-condition" &&
+	fixture !== "place-screens"
 )
 	throw new Error(`No navigation fixture named ${String(fixture)}.`);
 if (platform !== "web-apps" && platform !== "android")
@@ -82,15 +86,7 @@ const element = document.getElementById("root");
 if (!element) throw new Error("Missing navigation root");
 element.style.height = "calc(100vh - 32px)";
 const root = createRoot(element);
-const basePath = `/build/${doc.appId}`;
-pushBuilderHistory(
-	fixture === "child-list-above" && params.get("at") === "households"
-		? buildUrl(basePath, {
-				kind: "cases",
-				moduleUuid: NAVIGATION_HOUSEHOLDS_MODULE_UUID,
-			})
-		: basePath,
-);
+pushBuilderHistory(`/build/${doc.appId}`);
 root.render(
 	<TooltipProvider>
 		<BuilderSessionContext value={session}>

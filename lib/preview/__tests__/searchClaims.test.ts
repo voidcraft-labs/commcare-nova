@@ -14,7 +14,7 @@ import {
 	type NavigationDeviceCases,
 	navigationSelectedCase,
 } from "@/lib/preview/engine/displayConditionEvaluation";
-import { previewAutomaticForm } from "@/lib/preview/menuProjection";
+import { previewRequestedForm } from "@/lib/preview/menuProjection";
 import {
 	claimableCaseIds,
 	claimPostsAtResult,
@@ -108,14 +108,18 @@ describe("deviceCasesHoldingClaims", () => {
 	it("waits for the claimed case rather than reading it as missing", () => {
 		const decided = decide(device("held"));
 		expect(decided[0]?.visibility).toBe("pending");
-		/* No form opens on its own while the claim is on its way. */
-		expect(previewAutomaticForm(decided)).toBeUndefined();
+		/* The form the worker chose does not open while the claim is on its
+		 * way. */
+		expect(previewRequestedForm(decided, FORM)).toBeUndefined();
 	});
 
-	it("decides, and continues into the form, once the device holds the claim", () => {
+	it("decides, and continues into the form the worker chose, once the device holds the claim", () => {
 		const decided = decide(device("held", "claimed"));
 		expect(decided[0]?.visibility).toBe("shown");
-		expect(previewAutomaticForm(decided)).toBe(FORM);
+		expect(previewRequestedForm(decided, FORM)).toBe(FORM);
+		/* With no form chosen the menu lists it, as CommCare lists a menu's
+		 * one form (`CommCareSession.getNeededData`). */
+		expect(previewRequestedForm(decided)).toBeUndefined();
 	});
 
 	it("reads the device as it is for a choice that claimed nothing", () => {

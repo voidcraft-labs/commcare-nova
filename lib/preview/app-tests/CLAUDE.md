@@ -168,9 +168,20 @@ case list entries of each menu that shows its forms there
 entry staying `caseListEntry`. The `form` action opens a listed form from its
 own menu, and the `records` action takes an optional `moduleUuid` naming the
 menu whose case list to open, needed where the screen lists several and
-omitted on a menu for its own. A next-task failure preserves an
+omitted on a menu for its own. Choosing a menu lands where Preview lands it
+(`moduleDestination`): a case-first or bare case list screen on its records,
+submenus or not. Once a case is chosen, `continue` opens a form only where the
+worker chose it before the case (or a retained command names it); otherwise
+the observation is the menu, listing its forms however many there are, and the
+`form` action opens one (`menuProjection.ts::previewRequestedForm`), as a
+device lists a menu after its case. A next-task failure preserves an
 already successful test submission.
 An action rejected before submission leaves no partial effects.
+A screen Core would fail because a
+condition it reads asks for data the device lacks (a worker key the worker has
+none of, a table with no rows) is the action's refusal too, in the data
+refusal's words (`run.ts::appTestDataRefusal` over `engine/dataRefusal.ts`),
+never an aborted call.
 
 Retained sessions expose held-open interleavings: open a form in A, submit in B,
 then observe or submit A. Explicit sync refreshes only the addressed session's

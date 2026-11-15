@@ -16,17 +16,20 @@ import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	afterEmptySearchRegistrationFormOf,
+	type BlueprintDoc,
 	childModuleUuids,
 	type Form,
-	type MenuScreenSource,
 	type Module,
 	menuFormUuidsOf,
+	menuScreenOf,
 	moduleHasOwnScreen,
 	moduleIsBareCaseListDestination,
 	moduleSiblingUuids,
 	projectLocalizedForm,
 	projectLocalizedModule,
 	resolveAppLanguage,
+	type ScreenCaseFirstBlocker,
+	screenCaseFirstBlocker,
 	screenChoosesCaseFirst,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
@@ -206,14 +209,42 @@ export function useMenuFormCounts(): Readonly<Record<string, number>> {
  *  entry it lists, the forms of a submenu that shows its forms there
  *  included, opens the same case (`menuScreens.ts::screenChoosesCaseFirst`).
  *  A module with no screen of its own is never case first. */
-function moduleScreenIsCaseFirst(
-	doc: MenuScreenSource,
-	moduleUuid: Uuid,
-): boolean {
+function moduleScreenIsCaseFirst(doc: BlueprintDoc, moduleUuid: Uuid): boolean {
 	return (
 		moduleHasOwnScreen(doc, moduleUuid) &&
 		screenChoosesCaseFirst(doc, { kind: "menu", moduleUuid })
 	);
+}
+
+/** Whether the screen that lists a module's forms chooses a case first, and
+ *  what keeps it forms first where something does
+ *  (`menuScreens.ts::screenCaseFirstBlocker`). */
+export interface ScreenCaseFirstReading {
+	readonly caseFirst: boolean;
+	readonly reason: ScreenCaseFirstBlocker["reason"] | undefined;
+	readonly blockingModuleUuid: Uuid | undefined;
+	readonly blockingFormUuid: Uuid | undefined;
+}
+
+/**
+ * The case-first reading of the screen that lists a module's forms: its own,
+ * or the menu above's where it shows its forms there. The answer reads
+ * whether a menu is emitted advanced, which reads the whole document, so it
+ * is selected as these few values.
+ */
+export function useScreenCaseFirstReading(
+	moduleUuid: Uuid,
+): ScreenCaseFirstReading {
+	return useBlueprintDocShallow((doc) => {
+		const screen = menuScreenOf(doc, moduleUuid);
+		const blocker = screenCaseFirstBlocker(doc, screen);
+		return {
+			caseFirst: screenChoosesCaseFirst(doc, screen),
+			reason: blocker?.reason,
+			blockingModuleUuid: blocker?.moduleUuid,
+			blockingFormUuid: blocker?.formUuid,
+		};
+	});
 }
 
 /**
@@ -247,23 +278,20 @@ export function useIsBareCaseListModule(moduleUuid: Uuid | undefined): boolean {
 /**
  * The set of module uuids whose navigation is case-first — for surfaces
  * (e.g. the app home) that branch per module without a hook call each.
- * Recomputed only when the module/form maps change.
+ * Whether a screen chooses a case first reads whether a menu is emitted
+ * advanced, which reads the whole document, so the set is computed over it
+ * and kept while it holds the same modules.
  */
-export function useCaseFirstModuleUuids(): Set<Uuid> {
-	const { moduleOrder, modules, formOrder, forms, caseTypes } =
-		useBlueprintDocShallow((s) => ({
-			moduleOrder: s.moduleOrder,
-			modules: s.modules,
-			formOrder: s.formOrder,
-			forms: s.forms,
-			caseTypes: s.caseTypes,
-		}));
-	return useMemo(() => {
+export function useCaseFirstModuleUuids(): ReadonlySet<Uuid> {
+	return useBlueprintDocEq((doc) => {
 		const caseFirst = new Set<Uuid>();
-		const doc = { modules, forms, formOrder, moduleOrder, caseTypes };
-		for (const moduleUuid of moduleOrder) {
+		for (const moduleUuid of doc.moduleOrder) {
 			if (moduleScreenIsCaseFirst(doc, moduleUuid)) caseFirst.add(moduleUuid);
 		}
 		return caseFirst;
-	}, [moduleOrder, modules, formOrder, forms, caseTypes]);
+	}, sameUuidSet);
+}
+
+function sameUuidSet(a: ReadonlySet<Uuid>, b: ReadonlySet<Uuid>): boolean {
+	return a.size === b.size && [...a].every((uuid) => b.has(uuid));
 }

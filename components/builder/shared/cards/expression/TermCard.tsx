@@ -2339,7 +2339,8 @@ function userFieldForTerm(term: Term | undefined): string {
  * The raw source is an explicit promise to preserve the authored name. Custom
  * worker information is selected through `UserPropertyMenu` and never inferred
  * from text, so a raw field remains raw even when its spelling happens to equal
- * a current custom slug.
+ * a current custom slug, and the gate then refuses it
+ * (`worker-property-read-by-name`), pointing to the worker information list.
  */
 function userFieldTerm(field: string): Term {
 	return sessionUser(field);

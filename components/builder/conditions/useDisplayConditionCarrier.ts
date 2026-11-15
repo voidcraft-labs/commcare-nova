@@ -27,16 +27,10 @@ import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotConte
 import { useMenuScreenSource } from "@/lib/doc/hooks/useMenuScreenSource";
 import {
 	useIsBareCaseListModule,
-	useOrderedMenuForms,
+	useScreenCaseFirstReading,
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
-import {
-	type CaseType,
-	menuScreenOf,
-	moduleShowsFormsInMenuAbove,
-	screenCaseFirstBlocker,
-	screenChoosesCaseFirst,
-} from "@/lib/domain";
+import { type CaseType, moduleShowsFormsInMenuAbove } from "@/lib/domain";
 import type { Expression, ExpressionContext } from "@/lib/domain/expression";
 import { menuAboveName } from "../detail/moduleSettings/menuScreenCopy";
 import {
@@ -85,11 +79,11 @@ export function useDisplayConditionCarrier(
 	const mod = useModule(target.moduleUuid);
 	const parentModule = useModule(mod?.parentModuleUuid);
 	const form = useForm(target.kind === "form" ? target.formUuid : undefined);
-	const menuForms = useOrderedMenuForms(target.moduleUuid);
 	const moduleIsBareCaseList = useIsBareCaseListModule(target.moduleUuid);
 	/* Whether a case is chosen before the form is listed is a fact of the
 	 * screen that lists it, which may be the menu above. */
 	const source = useMenuScreenSource();
+	const screenReading = useScreenCaseFirstReading(target.moduleUuid);
 	const caseTypes = useEffectiveCaseTypes();
 	const mutations = useBlueprintMutations();
 	const platforms = useDeclaredPlatforms();
@@ -120,33 +114,32 @@ export function useDisplayConditionCarrier(
 			};
 		}
 		if (form === undefined) return null;
-		const screen = menuScreenOf(source, target.moduleUuid);
-		const blocker = screenCaseFirstBlocker(source, screen);
+		const { caseFirst, reason, blockingModuleUuid, blockingFormUuid } =
+			screenReading;
 		return {
 			kind: "form",
 			formName: form.name,
 			moduleName: mod.name,
-			caseFirst: screenChoosesCaseFirst(source, screen),
-			...(blocker !== undefined && {
+			caseFirst,
+			...(reason !== undefined && {
 				caseFirstBlocker: {
-					reason: blocker.reason,
-					...(blocker.moduleUuid !== undefined &&
-						blocker.moduleUuid !== target.moduleUuid && {
-							otherModuleName: source.modules[blocker.moduleUuid]?.name,
+					reason,
+					...(blockingModuleUuid !== undefined &&
+						blockingModuleUuid !== target.moduleUuid && {
+							otherModuleName: source.modules[blockingModuleUuid]?.name,
 						}),
-					...(blocker.formUuid !== undefined && {
-						blockingFormName: source.forms[blocker.formUuid]?.name,
+					...(blockingFormUuid !== undefined && {
+						blockingFormName: source.forms[blockingFormUuid]?.name,
 					}),
 				},
 			}),
 			caseType: mod.caseType,
-			formCount: menuForms.length,
 		};
 	}, [
 		mod,
 		parentModule,
 		form,
-		menuForms,
+		screenReading,
 		source,
 		moduleIsBareCaseList,
 		target.kind,

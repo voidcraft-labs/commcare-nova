@@ -52,6 +52,7 @@ import {
 	SearchInputValuesError,
 } from "./dateRangeInputValidation";
 import type { ViewerLocation } from "./viewerLocation";
+import { PREVIEW_UNKNOWN_WORKER_KEYS } from "./workerSessionKeys";
 
 /**
  * Wire-form date shape — the ISO `YYYY-MM-DD` pattern this module
@@ -544,8 +545,10 @@ function substituteInputInPredicate(
  * Project the authenticated Preview session into the case-store compiler's
  * runtime binding vocabulary. Search-input expressions read the submitted
  * value (or CommCare's blank value for an unanswered known prompt); closed
- * session-context fields read the authenticated worker; absent open-namespace
- * user-data fields deliberately fall back to blank, matching device XPath.
+ * session-context fields read the authenticated worker; a worker-data key the
+ * worker's device lacks is Core's refusal (`AbsentWorkerFieldError`, which
+ * `dataRefusal.ts::previewDataRefusalOf` reads), and a key every device holds
+ * that Preview does not know yet reads blank (`workerSessionKeys.ts`).
  */
 export function previewCaseStoreBindings(
 	session: PreviewSearchSessionValues,
@@ -570,7 +573,7 @@ export function previewCaseStoreBindings(
 		sessionContext,
 		sessionUser: new Map(Object.entries(session.user)),
 		userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
-		sessionUserFallback: "",
+		sessionUserAbsent: { readsBlank: PREVIEW_UNKNOWN_WORKER_KEYS },
 		...(viewerTimeZone === undefined ? {} : { viewerTimeZone }),
 		viewerLocation: viewerLocationText(viewerLocation, rules),
 	};

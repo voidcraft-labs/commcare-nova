@@ -417,14 +417,16 @@ export function computeModeAdmission(
 
 /** Use a schema-valid representative only to ask a rule-level admission
  * checker whether a source family is allowed. User information has no honest
- * semantic default, so this probe must never become authored data. */
+ * semantic default, so this probe must never become authored data. The probe
+ * names a built-in key: a raw read of any other key is refused
+ * (`undeclared-worker-field`), which says nothing about the family. */
 export function buildTermAdmissionProbe(
 	mode: TermMode,
 	ctx: TermAdmissionContext,
 	constraint: SlotConstraint,
 ): Term {
 	return mode === "session-user"
-		? sessionUser("_")
+		? sessionUser("user_type")
 		: buildTermDefault(mode, ctx, constraint);
 }
 

@@ -1147,7 +1147,7 @@ describe("HQ-JSON oracle — search prompt children", () => {
 		const doc = promptDoc([
 			simpleSearchInputDef(SI_NAME, "case_name", "Name", "text", "case_name", {
 				default: term(literal("foo")),
-				required: { when: eq(sessionUser("is_supervisor"), literal("n")) },
+				required: { when: eq(sessionUser("user_type"), literal("n")) },
 			}),
 		]);
 		const app = expandDoc(doc);
@@ -1156,7 +1156,7 @@ describe("HQ-JSON oracle — search prompt children", () => {
 		expect(name?.default_value).toBe("'foo'");
 		expect(name?.hidden).toBeUndefined();
 		expect(name?.required?.test).toBe(
-			"instance('commcaresession')/session/user/data/is_supervisor = 'n'",
+			"instance('commcaresession')/session/user/data/user_type = 'n'",
 		);
 		expect(validateHqJson(app)).toEqual([]);
 	});

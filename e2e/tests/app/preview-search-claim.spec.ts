@@ -14,7 +14,8 @@ test("a searched record another persona owns opens its form with its case data, 
 	tag: "@seed:search-claim",
 }, async ({ scenario, page }) => {
 	const { searchClaim } = seedFor(scenario, "search-claim");
-	const { searcher, match, prompt, moduleName, noteLabel } = SEARCH_CLAIM_SEED;
+	const { searcher, match, prompt, moduleName, formName, noteLabel } =
+		SEARCH_CLAIM_SEED;
 	test.setTimeout(90_000);
 	const main = page.locator("main");
 	const identity = page
@@ -66,6 +67,8 @@ test("a searched record another persona owns opens its form with its case data, 
 			})
 			.click();
 		await main.getByRole("button", { name: "Continue", exact: true }).click();
+		/* CommCare lists the menu's one form once the record is chosen. */
+		await main.getByRole("button", { name: formName, exact: true }).click();
 		const note = main.getByRole("textbox", {
 			name: new RegExp(`${noteLabel}$`),
 		});

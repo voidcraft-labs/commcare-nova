@@ -171,7 +171,7 @@ describe("display-condition HQ projection", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					displayCondition: eq(sessionUser("role"), literal("supervisor")),
+					displayCondition: eq(sessionUser("user_type"), literal("supervisor")),
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
@@ -197,7 +197,7 @@ describe("display-condition HQ projection", () => {
 		const hq = expandDoc(displayDoc);
 		expect(Object.hasOwn(hq, "build_spec")).toBe(false);
 		expect(hq.modules[0].module_filter).toBe(
-			"instance('commcaresession')/session/user/data/role = 'supervisor'",
+			"instance('commcaresession')/session/user/data/user_type = 'supervisor'",
 		);
 		// A reserved attribute is read through the menu's selected case, the
 		// one spelling HQ builds; `#case/@status` fails its form filter parse.
@@ -253,7 +253,10 @@ describe("display-condition HQ projection: an item off the menu", () => {
 							fields: [
 								f({ kind: "text", id: "notes", label: proseText("Notes") }),
 							],
-							displayCondition: eq(sessionUser("role"), literal("supervisor")),
+							displayCondition: eq(
+								sessionUser("user_type"),
+								literal("supervisor"),
+							),
 						},
 					],
 				},
@@ -279,7 +282,7 @@ describe("display-condition HQ projection: an item off the menu", () => {
 		expect(hq.modules[0].forms[0].form_filter).toBeNull();
 		expectXPath(
 			hq.modules[0].forms[1].form_filter,
-			"false() and (instance('commcaresession')/session/user/data/role = 'supervisor')",
+			"false() and (instance('commcaresession')/session/user/data/user_type = 'supervisor')",
 		);
 		expect(hq.modules[1].module_filter).toBe("false()");
 	});
@@ -5102,7 +5105,10 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			{
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: "Search by **name** or village.",
-				searchButtonDisplayCondition: eq(sessionUser("role"), literal("Alice")),
+				searchButtonDisplayCondition: eq(
+					sessionUser("user_type"),
+					literal("Alice"),
+				),
 			},
 		);
 		const searchConfig = expandDoc(doc).modules[0].search_config;
@@ -5115,7 +5121,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			en: "Search All Cases",
 		});
 		expect(searchConfig.search_button_display_condition).toBe(
-			"instance('commcaresession')/session/user/data/role = 'Alice'",
+			"instance('commcaresession')/session/user/data/user_type = 'Alice'",
 		);
 	});
 
@@ -5914,7 +5920,7 @@ describe("the app-level keys of the HQ import file", () => {
 				modules: [
 					{
 						name: "Surveys",
-						displayCondition: eq(sessionUser("role"), literal("lead")),
+						displayCondition: eq(sessionUser("user_type"), literal("lead")),
 						forms: [
 							{
 								name: "Check",

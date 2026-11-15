@@ -11,16 +11,17 @@
 // chooses that form. Those are different screens depending on placement and
 // module shape:
 //
-//   - every form opens an existing case (case-first): the worker picks a
-//     case first, so the form condition is checked afterwards, against
-//     the chosen case, including the shortcut that skips the form list
-//     when a module has only one form;
-//   - any form starts a new case or collects a plain survey
-//     (forms-first): the worker chooses the form BEFORE any case, so
-//     there is no case to read.
+//   - every entry on the screen asks for one case first (case-first): the
+//     worker picks a case first, and the menu then lists its forms,
+//     however many, so the form condition is checked against the chosen
+//     case;
+//   - anything else on the screen (a form that starts a new case or
+//     collects a plain survey, or an entry that asks for another case
+//     first) makes it forms-first: the worker chooses the form BEFORE any
+//     case, so there is no case to read.
 //
-// `lib/domain/forms.ts::isCaseFirstModule` is the same distinction the
-// runtime makes; this module only puts it into words.
+// `lib/domain/menuScreens.ts::screenChoosesCaseFirst` is the same
+// distinction the runtime makes; this module only puts it into words.
 
 import type { Platform } from "@/lib/domain/platforms";
 
@@ -61,7 +62,9 @@ export type DisplayConditionCarrier =
 					| "first-menu"
 					| "bare-case-list"
 					| "opens-without-a-case"
-					| "chooses-another-case";
+					| "chooses-another-case"
+					| "form-chooses-apart"
+					| "case-list-entry-apart";
 				/** The menu holding what keeps the screen forms first, where it
 				 *  is another menu than the form's own. */
 				readonly otherModuleName?: string;
@@ -69,9 +72,6 @@ export type DisplayConditionCarrier =
 			};
 			/** The module's case type, when it declares one. */
 			readonly caseType: string | undefined;
-			/** How many forms the module holds. One case-first form is
-			 *  auto-opened after a case is picked, which the copy names. */
-			readonly formCount: number;
 	  };
 
 export interface DisplayConditionCopy {
@@ -326,7 +326,12 @@ export function displayConditionCopy(
 					? `${name} shows with ${other}'s forms on one screen, and ${blockingForm} there opens without a case, so people choose a form first and pick a case afterwards. ${decides}`
 					: blocker?.reason === "chooses-another-case" && other !== undefined
 						? `${name} shows with ${other}'s forms on one screen, and those forms choose a different case first, so people choose a form first and pick a case afterwards. ${decides}`
-						: `${moduleName} holds a form that starts a new case, so people choose a form first and pick a case afterwards. ${decides}`;
+						: blocker?.reason === "form-chooses-apart" &&
+								blockingForm !== undefined
+							? `${blockingForm} on that screen chooses its case apart from the forms beside it, so people choose a form first and pick a case afterwards. ${decides}`
+							: blocker?.reason === "case-list-entry-apart"
+								? `${other ?? moduleName}'s case list entry on that screen chooses its case apart from the forms beside it, so people choose a form first and pick a case afterwards. ${decides}`
+								: `${moduleName} holds a form that starts a new case, so people choose a form first and pick a case afterwards. ${decides}`;
 		return {
 			...shared,
 			lede:
@@ -340,16 +345,8 @@ export function displayConditionCopy(
 
 	const locus = [
 		`Every form in ${moduleName} opens an existing ${caseWord}, so people pick the ${caseWord} first. CommCare checks this straight afterwards, for the ${caseWord} they picked.`,
+		`It decides whether ${name} is on the list of forms offered for that ${caseWord}.`,
 	];
-	if (carrier.formCount <= 1) {
-		locus.push(
-			`${name} is the only form here, so picking a ${caseWord} normally opens it immediately. A ${caseWord} this condition does not match stops at the list instead.`,
-		);
-	} else {
-		locus.push(
-			`It decides whether ${name} is one of the forms offered for that ${caseWord}.`,
-		);
-	}
 	return {
 		...shared,
 		lede: `People reach ${name} by picking a ${caseWord} first, so CommCare checks this once that ${caseWord} is chosen.`,

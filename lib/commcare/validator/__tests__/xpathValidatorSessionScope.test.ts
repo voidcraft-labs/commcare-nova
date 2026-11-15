@@ -46,7 +46,10 @@ describe("form-link evaluation after the form closes", () => {
 					datum: { kind: "selected-case", module: ids.module },
 				},
 			},
-			{ kind: "term", term: { kind: "session-user", field: "username" } },
+			{
+				kind: "term",
+				term: { kind: "session-user", field: "commcare_first_name" },
+			},
 		] satisfies Expression[])
 			expect(formLogicFindings(expr, ctx)).toEqual([]);
 	});

@@ -52,7 +52,7 @@ import { assertAdmittedDoc } from "./admittedDoc";
 
 /** A Search action setting that, unlike the screen's title and subtitle,
  * survives the module's last Search input. */
-const PEER_BUTTON_CONDITION = eq(sessionUser("role"), literal("peer"));
+const PEER_BUTTON_CONDITION = eq(sessionUser("user_type"), literal("peer"));
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

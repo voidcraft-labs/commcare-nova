@@ -183,8 +183,11 @@ when omitted. Existing IDs remain useful when names collide.
 
 In record expressions, worker references such as `#user/region` name information
 declared in the app. `session('userid')` and `session('username')` read built-in
-identity. `external-user('key')` explicitly reads custom worker data provided
-outside the app.
+identity. `external-user('key')` reads worker information CommCare itself
+gives every worker, such as `commcare_location_id`. Custom worker data, even
+data your project space already holds, is declared as worker information first:
+publishing asks the project space to define it, and a phone stops where it
+reads a field its project space doesn't define.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
 filter, `#row/column` reads the current row. A case-list filter, an advanced
@@ -590,7 +593,8 @@ role and persona values name a worker-information property by
 Custom worker-information reads use `#user/<saved-name>` in expressions and
 `{{#user/<saved-name>}}` in wording. Nova binds the name to the property's stable
 identity. External worker values remain distinct: query expressions use
-`external-user('name')` for a built-in or external field that Nova does not own.
+`external-user('name')` for a field CommCare gives every worker, which Nova does
+not own.
 Read results use the same authored expressions accepted by edits.
 
 On update tools, leaving a field out keeps it and passing `null` clears a

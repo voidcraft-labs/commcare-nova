@@ -185,6 +185,15 @@ function blockerExplanation(
 		}
 		case "chooses-another-case":
 			return `Its forms show with "${blockingMenu}"'s on one screen, and those forms choose a different case first, so a worker chooses a form before any case.`;
+		case "form-chooses-apart": {
+			const blockingForm =
+				blocker.formUuid === undefined
+					? ""
+					: (doc.forms[blocker.formUuid]?.name ?? "");
+			return `"${blockingForm}" on that screen chooses its case apart from the forms beside it, so a worker chooses a form before any case.`;
+		}
+		case "case-list-entry-apart":
+			return `"${blockingMenu}"'s case list entry on that screen chooses its case apart from the forms beside it, so a worker chooses a form before any case.`;
 	}
 }
 
