@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from "uuid";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 /**
  * Duplicating a field, planned as ordinary adds.
@@ -50,7 +51,7 @@ export function duplicateFieldMutations(
 	const cloneInto = (sourceUuid: Uuid, intoParent: Uuid): Uuid | undefined => {
 		const field = doc.fields[sourceUuid];
 		if (field === undefined) return undefined;
-		const cloneUuid = asUuid(crypto.randomUUID());
+		const cloneUuid = asUuid(uuidv4());
 		const copy = structuredClone(field);
 		copy.uuid = cloneUuid;
 		// A held identity belongs to the source the publish carried; the

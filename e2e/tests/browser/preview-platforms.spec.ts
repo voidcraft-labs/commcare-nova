@@ -1191,7 +1191,7 @@ test("in Web Apps a case chosen from the entry shows its details, and Continue s
 	}
 });
 
-test("on Android a case chosen from the entry with no details returns to the phone's home screen", async ({
+test("on Android a case chosen from the entry with no details returns to the phone's home screen, on a new session", async ({
 	page,
 }) => {
 	try {
@@ -1199,6 +1199,8 @@ test("on Android a case chosen from the entry with no details returns to the pho
 			fixture: "case-list-entry",
 			platform: "android",
 		});
+		const session = page.getByLabel("Preview session");
+		const running = await session.textContent();
 		await main.locator("[data-case-list-menu-entry]").click({
 			timeout: 20_000,
 		});
@@ -1207,6 +1209,15 @@ test("on Android a case chosen from the entry with no details returns to the pho
 			.click({ timeout: 20_000 });
 		await expect(page.getByLabel("At the device home")).toHaveText("true");
 		await expect(page.getByLabel("Location")).toHaveText("home");
+		// The home screen resets Android's session
+		// (`HomeScreenBaseActivity.processCanceledGetCommandOrCase`): a step
+		// the browser's history kept from the old one no longer stands.
+		await expect(session).not.toHaveText(running ?? "");
+		const reset = await session.textContent();
+		// Start opens the app on that new session.
+		await main.getByRole("button", { name: "Start", exact: true }).click();
+		await expect(page.getByLabel("At the device home")).toHaveText("false");
+		await expect(session).toHaveText(reset ?? "");
 	} finally {
 		await closeNavigation(page);
 	}

@@ -1,6 +1,8 @@
 /**
- * Two lists of patients under one menu: Patients, which opens on Results
- * first and whose forms read the search, and All patients, a plain list.
+ * Three lists of patients under one menu: Patients, which opens on Results
+ * first and whose forms read the search; Find a patient, which opens on
+ * Results first through its Search action, its forms reading no search; and
+ * All patients, a plain list.
  *
  * Opening Patients runs its default search, which finds both patients. A
  * worker who searches again for one of them, steps out to the menu, opens
@@ -46,6 +48,15 @@ export const SEARCH_STANDING_SEED = {
 		formName: "Visit",
 		columnUuid: testUuid("search-standing-name-column"),
 		searchInputUuid: testUuid("search-standing-name-input"),
+	},
+	/** A list that opens on Results first whose forms do not read the
+	 *  search: its Search action runs the default search as it opens. */
+	finding: {
+		moduleUuid: testUuid("search-standing-finding"),
+		name: "Find a patient",
+		formName: "Check-in",
+		columnUuid: testUuid("search-standing-finding-column"),
+		searchInputUuid: testUuid("search-standing-finding-input"),
 	},
 	browsing: {
 		moduleUuid: testUuid("search-standing-browse"),
@@ -117,6 +128,30 @@ export function buildSearchStandingBlueprint(appId: string): BlueprintDoc {
 				],
 			},
 			{
+				uuid: seed.finding.moduleUuid,
+				name: seed.finding.name,
+				caseType: seed.caseType,
+				caseListConfig: {
+					columns: [
+						plainColumn(seed.finding.columnUuid, "case_name", "Patient"),
+					],
+					searchInputs: [
+						simpleSearchInputDef(
+							seed.finding.searchInputUuid,
+							seed.prompt.name,
+							seed.prompt.label,
+							"text",
+							"case_name",
+							{ mode: fuzzyMode() },
+						),
+					],
+				},
+				caseSearchConfig: { workflow: "skipToResults" },
+				forms: [
+					{ name: seed.finding.formName, type: "followup", fields: [note] },
+				],
+			},
+			{
 				uuid: seed.browsing.moduleUuid,
 				name: seed.browsing.name,
 				caseType: seed.caseType,
@@ -132,7 +167,11 @@ export function buildSearchStandingBlueprint(appId: string): BlueprintDoc {
 			},
 		],
 	});
-	for (const child of [seed.searching.moduleUuid, seed.browsing.moduleUuid])
+	for (const child of [
+		seed.searching.moduleUuid,
+		seed.finding.moduleUuid,
+		seed.browsing.moduleUuid,
+	])
 		doc.modules[child] = {
 			...doc.modules[child],
 			parentModuleUuid: seed.clinic.moduleUuid,

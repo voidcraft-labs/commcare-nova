@@ -13,6 +13,7 @@
 // This is what replaced the `as unknown as Field` double-cast at the
 // insertion site, which had erased exactly this check.
 
+import { v4 as uuidv4 } from "uuid";
 import {
 	asUuid,
 	DEFAULT_SELECT_OPTIONS,
@@ -26,7 +27,7 @@ import { literal, term } from "@/lib/domain/expression";
 function defaultSelectOptions() {
 	return DEFAULT_SELECT_OPTIONS.map((option) => ({
 		...option,
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: asUuid(uuidv4()),
 	}));
 }
 

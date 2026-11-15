@@ -272,7 +272,10 @@ describe("the corpus emitter", () => {
 			.filter((sample) => sample.generator !== "advanced")
 			.map((sample) => sample.document);
 		({ index } = await emit(join(root, "nova"), fixed, sampled));
-	});
+		// The hook compiles and gates every document this suite reads, which is
+		// the suite's whole cost, so it takes the bound a single emission test
+		// below takes, twice over, and not the default a hook gets.
+	}, 120_000);
 
 	afterAll(async () => {
 		vi.useRealTimers();

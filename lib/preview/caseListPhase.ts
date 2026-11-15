@@ -120,32 +120,84 @@ export function caseListReadsResults(
 /**
  * Whether the list runs its default search now: the step is Results with
  * nothing submitted (skip to results), the screen is the worker's, and no
- * registered case is what Results read. A search the session already holds
- * for a menu whose forms read the search (the worker searched, then a form of
- * the menu returned to its list) is that menu's standing query, which the
- * screen takes back with its own answers rather than replacing it with the
- * default search: Web Apps sends the session's query answers with the request
- * that shows the screen again, and Formplayer answers the prompts from them
- * before it runs the query (`MenuSessionRunnerService.java::handleQueryScreen`,
- * `answerQueryPrompts` over `QueryData.getInputs`, then `doQuery`).
+ * registered case is what Results read. A search that still stands on the
+ * screen (history returning to the list, `lib/preview/searchStanding.ts`),
+ * whether its menu's forms read it or a Search action ran it, is that list's
+ * standing query, which the screen takes back with its own answers rather
+ * than replacing it with the default search: Web Apps sends the query data
+ * its address still holds
+ * with the request that shows the screen again, and Formplayer answers the
+ * prompts from them before it runs the query
+ * (`MenuSessionRunnerService.java::handleQueryScreen`, `answerQueryPrompts`
+ * over `QueryData.getInputs`, then `doQuery`). A submission holds none: the
+ * client clears the address's query data on it (`utils.js::CloudcareUrl.onSubmit`)
+ * and Formplayer goes on to the next screen with empty query data
+ * (`resolveFormGetNext`), so a list a form's return opens runs its default
+ * search again (`FormScreen`'s `letSubmittedSearchesGo`), as App Tests'
+ * return does (`app-tests/submission.ts`, `enterAppTestMenu`).
  */
 export function caseListLaunchesDefaultSearch(args: {
 	readonly step: CaseListStep | "waiting";
 	readonly hasSubmitted: boolean;
 	/** The session is still waiting for its worker. */
 	readonly pending: boolean;
+	/** The Search screen refused as it opened (a read of data the worker's
+	 *  device lacks): Core's query manager fails as Formplayer's query screen
+	 *  is built, before `handleQueryScreen` runs any default search
+	 *  (`QueryScreen.init`), so none runs. */
+	readonly refused: boolean;
 	readonly readsRegisteredCase: boolean;
-	/** The session holds this menu's search (running, failed or completed),
-	 *  which the screen restores. */
+	/** The session holds this list's search where it stands (an attempt of
+	 *  a menu whose forms read it, or a Search action's search), which the
+	 *  screen restores; a Search screen asked for again holds none. */
 	readonly standingSearch: boolean;
 }): boolean {
 	return (
 		args.step === "results" &&
 		!args.hasSubmitted &&
 		!args.pending &&
+		!args.refused &&
 		!args.readsRegisteredCase &&
 		!args.standingSearch
 	);
+}
+
+/**
+ * The opening of a menu whose default search runs now, or `undefined` where
+ * none runs (`caseListLaunchesDefaultSearch`). It names the Preview session
+ * (`previewSessionId`) beside the menu's search settings, because Formplayer
+ * runs the default search each time a session's query screen is built
+ * (`MenuSessionRunnerService.java::handleQueryScreen`: `autoSearch` is
+ * `doDefaultSearch() && !forceManualSearch`): a new worker, platform or
+ * Preview run on the same menu, settings unchanged, is a new opening. The
+ * hidden inputs' identity is a setting, since the device seeds them on every
+ * query-screen build.
+ */
+export function caseListDefaultSearchOpening(args: {
+	readonly launches: boolean;
+	readonly session: string;
+	readonly settings: Readonly<Record<string, unknown>>;
+}): string | undefined {
+	return args.launches
+		? JSON.stringify({ session: args.session, ...args.settings })
+		: undefined;
+}
+
+/**
+ * One pass of the screen's default-search launch: launch once per opening.
+ * The same opening seen again (React's development effect replay, an
+ * unrelated render) launches nothing; a pass with no opening (the list holds
+ * a search, or is refused) forgets the last, so the next opening launches
+ * even with unchanged settings: a search let go, or a refusal lifted, is the
+ * menu opening on its default search again.
+ */
+export function caseListDefaultSearchLaunch(
+	launched: string | undefined,
+	opening: string | undefined,
+): { readonly launched: string | undefined; readonly launch: boolean } {
+	if (opening === undefined) return { launched: undefined, launch: false };
+	if (launched === opening) return { launched, launch: false };
+	return { launched: opening, launch: true };
 }
 
 function opensOn(

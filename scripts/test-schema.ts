@@ -375,7 +375,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setCaseListTileTool.description,
 		schema: setCaseListTileTool.inputSchema,
 		prompt:
-			"Use setCaseListTile with moduleUuid 11111111-1111-4111-8111-111111111111 to lay the case list out as a tile that stays above every form, placing fieldUuid 33333333-3333-4333-8333-333333333333 across the full width of the top row and fieldUuid 44444444-4444-4444-8444-444444444444 on the left half of the second row.",
+			"Use setCaseListTile with moduleUuid 11111111-1111-4111-8111-111111111111 to lay the case list out as a tile that stays on screen once its case is chosen, placing fieldUuid 33333333-3333-4333-8333-333333333333 across the full width of the top row and fieldUuid 44444444-4444-4444-8444-444444444444 on the left half of the second row.",
 	},
 	{
 		name: "addSearchInputs",

@@ -1509,7 +1509,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				// letting it disappear quietly.
 				setWorkspaceAnnouncement(
 					persisted
-						? "Results now shows rows. The tile arrangement is kept, and the tile no longer stays on screen during forms."
+						? "Results now shows rows. The tile arrangement is kept, and the tile no longer stays on screen once a case is chosen."
 						: "Results now shows rows. The tile arrangement is kept.",
 				);
 			}

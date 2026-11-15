@@ -41,6 +41,15 @@
  * continues into once the worker steps back to it and chooses a case again
  * (`stepBacks`).
  *
+ * `pinned-tile` is built here and admitted by Nova's gate: two lists that
+ * keep their tile on screen, one a parent-select chain's parent and one its
+ * child, a parent-select chain whose parent's list does not keep it, and a
+ * same-type submenu under each kind of list. It writes `<name>.tiles.json`:
+ * walks through Core's session, each step a command or a case chosen, and on
+ * the screen each step reaches the case and detail Preview pins
+ * (`pinnedCaseTile.ts::previewPinnedCaseTile` over the held cases each screen
+ * hands it), and, on a list's own details, what Android's details draw.
+ *
  * Four documents are read for a list of workers' data rather than roles, each
  * listing a screen as refused where a condition it reads asks for a user field
  * the worker's device lacks: `worker-place-read`, a menu whose condition reads
@@ -100,9 +109,12 @@ import {
 	moduleLanding,
 	moduleUuidOfForm,
 	orderedUserProperties,
+	plainColumn,
 	proseText,
 	screenChoosesCaseFirst,
 	screenIsBareCaseList,
+	simpleSearchInputDef,
+	tileCell,
 	type Uuid,
 } from "../../../lib/domain";
 import {
@@ -127,6 +139,7 @@ import type { PreviewSearchSessionValues } from "../../../lib/preview/engine/ide
 import {
 	menuScreenEntryKey,
 	moduleHasChildren,
+	type PreviewHeldCaseSelection,
 	previewCaseFirstModuleUuids,
 	previewCaseListContinuation,
 	previewCaseListFormRequest,
@@ -136,13 +149,22 @@ import {
 	previewCaseListReturn,
 	previewContributorVisibility,
 	previewMenuCaseContext,
+	previewMenuHeldSelections,
 	previewMenuScreenChoice,
 	previewMenuScreenLanding,
 	previewModuleOwnVisibility,
 	previewModuleScreenIsBareCaseList,
 	previewRequestedForm,
 	previewScreenEntryVisibility,
+	previewSelectionsBefore,
 } from "../../../lib/preview/menuProjection";
+import {
+	type PinnedTileSurface,
+	type PreviewViewedCase,
+	previewPinnedCaseTile,
+} from "../../../lib/preview/pinnedCaseTile";
+import { previewPlatformRules } from "../../../lib/preview/platform";
+import type { PreviewMenuCaseSelection } from "../../../lib/session/types";
 import { lookupContextOf } from "../../corpus/documents";
 import { formsInMenuAbove } from "../../targeted/documents/formsInMenuAbove";
 import { formsInMenuAboveNested } from "../../targeted/documents/formsInMenuAboveNested";
@@ -737,12 +759,18 @@ let loneFormStepBacks = 0;
  * case otherwise.
  *
  * `oneStepBack` is the screen one Back lands on: `menu`, the screen's menu
- * with the case held, where the form was chosen after its case (the list's
- * own form menu where `previewCaseListHeldChoices` holds the case on the
- * history entry choosing it opened, which the form was opened from, a menu
- * screen where `previewMenuScreenLanding` lists its forms for the case its
- * selection holds), else `case-list`, where the list holds the
- * form. `afterStepBack` is the form's command where the list a route back
+ * with the case held, where the form was chosen after its case, else
+ * `case-list`, where the list holds the form. It follows from where the
+ * screen model has the form chosen (`asksCaseFirst`, from
+ * `screenChoosesCaseFirst`): the held menu handed to
+ * `previewCaseListHeldChoices` and the selection handed to
+ * `previewMenuScreenLanding` are this producer's own, written exactly where
+ * the form is chosen after its case, so both give back what they were given.
+ * `MenuScreensRuntimeTest` therefore holds Core's `stepBack` to the screen
+ * model; that Preview's screens hold the menu and the selection
+ * (`CaseListScreen`'s `holdFormMenu`, `ModuleScreen`'s selection) is held by
+ * the browser journeys (`e2e/tests/app/preview-form-refused.spec.ts`,
+ * `preview-menu-held-case.spec.ts`). `afterStepBack` is the form's command where the list a route back
  * reaches (`previewCaseListReturn`) opens the form once a case is chosen
  * (`previewCaseListFormRequest`, then `previewRequestedForm`), or null where
  * it lists the menu. A form whose menu reads the
@@ -1673,6 +1701,484 @@ for (const key of ["landings-visits", "landings-visit-notes"])
 			`The menu-landings screen "${landings.modules[testUuid(key)]?.name}" no longer asks for the visit first, so it witnesses nothing about a basic entry under an advanced parent.`,
 		);
 write("menu-landings", landings, ROLES);
+
+/**
+ * The pinned-tile document: which held case the pinned tile names, screen by
+ * screen. Both platforms walk the session's steps back from the latest and
+ * keep the last datum whose definition names a persistent detail
+ * (`MenuSessionRunnerService.getStepToFrame`, `BreadcrumbBarHelper.loadTile`,
+ * over `CommCareSession.findDatumDefinition`), so the tile is the EARLIEST
+ * chosen case whose list keeps its tile on screen.
+ *
+ * - "Households" keeps its tile and holds a same-type submenu, "Household
+ *   rounds", which goes on with the household chosen there: the household's
+ *   tile from the menu on.
+ * - "Members" chooses its household first on Households' list, then its
+ *   member on its own list, which keeps its tile too: the household's tile,
+ *   the earlier, from the member list on.
+ * - "Villages" chooses households on a list that does not keep its tile, and
+ *   holds a same-type submenu, "Village rounds", whose own list asks to keep
+ *   it but chooses nothing: no tile anywhere.
+ * - "Residents" chooses its village household first on Villages' list, then
+ *   its member on its own list, which keeps its tile: the member's tile once
+ *   the member is chosen, and none before.
+ * - "Household clinics" is a submenu of Households whose case type, clinic,
+ *   is not related to the household: the household chosen on Households'
+ *   list stays a step of the session (`[m, household, m-clinics, clinic]`),
+ *   so its tile stays above the clinic list, the clinic menu and its form.
+ * - "Patients" keeps its tile and offers a Search action its forms do not
+ *   read: a result is chosen for the remote request's `search_case_id`, which
+ *   names no persistent detail (`searchSession.ts::buildSearchSession`), so
+ *   Android's details of a result draw no tile; once the claim posts and the
+ *   request rewinds the chosen case into the list's own datum, its tile shows.
+ */
+function pinnedTileDocument(): BlueprintDoc {
+	const list = (key: string, keepsTile: boolean) => {
+		const name = plainColumn(testUuid(`${key}-name`), "case_name", "Name", {
+			...(keepsTile && { tile: tileCell(0, 0, 6, 1) }),
+		});
+		return {
+			...(keepsTile && { tile: { persistOnForms: true as const } }),
+			columns: [name],
+			listColumnOrder: [name.uuid],
+			detailColumnOrder: [name.uuid],
+			searchInputs: [],
+		};
+	};
+	const followUp = (uuid: string, name: string) => ({
+		uuid,
+		name,
+		type: "followup" as const,
+		fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+	});
+	const doc = buildDoc({
+		appName: "Pinned tile",
+		caseTypes: [
+			{ name: "household", properties: [] },
+			{ name: "member", parent_type: "household", properties: [] },
+			{ name: "clinic", properties: [] },
+			{ name: "patient", properties: [] },
+		],
+		modules: [
+			{
+				uuid: "tiles-households",
+				name: "Households",
+				caseType: "household",
+				caseListConfig: list("tiles-households", true),
+				forms: [followUp("tiles-household-visit", "Visit household")],
+			},
+			{
+				uuid: "tiles-household-rounds",
+				name: "Household rounds",
+				caseType: "household",
+				caseListConfig: list("tiles-household-rounds", false),
+				forms: [followUp("tiles-household-round", "Round")],
+			},
+			{
+				uuid: "tiles-household-clinics",
+				name: "Household clinics",
+				caseType: "clinic",
+				caseListConfig: list("tiles-household-clinics", false),
+				forms: [followUp("tiles-household-clinic-visit", "Visit clinic")],
+			},
+			{
+				uuid: "tiles-members",
+				name: "Members",
+				caseType: "member",
+				caseListConfig: list("tiles-members", true),
+				forms: [followUp("tiles-member-check", "Check member")],
+			},
+			{
+				uuid: "tiles-villages",
+				name: "Villages",
+				caseType: "household",
+				caseListConfig: list("tiles-villages", false),
+				forms: [followUp("tiles-village-survey", "Survey village")],
+			},
+			{
+				uuid: "tiles-village-rounds",
+				name: "Village rounds",
+				caseType: "household",
+				caseListConfig: list("tiles-village-rounds", true),
+				forms: [followUp("tiles-village-round", "Village round")],
+			},
+			{
+				uuid: "tiles-residents",
+				name: "Residents",
+				caseType: "member",
+				caseListConfig: list("tiles-residents", true),
+				forms: [followUp("tiles-resident-check", "Check resident")],
+			},
+			{
+				uuid: "tiles-patients",
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...list("tiles-patients", true),
+					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("tiles-patients-input"),
+							"patient_name",
+							"Patient name",
+							"text",
+							"case_name",
+						),
+					],
+				},
+				forms: [followUp("tiles-patient-visit", "Visit patient")],
+			},
+		],
+	});
+	doc.modules[testUuid("tiles-household-rounds")].parentModuleUuid =
+		testUuid("tiles-households");
+	doc.modules[testUuid("tiles-members")].parentCaseModuleUuid =
+		testUuid("tiles-households");
+	doc.modules[testUuid("tiles-village-rounds")].parentModuleUuid =
+		testUuid("tiles-villages");
+	doc.modules[testUuid("tiles-household-clinics")].parentModuleUuid =
+		testUuid("tiles-households");
+	doc.modules[testUuid("tiles-residents")].parentCaseModuleUuid =
+		testUuid("tiles-villages");
+	return admitted("pinned-tile", doc);
+}
+
+/** The screen a walk's step reaches, as Preview reads it: a case list
+ *  asking for its case, a menu (its own screen or a list's own form menu)
+ *  listing what the session goes on to, or a form. */
+type TileScreen =
+	| { readonly surface: "case-list"; readonly listModuleUuid: Uuid }
+	| { readonly surface: "menu" | "form"; readonly moduleUuid: Uuid };
+
+/** One step of a walk: a command chosen, or a case chosen on a list. */
+type TileWalkStep =
+	| { readonly command: string; readonly reaches: TileScreen }
+	| {
+			/** The Search action of `searchOn`'s list run, its results the
+			 *  cases listed. */
+			readonly searchOn: Uuid;
+			readonly results: readonly string[];
+			readonly reaches: TileScreen;
+	  }
+	| {
+			readonly listModuleUuid: Uuid;
+			readonly caseId: string;
+			/** The datum the list chooses for where it shows a case's details
+			 *  (`PreviewViewedDatum`): its own case, the one datum HQ's build
+			 *  gives a details screen on a list (`entries.py`, `detail_confirm`
+			 *  only at the chain's index 0), or a search action's result, its
+			 *  remote request's; absent on a parent's list, which shows none. */
+			readonly details?: Exclude<PreviewViewedCase["datum"], "parent">;
+			readonly reaches: TileScreen;
+	  };
+
+/** What both platforms answer for the tile on menus, case lists and forms. */
+const TILE_RULES = [
+	previewPlatformRules("web-apps"),
+	previewPlatformRules("android"),
+] as const;
+
+/**
+ * The tile Preview pins on a screen, written as Core names it: the case and
+ * the detail its datum's persistent detail names, `m<index>_case_short` of
+ * the list that keeps its tile (`compiler.ts`, `formLinkProjection.ts`).
+ * Each held list is handed the rule as each screen hands it: a case list its
+ * selections before its own (`CaseListScreen`, `previewSelectionsBefore`), a
+ * menu and a form the menu's held cases (`ModuleScreen`,
+ * `previewMenuHeldSelections`, which a form whose case was chosen on its
+ * menu's list holds alike, `FormScreen`'s `heldCases`). Both platforms
+ * answer alike on these screens, which the producer refuses otherwise.
+ */
+function pinnedTileOf(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	held: readonly PreviewHeldCaseSelection[],
+	surface: PinnedTileSurface,
+	viewing?: PreviewViewedCase,
+	rules: readonly ReturnType<typeof previewPlatformRules>[] = TILE_RULES,
+) {
+	const answers = rules.map((platform) => {
+		const pinned = previewPinnedCaseTile(
+			doc.modules,
+			held,
+			surface,
+			platform,
+			viewing,
+		);
+		return pinned === undefined
+			? null
+			: {
+					detail: `m${moduleIndexOf(ctx, pinned.moduleUuid)}_case_short`,
+					caseId: pinned.caseId,
+				};
+	});
+	const [first, ...rest] = answers;
+	if (rest.some((answer) => JSON.stringify(answer) !== JSON.stringify(first)))
+		throw new Error(
+			`Web Apps and Android pin different tiles on a ${surface}, which the pinned-tile walks read once for both.`,
+		);
+	return first ?? null;
+}
+
+/** Each walk's steps as Core takes them, with the tile Preview pins on the
+ *  screen each reaches, and, on a list's own details, the tile Android's
+ *  details draw before the case is chosen. */
+function tileWalksOf(
+	doc: BlueprintDoc,
+	walks: readonly {
+		readonly name: string;
+		readonly steps: readonly TileWalkStep[];
+	}[],
+) {
+	const ctx = formLinkProjectionContext(doc);
+	const source = { ...doc, caseTypes: doc.caseTypes ?? [] };
+	const heldOn = (
+		screen: TileScreen,
+		selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	) =>
+		screen.surface === "case-list"
+			? previewSelectionsBefore(source, screen.listModuleUuid, selections)
+			: previewMenuHeldSelections(source, screen.moduleUuid, selections);
+	return walks.map((walk) => {
+		let selections: Record<string, PreviewMenuCaseSelection> = {};
+		const steps = walk.steps.map((step) => {
+			let details: ReturnType<typeof pinnedTileOf> | undefined;
+			if ("listModuleUuid" in step) {
+				if (step.details !== undefined)
+					details = pinnedTileOf(
+						doc,
+						ctx,
+						previewSelectionsBefore(source, step.listModuleUuid, selections),
+						"case-details",
+						{
+							moduleUuid: step.listModuleUuid,
+							caseId: step.caseId,
+							datum: step.details,
+						},
+						[previewPlatformRules("android")],
+					);
+				const caseType = doc.modules[step.listModuleUuid]?.caseType;
+				if (caseType === undefined)
+					throw new Error(
+						`A pinned-tile walk chooses on a list with no case type.`,
+					);
+				selections = {
+					...selections,
+					[step.listModuleUuid]: {
+						caseType,
+						cases: [{ caseId: step.caseId }],
+					},
+				};
+			}
+			const surface = step.reaches.surface;
+			return {
+				...("command" in step
+					? { command: step.command }
+					: "searchOn" in step
+						? {
+								search: `search_command.m${moduleIndexOf(ctx, step.searchOn)}`,
+								results: step.results,
+							}
+						: {
+								case: step.caseId,
+								/* A search action's result is claimed, and its request
+								 * rewinds the case into the list's own datum. */
+								...(step.details === "search-results" && { claims: true }),
+							}),
+				...(details !== undefined && { details }),
+				asks: surface,
+				tile: pinnedTileOf(doc, ctx, heldOn(step.reaches, selections), surface),
+			};
+		});
+		return { name: walk.name, steps };
+	});
+}
+
+const tiles = pinnedTileDocument();
+{
+	const ctx = formLinkProjectionContext(tiles);
+	const uuid = (key: string) => testUuid(`tiles-${key}`);
+	const menu = (key: string) => `m${moduleIndexOf(ctx, uuid(key))}`;
+	const form = (moduleKey: string, formKey: string) =>
+		formCommandId(ctx, uuid(moduleKey), uuid(formKey));
+	const onMenu = (key: string) => ({
+		surface: "menu" as const,
+		moduleUuid: uuid(key),
+	});
+	const onForm = (key: string) => ({
+		surface: "form" as const,
+		moduleUuid: uuid(key),
+	});
+	const onList = (key: string) => ({
+		surface: "case-list" as const,
+		listModuleUuid: uuid(key),
+	});
+	const choose = (
+		listKey: string,
+		caseId: string,
+		ownCase: boolean,
+		reaches: TileScreen,
+	) => ({
+		listModuleUuid: uuid(listKey),
+		caseId,
+		...(ownCase && { details: "list" as const }),
+		reaches,
+	});
+	write("pinned-tile", tiles, NONE);
+	const walks = tileWalksOf(tiles, [
+		{
+			name: "a same-type submenu goes on with the case a list that keeps its tile chose",
+			steps: [
+				{ command: menu("households"), reaches: onList("households") },
+				choose("households", "household-case-1", true, onMenu("households")),
+				{
+					command: menu("household-rounds"),
+					reaches: onMenu("household-rounds"),
+				},
+				{
+					command: form("household-rounds", "household-round"),
+					reaches: onForm("household-rounds"),
+				},
+			],
+		},
+		{
+			name: "a menu's own form under the tile of the case its list chose",
+			steps: [
+				{ command: menu("households"), reaches: onList("households") },
+				choose("households", "household-case-2", true, onMenu("households")),
+				{
+					command: form("households", "household-visit"),
+					reaches: onForm("households"),
+				},
+			],
+		},
+		{
+			name: "a parent-select chain whose two lists keep their tile pins the parent",
+			steps: [
+				{ command: menu("members"), reaches: onList("households") },
+				choose("households", "household-case-1", false, onList("members")),
+				choose("members", "member-case-1", true, onMenu("members")),
+				{
+					command: form("members", "member-check"),
+					reaches: onForm("members"),
+				},
+			],
+		},
+		{
+			name: "a same-type submenu under a list that does not keep its tile pins none",
+			steps: [
+				{ command: menu("villages"), reaches: onList("villages") },
+				choose("villages", "household-case-2", true, onMenu("villages")),
+				{
+					command: menu("village-rounds"),
+					reaches: onMenu("village-rounds"),
+				},
+				{
+					command: form("village-rounds", "village-round"),
+					reaches: onForm("village-rounds"),
+				},
+			],
+		},
+		{
+			name: "a submenu of an unrelated case type keeps the tile of the case the menu above chose",
+			steps: [
+				{ command: menu("households"), reaches: onList("households") },
+				choose("households", "household-case-1", true, onMenu("households")),
+				{
+					command: menu("household-clinics"),
+					reaches: onList("household-clinics"),
+				},
+				choose(
+					"household-clinics",
+					"clinic-case-1",
+					true,
+					onMenu("household-clinics"),
+				),
+				{
+					command: form("household-clinics", "household-clinic-visit"),
+					reaches: onForm("household-clinics"),
+				},
+			],
+		},
+		{
+			name: "a search action's result is chosen for a datum that names no persistent detail, and its claim pins it",
+			steps: [
+				{ command: menu("patients"), reaches: onList("patients") },
+				{
+					searchOn: uuid("patients"),
+					results: ["patient-case-1"],
+					reaches: onList("patients"),
+				},
+				{
+					listModuleUuid: uuid("patients"),
+					caseId: "patient-case-1",
+					details: "search-results" as const,
+					reaches: onMenu("patients"),
+				},
+				{
+					command: form("patients", "patient-visit"),
+					reaches: onForm("patients"),
+				},
+			],
+		},
+		{
+			name: "a parent-select chain whose parent's list does not keep its tile pins the child",
+			steps: [
+				{ command: menu("residents"), reaches: onList("villages") },
+				choose("villages", "household-case-1", false, onList("residents")),
+				choose("residents", "member-case-2", true, onMenu("residents")),
+				{
+					command: form("residents", "resident-check"),
+					reaches: onForm("residents"),
+				},
+			],
+		},
+	]);
+	/* A witness that never pins, never pins the earlier of two, never pins
+	 * the later where the earlier keeps none, or never draws Android's
+	 * details tile holds Core to nothing about that branch. */
+	const tilesOf = walks.flatMap((walk) => walk.steps.map((step) => step.tile));
+	const pins = (detail: string, caseId: string) =>
+		tilesOf.some((tile) => tile?.detail === detail && tile.caseId === caseId);
+	const households = `${menu("households")}_case_short`;
+	const residents = `${menu("residents")}_case_short`;
+	if (
+		!pins(households, "household-case-1") ||
+		!pins(residents, "member-case-2") ||
+		!tilesOf.some((tile) => tile === null) ||
+		!walks.some((walk) =>
+			walk.steps.some(
+				(step) =>
+					"details" in step &&
+					"case" in step &&
+					step.details?.caseId === step.case,
+			),
+		) ||
+		!walks.some((walk) =>
+			walk.steps.some(
+				(step) =>
+					"claims" in step && "details" in step && step.details === null,
+			),
+		)
+	)
+		throw new Error(
+			"The pinned-tile walks no longer read every branch of the rule: the earlier of two lists that keep their tile, the later where the earlier keeps none, a screen with none, Android's details drawing the case they show, and a search action's result whose details draw none.",
+		);
+	writeFileSync(
+		resolve(output, "pinned-tile.tiles.json"),
+		JSON.stringify({
+			deviceCases: [
+				{ id: "household-case-1", type: "household", properties: {} },
+				{ id: "household-case-2", type: "household", properties: {} },
+				{ id: "member-case-1", type: "member", properties: {} },
+				{ id: "member-case-2", type: "member", properties: {} },
+				{ id: "clinic-case-1", type: "clinic", properties: {} },
+				// Claimed once chosen from the search's results.
+				{ id: "patient-case-1", type: "patient", properties: {} },
+			],
+			walks,
+		}),
+	);
+}
 
 // Some step back is read on a screen that chooses its case first and lists one
 // form, where Core lists the menu and Preview once opened the form by itself.

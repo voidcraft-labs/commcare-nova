@@ -38,9 +38,7 @@ test.beforeAll(async () => {
 			"@/lib/preview/engine/caseDataBinding": boundary,
 			"@/lib/preview/engine/lookupDataBinding": boundary,
 			"@/lib/preview/entryPointLaunchAction": boundary,
-			"@/lib/auth/hooks/useAuth": resolve(
-				"e2e/lib/preview-refusal-backstop-auth.ts",
-			),
+			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
 			"@/lib/deployment/actions": boundary,
 			"@/lib/doc/platformChangePreflight": boundary,

@@ -421,7 +421,7 @@ export const tileCellInputSchema = tileCellSchema.extend({
  */
 export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
 	persistOnForms: caseTileLayoutSchema.shape.persistOnForms.describe(
-		"Keep the tile on screen above every form in this module, so the worker can see which case they are filling the form in for. Leave it out for a tile that shows only on the case list.",
+		"Keep the tile on screen once a case is chosen from this list: above the menu the case opens and the lists and forms after it, so the worker can see which case they are working on. Where cases are chosen from several lists, the first chosen case whose list keeps its tile is the one shown. Leave it out for a tile that shows only on the case list.",
 	),
 	grouping: z
 		.strictObject({

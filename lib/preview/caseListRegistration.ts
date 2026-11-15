@@ -31,6 +31,7 @@ import {
 } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewSearchEnvironment } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
+import { searchAttemptOf } from "@/lib/session/previewSearchState";
 import type {
 	PreviewSearchAnswers,
 	PreviewSearchLaunch,
@@ -104,7 +105,7 @@ export function caseListRegistrationAdmission(args: {
 	readonly launch: PreviewSearchLaunch | undefined;
 	readonly searchState: PreviewSearchState | undefined;
 }): CaseListRegistrationAdmission {
-	const { doc, formUuid, moduleUuid, launch, searchState } = args;
+	const { doc, formUuid, moduleUuid, launch } = args;
 	if (!isCaseListRegistrationForm(doc, formUuid)) {
 		return { kind: "not-applicable" };
 	}
@@ -112,7 +113,10 @@ export function caseListRegistrationAdmission(args: {
 	if (moduleUuid === undefined || launch.moduleUuid !== moduleUuid) {
 		return { kind: "refused", reason: "foreign-module" };
 	}
-	if (searchState === undefined || searchState.kind === "not-searched") {
+	/* Only a search of a menu whose forms read it can have offered the form;
+	 * a Search screen asked for again holds none. */
+	const searchState = searchAttemptOf(args.searchState);
+	if (searchState === undefined) {
 		return { kind: "refused", reason: "not-searched" };
 	}
 	if (searchState.attempt !== launch.attempt) {

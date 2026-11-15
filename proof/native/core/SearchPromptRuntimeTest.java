@@ -230,7 +230,9 @@ public class SearchPromptRuntimeTest {
      * supported prompt types. So for a worker assigned nowhere the manager is refused on exactly the menus Preview
      * stops ({@code prompt-worker-place.openings.jsonl}, from {@code searchRunState.ts::openSearchRunState} and the
      * choice lists the form draws), on both paths and with both platforms' prompt types, naming the place it read,
-     * and is built for a placed worker; a check no starting value answers is not read. Each reading parses the suite
+     * and is built for a placed worker; a check no starting value answers is not read, nor the check of a choice field
+     * whose starting value the list does not offer, which {@code refreshItemSetChoices} lets go before
+     * {@code validateUserAnswers} runs ({@code checkForValidSelectValue}). Each reading parses the suite
      * again, since Core checks a parsed path only until the check first passes
      * ({@code XPathPathExpr.templatePathChecked}).
      */
@@ -249,18 +251,25 @@ public class SearchPromptRuntimeTest {
             for (boolean hq : new boolean[]{false, true}) for (List<String> prompts : Arrays.asList(FORMPLAYER_PROMPTS, ANDROID_PROMPTS)) {
                 String label = opening.getString("menu") + " user=" + user + " hq=" + hq + " prompts=" + prompts;
                 XPathException failure = null;
-                try { manager("prompt-worker-place", hq, new Data(user), command, prompts); }
+                RemoteQuerySessionManager manager = null;
+                try { manager = manager("prompt-worker-place", hq, new Data(user), command, prompts); }
                 catch (XPathException e) { failure = e; }
                 assertEquals(label, opening.getBoolean("refused"), failure != null);
                 if (failure != null) {
                     assertTrue(label + ": " + failure.getMessage(), failure.getMessage().contains("commcare_location_id"));
                     refused++;
-                } else built++;
+                } else {
+                    JSONObject answers = opening.getJSONObject("answers");
+                    for (Object field : opening.getJSONArray("fields"))
+                        assertEquals(label + " " + field, answers.optString((String)field, null), manager.getUserAnswers().get(field));
+                    built++;
+                }
             }
         }
-        // Five of the seven menus refuse the worker assigned nowhere, four readings each (two paths, two platforms'
-        // prompt types); the other two menus build for that worker, and all seven build for the placed one.
+        // Five of the eight menus refuse the worker assigned nowhere, four readings each (two paths, two platforms'
+        // prompt types); the other three build for that worker, the one whose check reads the place among them, since
+        // its field's starting choice is let go before any check is read, and all eight build for the placed one.
         assertEquals(20, refused);
-        assertEquals(36, built);
+        assertEquals(44, built);
     }
 }

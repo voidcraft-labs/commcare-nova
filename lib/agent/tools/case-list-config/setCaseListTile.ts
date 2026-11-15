@@ -7,7 +7,8 @@
  * occupies a rectangle, which is what lets a list read like a card — a name
  * across the top, a status in the corner, a date underneath. The layout drives
  * every surface the Results screen drives: the case list, the search-results
- * list, and (when asked) a copy pinned above every form in the module.
+ * list, and (when asked) a copy pinned on screen once a case is chosen from
+ * the list, above the menu, lists and forms the session goes on to.
  *
  * ONE tool owns both the layout switch and every placement, because the commit
  * gate judges them together:

@@ -18,6 +18,7 @@
 // Like `lib/preview/platform.ts`, this file may choose by platform: its input
 // parse, `serverPreviewDevice` and `withNavigationWidth` are per platform.
 
+import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { SessionContextField } from "@/lib/domain/expression";
@@ -146,7 +147,7 @@ export function serverPreviewDevice(input: {
 }): PreviewDevice {
 	return {
 		platform: input.platform,
-		androidDeviceId: input.androidDeviceId ?? crypto.randomUUID(),
+		androidDeviceId: input.androidDeviceId ?? uuidv4(),
 		appLanguage: input.appLanguage,
 		...(input.platform === "web-apps" && {
 			windowWidth: APP_TEST_WINDOW_WIDTH,
@@ -185,7 +186,7 @@ export function defaultPreviewDevice(
 			doc === undefined ? PLATFORMS : declaredPlatforms(doc),
 			undefined,
 		),
-		androidDeviceId: crypto.randomUUID(),
+		androidDeviceId: uuidv4(),
 		appLanguage: previewAppLanguage(doc?.localization, language),
 	};
 }

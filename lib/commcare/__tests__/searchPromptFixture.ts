@@ -373,6 +373,9 @@ export function searchPromptFixture(scenario: PromptScenario) {
  * - `check-answered`: a check reads it, on a field a starting value answers;
  * - `check-unanswered`: the same check, on a field nothing answers;
  * - `choices`: a choice list's filter reads it;
+ * - `unoffered-choice`: a check reads it, on a choice field whose starting
+ *   value the list does not offer, which Core lets go before it checks
+ *   (`RemoteQuerySessionManager.refreshItemSetChoices`), so nothing reads it;
  * - `anyone`: nothing reads it.
  *
  * The app runs on both platforms, so `SearchPromptRuntimeTest` builds each
@@ -385,6 +388,7 @@ export const WORKER_PLACE_SEARCH_MENUS = [
 	"check-answered",
 	"check-unanswered",
 	"choices",
+	"unoffered-choice",
 	"anyone",
 ] as const;
 export function searchPromptWorkerPlaceFixture(): BlueprintDoc {
@@ -443,6 +447,28 @@ export function searchPromptWorkerPlaceFixture(): BlueprintDoc {
 						valueColumnId: valueId,
 						labelColumnId: labelId,
 						filter: eq(tableColumn(tableId, valueId), place()),
+					},
+				},
+			),
+		],
+		/* Two fields: Core repeats its choice pass once for each field the
+		 * screen has, and a value it lets go asks for one more pass. */
+		"unoffered-choice": [
+			name("unoffered-choice"),
+			simpleSearchInputDef(
+				testUuid("worker-place-unoffered-choice-region"),
+				"region",
+				"Region",
+				"select",
+				"region",
+				{
+					default: term(literal("west")),
+					validation: check,
+					options: {
+						kind: "lookup",
+						tableId,
+						valueColumnId: valueId,
+						labelColumnId: labelId,
 					},
 				},
 			),

@@ -27,6 +27,7 @@ export const SMOKE_PROFILES = [
 	"search-results",
 	"search-standing",
 	"search-start-refused",
+	"search-choices-refused",
 	"search-choice",
 	"search-value-list",
 	"register-from-list",

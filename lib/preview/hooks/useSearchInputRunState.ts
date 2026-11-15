@@ -21,6 +21,7 @@ import {
 	openSearchRunState,
 	reconcileSearchRunState,
 	restoreSearchRun,
+	searchScreenOpeningCovered,
 	withHiddenValues,
 } from "../engine/searchRunState";
 import {
@@ -63,10 +64,13 @@ export interface SearchInputRunState {
 	 *  screen opens and stops on, on both platforms. The state then holds no
 	 *  field, and the screen shows the refusal. */
 	readonly refusal?: PreviewDataRefusal;
-	/** The session is still waiting for its worker
-	 *  (`identity.ts::awaitsPreviewIdentity`): the screen has read nothing of
-	 *  the worker's, holds no field and waits, and a search pressed now would
-	 *  carry no hidden value. The worker's arrival opens it as above. */
+	/** The screen has not opened yet: the session is still waiting for its
+	 *  worker (`identity.ts::awaitsPreviewIdentity`), or the lookup data that
+	 *  covers what the screen reads as it opens has not arrived
+	 *  (`searchRunState.ts::searchScreenOpeningCovered`). The screen has read
+	 *  nothing, holds no field, refuses nothing and waits, so no automatic
+	 *  search runs before its choice lists are judged, and a search pressed
+	 *  now would carry no hidden value. Their arrival opens it as above. */
 	readonly pending?: true;
 }
 
@@ -93,13 +97,21 @@ export function useSearchInputRunState(args: {
 	readonly environment: PreviewSearchEnvironment;
 	/** The platform Preview plays; defaults to an app's default platform. */
 	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">;
+	/** The lookup data failed to load, so the screen opens over what the
+	 *  data it holds covers rather than waiting for data that will not
+	 *  arrive. */
+	readonly lookupLoadFailed?: boolean;
 }): SearchInputRunState {
 	/* The screen reads what Core's query manager reads as it opens (its
-	 * starting values, hidden values, required conditions and the checks its
-	 * starting values answer), so a read any of them makes of data the device
-	 * lacks is the screen's refusal on both platforms, held as state. A
-	 * session still waiting for its worker is read not at all. */
-	const pending = awaitsPreviewIdentity(args.session);
+	 * starting values, hidden values, choice lists, required conditions and
+	 * the checks its starting values answer), so a read any of them makes of
+	 * data the device lacks is the screen's refusal on both platforms, held as state. A
+	 * session still waiting for its worker, or for the lookup data those
+	 * reads read, is read not at all. */
+	const pending =
+		awaitsPreviewIdentity(args.session) ||
+		(args.lookupLoadFailed !== true &&
+			!searchScreenOpeningCovered(args.searchInputs, args.environment));
 	const read = useMemo(
 		() =>
 			pending

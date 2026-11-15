@@ -243,6 +243,11 @@ function sharedJourneyCalls(doc: import("@/lib/domain").BlueprintDoc) {
 
 it.each([false, true])(
 	"admits registration only after an empty search, preserving its return behavior (first menu: %s)",
+	// Seven persisted steps, each its own locked transaction and evaluation,
+	// and each one part of the contract (the refused Register before the
+	// search, the search, the prefilled form, the answer the return shows,
+	// the submit), so give it the budget of the file's other journeys.
+	{ timeout: 15_000 },
 	async (home) => {
 		const doc = noMatchesDoc();
 		if (home) doc.forms[REGISTER_FORM].postSubmit = "firstMenu";

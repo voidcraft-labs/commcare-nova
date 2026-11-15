@@ -38,7 +38,7 @@ import {
 } from "@/lib/db/presenceRoster";
 import { locationSchema } from "@/lib/routing/types";
 
-/** The per-tab session id the client mints via `crypto.randomUUID()`. Shape-
+/** The per-tab session id the client mints as a v4 UUID (`mintSessionId`). Shape-
  *  pinned to a UUID because it is the stable per-tab key of the presence row's
  *  `(app_id, user_id, session_id)` primary key: a freeform string would let a
  *  client mint arbitrary keys, and the UUID shape keeps the roster's per-session

@@ -12,7 +12,10 @@ import {
 	useLocalizedValues,
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { previewParentCaseRequestFor } from "@/components/preview/screens/moduleScreenNavigation";
+import {
+	previewParentCaseRequestFor,
+	previewTargetKeptForParentCase,
+} from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import {
 	PinnedCaseTile,
@@ -88,6 +91,7 @@ import {
 	useSetPreviewParentCaseRequest,
 	useSetPreviewTaskContinuation,
 } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { showToast } from "@/lib/ui/toastStore";
 import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
 import { openModuleLanding } from "./moduleLanding";
@@ -100,9 +104,15 @@ interface ModuleScreenProps {
 	/** This screen's identity, which module is being displayed. Passed from
 	 *  PreviewShell so the component remains valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "module" }>;
+	/** The location on show is this screen's. While a step away renders,
+	 *  PreviewShell keeps the old screen visible (`useDeferredValue`) over
+	 *  the session the step already changed, so the screen being left must
+	 *  not route: a crumb to Home that lets this menu's case go would
+	 *  otherwise send the worker to this menu's list. */
+	current: boolean;
 }
 
-export function ModuleScreen({ screen }: ModuleScreenProps) {
+export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const projectProse = useProseProjection();
@@ -117,6 +127,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const taskContinuation = usePreviewTaskContinuation();
 	const setTaskContinuation = useSetPreviewTaskContinuation();
+	const sessionApi = useBuilderSessionApi();
 	const caseFirstModules = useCaseFirstModuleUuids();
 	const { claim: claimSearchedCases } = useClaimSearchedCases();
 
@@ -291,33 +302,44 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		{ mode: mode === "edit" ? "edit" : "preview", preserveEntryPointMenu },
 	);
 	useEffect(() => {
-		if (!moduleUuid) return;
+		if (!moduleUuid || !current) return;
 		if (
 			mode !== "edit" &&
 			requiredParentCase &&
 			taskContinuation?.moduleUuid !== moduleUuid
 		) {
-			setPreviewCaseTarget(undefined);
-			setPreviewParentCaseRequest(
-				previewParentCaseRequestFor({
-					loc,
-					moduleUuid,
-					selectorModuleUuid: requiredParentCase.moduleUuid,
-					structuralParentUuid: moduleParent(menuSource, moduleUuid),
-					pending: previewParentCaseRequest,
-				}),
+			const request = previewParentCaseRequestFor({
+				loc,
+				moduleUuid,
+				selectorModuleUuid: requiredParentCase.moduleUuid,
+				structuralParentUuid: moduleParent(menuSource, moduleUuid),
+				pending: previewParentCaseRequest,
+			});
+			setPreviewCaseTarget(
+				previewTargetKeptForParentCase(
+					menuSource,
+					sessionApi.getState().previewCaseTarget,
+					request,
+				),
 			);
+			setPreviewParentCaseRequest(request);
 			navigate.replace(
 				parentCaseSelectorLocation(requiredParentCase.moduleUuid),
 			);
 			return;
 		}
-		if (landing.kind === "replace-with-case-list") {
+		/* Both land in place of the module URL, which the running app never
+		 * stops on for them: Back from the list reaches the screen before it, as
+		 * a device's step back from a menu that asks for its case first does
+		 * (Web Apps' address names the menu once, and its list answers it),
+		 * rather than this URL routing the worker forward to the list again. */
+		if (
+			landing.kind === "replace-with-case-list" ||
+			landing.kind === "open-case-list"
+		)
 			navigate.replace({ kind: "cases", moduleUuid });
-		} else if (landing.kind === "open-case-list") {
-			navigate.openCaseList(moduleUuid);
-		}
 	}, [
+		current,
 		landing.kind,
 		loc,
 		menuSource,
@@ -326,6 +348,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		navigate,
 		previewParentCaseRequest,
 		requiredParentCase,
+		sessionApi,
 		setPreviewCaseTarget,
 		setPreviewParentCaseRequest,
 		taskContinuation,

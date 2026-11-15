@@ -204,6 +204,22 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 		await page.goBack();
 		await expectList();
 		await expect(form).toHaveCount(0);
+
+		/* That entry shows the list in the session running now, so a record
+		 * chosen there holds its menu one step after it: the menu's Back steps
+		 * back to it, and Forward returns to the menu
+		 * (`previewHeldMenu.ts::builderEntryState`). */
+		await main
+			.getByRole("button", {
+				name: new RegExp(`^View details for ${opens.caseName}`),
+			})
+			.click();
+		await main.getByRole("button", { name: "Continue", exact: true }).click();
+		await expectHeldMenu();
+		await menuBack.click();
+		await expectList();
+		await page.goForward();
+		await expectHeldMenu();
 	});
 });
 
@@ -219,6 +235,16 @@ test("a menu held on a linked case's details shows the list in place when nothin
 	const main = page.locator("main");
 	const cases = main.getByRole("list", { name: "Cases", exact: true });
 	const menuTitle = main.locator("[data-form-menu-case-title]");
+	const form = main.getByRole("button", {
+		name: FORM_REFUSED_SEED.formName,
+		exact: true,
+	});
+	const submit = main.getByRole("button", { name: "Submit", exact: true });
+	const menuBack = main.getByRole("button", {
+		name: "Back to results",
+		exact: true,
+	});
+	const trail = page.getByRole("navigation", { name: "Page navigation" });
 	await openBuilder(
 		page,
 		`${formRefused.route}/cases/${encodeURIComponent(formRefused.opensCaseId)}`,
@@ -231,12 +257,31 @@ test("a menu held on a linked case's details shows the list in place when nothin
 		.getByRole("button", { name: "Continue", exact: true })
 		.click({ timeout: 20_000 });
 	await expect(menuTitle).toHaveText(opens.caseName, { timeout: 20_000 });
+	/* A form opened from the menu, and Back onto the menu again. */
+	await form.click();
+	await expect(submit).toBeVisible({ timeout: 20_000 });
+	await page.goBack();
+	await expect(menuTitle).toHaveText(opens.caseName, { timeout: 20_000 });
 	const entries = await page.evaluate(() => window.history.length);
-	await main
-		.getByRole("button", { name: "Back to results", exact: true })
-		.click();
+	await menuBack.click();
 	await expect(menuTitle).toHaveCount(0);
 	await expect(cases).toBeVisible({ timeout: 20_000 });
 	await expect(page).toHaveURL(/\/results$/);
 	expect(await page.evaluate(() => window.history.length)).toBe(entries);
+
+	/* Forward returns to the form, whose entry still names the menu as the
+	 * one before it. That entry now shows the list, so the record's crumb
+	 * holds the menu again on an entry of its own
+	 * (`previewHeldMenu.ts::previewHeldMenuStands`), one step after that
+	 * list, whose Back reaches the list. */
+	await page.goForward();
+	await expect(submit).toBeVisible({ timeout: 20_000 });
+	await trail
+		.getByRole("button", { name: opens.caseName, exact: true })
+		.click();
+	await expect(menuTitle).toHaveText(opens.caseName, { timeout: 20_000 });
+	await expect(submit).toHaveCount(0);
+	await menuBack.click();
+	await expect(menuTitle).toHaveCount(0);
+	await expect(cases).toBeVisible({ timeout: 20_000 });
 });

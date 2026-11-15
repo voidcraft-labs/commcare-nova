@@ -135,6 +135,15 @@ export interface PreviewPlatformRules {
 	 *  `BreadcrumbBarHelper.addUniversalFrameTile` places it, so its search
 	 *  draws none (`lib/preview/pinnedCaseTile.ts`). */
 	readonly searchScreenCaseTile: boolean;
+	/** The tile of the case a case's details show, where no case the session
+	 *  holds pins one. Android's details screen asks for it when the frame
+	 *  names none (`BreadcrumbBarHelper.loadTile` falling back to
+	 *  `EntityDetailActivity.requestEntityContext`), drawn with the persistent
+	 *  detail of the datum being chosen (`EntityDetailUtils.populateDetailIntent`,
+	 *  `DETAIL_PERSISTENT_ID`); Formplayer's details answer carries no tile
+	 *  (`MenuController.getDetails`), so Web Apps draws none
+	 *  (`lib/preview/pinnedCaseTile.ts`). */
+	readonly caseDetailsCaseTile: boolean;
 	/** A Search field's required condition and checks (manifest
 	 *  `case-search/required-test-text`, `validations-0-test-text`). */
 	readonly searchFieldChecks: boolean;
@@ -269,6 +278,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		linkColumnInList: "link",
 		searchScreenText: true,
 		searchScreenCaseTile: true,
+		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
 		hiddenSearchFieldWithDefault: "hidden",
 		barcodeSearchField: "text",
@@ -318,6 +328,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		linkColumnInList: "raw-text",
 		searchScreenText: false,
 		searchScreenCaseTile: false,
+		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
 		hiddenSearchFieldWithDefault: "editable",
 		barcodeSearchField: "scan-or-text",

@@ -168,10 +168,13 @@ it("retains the actual module-menu step for a bare module endpoint", () => {
 });
 
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { Location } from "@/lib/routing/types";
+import type { PreviewCaseTarget } from "@/lib/session/types";
 import {
 	previewParentCaseRequestFor,
 	previewParentCaseResumeLocation,
+	previewTargetKeptForParentCase,
 } from "../moduleScreenNavigation";
 
 const MODULE_UUID = testUuid("parent-case-resume-module");
@@ -284,5 +287,118 @@ describe("previewParentCaseRequestFor", () => {
 				},
 			}).resumeLocation,
 		).toBeUndefined();
+	});
+});
+
+describe("previewTargetKeptForParentCase", () => {
+	const HOUSEHOLDS = testUuid("kept-target-households");
+	const MEMBERS = testUuid("kept-target-members");
+	const REGISTER = testUuid("kept-target-register");
+	const VISIT = testUuid("kept-target-visit");
+	const caseTypes = [
+		{ name: "household", properties: [] },
+		{ name: "person", parent_type: "household", properties: [] },
+	];
+	const doc = buildDoc({
+		caseTypes,
+		modules: [
+			{
+				uuid: HOUSEHOLDS,
+				name: "Households",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: testUuid("kept-target-household-visit"),
+						name: "Household visit",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "notes" })],
+					},
+				],
+			},
+			{
+				uuid: MEMBERS,
+				name: "Members",
+				caseType: "person",
+				parentCaseModuleUuid: HOUSEHOLDS,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: REGISTER,
+						name: "Register member",
+						type: "registration" as const,
+						fields: [f({ kind: "text", id: "case_name" })],
+					},
+					{
+						uuid: VISIT,
+						name: "Member visit",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "notes" })],
+					},
+				],
+			},
+		],
+	});
+	const source = { ...doc, caseTypes };
+	const requestFrom = (loc: Location) =>
+		previewParentCaseRequestFor({
+			loc,
+			moduleUuid: MEMBERS,
+			selectorModuleUuid: HOUSEHOLDS,
+			structuralParentUuid: null,
+			pending: undefined,
+		});
+	const membersList: Location = { kind: "cases", moduleUuid: MEMBERS };
+
+	it("keeps the form the list it resumes holds, chosen before its cases", () => {
+		// A form crumb re-entered Members' list holding the visit, and the
+		// household it asks for first was cut away.
+		expect(
+			previewTargetKeptForParentCase(
+				source,
+				{ formUuid: VISIT, cases: [{ caseId: "p1" }] },
+				requestFrom(membersList),
+			),
+		).toEqual({ formUuid: VISIT });
+		expect(
+			previewTargetKeptForParentCase(
+				source,
+				{ formUuid: VISIT },
+				requestFrom({ kind: "data-review", moduleUuid: MEMBERS }),
+			),
+		).toEqual({ formUuid: VISIT });
+	});
+
+	it("lets any other target go", () => {
+		const kept = (target: PreviewCaseTarget | undefined, loc: Location) =>
+			previewTargetKeptForParentCase(source, target, requestFrom(loc));
+		// A form chosen from a menu after its case: the list holds no form.
+		expect(
+			kept(
+				{
+					formUuid: VISIT,
+					cases: [{ caseId: "p1" }],
+					formChosenAfterCase: { caseListModuleUuid: MEMBERS },
+				},
+				membersList,
+			),
+		).toBeUndefined();
+		// A registration form, which no case list holds.
+		expect(kept({ formUuid: REGISTER }, membersList)).toBeUndefined();
+		// A form the module's menu or the form's own URL resumes.
+		expect(
+			kept({ formUuid: VISIT }, { kind: "module", moduleUuid: MEMBERS }),
+		).toBeUndefined();
+		expect(
+			kept(
+				{ formUuid: VISIT },
+				{ kind: "form", moduleUuid: MEMBERS, formUuid: VISIT },
+			),
+		).toBeUndefined();
+		expect(kept(undefined, membersList)).toBeUndefined();
 	});
 });

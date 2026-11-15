@@ -9,6 +9,8 @@
 import { describe, expect, it } from "vitest";
 import type { SearchWorkflow } from "@/lib/domain";
 import {
+	caseListDefaultSearchLaunch,
+	caseListDefaultSearchOpening,
 	caseListLaunchesDefaultSearch,
 	caseListReadsResults,
 	caseListScreenStep,
@@ -250,6 +252,7 @@ describe("caseListLaunchesDefaultSearch", () => {
 			step: "results",
 			hasSubmitted: false,
 			pending: false,
+			refused: false,
 			readsRegisteredCase: false,
 			standingSearch: false,
 			...overrides,
@@ -286,6 +289,71 @@ describe("caseListLaunchesDefaultSearch", () => {
 	it("runs nothing off Results", () => {
 		for (const other of ["browse", "search", "waiting"] as const)
 			expect(launch({ step: other })).toBe(false);
+	});
+
+	it("runs nothing on a Search screen refused as it opened", () => {
+		// Core's query manager fails as Formplayer builds the query screen,
+		// before `handleQueryScreen` runs the default search.
+		expect(launch({ refused: true })).toBe(false);
+	});
+});
+
+describe("the default search's launch", () => {
+	const settings = { moduleUuid: "patients", workflow: "skipToResults" };
+	/** The screen's passes, as its effect runs them: each opening (or none)
+	 *  in turn, and whether that pass launched the default search. */
+	function passes(
+		openings: readonly (
+			| { readonly session: string; readonly launches: boolean }
+			| undefined
+		)[],
+	): boolean[] {
+		let launched: string | undefined;
+		return openings.map((opening) => {
+			const pass = caseListDefaultSearchLaunch(
+				launched,
+				opening === undefined
+					? undefined
+					: caseListDefaultSearchOpening({ ...opening, settings }),
+			);
+			launched = pass.launched;
+			return pass.launch;
+		});
+	}
+
+	it("runs once as the menu opens, and not again for the same opening", () => {
+		const opened = { session: "a", launches: true };
+		expect(passes([opened, opened])).toEqual([true, false]);
+	});
+
+	it("runs again for a new Preview session on the same menu with the same settings", () => {
+		// Leaving Preview and entering it again, or another worker: the hidden
+		// list keeps its last opening, and the screen's run lost its search.
+		expect(
+			passes([
+				{ session: "a", launches: true },
+				{ session: "b", launches: true },
+			]),
+		).toEqual([true, true]);
+	});
+
+	it("runs again once a search the list held is let go, or a refusal is lifted", () => {
+		const opened = { session: "a", launches: true };
+		const holding = { session: "a", launches: false };
+		expect(passes([opened, holding, opened])).toEqual([true, false, true]);
+		// A worker assigned nowhere: refused, so nothing runs; the worker
+		// placed, the menu opens on its default search.
+		expect(passes([holding, opened])).toEqual([false, true]);
+	});
+
+	it("names nothing where the default search does not run", () => {
+		expect(
+			caseListDefaultSearchOpening({ launches: false, session: "a", settings }),
+		).toBe(undefined);
+		expect(caseListDefaultSearchLaunch("x", undefined)).toEqual({
+			launched: undefined,
+			launch: false,
+		});
 	});
 });
 

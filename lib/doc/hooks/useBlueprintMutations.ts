@@ -42,6 +42,7 @@
 
 import { produce } from "immer";
 import { useContext, useMemo } from "react";
+import { v4 as uuidv4 } from "uuid";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
@@ -410,8 +411,8 @@ export interface BlueprintMutations {
 	 * or navigation, and the honest rejection otherwise — never a
 	 * fabricated sentinel a caller could mistake for an identity.
 	 *
-	 * Accepts a Field without uuid — the hook mints one via
-	 * `crypto.randomUUID()`. Callers that already own a uuid (e.g. the
+	 * Accepts a Field without uuid — the hook mints one with
+	 * `uuid`'s v4. Callers that already own a uuid (e.g. the
 	 * replay stream) can pass it through the optional `uuid` field on the
 	 * input object and it will be used verbatim.
 	 */
@@ -1207,7 +1208,7 @@ export function createBlueprintMutations(
 				const uuid = asUuid(
 					typeof maybeUuid === "string" && maybeUuid.length > 0
 						? maybeUuid
-						: crypto.randomUUID(),
+						: uuidv4(),
 				);
 				// Field is a discriminated union; the narrowed generic input is a
 				// specific variant's Omit — we stamp the uuid and cast via
@@ -1436,7 +1437,7 @@ export function createBlueprintMutations(
 						kind: "inline",
 						options: DEFAULT_SELECT_OPTIONS.map((option) => ({
 							...option,
-							uuid: asUuid(crypto.randomUUID()),
+							uuid: asUuid(uuidv4()),
 						})),
 					},
 				});
@@ -1496,7 +1497,7 @@ export function createBlueprintMutations(
 					warnUnresolved("addDatetimeAsTwoQuestions", { parentUuid });
 					return NOOP_REJECTION;
 				}
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const entity: Field = {
 					kind: "datetime",
 					uuid,
@@ -1547,7 +1548,7 @@ export function createBlueprintMutations(
 				const formUuid = asUuid(
 					typeof maybeUuid === "string" && maybeUuid.length > 0
 						? maybeUuid
-						: crypto.randomUUID(),
+						: uuidv4(),
 				);
 				const applied = guardedApply([
 					{
@@ -1906,7 +1907,7 @@ export function createBlueprintMutations(
 			},
 
 			addOrganizationLevel(level) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(
 					addOrganizationLevelMutations(get(), uuid, level),
 				);
@@ -1936,7 +1937,7 @@ export function createBlueprintMutations(
 			},
 
 			addLocationProperty(property) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(
 					addLocationPropertyMutations(get(), uuid, property),
 				);
@@ -2072,7 +2073,7 @@ export function createBlueprintMutations(
 			},
 
 			addUserProperty(property) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(
 					userPropertyBatch(planAddUserProperty(get(), uuid, property)),
 				);
@@ -2108,7 +2109,7 @@ export function createBlueprintMutations(
 			},
 
 			addUserType(userType) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(
 					addUserTypeMutations(get(), uuid, userType),
 				);
@@ -2161,7 +2162,7 @@ export function createBlueprintMutations(
 			},
 
 			addPersona(persona) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(addPersonaMutations(get(), uuid, persona));
 				if (!applied.ok) return applied;
 				return { ok: true, uuid };

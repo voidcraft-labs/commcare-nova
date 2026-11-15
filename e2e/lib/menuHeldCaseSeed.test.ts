@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { blueprintDocSchema, screenChoosesCaseFirst } from "@/lib/domain";
+import {
+	blueprintDocSchema,
+	moduleFormsReadSearch,
+	screenChoosesCaseFirst,
+} from "@/lib/domain";
+import { caseSelectionRowAction } from "@/lib/preview/caseSelectionNavigation";
 import {
 	previewCaseListContinuation,
 	previewCaseListReturn,
 	previewMenuScreenChoice,
 } from "@/lib/preview/menuProjection";
+import { previewPinnedCaseTile } from "@/lib/preview/pinnedCaseTile";
+import { previewPlatformRules } from "@/lib/preview/platform";
 import {
 	buildMenuHeldCaseBlueprint,
 	MENU_HELD_CASE_SEED,
@@ -75,5 +82,75 @@ describe("the menu-holding-a-case smoke seed", () => {
 				formUuid: visits.formUuid,
 			}).moduleUuid,
 		).toBe(patients.moduleUuid);
+	});
+
+	it("gives Pregnancy follow-ups a menu of its own that lists its forms first and asks Patients' list for the patient", () => {
+		const { pregnancyFollowUps } = MENU_HELD_CASE_SEED;
+		expect(
+			screenChoosesCaseFirst(doc, {
+				kind: "menu",
+				moduleUuid: pregnancyFollowUps.moduleUuid,
+			}),
+		).toBe(false);
+		const mod = doc.modules[pregnancyFollowUps.moduleUuid];
+		expect(mod?.parentModuleUuid).toBeUndefined();
+		expect(mod?.parentCaseModuleUuid).toBe(patients.moduleUuid);
+	});
+
+	it("gives Clinic patients a list that keeps its tile and opens each patient's details", () => {
+		const { clinic } = MENU_HELD_CASE_SEED;
+		const columns = doc.modules[clinic.moduleUuid]?.caseListConfig?.columns;
+		expect(
+			caseSelectionRowAction({
+				hasDetails: (columns ?? []).some(
+					(column) => column.visibleInDetail !== false,
+				),
+				multiple: false,
+				canContinue: true,
+			}),
+		).toBe("detail");
+		const viewing = {
+			moduleUuid: clinic.moduleUuid,
+			caseId: "ada",
+			datum: "list",
+		} as const;
+		expect(
+			previewPinnedCaseTile(
+				doc.modules,
+				[],
+				"case-details",
+				previewPlatformRules("android"),
+				viewing,
+			),
+		).toEqual({ moduleUuid: clinic.moduleUuid, caseId: "ada" });
+		expect(
+			previewPinnedCaseTile(
+				doc.modules,
+				[],
+				"case-details",
+				previewPlatformRules("web-apps"),
+				viewing,
+			),
+		).toBe(undefined);
+	});
+
+	it("gives Clinic search a list that keeps its tile and a Search action its forms do not read", () => {
+		const mod = doc.modules[MENU_HELD_CASE_SEED.clinicSearch.moduleUuid];
+		expect(mod?.caseListConfig?.tile?.persistOnForms).toBe(true);
+		expect(mod?.caseListConfig?.searchInputs).toHaveLength(1);
+		expect(mod !== undefined && moduleFormsReadSearch(mod)).toBe(false);
+		expect(
+			previewPinnedCaseTile(
+				doc.modules,
+				[],
+				"case-details",
+				previewPlatformRules("android"),
+				{
+					moduleUuid: MENU_HELD_CASE_SEED.clinicSearch.moduleUuid,
+					caseId: "ada",
+					datum: "search-results",
+				},
+			),
+		).toBe(undefined);
 	});
 });

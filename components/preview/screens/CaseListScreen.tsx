@@ -56,6 +56,7 @@ import {
 	useLocalizedValues,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
+import { previewTargetKeptForParentCase } from "@/components/preview/screens/moduleScreenNavigation";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
@@ -125,6 +126,8 @@ import {
 	caseListMenuItemSelection,
 } from "@/lib/preview/caseListMenuItemRoute";
 import {
+	caseListDefaultSearchLaunch,
+	caseListDefaultSearchOpening,
 	caseListLaunchesDefaultSearch,
 	caseListReadsResults,
 	caseListScreenStep,
@@ -194,6 +197,10 @@ import {
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useClaimSearchedCases } from "@/lib/preview/hooks/useClaimSearchedCases";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
+import {
+	usePreviewStandingSearchState,
+	useSetPreviewStandingSearchState,
+} from "@/lib/preview/hooks/usePreviewStandingSearch";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import {
 	useCaseListStepSession,
@@ -230,13 +237,20 @@ import {
 	parentSelectClaimChoices,
 	previewCaseChoiceOf,
 } from "@/lib/preview/searchClaims";
+import {
+	previewSearchReopened,
+	previewSearchRunFollows,
+} from "@/lib/preview/searchStanding";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import {
 	useLocation,
 	useNavigate,
 	usePreviewHeldMenu,
 } from "@/lib/routing/hooks";
-import { stepBackOffPreviewHeldMenu } from "@/lib/routing/useClientPath";
+import {
+	readBuilderHistoryMove,
+	stepBackOffPreviewHeldMenu,
+} from "@/lib/routing/useClientPath";
 import {
 	useAccessPhase,
 	useAppId,
@@ -249,7 +263,6 @@ import {
 	usePreviewPersonaUuid,
 	usePreviewPlatform,
 	usePreviewPlatformRules,
-	usePreviewSearchState,
 	usePreviewSessionId,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
@@ -258,14 +271,19 @@ import {
 	useSetPreviewCaseTarget,
 	useSetPreviewMenuCaseSelection,
 	useSetPreviewParentCaseRequest,
-	useSetPreviewSearchState,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import {
+	actionSearch,
 	beginSearch,
+	manualSearch,
+	newSearchSubmission,
 	noMatchesActionAvailable,
+	searchAttemptOf,
 	settleSearch,
+	submittedSearchOf,
 } from "@/lib/session/previewSearchState";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
@@ -295,12 +313,25 @@ const CASES_LOAD_FAILED: ReturnType<typeof useCases>["state"] = {
 	message: "The device's cases this search reads didn't load.",
 };
 
+/** Where the worker stood as a choice was made: the builder history's move
+ *  count (`useClientPath.ts::readBuilderHistoryMove`) and the Preview
+ *  session. */
+interface PreviewChoiceStep {
+	readonly move: number;
+	readonly session: string;
+}
+
 interface CaseListScreenProps {
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
+	/** The location on show is a list's. While a step away renders,
+	 *  PreviewShell keeps this screen visible (`useDeferredValue`) over the
+	 *  session the step already changed: a search the step let go must not
+	 *  clear this screen's run state or launch the default search here. */
+	current: boolean;
 }
 
-export function CaseListScreen({ screen }: CaseListScreenProps) {
+export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const menuSource = usePreviewMenuSource();
@@ -381,8 +412,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	/* The module's search context in this Preview run. The screen writes it
 	 * as the worker searches and the query settles; the no-matches form
 	 * reads it to admit or refuse itself (`caseListRegistration.ts`). */
-	const searchState = usePreviewSearchState(moduleUuid);
-	const setPreviewSearchState = useSetPreviewSearchState();
+	/* The module's search where it stands on this history entry: one the
+	 * worker left behind (a crumb above the list, a submission) is the menu's
+	 * to run again (`searchStanding.ts`). */
+	const searchState = usePreviewStandingSearchState(moduleUuid);
+	const setPreviewSearchState = useSetPreviewStandingSearchState();
 	/** The form chosen before the case that brought the worker here, when
 	 *  it's a real case-loading form in this module: otherwise undefined (a
 	 *  case-first landing, or a list stepped back to past a form chosen after
@@ -633,12 +667,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const split = width >= SPLIT_MIN_WIDTH;
 
 	// ── Live state ──
+	/* The run belongs to one Preview session: a new worker, platform or
+	 * Preview run starts the menu's search over (its answers and hidden
+	 * values were another session's), as a device's new session holds no
+	 * query. */
 	const searchRun = useSearchInputRunState({
-		scopeKey: `${scopeEpoch}:${moduleUuid ?? ""}`,
+		scopeKey: `${scopeEpoch}:${previewSessionId}:${moduleUuid ?? ""}`,
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
 		environment: searchEnvironment,
 		rules: platformRules,
+		lookupLoadFailed: lookupStatus.kind === "error",
 	});
 	/* The submission whose search found nothing on a phone, which keeps the
 	 * search screen with the answers as typed (`caseListStep`). */
@@ -704,11 +743,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * form's entry. */
 	const formsReadSearch = mod !== undefined && moduleFormsReadSearch(mod);
 	/* Search again on a skip-to-results menu opens the Search screen, which
-	 * the menu otherwise passes by; the worker's next search closes it. */
-	const [searchReopenedKey, setSearchReopenedKey] = useState<string>();
-	const searchReopened =
-		searchReopenedKey === `${scopeEpoch}:${moduleUuid ?? ""}` &&
-		!searchRun.hasSubmitted;
+	 * the menu otherwise passes by; the worker's next search closes it. The
+	 * request stands and lets go as a search does (a crumb above the list, a
+	 * submission, Home, a new session), so the menu runs its default search
+	 * again then (`searchStanding.ts::previewSearchReopened`). */
+	const searchReopened = previewSearchReopened(
+		searchState,
+		searchRun.hasSubmitted,
+	);
 	const step = caseListScreenStep({
 		workflow: mod === undefined ? undefined : moduleSearchWorkflow(mod),
 		formsReadSearch,
@@ -724,23 +766,37 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * start and end; read by the settlement effect below. */
 	const awaitingSearchFetchRef = useRef(false);
 	const sawSearchFetchRef = useRef(false);
+	/* The submission the run last took (its own Search press, or a search
+	 * it took back), none once it is cleared: what tells a search the run
+	 * dropped on its own from one that stands again
+	 * (`searchStanding.ts::previewSearchRunFollows`). */
+	const heldSearchRef = useRef<string | undefined>(undefined);
 	/* The worker pressed Search (or the menu ran its default search as it
-	 * opened): the module's search is now running with these answers, until
-	 * the Results query settles below. Only a menu whose forms read the
-	 * search keeps this context; it is what admits the case list
-	 * registration form, which only such a menu can carry. */
+	 * opened): the module's search is now running with these answers. A menu
+	 * whose forms read the search keeps it as an attempt until the Results
+	 * query settles below; it is what admits the case list registration
+	 * form, which only such a menu can carry. A Search action's search is
+	 * held too, with its answers, so it stands and lets go as every search
+	 * does (`searchStanding.ts`). Either replaces a Search screen asked for
+	 * again. */
 	const submitSearch = useCallback(
 		(next: ReadonlyMap<string, string>) => {
 			searchRun.submit(next);
-			setSearchReopenedKey(undefined);
-			if (moduleUuid === undefined || !formsReadSearch) return;
+			if (moduleUuid === undefined) return;
+			const answers = {
+				...Object.fromEntries(next),
+				...Object.fromEntries(searchRun.resolveHidden()),
+			};
+			const submission = newSearchSubmission();
+			heldSearchRef.current = submission;
+			if (!formsReadSearch) {
+				setPreviewSearchState(moduleUuid, actionSearch(answers, submission));
+				return;
+			}
 			awaitingSearchFetchRef.current = true;
 			setPreviewSearchState(
 				moduleUuid,
-				beginSearch(searchState, {
-					...Object.fromEntries(next),
-					...Object.fromEntries(searchRun.resolveHidden()),
-				}),
+				beginSearch(searchState, answers, submission),
 			);
 		},
 		[
@@ -751,19 +807,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			setPreviewSearchState,
 		],
 	);
-	/* Search again, and the clear button, retire the completed search so a
-	 * later Results is a new attempt and the registration form closes its
-	 * door. */
+	/* The clear button retires the completed search so a later Results is a
+	 * new attempt and the registration form closes its door; Search again
+	 * (below) retires it the same way. */
 	const resetSearch = useCallback(() => {
 		searchRun.clear();
+		heldSearchRef.current = undefined;
 		if (moduleUuid !== undefined) setPreviewSearchState(moduleUuid, undefined);
 	}, [searchRun, moduleUuid, setPreviewSearchState]);
 	/* Search again from Results opens the Search screen, including where
 	 * the menu ran its default search as it opened. */
 	const searchAgain = useCallback(() => {
-		resetSearch();
-		setSearchReopenedKey(`${scopeEpoch}:${moduleUuid ?? ""}`);
-	}, [resetSearch, scopeEpoch, moduleUuid]);
+		searchRun.clear();
+		heldSearchRef.current = undefined;
+		if (moduleUuid !== undefined)
+			setPreviewSearchState(moduleUuid, manualSearch());
+	}, [searchRun, moduleUuid, setPreviewSearchState]);
 	/* A retained flipbook submission belongs to the Search action. If a live
 	 * session/config edit makes that action irrelevant, show the ordinary case
 	 * list instead of silently keeping an inaccessible remote-search query. The
@@ -1144,16 +1203,36 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * waits (`deviceCasesHoldingClaims`). */
 	const { claim: claimSearchedCases, inFlightCaseIds } =
 		useClaimSearchedCases();
+	/* Where the worker is as a choice is made: the history entry on show
+	 * and the Preview session. A choice that goes on after an await (a claim
+	 * landing, the selected cases checked) goes on only where the worker
+	 * still is, so a crumb, Back or Forward, leaving Preview or another
+	 * worker meanwhile drops it rather than open the menu or the form from
+	 * wherever the worker went. This screen stays mounted under `Activity`,
+	 * so its closures outlive the screen being on show. */
+	const sessionApi = useBuilderSessionApi();
+	const choiceStep = (): PreviewChoiceStep => ({
+		move: readBuilderHistoryMove(),
+		session: sessionApi.getState().previewSessionId,
+	});
+	const choiceStands = (step: PreviewChoiceStep) => {
+		const now = choiceStep();
+		return now.move === step.move && now.session === step.session;
+	};
 	/* Post the claim for these ids; a claim with nothing to claim posts
 	 * nothing. Resolves false when the claim did not land, with the reason
-	 * shown, so the caller stays where it is. */
-	const postClaim = async (caseIds: readonly string[]): Promise<boolean> => {
-		if (caseIds.length === 0) return true;
+	 * shown, so the caller stays where it is, or when the worker has left
+	 * the step the choice was made on (`step`) meanwhile. */
+	const postClaim = async (
+		caseIds: readonly string[],
+		step: PreviewChoiceStep = choiceStep(),
+	): Promise<boolean> => {
+		if (caseIds.length === 0) return choiceStands(step);
 		const outcome = await claimSearchedCases(caseIds);
+		/* A claim whose screen is gone (another app, scope or worker), or
+		 * whose choice the worker has left, answers no one: nothing to say. */
+		if (outcome.kind === "superseded" || !choiceStands(step)) return false;
 		if (outcome.kind === "claimed") return true;
-		/* A claim whose screen is gone (another app, scope or worker) answers
-		 * no one: nothing to say. */
-		if (outcome.kind === "superseded") return false;
 		showToast(
 			"error",
 			"message" in outcome
@@ -1162,8 +1241,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		);
 		return false;
 	};
-	const claimChoices = (choices: readonly PreviewCaseChoice[]) =>
-		postClaim(claimableCaseIds(choices));
+	const claimChoices = (
+		choices: readonly PreviewCaseChoice[],
+		step?: PreviewChoiceStep,
+	) => postClaim(claimableCaseIds(choices), step);
 	/* The cases choosing this row claims at the result: none in a module
 	 * whose claim waits for the form. */
 	const claimedAtResult = (row: CaseRowWithCalculated) =>
@@ -1178,12 +1259,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * again; a search action works it out here, per Search press. Results
 	 * wait for it. */
 	const ownSubmissionKey = useSubmissionKey(activeSearchInputValues);
-	const searchAttempt =
-		formsReadSearch &&
-		searchState !== undefined &&
-		searchState.kind !== "not-searched"
-			? searchState
-			: undefined;
+	const searchAttempt = formsReadSearch
+		? searchAttemptOf(searchState)
+		: undefined;
 	const deviceValues = useSubmittedSearchDeviceValues({
 		doc: menuSource.doc,
 		moduleUuid,
@@ -1585,7 +1663,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * those chosen before this list, and the case its form menu holds. They
 	 * pin the tile of the first whose list keeps its tile on screen, above
 	 * the list, its search where the platform draws one there, a case's
-	 * details and the form menu (`lib/preview/pinnedCaseTile.ts`). */
+	 * details and the form menu (`lib/preview/pinnedCaseTile.ts`). Where none
+	 * does, Android's details draw the case they show, as one case the list
+	 * chooses, wherever this list keeps its tile on screen. */
 	const heldCases = useMemo(
 		() =>
 			moduleUuid === undefined
@@ -1612,11 +1692,27 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		heldCases,
 		multiFormMenuChoices !== undefined || displayedFormMenuCase !== null
 			? "menu"
-			: step === "search" &&
-					displayedOpenCase === null &&
-					routeCaseId === undefined
-				? "search"
-				: "case-list",
+			: displayedOpenCase !== null
+				? "case-details"
+				: step === "search" && routeCaseId === undefined
+					? "search"
+					: "case-list",
+		moduleUuid === undefined ||
+			displayedOpenCase === null ||
+			multipleSelection !== undefined
+			? undefined
+			: {
+					moduleUuid,
+					caseId: displayedOpenCase.case_id,
+					/* A search action's results choose for its remote request's
+					 * datum and a parent request for the asking list's, neither
+					 * of which names this list's persistent detail. */
+					datum: selectsForParentRequest
+						? "parent"
+						: claimsAtResult
+							? "search-results"
+							: "list",
+				},
 	);
 	/* Mirror the URL-backed or local selection into session so the sibling
 	 * breadcrumb names the same record the screen is actually showing. */
@@ -1765,16 +1861,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * case's Results read that case instead, and a search the session holds
 	 * for a menu whose forms read it is the standing query the restore
 	 * effect below takes back with the worker's answers, so nothing launches
-	 * then (`caseListLaunchesDefaultSearch`). */
+	 * then, and a Search screen refused as it opened runs none
+	 * (`caseListLaunchesDefaultSearch`). */
 	const automaticallyLaunchesDefaultSearch = caseListLaunchesDefaultSearch({
 		step,
 		hasSubmitted: searchRun.hasSubmitted,
 		pending: searchRun.pending === true,
+		refused: searchRun.refusal !== undefined,
 		readsRegisteredCase: registeredCaseIds !== undefined,
-		standingSearch:
-			formsReadSearch &&
-			searchState !== undefined &&
-			searchState.kind !== "not-searched",
+		standingSearch: submittedSearchOf(searchState) !== undefined,
 	});
 	/* A hidden input is part of the search the automatic launch performs
 	 * (the device seeds it on every query-screen build), so editing one
@@ -1782,17 +1877,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const hiddenInputIdentity = (config?.searchInputs ?? [])
 		.filter((input) => input.kind === "hidden")
 		.map((input) => [input.name, input.uuid, input.value]);
-	const automaticSearchToken = automaticallyLaunchesDefaultSearch
-		? JSON.stringify({
-				scopeEpoch,
-				moduleUuid,
-				filter: effectiveSearchFilter,
-				condition: searchButtonCondition,
-				workflow: searchConfig?.workflow,
-				formsReadSearch,
-				hidden: hiddenInputIdentity,
-			})
-		: undefined;
+	/* Each Preview session opens the menu afresh, so a new worker, platform
+	 * or Preview run launches the default search again
+	 * (`caseListDefaultSearchOpening`). */
+	const automaticSearchToken = caseListDefaultSearchOpening({
+		launches: automaticallyLaunchesDefaultSearch,
+		session: previewSessionId,
+		settings: {
+			scopeEpoch,
+			moduleUuid,
+			filter: effectiveSearchFilter,
+			condition: searchButtonCondition,
+			workflow: searchConfig?.workflow,
+			formsReadSearch,
+			hidden: hiddenInputIdentity,
+		},
+	});
 	/* The Register action the list offers, for either arm
 	 * (`previewRegisterAction`). Offered only in the running app. The
 	 * `after-empty-search` form opens carrying this search's attempt, which
@@ -1883,53 +1983,53 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	/* The module's search context in the session and this screen's run
 	 * state describe one search, and this screen may mount after the context
 	 * was written (a form of the module returned to its list, where the
-	 * device re-runs the standing query) or outlive it (a formless host's
-	 * registration retired it, a Preview toggle cleared it). On the first
-	 * pass for a module the run state follows the context; after that a
-	 * retired context clears the run state, and a run state the screen
-	 * dropped on its own (the last prompt removed) retires the context. */
-	const syncedSearchModuleRef = useRef<Uuid | undefined>(undefined);
+	 * device re-runs the standing query), outlive it (a formless host's
+	 * registration retired it, a Preview toggle cleared it, a submission, a
+	 * crumb or Home let it go) or see it stand again (history returning to an
+	 * entry it stood on). Every list's search follows it, a Search action's as
+	 * well as one its menu's forms read, since every search lets go by one
+	 * rule (`searchStanding.ts::previewSearchRunFollows`). */
 	useEffect(() => {
-		if (moduleUuid === undefined || !formsReadSearch) return;
+		if (moduleUuid === undefined || !current) return;
 		/* A screen with no field (waiting for its worker, or refused) holds no
 		 * answer to follow the context with: it follows once it opens. */
 		if (searchRun.pending === true || searchRun.refusal !== undefined) return;
-		const active =
-			searchState !== undefined && searchState.kind !== "not-searched";
-		const firstPass = syncedSearchModuleRef.current !== moduleUuid;
-		syncedSearchModuleRef.current = moduleUuid;
-		if (active && !searchRun.hasSubmitted) {
-			if (!firstPass) {
-				setPreviewSearchState(moduleUuid, undefined);
-				return;
-			}
-			if (searchState.kind === "running") awaitingSearchFetchRef.current = true;
-			searchRun.restore(new Map(Object.entries(searchState.answers)));
-		} else if (!active && searchRun.hasSubmitted) {
+		const follows = previewSearchRunFollows({
+			standing: searchState,
+			hasSubmitted: searchRun.hasSubmitted,
+			held: heldSearchRef.current,
+		});
+		const submitted = submittedSearchOf(searchState);
+		if (follows === "retire") {
+			heldSearchRef.current = undefined;
+			setPreviewSearchState(moduleUuid, undefined);
+		} else if (follows === "restore" && submitted !== undefined) {
+			heldSearchRef.current = submitted.submission;
+			if (submitted.kind === "running") awaitingSearchFetchRef.current = true;
+			searchRun.restore(new Map(Object.entries(submitted.answers)));
+		} else if (follows === "clear") {
+			heldSearchRef.current = undefined;
 			searchRun.clear();
 		}
-	}, [
-		moduleUuid,
-		formsReadSearch,
-		searchState,
-		searchRun,
-		setPreviewSearchState,
-	]);
+	}, [current, moduleUuid, searchState, searchRun, setPreviewSearchState]);
 	const launchedAutomaticSearchRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
-		if (
-			automaticSearchToken === undefined ||
-			launchedAutomaticSearchRef.current === automaticSearchToken
-		) {
-			return;
-		}
-
-		/* The default search runs once as the menu opens. The ref makes that
-		 * launch idempotent under React's development effect replay while still
-		 * allowing a changed module or setting to launch as a new search. */
-		launchedAutomaticSearchRef.current = automaticSearchToken;
-		submitSearch(EMPTY_SEARCH_INPUT_VALUES);
-	}, [automaticSearchToken, submitSearch]);
+		/* While the list holds a search, the next time it holds none (the
+		 * worker's search let go by a submission or a crumb, on a list Preview
+		 * only hid) is the menu opening on its default search again. */
+		if (!current) return;
+		/* The default search runs once per opening of the menu
+		 * (`caseListDefaultSearchLaunch`): the ref makes that launch
+		 * idempotent under React's development effect replay while a changed
+		 * setting, a new Preview session, a search let go or a refusal lifted
+		 * launches it again. */
+		const pass = caseListDefaultSearchLaunch(
+			launchedAutomaticSearchRef.current,
+			automaticSearchToken,
+		);
+		launchedAutomaticSearchRef.current = pass.launched;
+		if (pass.launch) submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+	}, [automaticSearchToken, current, submitSearch]);
 	if (mod === undefined) {
 		return (
 			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
@@ -1976,14 +2076,20 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * back lands is the session's instead: a form chosen before its case
 	 * steps back to the list, which holds the form; a form chosen from the
 	 * menu after its case steps back to that menu with the case held, which
-	 * the target says (`formChosenAfterCase`, read by `heldChoices`), as
-	 * `CommCareSession.stepBack` pops only the form's command there.
+	 * the history entry before the form holds (`holdFormMenu` pushed it, and
+	 * `heldChoices` reads it through `usePreviewHeldMenu` and
+	 * `previewCaseListHeldChoices`), as `CommCareSession.stepBack` pops only
+	 * the form's command there. The target's `formChosenAfterCase` tells the
+	 * session the form was chosen after its case, which the trail and the
+	 * form's own reads follow.
 	 * Search/filter persist (the list remembers what you were looking at). */
 	const openFormWithCases = async (
 		formUuid: Uuid,
 		cases: readonly PreviewCaseChoice[],
 		/** The worker chose the form from the menu listed after the case. */
 		chosenAfterCase = false,
+		/** Where the worker stood as they made the choice. */
+		step: PreviewChoiceStep = choiceStep(),
 	) => {
 		if (!moduleUuid) return;
 		/* In a menu whose forms read the search the claim sits in the form's
@@ -1993,10 +2099,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * did not land keeps the worker here with the reason shown. */
 		if (
 			formsReadSearch &&
-			!(await claimChoices([
-				...cases,
-				...parentSelectClaimChoices(menuSource, moduleUuid, menuCaseSelections),
-			]))
+			!(await claimChoices(
+				[
+					...cases,
+					...parentSelectClaimChoices(
+						menuSource,
+						moduleUuid,
+						menuCaseSelections,
+					),
+				],
+				step,
+			))
 		)
 			return;
 		setOpenCase(null);
@@ -2042,8 +2155,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		if (!moduleUuid || !mod.caseType) return;
 		setOpenCase(null);
 		setPreviewSelectedCase(undefined);
+		/* A parent case chosen for a list keeps the form that list holds,
+		 * chosen before its cases (`previewTargetKeptForParentCase`). */
 		if (taskContinuation?.formUuid === undefined)
-			setPreviewCaseTarget(undefined);
+			setPreviewCaseTarget(
+				selectsForParentRequest && previewParentCaseRequest
+					? previewTargetKeptForParentCase(
+							menuSource,
+							sessionApi.getState().previewCaseTarget,
+							previewParentCaseRequest,
+						)
+					: undefined,
+			);
 		setPreviewMenuCaseSelection(moduleUuid, {
 			caseType: mod.caseType,
 			cases,
@@ -2245,7 +2368,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	};
 	const finishSelectedCaseNavigation = async (
 		choices: readonly PreviewCaseChoice[],
+		/** Where the worker stood as they pressed Continue. */
+		step: PreviewChoiceStep,
 	) => {
+		if (!choiceStands(step)) return;
 		/* Read the live limit at the final effect boundary. The async caller's
 		 * render may predate a collaborator lowering it, and preserving the exact
 		 * selected set is safer than silently trimming cases to make it fit. */
@@ -2261,7 +2387,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			);
 			return;
 		}
-		if (claimsAtResult && !(await claimChoices(choices))) return;
+		if (claimsAtResult && !(await claimChoices(choices, step))) return;
 		if (selectsForMenu) {
 			continueAfterMenuSelection(choices);
 			return;
@@ -2270,7 +2396,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * listed (`previewRequestedForm`). */
 		const requestedForm = retainedFormUuid ?? seededFormUuid;
 		if (requestedForm !== undefined) {
-			await openFormWithCases(requestedForm, choices);
+			await openFormWithCases(requestedForm, choices, false, step);
 			return;
 		}
 		/* Otherwise Core lists the menu, reading its form conditions once the
@@ -2296,6 +2422,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			revision: selectionRevisionRef.current,
 			configuration: selectionConfiguration,
 		};
+		const step = choiceStep();
 		selectionValidationTokenRef.current = validationToken;
 		setValidatingSelection(true);
 		try {
@@ -2335,6 +2462,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				/* The check is the latest word on which choices the device holds. */
 				await finishSelectedCaseNavigation(
 					reconciled.rows.map(previewCaseChoiceOf),
+					step,
 				);
 				return;
 			}
@@ -2476,6 +2604,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						<PreviewDataRefusalPanel
 							surface="search"
 							reason={searchRun.refusal.reason}
+							moduleUuid={moduleUuid}
 						/>
 					)}
 				{accessPhase === "authorized" &&
@@ -2915,6 +3044,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					{message("searchAgain")}
 				</Button>
 			)}
+			{/* Results that open on the default search wait with the Search
+			 * screen, which opens only once what it reads has arrived: Formplayer
+			 * builds the screen's query manager before the automatic search runs
+			 * (`QueryScreen.init`), so no search runs before its choice lists are
+			 * judged. */}
+			{step === "results" &&
+				accessPhase === "authorized" &&
+				searchRun.pending === true && (
+					<p
+						role="status"
+						data-search-waiting
+						className="mb-4 text-sm text-nova-text-muted"
+					>
+						{message("searchGettingReady")}
+					</p>
+				)}
 			{alwaysRegisterAction !== undefined &&
 				step !== "search" &&
 				step !== "waiting" && (
@@ -2947,6 +3092,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					<PreviewDataRefusalPanel
 						surface="search"
 						reason={searchRun.refusal.reason}
+						moduleUuid={moduleUuid}
 					/>
 				)}
 			{zeroInputSearchActionIsRelevant &&
@@ -3152,6 +3298,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				<PreviewDataRefusalPanel
 					surface={screenRefusal.surface}
 					reason={screenRefusal.refusal.reason}
+					moduleUuid={moduleUuid}
 				/>
 			</ContentFrame>
 		);

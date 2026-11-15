@@ -26,6 +26,7 @@
 // update with no writes. A new case left with writes and no name is refused,
 // since it could not be created.
 
+import { v4 as uuidv4 } from "uuid";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -660,7 +661,7 @@ function saveOnChild(
 	if (property !== "case_name" || facets.condition !== undefined)
 		return saveNewCaseNameFirstMessage(caseType);
 	addOperation(draft, {
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: asUuid(uuidv4()),
 		id: ownCaseOperationId(caseType, takenOperationIds(draft)),
 		action: "create",
 		caseType,
@@ -691,7 +692,7 @@ function saveOnWorkerRecord(
 	if (update !== undefined) return saveOn(draft, update, saved);
 	if (saved.slot !== "write") return undefined;
 	addOperation(draft, {
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: asUuid(uuidv4()),
 		id: ownCaseOperationId(USERCASE_CASE_TYPE, takenOperationIds(draft)),
 		action: "update",
 		caseType: USERCASE_CASE_TYPE,

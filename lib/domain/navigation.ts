@@ -23,7 +23,7 @@ export type ModuleScreenLanding =
 	| { readonly kind: "form-menu" }
 	/** Bare case list: rewrite history so the empty module URL is not a stop. */
 	| { readonly kind: "replace-with-case-list" }
-	/** Case-first in the running app: push the case list over the menu. */
+	/** Case-first in the running app: the case list in place of the menu. */
 	| { readonly kind: "open-case-list" };
 
 /**
@@ -43,8 +43,11 @@ export type ModuleScreenLanding =
  *   screen's id, and a submenu is a `<menu root>` of its own, no entry of
  *   them), and `MenuLoader` lists the forms and the submenus once it is
  *   chosen. Edit mode keeps the menu: it is the authoring surface, so this
- *   arm is preview-only, and it PUSHES, because the module is a real
- *   reachable screen while authoring.
+ *   arm is preview-only. It REPLACES history too: the running app never
+ *   stops on that menu before its case is chosen, so a step back from the
+ *   list reaches the screen before it (a form a submission returned from, the
+ *   screen a crumb was pressed on), where a pushed list would leave the module
+ *   URL behind it to route the worker forward to the list again.
  */
 export function moduleScreenLanding(args: {
 	readonly hasModule: boolean;

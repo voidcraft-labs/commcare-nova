@@ -45,6 +45,7 @@
  * a rose-tree built at construction time — see `fieldTree.ts`.
  */
 
+import { v4 as uuidv4 } from "uuid";
 import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
@@ -1610,11 +1611,12 @@ export class EngineController {
 
 	/**
 	 * Install the resolved preview identity. A materially different
-	 * identity rebuilds any active engine so every computed value agrees
-	 * on one evaluation world — identity is engine-lifetime state, not an
-	 * incremental input. A re-derived-but-identical identity (session
-	 * refetches mint new object references) is a no-op, so entered
-	 * preview values survive it.
+	 * identity starts any active entry anew (a new entry key, no answer
+	 * kept), so every computed value agrees on one evaluation world —
+	 * identity is engine-lifetime state, not an incremental input, and never
+	 * takes the same-entry rebuild (`rebuildActiveForm`). A
+	 * re-derived-but-identical identity (session refetches mint new object
+	 * references) is a no-op, so entered preview values survive it.
 	 *
 	 * Replacing an identity discards: a sign-out or a different worker is a
 	 * different evaluation world, and restoring would leak one worker's
@@ -1710,7 +1712,7 @@ export class EngineController {
 	}
 
 	/** The install id of a controller no shell has given a device. */
-	private readonly defaultAndroidDeviceId = crypto.randomUUID();
+	private readonly defaultAndroidDeviceId = uuidv4();
 
 	/** The rules of the platform the controller's entries play, for the
 	 *  worker requests it makes outside a form engine (Search screen checks
@@ -2040,7 +2042,7 @@ export class EngineController {
 			return;
 		}
 		this.contain("activate", formUuid, undefined, () => {
-			this.mountForm(formUuid, caseData, crypto.randomUUID(), caseDatabase);
+			this.mountForm(formUuid, caseData, uuidv4(), caseDatabase);
 		});
 	}
 
@@ -2093,7 +2095,7 @@ export class EngineController {
 		return this.mountFormAsync(
 			formUuid,
 			caseData,
-			crypto.randomUUID(),
+			uuidv4(),
 			undefined,
 			caseDatabase,
 		);
@@ -2133,7 +2135,7 @@ export class EngineController {
 			return this.mountFormAsync(
 				formUuid,
 				caseData,
-				previousEntryKey ?? crypto.randomUUID(),
+				previousEntryKey ?? uuidv4(),
 				checkpoint ? { checkpoint, preserveAllValues } : undefined,
 				this.caseDatabaseOverrideFor(formUuid),
 			);
@@ -2416,7 +2418,7 @@ export class EngineController {
 			const entryKey =
 				this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
 					? this.currentEntryKey
-					: crypto.randomUUID();
+					: uuidv4();
 			const checkpoint = (
 				this.retainedPresentation?.engine ?? this.engine
 			)?.entryCheckpoint();
@@ -2518,12 +2520,13 @@ export class EngineController {
 
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
-		// The Web Crypto GLOBAL, not `node:crypto`. This controller runs in
-		// the browser, where importing `node:crypto` resolves to a shim whose
-		// `randomUUID` is undefined — so the import form throws here at
-		// runtime while typechecking and every node/jsdom test passes, both
-		// of which have a real `crypto`. `lib/doc/scaffolds.ts` mints uuids
-		// the same way for the same reason.
+		// Entry keys come from `uuid`, never `node:crypto` nor the Web
+		// Crypto `randomUUID`. This controller runs in the browser, where
+		// importing `node:crypto` resolves to a shim whose `randomUUID` is
+		// undefined, and where a page served over plain http on a LAN address
+		// has no `crypto.randomUUID` either; both throw only at runtime, while
+		// typechecking and every node/jsdom test pass. `uuid` draws on
+		// `crypto.getRandomValues`, which every browsing context holds.
 		this.currentEntryKey = entryKey;
 
 		const mod = s.modules[moduleUuid];
@@ -2733,7 +2736,7 @@ export class EngineController {
 			this.mountForm(
 				formUuid,
 				this.activeCaseData,
-				crypto.randomUUID(),
+				uuidv4(),
 				this.caseDatabaseOverrideFor(formUuid),
 			);
 			return this.currentEntryKey;
@@ -2743,7 +2746,7 @@ export class EngineController {
 	async restartActiveEntryAsync(): Promise<string | undefined> {
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return undefined;
-		const entryKey = crypto.randomUUID();
+		const entryKey = uuidv4();
 		return (await this.mountFormAsync(
 			formUuid,
 			this.activeCaseData,

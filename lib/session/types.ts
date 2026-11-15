@@ -43,9 +43,12 @@ export type SidebarState = { open: boolean; stashed: boolean | undefined };
  * user picked for it — the preview-mode equivalent of CommCare passing the
  * selected case datum down the navigation stack.
  *
- * `formUuid` is the destination form: seeded when the user taps a
- * case-loading form in the module menu, or defaulted by the case list to
- * the module's first case-loading form when previewing the list directly.
+ * `formUuid` is the destination form, set where a form is chosen: before
+ * its case (a forms-first menu's form, a link's, a retained command's),
+ * or from the menu the case opened (`formChosenAfterCase`). A list with no
+ * form requested holds no target and goes on to its form menu once a case
+ * is chosen (`menuProjection.ts::previewCaseListFormRequest`), which holds
+ * the case on a history entry of its own (`lib/routing/previewHeldMenu.ts`).
  * `cases` is filled once the worker continues from Results, or by a form link
  * carrying the case value the next form opens with. Absence means the
  * destination is still waiting for Results; an empty array is an explicit
@@ -152,9 +155,37 @@ export interface PreviewSearchDeviceValues {
  * with a match count. Kept per module in the session store so the
  * no-matches registration form, a different screen, can ask whether the
  * search that offered it found nothing (`previewSearchState.ts`).
+ *
+ * Every list's search stands and lets go by one rule
+ * (`lib/preview/searchStanding.ts`), so the session holds two more kinds
+ * that only the list reads: the search a Search action ran on a menu whose
+ * forms do not read it (`action`), and the Search screen the worker asked
+ * for again (`manual`), Web Apps' `force_manual_search`.
  */
 export type PreviewSearchState =
 	| { readonly kind: "not-searched" }
+	| {
+			/** A Search action's search on a menu whose forms do not read it:
+			 * the list reads it itself, with its own device values; the
+			 * session holds its answers (hidden values included) so it stands
+			 * and lets go as every search does, and a list built afresh takes
+			 * it back. */
+			readonly kind: "action";
+			readonly submission: string;
+			readonly answers: PreviewSearchAnswers;
+	  }
+	| {
+			/** The worker pressed Search again and has not searched since: the
+			 * list shows its Search screen where it would otherwise run its
+			 * default search, as Web Apps asks for the query screen with
+			 * `force_manual_search` in the address's query data
+			 * (`utils.js::CloudcareUrl.setQueryData`;
+			 * `MenuSessionRunnerService.java::handleQueryScreen`). It stands
+			 * and lets go as a search does: a crumb, Home, a submission and a
+			 * new session drop it, and Formplayer runs the default search. */
+			readonly kind: "manual";
+			readonly submission: string;
+	  }
 	| {
 			readonly kind: "running";
 			readonly attempt: number;

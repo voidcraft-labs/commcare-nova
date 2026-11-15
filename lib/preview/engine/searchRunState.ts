@@ -1,13 +1,26 @@
 // Search draft, submission and blueprint reconciliation state.
-import type { SearchInputDef } from "@/lib/domain";
+import {
+	joinMultiSelectSearchAnswer,
+	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
+	type SearchInputDef,
+	searchInputDefault,
+	searchInputLookupSortColumnId,
+} from "@/lib/domain";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
+import {
+	expressionLookupsCovered,
+	lookupOptionsSourceCovered,
+	predicateLookupsCovered,
+} from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import {
 	type PreviewSearchEnvironment,
 	resolveSearchHiddenValues,
+	resolveSearchInputChoices,
 	resolveSearchInputDefaults,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { readSearchScreenConditionsAtOpen } from "@/lib/preview/engine/searchInputConstraints";
+import type { LookupChoice } from "@/lib/preview/engine/types";
 
 export interface SearchRunState {
 	readonly scopeKey: string;
@@ -92,6 +105,9 @@ export function buildSearchRunState(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
+	/** The starting values the screen opened with, where its opening has
+	 *  read them (`openSearchRunState`); otherwise each is read here. */
+	startingValues?: SearchInputValues,
 ): SearchRunState {
 	const allowedKeys = new Set<string>();
 	const keyShapes = new Map<string, string>();
@@ -113,11 +129,9 @@ export function buildSearchRunState(
 			keyShapes.set(input.name, shape);
 		}
 	}
-	const defaults = resolveSearchInputDefaults(
-		searchInputs,
-		session,
-		environment,
-	);
+	const defaults =
+		startingValues ??
+		resolveSearchInputDefaults(searchInputs, session, environment);
 	const hiddenRevision = JSON.stringify(
 		searchInputs
 			.filter((input) => input.kind === "hidden")
@@ -152,11 +166,23 @@ export function buildSearchRunState(
  * The Search screen's run state as the screen opens, having made every read
  * Core's query manager makes there (`RemoteQuerySessionManager.java`'s
  * constructor): each prompt's starting value and each hidden value
- * (`initUserAnswers`), then each required condition and the check of each
- * prompt a starting value answers (`validateUserAnswers`,
+ * (`initUserAnswers`), then each choice prompt's rows
+ * (`refreshItemSetChoices` → `populateItemSetChoices`, through
+ * `searchExpressionEvaluation.ts::resolveSearchInputChoices`: a table with no
+ * rows, or a row filter over data the device lacks, is
+ * `ItemSetUtils.populateDynamicChoices`' refusal), letting go of each chosen
+ * value of a starting value the rows do not offer (`checkForValidSelectValue`,
+ * `searchStartingValuesOffered`), then each required condition and the
+ * check of each prompt a starting value still answers
+ * (`validateUserAnswers`,
  * `searchInputConstraints.ts::readSearchScreenConditionsAtOpen`). A read of
  * data the worker's device lacks throws Core's refusal, which stops the
- * screen on Web Apps and Android alike.
+ * screen on Web Apps and Android alike, whatever the screen goes on to show:
+ * Formplayer's `QueryScreen.init` builds the manager before an automatic
+ * search runs, so skip to results refuses as search first does. The screen
+ * opens only over lookup data that covers what it reads
+ * (`searchScreenOpeningCovered`); a reader that cannot wait for it (the
+ * running screen whose lookup load failed) gets the reads the data covers.
  */
 export function openSearchRunState(
 	scopeKey: string,
@@ -164,20 +190,112 @@ export function openSearchRunState(
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
 ): SearchRunState {
-	const built = buildSearchRunState(
+	const read = resolveSearchInputDefaults(searchInputs, session, environment);
+	resolveSearchHiddenValues(searchInputs, session, environment);
+	const choices = new Map<string, readonly LookupChoice[]>();
+	for (const input of searchInputs) {
+		if (input.kind === "hidden" || !("options" in input)) continue;
+		const offered = resolveSearchInputChoices(input, session, environment);
+		if (offered !== undefined) choices.set(input.name, offered);
+	}
+	const opened = buildSearchRunState(
 		scopeKey,
 		searchInputs,
 		session,
 		environment,
+		searchStartingValuesOffered(read, choices),
 	);
-	built.resolveHidden();
 	readSearchScreenConditionsAtOpen(
 		searchInputs,
-		built.defaults,
+		opened.defaults,
 		session,
 		environment,
 	);
-	return built;
+	return opened;
+}
+
+/**
+ * The starting values once each choice prompt's rows are read: a chosen
+ * value the rows do not offer is let go, and a starting value left with no
+ * chosen value is none, as Core's `refreshItemSetChoices` does before it
+ * judges a required condition or a check
+ * (`RemoteQuerySessionManager.checkForValidSelectValue`, over the answer
+ * split at `ANSWER_DELIMITER` as `extractMultipleChoices` splits it with
+ * Java's `String.split`, a single choice's answer included). Core repeats
+ * the pass until no value changes; a choice list here reads no answer, so
+ * one pass settles it. Core gives that repeat as many passes as the screen
+ * has prompts, so on a screen of one prompt a value it lets go fails the
+ * screen instead ("Invalid itemset state"), which Preview does not show.
+ */
+export function searchStartingValuesOffered(
+	startingValues: SearchInputValues,
+	choices: ReadonlyMap<string, readonly LookupChoice[]>,
+): SearchInputValues {
+	let offered: Map<string, string> | undefined;
+	for (const [name, rows] of choices) {
+		const value = startingValues.get(name);
+		if (value === undefined) continue;
+		const chosen = javaSplit(
+			value,
+			MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
+		).filter(
+			(token) => token === "" || rows.some((row) => row.value === token),
+		);
+		const kept =
+			chosen.length > 0 ? joinMultiSelectSearchAnswer(chosen) : undefined;
+		if (kept === value) continue;
+		offered ??= new Map(startingValues);
+		if (kept === undefined) offered.delete(name);
+		else offered.set(name, kept);
+	}
+	return offered ?? startingValues;
+}
+
+/** Java's `String.split` over a literal separator: trailing empty parts are
+ *  dropped, leading and inner ones kept. */
+function javaSplit(value: string, separator: string): string[] {
+	const parts = value.split(separator);
+	while (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+	return parts;
+}
+
+/**
+ * Whether the lookup data covers everything the Search screen reads as it
+ * opens (`openSearchRunState`): each starting value, hidden value, choice
+ * list, required condition and check. Until it does the screen has not
+ * opened, as Core's query manager is built over the fixtures the device
+ * holds: it holds no field, refuses nothing and runs no automatic search.
+ */
+export function searchScreenOpeningCovered(
+	searchInputs: readonly SearchInputDef[],
+	environment: Pick<PreviewSearchEnvironment, "lookup">,
+): boolean {
+	const lookup = environment.lookup;
+	for (const input of searchInputs) {
+		if (input.kind === "hidden") {
+			if (!expressionLookupsCovered(input.value, lookup)) return false;
+			continue;
+		}
+		const start = searchInputDefault(input);
+		if (start !== undefined && !expressionLookupsCovered(start, lookup))
+			return false;
+		if (
+			"options" in input &&
+			!lookupOptionsSourceCovered(
+				input.options,
+				lookup,
+				searchInputLookupSortColumnId(input.options),
+			)
+		)
+			return false;
+		const when = input.required?.when;
+		if (when !== undefined && !predicateLookupsCovered(when, lookup))
+			return false;
+		const rule = input.validation?.rule;
+		if (rule !== undefined && !predicateLookupsCovered(rule, lookup))
+			return false;
+	}
+	return true;
 }
 
 /** Pure reconciliation shared by render-time and effect-time stale guards. */

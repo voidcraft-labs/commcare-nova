@@ -24,6 +24,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import { DatePicker } from "@/components/shadcn/date-picker";
@@ -2570,7 +2571,7 @@ function UserFilterValuesEditor({
 				type="button"
 				variant="outline"
 				onClick={() => {
-					valueKeys.current.push(crypto.randomUUID());
+					valueKeys.current.push(uuidv4());
 					onEdit((draft) => {
 						if (draft.kind === "conditional-alert")
 							draft.userDataFilters[filterIndex]?.values.push({

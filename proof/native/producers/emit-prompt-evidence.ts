@@ -19,7 +19,6 @@ import { lookupRowIdSchema } from "../../../lib/domain/lookupIds";
 import { readPreviewScreen } from "../../../lib/preview/engine/dataRefusal";
 import type { PreviewSearchSessionValues } from "../../../lib/preview/engine/identity";
 import { previewLookupData } from "../../../lib/preview/engine/lookupEvaluation";
-import { resolveSearchInputChoices } from "../../../lib/preview/engine/searchExpressionEvaluation";
 import { openSearchRunState } from "../../../lib/preview/engine/searchRunState";
 
 /**
@@ -102,13 +101,14 @@ writeFileSync(
  * The worker-place Search document (`searchPromptWorkerPlaceFixture`), and
  * `prompt-worker-place.openings.jsonl`: for a worker assigned nowhere and a
  * worker placed at `north`, whether Preview stops each menu's Search screen
- * as it opens. Preview's reading is what the screen reads as it opens: its
- * run state (`searchRunState.ts::openSearchRunState`, which
- * `useSearchInputRunState` reads) and each choice list its form draws
- * (`searchExpressionEvaluation.ts::resolveSearchInputChoices`, which
- * `SearchInputForm` reads), on either platform. `SearchPromptRuntimeTest`
- * holds Core's query manager to it: built for each menu's search, it fails
- * exactly where Preview stops.
+ * as it opens, and the starting answers of each field where it opens.
+ * Preview's reading is what the screen reads as it opens, its run state
+ * (`searchRunState.ts::openSearchRunState`, which `useSearchInputRunState`,
+ * App Tests and the form check read), each choice list among its reads, on
+ * either platform. `SearchPromptRuntimeTest` holds Core's query manager to
+ * it: built for each menu's search, it fails exactly where Preview stops and
+ * otherwise holds the answers Preview opens with, a starting choice the list
+ * does not offer let go.
  */
 const PLACE_WORKERS: readonly Readonly<Record<string, string>>[] = [
 	{},
@@ -143,16 +143,18 @@ const openings = PLACE_WORKERS.map((user) => {
 				lookup: placeLookup,
 				sessionData: {},
 			};
-			const read = readPreviewScreen(() => {
-				openSearchRunState(moduleUuid, inputs, session, environment);
-				for (const input of inputs)
-					if ("options" in input)
-						resolveSearchInputChoices(input, session, environment);
-			});
+			const read = readPreviewScreen(() =>
+				openSearchRunState(moduleUuid, inputs, session, environment),
+			);
 			return {
 				menu: WORKER_PLACE_SEARCH_MENUS[index],
 				command: `search_command.m${index}`,
 				refused: read.kind === "refused",
+				fields: inputs
+					.filter((input) => input.kind !== "hidden")
+					.map((input) => input.name),
+				answers:
+					read.kind === "read" ? Object.fromEntries(read.value.defaults) : {},
 			};
 		}),
 	};

@@ -17,6 +17,7 @@
 // field's property where it has one.
 
 import { produce } from "immer";
+import { v4 as uuidv4 } from "uuid";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	afterEmptySearchRegistrationFormOf,
@@ -438,7 +439,7 @@ export function searchAnswerFields(
 		}
 		const id = suffixUntilFree(input.name, occupiedIds);
 		occupiedIds.add(id);
-		const uuid = asUuid(crypto.randomUUID());
+		const uuid = asUuid(uuidv4());
 		const label = proseText(
 			input.label.trim().length > 0 ? input.label : input.name,
 		);

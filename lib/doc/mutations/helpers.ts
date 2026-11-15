@@ -8,6 +8,7 @@
  */
 
 import type { Draft } from "immer";
+import { v4 as uuidv4 } from "uuid";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import { type Field, ownRecordValue } from "@/lib/domain";
@@ -269,7 +270,7 @@ export function cloneFieldSubtree(
 			);
 			return undefined;
 		}
-		const newUuid = asUuid(crypto.randomUUID());
+		const newUuid = asUuid(uuidv4());
 		clonedFields[newUuid] = { ...src, uuid: newUuid };
 		const childOrder = ownRecordValue(doc.fieldOrder, uuid);
 		if (childOrder !== undefined) {

@@ -22,6 +22,7 @@
  * doc's `fields`/`fieldOrder` maps). Internally it walks the fields as a
  * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
+import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
@@ -1925,7 +1926,7 @@ export class FormEngine {
 		count: number,
 	): string[] {
 		const keys = this.repeatInstanceKeys.get(repeatPath) ?? [];
-		while (keys.length < count) keys.push(crypto.randomUUID());
+		while (keys.length < count) keys.push(uuidv4());
 		if (keys.length > count) keys.length = count;
 		this.repeatInstanceKeys.set(repeatPath, keys);
 		return keys;

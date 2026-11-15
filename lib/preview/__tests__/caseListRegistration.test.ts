@@ -156,6 +156,15 @@ describe("caseListRegistrationAdmission", () => {
 				searchState: { kind: "not-searched" },
 			}),
 		).toEqual({ kind: "refused", reason: "not-searched" });
+		// Search again holds the Search screen asked for again, no search.
+		expect(
+			caseListRegistrationAdmission({
+				...entry,
+				moduleUuid: MODULE,
+				launch,
+				searchState: { kind: "manual", submission: "m1" },
+			}),
+		).toEqual({ kind: "refused", reason: "not-searched" });
 		expect(
 			caseListRegistrationAdmission({
 				...entry,
@@ -301,7 +310,11 @@ describe("formSearchAnswers", () => {
 	});
 
 	it("gives it the Search fields' starting values when a link or an entry point opened it", () => {
-		for (const searchState of [undefined, { kind: "not-searched" } as const])
+		for (const searchState of [
+			undefined,
+			{ kind: "not-searched" } as const,
+			{ kind: "manual", submission: "m1" } as const,
+		])
 			expect(
 				answersOf({
 					admission: { kind: "not-applicable" },

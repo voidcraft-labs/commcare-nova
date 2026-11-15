@@ -6,6 +6,7 @@ import {
 	builderEntryState,
 	previewHeldMenuBack,
 	previewHeldMenuIsPrevious,
+	previewHeldMenuStands,
 	readPreviewHeldMenu,
 	stepsOfPreviewHeldMenu,
 } from "../previewHeldMenu";
@@ -42,6 +43,9 @@ function history(first: { pathname: string; state?: Record<string, unknown> }) {
 		lens: () => write({ pathname: entries[at].pathname, lens: true }),
 		back: (steps = 1) => {
 			at -= steps;
+		},
+		forward: () => {
+			at += 1;
 		},
 		get current() {
 			return entries[at];
@@ -89,19 +93,58 @@ describe("a case list's held form menu on its history entry", () => {
 		expect(readPreviewHeldMenu(h.current.state)).toBeUndefined();
 	});
 
-	it("steps back onto a case-first menu's list, shown at the module's own URL", () => {
-		const h = history({ pathname: `/build/app/${menu}` });
+	it("steps back onto the list off a menu pushed from an entry holding another session's menu, which shows the list", () => {
+		// Ana chosen, then a change of worker or platform: Back onto Ana's
+		// menu shows the list, and choosing Bo there is a step after it.
+		const h = history({ pathname: list });
 		h.push(list, held);
+		const next: PreviewHeldCaseListMenu = {
+			moduleUuid: menu,
+			cases: [{ caseId: "bo", caseName: "Bo" }],
+			session: "worker-b",
+		};
+		h.push(list, next);
 		expect(previewHeldMenuBack(h.current.state)).toEqual({
 			kind: "step-back",
 			steps: 1,
 		});
-		// Another module's screen is not this list's.
-		const other = history({ pathname: `/build/app/${testUuid("other")}` });
-		other.push(list, held);
-		expect(previewHeldMenuBack(other.current.state)).toEqual({
-			kind: "show-list",
+		// In place of Bo's details pushed from that entry, the same.
+		h.back();
+		h.push(details);
+		h.replace(list, next);
+		expect(previewHeldMenuBack(h.current.state)).toEqual({
+			kind: "step-back",
+			steps: 1,
 		});
+		// A menu the same session holds there is a menu, not its list.
+		h.back();
+		h.push(list, { ...held, cases: [{ caseId: "bo" }] });
+		expect(previewHeldMenuBack(h.current.state)).toEqual({ kind: "show-list" });
+	});
+
+	it("steps back onto the list Preview shows at the Search, Details or data review URL", () => {
+		// Preview started on the Search or Details tab, or on the data review
+		// screen, runs the list there.
+		for (const tab of ["search", "details", "data-review"]) {
+			const h = history({ pathname: `/build/app/${menu}/${tab}` });
+			h.push(list, held);
+			expect(previewHeldMenuBack(h.current.state)).toEqual({
+				kind: "step-back",
+				steps: 1,
+			});
+		}
+		// The module's own URL is its menu screen, and another module's tabs
+		// are another list.
+		for (const pathname of [
+			`/build/app/${menu}`,
+			`/build/app/${testUuid("other")}/search`,
+		]) {
+			const h = history({ pathname });
+			h.push(list, held);
+			expect(previewHeldMenuBack(h.current.state)).toEqual({
+				kind: "show-list",
+			});
+		}
 	});
 
 	it("steps back onto the list off a menu that replaced the case's details pushed from it", () => {
@@ -112,6 +155,29 @@ describe("a case list's held form menu on its history entry", () => {
 			kind: "step-back",
 			steps: 1,
 		});
+	});
+
+	it("steps back onto the list past the case's details off a menu that replaced their copy under another language", () => {
+		const h = history({ pathname: list });
+		h.push(details);
+		h.lens();
+		h.lens();
+		h.replace(list, held);
+		// list, details, details (one language), menu: the menu's Back passes
+		// the details left behind it and lands on the list.
+		expect(previewHeldMenuBack(h.current.state)).toEqual({
+			kind: "step-back",
+			steps: 3,
+		});
+		// A language change on the menu adds its own copy.
+		h.lens();
+		expect(previewHeldMenuBack(h.current.state)).toEqual({
+			kind: "step-back",
+			steps: 4,
+		});
+		h.back(4);
+		expect(h.current.pathname).toBe(list);
+		expect(readPreviewHeldMenu(h.current.state)).toBeUndefined();
 	});
 
 	it("shows the list in the menu's own entry where no list entry is behind it", () => {
@@ -146,10 +212,11 @@ describe("a case list's held form menu on its history entry", () => {
 		});
 		h.back(3);
 		expect(readPreviewHeldMenu(h.current.state)).toBeUndefined();
-		// A depth another page wrote counts as the menu's own entry alone.
+		// A gap another page wrote counts as the menu's own entry alone.
 		expect(
 			stepsOfPreviewHeldMenu({
-				__novaPreviewHeldMenu: { ...held, lensDepth: -1 },
+				__novaPreviewHeldMenu: held,
+				__novaPreviousGap: -1,
 			}),
 		).toBe(1);
 	});
@@ -193,6 +260,37 @@ describe("a case list's held form menu on its history entry", () => {
 		// back to the list: the menu's entry becomes the list's.
 		expect(previewHeldMenuBack(h.current.state)).toEqual({ kind: "show-list" });
 		expect(previewHeldMenuIsPrevious(h.current.state, held)).toBe(false);
+	});
+
+	it("opens the menu again where the step back off a form lands on an entry that no longer holds it", () => {
+		// A menu with no list behind it, a form opened from it, Back to the
+		// menu, whose own Back shows the list in its entry, then Forward.
+		const h = history({ pathname: form });
+		h.push(list, held);
+		expect(previewHeldMenuBack(h.current.state)).toEqual({ kind: "show-list" });
+		h.push(form);
+		h.back();
+		expect(previewHeldMenuStands(h.current.state, held)).toBe(true);
+		h.replace(list);
+		h.forward();
+		// The form still records the menu as the entry before it, so the
+		// crumb steps back, and the entry it lands on holds no menu: the
+		// crumb opens the menu again on an entry of its own.
+		expect(previewHeldMenuIsPrevious(h.current.state, held)).toBe(true);
+		h.back();
+		expect(previewHeldMenuStands(h.current.state, held)).toBe(false);
+		// Another session's menu, or other cases, is not this one.
+		h.push(list, held);
+		expect(previewHeldMenuStands(h.current.state, held)).toBe(true);
+		expect(
+			previewHeldMenuStands(h.current.state, { ...held, session: "worker-b" }),
+		).toBe(false);
+		expect(
+			previewHeldMenuStands(h.current.state, {
+				...held,
+				cases: [{ caseId: "bo" }],
+			}),
+		).toBe(false);
 	});
 
 	it("reads no menu from a state another page wrote", () => {

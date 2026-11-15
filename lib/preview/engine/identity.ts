@@ -390,6 +390,41 @@ export function samePreviewIdentity(
 	);
 }
 
+/**
+ * What Preview is selected to run as: the resolved identity (`null` while
+ * the member's session has not resolved), or a selected persona the
+ * document no longer holds, which must never run as anyone.
+ */
+export type SelectedPreviewIdentityState =
+	| {
+			readonly kind: "ready";
+			readonly identity: ResolvedPreviewIdentity | null;
+	  }
+	| { readonly kind: "persona-unavailable"; readonly personaUuid: string };
+
+/**
+ * The selection to hand on once `next` is derived: the one already `held`
+ * while `next` names the same worker ({@link samePreviewIdentity}) or the
+ * same missing persona, else `next`. A session refetch mints a new user
+ * object and so a new identity object for the same worker; keeping the held
+ * one means every consumer that keys a reset, an effect or a cache on the
+ * selection by reference (the refusal backstop's reset keys, the engine
+ * provider's install) changes exactly when the worker does.
+ */
+export function heldSelectedPreviewIdentityState(
+	held: SelectedPreviewIdentityState,
+	next: SelectedPreviewIdentityState,
+): SelectedPreviewIdentityState {
+	if (held.kind === "ready" && next.kind === "ready")
+		return samePreviewIdentity(held.identity, next.identity) ? held : next;
+	if (
+		held.kind === "persona-unavailable" &&
+		next.kind === "persona-unavailable"
+	)
+		return held.personaUuid === next.personaUuid ? held : next;
+	return next;
+}
+
 function sameStringRecord(
 	a: Readonly<Record<string, string | undefined>>,
 	b: Readonly<Record<string, string | undefined>>,

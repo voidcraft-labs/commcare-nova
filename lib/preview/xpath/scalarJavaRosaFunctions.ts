@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from "uuid";
 import { toBoolean, toNumber, xpathToString } from "./coerce";
 import type { DayNumberEpoch } from "./coreDays";
 import { javaBmpDecimalDigit } from "./javaInteger";
@@ -325,7 +326,7 @@ export const scalarJavaRosaFunctions: ReadonlyMap<
 		"uuid",
 		(args, epoch) =>
 			args.length === 0
-				? globalThis.crypto.randomUUID()
+				? uuidv4()
 				: cryptoBase36(javaInt32(args[0] ?? Number.NaN, epoch)),
 	],
 	["checklist", checklist],

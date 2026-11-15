@@ -74,7 +74,9 @@ function placeKey() {
  *  display condition, the case list's Search action's condition, a Search
  *  field's starting value, hidden value or required condition, the
  *  condition of a link after the survey, a registration's open condition,
- *  or the filter of the list a registration's link opens after its save. */
+ *  the filter of the list a registration's link opens after its save, or
+ *  the list's assigned-case exclusion, with no Search action or under a
+ *  Search the menu opens on. */
 type PlaceRead =
 	| "list-filter"
 	| "menu"
@@ -84,7 +86,9 @@ type PlaceRead =
 	| "search-required"
 	| "link"
 	| "registration-open"
-	| "next-screen";
+	| "next-screen"
+	| "exclusion"
+	| "exclusion-search";
 
 /** The Search fields of an app whose Search screen reads the place key. */
 function searchInputsReading(reads: PlaceRead): SearchInputDef[] | undefined {
@@ -99,6 +103,10 @@ function searchInputsReading(reads: PlaceRead): SearchInputDef[] | undefined {
 			return [
 				simpleSearchInputDef(NAME_INPUT, "name", "Name", "text", "case_name"),
 				hiddenSearchInputDef(HIDDEN_INPUT, "place", "Place", placeKey()),
+			];
+		case "exclusion-search":
+			return [
+				simpleSearchInputDef(NAME_INPUT, "name", "Name", "text", "case_name"),
 			];
 		case "search-required":
 			return [
@@ -142,6 +150,15 @@ function refusalDoc(reads: PlaceRead): BlueprintDoc {
 						caseSearchConfig: {
 							searchButtonDisplayCondition: eq(placeKey(), literal("north")),
 						},
+					}),
+					...(reads === "exclusion" && {
+						caseSearchConfig: {
+							searchActionEnabled: false as const,
+							excludedOwnerIds: placeKey(),
+						},
+					}),
+					...(reads === "exclusion-search" && {
+						caseSearchConfig: { excludedOwnerIds: placeKey() },
 					}),
 					forms: [
 						{
@@ -303,6 +320,30 @@ it("words a refusal of the Search action's condition for the list, as Preview do
 	expect(refused.error).toBe(
 		"This case list doesn't open on a phone. This case list reads worker information Asha doesn't have, so a phone stops here. If it reads Asha's place, you can give Asha a place under Users and personas in App setup.",
 	);
+});
+
+const LIST_REFUSAL =
+	"This case list doesn't open on a phone. This case list reads worker information Asha doesn't have, so a phone stops here. If it reads Asha's place, you can give Asha a place under Users and personas in App setup.";
+
+it("words a refusal of the assigned-case exclusion for the list, as Preview's Results read does", async () => {
+	// The exclusion is a rule of the Results read, which Preview evaluates as
+	// it reads Results and shows a refusal of on the list.
+	const step = await begin("exclusion", "Asha");
+	const refused = await step({ kind: "menu", moduleUuid: LIST_MODULE });
+	expect(refused).toMatchObject({ completed: false });
+	expect(refused.error).toBe(LIST_REFUSAL);
+});
+
+it("opens a Search screen whose list's exclusion refuses, and refuses the Results its search reads", async () => {
+	// A menu that opens on its search reads no Results until the worker
+	// searches, so Preview shows its Search screen and refuses on the list
+	// the search opens.
+	const step = await begin("exclusion-search", "Asha");
+	const opened = await step({ kind: "menu", moduleUuid: LIST_MODULE });
+	expect(opened.error).toBeUndefined();
+	expect(opened).toMatchObject({ screen: "search" });
+	const searched = await step({ kind: "search", answers: [] });
+	expect(searched).toMatchObject({ completed: false, error: LIST_REFUSAL });
 });
 
 it("words a refusal of a Search field's starting value for the Search screen", async () => {

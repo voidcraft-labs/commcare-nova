@@ -140,6 +140,10 @@ import {
 	reactProfileRoute,
 } from "./reactProfileSeed";
 import {
+	buildSearchChoicesRefusedBlueprint,
+	SEARCH_CHOICES_REFUSED_SEED,
+} from "./searchChoicesRefusedSeed";
+import {
 	buildSearchStandingBlueprint,
 	SEARCH_STANDING_SEED,
 } from "./searchStandingSeed";
@@ -1542,6 +1546,46 @@ export async function createSmokeBuilders(
 					route: searchStartRefusedRoute(appId),
 					caseId: patient.caseId,
 				},
+			};
+		},
+		"search-choices-refused": async () => {
+			const seed = SEARCH_CHOICES_REFUSED_SEED;
+			/* The Project table the Region field reads its choices from, with
+			 * no rows, written through the real service before the app that
+			 * reads it. */
+			const table = await createLookupTable(
+				{ projectId: seedProjectId, actorId: SEED.userId, role: "owner" },
+				{
+					name: seed.table.name,
+					tag: seed.table.tag,
+					columns: [
+						{ wireName: "code", label: "Code", dataType: "text" },
+						{ wireName: "name", label: "Name", dataType: "text" },
+					],
+				},
+			);
+			const [value, label] = table.columns;
+			if (value === undefined || label === undefined)
+				throw new Error("e2e/seed.ts: the regions table seeded no columns");
+			const appId = await seedRuntimeApp(seed.appName, (id) =>
+				buildSearchChoicesRefusedBlueprint(id, {
+					tableId: table.id,
+					valueColumnId: value.id,
+					labelColumnId: label.id,
+				}),
+			);
+			// A patient the default search would find, were it to run.
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.patient.caseName,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				searchChoicesRefused: { appId, route: `/build/${appId}` },
 			};
 		},
 		"search-choice": async () => {

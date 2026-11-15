@@ -116,7 +116,7 @@ export function TileLayoutCanvas({
 
 			{canEdit && (
 				<ToggleRow
-					label="Keep the tile on screen during forms"
+					label="Keep the tile on screen once a case is chosen"
 					description="Workers see the case they picked above the menu it opens and above every question of its forms."
 					checked={tile.persistOnForms === true}
 					onChange={onPersistOnFormsChange}
