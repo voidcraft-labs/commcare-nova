@@ -276,8 +276,9 @@ async function observeScreen(
 						state,
 						screen.moduleUuid,
 					).filter((item) => item.menuUuid !== screen.moduleUuid),
-					/* The module's case list menu entry, listed after the forms;
-					 * the `records` action chooses it. */
+					/* The module's case list menu entry, listed after the forms
+					 * while it still needs a case the screen has not chosen; the
+					 * `records` action chooses it and opens its case list. */
 					caseListEntry: (() => {
 						const entry = appTestCaseListMenuEntry(
 							context,
@@ -296,8 +297,6 @@ async function observeScreen(
 											context.language,
 											screen.moduleUuid,
 										)?.name,
-									opens:
-										entry.action === "selection" ? "chosen-case" : "case-list",
 								};
 					})(),
 					recordsAvailable:
@@ -889,15 +888,9 @@ export async function advanceAppTest(
 				throw new AppTestActionError(
 					"That case list is not available on the current screen.",
 				);
-			/* The menu's case list entry: on a forms-first screen it opens the
-			 * list, whose choice takes the entry's route; on a case-first screen
-			 * the case is already chosen, so choosing the entry is the
-			 * selection. */
+			/* The menu's case list entry, where the screen lists it, opens its
+			 * list, whose choice takes the entry's route. */
 			const entry = appTestCaseListMenuEntry(context, state, named);
-			if (entry?.action === "selection") {
-				next = caseListMenuItemLanding(context, state);
-				break;
-			}
 			next = {
 				...state,
 				screen: {
@@ -1247,23 +1240,19 @@ function screenFormsObservation(
 	);
 }
 
-/** A home (`null`) or menu screen's case list entries, each naming its menu
- *  and what choosing it opens. */
+/** A home (`null`) or menu screen's case list entries, each naming its
+ *  menu; choosing one opens that menu's case list. */
 function screenCaseListsObservation(
 	context: AppTestContext,
 	state: AppTestSessionState,
 	parent: Uuid | null,
 ) {
 	return appTestScreenCaseLists(context, state, parent).map(
-		({ moduleUuid, entry, visibility }) => ({
+		({ moduleUuid, visibility }) => ({
 			menuUuid: moduleUuid,
 			name:
 				context.doc.modules[moduleUuid]?.caseListMenuItem?.label ??
 				projectLocalizedModule(context.doc, context.language, moduleUuid)?.name,
-			opens:
-				entry.action === "selection"
-					? ("chosen-case" as const)
-					: ("case-list" as const),
 			visibility,
 		}),
 	);

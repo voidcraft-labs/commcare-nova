@@ -2313,7 +2313,12 @@ classified `config` in `NON_REFERENCE_FIELD_PATHS`.
 **The lane document.** `targeted-plain-help` (declares both platforms): a form whose two questions
 hold the same help text, `**bold** and a [link](https://example.org)`, one with `plainHelp` and one
 without, beside a hint and a validation message typed with the same symbols, and a second form
-holding `plainText` with a label, a choice and a help text. Its assertion is the Android read of G4.
+holding `plainText` with a label, a choice and a help text. The hint and the validation message are
+each a text of its own, distinct from the help texts and from each other: HQ's build merges the texts
+of a form whose values are equal in every language and form, and points each reference at the one it
+keeps (`corehq/apps/app_manager/xform.py::XForm.normalize_itext`, `ItextNodeGroup.__eq__`), so a hint
+spelled like the `plainHelp` help, neither with a formatted copy, would be built as that help, and the
+lane would read one text where the document holds two. Its assertion is the Android read of G4.
 Proof 4 compares each save after the spelling rules, and `hint-validation-markdown-form` and
 `vellum-attributes` erase exactly those two changes, so `proof/editors/test_text_formatting_saves.py`
 reads them before any rule, from what HQ stores after two form builder saves of each form: a save adds

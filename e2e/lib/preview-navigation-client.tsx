@@ -8,11 +8,15 @@ import type { Platform } from "@/lib/domain/platforms";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { useLocation } from "@/lib/routing/hooks";
+import { buildUrl } from "@/lib/routing/location";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { usePreviewAtDeviceHome } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
-import { buildNavigationDoc } from "./previewNavigationFixture";
+import {
+	buildNavigationDoc,
+	NAVIGATION_HOUSEHOLDS_MODULE_UUID,
+} from "./previewNavigationFixture";
 
 /**
  * The component peer of `preview-platforms.spec.ts`'s navigation tests: the
@@ -24,12 +28,24 @@ import { buildNavigationDoc } from "./previewNavigationFixture";
  * - `?fixture=case-list-entry`: a forms-first menu (a registration form
  *   beside a follow-up) that lists its case list as an entry of its own
  *   after its forms. `?details` gives the case list a Details screen.
+ * - `?fixture=case-first-entry`: a case-first menu (one follow-up) that
+ *   holds its case list as an entry of its own.
+ * - `?fixture=child-list-above`: a case-first menu of households and a
+ *   menu of their members showing its follow-up and its case list entry
+ *   there. `?at=households` starts on the households' case list, where
+ *   CommCare opens that menu; Preview's own landing on a case-first menu
+ *   with submenus differs from CommCare's (issue #914).
  */
 
 const params = new URLSearchParams(location.search);
 const fixture = params.get("fixture");
 const platform = params.get("platform") as Platform | null;
-if (fixture !== "search-first" && fixture !== "case-list-entry")
+if (
+	fixture !== "search-first" &&
+	fixture !== "case-list-entry" &&
+	fixture !== "case-first-entry" &&
+	fixture !== "child-list-above"
+)
 	throw new Error(`No navigation fixture named ${String(fixture)}.`);
 if (platform !== "web-apps" && platform !== "android")
 	throw new Error(`No platform named ${String(platform)}.`);
@@ -66,7 +82,15 @@ const element = document.getElementById("root");
 if (!element) throw new Error("Missing navigation root");
 element.style.height = "calc(100vh - 32px)";
 const root = createRoot(element);
-pushBuilderHistory(`/build/${doc.appId}`);
+const basePath = `/build/${doc.appId}`;
+pushBuilderHistory(
+	fixture === "child-list-above" && params.get("at") === "households"
+		? buildUrl(basePath, {
+				kind: "cases",
+				moduleUuid: NAVIGATION_HOUSEHOLDS_MODULE_UUID,
+			})
+		: basePath,
+);
 root.render(
 	<TooltipProvider>
 		<BuilderSessionContext value={session}>

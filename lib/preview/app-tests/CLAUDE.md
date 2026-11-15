@@ -156,9 +156,11 @@ menu entry's list (`navigation.ts::isCaseListMenuItemList`: the list the
 menu's entry opened, or a bare case list's landing) routes a chosen case by
 `caseListMenuItemSelection(context.rules)` instead of opening a form, and on
 Android its Details answer `continue` with Done, which returns to the list; the
-menu observation lists the entry after the forms (`caseListEntry`), and the
-`records` action chooses it, which in a case-first menu with its case chosen is
-the selection itself. A home or menu screen also lists, in place, the forms and
+menu observation lists the entry after the forms (`caseListEntry`) only while
+it still needs a case the screen has not chosen
+(`menuProjection.ts::previewCaseListMenuEntry`), so a case-first menu with its
+case chosen does not list its own, and the `records` action chooses it and
+opens its list. A home or menu screen also lists, in place, the forms and
 case list entries of each menu that shows its forms there
 (`navigation.ts::appTestScreenForms`, `appTestScreenCaseLists`, over
 `menuProjection.ts::previewScreenEntries`): its observation carries them as `forms` and

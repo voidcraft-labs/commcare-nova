@@ -526,33 +526,34 @@ export function isCaseListMenuItemList(
 
 /**
  * The module's case list entry as the screen that lists it shows it, after
- * the forms (`menuProjection.ts::previewCaseListMenuEntry`): on a case-first
- * screen only once its case is chosen, when choosing it is the selection
- * itself.
+ * the forms (`menuProjection.ts::previewCaseListMenuEntry`): only while it
+ * still needs a case the screen has not chosen, so on a case-first screen
+ * only once its case is chosen and only where the entry goes on past that
+ * case. Choosing it opens its case list.
  */
 export function appTestCaseListMenuEntry(
 	context: AppTestContext,
 	state: AppTestSessionState,
 	moduleUuid: Uuid,
 ) {
+	/* The screen that lists the entry chose its case, if it did: its own
+	 * menu's, or the menu above's where its menu shows its forms there. */
+	const screen = menuScreenOf(context.doc, moduleUuid);
 	return previewCaseListMenuEntry(context.doc, moduleUuid, {
-		isCaseFirst: screenChoosesCaseFirst(
-			context.doc,
-			menuScreenOf(context.doc, moduleUuid),
-		),
+		isCaseFirst: screenChoosesCaseFirst(context.doc, screen),
 		hasSelectedCase:
-			appTestMenuSelection(context, state, moduleUuid) !== undefined,
+			screen.kind === "menu" &&
+			appTestMenuSelection(context, state, screen.moduleUuid) !== undefined,
 	});
 }
 
 /**
  * Where choosing a case from a case list menu entry lands
  * (`caseListMenuItemRoute.ts::caseListMenuItemSelection`): the entry holds no
- * form, so on Web Apps Formplayer steps back over the choice and the screen
- * before it shows (`MenuSession.getNextScreen`, `isViewCommand` → `stepBack`);
- * Android ends the session at the phone's home screen. `before` is the state
- * at the screen before the choice: the list with nothing chosen in a
- * forms-first menu, the menu in a case-first one.
+ * form, so on Web Apps Formplayer steps back over the choice and, since the
+ * entry still needs it, the list shows again (`MenuSession.getNextScreen`,
+ * `isViewCommand` → `stepBack`); Android ends the session at the phone's home
+ * screen. `before` is the state at the list with nothing chosen.
  */
 export function caseListMenuItemLanding(
 	context: AppTestContext,

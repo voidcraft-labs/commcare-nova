@@ -1020,20 +1020,37 @@ A module's case list menu entry (`Module.caseListMenuItem`) plays the runtime,
 formless or beside forms. `menuProjection.ts::previewCaseListMenuEntry` lists
 it after the module's forms, under the item's label unit when it has one and
 the module's name otherwise, with the item's icon; a bare case list
-(`moduleIsBareCaseList`) keeps its landing, since the menu is its list. In a
-forms-first menu the entry opens the case list; in a case-first menu
-(`moduleIsCaseFirst`) the case is chosen first, as Core asks a datum every
-entry shares before the command, and the menu then lists the forms and the
-entry (the module screen, and the case list's form menu, which also never skips
-to a lone form while the entry is listed). A case list opened from the entry
-(`CaseListScreen`'s `openedFromCaseListMenuItem`: a bare case list, or a
-forms-first menu's list with no form chosen) routes a chosen case by
-`caseListMenuItemRoute.ts::caseListMenuItemSelection` instead of opening a
-form, and in a case-first menu choosing the entry with the case already chosen
-is the selection. Web Apps steps back (`step-back`, Formplayer's
-`MenuSession.getNextScreen` stepping a view command back): choosing a case
-shows the screen before it again, the list with nothing chosen in a
-forms-first menu and the menu in a case-first one. Android returns to the
+(`moduleIsBareCaseList`) keeps its landing, since the menu is its list. The
+entry is a view command, and Core lists a view only while the session still
+needs one of its datums (`MenuLoader.addRelevantCommandEntries`,
+`getNeededDatum(e) == null` skips it); before listing a screen Core collects
+every datum all of the screen's entries need first, on each screen on the way
+(`getDataNeededByAllEntries`). `engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`
+replays that over the datums the suite prints (`caseListSessionDatums`,
+`entrySessionDatums`), and the entry is listed only where it holds. No
+screen shape short-cuts it: a forms-first submenu under a case-first parent of
+the same case type does not list its entry, because the parent's screen
+already chose that case. Where it is listed, choosing it opens the case list.
+A case-first screen lists nothing before its case is chosen, and then lists the
+entry only where its datums go past that case (a menu showing its forms there
+whose list chooses a child of the chosen case, say); the screen's own menu's
+entry chooses exactly the chosen case and is not listed. Core never opens a
+lone form from a menu by itself: with one entry under the menu's command,
+`CommCareSession.getNeededData` finds no entry for the menu's id
+(`getEntryForCommand`) and asks for a command. Preview's
+`menuProjection.ts::previewAutomaticForm` still opens a menu's one shown form
+after its case is chosen (issue #915); `CaseListScreen`'s
+`caseFirstMenuHoldsEntry` keeps that skip off on a case-first menu that holds
+its entry, as it was off while that menu listed the entry, so that shape shows
+its form menu as Core does. Edit mode lists every entry
+(`caseListMenuEntryOf`). A case list opened from the entry
+(`CaseListScreen`'s `openedFromCaseListMenuItem`: a bare case list, a
+forms-first menu's list with no form chosen, or on a case-first screen the list
+of a menu showing its forms there whose entry is listed) routes a chosen case
+by `caseListMenuItemRoute.ts::caseListMenuItemSelection` instead of opening a
+form. Web Apps steps back (`step-back`, Formplayer's
+`MenuSession.getNextScreen` stepping a view command back): the entry still
+needs the choice, so the list shows again with nothing chosen. Android returns to the
 phone's home screen (`device-home`, which sets `previewAtDeviceHome`). With
 Details columns a chosen row shows its detail first; on Android the detail's
 button is the runtime message `detailDone` ("Done",
@@ -1690,8 +1707,9 @@ media and condition, and a case list row. A contributor's rows show by
 `conditionModulesOf` (the module, and its parent where it shows above), and
 then by each form's own condition. Whether a screen opens on a case list is
 `screenChoosesCaseFirst` of the screen (`ModuleScreen`, `CaseListScreen`): a
-case-first screen opens on the host's case list and lists every entry once the
-case is chosen; any other screen lists its entries at once, and a form that
+case-first screen opens on the host's case list and, once the case is chosen,
+lists every form and the case list entries that still need a case
+(`previewCaseListMenuEntry`); any other screen lists its entries at once, and a form that
 opens a case then opens its own menu's case list. A route naming a menu with no
 screen resolves to `menuScreenOf` of it
 (`screenProjection.ts::previewRunningScreenForLocation`), and the breadcrumb

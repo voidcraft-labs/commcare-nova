@@ -28,6 +28,7 @@ import {
 	moduleParent,
 	moduleSiblingUuids,
 } from "@/lib/domain/moduleHierarchy";
+import { caseListEntryStillNeedsDatum } from "@/lib/preview/engine/caseListEntryListing";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import {
@@ -632,7 +633,8 @@ export function previewAutomaticForm(
 
 /** A module's case list as its own entry on the module's menu
  *  (`Module.caseListMenuItem`), listed after its forms as HQ's suite lists
- *  the case list command after the form commands (`suite_xml/sections/menus.py`). */
+ *  the case list command after the form commands (`suite_xml/sections/menus.py`).
+ *  Choosing it opens the case list. */
 export interface PreviewCaseListMenuEntry {
 	/** The entry's label unit: the item's own label when it has one, else the
 	 *  module's name, with its translations (`emissionPlan.ts::caseListMenuItemLabelUnit`). */
@@ -641,28 +643,18 @@ export interface PreviewCaseListMenuEntry {
 	readonly label: string;
 	readonly icon: ModuleIconRef | undefined;
 	readonly audioLabel: MediaAssetId | undefined;
-	/**
-	 * What choosing the entry does. In a forms-first menu it opens the case
-	 * list. In a case-first menu Core asks the datum every entry shares before
-	 * the command (`CommCareSession.java::getDataNeededByAllEntries`), so the
-	 * case is chosen first and the menu lists the entry beside the forms;
-	 * choosing it then is the selection itself.
-	 */
-	readonly action: "open-case-list" | "selection";
 }
 
 /**
- * The module's case list entry as the screen that lists it shows it, or
- * undefined where it lists none: a module without the item or a case type, a
- * bare case list screen (the screen is its list, so it keeps its landing),
- * and a case-first screen before its case is chosen, whose forms are not
- * listed yet either. `isCaseFirst` is the answer of that screen
- * (`menuScreens.ts::screenChoosesCaseFirst`).
+ * The module's case list entry as an authoring surface shows it, or
+ * undefined where the module has none to show: a module without the item or
+ * a case type, and a bare case list screen (the screen is its list, so it
+ * keeps its landing). Edit mode lists it after the forms whatever the
+ * running app does.
  */
-export function previewCaseListMenuEntry(
+export function caseListMenuEntryOf(
 	doc: MenuScreenSource,
 	moduleUuid: Uuid,
-	args: { readonly isCaseFirst: boolean; readonly hasSelectedCase: boolean },
 ): PreviewCaseListMenuEntry | undefined {
 	const mod = doc.modules[moduleUuid];
 	if (
@@ -672,7 +664,6 @@ export function previewCaseListMenuEntry(
 		screenIsBareCaseList(doc, menuScreenOf(doc, moduleUuid))
 	)
 		return undefined;
-	if (args.isCaseFirst && !args.hasSelectedCase) return undefined;
 	const item = mod.caseListMenuItem;
 	const ownLabel = item?.label;
 	return {
@@ -687,6 +678,28 @@ export function previewCaseListMenuEntry(
 		label: ownLabel ?? mod.name,
 		icon: item?.icon,
 		audioLabel: item?.audioLabel,
-		action: args.isCaseFirst ? "selection" : "open-case-list",
 	};
+}
+
+/**
+ * The module's case list entry as the running screen that lists it shows
+ * it, or undefined where that screen lists none. CommCare lists the entry
+ * only while the session still needs one of its datums
+ * (`engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`): a
+ * case-first screen lists nothing before its case is chosen, and once it is
+ * chosen lists the entry only where the entry goes on to choose a case past
+ * the one chosen (a parent's child, say); its own menu's entry, which
+ * chooses exactly that case, is not listed. `isCaseFirst` is the answer of
+ * that screen (`menuScreens.ts::screenChoosesCaseFirst`).
+ */
+export function previewCaseListMenuEntry(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	args: { readonly isCaseFirst: boolean; readonly hasSelectedCase: boolean },
+): PreviewCaseListMenuEntry | undefined {
+	if (args.isCaseFirst && !args.hasSelectedCase) return undefined;
+	const entry = caseListMenuEntryOf(doc, moduleUuid);
+	return entry !== undefined && caseListEntryStillNeedsDatum(doc, moduleUuid)
+		? entry
+		: undefined;
 }
