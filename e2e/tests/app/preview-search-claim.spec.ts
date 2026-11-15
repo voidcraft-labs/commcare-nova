@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
 import { SEARCH_CLAIM_SEED } from "../../lib/previewRuntimeSeeds";
 import { removableRoutes } from "../../lib/routes";
@@ -65,7 +66,6 @@ test("a searched record another persona owns opens its form with its case data, 
 		/* The menu's forms read the search, so the claim posts as the form is
 		 * chosen and the form opens once it lands. Home meanwhile is where the
 		 * worker went: the late claim opens nothing over it. */
-		const trail = page.getByRole("navigation", { name: "Page navigation" });
 		const form = main.getByRole("button", { name: formName, exact: true });
 		const release = Promise.withResolvers<void>();
 		let arrived = false;
@@ -100,7 +100,7 @@ test("a searched record another persona owns opens its form with its case data, 
 			await main.getByRole("button", { name: "Continue", exact: true }).click();
 			await form.click();
 			await expect.poll(() => arrived).toBe(true);
-			await trail.getByRole("button", { name: "Home", exact: true }).click();
+			await pressTrailCrumb(page, "Home");
 			const moduleTile = main.getByRole("button", {
 				name: new RegExp(`^${moduleName}\\b`),
 			});
@@ -132,7 +132,7 @@ test("a searched record another persona owns opens its form with its case data, 
 			main.getByRole("button", { name: "Submit", exact: true }),
 		).toHaveCount(0);
 		/* Search for the record again from Home. */
-		await trail.getByRole("button", { name: "Home", exact: true }).click();
+		await pressTrailCrumb(page, "Home");
 		await main
 			.getByRole("button", { name: new RegExp(`^${moduleName}\\b`) })
 			.click();

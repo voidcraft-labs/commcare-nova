@@ -1,5 +1,9 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import {
+	expectTrailCrumbOffered,
+	pressTrailCrumb,
+} from "../../lib/breadcrumbTrail";
+import {
 	MENU_HELD_CASE_SEED,
 	menuHeldCaseClinicRoute,
 } from "../../lib/menuHeldCaseSeed";
@@ -39,8 +43,6 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		name: visits.formName,
 		exact: true,
 	});
-	const crumb = (label: string) =>
-		trail.getByRole("button", { name: label, exact: true });
 	const choose = async (caseName: string) => {
 		await expect(results).toBeVisible({ timeout: 20_000 });
 		await main
@@ -126,9 +128,9 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 	await test.step("the patient's crumb reaches the menu holding them, and the menu's crumb asks for a patient again", async () => {
 		await trail.getByRole("button", { name: "Go back", exact: true }).click();
 		await expectVisitsMenu(opens.caseName);
-		await crumb(opens.caseName).click();
+		await pressTrailCrumb(page, opens.caseName);
 		await expectPatientsMenu(opens.caseName);
-		await crumb(patients.name).click();
+		await pressTrailCrumb(page, patients.name);
 		await expectPatientsList();
 	});
 
@@ -165,7 +167,7 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		await expectPatientsMenu(refused.caseName);
 		await visitsTile.click();
 		await expectVisitsMenu(refused.caseName);
-		await crumb(refused.caseName).click();
+		await pressTrailCrumb(page, refused.caseName);
 		await expectPatientsMenu(refused.caseName);
 	});
 
@@ -178,7 +180,7 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 			name: pregnancyVisits.formName,
 			exact: true,
 		});
-		await crumb("Home").click();
+		await pressTrailCrumb(page, "Home");
 		await main
 			.getByRole("button", { name: new RegExp(`^${pregnancyVisits.name}`) })
 			.click({ timeout: 20_000 });
@@ -194,7 +196,7 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		await expect(trail).not.toContainText(patients.name);
 		// The pregnancy's crumb keeps the patient chosen before it: it steps
 		// back onto the pregnancy's form menu, the patient still held.
-		await crumb(pregnancies.caseName).click();
+		await pressTrailCrumb(page, pregnancies.caseName);
 		await expect(main.locator("[data-form-menu-case-title]")).toHaveText(
 			pregnancies.caseName,
 			{ timeout: 20_000 },
@@ -208,7 +210,7 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		await expect(submit).toBeVisible({ timeout: 20_000 });
 		// The patient's crumb cuts the session back to the screen after the
 		// patient: Pregnancy visits' list of that patient's pregnancies.
-		await crumb(refused.caseName).click();
+		await pressTrailCrumb(page, refused.caseName);
 		await expect(results).toBeVisible({ timeout: 20_000 });
 		await expect(
 			main.getByRole("button", {
@@ -226,7 +228,7 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		 * Apps asks Patients' list for the patient after the form's command:
 		 * the form's crumb cuts the patient away with the pregnancy. */
 		const { pregnancyFollowUps } = MENU_HELD_CASE_SEED;
-		await crumb("Home").click();
+		await pressTrailCrumb(page, "Home");
 		await main
 			.getByRole("button", {
 				name: new RegExp(`^${pregnancyFollowUps.name}`),
@@ -243,7 +245,7 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 				`${pregnancyFollowUps.name}.*${pregnancyFollowUps.formName}.*${refused.caseName}.*${pregnancies.caseName}$`,
 			),
 		);
-		await crumb(pregnancyFollowUps.formName).click();
+		await pressTrailCrumb(page, pregnancyFollowUps.formName);
 		// Patients' list asks for the patient again.
 		await expect(
 			main.getByRole("button", {
@@ -257,7 +259,7 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		await expect(trail).toContainText(new RegExp(`${refused.caseName}$`), {
 			timeout: 20_000,
 		});
-		await expect(crumb(pregnancyFollowUps.formName)).toBeVisible();
+		await expectTrailCrumbOffered(page, pregnancyFollowUps.formName);
 		await choose(pregnancies.caseName);
 		await expect(submit).toBeVisible({ timeout: 20_000 });
 		await expect(trail).toContainText(
@@ -344,10 +346,7 @@ test("Android's case details draw the case they show as its tile, except a searc
 		 * Android's details hold no case to draw. */
 		const { clinicSearch } = MENU_HELD_CASE_SEED;
 		const searchScreen = main.getByRole("search", { name: "Search" });
-		await page
-			.getByRole("navigation", { name: "Page navigation" })
-			.getByRole("button", { name: "Home", exact: true })
-			.click();
+		await pressTrailCrumb(page, "Home");
 		await main
 			.getByRole("button", { name: new RegExp(`^${clinicSearch.name}`) })
 			.click({ timeout: 20_000 });

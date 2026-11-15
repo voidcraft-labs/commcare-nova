@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import { CASE_CHANGES_SEED } from "../../lib/caseChangesSeed";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { openBuilder } from "../../lib/pageLoads";
@@ -179,10 +180,7 @@ test("Home starts a fresh parent choice when reopening a related record list", {
 				exact: true,
 			}),
 		).toBeVisible();
-		await page
-			.getByRole("navigation", { name: "Page navigation" })
-			.getByRole("button", { name: "Home", exact: true })
-			.click();
+		await pressTrailCrumb(page, "Home");
 		await expect(
 			main.getByRole("textbox", { name: "Application name", exact: true }),
 		).toBeVisible();
