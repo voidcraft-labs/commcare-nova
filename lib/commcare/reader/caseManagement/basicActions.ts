@@ -59,6 +59,7 @@ import type { DraftForm, DraftModule, ReadContext } from "../context";
 import { type CaseOperationPlaceKey, externalKey } from "../identity";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { whereText } from "../place";
+import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
 import type { DataNode } from "../xform/model";
 import type { ParsedXForm } from "../xform/parse";
@@ -213,8 +214,16 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/index-path-through-a-case-type-the-app-does-not-fix`,
 		"schema:UpdateCaseAction.update",
 	),
+	viaFacet: refuse(
+		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
+		"schema:UpdateCaseAction.update",
+	),
 	locationKeys: refuse(
 		`${F}/update-keys-location-id-hq-user-id`,
+		"schema:UpdateCaseAction.update",
+	),
+	workerKey: refuse(
+		`${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`,
 		"schema:UpdateCaseAction.update",
 	),
 	locationChildKeys: refuse(
@@ -940,12 +949,23 @@ export function isServerDivertedWrite(
 	property: string,
 	questionPath: unknown,
 ): boolean {
-	if (!isServerDivertedKey(property)) return false;
+	return isServerDivertedKey(property) && !namesAttachment(form, questionPath);
+}
+
+/** Whether HQ's build writes an action's key read from `questionPath` as an
+ *  `<attachment>` of the case block rather than into its `<update>`
+ *  (`xform.py::XFormCaseBlock.is_attachment`: the `ref` of an `<upload>` in
+ *  the form's body, by the stored text): the upload question's row
+ *  (`BASIC_CLAIMS.uploadQuestion`), never a property's. */
+export function namesAttachment(
+	form: DraftForm,
+	questionPath: unknown,
+): boolean {
 	const parsed = form.xform?.parsed;
 	return (
-		parsed === undefined ||
-		typeof questionPath !== "string" ||
-		!uploadRefs(parsed).has(questionPath)
+		parsed !== undefined &&
+		typeof questionPath === "string" &&
+		uploadRefs(parsed).has(questionPath)
 	);
 }
 
@@ -1323,6 +1343,14 @@ function readUpdateMap(
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
+			// The case above's name and owner: HQ's build writes `name` as that
+			// case's `case_name` (`xform.py::XFormCaseBlock.add_case_updates`) and
+			// `owner_id` as its owner, and Nova renames and gives an owner only to
+			// the operation's own case.
+			if (property === "name" || property === "owner_id") {
+				refuseEntry(cursor, BASIC_CLAIMS.viaFacet, key);
+				continue;
+			}
 		}
 		// HQ's server stores these two elsewhere wherever a case block's
 		// `<update>` holds them (`update_strategy.py::_apply_update_action`): the
@@ -1344,6 +1372,20 @@ function readUpdateMap(
 				refuseEntry(cursor, named, key);
 				continue;
 			}
+		}
+		// The worker's record takes a write only to a worker property the reading
+		// declares (`worldEntities.ts::holdsWorkerRecordWrite`): HQ's build writes
+		// `name` as its `case_name` and `owner_id` as its owner, which HQ's
+		// user-case sync writes over as it writes every key Nova keeps in step
+		// with the worker's profile. A key read from an upload names an
+		// attachment, which is the upload question's row.
+		if (
+			slot === "usercase" &&
+			!holdsWorkerRecordWrite(property) &&
+			!namesAttachment(r.form, cursor.peek("question_path"))
+		) {
+			refuseEntry(cursor, BASIC_CLAIMS.workerKey, key);
+			continue;
 		}
 		const ownWrite = slot === "own" && loads && !facet && via === undefined;
 		// The rows the own case's `update` names by its key.

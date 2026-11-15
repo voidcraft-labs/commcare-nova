@@ -34,6 +34,7 @@ import {
 	readLists,
 } from "../../caseList/__tests__/listReading";
 import { readHqApp } from "../../index";
+import { readFormSyntax } from "../../syntaxRead";
 import type { ReaderInput } from "../../types";
 import { exactSearchModeIsAbsent } from "../prompts";
 
@@ -694,7 +695,7 @@ describe("a stored validation that carries Nova's runtime guard under a message 
 	// (`searchPrompts.ts::buildValidation`). A message an author edited in HQ so no language ends
 	// with the guard's text tells nothing of the guard, so the check is registered whole and its
 	// refusal waits for the settle, which finds the stored test ending with the guard Nova's
-	// projection joins to the field (`settings.ts::endsWithRuntimeGuard`). Nova prints the guard's
+	// projection joins to the field (`settings.ts::runtimeGuardEnding`). Nova prints the guard's
 	// sentence after the field's message in the source language, so what keeps the field out is
 	// the message. The failure it catches: a check whose reads no whole level prints, ending in
 	// `expression-not-written-back`; and the field refused as a check outside what Nova types,
@@ -746,6 +747,46 @@ describe("a stored validation that carries Nova's runtime guard under a message 
 		expect(await findingsOf(body)).toEqual([
 			["unrecognized", "schema:Assertion.text", "search"],
 		]);
+	});
+
+	// Every finding a reading can decide is reported in one pass: the message keeps the field out,
+	// and so does an authored rule before the guard that Nova cannot hold, so the reading names
+	// both, the rule's refusal as it stands when the rule is the whole test. The failure it
+	// catches: the message's finding alone, with the rule's own cause dropped with the guard's.
+	it("joined after a rule Nova cannot hold names the message and the rule's own refusal", async () => {
+		const rule = "instance('casedb')/casedb/case[@case_id = 'a']/name = 'y'";
+		const withTest = (test: (stored: string) => string) => {
+			const body = exportedBody(localizationWireFixture("prompts"));
+			const modules = body.modules as {
+				search_config: { properties: Record<string, unknown>[] };
+			}[];
+			const properties = modules[0]?.search_config.properties ?? [];
+			edited(properties);
+			const status = properties[2] as { validations: { test: string }[] };
+			const validation = status.validations[0];
+			if (validation === undefined) throw new Error("No stored validation.");
+			validation.test = test(validation.test);
+			return body;
+		};
+		const guarded = withTest((stored) => {
+			const read = readFormSyntax(stored);
+			const node = read.ok ? read.node : undefined;
+			if (node?.kind !== "binary" || node.op !== "and")
+				throw new Error("Nova's check is no rule joined with its guard.");
+			return `${rule} and ${stored.slice(node.right.from, node.right.to)}`;
+		});
+		const alone = await findingsOf(withTest(() => rule));
+		expect(alone.length).toBeGreaterThan(0);
+		expect(alone.map(([, name]) => name)).not.toContain(
+			"schema:Assertion.text",
+		);
+		expect(await findingsOf(guarded)).toEqual(
+			expect.arrayContaining([
+				["unrecognized", "schema:Assertion.text", "search"],
+				...alone,
+			]),
+		);
+		expect((await findingsOf(guarded)).length).toBe(alone.length + 1);
 	});
 
 	// The control: a check with no guard of Nova's whose rule is refused keeps its own refusal.

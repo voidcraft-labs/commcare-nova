@@ -11,7 +11,8 @@
  * where it was read, and each scalar check folded out of a constraint
  * written back.
  */
-import type { BlueprintDoc } from "@/lib/domain";
+import { caseOperationWireOrderViolationDetails } from "@/lib/doc/caseOperationOrder";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
@@ -41,6 +42,7 @@ import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace, whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
+import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
 import {
 	ADVANCED_CLAIMS,
@@ -68,6 +70,7 @@ import {
 	readActionCondition,
 	statedBack,
 } from "./conditions";
+import { inWireScopeOrder, ORDER_CLAIMS } from "./operationOrder";
 import { readPreloads, settlePreloads } from "./preloads";
 import {
 	readSaveToCaseBlocks,
@@ -111,9 +114,62 @@ export function writeCaseOperations(ctx: ReadContext, app: DraftApp): void {
 			);
 			writeAdvancedOperations(ctx, form);
 			writeSaveToCaseOperations(ctx, form);
+			holdWireScopeOrder(ctx, form);
 		}
 	writeAdvancedChains(ctx);
 	readCaseCatalog(ctx, app);
+}
+
+/**
+ * The worker properties the reading's writes of the worker's record name: a
+ * write of `commcare-user` saves to a worker property the app declares
+ * (`validator/rules/caseOperations.ts::validateWorkerRecordProperty`), and no
+ * export carries the declaration, so the reading declares one for each slug a
+ * write names, beside those its logic reads (`provisional.ts::bindExpressions`).
+ * Every write a reader stage holds names one (`worldEntities.ts::
+ * holdsWorkerRecordWrite`, asked where each stage reads the key), so each slug
+ * here is declared.
+ */
+export function workerRecordWriteSlugs(ctx: ReadContext): string[] {
+	const slugs: string[] = [];
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms)
+			for (const operation of form.form.caseOperations ?? [])
+				if (
+					operation.action !== "own" &&
+					operation.target.kind === "worker-record"
+				)
+					for (const write of operation.writes ?? [])
+						if (holdsWorkerRecordWrite(write.property))
+							slugs.push(write.property);
+	return slugs;
+}
+
+/** `form`'s operations in the order the gate admits (`operationOrder.ts::
+ *  inWireScopeOrder`), over its multiplicity scopes as `lib/doc/
+ *  caseOperationOrder.ts::caseOperationMultiplicityScopes` walks them: the
+ *  root first, then each repeat after every field inside it. */
+function holdWireScopeOrder(ctx: ReadContext, form: DraftForm): void {
+	const operations = form.form.caseOperations;
+	const xform = form.xform;
+	if (operations === undefined || xform === null || xform === undefined) return;
+	const scopes: (Uuid | undefined)[] = [undefined];
+	const walk = (parent: DraftField | null) => {
+		for (const field of xform.childrenOf(parent)) {
+			walk(field);
+			if (field.kind === "repeat" && field.uuid !== undefined)
+				scopes.push(field.uuid);
+		}
+	};
+	walk(null);
+	const ordered = inWireScopeOrder(
+		operations,
+		new Map(scopes.map((scope, index) => [scope, index])),
+	);
+	if (ordered !== operations)
+		ctx.writeDraft(() => {
+			form.form.caseOperations = [...ordered];
+		});
 }
 
 // ── Acceptance by re-emission ───────────────────────────────────────────
@@ -467,6 +523,25 @@ function settleBasicForm(
 }
 
 /**
+ * A form whose case changes stand in no order the commit gate's wire-order
+ * rule admits once the reading's own is applied
+ * (`operationOrder.ts::inWireScopeOrder`), asked over the bound document as
+ * the gate asks it (`caseOperationWireOrderViolationDetails`): a keyed create
+ * after a change that is no create in every order Nova writes, or a later
+ * change in its repeat row that may be of its case. One finding at the form.
+ */
+function settleOperationOrder(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	form: DraftForm,
+): void {
+	if ((doc.forms[form.uuid]?.caseOperations ?? []).length === 0) return;
+	if (caseOperationWireOrderViolationDetails(doc, form.uuid).length === 0)
+		return;
+	ctx.accounting.finding(ORDER_CLAIMS.noOrder, form.place);
+}
+
+/**
  * Step 6, pass 2: every basic form's reading accepted over the bound
  * document, its scalar checks held to the emitter's, and its preloads judged.
  */
@@ -497,6 +572,7 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 			settleSaveToCase(ctx, form);
 			settleScalarChecks(ctx, ctx.doc ?? doc, form);
 			settlePreloads(ctx, form);
+			settleOperationOrder(ctx, ctx.doc ?? doc, form);
 		}
 	}
 	settleWriterTypes(ctx, app, ctx.doc ?? doc);

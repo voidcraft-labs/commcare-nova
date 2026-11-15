@@ -2911,6 +2911,38 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/update-key-name-or-owner-id-through-an-index-segment",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "update key `name` or `owner_id` through index segments each `parent` or `host` (`parent/name`, `host/owner_id`), on a form that loads its case, or on the form's own advanced load with no `case_index`",
+		"surfaceKeys": [
+			"schema:Form.actions",
+			"schema:FormActions.update_case",
+			"schema:UpdateCaseAction.update",
+			"schema:LoadUpdateAction.case_properties"
+		],
+		"valueClass": "facet-key-through-index",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a rename or an owner of the case above: HQ's build writes `name` as that case's `case_name` and `owner_id` as its owner (`xform.py::XFormCaseBlock.add_case_updates`, over `XForm._add_case_updates`), and `case-reserved-words.json` holds neither, while Nova renames and gives an owner only to an operation's own case (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`)",
+		"subject": "case-property-names",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/an-update-key-with-an-index-segment-on-a-form-that-opens-its",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
@@ -3129,18 +3161,19 @@
 		"id": "forms-and-case-writes/update-keys-location-id-hq-user-id",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update keys `location_id`, `hq_user_id`, on the form's own case, a case above it (`parent/location_id`) or the worker's record (`usercase_update`), and the same keys of a child case's, an advanced load's or an advanced open action's `case_properties`, each from a question that is not an upload",
+		"item": "update keys `location_id`, `hq_user_id`, on the form's own case, a case above it (`parent/location_id`) or the worker's record (`usercase_update`), and the same keys of a child case's, an advanced load's or an advanced open action's `case_properties`, each from a question that is not an upload, and a SaveToCase block's `update/location_id` or `update/hq_user_id`, on any case",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.update",
 			"schema:OpenSubCaseAction.case_properties",
 			"schema:LoadUpdateAction.case_properties",
-			"schema:AdvancedOpenCaseAction.case_properties"
+			"schema:AdvancedOpenCaseAction.case_properties",
+			"xform:model/instance//*"
 		],
 		"valueClass": "location-id-hq-user-id-keys",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a write CommCare HQ stores elsewhere: `location_id` becomes the case's own column and `hq_user_id` is copied to its external id (`update_strategy.py::_apply_update_action`), whichever action wrote the key, since HQ's build writes every one of them as an element of the case block's `<update>` (`xform.py::XFormCaseBlock.add_case_updates`, called for a basic update, a case above, the worker's record, a child case, an advanced load and an open action); a key whose question is an upload names an `<attachment>` instead (`is_attachment`), which is the upload question's row (`update-from-an-upload-question-attachment-mode`)",
+		"dispositionCell": "**HELD-NEW**: a write CommCare HQ stores elsewhere: `location_id` becomes the case's own column and `hq_user_id` is copied to its external id (`update_strategy.py::_apply_update_action`), whichever action wrote the key, since HQ's build writes every one of them as an element of the case block's `<update>` (`xform.py::XFormCaseBlock.add_case_updates`, called for a basic update, a case above, the worker's record, a child case, an advanced load and an open action), and as HQ's form builder writes a SaveToCase block's (`saveToCase.js`, whose property names take no reserved words), which HQ's build checks no key of (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties` reads only the actions'); an action's key whose question is an upload names an `<attachment>` instead (`is_attachment`), which is the upload question's row (`update-from-an-upload-question-attachment-mode`)",
 		"subject": "case-property-names",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3155,6 +3188,36 @@
 		},
 		"emission": {
 			"cell": "the key",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "a write of the worker's record (`usercase_update`, an advanced load auto-selected by `usercase`, a SaveToCase block of `commcare-user`) to a key no worker property takes: one HQ's user-case sync keeps in step with the worker's profile (`case_name`, `name`, `owner_id`, `case_type`, `first_name`, `username`, `email`, …), or a name HQ's user data or Nova refuses for a worker property (`external_id`, `user_type`, a `commcare` or `xml` prefix, a case-reserved word in any capitalization such as `Status`, past 127 characters), other than `location_id` and `hq_user_id` (`update-keys-location-id-hq-user-id`) and a key HQ's build refuses",
+		"surfaceKeys": [
+			"schema:UpdateCaseAction.update",
+			"schema:LoadUpdateAction.case_properties",
+			"xform:model/instance//*"
+		],
+		"valueClass": "worker-record-key-no-worker-property",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: unrepresentable identity: not a worker property Nova can hold: Nova keeps a write of the worker's record only to a worker property the app declares (`validator/rules/caseOperations.ts::validateWorkerRecordProperty`), and no worker property takes this name: CommCare HQ's user data refuses `external_id`, `user_type`, `name`, `owner_id`, a name starting `commcare` or `xml` and a case-reserved word in any capitalization (`custom_data_fields/edit_model.py::validate_reserved_words`, `CustomDataFieldsForm.verify_no_reserved_words`), Nova a name past 127 characters or outside its slug grammar (`validator/userPropertySlug.ts`), and HQ's user-case sync writes the worker's profile over the case's name, owner, type, `first_name`, `username`, `email` and its other keys each time the worker changes (`callcenter/sync_usercase.py::_get_user_case_fields`, `USERCASE_BUILT_IN_KEYS`), finding the case by its external id (`get_case_by_external_id`); HQ's build writes the key as the update's (`xform.py::XForm._add_usercase`, `_create_casexml_advanced`, `XFormCaseBlock.add_case_updates`, which writes `name` as `case_name`) and HQ's form builder a block's (`saveToCase.js`), and HQ's server applies it (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`)",
+		"subject": "worker-record",
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "not a worker property Nova can hold: Nova keeps a write of the worker's record only to a worker property the app declares (`validator/rules/caseOperations.ts::validateWorkerRecordProperty`), and no worker property takes this name: CommCare HQ's user data refuses `external_id`, `user_type`, `name`, `owner_id`, a name starting `commcare` or `xml` and a case-reserved word in any capitalization (`custom_data_fields/edit_model.py::validate_reserved_words`, `CustomDataFieldsForm.verify_no_reserved_words`), Nova a name past 127 characters or outside its slug grammar (`validator/userPropertySlug.ts`), and HQ's user-case sync writes the worker's profile over the case's name, owner, type, `first_name`, `username`, `email` and its other keys each time the worker changes (`callcenter/sync_usercase.py::_get_user_case_fields`, `USERCASE_BUILT_IN_KEYS`), finding the case by its external id (`get_case_by_external_id`); HQ's build writes the key as the update's (`xform.py::XForm._add_usercase`, `_create_casexml_advanced`, `XFormCaseBlock.add_case_updates`, which writes `name` as `case_name`) and HQ's form builder a block's (`saveToCase.js`), and HQ's server applies it (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -5247,7 +5310,7 @@
 		],
 		"valueClass": "selection-writes",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the writes of a `caseOperations` change of the loaded case (the form's own case, or an update whose target is the case chosen in that menu), placement the load",
+		"dispositionCell": "**HELD**: the writes of a `caseOperations` change of the loaded case (the form's own case, or an update whose target is the case chosen in that menu), placement the load; on the form's own load with no `case_index`, a key whose index segments are each `parent` or `host` is the own case's write through `via`, as the basic own update's (`update-key-whose-index-segments-are-each-parent-or-host-parent-p`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -5295,6 +5358,33 @@
 		"emission": {
 			"cell": "—",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "`LoadUpdateAction.case_properties` key with `/`, on a load with no `case_index` other than the form's own (the first load of a chain, the worker's record's), or through an index segment other than `parent` and `host`",
+		"surfaceKeys": ["schema:LoadUpdateAction.case_properties"],
+		"valueClass": "index-key-on-another-load",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a write to the case an index of the loaded case reaches: HQ's build writes it into a block of that case, one `index/<segment>` a step from the load's own case (`xform.py::XForm._add_case_updates`, `get_case_parent_id_xpath`), and HQ's page refuses `/` only on a load chosen under another (`advanced/case_properties.js`, \"Parent property references not allowed for subcases\"), while Nova writes through an index only on the form's own case and only through `parent` or `host` (`CASE_WRITE_VIA_INVALID`)",
+		"subject": "form-case-management",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -7225,14 +7315,15 @@
 		"id": "forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "an update key or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type (an advanced form's preload on a load other than its own that the read of its case type does not reach: a later load of the chain is chosen through an index other than the one the read walks, the one name the app's child links between the two types use or `parent` where none or several do, or the catalog places the load's type at another depth, as where a load nearer the form's own has that type)",
+		"item": "an update key, the form's own advanced load's `case_properties` key, or a preload through `parent/` or `host/` where no child link and no parent selection of the app says which case type the index reaches, where two say different types, or, for a preload, where two cases of the chain share one type (an advanced form's preload on a load other than its own that the read of its case type does not reach: a later load of the chain is chosen through an index other than the one the read walks, the one name the app's child links between the two types use or `parent` where none or several do, or the catalog places the load's type at another depth, as where a load nearer the form's own has that type)",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.update",
 			"schema:FormActions.case_preload",
 			"schema:PreloadAction.preload",
-			"schema:LoadUpdateAction.preload"
+			"schema:LoadUpdateAction.preload",
+			"schema:LoadUpdateAction.case_properties"
 		],
 		"valueClass": "ancestor-type-unknown",
 		"disposition": "HELD-NEW",

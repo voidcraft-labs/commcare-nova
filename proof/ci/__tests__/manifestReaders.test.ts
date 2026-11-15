@@ -24,8 +24,15 @@ import { execFile } from "node:child_process";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
+import { RESERVED_CASE_PROPERTIES } from "@/lib/commcare/constants";
 import { loadManifest } from "@/lib/commcare/surface/__tests__/loadManifest";
 import type { InventoryEntry } from "@/lib/commcare/surface/schema";
+import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
+import {
+	USER_DATA_RESERVED_PREFIXES,
+	USER_DATA_SYSTEM_FIELDS,
+} from "@/lib/domain/users";
 
 const run = promisify(execFile);
 const WORKTREE = resolve(import.meta.dirname, "..", "..", "..");
@@ -134,4 +141,50 @@ it("names an entry by its id when its refused class has no reader, and not one t
 			gaps,
 		),
 	).toEqual([]);
+});
+
+// The lane reads a SaveToCase block's update row as Nova's reserved-key class by a list of its own
+// (proof/checks/manifest_value_classes.py::SAVE_TO_CASE_RESERVED_UPDATE_KEYS), since the lane imports nothing of
+// Nova's. The plausible failure held here: a name the gate comes to reserve, or stops reserving, that the lane's
+// list does not follow, so the lane holds an export's row the reader refuses, or refuses one it reads.
+it("reads a SaveToCase block's reserved update keys as the commit gate reserves them", async () => {
+	const lane = await pythonNames(
+		"manifest_value_classes.py",
+		"SAVE_TO_CASE_RESERVED_UPDATE_KEYS",
+	);
+	// The block's own rows (a retype, a rename, the owner) and the two keys
+	// `update-keys-location-id-hq-user-id` holds are read apart.
+	const apart = new Set([
+		"case_type",
+		"case_name",
+		"owner_id",
+		"location_id",
+		"hq_user_id",
+	]);
+	expect([...lane].sort()).toEqual(
+		[...FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES]
+			.filter((name) => !apart.has(name))
+			.sort(),
+	);
+});
+
+// The lane reads a write of the worker's record to a key no worker property takes by lists of its own
+// (proof/checks/manifest_value_classes.py::_no_worker_property), as the reader asks
+// lib/commcare/reader/worldEntities.ts::holdsWorkerRecordWrite. The plausible failure held here: a key Nova comes to
+// keep in step with the worker's profile, or a name the worker-property rules come to refuse, that the lane's lists
+// do not follow, so the lane holds an export's write the reader refuses, or refuses one it reads.
+it("reads the keys the worker's record takes no write to as Nova's worker-property rules refuse them", async () => {
+	const [builtIn, system, prefixes, reserved] = await Promise.all(
+		[
+			"USERCASE_BUILT_IN_KEYS",
+			"USER_DATA_SYSTEM_FIELDS",
+			"USER_DATA_RESERVED_PREFIXES",
+			"RESERVED_CASE_PROPERTIES",
+		].map((name) => pythonNames("manifest_value_classes.py", name)),
+	);
+	const sorted = (names: Iterable<string>) => [...names].sort();
+	expect(sorted(builtIn ?? [])).toEqual(sorted(USERCASE_BUILT_IN_KEYS));
+	expect(sorted(system ?? [])).toEqual(sorted(USER_DATA_SYSTEM_FIELDS));
+	expect(sorted(prefixes ?? [])).toEqual(sorted(USER_DATA_RESERVED_PREFIXES));
+	expect(sorted(reserved ?? [])).toEqual(sorted(RESERVED_CASE_PROPERTIES));
 });

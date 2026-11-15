@@ -24,6 +24,7 @@ import {
 	caseSelectionCardinality,
 	type Expression,
 	isCaseOperationIdentifier,
+	isCaseOperationProperty,
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	ownCaseOperationId,
@@ -37,8 +38,10 @@ import {
 } from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { planFormCaseWire } from "../../casePlacementPlan";
+import { MAX_CASE_PROPERTY_LENGTH } from "../../constants";
 import { expandDoc } from "../../expander";
 import { sessionDataRef } from "../../formLinkProjection";
 import { isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
@@ -83,6 +86,7 @@ import { caseReferencesOf } from "../structure";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReadMenuAndFormIdentities } from "../types";
+import { holdsWorkerRecordWrite } from "../worldEntities";
 import {
 	type DraftField,
 	expressionEnvOf,
@@ -98,6 +102,7 @@ import {
 import {
 	basicCaseReading,
 	dropCreateNameRequired,
+	isServerDivertedKey,
 	nameBasicOperationsPast,
 } from "./basicActions";
 import {
@@ -157,6 +162,18 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	reservedType: refuse(
 		`${Q}/savetocase-create-close-or-link-of-commcare-user-or-type-user`,
 		"vellum-markup:model/instance//*@vellum:case_type",
+	),
+	locationKey: refuse(
+		`${F}/update-keys-location-id-hq-user-id`,
+		"xform:model/instance//*",
+	),
+	reservedKey: refuse(
+		`${Q}/savetocase-update-key-nova-reserves-for-a-case-s-own-facts`,
+		"xform:model/instance//*",
+	),
+	workerKey: refuse(
+		`${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`,
+		"xform:model/instance//*",
 	),
 
 	create: take(
@@ -907,6 +924,58 @@ function rowCondition(
 	return conjunction(relevant, rest);
 }
 
+/**
+ * Why a block's `update/<property>` row is a write Nova holds nowhere, read
+ * where the row is read so a reading holds no write the commit gate refuses
+ * (`validator/rules/caseOperations.ts`). HQ's form builder takes any
+ * name its grammar admits (`saveToCase.js::validatePropertyNameChars`), HQ's
+ * build checks no block's keys (`IndexedFormBaseValidator.check_case_properties`
+ * reads only the actions'), and HQ's server applies the block's `<update>` as
+ * any other (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`):
+ *
+ * - `location_id` and `hq_user_id` it stores apart from the case's properties
+ *   (`basicActions.ts::isServerDivertedKey`): `locationKey`, on any case, the
+ *   worker's record included;
+ * - on the worker's record, whose writes the gate holds to a worker property
+ *   the reading declares (`validateWorkerRecordProperty`), every other name
+ *   but one (`worldEntities.ts::holdsWorkerRecordWrite`): a key HQ's user-case
+ *   sync writes over (`USERCASE_BUILT_IN_KEYS`), the block's own `case_type`,
+ *   `case_name` and `owner_id` rows among them (the sync writes the case's
+ *   type, name and owner, `callcenter/sync_usercase.py::_get_user_case_fields`,
+ *   and the gate gives the worker's record no retype, rename or owner), or a
+ *   name no worker property takes (`validator/userPropertySlug.ts`):
+ *   `workerKey`;
+ * - on any other case, the block's own facets are none: `case_type` (a
+ *   retype) is read before this, and `case_name` (a rename) and `owner_id`
+ *   (the owner) after it;
+ * - every other name the gate reserves for an operation's write
+ *   (`FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`: `name`, which HQ reads as
+ *   the case's name, `date_opened`, `user_id`, `status`, `closed`, …) is a
+ *   fact of the case or a word CommCare HQ reserves: `reservedKey`;
+ * - a name outside the operation's property grammar or past its length,
+ *   which HQ's form builder marks as an error and Nova's emitter never
+ *   writes, is a block outside Nova's own shape (`"outside"`).
+ */
+function refusedRowKey(
+	property: string,
+	workerRecord: boolean,
+): Claim<"refuse"> | "outside" | undefined {
+	if (isServerDivertedKey(property)) return SAVE_TO_CASE_CLAIMS.locationKey;
+	if (workerRecord)
+		return holdsWorkerRecordWrite(property)
+			? undefined
+			: SAVE_TO_CASE_CLAIMS.workerKey;
+	if (property === "case_name" || property === "owner_id") return undefined;
+	if (FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(property))
+		return SAVE_TO_CASE_CLAIMS.reservedKey;
+	if (
+		!isCaseOperationProperty(property) ||
+		property.length > MAX_CASE_PROPERTY_LENGTH
+	)
+		return "outside";
+	return undefined;
+}
+
 /** Reads one block's content into its proposal, or the finding it is. */
 function readBlock(
 	ctx: ReadContext,
@@ -1106,6 +1175,8 @@ function readBlock(
 			const bind = bindAt(key);
 			const text = bind?.attribs.calculate;
 			if (bind === undefined || text === undefined) return { ok: false };
+			if (property === "case_type" && target.kind === "worker-record")
+				return fail(SAVE_TO_CASE_CLAIMS.workerKey, { name: property });
 			if (property === "case_type") {
 				const literal = literalOf(text);
 				if (literal === undefined)
@@ -1114,6 +1185,9 @@ function readBlock(
 				else if (rows.length > 1) retype = literal;
 				continue;
 			}
+			const keyClaim = refusedRowKey(property, target.kind === "worker-record");
+			if (keyClaim === "outside") return { ok: false };
+			if (keyClaim !== undefined) return fail(keyClaim, { name: property });
 			const rowPath = [...casePath, "update", property];
 			if (sharedShape) {
 				const split = presenceSplit(bind.attribs.relevant, text);
@@ -2220,18 +2294,45 @@ function claimAccepted(
 	// The wrappers, the nodes of the region that stand beside the blocks (a
 	// keyed create's count, a clock read, a selected-cases query node), and
 	// the controls that name them.
-	const failedUnder = (node: DataNode) =>
-		reading.failed.some((one) => one.block.wrappers.includes(node));
 	for (const node of xform.caseRegion) {
 		if (node.role === "SaveToCase" || isInsideBlock(node)) continue;
 		const role = xform.roles.get(node);
 		const container = role?.kind === "case-region" ? role.container : undefined;
+		// A group no read block stands in (an operations, children's or
+		// condition group, which carries no iteration of its own) is part of
+		// the finding of the first block that does, as that block's guards are:
+		// the reading holds none of what it wraps. A repeat of Nova's (a keyed
+		// create's, the selected cases') no read block stands in stays
+		// unclaimed with the iteration it carries.
+		const failedIn =
+			wrappers.has(node) ||
+			(container !== "operations" &&
+				container !== "subcases" &&
+				container !== "condition")
+				? undefined
+				: reading.failed.find((one) => one.block.wrappers.includes(node));
+		if (failedIn !== undefined) {
+			const { claim, place, detail } = failedIn;
+			xform.cursor.refuse({ element: node.element }, claim, place, detail);
+			for (const attribute of Object.keys(node.element.attribs))
+				if (!attribute.startsWith("xmlns"))
+					xform.cursor.refuse(
+						{ element: node.element, attribute },
+						claim,
+						place,
+						detail,
+					);
+			const bind = xform.binds.get(node);
+			if (bind?.logic.relevant !== undefined)
+				xform.cursor.refuse(
+					{ element: bind.element, attribute: "relevant" },
+					claim,
+					place,
+					detail,
+				);
+			continue;
+		}
 		if (wrappers.has(node)) {
-			if (
-				failedUnder(node) &&
-				![...wrappers].some((one) => one === node && !failedUnder(one))
-			)
-				continue;
 			const claim =
 				container === "condition"
 					? SAVE_TO_CASE_CLAIMS.conditionGroup

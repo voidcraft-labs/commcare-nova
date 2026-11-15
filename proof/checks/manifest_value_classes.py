@@ -5206,6 +5206,215 @@ def attachment_in_save_to_case(use, manifest):
     return held is not None and held[0] == "save-to-case" and held[1] is not element
 
 
+# The names a SaveToCase block's ``update`` row may hold that Nova reserves for a case's own facts or as a word in
+# ``case-reserved-words.json`` (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``,
+# less the block's own rows ``case_type``, ``case_name`` and ``owner_id`` and the two
+# ``update-keys-location-id-hq-user-id`` holds); ``proof/ci/__tests__/manifestReaders.test.ts`` holds it to that set.
+SAVE_TO_CASE_RESERVED_UPDATE_KEYS = frozenset(
+    {
+        "actions",
+        "case_id",
+        "case_type_id",
+        "closed",
+        "closed_by",
+        "closed_on",
+        "commtrack",
+        "computed_",
+        "computed_modified_on_",
+        "create",
+        "date",
+        "date_modified",
+        "date_opened",
+        "doc_type",
+        "domain",
+        "index",
+        "indices",
+        "initial_processing_complete",
+        "last_modified",
+        "modified_by",
+        "modified_on",
+        "name",
+        "opened_by",
+        "opened_on",
+        "parent",
+        "referrals",
+        "server_modified_on",
+        "server_opened_on",
+        "status",
+        "type",
+        "user_id",
+        "userid",
+        "version",
+        "xform_id",
+        "xform_ids",
+    }
+)
+
+
+def reserved_save_to_case_key(use, manifest):
+    """``questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts``: a row of a SaveToCase node's own
+    ``case/update`` whose name is one Nova reserves (``SAVE_TO_CASE_RESERVED_UPDATE_KEYS``), which HQ's form builder
+    writes (``saveToCase.js::validatePropertyNameChars`` checks no reserved word) and HQ's build checks no key of."""
+    form, element = _data_node(use)
+    if form is None:
+        return None
+    if element is None or _local(element) not in SAVE_TO_CASE_RESERVED_UPDATE_KEYS:
+        return False
+    update = element.getparent()
+    case = update.getparent() if update is not None else None
+    if update is None or update.tag != f"{{{CASE}}}update" or case is None or case.tag != f"{{{CASE}}}case":
+        return False
+    held = form.holder(element)
+    return (
+        held is not None
+        and held[0] == "save-to-case"
+        and case.getparent() is held[1]
+        and held[1].get(f"{{{VELLUM}}}case_type") != "commcare-user"  # the worker's record's class
+    )
+
+
+# The keys of the worker's own case CommCare HQ's user-case sync writes from the worker's profile
+# (``callcenter/sync_usercase.py::_get_user_case_fields``; ``lib/domain/usercase.ts::USERCASE_BUILT_IN_KEYS``).
+USERCASE_BUILT_IN_KEYS = frozenset(
+    {
+        "case_name",
+        "username",
+        "email",
+        "first_name",
+        "last_name",
+        "hq_user_id",
+        "language",
+        "phone_number",
+        "last_device_id_used",
+        "commcare_profile",
+        "commcare_location_id",
+        "commcare_location_ids",
+        "commcare_primary_case_sharing_id",
+        "commcare_project",
+    }
+)
+# The names HQ's user data refuses for a field (``custom_data_fields/models.py::SYSTEM_FIELDS``;
+# ``lib/domain/users.ts::USER_DATA_SYSTEM_FIELDS``) and the prefixes it refuses (``USER_DATA_RESERVED_PREFIXES``).
+USER_DATA_SYSTEM_FIELDS = frozenset(
+    {"commtrack-supply-point", "name", "type", "owner_id", "external_id", "hq_user_id", "user_type"}
+)
+USER_DATA_RESERVED_PREFIXES = frozenset({"commcare", "xml"})
+# ``case-reserved-words.json`` with ``owner_id`` (``lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES``), which HQ's
+# user data also refuses (``CustomDataFieldsForm.verify_no_reserved_words``).
+RESERVED_CASE_PROPERTIES = frozenset(
+    {
+        "actions",
+        "case_id",
+        "case_name",
+        "case_type",
+        "case_type_id",
+        "closed",
+        "closed_by",
+        "closed_on",
+        "commtrack",
+        "create",
+        "computed_",
+        "computed_modified_on_",
+        "date",
+        "date_modified",
+        "date_opened",
+        "doc_type",
+        "domain",
+        "index",
+        "indices",
+        "initial_processing_complete",
+        "last_modified",
+        "modified_by",
+        "modified_on",
+        "opened_by",
+        "opened_on",
+        "owner_id",
+        "parent",
+        "referrals",
+        "server_modified_on",
+        "server_opened_on",
+        "status",
+        "type",
+        "user_id",
+        "userid",
+        "version",
+        "xform_id",
+        "xform_ids",
+    }
+)
+# A worker property's slug (``lib/domain/users.ts::USER_PROPERTY_SLUG_PATTERN``, at most 127 characters), matched whole.
+WORKER_PROPERTY_SLUG = re.compile(r"[a-zA-Z_][-a-zA-Z0-9_]{0,126}")
+# HQ's property grammar on an action's key (``helpers/validators.py::validate_property``; ``basicActions.ts::HQ_PROPERTY``).
+HQ_PROPERTY = re.compile(r"[a-zA-Z][\w-]*\n?")
+
+
+def _no_worker_property(key):
+    """Whether the worker's record takes no write to ``key`` (``lib/commcare/reader/worldEntities.ts::
+    holdsWorkerRecordWrite``): a key HQ's user-case sync writes over, or a name no worker property takes. The two
+    keys HQ's server stores apart are ``update-keys-location-id-hq-user-id``'s."""
+    if key in ("location_id", "hq_user_id"):
+        return False
+    lowered = key.lower()
+    return (
+        key in USERCASE_BUILT_IN_KEYS
+        or WORKER_PROPERTY_SLUG.fullmatch(key) is None
+        or lowered in USER_DATA_SYSTEM_FIELDS
+        or lowered in RESERVED_CASE_PROPERTIES
+        or any(lowered.startswith(prefix) for prefix in USER_DATA_RESERVED_PREFIXES)
+    )
+
+
+def _hq_build_refuses_key(key):
+    """Whether HQ's build refuses an action's key: outside its grammar, or a word of ``case-reserved-words.json``
+    (``update-key-failing-hq-s-grammar-or-in-case-reserved-words-json``, the bar's). ``name`` and ``owner_id`` it
+    writes as the case's name and owner."""
+    if key in ("name", "owner_id"):
+        return False
+    reserved = key in RESERVED_CASE_PROPERTIES or key in ("date-opened", "external-id")
+    return reserved or HQ_PROPERTY.fullmatch(key) is None
+
+
+def worker_record_key(use, manifest):
+    """``forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes``: a key of an active
+    ``usercase_update``'s ``update``, or of a load auto-selected by ``usercase``'s ``case_properties``, that HQ's
+    build writes and no worker property takes (``_no_worker_property``), and a row of a ``commcare-user`` SaveToCase
+    node's own ``case/update`` whose name no worker property takes, its ``case_type`` row included (HQ's build
+    checks no block's keys)."""
+    at = _json(use)
+    if at is not None:
+        form = at.nearest(*FORMS)
+        if form is None:
+            return None
+        action = at.nearest("UpdateCaseAction", "LoadUpdateAction")
+        if action is None:
+            return False
+        if action is _actions(form).get("usercase_update"):
+            keys = action.get("update") if _active(action) else None
+        elif _auto_selected(action) and action["auto_select"].get("mode") == "usercase":
+            keys = action.get("case_properties")
+        else:
+            return False
+        return any(
+            "/" not in key and not _hq_build_refuses_key(key) and _no_worker_property(key) for key in (keys or {})
+        )
+    form, element = _data_node(use)
+    if form is None:
+        return None
+    if element is None:
+        return False
+    update = element.getparent()
+    case = update.getparent() if update is not None else None
+    if update is None or update.tag != f"{{{CASE}}}update" or case is None or case.tag != f"{{{CASE}}}case":
+        return False
+    held = form.holder(element)
+    if held is None or held[0] != "save-to-case" or case.getparent() is not held[1]:
+        return False
+    if held[1].get(f"{{{VELLUM}}}case_type") != "commcare-user":
+        return False
+    name = _local(element)
+    return name == "case_type" or _no_worker_property(name)
+
+
 def authored_meta_block(use, manifest):
     """``questions/authored-data-meta-block``: a child of the data root named ``meta`` in any case, in a source form
     (HQ's build replaces it with its own, ``xform.py::XForm._add_meta_2``)."""
@@ -7185,6 +7394,7 @@ VALUE_CLASSES = {
     "questions/default-data-value-datavalue-instance-text": default_data_value,
     "questions/hand-written-case-block-without-vellum-role-incl-a-root-data": hand_written_case_block,
     "questions/attachment-inside-a-savetocase-block": attachment_in_save_to_case,
+    "questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts": reserved_save_to_case_key,
     "questions/authored-data-meta-block": authored_meta_block,
     "questions/a-root-question-commcare-usercase-in-a-form-with-usercase": usercase_root_question,
     "questions/choice-value-with-whitespace-empty-or-duplicated": choice_value_refused_by_vellum,
@@ -7256,6 +7466,7 @@ VALUE_CLASSES = {
         tag_names_other_than_previous_load
     ),
     "forms-and-case-writes/advancedopencaseaction-case-properties-key-with-parent-p": open_action_slash_key,
+    "forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes": worker_record_key,
     "forms-and-case-writes/two-or-more-open-actions-whose-repeat-context-is-one-repeat": shared_block_in_repeat,
     "forms-and-case-writes/advancedopencaseaction-repeat-context-other-than-the-name": (
         open_action_not_name_question_repeat

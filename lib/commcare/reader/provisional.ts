@@ -34,6 +34,7 @@ import {
 import { inventoryIndex } from "../surface/inventory";
 import type { ClaimSite } from "./accounting";
 import { withCandidate } from "./candidate";
+import { workerRecordWriteSlugs } from "./caseManagement";
 import type { ReadContext } from "./context";
 import { readerDefect } from "./defects";
 import {
@@ -527,6 +528,49 @@ export function settleDeferredRefusals(ctx: ReadContext): void {
 		settleDeferredRefusal(ctx, index);
 }
 
+/** One claim of an expression reading, applied to the node `at` its registration was read from. */
+export function applyExpressionClaim(
+	ctx: ReadContext,
+	claim: ExpressionReading["claims"][number],
+	at: ClaimSite,
+): void {
+	ctx.accounting.claimEntry(
+		at,
+		claim.entryId,
+		claim.key,
+		claim.place,
+		claim.detail,
+	);
+}
+
+/** One `unrecognized` row of an expression reading: the finding, the defect that says the reader
+ *  could not write the slot back, and, where the row's registration was read from a node `at`,
+ *  that node covered by the finding. */
+export function applyExpressionCircumstance(
+	ctx: ReadContext,
+	row: ExpressionReading["circumstances"][number],
+	at: ClaimSite | undefined,
+): void {
+	const detail = { name: row.detail.name };
+	ctx.accounting.circumstance("unrecognized", row.place, detail);
+	ctx.accounting.defect(
+		row.place,
+		row.detail.name,
+		readerDefect.expressionNotWrittenBack(row.place, row.detail.reason),
+	);
+	if (row.detail.reason === "no-case-datum")
+		ctx.accounting.defect(
+			row.place,
+			row.detail.name,
+			readerDefect.noCaseDatum(row.place),
+		);
+	if (at !== undefined)
+		ctx.accounting.cover(
+			at,
+			circumstanceFinding("unrecognized", row.place, detail),
+		);
+}
+
 /**
  * Applies the expression stage's answer: the bound document becomes `ctx.doc`, each held tree and
  * the level it was held at become its registration's outcome, each claim is applied to the node its
@@ -559,37 +603,18 @@ export function applyExpressionReading(
 	for (const claim of reading.claims) {
 		if (claim.source < 0) continue;
 		apply(claim.source, () =>
-			ctx.accounting.claimEntry(
-				ctx.pending.site(claim.source).at,
-				claim.entryId,
-				claim.key,
-				claim.place,
-				claim.detail,
-			),
+			applyExpressionClaim(ctx, claim, ctx.pending.site(claim.source).at),
 		);
 	}
 	claimDeclarations(ctx, reading);
 	for (const row of reading.circumstances)
-		apply(row.source, () => {
-			const detail = { name: row.detail.name };
-			ctx.accounting.circumstance("unrecognized", row.place, detail);
-			ctx.accounting.defect(
-				row.place,
-				row.detail.name,
-				readerDefect.expressionNotWrittenBack(row.place, row.detail.reason),
-			);
-			if (row.detail.reason === "no-case-datum")
-				ctx.accounting.defect(
-					row.place,
-					row.detail.name,
-					readerDefect.noCaseDatum(row.place),
-				);
-			if (row.source >= 0)
-				ctx.accounting.cover(
-					ctx.pending.site(row.source).at,
-					circumstanceFinding("unrecognized", row.place, detail),
-				);
-		});
+		apply(row.source, () =>
+			applyExpressionCircumstance(
+				ctx,
+				row,
+				row.source >= 0 ? ctx.pending.site(row.source).at : undefined,
+			),
+		);
 	DEFERRED.set(ctx, deferred);
 	for (const at of reading.ownerless) {
 		const registration = pending[at];
@@ -621,7 +646,9 @@ export function applyExpressionReading(
  * Stage 7: every pending expression bound against the provisional document. The first run of
  * the expression reader is kept only for what it learns the app reads of the worker and of
  * places, which the drafts then hold, together with the worker properties the searches' filter
- * rows read, which the search stage names (`searchRowUserFields`); the second, over the
+ * rows read, which the search stage names (`searchRowUserFields`), and the worker properties
+ * the writes of the worker's record save to (`caseManagement/index.ts::workerRecordWriteSlugs`),
+ * which the gate holds to a declared one; the second, over the
  * document that holds them, is the reading, and the one applied.
  */
 export function bindExpressions(ctx: ReadContext): void {
@@ -631,7 +658,11 @@ export function bindExpressions(ctx: ReadContext): void {
 	const world = worldEntitiesFromReads(
 		{
 			...first.worldReads,
-			userFields: [...first.worldReads.userFields, ...searchRowUserFields(ctx)],
+			userFields: [
+				...first.worldReads.userFields,
+				...searchRowUserFields(ctx),
+				...workerRecordWriteSlugs(ctx),
+			],
 		},
 		ctx.resolver,
 	);

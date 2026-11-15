@@ -8,6 +8,10 @@
 // one source.
 
 import {
+	caseOperationDependencyUuids,
+	caseOperationMultiplicityScopes,
+} from "@/lib/doc/caseOperationOrder";
+import {
 	type BlueprintDoc,
 	type CaseOperation,
 	isCaseOperationIdentifier,
@@ -20,8 +24,140 @@ import { planFormCaseWire } from "../../casePlacementPlan";
 import { appPlacements, planBasicSubcases } from "../../placement";
 import { generatedBaseName } from "../../xform/generatedNodes";
 import { withCandidate } from "../candidate";
+import { defineClaims, refuse } from "../claims";
 
 const OWNER_NODE_PREFIX = generatedBaseName("owner", "");
+
+export const ORDER_CLAIMS = defineClaims("caseManagement.operationOrder", {
+	/** A form whose changes stand in no order the gate admits once the
+	 *  reading's own is applied (`index.ts::settleOperationOrder`). */
+	noOrder: refuse(
+		"questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes",
+		"mug:SaveToCase",
+	),
+});
+
+/** Whether `one` is a create keyed by an answer, which the gate's wire-order
+ *  rule holds before every change that is no create. */
+function keyedCreate(one: CaseOperation): boolean {
+	return (
+		one.action === "create" &&
+		one.target.kind === "new" &&
+		one.target.idFrom !== undefined
+	);
+}
+
+/** Whether the gate's wire-order rule admits `operations`' sequence
+ *  (`lib/doc/caseOperationOrder.ts::caseOperationWireOrderViolationDetails`,
+ *  less its alias rule, which no order changes): every change after the own
+ *  arm in a scope no earlier than the one before it, a change whose scope is
+ *  unranked compared with none as there, and no keyed create after a change
+ *  that is no create. */
+function admitsWireOrder(
+	operations: readonly CaseOperation[],
+	scopeRank: ReadonlyMap<Uuid | undefined, number>,
+): boolean {
+	let furthest = -1;
+	let sawNonCreate = false;
+	for (const one of operations) {
+		if (one.action === "own") continue;
+		const at = scopeRank.get(one.forEach?.repeat);
+		if (at !== undefined) {
+			if (at < furthest) return false;
+			furthest = at;
+		}
+		if (keyedCreate(one) && sawNonCreate) return false;
+		if (one.action !== "create") sawNonCreate = true;
+	}
+	return true;
+}
+
+/**
+ * `operations` in an order the commit gate's wire-order rule admits
+ * (`lib/doc/caseOperationOrder.ts::caseOperationWireOrderViolationDetails`),
+ * where moving changes within what prints one source finds one:
+ *
+ * - `operations` itself where the gate admits it (`admitsWireOrder`);
+ * - else the own arm first, then the same changes stably sorted by scope
+ *   (`scopeRank`, the form's multiplicity scopes, root first and then its
+ *   repeats in post-order; a change whose scope is unranked keeps the rank of
+ *   the change before it, which the gate compares with none);
+ * - and where a keyed create then still follows a change that is no create
+ *   in its own scope, each such create, with every create of that scope it
+ *   reads (`caseOperationDependencyUuids`, transitively) that stood after the
+ *   scope's first change that is no create, moved to just before that change,
+ *   each group keeping its order.
+ *
+ * HQ's form actions list a form's changes in their own order (a child in a
+ * repeat before the worker's record; `load_update_cases` before
+ * `open_cases`), which names no such sequence, while each change's place on
+ * the wire is its placement's and not its position, so every such order
+ * prints one source and the reading holds the one the gate admits. No change
+ * that is no create moves past a create it reads, and no create past one it
+ * reads. Where no move finds an order the gate admits (a keyed create in a
+ * repeat beside a change at the root, or a keyed create a later change in its
+ * repeat row may alias), the order returned is the gate's to refuse, and the
+ * reading's settle refuses it (`index.ts::settleOperationOrder`). The reading
+ * (`index.ts::writeCaseOperations`) and the canonical row
+ * (`caseManagementOperationsAsRead`) both apply it.
+ */
+export function inWireScopeOrder<T extends CaseOperation>(
+	operations: readonly T[],
+	scopeRank: ReadonlyMap<Uuid | undefined, number>,
+): readonly T[] {
+	if (admitsWireOrder(operations, scopeRank)) return operations;
+	let carried = 0;
+	const ranked = operations
+		.filter((one) => one.action !== "own")
+		.map((one, index) => {
+			const at = scopeRank.get(one.forEach?.repeat);
+			if (at !== undefined) carried = at;
+			return { one, index, rank: carried };
+		})
+		.sort((a, b) => a.rank - b.rank || a.index - b.index);
+	const out: T[] = operations.filter((one) => one.action === "own");
+	for (let at = 0; at < ranked.length; ) {
+		const rank = ranked[at]?.rank;
+		let end = at;
+		while (end < ranked.length && ranked[end]?.rank === rank) end += 1;
+		out.push(...hoistKeyedCreates(ranked.slice(at, end).map(({ one }) => one)));
+		at = end;
+	}
+	return sameOrder(out, operations) ? operations : out;
+}
+
+/** One scope's changes with each keyed create after the scope's first change
+ *  that is no create, and every create after that change it reads, moved to
+ *  just before that change (`inWireScopeOrder`). */
+function hoistKeyedCreates<T extends CaseOperation>(scope: readonly T[]): T[] {
+	const first = scope.findIndex((one) => one.action !== "create");
+	if (first < 0) return [...scope];
+	const after = scope.slice(first);
+	const byUuid = new Map(after.map((one) => [one.uuid, one]));
+	const moved = new Set<Uuid>();
+	const take = (one: T) => {
+		if (moved.has(one.uuid)) return;
+		moved.add(one.uuid);
+		for (const uuid of caseOperationDependencyUuids(one)) {
+			const read = byUuid.get(uuid);
+			if (read?.action === "create") take(read);
+		}
+	};
+	for (const one of after) if (keyedCreate(one)) take(one);
+	if (moved.size === 0) return [...scope];
+	return [
+		...scope.slice(0, first),
+		...after.filter((one) => moved.has(one.uuid)),
+		...after.filter((one) => !moved.has(one.uuid)),
+	];
+}
+
+function sameOrder(
+	a: readonly CaseOperation[],
+	b: readonly CaseOperation[],
+): boolean {
+	return a.length === b.length && a.every((one, i) => one === b[i]);
+}
 
 /** One form's operations in the reading's order, with the ids it renames. */
 interface FormAsRead {
@@ -40,7 +176,9 @@ interface FormAsRead {
  *   `load_update_cases` order (its update, then its close), the creates in
  *   `open_cases` order each with the close that shares its place, then the
  *   worker's record;
- * - then every other operation, Save to Case's, in the order it holds.
+ * - then every other operation, Save to Case's, in the order it holds;
+ * - and the whole in the order the gate admits where that one is not
+ *   (`inWireScopeOrder`).
  *
  * An advanced operation's id is named in the order the reading meets the
  * actions (each load in list order, then each open action): the name its
@@ -198,11 +336,16 @@ export function caseManagementOperationsAsRead(
 						: rest.length;
 			rest.splice(at, 0, child);
 		}
-		const order = [
-			...(own === undefined ? [] : [own.uuid]),
-			...managed.map((one) => one.uuid),
-			...rest.map((one) => one.uuid),
-		];
+		const scopeRank = new Map(
+			caseOperationMultiplicityScopes(doc, formUuid).map((scope, index) => [
+				scope,
+				index,
+			]),
+		);
+		const order = inWireScopeOrder(
+			[...(own === undefined ? [] : [own]), ...managed, ...rest],
+			scopeRank,
+		).map((one) => one.uuid);
 		const reordered = order.some((uuid, i) => operations[i]?.uuid !== uuid);
 		const renamed = [...ids].some(([uuid, id]) => byUuid.get(uuid)?.id !== id);
 		if (reordered || renamed) changes.set(formUuid, { order, ids });

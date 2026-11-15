@@ -95,7 +95,16 @@ function isPythonBlank(value: string): boolean {
 	return true;
 }
 
-/** Serialize a value exactly as Core's `LocalizationUtils` reads it. */
+/**
+ * A text Nova writes into a local archive's `app_strings.txt`, spelled byte
+ * for byte as HQ's build spells the same text (`hqLocaleFileValue`), so a
+ * worker reads the same string from Nova's archive as from HQ's build: a
+ * `#` a backslash precedes stays as it is, which Core then reads as `#`
+ * (`LocalizationUtils.parseValue`), and a text Python reads as blank is one
+ * non-breaking space, which keeps the key in the table where Core drops a
+ * bare `key=` line. A text Nova's gate refuses (`localeFileValueIssue`) is a
+ * broken invariant here and throws.
+ */
 export function serializeLocaleFileValue(
 	localeId: string,
 	value: string,
@@ -104,8 +113,5 @@ export function serializeLocaleFileValue(
 	if (issue !== undefined) {
 		throw new Error(`App string ${JSON.stringify(localeId)} ${issue}.`);
 	}
-	// HQ uses a non-breaking space to keep an intentionally blank locale id in
-	// the table; Core discards a bare `key=` line entirely.
-	if (value.trim() === "") return "\u00a0";
-	return value.replaceAll("#", "\\#").replaceAll("\n", "\\n");
+	return hqLocaleFileValue(value);
 }

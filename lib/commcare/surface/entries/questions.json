@@ -3138,6 +3138,33 @@
 		"gates": []
 	},
 	{
+		"id": "questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a SaveToCase create whose case id an answer keys (`nova-case-v1:`), in a form whose case changes stand in no order Nova holds beside it: a change that is no create runs before it in every order Nova writes (a root change, HQ's `usercase_update` or a load's update included, beside a keyed create in a repeat), or a later change under one repeat row may be of its case",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "keyed-create-in-no-order-nova-holds",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a keyed create beside a change Nova cannot prove is of another case: CommCare HQ's server applies one form's changes to one case by kind, its create first (`form_processor/backends/sql/update_strategy.py::_transaction_sort_key_function`, `CaseTransaction.FORM_TYPE_ACTIONS_ORDER`), while a device applies the form's case blocks in document order (`CaseXmlParser`), and a case id read from an answer may name a case an earlier submission made, so Nova holds such a create only before every change that is no create and, in a repeat, apart from every later change under one row of a case it may be (`lib/doc/caseOperationOrder.ts::caseOperationWireOrderViolationDetails`, `CASE_OPERATION_EXECUTION_ORDER`); every order Nova can write keeps the root's changes before a repeat's (Core runs the root's `nova_operations` first), so HQ's form actions (`usercase_update`, a load's update, a child's close) or a block at the root beside a keyed create in a repeat leave no order Nova holds",
+		"subject": "form-case-management",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath",
 		"area": "questions",
 		"section": "Question types",
@@ -3271,6 +3298,32 @@
 		},
 		"emission": {
 			"cell": "verbatim",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a SaveToCase block's `update/<key>` whose key Nova reserves for a case's own facts or as a word in `case-reserved-words.json` (`name`, `date_opened`, `user_id`, `status`, `closed`, …), other than the block's own `case_type`, `case_name` and `owner_id` rows (a retype, a rename and the owner) and `location_id` and `hq_user_id` (`update-keys-location-id-hq-user-id`), in a block of a case other than the worker's record (`a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`)",
+		"surfaceKeys": ["xform:model/instance//*"],
+		"valueClass": "savetocase-reserved-update-key",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: unrepresentable identity: Nova reserves the name for a case's own facts or as one of CommCare HQ's reserved words (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`), and no worker property takes it (`validator/userPropertySlug.ts`), so no write of Nova's names it; CommCare HQ's form builder takes it (`saveToCase.js::validatePropertyNameChars` checks no reserved word), HQ's build checks no block's keys (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties` reads only the actions'), and HQ's server applies the block as written (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`): `name` renames the case, `date_opened` and `user_id` set its own fields, `case_id` and `date_modified` are dropped, and the rest, `status` and `closed` among them, are kept as properties of those names",
+		"subject": "case-property-names",
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "Nova reserves the name for a case's own facts or as one of CommCare HQ's reserved words (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`), and no worker property takes it (`validator/userPropertySlug.ts`), so no write of Nova's names it; CommCare HQ's form builder takes it (`saveToCase.js::validatePropertyNameChars` checks no reserved word), HQ's build checks no block's keys (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties` reads only the actions'), and HQ's server applies the block as written (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`): `name` renames the case, `date_opened` and `user_id` set its own fields, `case_id` and `date_modified` are dropped, and the rest, `status` and `closed` among them, are kept as properties of those names"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

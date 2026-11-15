@@ -15,6 +15,7 @@ import {
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
+	type CaseWriteVia,
 	type Expression,
 	type FormType,
 	isCaseOperationIdentifier,
@@ -52,12 +53,15 @@ import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
+import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField } from "../xform";
 import { isAllocatedName } from "../xform/generated";
 import type { DataNode } from "../xform/model";
 import {
+	ancestorSteps,
 	dropCreateNameRequired,
 	isServerDivertedWrite,
+	namesAttachment,
 	type PropertyNameClass,
 	type ProposedValue,
 	propertyNameClass,
@@ -246,6 +250,22 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	),
 	loadLocationKeys: refuse(
 		`${F}/update-keys-location-id-hq-user-id`,
+		"schema:LoadUpdateAction.case_properties",
+	),
+	loadWorkerKey: refuse(
+		`${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`,
+		"schema:LoadUpdateAction.case_properties",
+	),
+	loadViaUnknown: refuse(
+		`${F}/index-path-through-a-case-type-the-app-does-not-fix`,
+		"schema:LoadUpdateAction.case_properties",
+	),
+	loadViaElsewhere: refuse(
+		`${F}/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`,
+		"schema:LoadUpdateAction.case_properties",
+	),
+	loadViaFacet: refuse(
+		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 		"schema:LoadUpdateAction.case_properties",
 	),
 	slashPreloadOnIndexedLoad: refuse(
@@ -474,6 +494,12 @@ const LOAD_PROPERTY_CLAIMS = {
 	diverted: ADVANCED_CLAIMS.loadLocationKeys,
 };
 
+/** The worker's load's: a key no worker property takes is its own row. */
+const WORKER_LOAD_PROPERTY_CLAIMS = {
+	...LOAD_PROPERTY_CLAIMS,
+	worker: ADVANCED_CLAIMS.loadWorkerKey,
+};
+
 // ── What the first pass proposes ────────────────────────────────────────
 
 type ProposedCaseRef =
@@ -507,6 +533,7 @@ interface AdvancedProposal {
 	readonly writes: readonly {
 		readonly property: string;
 		readonly value: ProposedValue;
+		readonly via?: CaseWriteVia;
 	}[];
 	readonly condition?: ProposedCondition;
 	readonly forEach?: DraftField;
@@ -716,6 +743,29 @@ interface Reading {
 	ok: boolean;
 }
 
+/**
+ * Where a key holding `/` of a write map stands. HQ's build writes such a key
+ * of a load into a block of the case its index steps reach from the load's
+ * own case (`xform.py::XForm._add_case_updates`, over
+ * `XFormCaseBlock.make_parent_case_block` and `get_case_parent_id_xpath`,
+ * one `index/<segment>` a step), whatever the load's place in the chain:
+ *
+ * - `indexed`: a load chosen under an earlier one, whose keys HQ's build
+ *   holds as a subcase's, with no `/` (`slashOnIndexedLoad`);
+ * - `own`: the form's own load with no `case_index`, the only chosen load,
+ *   where each step `parent` or `host` is the own arm's write through `via`,
+ *   as in the basic own update (`basicActions.ts::readUpdateMap`), from the
+ *   menu's `caseType`;
+ * - `elsewhere`: any other load with no `case_index` (the first of a chain,
+ *   the worker's record), whose change Nova writes through no index.
+ *
+ * An open action names its own row (`claims.slash`) and is never asked.
+ */
+type SlashKeys =
+	| { readonly kind: "indexed" }
+	| { readonly kind: "own"; readonly caseType: string }
+	| { readonly kind: "elsewhere" };
+
 /** One write map (`case_properties`) of a load or an open action, key by key. */
 function readProperties(
 	r: Reading,
@@ -733,13 +783,17 @@ function readProperties(
 		/** The row of a key HQ's server stores apart from the case's properties
 		 *  (`basicActions.ts::isServerDivertedWrite`). */
 		readonly diverted: Claim<"refuse">;
+		/** The worker's load's row of a key the worker's record takes no write to
+		 *  (`worldEntities.ts::holdsWorkerRecordWrite`), `name` and `owner_id`
+		 *  among them; absent on every other action. */
+		readonly worker?: Claim<"refuse">;
 	},
-	indexed: boolean,
+	slashes: SlashKeys,
 	/** An open action's: whose `owner_id` may name Nova's owner node, which the open action
 	 *  settles once its operation has an id. */
 	opens = false,
 ): {
-	writes: { property: string; value: ProposedValue }[];
+	writes: { property: string; value: ProposedValue; via?: CaseWriteVia }[];
 	name?: ProposedValue;
 	owner?: ProposedValue | "acting-user" | "unowned";
 	ownerNode?: OwnerNode;
@@ -764,25 +818,52 @@ function readProperties(
 			out.refused = true;
 			continue;
 		}
-		if (key.includes("/")) {
-			if (claims.slash !== undefined)
-				cursor.refuseWhole(claims.slash, { name: key });
-			else if (indexed)
-				cursor.refuseWhole(ADVANCED_CLAIMS.slashOnIndexedLoad, { name: key });
-			else
-				r.ctx.accounting.circumstance("unrecognized", r.form.place, {
-					name: "schema:LoadUpdateAction.case_properties",
-				});
-			r.ok = false;
-			out.refused = true;
-			continue;
+		const segments = key.split("/");
+		const property = segments[segments.length - 1] as string;
+		let via: CaseWriteVia | undefined;
+		if (segments.length > 1) {
+			const refuseKey = (claim: Claim<"refuse">) => {
+				cursor.refuseWhole(claim, { name: key });
+				r.ok = false;
+				out.refused = true;
+			};
+			if (claims.slash !== undefined) {
+				refuseKey(claims.slash);
+				continue;
+			}
+			if (slashes.kind === "indexed") {
+				refuseKey(ADVANCED_CLAIMS.slashOnIndexedLoad);
+				continue;
+			}
+			const indices = segments.slice(0, -1);
+			if (
+				slashes.kind === "elsewhere" ||
+				!indices.every((step) => step === "parent" || step === "host")
+			) {
+				refuseKey(ADVANCED_CLAIMS.loadViaElsewhere);
+				continue;
+			}
+			// The case above's name and owner: HQ's build writes `name` as the
+			// block's `case_name` (`XFormCaseBlock.add_case_updates`), and Nova
+			// renames and gives an owner only to the operation's own case.
+			if (property === "name" || property === "owner_id") {
+				refuseKey(ADVANCED_CLAIMS.loadViaFacet);
+				continue;
+			}
+			const steps = ancestorSteps(r.ctx, slashes.caseType, indices);
+			if (steps === undefined) {
+				refuseKey(ADVANCED_CLAIMS.loadViaUnknown);
+				continue;
+			}
+			via = steps.steps as CaseWriteVia;
 		}
 		// HQ's build writes a load's and an open action's keys into the case
 		// block's `<update>` as it writes a basic update's
 		// (`xform.py::XForm._create_casexml_advanced` → `add_case_updates`), so
 		// HQ's server stores these two apart from the case's properties there too,
-		// unless the key's question is an upload, which names an attachment.
-		if (isServerDivertedWrite(r.form, key, cursor.peek("question_path"))) {
+		// a case above included, unless the key's question is an upload, which
+		// names an attachment.
+		if (isServerDivertedWrite(r.form, property, cursor.peek("question_path"))) {
 			cursor.refuseWhole(claims.diverted, { name: key });
 			r.ok = false;
 			out.refused = true;
@@ -791,7 +872,9 @@ function readProperties(
 		// `name` and `owner_id` are the case's name and owner; every other key is a
 		// property, which Nova's grammar must name.
 		const named =
-			key === "name" || key === "owner_id" ? undefined : propertyNameClass(key);
+			via === undefined && (key === "name" || key === "owner_id")
+				? undefined
+				: propertyNameClass(property);
 		if (named === "too-long") {
 			const place = r.form.place;
 			r.ctx.accounting.circumstance("unrecognized", place, {
@@ -812,6 +895,20 @@ function readProperties(
 		}
 		if (named !== undefined) {
 			cursor.refuseWhole(claims.names[named], { name: key });
+			r.ok = false;
+			out.refused = true;
+			continue;
+		}
+		// The worker's record takes a write only to a worker property the
+		// reading declares; HQ's build writes `name` as its `case_name` and
+		// `owner_id` as its owner, which HQ's user-case sync writes over. A key
+		// read from an upload names an attachment, the upload question's row.
+		if (
+			claims.worker !== undefined &&
+			!holdsWorkerRecordWrite(key) &&
+			!namesAttachment(r.form, cursor.peek("question_path"))
+		) {
+			cursor.refuseWhole(claims.worker, { name: key });
 			r.ok = false;
 			out.refused = true;
 			continue;
@@ -841,7 +938,7 @@ function readProperties(
 				continue;
 			}
 		}
-		const read = questionValue(r.ctx, r.form, path, key);
+		const read = questionValue(r.ctx, r.form, path, property);
 		if (read.kind === "finding") {
 			r.ctx.accounting.finding(advancedReadClaim(read.claim), r.form.place, {
 				name: key,
@@ -850,7 +947,9 @@ function readProperties(
 			out.refused = true;
 			continue;
 		}
-		if (key === "name") out.name = read.value;
+		if (via !== undefined)
+			out.writes.push({ property, value: read.value, via });
+		else if (key === "name") out.name = read.value;
 		else if (key === "owner_id") out.owner = read.value;
 		else out.writes.push({ property: key, value: read.value });
 	}
@@ -1232,7 +1331,16 @@ export function readAdvancedActions(
 				L.drop("product_program", ADVANCED_CLAIMS.productProgramOff);
 		}
 		const indexed = indexRead !== undefined;
-		const properties = readProperties(r, L, LOAD_PROPERTY_CLAIMS, indexed);
+		const properties = readProperties(
+			r,
+			L,
+			LOAD_PROPERTY_CLAIMS,
+			indexed
+				? { kind: "indexed" }
+				: last
+					? { kind: "own", caseType: caseType as string }
+					: { kind: "elsewhere" },
+		);
 		// A `form-case` read walks from the form's own case the indices the document
 		// links each type to its parent by (`caseTypeDepths.ts::caseTypeHopMap`). HQ
 		// chose each later load among the cases whose index the load names points at
@@ -1469,7 +1577,7 @@ export function readAdvancedActions(
 				},
 				diverted: ADVANCED_CLAIMS.openLocationKeys,
 			},
-			false,
+			{ kind: "elsewhere" },
 			true,
 		);
 		// The repeat: the name question's innermost.
@@ -1864,7 +1972,9 @@ function readAutoSelectLoad(
 	}
 	if (mode !== "usercase") return refuseLoad(r, L, C.autoBlank);
 	const tag = load.case_tag;
-	const properties = readProperties(r, L, LOAD_PROPERTY_CLAIMS, false);
+	const properties = readProperties(r, L, WORKER_LOAD_PROPERTY_CLAIMS, {
+		kind: "elsewhere",
+	});
 	if (
 		// A load whose only writes were refused (a key HQ's build refuses, a key HQ's
 		// server stores apart, a value Nova cannot hold) writes something, each
@@ -2167,7 +2277,12 @@ export function writeAdvancedOperations(
 		const writes: CaseOperationWrite[] = [];
 		for (const write of proposal.writes) {
 			const value = valueExpression(write.value);
-			if (value !== undefined) writes.push({ property: write.property, value });
+			if (value !== undefined)
+				writes.push({
+					property: write.property,
+					value,
+					...(write.via !== undefined && { via: write.via }),
+				});
 		}
 		const placement = {
 			kind: "advanced" as const,

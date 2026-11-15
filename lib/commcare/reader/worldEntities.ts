@@ -153,6 +153,20 @@ export function holdsWorkerProperty(slug: string): boolean {
 	);
 }
 
+/**
+ * Whether a write of the worker's record to `key` is one a reading holds, as the commit gate holds
+ * such a write (`validator/rules/caseOperations.ts::validateWorkerRecordProperty`): a worker
+ * property the reading declares (`holdsWorkerProperty`), and none of the keys CommCare HQ keeps in
+ * step with the worker's profile (`USERCASE_BUILT_IN_KEYS`, which HQ's user-case sync writes over,
+ * `callcenter/sync_usercase.py::_get_user_case_fields`). Every reader of such a write asks it where
+ * it reads the key: `basicActions.ts::readUpdateMap` (`usercase_update`),
+ * `advancedActions.ts::readProperties` (the worker's load) and `saveToCase.ts::refusedRowKey` (a
+ * block of `commcare-user`).
+ */
+export function holdsWorkerRecordWrite(key: string): boolean {
+	return !USERCASE_BUILT_IN_KEYS.includes(key) && holdsWorkerProperty(key);
+}
+
 /** Each distinct name of `names`, in code-unit order. */
 function distinct(names: readonly string[]): readonly string[] {
 	return [...new Set(names)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
@@ -278,6 +292,17 @@ function orderedLevels(doc: BlueprintDoc): OrganizationLevel[] {
 	});
 }
 
+/** Whether a node of the document is a case operation that writes the worker's record. */
+function isWorkerRecordOperation(node: Record<string, unknown>): boolean {
+	const target = node.target as { kind?: unknown } | undefined;
+	return (
+		typeof node.action === "string" &&
+		node.action !== "own" &&
+		target?.kind === "worker-record" &&
+		Array.isArray(node.writes)
+	);
+}
+
 /** What `doc`'s logic reads of the worker and of places, as a reading meets it: each worker field
  *  by name, each worker property by its slug, and each location property by its slug. A read of
  *  a field CommCare HQ writes on every worker's own case is no worker field. */
@@ -317,6 +342,14 @@ function worldReadsOf(doc: BlueprintDoc): {
 					node.kind === "user-property-ref" ? "worker-record" : node.source,
 					false,
 				);
+		} else if (
+			// A write of the worker's record saves to a worker property the app
+			// declares (`caseManagement/index.ts::workerRecordWriteSlugs`).
+			isWorkerRecordOperation(node)
+		) {
+			for (const write of node.writes as readonly { property?: unknown }[])
+				if (typeof write.property === "string")
+					worker(write.property, "worker-record", false);
 		} else if (node.kind === "location-field") {
 			const field = node.field as { property?: Uuid } | undefined;
 			const held =

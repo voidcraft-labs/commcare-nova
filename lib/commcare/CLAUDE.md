@@ -32,9 +32,12 @@ properties for every language, not only the runtime default.
 Optional XForm itext entries and their body/bind references are gated on
 effective content across every configured language, not source content alone.
 Suite multi-select option filtering carries original catalog indexes through to
-localized variables. Direct-CCZ app-string values serialize through Core's
-actual locale grammar (`\#` comments and `\n` line breaks) and fail closed for
-literal backslash-`n` or boundary content that the grammar cannot round-trip.
+localized variables. Direct-CCZ app-string values are spelled byte for byte as
+HQ's build spells them (`localeFile.ts::serializeLocaleFileValue` over
+`hqLocaleFileValue`, which is `commcare_translations.py::dumps`: a Python-blank
+text as a non-breaking space, a line break as `\n`, a `#` no backslash precedes
+as `\#`), so a worker reads one string from either archive, and fail closed for
+literal backslash-`n`, a carriage return or boundary content the gate refuses.
 
 A local CCZ emits Classic's initialization-only `default` locale resource and
 one named resource for every configured language, including the default
@@ -320,8 +323,8 @@ at (`reader/expressions/printLevel.ts`: the search's settings through
 filter through its `listRewrites`, a menu's and a form's display
 condition through `menus/index.ts::heldAtLevel`; an after-submit link's
 condition and carried values are compared with the expansion's print, which
-applies every rewrite), and the tree a slot stores is judged
-at that level (`expressions/index.ts::storedAtLevel`). Every slot of an app is read at once over one document,
+applies every rewrite), and a slot stores the tree Nova's own print
+reads back as, at the level found for its reading (`expressions/index.ts::readBack`). Every slot of an app is read at once over one document,
 in `reader/expressions/` (`readExpressions`, the folds, the canonical tree of a
 print collision, CSQL search rows and the findings each slot claims).
 

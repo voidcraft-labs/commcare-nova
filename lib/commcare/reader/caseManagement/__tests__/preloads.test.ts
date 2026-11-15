@@ -584,12 +584,14 @@ describe("a case preload, read as the question's default", () => {
 			});
 		});
 
-		it("reads `name` as the worker case's name, as HQ's build maps it, and mints no worker property", async () => {
+		it("reads `name` as the worker case's name, as HQ's build maps it, and mints no worker property for it", async () => {
 			const { reading, field } = await workerPreload("name");
 			expect(reading.findings).toEqual([]);
+			// The one worker property is the one the form's write of the worker's
+			// record saves to, which the gate holds to a declared property.
 			expect(
 				Object.values(reading.doc?.userProperties ?? {}).map((one) => one.slug),
-			).toEqual([]);
+			).toEqual(["mood"]);
 			expect(field?.default_value).toEqual({
 				kind: "term",
 				term: {

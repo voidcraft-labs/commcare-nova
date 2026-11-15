@@ -39,7 +39,7 @@ import { withReadTexts } from "../caseList/readTexts";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
-import { clauses } from "../expressions/folds";
+import { clauses, core } from "../expressions/folds";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
 import {
 	heldText,
@@ -1303,22 +1303,26 @@ function searchDifference(
 }
 
 /**
- * Whether the stored test of `prompt`'s first validation is Nova's runtime guard, or ends with it
- * as its last top-level conjuncts: the guard the projection joins to the field's check
- * (`searchPrompts.ts::buildValidation`), printed by the production projection of `mod` with the
- * field holding no check of its own, compared conjunct by conjunct as parsed trees. The guard
- * reads the menu's rows, so it is asked once they are placed.
+ * Where the stored test of `prompt`'s first validation is Nova's runtime guard, or ends with it as
+ * its last top-level conjuncts, the field's own rule before it: the guard is the one the
+ * projection joins to the field's check (`searchPrompts.ts::buildValidation`), printed by the
+ * production projection of `mod` with the field holding no check of its own, compared conjunct by
+ * conjunct as parsed trees. `rule` is the source's text of the conjuncts before the guard, where
+ * one node of the stored test holds them all (`a and b and G`, `(a or b) and G`); it is absent
+ * where the guard is the whole test, or where the guard's conjuncts and the rule's share a group
+ * (`a and (b and G)`), whose rule no text of the source spells alone. Undefined where the test does
+ * not end with the guard. The guard reads the menu's rows, so it is asked once they are placed.
  */
-export function endsWithRuntimeGuard(
+export function runtimeGuardEnding(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 	mod: Module,
 	prompt: PromptReading,
-): boolean {
+): { readonly rule?: string } | undefined {
 	const validations = prompt.cursor.peek("validations");
 	const first = Array.isArray(validations) ? validations[0] : undefined;
 	const stored = isJsonObject(first) ? first.test : undefined;
-	if (typeof stored !== "string") return false;
+	if (typeof stored !== "string") return undefined;
 	const unchecked = withCandidate(doc, (draft) => {
 		const one = draft.modules[mod.uuid]?.caseListConfig?.searchInputs.find(
 			(input) => input.uuid === prompt.uuid,
@@ -1326,7 +1330,7 @@ export function endsWithRuntimeGuard(
 		if (one !== undefined && one.kind !== "hidden") delete one.validation;
 	});
 	const without = unchecked.modules[mod.uuid];
-	if (without === undefined) return false;
+	if (without === undefined) return undefined;
 	const inputs = readProjectionInputs(ctx);
 	let guard: unknown;
 	try {
@@ -1347,9 +1351,9 @@ export function endsWithRuntimeGuard(
 		const check = Array.isArray(printedChecks) ? printedChecks[0] : undefined;
 		guard = isJsonObject(check) ? check.test : undefined;
 	} catch {
-		return false;
+		return undefined;
 	}
-	if (typeof guard !== "string") return false;
+	if (typeof guard !== "string") return undefined;
 	const storedSyntax = readFormSyntax(stored);
 	const guardSyntax = readFormSyntax(guard);
 	if (
@@ -1358,17 +1362,33 @@ export function endsWithRuntimeGuard(
 		storedSyntax.node === undefined ||
 		guardSyntax.node === undefined
 	)
-		return false;
+		return undefined;
 	const storedClauses = clauses(storedSyntax.node, "and");
 	const guardClauses = clauses(guardSyntax.node, "and");
 	const offset = storedClauses.length - guardClauses.length;
-	return (
+	const ends =
 		offset >= 0 &&
 		guardClauses.every((clause, at) => {
 			const one = storedClauses[offset + at];
 			return one !== undefined && sameSyntax(one, clause);
-		})
-	);
+		});
+	if (!ends) return undefined;
+	if (offset === 0) return {};
+	const rule = leadingClauses(storedSyntax.node, guardClauses.length);
+	return rule === undefined ? {} : { rule: stored.slice(rule.from, rule.to) };
+}
+
+/** The node of `node`'s `and` chain that holds every conjunct but the last `count`, where one
+ *  does: the chain is read as written, so a group that holds conjuncts from both sides has none. */
+function leadingClauses(
+	node: FormSyntax,
+	count: number,
+): FormSyntax | undefined {
+	if (count === 0) return node;
+	const at = core(node);
+	if (at.kind !== "binary" || at.op !== "and") return undefined;
+	const right = clauses(at.right, "and").length;
+	return right > count ? undefined : leadingClauses(at.left, count - right);
 }
 
 function topLevel(expression: Expression): Expression[] {

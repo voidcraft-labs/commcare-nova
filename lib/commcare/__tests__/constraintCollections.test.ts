@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expressionSlotValue, proseText } from "@/lib/domain";
+import type { EmissionRewriteId, RewriteControl } from "../emissionRewrites";
 import { buildXForm } from "../xform/builder";
 import { planConstraintCollections } from "../xform/constraintCollections";
 import { FormPath } from "../xform/formPath";
 import { onlyXml, readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
 import { xpathContains, xpathEvidence } from "./xpathEvidence";
 
-function plan(validate: string) {
+function plan(validate: string, rewrites?: RewriteControl) {
 	const doc = buildDoc({
 		modules: [
 			{
@@ -42,9 +43,40 @@ function plan(validate: string) {
 			doc,
 			FormPath.root().child(field.id),
 			(n) => `nova_constraint_${field.id}_${n}`,
+			rewrites,
 		),
 	};
 }
+
+// A reader's control answers `validation-counts-moved` once, at the validation's one site, and a
+// control that answers site by site answers in place of its `withhold` set
+// (`emissionRewrites.ts::rewriteWithheld`). The failure it catches: the plan reading the set
+// beside the site's answer, so a site that applies the rewrite under a control whose set names
+// it moves nothing.
+describe("the rewrite control of a validation's counts", () => {
+	const counted = "count(#form/choice[. = 'yes']) = 1";
+	const named = new Set<EmissionRewriteId>(["validation-counts-moved"]);
+	const none = new Set<EmissionRewriteId>();
+	const cases: readonly (readonly [boolean, RewriteControl])[] = [
+		[true, { withhold: none, withholdSite: () => true }],
+		[false, { withhold: named, withholdSite: () => false }],
+		[true, { withhold: named }],
+		[false, { withhold: none }],
+	];
+	it.each(cases)(
+		"withheld %s at the site moves the count only where it applies",
+		(withheld, control) => {
+			const reached: EmissionRewriteId[] = [];
+			const result = plan(counted, {
+				...control,
+				reached: (id) => reached.push(id),
+			});
+			expect(reached).toEqual(["validation-counts-moved"]);
+			expect(result.calculations).toHaveLength(withheld ? 0 : 1);
+			expect(result.overrides.size).toBe(withheld ? 0 : 1);
+		},
+	);
+});
 
 describe("validation collection evaluation scope", () => {
 	it.each([

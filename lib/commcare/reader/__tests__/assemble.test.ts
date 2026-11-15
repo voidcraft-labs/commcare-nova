@@ -988,7 +988,7 @@ describe("the reader's canonical choices", () => {
 					action: "update",
 					caseType: "commcare-user",
 					target: { kind: "worker-record" },
-					writes: [{ property: "last_name", value: readField("name") }],
+					writes: [{ property: "last_household", value: readField("name") }],
 				} as CaseOperation,
 				{
 					uuid: OP("kid"),
@@ -1020,10 +1020,13 @@ describe("the reader's canonical choices", () => {
 				operation.id,
 			]);
 		const ordered = row.apply(canonical);
+		// HQ's actions list the child before the worker's record; the child runs
+		// in a repeat and the worker's record at the root, so the reading holds
+		// the record first, the order the gate admits (`inWireScopeOrder`).
 		expect(idsOf(ordered)).toEqual([
 			["own", "household"],
-			["create", "member"],
 			["update", "commcare_user"],
+			["create", "member"],
 		]);
 		expect(expandDoc(ordered)).toEqual(expandDoc(canonical));
 		expect(row.apply(ordered)).toBe(ordered);
