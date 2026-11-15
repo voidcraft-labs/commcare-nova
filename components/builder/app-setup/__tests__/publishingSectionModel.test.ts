@@ -112,6 +112,7 @@ function appResource(
 		releasedAt: null,
 		endedReason: null,
 		endedByName: null,
+		heldByAnotherApp: false,
 	};
 }
 

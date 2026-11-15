@@ -234,9 +234,13 @@ export function DeploymentStatus({
 	 * and a record with no active mapping has nothing to name: offering the
 	 * one button whose every press errors is worse than not offering it. An
 	 * app HQ reported gone is always asked about again, since HQ's own undo
-	 * is how it comes back (`service.ts::refreshDeployment`). */
+	 * is how it comes back (`service.ts::refreshDeployment`). A mapping whose
+	 * HQ app another Nova app took (`releasedAt`) is never asked about: what
+	 * HQ says of that app is about the other app's publishes. */
+	const remoteApp = activeRemoteApp(view.deployment);
 	const observable =
-		activeRemoteApp(view.deployment) !== null &&
+		remoteApp !== null &&
+		remoteApp.releasedAt === null &&
 		(deploymentIsObservable(record) || remoteAppReportedGone(view.deployment));
 
 	return (

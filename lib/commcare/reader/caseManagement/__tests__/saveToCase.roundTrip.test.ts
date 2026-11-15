@@ -687,6 +687,46 @@ describe("a value read through its wrapper", () => {
 		]);
 	});
 
+	it("reads a keyed create under a prefix Nova never derives as an authored id, so nothing reaches the ledger its floor refuses", async () => {
+		const keyed: CaseOperation = {
+			uuid: testUuid("stc-keyed"),
+			id: "photo",
+			action: "create",
+			caseType: "photo",
+			target: { kind: "new", idFrom: SEEN },
+			name: term(formField(SEEN)),
+		};
+		const source = visitApp([keyed]);
+		const derived = authoredCaseIdPrefix({
+			appId: source.appId,
+			formUuid: PATIENT_FORM,
+			operationUuid: keyed.uuid,
+			caseType: "photo",
+		});
+		const uuid = derived.slice("nova-case-v1:".length, -1);
+		const offShape = [
+			"nova-case-v1:abc:",
+			`nova-case-v1:${uuid.toUpperCase()}:`,
+			// A version-4 UUID in the version-5 place.
+			`nova-case-v1:${uuid.slice(0, 14)}4${uuid.slice(15)}:`,
+		];
+		for (const prefix of offShape) {
+			const outcome = readHqApp(
+				await inputFor(
+					exportedBody(source, {
+						xml: (xml) => xml.split(derived).join(prefix),
+					}),
+				),
+			);
+			const findings = outcome.kind === "account" ? outcome.findings : [];
+			expect(findings.map((one) => one.code)).toContain(
+				"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+			);
+			if (outcome.kind === "read")
+				expect(outcome.draft.identities.keyedCreates).toEqual([]);
+		}
+	});
+
 	it("reads an owner of the acting user's id as absent, and of no owner as unowned", async () => {
 		const create = (owner: CaseOperation["owner"]): CaseOperation =>
 			({

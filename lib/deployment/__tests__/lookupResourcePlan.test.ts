@@ -40,6 +40,7 @@ function mapping(ownership: DeploymentResourceOwnership): DeploymentResource {
 		releasedAt: null,
 		endedReason: null,
 		endedByName: null,
+		heldByAnotherApp: false,
 	};
 }
 /** A global table with no field property and no row attribute, which a push keeps whole. */

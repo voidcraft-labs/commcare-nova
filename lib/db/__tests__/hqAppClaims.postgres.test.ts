@@ -10,7 +10,7 @@ import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
-import { restoreApp, softDeleteApp } from "../apps";
+import { RestoreClaimsChangedError, restoreApp, softDeleteApp } from "../apps";
 import {
 	claimHqAppInTransaction,
 	endDeploymentInTransaction,
@@ -21,6 +21,11 @@ import {
 } from "../hqAppClaims";
 import type { AppDatabase } from "../pg";
 import { setupAppStateTestDb } from "./appStateTestDb";
+import {
+	changeUnderEachTry,
+	holdAppRow,
+	waitForBlockedLocks,
+} from "./heldAppRow";
 import { createPerTestAppDb } from "./perTestAppDb";
 
 const h = setupAppStateTestDb("hq_app_claims_", {
@@ -298,25 +303,6 @@ function hold() {
 		enter = resolve;
 	});
 	return { release, released, enter, entered };
-}
-
-async function waitForBlockedLocks(
-	observer: Client,
-	minimum: number,
-): Promise<void> {
-	const deadline = Date.now() + 5_000;
-	while (Date.now() < deadline) {
-		const result = await observer.query<{ count: string }>(`
-			SELECT count(*)::text AS count
-			FROM pg_locks AS locks
-			JOIN pg_stat_activity AS activity ON activity.pid = locks.pid
-			WHERE activity.datname = current_database()
-				AND NOT locks.granted
-		`);
-		if (Number(result.rows[0]?.count ?? 0) >= minimum) return;
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
-	throw new Error(`Timed out waiting for ${minimum} blocked database lock(s).`);
 }
 
 /** Make every `apps` update wait on a session advisory lock the gate holds. */
@@ -642,7 +628,7 @@ describe("restoreApp settles what the app gave up", () => {
 		expect(await liveClaims(K1)).toEqual(["app-a"]);
 	});
 
-	it("restores two deleted apps that each hold what the other gave up, at once, with no deadlock", async () => {
+	it("restores two deleted apps that each hold what the other gave up, at once, leaving each HQ app one live claim", async () => {
 		// app-a holds K1 and gave K2 up; app-b holds K2 and gave K1 up.
 		await seedPublishing("app-a", K1, { deleted: true });
 		await seedPublishing("app-a", K2, { deleted: true, released: true });
@@ -675,6 +661,95 @@ describe("restoreApp settles what the app gave up", () => {
 		const first = await liveClaims(K1);
 		expect(first).toHaveLength(1);
 		expect(await liveClaims(K2)).toEqual(first);
+	}, 15_000);
+
+	it("locks the app rows of two settles that each need the other's row in one order, so neither meets a deadlock", async () => {
+		// app-a holds K1 and gave K2 up; app-b holds K2 and gave K1 up. Each
+		// settle takes a different advisory lock, so only the row order keeps
+		// them from a cycle. These transactions do not start again on a
+		// deadlock, as `withAppTx` does, so one would surface here.
+		await seedPublishing("app-a", K1, { deleted: true });
+		await seedPublishing("app-a", K2, { deleted: true, released: true });
+		await seedPublishing("app-b", K2, { deleted: true });
+		await seedPublishing("app-b", K1, { deleted: true, released: true });
+		const first = createPerTestAppDb(h.uri());
+		const second = createPerTestAppDb(h.uri());
+		const observer = new Client({ connectionString: h.uri() });
+		const settle = (db: Kysely<AppDatabase>, appId: string) =>
+			outcome(
+				db
+					.transaction()
+					.execute((tx) => lockReleasedClaimsInTransaction(tx, appId)),
+			);
+		let held: Awaited<ReturnType<typeof holdAppRow>> | undefined;
+		let runs: ReturnType<typeof settle>[] = [];
+		try {
+			await observer.connect();
+			held = await holdAppRow(h.uri(), "app-a");
+			await held.acquired();
+			// Each settle waits for app-a's row first. Locking its own row first
+			// instead, app-b's settle would hold app-b's row while it waits, and
+			// app-a's settle would then wait for it holding app-a's.
+			runs = [settle(first.appDb, "app-a")];
+			await waitForBlockedLocks(observer, 1);
+			runs.push(settle(second.appDb, "app-b"));
+			await waitForBlockedLocks(observer, 2);
+			await held.release();
+			const [settledA, settledB] = await Promise.all(runs);
+			expect(settledA?.error).toBeUndefined();
+			expect(settledB?.error).toBeUndefined();
+			expect(settledA?.value?.released).toEqual([
+				expect.objectContaining({
+					key: K2,
+					holder: expect.objectContaining({ appId: "app-b", appDeleted: true }),
+				}),
+			]);
+			expect(settledB?.value?.released).toEqual([
+				expect.objectContaining({
+					key: K1,
+					holder: expect.objectContaining({ appId: "app-a", appDeleted: true }),
+				}),
+			]);
+		} finally {
+			await held?.end();
+			await Promise.allSettled(runs);
+			await observer.end();
+			await first.destroy();
+			await second.destroy();
+		}
+	}, 15_000);
+
+	it("throws, having restored nothing, when its claims change under each of its three tries", async () => {
+		// app-a gave K1 up to app-b, which is live, deleted, then live again.
+		const deploymentA = await seedPublishing("app-a", K1, {
+			deleted: true,
+			released: true,
+		});
+		const deploymentB = await seedPublishing("app-b", K1);
+		const before = {
+			a: await appMappings(deploymentA),
+			b: await appMappings(deploymentB),
+		};
+
+		await expect(
+			changeUnderEachTry({
+				uri: h.uri(),
+				appId: "app-a",
+				run: () => restoreApp("app-a", ACTOR),
+				changes: [
+					() => softDeleteApp("app-b", ACTOR),
+					() => restoreApp("app-b", ACTOR),
+					() => softDeleteApp("app-b", ACTOR),
+				],
+			}),
+		).rejects.toBeInstanceOf(RestoreClaimsChangedError);
+
+		expect((await h.readAppRow("app-a"))?.deleted_at).toBeInstanceOf(Date);
+		expect({
+			a: await appMappings(deploymentA),
+			b: await appMappings(deploymentB),
+		}).toEqual(before);
+		expect((await deploymentRow(deploymentA)).state).toBe("uploaded");
 	}, 15_000);
 
 	it("starts again when a birth takes another of its HQ apps between its first read and its locks", async () => {

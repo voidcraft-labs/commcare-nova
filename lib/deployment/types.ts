@@ -650,6 +650,14 @@ export interface DeploymentResource {
 	readonly endedReason: DeploymentEndReason | null;
 	/** `auth_user.name` of whoever ended it, or "A former member"; null exactly where `endedReason` is. */
 	readonly endedByName: string | null;
+	/**
+	 * True on a superseded `app` mapping whose HQ app a live, unreleased `app`
+	 * mapping of another deployment holds now (the predicate of
+	 * `app_deployment_resources_hq_app_claim`): another Nova app publishes to
+	 * it, so it is never something this deployment left behind. False for
+	 * every other mapping.
+	 */
+	readonly heldByAnotherApp: boolean;
 }
 
 /**

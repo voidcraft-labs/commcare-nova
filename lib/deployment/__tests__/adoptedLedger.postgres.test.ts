@@ -250,6 +250,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 				hqAppId: HQ_APP,
 				emptyCaseListText: false,
 				earlierHqApps: 0,
+				adopted: true,
 			},
 		]);
 		expect(await previewProjectSpaceFor(birth.scope)).toBe("clinic");

@@ -1399,6 +1399,7 @@ describe("the empty app and HQ reporting it gone", () => {
 				hqAppId: "hq-app",
 				emptyCaseListText: false,
 				earlierHqApps: 0,
+				adopted: false,
 			},
 		]);
 	});

@@ -126,7 +126,8 @@ each such key, the first language's text that is not blank, as HQ's build
 merges its default table (a blank only where no language holds more), unless a language before it has a catalog that may hold the
 key (`appStringKeys.ts::defaultAppStringsHeldText`, `hqCatalogMayHold`: Nova
 writes no catalog text, so the phone's own wording stands), and on an app Nova brought in, CommCare
-HQ's language names. With no facts, Nova's own values stand, byte for byte. An
+HQ's language names. With no facts, Nova's own values stand, byte for byte,
+but for Nova's seeds on an app Nova brought in, which the archive never writes. An
 app that does not declare
 Android has no `.ccz` at all (`runtimeTarget.ts::chooseDownloadTarget`,
 `not-declared-for-android`): a `.ccz` installs an app on Android. The HQ import
@@ -156,8 +157,10 @@ order, each with the `force` its table gives: the two the app owns at the
 app's value, and each of the fifteen others at the value the archive's project
 space holds, or Nova's where it holds none and Nova created the app there
 (`keptProfile.ts::targetProfileProperties`, over the deployment's
-`TargetFacts`), then `cc-log-entity-detail-enabled` where the project space
-sets it. The archive writes neither
+`TargetFacts` and `CompileOptions.adopted`, the live app mapping's ownership,
+so an archive for an app Nova brought in writes no seed even where no read of
+the project space landed), then `cc-log-entity-detail-enabled` where the
+project space sets it. The archive writes neither
 `heartbeat-url` nor HQ's six other server properties: a `.ccz` is no HQ build,
 and a phone on one takes a newer `.ccz` for the same project space through
 Offline Update, on CommCare's update screen.

@@ -57,11 +57,13 @@ function bilingualDoc(): BlueprintDoc {
 function compiled(
 	doc: BlueprintDoc,
 	targetFacts?: TargetFacts | null,
+	adopted = false,
 ): ReadonlyMap<string, Buffer> {
 	const zip = new AdmZip(
 		compileCcz(expandDoc(doc), doc.appName, doc, {
 			runtimeTarget: TEST_RUNTIME_TARGET,
 			...(targetFacts !== undefined && { targetFacts }),
+			adopted,
 		}),
 	);
 	return new Map(
@@ -177,7 +179,7 @@ function keptFacts(adopted: boolean): TargetFacts {
 
 describe("a CCZ made for a project space that keeps values", () => {
 	const doc = bilingualDoc();
-	const files = compiled(doc, keptFacts(true));
+	const files = compiled(doc, keptFacts(true), true);
 	const profile = parseXml(text(files, "profile.ccpr"));
 	const root = only(elements(profile), "profile");
 	const properties = new Map(
@@ -325,6 +327,29 @@ describe("a CCZ made for a project space that keeps values", () => {
 		);
 		expect(created.get("en")).not.toBe("English, as typed");
 		expect(created.get("home.start")).toBe("Begin a visit");
+	});
+
+	/* A publish over an app Nova brought in writes no seed whether or not its
+	 * read-back landed, so neither does the archive for that project space. */
+	it("writes no seed and Nova's labels where Nova brought the app in and no read of the project space landed", () => {
+		const unread = compiled(doc, null, true);
+		const written = new Map(
+			elements(
+				only(elements(parseXml(text(unread, "profile.ccpr"))), "profile"),
+			)
+				.filter((element) => element.name === "property")
+				.map((element) => [element.attribs.key, element.attribs.value]),
+		);
+		const seeded = appProfileProperties(doc)
+			.map(({ key }) => key)
+			.filter((key) => key !== "cc-show-saved" && key !== "cc-show-incomplete");
+		expect(seeded).toHaveLength(15);
+		for (const key of seeded) expect(written.has(key)).toBe(false);
+		expect(written.get("cc-show-saved")).toBeDefined();
+		expect(written.get("cc-show-incomplete")).toBeDefined();
+		expect(readLocaleFile(text(unread, "en/app_strings.txt")).get("en")).toBe(
+			readLocaleFile(text(compiled(doc, null), "en/app_strings.txt")).get("en"),
+		);
 	});
 });
 
@@ -553,7 +578,7 @@ describe("a publish and the archive for one project space", () => {
 						{ profile: published },
 						{ ...READ, adopted: seeds === "target" },
 					);
-					const archived = targetProfileProperties(doc, facts).filter(
+					const archived = targetProfileProperties(doc, facts, seeds).filter(
 						({ key }) => key !== "cc-log-entity-detail-enabled",
 					);
 					if (seeds === "nova") expect(archived).toHaveLength(17);

@@ -30,8 +30,11 @@ import type {
 	DeploymentConfirmationKey,
 	DeploymentConfirmationNeeded,
 	DeploymentFailureCode,
+	DeploymentRecord,
 	DeploymentRemoteChange,
+	DeploymentResource,
 	DeploymentResourceConflict,
+	DeploymentWithResources,
 	PreviewDeploymentAnswer,
 	PublishPlacements,
 } from "@/lib/deployment/types";
@@ -80,6 +83,59 @@ export type PublishResponseRefusal = Omit<
 	readonly webAppsChange?: ResponseWebAppsChange | null;
 };
 
+/** The fields of a mapping a server that predates them leaves out. */
+type LaterMappingField =
+	| "adoptedByName"
+	| "releasedAt"
+	| "endedReason"
+	| "endedByName"
+	| "heldByAnotherApp";
+
+/** A mapping as a response carries it, the later fields left out by an older server. */
+type ResponseDeploymentResource = Omit<DeploymentResource, LaterMappingField> &
+	Partial<Pick<DeploymentResource, LaterMappingField>>;
+
+/** A deployment's record as a response carries it, `endings` and the mappings' later fields left out by an older server. */
+export type ResponseDeployment = Omit<
+	DeploymentWithResources,
+	"deployment" | "active" | "superseded"
+> & {
+	readonly deployment: Omit<DeploymentRecord, "endings"> &
+		Partial<Pick<DeploymentRecord, "endings">>;
+	readonly active: readonly ResponseDeploymentResource[];
+	readonly superseded: readonly ResponseDeploymentResource[];
+};
+
+/** A mapping with every field an older server leaves out read as unset. */
+function mappingOf(resource: ResponseDeploymentResource): DeploymentResource {
+	return {
+		...resource,
+		adoptedByName: resource.adoptedByName ?? null,
+		releasedAt: resource.releasedAt ?? null,
+		endedReason: resource.endedReason ?? null,
+		endedByName: resource.endedByName ?? null,
+		heldByAnotherApp: resource.heldByAnotherApp ?? false,
+	};
+}
+
+/**
+ * The record with every field an older server leaves out read as unset: no
+ * ending, no mapping released or ended. The predicates the dialog asks of
+ * it (`plannedInPlaceUpdate`, `deploymentEnding`) test those fields against
+ * `null`, so an absent one would read as set.
+ */
+function deploymentOf(deployment: ResponseDeployment): DeploymentWithResources {
+	return {
+		...deployment,
+		deployment: {
+			...deployment.deployment,
+			endings: deployment.deployment.endings ?? 0,
+		},
+		active: deployment.active.map(mappingOf),
+		superseded: deployment.superseded.map(mappingOf),
+	};
+}
+
 /** What a change that names no reference is measured against: the last publish. */
 const PUBLISHED: DriftReference = { kind: "published" };
 
@@ -113,7 +169,7 @@ export interface PublishResponseBody {
 	 */
 	readonly url?: string | null;
 	readonly warnings?: string[];
-	readonly deployment?: DeploymentView["deployment"] | null;
+	readonly deployment?: ResponseDeployment | null;
 	readonly setup_artifact?: DeploymentView["artifact"];
 	readonly left_behind?: DeploymentView["leftBehind"];
 	/** The settings the project space keeps in CommCare HQ, with their date, or null. */
@@ -302,7 +358,7 @@ export function publishOutcome(
 		body.deployment !== null &&
 		body.setup_artifact !== undefined
 			? {
-					deployment: body.deployment,
+					deployment: deploymentOf(body.deployment),
 					artifact: body.setup_artifact,
 					/* Defaulted rather than required: only the server can tell a
 					 * rename from a recreate, so a response without the field

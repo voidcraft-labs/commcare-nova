@@ -199,6 +199,13 @@ export function remoteAppReportedGone(
  * (`store.ts::recordPushedResources`), and no current identity answers to
  * its Nova id, so the `current === undefined` arm reports it. Nova still
  * deletes nothing; it stops claiming the table and starts naming it.
+ *
+ * An app a deployment was ended at is reported unless something else names
+ * it: the ended card's line while that ending still stands
+ * (`deploymentEnding`), or another Nova app that took it
+ * (`claimed-elsewhere`). No superseded app another Nova app publishes to now
+ * (`heldByAnotherApp`, read by the claim's own predicate) is reported, since
+ * removing it would take down that app's live HQ app.
  */
 export function leftBehindResources(
 	deployment: DeploymentWithResources,
@@ -213,11 +220,21 @@ export function leftBehindResources(
 	const historical = new Map(
 		deployment.superseded.map((resource) => [key(resource), resource]),
 	);
+	const ending = deploymentEnding(deployment);
 	return [...historical.values()].filter((resource) => {
 		if (active.has(key(resource))) return false;
-		/* An app a deployment ended at is not left behind: the card's ended
-		 * line names it. */
-		if (resource.kind === "app") return resource.endedReason === null;
+		if (resource.kind === "app") {
+			/* Another Nova app publishes to this HQ app: it took it, or it
+			 * brought it in after this deployment stopped. It is that app's,
+			 * never something left behind here. */
+			if (resource.endedReason === "claimed-elsewhere") return false;
+			if (resource.heldByAnotherApp) return false;
+			/* The app the deployment still stands ended at is named by the
+			 * card's ended line. Once a later publish records a new app, or a
+			 * later ending names another one, nothing else names it, and it is
+			 * still in CommCare HQ beside the new one. */
+			return ending === null || ending.hqAppId !== resource.remoteId;
+		}
 		// Unavailable names are not evidence that every named resource vanished.
 		if (currentIdentities === null || resource.pushedIdentity === null)
 			return false;

@@ -70,14 +70,12 @@ describe("targetFactsFromBaseline", () => {
 				uiText: { en: { "home.start": "Begin" } },
 				autoGpsCapture: true,
 				languageNames: null,
-				seeds: "nova",
 			});
 			expect(
 				targetFactsFromBaseline(baseline(origin, true), false)?.autoGpsCapture,
 			).toBe(false);
 			expect(targetFactsFromBaseline(baseline(origin), true)).toMatchObject({
 				languageNames: { en: { en: "English" } },
-				seeds: "target",
 			});
 		}
 	});
@@ -115,7 +113,6 @@ const DEFAULTS: TargetFacts = {
 	mobileReportVersion: "2.0",
 	credentialLevel: null,
 	languageNames: null,
-	seeds: "nova",
 };
 
 function withSetting(key: string, value: string): Partial<TargetFacts> {

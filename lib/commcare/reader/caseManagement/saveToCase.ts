@@ -16,7 +16,6 @@ import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
 import {
-	AUTHORED_CASE_ID_VERSION,
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseOperationLink,
@@ -25,6 +24,7 @@ import {
 	caseSelectionCardinality,
 	type Expression,
 	formFieldCanKeyCreate,
+	isAuthoredCaseIdPrefix,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
 	isCaseScalarTextProperty,
@@ -1700,10 +1700,12 @@ function blankOnOpening(
 }
 
 /** The key a keyed create's id reads and the prefix it stands under:
- *  `authoredCaseIdCalculation`'s shape, whatever the namespace prefix. The
- *  prefix derives from the app, form and operation that wrote it, which the
- *  reading's own identities are not, so the comparison prints it back as
- *  read. */
+ *  `authoredCaseIdCalculation`'s shape, under a prefix in the shape
+ *  `authoredCaseIdPrefix` writes. The prefix derives from the app, form and
+ *  operation that wrote it, which the reading's own identities are not, so
+ *  the comparison prints it back as read. A prefix in any other shape is an
+ *  authored id: the deployment ledger stores only the derived shape, and the
+ *  key's bound keeps the id within HQ's 255 only under that shape's length. */
 function keyedKey(
 	text: string | undefined,
 ): { readonly key: string; readonly prefix: string } | undefined {
@@ -1721,10 +1723,7 @@ function keyedKey(
 		return undefined;
 	const prefix = concat.args[0];
 	const key = concat.args[1] as FormSyntax;
-	if (
-		prefix?.kind !== "string" ||
-		!prefix.value.startsWith(`${AUTHORED_CASE_ID_VERSION}:`)
-	)
+	if (prefix?.kind !== "string" || !isAuthoredCaseIdPrefix(prefix.value))
 		return undefined;
 	const keyText = text.slice(key.from, key.to);
 	const length = w.call("string-length", [holeWire()]);

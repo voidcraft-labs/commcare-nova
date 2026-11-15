@@ -179,14 +179,26 @@ export async function resolveDownloadTarget(
  * What a download says it cannot follow of the values its project space
  * keeps: for a `.ccz` made for a project space whose baseline was read, its
  * facts over the app's languages, by the codes the archive writes; for a
- * `.ccz` with none, and for the HQ import file, which is made for no
- * project space, nothing.
+ * `.ccz` with none, the language names alone where Nova brought the app in
+ * (CommCare HQ names its languages there, and the archive writes Nova's
+ * names, having read none of HQ's); for any other `.ccz` with none, and for
+ * the HQ import file, which is made for no project space, nothing.
  */
 export function downloadKeptAdvisoryFacts(
 	download: DownloadTarget,
 	doc: BlueprintDoc,
 ): KeptAdvisoryFacts | null {
-	if (download.format !== "ccz" || download.targetFacts === null) return null;
+	if (download.format !== "ccz") return null;
+	if (download.targetFacts === null) {
+		return download.target.adopted
+			? {
+					uiTextFallsBack: false,
+					androidLogos: false,
+					practiceWorker: false,
+					languageNames: true,
+				}
+			: null;
+	}
 	return keptAdvisoryFacts(
 		download.targetFacts,
 		planLanguageWire(effectiveAppLocalization(doc.localization)).languages,

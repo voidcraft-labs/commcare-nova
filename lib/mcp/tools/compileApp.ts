@@ -306,6 +306,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							{
 								emptyCaseListText: download.target.emptyCaseListText,
 								earlierHqApps: download.target.earlierHqApps,
+								adopted: download.target.adopted,
 								targetFacts: download.targetFacts,
 								keyedCaseIdPrefixes: download.keyedCaseIdPrefixes,
 							},

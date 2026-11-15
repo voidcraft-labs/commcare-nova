@@ -60,8 +60,12 @@ export interface CaseListFilterField {
  */
 export type ImageReference = (assetId: MediaAssetId) => string | undefined;
 
-/** The path every export writes for an uploaded image: `jr://file/commcare/`,
- *  its content hash and its extension (`assetWirePath.ts::requireAssetRef`). */
+/** The path an export writes for an uploaded image a project space holds no
+ *  path of its own for: `jr://file/commcare/`, its content hash and its
+ *  extension (`assetWirePath.ts::requireAssetRef`). An export for the project
+ *  space an app was brought in from writes the path CommCare HQ keeps the
+ *  file under there (`lib/media/manifest.ts`, `heldPaths`), which Preview
+ *  does not read. */
 export function mediaImageReference(row: {
 	readonly contentHash: string;
 	readonly extension: string;

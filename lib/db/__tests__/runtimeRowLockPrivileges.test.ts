@@ -495,8 +495,9 @@ describe("runtime row-lock privilege contract", () => {
 	});
 
 	it("refuses a row lock and an update on a deployment's identity, media-path and keyed case id rows, and admits their inserts and deletes", () => {
-		/* The deployment row's lock serializes these writers; a lock on one of
-		 * the rows themselves would need UPDATE, which the runtime never holds. */
+		/* The app row's lock serializes the ending and the Project move, and the
+		 * birth writes rows no other transaction sees; a lock on one of the rows
+		 * themselves would need UPDATE, which the runtime never holds. */
 		for (const table of [
 			"app_deployment_identities",
 			"app_deployment_media_paths",

@@ -248,13 +248,15 @@ const RUNTIME_INSERT_UPDATE_TABLES = [
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
  * row in place: writers insert, reconcilers delete, and every other path reads.
- * A deployment's identity and media-path rows are inserted when an app or a
- * change made in CommCare HQ is brought in and deleted when the deployment is
- * ended; a Project move deletes an app's media-path rows and inserts them
- * under the destination Project's asset ids; a file replaced in CommCare HQ
- * replaces its path's row; no row is ever changed. A deployment's keyed case
- * id prefixes are inserted and deleted with its identity rows. The deployment
- * row's lock serializes their writers, so none of them is ever row-locked. */
+ * A deployment's identity, media-path and keyed case id rows are inserted when
+ * an app is brought in from CommCare HQ and deleted when the deployment is
+ * ended (a stop, or a settle that ends it); a Project move deletes an app's
+ * media-path rows and inserts them under the destination Project's asset ids;
+ * no row is ever changed. The app row's lock serializes the ending and the
+ * move: a settle and a move hold it `FOR UPDATE`, a stop `FOR SHARE` with the
+ * deployment row `FOR UPDATE`. The birth writes them for a deployment it
+ * inserts in the same transaction, which no other transaction sees until it
+ * commits. So none of them is ever row-locked. */
 const RUNTIME_INSERT_DELETE_TABLES = [
 	"media_asset_refs",
 	"app_location_references",

@@ -28,8 +28,10 @@ not move it". What this part changes in what MCP serves is the state `ended` on 
 tools' state enum, the error tag `publishing_stopped` on `upload_app_to_hq`, and the lifecycle
 behind the tool `stop_publishing`, which part 13 (`13-the-experience.md`, section 14.5) registers
 and which can answer `permission_denied`; `lib/mcp/__tests__/servedSchemas.test.ts` holds what a
-client receives. Nothing here changes how Preview runs an app, so nothing here moves
-`lib/db/appTests.ts::RUNTIME_VERSION`.
+client receives. One thing here changes what Preview reads: an image map's text in the case
+list's filter is the path a device on the previewed project space holds, which section 4.3's
+Preview reader gives, and which lands with the birth, the first writer of a held path; whether it
+moves `lib/db/appTests.ts::RUNTIME_VERSION` is decided there.
 
 | Section | Owns |
 |---|---|
@@ -123,8 +125,9 @@ client receives. Nothing here changes how Preview runs an app, so nothing here m
     writers and their rules are part 15's (its sections 3 and 7.2); their DDL is in this part's
     migration.
 19. **One ledgered migration, `20261201000000_hq_bring_in_ledger`** (11), additive in effect: every
-    statement the previous revision runs still passes. It waits at most five seconds for a lock and
-    replays over its own result. It also holds the column
+    statement the previous revision runs still passes. It takes every table lock it needs before
+    its first change, never waiting for one while it holds another, gives up after five seconds,
+    and replays over its own result. It also holds the column
     `app_deployment_baselines.first_publish_changes` with its CHECK, whose writer, readers and rule
     are part 09's (`09-acceptance-and-the-first-publish.md`, section 12.3). And it holds
     `nova_revision`, `media_files` and the origin `changes`, whose writers, readers and rules are
@@ -826,18 +829,21 @@ identity rows. Its DDL is statement 11b of section 11.
 
 `lib/db/privilegeConvergence.ts`: `app_deployment_identities` leaves `RUNTIME_READ_ONLY_TABLES` and
 joins `RUNTIME_INSERT_DELETE_TABLES`, with `app_deployment_media_paths` and
-`app_deployment_keyed_case_ids`. That set's comment gains "A
-deployment's identity and media-path rows are inserted when an app or a change made in CommCare HQ
-is brought in and deleted when the deployment is ended; a Project move deletes an app's media-path
-rows and inserts them under the destination Project's asset ids; a file replaced in CommCare HQ
-replaces its path's row; no row is ever changed. A deployment's keyed case id prefixes are inserted
-and deleted with its identity rows. The deployment row's lock serializes their writers, so none of
-them is ever row-locked." The `RUNTIME_READ_ONLY_TABLES` comment
+`app_deployment_keyed_case_ids`. That set's comment gains "A deployment's identity, media-path
+and keyed case id rows are inserted when an app is brought in from CommCare HQ and deleted when the
+deployment is ended (a stop, or a settle that ends it); a Project move deletes an app's media-path
+rows and inserts them under the destination Project's asset ids; no row is ever changed. The app
+row's lock serializes the ending and the move: a settle and a move hold it `FOR UPDATE`, a stop
+`FOR SHARE` with the deployment row `FOR UPDATE`. The birth writes them for a deployment it inserts
+in the same transaction, which no other transaction sees until it commits. So none of them is ever
+row-locked." Part 15 adds its own writers (a change brought in, a file replaced in CommCare HQ)
+to that sentence when it lands. The `RUNTIME_READ_ONLY_TABLES` comment
 loses "the identity overrides a deployment target holds (a publish writes none)". The classification
 of the identities table moves from `control` to `application` with the set. All three tables are in
-`RUNTIME_TABLES_WITHOUT_ROW_LOCKS`, which the capability derives: the deployment row's lock
-serializes their writers, and the birth writes them for a deployment only its own transaction can
-see. Grants converge in the step's own
+`RUNTIME_TABLES_WITHOUT_ROW_LOCKS`, which the capability derives: the app row's lock serializes
+their ending and move writers (a settle's ending holds the app row and never the deployment row),
+and the birth writes them for a deployment only its own transaction can see. Grants converge in the
+step's own
 deploy: the migration Job converges privileges after the migrations apply and before the new revision
 serves (`scripts/migrate.ts`, `lib/db/privilegeConvergence.ts::convergeDatabasePrivileges`); no
 migration statement grants anything.
@@ -1041,6 +1047,16 @@ export async function readDeploymentMediaPaths(
   its `deployment` argument and hands `expandDoc`, so a `.ccz` made for the project space an app
   was brought in from files a key entered again under the case HQ already holds.
 - **The HQ app file** and every other project space pass none and take the derivation, as for ids.
+- **Preview**: a device's case list filter reads an image map's field as the `jr://file/` path its
+  entity holds (`lib/preview/engine/caseListFilterFields.ts`), which is the held path on the project
+  space the app was brought in from. So the one project space Preview plays
+  (`previewSpace.ts::resolvePreviewFactsTarget`) hands Preview its held paths beside its facts, on
+  a frame of its own name (the `preview-target-facts` frame is strict, so an older tab would drop a
+  widened one whole), and `components/preview/shared/useImageReference.ts` prefers
+  `jrFileRef(heldPath)` over `mediaImageReference(row)`. With no project space, or one that holds
+  none, it keeps the content-hash path, which an untargeted export writes. This lands with the
+  birth (part 12, `12-the-reading-and-the-birth.md`), the first writer of a held path; until then
+  no project space holds one.
 
 ### 4.4 The `.ccz` media suite
 
@@ -1258,7 +1274,11 @@ instance of the previous revision is still draining.
   as published: `resources.ts::plannedInPlaceUpdate` answers null for a released mapping (7.1), so
   it is no reached target for a `.ccz`, an attachment link, a deep link or worker provisioning, and
   `store.ts::readDeploymentPreviewRecords` leaves it out (8.6), so Preview does not name its
-  project space. `publishAppToHq` settles it before it reads anything else (7.1).
+  project space. Check status (`refreshDeployment`) asks CommCare HQ nothing about it and says
+  another Nova app publishes there now (8.6, Copy), and `applyDeploymentObservation` discards an
+  observation whose mapping was released while CommCare HQ was being asked, since HQ's answers are
+  then about the other app's publishes. `publishAppToHq` settles it before it reads anything else
+  (7.1).
 - **A superseded mapping that still carries `released_at`.** The previous revision publishes that
   restored app afresh where CommCare HQ had reported its HQ app gone:
   `store.ts::writeResourceMapping` supersedes the released mapping by setting `superseded_at`
@@ -1982,7 +2002,8 @@ whose forms have HQ's: every form's `xmlns` would change.
   ```ts
   // lib/deployment/errors.ts
   /** A store write found the deployment ended since its publish first read it. Never shown to a
-   *  person: `publishAppToHq` catches it. It is no `DeploymentError` and carries no code. */
+   *  person: `publishAppToHq`, `refreshKeptValues` and `workers.ts::provisionWorkers` catch it.
+   *  It is no `DeploymentError` and carries no code. */
   export class DeploymentEndedError extends Error {
   	readonly name = "DeploymentEndedError";
   	constructor(
@@ -2008,11 +2029,15 @@ whose forms have HQ's: every form's `xmlns` would change.
   parameter becomes `DeploymentFence & { readonly baselines?: readonly ResourceBaselineWrite[] }`.
 - Four `withDeploymentRow` users take none, each for its own reason.
   `applyDeploymentObservation` folds only while the live `app` mapping still carries the remote id
-  and the `push_token` the observation read, and `recordEntryPointObservation` only for the
+  and the `push_token` the observation read and is not released, and `recordEntryPointObservation` only for the
   generation and the mapping it checked; an ended deployment has no live mapping and a new
   generation, so both write nothing. `withdrawDeploymentConfirmation` reads no mapping at all: it
   acts on a confirmation, which is about the project space and which an ending keeps (8.2), so
   withdrawing one after an ending is as right as before it. `readEntryPointEvidence` writes nothing.
+- `refreshKeptValues` reads the deployment before asking CommCare HQ, so an ending can land while HQ
+  answers; it catches `DeploymentEndedError` from `recordRefreshedAppBaseline` and throws the
+  ended `DeploymentError` it throws for an ending it read first (8.6, Copy), so a person's act is
+  never answered as Nova being unavailable.
 - `publishAppToHq` catches `DeploymentEndedError` once, around everything after its first read, and
   answers `landed: false` with the failure code `publishing_stopped` (new in
   `DEPLOYMENT_FAILURE_CODES`), the phase it was in, the deployment as it now stands, and one of two
@@ -2036,10 +2061,10 @@ which is a valid app. Nova keeps no record of it, and says so.
 | `.ccz` (`readReachedDeploymentTargets`, `chooseDownloadTarget`) | no live mapping, so it is not a target; `unknownProjectSpace`'s sentence is true as written | none |
 | the HQ app file's attachment links | as the `.ccz`: not a reached target | none |
 | deep links (`getEntryPointLink`) | no manifest and no published app: "Publish this app again before creating a link." | none |
-| Check status (`refreshDeployment`) | where `deploymentEnding` is not null, says the publishing stopped, in place of "hasn't reached" | sentence (Copy) |
+| Check status (`refreshDeployment`) | where `deploymentEnding` is not null, says the publishing stopped, in place of "hasn't reached". Where the live `app` mapping is released (5.3), asks CommCare HQ nothing and writes nothing, and says another Nova app publishes there now; the card (`DeploymentStatus.tsx`) offers no Check status on such a mapping, since every press could only refuse | two sentences (Copy) |
 | provisioning workers (`provisionWorkers`) | where `deploymentEnding` is not null, refuses, saying the publishing stopped | sentence (Copy) |
 | the Publishing card and the dialog's row (`deploymentEnding`, `nextPublishAction`) | while `deploymentEnding` is not null: no Check status, no Workers panel, the ending's line and a link to the HQ app, and `nextPublishAction` answers the new arm `creates-beside`. At state `ended` there is no ladder; after a publish that stopped before its create, the card draws that attempt's refusal as it does for any deployment, under the ending's line | part 13 (`13-the-experience.md`, section 11.1) draws it from this part's data and Copy |
-| the left-behind report (`leftBehindResources`) | a superseded `app` mapping with an `endedReason` is not left behind: the card's line names it | one test in the filter |
+| the left-behind report (`leftBehindResources`) | a superseded `app` mapping is not left behind while the ending `deploymentEnding` answers names its HQ app, since the card's line names it, nor with reason `claimed-elsewhere`, since another Nova app publishes to it. Once a publish records a new app, or a later ending names another app, a `stopped` mapping is left behind like any superseded `app` mapping: the project space holds it beside the new one (8.7) and nothing else names it. No superseded `app` mapping whose HQ app another Nova app now holds (a live, unreleased `app` mapping of another deployment, the claim index's predicate) is left behind, whatever its reason: that app publishes to it, as after a stop when a teammate brings the HQ app in and this app publishes again. The ledger read marks each such mapping (`DeploymentResource.heldByAnotherApp`, `store.ts::loadResources`) | the filter's tests; `store.ts::loadResources` |
 | `earlierHqApps` (the `.ccz` version) | counts the ended mapping like any superseded `app` mapping, so a `.ccz` made after a fresh publish is newer | none |
 | the setup artifact (`setupArtifactFor`) | no HQ app id, so no link into an app's pages | none |
 | placements' recorded holds (`readRecordedPlacementHolds`, `placementChangeRefusal`) | read the document and its recordings, never a deployment | none: ending changes no hold. Answers already sit where a hold says, in the HQ app that stays and in every other project space |
@@ -2280,6 +2305,27 @@ from. The top-level file states the one rule for a stamp that has to move.
 -- 0. Wait five seconds for a lock, and no longer, while the previous revision serves.
 SET LOCAL lock_timeout = '5s';
 
+-- 0b. Every table lock the batch takes, all at once and only while none is busy, so it never
+--     waits while it holds one (see "Locks" below).
+DO $$
+DECLARE
+	deadline constant timestamptz := clock_timestamp() + interval '5 seconds';
+BEGIN
+	LOOP
+		BEGIN
+			LOCK TABLE app_deployments, app_deployment_resources, app_deployment_baselines
+				IN ACCESS EXCLUSIVE MODE NOWAIT;
+			LOCK TABLE media_assets IN SHARE ROW EXCLUSIVE MODE NOWAIT;
+			RETURN;
+		EXCEPTION WHEN lock_not_available THEN
+			IF clock_timestamp() >= deadline THEN
+				RAISE EXCEPTION USING ERRCODE = 'lock_not_available', MESSAGE = '…';
+			END IF;
+		END;
+		PERFORM pg_sleep(0.01);
+	END LOOP;
+END $$;
+
 -- 1. The ended state and the count of endings.
 ALTER TABLE app_deployments
 	ADD COLUMN IF NOT EXISTS endings integer NOT NULL DEFAULT 0 CHECK (endings >= 0),
@@ -2508,20 +2554,35 @@ built without `CONCURRENTLY`: the migrator runs the whole batch in one transacti
 (`lib/case-store/CLAUDE.md`: "Kysely wraps the whole migration batch in ONE transaction"), which
 rules `CONCURRENTLY` out, and the table holds one row per published resource, so the build is brief.
 
-**Locks.** Statements 1, 2, 3, 6 and 10 take `ACCESS EXCLUSIVE` on `app_deployments`,
+**Locks.** Statements 1, 2, 3, 6 and 10 need `ACCESS EXCLUSIVE` on `app_deployments`,
 `app_deployment_resources` and `app_deployment_baselines`, three tables the serving revision reads
 and writes, and hold them until the batch commits. Statement 11's new table holds a foreign key to
 `media_assets`, and PostgreSQL takes `SHARE ROW EXCLUSIVE` on a table a new foreign key points at:
 that holds back the serving revision's writes of `media_assets` (an upload, a deletion) and none of
 its reads, and it too is held until the batch commits. Statement 11b's table points only at
-`app_deployments`, whose lock the batch already holds. A lock request that queues behind one long
-reader would stall every deployment read behind it, so statement 0 bounds each wait at five seconds,
-as `20261112000000_incremental_transcripts` does, and statement 12, which follows statement 11b, sets
-the timeout back to `0`, as `20260724030000_opaque_case_ids` does, for whatever migration shares the
-batch. A timeout raises SQLSTATE `55P03` and fails the migration Job with nothing changed, since the
-batch is one transaction; the Job's failure blocks the deploy, and running the deploy again tries
-again. The top-level file ("Migrations and the deploy") says once what the whole batch holds and for
-how long.
+`app_deployments`, whose lock the batch already holds.
+
+The serving revision takes the ledger tables in both orders: `readAppBaseline` and
+`readTargetFacts` read `app_deployment_baselines` joined to `app_deployments` (PostgreSQL locks
+them in that order), while a publish's write holds the deployment row and then upserts its
+baseline. A migration that took them one statement at a time would hold `app_deployments` from
+statement 1 while it waited for `app_deployment_baselines` at statement 10, and a baseline read
+arriving in between would hold the baseline table while it waited for `app_deployments`: a cycle,
+in which PostgreSQL ends the read (a plain read with no retry, so a page load or a publish preflight
+fails) or, where the migration had already waited more than a second, the migration. No statement
+order is free of a partner, because the two serving orders are opposite. So statement 0b takes every
+one of those locks before the first change, and never waits while it holds one: it asks for all
+four at once with `NOWAIT`, and where any is busy the inner block fails, which gives back what it
+got, and it asks again after ten milliseconds. A migration that never waits holding a lock is in
+no cycle, and a request that arrives while it asks is not queued behind it, so none fails; once it
+holds the four, a request waits for the commit. It asks until five seconds have passed and then
+raises SQLSTATE `55P03`, which fails the migration Job with nothing changed, since the batch is one
+transaction; the Job's failure blocks the deploy, and running the deploy again tries again.
+Statement 0 still bounds the one other lock the batch takes, statement 7's read of `apps`, at five
+seconds, as `20261112000000_incremental_transcripts` does, and statement 12, which follows
+statement 11b, sets the timeout back to `0`, as `20260724030000_opaque_case_ids` does, for whatever
+migration shares the batch. The top-level file ("Migrations and the deploy") says once what the
+whole batch holds and for how long.
 
 **What the previous revision does with a row only the new one writes.** A `read` or a `changes`
 baseline makes its `readAppBaseline` throw "which Nova does not know" for that deployment's
@@ -2594,6 +2655,7 @@ publishes to more than one server. In the one-space text the entry stands where 
 | `publishing_stopped`, nothing sent | "Someone stopped publishing this app to “{domain}” while Nova was getting this publish ready, so nothing was sent. Publishing again makes a new app there." |
 | `publishing_stopped`, something sent | "Someone stopped publishing this app to “{domain}” while this publish was running. CommCare HQ may hold what this publish had already sent, and Nova keeps no record of it. Publishing again makes a new app there." |
 | `refreshDeployment` and `refreshKeptValues`, ended (`invalid`) | "Nova stopped publishing this app to “{domain}”, so there's nothing there for it to check on. Publishing there again makes a new app." |
+| `refreshDeployment`, the live `app` mapping released (`invalid`) | "Another Nova app publishes to this app's CommCare HQ app in “{domain}” now, so Nova has nothing to check there for this one. You can publish there again. Nova updates that app if no other Nova app publishes to it by then, and makes a new one beside it otherwise." |
 | `provisionWorkers`, ended (`app_not_published`) | "Nova stopped publishing this app to “{domain}”, so there's no app there for a worker to sign in to. You can publish it there again and then add workers." |
 | `recordAdoptedDeploymentInTransaction`, the app row is not the born app (thrown, never shown to a person) | "Nova tried to record where app {appId} came from and found no such app in Project {projectId}. The app's birth and its deployment are written together, so this is Nova's fault to fix: check the order of the creation transaction." |
 | `assignMediaPaths`, a path outside `jr://file/` (thrown, never shown) | "Nova was given the media path “{path}” to keep, and it doesn't start with jr://file/. CommCare HQ can't build an app with such a path, so the reader should have reported this file before the app was created." |
@@ -2688,8 +2750,12 @@ Each line names the failure it would catch.
 - `lib/deployment/__tests__/stateMachine.test.ts` (additions). `ended` reaches nothing, displays
   nothing and is not observable; a failed attempt leaves it `ended` by reference; a passed preflight
   moves it to `preflight`.
-- `lib/deployment/__tests__/resources.test.ts` and `leftBehindResources.test.ts` (additions). An ended
-  `app` mapping is not left behind. `deploymentEnding` reads the latest ending at state `ended`; still
+- `lib/deployment/__tests__/resources.test.ts` and `leftBehindResources.test.ts` (additions). The `app`
+  mapping a standing ending names is not left behind, nor a `claimed-elsewhere` one; a `stopped` one
+  is, beside a live `app` mapping (filled or empty) and behind a later ending, unless another Nova app
+  holds its HQ app (`heldByAnotherApp`), stopped or plainly replaced; `endDeployment.postgres.test.ts`:
+  stop, a bring-in of the HQ app by another app, then a publish here that records a new app leaves
+  the stopped app out, and the other app's stop puts it back. `deploymentEnding` reads the latest ending at state `ended`; still
   reads it at `preflight` and at `incomplete` with no live `app` mapping (a publish that passed
   preflight and stopped before its create); is null once a live `app` mapping exists; and is null for
   a deployment whose latest superseded `app` mapping has no `endedReason`. `nextPublishAction`
@@ -2754,8 +2820,16 @@ Each line names the failure it would catch.
   transaction, `up`, run in one transaction as the migrator runs it, is refused with SQLSTATE
   `55P03` after five seconds and before ten, and the rolled-back transaction leaves every catalog
   row and data row as it was; once the second connection's transaction ends, `up` succeeds. The
-  second connection is released in a `finally`. This is the case that fails if statement 0 is
-  lost.
+  second connection is released in a `finally`. This is the case that fails if statement 0b's
+  deadline is lost. **No cycle**: with a second connection holding the previous revision's
+  mapping insert open, and `up` observed waiting behind it (`pg_stat_activity`), a third
+  connection's baseline read joined to `app_deployments` (the previous revision's
+  `readAppBaseline` shape) and its write of a baseline under the deployment row's `FOR UPDATE`
+  both finish within a three-second `lock_timeout` while `up` is still waiting; once the insert
+  commits, `up` succeeds and fills that mapping's server and project space. This is the case that
+  fails if the batch takes its ledger locks one statement at a time, where the read queues behind
+  `up`'s request for `app_deployments` (and, arriving after statement 1, closes a cycle with it).
+  The three connections are released in a `finally`.
 - `lib/db/__tests__/privilegeConvergence.postgres.test.ts` and `privilegeConvergence.test.ts`
   (additions). The runtime role inserts and deletes rows of `app_deployment_identities`,
   `app_deployment_media_paths` and `app_deployment_keyed_case_ids` and is refused an UPDATE and a
@@ -2791,10 +2865,14 @@ Each line names the failure it would catch.
   restore after the taker itself was ended re-claims; restore after the taker was moved to recently
   deleted re-claims, keeps the restored app's identity and media-path rows, and leaves the taker's
   mapping released, and restoring the taker afterwards ends the taker's deployment. Two apps that
-  each hold what the other gave up, both in recently deleted and restored at once in two real
-  transactions, both commit with no deadlock and each HQ app has exactly one live claim. A restore
-  whose released claims change between its first read and its locks starts again and settles what
-  it then finds. (`readHqAppClaims`' cases are in `adoptedLedger.postgres.test.ts`.)
+  each hold what the other gave up, both in recently deleted and restored at once, end with each HQ
+  app holding exactly one live claim; their two settles' locks, taken in two transactions that do
+  not start again on a deadlock (as `withAppTx` does) while a session of the test holds the lower
+  app's row until both wait for it, both return with no deadlock, which a settle locking its own
+  row first fails. A restore whose released claims change between its first read and its locks
+  starts again and settles what it then finds; one whose claims change under each of its three
+  tries (a session of the test holds its app's row while the change commits) throws
+  `RestoreClaimsChangedError` having restored nothing. (`readHqAppClaims`' cases are in `adoptedLedger.postgres.test.ts`.)
 - `lib/deployment/__tests__/endDeployment.postgres.test.ts`. An editor is refused `not_permitted`
   with the sentence that names who can, a viewer `not_found`, and an admin and an owner succeed
   (through `stopPublishingAction`, the editor's result carries the code `not_permitted` and not
@@ -2805,8 +2883,13 @@ Each line names the failure it would catch.
   throws `DeploymentEndedError` and writes nothing (`recordRefreshedAppBaseline` among them), and
   `finishDeploymentContentWrite` answers false; a fold that carries the count after the ending
   passes, and the ending still stands. A released mapping on a live app is not named by Preview
-  until `settleReleasedClaims` takes the HQ app back; a settle meeting a live holder ends the
-  deployment `claimed-elsewhere` and names the project space; a viewer cannot settle.
+  until `settleReleasedClaims` takes the HQ app back; Check status on it throws the released
+  sentence and writes nothing, and an observation of a mapping released after it was read is
+  discarded (`applied` false); a settle meeting a live holder ends the
+  deployment `claimed-elsewhere` and names the project space; a viewer cannot settle. A settle whose
+  claims change under each of its three tries answers `{ settled: false }` having written nothing,
+  and a publish that meets it stops with `app_changed_while_publishing` and `PUBLISH_CLAIMS_CHANGED`
+  before it asks CommCare HQ anything.
 - `lib/deployment/__tests__/publishSequence.postgres.test.ts` (additions, over the controlled HQ
   adapter of `publishFixtures.ts`). A first publish over an adopted deployment: the import body's
   menu ids, form ids and `xmlns` are the rows'; the mapping stays `adopted` with its first
@@ -2814,7 +2897,10 @@ Each line names the failure it would catch.
   sent, and its `media_files` keeps the record the birth wrote (the id CommCare HQ reports for
   each held path is written after the upload by part 15's `recordDeploymentMediaFiles`, its
   section 7.8, whose case asserts it);
-  `appPreviewNote` is given; no shell is created. Over an untouched app with no Search, the
+  `appPreviewNote` is given; no shell is created. With an `app_deployment_media_paths` row and an
+  `app_deployment_keyed_case_ids` row, the import body's forms print the kept keyed create under
+  the row's prefix and the file at `jr://file/` and the held path, and the bulk upload's ZIP names
+  the held path. Over an untouched app with no Search, the
   `push` baseline that publish writes holds the same ownership as the `read` baseline it replaced;
   with an effective Search and the advisory `available`, the two differ in `profileCustomProperties`
   and nowhere else (the adoption's descriptor drifting from the publish's own). A language's display
@@ -2830,7 +2916,8 @@ Each line names the failure it would catch.
   `deploymentEnding` and `creates-beside`. A released mapping on a live app: settled before anything
   is read of HQ, and until then `previewProjectSpaceFor` does not name its project space.
 - `lib/deployment/__tests__/refreshKeptValues.postgres.test.ts` (part 01's file, additions). On an
-  ended deployment the refresh throws the ended sentence and reads nothing of HQ; over a live `app`
+  ended deployment the refresh throws the ended sentence and reads nothing of HQ; an ending that
+  lands while CommCare HQ answers gives the same `DeploymentError` and writes nothing; over a live `app`
   mapping that is released it answers `no-baseline` and reads nothing of HQ; and a refresh over a
   `read` baseline, through `refreshKeptValues` and the controlled peer, keeps its `nova_revision`,
   its `media_files` and its stored first-publish list. (The store's own halves, the write over a

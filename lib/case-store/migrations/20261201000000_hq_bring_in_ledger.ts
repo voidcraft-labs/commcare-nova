@@ -27,15 +27,54 @@
 //       case it reached before.
 //
 // Every statement replays over its own result, because the adoption tests
-// erase the migration ledger and run the chain again. The batch waits at most
-// five seconds for each lock, since the serving revision reads and writes the
-// three tables this changes, and hands the timeout back as it found it.
+// erase the migration ledger and run the chain again.
+//
+// The serving revision reads and writes the three ledger tables while this
+// runs, and it takes them in both orders: a baseline read joins
+// `app_deployment_baselines` to `app_deployments`, while a publish's write
+// holds the deployment row and then upserts the baseline. A migration that
+// held one of them while it waited for another would close a cycle with
+// whichever request held the other and waited back, and PostgreSQL would end
+// one of the two. So statement 0b takes every table lock the batch needs
+// before its first change, never waiting while it holds one: it asks for all
+// of them at once without waiting, gives back what it got when any is busy,
+// and asks again until five seconds have passed. No request of the serving
+// revision can then deadlock with it; a request only waits for the commit.
+// Statement 0's five-second timeout bounds the one other lock it takes, the
+// read of `apps`, and statement 12 hands the timeout back as it found it.
 
 import { type Kysely, sql } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
 	// 0. Wait five seconds for a lock, and no longer, while the previous revision serves.
 	await sql`SET LOCAL lock_timeout = '5s'`.execute(db);
+
+	// 0b. Every table lock the batch takes, all at once and only while none is
+	//     busy, so it never waits while it holds one. ACCESS EXCLUSIVE on the
+	//     three ledger tables statements 1 to 10 alter, and SHARE ROW
+	//     EXCLUSIVE on `media_assets`, which statement 11's foreign key takes.
+	//     A lock taken in the inner block is released when that block fails.
+	await sql`
+		DO $$
+		DECLARE
+			deadline constant timestamptz := clock_timestamp() + interval '5 seconds';
+		BEGIN
+			LOOP
+				BEGIN
+					LOCK TABLE public.app_deployments, public.app_deployment_resources,
+						public.app_deployment_baselines IN ACCESS EXCLUSIVE MODE NOWAIT;
+					LOCK TABLE public.media_assets IN SHARE ROW EXCLUSIVE MODE NOWAIT;
+					RETURN;
+				EXCEPTION WHEN lock_not_available THEN
+					IF clock_timestamp() >= deadline THEN
+						RAISE EXCEPTION USING ERRCODE = 'lock_not_available',
+							MESSAGE = 'The bring-in ledger migration could not take app_deployments, app_deployment_resources, app_deployment_baselines and media_assets together within five seconds, because the serving revision was using one of them each time it asked. It never waits for one while it holds another, so it stopped, and nothing was changed. Running the deploy again tries again.';
+					END IF;
+				END;
+				PERFORM pg_sleep(0.01);
+			END LOOP;
+		END $$
+	`.execute(db);
 
 	// 1. The ended state and the count of endings.
 	await sql`

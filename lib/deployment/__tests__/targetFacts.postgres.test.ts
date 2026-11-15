@@ -202,7 +202,6 @@ describe("readTargetFacts", () => {
 			observedAt: AT,
 			profileProperties: { "cc-fuzzy-search-enabled": "yes" },
 			languageNames: null,
-			seeds: "nova",
 		});
 		expect(facts).not.toHaveProperty("source");
 
@@ -211,12 +210,11 @@ describe("readTargetFacts", () => {
 		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
 	});
 
-	it("reads an app brought in as the project space's to seed", async () => {
+	it("reads an app brought in with CommCare HQ's language names", async () => {
 		const scope = await seed();
 		await publish(scope, readBaseline("hq-app", "yes"), { adoptedBy: "u1" });
 		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
 			languageNames: { en: { en: "English" } },
-			seeds: "target",
 		});
 	});
 

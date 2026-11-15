@@ -383,6 +383,66 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.left_behind).toEqual([]);
 	});
 
+	it("leaves out the HQ app a deployment stands ended at, and names an earlier unused one, when Nova could not read the names", async () => {
+		/* The ended app is named by the card's ended line. The earlier one,
+		 * replaced when CommCare HQ reported it gone, is still unused there. */
+		const appMapping = (
+			remoteId: string,
+			supersededAt: string,
+			endedReason: "stopped" | null,
+		) => ({
+			deploymentId: "dep-1",
+			kind: "app",
+			novaResourceId: "app-1",
+			remoteId,
+			ownership: "nova-created",
+			pushedIdentity: null,
+			adoptedAt: null,
+			adoptedBy: null,
+			pushedRevision: 3,
+			pushedAt: "2026-08-06T00:00:00.000Z",
+			pushToken: `token-${remoteId}`,
+			remoteRevision: null,
+			remoteObservedAt: null,
+			supersededAt,
+			remoteMissingAt: null,
+			adoptedByName: null,
+			releasedAt: null,
+			endedReason,
+			endedByName: endedReason === null ? null : "An admin",
+			heldByAnotherApp: false,
+		});
+		vi.mocked(publishAppToHq).mockResolvedValue({
+			landed: false,
+			deployment: {
+				...deploymentView("ended"),
+				superseded: [
+					appMapping("hq-earlier", "2026-08-07T00:00:00.000Z", null),
+					appMapping("hq-ended", "2026-08-09T00:00:00.000Z", "stopped"),
+				],
+			},
+			refusal: null,
+			checks: [],
+			artifact: {
+				server: "production",
+				domain: DOMAIN,
+				hqAppId: null,
+				sections: [],
+			},
+			warnings: [],
+			projectSpaceCompatibility: null,
+		} as never);
+		vi.mocked(currentResourceIdentities).mockResolvedValue(null);
+
+		const body = (await (
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }))
+		).json()) as { left_behind: readonly { remoteId: string }[] };
+
+		expect(body.left_behind.map((resource) => resource.remoteId)).toEqual([
+			"hq-earlier",
+		]);
+	});
+
 	it("answers 200 for an in-place update, saying which happened", async () => {
 		/* An update created no resource, so 201 would lie; the body's
 		 * `hq_app_action` is what tells the dialog which hero to show. */

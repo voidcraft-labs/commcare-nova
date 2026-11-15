@@ -11,15 +11,23 @@ import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { getSession } from "@/lib/auth-utils";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { changeUnderEachTry } from "@/lib/db/__tests__/heldAppRow";
+import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { claimHqAppInTransaction } from "@/lib/db/hqAppClaims";
 import { withAppTx } from "@/lib/db/pg";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
+import { PUBLISH_CLAIMS_CHANGED } from "@/lib/publish/stopPublishing";
 import { stopPublishingAction } from "../actions";
 import { DeploymentEndedError } from "../errors";
 import { previewProjectSpaceFor } from "../previewSpace";
-import { deploymentEnding, nextPublishAction } from "../resources";
-import { refreshDeployment } from "../service";
 import {
+	deploymentEnding,
+	leftBehindResources,
+	nextPublishAction,
+} from "../resources";
+import { publishAppToHq, refreshDeployment } from "../service";
+import {
+	applyDeploymentObservation,
 	beginDeploymentContentWrite,
 	type DeploymentScope,
 	endDeployment,
@@ -431,6 +439,91 @@ describe("a released claim", () => {
 		});
 	});
 
+	/**
+	 * A released claim whose holder, another live app of the Project, is
+	 * deleted, restored and deleted again while the settle waits for the
+	 * app's row under each of its three tries. The holder's id sorts after
+	 * the app's, so every try waits for the app's row first.
+	 */
+	const TAKER = testUuid("taker-app");
+	async function churned<T>(run: () => Promise<T>): Promise<T> {
+		expect(TAKER > APP).toBe(true);
+		return changeUnderEachTry({
+			uri: h.uri(),
+			appId: APP,
+			run,
+			changes: [
+				() => softDeleteApp(TAKER, OWNER),
+				() => restoreApp(TAKER, OWNER),
+				() => softDeleteApp(TAKER, OWNER),
+			],
+		});
+	}
+	async function releasedToTaker(): Promise<AdoptedBirth> {
+		const birth = await born();
+		await release();
+		await birthAdoptedApp(h, {
+			appId: TAKER,
+			projectId: PROJECT,
+			actorUserId: OWNER,
+			target: TARGET,
+			remoteAppId: HQ_APP,
+		});
+		return birth;
+	}
+
+	it("answers settled false, having written nothing, when the claims change under each of three tries", async () => {
+		const birth = await releasedToTaker();
+		const before = await readDeployment(birth.scope, TARGET);
+
+		expect(await churned(() => settleReleasedClaims(birth.scope))).toEqual({
+			settled: false,
+		});
+
+		expect(await readDeployment(birth.scope, TARGET)).toEqual(before);
+		expect(before?.active).toEqual([
+			expect.objectContaining({
+				remoteId: HQ_APP,
+				releasedAt: expect.any(String),
+			}),
+		]);
+	}, 15_000);
+
+	it("stops a publish that meets the same before it asks CommCare HQ anything", async () => {
+		const birth = await releasedToTaker();
+		const before = await readDeployment(birth.scope, TARGET);
+
+		const outcome = await churned(() =>
+			publishAppToHq({
+				scope: birth.scope,
+				...TARGET,
+				doc: emptyBlueprintDoc(APP),
+				compiledAtSeq: 1,
+				reloadHead: () => {
+					throw new Error("A publish stopped at its settle reads no head.");
+				},
+				appName: "Clinic visits",
+			}),
+		);
+
+		expect(outcome).toMatchObject({
+			landed: false,
+			refusal: {
+				phase: "preflight",
+				failure: {
+					code: "app_changed_while_publishing",
+					message: PUBLISH_CLAIMS_CHANGED,
+				},
+			},
+		});
+		const after = await readDeployment(birth.scope, TARGET);
+		expect(after?.active).toEqual(before?.active);
+		expect(after?.deployment).toMatchObject({
+			state: before?.deployment.state,
+			endings: 0,
+		});
+	}, 15_000);
+
 	it("is settled by no one who may not edit the app", async () => {
 		await born();
 		await release();
@@ -445,6 +538,49 @@ describe("a released claim", () => {
 			.select("released_at")
 			.executeTakeFirstOrThrow();
 		expect(row.released_at).not.toBeNull();
+	});
+
+	it("is not checked on: Check status says another app publishes there and writes nothing", async () => {
+		const birth = await born();
+		await release();
+		const before = await readDeployment(birth.scope, TARGET);
+		await expect(
+			refreshDeployment(birth.scope, TARGET, emptyBlueprintDoc(APP)),
+		).rejects.toMatchObject({
+			name: "DeploymentError",
+			code: "invalid",
+			message:
+				"Another Nova app publishes to this app's CommCare HQ app in “clinic” now, so Nova has nothing to check there for this one. You can publish there again. Nova updates that app if no other Nova app publishes to it by then, and makes a new one beside it otherwise.",
+		});
+		expect(await readDeployment(birth.scope, TARGET)).toEqual(before);
+	});
+
+	it("discards an observation of a mapping released while CommCare HQ was being asked", async () => {
+		const birth = await born();
+		const asked = await readDeployment(birth.scope, TARGET);
+		const mapping = asked?.active.find((resource) => resource.kind === "app");
+		if (mapping === undefined) throw new Error("Expected the live app mapping");
+		await release();
+		const before = await readDeployment(birth.scope, TARGET);
+
+		const { applied, view } = await applyDeploymentObservation(
+			birth.scope,
+			TARGET,
+			{
+				observedRemoteId: mapping.remoteId,
+				observedPushToken: mapping.pushToken,
+				/* What CommCare HQ says of the app the taker now publishes to. */
+				outcomes: [
+					["upload", { status: "succeeded", at: "2026-11-12T00:00:00.000Z" }],
+					["build", { status: "succeeded", at: "2026-11-12T00:00:00.000Z" }],
+				],
+				remoteRevision: 57,
+			},
+		);
+
+		expect(applied).toBe(false);
+		expect(view).toEqual(before);
+		expect(await readDeployment(birth.scope, TARGET)).toEqual(before);
 	});
 });
 
@@ -510,5 +646,58 @@ describe("readers of an ended deployment", () => {
 			message:
 				"Nova stopped publishing this app to “clinic”, so there's nothing there for it to check on. Publishing there again makes a new app.",
 		});
+	});
+
+	/* The stop's own copy invites both steps: a teammate brings the HQ app in
+	 * as a new Nova app, and this app publishes there again, which records a
+	 * new HQ app and ends the ending. The stopped HQ app is then the other
+	 * app's live one, and no surface may tell anyone to remove it. */
+	it("never names as left behind a stopped HQ app another Nova app brought in, until that app stops too", async () => {
+		const birth = await born();
+		await endDeployment(birth.scope, TARGET);
+		const taker = await birthAdoptedApp(h, {
+			appId: testUuid("bringer-app"),
+			projectId: PROJECT,
+			actorUserId: OWNER,
+			target: TARGET,
+			remoteAppId: HQ_APP,
+		});
+		await foldDeploymentAttempt(
+			birth.scope,
+			TARGET,
+			"preflight",
+			{ status: "succeeded", at: "2026-11-12T00:00:00.000Z" },
+			{ expectedEndings: 1 },
+		);
+		const NEW_APP = "e".repeat(32);
+		const republished = await recordCreatedRemoteApp(birth.scope, TARGET, {
+			expectedEndings: 1,
+			remoteId: NEW_APP,
+			baseline: unreadBaseline(NEW_APP),
+		});
+		expect(deploymentEnding(republished)).toBeNull();
+		expect(republished.superseded).toEqual([
+			expect.objectContaining({
+				remoteId: HQ_APP,
+				endedReason: "stopped",
+				heldByAnotherApp: true,
+			}),
+		]);
+		expect(leftBehindResources(republished, new Map())).toEqual([]);
+		const read = await readDeployment(birth.scope, TARGET);
+		if (read === null) throw new Error("Expected the deployment");
+		expect(leftBehindResources(read, null)).toEqual([]);
+
+		/* Once no Nova app publishes to it, it is left behind here. */
+		await endDeployment(taker.scope, TARGET);
+		const freed = await readDeployment(birth.scope, TARGET);
+		if (freed === null) throw new Error("Expected the deployment");
+		expect(leftBehindResources(freed, new Map())).toEqual([
+			expect.objectContaining({
+				remoteId: HQ_APP,
+				endedReason: "stopped",
+				heldByAnotherApp: false,
+			}),
+		]);
 	});
 });

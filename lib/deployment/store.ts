@@ -2,7 +2,13 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
-import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
+import {
+	type Kysely,
+	type Selectable,
+	type SqlBool,
+	sql,
+	type Transaction,
+} from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
@@ -232,7 +238,9 @@ function isEndReason(value: string): value is DeploymentEndReason {
  * one who does not reads as a former member.
  */
 function toDeploymentResource(
-	row: Selectable<AppDeploymentResourcesTable>,
+	row: Selectable<AppDeploymentResourcesTable> & {
+		readonly held_by_another_app: SqlBool;
+	},
 	names: ReadonlyMap<string, string>,
 ): DeploymentResource {
 	const kind = deploymentResourceKindSchema.safeParse(row.kind);
@@ -275,6 +283,7 @@ function toDeploymentResource(
 		releasedAt: isoOrNull(row.released_at),
 		endedReason,
 		endedByName: endedReason === null ? null : nameOf(row.ended_by),
+		heldByAnotherApp: row.held_by_another_app === true,
 	};
 }
 
@@ -335,11 +344,34 @@ async function loadResources(
 ): Promise<Map<string, DeploymentLedger>> {
 	if (deploymentIds.length === 0) return new Map();
 	const ids = [...deploymentIds];
+	/* A superseded `app` mapping whose HQ app another deployment now holds by
+	 * the claim's own predicate (live, unreleased) belongs to that Nova app,
+	 * so the left-behind report must never name it here. */
 	const resourceRows = await db
-		.selectFrom("app_deployment_resources")
-		.selectAll()
-		.where("deployment_id", "in", ids)
-		.orderBy("created_at", "asc")
+		.selectFrom("app_deployment_resources as r")
+		.selectAll("r")
+		.select((eb) =>
+			eb
+				.and([
+					eb("r.kind", "=", "app"),
+					eb("r.superseded_at", "is not", null),
+					eb.exists(
+						eb
+							.selectFrom("app_deployment_resources as holder")
+							.select(sql<number>`1`.as("one"))
+							.whereRef("holder.server", "=", "r.server")
+							.whereRef("holder.domain", "=", "r.domain")
+							.whereRef("holder.remote_id", "=", "r.remote_id")
+							.whereRef("holder.deployment_id", "<>", "r.deployment_id")
+							.where("holder.kind", "=", "app")
+							.where("holder.superseded_at", "is", null)
+							.where("holder.released_at", "is", null),
+					),
+				])
+				.as("held_by_another_app"),
+		)
+		.where("r.deployment_id", "in", ids)
+		.orderBy("r.created_at", "asc")
 		.execute();
 	const confirmationRows = await db
 		.selectFrom("app_deployment_confirmations")
@@ -633,6 +665,8 @@ export interface ReachedDeploymentTargetRow {
 	readonly emptyCaseListText: boolean;
 	/** How many HQ apps the deployment held before this one: its superseded `app` mappings. */
 	readonly earlierHqApps: number;
+	/** The live app mapping is one Nova brought in (`ownership` `adopted`). */
+	readonly adopted: boolean;
 }
 
 /**
@@ -662,6 +696,7 @@ export async function readReachedDeploymentTargets(
 				earlierHqApps: view.superseded.filter(
 					(resource) => resource.kind === "app",
 				).length,
+				adopted: remote.ownership === "adopted",
 			},
 		];
 	});
@@ -2495,7 +2530,9 @@ export interface ApplyObservationInput {
  * write re-reads the active mapping under the row lock and discards the
  * observation unless both the remote id AND the publish token
  * (`observedPushToken`) still match, returning the fresh view either way;
- * `applied` says which happened.
+ * `applied` says which happened. A mapping another Nova app's birth
+ * released in that window is discarded too: CommCare HQ's answers are then
+ * about that app's publishes.
  */
 export async function applyDeploymentObservation(
 	scope: DeploymentScope,
@@ -2518,6 +2555,7 @@ export async function applyDeploymentObservation(
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
 				.where("superseded_at", "is", null)
+				.where("released_at", "is", null)
 				.executeTakeFirst();
 			if (
 				active === undefined ||
