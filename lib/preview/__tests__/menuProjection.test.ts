@@ -7,6 +7,7 @@ import {
 	type Module,
 	makeTranslationUnitId,
 	screenChoosesCaseFirst,
+	simpleSearchInputDef,
 } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import { previewDataRefusalOf } from "../engine/dataRefusal";
@@ -37,7 +38,10 @@ import {
 	previewSelectionsBefore,
 	previewTargetAboveForm,
 } from "../menuProjection";
-import { previewPinnedCaseTile } from "../pinnedCaseTile";
+import {
+	pinnedTileSearchReading,
+	previewPinnedCaseTile,
+} from "../pinnedCaseTile";
 import { previewPlatformRules } from "../platform";
 import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
@@ -951,6 +955,36 @@ describe("the cases a screen's session holds, and the tile it pins", () => {
 		expect(previewMenuHeldSelections(doc, ROOT, {})).toEqual([]);
 	});
 
+	it("holds the case a menu above chose under a submenu of an unrelated case type", () => {
+		// A device's frame is [menu, household, submenu, clinic]: the household
+		// stays a step of the session, and Formplayer's `getStepToFrame` and
+		// Android's `loadTile` read its datum through `findDatumDefinition` over
+		// the menu's own entries, so its tile stays above the submenu's list,
+		// its menu and its forms.
+		const doc = source("clinic");
+		const held = { [ROOT]: { caseType: "household", cases: [ana] } };
+		expect(previewSelectionsBefore(doc, CHILD, held)).toEqual([
+			{ moduleUuid: ROOT, cases: [ana] },
+		]);
+		const both = { ...held, [CHILD]: { caseType: "clinic", cases: [bo] } };
+		expect(previewMenuHeldSelections(doc, CHILD, both)).toEqual([
+			{ moduleUuid: ROOT, cases: [ana] },
+			{ moduleUuid: CHILD, cases: [bo] },
+		]);
+		for (const surface of ["case-list", "menu", "form"] as const)
+			for (const rules of [web, android])
+				expect(
+					previewPinnedCaseTile(
+						keepsTile(doc, [ROOT]),
+						previewMenuHeldSelections(doc, CHILD, both),
+						surface,
+						rules,
+					),
+				).toEqual({ moduleUuid: ROOT, caseId: "ana" });
+		// A top-level menu holds nothing another top-level menu chose.
+		expect(previewSelectionsBefore(doc, OTHER_ROOT, both)).toEqual([]);
+	});
+
 	it("pins the earliest held case whose list keeps its tile on screen", () => {
 		const doc = source("person");
 		const held = [
@@ -985,6 +1019,159 @@ describe("the cases a screen's session holds, and the tile it pins", () => {
 		).toEqual({ moduleUuid: ROOT, caseId: "ana" });
 		expect(
 			previewPinnedCaseTile(keepsTile(doc, [ROOT]), held, "search", android),
+		).toBe(undefined);
+	});
+
+	it("draws the case Android's details show where no held case pins a tile, and only where its list keeps one", () => {
+		// `BreadcrumbBarHelper.loadTile` falls back to the details screen's own
+		// case (`EntityDetailActivity.requestEntityContext`), drawn with the
+		// persistent detail of the datum being chosen; Formplayer's details
+		// answer carries no tile (`MenuController.getDetails`).
+		const doc = source("person");
+		const viewing = { moduleUuid: CHILD, caseId: "bo", datum: "list" } as const;
+		const parent = [{ moduleUuid: ROOT, cases: [ana] }];
+		expect(
+			previewPinnedCaseTile(
+				keepsTile(doc, [CHILD]),
+				parent,
+				"case-details",
+				android,
+				viewing,
+			),
+		).toEqual({ moduleUuid: CHILD, caseId: "bo" });
+		expect(
+			previewPinnedCaseTile(
+				keepsTile(doc, [CHILD]),
+				parent,
+				"case-details",
+				web,
+				viewing,
+			),
+		).toBe(undefined);
+		// A held case whose list keeps its tile is the frame's, on both.
+		for (const rules of [web, android])
+			expect(
+				previewPinnedCaseTile(
+					keepsTile(doc, [ROOT, CHILD]),
+					parent,
+					"case-details",
+					rules,
+					viewing,
+				),
+			).toEqual({ moduleUuid: ROOT, caseId: "ana" });
+		// A list that does not keep its tile names no persistent detail, so its
+		// details draw none.
+		expect(
+			previewPinnedCaseTile(
+				keepsTile(doc, [ROOT]),
+				[],
+				"case-details",
+				android,
+				viewing,
+			),
+		).toBe(undefined);
+		// The case on show is no held case anywhere else.
+		expect(
+			previewPinnedCaseTile(
+				keepsTile(doc, [CHILD]),
+				parent,
+				"case-list",
+				android,
+				viewing,
+			),
+		).toBe(undefined);
+	});
+
+	it("draws no tile on Android's details of a search action's results or of a parent another list asked for", () => {
+		// A search action's results choose for its remote request's
+		// `search_case_id`, which names `detail-confirm` and no
+		// `detail-persistent` (`searchSession.ts::buildSearchSession`, as HQ's
+		// `remote_requests.py` writes it), and a parent request's datum names
+		// no details screen, beside which alone
+		// `EntityDetailUtils.populateDetailIntent` passes a persistent detail:
+		// `EntityDetailActivity` holds no entity context, so `loadTile` draws
+		// none where the frame names none.
+		const doc = keepsTile(source("person"), [CHILD]);
+		for (const datum of ["search-results", "parent"] as const) {
+			expect(
+				previewPinnedCaseTile(doc, [], "case-details", android, {
+					moduleUuid: CHILD,
+					caseId: "bo",
+					datum,
+				}),
+			).toBe(undefined);
+			// A held case whose list keeps its tile is still the frame's.
+			expect(
+				previewPinnedCaseTile(
+					keepsTile(source("person"), [ROOT, CHILD]),
+					[{ moduleUuid: ROOT, cases: [ana] }],
+					"case-details",
+					android,
+					{ moduleUuid: CHILD, caseId: "bo", datum },
+				),
+			).toEqual({ moduleUuid: ROOT, caseId: "ana" });
+		}
+	});
+
+	it("reads the tile of a case a list whose forms read the search chose as that search found it, and any other list's from the device", () => {
+		// Each case-loading datum of an inline search reads `results:inline`,
+		// and Formplayer draws the tile from the datum's own nodeset
+		// (`getPersistentDetail` → `getEntityFromID`); the claim posts only as
+		// a form opens, so on the menu the device may not hold the case yet.
+		const name = (menu: string) =>
+			simpleSearchInputDef(
+				testUuid(`tile-search-name-${menu}`),
+				"name",
+				"Name",
+				"text",
+				"case_name",
+			);
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Inline",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([]),
+						searchInputs: [name("inline")],
+					},
+					caseSearchConfig: { formsReadSearch: true },
+				},
+				{
+					name: "Action",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([]),
+						searchInputs: [name("action")],
+					},
+					caseSearchConfig: {},
+				},
+			],
+		});
+		const [inline, action] = doc.moduleOrder.map((uuid) => doc.modules[uuid]);
+		const completed = {
+			kind: "completed",
+			attempt: 1,
+			submission: "inline-search",
+			answers: { name: "Kofi" },
+			matchCount: 1,
+		} as const;
+		expect(pinnedTileSearchReading(inline, completed)).toEqual({
+			answers: { name: "Kofi" },
+		});
+		// A search action's claim lands before its choice goes on: the
+		// device's case.
+		expect(pinnedTileSearchReading(action, completed)).toBe(undefined);
+		// A search let go, or not yet complete, reads the device's.
+		expect(pinnedTileSearchReading(inline, undefined)).toBe(undefined);
+		expect(
+			pinnedTileSearchReading(inline, {
+				kind: "running",
+				attempt: 2,
+				submission: "again",
+				answers: { name: "Ama" },
+			}),
 		).toBe(undefined);
 	});
 });
@@ -1084,5 +1271,147 @@ describe("what choosing a case goes on to", () => {
 				previewMenuSelectionsLetGo(doc, selections, { moduleUuid: undefined }),
 			),
 		).toEqual(sorted([ROOT, CHILD, OTHER_ROOT]));
+	});
+
+	it("keeps the parent case a sibling menu's list chose on the crumb of the case after it", () => {
+		// Visits (person) is a top-level menu whose parent case is chosen on
+		// Households' list. Web Apps' crumb of the person keeps every selection
+		// before it (`CloudcareUrl.spliceSelections`), the household included,
+		// so the menu still has its parent case; the crumb's `keepsCasesOf` is
+		// the menus the session chose up to it (`previewMenuHeldSelections`).
+		const doc = source("person");
+		delete doc.modules[CHILD].parentModuleUuid;
+		assertAdmittedPreviewDoc(doc);
+		const ana = { caseId: "ana", caseName: "Ana" };
+		const bo = { caseId: "bo", caseName: "Bo" };
+		const selections = {
+			[ROOT]: { caseType: "household", cases: [ana] },
+			[CHILD]: { caseType: "person", cases: [bo] },
+		};
+		const keeps = previewMenuHeldSelections(doc, CHILD, selections).map(
+			(selection) => selection.moduleUuid,
+		);
+		expect(keeps).toEqual([ROOT, CHILD]);
+		const letGo = previewMenuSelectionsLetGo(doc, selections, {
+			moduleUuid: CHILD,
+			through: true,
+			keeps,
+		});
+		expect(letGo).toEqual([]);
+		const after = Object.fromEntries(
+			Object.entries(selections).filter(
+				([uuid]) => !letGo.includes(uuid as typeof ROOT),
+			),
+		);
+		expect(
+			previewMenuCaseContext(doc, CHILD, after).requiredParentCase,
+		).toBeUndefined();
+		// The menu's own crumb cuts to its command, before the parent was
+		// chosen, so the menu asks for its parent case again.
+		const menuCut = previewMenuSelectionsLetGo(doc, selections, {
+			moduleUuid: CHILD,
+		});
+		expect([...menuCut].sort()).toEqual([ROOT, CHILD].sort());
+	});
+
+	it("lets go the parent case a forms-first menu's list chose for its submenu on the submenu's crumb", () => {
+		// Households lists a registration beside its follow-up, so it chooses
+		// no case before it lists its entries; Members, its submenu of persons,
+		// asks for its parent household on Households' list once its own
+		// command is chosen. A device's frame is [Households, Members,
+		// household, person], so Web Apps' Members crumb cuts it to
+		// [Households, Members] (`CloudcareUrl.spliceSelections`) and the
+		// household is asked for again, while the person's crumb keeps it.
+		const caseTypes = [
+			{ name: "household", properties: [] },
+			{ name: "person", parent_type: "household", properties: [] },
+		];
+		const followup = (uuid: typeof ROOT) => ({
+			uuid,
+			name: "Follow-up",
+			type: "followup" as const,
+			fields: [f({ kind: "text", id: "notes" })],
+		});
+		const built = buildDoc({
+			caseTypes,
+			modules: [
+				{
+					uuid: ROOT,
+					name: "Households",
+					caseType: "household",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						followup(ROOT_FORM),
+						{
+							uuid: testUuid("register-household"),
+							name: "Register",
+							type: "registration" as const,
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									caseWrite: { caseType: "household", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+				{
+					uuid: CHILD,
+					name: "Members",
+					caseType: "person",
+					parentCaseModuleUuid: ROOT,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [followup(CHILD_FORM)],
+				},
+			],
+		});
+		built.modules[CHILD].parentModuleUuid = ROOT;
+		assertAdmittedPreviewDoc(built);
+		const doc = { ...built, caseTypes };
+		expect(
+			screenChoosesCaseFirst(doc, { kind: "menu", moduleUuid: ROOT }),
+		).toBe(false);
+		const bo = { caseId: "bo", caseName: "Bo" };
+		const selections = {
+			[ROOT]: household,
+			[CHILD]: { caseType: "person", cases: [bo] },
+		};
+		// The household follows Members' command: a parent case it asked for.
+		expect(previewSelectionsBefore(doc, CHILD, selections)).toEqual([
+			{ moduleUuid: ROOT, cases: [ana], askedForBy: CHILD },
+		]);
+		const menuCut = previewMenuSelectionsLetGo(doc, selections, {
+			moduleUuid: CHILD,
+		});
+		expect([...menuCut].sort()).toEqual([ROOT, CHILD].sort());
+		expect(previewMenuCaseContext(doc, CHILD, {}).requiredParentCase).toEqual({
+			caseType: "household",
+			moduleUuid: ROOT,
+		});
+		const keeps = previewMenuHeldSelections(doc, CHILD, selections).map(
+			(selection) => selection.moduleUuid,
+		);
+		expect(keeps).toEqual([ROOT, CHILD]);
+		expect(
+			previewMenuSelectionsLetGo(doc, selections, {
+				moduleUuid: CHILD,
+				through: true,
+				keeps,
+			}),
+		).toEqual([]);
+		// Under a case-first Households the household precedes Members'
+		// command, and Members' crumb keeps it.
+		const caseFirst = source("person");
+		expect(previewSelectionsBefore(caseFirst, CHILD, selections)).toEqual([
+			{ moduleUuid: ROOT, cases: [ana] },
+		]);
+		expect(
+			previewMenuSelectionsLetGo(caseFirst, selections, { moduleUuid: CHILD }),
+		).toEqual([CHILD]);
 	});
 });

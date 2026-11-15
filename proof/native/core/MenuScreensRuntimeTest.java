@@ -41,10 +41,15 @@ import static org.junit.Assert.*;
  * where Preview lands it (`frameLanding.ts::screenOfFrame` over its after-submit frame), every one of them: an entry
  * of a menu whose forms read the search is given the search's results and its claim as Core's own command-line
  * session gives them, and any other entry that asks for a search or a claim fails. The step-back control is the
- * fact Nova's refusal of a frame through a first menu that shares one case rests on. Core's in-memory case storage
- * stands in for a device's; no form is entered and no search or claim reaches a server. */
+ * fact Nova's refusal of a frame through a first menu that shares one case rests on. The pinned tile on each screen
+ * of the pinned-tile walks is the case and detail Preview pins (`pinnedCaseTile.ts::previewPinnedCaseTile`): the
+ * earliest held case whose datum names a persistent detail, a parent-select chain's and a same-type submenu's among
+ * them, and on a list's own details, what Android's details draw. Core's in-memory case storage stands in for a
+ * device's; no form is entered and no search or claim reaches a server. */
 public class MenuScreensRuntimeTest {
  private static final String[] DOCUMENTS={"forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings"};
+ /** The documents walked for the pinned tile (`<document>.tiles.json`). */
+ private static final String[] TILE_DOCUMENTS={"pinned-tile"};
  /** The documents read for a list of workers' data, each refusing some screen for a worker who lacks a field. */
  private static final String[] WORKER_DOCUMENTS={"worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control"};
  private static final class Parser extends SuiteParser{Parser(InputStream in)throws IOException{super(in,null,"menu-screens-proof",null,true,true,false);}}
@@ -223,8 +228,12 @@ public class MenuScreensRuntimeTest {
   * first and before any case elsewhere, and steps back once: Core stops on the menu with the case still held where the
   * form's command sits above the case (`shouldPopNext` stops where the session waits for a command), which a device
   * shows (Android's `MenuActivity` after `stepBack`, Web Apps' selections less the form), and on the case list where it
-  * sits beneath the case, and Preview lands on the same screen (`oneStepBack`: `menuProjection.ts::
-  * previewCaseListHeldChoices` on a list's own form menu, `moduleScreenLanding` on a menu screen). Stepping back on
+  * sits beneath the case, which is where Nova's screen model says the form is chosen (`oneStepBack`, `menu` exactly
+  * where `lib/domain/menuScreens.ts::screenChoosesCaseFirst` has the case chosen first): this holds Core's `stepBack`
+  * to that model, not the screens. The producer hands `menuProjection.ts::previewCaseListHeldChoices` and
+  * `previewMenuScreenLanding` the held menu and selection it writes itself, so whether Preview's screens hold them
+  * (`CaseListScreen`'s `holdFormMenu`, `ModuleScreen`'s selection) is held by the browser journeys
+  * (`e2e/tests/app/preview-form-refused.spec.ts`, `preview-menu-held-case.spec.ts`). Stepping back on
   * to the case list and choosing a case again, Core opens the form where its command sits beneath the case and asks
   * for a command, listing the menu, where it sits above it, and Preview does the same
   * (`previewCaseListReturn`, `previewCaseListFormRequest`, the producer's `stepBacks`). */
@@ -288,6 +297,135 @@ public class MenuScreensRuntimeTest {
   // Every form of every document lands, on both paths, those of the menus whose forms read the search among them.
   assertTrue("forms landed: "+landed,landed>40);
   assertTrue("forms of a menu whose forms read the search landed: "+searched,searched>0);
+ }
+ /** The step a screen frames its tile on, as both platforms find it: walking the session's steps back from the
+  * latest, keeping the last datum whose definition names a persistent detail, so the earliest such
+  * (`MenuSessionRunnerService.getStepToFrame` in Formplayer and `BreadcrumbBarHelper.loadTile` on Android, the same
+  * walk over Core's `CommCareSession.findDatumDefinition`, which reads the datum under the command it was chosen
+  * beneath). */
+ static StackFrameStep stepToFrame(SessionWrapper session){
+  StackFrameStep framed=null;Vector<StackFrameStep> steps=session.getFrame().getSteps();
+  for(int i=steps.size()-1;i>=0;i--){
+   StackFrameStep step=steps.elementAt(i);
+   if(SessionFrame.STATE_DATUM_VAL.equals(step.getType())){
+    EntityDatum datum=session.findDatumDefinition(step.getId());
+    if(datum!=null&&datum.getPersistentDetail()!=null)framed=step;
+   }
+  }
+  return framed;
+ }
+ /** The tile a framed step draws, written as the producer writes Preview's: the persistent detail its datum names,
+  * which the suite defines, and the case chosen; JSON null where no step frames one. */
+ static Object tileOf(SessionWrapper session,StackFrameStep framed,String label){
+  if(framed==null)return JSONObject.NULL;
+  String detail=session.findDatumDefinition(framed.getId()).getPersistentDetail();
+  assertNotNull(label+" frames a tile whose detail "+detail+" the suite does not define",session.getDetail(detail));
+  return new JSONObject().put("detail",detail).put("caseId",framed.getValue());
+ }
+ /** A tile as one comparable line: its detail and case, or `none`. */
+ static String described(Object tile){
+  if(tile==null||tile==JSONObject.NULL)return "none";
+  JSONObject drawn=(JSONObject)tile;return drawn.getString("detail")+" "+drawn.getString("caseId");
+ }
+ static String asked(String needed){
+  if(needed==null)return "form";
+  if(needed.equals(SessionFrame.STATE_COMMAND_ID))return "menu";
+  if(needed.equals(SessionFrame.STATE_DATUM_VAL))return "case-list";
+  return needed;
+ }
+ /** Each walk of the pinned-tile documents, on both suites: a command chosen or a case chosen on the list Core asks
+  * for, each step reaching the screen Preview reads it on (a case list where Core asks for a case, a menu where it
+  * asks for a command, a form where it needs nothing), and on that screen the tile Core frames is the case and
+  * detail Preview pins: the earliest held case whose list keeps its tile, the parent where both lists of a
+  * parent-select chain keep it, the child where only the child's does, the parent menu's list's case for a
+  * same-type submenu, whose own entries Core never reads for it, and the same case for a submenu of an unrelated case
+  * type, whose frame still holds it. On a list's own details, before the case is chosen,
+  * Android draws the frame's tile, or where the frame names none the case on show with the persistent detail of the
+  * datum being chosen (`BreadcrumbBarHelper.loadTile` falling back to `EntityDetailActivity.requestEntityContext`,
+  * `EntityDetailUtils.populateDetailIntent`, which passes it only where the datum has a details screen), which is
+  * what Preview draws there (`details`). */
+ @Test public void eachScreenFramesTheTileOfTheCasePreviewPins()throws Exception{
+  int pinned=0,none=0,details=0;
+  for(String document:TILE_DOCUMENTS)for(boolean hq:new boolean[]{false,true}){
+   Suite suite=suite(document,hq);
+   JSONObject evidence=json("/menu-screens/"+document+".tiles.json");
+   JSONArray walks=evidence.getJSONArray("walks");
+   for(int w=0;w<walks.length();w++){
+    JSONObject walk=walks.getJSONObject(w);JSONArray steps=walk.getJSONArray("steps");
+    SessionWrapper session=session(suite,MockDataUtils.getStaticStorage(),new JSONObject().put("role",""),evidence.getJSONArray("deviceCases"));
+    for(int i=0;i<steps.length();i++){
+     JSONObject step=steps.getJSONObject(i);
+     String label=document+" hq="+hq+" '"+walk.getString("name")+"' step "+i;
+     String needed=session.getNeededData(session.getEvaluationContext());
+     if(step.has("command")){
+      assertEquals(label+" chooses a command where Core asks for one",SessionFrame.STATE_COMMAND_ID,needed);
+      session.setCommand(step.getString("command"));
+     }else if(step.has("search")){
+      assertEquals(label+" runs a search where Core asks for a case",SessionFrame.STATE_DATUM_VAL,needed);
+      runSearchAction(session,step.getString("search"),step.getJSONArray("results"),label);
+     }else{
+      assertEquals(label+" chooses a case where Core asks for one",SessionFrame.STATE_DATUM_VAL,needed);
+      EntityDatum datum=(EntityDatum)session.getNeededDatum();
+      String caseId=step.getString("case");
+      if(step.has("details")){
+       assertNotNull(label+" opens details on a datum with no details screen",datum.getLongDetail());
+       StackFrameStep framed=stepToFrame(session);
+       Object drawn=framed!=null?tileOf(session,framed,label):datum.getPersistentDetail()==null?JSONObject.NULL:new JSONObject().put("detail",datum.getPersistentDetail()).put("caseId",caseId);
+       if(drawn instanceof JSONObject)assertNotNull(label+" draws a detail the suite does not define",session.getDetail(((JSONObject)drawn).getString("detail")));
+       assertEquals(label+" details",described(step.get("details")),described(drawn));
+       details++;
+      }
+      session.setEntityDatum(datum.getDataId(),caseId);
+      if(step.optBoolean("claims"))claimAndRewind(session,label);
+     }
+     assertEquals(label+" reaches the screen Preview reads",step.getString("asks"),asked(session.getNeededData(session.getEvaluationContext())));
+     Object tile=tileOf(session,stepToFrame(session),label);
+     assertEquals(label+" tile",described(step.get("tile")),described(tile));
+     if(tile==JSONObject.NULL)none++;else pinned++;
+    }
+   }
+  }
+  assertTrue("screens with a tile: "+pinned,pinned>=10);
+  assertTrue("screens with none: "+none,none>=6);
+  assertTrue("details read: "+details,details>=8);
+ }
+ /** Run the Search action of the list the session asks a case of, as a worker presses it: the action of the list's
+  * short detail whose stack pushes `command` (`Detail.getCustomActions`, `CommCareSession.executeStackOperations`,
+  * which marks the list's datum and pushes the remote request's command), then answer its query with `results` as
+  * the search's response (`RemoteQuerySessionManager.buildExternalDataInstance`, `CommCareSession.setQueryDatum`), so
+  * the session asks for the result. */
+ static void runSearchAction(SessionWrapper session,String command,JSONArray results,String label)throws Exception{
+  EvaluationContext context=session.getEvaluationContext();
+  Detail list=session.getDetail(((EntityDatum)session.getNeededDatum()).getShortDetail());
+  Action search=null;
+  for(Action action:list.getCustomActions(context))for(StackOperation op:action.getStackOperations())
+   for(StackFrameStep pushed:op.getStackFrameSteps())
+    if(SessionFrame.STATE_COMMAND_ID.equals(pushed.getType())&&command.equals(pushed.defineStep(context,null).getId()))search=action;
+  assertNotNull(label+": the list offers no action that pushes "+command,search);
+  session.executeStackOperations(search.getStackOperations(),context);
+  assertEquals(label+" runs "+command,command,session.getCommand());
+  context=session.getEvaluationContext();
+  assertEquals(label+" asks for the search's query",SessionFrame.STATE_QUERY_REQUEST,session.getNeededData(context));
+  StringBuilder response=new StringBuilder("<results>");
+  for(int i=0;i<results.length();i++)response.append("<case case_id=\"").append(results.getString(i)).append("\"/>");
+  response.append("</results>");
+  RemoteQuerySessionManager manager=RemoteQuerySessionManager.buildQuerySessionManager(session,context,new ArrayList<>());
+  assertNotNull(label,manager);
+  Pair<ExternalDataInstance,String> answered=manager.buildExternalDataInstance(new ByteArrayInputStream(response.toString().getBytes(StandardCharsets.UTF_8)),"menu-screens-proof",com.google.common.collect.ArrayListMultimap.create());
+  assertNotNull(label+": "+answered.second,answered.first);
+  session.setQueryDatum(answered.first);
+ }
+ /** Once a search action's result is chosen: its claim posts where the request asks for it (`EXTRA_POST_SUCCESS`, as
+  * Core's `SyncScreen` marks it), and the finished request runs its stack (`finishExecuteAndPop`), which rewinds the
+  * chosen case into the list's datum at the mark, as Formplayer and Android do after the post. */
+ static void claimAndRewind(SessionWrapper session,String label){
+  for(int step=0;;step++){
+   assertTrue(label+" claims in more than five steps",step<5);
+   String needed=session.getNeededData(session.getEvaluationContext());
+   if(SessionFrame.STATE_SYNC_REQUEST.equals(needed))session.addExtraToCurrentFrameStep(Constants.EXTRA_POST_SUCCESS,true);
+   else if(needed==null){assertTrue(label+" leaves the session with nothing after the search's request",session.finishExecuteAndPop(session.getEvaluationContext()));return;}
+   else fail(label+" needs "+needed+" before its search's request finishes");
+  }
  }
  /** Two top-level menus show their follow-up forms on the first menu, of case types alpha and beta, so every
   * form there opens one chosen case; an ordinary alpha menu's form links to the alpha form above. The link's

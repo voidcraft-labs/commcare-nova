@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from "uuid";
 import { JAVAROSA_PATH_INITIALIZERS } from "@/lib/commcare/xpath/functionCapabilities";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import {
@@ -400,7 +401,7 @@ function expandPreviewDate(
 // ── Misc ────────────────────────────────────────────────────────────
 
 register("uuid", (args, { dayNumberEpoch }) => {
-	if (args.length === 0) return crypto.randomUUID();
+	if (args.length === 0) return uuidv4();
 	const length = Math.trunc(toNumber(args[0] ?? 0, dayNumberEpoch));
 	let value = "";
 	for (let index = 0; index < length; index += 1) {

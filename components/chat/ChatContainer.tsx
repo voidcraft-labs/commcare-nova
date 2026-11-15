@@ -33,6 +33,7 @@
 import { Chat, useChat } from "@ai-sdk/react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { v4 as uuidv4 } from "uuid";
 import { createStarterApp } from "@/app/(app)/build/actions";
 import { triggerAssetExtraction } from "@/components/builder/media/mediaClient";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -998,7 +999,7 @@ export function ChatContainer({
 	const [chat, setChat] = useState(() =>
 		createChatInstance(
 			{
-				threadId: initialThread?.thread_id ?? crypto.randomUUID(),
+				threadId: initialThread?.thread_id ?? uuidv4(),
 				messages: (initialThread?.messages ?? []) as NovaUIMessage[],
 			},
 			initialThread?.input_round ?? null,
@@ -1027,7 +1028,7 @@ export function ChatContainer({
 
 	if (sessionApi !== prevSessionRef.current) {
 		prevSessionRef.current = sessionApi;
-		setChat(activateThread({ threadId: crypto.randomUUID(), messages: [] }));
+		setChat(activateThread({ threadId: uuidv4(), messages: [] }));
 	}
 
 	// ── Chat hook: the core reason this component exists ─────────────────
@@ -1566,7 +1567,7 @@ export function ChatContainer({
 		if (threadHydrationStateRef.current !== "ready") return;
 		if (messages.length === 0) return; // already a fresh conversation
 		stopRef.current?.();
-		setChat(activateThread({ threadId: crypto.randomUUID(), messages: [] }));
+		setChat(activateThread({ threadId: uuidv4(), messages: [] }));
 	}, [messages.length, activateThread]);
 
 	// ── Chat effects ─────────────────────────────────────────────────────

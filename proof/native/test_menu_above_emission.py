@@ -29,6 +29,7 @@ DOCUMENTS = (
     "worker-place-forms",
     "worker-place-menus",
     "menu-landings",
+    "pinned-tile",
 )
 CONTROLS = ("step-back-control", "two-registrations-control", "undeclared-worker-field-control")
 SELECTORS = ("menu", "entry/stack", "endpoint")

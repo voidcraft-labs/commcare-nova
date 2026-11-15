@@ -45,16 +45,24 @@ import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import {
 	previewCaseListReturn,
-	previewMenuHeldSelections,
-	previewMenuSelectionsLetGo,
 	previewTargetAboveForm,
 } from "@/lib/preview/menuProjection";
+import {
+	type PreviewSearchScreen,
+	previewSearchesStandingAt,
+} from "@/lib/preview/searchStanding";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	DEVICE_HOME_CRUMB_KEY,
 	type PreviewBreadcrumbItem,
+	previewBreadcrumbLetGo,
 	previewBreadcrumbTrail,
+	previewTrailHeldCases,
 } from "@/lib/routing/previewBreadcrumbs";
+import {
+	readCurrentPreviewStandingSearches,
+	recordPreviewStandingSearches,
+} from "@/lib/routing/useClientPath";
 import {
 	useAppId,
 	useCanEdit,
@@ -165,27 +173,21 @@ export function BreadcrumbStrip() {
 		[orderedModules],
 	);
 
-	/* The cases a running menu screen holds, each named in its trail. */
+	/* The cases the running session holds, each named in the trail of the
+	 * screen on show, whichever screen it is (`previewTrailHeldCases`). */
 	const menuSource = usePreviewMenuSource();
 	const menuCaseSelections = usePreviewMenuCaseSelections();
-	const renderedMenuUuid =
-		renderedPreviewScreen.type === "module"
-			? renderedPreviewScreen.moduleUuid
-			: undefined;
-	const menuHeldCases = useMemo(
-		() =>
-			previewing && renderedMenuUuid !== undefined
-				? previewMenuHeldSelections(
-						menuSource,
-						renderedMenuUuid,
-						menuCaseSelections,
-					)
-				: [],
-		[menuCaseSelections, menuSource, previewing, renderedMenuUuid],
-	);
 
 	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
 		if (!previewing) return breadcrumbs;
+		const { menuHeldCases, heldBefore } = previewTrailHeldCases({
+			source: menuSource,
+			selections: menuCaseSelections,
+			loc,
+			moduleUuid,
+			renderedScreen: renderedPreviewScreen,
+			previewCaseTarget,
+		});
 		return previewBreadcrumbTrail({
 			language,
 			loc,
@@ -200,9 +202,11 @@ export function BreadcrumbStrip() {
 			appName,
 			screenlessModuleUuids,
 			menuHeldCases,
+			heldBefore,
 		});
 	}, [
-		menuHeldCases,
+		menuCaseSelections,
+		menuSource,
 		appName,
 		screenlessModuleUuids,
 		atDeviceHome,
@@ -222,42 +226,89 @@ export function BreadcrumbStrip() {
 	 * CollapsibleBreadcrumb's memo() skips re-renders when nothing changed.
 	 * In Preview a crumb ends the session's steps at the screen it names, as
 	 * Web Apps' breadcrumb cuts its selections back to that step
-	 * (`spliceSelections`): a case-loading form's crumb (`reselectCaseFor`)
-	 * re-enters its case selection, a held case's crumb (`holdsCaseOn`)
-	 * reaches the menu that holds it, and a menu's crumb lets go of every
-	 * case chosen on it or past it. Each reads the session when it runs. */
+	 * (`spliceSelections`), letting go every case named after it
+	 * (`previewBreadcrumbLetGo`): a case-loading form's crumb
+	 * (`reselectCaseFor`) re-enters its case selection, a held case's crumb
+	 * (`holdsCaseOn`) reaches the menu that holds it, and a menu's crumb
+	 * reaches the menu. Each reads the session when it runs. */
 	const sessionApi = useBuilderSessionApi();
 	const docApi = useBlueprintDocApi();
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const breadcrumbHandlers = useMemo(() => {
-		const letGo = (screen: {
-			moduleUuid: Uuid | undefined;
-			through?: true;
-		}) => {
-			for (const uuid of previewMenuSelectionsLetGo(
-				docApi.getState(),
+		const letGo = (crumb: PreviewBreadcrumbItem) => {
+			for (const uuid of previewBreadcrumbLetGo(
+				menuSource,
 				sessionApi.getState().previewMenuCaseSelections,
-				screen,
+				crumb,
 			))
 				setPreviewMenuCaseSelection(uuid, undefined);
+		};
+		/* The searches the crumb's cut keeps on the entry it opened: Web Apps
+		 * keeps only the queries recorded strictly before the cut
+		 * (`utils.js::CloudcareUrl.spliceSelections`), so the list of the
+		 * menu the crumb names, and any list past it, runs its search again.
+		 * Each runs after the crumb's own push, on the entry it pushed. */
+		const cutSearches = (screen: PreviewSearchScreen) => {
+			const current = readCurrentPreviewStandingSearches();
+			const kept = new Set(
+				previewSearchesStandingAt(
+					docApi.getState(),
+					sessionApi.getState().previewSearchStates,
+					new Set(current),
+					screen,
+				),
+			);
+			recordPreviewStandingSearches(
+				current.filter((submission) => kept.has(submission)),
+			);
+		};
+		/* Re-enter the case selection as a route back from the form does: the
+		 * list that chose its case, holding the form only where the worker
+		 * chose it before the case. */
+		const reselect = (formModuleUuid: Uuid, formUuid: Uuid) => {
+			const back = previewCaseListReturn(
+				sessionApi.getState().previewCaseTarget,
+				{ moduleUuid: formModuleUuid, formUuid },
+			);
+			setPreviewCaseTarget(back.target);
+			navigate.openCaseList(back.moduleUuid);
+			return back.moduleUuid;
 		};
 		return effectiveBreadcrumbs.map((item) => {
 			const reselectFor = item.reselectCaseFor;
 			const holder = item.holdsCaseOn;
+			const parentOn = item.parentCaseOn;
+			const keeps = item.keepsCasesOf;
 			if (item.key === DEVICE_HOME_CRUMB_KEY)
 				return () => setPreviewAtDeviceHome(true);
 			if (!previewing) return () => navigate.push(item.location);
-			if (reselectFor && moduleUuid) {
-				/* Re-enter the case selection as a route back from the form
-				 * does: the list that chose its case, holding the form only
-				 * where the worker chose it before the case. */
+			if (parentOn !== undefined) {
+				/* A parent case a list off the trail chose: the screen after it,
+				 * with every case chosen up to it kept and every later one let
+				 * go, the list that holds the form chosen before its cases
+				 * where there is one. */
 				return () => {
-					const back = previewCaseListReturn(
-						sessionApi.getState().previewCaseTarget,
-						{ moduleUuid, formUuid: reselectFor },
+					letGo(item);
+					if (reselectFor && moduleUuid) {
+						const list = reselect(moduleUuid, reselectFor);
+						cutSearches({ moduleUuid: list, alsoPast: keeps });
+						return;
+					}
+					setPreviewCaseTarget(
+						previewTargetAboveForm(sessionApi.getState().previewCaseTarget),
 					);
-					setPreviewCaseTarget(back.target);
-					navigate.openCaseList(back.moduleUuid);
+					navigate.push(item.location);
+					cutSearches({ moduleUuid: parentOn, alsoPast: keeps });
+				};
+			}
+			if (reselectFor && moduleUuid) {
+				/* The form chosen before its cases: every case named after it,
+				 * a parent case asked for after its command included, goes, and
+				 * its list asks for them again holding the form. */
+				return () => {
+					letGo(item);
+					const list = reselect(moduleUuid, reselectFor);
+					cutSearches({ moduleUuid: list, alsoPast: keeps });
 				};
 			}
 			if (holder !== undefined) {
@@ -267,10 +318,11 @@ export function BreadcrumbStrip() {
 				 * back where the form was opened from it
 				 * (`navigate.reopenPreviewHeldMenu`). A menu screen holds the
 				 * case in its selection, which stays with the selections above
-				 * it, and lets a form's target go, whatever list chose it. */
+				 * it and every case chosen before it, and lets a form's target
+				 * go, whatever list chose it. */
 				const caseListMenu = item.holdsCaseListMenu;
 				return () => {
-					letGo({ moduleUuid: holder, through: true });
+					letGo(item);
 					if (caseListMenu !== undefined && caseListMenu.length > 0) {
 						navigate.reopenPreviewHeldMenu({
 							moduleUuid: holder,
@@ -283,6 +335,17 @@ export function BreadcrumbStrip() {
 						previewTargetAboveForm(sessionApi.getState().previewCaseTarget),
 					);
 					navigate.push(item.location);
+					cutSearches({ moduleUuid: holder, through: true, alsoPast: keeps });
+				};
+			}
+			if (item.key.startsWith("pf:") && item.location.kind === "cases") {
+				/* The form a list holds, chosen before its cases: the list
+				 * again, with every case named after the form let go. */
+				const list = item.location.moduleUuid;
+				return () => {
+					letGo(item);
+					navigate.push(item.location);
+					cutSearches({ moduleUuid: list, alsoPast: keeps });
 				};
 			}
 			if (item.key === "home" || item.key.startsWith("m:"))
@@ -290,18 +353,19 @@ export function BreadcrumbStrip() {
 					setPreviewCaseTarget(
 						previewTargetAboveForm(sessionApi.getState().previewCaseTarget),
 					);
-					letGo({
-						moduleUuid: item.key.startsWith("m:")
-							? (item.key.slice(2) as Uuid)
-							: undefined,
-					});
+					const menu = item.key.startsWith("m:")
+						? (item.key.slice(2) as Uuid)
+						: undefined;
+					letGo(item);
 					navigate.push(item.location);
+					cutSearches({ moduleUuid: menu, alsoPast: keeps });
 				};
 			return () => navigate.push(item.location);
 		});
 	}, [
 		docApi,
 		effectiveBreadcrumbs,
+		menuSource,
 		navigate,
 		moduleUuid,
 		previewing,

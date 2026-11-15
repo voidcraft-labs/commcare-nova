@@ -223,7 +223,7 @@ function summarizeCaseList(mod: Module): string | undefined {
 	}
 	if (config.tile !== undefined) {
 		lines.push(
-			`      layout: tile${config.tile.persistOnForms === true ? " (kept above every form)" : ""}`,
+			`      layout: tile${config.tile.persistOnForms === true ? " (kept on screen once its case is chosen)" : ""}`,
 		);
 		// Grouping changes what a placement MEANS — a cell in the header band
 		// is drawn once per group, from the group's first case — so a read

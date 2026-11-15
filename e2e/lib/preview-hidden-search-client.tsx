@@ -87,7 +87,7 @@ root.render(
 		<BlueprintDocProvider appId="native-cases" initialDoc={doc}>
 			<BuilderLocalizationProvider>
 				<BuilderFormEngineProvider>
-					<CaseListScreen screen={{ type: "caseList", moduleUuid }} />
+					<CaseListScreen screen={{ type: "caseList", moduleUuid }} current />
 				</BuilderFormEngineProvider>
 			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>

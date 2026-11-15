@@ -101,7 +101,11 @@ runtime reads differently. Runtime version 19 fences two things: it names a
 query repeat's wrapper `<id>.query`, and it saves a date and time to a case as
 the text CommCare HQ stores for its moment, UTC with six fraction digits and
 `Z` (`lib/domain/temporalValues.ts::caseDatetimeValue`), where a journey
-started before it saved the viewer's offset. A session's
+started before it saved the viewer's offset. Version 20 fences the Search
+screen's opening (`searchRunState.ts::openSearchRunState`): it reads every
+choice list and lets go a starting choice the rows do not offer, a menu that
+opens on its search or its results refuses as it opens, and the assigned-case
+exclusion refuses only where Results are read. A session's
 platform is its own `platform`, else the start's, else the one the saved app
 previews on by default (`context.ts::appTestPlatform`, which refuses a platform
 the app does not declare with `platformUnavailableSentence`); the session keeps
@@ -186,15 +190,18 @@ refusal's words (`dataRefusal.ts::appTestDataRefusal` over
 Preview shows it on, the inner read's name winning
 (`dataRefusal.ts::readingSurface`, `engine/surfacedDataRefusal.ts`): a case
 list's filter, columns, order and Results read and the Search action's
-condition the list's, the Search screen's starting and hidden values and
-checks the search's, a form's the form's, the links after it the links', and
+condition the list's, the Search screen's starting and hidden values,
+choice lists and checks the search's, a form's the form's, the links after it the links', and
 an unnamed read a menu's display condition; and for the worker the session
 runs as, by the persona's name. The Search screen opens as Preview opens it
 (`engine/searchRunState.ts::openSearchRunState`, through
 `engine/searchEvaluation.ts::evaluateSearchSnapshot`): a menu that opens on
 its search or its results refuses as it opens, and a list that opens first
 keeps its records, holds no search, observes `search.refusal` and refuses
-the `search` action, as Preview's Search pane shows the refusal. A refusal
+the `search` action, as Preview's Search pane shows the refusal. The list's
+assigned-case exclusion refuses only where a Results read is made, as the
+list's (`engine/serverSearchRead.ts::serverRecordsRead` over the snapshot's
+`exclusionRefusal`), so a menu on its Search screen opens. A refusal
 met after a submission saved (the links' conditions, the next screen's menu
 or list) keeps the save and is the observation's `nextTaskError`, as Preview
 shows it on the next step (`__tests__/dataRefusal.postgres.test.ts`).

@@ -208,7 +208,7 @@ export function CaseListCanvas({
 									tileDisabledReason={tileDisabledReason}
 									rowsConsequence={
 										tile?.persistOnForms === true
-											? "Your tile arrangement is kept, and comes back whenever you choose Tile again. The tile will no longer stay on screen during this module's forms."
+											? "Your tile arrangement is kept, and comes back whenever you choose Tile again. The tile will no longer stay on screen once a case is chosen."
 											: undefined
 									}
 									onChange={onArrangementChange}

@@ -55,6 +55,26 @@ export interface PreviewMenuSource extends ModuleHierarchySource {
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
 }
 
+/** A menu source that can also say which screens choose their case first
+ *  (`menuScreens.ts::screenChoosesCaseFirst`, which reads the whole
+ *  document): the document itself, or a menu source carrying it. The
+ *  session's order of choices reads it. */
+export type PreviewSessionSource =
+	| (PreviewMenuSource & { readonly doc: BlueprintDoc })
+	| BlueprintDoc;
+
+function sessionDocument(source: PreviewSessionSource): BlueprintDoc {
+	return "doc" in source ? source.doc : source;
+}
+
+function sessionMenuSource(source: PreviewSessionSource): PreviewMenuSource {
+	if ("doc" in source) return source;
+	const caseTypes = source.caseTypes;
+	return caseTypes === null
+		? { ...source, caseTypes: [] }
+		: { ...source, caseTypes };
+}
+
 /** Everything one running screen lists, in the order a worker meets it:
  *  the menus with a screen of their own as tiles, and the forms and case list
  *  entries of every menu whose forms list there
@@ -969,16 +989,81 @@ export function previewCaseListHeldChoices(
 export interface PreviewHeldCaseSelection {
 	readonly moduleUuid: Uuid;
 	readonly cases: readonly PreviewCaseChoice[];
+	/** Present on a parent case a menu's command asked for, chosen after
+	 *  that command: the menu. Its list may be on the trail or off it; either
+	 *  way the case follows the menu's command in the session, as
+	 *  `CommCareSession.getNeededData` asks for the entry's datums only once
+	 *  its command is chosen. */
+	readonly askedForBy?: Uuid;
+}
+
+/**
+ * The cases the session holds as a module's command is chosen, in the order
+ * they were chosen. The command is listed on the screen that lists the
+ * module's entry (its parent's screen, or the first menu, which holds no
+ * case), or for a menu that shows its forms in the menu above, on the screen
+ * that lists those forms. A screen that chooses its case first
+ * (`menuScreens.ts::screenChoosesCaseFirst`) holds every case its menu holds
+ * before it lists anything (`previewMenuHeldSelections`); a forms-first
+ * screen holds only what was chosen before its own command, because a case
+ * its list chose there came after a command it listed (a submenu's, asking
+ * for its parent case). A device's frame is `[menu, case, submenu, …]` under
+ * a case-first menu and `[menu, submenu, case, …]` under a forms-first one.
+ */
+export function previewSelectionsBeforeCommand(
+	source: PreviewSessionSource,
+	moduleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+): PreviewHeldCaseSelection[] {
+	const doc = sessionDocument(source);
+	const screen = moduleHasOwnScreen(doc, moduleUuid)
+		? menuTileScreenOf(doc, moduleUuid)
+		: menuScreenOf(doc, moduleUuid);
+	if (
+		screen === undefined ||
+		screen.kind === "first-menu" ||
+		screen.moduleUuid === moduleUuid
+	)
+		return [];
+	return screenChoosesCaseFirst(doc, screen)
+		? previewMenuHeldSelections(source, screen.moduleUuid, selections)
+		: previewSelectionsBeforeCommand(source, screen.moduleUuid, selections);
 }
 
 /**
  * The cases the session holds before a module's own case is chosen, in the
- * order they were chosen: its parent case, chosen first, and that one's
- * parent before it (`previewMenuCaseContext`'s `parentCase`). The wire's
- * entry lists the same chain root first
+ * order they were chosen: those held as its command was chosen
+ * (`previewSelectionsBeforeCommand`), then its parent case and that one's
+ * parent before it (`previewMenuCaseContext`'s `parentCase`), which its
+ * command asked for (`askedForBy`), each module once. A case a case-first
+ * menu above chose stays a step of the session whatever the submenu's case
+ * type: a device's frame holds `[menu, case, submenu, …]`, and Formplayer's
+ * `MenuSessionRunnerService.getStepToFrame` and Android's
+ * `BreadcrumbBarHelper.loadTile` read that case's datum, through
+ * `CommCareSession.findDatumDefinition` over the menu's own entries, on every
+ * screen after it. The wire's entry lists the parent chain root first
  * (`formLinkProjection.ts::entrySessionDatums`).
  */
 export function previewSelectionsBefore(
+	source: PreviewSessionSource,
+	moduleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+): PreviewHeldCaseSelection[] {
+	const held = previewSelectionsBeforeCommand(source, moduleUuid, selections);
+	const heldModules = new Set<string>(
+		held.map((selection) => selection.moduleUuid),
+	);
+	return [
+		...held,
+		...previewParentCaseChain(sessionMenuSource(source), moduleUuid, selections)
+			.filter((selection) => !heldModules.has(selection.moduleUuid))
+			.map((selection) => ({ ...selection, askedForBy: moduleUuid })),
+	];
+}
+
+/** A module's parent case, chosen first, and that one's parent before it,
+ *  root first (`previewMenuCaseContext`'s `parentCase`). */
+function previewParentCaseChain(
 	source: PreviewMenuSource,
 	moduleUuid: Uuid,
 	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
@@ -1009,11 +1094,15 @@ export function previewSelectionsBefore(
  * same-type case it goes on with).
  */
 export function previewMenuHeldSelections(
-	source: PreviewMenuSource,
+	source: PreviewSessionSource,
 	moduleUuid: Uuid,
 	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
 ): PreviewHeldCaseSelection[] {
-	const context = previewMenuCaseContext(source, moduleUuid, selections);
+	const context = previewMenuCaseContext(
+		sessionMenuSource(source),
+		moduleUuid,
+		selections,
+	);
 	if (context.selectedCase === undefined)
 		return previewSelectionsBefore(source, moduleUuid, selections);
 	const own: PreviewHeldCaseSelection = {
@@ -1043,23 +1132,35 @@ export function previewTargetAboveForm<T extends PreviewCaseListTarget>(
 /**
  * The menus whose chosen cases a route to a screen lets go, as Web Apps'
  * breadcrumb cuts the session's selections back to the step it names
- * (`spliceSelections`). The session is one path: a case chosen on a menu
- * above the screen's menu precedes that menu's command and stays, every
- * other case is chosen after it or on no path to it, and goes. `through`
- * keeps the screen's own menu's case too: the crumb of a case names the
- * screen with that case chosen.
+ * (`spliceSelections`). The session is one path: the cases held as the
+ * screen's menu's command was chosen precede it and stay
+ * (`previewSelectionsBeforeCommand`: those a case-first menu above chose,
+ * never a parent case a forms-first menu's list chose for this menu, which
+ * its command asked for), and every other case is chosen after it or on no
+ * path to it, and goes. `through` keeps everything the screen's menu holds
+ * (`previewMenuHeldSelections`): the crumb of a case names the screen with
+ * that case chosen. `keeps` names the menus whose cases the session chose up
+ * to the crumb, a parent case a list off the trail chose among them, which
+ * precede the cut wherever their lists are.
  */
 export function previewMenuSelectionsLetGo(
-	doc: ModuleHierarchySource,
+	source: PreviewSessionSource,
 	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
-	screen: { readonly moduleUuid: Uuid | undefined; readonly through?: boolean },
+	screen: {
+		readonly moduleUuid: Uuid | undefined;
+		readonly through?: boolean;
+		readonly keeps?: readonly Uuid[];
+	},
 ): Uuid[] {
-	const kept = new Set<string>();
-	let current: Uuid | null | undefined = screen.moduleUuid;
-	if (current !== undefined && screen.through === true) kept.add(current);
-	while (current !== undefined && current !== null) {
-		current = moduleParent(doc, current);
-		if (current !== undefined && current !== null) kept.add(current);
+	const kept = new Set<string>(screen.keeps ?? []);
+	const menu = screen.moduleUuid;
+	if (menu !== undefined) {
+		if (screen.through === true) kept.add(menu);
+		const held =
+			screen.through === true
+				? previewMenuHeldSelections(source, menu, selections)
+				: previewSelectionsBeforeCommand(source, menu, selections);
+		for (const selection of held) kept.add(selection.moduleUuid);
 	}
 	return Object.keys(selections).filter((uuid) => !kept.has(uuid)) as Uuid[];
 }

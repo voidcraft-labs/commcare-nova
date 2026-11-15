@@ -14,6 +14,12 @@
  * `submission` is each search's own identity, unique across every search:
  * the count restarts when Search again retires a search, so what is kept per
  * search (its device values) is kept under `submission`, never `attempt`.
+ *
+ * The same slot holds two kinds no attempt reader reads, so every list's
+ * search stands and lets go by one rule (`lib/preview/searchStanding.ts`): a
+ * Search action's search on a menu whose forms do not read it (`action`),
+ * and the Search screen asked for again (`manual`). `searchAttemptOf` is the
+ * attempt readers' view, `submittedSearchOf` the list's.
  */
 
 import { v7 as uuidv7 } from "uuid";
@@ -30,10 +36,58 @@ export type PreviewSearchOutcome =
 	| { readonly kind: "completed"; readonly matchCount: number }
 	| { readonly kind: "failed"; readonly reason: PreviewSearchFailure };
 
+/** One search of a menu whose forms read it, numbered within the run. */
+export type PreviewSearchAttempt = Extract<
+	PreviewSearchState,
+	{ readonly kind: "running" | "failed" | "completed" }
+>;
+
+/** A search the list holds with the worker's answers: an attempt of a menu
+ *  whose forms read the search, or a Search action's search. */
+export type PreviewSubmittedSearch =
+	| PreviewSearchAttempt
+	| Extract<PreviewSearchState, { readonly kind: "action" }>;
+
+/** The state as an attempt of a menu whose forms read the search, if it is
+ *  one; a Search action's search and a Search screen asked for again are
+ *  not. */
+export function searchAttemptOf(
+	state: PreviewSearchState | undefined,
+): PreviewSearchAttempt | undefined {
+	return state?.kind === "running" ||
+		state?.kind === "failed" ||
+		state?.kind === "completed"
+		? state
+		: undefined;
+}
+
+/** The state as a search the list holds with answers, if it is one. */
+export function submittedSearchOf(
+	state: PreviewSearchState | undefined,
+): PreviewSubmittedSearch | undefined {
+	return state?.kind === "action" ? state : searchAttemptOf(state);
+}
+
+/** A Search action ran with these answers on a menu whose forms do not read
+ *  the search: the session holds it so it stands and lets go as every search
+ *  does (`lib/preview/searchStanding.ts`). */
+export function actionSearch(
+	answers: PreviewSearchAnswers,
+	submission: string = newSearchSubmission(),
+): PreviewSearchState {
+	return { kind: "action", submission, answers };
+}
+
+/** The worker asked for the Search screen again: Web Apps'
+ *  `force_manual_search`, which stands and lets go as a search does. */
+export function manualSearch(
+	submission: string = newSearchSubmission(),
+): PreviewSearchState {
+	return { kind: "manual", submission };
+}
+
 function attemptOf(state: PreviewSearchState | undefined): number {
-	return state === undefined || state.kind === "not-searched"
-		? 0
-		: state.attempt;
+	return searchAttemptOf(state)?.attempt ?? 0;
 }
 
 /** A new search's identity. `uuid` draws on `crypto.getRandomValues`,
@@ -105,10 +159,11 @@ export function recordSearchDeviceValues(
 	submission: string,
 	value: PreviewSearchDeviceValues["value"],
 ): PreviewSearchState | undefined {
-	if (state === undefined || state.kind === "not-searched") return state;
-	if (state.submission !== submission || state.deviceValues !== undefined)
+	const attempt = searchAttemptOf(state);
+	if (attempt === undefined) return state;
+	if (attempt.submission !== submission || attempt.deviceValues !== undefined)
 		return state;
-	return { ...state, deviceValues: { value } };
+	return { ...attempt, deviceValues: { value } };
 }
 
 /** A search the device has yet to work out values for. */
@@ -147,12 +202,13 @@ export function recordRegisteredCase(
 	caseId: string,
 	created = true,
 ): PreviewSearchState {
+	const held = searchAttemptOf(state);
 	const base =
-		state !== undefined && state.kind !== "not-searched"
+		held !== undefined
 			? {
-					attempt: state.attempt,
-					submission: state.submission,
-					answers: state.answers,
+					attempt: held.attempt,
+					submission: held.submission,
+					answers: held.answers,
 				}
 			: {
 					attempt: attemptOf(state) + 1,

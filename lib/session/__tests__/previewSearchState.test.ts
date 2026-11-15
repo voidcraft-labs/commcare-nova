@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+	actionSearch,
 	beginSearch,
+	manualSearch,
 	NOT_SEARCHED,
 	newSearchSubmission,
 	noMatchesActionAvailable,
 	recordRegisteredCase,
 	recordSearchDeviceValues,
+	searchAttemptOf,
 	searchesAwaitingDeviceValues,
 	settleSearch,
+	submittedSearchOf,
 } from "../previewSearchState";
 import type { PreviewSearchState } from "../types";
 
@@ -202,16 +206,17 @@ describe("a search's device values", () => {
 	});
 
 	it("keeps a search retired by Search again apart from the next, whose count starts over", () => {
-		// Search again clears the module's search, so the next search is
-		// attempt 1 again: its values are its own, never the last search's.
+		// Search again replaces the module's search with the Search screen
+		// asked for again, so the next search is attempt 1 again: its values
+		// are its own, never the last search's.
 		const retired = recordSearchDeviceValues(
 			beginSearch(undefined, answers, "s1"),
 			"s1",
 			first,
 		);
 		expect(retired).toMatchObject({ deviceValues: { value: first } });
-		const next = beginSearch(undefined, answers);
-		if (next.kind === "not-searched") throw new Error("Not begun.");
+		const next = searchAttemptOf(beginSearch(manualSearch("s2"), answers));
+		if (next === undefined) throw new Error("Not begun.");
 		expect(next.attempt).toBe(1);
 		expect(next.submission).not.toBe("s1");
 		// The retired search's evaluation, arriving late, lands nowhere.
@@ -283,6 +288,64 @@ describe("the searches awaiting the device's values", () => {
 				) as PreviewSearchState,
 			}).map((search) => search.moduleUuid),
 		).toEqual(["m1"]);
+	});
+});
+
+// Every list's search stands and lets go by one rule, so the session also
+// holds a Search action's search and a Search screen asked for again. Neither
+// is an attempt of a menu whose forms read the search: neither settles, is
+// worked out on the session, offers registration or numbers the next attempt.
+describe("a Search action's search and a Search screen asked for again", () => {
+	const action = actionSearch(answers, "a1");
+	const manual = manualSearch("m1");
+
+	it("hold their own identity, and the action its answers", () => {
+		expect(action).toEqual({ kind: "action", submission: "a1", answers });
+		expect(manual).toEqual({ kind: "manual", submission: "m1" });
+		// Each request is its own, so an entry recording an earlier one holds
+		// none of a later one.
+		expect(manualSearch()).not.toEqual(manualSearch());
+	});
+
+	it("are no attempt; the action is a submitted search the list takes back, the Search screen is none", () => {
+		expect(searchAttemptOf(action)).toBeUndefined();
+		expect(searchAttemptOf(manual)).toBeUndefined();
+		expect(submittedSearchOf(action)).toBe(action);
+		expect(submittedSearchOf(manual)).toBeUndefined();
+		const running = beginSearch(undefined, answers, "s1");
+		expect(searchAttemptOf(running)).toBe(running);
+		expect(submittedSearchOf(running)).toBe(running);
+		expect(submittedSearchOf(NOT_SEARCHED)).toBeUndefined();
+	});
+
+	it("never settle, wait for the session's device values, take them, or offer registration", () => {
+		for (const state of [action, manual]) {
+			expect(settleSearch(state, 1, { kind: "completed", matchCount: 0 })).toBe(
+				state,
+			);
+			expect(
+				recordSearchDeviceValues(
+					state,
+					state.kind === "action" ? "a1" : "m1",
+					undefined,
+				),
+			).toBe(state);
+			expect(noMatchesActionAvailable(state)).toBe(false);
+		}
+		expect(searchesAwaitingDeviceValues({ m1: action, m2: manual })).toEqual(
+			[],
+		);
+	});
+
+	it("start the next attempt at 1, and a registration over them is a fresh attempt", () => {
+		expect(beginSearch(action, answers)).toMatchObject({ attempt: 1 });
+		expect(beginSearch(manual, answers)).toMatchObject({ attempt: 1 });
+		expect(recordRegisteredCase(manual, "case-new")).toMatchObject({
+			kind: "completed",
+			attempt: 1,
+			answers: {},
+			registeredCaseId: "case-new",
+		});
 	});
 });
 

@@ -240,6 +240,19 @@ async function searchSnapshot(
 						lookup,
 					),
 				);
+	/* The assigned-case exclusion is a rule of the Results read, which
+	 * Preview evaluates as it reads Results (`caseDataBinding.ts::
+	 * prepareRunningCaseRead`) and shows a refusal of as the list's. So a
+	 * refusal here is held as data, and the records read throws it, named
+	 * the list's, only where it reads Results
+	 * (`serverSearchRead.ts::serverRecordsRead`): a menu on its Search
+	 * screen reads no Results and refuses nothing for it. */
+	const exclusion = readPreviewScreen(() => ({
+		excludedOwnerIds: excluded(expressionValues),
+		authoredExcludedOwnerIds: excluded(
+			withSearchInputExpressionValues(inputs, new Map()),
+		),
+	}));
 	return {
 		relevant,
 		/** The Search pane's refusal on a list that opens first: the screen
@@ -261,9 +274,16 @@ async function searchSnapshot(
 		errors: Object.fromEntries(errors),
 		inputValues: values,
 		expressionValues,
-		excludedOwnerIds: excluded(expressionValues),
-		authoredExcludedOwnerIds: excluded(
-			withSearchInputExpressionValues(inputs, new Map()),
-		),
+		excludedOwnerIds:
+			exclusion.kind === "read" ? exclusion.value.excludedOwnerIds : undefined,
+		authoredExcludedOwnerIds:
+			exclusion.kind === "read"
+				? exclusion.value.authoredExcludedOwnerIds
+				: undefined,
+		/** The exclusion's refusal of data the worker's device lacks, which
+		 *  the Results read throws as the list's. Plain data, so it crosses
+		 *  the worker thread. */
+		exclusionRefusal:
+			exclusion.kind === "refused" ? exclusion.refusal.reason : undefined,
 	};
 }

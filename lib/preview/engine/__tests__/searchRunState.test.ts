@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	promptLookupContext,
+	promptLookupRows,
+	searchPromptWorkerPlaceFixture,
+	WORKER_PLACE_SEARCH_MENUS,
+} from "@/lib/commcare/__tests__/searchPromptFixture";
 import type { SearchInputDef } from "@/lib/domain";
 import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import {
@@ -19,6 +25,7 @@ import {
 	previewAsMe,
 	previewSessionValues,
 } from "../identity";
+import { previewLookupData } from "../lookupEvaluation";
 import {
 	buildSearchRunState,
 	changeSearchRunDraft,
@@ -26,6 +33,8 @@ import {
 	openSearchRunState,
 	reconcileSearchRunState,
 	restoreSearchRun,
+	searchScreenOpeningCovered,
+	searchStartingValuesOffered,
 	withHiddenValues,
 } from "../searchRunState";
 
@@ -319,6 +328,139 @@ describe("the Search screen as it opens", () => {
 			}),
 		];
 		expect(opened(inputs, SESSION)).toBe("opened");
+	});
+
+	/* Between the starting values and the required reads, Core's manager
+	 * populates every choice prompt's itemset (`refreshItemSetChoices` →
+	 * `ItemSetUtils.populateDynamicChoices`), which throws for a table with
+	 * no rows and for a row filter over a key the worker lacks. Formplayer's
+	 * `QueryScreen.init` builds the manager before an automatic search, so a
+	 * menu that opens on its results refuses there too, and App Tests and the
+	 * form check, which open the screen through this one function, refuse at
+	 * the same step. `SearchPromptRuntimeTest` holds Core to the `choices`
+	 * menu of this fixture. */
+	describe("a choice list", () => {
+		const doc = searchPromptWorkerPlaceFixture();
+		const moduleUuid =
+			doc.moduleOrder[WORKER_PLACE_SEARCH_MENUS.indexOf("choices")];
+		const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
+		if (promptLookupContext.kind !== "available")
+			throw new Error("The prompt fixture holds its lookup tables.");
+		const definitions = promptLookupContext.definitions;
+		const lookup = (rows: typeof promptLookupRows) =>
+			previewLookupData({
+				projectRevision: "1",
+				definitions,
+				rowsByTable: rows,
+			});
+		const openChoices = (
+			session: PreviewSearchSessionValues,
+			environmentLookup?: ReturnType<typeof lookup>,
+		) => {
+			const read = readPreviewScreen(() =>
+				openSearchRunState(moduleUuid, inputs, session, {
+					doc,
+					moduleUuid,
+					...(environmentLookup !== undefined && { lookup: environmentLookup }),
+				}),
+			);
+			return read.kind === "refused"
+				? (previewDataRefusalOf(read.refusal)?.reason ?? "refused")
+				: "opened";
+		};
+
+		it("stops on a row filter over a place key a worker assigned nowhere lacks, and opens for one placed", () => {
+			expect(openChoices(SESSION, lookup(promptLookupRows))).toEqual(refusal);
+			expect(openChoices(PLACED, lookup(promptLookupRows))).toBe("opened");
+		});
+
+		it("stops on a table with no rows, whoever the worker is", () => {
+			const empty = new Map(
+				[...promptLookupRows].map(([tableId]) => [tableId, []]),
+			);
+			expect(openChoices(PLACED, lookup(empty))).toEqual({
+				kind: "empty-choice-table",
+				tableId: definitions[0]?.id,
+			});
+		});
+
+		it("is not opened until the lookup data covers the list, and reads nothing before", () => {
+			expect(searchScreenOpeningCovered(inputs, {})).toBe(false);
+			expect(
+				searchScreenOpeningCovered(inputs, {
+					lookup: lookup(promptLookupRows),
+				}),
+			).toBe(true);
+			// A screen that reads no table opens with no lookup data at all.
+			expect(searchScreenOpeningCovered([input("Ada"), searchedBy], {})).toBe(
+				true,
+			);
+			// A reader that cannot wait (the lookup load failed) reads what it
+			// can, and refuses nothing it could not read.
+			expect(openChoices(SESSION)).toBe("opened");
+		});
+	});
+
+	/* Core's choice pass lets go of each chosen value of a starting value
+	 * the list does not offer (`refreshItemSetChoices`,
+	 * `checkForValidSelectValue`) before it judges a required condition or a
+	 * check (`validateUserAnswers`). `SearchPromptRuntimeTest` holds Core to
+	 * the `unoffered-choice` menu: built for a worker assigned nowhere, with
+	 * no starting answer. */
+	describe("a starting choice the list does not offer", () => {
+		const doc = searchPromptWorkerPlaceFixture();
+		const moduleUuid =
+			doc.moduleOrder[WORKER_PLACE_SEARCH_MENUS.indexOf("unoffered-choice")];
+		const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
+		if (promptLookupContext.kind !== "available")
+			throw new Error("The prompt fixture holds its lookup tables.");
+		const environment = {
+			doc,
+			moduleUuid,
+			lookup: previewLookupData({
+				projectRevision: "1",
+				definitions: promptLookupContext.definitions,
+				rowsByTable: promptLookupRows,
+			}),
+		};
+
+		it("is let go before its check is read, so the screen opens with no answer", () => {
+			for (const session of [SESSION, PLACED]) {
+				const read = readPreviewScreen(() =>
+					openSearchRunState(moduleUuid, inputs, session, environment),
+				);
+				expect(read.kind).toBe("read");
+				if (read.kind === "read") {
+					expect(read.value.defaults.has("region")).toBe(false);
+					expect(read.value.draft.has("region")).toBe(false);
+				}
+			}
+		});
+
+		it("keeps the chosen values the list offers, in their order", () => {
+			const rows = [
+				{ key: "1", value: "north", label: "North" },
+				{ key: "2", value: "east", label: "East" },
+			];
+			const offered = (value: string) =>
+				searchStartingValuesOffered(
+					new Map([
+						["region", value],
+						["name", "Ada"],
+					]),
+					new Map([["region", rows]]),
+				);
+			expect([...offered("east#,#west#,#north")]).toEqual([
+				["region", "east#,#north"],
+				["name", "Ada"],
+			]);
+			expect(offered("west").has("region")).toBe(false);
+			// An answer every value of which the list offers is kept as it is.
+			const kept = new Map([["region", "north"]]);
+			expect(
+				searchStartingValuesOffered(kept, new Map([["region", rows]])),
+			).toBe(kept);
+		});
 	});
 });
 

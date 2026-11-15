@@ -74,6 +74,7 @@
  */
 
 import { produce } from "immer";
+import { v4 as uuidv4 } from "uuid";
 import { CasePropertyRenamePlanError } from "@/lib/doc/casePropertyRenames";
 import { deepEqual } from "@/lib/doc/deepEqual";
 import {
@@ -955,7 +956,7 @@ export function createReconciler(
 		const batches = docStore.getState().takeCommandBatches();
 		let firstBatchId: string | undefined;
 		for (const [queueIndex, mutations] of batches.entries()) {
-			const batchId = crypto.randomUUID();
+			const batchId = uuidv4();
 			firstBatchId ??= batchId;
 			const batch: SentBatch = {
 				source: "human",

@@ -12,7 +12,7 @@
  * with a fixture blueprint to verify the cross-store dispatch contract.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -287,6 +287,103 @@ describe("BuilderSession store", () => {
 		store.getState().setPreviewPersonaUuid("persona-a");
 		expect(store.getState().previewSessionId).toBe(running);
 		startsOver(() => store.getState().setPreviewing(false));
+	});
+
+	it("starts the session over at Android's home screen, as Android's reset does, keeping the worker and the device", () => {
+		// `HomeScreenBaseActivity.processCanceledGetCommandOrCase` resets the
+		// session (`CommCareSession.clearAllState`): every step and frame
+		// goes; the logged-in worker and the install stay.
+		const store = createBuilderSessionStore();
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewPersonaUuid("persona-a");
+		store.getState().setPreviewPlatform("android");
+		store.getState().setPreviewAtDeviceHome(false);
+		store.getState().markPreviewDeviceSynced(1234);
+		store.getState().setPreviewMenuCaseSelection("menu", {
+			caseType: "patient",
+			cases: [{ caseId: "ana" }],
+		});
+		store.getState().setPreviewCaseTarget({
+			formUuid: testUuid("form"),
+			cases: [{ caseId: "ana" }],
+		});
+		store.getState().setPreviewSelectedCase({
+			caseId: "ana",
+			caseName: "Ana",
+		});
+		store.getState().setPreviewSearchState("menu", {
+			kind: "completed",
+			attempt: 1,
+			submission: "search-1",
+			answers: {},
+			matchCount: 1,
+		});
+		store.getState().setPreviewCaseListRegistrationEntry({
+			hostModuleUuid: testUuid("menu"),
+			moduleUuid: testUuid("menu"),
+			formUuid: testUuid("register"),
+		});
+		store.getState().setPreviewParentCaseRequest({
+			selectingModuleUuid: testUuid("parent-menu"),
+			returnModuleUuids: [testUuid("menu")],
+			resumeLocation: { kind: "module", moduleUuid: testUuid("menu") },
+			cancelLocation: { kind: "home" },
+		});
+		store.getState().setPreviewTaskContinuation({
+			moduleUuid: testUuid("menu"),
+			selectingModuleUuids: [],
+			caseDatabase: { rows: [], indices: [] },
+		});
+		const before = store.getState();
+
+		store.getState().setPreviewAtDeviceHome(true);
+
+		const after = store.getState();
+		expect(after).toMatchObject({
+			previewAtDeviceHome: true,
+			previewCaseTarget: undefined,
+			previewCaseListRegistrationEntry: undefined,
+			previewTaskContinuation: undefined,
+			previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+			previewEntryPointLaunch: undefined,
+			previewSelectedCase: undefined,
+			previewMenuCaseSelections: {},
+			previewParentCaseRequest: undefined,
+			previewSearchStates: {},
+			// The device's: who is logged in, the platform, its sync, its id.
+			previewing: true,
+			previewPersonaUuid: "persona-a",
+			previewPlatform: "android",
+			previewDeviceSyncedAt: 1234,
+			previewAndroidDeviceId: before.previewAndroidDeviceId,
+		});
+		// A step the browser's history kept from the old session (a list's
+		// held form menu) no longer stands.
+		expect(after.previewSessionId).not.toBe(before.previewSessionId);
+
+		// Start opens the app on that new session.
+		store.getState().setPreviewAtDeviceHome(false);
+		expect(store.getState().previewSessionId).toBe(after.previewSessionId);
+	});
+
+	it("makes its identities without crypto.randomUUID, which an insecure context lacks", () => {
+		// A page served over plain http on a LAN address has `crypto` with
+		// `getRandomValues` and no `randomUUID`.
+		const secure = globalThis.crypto;
+		vi.stubGlobal("crypto", {
+			getRandomValues: secure.getRandomValues.bind(secure),
+		});
+		try {
+			const store = createBuilderSessionStore();
+			expect(store.getState().previewAndroidDeviceId).toMatch(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			);
+			const first = store.getState().previewSessionId;
+			store.getState().setPreviewing(true);
+			expect(store.getState().previewSessionId).not.toBe(first);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
 	it("4. setPreviewing(true) with chat already closed: restores chat-closed state exactly", () => {

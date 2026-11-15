@@ -17,6 +17,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { PresenceEntry, PresenceFrame } from "@/lib/collab/presenceTypes";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -128,7 +129,7 @@ export function hashColor(userId: string): PeerColor {
 /** Mint a fresh per-tab session id. Two tabs of one user get distinct ids so
  *  their presence rows don't clobber and one tab's `DELETE` leaves the other. */
 export function mintSessionId(): string {
-	return crypto.randomUUID();
+	return uuidv4();
 }
 
 // ── Roster reduction (the pure state model) ─────────────────────────────

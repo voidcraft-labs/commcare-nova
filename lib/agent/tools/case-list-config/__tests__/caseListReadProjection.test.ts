@@ -197,7 +197,9 @@ describe("case-list read projections", () => {
 		]);
 
 		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
-		expect(summary).toContain("layout: tile (kept above every form)");
+		expect(summary).toContain(
+			"layout: tile (kept on screen once its case is chosen)",
+		);
 		// Every cell states its alignment and size, so the three follow the
 		// rectangle.
 		expect(summary).toContain("@ 0,0 12x1 left top large");

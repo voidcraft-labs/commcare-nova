@@ -182,7 +182,7 @@ def menu_screens(session):
         from corehq.apps.app_manager.helpers.validators import ModuleValidator
 
         for source in sorted(exports.glob("*.json")):
-            if source.name.endswith((".screens.json", ".offers.json")):
+            if source.name.endswith((".screens.json", ".offers.json", ".tiles.json")):
                 continue
             raw = source.read_bytes()
             app = _target(import_source(raw, ENDPOINT_DOMAIN), "menu-screens-evidence")

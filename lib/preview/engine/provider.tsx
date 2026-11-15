@@ -102,7 +102,7 @@ export function BuilderFormEngineProvider({
 	 * an unwired controller. For the identity that lateness would mean
 	 * every warm-session form mount opens its entry with no worker and no
 	 * hold, and the parent effect's install then discards that entry and
-	 * starts it again for the worker (`setPreviewIdentity`). The `useState`
+	 * starts a new one for the worker (`setPreviewIdentity`). The `useState`
 	 * initializer runs during render, before any descendant mounts, so
 	 * both are in place before anyone needs them (`previewAsMe` is pure,
 	 * and Better Auth resolves a warm client session synchronously). */
@@ -175,7 +175,7 @@ export function BuilderFormEngineProvider({
 	 * session resolving after mount, a sign-out broadcast from another
 	 * tab. The controller's setter treats a materially-identical identity
 	 * as a no-op, so session refetches minting new user references don't
-	 * rebuild an active engine. The provider's warm-session opt-in changes
+	 * start an active entry anew. The provider's warm-session opt-in changes
 	 * only this non-rendered controller; visual consumers retain the
 	 * identity-free hydration render. */
 	useEffect(() => {

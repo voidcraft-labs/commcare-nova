@@ -142,7 +142,7 @@ function Surface() {
 				<BuilderLocalizationProvider>
 					<LanguageButtons />
 					<BuilderFormEngineProvider>
-						<CaseListScreen screen={{ type: "caseList", moduleUuid }} />
+						<CaseListScreen screen={{ type: "caseList", moduleUuid }} current />
 					</BuilderFormEngineProvider>
 				</BuilderLocalizationProvider>
 			</BlueprintDocProvider>

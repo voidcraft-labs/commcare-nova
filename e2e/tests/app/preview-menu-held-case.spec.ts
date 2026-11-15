@@ -1,5 +1,8 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
-import { MENU_HELD_CASE_SEED } from "../../lib/menuHeldCaseSeed";
+import {
+	MENU_HELD_CASE_SEED,
+	menuHeldCaseClinicRoute,
+} from "../../lib/menuHeldCaseSeed";
 import { openBuilder } from "../../lib/pageLoads";
 
 /**
@@ -164,5 +167,209 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		await expectVisitsMenu(refused.caseName);
 		await crumb(refused.caseName).click();
 		await expectPatientsMenu(refused.caseName);
+	});
+
+	await test.step("a pregnancy chosen under a patient another menu's list chose names that patient after its menu, and the patient's crumb reaches the patient's pregnancies", async () => {
+		/* Pregnancy visits asks Patients' list, off its trail, for the
+		 * patient: Web Apps' trail grows one crumb per selection, the
+		 * patient's after the menu whose command asked for it. */
+		const { pregnancyVisits } = MENU_HELD_CASE_SEED;
+		const pregnancyCheck = main.getByRole("button", {
+			name: pregnancyVisits.formName,
+			exact: true,
+		});
+		await crumb("Home").click();
+		await main
+			.getByRole("button", { name: new RegExp(`^${pregnancyVisits.name}`) })
+			.click({ timeout: 20_000 });
+		await choose(refused.caseName);
+		await choose(pregnancies.caseName);
+		await pregnancyCheck.click({ timeout: 20_000 });
+		await expect(submit).toBeVisible({ timeout: 20_000 });
+		await expect(trail).toContainText(
+			new RegExp(
+				`${pregnancyVisits.name}.*${refused.caseName}.*${pregnancies.caseName}.*${pregnancyVisits.formName}`,
+			),
+		);
+		await expect(trail).not.toContainText(patients.name);
+		// The pregnancy's crumb keeps the patient chosen before it: it steps
+		// back onto the pregnancy's form menu, the patient still held.
+		await crumb(pregnancies.caseName).click();
+		await expect(main.locator("[data-form-menu-case-title]")).toHaveText(
+			pregnancies.caseName,
+			{ timeout: 20_000 },
+		);
+		await expect(trail).toContainText(
+			new RegExp(
+				`${pregnancyVisits.name}.*${refused.caseName}.*${pregnancies.caseName}$`,
+			),
+		);
+		await pregnancyCheck.click();
+		await expect(submit).toBeVisible({ timeout: 20_000 });
+		// The patient's crumb cuts the session back to the screen after the
+		// patient: Pregnancy visits' list of that patient's pregnancies.
+		await crumb(refused.caseName).click();
+		await expect(results).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", {
+				name: new RegExp(`^Continue with ${pregnancies.caseName}`),
+			}),
+		).toBeVisible();
+		await expect(trail).toContainText(
+			new RegExp(`${pregnancyVisits.name}.*${refused.caseName}$`),
+		);
+		await expect(trail).not.toContainText(pregnancies.caseName);
+	});
+
+	await test.step("the crumb of a form chosen before its cases lets go the patient asked for after it, and the list asks again holding the form", async () => {
+		/* Pregnancy follow-ups lists its forms before its pregnancy, so Web
+		 * Apps asks Patients' list for the patient after the form's command:
+		 * the form's crumb cuts the patient away with the pregnancy. */
+		const { pregnancyFollowUps } = MENU_HELD_CASE_SEED;
+		await crumb("Home").click();
+		await main
+			.getByRole("button", {
+				name: new RegExp(`^${pregnancyFollowUps.name}`),
+			})
+			.click({ timeout: 20_000 });
+		await choose(refused.caseName);
+		await main
+			.getByRole("button", { name: pregnancyFollowUps.formName, exact: true })
+			.click({ timeout: 20_000 });
+		await choose(pregnancies.caseName);
+		await expect(submit).toBeVisible({ timeout: 20_000 });
+		await expect(trail).toContainText(
+			new RegExp(
+				`${pregnancyFollowUps.name}.*${pregnancyFollowUps.formName}.*${refused.caseName}.*${pregnancies.caseName}$`,
+			),
+		);
+		await crumb(pregnancyFollowUps.formName).click();
+		// Patients' list asks for the patient again.
+		await expect(
+			main.getByRole("button", {
+				name: new RegExp(`^Continue with ${opens.caseName}`),
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(trail).not.toContainText(refused.caseName);
+		await choose(refused.caseName);
+		// Her pregnancies, on a list that still holds the form (its crumb
+		// before hers), which opens once the pregnancy is chosen.
+		await expect(trail).toContainText(new RegExp(`${refused.caseName}$`), {
+			timeout: 20_000,
+		});
+		await expect(crumb(pregnancyFollowUps.formName)).toBeVisible();
+		await choose(pregnancies.caseName);
+		await expect(submit).toBeVisible({ timeout: 20_000 });
+		await expect(trail).toContainText(
+			new RegExp(
+				`${pregnancyFollowUps.formName}.*${refused.caseName}.*${pregnancies.caseName}$`,
+			),
+		);
+	});
+});
+
+/**
+ * A case's details, where the session holds no case yet. Android's details
+ * screen draws the case it shows as its tile where the list keeps its tile on
+ * screen and is choosing its own case (`BreadcrumbBarHelper.loadTile` falling
+ * back to `EntityDetailActivity.requestEntityContext`), and none for a search
+ * action's result, whose datum names no persistent detail; Formplayer's
+ * details answer carries none, so Web Apps' details show no tile
+ * (`lib/preview/pinnedCaseTile.ts`).
+ */
+test("Android's case details draw the case they show as its tile, except a search's result, and Web Apps' draw none", {
+	tag: "@seed:menu-held-case",
+}, async ({ scenario, page }) => {
+	const { menuHeldCase } = seedFor(scenario, "menu-held-case");
+	const { clinic, opens } = MENU_HELD_CASE_SEED;
+	test.setTimeout(120_000);
+	const main = page.locator("main");
+	const results = main.locator("[data-case-results]");
+	const tile = page.locator("[data-persistent-case-tile]:visible");
+	const viewDetails = main.getByRole("button", {
+		name: new RegExp(`^View details for ${opens.caseName}`),
+	});
+	const continueOnDetails = main.getByRole("button", {
+		name: "Continue",
+		exact: true,
+	});
+	const identity = page.getByRole("button", { name: /^Running as / });
+
+	await openBuilder(page, menuHeldCaseClinicRoute(menuHeldCase.appId));
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+
+	await test.step("Web Apps' details show no tile", async () => {
+		await expect(identity).toHaveAccessibleName(/ in Web Apps\. /, {
+			timeout: 20_000,
+		});
+		await expect(results).toBeVisible({ timeout: 20_000 });
+		await viewDetails.click();
+		await expect(continueOnDetails).toBeVisible({ timeout: 20_000 });
+		await expect(tile).toHaveCount(0);
+	});
+
+	await test.step("Android's details draw the patient they show above them", async () => {
+		await identity.click();
+		await page.getByRole("menuitemradio", { name: /^Android/ }).click();
+		await expect(identity).toHaveAccessibleName(/ on Android\. /);
+		await main
+			.getByRole("button", { name: "Start", exact: true })
+			.click({ timeout: 20_000 });
+		await main
+			.getByRole("button", { name: new RegExp(`^${clinic.name}`) })
+			.click();
+		await expect(results).toBeVisible({ timeout: 20_000 });
+		await expect(tile).toHaveCount(0);
+		await viewDetails.click();
+		await expect(continueOnDetails).toBeVisible({ timeout: 20_000 });
+		await expect(tile).toHaveCount(1);
+		await expect(tile).toContainText(opens.caseName, { timeout: 20_000 });
+	});
+
+	await test.step("the patient, once chosen, keeps the tile on the form", async () => {
+		await continueOnDetails.click();
+		await main
+			.getByRole("button", { name: clinic.formName, exact: true })
+			.click({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: "Finish", exact: true }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(tile).toHaveCount(1);
+		await expect(tile).toContainText(opens.caseName, { timeout: 20_000 });
+	});
+
+	await test.step("Android's details of a search's result draw no tile, and the patient chosen there pins it", async () => {
+		/* The search's results are chosen for its own datum, which names no
+		 * persistent detail (`searchSession.ts::buildSearchSession`), so
+		 * Android's details hold no case to draw. */
+		const { clinicSearch } = MENU_HELD_CASE_SEED;
+		const searchScreen = main.getByRole("search", { name: "Search" });
+		await page
+			.getByRole("navigation", { name: "Page navigation" })
+			.getByRole("button", { name: "Home", exact: true })
+			.click();
+		await main
+			.getByRole("button", { name: new RegExp(`^${clinicSearch.name}`) })
+			.click({ timeout: 20_000 });
+		// Android opens the list first, with Search from it.
+		await expect(results).toBeVisible({ timeout: 20_000 });
+		await main
+			.getByRole("button", { name: "Search All Cases", exact: true })
+			.click();
+		await expect(searchScreen).toBeVisible({ timeout: 20_000 });
+		await searchScreen
+			.getByRole("button", { name: "Search All Cases", exact: true })
+			.click();
+		await expect(results).toBeVisible({ timeout: 20_000 });
+		await viewDetails.click();
+		await expect(continueOnDetails).toBeVisible({ timeout: 20_000 });
+		await expect(main.getByText(opens.caseName).first()).toBeVisible();
+		await expect(tile).toHaveCount(0);
+		await continueOnDetails.click();
+		await expect(
+			main.getByRole("button", { name: clinicSearch.formName, exact: true }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(tile).toHaveCount(1);
+		await expect(tile).toContainText(opens.caseName, { timeout: 20_000 });
 	});
 });

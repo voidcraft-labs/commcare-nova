@@ -29,6 +29,7 @@
 //     verbatim, the builder shows it. The placement sentences themselves
 //     live in `formSectionVerdicts.ts`, so the three editors say one thing.
 
+import { v4 as uuidv4 } from "uuid";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -402,7 +403,7 @@ function planPartition(
 		const keep =
 			section.sectionUuid !== undefined &&
 			currentSections.includes(section.sectionUuid);
-		const uuid = section.sectionUuid ?? asUuid(crypto.randomUUID());
+		const uuid = section.sectionUuid ?? asUuid(uuidv4());
 		if (keep) {
 			if (!model.inPlace(uuid, formUuid, prevSection)) {
 				mutations.push({

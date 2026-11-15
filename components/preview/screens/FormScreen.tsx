@@ -14,6 +14,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
@@ -158,6 +159,10 @@ import {
 	usePresentationHasFields,
 } from "@/lib/preview/hooks/usePresentationDocument";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
+import {
+	usePreviewStandingSearchState,
+	useSetPreviewStandingSearchState,
+} from "@/lib/preview/hooks/usePreviewStandingSearch";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import {
 	searchWorld,
@@ -174,6 +179,7 @@ import {
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import { endPreviewStandingSearches } from "@/lib/routing/useClientPath";
 import {
 	useAccessPhase,
 	useAppId,
@@ -187,14 +193,12 @@ import {
 	usePreviewMenuCaseSelections,
 	usePreviewPersonaUuid,
 	usePreviewPlatformRules,
-	usePreviewSearchState,
 	useProjectId,
 	useProjectScopeEpoch,
 	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseTarget,
 	useSetPreviewing,
 	useSetPreviewMenuCaseSelection,
-	useSetPreviewSearchState,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import { recordRegisteredCase } from "@/lib/session/previewSearchState";
@@ -540,8 +544,18 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * the case target names the search attempt that offered it, and the
 	 * module's search context says whether that search found nothing. The
 	 * admitted answers are what `#search/<name>` reads in the engine. */
-	const searchState = usePreviewSearchState(moduleUuid);
-	const setPreviewSearchState = useSetPreviewSearchState();
+	const searchState = usePreviewStandingSearchState(moduleUuid);
+	const setPreviewSearchState = useSetPreviewStandingSearchState();
+	/* A submission ends the searches the form was opened under on the screen
+	 * it lands on: Web Apps clears the query data of the address it pushes
+	 * after a submission (`app.js`'s submit handler, `CloudcareUrl.onSubmit`)
+	 * and Android's frame ends with the form, so a list the landing opens
+	 * runs its menu's default search, or asks again. The entries before the
+	 * landing keep theirs, so Back returns to them, as it returns to Web
+	 * Apps' earlier addresses. A landing that runs a menu's search again
+	 * keyed to a case writes that search afresh, and carries it on
+	 * (`lib/routing/previewSearchHistory.ts`). */
+	const letSubmittedSearchesGo = endPreviewStandingSearches;
 	const searchLaunch =
 		previewCaseTarget?.formUuid === formUuid
 			? previewCaseTarget.searchLaunch
@@ -1417,6 +1431,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 		readonly announceWrite: () => void;
 	}): Promise<void> => {
 		const { submitted, result, isCurrent, settleAttempt } = args;
+		/* The searches as the submission found them, which a landing that
+		 * keys a menu's search to the registered case carries on. */
+		const searchesAtSubmit = session.getState().previewSearchStates;
 		/* The write has landed, so the Register launch that opened this
 		 * entry is spent: whatever opens next, this form again included, is
 		 * no longer that launch. The submitted snapshot keeps it for the
@@ -1448,6 +1465,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			session.getState().setPreviewTaskContinuation(undefined);
 			session.getState().setPreviewParentCaseRequest(undefined);
 			setPreviewCaseTarget(undefined);
+			letSubmittedSearchesGo();
 		};
 		/* Unless it explicitly returns to First menu, a no-matches registration
 		 * form returns to its module as the wire's
@@ -1466,10 +1484,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			setPreviewSearchState(
 				moduleUuid,
 				menuFormUuidsOf(submitted.doc, moduleUuid).length > 0
-					? recordRegisteredCase(
-							session.getState().previewSearchStates[moduleUuid],
-							caseId,
-						)
+					? recordRegisteredCase(searchesAtSubmit[moduleUuid], caseId)
 					: undefined,
 			);
 			setPreviewSelectedCase(undefined);
@@ -1602,7 +1617,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 					setPreviewSearchState(
 						moduleUuid,
 						recordRegisteredCase(
-							session.getState().previewSearchStates[moduleUuid],
+							searchesAtSubmit[moduleUuid],
 							result.caseId,
 							createdCase !== undefined,
 						),
@@ -1808,7 +1823,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				async (evaluateLink) => {
 					const world = createFormLinkWorkerWorld(
 						input,
-						`form-link-${crypto.randomUUID()}`,
+						`form-link-${uuidv4()}`,
 					);
 					/* Every frame and every carried value reads the one
 					 * post-submit world, as Core evaluates a form's stack
@@ -2097,6 +2112,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			};
 			switch (route.kind) {
 				case "previous-task": {
+					letSubmittedSearchesGo();
 					for (const uuid of routeMenuSource.moduleOrder)
 						setPreviewMenuCaseSelection(uuid, route.task.selections[uuid]);
 					setPreviewSelectedCase(undefined);
@@ -2654,7 +2670,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				 * destination lands; with no write there is no earlier task to
 				 * return to, so `previous` lands on the form's module. A form
 				 * with destinations evaluates none of them with nothing saved,
-				 * and lands on the app home. */
+				 * and lands on the app home. Its session ends with the form, and
+				 * its searches with it. */
+				letSubmittedSearchesGo();
 				dispatchPostSubmit(
 					submitted.destination === undefined
 						? "app_home"
@@ -3505,9 +3523,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 												event.preventDefault();
 											}
 										}}
+										/* A form still getting ready has no entry to submit, so
+										 * a press then would land nowhere and say nothing. */
 										disabled={
 											submitStatus.kind === "running" ||
 											clearRunning ||
+											engineInitializing ||
 											engineRebuilding ||
 											caseDatabaseWait !== undefined ||
 											!caseBindingReady ||

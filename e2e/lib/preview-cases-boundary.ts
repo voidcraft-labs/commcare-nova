@@ -77,18 +77,8 @@ export const loadCaseDatabaseSnapshotAction: typeof Actions.loadCaseDatabaseSnap
 export const submitFormAction: typeof Actions.submitFormAction = async () => {
 	throw new Error("Unexpected submission in case layout evidence");
 };
-export function useAuth() {
-	return {
-		user: {
-			id: "native-worker",
-			name: "Native worker",
-			email: "native@example.org",
-		},
-		isAuthenticated: true,
-		isPending: false,
-		signIn: async () => undefined,
-	};
-}
+// The member as Better Auth hands it: one object across renders.
+export { useAuth } from "./signed-in-auth-boundary";
 
 export async function loadLookupFixtureDataAction(): Promise<never> {
 	throw new Error("Unexpected lookup data request in case layout evidence");

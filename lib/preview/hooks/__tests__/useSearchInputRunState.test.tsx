@@ -3,6 +3,12 @@ import { act, renderHook } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	promptLookupContext,
+	promptLookupRows,
+	searchPromptWorkerPlaceFixture,
+	WORKER_PLACE_SEARCH_MENUS,
+} from "@/lib/commcare/__tests__/searchPromptFixture";
 import type { SearchInputDef } from "@/lib/domain";
 import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import { sessionContext, term } from "@/lib/domain/expression";
@@ -11,6 +17,7 @@ import {
 	previewAsMe,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
+import { previewLookupData } from "@/lib/preview/engine/lookupEvaluation";
 import { useSearchInputRunState } from "../useSearchInputRunState";
 
 const searchInputs = [
@@ -97,6 +104,55 @@ it("validates a prospective search with the latest identity while preserving the
 	expect(result.current.submitted.get("run_by")).toBe("worker@example.org");
 	act(() => result.current.submit(new Map([["name", "Ada"]])));
 	expect(result.current.submitted.get("run_by")).toBe("next@example.org");
+});
+
+it("waits for the lookup data its choice lists read, then refuses an empty table as the screen opens", () => {
+	/* Skip to results launches its default search only once the screen has
+	 * opened (`caseListPhase.ts::caseListLaunchesDefaultSearch` reads
+	 * `pending`), so a choice list Core refuses as Formplayer's query screen
+	 * is built (`QueryScreen.init`) refuses before any search runs. */
+	const doc = searchPromptWorkerPlaceFixture();
+	const moduleUuid =
+		doc.moduleOrder[WORKER_PLACE_SEARCH_MENUS.indexOf("choices")];
+	const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
+	if (promptLookupContext.kind !== "available")
+		throw new Error("The prompt fixture holds its lookup tables.");
+	const empty = previewLookupData({
+		projectRevision: "1",
+		definitions: promptLookupContext.definitions,
+		rowsByTable: new Map(
+			[...promptLookupRows].map(([tableId]) => [tableId, []]),
+		),
+	});
+	const { result, rerender } = renderHook(
+		({ lookup, failed }) =>
+			useSearchInputRunState({
+				scopeKey: "choices",
+				searchInputs: inputs,
+				session,
+				environment: {
+					doc,
+					moduleUuid,
+					...(lookup !== undefined && { lookup }),
+				},
+				lookupLoadFailed: failed,
+			}),
+		{
+			initialProps: {
+				lookup: undefined as typeof empty | undefined,
+				failed: false,
+			},
+		},
+	);
+	expect(result.current.pending).toBe(true);
+	expect(result.current.refusal).toBeUndefined();
+	rerender({ lookup: empty, failed: false });
+	expect(result.current.pending).toBeUndefined();
+	expect(result.current.refusal).toBeDefined();
+	// A failed lookup load opens the screen over what it holds, never waiting.
+	rerender({ lookup: undefined, failed: true });
+	expect(result.current.pending).toBeUndefined();
+	expect(result.current.refusal).toBeUndefined();
 });
 
 function runEnvironment(inputs: readonly SearchInputDef[]) {

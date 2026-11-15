@@ -29,6 +29,7 @@ import { orderedColumns } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
+import type { PinnedTileSearchReading } from "@/lib/preview/pinnedCaseTile";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { CaseTile } from "./CaseTile";
 import { PreviewDataRefusalPanel } from "./PreviewDataRefusal";
@@ -50,8 +51,13 @@ interface PersistentCaseTileProps {
 	 * from `useRestoreScopeKey`. A PROP rather than a read of its own: the
 	 * tile takes every input from its parent, and reading the document here
 	 * would give a purely presentational component a provider it has never
-	 * needed. `FormScreen` already holds the value. */
+	 * needed. `PinnedCaseTile` supplies it for every screen that pins the
+	 * tile. */
 	readonly restoreScopeKey: string;
+	/** The search the list chose the case from, where the list reads its
+	 *  cases from that search (`pinnedCaseTile.ts::pinnedTileSearchReading`);
+	 *  absent where the case is the device's. */
+	readonly searchReading?: PinnedTileSearchReading;
 }
 
 export function PersistentCaseTile({
@@ -64,6 +70,7 @@ export function PersistentCaseTile({
 	caseTypes,
 	fallbackProperties,
 	restoreScopeKey,
+	searchReading,
 }: PersistentCaseTileProps) {
 	const message = useWorkerMessage();
 	/* A read of its own, with the display config attached, so calculated
@@ -80,9 +87,14 @@ export function PersistentCaseTile({
 		blueprint,
 		moduleUuid,
 		caseTypes,
-		// The pinned tile draws the case the worker selected on their device.
+		// The pinned tile draws the case the worker selected: on their device,
+		// or as the search the list reads found it, with its answers.
 		deviceScoped: true,
 		scopeKey: restoreScopeKey,
+		search: searchReading !== undefined,
+		...(searchReading !== undefined && {
+			searchAnswers: searchReading.answers,
+		}),
 		// Its cells are the list's tile, so a `here()` cell reads the latest
 		// position the list's watch saw.
 		positionScreen: "list",
@@ -91,8 +103,12 @@ export function PersistentCaseTile({
 		config,
 		caseType,
 		fallbackProperties,
-		// The tile reads the device's own copy of the case.
-		{ doc: blueprint, moduleUuid, reading: "casedb" },
+		// The tile reads the device's own copy of the case, or the search's.
+		{
+			doc: blueprint,
+			moduleUuid,
+			reading: searchReading === undefined ? "casedb" : "results",
+		},
 	);
 	/* A tile reads a link column as the platform's list draws it. */
 	const linkColumnInList = usePreviewPlatformRules().linkColumnInList;

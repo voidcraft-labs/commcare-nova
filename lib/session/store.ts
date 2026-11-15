@@ -24,7 +24,7 @@ import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchType
  */
 
 import type { VirtualItem } from "@tanstack/react-virtual";
-import { v7 as uuidv7 } from "uuid";
+import { v4 as uuidv4, v7 as uuidv7 } from "uuid";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type {
@@ -941,7 +941,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewPlatform: undefined as Platform | undefined,
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
-				previewAndroidDeviceId: crypto.randomUUID(),
+				/* `uuid` rather than `crypto.randomUUID`, for the reason
+				 * `newPreviewSessionId` gives: the builder opened over plain
+				 * http on a LAN address would throw making this store. */
+				previewAndroidDeviceId: uuidv4(),
 				previewSessionId: newPreviewSessionId(),
 
 				/* Chrome */
@@ -1490,13 +1493,31 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				setPreviewAtDeviceHome(atHome: boolean) {
 					if (get().previewAtDeviceHome === atHome) return;
-					/* The phone's home screen resets the session, and with it
-					 * every frame still pending. */
+					/* The phone's home screen starts the session over: Android
+					 * resets it when the worker steps back from the root menu
+					 * (`HomeScreenBaseActivity.java::processCanceledGetCommandOrCase`
+					 * → `AndroidSessionWrapper.reset` →
+					 * `CommCareSession.clearAllState`, a new frame and an empty
+					 * frame stack), so every command, chosen case, search and
+					 * pending frame goes, and a step the browser's history kept
+					 * from the old session no longer stands. The logged-in worker,
+					 * the platform and its last sync are the device's, and stay.
+					 * Leaving the home screen (Start) begins on that new
+					 * session. */
 					set(
 						atHome
 							? {
 									previewAtDeviceHome: true,
+									previewCaseTarget: undefined,
+									previewCaseListRegistrationEntry: undefined,
+									previewTaskContinuation: undefined,
 									previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+									previewEntryPointLaunch: undefined,
+									previewSelectedCase: undefined,
+									previewMenuCaseSelections: {},
+									previewSessionId: newPreviewSessionId(),
+									previewParentCaseRequest: undefined,
+									previewSearchStates: {},
 								}
 							: { previewAtDeviceHome: false },
 					);

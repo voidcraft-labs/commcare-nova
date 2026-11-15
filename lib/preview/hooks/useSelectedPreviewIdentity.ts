@@ -19,29 +19,32 @@
  */
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { useDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useUserCollections } from "@/lib/doc/hooks/useUserCollections";
 import { ownRecordValue } from "@/lib/domain";
 import {
+	heldSelectedPreviewIdentityState,
 	previewAsMe,
 	previewAsPersona,
 	type ResolvedPreviewIdentity,
+	type SelectedPreviewIdentityState,
 } from "@/lib/preview/engine/identity";
 import { usePreviewPersonaUuid } from "@/lib/session/hooks";
 
-export type SelectedPreviewIdentityState =
-	| {
-			readonly kind: "ready";
-			readonly identity: ResolvedPreviewIdentity | null;
-	  }
-	| { readonly kind: "persona-unavailable"; readonly personaUuid: string };
+export type { SelectedPreviewIdentityState };
 
 /**
  * Preserve the difference between an identity that has not hydrated yet and
  * a selected persona that no longer exists. Collapsing both to `null` lets
  * the latter run as an anonymous worker.
+ *
+ * The value is the same object for as long as it names the same worker
+ * (`identity.ts::heldSelectedPreviewIdentityState`): a session refetch mints
+ * a new user object, and consumers compare the selection by reference (the
+ * refusal backstop retries its screen when it changes), so a new object for
+ * the same worker would retry, and log, on every refetch.
  */
 export function useSelectedPreviewIdentityState(
 	options: { readonly useCachedSessionImmediately?: boolean } = {},
@@ -54,7 +57,7 @@ export function useSelectedPreviewIdentityState(
 	const projectSpace = useDeploymentProjectSpace();
 	const hydrated = useHydrated();
 
-	return useMemo(() => {
+	const derived = useMemo((): SelectedPreviewIdentityState => {
 		const sessionUser =
 			options.useCachedSessionImmediately === true || hydrated ? user : null;
 		const persona =
@@ -79,6 +82,12 @@ export function useSelectedPreviewIdentityState(
 		projectSpace,
 		user,
 	]);
+	/* Information from the previous render, held as React holds it: a
+	 * different worker replaces the held selection during this render. */
+	const [held, setHeld] = useState(derived);
+	const selected = heldSelectedPreviewIdentityState(held, derived);
+	if (selected !== held) setHeld(selected);
+	return selected;
 }
 
 const subscribeToNothing = () => () => undefined;

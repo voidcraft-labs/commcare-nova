@@ -46,6 +46,22 @@
 		{
 			"path": "./e2e/lint/routeRemoval.grit",
 			"includes": ["**/e2e/tests/**", "**/e2e/react-profile/**"]
+		},
+		{
+			"path": "./lib/lint/randomUuid.grit",
+			"includes": [
+				"**/components/**",
+				"**/lib/collab/**",
+				"**/lib/doc/**",
+				"**/lib/preview/**",
+				"**/lib/projects/**",
+				"**/lib/references/**",
+				"**/lib/routing/**",
+				"**/lib/session/**",
+				"**/lib/tiptap/**",
+				"**/lib/ui/**",
+				"!**/__tests__/**"
+			]
 		}
 	],
 	"overrides": [

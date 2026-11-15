@@ -23,9 +23,11 @@ import {
 	WEB_APPS_DEVICE_ID,
 } from "@/lib/preview/platform";
 import {
+	heldSelectedPreviewIdentityState,
 	previewAsMe,
 	previewAsPersona,
 	previewSessionValues,
+	type SelectedPreviewIdentityState,
 	samePreviewIdentity,
 } from "../identity";
 import {
@@ -507,5 +509,67 @@ describe("samePreviewIdentity", () => {
 		expect(samePreviewIdentity(null, null)).toBe(true);
 		expect(samePreviewIdentity(previewAsMe(FULL_USER), null)).toBe(false);
 		expect(samePreviewIdentity(null, previewAsMe(FULL_USER))).toBe(false);
+	});
+});
+
+describe("heldSelectedPreviewIdentityState", () => {
+	const ready = (
+		identity: ReturnType<typeof previewAsMe>,
+	): SelectedPreviewIdentityState => ({ kind: "ready", identity });
+
+	it("keeps the held selection while a session refetch re-derives the same worker", () => {
+		const held = ready(previewAsMe(FULL_USER, DOC));
+		const refetched = ready(previewAsMe({ ...FULL_USER }, DOC));
+		expect(refetched).not.toBe(held);
+		expect(heldSelectedPreviewIdentityState(held, refetched)).toBe(held);
+
+		const persona = ready(previewAsPersona(FULL_USER, ASHA_PERSONA, DOC));
+		expect(
+			heldSelectedPreviewIdentityState(
+				persona,
+				ready(previewAsPersona({ ...FULL_USER }, ASHA_PERSONA, DOC)),
+			),
+		).toBe(persona);
+
+		const pending = ready(null);
+		expect(heldSelectedPreviewIdentityState(pending, ready(null))).toBe(
+			pending,
+		);
+	});
+
+	it("hands on the next selection when the worker changes", () => {
+		const held = ready(previewAsMe(FULL_USER, DOC));
+		const cases: SelectedPreviewIdentityState[] = [
+			ready(null),
+			ready(previewAsMe({ ...FULL_USER, name: "Amina D." }, DOC)),
+			ready(previewAsPersona(FULL_USER, ASHA_PERSONA, DOC)),
+			{ kind: "persona-unavailable", personaUuid: ASHA_PERSONA.uuid },
+		];
+		for (const next of cases)
+			expect(heldSelectedPreviewIdentityState(held, next)).toBe(next);
+		const arriving = ready(previewAsMe(FULL_USER, DOC));
+		expect(heldSelectedPreviewIdentityState(ready(null), arriving)).toBe(
+			arriving,
+		);
+	});
+
+	it("keeps a missing persona's selection only while it names the same persona", () => {
+		const held: SelectedPreviewIdentityState = {
+			kind: "persona-unavailable",
+			personaUuid: ASHA_PERSONA.uuid,
+		};
+		expect(
+			heldSelectedPreviewIdentityState(held, {
+				kind: "persona-unavailable",
+				personaUuid: ASHA_PERSONA.uuid,
+			}),
+		).toBe(held);
+		const other: SelectedPreviewIdentityState = {
+			kind: "persona-unavailable",
+			personaUuid: "another-persona",
+		};
+		expect(heldSelectedPreviewIdentityState(held, other)).toBe(other);
+		const back = ready(previewAsPersona(FULL_USER, ASHA_PERSONA, DOC));
+		expect(heldSelectedPreviewIdentityState(held, back)).toBe(back);
 	});
 });

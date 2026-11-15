@@ -9,7 +9,10 @@ import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/c
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { useLocation } from "@/lib/routing/hooks";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
-import { usePreviewAtDeviceHome } from "@/lib/session/hooks";
+import {
+	usePreviewAtDeviceHome,
+	usePreviewSessionId,
+} from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 import { buildNavigationDoc } from "./previewNavigationFixture";
@@ -74,10 +77,12 @@ session.getState().setPreviewing(true, { atHome: false });
 function Observed() {
 	const where = useLocation();
 	const atDeviceHome = usePreviewAtDeviceHome();
+	const sessionId = usePreviewSessionId();
 	return (
 		<>
 			<output aria-label="Location">{where.kind}</output>
 			<output aria-label="At the device home">{String(atDeviceHome)}</output>
+			<output aria-label="Preview session">{sessionId}</output>
 		</>
 	);
 }

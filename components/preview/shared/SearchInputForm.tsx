@@ -401,10 +401,12 @@ export function SearchInputForm({
 			),
 		[draft, environment, platformRules, searchInputs, readSession],
 	);
-	/* Each choice prompt's rows, read with the screen: a table with no rows,
-	 * or a filter over data the device lacks, is Core's refusal of the Search
-	 * screen (`RemoteQuerySessionManager.populateItemSetChoices`), held as
-	 * its state, never an error leaving the render. */
+	/* Each choice prompt's rows, to draw. The screen's run state already read
+	 * them as it opened (`searchRunState.ts::openSearchRunState`), so a table
+	 * with no rows, or a filter over data the device lacks, refused the
+	 * Search screen there (`RemoteQuerySessionManager.populateItemSetChoices`)
+	 * whatever step the list shows; this read holds the same refusal as its
+	 * state, never an error leaving the render. */
 	const choicesRead = useMemo(
 		() =>
 			readPreviewScreen(() => {

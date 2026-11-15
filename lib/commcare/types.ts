@@ -307,8 +307,10 @@ export interface DetailBase<XPath = string> {
 	persist_case_context: null;
 	persistent_case_context_xml: XPath;
 	/**
-	 * Keeps the short detail on screen above every form in the module —
-	 * the persistent case tile. CCHQ turns it into `detail-persistent` on
+	 * Keeps the short detail on screen once a case is chosen from the list,
+	 * the persistent case tile: Formplayer and Android draw it above every
+	 * screen whose session holds that case (the menu it opens, later lists,
+	 * Web Apps' search, the forms). CCHQ turns it into `detail-persistent` on
 	 * each of the module's case-loading datums
 	 * (`suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`).
 	 */

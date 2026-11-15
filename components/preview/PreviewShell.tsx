@@ -56,6 +56,7 @@ import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useEntryPointLaunchLifecycle } from "@/lib/preview/hooks/useEntryPointLaunch";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
+import { usePreviewSearchArrival } from "@/lib/preview/hooks/usePreviewSearchArrival";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { continuesPreviewTask } from "@/lib/preview/taskContinuation";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -254,6 +255,8 @@ export function PreviewShell() {
 	useLayoutEffect(() => {
 		if (mode === "preview" && loc.kind === "home") clearPreviewNavigation();
 	}, [mode, loc.kind, clearPreviewNavigation]);
+	/* The searches the worker left behind on the way here no longer stand. */
+	usePreviewSearchArrival(mode, loc);
 
 	/* The case the running-app case list passed into a case-loading form.
 	 * The URL tracks which form; this ephemeral target carries the selected
@@ -628,6 +631,7 @@ export function PreviewShell() {
 									<ModuleScreen
 										key={screenKey(moduleScreenRef.current)}
 										screen={moduleScreenRef.current}
+										current={zustandScreen.type === "module"}
 									/>
 								</PreviewDataRefusalScope>
 							</div>
@@ -736,6 +740,12 @@ export function PreviewShell() {
 									<CaseListScreen
 										key={screenKey(caseListScreenRef.current)}
 										screen={caseListScreenRef.current}
+										current={
+											zustandScreen.type === "caseList" ||
+											zustandScreen.type === "searchConfig" ||
+											zustandScreen.type === "detailConfig" ||
+											zustandScreen.type === "dataReview"
+										}
 									/>
 								</PreviewDataRefusalScope>
 							</div>

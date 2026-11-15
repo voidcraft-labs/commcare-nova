@@ -16,6 +16,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
@@ -290,7 +291,7 @@ export function OptionsEditorWidget({
 		const next: SelectOption[] = [
 			...draft,
 			{
-				uuid: asUuid(crypto.randomUUID()),
+				uuid: asUuid(uuidv4()),
 				...mintSelectOptionPlaceholder(draft.length + 1),
 			},
 		];

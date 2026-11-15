@@ -7,6 +7,7 @@ import {
 	useSyncExternalStore,
 	useTransition,
 } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { discardChatWork, readChatWork } from "@/app/(app)/build/work-actions";
 import { Button } from "@/components/shadcn/button";
 
@@ -95,7 +96,7 @@ export function PendingChatWork({
 		if (discardRequest.current?.revision !== expectedRevision)
 			discardRequest.current = {
 				revision: expectedRevision,
-				id: crypto.randomUUID(),
+				id: uuidv4(),
 			};
 		const requestId = discardRequest.current.id;
 		startTransition(async () => {

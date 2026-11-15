@@ -1516,7 +1516,18 @@ a menu that searches there, and turns such a menu to search first when its case
 list is saved. Android reads no `auto_launch`, so search first and skip to
 results are ignored there and the case list opens first (`search-first`,
 `skip-to-results`). Results exist only after a completed search and show only
-what it found, with **Search again** returning to Search. Enabling Search with
+what it found, with **Search again** returning to Search. On a skip to results
+menu in Web Apps that Search screen stays until the worker searches, as the Web
+Apps client asks for the query screen with `force_manual_search`. Formplayer
+builds the screen's query manager before the automatic search runs
+(`QueryScreen.init`), reading every choice list, so a choice list that refuses
+(a table with no rows) stops the menu before any search, and Preview opens the
+screen only once the lookup data it reads has arrived
+(`lib/preview/engine/searchRunState.ts::searchScreenOpeningCovered`); a crumb
+above the list, Home, a submitted form and a new Preview session drop it with
+the address's query data, and the menu runs its default search again. A
+Search action's search, on a menu whose forms do not read it, lets go by the
+same rule as one they read (`lib/preview/searchStanding.ts`). Enabling Search with
 no visible field, or removing or hiding the last visible field under an absent
 workflow, writes skip to results in the same batch, so no edit leaves a bare
 Search screen behind; a menu whose author chose search first with no visible
@@ -1773,8 +1784,24 @@ response, menus, case lists, searches and forms alike
 `cloudcare/.../formplayer/menus/views.js::PersistentCaseTileView` renders it in a
 sticky region, suppressed only inside HQ's own App Preview pane, which Nova does
 not target; Android draws the same tile on every screen whose layout holds its
-frame, the search screen excepted (`BreadcrumbBarHelper`). Preview follows both
-(`lib/preview/pinnedCaseTile.ts`). The case-detail screen stays a plain field list.
+frame, the search screen excepted (`BreadcrumbBarHelper`), and where the frame
+names no case its details screen draws the case it shows with the persistent
+detail of the datum being chosen (`BreadcrumbBarHelper.loadTile` falling back
+to `EntityDetailActivity.requestEntityContext`,
+`EntityDetailUtils.populateDetailIntent`, which passes it only beside the
+datum's details screen), which Formplayer's details answer never carries
+(`MenuController.getDetails`). A search action's results are chosen for its
+remote request's `search_case_id`, which names `detail-confirm` and no
+`detail-persistent` (`searchSession.ts::buildSearchSession`, as HQ's
+`remote_requests.py` writes it), so their details draw no tile until the claim
+rewinds the chosen case into the list's own datum. A case chosen on a menu above stays
+one of those steps under a submenu of any case type, related or not, since the
+frame keeps it (`CommCareSession.findDatumDefinition` reads its datum from the
+menu's own entries). Preview follows both
+(`lib/preview/pinnedCaseTile.ts`), and `MenuScreensRuntimeTest` holds Core's
+own frame walk to the case Preview names, screen by screen, on the
+`pinned-tile` document. The case-detail screen's own fields stay a plain field
+list.
 
 Nova emits only HQ's `custom` tile vocabulary — `case_tile_template = "custom"`
 plus per-column grid fields — and never the named templates `person_simple` or
@@ -2988,7 +3015,21 @@ back off the form shows it and a step back off the menu shows the list with noth
 Preview session that took it, so after a change of worker, platform or Preview run Back shows the
 list, as a case the previous worker chose has no standing in the next one's session;
 a menu screen holds it in its selection, the trail reads menu, case, form as Web Apps' does, each
-crumb cutting the session back to its screen (`previewMenuSelectionsLetGo`), a route back to a list goes to the one that chose the case holding no
+crumb cutting the session back to its screen and keeping every selection named before it
+(`lib/routing/previewBreadcrumbs.ts::previewBreadcrumbLetGo`) and naming one
+selection, as Formplayer adds a breadcrumb per step (`MenuSession.handleInput`): a parent case a
+list off the trail chose, or a forms-first menu's list chose for its submenu, follows the menu
+whose command asked for it and reaches the screen after it (`lib/routing/previewBreadcrumbs.ts`);
+a menu's crumb keeps only the cases held as its command was chosen, those a case-first menu above
+chose (`lib/preview/menuProjection.ts::previewSelectionsBeforeCommand`); and a crumb keeps only the searches recorded before the
+screen it names, as `utils.js::CloudcareUrl.spliceSelections` keeps only the query data before its
+cut, while a submission lets every search go on the screen it lands on and leaves the earlier
+history entries theirs, as Web Apps clears the query data only of the address it pushes after one
+(`app.js`'s submit handler, `onSubmit`), and Home lets them go (`clearExceptApp`;
+`lib/preview/searchStanding.ts`, each history entry recording the searches standing on it,
+`lib/routing/previewSearchHistory.ts`). Android's home screen starts the session over
+(`HomeScreenBaseActivity.processCanceledGetCommandOrCase` → `CommCareSession.clearAllState`), so
+Preview's clears every navigation fact and mints a new session there. A route back to a list goes to the one that chose the case holding no
 form (`previewCaseListReturn`), the list ignores a form so chosen
 (`previewCaseListFormRequest`), and the next case lists the menu again. A form chosen before its
 case stays beneath it: one step back reaches its list, which opens it again.

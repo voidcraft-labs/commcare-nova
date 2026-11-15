@@ -64,6 +64,7 @@
  */
 
 import { produce } from "immer";
+import { v4 as uuidv4 } from "uuid";
 import {
 	asUuid,
 	type CaseProperty,
@@ -180,7 +181,7 @@ export function planKindConversion(args: {
 			kind: "inline",
 			options: optionsSource.options.map((option) => ({
 				...structuredClone(option),
-				uuid: asUuid(crypto.randomUUID()),
+				uuid: asUuid(uuidv4()),
 			})),
 		};
 	};

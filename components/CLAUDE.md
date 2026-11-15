@@ -73,6 +73,15 @@ Use `lib/ui/hooks/useDeferredFocus` for a one-frame handoff and keep its owner
 mounted until the destination exists. Intentional modal focus traps and
 readiness-gated form reveals retain their own lifecycle owners.
 
+## Identifiers
+
+Mint a UUID in browser code with the `uuid` package (`v4`, or `v7` where order
+helps), never `crypto.randomUUID`: a browser offers it only in a secure
+context, so the builder opened over plain http on a LAN address would throw.
+`uuid` draws on `crypto.getRandomValues`, which every browsing context holds.
+`lib/lint/randomUuid.grit` refuses `crypto.randomUUID()` here and in the
+client directories of `lib`.
+
 ## Inputs
 
 Every `<input>` / `<textarea>` gets `autoComplete="off"` and `data-1p-ignore` (keeps password managers off non-credential fields).

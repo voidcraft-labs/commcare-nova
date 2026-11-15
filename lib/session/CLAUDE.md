@@ -31,8 +31,14 @@ The running menu keeps three distinct case facts, and they must not collapse:
 
 `previewSessionId` names the worker's running Preview session. It is new each
 time the session starts over: entering or leaving Preview, a change of
-worker or platform, an entry point's launch, a confirmed Project change and
-`reset()`; a store made on a page load starts with its own. The worker's own
+worker or platform, an entry point's launch, Android's home screen
+(`setPreviewAtDeviceHome(true)`), a confirmed Project change and
+`reset()`; a store made on a page load starts with its own. Every
+identifier the store mints comes from the `uuid` package (`newPreviewSessionId`,
+`previewAndroidDeviceId`), never `crypto.randomUUID`, which a browser offers
+only in a secure context: the builder opened over plain http on a LAN
+address would throw making the store. `lib/lint/randomUuid.grit` refuses
+`crypto.randomUUID()` in every client directory. The worker's own
 steps (menu selections, case targets, Home) keep it. A step the browser's
 history keeps, a case list's held form menu (`lib/routing/previewHeldMenu.ts`),
 records the session that took it and stands only in that session, so Back
@@ -58,14 +64,27 @@ state.
 `previewSearchStates` is the fourth running fact, keyed by module UUID: the
 completed-search context of a module's search (`previewSearchState.ts`,
 reducers only; `setPreviewSearchState(moduleUuid, state | undefined)` stores
-it and clears the entry on `undefined` or `not-searched`). It is written by
+it and clears the entry on `undefined` or `not-searched`). It also holds a
+Search action's search (`action`, on a menu whose forms do not read the
+search) and a Search screen asked for again (`manual`), which only the case
+list reads, so every list's search and Web Apps' forced manual search stand
+and let go by one rule. It is written by
 the case-list screen as its query settles and read by the form screen to admit
 the case list registration form, and to load the completed attempt's results
 snapshot for a form of a menu whose forms read the search. `previewCaseTarget.searchLaunch
 { moduleUuid, attempt }` is the launch that opened that form from Results;
 the attempt pins the form to the search it was offered on. Both clear with the
 case facts: entering or leaving Preview, a persona change, `reset()`, and a
-confirmed Project boundary.
+confirmed Project boundary. A search stands only on the history entries that
+record it (`lib/routing/previewSearchHistory.ts`): the screens read it through
+`lib/preview/hooks/usePreviewStandingSearch.ts`, which records a search on
+the current entry, with its context, before the store holds it, and a crumb,
+a step to a screen above the list, a submission (on the screen it lands on
+alone), Home and Android's home screen let it go
+(`lib/preview/searchStanding.ts`, `lib/preview/CLAUDE.md`). The store keeps
+the module's current search only: where history returns to an entry whose
+search the store has since replaced, the arrival puts the entry's context
+back (`lib/preview/hooks/usePreviewSearchArrival.ts`).
 
 `previewCaseListRegistrationEntry` is the launch a case list's Register action
 made of a form the list always offers: the host, and the form and menu it
@@ -88,7 +107,17 @@ screen: true when Preview opens on the app's home on Android (`setPreviewing(on,
 { atHome })`, whose `atHome` the preview-mode transition passes because the URL,
 not this store, owns the location), on a change of worker on Android and after
 an Android landing that returns there; false on leaving Preview, on an
-entry-point launch and on Start. `previewDeviceSyncedAt` is this Preview run's
+entry-point launch and on Start. `setPreviewAtDeviceHome(true)` starts the
+session over as Android's reset does
+(`HomeScreenBaseActivity.processCanceledGetCommandOrCase` →
+`AndroidSessionWrapper.reset` → `CommCareSession.clearAllState`: a new
+frame and an empty frame stack): it clears every navigation fact (the case
+target, the Register launch, the task continuation, the after-submit stack,
+an entry point's launch, the selected case, the menu selections, a parent
+case request, the searches) and mints a new `previewSessionId`, so a held
+form menu the browser's history kept no longer stands. The worker, the
+platform, the last sync and the device id are the device's and stay; Start
+opens the app on that new session. `previewDeviceSyncedAt` is this Preview run's
 last sync on Android, set when Preview starts on Android, by a change of worker
 or an entry-point launch there, and by Sync with server; it clears on leaving
 Preview. `previewAndroidDeviceId` is the UUID of Android's `deviceid`, minted

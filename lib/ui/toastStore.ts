@@ -4,6 +4,7 @@
  * Consumed by `useToasts()` hook + `ToastContainer` component.
  */
 
+import { v4 as uuidv4 } from "uuid";
 export type ToastSeverity = "error" | "warning" | "info";
 
 /**
@@ -93,7 +94,7 @@ class ToastStore {
 		message?: string,
 		options?: ToastOptions,
 	): string {
-		const id = crypto.randomUUID();
+		const id = uuidv4();
 		/* An async source-generation completion may arrive after reset. Refuse it
 		 * at the singleton boundary so no stale content briefly enters the global
 		 * stack before a React owner can notice. */

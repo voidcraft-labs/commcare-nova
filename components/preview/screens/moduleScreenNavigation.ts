@@ -1,6 +1,13 @@
-import type { Uuid } from "@/lib/domain";
+import { CASE_LOADING_FORM_TYPES, type Uuid } from "@/lib/domain";
+import {
+	type PreviewMenuSource,
+	previewCaseListFormRequest,
+} from "@/lib/preview/menuProjection";
 import type { Location } from "@/lib/routing/types";
-import type { PreviewParentCaseRequest } from "@/lib/session/types";
+import type {
+	PreviewCaseTarget,
+	PreviewParentCaseRequest,
+} from "@/lib/session/types";
 
 /** A configuration URL runs its owning Form/Results surface in Preview, so
  * it is as resumable as the canonical running URL. Module and module-condition
@@ -57,4 +64,44 @@ export function previewParentCaseRequestFor(args: {
 				? { kind: "module", moduleUuid: args.structuralParentUuid }
 				: { kind: "home" }),
 	};
+}
+
+/** The locations Preview runs a module's case list at. */
+function isListLocation(
+	loc: Location,
+): loc is Extract<
+	Location,
+	{ kind: "cases" | "search-config" | "detail-config" | "data-review" }
+> {
+	return (
+		loc.kind === "cases" ||
+		loc.kind === "search-config" ||
+		loc.kind === "detail-config" ||
+		loc.kind === "data-review"
+	);
+}
+
+/** The case target a parent case selection keeps: the form the list it
+ * resumes holds, chosen before its cases, so that list asks for its case
+ * and opens that form once the parent case is chosen, as Formplayer asks for
+ * a form's parent case and then its case after the form's command (a crumb
+ * at that form cuts the session back to the command,
+ * `utils.js::CloudcareUrl.spliceSelections`). Any other target is let go:
+ * a case already chosen belongs to the parent case being chosen again. */
+export function previewTargetKeptForParentCase(
+	source: PreviewMenuSource,
+	target: PreviewCaseTarget | undefined,
+	request: PreviewParentCaseRequest,
+): PreviewCaseTarget | undefined {
+	const resume = request.resumeLocation;
+	if (target === undefined || resume === undefined || !isListLocation(resume))
+		return undefined;
+	const caseLoading = (source.formOrder[resume.moduleUuid] ?? []).filter(
+		(formUuid) => {
+			const form = source.forms[formUuid];
+			return form !== undefined && CASE_LOADING_FORM_TYPES.has(form.type);
+		},
+	);
+	const held = previewCaseListFormRequest(target, caseLoading);
+	return held === undefined ? undefined : { formUuid: held };
 }

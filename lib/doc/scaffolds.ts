@@ -16,6 +16,7 @@
 // shape the SA emits. uuids are minted here so the caller can navigate to the
 // new entity after the gated commit.
 
+import { v4 as uuidv4 } from "uuid";
 import { anchorForIndex } from "@/lib/doc/mutations/sequence";
 import {
 	asUuid,
@@ -74,7 +75,7 @@ export function ownCaseOperation(
 	name?: Expression,
 ): OwnCaseOperation {
 	return {
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: asUuid(uuidv4()),
 		id: ownCaseOperationId(caseType, takenIds),
 		action: "own",
 		...(name !== undefined && { name }),
@@ -105,7 +106,7 @@ function nameColumn(uuid: Uuid) {
 function caseListConfigWithName(existing?: CaseListConfig): CaseListConfig {
 	// The column's uuid is minted here so both ordering arrays can name it — a
 	// column belongs to the Results and Details sequences from birth.
-	const uuid = asUuid(crypto.randomUUID());
+	const uuid = asUuid(uuidv4());
 	return {
 		columns: [nameColumn(uuid)],
 		listColumnOrder: [uuid],
@@ -141,7 +142,7 @@ function existingFormIds(doc: BlueprintDoc): Set<string> {
 function textField(id: string, label: string): TextField {
 	return {
 		kind: "text",
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: asUuid(uuidv4()),
 		id,
 		label: proseText(label),
 	};
@@ -321,7 +322,7 @@ export function caseListModuleMutations(
 	doc: BlueprintDoc,
 	{ caseType, name, parentModuleUuid, after }: CaseListModuleScaffold,
 ): { mutations: Mutation[]; moduleUuid: Uuid } {
-	const moduleUuid = asUuid(crypto.randomUUID());
+	const moduleUuid = asUuid(uuidv4());
 	const moduleName = name ?? humanizeId(caseType);
 	const module: Module = {
 		uuid: moduleUuid,
@@ -371,7 +372,7 @@ export function surveyModuleMutations(
 	formUuid: Uuid;
 	fieldUuid: Uuid;
 } {
-	const moduleUuid = asUuid(crypto.randomUUID());
+	const moduleUuid = asUuid(uuidv4());
 	const moduleName = name ?? "Survey";
 	const module: Module = {
 		uuid: moduleUuid,
@@ -379,7 +380,7 @@ export function surveyModuleMutations(
 		name: moduleName,
 		...(parentModuleUuid !== undefined && { parentModuleUuid }),
 	};
-	const formUuid = asUuid(crypto.randomUUID());
+	const formUuid = asUuid(uuidv4());
 	const formName = formTypeLabels.survey;
 	const form: Form = {
 		uuid: formUuid,
@@ -518,7 +519,7 @@ export function formScaffoldMutations(
 	const mod = doc.modules[moduleUuid];
 	if (!mod) return null;
 
-	const formUuid = asUuid(crypto.randomUUID());
+	const formUuid = asUuid(uuidv4());
 	const formName = formTypeLabels[type];
 	// A registration form is born with just the question that names its case;
 	// every other type gets one text question so it isn't born empty
