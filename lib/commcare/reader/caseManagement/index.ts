@@ -11,10 +11,6 @@
  * where it was read, and each scalar check folded out of a constraint
  * written back.
  */
-import {
-	caseOperationTargetTypeOrderViolations,
-	caseOperationWireOrderViolationDetails,
-} from "@/lib/doc/caseOperationOrder";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	caseScalarTextGuardIsChecked,
@@ -40,9 +36,18 @@ import {
 	placedBasic,
 	planPlacements,
 } from "../../placement";
-import { validateCaseOperations } from "../../validator/rules/caseOperations";
+import {
+	type CaseWriteDuplicateReason,
+	type LinkInvalidReason,
+	type SessionUnavailableReason,
+	type TargetInvalidReason,
+	type TargetTypeMismatchReason,
+	validateCaseOperations,
+} from "../../validator/rules/caseOperations";
+import type { Claim } from "../claims";
 import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
+import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace, whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
@@ -81,6 +86,7 @@ import { readPreloads, settlePreloads } from "./preloads";
 import {
 	readSaveToCaseBlocks,
 	SAVE_TO_CASE_CLAIMS,
+	saveToCaseBlockPlace,
 	saveToCaseReading,
 	settleSaveToCase,
 	writeSaveToCaseOperations,
@@ -567,71 +573,191 @@ function settleBasicForm(
 	if (unheld !== undefined) unrecognized(ctx, form, unheld);
 }
 
-/**
- * A form whose case changes stand in no order the commit gate's wire-order
- * rule admits once the reading's own is applied
- * (`operationOrder.ts::inWireScopeOrder`), asked over the bound document as
- * the gate asks it (`caseOperationWireOrderViolationDetails`): a keyed create
- * after a change that is no create in every order Nova writes, or a later
- * change in its repeat row that may be of its case. One finding at the form.
- *
- * Beside it, the gate's target-type rule over the same order
- * (`caseOperationTargetTypeOrderViolations`): a block that gives a case
- * another type (a keyed create of a type other than a later change reads, a
- * `case_type` row) where a later change, Case Management's change of the
- * form's own case among them, may read that case as its earlier type, or a
- * `case_type` row in a repeat that may meet the type an earlier row gave. A
- * device and CommCare HQ's server apply both in one order, and Nova's types
- * hold neither: one finding at the form under its own entry.
- */
-function settleOperationOrder(
-	ctx: ReadContext,
-	doc: BlueprintDoc,
-	form: DraftForm,
-): void {
-	if ((doc.forms[form.uuid]?.caseOperations ?? []).length === 0) return;
-	if (caseOperationWireOrderViolationDetails(doc, form.uuid).length > 0)
-		ctx.accounting.finding(ORDER_CLAIMS.noOrder, form.place);
-	if (caseOperationTargetTypeOrderViolations(doc, form.uuid).length > 0)
-		ctx.accounting.finding(ORDER_CLAIMS.typeChange, form.place);
+/** `finding.details[key]`, where a gate finding states one. */
+function detail(
+	finding: { readonly details?: unknown },
+	key: "reason" | "operationUuid",
+): unknown {
+	const details = finding.details;
+	return typeof details === "object" && details !== null
+		? (details as Record<string, unknown>)[key]
+		: undefined;
 }
 
 /**
- * A form that writes the worker's record in more than one update: a Save to
- * Case block of `commcare-user` beside CommCare HQ's basic `usercase_update`,
- * an advanced form's load of the worker's record, or another such block. HQ's
- * form builder keeps each block (`saveToCase.js` refuses only a create, a
- * close or a link of `commcare-user`), and a device and HQ's server apply every
- * block in the form's order (Core's `CaseXmlParser` block by block; HQ's
- * `casexml/apps/case/xform.py::get_case_updates` groups a case's blocks and
- * sorts them stably by their first action, so two updates keep the form's
- * order). Nova keeps a form's every write of the worker's record in one update
- * (`validator/rules/caseOperations.ts::workerRecordFindings`, reason
- * `worker-record-twice`), and no one update prints two blocks: one finding at
- * the form, asked of the gate's own rule over the bound document.
+ * The gate's own verdict over a form's case changes
+ * (`validator/rules/caseOperations.ts::validateCaseOperations`, asked once of
+ * the bound document in the order the reading holds), each refusal a reader
+ * stage cannot see on one change alone given as one finding under the entry
+ * of the source shape that gives it. No rule is stated a second time here:
+ * each refusal is the gate's, told apart by the reason the gate gives it
+ * (`details.reason`, typed by the rule's exported reason union), and this
+ * function chooses only its entry.
+ *
+ * How the form's changes stand beside one another, one finding at the form:
+ *
+ * - `CASE_OPERATION_EXECUTION_ORDER` (`lib/doc/caseOperationOrder.ts::
+ *   caseOperationWireOrderViolationDetails`), once the reading's own order is
+ *   applied (`operationOrder.ts::inWireScopeOrder`): a keyed create after a
+ *   change that is no create in every order Nova writes, or a later change in
+ *   its repeat row that may be of its case;
+ * - `CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `type-change`
+ *   (`caseOperationTargetTypeOrderViolations`, a violation that is
+ *   `retyped`): a block that gives a case another type where a later change,
+ *   Case Management's change of the form's own case among them, may read that
+ *   case as its earlier type, or a `case_type` row in a repeat that may meet
+ *   the type an earlier row gave. A device and CommCare HQ's server apply both
+ *   in one order, and Nova's types hold neither;
+ * - `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case` and
+ *   `CASE_OPERATION_CLOSES_OWN_CASE` (`ownCaseIndependenceFindings`), of a
+ *   change read from a block: a Save to Case block that writes a property of
+ *   the form's own case the form's own change writes too (its name and owner
+ *   among them), or closes that case. HQ's build appends Case Management's
+ *   block after every authored node (`app_manager/xform.py::XForm.
+ *   _create_casexml`, `case_parent.append`), a device applies blocks in the
+ *   form's order (Core's `CaseXmlParser`), and HQ's server groups a case's
+ *   blocks and sorts them stably by their first action
+ *   (`casexml/apps/case/xform.py::get_case_updates`, `order_updates`), so both
+ *   run and the later block's row stands where it is present. Nova keeps one
+ *   write of each property of the own case and lets no other change close it,
+ *   and no one change prints both blocks;
+ * - `CASE_OPERATION_TARGET_INVALID` reason `worker-record-twice`
+ *   (`workerRecordFindings`), where the reading holds a block of
+ *   `commcare-user`: that block beside another update of the worker's record
+ *   (HQ's basic `usercase_update`, an advanced form's load of it, or another
+ *   such block). HQ's form builder keeps each block (`saveToCase.js` refuses
+ *   only a create, a close or a link of `commcare-user`), a device and HQ's
+ *   server apply both in the form's order, and Nova keeps a form's every write
+ *   of the worker's record in one update. A second load of the worker's record
+ *   with no block is refused where it is read.
+ *
+ * Of one change read from a block, one finding at the block, unless a reader
+ * stage's finding already stands there (a device's refusal first, since it
+ * names what stops every submission):
+ *
+ * - a device refuses on every submission: `CASE_OPERATION_SESSION_UNAVAILABLE`
+ *   reason `target`, a case id of the case a menu chooses on a form that
+ *   chooses none (a survey, a registration); `CASE_OPERATION_TARGET_INVALID`
+ *   reason `blank-target`, a case id that is a blank literal; and
+ *   `CASE_OPERATION_LINK_INVALID` reason `self-link`, a link of the block's
+ *   case to itself. The case id is blank on every submission in the first
+ *   two, which HQ's server refuses (`form_processor/casedb_base.py::get`,
+ *   `IllegalCaseId`), and Core refuses an update or close of no case
+ *   (`CaseXmlParser.loadCase`) and a case's link to itself
+ *   (`CaseXmlParser.indexCase`), on Android and in Web Apps
+ *   (`FormplayerCaseXmlParser`);
+ * - `CASE_OPERATION_SESSION_UNAVAILABLE` reasons `link-target` and
+ *   `case-read`: a link to the case a menu chooses, or a value, condition or
+ *   case id expression that reads that case, on a form that chooses none. The
+ *   form's entry holds no such case, so the link is blank, which Core and HQ's
+ *   server take as no link (`CaseXmlParser.indexCase`,
+ *   `update_strategy.py::_apply_index_action`), and the read reads nothing;
+ * - `CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `declared-type`: a block that
+ *   names the case it changes, or a link that names the case it points to, by
+ *   a type other than the one the case holds there, with no type change
+ *   behind it. Neither runtime reads a block's `vellum:case_type`, and both
+ *   keep a link's `case_type` as written (Core's `CaseIndex`, HQ's
+ *   `CommCareCaseIndex.referenced_type`);
+ * - `CASE_OPERATION_TARGET_INVALID` reason `id-of-target`: a case id
+ *   expression that reads the id of a case the form creates, which Nova holds
+ *   only as that create's own target.
+ *
+ * The gate's other refusals of a change on its own are a reader stage's,
+ * where it reads the change (a slot's expression, a key, a link's name, a
+ * create's key), and the case management tests hold every reading to the
+ * whole gate (`__tests__/heldReading.ts`).
  */
-function settleWorkerRecordWrites(
+function settleCaseChanges(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 	form: DraftForm,
 ): void {
-	// Only a reading that holds a block of `commcare-user` is this entry's: a
-	// second load of the worker's record is refused where it is read.
-	const block = (form.form.caseOperations ?? []).some(
-		(operation) =>
-			operation.action !== "own" &&
-			operation.target.kind === "worker-record" &&
-			operation.placement?.kind === "save-to-case",
-	);
-	if (!block) return;
+	const operations = doc.forms[form.uuid]?.caseOperations ?? [];
+	if (operations.length === 0) return;
 	const moduleUuid = moduleUuidOfForm(doc, form.uuid);
 	if (moduleUuid === undefined) return;
-	if (
-		validateCaseOperations(doc, form.uuid, moduleUuid).some(
-			(finding) => finding.details?.reason === "worker-record-twice",
-		)
-	)
-		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.workerTwice, form.place);
+	const verdict = validateCaseOperations(doc, form.uuid, moduleUuid);
+	const operationOf = (finding: { readonly details?: unknown }) => {
+		const uuid = detail(finding, "operationUuid");
+		return operations.find((one) => one.uuid === uuid);
+	};
+	const workerBlock = operations.some(
+		(one) =>
+			one.action !== "own" &&
+			one.target.kind === "worker-record" &&
+			one.placement?.kind === "save-to-case",
+	);
+	const atForm = new Set<Claim<"refuse">>();
+	const atBlock = new Map<Uuid, Claim<"refuse">>();
+	// A device's refusal of the block stands over any other finding of it.
+	const refuseBlock = (uuid: Uuid, claim: Claim<"refuse">) => {
+		if (claim === SAVE_TO_CASE_CLAIMS.deviceRefuses || !atBlock.has(uuid))
+			atBlock.set(uuid, claim);
+	};
+	for (const finding of verdict) {
+		const operation = operationOf(finding);
+		const block =
+			operation?.placement?.kind === "save-to-case" ? operation : undefined;
+		const reason = detail(finding, "reason");
+		switch (finding.code) {
+			case "CASE_OPERATION_EXECUTION_ORDER":
+				atForm.add(ORDER_CLAIMS.noOrder);
+				break;
+			case "CASE_OPERATION_TARGET_TYPE_MISMATCH":
+				if (reason === ("declared-type" satisfies TargetTypeMismatchReason))
+					if (block !== undefined)
+						refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.declaredType);
+					else atForm.add(SAVE_TO_CASE_CLAIMS.declaredType);
+				else atForm.add(ORDER_CLAIMS.typeChange);
+				break;
+			case "CASE_WRITE_DUPLICATE_PROPERTY":
+				if (
+					reason === ("own-case" satisfies CaseWriteDuplicateReason) &&
+					block !== undefined
+				)
+					atForm.add(SAVE_TO_CASE_CLAIMS.ownCaseBeside);
+				break;
+			case "CASE_OPERATION_CLOSES_OWN_CASE":
+				if (block !== undefined) atForm.add(SAVE_TO_CASE_CLAIMS.ownCaseBeside);
+				break;
+			case "CASE_OPERATION_TARGET_INVALID":
+				if (reason === ("worker-record-twice" satisfies TargetInvalidReason)) {
+					if (workerBlock) atForm.add(SAVE_TO_CASE_CLAIMS.workerTwice);
+				} else if (block === undefined) break;
+				else if (reason === ("blank-target" satisfies TargetInvalidReason))
+					refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.deviceRefuses);
+				else if (reason === ("id-of-target" satisfies TargetInvalidReason))
+					refuseBlock(
+						block.uuid,
+						EXPRESSION_CLAIMS[
+							"savetocase-expressions-outside-nova-s-typed-vocabularies-case-id"
+						],
+					);
+				break;
+			case "CASE_OPERATION_SESSION_UNAVAILABLE":
+				if (block === undefined) break;
+				refuseBlock(
+					block.uuid,
+					reason === ("target" satisfies SessionUnavailableReason)
+						? SAVE_TO_CASE_CLAIMS.deviceRefuses
+						: SAVE_TO_CASE_CLAIMS.readsMenuCase,
+				);
+				break;
+			case "CASE_OPERATION_LINK_INVALID":
+				if (
+					block !== undefined &&
+					reason === ("self-link" satisfies LinkInvalidReason)
+				)
+					refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.deviceRefuses);
+				break;
+		}
+	}
+	for (const claim of atForm) ctx.accounting.finding(claim, form.place);
+	for (const [uuid, claim] of atBlock) {
+		const place = saveToCaseBlockPlace(form, uuid) ?? form.place;
+		if (!ctx.accounting.hasFindingAt(place))
+			ctx.accounting.finding(claim, place);
+	}
 }
 
 /**
@@ -665,8 +791,7 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 			settleSaveToCase(ctx, form);
 			settleScalarChecks(ctx, ctx.doc ?? doc, form);
 			settlePreloads(ctx, form);
-			settleOperationOrder(ctx, ctx.doc ?? doc, form);
-			settleWorkerRecordWrites(ctx, ctx.doc ?? doc, form);
+			settleCaseChanges(ctx, ctx.doc ?? doc, form);
 		}
 	}
 	settleWriterTypes(ctx, app, ctx.doc ?? doc);

@@ -92,21 +92,67 @@ const ARGUMENT_SCREEN_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 ]);
 
 /**
+ * What makes a device show an app string other than as typed: a backslash
+ * followed by `n`, a backslash followed by `#`, a carriage return, a space or
+ * line break at either end (`localeFileValueIssue`), or, in a role some screen
+ * reads through Core's argument filler, a `${` that filler changes
+ * (`argumentScreenIssue`).
+ */
+export type AppStringIssue =
+	| "backslash-n"
+	| "backslash-hash"
+	| "carriage-return"
+	| "edge-space"
+	| "placeholder";
+
+const APP_STRING_ISSUE_SENTENCES: Readonly<Record<AppStringIssue, string>> = {
+	"backslash-n":
+		"contains a backslash followed by n, which a device shows as a line break",
+	"backslash-hash":
+		"contains a backslash followed by #, which a device shows as # alone",
+	"carriage-return":
+		"contains a carriage return, which ends the text on a device",
+	"edge-space":
+		"starts or ends with a space or a line break, which a device drops",
+	placeholder:
+		"contains ${, which CommCare reads as a placeholder in menus, screen titles and Search fields, so a device shows other text there",
+};
+
+/** An issue as the end of a sentence about the text. */
+export function appStringIssueSentence(issue: AppStringIssue): string {
+	return APP_STRING_ISSUE_SENTENCES[issue];
+}
+
+/**
+ * What would make a device show an app string of role `role` other than as
+ * `value` holds it, or undefined where every screen shows it as typed: what
+ * the locale file does to it (`localeFileIssue`), and, for a role some screen
+ * reads through Core's argument filler, what that does (`argumentScreenIssue`).
+ */
+export function appStringIssue(
+	value: string,
+	role: TranslationUnitRole,
+): AppStringIssue | undefined {
+	return (
+		localeFileIssue(value) ??
+		(ARGUMENT_SCREEN_ROLES.has(role) && argumentScreenIssue(value) !== undefined
+			? "placeholder"
+			: undefined)
+	);
+}
+
+/**
  * Why a device would show an app string of role `role` other than as `value`
  * holds it, as the end of a sentence about the text, or undefined where every
- * screen shows it as typed: what the locale file does to it
- * (`localeFileValueIssue`), and, for a role some screen reads through Core's
- * argument filler, what that does (`argumentScreenIssue`). The gate's rule
- * for every app string an author or a translation holds.
+ * screen shows it as typed (`appStringIssue`). The gate's rule for every app
+ * string an author or a translation holds.
  */
 export function appStringValueIssue(
 	value: string,
 	role: TranslationUnitRole,
 ): string | undefined {
-	return (
-		localeFileValueIssue(value) ??
-		(ARGUMENT_SCREEN_ROLES.has(role) ? argumentScreenIssue(value) : undefined)
-	);
+	const issue = appStringIssue(value, role);
+	return issue === undefined ? undefined : APP_STRING_ISSUE_SENTENCES[issue];
 }
 
 /**
@@ -126,7 +172,22 @@ export function argumentScreenIssue(value: string): string | undefined {
 	const first = value.indexOf("${");
 	if (first === -1) return undefined;
 	if (first === 0 && value.indexOf("}", first) === -1) return undefined;
-	return "contains ${, which CommCare reads as a placeholder in menus, screen titles and Search fields, so a device shows other text there";
+	return APP_STRING_ISSUE_SENTENCES.placeholder;
+}
+
+/** What the locale file does to `value` that a device shows otherwise, or undefined where it
+ *  shows it as typed (`localeFileValueIssue`). */
+export function localeFileIssue(
+	value: string,
+): Exclude<AppStringIssue, "placeholder"> | undefined {
+	if (value.includes("\\n")) return "backslash-n";
+	if (value.includes("\\#")) return "backslash-hash";
+	if (value.includes("\r")) return "carriage-return";
+	if (value.trim() === "") return undefined;
+	const firstCodeUnit = value.charCodeAt(0);
+	const lastCodeUnit = value.charCodeAt(value.length - 1);
+	if (firstCodeUnit <= 0x20 || lastCodeUnit <= 0x20) return "edge-space";
+	return undefined;
 }
 
 /**
@@ -136,22 +197,8 @@ export function argumentScreenIssue(value: string): string | undefined {
  * role is held to `appStringValueIssue`, which adds what some screens do.
  */
 export function localeFileValueIssue(value: string): string | undefined {
-	if (value.includes("\\n")) {
-		return "contains a backslash followed by n, which a device shows as a line break";
-	}
-	if (value.includes("\\#")) {
-		return "contains a backslash followed by #, which a device shows as # alone";
-	}
-	if (value.includes("\r")) {
-		return "contains a carriage return, which ends the text on a device";
-	}
-	if (value.trim() === "") return undefined;
-	const firstCodeUnit = value.charCodeAt(0);
-	const lastCodeUnit = value.charCodeAt(value.length - 1);
-	if (firstCodeUnit <= 0x20 || lastCodeUnit <= 0x20) {
-		return "starts or ends with a space or a line break, which a device drops";
-	}
-	return undefined;
+	const issue = localeFileIssue(value);
+	return issue === undefined ? undefined : APP_STRING_ISSUE_SENTENCES[issue];
 }
 
 /**

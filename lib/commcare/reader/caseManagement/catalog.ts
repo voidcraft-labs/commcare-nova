@@ -464,6 +464,11 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 		if (child !== undefined && parentType !== undefined)
 			selections.push({ child, parent: parentType });
 	}
+	// A link names its target's type, which the catalog declares, as the gate
+	// holds every link's (`CASE_OPERATION_UNKNOWN_CASE_TYPE`): an unlink's too,
+	// whose type no other change may name. After every type a change names, so
+	// a type some change names keeps its place.
+	for (const link of links) noteType(caseTypes, link.parent);
 	noteParents(caseTypes, links, selections, ctx.input.knownCaseTypes);
 	const selects = selectTypes(
 		writes.flatMap((one) =>

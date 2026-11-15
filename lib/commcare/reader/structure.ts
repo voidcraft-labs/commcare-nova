@@ -31,7 +31,13 @@ import {
 } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
 import { generatedKeyOwner } from "./generatedTranslationKeys";
-import { heldText, recordTextRewrite } from "./heldText";
+import {
+	heldText,
+	recordTextRewrite,
+	type UnheldText,
+	unheldRefusal,
+	unheldText,
+} from "./heldText";
 import { cleanTrans, shownText } from "./hqText";
 import { externalKey } from "./identity";
 import { isJsonObject, type JsonCursor } from "./jsonCursor";
@@ -507,14 +513,8 @@ export function nameAsRead(
 			respelled: false,
 			workersSeeAnother: false,
 		};
-	const shown = new Map<string, string>();
-	for (const code of codes) {
-		// `create_default_app_strings` skips a language spelled `default`.
-		if (code === "default" && code !== source) continue;
-		const text = shownText(map, code, codes);
-		if (!text.ok) return undefined;
-		shown.set(code, text.text);
-	}
+	const shown = shownNames(map, codes, source);
+	if (shown === undefined) return undefined;
 	const held = heldName(shown, codes, source);
 	if (held === undefined) return undefined;
 	return {
@@ -522,6 +522,42 @@ export function nameAsRead(
 		own,
 		respelled: !spelledAsPrinted(map, printedName(codes, source, held)),
 	};
+}
+
+/** Each language's name as HQ's build shows it (`hqText.ts::shownText`), undefined where the
+ *  reader cannot know one. `create_default_app_strings` skips a language spelled `default`. */
+function shownNames(
+	map: Readonly<Record<string, unknown>>,
+	codes: readonly string[],
+	source: string,
+): Map<string, string> | undefined {
+	const shown = new Map<string, string>();
+	for (const code of codes) {
+		if (code === "default" && code !== source) continue;
+		const text = shownText(map, code, codes);
+		if (!text.ok) return undefined;
+		shown.set(code, text.text);
+	}
+	return shown;
+}
+
+/**
+ * The text of a stored name map Nova's gate admits no spelling of, and why
+ * (`heldText.ts::unheldText`), where `nameAsRead` reads none for that reason;
+ * undefined where the map is no object or a language shows a value the reader
+ * cannot know.
+ */
+function unheldName(
+	stored: unknown,
+	codes: readonly string[],
+	source: string | undefined,
+): UnheldText | undefined {
+	const map = stored === undefined ? {} : stored;
+	if (source === undefined || !isJsonObject(map)) return undefined;
+	const shown = shownNames(map, codes, source);
+	return shown === undefined
+		? undefined
+		: unheldText(shown, codes, source, "module-name");
 }
 
 /** What the structure stage read of one menu's or form's name: each language's own text
@@ -557,9 +593,11 @@ export function recordNameRewrite(
 /**
  * A localized name, read by `nameAsRead`: its source text into the slot, each
  * other language's translation into the sink, and a record of the first
- * publish's rewrite of the stored map (`recordNameRewrite`). A map the reader
- * cannot know or Nova cannot hold is left unclaimed, so the close reports it
- * as `unrecognized`. Returns the reading, undefined where the map was left.
+ * publish's rewrite of the stored map (`recordNameRewrite`). A text Nova's
+ * gate admits no spelling of that the manifest names is refused at the key
+ * (`heldText.ts::unheldRefusal`); any other map the reader cannot know or Nova
+ * cannot hold is left unclaimed, so the close reports it as `unrecognized`.
+ * Returns the reading, undefined where the map was refused or left.
  */
 function readName(
 	ctx: ReadContext,
@@ -573,7 +611,16 @@ function readName(
 		languages?.codes ?? [],
 		languages?.source,
 	);
-	if (read === undefined) return undefined;
+	if (read === undefined) {
+		// A text Nova's gate admits no spelling of, which the manifest names, is refused at the
+		// key; any other map is left for the close.
+		const refusal = unheldRefusal(
+			unheldName(json.peek("name"), languages?.codes ?? [], languages?.source),
+		);
+		if (refusal !== undefined)
+			json.refuse("name", refusal.claim, { name: refusal.name });
+		return undefined;
+	}
 	json.take("name", claim, (value) => value).value;
 	const translated = new Map<LanguageTag, LocalizedValue>();
 	for (const [code, text] of read.translations) {

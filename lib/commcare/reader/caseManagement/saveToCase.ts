@@ -21,13 +21,16 @@ import {
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
+	caseDataTypeForFieldKind,
 	caseSelectionCardinality,
 	type Expression,
+	formFieldCanKeyCreate,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	ownCaseOperationId,
+	prepareCaseScalarTextValue,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -38,15 +41,24 @@ import {
 } from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import {
+	caseOperationLinkNameProblem,
+	sourceWritePropertyProblem,
+	stopsFormBuilder,
+} from "@/lib/domain/questionId";
 import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { planFormCaseWire } from "../../casePlacementPlan";
-import { MAX_CASE_PROPERTY_LENGTH } from "../../constants";
+import {
+	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
+	MAX_CASE_PROPERTY_LENGTH,
+} from "../../constants";
 import { expandDoc } from "../../expander";
 import { sessionDataRef } from "../../formLinkProjection";
 import { isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
 import { planPlacements } from "../../placement";
 import { USERCASE_ID_FUNCTION } from "../../usercaseWire";
+import { caseOperationCaseTypeNameProblem } from "../../validator/rules/caseOperations";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { captureUrlCalculate } from "../../xform/captureUrlNode";
 import {
@@ -93,6 +105,7 @@ import {
 	type ReadSaveToCaseBlock,
 	type ReadXForm,
 } from "../xform";
+import { X } from "../xform/claims";
 import { HOLE, isAllocatedName, matchesTemplate } from "../xform/generated";
 import { type DataNode, pathSteps } from "../xform/model";
 import {
@@ -181,9 +194,52 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	),
 	/** A form that writes the worker's record in a Save to Case block of
 	 *  `commcare-user` and in another update of it, a block or Case
-	 *  Management's (`index.ts::settleWorkerRecordWrites`). */
+	 *  Management's (`index.ts::settleCaseChanges`). */
 	workerTwice: refuse(
 		`${Q}/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record`,
+		MUG,
+	),
+	/** A block a device refuses on every submission: its case id is the case a
+	 *  menu chooses on a form that chooses none, or a blank literal, or it links
+	 *  its case to itself (`index.ts::settleCaseChanges`, over the gate; and
+	 *  `readBlock`, where the source spells a blank literal id, or a link whose
+	 *  value is the block's own case id, which no gate document carries). */
+	deviceRefuses: refuse(
+		`${Q}/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself`,
+		MUG,
+	),
+	/** A block's, a `case_type` row's or a link's case type the gate refuses by
+	 *  its name: outside the case type grammar, or longer than 255 characters
+	 *  (`readBlock`, over `caseOperationCaseTypeNameProblem`). */
+	caseTypeName: refuse(
+		`${Q}/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters`,
+		MUG,
+	),
+	/** A link whose name is longer than CommCare HQ's index column holds
+	 *  (`readBlock`). */
+	linkTooLong: refuse(
+		`${Q}/a-savetocase-link-name-longer-than-commcare-hq-stores`,
+		MUG,
+	),
+	/** A block that names the case it changes, or a link names the case it
+	 *  points to, by a type other than the one that case holds there, with no
+	 *  type change behind it (`index.ts::settleCaseChanges`). */
+	declaredType: refuse(
+		`${Q}/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches`,
+		MUG,
+	),
+	/** A block that links to the case a menu chooses, or whose case id, value or
+	 *  condition reads that case, on a form whose menu chooses none
+	 *  (`index.ts::settleCaseChanges`). */
+	readsMenuCase: refuse(
+		`${Q}/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none`,
+		MUG,
+	),
+	/** A form whose Save to Case block writes a property of the form's own
+	 *  case the form's own change also writes, or closes that case beside it
+	 *  (`index.ts::settleCaseChanges`). */
+	ownCaseBeside: refuse(
+		`${Q}/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it`,
 		MUG,
 	),
 
@@ -506,6 +562,14 @@ const OWN_CLOSE_SHAPES = {
 
 const READINGS = new WeakMap<DraftForm, FormBlocks>();
 
+/** The place of the block a reading's operation `uuid` was read from. */
+export function saveToCaseBlockPlace(
+	form: DraftForm,
+	uuid: Uuid,
+): HqPlace | undefined {
+	return READINGS.get(form)?.proposals.find((one) => one.uuid === uuid)?.place;
+}
+
 /** What pass 1 read of a form's Save to Case blocks. */
 export function saveToCaseReading(form: DraftForm): FormBlocks | undefined {
 	return READINGS.get(form);
@@ -534,6 +598,11 @@ const SEGMENT_ORDER: readonly SaveToCaseBlockSegment[] = [
 
 function children(element: Element): Element[] {
 	return element.children.filter(isTag);
+}
+
+/** Every element under `element`, in document order. */
+function descendants(element: Element): Element[] {
+	return children(element).flatMap((child) => [child, ...descendants(child)]);
 }
 
 function localName(element: Element): string {
@@ -977,6 +1046,11 @@ function refusedRowKey(
 			? undefined
 			: SAVE_TO_CASE_CLAIMS.workerKey;
 	if (property === "case_name" || property === "owner_id") return undefined;
+	// A row HQ's form builder reads as the block's close
+	// (`questionId.ts::sourceWritePropertyProblem`), which no block Nova
+	// writes holds: the gate refuses the property
+	// (`CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP`).
+	if (sourceWritePropertyProblem(property) !== undefined) return "outside";
 	if (FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(property))
 		return SAVE_TO_CASE_CLAIMS.reservedKey;
 	if (
@@ -985,6 +1059,25 @@ function refusedRowKey(
 	)
 		return "outside";
 	return undefined;
+}
+
+/** The repeat `field` stands in, nearest first; null at the form's root. */
+function enclosingRepeat(
+	xform: ReadXForm,
+	field: DraftField,
+): DraftField | null | undefined {
+	const walk = (
+		parent: DraftField | null,
+		repeat: DraftField | null,
+	): DraftField | null | undefined => {
+		for (const child of xform.childrenOf(parent)) {
+			if (child === field) return repeat;
+			const found = walk(child, child.kind === "repeat" ? child : repeat);
+			if (found !== undefined) return found;
+		}
+		return undefined;
+	};
+	return walk(null, null);
 }
 
 /** Reads one block's content into its proposal, or the finding it is. */
@@ -1002,6 +1095,17 @@ function readBlock(
 		claim,
 		...(detail !== undefined && { detail }),
 	});
+	// An element HQ's form builder cannot open a form holding, at any depth
+	// (`questionId.ts::stopsFormBuilder`): the block's own name, which is the
+	// question's id there, a row's or a link's. The gate refuses each, as the
+	// operation's id (`CASE_OPERATION_INVALID_ID`), as a property a block writes
+	// (`CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP`) or as a link's name
+	// (`CASE_OPERATION_LINK_INVALID`).
+	const unopenable = [block.element, ...descendants(block.element)].find(
+		(element) => stopsFormBuilder(localName(element)),
+	);
+	if (unopenable !== undefined)
+		return fail(X.questionIdGrammar, { name: localName(unopenable) });
 	const caseElement = children(block.element).find(
 		(child) => localName(child) === "case",
 	);
@@ -1019,6 +1123,11 @@ function readBlock(
 			(parts.has("create") || parts.has("close") || parts.has("index")))
 	)
 		return fail(SAVE_TO_CASE_CLAIMS.reservedType, { name: caseType });
+	// A case type the gate refuses by its name (`CASE_OPERATION_INVALID_CASE_TYPE`,
+	// `caseOperationCaseTypeNameProblem`): the block's, and below a `case_type`
+	// row's and a link's.
+	if (caseOperationCaseTypeNameProblem(caseType) !== undefined)
+		return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
 	const binds = bindsUnder(xform, block.path);
 	const bindAt = (key: string) => binds.get(key);
 	const calc = (key: string) => bindAt(key)?.attribs.calculate;
@@ -1088,7 +1197,19 @@ function readBlock(
 			const path =
 				node === undefined ? undefined : resolvePath(node, idPath, root);
 			const field = path === undefined ? undefined : fieldAt(xform, path);
-			if (field === undefined || keyedId === undefined)
+			// An answer keys a create only where the gate takes it as a key: one
+			// string (`formFieldCanKeyCreate`: not a multi-select answer, which Nova
+			// holds as a list) from the create's own repeat, or the root for a
+			// create at the root (`formFieldCorrelatesWithCreate`).
+			if (
+				field === undefined ||
+				keyedId === undefined ||
+				!formFieldCanKeyCreate({
+					kind: field.kind,
+					dataType: caseDataTypeForFieldKind(field.kind),
+				}) ||
+				enclosingRepeat(xform, field) !== block.repeat
+			)
 				return fail(SAVE_TO_CASE_CLAIMS.authoredCreateId);
 			target = { kind: "new", idFrom: field, idPrefix: keyedId.prefix };
 		} else if (rootSetvalue !== undefined) {
@@ -1105,6 +1226,17 @@ function readBlock(
 	} else {
 		const idText = calc("case/@case_id");
 		if (idText === undefined) return { ok: false };
+		// A case id that is a blank literal names no case: Core refuses the block
+		// (`CaseXmlParser.loadCase`, and `CaseXmlParserUtil.validateMandatoryProperty`
+		// for an empty id) and HQ's server refuses the submission
+		// (`casedb_base.py::get`, `IllegalCaseId`). Blank as the gate reads a
+		// literal case id (`prepareCaseScalarTextValue`, `CASE_OPERATION_TARGET_INVALID`).
+		const idLiteral = literalOf(idText);
+		if (idLiteral !== undefined) {
+			const prepared = prepareCaseScalarTextValue(idLiteral, "reject");
+			if (!prepared.ok && prepared.reason === "blank")
+				return fail(SAVE_TO_CASE_CLAIMS.deviceRefuses);
+		}
 		target = readTarget(
 			xform,
 			idText,
@@ -1202,6 +1334,8 @@ function readBlock(
 				const literal = literalOf(text);
 				if (literal === undefined)
 					return fail(SAVE_TO_CASE_CLAIMS.caseTypeXPath);
+				if (caseOperationCaseTypeNameProblem(literal) !== undefined)
+					return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
 				if (literal !== caseType) retype = literal;
 				else if (rows.length > 1) retype = literal;
 				continue;
@@ -1347,8 +1481,20 @@ function readBlock(
 	if (index !== undefined)
 		for (const link of children(index)) {
 			const identifier = link.name;
-			if (!isCaseOperationIdentifier(identifier))
+			// A name Nova's link identifier cannot spell, or one CommCare HQ's form
+			// builder reads as the block's own action
+			// (`questionId.ts::caseOperationLinkNameProblem`), as the gate refuses it.
+			// A name it cannot open a form with was refused above.
+			if (
+				!isCaseOperationIdentifier(identifier) ||
+				caseOperationLinkNameProblem(identifier) !== undefined
+			)
 				return fail(SAVE_TO_CASE_CLAIMS.linkName, { name: identifier });
+			// A name longer than CommCare HQ's index column holds
+			// (`CommCareCaseIndex.identifier`, 255 characters), which the gate refuses
+			// (`CASE_OPERATION_LINK_INVALID`, reason `too-long`).
+			if (identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH)
+				return fail(SAVE_TO_CASE_CLAIMS.linkTooLong);
 			const targetType = link.attribs.case_type;
 			const relationship = link.attribs.relationship;
 			if (
@@ -1358,10 +1504,25 @@ function readBlock(
 				return { ok: false };
 			if (targetType === "commcare-user")
 				return fail(SAVE_TO_CASE_CLAIMS.reservedType, { name: targetType });
+			if (caseOperationCaseTypeNameProblem(targetType) !== undefined)
+				return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
 			const key = `case/index/${identifier}`;
 			const text = calc(key);
 			const linkPath = [...casePath, "index", identifier];
 			let linkTarget: ProposedLink["target"] = null;
+			// A link whose value is the block's own case id links the case to itself,
+			// which Core refuses on every submission (`CaseXmlParser.indexCase`, "cannot
+			// index itself"), a create's as an update's.
+			const linkNode = text === undefined ? undefined : parse(text);
+			const linkValuePath =
+				linkNode === undefined
+					? undefined
+					: resolvePath(linkNode, linkPath, root);
+			if (
+				linkValuePath !== undefined &&
+				linkValuePath.join("/") === idPath.join("/")
+			)
+				return fail(SAVE_TO_CASE_CLAIMS.deviceRefuses);
 			if (text !== undefined && literalOf(text) !== "") {
 				const read = readTarget(
 					xform,
@@ -2093,11 +2254,28 @@ export function readSaveToCaseBlocks(
 	// in a condition group, its condition the group's, under the root
 	// operations container, or, in a form whose menu selects several cases,
 	// in each selected case's row (`OWN_CLOSE_SHAPES`). A close-only block
-	// whose `case/close` carries the condition was refused above.
+	// whose `case/close` carries the condition was refused above. A block whose
+	// `update` holds a row is a close operation's, never the own close's: the
+	// emitter writes the own close's block with no `update`, and a close
+	// operation's with its idempotent `case_type` row (`xform/caseOps.ts`),
+	// which the gate then judges beside the form's own change
+	// (`index.ts::settleCaseChanges`). An empty `update` is neither: Core and
+	// HQ's server act on no row of it beside the close, HQ's form builder drops
+	// it on its next save, and no block Nova writes holds one, so the block is
+	// outside Nova's shape and nothing else.
 	if (type === "followup" || type === "close" || type === "registration") {
 		const shapes = severalCases
 			? OWN_CLOSE_SHAPES.severalCases
 			: OWN_CLOSE_SHAPES.oneCase;
+		const holdsUpdateRow = (block: ReadSaveToCaseBlock) =>
+			children(block.element).some(
+				(one) =>
+					localName(one) === "case" &&
+					children(one).some(
+						(child) =>
+							localName(child) === "update" && children(child).length > 0,
+					),
+			);
 		const ownClose = reading.proposals.find(
 			(one) =>
 				one.action === "close" &&
@@ -2105,6 +2283,7 @@ export function readSaveToCaseBlocks(
 				one.target.kind === "session" &&
 				one.block.repeat === null &&
 				one.writes.length === 0 &&
+				!holdsUpdateRow(one.block) &&
 				shapes.has(one.segments.join("/")) &&
 				!reading.proposals.some(
 					(other) => other.action === "own" && other.closes,

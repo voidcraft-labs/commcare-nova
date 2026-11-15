@@ -72,6 +72,13 @@ export interface CaseOperationTargetTypeOrderViolation {
 	readonly expectedType: string;
 	readonly actualType: string;
 	readonly kind: "known-identity" | "possible-runtime-alias" | "repeat-alias";
+	/** Whether the type the case holds here is one an earlier change of the
+	 *  form gave it (a retype), rather than the type it came into the form
+	 *  with (its menu's, its create's, or the type the first change of an
+	 *  expression target names it by). Every `possible-runtime-alias` and
+	 *  `repeat-alias` violation, and every one at the own arm, is a type
+	 *  change; a `known-identity` one is where the case's type moved. */
+	readonly retyped: boolean;
 }
 
 export interface CaseOperationExpressionSnapshotTypes {
@@ -666,6 +673,7 @@ function analyzeCaseOperationTargetOrder(
 				expectedType,
 				actualType: known.caseType,
 				kind: "known-identity",
+				retyped: known.caseType !== known.snapshotCaseType,
 			});
 		} else if (known !== undefined) {
 			for (const guardUuid of known.guardUuids) requiredGuards.add(guardUuid);
@@ -698,6 +706,7 @@ function analyzeCaseOperationTargetOrder(
 				expectedType,
 				actualType: possibleAliasType,
 				kind: "possible-runtime-alias",
+				retyped: true,
 			});
 		}
 		return known;
@@ -785,6 +794,7 @@ function analyzeCaseOperationTargetOrder(
 					expectedType: operation.caseType,
 					actualType: operation.retype,
 					kind: "repeat-alias",
+					retyped: true,
 				});
 			}
 			rememberTargetState(
@@ -823,6 +833,7 @@ function analyzeCaseOperationTargetOrder(
 					expectedType: moduleCaseType,
 					actualType: change.caseType,
 					kind: "known-identity",
+					retyped: true,
 				});
 			} else if (
 				!caseOperationTargetsProvablyDistinct(
@@ -837,6 +848,7 @@ function analyzeCaseOperationTargetOrder(
 					expectedType: moduleCaseType,
 					actualType: change.caseType,
 					kind: "possible-runtime-alias",
+					retyped: true,
 				});
 			}
 		}

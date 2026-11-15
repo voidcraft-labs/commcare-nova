@@ -1782,7 +1782,8 @@ declares for it (09-acceptance-and-the-first-publish.md, section 11.2).
 | `index/<name>` with `case_type` and `relationship`, its calculate | a link `{ identifier: name, targetType, target, relationship }`; an empty index is `target: null` | `savetocase-link-index-name-child-extension-and-unlink-empty` |
 | the block in a repeat | `forEach: { repeat }` | `savetocase-inside-a-repeat` |
 | an update of `commcare-user` (the worker's record) in a folded `condition` group or in a repeat: HQ's form builder takes both (`saveToCase.js` refuses only a create, a close or a link of `commcare-user`), and Nova keeps a form's writes of the worker's record in one update that runs once on every submission (`validator/rules/caseOperations.ts::workerRecordFindings`, reason `worker-record-facet`), so the two rows above would read an update the gate refuses | finding at the block (`saveToCase.ts::readBlock`) | `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat` (new, HELD-NEW, section 14) |
-| an update of `commcare-user` (the worker's record) beside another update of it in the same form: CommCare HQ's basic `usercase_update`, an advanced form's load of the worker's record, or another such block. HQ's form builder keeps each block, and a device and HQ's server apply both in the form's order (Core's `CaseXmlParser` block by block; `casexml/apps/case/xform.py::get_case_updates` sorts a case's blocks stably by their first action). Nova keeps a form's writes of the worker's record in one update (`validator/rules/caseOperations.ts::workerRecordFindings`, reason `worker-record-twice`), and no one update prints two blocks | finding at the form, asked of the gate's own rule over the bound document (`index.ts::settleWorkerRecordWrites`, through `validateCaseOperations`) | `questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record` (new, HELD-NEW, section 14) |
+| an update of `commcare-user` (the worker's record) beside another update of it in the same form: CommCare HQ's basic `usercase_update`, an advanced form's load of the worker's record, or another such block. HQ's form builder keeps each block, and a device and HQ's server apply both in the form's order (Core's `CaseXmlParser` block by block; `casexml/apps/case/xform.py::get_case_updates` sorts a case's blocks stably by their first action). Nova keeps a form's writes of the worker's record in one update (`validator/rules/caseOperations.ts::workerRecordFindings`, reason `worker-record-twice`), and no one update prints two blocks | finding at the form, asked of the gate's own rule over the bound document (`index.ts::settleCaseChanges`, through `validator/rules/caseOperations.ts::validateCaseOperations`) | `questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record` (new, HELD-NEW, section 14) |
+| a block that changes the form's own case (the case its menu chose on a follow-up or close form; the own arm's create on a registration) beside the form's own change of it: a row of a property the own change also writes (`case_name` and `owner_id` among them), or a close of that case. HQ's build appends Case Management's block after every authored node (`app_manager/xform.py::XForm._create_casexml`), a device applies the blocks in the form's order (Core's `CaseXmlParser`) and HQ's server groups a case's blocks and sorts them stably by their first action (`casexml/apps/case/xform.py::get_case_updates`, `order_updates`), so both run and the later block's row stands where it is present. Nova keeps one write of each property of the own case and lets no other change close it (`validator/rules/caseOperations.ts::ownCaseIndependenceFindings`: `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case`, `CASE_OPERATION_CLOSES_OWN_CASE`), so the own arm means the same wherever its block runs, and no one change prints both blocks. A close-only block that holds an `update` is a close operation's, never the own close's, which the emitter writes with no `update` (`saveToCase.ts::readSaveToCaseBlocks`) | finding at the form, asked of the gate's own rule over the bound document (`index.ts::settleCaseChanges`, through `validateCaseOperations`) | `questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it` (new, HELD-NEW, section 14) |
 | a relevance bound on the block's own node; a `constraint` or a `type` on a leaf; `<attachment>`; a create, close or link of `commcare-user` | finding | `relevance-bound-on-the-savetocase-node-itself`, `constraint-on-savetocase-case-leaves`, `type-on-a-savetocase-property-leaf-a-create-update-or-index`, `attachment-inside-a-savetocase-block`, `savetocase-create-close-or-link-of-commcare-user-or-type-user` |
 | any expression the checker refuses in its slot | finding (part 08 raises it) | `savetocase-expressions-outside-nova-s-typed-vocabularies-case-id` |
 
@@ -1929,7 +1930,7 @@ placement's, never its position, so every such order prints one source, and no c
 create it reads. Where no such order is one the gate admits (a keyed create in a repeat beside a change
 at the root, HQ's `usercase_update` or a load's update included; a keyed create in a repeat with a later
 change in its row that may be of its case), the reading's settle asks the gate's own rule over the bound
-document (`index.ts::settleOperationOrder`, `caseOperationWireOrderViolationDetails`) and raises one
+document (`index.ts::settleCaseChanges`, `caseOperationWireOrderViolationDetails`) and raises one
 finding at the form, `questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes`
 (new, HELD-NEW, section 14).
 
@@ -1944,12 +1945,67 @@ create's type on a device (`CaseXmlParser.createCase` under `acceptCreateOverwri
 (`update_strategy.py::SqlCaseUpdateStrategy._apply_create_action`), as a `case_type` row does, so both apply the
 form in one order and Nova's types hold neither reading: one finding at the form,
 `questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type`
-(new, HELD-NEW, section 14).
+(new, HELD-NEW, section 14), asked as the gate's `CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `type-change`
+(a violation the gate marks `retyped`; one that is not, a change that names its case by a type it never
+held, is the declared-type entry below).
 
-A link's name (`index/<name>`) outside `caseOperationIdentifiers.ts::CASE_OPERATION_IDENTIFIER_REGEX`
-is the finding `questions/savetocase-link-name-outside-nova-s-identifier-grammar` (new, section 14),
-with the name in `detail.name`: part 04 leaves that grammar unchanged and hands the wider class here,
-and an index name is a key of case data, which no rename keeps.
+A link's name (`index/<name>`) outside `caseOperationIdentifiers.ts::CASE_OPERATION_IDENTIFIER_REGEX`,
+or one the gate refuses as a name CommCare HQ's form builder reads as the block's own action
+(`questionId.ts::caseOperationLinkNameProblem`: `create`, `close`), is the finding
+`questions/savetocase-link-name-outside-nova-s-identifier-grammar` (new, section 14), with the name in
+`detail.name`: part 04 leaves that grammar unchanged and hands the wider class here, and an index name
+is a key of case data, which no rename keeps. An element anywhere in a block named as HQ's form builder
+cannot open a form with (`questionId.ts::stopsFormBuilder`: `instance`, `bind`, `parsererror`), the
+block's own name, a row's or a link's, is `questions/question-id-failing-the-grammar-or-meta-in-any-case`
+at the block, as the gate refuses the operation's id (`CASE_OPERATION_INVALID_ID`), the property
+(`CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP`) or the link (`CASE_OPERATION_LINK_INVALID`); a row
+named `close`, which the builder reads as the block's close, is outside the shape Nova writes
+(`savetocase-block-outside-nova-s-own-block-shape`).
+
+A block a device refuses on every submission is one finding at the block,
+`questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself`
+(new, REFUSED, section 14), asked of the gate over the bound document (`index.ts::settleCaseChanges`):
+an update or close whose case id reads the case a menu chooses on a form that chooses none
+(`CASE_OPERATION_SESSION_UNAVAILABLE` reason `target`: a survey or a registration, whose entry holds no
+`case_id`), one whose case id is a blank literal (`CASE_OPERATION_TARGET_INVALID` reason `blank-target`,
+or the bare literal `''` as a person writes it in HQ, which `saveToCase.ts::readBlock` recognizes), and a
+link of the block's case to itself (`CASE_OPERATION_LINK_INVALID` reason `self-link`, or a link whose
+value is the block's own `case/@case_id`, a create's as an update's, which `readBlock` recognizes). The
+id is blank on every submission in the first two, which HQ's server refuses (`casedb_base.py::get`,
+`IllegalCaseId`) and Core refuses (`CaseXmlParser.loadCase`, `CaseXmlParserUtil.validateMandatoryProperty`);
+Core refuses a case's link to itself (`CaseXmlParser.indexCase`), on Android and in Web Apps. The settle
+tells the gate's refusals apart by the reason each gives (`details.reason`, typed by the rule's exported
+`TargetInvalidReason`, `SessionUnavailableReason`, `LinkInvalidReason` and `TargetTypeMismatchReason`), and
+states no rule of its own.
+
+A link to the case a menu chooses, or a case id expression, value or condition that reads that case, on a
+form that chooses none (`CASE_OPERATION_SESSION_UNAVAILABLE` reasons `link-target` and `case-read`) is one
+finding at the block,
+`questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none`
+(new, REFUSED, section 14): the link is blank, which Core (`CaseXmlParser.indexCase`) and HQ's server
+(`update_strategy.py::_apply_index_action`) take as no link, so the case is saved unlinked, and the read
+reads nothing. A block or a link that names its case by a type the case does not hold, with no change of
+its type before it (`CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `declared-type`: a link whose `case_type`
+is not the menu's case type, an update of a case a create of the form makes as another type) is one
+finding at the block,
+`questions/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches` (new, HELD-NEW,
+section 14), never the type change's: neither runtime reads `vellum:case_type`, and both keep a link's
+`case_type` as written (Core's `CaseIndex`, HQ's `CommCareCaseIndex.referenced_type`). A link name longer
+than 255 characters is `questions/a-savetocase-link-name-longer-than-commcare-hq-stores` (new, REFUSED,
+section 14) at the block (`readBlock`): HQ keeps a link's name in `CommCareCaseIndex.identifier`,
+`CharField(max_length=255)`. A block's, a `case_type` row's or a link's case type outside the case type
+grammar or longer than 255 characters is
+`questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters` (new,
+REFUSED, section 14) at the block (`readBlock`, over the gate's `caseOperationCaseTypeNameProblem`): the
+form builder's Save to Case marks a block's type outside the grammar an error (`Vellum/src/saveToCase.js`,
+`CASE_TYPE_REGEX`), and Core refuses a case whose type is longer (`CaseXmlParserUtil.checkForMaxLength`).
+A close-only block whose `update` is empty is outside Nova's block shape alone, never the own case's close
+beside the own change (`saveToCase.ts::readSaveToCaseBlocks`, `holdsUpdateRow`).
+
+A keyed create whose key the gate takes as none (`formFieldCanKeyCreate`: a
+multi-select answer; `formFieldCorrelatesWithCreate`: an answer outside the create's own repeat, or in
+a repeat for a create at the root) is `savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside`
+at the block (`saveToCase.ts::readBlock`).
 
 **The ids part 08 binds a block's reads against.** One block reads another's case id by a path
 (`current()/.../@case_id`), and part 08 binds such a path to an `id-of { opUuid }` leaf only if it knows
@@ -2712,7 +2768,7 @@ the block falls to row 5.
 
 | Key | Reads into | Entry |
 |---|---|---|
-| `label{lang}` with text in some language | `label`, role `case-list-registration-label`; absent where it equals the form's name in every language (`emissionPlan.ts::caseListFormLabelUnit`). A language whose value is an empty string reads as "Create a new Case" in that language, with a record under `registration-label-fixed`, and since that record, not the text's respelling, is the map's rewrite, the label is refused there under `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string` where another language's text holds a carriage return whose rest defines an app string (`heldText.ts::refuseLineEndKey`), and left `unrecognized` at the label instead where a language's text shows nothing before that carriage return, which Nova holds no spelling of, as every held text a device shows none of is (one finding either way); a language the label holds no key for is no translation | `case-list-form-label-lang` |
+| `label{lang}` with text in some language | `label`, role `case-list-registration-label`; absent where it equals the form's name in every language (`emissionPlan.ts::caseListFormLabelUnit`). A language whose value is an empty string reads as "Create a new Case" in that language, with a record under `registration-label-fixed`, and since that record, not the text's respelling, is the map's rewrite, the label is refused there under `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string` where another language's text holds a carriage return whose rest defines an app string (`heldText.ts::refuseLineEndKey`), and where a language's text shows nothing before that carriage return, which Nova holds no spelling of, refused at the case list by `heldText.ts::refuseUnheldText` under that entry where the rest defines an app string and under `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing` otherwise (one finding either way); a language the label holds no key for is no translation | `case-list-form-label-lang` |
 | `label` with no text in any language | `label: "Create a new Case"`, the words HQ's build writes for it (`app_strings.py::_create_case_list_form_app_strings`), on whichever arm the block reads as; a record `{ entry, path, register: "registration-label-fixed" }` appended to `ctx.facts.sameStateRewrites` | `case-list-form-label-empty` (HELD) |
 | `post_form_workflow`, `always` arm | `afterSubmit`: `case_list` is `"case-list"`, `default` is `"new-case"`, whatever the form's own navigation | `case-list-form-post-form-workflow-default-case-list`; `default` on a multi-select host is `case-list-form-post-form-workflow-default-on-a-multi-select-host` |
 | `media_image`, `media_audio`, `always` arm | `icon`, `audioLabel` through `readNavMedia`, slots `case_list_registration_icon`, `case_list_registration_audio_label` | `case-list-form-media-image-media-audio` |
@@ -3127,11 +3183,19 @@ Core shows, and the text before a carriage return alone (`heldText.ts::holdText`
 7.4), and one whose rest after a carriage return is
 a line that defines an app string is refused at the case list or case detail under
 `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`
-(`heldText.ts::recordTextRewrite`); a text a device shows none of or holding a character XML cannot
-hold is left unclaimed (a header, a mapping's label and an interval's text keep a `${` as typed:
-no screen reads them through Core's argument filler, which a case list menu item's and a Register
-button's label and a Search field's label meet, so a `${` there a screen shows otherwise is left
-unclaimed, `localeFile.ts::argumentScreenIssue`); and the settle compares the stored texts and Nova's as held
+(`heldText.ts::recordTextRewrite`); a text Nova's gate admits no spelling of is one finding at its
+place (`heldText.ts::unheldRefusal`, `caseList/columns.ts::refuseUnheldKey`, and for a Search field's
+text `search/prompts.ts::claimText`, whose field the reading keeps over the texts HQ's build shows so
+that no expression reading it and no other key of it is a finding too): a text a device shows none
+of under `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing`,
+or the line-end entry where its rest defines an app string, one a device shows with a backslash
+before `#` under `application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash`, and
+one holding a character XML cannot hold left unclaimed (a header, a mapping's label and an interval's
+text keep a `${` as typed: no screen reads them through Core's argument filler, which a case list
+menu item's and a Register button's label and a Search field's label meet, so a `${` there a screen
+shows otherwise is refused under
+`application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`,
+`localeFile.ts::argumentScreenIssue`); and the settle compares the stored texts and Nova's as held
 (`sameHeldTexts`). An image map's path is no text and is held as shown. Where the stored map is not
 the held text under every app language's code, the first publish writes it so (13.3,
 `list-settings-respelled`), or under `text-spaces-dropped` where a worker reads another text: a
@@ -3988,11 +4052,22 @@ A column the case detail alone shows is in no row: it is read as a column that i
 
 Each edit changes the entry in `lib/commcare/surface/entries/<area>.json` and its row in
 `docs/research/2026-09-26-hq-round-trip/inventory/<area>.md` with it
-(`lib/commcare/CLAUDE.md`, "The surface manifest"). `platforms` is `not-applicable` and `emission` is
-`omit` for every new HELD-NEW row (Nova writes none of them) and for every new INERT row, as the
-manifest's INERT rows hold both, with one exception: the emission cell of
+(`lib/commcare/CLAUDE.md`, "The surface manifest"). Every new INERT row's `platforms` is
+`not-applicable`, the one kind the schema gives an INERT entry, and its `emission` is `omit`, with two
+exceptions, each with no marker: the emission cell of
 `questions/bind-required-on-the-question-that-names-a-created-case` is "`required=\"true()\"`, which
-Nova's emitter writes on that bind whatever the document holds", with no marker.
+Nova's emitter writes on that bind whatever the document holds", and that of
+`menus-and-case-lists/format-extras-the-column-editor-saves-on-every-column` is "the shell's values
+on every column (`hqShells.ts::detailColumn`: `date_format` `%d/%m/%y`, `late_flag` 30,
+`time_ago_interval` 365.25, `enum` `[]`)". A new HELD-NEW row's `platforms` says how each
+runtime reads what the row covers. Seven rows cover a change or an order a phone and Web Apps both
+carry out, and state `each`, "RUNS / RUNS": `forms-and-case-writes/update-key-name-or-owner-id-through-an-index-segment`,
+`forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`, the four
+`questions/a-…savetocase-…` rows (the keyed create, the type change, and the two updates of the
+worker's record) and `menus-and-case-lists/type-plain-date-or-string-or-none-where-nova-derives-int-or-double`.
+Every other new HELD-NEW row states `not-applicable`. Every new HELD-NEW row's `emission` is `omit`
+(Nova writes none of them) but the sort type's, whose cell is "`type`", with no marker, since Nova
+writes a `type` there of its own.
 
 **What the manifest tests ask of a new row.** Two tests decide the fields below.
 `lib/commcare/surface/__tests__/manifest.test.ts`'s `sharedClasses` refuses two entries that claim one
@@ -4010,7 +4085,7 @@ or INERT row needs no reader: the lane asks one of a refusing entry alone (part 
 | Entry | Disposition | `valueClass` | Surface keys | `subject`, `owner` | `item` | `dispositionCell` |
 |---|---|---|---|---|---|---|
 | `questions/savetocase-block-outside-nova-s-own-block-shape` | HELD-NEW | `outside-nova-block-shape` | those of `questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case` | `save-to-case`, `xform` | "a SaveToCase block at a position, or with content, Nova's emitter does not write: a child of the form root or of an authored group, or one whose elements, binds and setvalues differ from `saveToCaseBlockShape`'s" | "**HELD-NEW**: a Save to Case question at an authored position" |
-| `questions/savetocase-link-name-outside-nova-s-identifier-grammar` | HELD-NEW | `link-name-outside-identifier-grammar` | those of `questions/savetocase-link-index-name-child-extension-and-unlink-empty` | `save-to-case`, `xform` | "a SaveToCase `index/<name>` whose name is outside `[A-Za-z_][A-Za-z0-9_]*`" | "**HELD-NEW**: an index name Nova's link identifier cannot spell (`caseOperationIdentifiers.ts::CASE_OPERATION_IDENTIFIER_REGEX`); the name is a key of case data, so no rename keeps it" |
+| `questions/savetocase-link-name-outside-nova-s-identifier-grammar` | HELD-NEW | `link-name-outside-identifier-grammar` | those of `questions/savetocase-link-index-name-child-extension-and-unlink-empty` | `save-to-case`, `xform` | "a SaveToCase `index/<name>` whose name is outside `[A-Za-z_][A-Za-z0-9_]*`, or is a name CommCare HQ's form builder reads as the block's own action (`create`, `close`)" | "**HELD-NEW**: an index name Nova's link identifier cannot spell (`caseOperationIdentifiers.ts::CASE_OPERATION_IDENTIFIER_REGEX`, `questionId.ts::caseOperationLinkNameProblem`, as the gate refuses it under `CASE_OPERATION_LINK_INVALID`); the name is a key of case data, so no rename keeps it" |
 | `questions/bind-required-on-the-question-that-names-a-created-case` | INERT | `on-the-create-name-question` | `xform:model/bind@required` | none | "a `required` attribute of any value on the bind of a visible question whose answer names a case the form creates" | "**INERT**: HQ's build writes `required="true()"` on that bind whatever the source holds (`xform.py::XFormCaseBlock.add_create_block`), and so does Nova's emitter (`builder.ts::buildFieldParts`)" |
 | `forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain` | HELD-NEW | `loads-outside-one-chain` | those of `forms-and-case-writes/load-update-cases-loadupdateaction` | `advanced-forms`, `forms-and-case-management` | "`load_update_cases[]` whose chosen loads are not one chain every form of the module shares, whose own selection is not the module's list, or whose index names Nova does not derive" | "**HELD-NEW**: stored case selections per form" |
 | `forms-and-case-writes/load-changing-no-case-with-a-tag-nova-does-not-derive` | HELD-NEW | `underived-tag-on-a-load-changing-no-case` | `schema:LoadUpdateAction.case_tag`, `schema:LoadUpdateAction.auto_select` | `advanced-forms`, `forms-and-case-management` | "a load with no `case_properties` and no active `close_condition` whose `case_tag` is not `load_<case type><n>`, or an auto-selected `usercase` load that writes nothing" | "**HELD-NEW**: a held tag on a selection that changes no case (`placement.ts::planAdvancedCore` holds a tag only on an operation)" |
@@ -4028,6 +4103,12 @@ or INERT row needs no reader: the lane asks one of a refusing entry alone (part 
 | `questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type` | HELD-NEW | `type-change-a-later-change-may-read-as-the-earlier-type` | `mug:SaveToCase` | `form-case-management`, `forms-and-case-management` | "a SaveToCase block that gives a case another type, a create keyed by an answer (`nova-case-v1:`) of a type other than the case's a later change reads, or a `case_type` row, where another of the form's changes reads a case Nova cannot prove is another one as its earlier type (Case Management's change of the form's own case, a later block or a later block's link), or where the row is in a repeat on a case other than the one its row creates" | "**HELD-NEW**: a change of a case's type beside a change Nova cannot prove is of another case: a create of a case that exists gives it the create's type on a device and on HQ's server, as a `case_type` row does, and Nova's case types hold no such change (`caseOperationTargetTypeOrderViolations`, `CASE_OPERATION_TARGET_TYPE_MISMATCH`)"; platforms RUNS / RUNS, emission omit (as the "Operation order" paragraph) |
 | `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat` | HELD-NEW | `worker-record-update-on-a-condition-or-per-row` | `mug:SaveToCase` | `worker-record`, `forms-and-case-management` | "a SaveToCase update of `commcare-user` (the worker's record) in Nova's condition group (`nova_condition_`) or inside a repeat" | "**HELD-NEW**: an update of the worker's record that runs on a condition, or once for each row of a repeat: Nova keeps a form's writes of the worker's record in one update that runs once on every submission (`workerRecordFindings`, reason `worker-record-facet`), as HQ's own `usercase_update` block does"; platforms RUNS / RUNS, emission omit (as 5.2's row) |
 | `questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record` | HELD-NEW | `worker-record-update-beside-another` | `mug:SaveToCase` | `worker-record`, `forms-and-case-management` | "a SaveToCase update of `commcare-user` (the worker's record) in a form that also writes the worker's record in another update: CommCare HQ's basic `usercase_update`, an advanced form's load of the worker's record, or another such block" | "**HELD-NEW**: a form that writes the worker's record in more than one update: Nova keeps a form's every write of the worker's record in one update (`workerRecordFindings`, reason `worker-record-twice`), and no one update prints two blocks; a device and HQ's server apply every block in the form's order"; platforms RUNS / RUNS, emission omit (as 5.2's row) |
+| `questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it` | HELD-NEW | `own-case-change-beside-the-own-change` | `mug:SaveToCase` | `form-case-management`, `forms-and-case-management` | "a SaveToCase block that changes the form's own case (the case its menu chose on a follow-up or close form, the case a registration's own change creates) beside the form's own change of that case: a row of a property the own change also writes, its name and owner among them, or a close of that case" | "**HELD-NEW**: two changes of the form's own case that write one property or that both close it: Nova keeps one write of each property of the own case and lets no other change close it (`ownCaseIndependenceFindings`, `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case`, `CASE_OPERATION_CLOSES_OWN_CASE`), and no one change prints both blocks; a device and HQ's server apply both in the form's order, Case Management's block after every authored one"; platforms RUNS / RUNS, emission omit (as 5.2's row) |
+| `questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself` | REFUSED, `broken-at-runtime` | `savetocase-change-a-device-refuses` | `mug:SaveToCase` | `save-to-case`, none | "a SaveToCase update, close or link a device refuses on every submission: a case id that reads the case a menu chooses on a form that chooses none (a survey or a registration, whose entry holds no `case_id`), a case id that is a blank literal, or a link of the block's case to itself" | "**REFUSED**: broken at runtime: a device refuses the whole submission: a case id that is blank on every submission names no case, which Core refuses for an update or a close (`CaseXmlParser.loadCase`, "Unable to update or close case") and HQ's server refuses for any block (`form_processor/casedb_base.py::get`, `IllegalCaseId`), and Core refuses a case's link to itself (`CaseXmlParser.indexCase`, "cannot index itself"), on Android and in Web Apps (`FormplayerCaseXmlParser`); the gate refuses each (`validator/rules/caseOperations.ts`: `CASE_OPERATION_SESSION_UNAVAILABLE`, `CASE_OPERATION_TARGET_INVALID`, `CASE_OPERATION_LINK_INVALID`)"; platforms none, emission — |
+| `questions/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches` | HELD-NEW | `case-type-not-the-type-of-the-case-it-reaches` | `mug:SaveToCase` | `save-to-case`, `forms-and-case-management` | "a SaveToCase update, close or link whose case type is not the type of the case it reaches, with no change of that case's type before it: a block's `vellum:case_type` or a link's `case_type` other than the menu's case type for the case a menu chose, the type a create of the form gives the case it creates, or the type another change of the form names that case by" | "**HELD-NEW**: a change that names its case by a type the case does not hold: neither a device nor CommCare HQ's server reads a block's `vellum:case_type`, so an update or close changes the case it reaches whatever its type (a `case_type` row it carries gives the case the type the row names), and both keep a link's `case_type` as written (Core's `CaseXmlParser.indexCase`, HQ's `update_strategy.py::_apply_index_action` into `CommCareCaseIndex.referenced_type`), so the link records a type its case does not hold; Nova types a change and a link by the type of the case it reaches (`lib/doc/caseOperationOrder.ts::caseOperationTargetTypeOrderViolations`, `CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `declared-type`)"; platforms RUNS / RUNS, emission omit |
+| `questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none` | REFUSED, `broken-at-runtime` | `reads-the-case-a-menu-chooses-on-a-form-with-none` | `mug:SaveToCase` | `save-to-case`, none | "a SaveToCase change that reads the case a menu chooses on a form whose menu chooses none (a survey, or a registration, whose entry holds no `case_id`): a link to that case, or a case id expression, value or condition that reads its properties" | "**REFUSED**: broken at runtime: the read names no case: the form's entry holds no `case_id`, since a survey or a registration requires no case chosen before it opens, so a link to it is blank, which a device and CommCare HQ's server take as no link and the case is saved with none (Core's `CaseXmlParser.indexCase` removes an index whose value is blank, HQ's `update_strategy.py::_apply_index_action` makes none without a `referenced_id`), and a case id, value or condition that reads its properties reads nothing; the gate refuses each (`validator/rules/caseOperations.ts`: `CASE_OPERATION_SESSION_UNAVAILABLE` reasons `link-target` and `case-read`)"; platforms none, emission — |
+| `questions/a-savetocase-link-name-longer-than-commcare-hq-stores` | REFUSED, `broken-at-runtime` | `link-name-longer-than-hq-stores` | `mug:SaveToCase` | `save-to-case`, none | "a SaveToCase `index/<name>` whose name is longer than 255 characters" | "**REFUSED**: broken at runtime: CommCare HQ's server keeps a link's name in a column of 255 characters (`form_processor/models/cases.py::CommCareCaseIndex.identifier`, `CharField(max_length=255)`), so it cannot save a submission's longer name; the gate refuses it (`validator/rules/caseOperations.ts::validateLinks`, `CASE_OPERATION_LINK_INVALID` reason `too-long`)"; platforms none, emission — |
+| `questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters` | REFUSED, `not-hq-editable`, `broken-at-runtime` | `case-type-outside-grammar-or-longer-than-255` | `mug:SaveToCase` | `save-to-case`, none | "a SaveToCase case type (a block's `vellum:case_type`, a `case_type` row's value or a link's `case_type`) holding a character other than `A-Z`, `a-z`, `0-9`, `_` and `-`, or longer than 255 characters" | "**REFUSED**: not HQ-editable where a case type outside the grammar: the form builder's Save to Case marks a block's case type outside the grammar an error (`Vellum/src/saveToCase.js`, `CASE_TYPE_REGEX`), as CommCare HQ's menu settings page marks a menu's (`app_manager.js::valueIncludeInvalidCharacters`), so no editor of HQ's makes a case of such a type; broken at runtime where a case type longer than 255 characters: Core refuses a case whose type is longer than 255 characters (`CaseXmlParserUtil.checkForMaxLength`), and CommCare HQ's server keeps a case's type and a link's in 255 (`form_processor/models/cases.py`: `CommCareCase.type`, `CommCareCaseIndex.referenced_type`, `CharField(max_length=255)`); the gate refuses both (`validator/rules/caseOperations.ts::caseOperationCaseTypeNameProblem`, `CASE_OPERATION_INVALID_CASE_TYPE`)"; platforms none, emission — |
 | `forms-and-case-writes/update-mode-edit-in-a-project-space-that-saves-every-time` | INERT | `edit-the-project-space-does-not-apply` | `schema:ConditionalCaseUpdate.update_mode` | none | "`update_mode: edit`, anywhere but a follow-up or close form's own basic update, in a project space without `SAVE_ONLY_EDITED_FORM_FIELDS`" | "**INERT**: HQ's build reads the mode only under that flag (`xform.py::XForm`, `self.save_only_if_edited`), so without it every answer is saved every time, which is what Nova writes" |
 | `menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one` | HELD-NEW | `advanced-with-a-kind-blocker` | those of `menus-and-case-lists/advancedmodule` | `advanced-menus` (new subject, "Copy"), `forms-and-case-management` | "`AdvancedModule` whose forms read the search, whose case list menu item is narrowed, or whose chain no one index name follows" | "**HELD-NEW**: an advanced module `lib/domain/advancedModule.ts::advancedKindBlockers` keeps Nova from writing advanced" |
 | `menus-and-case-lists/module-case-list-label-or-media-beside-show-false` | INERT | `beside-show-false` | `schema:CaseList.label`, `schema:CaseList.media_image`, `schema:CaseList.media_audio` | none | "`case_list.label` or media on a basic module whose `case_list.show` is false" | "**INERT**: each reader of the label and the media tests `show` first (`app_strings.py::_create_case_list_app_strings`, `suite_xml/sections/entries.py::EntriesHelper.entry_for_module`, `suite_xml/sections/menus.py::MenuContributor._get_commands`, `corehq/apps/hqmedia/models.py::ModuleMediaMixin.all_media`)" |
@@ -4094,8 +4175,8 @@ Part 03's row, which its section 10 names and this part's reader claims (12.4):
 |---|---|---|---|---|---|---|
 | `case-search/title-label-blank-in-some-languages` | HELD-NEW | `blank-in-some-languages` | `schema:CaseSearch.title_label`, `parser:SessionDatumParser/title` | `search-setup`, `case-search` | "`title_label` showing a blank title in the language a reading takes as its source and text in another: blank, absent or only whitespace there while another language shows text" | "**HELD-NEW**: a search title shown blank in the source language where another language shows text: a language with no title of its own shows the first language's (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`, `create_default_app_strings`), so the title shows blank there only where the first language's is blank too, or where a language holds only whitespace. Nova holds the source language's title as the search's own, text or no title in every language, so no document shows it blank in the source alone; a title blank in another language is held as the source's there, as every app string is (`text-spaces-dropped`)" |
 
-Its `platforms` is `not-applicable` and its `emission` `omit`, as every new HELD-NEW row of this
-section.
+Its `platforms` is `not-applicable` and its `emission` `omit`, as the section's opening says of
+every new HELD-NEW row but the seven it names.
 
 **Re-cut: case lists and search.**
 

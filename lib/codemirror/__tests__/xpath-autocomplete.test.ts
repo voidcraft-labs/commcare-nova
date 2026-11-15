@@ -11,6 +11,7 @@
  */
 
 import { CompletionContext } from "@codemirror/autocomplete";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -38,12 +39,29 @@ import { xpath } from "../xpath-language";
 import { xpathDiagnostics } from "../xpath-lint";
 
 /**
+ * An editor state over `text` whose syntax tree is parsed to the end. A new
+ * state parses for at most 20 ms (`@codemirror/language`'s initial work
+ * budget), so on a loaded machine its tree can stop short of the cursor and a
+ * completion read over it finds nothing, where the editor itself goes on
+ * parsing. The state a transaction makes after `ensureSyntaxTree` holds the
+ * whole tree, which `syntaxTree` then reads.
+ */
+function parsedState(text: string): EditorState {
+	const created = EditorState.create({ doc: text, extensions: [xpath()] });
+	ensureSyntaxTree(created, created.doc.length, 10_000);
+	const state = created.update({}).state;
+	if (syntaxTree(state).length < state.doc.length)
+		throw new Error(`The editor did not finish parsing ${text}`);
+	return state;
+}
+
+/**
  * Build a CompletionContext at the end of `doc` against an EditorState
  * that has the XPath language attached. `explicit=false` mimics the
  * "user typed a character" trigger CodeMirror uses by default.
  */
 function ctxFor(doc: string): CompletionContext {
-	const state = EditorState.create({ doc, extensions: [xpath()] });
+	const state = parsedState(doc);
 	return new CompletionContext(state, doc.length, false);
 }
 
@@ -314,7 +332,7 @@ function offered(
 	doc: BlueprintDoc = readsDoc,
 ) {
 	const ctx = editorContext(slot, doc);
-	const state = EditorState.create({ doc: written, extensions: [xpath()] });
+	const state = parsedState(written);
 	const at = new CompletionContext(state, written.length, false);
 	return [instanceSource, relativeSource].flatMap(
 		(source) => source(() => ctx.reads)(at)?.options ?? [],

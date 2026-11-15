@@ -129,6 +129,52 @@ interface OperationRuleContext {
 	readonly lookupTables?: LookupTypeIndex;
 }
 
+/** The reasons the worker's record rule (`workerRecordFindings`) gives, in
+ *  `CASE_OPERATION_TARGET_INVALID`'s `details.reason`. */
+export type WorkerRecordReason =
+	| "worker-record-type"
+	| "worker-record-twice"
+	| "worker-record-facet";
+
+/** The reasons `CASE_OPERATION_TARGET_INVALID` gives in `details.reason`:
+ *  the worker's record rule's, a create keyed by an answer that is no key
+ *  (`create-key`), a case id that is a blank literal (`blank-target`), and a
+ *  case id expression that reads a create's id (`id-of-target`). */
+export type TargetInvalidReason =
+	| WorkerRecordReason
+	| "create-key"
+	| "blank-target"
+	| "id-of-target";
+
+/** The reasons `CASE_WRITE_DUPLICATE_PROPERTY` gives in `details.reason`: a
+ *  property one operation writes twice (`validateWrites`), or one the own
+ *  arm writes that another operation writes on the own case too
+ *  (`ownCaseIndependenceFindings`). */
+export type CaseWriteDuplicateReason = "operation" | "own-case";
+
+/** The reasons `CASE_OPERATION_TARGET_TYPE_MISMATCH` gives in `details.reason`:
+ *  `type-change` where the type the case holds there is one a change of the
+ *  form gave it, or may have (a retype, a create of a case that may exist);
+ *  `declared-type` where an operation or a link names a case by a type other
+ *  than the one it came into the form with (its menu's, its create's, or the
+ *  type another change names it by), with no type change behind it
+ *  (`CaseOperationTargetTypeOrderViolation.retyped`). */
+export type TargetTypeMismatchReason = "type-change" | "declared-type";
+
+/** The reasons `CASE_OPERATION_LINK_INVALID` gives in `details.reason`. */
+export type LinkInvalidReason =
+	| "format"
+	| "too-long"
+	| "duplicate"
+	| "name"
+	| "target-kind"
+	| "self-link";
+
+/** The reasons `CASE_OPERATION_SESSION_UNAVAILABLE` gives in
+ *  `details.reason`: the operation's own target is the case a menu chooses,
+ *  a link's target is, or an expression of the operation reads that case. */
+export type SessionUnavailableReason = "target" | "link-target" | "case-read";
+
 export function validateCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -196,7 +242,12 @@ export function validateCaseOperations(
 					: violation.kind === "repeat-alias"
 						? `Repeated retype operation "${operation?.id ?? violation.operationUuid}" may address the same case in more than one iteration. After the first ${violation.actualType} transition, a later iteration could no longer consume it as ${violation.expectedType}; use a correlated generated create whose id is fresh per iteration.`
 						: `${subject} may resolve to the same concrete case as an earlier transition that leaves it as ${violation.actualType}, not ${violation.expectedType}. Use the same typed target reference, or a target Nova can prove is distinct.`,
-				violation.slot === "ordinary" ? { subject: "own-case" } : undefined,
+				{
+					reason: (violation.retyped
+						? "type-change"
+						: "declared-type") satisfies TargetTypeMismatchReason,
+					...(violation.slot === "ordinary" && { subject: "own-case" }),
+				},
 			),
 		);
 	}
@@ -390,6 +441,7 @@ function validateOperation(
 					operation,
 					"CASE_OPERATION_TARGET_INVALID",
 					"An authored create id must come from a scalar string-valued field in this form; a multi-select answer is an array in Nova and cannot be an identity key.",
+					{ reason: "create-key" satisfies TargetInvalidReason },
 				),
 			);
 		} else if (!formFieldCorrelatesWithCreate(field.repeat, repeat)) {
@@ -465,6 +517,13 @@ function validateLinks(
 						: linkTooLong
 							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
 							: `Link identifier "${link.identifier}" is used more than once by this operation.`,
+					{
+						reason: (invalidLinkFormat
+							? "format"
+							: linkTooLong
+								? "too-long"
+								: "duplicate") satisfies LinkInvalidReason,
+					},
 				),
 			);
 		}
@@ -481,6 +540,7 @@ function validateLinks(
 					"CASE_OPERATION_LINK_INVALID",
 					`Link identifier "${link.identifier}" of case operation "${operation.id}": ${caseOperationNameSentence(link.identifier, linkNameProblem, suggestedId)}`,
 					{
+						reason: "name" satisfies LinkInvalidReason,
 						linkIdentifier: link.identifier,
 						problem: linkNameProblem,
 						suggestedId,
@@ -498,6 +558,7 @@ function validateLinks(
 						operation,
 						"CASE_OPERATION_LINK_INVALID",
 						"A link target must be an existing/session/runtime case or an earlier create.",
+						{ reason: "target-kind" satisfies LinkInvalidReason },
 					),
 				);
 			} else {
@@ -525,6 +586,7 @@ function validateLinks(
 						operation,
 						"CASE_OPERATION_LINK_INVALID",
 						"A case operation cannot link its case to itself.",
+						{ reason: "self-link" satisfies LinkInvalidReason },
 					),
 				);
 			}
@@ -654,7 +716,10 @@ function validateWrites(
 					operation,
 					"CASE_WRITE_DUPLICATE_PROPERTY",
 					`“${operation.id}” saves ${write.property} twice. You can keep one of them.`,
-					{ reason: "operation", property: write.property },
+					{
+						reason: "operation" satisfies CaseWriteDuplicateReason,
+						property: write.property,
+					},
 				),
 			);
 		}
@@ -1035,7 +1100,11 @@ function ownCaseIndependenceFindings(
 				operation,
 				"CASE_WRITE_DUPLICATE_PROPERTY",
 				`“${operation.id}” saves ${property} to this form's case, which this form's own change already saves. You can save it in one of the two.`,
-				{ reason: "own-case", property, ownOperationUuid: own.uuid },
+				{
+					reason: "own-case" satisfies CaseWriteDuplicateReason,
+					property,
+					ownOperationUuid: own.uuid,
+				},
 			),
 		);
 	for (const operation of operations) {
@@ -1111,7 +1180,7 @@ function workerRecordFindings(
 					operation,
 					"CASE_OPERATION_TARGET_INVALID",
 					"The worker's record is a commcare-user case, so only an update of commcare-user can save to it.",
-					{ reason: "worker-record-type" },
+					{ reason: "worker-record-type" satisfies WorkerRecordReason },
 				),
 			);
 			continue;
@@ -1123,7 +1192,10 @@ function workerRecordFindings(
 					operation,
 					"CASE_OPERATION_TARGET_INVALID",
 					`This form already saves to the worker's record in “${first.id}”. You can add these saves there.`,
-					{ reason: "worker-record-twice", firstOperationUuid: first.uuid },
+					{
+						reason: "worker-record-twice" satisfies WorkerRecordReason,
+						firstOperationUuid: first.uuid,
+					},
 				),
 			);
 		} else first = operation;
@@ -1137,12 +1209,25 @@ function workerRecordFindings(
 					operation,
 					"CASE_OPERATION_TARGET_INVALID",
 					`The worker's record can only be updated, so “${operation.id}” can't ${words}.`,
-					{ reason: "worker-record-facet", facet },
+					{ reason: "worker-record-facet" satisfies WorkerRecordReason, facet },
 				),
 			);
 		}
 	}
 	return errors;
+}
+
+/**
+ * Why the gate refuses a case type an operation names (its own, its retype's,
+ * a link's) by the name alone: outside CommCare's case type grammar, or
+ * longer than CommCare keeps (`CASE_OPERATION_INVALID_CASE_TYPE`).
+ */
+export function caseOperationCaseTypeNameProblem(
+	caseType: string,
+): "grammar" | "too-long" | undefined {
+	if (!CASE_TYPE_REGEX.test(caseType)) return "grammar";
+	if (caseType.length > MAX_CASE_TYPE_LENGTH) return "too-long";
+	return undefined;
 }
 
 function validateCaseType(
@@ -1151,10 +1236,7 @@ function validateCaseType(
 	caseType: string,
 	errors: ValidationError[],
 ): void {
-	if (
-		!CASE_TYPE_REGEX.test(caseType) ||
-		caseType.length > MAX_CASE_TYPE_LENGTH
-	) {
+	if (caseOperationCaseTypeNameProblem(caseType) !== undefined) {
 		errors.push(
 			opError(
 				ctx,
@@ -1208,6 +1290,11 @@ function validateTarget(
 						operation,
 						"CASE_OPERATION_SESSION_UNAVAILABLE",
 						"The session target is available only when the module selects one case before opening its forms.",
+						{
+							reason: (slot.slot === "case_operation_link_target_expression"
+								? "link-target"
+								: "target") satisfies SessionUnavailableReason,
+						},
 					),
 				);
 			}
@@ -1229,6 +1316,7 @@ function validateTarget(
 							operation,
 							"CASE_OPERATION_TARGET_INVALID",
 							`Case operation "${operation.id}" has a blank runtime case target. A calculated target must contain a case id after CommCare-compatible boundary whitespace is removed.`,
+							{ reason: "blank-target" satisfies TargetInvalidReason },
 						),
 					);
 				}
@@ -1240,6 +1328,7 @@ function validateTarget(
 						operation,
 						"CASE_OPERATION_TARGET_INVALID",
 						"This runtime target is already the known output of a create operation. Target that operation directly so type, order, and repeat correlation stay explicit.",
+						{ reason: "id-of-target" satisfies TargetInvalidReason },
 					),
 				);
 			}
@@ -1660,6 +1749,7 @@ function validateCaseSnapshotUse(
 			operation,
 			"CASE_OPERATION_SESSION_UNAVAILABLE",
 			"A case-property or relationship expression requires a case selected before this form opens.",
+			{ reason: "case-read" satisfies SessionUnavailableReason },
 		),
 	);
 }

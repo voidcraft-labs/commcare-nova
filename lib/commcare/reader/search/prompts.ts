@@ -32,9 +32,11 @@ import {
 	type HeldTexts,
 	heldTextsIn,
 	languageMap,
+	shownTexts,
 	sourceCode,
 	sourceText,
 	translatedTexts,
+	unheldTextsIn,
 } from "../caseList/columns";
 import { sameState } from "../caseList/details";
 import {
@@ -46,7 +48,12 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
-import { holdText, recordTextRewrite } from "../heldText";
+import {
+	holdText,
+	recordTextRewrite,
+	type UnheldText,
+	unheldRefusal,
+} from "../heldText";
 import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
@@ -444,35 +451,25 @@ function readPrompt(
 	// Each is held as every app string is (`caseList/columns.ts::heldTextsIn`): no space at
 	// either end, and a label or message blank-looking in a language beside the source's text
 	// takes the source's text there.
+	//
+	// A text Nova's gate admits no spelling of is one finding, at its own key (`claimText`), and
+	// the prompt is still read over each language's text as HQ's build shows it, so the field
+	// stays in the provisional document for every expression that reads it and nothing else the
+	// prompt holds is reported for that text.
 	const codes = appCodes(ctx);
-	const heldOf = (stored: unknown, role: TranslationUnitRole) =>
-		heldTextsIn(stored ?? {}, codes, sourceCode(ctx), role);
-	const labelHeld = heldOf(prompt.peek("label"), "search-input-label");
-	const hintHeld = heldOf(prompt.peek("hint"), "search-input-hint");
-	const requiredHeld: HeldTexts | undefined = requires
-		? heldOf(
+	const readText = (stored: unknown, role: TranslationUnitRole): PromptText =>
+		promptText(ctx, stored, codes, role);
+	const labelRead = readText(prompt.peek("label"), "search-input-label");
+	const hintRead = readText(prompt.peek("hint"), "search-input-hint");
+	const requiredRead: PromptText = requires
+		? readText(
 				isJsonObject(storedRequired) ? storedRequired.text : undefined,
 				"search-input-required-message",
 			)
-		: { texts: {}, workersSeeAnother: false };
-	const label = labelHeld?.texts;
-	const hintMap = hintHeld?.texts;
-	const requiredMap = requiredHeld?.texts;
-	if (
-		label === undefined ||
-		hintMap === undefined ||
-		requiredMap === undefined
-	) {
-		ctx.accounting.circumstance("unrecognized", place, {
-			name:
-				label === undefined
-					? "schema:CaseSearchProperty.label"
-					: hintMap === undefined
-						? "schema:CaseSearchProperty.hint"
-						: "schema:Assertion.text",
-		});
-		return undefined;
-	}
+		: { held: { texts: {}, workersSeeAnother: false }, texts: {} };
+	const label = labelRead.texts;
+	const hintMap = hintRead.texts;
+	const requiredMap = requiredRead.texts;
 	if (RESERVED_REQUEST_KEYS.has(name))
 		return refuseWith("name", P.nameReserved);
 	if (!SEARCH_INPUT_NAME_PATTERN.test(name))
@@ -509,22 +506,27 @@ function readPrompt(
 	// A check whose message is blank in every language: HQ's build shows the runtime's own
 	// sentence for a validation (`remote_requests.py` writes no text where `has_text` is false)
 	// and a blank one for a requirement, and Nova holds no check without a message of its own.
-	if (requires && sourceText(ctx, requiredMap) === "")
+	if (
+		requires &&
+		requiredRead.held !== undefined &&
+		sourceText(ctx, requiredMap) === ""
+	)
 		return refuseWith("required", P.requiredNoMessage);
+	const storedValidation = Array.isArray(validations)
+		? validations[0]
+		: undefined;
+	const validationRead = isJsonObject(storedValidation)
+		? readText(storedValidation.text, "search-input-validation-message")
+		: undefined;
 	const validation = readValidation(
 		ctx,
-		Array.isArray(validations) ? validations[0] : undefined,
-		codes,
+		storedValidation,
+		validationRead?.texts ?? {},
 	);
-	if (validation === "unreadable") {
-		ctx.accounting.circumstance("unrecognized", place, {
-			name: "schema:Assertion.text",
-		});
-		return undefined;
-	}
 	if (
 		validation?.kind === "checked" &&
 		validation.rule !== undefined &&
+		validationRead?.held !== undefined &&
 		sourceText(ctx, validation.messages) === ""
 	)
 		return refuseWith("validations", P.validationNoMessage);
@@ -697,10 +699,10 @@ function readPrompt(
 				read.workersSeeAnother,
 			);
 	};
-	prompt.take("label", P.label, languageMap).value;
-	prompt.take("hint", P.hint, languageMap).value;
-	respelled(prompt, "label", P.label.entry, labelHeld);
-	respelled(prompt, "hint", P.hint.entry, hintHeld);
+	claimText(prompt, "label", P.label, labelRead);
+	claimText(prompt, "hint", P.hint, hintRead);
+	respelled(prompt, "label", P.label.entry, labelRead.held);
+	respelled(prompt, "hint", P.hint.entry, hintRead.held);
 	const register = (
 		slot:
 			| "search_input_default"
@@ -749,9 +751,9 @@ function readPrompt(
 	if (requires) {
 		const assertion = prompt.object("required", "Assertion", P.required);
 		const test = assertion.peek("test");
-		assertion.take("text", P.requiredText, languageMap).value;
+		claimText(assertion, "text", P.requiredText, requiredRead);
 		const text = requiredMap;
-		respelled(assertion, "text", P.requiredText.entry, requiredHeld);
+		respelled(assertion, "text", P.requiredText.entry, requiredRead.held);
 		required = {};
 		if (typeof test === "string" && test.trim() === "true()")
 			assertion.take("test", P.requiredAlways, String).value;
@@ -782,8 +784,9 @@ function readPrompt(
 	const validationList = prompt.list("validations", "Assertion", P.validation);
 	const first = validationList[0];
 	if (first !== undefined && validation !== undefined) {
-		first.take("text", P.validationText, languageMap).value;
-		const whole = validationTexts(ctx, first.peek("text"), codes);
+		if (validationRead !== undefined)
+			claimText(first, "text", P.validationText, validationRead);
+		const whole = validationRead?.held;
 		respelled(
 			first,
 			"text",
@@ -906,6 +909,56 @@ function readPrompt(
 	};
 }
 
+/**
+ * A stored text of a prompt as a reading holds it (`caseList/columns.ts::heldTextsIn`), and the
+ * texts the prompt is read over: the held texts, or, where Nova's gate admits no spelling of one,
+ * each language's text as HQ's build shows it (none where the build prints a value the reader
+ * cannot know), for a reading that has its finding already (`claimText`).
+ */
+interface PromptText {
+	readonly held?: HeldTexts;
+	readonly texts: Readonly<Record<string, string>>;
+	/** Where the reading holds no spelling of the text: which text, and why, where it knows. */
+	readonly unheld?: UnheldText;
+}
+
+function promptText(
+	ctx: ReadContext,
+	stored: unknown,
+	codes: readonly string[],
+	role: TranslationUnitRole,
+): PromptText {
+	const source = sourceCode(ctx);
+	const held = heldTextsIn(stored ?? {}, codes, source, role);
+	if (held !== undefined) return { held, texts: held.texts };
+	const unheld = unheldTextsIn(stored ?? {}, codes, source, role);
+	return {
+		texts: shownTexts(stored ?? {}, codes) ?? {},
+		...(unheld !== undefined && { unheld }),
+	};
+}
+
+/**
+ * Claims a prompt's text at `key`: under `claim` where the reading holds it; where Nova's gate
+ * admits no spelling of it, refused at the key under the entry that names why
+ * (`heldText.ts::unheldRefusal`), one finding at the search; any other is left for the close to
+ * name, one finding as well.
+ */
+function claimText(
+	at: JsonCursor,
+	key: string,
+	claim: Claim<"take">,
+	read: PromptText,
+): void {
+	if (read.held !== undefined) {
+		at.take(key, claim, languageMap).value;
+		return;
+	}
+	const refusal = unheldRefusal(read.unheld);
+	if (refusal !== undefined)
+		at.refuse(key, refusal.claim, { name: refusal.name });
+}
+
 /** A prompt's first validation as read: Nova's runtime guard alone, or the authored rule (where
  *  it holds one) with each language's message as HQ's build shows it, less the guard's sentence
  *  where the stored check joins the guard after it. */
@@ -927,16 +980,14 @@ type ValidationReading =
 			readonly untold: boolean;
 	  };
 
-/** `stored`, a prompt's first validation, as `ValidationReading`; `"unreadable"` where its text
- *  holds a value whose printed text the reader cannot know. */
+/** `stored`, a prompt's first validation, as `ValidationReading`, over `text`, its text in each
+ *  language as the prompt is read (`promptText`). */
 function readValidation(
 	ctx: ReadContext,
 	stored: unknown,
-	codes: readonly string[],
-): ValidationReading | "unreadable" | undefined {
+	text: Readonly<Record<string, string>>,
+): ValidationReading | undefined {
 	if (!isJsonObject(stored)) return undefined;
-	const text = validationTexts(ctx, stored.text, codes)?.texts;
-	if (text === undefined) return "unreadable";
 	const test = stored.test;
 	const authored = withoutRuntimeGuard(
 		test,

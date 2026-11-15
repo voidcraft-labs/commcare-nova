@@ -608,8 +608,16 @@ Output is structured and must cover the exact requested unit IDs. The server
 rejects missing, extra, duplicate, wrong-kind, blank-illegal, or
 protected-token-invalid results. Roles emitted through CommCare locale files
 also pass the shared locale-file representability check before a paid batch is
-accepted, so boundary whitespace, carriage returns, and a literal backslash
-followed by `n` or `#` cannot become a durably replayed commit failure. Markdown delimiter preservation
+accepted, so boundary whitespace, carriage returns, a literal backslash
+followed by `n` or `#`, and in a menu's or form's name, a case list menu
+item's or Register button's label or a Search field's label a `${` some screen
+fills, cannot become a durably replayed commit failure. In those roles the
+codec first leaves out each backslash a model writes before `#`, the Markdown
+escape, and before a reference token, whose text starts with `#`: CommCare
+Core reads `\#` as `#` in the line HQ's build and Nova's archive write
+(`translator.ts::normalizeTranslatedFormatting`), so the kept text is what a
+device shows. A `${` is content and is never rewritten: the refusal tells the
+model what to write instead, as each refusal of the check does. Markdown delimiter preservation
 is measured by the acceptance harness and judged by the bilingual reviewer;
 Nova has no general markdown-validity oracle and does not claim one. Paid
 results and usage are stored durably before staging. Each batch has an independent

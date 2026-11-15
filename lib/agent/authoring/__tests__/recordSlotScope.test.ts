@@ -189,16 +189,26 @@ async function printsOf(document: CorpusDocument, doc: BlueprintDoc) {
 	return { prints, lookup };
 }
 
-/** The documents the proof lane publishes, as the read-back bar reads them. */
-function publishedDocuments() {
-	return [...targetedDocuments(), ...producerDocuments()].flatMap(
-		(document) => {
+/** The proof lane's corpus, built once for the file: each document is parsed
+ *  afresh where it is hydrated, so the tests share no document object. */
+let corpus: readonly CorpusDocument[] | undefined;
+function corpusDocuments(): readonly CorpusDocument[] {
+	corpus ??= [...targetedDocuments(), ...producerDocuments()];
+	return corpus;
+}
+
+/** The documents the proof lane publishes, as the read-back bar reads them;
+ *  with `ids`, only those documents are hydrated and judged by the publish
+ *  bar, since that bar over the whole corpus is most of this file's work. */
+function publishedDocuments(ids?: readonly string[]) {
+	return corpusDocuments()
+		.filter((document) => ids === undefined || ids.includes(document.id))
+		.flatMap((document) => {
 			const doc = hydrated(document);
 			return publishFindings(doc, document.lookup).length > 0
 				? []
 				: [{ document, doc }];
-		},
-	);
+		});
 }
 
 it("prints every record slot of the published documents as its read tool prints it", {
@@ -225,9 +235,7 @@ it("prints every record slot of the published documents as its read tool prints 
 });
 
 it("judges each choices filter of the documents that filter choices as the production read prints it", async () => {
-	const documents = publishedDocuments().filter(({ document }) =>
-		CHOICE_FILTER_DOCUMENTS.includes(document.id),
-	);
+	const documents = publishedDocuments(CHOICE_FILTER_DOCUMENTS);
 	expect(documents.map(({ document }) => document.id).sort()).toEqual(
 		[...CHOICE_FILTER_DOCUMENTS].sort(),
 	);
