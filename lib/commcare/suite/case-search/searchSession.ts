@@ -379,7 +379,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// (`lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`). A
 	// search with no title still writes the `<title>` element over a blank
 	// locale value, which every language's table writes as a non-breaking
-	// space (`localeFile.ts::serializeLocaleFileValue`), as HQ's build writes
+	// space (`localeFile.ts::hqLocaleFileValue`), as HQ's build writes
 	// the blank `title_label` (`models/case_search.py::get_search_title_label`).
 	// The Web Apps client trims it and draws no heading.
 	const titleDisplay = searchScreenTitleText(caseSearchConfig) ?? "";
@@ -392,7 +392,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// JSON stores the blank map and both paths write the element. A blank
 	// value has no translation unit, so it is a literal every language's
 	// table writes, as a non-breaking space
-	// (`localeFile.ts::serializeLocaleFileValue`). The locale id pattern is
+	// (`localeFile.ts::hqLocaleFileValue`). The locale id pattern is
 	// CCHQ's `case_search.{m}.description`; element ordering inside
 	// `<query>` is title → description → data → prompts, matching CCHQ's
 	// `RemoteRequestQuery` factory.

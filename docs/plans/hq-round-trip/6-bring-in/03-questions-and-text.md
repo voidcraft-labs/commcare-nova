@@ -197,7 +197,7 @@ a saved app holds `instance(` followed by a quote mark, which is more than 5.1's
   `DEFAULT_CASE_SEARCH_TITLE`, `columnSortSchema`, `caseSearchConfigAfterFinalInputRemoval`;
   `translationUnits.ts` (the `search-screen-title` unit);
   `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`;
-  `suite/case-search/searchSession.ts`; `lib/commcare/localeFile.ts::serializeLocaleFileValue`;
+  `suite/case-search/searchSession.ts`; `lib/commcare/localeFile.ts::hqLocaleFileValue`;
   `lib/domain/caseListOrder.ts::caseListOrderPlan` (rule 9, `finalRule`); `suite/case-list/sortKeys.ts`;
   `lib/case-store/postgres/store.ts` (the blanks term); `lib/commcare/CLAUDE.md`, "Markdown itext";
   `components/preview/form/formatText.ts`, `useLabelFormatText.ts`, `FieldHelp.tsx`;
@@ -1801,7 +1801,7 @@ follows the slot: `null` returns the default.
 | `localizedBlueprintProjection.ts` | today it always writes `search.searchScreenTitle = text(id, effectiveSearch.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE)`, which would hand the object to `text()`. It now calls `text()` only where `searchScreenTitleText(effectiveSearch)` is a string, and otherwise leaves the arm in the clone as it is |
 | `lib/preview/workerModule.ts` | keeps the arm as it is; its fallback to the source title runs only where the source holds none |
 | `hqJson/caseList.ts::buildSearchConfigDocument` | `title_label` is `""` for every language of the app, the map HQ's page leaves |
-| `suite/case-search/searchSession.ts` | writes the `<title>` element as today; the locale's value is the blank literal every language's table writes as a non-breaking space (`localeFile.ts::serializeLocaleFileValue`), the mechanism the blank description already uses |
+| `suite/case-search/searchSession.ts` | writes the `<title>` element as today; the locale's value is the blank literal every language's table writes as a non-breaking space (`localeFile.ts::hqLocaleFileValue`), the mechanism the blank description already uses |
 | `components/preview/screens/CaseListScreen.tsx`, through `lib/preview/platform.ts::searchScreenHeading` | `searchScreenHeading`'s `authored.title` and the `title` it returns become `string \| null`, and the screen passes `null` where `searchScreenTitleText` gives it. Web Apps (`searchScreenText` true) then draws no heading; Android shows the search action's label as its heading, as it does for every search |
 | `platformUses.ts` (the `search-screen-text` use) | not a use: the test becomes `typeof searchScreenTitle === "string"`, since there is no text for Android to leave out |
 | `modules.ts::caseSearchConfigHasAuthoredSettings`, `caseSearchConfigAfterFinalInputRemoval` | the arm is an authored setting, and leaves with the last input as a title does |

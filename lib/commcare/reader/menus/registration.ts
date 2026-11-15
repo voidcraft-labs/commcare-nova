@@ -495,9 +495,11 @@ function readLabel(
 			register: "registration-label-fixed",
 		});
 		// The fix records the rewrite under its own register, which `recordTextRewrite` below may
-		// not reach, so a label whose rest after a carriage return defines another app string is
-		// refused here too.
-		refuseLineEndKey(ctx, `${cursor.pointer}/label`);
+		// not reach, so a held label whose rest after a carriage return defines another app string
+		// is refused here too. A label Nova holds no spelling of is left unrecognized by the
+		// settle instead, as every held text a device shows none of is, whether or not a language
+		// holds the blank HQ's build fills.
+		if (held !== undefined) refuseLineEndKey(ctx, `${cursor.pointer}/label`);
 	}
 	// Any other map Nova prints another way (a language with no key, a `null`, a language the app
 	// no longer lists, a text held without the spaces at its ends) is written again by the first

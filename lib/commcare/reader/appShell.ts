@@ -830,8 +830,9 @@ function readTranslations(
  * every app string is (`heldText.ts::heldText`): no space at either end, and a language whose
  * name shows blank beside a source that does not takes the source's name. The source's text is
  * written into the draft, and each other language's translation is returned by code. A name
- * Nova's gate admits no spelling of, and a `name` holding the two characters `\n` or a carriage
- * return, which the profile's `name` shows otherwise than the app strings do, is named
+ * Nova's gate admits no spelling of, and a `name` holding the two characters `\n`, a backslash
+ * before `#` or a carriage return, which the profile's `name` shows otherwise than the app
+ * strings do, is named
  * `unrecognized` at the app, a `name` whose rest after a carriage return defines another app
  * string is refused at the app under its own entry, and the names are returned as stored. Where
  * the first publish writes a stored value again, the reading records it, the source language's at
@@ -859,9 +860,9 @@ function holdAppName(
 		);
 	// HQ's build also writes `name` as it stands into the profile's `name`, which Android's app
 	// picker shows (`profile.xml`, Core's `ProfileParser`, `ApplicationRecord.setPropertiesFromProfile`):
-	// a name whose two characters `\n` a device's app strings show as a line break, or whose text
-	// after a carriage return they do not show, the picker shows whole, and Nova can print only
-	// one of the two.
+	// a name whose two characters `\n` a device's app strings show as a line break, whose `\#`
+	// they show as `#`, or whose text after a carriage return they do not show, the picker shows
+	// whole, and Nova can print only one of the two.
 	const lineEnd = keyDefinedAfterLineEnd(name.value);
 	if (lineEnd !== undefined) {
 		ctx.accounting.finding(LINE_END_DEFINES_KEY, appPlace(), {
@@ -870,7 +871,9 @@ function holdAppName(
 		return appNames;
 	}
 	const held =
-		name.value.includes("\\n") || name.value.includes("\r")
+		name.value.includes("\\n") ||
+		name.value.includes("\\#") ||
+		name.value.includes("\r")
 			? undefined
 			: heldText(shown, languages.codes, source, "app-name");
 	if (held === undefined) {

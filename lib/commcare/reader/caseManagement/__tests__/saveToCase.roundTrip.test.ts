@@ -68,10 +68,11 @@ import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import { knownCaseTypesOf } from "../../index";
 import { sameXPathText } from "../../syntaxCompare";
 import { saveToCaseReading } from "../saveToCase";
 import { type CaseReading, readCases } from "./caseReading";
+import { readHqApp } from "./heldReading";
 
 const OUTSIDE = "questions/savetocase-block-outside-nova-s-own-block-shape";
 

@@ -857,7 +857,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	TRANSLATION_PROTECTED_CONTENT_CHANGED: () =>
 		"A translation changed one of the linked values inside its text. Open Languages, restore each protected value, and translate only the surrounding words.",
 	APP_STRING_VALUE_UNREPRESENTABLE: () =>
-		"One app string contains spacing Nova can't preserve on a device. Open Languages and remove typed \\n text, carriage returns, or spaces at the beginning or end.",
+		"One app string holds text a device would show differently. Open Languages and remove a typed \\n or \\#, a ${ in the name of a menu, form, button or Search field, carriage returns, or spaces at the beginning or end.",
 
 	// ── Worker information, roles, personas ──────────────────────────
 	// The rule's own message already carries the specific reason (an illegal

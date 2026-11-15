@@ -658,11 +658,8 @@ export function bindExpressions(ctx: ReadContext): void {
 	const world = worldEntitiesFromReads(
 		{
 			...first.worldReads,
-			userFields: [
-				...first.worldReads.userFields,
-				...searchRowUserFields(ctx),
-				...workerRecordWriteSlugs(ctx),
-			],
+			userFields: [...first.worldReads.userFields, ...searchRowUserFields(ctx)],
+			writtenUserFields: workerRecordWriteSlugs(ctx),
 		},
 		ctx.resolver,
 	);

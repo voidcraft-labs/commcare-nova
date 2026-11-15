@@ -139,13 +139,18 @@ function block(i: number): FieldSpec[] {
 	];
 }
 
-/** A keyed create of a visit per block: its count, its condition, its guard and its clock. */
+/**
+ * A keyed create per block: its count, its condition, its guard and its clock. Each is of the
+ * form's own case type, since a keyed create of another type beside the form's change of its own
+ * case is a document the commit gate refuses (`CASE_OPERATION_TARGET_TYPE_MISMATCH`: a keyed id
+ * may name the loaded case), which the reader refuses with a finding.
+ */
 function operations(blocks: number): CaseOperation[] {
 	return Array.from({ length: blocks }, (_, i) => ({
 		uuid: testUuid(`work-create-${i}`),
 		id: `create_visit_${i}`,
 		action: "create" as const,
-		caseType: "visit",
+		caseType: "patient",
 		target: { kind: "new" as const, idFrom: testUuid(`work-key-${i}`) },
 		name: term(formField(testUuid(`work-text-${i}`))),
 		owner: actingUser(),
@@ -163,6 +168,11 @@ function formOf(blocks: number): BlueprintDoc {
 				name: "patient",
 				properties: [
 					{ name: "case_name", label: proseText("Name") },
+					{
+						name: "occurred_at",
+						label: proseText("Occurred at"),
+						data_type: "datetime" as const,
+					},
 					...Array.from({ length: blocks }, (_, i) => [
 						{
 							name: `seen_at_${i}`,

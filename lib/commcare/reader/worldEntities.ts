@@ -25,7 +25,6 @@ import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import type { HqLocationType } from "../hq/locations";
 import { userPropertySlugVerdict } from "../validator/userPropertySlug";
 import { withCandidate } from "./candidate";
-import type { ExpressionReading } from "./expressions";
 import {
 	externalKey,
 	type IdentityMapEntry,
@@ -37,6 +36,23 @@ import { whereText } from "./place";
 
 const ORGANIZATION = { kind: "organization" } as const;
 const APP = { kind: "app" } as const;
+
+/**
+ * The key two names are one name by where CommCare HQ compares them
+ * lowercased: a worker property's and a location property's slug, which HQ's
+ * custom data schema holds unique lowercased
+ * (`custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_duplicates`),
+ * and a level's name, which Nova holds unique lowercased though HQ's
+ * `LocationType` holds it unique as written (`locations/models.py`,
+ * `unique_together` `('domain', 'name')`). The gate compares each by the same
+ * key (`validator/rules/users.ts::userPropertySlugs`,
+ * `validator/userPropertySlug.ts::userPropertySlugVerdict`, the
+ * `nameKey` of `validator/rules/organization.ts`), so a reading holds one name
+ * of a key.
+ */
+function foldKey(name: string): string {
+	return name.trim().toLowerCase();
+}
 
 /** Whether a level's code and name are ones the document's level schema admits. */
 function holdable(level: HqLocationType): boolean {
@@ -54,10 +70,15 @@ function holdable(level: HqLocationType): boolean {
  * address book is HQ's default. `administrative` is not read: HQ sets it from
  * CommTrack and reads `has_users`, which no API returns.
  *
- * A level whose code or name the document's schema refuses is the
- * circumstance `place-not-holdable` at the organization, named by the level,
- * and it and every level beneath it are left out, so the levels never hold
- * one the gate would refuse. So is a level whose parent is not in the list,
+ * A level whose code or name the document's schema refuses, or whose name a
+ * level already placed spells in other letters only (HQ holds `Clinic` and
+ * `clinic` apart, and the gate refuses the pair,
+ * `ORGANIZATION_LEVEL_NAME_DUPLICATE`), is the circumstance
+ * `place-not-holdable` at the organization, named by the level, and it and
+ * every level beneath it are left out, so the levels never hold one the gate
+ * would refuse. Levels are placed parent before child, siblings in HQ's
+ * order, and only a placed level takes a name: one left out for any reason
+ * refuses no other. So is a level whose parent is not in the list,
  * or whose chain of parents never reaches the top.
  */
 export function levelsFromHq(
@@ -82,6 +103,10 @@ export function levelsFromHq(
 	};
 	for (const level of levels) if (!holdable(level)) notHoldable(level);
 
+	/* The fold is tested against the levels placed so far, never against a
+	 * level that is only holdable: one whose parent is missing or refused, or
+	 * whose claim fails, is no level of the document and takes no name. */
+	const names = new Set<string>();
 	let placed = true;
 	while (placed) {
 		placed = false;
@@ -90,6 +115,10 @@ export function levelsFromHq(
 			const parent =
 				level.parentCode === null ? undefined : uuidOf.get(level.parentCode);
 			if (level.parentCode !== null && parent === undefined) continue;
+			if (names.has(foldKey(level.name))) {
+				notHoldable(level);
+				continue;
+			}
 			const claim = resolver.claim(
 				externalKey.organizationLevel(level.code),
 				whereText(ORGANIZATION),
@@ -99,6 +128,7 @@ export function levelsFromHq(
 				continue;
 			}
 			uuidOf.set(level.code, claim.uuid);
+			names.add(foldKey(level.name));
 			out.push({
 				uuid: claim.uuid,
 				code: level.code,
@@ -172,27 +202,107 @@ function distinct(names: readonly string[]): readonly string[] {
 	return [...new Set(names)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/** The first of `names` in code-unit order under each `foldKey`. */
+function onePerKey(names: readonly string[]): readonly string[] {
+	const seen = new Set<string>();
+	return distinct(names).filter((name) => {
+		const key = foldKey(name);
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+}
+
+/**
+ * The slugs a reading declares worker properties for, of the names its logic reads of the worker
+ * (`read`) and the names its writes of the worker's record save to (`written`), each a slug Nova
+ * can hold (`holdsWorkerProperty`), in code-unit order. Two names that differ only in their
+ * capitalization are two names to CommCare (Core's session user data and the worker's case hold
+ * each by its own element, `SessionInstanceBuilder.addUserProperties`, and HQ's user-case sync
+ * writes each key as it stands, `callcenter/sync_usercase.py::_get_user_case_fields`), but one
+ * to CommCare HQ's user-data schema and the gate (`foldKey`), so a reading declares one of them:
+ * the first written in code-unit order where a write names one, since the gate holds a write of
+ * the worker's record to a declared property (`validateWorkerRecordProperty`), else the first
+ * read. A read of another stays the name-backed read the parser binds where a held property
+ * spells its slug in other letters only (`xpath/referenceBindings.ts::formUserProperty`), and a
+ * write of another is refused (`caseManagement/index.ts::refuseWritesOfFoldedWorkerNames`).
+ */
+export function heldWorkerSlugs(
+	read: readonly string[],
+	written: readonly string[],
+): readonly string[] {
+	const writes = onePerKey(written.filter(holdsWorkerProperty));
+	const keys = new Set(writes.map(foldKey));
+	return distinct([
+		...writes,
+		...onePerKey(read.filter(holdsWorkerProperty)).filter(
+			(slug) => !keys.has(foldKey(slug)),
+		),
+	]);
+}
+
+/** Whether a location property can take `slug` as the gate holds one: its schema's slug and
+ *  label, and the worker property's rule, which the gate holds a location property's slug to
+ *  (`validator/rules/organization.ts::locationPropertyIdentities`). */
+function holdsLocationProperty(slug: string): boolean {
+	return (
+		userPropertySlugVerdict(slug, new Set()).ok &&
+		locationPropertySchema.shape.slug.safeParse(slug).success &&
+		locationPropertySchema.shape.label.safeParse(slug).success
+	);
+}
+
+/**
+ * Whether a read of a place's `location_data/<slug>` that binds to no location property of `doc`
+ * names one no location property of a reading takes: one `holdsLocationProperty` refuses, or one
+ * a property of `doc` spells in other letters only, since a reading declares one of each
+ * `foldKey` (`worldEntitiesFromReads`). Every other `location_data` read a reading binds to the
+ * property it declared for it.
+ */
+export function locationDataNameRefused(
+	slug: string,
+	doc: BlueprintDoc,
+): boolean {
+	return (
+		!holdsLocationProperty(slug) ||
+		Object.values(doc.locationProperties ?? {}).some(
+			(one) => one.slug !== slug && foldKey(one.slug) === foldKey(slug),
+		)
+	);
+}
+
 /**
  * The worker properties and the location properties an app's logic reads,
  * from what the first pass over its expressions met: a worker property for
- * each name read of the worker's own data that is a slug Nova can hold and
- * none CommCare supplies itself, and a location property for each slug read
- * as a place's `location_data`. Each is labelled with its slug, has no
- * choices and is not required: CommCare HQ serves no definition of either
- * to an API key. Every other name is left out, and the second pass words
- * it. Each list is in the code-unit order of its slugs, whichever slot read
- * one first.
+ * each name read of the worker's own data, or written to the worker's
+ * record, that `heldWorkerSlugs` holds, and a location property for each
+ * slug read as a place's `location_data` that the gate takes for one
+ * (`holdsLocationProperty`), one of each `foldKey`, the first
+ * in code-unit order (HQ's location fields compare slugs as worker fields
+ * do, and the gate refuses the pair, `LOCATION_PROPERTY_SLUG_DUPLICATE`; a
+ * read of the other binds to no property and is refused at its slot,
+ * `locationDataNameRefused`). Each
+ * is labelled with its slug, has no choices and is not required: CommCare HQ
+ * serves no definition of either to an API key. Every other name is left
+ * out, and the second pass words it. Each list is in the code-unit order of
+ * its slugs, whichever slot read one first.
  */
 export function worldEntitiesFromReads(
-	worldReads: ExpressionReading["worldReads"],
+	worldReads: {
+		readonly userFields: readonly string[];
+		readonly writtenUserFields?: readonly string[];
+		readonly locationDataSlugs: readonly string[];
+	},
 	resolver: IdentityResolver,
 ): {
 	readonly userProperties: readonly UserProperty[];
 	readonly locationProperties: readonly LocationProperty[];
 } {
 	const userProperties: UserProperty[] = [];
-	for (const slug of distinct(worldReads.userFields)) {
-		if (!holdsWorkerProperty(slug)) continue;
+	for (const slug of heldWorkerSlugs(
+		worldReads.userFields,
+		worldReads.writtenUserFields ?? [],
+	)) {
 		const claim = resolver.claim(
 			externalKey.userProperty(slug),
 			whereText(APP),
@@ -201,9 +311,9 @@ export function worldEntitiesFromReads(
 		userProperties.push({ uuid: claim.uuid, slug, label: slug });
 	}
 	const locationProperties: LocationProperty[] = [];
-	for (const slug of distinct(worldReads.locationDataSlugs)) {
-		if (!locationPropertySchema.shape.slug.safeParse(slug).success) continue;
-		if (!locationPropertySchema.shape.label.safeParse(slug).success) continue;
+	for (const slug of onePerKey(
+		worldReads.locationDataSlugs.filter(holdsLocationProperty),
+	)) {
 		const claim = resolver.claim(
 			externalKey.locationProperty(slug),
 			whereText(ORGANIZATION),
@@ -304,15 +414,18 @@ function isWorkerRecordOperation(node: Record<string, unknown>): boolean {
 }
 
 /** What `doc`'s logic reads of the worker and of places, as a reading meets it: each worker field
- *  by name, each worker property by its slug, and each location property by its slug. A read of
- *  a field CommCare HQ writes on every worker's own case is no worker field. */
+ *  by name, each worker property by its slug, each name a write of the worker's record saves to,
+ *  and each location property by its slug. A read of a field CommCare HQ writes on every
+ *  worker's own case is no worker field. */
 function worldReadsOf(doc: BlueprintDoc): {
 	readonly byName: readonly string[];
 	readonly userFields: readonly string[];
+	readonly writtenUserFields: readonly string[];
 	readonly locationDataSlugs: readonly string[];
 } {
 	const byName: string[] = [];
 	const userFields: string[] = [];
+	const writtenUserFields: string[] = [];
 	const locationDataSlugs: string[] = [];
 	const worker = (slug: string, source: unknown, named: boolean) => {
 		if (source === "worker-record" && USERCASE_BUILT_IN_KEYS.includes(slug))
@@ -348,8 +461,11 @@ function worldReadsOf(doc: BlueprintDoc): {
 			isWorkerRecordOperation(node)
 		) {
 			for (const write of node.writes as readonly { property?: unknown }[])
-				if (typeof write.property === "string")
-					worker(write.property, "worker-record", false);
+				if (
+					typeof write.property === "string" &&
+					!USERCASE_BUILT_IN_KEYS.includes(write.property)
+				)
+					writtenUserFields.push(write.property);
 		} else if (node.kind === "location-field") {
 			const field = node.field as { property?: Uuid } | undefined;
 			const held =
@@ -361,24 +477,27 @@ function worldReadsOf(doc: BlueprintDoc): {
 		for (const item of Object.values(node)) walk(item);
 	};
 	walk([doc.modules, doc.forms, doc.fields]);
-	return { byName, userFields, locationDataSlugs };
+	return { byName, userFields, writtenUserFields, locationDataSlugs };
 }
 
 /**
  * `doc` with a worker property for each field its logic reads by name that no property of its
- * names: the name-backed read and the read of a property of that slug print one source, and a
- * reading mints the property, labelled with its slug, under the UUID a re-read of the app gives
- * it, which is none the document's own properties hold (`identity.ts::freeEntityUuid`: a
- * property renamed from that slug keeps the UUID the slug mints). The reads themselves are
- * judged slot by slot, as every expression is.
+ * names, even in other letters: the name-backed read and the read of a property of that slug
+ * print one source, and a reading mints the property, labelled with its slug, under the UUID a
+ * re-read of the app gives it, which is none the document's own properties hold
+ * (`identity.ts::freeEntityUuid`: a property renamed from that slug keeps the UUID the slug
+ * mints). Of names read that differ only in their capitalization it mints the first in
+ * code-unit order, as a reading declares one (`heldWorkerSlugs`), and none where a property
+ * holds one of them: which one a reading holds is `worldPropertiesAsRead`'s. The reads
+ * themselves are judged slot by slot, as every expression is.
  */
 export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
 	const held = new Set(
-		Object.values(doc.userProperties ?? {}).map((one) => one.slug),
+		Object.values(doc.userProperties ?? {}).map((one) => foldKey(one.slug)),
 	);
-	const minted = distinct(worldReadsOf(doc).byName).filter(
-		(slug) => !held.has(slug) && holdsWorkerProperty(slug),
-	);
+	const minted = onePerKey(
+		worldReadsOf(doc).byName.filter(holdsWorkerProperty),
+	).filter((slug) => !held.has(foldKey(slug)));
 	if (minted.length === 0) return doc;
 	const resolver = heldResolver(doc);
 	return withCandidate(doc, (draft) => {
@@ -404,12 +523,16 @@ export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
  * (`worldEntitiesFromReads` over what its logic reads): no export carries a property, only the
  * slug a read prints, so each property its logic reads is labelled with its slug and has no
  * choices and no requirement, one nothing reads is absent, and they stand in the order of their
- * slugs.
+ * slugs. Where its logic reads a property and, by name, a field whose slug differs from it only
+ * in capitalization, the reading holds the one `heldWorkerSlugs` gives, so a property that is not
+ * it is absent and each read of it is the name-backed read of its slug, which prints the same
+ * source (`toWire` prints a property by its slug).
  */
 export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
-	const { userFields, locationDataSlugs } = worldReadsOf(doc);
+	const { userFields, writtenUserFields, locationDataSlugs } =
+		worldReadsOf(doc);
 	const { userProperties, locationProperties } = worldEntitiesFromReads(
-		{ userFields, locationDataSlugs },
+		{ userFields, writtenUserFields, locationDataSlugs },
 		heldResolver(doc),
 	);
 	const same = <T extends { readonly uuid: Uuid }>(
@@ -426,7 +549,15 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 		same(locationProperties, doc.locationProperties, doc.locationPropertyOrder)
 	)
 		return doc;
+	const kept = new Set(userProperties.map((one) => one.uuid));
+	const named = new Map(
+		Object.values(doc.userProperties ?? {}).flatMap((one) =>
+			kept.has(one.uuid) ? [] : [[one.uuid, one.slug] as const],
+		),
+	);
 	return withCandidate(doc, (draft) => {
+		if (named.size > 0)
+			readsByName([draft.modules, draft.forms, draft.fields], named);
 		delete draft.userProperties;
 		delete draft.userPropertyOrder;
 		delete draft.locationProperties;
@@ -444,4 +575,26 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 			draft.locationPropertyOrder = locationProperties.map((one) => one.uuid);
 		}
 	});
+}
+
+/** Each read of a worker property `named` holds, under `value`, rewritten in place as the
+ *  name-backed read of its slug: an expression's `session-user-property` as `session-user`,
+ *  keeping its source, and a text's `user-property-ref` as `user-ref`. */
+function readsByName(value: unknown, named: ReadonlyMap<Uuid, string>): void {
+	if (value === null || typeof value !== "object") return;
+	const node = value as Record<string, unknown>;
+	for (const [key, child] of Object.entries(node)) {
+		if (child === null || typeof child !== "object") continue;
+		const leaf = child as Record<string, unknown>;
+		const slug = named.get(leaf.userPropertyUuid as Uuid);
+		if (slug !== undefined && leaf.kind === "session-user-property")
+			node[key] = {
+				kind: "session-user",
+				field: slug,
+				...(leaf.source === undefined ? {} : { source: leaf.source }),
+			};
+		else if (slug !== undefined && leaf.kind === "user-property-ref")
+			node[key] = { kind: "user-ref", property: slug };
+		else readsByName(child, named);
+	}
 }

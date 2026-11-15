@@ -24,9 +24,13 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
-import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import {
+	mutationCommitVerdict,
+	prepareMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
 import { planDatetimeSplits } from "@/lib/doc/datetimeSplit";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
@@ -885,31 +889,36 @@ describe("the reader's canonical choices", () => {
 	});
 
 	it("names an operation a slot of Case Management keeps past the id a Save to Case block carries", async () => {
+		// A follow-up of clients whose own change writes the note in Case
+		// Management, beside a create of a client keyed by an answer, which
+		// takes a Save to Case block: a document the commit gate admits.
 		const base = buildDoc({
+			caseTypes: [
+				{
+					name: "client",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "note", label: proseText("Note"), data_type: "text" },
+					],
+				},
+			],
 			modules: [
 				{
 					name: "Clients",
 					caseType: "client",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Visit",
 							type: "followup",
 							fields: [
-								f({
-									kind: "text",
-									id: "note",
-									label: "Note",
-									caseWrite: { caseType: "client", property: "note" },
-								}),
+								f({ kind: "text", id: "note", label: "Note" }),
 								f({ kind: "text", id: "key", label: "Key" }),
 							],
 						},
 					],
-				},
-				{
-					name: "Visits",
-					caseType: "visit",
-					forms: [{ name: "Review", type: "followup", fields: [] }],
 				},
 			],
 		});
@@ -920,27 +929,30 @@ describe("the reader's canonical choices", () => {
 		const key = Object.values(base.fields).find((one) => one.id === "key");
 		if (visitForm === undefined || note === undefined || key === undefined)
 			throw new Error("The app has no Visit form.");
-		// A create keyed by an answer takes a Save to Case block, which carries
-		// its id `client`, the id the own arm's case type would give it.
+		// The keyed create carries its id `client`, the id the own change's case
+		// type would give it.
 		const doc = produce(base, (draft) => {
-			const operations = draft.forms[visitForm.uuid]?.caseOperations ?? [];
-			const own = operations.find((one) => one.action === "own");
-			if (own === undefined) throw new Error("The Visit form has no own arm.");
-			own.id = "renamed_own";
-			operations.push({
-				uuid: "00000000-0000-4000-8000-0000000000c2" as Uuid,
-				id: "client",
-				action: "create",
-				caseType: "visit",
-				target: { kind: "new", idFrom: key.uuid },
-				name: term(formField(note.uuid)),
-				writes: [],
-			} as unknown as CaseOperation);
-			draft.forms[visitForm.uuid] = {
-				...draft.forms[visitForm.uuid],
-				caseOperations: operations,
-			} as BlueprintDoc["forms"][Uuid];
+			const form = draft.forms[visitForm.uuid];
+			if (form === undefined) return;
+			form.caseOperations = [
+				{
+					uuid: "00000000-0000-4000-8000-0000000000c3" as Uuid,
+					id: "renamed_own",
+					action: "own",
+					writes: [{ property: "note", value: term(formField(note.uuid)) }],
+				},
+				{
+					uuid: "00000000-0000-4000-8000-0000000000c2" as Uuid,
+					id: "client",
+					action: "create",
+					caseType: "client",
+					target: { kind: "new", idFrom: key.uuid },
+					name: term(formField(note.uuid)),
+				},
+			] as CaseOperation[];
 		});
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		const read = choice("basic-slot-operation-ids-are-derived").apply(doc);
 		expect(
 			(read.forms[visitForm.uuid]?.caseOperations ?? []).map((operation) => [

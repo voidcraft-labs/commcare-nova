@@ -603,6 +603,15 @@ If the wording is empty or a reference points to several repeated answers, the
 form shows its standard validation warning. The answer still needs to meet
 the rule.
 
+Text that CommCare keeps with the app rather than in a form follows a few
+more rules. This is the app's name, menu and form names, case list headers and
+labels, and Search screen wording. A phone shows the two characters `\n` there
+as a line break, drops a backslash before `#`, and drops spaces or line breaks
+at the start or end, so Nova asks you to reword text that holds them. Menu and
+form names, a case list's menu item and Register button labels, and Search field
+labels also can't hold a `${` that starts a placeholder: the phone's menus,
+screen titles, and Search screen fill it in and show other text.
+
 Typing or pasting `#household/case_name` alone keeps it as literal text. To use
 it as a value, select the exact reference text, choose **Convert to reference**,
 and select the matching result. If it isn't available in this form, you can

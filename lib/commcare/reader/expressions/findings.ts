@@ -38,6 +38,7 @@ import { defineClaims, drop, refuse, take } from "../claims";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
+import { locationDataNameRefused } from "../worldEntities";
 
 /** The name of every expression slot a registration can stand in. */
 export type SlotName = SlotContextRef["slot"];
@@ -806,6 +807,11 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/a-form-expression-outside-what-nova-types",
 		null,
 	),
+	"a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes":
+		refuse(
+			"expressions-and-data/a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes",
+			null,
+		),
 	"jr-itext-id": take(
 		"expressions-and-data/jr-itext-id",
 		"jr-handler:jr:itext",
@@ -2056,10 +2062,24 @@ export function parseIssueEntry(
 		case "unknown-field":
 		case "relative-unknown":
 			return readsBuildBlock(spanned()) ? answer(M3) : answer(M2);
+		case "unknown-location-property": {
+			// A reading declares a location property for every name a
+			// `location_data` read names but one no location property takes
+			// (`worldEntities.ts::worldEntitiesFromReads`).
+			const { names } = namesIn(spanned());
+			const at = names.lastIndexOf("location_data");
+			const name = at < 0 ? undefined : names[at + 1];
+			return name !== undefined && locationDataNameRefused(name, doc)
+				? answer(
+						C[
+							"a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes"
+						].entry,
+					)
+				: answer(M2);
+		}
 		case "relative-above-form":
 		case "form-root":
 		case "unknown-level":
-		case "unknown-location-property":
 		case "unknown-column":
 		case "table-path-mismatch":
 			return answer(M2);

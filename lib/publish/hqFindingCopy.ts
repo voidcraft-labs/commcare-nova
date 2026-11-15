@@ -226,6 +226,8 @@ export const FINDING_COPY: Readonly<
 			"This uses a way of loading a case value into a question, which Nova can't hold yet.",
 	},
 	"case-property-names": {
+		never:
+			"A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in.",
 		"not-yet": "A case property name here is one Nova can't hold yet.",
 	},
 	"case-sharing": {
@@ -272,6 +274,8 @@ export const FINDING_COPY: Readonly<
 			"A form here goes back to, or opens through, the menu above in a way Nova can't hold yet.",
 	},
 	expressions: {
+		never:
+			"An expression here reads a place's information under a name Nova can't hold, such as one that differs from another only in capital letters.",
 		"not-yet": "An expression here is more than Nova can read yet.",
 	},
 	"form-case-management": {
@@ -414,7 +418,7 @@ export const FINDING_COPY: Readonly<
 	},
 	"worker-record": {
 		never:
-			"A question here is named commcare_usercase, the name CommCare HQ gives the worker's own record.",
+			"This uses a name for the worker's own record, or for one of its details, that Nova can't hold.",
 		"not-yet":
 			"This reads or writes the worker's own record in a way Nova can't hold yet.",
 	},

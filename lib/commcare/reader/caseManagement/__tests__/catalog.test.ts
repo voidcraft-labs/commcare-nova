@@ -18,6 +18,7 @@
  * disagree, and a canonical choice that states another catalog than the
  * reader derives, so a document and its reading would never compare equal.
  */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -48,11 +49,11 @@ import { expandDoc } from "../../../expander";
 import { runValidation } from "../../../validator/runner";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
-import { readHqApp } from "../../index";
 import { readMenusOf } from "../../menus/__tests__/menuReading";
 import { catalogAsRead, noteProperty } from "../catalog";
 import { knownCaseTypesOf } from "../knownCaseTypes";
 import { findingCodes, readCases } from "./caseReading";
+import { readHqApp } from "./heldReading";
 
 const STATUS = testUuid("catalog-status");
 
@@ -67,8 +68,22 @@ function caseListConfigOf(columns: Column[]) {
 }
 const AGAIN = testUuid("catalog-status-again");
 
+/**
+ * Two follow-ups whose choice questions save one property under choices that
+ * differ. Each opens blank: a choice question that started on the case's value
+ * would start on a value the other question saves and this one does not offer,
+ * which the gate refuses (`SELECT_PRELOAD_WRITE_NOT_AN_OPTION`).
+ */
 function patients(
 	extra: Partial<Parameters<typeof buildDoc>[0]> = {},
+): BlueprintDoc {
+	return withoutSelectStartingValues(patientsAsBuilt(extra));
+}
+
+/** The two follow-ups as `buildDoc` builds them, each choice question
+ *  opening on its case's value. */
+function patientsAsBuilt(
+	extra: Partial<Parameters<typeof buildDoc>[0]>,
 ): BlueprintDoc {
 	return buildDoc({
 		caseTypes: [
@@ -150,6 +165,15 @@ function patients(
 			},
 		],
 		...extra,
+	});
+}
+
+/** `doc` with no choice question opening on its case's value. */
+function withoutSelectStartingValues(doc: BlueprintDoc): BlueprintDoc {
+	return produce(doc, (draft) => {
+		for (const field of Object.values(draft.fields))
+			if (field.kind === "single_select" && "default_value" in field)
+				delete (field as { default_value?: unknown }).default_value;
 	});
 }
 

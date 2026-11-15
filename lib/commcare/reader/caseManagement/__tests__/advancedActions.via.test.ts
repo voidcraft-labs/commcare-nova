@@ -37,7 +37,8 @@ import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import { knownCaseTypesOf } from "../../index";
+import { readHqApp } from "./heldReading";
 
 const F = "forms-and-case-writes";
 const ELSEWHERE = `${F}/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`;

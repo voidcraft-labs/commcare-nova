@@ -30,7 +30,6 @@ import {
 import { planPlacements } from "../../../placement";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
-import { readHqApp } from "../../index";
 import {
 	comparableOperations,
 	docNames,
@@ -41,6 +40,7 @@ import {
 	readNames,
 	readPaths,
 } from "./caseReading";
+import { readHqApp } from "./heldReading";
 
 /** D's operations of a form, each with the placement the plan gives it. */
 function written(doc: BlueprintDoc, formUuid: Uuid): unknown {

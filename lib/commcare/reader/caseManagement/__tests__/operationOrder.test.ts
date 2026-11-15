@@ -28,29 +28,40 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
+import { proseText } from "@/lib/domain/prose";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import { knownCaseTypesOf } from "../../index";
 import { inWireScopeOrder } from "../operationOrder";
+import { readHqApp } from "./heldReading";
 
 const NO_ORDER =
 	"questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes";
+const TYPE_CHANGE =
+	"questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type";
 const FORM = testUuid("order-form");
 const NOTE = testUuid("order-note");
 const KIDS = testUuid("order-kids");
 const KID_NAME = testUuid("order-kid-name");
 const PROPERTY = testUuid("order-property") as Uuid;
 
+const NOTE_AND_SCORE = [
+	{ name: "note", label: proseText("Note"), data_type: "text" as const },
+	{ name: "score", label: proseText("Score"), data_type: "text" as const },
+];
+
 function visitApp(operations: CaseOperation[]): BlueprintDoc {
 	return buildDoc(
 		{
 			appId: "app-1",
+			// A patient and a photo hold the same properties, so a retype of
+			// one to the other keeps every value (`planCaseRetype`).
 			caseTypes: [
-				{ name: "patient", properties: [] },
-				{ name: "photo", properties: [] },
+				{ name: "patient", properties: NOTE_AND_SCORE },
+				{ name: "photo", properties: NOTE_AND_SCORE },
 				{ name: "kid", properties: [] },
 			],
 			modules: [
@@ -127,6 +138,22 @@ function changes(operations: readonly CaseOperation[] | undefined): string[] {
 				],
 	);
 }
+
+/** The codes the commit gate refuses `doc` on, case operations' alone. */
+function gateCaseCodes(doc: BlueprintDoc): string[] {
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	return (verdict.ok ? [] : verdict.findings)
+		.map((one) => one.code)
+		.filter((code) => code.startsWith("CASE_OPERATION"));
+}
+
+/** The form's own change, writing the note to the patient it loads. */
+const ownWritingNote: CaseOperation = {
+	uuid: testUuid("order-own"),
+	id: "patient",
+	action: "own",
+	writes: [{ property: "note", value: term(formField(NOTE)) }],
+};
 
 function canonical(doc: BlueprintDoc): BlueprintDoc {
 	return READER_CANONICAL_CHOICES.reduce((one, row) => row.apply(one), doc);
@@ -242,5 +269,70 @@ describe("the order a reading gives a form's case operations", () => {
 		expect(inWireScopeOrder(operations, new Map([[undefined, 0]]))).toBe(
 			operations,
 		);
+	});
+});
+
+describe("a change of a case's type another change of the form may read as its earlier type", () => {
+	const keyed = (caseType: string): CaseOperation => ({
+		uuid: testUuid("order-keyed-visit"),
+		id: "visit",
+		action: "create",
+		caseType,
+		target: { kind: "new", idFrom: NOTE },
+		name: term(formField(NOTE)),
+	});
+	const retype = (target: CaseOperation["target"]): CaseOperation =>
+		({
+			uuid: testUuid("order-retype"),
+			id: "retype",
+			action: "update",
+			caseType: "patient",
+			target,
+			retype: "photo",
+			writes: [{ property: "score", value: term(formField(NOTE)) }],
+		}) as CaseOperation;
+
+	for (const [name, operations] of [
+		[
+			"a create keyed by an answer, of a type other than the loaded case's",
+			[ownWritingNote, keyed("photo")],
+		],
+		[
+			"a `case_type` row on the loaded case",
+			[ownWritingNote, retype({ kind: "session" })],
+		],
+		[
+			"a `case_type` row on a case an answer names",
+			[
+				ownWritingNote,
+				retype({ kind: "expression", expr: term(formField(NOTE)) }),
+			],
+		],
+	] as const)
+		it(`is one finding at the form for ${name}, beside Case Management's change of the form's own case, and no document`, async () => {
+			const doc = visitApp([...operations]);
+			// The gate refuses the source document for this alone.
+			expect(gateCaseCodes(doc)).toEqual([
+				"CASE_OPERATION_TARGET_TYPE_MISMATCH",
+			]);
+			const outcome = await readWhole(doc);
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "account")
+				throw new Error("A change the gate refuses was read.");
+			expect(outcome.findings.map((one) => one.code)).toEqual([TYPE_CHANGE]);
+			expect(outcome.findings[0]?.place).toMatchObject({ kind: "form" });
+		});
+
+	it("reads a keyed create of the loaded case's own type into a document the gate admits", async () => {
+		const doc = visitApp([ownWritingNote, keyed("patient")]);
+		expect(gateCaseCodes(doc)).toEqual([]);
+		const outcome = await readWhole(doc);
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		expect(gateCaseCodes(outcome.draft.doc)).toEqual([]);
+		expect(changes(outcome.draft.doc.forms[FORM]?.caseOperations)).toEqual([
+			"create patient keyed",
+		]);
 	});
 });

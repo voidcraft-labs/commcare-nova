@@ -32,7 +32,8 @@ import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import { knownCaseTypesOf } from "../../index";
+import { readHqApp } from "./heldReading";
 
 const FORM = testUuid("block-keys-form");
 const NOTE = testUuid("block-keys-note");

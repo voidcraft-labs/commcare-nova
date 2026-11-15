@@ -175,6 +175,17 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`,
 		"xform:model/instance//*",
 	),
+	workerFacet: refuse(
+		`${Q}/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`,
+		MUG,
+	),
+	/** A form that writes the worker's record in a Save to Case block of
+	 *  `commcare-user` and in another update of it, a block or Case
+	 *  Management's (`index.ts::settleWorkerRecordWrites`). */
+	workerTwice: refuse(
+		`${Q}/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record`,
+		MUG,
+	),
 
 	create: take(
 		`${Q}/savetocase-create-case-type-literal-case-name-owner-id-uuid-case`,
@@ -1105,6 +1116,16 @@ function readBlock(
 		// The worker's record is read only where an update of `commcare-user` names it.
 		if ((target.kind === "worker-record") !== (caseType === "commcare-user"))
 			return { ok: false };
+		// Nova keeps a form's every write of the worker's record in one update
+		// that runs whenever the form is submitted, once, as HQ's `usercase_update`
+		// does (`validator/rules/caseOperations.ts::workerRecordFindings`, reason
+		// `worker-record-facet`): a block under its condition group, or one in a
+		// repeat that runs for each row, is an update Nova cannot hold.
+		if (
+			target.kind === "worker-record" &&
+			(conditionWrapper !== undefined || block.repeat !== null)
+		)
+			return fail(SAVE_TO_CASE_CLAIMS.workerFacet);
 	}
 
 	// The name and the owner of a create.

@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
 import type { SubGenerationObjectResult } from "@/lib/agent/subGeneration";
 import {
-	localeFileValueIssue,
+	appStringValueIssue,
 	translationUnitUsesLocaleFile,
 } from "@/lib/commcare/localeFile";
 import {
@@ -495,8 +495,9 @@ export function validateTranslationBatchOutput(
 			throw new Error(`Translation output repeated unit ${item.unitId}.`);
 		}
 		if (translationUnitUsesLocaleFile(unit.role)) {
-			const issue = localeFileValueIssue(
+			const issue = appStringValueIssue(
 				normalizeTranslatedFormatting(unit, item.translatedText),
+				unit.role,
 			);
 			if (issue !== undefined) {
 				throw new Error(`Translation unit ${item.unitId} ${issue}.`);

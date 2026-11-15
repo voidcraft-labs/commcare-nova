@@ -22,7 +22,6 @@ import { expandDoc } from "../../../expander";
 import { serializeXml } from "../../../serializeXml";
 import { parseXml } from "../../../xmlParse";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
-import { readHqApp } from "../../index";
 import { saveToCaseReading } from "../saveToCase";
 import {
 	blockTreesEqual,
@@ -30,6 +29,7 @@ import {
 	storedFormSource,
 } from "../saveToCaseCompare";
 import { readCases } from "./caseReading";
+import { readHqApp } from "./heldReading";
 
 const OUTSIDE = "questions/savetocase-block-outside-nova-s-own-block-shape";
 const FORM = testUuid("boundary-form");

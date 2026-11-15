@@ -3431,6 +3431,7 @@ A `not-yet` or `never` finding reads its pair's sentence (`FINDING_COPY`), 54 an
 | `case-list-sorting` | `not-yet` | This uses a way of ordering the case list, which Nova can't hold yet. |
 | `case-list-text` | `not-yet` | This uses its own wording for an empty list or the Continue button, which Nova can't hold yet. |
 | `case-preloads` | `not-yet` | This uses a way of loading a case value into a question, which Nova can't hold yet. |
+| `case-property-names` | `never` | A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in. |
 | `case-property-names` | `not-yet` | A case property name here is one Nova can't hold yet. |
 | `case-sharing` | `not-yet` | This uses case sharing, which Nova can't hold yet. |
 | `case-tiles` | `not-yet` | This uses a case tile layout, which Nova can't hold yet. |
@@ -3444,6 +3445,7 @@ A `not-yet` or `never` finding reads its pair's sentence (`FINDING_COPY`), 54 an
 | `deep-links` | `not-yet` | This uses a deep link with its own arguments, which Nova can't hold yet. |
 | `display-conditions` | `not-yet` | A display condition here is more than Nova can read as a condition yet. |
 | `display-only-forms` | `not-yet` | A form here goes back to, or opens through, the menu above in a way Nova can't hold yet. |
+| `expressions` | `never` | An expression here reads a place's information under a name Nova can't hold, such as one that differs from another only in capital letters. |
 | `expressions` | `not-yet` | An expression here is more than Nova can read yet. |
 | `form-case-management` | `not-yet` | This form's case management is set up in a way Nova can't hold yet. |
 | `form-settings` | `not-yet` | This uses a form setting, which Nova can't hold yet. |
@@ -3489,7 +3491,7 @@ A `not-yet` or `never` finding reads its pair's sentence (`FINDING_COPY`), 54 an
 | `training-menus` | `never` | This uses a training menu or release notes form, which Nova doesn't bring in. |
 | `translation-overrides` | `not-yet` | This uses its own wording for a menu, form or list, kept in the app's translations, which Nova can't hold yet. |
 | `visit-scheduler` | `never` | This uses a visit schedule, which Nova doesn't bring in. |
-| `worker-record` | `never` | A question here is named commcare_usercase, the name CommCare HQ gives the worker's own record. |
+| `worker-record` | `never` | This uses a name for the worker's own record, or for one of its details, that Nova can't hold. |
 | `worker-record` | `not-yet` | This reads or writes the worker's own record in a way Nova can't hold yet. |
 | `writer-types` | `not-yet` | A case property here takes answers of kinds that don't match, which Nova can't hold yet. |
 

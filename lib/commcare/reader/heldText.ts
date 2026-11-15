@@ -10,24 +10,26 @@
  * What a worker reads is the bar (`hqDeviceText`). HQ's build writes each
  * text on one line of a locale file (`commcare_translations.py::dumps`): a
  * text Python reads as blank as one non-breaking space, which a device shows
- * as a blank text, and a line break as the two characters `\n`, which it
- * also writes for a text that holds those two characters. CommCare Core's
- * locale reader ends a line at a carriage return (`BufferedReader.readLine`),
- * trims each line (`LocalizationUtils.parseAndAdd`, Java's `String.trim()`)
- * and only then turns `\n` back into a line break (`parseValue`), so the
- * characters up to U+0020 at a text's end are gone, but for a line break,
- * those at its start stay, the two characters `\n` show as a line break, and
- * only the text before a carriage return shows, each line after it read as an
- * app string of its own (`keyDefinedAfterLineEnd`). Nova's gate admits no
- * text with a character up to U+0020 at either end, a carriage return or the
- * two characters `\n` (`localeFile.ts::localeFileValueIssue`) and no blank
+ * as a blank text, a line break as the two characters `\n`, which it also
+ * writes for a text that holds those two characters, and a `#` no backslash
+ * precedes as `\#`, leaving a `#` a backslash precedes as it is. CommCare
+ * Core's locale reader ends a line at a carriage return
+ * (`BufferedReader.readLine`), trims each line (`LocalizationUtils.parseAndAdd`,
+ * Java's `String.trim()`) and only then reads `\#` as `#` and `\n` as a line
+ * break (`parseValue`), so the characters up to U+0020 at a text's end are
+ * gone, but for a line break, those at its start stay, the two characters `\n`
+ * show as a line break, a backslash before `#` is not shown, and only the text
+ * before a carriage return shows, each line after it read as an app string of
+ * its own (`keyDefinedAfterLineEnd`). Nova's gate admits no text with a
+ * character up to U+0020 at either end, a carriage return, or a backslash
+ * followed by `n` or `#` (`localeFile.ts::localeFileValueIssue`) and no blank
  * translation of a text whose role requires one (`translationUnits.ts`,
  * `contentPolicy: "require-nonblank"`), so a reading holds:
  *
  * - each language's text as a device shows it: the text before a carriage
- *   return, each `\n` a line break, and the characters up to U+0020 at both
- *   ends dropped, unless it is only spaces, which Nova writes blank as HQ's
- *   build does (`holdText`);
+ *   return, each `\n` a line break, each `\#` a `#`, and the characters up to
+ *   U+0020 at both ends dropped, unless it is only spaces, which Nova writes
+ *   blank as HQ's build does (`holdText`);
  * - the source language's text in the slot, and each other language's as a
  *   translation where it differs, except a blank-looking one beside a source
  *   that is not, for a role that requires text: that language takes the
@@ -45,7 +47,11 @@
  * a held text where its rewrite is recorded (`refuseLineEndKey`), a text
  * compared with HQ's default and an app translation at its own key. A text a
  * device shows none of, or that holds a character XML cannot hold, has no
- * spelling Nova's gate admits, and its reader leaves it unclaimed.
+ * spelling Nova's gate admits, and its reader leaves it unclaimed. So does a
+ * text of a role some screen reads through Core's argument filler whose `${`
+ * that screen shows otherwise (`localeFile.ts::argumentScreenIssue`): a
+ * menu's name shows as stored in Web Apps' menu list and otherwise in the
+ * screen's title, and Nova holds one text for both (`heldText`).
  */
 
 import {
@@ -54,6 +60,7 @@ import {
 } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
+	appStringValueIssue,
 	hqLocaleFileValue,
 	isPythonSpace,
 	localeFileValueIssue,
@@ -197,25 +204,30 @@ function blankLooking(text: string): boolean {
  * carriage return, so the language defines no string) or one holding a
  * character XML cannot hold (`xmlText.ts::xmlTextIssue`). A text that is only
  * spaces is held as it is, a carriage return in it as a space, since Nova
- * writes it blank as HQ's build does. Any other is held as a device shows it:
- * the text before a carriage return, each two characters `\n` the line break
- * Core reads them as (left to right, as `parseValue` reads them: `dumps`
- * writes a line break as those two characters, so HQ's build writes the same
- * line for either), and the characters up to U+0020 dropped at both ends: the
- * spaces at its end no device showed, and those at its start and a line break
- * at either end a device did (`hqDeviceText`). What the rest after a carriage
- * return defines is `keyDefinedAfterLineEnd`'s to say.
+ * writes it blank as HQ's build does. Any other is held as a device shows it
+ * (`hqDeviceText`): the text before a carriage return, each `\#` the `#` and
+ * then each two characters `\n` the line break Core reads them as (left to
+ * right, as `parseValue` reads them: `dumps` writes a line break as those two
+ * characters and leaves a `#` a backslash precedes, so HQ's build writes the
+ * same line for either), and the characters up to U+0020 dropped at both
+ * ends: the spaces at its end no device showed, and those at its start and a
+ * line break at either end a device did. Nova prints the held text to the
+ * line HQ's build writes for it, which a device shows as the same text. A
+ * text a device shows with `\#` in it (two backslashes then `#` stored) has
+ * no spelling the gate admits, and is undefined. What the rest after a
+ * carriage return defines is `keyDefinedAfterLineEnd`'s to say.
  */
 export function holdText(text: string): string | undefined {
 	let held = text.replaceAll("\r", " ");
 	if (!blankLooking(text)) {
-		if (
-			!pythonBlank(text) &&
-			coreLocaleLine(`${SOME_KEY}=${writtenLines(text)[0] ?? ""}`) === undefined
-		)
-			return undefined;
-		const line = text.split("\r")[0] ?? "";
-		held = javaTrim(coreReplace(line, "\\n", "\n"));
+		if (pythonBlank(text)) held = javaTrim(text.split("\r")[0] ?? "");
+		else {
+			const shown = coreLocaleLine(
+				`${SOME_KEY}=${writtenLines(text)[0] ?? ""}`,
+			);
+			if (shown === undefined) return undefined;
+			held = javaTrim(shown.value);
+		}
 	}
 	return localeFileValueIssue(held) === undefined &&
 		xmlTextIssue(held) === undefined
@@ -243,7 +255,9 @@ export interface HeldText {
  * What Nova holds of a text of role `role` that shows `shown` in each
  * language of `codes` (the build's languages, in order) with `source` the
  * source language's code, or undefined where Nova's gate admits no spelling of
- * one of those texts. A language `shown` lacks takes the source's text.
+ * one of those texts: `holdText` gives none, or what it gives is refused for
+ * the role (`localeFile.ts::appStringValueIssue`, a `${` some screen of the
+ * role shows otherwise). A language `shown` lacks takes the source's text.
  */
 export function heldText(
 	shown: ReadonlyMap<string, string> | Readonly<Record<string, string>>,
@@ -257,7 +271,13 @@ export function heldText(
 			: Object.hasOwn(shown, code)
 				? (shown as Readonly<Record<string, string>>)[code]
 				: undefined;
-	const held = holdText(shownIn(source) ?? "");
+	const holdAs = (text: string): string | undefined => {
+		const one = holdText(text);
+		return one === undefined || appStringValueIssue(one, role) !== undefined
+			? undefined
+			: one;
+	};
+	const held = holdAs(shownIn(source) ?? "");
 	if (held === undefined) return undefined;
 	const nonblank = translationRoleRequiresNonblank(role);
 	const translations = new Map<string, string>();
@@ -269,7 +289,7 @@ export function heldText(
 			printed[code] = held;
 			continue;
 		}
-		const own = holdText(text);
+		const own = holdAs(text);
 		if (own === undefined) return undefined;
 		// A blank-looking text is no translation where the role requires text (the language
 		// takes the source's), nor beside a blank-looking source, which shows alike.

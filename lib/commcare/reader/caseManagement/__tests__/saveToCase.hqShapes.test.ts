@@ -35,7 +35,8 @@ import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import { knownCaseTypesOf } from "../../index";
+import { readHqApp } from "./heldReading";
 
 const id = (key: string) => testUuid(`builder-block-in-repeat-${key}`);
 const MAKE = id("make");

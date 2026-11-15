@@ -79,8 +79,9 @@ import {
 } from "../../expressions/__tests__/readBackCorpus";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../../index";
+import { knownCaseTypesOf } from "../../index";
 import { updateBesideBareOwnAsOwnArm } from "../saveToCase";
+import { readHqApp } from "./heldReading";
 
 const id = (key: string) => testUuid(`own-in-block-${key}`);
 const answer = (key: string) => term(formField(id(key)));

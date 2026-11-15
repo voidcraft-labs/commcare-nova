@@ -18,7 +18,7 @@ import {
 	OP,
 } from "../../../__tests__/advancedPlacementFixture";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
-import { readHqApp } from "../../index";
+import { readHqApp } from "./heldReading";
 
 const armed = vi.hoisted(() => ({ value: false }));
 

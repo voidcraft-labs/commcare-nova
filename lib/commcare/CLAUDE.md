@@ -33,11 +33,21 @@ Optional XForm itext entries and their body/bind references are gated on
 effective content across every configured language, not source content alone.
 Suite multi-select option filtering carries original catalog indexes through to
 localized variables. Direct-CCZ app-string values are spelled byte for byte as
-HQ's build spells them (`localeFile.ts::serializeLocaleFileValue` over
-`hqLocaleFileValue`, which is `commcare_translations.py::dumps`: a Python-blank
-text as a non-breaking space, a line break as `\n`, a `#` no backslash precedes
-as `\#`), so a worker reads one string from either archive, and fail closed for
-literal backslash-`n`, a carriage return or boundary content the gate refuses.
+HQ's build spells them (`localeFile.ts::hqLocaleFileValue`, which is
+`commcare_translations.py::dumps`: a Python-blank text as a non-breaking space,
+a line break as `\n`, a `#` no backslash precedes as `\#`), so a worker reads
+one string from either archive. The writer is total; the gate
+(`APP_STRING_VALUE_UNREPRESENTABLE`, `localeFile.ts::localeFileValueIssue`)
+refuses every sequence an author can type that a device shows otherwise after
+both writers and Core's locale reader: a backslash followed by `n` (a line
+break) or by `#` (`#` alone), a carriage return (the line's end), and a space
+or line break at either end. It also refuses a `${` in a menu's or form's name,
+a case list menu item's or Register button's label and a Search field's label
+(`localeFile.ts::appStringValueIssue`, `argumentScreenIssue`): Android's menu
+list, action bar and Search screen and every screen title read those through
+Core's `Localizer.processArguments`, which drops a `${…}` and repeats the text
+before a `${` no `}` follows, while Web Apps' menu list shows them as stored. A
+form's itext is no app string, and Core unescapes nothing in it.
 
 A local CCZ emits Classic's initialization-only `default` locale resource and
 one named resource for every configured language, including the default
