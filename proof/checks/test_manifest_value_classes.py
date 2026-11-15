@@ -5132,6 +5132,14 @@ KNOWN_GAPS = frozenset(
         "questions/connect-deliver-unit-and-task-in-one-form",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
+        # Their one key is ``mug:SaveToCase``, of which the extraction makes no use: HQ's reader types a question
+        # from its body control (``xform.py::_infer_vellum_type``), a SaveToCase node has none, and ``get_questions``
+        # lists its leaves and its case's attributes as ``DataBindOnly``. Nova's gate refuses each class, so no export
+        # holds one.
+        "questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters",
+        "questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself",
+        "questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none",
+        "questions/a-savetocase-link-name-longer-than-commcare-hq-stores",
         "questions/bare-repeat-with-no-group-wrapper",
         "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes",
         "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form",

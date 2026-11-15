@@ -1,6 +1,7 @@
 /** Pure codec and deterministic grouping tests. Synthetic units isolate the
  * protocol; they do not assert app inventory completeness or translation quality. */
 import { describe, expect, it } from "vitest";
+import { hqLocaleFileValue } from "@/lib/commcare/localeFile";
 import {
 	makeTranslationUnitId,
 	type ProseTemplate,
@@ -254,6 +255,122 @@ describe("translation protocol", () => {
 				translations: [{ unitId: field.unitId, translatedText: " Nombre " }],
 			}),
 		).toEqual(new Map([[field.unitId, " Nombre "]]));
+	});
+
+	// A model writing Markdown escapes `#` with a backslash. In a role whose text lands in the app
+	// strings, HQ's build and Nova's archive write `Clínica \#1` and `Clínica #1` on one line
+	// alike (`dumps` escapes a bare `#` and leaves one a backslash precedes), and Core reads `\#`
+	// as `#`, so keeping the `#` alone changes nothing a device shows and saves the batch.
+	it("keeps a Markdown-escaped # in an app string as the # a device shows, and nowhere else", () => {
+		const app = encodeTranslationUnit(
+			textUnit("app-hash", "Clinic #1", {
+				role: "app-name",
+				owner: { kind: "app" },
+			}),
+		);
+		const translatedText = "Clínica \\#1";
+		expect(hqLocaleFileValue(translatedText)).toBe(
+			hqLocaleFileValue("Clínica #1"),
+		);
+		expect(
+			validateTranslationBatchOutput([app], {
+				translations: [{ unitId: app.unitId, translatedText }],
+			}),
+		).toEqual(new Map([[app.unitId, "Clínica #1"]]));
+		// A form's itext is no app string: Core reads it as the XML text it is.
+		const field = encodeTranslationUnit(textUnit("label-hash", "Clinic #1"));
+		expect(
+			validateTranslationBatchOutput([field], {
+				translations: [{ unitId: field.unitId, translatedText }],
+			}),
+		).toEqual(new Map([[field.unitId, translatedText]]));
+		// Two backslashes before `#` show one on a device, which the gate refuses: the model is told
+		// what to write.
+		expect(() =>
+			validateTranslationBatchOutput([app], {
+				translations: [
+					{ unitId: app.unitId, translatedText: "Clínica \\\\#1" },
+				],
+			}),
+		).toThrow("Write # with no backslash before it.");
+	});
+
+	it("leaves out a backslash a model writes before a chip, whose text starts with #", () => {
+		const source: ProseTemplate = {
+			parts: [
+				{ kind: "text", text: "Stage " },
+				{ kind: "case-ref", caseType: "patient", property: "case_name" },
+			],
+		};
+		const option = encodeTranslationUnit({
+			...textUnit("option-chip", "unused", {
+				role: "case-property-option-label",
+				owner: {
+					kind: "case-property-option",
+					caseType: "patient",
+					property: "stage",
+					value: "a",
+					occurrence: 0,
+				},
+			}),
+			valueKind: "prose",
+			source,
+			sourceFingerprint: translationSourceFingerprint("prose", source),
+		});
+		const token = option.protectedTokens[0];
+		if (token === undefined) throw new Error("protected token missing");
+		expect(
+			validateTranslationBatchOutput([option], {
+				translations: [
+					{ unitId: option.unitId, translatedText: `Etapa \\${token}` },
+				],
+			}),
+		).toEqual(
+			new Map([
+				[
+					option.unitId,
+					{
+						parts: [
+							{ kind: "text", text: "Etapa " },
+							{ kind: "case-ref", caseType: "patient", property: "case_name" },
+						],
+					},
+				],
+			]),
+		);
+	});
+
+	// `${` is content, so it is never rewritten: in a role some screen reads through Core's
+	// argument filler the batch is refused and the model is told what to write instead.
+	it("refuses ${ in a name some screen fills placeholders in, telling the model what to write", () => {
+		const menu = encodeTranslationUnit(
+			textUnit("menu-placeholder", "Visits", {
+				role: "module-name",
+				owner: { kind: "module", moduleUuid: MODULE },
+			}),
+		);
+		expect(() =>
+			validateTranslationBatchOutput([menu], {
+				translations: [
+					{ unitId: menu.unitId, translatedText: `Visitas \${0}` },
+				],
+			}),
+		).toThrow(
+			"Write the text without ${: keep $ and { apart, or leave the $ out, as the source text does.",
+		);
+		const hint = encodeTranslationUnit(
+			textUnit("hint-placeholder", "Visits", {
+				role: "search-input-hint",
+				owner: { kind: "module", moduleUuid: MODULE },
+			}),
+		);
+		expect(
+			validateTranslationBatchOutput([hint], {
+				translations: [
+					{ unitId: hint.unitId, translatedText: `Visitas \${0}` },
+				],
+			}),
+		).toEqual(new Map([[hint.unitId, `Visitas \${0}`]]));
 	});
 
 	it("keeps units from one owning form together before moving to another screen", () => {

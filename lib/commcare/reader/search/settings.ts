@@ -33,6 +33,7 @@ import {
 	sourceCode,
 	sourceText,
 	translatedTexts,
+	unheldTextsIn,
 } from "../caseList/columns";
 import { caseListReadings, sameState } from "../caseList/details";
 import { withReadTexts } from "../caseList/readTexts";
@@ -43,12 +44,15 @@ import { clauses, core } from "../expressions/folds";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
 import {
 	heldText,
+	holdText,
 	hqDeviceText,
 	keyDefinedAfterLineEnd,
 	LINE_END_DEFINES_KEY,
 	recordTextRewrite,
 	showsInEveryLanguage,
 	storedKeyDefinedAfterLineEnd,
+	unheldRefusal,
+	unheldText,
 } from "../heldText";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import {
@@ -665,12 +669,21 @@ export function readSearchSettings(
 	const source = sourceCode(ctx);
 	const storedTitle = cursor.peek("title_label");
 	const title = shownTitles(storedTitle, codes);
-	// A language whose title a device shows blank (`heldText.ts::hqDeviceText`: a text Python reads
-	// as blank, or one Core's trim empties), not one JavaScript's trim empties: U+FEFF is a title a
-	// device keeps, and U+0001 one it shows as none.
-	const blank = codes.filter(
-		(code) => hqDeviceText(title?.[code] ?? "") === "",
-	);
+	// A language whose title a device shows blank (`titleShownBlank`), not one JavaScript's trim
+	// empties: U+FEFF is a title a device keeps.
+	const blank = codes.filter((code) => titleShownBlank(title?.[code] ?? ""));
+	// The first title Nova's gate admits no spelling of, the source language's first: one whose
+	// line defines no string (nothing before a carriage return, or only a character Core's trim
+	// drops) is no blank title, since a device then shows the default table's text or fails.
+	const unheld =
+		title === undefined
+			? undefined
+			: unheldText(
+					title,
+					codes,
+					source ?? codes[0] ?? "",
+					"search-screen-title",
+				);
 	// Each language's file holds its own title (`shownTitles`), so a rest after a carriage return
 	// that defines an app string is read there, a title a device shows blank included.
 	const titleLineEnd =
@@ -686,6 +699,22 @@ export function readSearchSettings(
 		ok = false;
 	} else if (titleLineEnd !== undefined) {
 		cursor.refuse("title_label", LINE_END_DEFINES_KEY, { name: titleLineEnd });
+		ok = false;
+	} else if (unheld !== undefined) {
+		// One finding: refused at the key where the manifest names why Nova's gate admits no
+		// spelling of the text, else `unrecognized`, which the close gives.
+		const refusal = unheldRefusal(unheld);
+		if (refusal === undefined)
+			ctx.accounting.circumstance("unrecognized", place, {
+				name: "schema:CaseSearch.title_label",
+			});
+		else
+			cursor.refuse(
+				"title_label",
+				refusal.claim,
+				{ name: refusal.name },
+				place,
+			);
 		ok = false;
 	} else if (blank.length === codes.length) {
 		cursor.take("title_label", T.titleBlank, languageMap).value;
@@ -707,12 +736,15 @@ export function readSearchSettings(
 	} else {
 		// Held as every app string is (`heldText.ts::heldText`): no space at either end, and a
 		// language that shows a blank title beside the source's text shows the source's, which the
-		// reading records under `text-spaces-dropped`. A title Nova's gate admits no spelling of is
-		// left for the close to name.
+		// reading records under `text-spaces-dropped`. Every title is one Nova's gate admits a
+		// spelling of (`unheld` above).
 		const held = heldTitles(title, codes, source);
-		// A source title a device shows (U+FEFF alone) that Nova's content policy reads as blank
-		// has no document that prints it either.
-		if (held === undefined || (held.texts[source] ?? "").trim() === "") {
+		if (
+			held === undefined ||
+			// A source title a device shows (U+FEFF alone) that Nova's content policy reads as
+			// blank has no document that prints it either.
+			(held.texts[source] ?? "").trim() === ""
+		) {
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:CaseSearch.title_label",
 			});
@@ -753,9 +785,27 @@ export function readSearchSettings(
 	);
 	const description = heldDescription?.texts;
 	if (description === undefined) {
-		ctx.accounting.circumstance("unrecognized", place, {
-			name: "schema:CaseSearch.description",
-		});
+		// One finding: refused at the key where the manifest names why Nova's gate admits no
+		// spelling of a text, else `unrecognized`.
+		const refusal = unheldRefusal(
+			unheldTextsIn(
+				storedDescription ?? {},
+				codes,
+				sourceCode(ctx),
+				"search-screen-subtitle",
+			),
+		);
+		if (refusal === undefined)
+			ctx.accounting.circumstance("unrecognized", place, {
+				name: "schema:CaseSearch.description",
+			});
+		else
+			cursor.refuse(
+				"description",
+				refusal.claim,
+				{ name: refusal.name },
+				place,
+			);
 		ok = false;
 	} else if (codes.some((code) => (description[code] ?? "") !== "")) {
 		cursor.take("description", T.description, languageMap).value;
@@ -1022,6 +1072,18 @@ function heldTitles(
 		: { texts: held.printed, workersSeeAnother: held.workersSeeAnother };
 }
 
+/**
+ * Whether a device shows a search title blank in a language whose file holds `text`, as Nova
+ * holds it: a text Python reads as blank (`heldText.ts::hqDeviceText`, which HQ's build writes as
+ * a non-breaking space) or one Core's trim leaves only spaces of, and one Nova's gate admits a
+ * spelling of (`heldText.ts::holdText`). A line that defines no string (nothing before a carriage
+ * return, or only a character Core's trim drops) is no blank title: a device shows the default
+ * table's text there, or fails where that table defines none.
+ */
+function titleShownBlank(text: string): boolean {
+	return holdText(text) !== undefined && hqDeviceText(text) === "";
+}
+
 /** Whether a reading holds two stored titles alike in each app language (`shownTitles`,
  *  `heldTitles`). */
 function sameTitles(
@@ -1035,7 +1097,7 @@ function sameTitles(
 	// A title a device shows blank in every language is no title, as the reading reads it.
 	const none = (shown: Record<string, string> | undefined) =>
 		shown !== undefined &&
-		codes.every((code) => hqDeviceText(shown[code] ?? "") === "");
+		codes.every((code) => titleShownBlank(shown[code] ?? ""));
 	if (none(shownA) || none(shownB)) return none(shownA) && none(shownB);
 	const left =
 		shownA === undefined ? undefined : heldTitles(shownA, codes, source);

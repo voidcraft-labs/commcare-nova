@@ -891,11 +891,89 @@
 		"noSurfaceKey": "The text is a value of the key that stores it, a menu's or form's name, a label, a header or a translation, which other entries hold; what the value does is a line of the app strings file HQ's build writes, which the check reads only in Nova's own archives, and Nova's gate admits no carriage return in an app string (`localeFile.ts::localeFileValueIssue`).",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build writes each app string on one line of the language's `app_strings.txt` (`commcare_translations.py::dumps`, which turns a line break into `\\n` and leaves a carriage return as it is), and Core reads the file a line at a time, a carriage return ending one (`LocalizationUtils.parseLocaleInput`, `BufferedReader.readLine`), so a device shows only the text before it and reads each line after it as an app string of its own (`parseAndAdd`), which can set the wording of another text",
-		"subject": "translation-overrides",
+		"subject": "carriage-returns",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
 				"named": "HQ's build writes each app string on one line of the language's `app_strings.txt` (`commcare_translations.py::dumps`, which turns a line break into `\\n` and leaves a carriage return as it is), and Core reads the file a line at a time, a carriage return ending one (`LocalizationUtils.parseLocaleInput`, `BufferedReader.readLine`), so a device shows only the text before it and reads each line after it as an app string of its own (`parseAndAdd`), which can set the wording of another text"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "an app text (a name, a label, a header, a Search field's text, the search screen's title or subtitle) holding a carriage return before which, as HQ's build writes the text into the app strings file, its line holds nothing but spaces after the key, whose rest defines no app string",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The text is a value of the key that stores it, a menu's or form's name, a label, a header or a Search field's text, which other entries hold; what a device shows of the value is read from the line of the app strings file HQ's build writes, and Nova's gate admits no spelling of what it shows (`localeFile.ts::appStringValueIssue`).",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build writes each app string on one line of the language's `app_strings.txt` (`commcare_translations.py::dumps`, which leaves a carriage return as it is), and Core reads the file a line at a time, a carriage return ending one (`LocalizationUtils.parseLocaleInput`, `BufferedReader.readLine`), and trims the line, so a line holding nothing after its `=` defines no string (`LocalizationUtils.parseAndAdd`): a device shows none of the text but the default table's where that table defines the key (`Localizer.getLocaleData` loads it under every language); where it does not, which is so whenever the first language's text is the one that shows nothing (HQ's build fills the default table from the first language last, `app_strings.py::create_default_app_strings`), a device fails to load any language whose file defines the key (`Localizer.getLocaleData`, `NoLocalizedTextException`) and fails to show the screen in one whose file does not (`Localizer.getText`)",
+		"subject": "carriage-returns",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's build writes each app string on one line of the language's `app_strings.txt` (`commcare_translations.py::dumps`, which leaves a carriage return as it is), and Core reads the file a line at a time, a carriage return ending one (`LocalizationUtils.parseLocaleInput`, `BufferedReader.readLine`), and trims the line, so a line holding nothing after its `=` defines no string (`LocalizationUtils.parseAndAdd`): a device shows none of the text but the default table's where that table defines the key (`Localizer.getLocaleData` loads it under every language); where it does not, which is so whenever the first language's text is the one that shows nothing (HQ's build fills the default table from the first language last, `app_strings.py::create_default_app_strings`), a device fails to load any language whose file defines the key (`Localizer.getLocaleData`, `NoLocalizedTextException`) and fails to show the screen in one whose file does not (`Localizer.getText`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "an app text (a name, a label, a header, a Search field's text, the search screen's title or subtitle) that a device shows with a backslash right before `#`: HQ stores two or more backslashes before the `#`",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The text is a value of the key that stores it, a menu's or form's name, a label, a header or a Search field's text, which other entries hold; what a device shows of the value is read from the line of the app strings file HQ's build writes, and Nova's gate admits no spelling of what it shows (`localeFile.ts::appStringValueIssue`).",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build leaves a `#` a backslash precedes as it is (`commcare_translations.py::dumps`), and Core reads each `\\#` as `#` (`LocalizationUtils.parseValue`), so a device shows one backslash fewer before the `#` than HQ stores; the text a device shows holds a backslash before `#`, which only a text holding one spells, and a device shows that as `#` alone, so no text Nova's gate admits shows as it does (`localeFile.ts::localeFileValueIssue`)",
+		"subject": "text-backslashes",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's build leaves a `#` a backslash precedes as it is (`commcare_translations.py::dumps`), and Core reads each `\\#` as `#` (`LocalizationUtils.parseValue`), so a device shows one backslash fewer before the `#` than HQ stores; the text a device shows holds a backslash before `#`, which only a text holding one spells, and a device shows that as `#` alone, so no text Nova's gate admits shows as it does (`localeFile.ts::localeFileValueIssue`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "a menu's or form's name, a case list menu item's or Register button's label, or a Search field's label holding a `${` that Core's argument filler changes: any `${` but one that opens the text with no `}` after it",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The text is a value of the key that stores it, a menu's or form's name, a label, a header or a Search field's text, which other entries hold; what a device shows of the value is read from the line of the app strings file HQ's build writes, and Nova's gate admits no spelling of what it shows (`localeFile.ts::appStringValueIssue`).",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Android's menu list (`MenuAdapter`), action bar (`ViewUtil`, through `Localizer.clearArguments`) and Search screen (`QueryRequestUiController.getLabel`), and every screen title and breadcrumb on Android and Web Apps (`CommCareSession.getHeaderTitles`), read the text through `Localizer.processArguments(text, new String[]{\"\"})`, which drops a `${…}` and repeats the text before a `${` no `}` follows, while Web Apps' menu list shows it as stored, so no text shows alike on every screen, and Nova's gate refuses it (`localeFile.ts::argumentScreenIssue`)",
+		"subject": "text-placeholders",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android's menu list (`MenuAdapter`), action bar (`ViewUtil`, through `Localizer.clearArguments`) and Search screen (`QueryRequestUiController.getLabel`), and every screen title and breadcrumb on Android and Web Apps (`CommCareSession.getHeaderTitles`), read the text through `Localizer.processArguments(text, new String[]{\"\"})`, which drops a `${…}` and repeats the text before a `${` no `}` follows, while Web Apps' menu list shows it as stored, so no text shows alike on every screen, and Nova's gate refuses it (`localeFile.ts::argumentScreenIssue`)"
 			}
 		],
 		"platforms": {

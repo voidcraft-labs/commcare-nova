@@ -8,6 +8,10 @@
  * The menu stage writes each menu's case type before case management
  * reads; this helper writes it from the menu's stored `case_type`, which is
  * what that stage reads it from for a basic menu.
+ *
+ * Every source a stage reading reads is also read whole, held to the commit
+ * gate (`heldReading.ts`): the stage's own draft is no document the gate can
+ * judge (`readCasesOfBody`).
  */
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import type { Finding } from "@/lib/publish/hqFindings";
@@ -35,6 +39,7 @@ import {
 	writeCaseOperations,
 } from "../index";
 import { knownCaseTypesOf } from "../knownCaseTypes";
+import { readHqApp as readHeld } from "./heldReading";
 
 export type AppJson = Record<string, unknown> & {
 	modules: Array<
@@ -140,13 +145,29 @@ export async function readCasesOfBody(
 		"saveOnlyEditedApplied" | "input" | "parentSelections"
 	> = {},
 ): Promise<CaseReading> {
-	const read = readerInput(await sourceFromBody(app));
-	const input = options.input === undefined ? read : options.input(read);
-	const ctx = readContext(
-		options.saveOnlyEditedApplied === undefined
-			? input
-			: { ...input, saveOnlyEditedApplied: options.saveOnlyEditedApplied },
-	);
+	// A reading's input carries its own resolver, which claims each identity
+	// once, so each reading of the source is told afresh.
+	const tell = async () => {
+		const read = readerInput(await sourceFromBody(app));
+		const told = options.input === undefined ? read : options.input(read);
+		return options.saveOnlyEditedApplied === undefined
+			? told
+			: { ...told, saveOnlyEditedApplied: options.saveOnlyEditedApplied };
+	};
+	// The stages below stop before any expression is bound and before assembly,
+	// so their draft holds a placeholder in every slot and is no document the
+	// gate can judge. The whole reading of the same source is one: it is held
+	// to the gate (`heldReading.ts::readHqApp`), so a source a stage test reads
+	// cleanly is never one whose whole reading the gate refuses with no
+	// finding. A reading told lookup tables is held by its own test, under the
+	// lookup context of its tables.
+	// The whole reading binds every expression, which asks the record dialect;
+	// each record print is held to read back, as `novaExport.ts::inputFor` tells
+	// a whole reading.
+	const whole = await tell();
+	if (whole.lookup.definitions.size === 0)
+		readHeld({ ...whole, recordDialect: () => undefined });
+	const ctx = readContext(await tell());
 	readApplication(ctx);
 	readStructure(ctx);
 	readForms(ctx);

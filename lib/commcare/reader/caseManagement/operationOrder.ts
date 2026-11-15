@@ -30,14 +30,14 @@ const OWNER_NODE_PREFIX = generatedBaseName("owner", "");
 
 export const ORDER_CLAIMS = defineClaims("caseManagement.operationOrder", {
 	/** A form whose changes stand in no order the gate admits once the
-	 *  reading's own is applied (`index.ts::settleOperationOrder`). */
+	 *  reading's own is applied (`index.ts::settleCaseChanges`). */
 	noOrder: refuse(
 		"questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes",
 		"mug:SaveToCase",
 	),
 	/** A form whose changes the gate's target-type rule refuses in the order
 	 *  the reading holds: a block gives a case another type where a later
-	 *  change may read it as the earlier one (`index.ts::settleOperationOrder`). */
+	 *  change may read it as the earlier one (`index.ts::settleCaseChanges`). */
 	typeChange: refuse(
 		"questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type",
 		"mug:SaveToCase",
@@ -104,7 +104,7 @@ function admitsWireOrder(
  * reads. Where no move finds an order the gate admits (a keyed create in a
  * repeat beside a change at the root, or a keyed create a later change in its
  * repeat row may alias), the order returned is the gate's to refuse, and the
- * reading's settle refuses it (`index.ts::settleOperationOrder`). The reading
+ * reading's settle refuses it (`index.ts::settleCaseChanges`). The reading
  * (`index.ts::writeCaseOperations`) and the canonical row
  * (`caseManagementOperationsAsRead`) both apply it.
  */

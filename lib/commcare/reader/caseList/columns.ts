@@ -50,6 +50,9 @@ import {
 	LINE_END_DEFINES_KEY,
 	recordTextRewrite,
 	storedKeyDefinedAfterLineEnd,
+	type UnheldText,
+	unheldRefusal,
+	unheldText,
 } from "../heldText";
 import { dotInterpolate } from "../hqInterpolation";
 import { HQ_PAGE_LABELS } from "../hqPageLabels";
@@ -607,6 +610,39 @@ export function heldTextsIn(
 		: { texts: held.printed, workersSeeAnother: held.workersSeeAnother };
 }
 
+/** The text of a stored `{lang: text}` app string that `heldTextsIn` holds no spelling of, and
+ *  why (`heldText.ts::unheldText`); undefined where the build prints a value whose text the
+ *  reader cannot know, the reading names no source language, or every text is held. */
+export function unheldTextsIn(
+	stored: unknown,
+	codes: readonly string[],
+	source: string | undefined,
+	role: TranslationUnitRole,
+): UnheldText | undefined {
+	const shown = shownTexts(stored, codes);
+	return shown === undefined || source === undefined
+		? undefined
+		: unheldText(shown, codes, source, role);
+}
+
+/** Refuses the key `key` of `cursor`, a stored app string of role `role`, where Nova's gate
+ *  admits no spelling of a text it holds for a reason the manifest names
+ *  (`heldText.ts::unheldRefusal`): one finding at the cursor's place. Any other map is left for
+ *  the close to name. */
+export function refuseUnheldKey(
+	cursor: JsonCursor,
+	key: string,
+	codes: readonly string[],
+	source: string | undefined,
+	role: TranslationUnitRole,
+): void {
+	const refusal = unheldRefusal(
+		unheldTextsIn(cursor.peek(key), codes, source, role),
+	);
+	if (refusal !== undefined)
+		cursor.refuse(key, refusal.claim, { name: refusal.name });
+}
+
 /** Whether a reading holds two stored app strings of role `role` alike in every app language
  *  (`heldTextsIn`). */
 export function sameHeldTexts(
@@ -950,8 +986,16 @@ function claimAltTexts(
 			sourceCode(ctx),
 			"case-list-mapping-label",
 		);
-		if (value === undefined) ok = false;
-		else {
+		if (value === undefined) {
+			ok = false;
+			refuseUnheldKey(
+				item,
+				"value",
+				codes,
+				sourceCode(ctx),
+				"case-list-mapping-label",
+			);
+		} else {
 			item.derived("value", derivedEnumValue);
 			noteRespelled(
 				ctx,
@@ -1128,8 +1172,9 @@ export function readDetailColumn(
 	options: ColumnOptions,
 ): ColumnReading {
 	const codes = appCodes(ctx);
-	// The header as HQ's build shows it in each language; one the reader cannot know is left
-	// unclaimed, for the close to name, and the column is no proposal.
+	// The header as HQ's build shows it in each language; one Nova's gate admits no spelling of
+	// is refused at its key where the manifest names why, one the reader cannot know is left
+	// unclaimed, for the close to name, and either way the column is no proposal.
 	const heldHeader = heldTextsIn(
 		column.peek("header"),
 		codes,
@@ -1137,7 +1182,15 @@ export function readDetailColumn(
 		"case-list-header",
 	);
 	const header = heldHeader?.texts;
-	if (header !== undefined) {
+	if (header === undefined)
+		refuseUnheldKey(
+			column,
+			"header",
+			codes,
+			sourceCode(ctx),
+			"case-list-header",
+		);
+	else {
 		column.take("header", C.header, () => header).value;
 		noteRespelled(
 			ctx,
@@ -1805,16 +1858,21 @@ function readProjection(
 			C.translatableEnumMapping,
 		)) {
 			item.derived("key", ITEM_CLAIMS.labelKey);
-			// A label whose shown text the reader cannot know is left for the close to name.
+			// A label Nova's gate admits no spelling of is refused at its key where the manifest
+			// names why, and one whose shown text the reader cannot know is left for the close.
+			const role =
+				choices === undefined
+					? "case-list-interval-text"
+					: "case-property-option-label";
 			const value = heldTextsIn(
 				item.peek("value"),
 				codes,
 				sourceCode(ctx),
-				choices === undefined
-					? "case-list-interval-text"
-					: "case-property-option-label",
+				role,
 			);
-			if (value !== undefined) {
+			if (value === undefined)
+				refuseUnheldKey(item, "value", codes, sourceCode(ctx), role);
+			else {
 				item.derived("value", ITEM_CLAIMS.labelValue);
 				noteRespelled(
 					ctx,

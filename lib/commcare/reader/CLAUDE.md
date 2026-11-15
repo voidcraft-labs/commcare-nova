@@ -77,7 +77,10 @@ canonical row can carry the reading and the canonical document past a rule toget
 reader stage reads as a write is refused there where the gate refuses it. Every whole reading the
 case management tests make goes through `caseManagement/__tests__/heldReading.ts::readHqApp`, which
 holds a reading with no finding to the gate under the declaration it proposes, so a reading the gate
-refuses with no finding fails the test that made it. Each compares a reading with the canonical document
+refuses with no finding fails the test that made it. A stage reading
+(`caseManagement/__tests__/caseReading.ts::readCases`) stops before any expression is bound, so its
+draft is no document the gate can judge; every source it reads is also read whole through
+`heldReading.ts` (but a source told lookup tables, which its own test holds under their context). Each compares a reading with the canonical document
 (the rows applied in list order) and is never weakened, skipped or special-cased. Beside them,
 `__tests__/canonicalRowsKeepExport.test.ts` applies the rows in list order to every document
 `targetedReadBack.test.ts` reads (`__tests__/publishedDocuments.ts`, the documents and the publish's
@@ -182,13 +185,21 @@ reaches, or `refuseLineEndKey` where another register records the rewrite, a Reg
 its own key every value of an app language's `translations`, whatever the key names, since HQ's
 build writes each non-empty one into the language's file (`appShell.ts::readTranslations`), the
 search screen's title, and each text compared with HQ's default (a detail's empty-list and continue
-texts, the Search button's label, an image map's alt text). A text a device shows none of (nothing
-after the line's key before a carriage return), one a device shows with a backslash before `#`
-(two backslashes then `#` stored), or holding a character XML cannot hold has no spelling the gate
-admits and is left unclaimed, and so is a text of a role some screen reads through Core's argument
-filler (a menu's or form's name, a case list menu item's or Register button's label, a Search
-field's label) holding a `${` that screen shows otherwise (`localeFile.ts::argumentScreenIssue`,
-applied by `heldText` per role); a generated key folded over one is refused
+texts, the Search button's label, an image map's alt text). A text the gate admits no spelling of
+(`heldText.ts::unheldText`) is one finding at the text's place, refused at its key where the key
+is still unclaimed (`unheldRefusal`) and beside its claim otherwise (`refuseUnheldText`), and what
+holds it is still read (a Search field keeps its place in the reading over the texts HQ's build
+shows, `search/prompts.ts::promptText`), so one text is one finding: a text a device shows none of
+(nothing after the line's key before a carriage return) under the line-end entry where its rest
+defines another app string and under
+`application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing`
+otherwise; one a device shows with a backslash before `#` (two backslashes then `#` stored) under
+`application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash`; a text of a role
+some screen reads through Core's argument filler (a menu's or form's name, a case list menu item's
+or Register button's label, a Search field's label) holding a `${` that screen shows otherwise
+(`localeFile.ts::argumentScreenIssue`, applied by `heldText` per role) under
+`application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`; and one holding a
+character XML cannot hold is `unrecognized`. A generated key folded over one is refused
 (`assemble.ts::decideGeneratedKeys`); every other fold is held as a device shows it, a choice
 label's too. The app's `name` is also the profile's `name`, which Android's app picker shows as
 stored, so one holding `\n`, `\#` or a carriage return stays `unrecognized` (`appShell.ts::holdAppName`);
@@ -263,26 +274,33 @@ A change that holds one removes its line.
   at the text's place, or at its key in `translations` (`heldText.ts::refuseLineEndKey`,
   `appShell.ts::readTranslations`). Core reads that rest as a line of its own, so it sets the
   wording of the string it names, which no document holds and Nova, printing no carriage return,
-  would drop. Where a text a device shows none of (nothing before the carriage return) is read
-  depends on the place. A text held through `heldText.ts::heldText` (a menu's or form's name, a
-  column's header, a Register button's label, whether or not another language holds the blank
-  HQ's build fills) is left `unrecognized` instead, since `holdText` admits no spelling of it
-  before its rewrite is recorded. The app's `name` (`appShell.ts::holdAppName`), a `translations`
-  value (`readTranslations`) and the texts checked at their own key (the search screen's title,
-  the Search button's label, a detail's empty-list and continue texts, an image map's alt text)
-  check the rest first, so such a text there is refused under the line-end entry.
+  would drop. A text a device shows none of (nothing before the carriage return) whose rest
+  defines an app string is refused under this entry wherever it stands: a text held through
+  `heldText.ts::heldText` by `unheldRefusal`, whether or not another language holds the blank HQ's
+  build fills, and the app's `name`, a `translations` value and the texts checked at their own
+  key, which check the rest first.
+- **A text a device shows none of**, nothing but spaces before a carriage return and a rest that
+  defines no app string: refused under
+  `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing`
+  at its place (`heldText.ts::unheldRefusal`). The language's file defines no string under the
+  key, so a device shows the default table's text where that table defines the key, and where it
+  does not (the first language's text is the one that shows nothing) fails to load every language
+  whose file defines it and to show the screen in the rest; Nova holds no text that shows so.
+  The app's `name` is still `unrecognized` (below).
 - **An app `name` holding the two characters `\n`, a backslash before `#` or a carriage
   return**: `unrecognized` at the app, `name` (`appShell.ts::holdAppName`). The profile's `name`,
   which Android's app picker shows, carries it as stored while the app strings show a line break,
   `#` alone or the text before the carriage return; Nova prints one name into both.
 - **An app string a device shows with a backslash before `#`** (two backslashes then `#`
-  stored): `unrecognized` at its place. Core shows one backslash then `#`, which only a text
-  holding a backslash before `#` spells, and the gate refuses that
-  (`localeFile.ts::localeFileValueIssue`).
+  stored): refused under
+  `application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash` at its place
+  (`heldText.ts::unheldRefusal`). Core shows one backslash then `#`, which only a text holding a
+  backslash before `#` spells, and the gate refuses that (`localeFile.ts::localeFileValueIssue`).
 - **A menu's or form's name, a case list menu item's or Register button's label, or a Search
-  field's label holding a `${` some screen reads as a placeholder**: `unrecognized` at its place
-  (`heldText.ts::heldText`). Android's menu list, action bar and Search screen and every screen
-  title read the text through Core's `Localizer.processArguments` (`Visits ${0}` shows as
+  field's label holding a `${` some screen reads as a placeholder**: refused under
+  `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills` at its place
+  (`heldText.ts::unheldRefusal`). Android's menu list, action bar and Search screen and every
+  screen title read the text through Core's `Localizer.processArguments` (`Visits ${0}` shows as
   `Visits`), while Web Apps' menu list shows it as stored, so no text Nova holds shows alike on
   every screen, and the gate refuses each (`localeFile.ts::appStringValueIssue`).
 - **An after-submit link's condition or carried value that prints as the source only with a
@@ -308,7 +326,7 @@ A change that holds one removes its line.
 - **A create keyed by an answer in a form whose changes stand in no order the gate admits**: one
   finding at the form under
   `questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes`
-  (`caseManagement/index.ts::settleOperationOrder`, over the gate's own
+  (`caseManagement/index.ts::settleCaseChanges`, over the gate's own
   `caseOperationWireOrderViolationDetails`). The reading first holds the order HQ's lists give
   where the gate admits it, else moves changes only as far as what prints one source allows
   (`caseManagement/operationOrder.ts::inWireScopeOrder`), so the finding stands only where no order
@@ -332,12 +350,20 @@ A change that holds one removes its line.
 - **A Save to Case block that gives a case another type beside a change that may read it as the
   earlier one**: one finding at the form under
   `questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type`
-  (`caseManagement/index.ts::settleOperationOrder`, over the gate's own
-  `caseOperationTargetTypeOrderViolations`): a create keyed by an answer of a type other than the
-  form's loaded case beside Case Management's change of that case, or a `case_type` row on a case a
-  later change reads as its earlier type. A keyed id may name a case an earlier submission made, and
-  a device and HQ's server both give a case that exists the type its create names, so Nova cannot
-  prove the later change is of another case.
+  (`caseManagement/index.ts::settleCaseChanges`, over the gate's own
+  `caseOperationTargetTypeOrderViolations`, reason `type-change`): a create keyed by an answer of a
+  type other than the form's loaded case beside Case Management's change of that case, or a
+  `case_type` row on a case a later change reads as its earlier type. A keyed id may name a case an
+  earlier submission made, and a device and HQ's server both give a case that exists the type its
+  create names, so Nova cannot prove the later change is of another case.
+- **A Save to Case update, close or link that names its case by a type the case does not hold**,
+  with no change of its type before it (a link's `case_type` other than the menu's case type, an
+  update of a case a create of the form makes as another type): one finding at the block under
+  `questions/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches`
+  (`caseManagement/index.ts::settleCaseChanges`, the gate's `CASE_OPERATION_TARGET_TYPE_MISMATCH`
+  reason `declared-type`, a violation that is not `retyped`). Neither runtime reads a block's
+  `vellum:case_type`, and both keep a link's `case_type` as written; Nova types a change by the
+  case it reaches.
 - **A Save to Case update of the worker's record in a condition group or in a repeat**: one finding
   at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
@@ -348,7 +374,29 @@ A change that holds one removes its line.
   (CommCare HQ's `usercase_update`, an advanced form's load of the worker's record, or a second
   such block): one finding at the form under
   `questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record`
-  (`caseManagement/index.ts::settleWorkerRecordWrites`, asking the gate's own
-  `validateCaseOperations` for reason `worker-record-twice`). A device and HQ's server apply both in
-  the form's order, and Nova keeps a form's writes of the worker's record in one update, which
-  prints one block.
+  (`caseManagement/index.ts::settleCaseChanges`, asking the gate's own
+  `validator/rules/caseOperations.ts::validateCaseOperations` for reason `worker-record-twice`). A
+  device and HQ's server apply both in the form's order, and Nova keeps a form's writes of the worker's
+  record in one update, which prints one block.
+- **A Save to Case block that changes the form's own case beside the form's own change of it**: a
+  row of a property the own change also writes (its name and owner among them), or a close of that
+  case: one finding at the form under
+  `questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it`
+  (`caseManagement/index.ts::settleCaseChanges`, asking the gate's own `validateCaseOperations`
+  for its own-case rule). HQ's build appends Case Management's block after every authored node, and a
+  device and HQ's server apply both blocks, so the later row stands where it is present; Nova keeps one
+  write of each property of the own case and lets no other change close it, and no one change prints
+  both blocks. A close-only block whose `update` holds a row is read as a close operation, never as the
+  own close, which the emitter writes with no `update` (`saveToCase.ts::readSaveToCaseBlocks`); an
+  empty `update` beside the close, which no runtime acts on and HQ's form builder drops, is outside
+  Nova's block shape alone.
+- **A Save to Case block a runtime refuses or does not act on as written**: one finding at the
+  block, read in `caseManagement/saveToCase.ts::readBlock` where the source spells it and in
+  `caseManagement/index.ts::settleCaseChanges` by the gate's typed `details.reason` otherwise. A
+  case id blank on every submission, a session case on a form that chooses none, or a link of a case
+  to itself, under `questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself`;
+  a link to, or a read of, the menu's case on a form whose menu chooses none, under
+  `questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none`;
+  a link name over 255 characters, under `questions/a-savetocase-link-name-longer-than-commcare-hq-stores`;
+  and a case type outside the grammar or over 255 characters, under
+  `questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters`.

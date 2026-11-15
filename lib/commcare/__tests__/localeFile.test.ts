@@ -18,7 +18,13 @@
  */
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { makeTranslationUnitId } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { type BlueprintDoc, makeTranslationUnitId } from "@/lib/domain";
+import { plainColumn } from "@/lib/domain/modules";
+import type { ProseTemplate } from "@/lib/domain/prose";
+import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUnits";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import {
@@ -26,7 +32,9 @@ import {
 	hqLocaleFileValue,
 	localeFileValueIssue,
 } from "../localeFile";
+import { commCareLocalization } from "../localization";
 import { targetFactsFromSource } from "../targetFacts";
+import { runValidation } from "../validator/runner";
 import { localizationWireFixture } from "./localizationWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -375,5 +383,106 @@ describe("a local archive's app strings", () => {
 		const lines = zip.readAsText("es/app_strings.txt").split("\n");
 		expect(lines).toContain(String.raw`homescreen.title=Aplicación \#1`);
 		expect(lines).toContain(String.raw`home.start=Empezar \#1 y \#2`);
+	});
+});
+
+/**
+ * A choice's label of a case property is prose, and a list column over the property writes it
+ * into the app strings, its reference chips printed as their hashtags. Every chip's text starts
+ * with `#`, so a backslash typed right before a chip is a backslash before `#` in the text the
+ * writer prints, which `dumps` leaves and Core drops. The gate reads the same projection the
+ * writer prints (`validator/rules/app.ts`, `projectProseTemplate(...).text`), so it refuses the
+ * label, and a label with no backslash there is admitted and shows on a device as printed.
+ */
+describe("a choice's label with a backslash right before a reference chip", () => {
+	const docWithLabel = (label: ProseTemplate): BlueprintDoc =>
+		buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "stage",
+							label: "Stage",
+							data_type: "single_select",
+							options: [{ value: "a", label }],
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("name-column"), "case_name", "Name"),
+							plainColumn(testUuid("stage-column"), "stage", "Stage"),
+						],
+						searchInputs: [],
+					},
+				},
+			],
+		});
+	const chip = {
+		kind: "case-ref",
+		caseType: "patient",
+		property: "case_name",
+	} as const;
+	const unit = casePropertyOptionTranslationUnitId("patient", "stage", "a");
+
+	it("prints a backslash before `#`, which the gate refuses for the role", () => {
+		const doc = docWithLabel({
+			parts: [{ kind: "text", text: "Stage \\" }, chip],
+		});
+		const printed = commCareLocalization(doc).proseTextMap(unit);
+		expect(printed).toEqual({ en: "Stage \\#patient/case_name" });
+		// What a device shows of the printed text loses the backslash.
+		expect(deviceShows(printed.en ?? "")).toBe("Stage #patient/case_name");
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((one) => [
+				one.code,
+				(one.details as { role?: string } | undefined)?.role,
+			]),
+		).toEqual([
+			["APP_STRING_VALUE_UNREPRESENTABLE", "case-property-option-label"],
+		]);
+	});
+
+	it("without the backslash, is admitted and shows on a device as the writer prints it", () => {
+		const doc = docWithLabel({
+			parts: [{ kind: "text", text: "Stage " }, chip],
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const printed = commCareLocalization(doc).proseTextMap(unit).en ?? "";
+		expect(printed).toBe("Stage #patient/case_name");
+		const zip = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		// The choice's label under the column's generated key, in each detail that shows it.
+		const values = zip
+			.readAsText("en/app_strings.txt")
+			.split("\n")
+			.filter((one) => one.includes(".enum.knova_text_0="))
+			.map((one) => one.slice(one.indexOf("=") + 1));
+		expect(values.length).toBeGreaterThan(0);
+		for (const value of values)
+			expect(value).toBe("Stage \\#patient/case_name");
+		expect(deviceShows(printed)).toBe(printed);
 	});
 });

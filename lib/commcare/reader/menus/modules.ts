@@ -37,7 +37,13 @@ import {
 	take,
 } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
-import { heldText, recordTextRewrite } from "../heldText";
+import {
+	heldText,
+	recordTextRewrite,
+	refuseUnheldText,
+	type UnheldText,
+	unheldText,
+} from "../heldText";
 import { isJsonObject } from "../jsonCursor";
 import { readNavMedia } from "./navMedia";
 
@@ -489,6 +495,20 @@ export function heldLabel(
 		: { texts: held.printed, workersSeeAnother: held.workersSeeAnother };
 }
 
+/** The text of a label read as built that `heldLabel` holds no spelling of, and why
+ *  (`heldText.ts::unheldText`); undefined where it holds every one. */
+export function unheldLabel(
+	ctx: ReadContext,
+	built: Readonly<Record<string, string>>,
+	role: "case-list-menu-item-label" | "case-list-registration-label",
+): UnheldText | undefined {
+	const languages = applicationReading(ctx)?.languages;
+	const source = languages?.source;
+	return languages === undefined || source === undefined
+		? undefined
+		: unheldText(built, languages.codes, source, role);
+}
+
 /**
  * Writes a label read as built: the source language's text into the slot and
  * each other language whose text differs into the translation sink. Answers
@@ -921,12 +941,19 @@ function readCaseListMenuItem(
 		caseListLabelAsBuilt(stored_, langs),
 		"case-list-menu-item-label",
 	);
-	// A label Nova's gate admits no spelling of is a finding at the case list, and the rest of
+	// A label Nova's gate admits no spelling of is one finding at the case list, and the rest of
 	// the item is still read.
 	if (held === undefined)
-		ctx.accounting.circumstance("unrecognized", caseListPlaceOf(module), {
-			name: "schema:CaseList.label",
-		});
+		refuseUnheldText(
+			ctx,
+			caseListPlaceOf(module),
+			"schema:CaseList.label",
+			unheldLabel(
+				ctx,
+				caseListLabelAsBuilt(stored_, langs),
+				"case-list-menu-item-label",
+			),
+		);
 	else if (
 		held.workersSeeAnother ||
 		!labelSpelledAsBuilt(stored_, held.texts, langs)

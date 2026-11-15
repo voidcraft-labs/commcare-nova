@@ -1088,10 +1088,10 @@ describe("an app string whose rest after a carriage return defines another app s
 	});
 
 	// Where a language's text shows none of itself (nothing before the carriage return), Nova
-	// holds no spelling of the label, which is left unrecognized at the case list as a menu's
-	// name is, and is one finding whether or not another language holds the blank HQ's build
-	// fills.
-	it("in a Register button's label a device shows none of is left unrecognized at the case list alone, beside a language HQ's build fills too", async () => {
+	// holds no spelling of the label, and its rest defines another app string: one finding at the
+	// case list under that entry, as a menu's name is, whether or not another language holds the
+	// blank HQ's build fills.
+	it("in a Register button's label a device shows none of is refused at the case list alone, beside a language HQ's build fills too", async () => {
 		for (const label of [
 			{ en: "", es: "\rmodules.m0=X" },
 			{ en: "New patient", es: "\rmodules.m0=X" },
@@ -1108,7 +1108,7 @@ describe("an app string whose rest after a carriage return defines another app s
 					finding.place.kind,
 					finding.detail?.name,
 				]),
-			).toEqual([["unrecognized", "case-list", "schema:CaseListForm.label"]]);
+			).toEqual([[LINE_END_ENTRY, "case-list", "modules.m0"]]);
 		}
 	});
 
@@ -1187,8 +1187,9 @@ describe("an app string whose rest after a carriage return defines another app s
 	});
 
 	// A text held at a slot is held through `heldText`, which admits no spelling of a text a
-	// device shows none of before its rewrite is recorded, so it is left unrecognized instead.
-	it("in a menu's name a device shows none of is left unrecognized at the menu, not refused under that entry", async () => {
+	// device shows none of; its rest defines another app string, so it is that entry's one
+	// finding (`heldText.ts::unheldRefusal`).
+	it("in a menu's name a device shows none of is refused at the menu under that entry alone", async () => {
 		const body = exportedBody(PROMPTS);
 		const path: Path = ["modules", 0, "name"];
 		set(body, path, {
@@ -1200,8 +1201,12 @@ describe("an app string whose rest after a carriage return defines another app s
 		expect(outcome.kind).toBe("account");
 		if (outcome.kind !== "account") return;
 		expect(
-			outcome.findings.map((finding) => [finding.code, finding.place.kind]),
-		).toEqual([["unrecognized", "menu"]]);
+			outcome.findings.map((finding) => [
+				finding.code,
+				finding.place.kind,
+				finding.detail?.name,
+			]),
+		).toEqual([[LINE_END_ENTRY, "menu", "modules.m0"]]);
 	});
 });
 
@@ -1296,26 +1301,145 @@ describe("a menu's name read with a backslash before `#`, printed into Nova's ow
 	});
 });
 
-describe("an app string a device shows with a backslash before `#`", () => {
-	// Two backslashes then `#` are left by `dumps` and shown by Core as one backslash then `#`,
-	// which only a text holding a backslash before `#` spells, and the gate admits none.
-	it("in a column's header has no spelling Nova's gate admits and is left unrecognized at the case list", async () => {
-		const body = exportedBody(PROMPTS);
-		for (const path of SURFACES.header.at) {
-			const map = (get(body, path) ?? {}) as Texts;
-			set(body, path, { ...map, es: "Nombre \\\\#" });
+/** The entries an app string Nova's gate admits no spelling of is refused under. */
+const SHOWS_NOTHING_ENTRY =
+	"application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing";
+const BACKSLASH_ENTRY =
+	"application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash";
+const PLACEHOLDER_ENTRY =
+	"application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills";
+
+/** Each held text's surface, the language whose text a case replaces, and where its finding
+ *  stands, one place for each stored map. */
+const UNHELD_SURFACES: readonly {
+	readonly surface: Surface;
+	readonly lang: string;
+	readonly places: readonly string[];
+	/** Whether some screen reads the text through Core's argument filler. */
+	readonly argumentScreen: boolean;
+}[] = [
+	{
+		surface: SURFACES.menuName,
+		lang: "es",
+		places: ["menu"],
+		argumentScreen: true,
+	},
+	{
+		surface: SURFACES.formName,
+		lang: "es",
+		places: ["form"],
+		argumentScreen: true,
+	},
+	{
+		surface: SURFACES.header,
+		lang: "es",
+		places: ["case-list", "case-detail"],
+		argumentScreen: false,
+	},
+	{
+		surface: SURFACES.label,
+		lang: "es",
+		places: ["search"],
+		argumentScreen: true,
+	},
+	{
+		surface: SURFACES.hint,
+		lang: "es",
+		places: ["search"],
+		argumentScreen: false,
+	},
+	{
+		surface: SURFACES.required,
+		lang: "es",
+		places: ["search"],
+		argumentScreen: false,
+	},
+	{
+		surface: SURFACES.validation,
+		lang: "es",
+		places: ["search"],
+		argumentScreen: false,
+	},
+	{
+		surface: SURFACES.title,
+		lang: "es",
+		places: ["search"],
+		argumentScreen: false,
+	},
+	{
+		surface: SURFACES.description,
+		lang: "es",
+		places: ["search"],
+		argumentScreen: false,
+	},
+	{
+		surface: SURFACES.mapping,
+		lang: "fr",
+		places: ["case-list", "case-detail"],
+		argumentScreen: false,
+	},
+	{
+		surface: SURFACES.menuItem,
+		lang: "es",
+		places: ["case-list"],
+		argumentScreen: true,
+	},
+	{
+		surface: SURFACES.register,
+		lang: "es",
+		places: ["case-list"],
+		argumentScreen: true,
+	},
+];
+
+/**
+ * A text Nova knows and knowingly cannot hold is one finding at the text's place, under the
+ * entry that says what is wrong with it, never `unrecognized` and never a finding of what holds
+ * it: a text a device shows none of (nothing before a carriage return, whose rest defines no app
+ * string), a text a device shows with a backslash before `#` (two backslashes then `#` are left
+ * by `dumps` and shown by Core as one backslash then `#`, which only a text holding a backslash
+ * before `#` spells, and the gate admits none), and a `${` a screen of the text's role fills.
+ */
+describe("an app string Nova's gate admits no spelling of", () => {
+	const shapes = [
+		{
+			title: "a device shows none of",
+			text: "\rUno",
+			entry: SHOWS_NOTHING_ENTRY,
+		},
+		{
+			title: "a device shows with a backslash before `#`",
+			text: "Nombre \\\\#",
+			entry: BACKSLASH_ENTRY,
+		},
+		{
+			title: "holding a `${` some screen fills",
+			text: `Visitas \${0}`,
+			entry: PLACEHOLDER_ENTRY,
+		},
+	] as const;
+	for (const shape of shapes)
+		for (const one of UNHELD_SURFACES) {
+			if (shape.entry === PLACEHOLDER_ENTRY && !one.argumentScreen) continue;
+			it(`${shape.title}, in ${one.surface.title}, is one finding at its place under its entry`, async () => {
+				const body = exportedBody(one.surface.doc);
+				for (const path of one.surface.at) {
+					const map = (get(body, path) ?? {}) as Texts;
+					set(body, path, { ...map, [one.lang]: shape.text });
+				}
+				const outcome = readHqApp(await inputFor(body));
+				expect(outcome.defects).toEqual([]);
+				expect(outcome.kind).toBe("account");
+				if (outcome.kind !== "account") return;
+				expect(
+					outcome.findings.map((finding) => [
+						finding.code,
+						finding.place.kind,
+						finding.detail?.name,
+					]),
+				).toEqual(one.places.map((place) => [shape.entry, place, shape.text]));
+			});
 		}
-		const outcome = readHqApp(await inputFor(body));
-		expect(outcome.defects).toEqual([]);
-		expect(outcome.kind).toBe("account");
-		if (outcome.kind !== "account") return;
-		expect(
-			outcome.findings.map((finding) => [finding.code, finding.place.kind]),
-		).toEqual([
-			["unrecognized", "case-list"],
-			["unrecognized", "case-detail"],
-		]);
-	});
 });
 
 /**
@@ -1327,33 +1451,10 @@ describe("an app string a device shows with a backslash before `#`", () => {
  */
 describe("an app string a screen reads as a placeholder", () => {
 	const PLACEHOLDER = `Visitas \${0}`;
-	const refused = [
-		[SURFACES.menuName, "menu", "schema:Module.name"],
-		[SURFACES.formName, "form", "schema:Form.name"],
-		[SURFACES.menuItem, "case-list", "schema:CaseList.label"],
-		[SURFACES.register, "case-list", "schema:CaseListForm.label"],
-	] as const;
-	for (const [surface, place, key] of refused)
-		it(`in ${surface.title} has no spelling Nova's gate admits and is left unrecognized at its place alone`, async () => {
-			const body = exportedBody(surface.doc);
-			for (const path of surface.at) {
-				const map = (get(body, path) ?? {}) as Texts;
-				set(body, path, { ...map, es: PLACEHOLDER });
-			}
-			const outcome = readHqApp(await inputFor(body));
-			expect(outcome.defects).toEqual([]);
-			expect(outcome.kind).toBe("account");
-			if (outcome.kind !== "account") return;
-			expect(
-				outcome.findings.map((finding) => [
-					finding.code,
-					finding.place.kind,
-					finding.detail?.name,
-				]),
-			).toEqual([["unrecognized", place, key]]);
-		});
 
-	it("in a Search field's label has no spelling Nova's gate admits and is left unrecognized at the search", async () => {
+	// The field stays in the reading, so the expressions of the other fields that read it bind,
+	// and the prompt's other keys are read: the one text is the one finding.
+	it("in a Search field's label is one finding at the search, and nothing else the search holds is a finding", async () => {
 		const body = exportedBody(PROMPTS);
 		for (const path of SURFACES.label.at) {
 			const map = (get(body, path) ?? {}) as Texts;
@@ -1369,11 +1470,7 @@ describe("an app string a screen reads as a placeholder", () => {
 				finding.place.kind,
 				finding.detail?.name,
 			]),
-		).toContainEqual([
-			"unrecognized",
-			"search",
-			"schema:CaseSearchProperty.label",
-		]);
+		).toEqual([[PLACEHOLDER_ENTRY, "search", PLACEHOLDER]]);
 	});
 
 	it("in a menu's name that starts with a placeholder opener no } follows, which every screen shows as stored, is held as it is", async () => {
@@ -1489,9 +1586,43 @@ describe("a Search text compared with what CommCare HQ shows", () => {
 		}
 	});
 
+	// A title whose line defines no string is no blank title: a device shows the default table's
+	// text there, and where the first language's line defines none, that table holds none, so a
+	// language whose line defines one fails to load and the rest fail at the search screen. Held as
+	// no title, it would print a blank title workers never met; held as no blank, it is one finding.
+	for (const { title, finding } of [
+		{
+			title: { es: "\rUno", en: "\rDos" },
+			finding: [SHOWS_NOTHING_ENTRY, "search", "\rDos"],
+		},
+		{
+			title: { es: "Hola", en: "\rDos" },
+			finding: [SHOWS_NOTHING_ENTRY, "search", "\rDos"],
+		},
+		{
+			title: { es: "\u0001", en: "\u0001" },
+			finding: ["unrecognized", "search", "schema:CaseSearch.title_label"],
+		},
+	])
+		it(`gives one finding for a search title whose line defines no string in some language, ${JSON.stringify(title)}`, async () => {
+			const body = exportedBody(PROMPTS);
+			set(body, [...SEARCH, "title_label"], title);
+			const outcome = readHqApp(await inputFor(body));
+			expect(outcome.defects).toEqual([]);
+			expect(outcome.kind).toBe("account");
+			if (outcome.kind !== "account") return;
+			expect(
+				outcome.findings.map((one) => [
+					one.code,
+					one.place.kind,
+					one.detail?.name,
+				]),
+			).toEqual([finding]);
+		});
+
 	it("reads a search title a device shows blank in every language as no title, though JavaScript's trim keeps it", async () => {
 		const { draft } = await read(PROMPTS, (body) => {
-			set(body, [...SEARCH, "title_label"], { es: "\u001f", en: "\u0001" });
+			set(body, [...SEARCH, "title_label"], { es: "\u001f", en: "\u001c" });
 		});
 		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const config =

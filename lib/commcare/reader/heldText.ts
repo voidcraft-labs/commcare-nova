@@ -45,13 +45,17 @@
  * another app string is refused
  * (`application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`):
  * a held text where its rewrite is recorded (`refuseLineEndKey`), a text
- * compared with HQ's default and an app translation at its own key. A text a
- * device shows none of, or that holds a character XML cannot hold, has no
- * spelling Nova's gate admits, and its reader leaves it unclaimed. So does a
- * text of a role some screen reads through Core's argument filler whose `${`
- * that screen shows otherwise (`localeFile.ts::argumentScreenIssue`): a
- * menu's name shows as stored in Web Apps' menu list and otherwise in the
- * screen's title, and Nova holds one text for both (`heldText`).
+ * compared with HQ's default and an app translation at its own key. A text
+ * Nova's gate admits no spelling of (`unheldText`) is one finding at its place
+ * (`refuseUnheldText`, `unheldRefusal`), and whatever holds it is still read:
+ * a text a device shows none of, under the line-end entry where its rest
+ * defines another app string and its own entry otherwise; a text a device
+ * shows with a backslash before `#`; and a text of a role some screen reads
+ * through Core's argument filler whose `${` that screen shows otherwise
+ * (`localeFile.ts::argumentScreenIssue`: a menu's name shows as stored in Web
+ * Apps' menu list and otherwise in the screen's title, and Nova holds one text
+ * for both), each under its own entry. A text holding a character XML cannot
+ * hold is `unrecognized`.
  */
 
 import {
@@ -66,7 +70,7 @@ import {
 	localeFileValueIssue,
 } from "../localeFile";
 import { xmlTextIssue } from "../xmlText";
-import { defineClaims, refuse } from "./claims";
+import { type Claim, defineClaims, refuse } from "./claims";
 import type { ReadContext } from "./context";
 import { shownText } from "./hqText";
 import { isJsonObject } from "./jsonCursor";
@@ -79,6 +83,23 @@ const CLAIMS = defineClaims("heldText", {
 	 *  key's own claim where a reader refuses the key that holds such a text. */
 	lineEndDefinesKey: refuse(
 		"application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string",
+		null,
+	),
+	/** A text a device shows none of: nothing but spaces before a carriage return, whose rest
+	 *  defines no app string (`refuseUnheldText`). */
+	lineEndShowsNothing: refuse(
+		"application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing",
+		null,
+	),
+	/** A text a device shows with a backslash right before `#` (`refuseUnheldText`). */
+	backslashBeforeHash: refuse(
+		"application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash",
+		null,
+	),
+	/** A text of a role some screen reads through Core's argument filler holding a `${` that
+	 *  screen shows otherwise (`refuseUnheldText`). */
+	placeholder: refuse(
+		"application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills",
 		null,
 	),
 });
@@ -198,26 +219,50 @@ function blankLooking(text: string): boolean {
 }
 
 /**
- * The text Nova holds for an app string a language shows as `text`, or
- * undefined where Nova's gate admits no spelling of it: a text a device shows
- * none of (the line HQ's build writes holds nothing after its key before a
- * carriage return, so the language defines no string) or one holding a
- * character XML cannot hold (`xmlText.ts::xmlTextIssue`). A text that is only
- * spaces is held as it is, a carriage return in it as a space, since Nova
- * writes it blank as HQ's build does. Any other is held as a device shows it
- * (`hqDeviceText`): the text before a carriage return, each `\#` the `#` and
- * then each two characters `\n` the line break Core reads them as (left to
- * right, as `parseValue` reads them: `dumps` writes a line break as those two
- * characters and leaves a `#` a backslash precedes, so HQ's build writes the
- * same line for either), and the characters up to U+0020 dropped at both
- * ends: the spaces at its end no device showed, and those at its start and a
- * line break at either end a device did. Nova prints the held text to the
- * line HQ's build writes for it, which a device shows as the same text. A
- * text a device shows with `\#` in it (two backslashes then `#` stored) has
- * no spelling the gate admits, and is undefined. What the rest after a
- * carriage return defines is `keyDefinedAfterLineEnd`'s to say.
+ * Why Nova's gate admits no spelling of a text a language shows: a device
+ * shows none of it (the line HQ's build writes holds nothing after its key
+ * before a carriage return, so the language defines no string), a device shows
+ * a backslash right before `#` in it (two backslashes then `#` stored), a
+ * screen of its role fills a placeholder in it (`localeFile.ts::argumentScreenIssue`),
+ * or it holds a character XML cannot hold (`xmlText.ts::xmlTextIssue`).
  */
-export function holdText(text: string): string | undefined {
+export type UnheldCause =
+	| "nothing-before-carriage-return"
+	| "backslash-before-hash"
+	| "placeholder"
+	| "unrepresentable-character";
+
+/** A text of a stored map Nova's gate admits no spelling of, and why. */
+export interface UnheldText {
+	readonly cause: UnheldCause;
+	/** The text as the language shows it in HQ's build, as it is stored. */
+	readonly text: string;
+}
+
+/**
+ * The text Nova holds for an app string a language shows as `text`, or why
+ * Nova's gate admits no spelling of it. A text that is only spaces is held as
+ * it is, a carriage return in it as a space, since Nova writes it blank as
+ * HQ's build does. Any other is held as a device shows it (`hqDeviceText`):
+ * the text before a carriage return, each `\#` the `#` and then each two
+ * characters `\n` the line break Core reads them as (left to right, as
+ * `parseValue` reads them: `dumps` writes a line break as those two characters
+ * and leaves a `#` a backslash precedes, so HQ's build writes the same line for
+ * either), and the characters up to U+0020 dropped at both ends: the spaces at
+ * its end no device showed, and those at its start and a line break at either
+ * end a device did. Nova prints the held text to the line HQ's build writes
+ * for it, which a device shows as the same text. What a device shows never
+ * holds the two characters `\n` (Core reads each as a line break, which no
+ * replacement makes again), a carriage return or a space at either end, so of
+ * what the gate refuses only a backslash before `#` remains, which two
+ * backslashes then `#` stored spell. What the rest after a carriage return
+ * defines is `keyDefinedAfterLineEnd`'s to say.
+ */
+function holdOrCause(
+	text: string,
+):
+	| { readonly held: string }
+	| { readonly cause: Exclude<UnheldCause, "placeholder"> } {
 	let held = text.replaceAll("\r", " ");
 	if (!blankLooking(text)) {
 		if (pythonBlank(text)) held = javaTrim(text.split("\r")[0] ?? "");
@@ -225,14 +270,37 @@ export function holdText(text: string): string | undefined {
 			const shown = coreLocaleLine(
 				`${SOME_KEY}=${writtenLines(text)[0] ?? ""}`,
 			);
-			if (shown === undefined) return undefined;
+			// Nothing but characters up to U+0020 before the line's end: a carriage return, or a
+			// control character XML cannot hold, which is what the text's own line then holds.
+			if (shown === undefined)
+				return {
+					cause:
+						xmlTextIssue(text.split("\r")[0] ?? "") === undefined &&
+						text.includes("\r")
+							? "nothing-before-carriage-return"
+							: "unrepresentable-character",
+				};
 			held = javaTrim(shown.value);
 		}
 	}
-	return localeFileValueIssue(held) === undefined &&
-		xmlTextIssue(held) === undefined
-		? held
-		: undefined;
+	if (xmlTextIssue(held) !== undefined)
+		return { cause: "unrepresentable-character" };
+	if (localeFileValueIssue(held) !== undefined)
+		return {
+			cause: held.includes("\\#")
+				? "backslash-before-hash"
+				: "unrepresentable-character",
+		};
+	return { held };
+}
+
+/**
+ * The text Nova holds for an app string a language shows as `text`, or
+ * undefined where Nova's gate admits no spelling of it (`holdOrCause`).
+ */
+export function holdText(text: string): string | undefined {
+	const one = holdOrCause(text);
+	return "held" in one ? one.held : undefined;
 }
 
 /** What a reading holds of one text. */
@@ -265,20 +333,47 @@ export function heldText(
 	source: string,
 	role: TranslationUnitRole,
 ): HeldText | undefined {
+	const read = readHeldText(shown, codes, source, role);
+	return "cause" in read ? undefined : read;
+}
+
+/**
+ * What Nova's gate admits no spelling of among the texts `heldText` reads, the
+ * first in the order it reads them (the source language's, then each other
+ * language's in `codes` order), or undefined where it holds every one.
+ */
+export function unheldText(
+	shown: ReadonlyMap<string, string> | Readonly<Record<string, string>>,
+	codes: readonly string[],
+	source: string,
+	role: TranslationUnitRole,
+): UnheldText | undefined {
+	const read = readHeldText(shown, codes, source, role);
+	return "cause" in read ? read : undefined;
+}
+
+/** `heldText`'s reading, with the first text it holds no spelling of and why where it holds none. */
+function readHeldText(
+	shown: ReadonlyMap<string, string> | Readonly<Record<string, string>>,
+	codes: readonly string[],
+	source: string,
+	role: TranslationUnitRole,
+): HeldText | UnheldText {
 	const shownIn = (code: string): string | undefined =>
 		shown instanceof Map
 			? shown.get(code)
 			: Object.hasOwn(shown, code)
 				? (shown as Readonly<Record<string, string>>)[code]
 				: undefined;
-	const holdAs = (text: string): string | undefined => {
-		const one = holdText(text);
-		return one === undefined || appStringValueIssue(one, role) !== undefined
-			? undefined
-			: one;
+	const holdAs = (text: string): string | UnheldText => {
+		const one = holdOrCause(text);
+		if ("cause" in one) return { cause: one.cause, text };
+		return appStringValueIssue(one.held, role) === undefined
+			? one.held
+			: { cause: "placeholder", text };
 	};
 	const held = holdAs(shownIn(source) ?? "");
-	if (held === undefined) return undefined;
+	if (typeof held !== "string") return held;
 	const nonblank = translationRoleRequiresNonblank(role);
 	const translations = new Map<string, string>();
 	const printed: Record<string, string> = {};
@@ -290,7 +385,7 @@ export function heldText(
 			continue;
 		}
 		const own = holdAs(text);
-		if (own === undefined) return undefined;
+		if (typeof own !== "string") return own;
 		// A blank-looking text is no translation where the role requires text (the language
 		// takes the source's), nor beside a blank-looking source, which shows alike.
 		const none = blankLooking(own) && (nonblank || blankLooking(held));
@@ -404,6 +499,59 @@ export function refuseLineEndKey(ctx: ReadContext, path: string): void {
 	ctx.accounting.finding(CLAIMS.lineEndDefinesKey, textPlace(ctx, path), {
 		name: key,
 	});
+}
+
+/** The claim each cause of an unheld text is refused under where the manifest names it. */
+const UNHELD_CLAIMS: Readonly<
+	Record<Exclude<UnheldCause, "unrepresentable-character">, Claim<"refuse">>
+> = {
+	"nothing-before-carriage-return": CLAIMS.lineEndShowsNothing,
+	"backslash-before-hash": CLAIMS.backslashBeforeHash,
+	placeholder: CLAIMS.placeholder,
+};
+
+/**
+ * The one finding at `place` for an app string Nova's gate admits no spelling
+ * of (`unheldText`), stored under the surface key `key`: a text a device shows
+ * none of before a carriage return is refused under the line-end entry where
+ * its rest defines another app string (`keyDefinedAfterLineEnd`, naming that
+ * string's key) and under its own entry otherwise; a text a device shows with
+ * a backslash before `#`, and one holding a `${` a screen of its role fills,
+ * each under its own entry, naming the text as the language shows it. A text
+ * holding a character XML cannot hold, and a map whose text the reader cannot
+ * know (`unheld` undefined), are `unrecognized` under `key`. A caller that
+ * gives this finding reads the rest of what holds the text, so the one text
+ * is one finding.
+ */
+export function refuseUnheldText(
+	ctx: ReadContext,
+	place: HqPlace,
+	key: string,
+	unheld: UnheldText | undefined,
+): void {
+	const refusal = unheldRefusal(unheld);
+	if (refusal === undefined)
+		ctx.accounting.circumstance("unrecognized", place, { name: key });
+	else ctx.accounting.finding(refusal.claim, place, { name: refusal.name });
+}
+
+/**
+ * The claim an unheld text is refused under and the name its finding gives
+ * (`refuseUnheldText`), or undefined where it is `unrecognized`: for a site
+ * that refuses the key holding the text, which the close then leaves.
+ */
+export function unheldRefusal(
+	unheld: UnheldText | undefined,
+): { readonly claim: Claim<"refuse">; readonly name: string } | undefined {
+	if (unheld === undefined || unheld.cause === "unrepresentable-character")
+		return undefined;
+	const defined =
+		unheld.cause === "nothing-before-carriage-return"
+			? keyDefinedAfterLineEnd(unheld.text)
+			: undefined;
+	return defined !== undefined
+		? { claim: CLAIMS.lineEndDefinesKey, name: defined }
+		: { claim: UNHELD_CLAIMS[unheld.cause], name: unheld.text };
 }
 
 /**

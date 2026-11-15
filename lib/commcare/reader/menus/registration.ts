@@ -34,7 +34,11 @@ import {
 import { serializeWire } from "../../xpath/wire/serialize";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
-import { recordTextRewrite, refuseLineEndKey } from "../heldText";
+import {
+	recordTextRewrite,
+	refuseLineEndKey,
+	refuseUnheldText,
+} from "../heldText";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { keptMediaPaths } from "../projectionInputs";
 import { sameXPathText } from "../syntaxCompare";
@@ -52,6 +56,7 @@ import {
 	rawModuleById,
 	rawModules,
 	selectsSeveral,
+	unheldLabel,
 	withReadTranslations,
 	writeBuiltLabel,
 } from "./modules";
@@ -478,15 +483,18 @@ function readLabel(
 		Object.values(stored).some((text) => textOf(text) !== "");
 	const claim = anyText ? REGISTRATION.label : REGISTRATION.labelEmpty;
 	cursor.take("label", claim, (value) => value).value;
-	const held = heldLabel(
-		ctx,
-		labelAsBuilt(stored, langs, CREATE_A_NEW_CASE),
-		"case-list-registration-label",
-	);
-	// A label Nova's gate admits no spelling of (one a device shows none of, a character XML
-	// cannot hold, `heldText.ts::holdText`) is kept as built here, and the settle's comparison
-	// leaves it unrecognized.
-	const built = held?.texts ?? labelAsBuilt(stored, langs, CREATE_A_NEW_CASE);
+	const asBuilt = labelAsBuilt(stored, langs, CREATE_A_NEW_CASE);
+	const held = heldLabel(ctx, asBuilt, "case-list-registration-label");
+	// A label Nova's gate admits no spelling of (`heldText.ts::unheldText`) is one finding at the
+	// case list, whose settle then compares nothing there, and is kept as built here.
+	if (held === undefined)
+		refuseUnheldText(
+			ctx,
+			caseListPlaceOf(host),
+			"schema:CaseListForm.label",
+			unheldLabel(ctx, asBuilt, "case-list-registration-label"),
+		);
+	const built = held?.texts ?? asBuilt;
 	const fixed = !anyText || langs.some((lang) => stored[lang] === "");
 	if (fixed) {
 		ctx.facts.sameStateRewrites.push({
@@ -496,9 +504,8 @@ function readLabel(
 		});
 		// The fix records the rewrite under its own register, which `recordTextRewrite` below may
 		// not reach, so a held label whose rest after a carriage return defines another app string
-		// is refused here too. A label Nova holds no spelling of is left unrecognized by the
-		// settle instead, as every held text a device shows none of is, whether or not a language
-		// holds the blank HQ's build fills.
+		// is refused here too. A label Nova holds no spelling of has its one finding above,
+		// whether or not a language holds the blank HQ's build fills.
 		if (held !== undefined) refuseLineEndKey(ctx, `${cursor.pointer}/label`);
 	}
 	// Any other map Nova prints another way (a language with no key, a `null`, a language the app

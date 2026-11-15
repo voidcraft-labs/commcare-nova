@@ -1679,7 +1679,7 @@ one. Part 07 claims no key of the other rows: it reads their result from `ctx.dr
 |---|---|
 | `doc_type`, `module_type` | 7.1; `module_type` is at its class's default or is covered by the document-type finding |
 | `unique_id` | 7.2 |
-| `name` | `take(modulebase-name)`, read by `structure.ts::nameAsRead` (below): the text CommCare HQ's build shows in the source language, held as `heldName` holds it, into `module.name`, each other language's where it differs through `ctx.translations`; a map the reader cannot know (no JSON object, or a chosen value that is a number, an object or an array), or whose text Nova's gate admits no spelling of (a text a device shows none of, or a character XML cannot hold, `heldText.ts::holdText`), is left unclaimed for the close; a text whose rest after a carriage return defines an app string is refused at the menu (`heldText.ts::keyDefinedAfterLineEnd`) |
+| `name` | `take(modulebase-name)`, read by `structure.ts::nameAsRead` (below): the text CommCare HQ's build shows in the source language, held as `heldName` holds it, into `module.name`, each other language's where it differs through `ctx.translations`; a map the reader cannot know (no JSON object, or a chosen value that is a number, an object or an array), is left unclaimed for the close, and one whose text Nova's gate admits no spelling of is one finding at the menu (`heldText.ts::unheldRefusal`, below): refused at the key under the entry that names why, or left unclaimed where it holds a character XML cannot hold; a text whose rest after a carriage return defines an app string is refused at the menu (`heldText.ts::keyDefinedAfterLineEnd`) |
 | `forms` | `list(…, take(module-forms))`, each child's class from its `doc_type` |
 | `comment` | `account(comment-module)` |
 | `ref_details`, `referral_list` | `account(module-ref-details)`, `account(module-referral-list)` |
@@ -1738,15 +1738,22 @@ for a name), whose rules for a name are:
   `\n`), so a name holding a backslash before `#` is held with the `#` alone, which Nova's gate
   admits and `dumps` writes as `\#`, and only the stored map is new, while a name a device shows
   with a backslash before `#` (two backslashes then `#` stored) has no spelling the gate admits
-  (`localeFile.ts::localeFileValueIssue`) and is left unclaimed; Core ends a
+  (`localeFile.ts::localeFileValueIssue`) and is refused at the menu or form under
+  `application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash`
+  (`heldText.ts::unheldRefusal`); Core ends a
   line at a carriage return (`BufferedReader.readLine`), so a name holding one is held as the text
   before it, unless the rest is a line that defines an app string (`heldText.ts::keyDefinedAfterLineEnd`:
   a `=` with text after it), which sets the wording of another text and is refused under
   `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string` at
-  the menu or form, where the map's rewrite is recorded (`heldText.ts::recordTextRewrite`); a name a
-  device shows none of (nothing after the key before a carriage return) or holding a character XML
-  cannot hold leaves the map unclaimed for the close, and so does a name a device shows holding a
-  `${` that some screen reads as a placeholder (`localeFile.ts::argumentScreenIssue`): Android's menu
+  the menu or form, where the map's rewrite is recorded (`heldText.ts::recordTextRewrite`), or, where
+  a device shows none of the name, by `heldText.ts::unheldRefusal`; a name a device shows none of
+  (nothing after the key before a carriage return) whose rest defines no app string is refused under
+  `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing`,
+  a name holding a character XML cannot hold leaves the map unclaimed for the close, and a name a
+  device shows holding a `${` that some screen reads as a placeholder
+  (`localeFile.ts::argumentScreenIssue`) is refused under
+  `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`, each one finding at
+  the menu or form: Android's menu
   list (`MenuAdapter.setupTextView`) and every screen title and breadcrumb, Web Apps' included
   (`CommCareSession.getHeaderTitles`), read a menu's or form's name through Core's
   `Localizer.processArguments(name, new String[]{""})` and trim it, which shows `Visits ${0}` as

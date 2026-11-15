@@ -8,7 +8,9 @@
  * Nova no longer writes is the one finding
  * `questions/savetocase-block-outside-nova-s-own-block-shape` at its place
  * and no operation, with no canonicalization that would make an old shape
- * read as today's; a block of a shape Nova still writes raises nothing, and
+ * read as today's (a block Nova still writes, in a form whose changes the
+ * gate refuses together, is that refusal's finding instead); a block of a
+ * shape Nova still writes raises nothing, and
  * a guard of a block that raises it raises nothing of its own. The
  * plausible failure: a block of a shape Nova no longer writes read into an
  * operation, which the first publish would write in another shape, moving
@@ -74,7 +76,7 @@ describe("Save to Case blocks of an earlier shape, as CommCare HQ served them", 
 		expect(outside).toHaveLength(blocks.length);
 	});
 
-	it("raises the new entry at the one block of targeted-migration-case-writes of an earlier shape, and at no other", async () => {
+	it("raises the new entry at no block of targeted-migration-case-writes, whose Discharge form closes its own case beside its own change", async () => {
 		const { blocks, outside, outcome } = await blocksAndFindings(
 			"targeted-migration-case-writes",
 		);
@@ -97,15 +99,20 @@ describe("Save to Case blocks of an earlier shape, as CommCare HQ served them", 
 				),
 			).toEqual([]);
 		// The Discharge form closes its own case in a block of its operation's name that also
-		// writes the case's type: a close of the form's own case, which Nova no longer writes as an
-		// operation, and not its own close, whose close-only block writes no type. Read as the own
-		// close it does not print back.
-		expect(outside).toEqual([
-			{
-				menu: 1,
-				form: 1,
-				path: "nova_operations/nova_condition_discharge_household/discharge_household",
-			},
-		]);
+		// writes the case's type: a close operation's block, as Nova writes one today, and not its
+		// own close, whose close-only block writes no `update`. A close of the form's own case
+		// beside its own change is a document the gate refuses (`CASE_OPERATION_CLOSES_OWN_CASE`),
+		// so the reading is the one finding of that shape at the form, and no block is outside
+		// Nova's shape.
+		expect(outside).toEqual([]);
+		expect(
+			findings
+				.filter(
+					(finding) =>
+						finding.code ===
+						"questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it",
+				)
+				.map((finding) => finding.place),
+		).toEqual([expect.objectContaining({ kind: "form", menu: 1, form: 1 })]);
 	});
 });

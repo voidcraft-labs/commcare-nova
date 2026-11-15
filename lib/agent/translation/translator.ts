@@ -5,7 +5,9 @@ import { z } from "zod";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
 import type { SubGenerationObjectResult } from "@/lib/agent/subGeneration";
 import {
-	appStringValueIssue,
+	type AppStringIssue,
+	appStringIssue,
+	appStringIssueSentence,
 	translationUnitUsesLocaleFile,
 } from "@/lib/commcare/localeFile";
 import {
@@ -255,10 +257,57 @@ export function decodeTranslatedValue(
 	return value;
 }
 
+/**
+ * A translation's text as Nova keeps it: its line breaks
+ * (`normalizeTranslatedLineBreaks`), and, in a role whose text lands in the
+ * app strings (`localeFile.ts::translationUnitUsesLocaleFile`), each backslash
+ * a model writes before `#` as Markdown escapes it left out
+ * (`withoutHashEscapes`), since a device shows that text without it.
+ */
+export function normalizeTranslatedFormatting(
+	encoded: EncodedTranslationUnit,
+	text: string,
+): string {
+	const normalized = normalizeTranslatedLineBreaks(encoded, text);
+	return translationUnitUsesLocaleFile(encoded.role)
+		? withoutHashEscapes(encoded, normalized)
+		: normalized;
+}
+
+/** The reference parts a protected token can stand for whose text starts with `#`: a chip's
+ *  hashtag (`prose.ts::projectProseTemplate`). */
+const HASHTAG_PARTS: ReadonlySet<ProsePart["kind"]> = new Set([
+	"field-ref",
+	"case-ref",
+	"user-property-ref",
+	"user-ref",
+]);
+
+/**
+ * `text` with each backslash before `#` left out, as CommCare Core reads the
+ * line CommCare HQ's build and Nova's archive write for an app string: `dumps`
+ * leaves a `#` a backslash precedes as it is and escapes every other one, and
+ * Core reads each `\#` as `#`, left to right (`LocalizationUtils.parseValue`),
+ * so the text this gives is the one a device shows of `text`, the same
+ * replacement over the same characters. A backslash before a protected token
+ * whose reference prints as a hashtag is a backslash before that `#`, and is
+ * left out too. Two backslashes before `#` leave one, which a device shows,
+ * and the gate still refuses it.
+ */
+function withoutHashEscapes(
+	encoded: EncodedTranslationUnit,
+	text: string,
+): string {
+	let out = text.replaceAll("\\#", "#");
+	for (const [token, part] of encoded.tokenReferences)
+		if (HASHTAG_PARTS.has(part.kind)) out = out.replaceAll(`\\${token}`, token);
+	return out;
+}
+
 /** JSON parsing already decodes ordinary newline escapes. A doubled escape
  * is a provider formatting error only when the source contains real line
  * breaks and does not itself describe the literal backslash-n sequence. */
-export function normalizeTranslatedFormatting(
+function normalizeTranslatedLineBreaks(
 	encoded: EncodedTranslationUnit,
 	text: string,
 ): string {
@@ -478,6 +527,20 @@ export function normalizeTranslationUsage(
 	};
 }
 
+/** What a translation writes instead of each sequence a device shows otherwise, told to the
+ *  model with its refusal. */
+const TRANSLATION_REPAIRS: Readonly<Record<AppStringIssue, string>> = {
+	"backslash-n":
+		"Write a line break as an actual newline character, and keep a backslash and the letter n apart.",
+	"backslash-hash": "Write # with no backslash before it.",
+	"carriage-return":
+		"Write a line break as an actual newline character, never a carriage return.",
+	"edge-space":
+		"Leave out the spaces and line breaks at the start and the end of the text.",
+	placeholder:
+		"Write the text without ${: keep $ and { apart, or leave the $ out, as the source text does.",
+};
+
 export function validateTranslationBatchOutput(
 	units: readonly EncodedTranslationUnit[],
 	output: TranslationBatchOutput,
@@ -495,12 +558,14 @@ export function validateTranslationBatchOutput(
 			throw new Error(`Translation output repeated unit ${item.unitId}.`);
 		}
 		if (translationUnitUsesLocaleFile(unit.role)) {
-			const issue = appStringValueIssue(
+			const issue = appStringIssue(
 				normalizeTranslatedFormatting(unit, item.translatedText),
 				unit.role,
 			);
 			if (issue !== undefined) {
-				throw new Error(`Translation unit ${item.unitId} ${issue}.`);
+				throw new Error(
+					`Translation unit ${item.unitId} ${appStringIssueSentence(issue)}. ${TRANSLATION_REPAIRS[issue]}`,
+				);
 			}
 		}
 		translated.set(

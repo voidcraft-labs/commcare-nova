@@ -62,6 +62,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"blank-form": "Forms with no questions",
 	"build-profiles": "Build profiles",
 	"call-center-indicators": "Call center indicators",
+	"carriage-returns": "Carriage returns in text",
 	"case-attachments": "Files saved on a case",
 	"case-detail-tabs": "Case detail tabs",
 	"case-list-callout": "Case list lookups",
@@ -124,6 +125,8 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"search-setup": "Search setup",
 	"shadow-forms": "Shadow forms",
 	"supply-features": "CommCare Supply",
+	"text-backslashes": "Backslashes before #",
+	"text-placeholders": "Placeholders in names and labels",
 	"training-menus": "Training menus",
 	"translation-overrides": "Changed wording in translations",
 	"visit-scheduler": "Visit schedules",
@@ -181,6 +184,7 @@ export const FINDING_COPY: Readonly<
 	"call-center-indicators": {
 		never: "This uses call center indicators, which Nova doesn't bring in.",
 	},
+	"carriage-returns": {},
 	"case-attachments": {
 		never:
 			"This uses pictures or files saved on a case itself, which Nova doesn't bring in.",
@@ -405,6 +409,8 @@ export const FINDING_COPY: Readonly<
 	"supply-features": {
 		never: "This uses CommCare Supply features, which Nova doesn't bring in.",
 	},
+	"text-backslashes": {},
+	"text-placeholders": {},
 	"training-menus": {
 		never:
 			"This uses a training menu or release notes form, which Nova doesn't bring in.",
@@ -500,6 +506,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"A form here has no questions, which CommCare HQ won't build.",
 	},
+	"carriage-returns": {
+		"breaks-when-run":
+			"A text here holds a carriage return, where devices end the text's line. Devices don't show the text as written, and they read the part after the carriage return as a line of its own, which can set the wording of another text. Without the carriage return, devices show the whole text.",
+	},
 	"case-types": {
 		"hq-refuses":
 			"A case type here holds a character CommCare HQ's menu settings can't save.",
@@ -537,9 +547,13 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"A question ID here is one CommCare HQ's form builder can't keep.",
 	},
-	"translation-overrides": {
+	"text-backslashes": {
 		"breaks-when-run":
-			"A text here holds a carriage return, where CommCare HQ ends the text's line in the app's wording. Devices show only the part before it, and the part after it sets the wording of another text in the app.",
+			"A text here shows on devices with a backslash right before #, which Nova can't hold. Taking out the backslashes before # fixes it.",
+	},
+	"text-placeholders": {
+		"breaks-when-run":
+			"A name or label here holds a ${ that CommCare reads as a placeholder on some screens, such as Android's menus and every screen title, while other screens show it as typed. Taking out the ${ and what follows it up to its closing brace, where it has one, fixes it.",
 	},
 };
 
