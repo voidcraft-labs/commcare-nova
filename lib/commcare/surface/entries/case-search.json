@@ -4402,6 +4402,34 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "an `_xpath_query` conjunct that reads a prompt with `exclude` outside that prompt's presence guard",
+		"surfaceKeys": [
+			"schema:CaseSearch.default_properties",
+			"schema:DefaultCaseSearchProperty",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"csql-key:_xpath_query"
+		],
+		"valueClass": "conjunct-over-an-excluded-field-unguarded",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a condition on an excluded Search field applied whether or not the field is answered: the device builds the search's input list from the answered fields alone (`RemoteQuerySessionManager.getUserQueryValues`), so while the field is unanswered the row compares with a blank; Nova holds a condition on an excluded field only under the field's presence guard, which leaves the search unfiltered until the field is answered (`searchInputRefUsesWhenInputPresent.ts`)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"area": "case-search",
 		"section": "Case search",

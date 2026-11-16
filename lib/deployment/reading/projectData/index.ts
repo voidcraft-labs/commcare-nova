@@ -529,22 +529,23 @@ export function projectDataReadsOf(
 
 /**
  * The failed read of the levels and places a reading ends with, or null.
- * `placesUnread` ends it where the reader's document reads places, and
- * wherever the reader refused something (an `account`): the reader ran
+ * `placesUnread` ends it where the app reads places: where the reader's
+ * document reads them, or, for an account, where some expression of the
+ * source reads them, refused or not (`readsLocations`). The reader ran
  * without CommCare HQ's levels, so a read of a place at a level names a
  * level it does not hold and is refused as an expression no runtime can
- * evaluate as its author meant, which no bound tree then shows as a read of
- * places. Such an account would name a permission as a broken app; asking
- * for the permission first leaves only refusals that are the app's own.
- * Only a document the reader read whole, with no refusal, says the app
- * reads no place, and then the failure is dropped. Pure.
+ * evaluate as its author meant; that account would name a permission as a
+ * broken app, and asking for the permission first leaves only refusals that
+ * are the app's own. Where nothing in the app reads a place, the failure is
+ * dropped, an account's refusals standing alone. Pure.
  */
 export function unreadPlacesFailure(
 	data: ReadingProjectData,
 	outcome: ReadOutcome,
 ): HqFailure | null {
 	if (data.placesUnread === null) return null;
-	if (outcome.kind === "account") return data.placesUnread;
+	if (outcome.kind === "account")
+		return outcome.readsLocations ? data.placesUnread : null;
 	return documentReadsPlaces(outcome.draft.doc) ? data.placesUnread : null;
 }
 

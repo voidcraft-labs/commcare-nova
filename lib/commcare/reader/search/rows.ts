@@ -41,6 +41,7 @@ import {
 	simpleArmNeedsXPathQueryEmission,
 } from "../../suite/case-search/simpleArmDerivation";
 import { ZERO_INPUT_SEARCH_SENTINEL } from "../../suite/case-search/xpathQuery";
+import { unguardedSearchInputReads } from "../../validator/rules/case-list/searchInputRefUsesWhenInputPresent";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { withCandidate } from "../candidate";
 import { sameState } from "../caseList/details";
@@ -81,6 +82,10 @@ export const MARKERS_HELD = `${S}default-properties-entries-keyed-include-closed
 export const ROW_CLAIMS = defineClaims("search.rows", {
 	readsMatchedField: refuse(
 		`${S}xpath-query-row-reading-a-field-hq-also-matches`,
+		"schema:CaseSearch.default_properties",
+	),
+	readsExcludedField: refuse(
+		`${S}xpath-query-row-reading-an-excluded-field-outside-its-presence-guard`,
 		"schema:CaseSearch.default_properties",
 	),
 	noSlot: refuse(
@@ -1312,10 +1317,15 @@ export function classifySearchRows(
 				if (ownsFilter) filterCandidate();
 				for (const field of holders()) fieldCandidate(field);
 			}
-			const passing = candidates.flatMap((candidate) => {
-				const inOrder = keepsOrder(candidate.doc, candidate.from);
-				return inOrder === undefined ? [] : [{ ...candidate, inOrder }];
-			});
+			// A conjunct that reads a field outside its presence guard is no condition Nova prints in
+			// either slot (the gate's `searchInputRefUsesWhenInputPresent`), so neither candidate holds it.
+			const unguarded = unguardedSearchInputReads(conjunct);
+			const passing = (unguarded.length > 0 ? [] : candidates).flatMap(
+				(candidate) => {
+					const inOrder = keepsOrder(candidate.doc, candidate.from);
+					return inOrder === undefined ? [] : [{ ...candidate, inOrder }];
+				},
+			);
 			const chosen = passing.find((one) => one.inOrder) ?? passing[0];
 			// F: the search's own filter, joined to the list filter.
 			const joinsFilter =
@@ -1359,8 +1369,19 @@ export function classifySearchRows(
 				});
 				continue;
 			}
+			// An unguarded read of an excluded field alone is the excluded field's own entry: HQ's
+			// matcher does not compare that field, and the row compares a blank while it is unanswered.
 			const claim =
-				reads.length > 0 ? ROW_CLAIMS.readsMatchedField : ROW_CLAIMS.noSlot;
+				reads.length === 0
+					? ROW_CLAIMS.noSlot
+					: unguarded.length > 0 &&
+							unguarded.every(
+								(uuid) =>
+									input.prompts.find((one) => one.uuid === uuid)?.exclude ===
+									true,
+							)
+						? ROW_CLAIMS.readsExcludedField
+						: ROW_CLAIMS.readsMatchedField;
 			ctx.accounting.finding(claim, place);
 			record({ kind: "E", entry: claim.entry });
 		}

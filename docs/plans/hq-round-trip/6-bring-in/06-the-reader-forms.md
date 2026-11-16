@@ -758,10 +758,17 @@ time (part 08, 2.5; part 11, 11.5):
    - `rewrites` is kept on `ctx.facts` for part 09's register (its 11.2), and `rounds` as
      `ReadFacts.expressionRounds` for part 12's log. `declaredProperties` is not kept: the
      properties it lists are in the document the run gave, and no part reads the list;
-   - `readsLocations` (2.2) is set: true where `worldReads.locationDataSlugs` holds a slug, or some
+   - `readsLocations` (2.2) is set: true where `worldReads.locationDataSlugs` holds a slug, some
      tree of `ExpressionReading.bound` holds a `locations`, `location-field`, `location-level` or
      `owner-location-at-level` leaf, the leaves part 11's `documentReadsPlaces` names (its 11.1),
-     found with `expression/walk.ts::walkExpressionTerms`.
+     found with `expression/walk.ts::walkExpressionTerms`, or some registration's text, held or
+     refused, calls `instance('<id>')` for an id naming a list of places where it is evaluated (a
+     form attribute's id one its form declares over `jr://fixture/locations` or
+     `jr://fixture/commtrack:locations`, any other slot's `locations`, the id CommCare HQ's build
+     declares over the places, `suite_xml/post_process/instances.py::location_fixture_instances`;
+     `provisional.ts::textReadsPlaces`): a refused read of a place is still one the app makes, and
+     part 11's `unreadPlacesFailure` ends an account with a failed read of the places only where
+     this is true.
 
 ```ts
 // lib/commcare/reader/context.ts

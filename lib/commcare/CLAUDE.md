@@ -309,7 +309,9 @@ a re-read), the source project space's lookup tables, organization levels and
 media files, whether that project space applies "save only if changed", and,
 for an app Nova already holds, `knownCaseTypes`, the case type each index of a
 type reaches, consulted only where the app itself fixes none (no child link,
-no parent selection, no open action's index), and `knownLanguageCodes`, the
+no parent selection, no open action's index), and the type its catalog
+declares for each property, which no print carries and every read of the
+property lowers by, and `knownLanguageCodes`, the
 language each wire code it stored names, which a re-read takes before
 `languageIdentityForHqCode`. The app's first language (HQ's `langs[0]`) is its default. The
 reading's source language, whose text the document's own slots hold, is the

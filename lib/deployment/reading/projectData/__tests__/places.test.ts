@@ -20,6 +20,7 @@ import {
 	LOCATION_LEVELS,
 	locationOwnerFixture,
 } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
+import { readHqApp } from "@/lib/commcare/reader";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import type { ReadOutcome } from "@/lib/commcare/reader/types";
 import type {
@@ -30,6 +31,7 @@ import type {
 } from "@/lib/domain";
 import type { LookupRevision } from "@/lib/lookup/types";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import { readBackInput, servedExport } from "../../__tests__/novaReading";
 import { manifestFinding } from "../findings";
 import {
 	assembleReadingProjectData,
@@ -204,7 +206,7 @@ describe("unreadPlacesFailure", () => {
 	};
 	// A reading run without CommCare HQ's levels refuses a read of a place at
 	// a level as an expression it cannot evaluate, and no bound tree then
-	// reads places: an account that says it reads none.
+	// reads places: an account whose source still reads them.
 	const account: ReadOutcome = {
 		kind: "account",
 		findings: [
@@ -218,7 +220,7 @@ describe("unreadPlacesFailure", () => {
 		claims,
 		defects: [],
 		unreadTables: [],
-		readsLocations: false,
+		readsLocations: true,
 	};
 	const readOf = (doc: BlueprintDoc): ReadOutcome => ({
 		kind: "read",
@@ -245,8 +247,53 @@ describe("unreadPlacesFailure", () => {
 		defects: [],
 	});
 
-	it("ends a reading the reader refused, whatever its refusals read, so a permission is never shown as a broken app", () => {
+	it("ends a reading the reader refused where its source reads places, so a permission is never shown as a broken app", () => {
 		expect(unreadPlacesFailure(unread(failure), account)).toEqual(failure);
+	});
+
+	it("drops the failure for a reading the reader refused whose source reads no place", () => {
+		expect(
+			unreadPlacesFailure(unread(failure), {
+				...account,
+				readsLocations: false,
+			}),
+		).toBeNull();
+	});
+
+	/** A whole reading of `doc`'s export, told no level as a reading that could not read CommCare
+	 *  HQ's places is, with the app body changed by `edit`. */
+	async function readWithoutPlaces(
+		doc: BlueprintDoc,
+		edit: (body: Record<string, unknown>) => void = () => {},
+	): Promise<ReadOutcome> {
+		const served = servedExport(doc);
+		edit(served.body);
+		return readHqApp({
+			...(await readBackInput(doc, served)),
+			organization: { levelCodes: [], levels: [] },
+		});
+	}
+
+	it("ends a reading whose only read of a place the reader refused", async () => {
+		const outcome = await readWithoutPlaces(locationOwnerFixture("direct"));
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "account")
+			throw new Error("A read of a level no level names was held.");
+		expect(outcome.readsLocations).toBe(true);
+		expect(unreadPlacesFailure(unread(failure), outcome)).toEqual(failure);
+	});
+
+	it("drops the failure for a reading the reader refused for something else, whose app reads no place", async () => {
+		const outcome = await readWithoutPlaces(
+			locationOwnerFixture("plain"),
+			(body) => {
+				body.use_custom_suite = true;
+			},
+		);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "account") throw new Error("A custom suite was read.");
+		expect(outcome.readsLocations).toBe(false);
+		expect(unreadPlacesFailure(unread(failure), outcome)).toBeNull();
 	});
 
 	it("ends a reading whose document reads places", () => {

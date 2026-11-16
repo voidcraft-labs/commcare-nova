@@ -65,7 +65,7 @@ and a grouped observation only gains one field (6.4). So nothing here moves
 2. **`subject` is required on every HELD-NEW and REFUSED entry and forbidden elsewhere** (2.2). It is one
    of 83 slugs in `lib/publish/hqFindings.ts::SUBJECTS`, each a noun a person would use. Appendix A
    assigns the 586 entries the manifest held when the step began and every entry the step adds. Where
-   every run gives the outcome its part plans for, 676 entries hold one when the step is done: 296
+   every run gives the outcome its part plans for, 677 entries hold one when the step is done: 297
    HELD-NEW and 380 REFUSED.
 3. **`owner` is required on every HELD-NEW entry and forbidden elsewhere** (2.3). It is one of the
    eight step 7 group ids, the groups of `7-rest-of-model.md`. An entry step 6 itself flips carries
@@ -793,7 +793,7 @@ export type Step7Group = (typeof STEP_7_GROUPS)[number];
 
 `inventoryEntrySchema`'s HELD-NEW arm gains `owner: z.enum(STEP_7_GROUPS)`; no other arm admits it.
 Appendix A.1 assigns every one. Where every run gives the outcome its part plans for, the counts when
-the step is done are `case-list-and-detail` 63, `question-display` 63, `case-search` 44,
+the step is done are `case-list-and-detail` 63, `question-display` 63, `case-search` 45,
 `forms-and-case-management` 41, `xform` 40, `menus` 22, `project-data-at-hq-size` 13 and
 `settings-nova-comes-to-own` 10 (the manifest test computes them). Updating a copy in a second
 project space is a thing Nova does, not content an app holds, so no entry can name it and the list
@@ -4455,7 +4455,7 @@ Counts by owner over these 237: `case-list-and-detail` 56, `case-search` 30,
 
 Each entry below becomes HELD-NEW in this step and holds both fields from then on. The part and
 section beside it write the entry's other fields. An entry marked "re-cut" exists today under another
-disposition. There are 80.
+disposition. There are 81.
 
 - `advanced-forms` → `forms-and-case-management` (part 07, `07-the-reader-cases-menus-lists.md`,
   section 14): `forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain`,
@@ -4552,6 +4552,7 @@ disposition. There are 80.
   `questions/savetocase-link-name-outside-nova-s-identifier-grammar`
 - `search-default-filters` → `case-search` (part 07, section 14):
   `case-search/xpath-query-row-reading-a-field-hq-also-matches`,
+  `case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard`,
   `case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s`
 - `search-expressions` → `case-search` (part 08, section 11):
   `case-search/a-search-value-that-queries-cases-a-table-or-places`,

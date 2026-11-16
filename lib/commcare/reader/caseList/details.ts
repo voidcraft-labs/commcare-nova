@@ -1205,7 +1205,7 @@ export function readCaseDetails(
 		ctx.writeDraft(() => {
 			ctx.draft.caseTypes = produce(ctx.draft.caseTypes ?? [], (draft) => {
 				for (const property of properties)
-					noteProperty(draft, caseType, property);
+					noteProperty(draft, caseType, property, ctx.input.knownCaseTypes);
 			});
 		});
 	if (caseType !== undefined) {

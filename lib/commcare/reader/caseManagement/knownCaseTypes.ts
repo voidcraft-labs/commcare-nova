@@ -1,16 +1,25 @@
 /**
  * What Nova holds of an app's case types that no export of it carries: the
- * case type each index of a type reaches. A document's catalog can name a
- * type's parent while nothing in the app does (no form opens a case of the
- * type under one, no menu chooses its case after its parent's), and CommCare
- * HQ's app then holds an update key `parent/<property>` with the ancestor's
+ * type its catalog declares for each property, and the case type each index
+ * of a type reaches. A declared type is no byte of an export, yet every print
+ * of a read of the property lowers by it (a sort's comparator, a
+ * `datetime-coerce`, a `format-date`, a comparison of dates and times), so a
+ * reading that did not declare it would print the app's logic another way.
+ * And a document's catalog can name a type's parent while nothing in the app
+ * does (no form opens a case of the type under one, no menu chooses its case
+ * after its parent's), and CommCare HQ's app then holds an update key `parent/<property>` with the ancestor's
  * type nowhere. Any other index is typed in the step that walks it, a save
  * through `host` or a read through a custom index naming the type it reaches
  * (`throughCaseType`), and HQ's key `host/<property>` carries that type
  * nowhere either. A reading of an app Nova holds is told what its document
  * says, as it is told the project space's tables and levels.
  */
-import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CasePropertyDataType,
+	CaseType,
+	Uuid,
+} from "@/lib/domain";
 import { type RelationStep, walkExpression } from "@/lib/domain/expression";
 import { operationCaseType } from "@/lib/domain/forms";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
@@ -47,6 +56,14 @@ export function knownCaseTypesOf(doc: BlueprintDoc): ReaderKnownCaseTypes {
 		if (type.parent_type !== undefined && !parents.has(type.name))
 			parents.set(type.name, type);
 	const parentOf = (caseType: string) => parents.get(caseType)?.parent_type;
+	const declared = new Map<string, CasePropertyDataType>();
+	for (const type of doc.caseTypes ?? [])
+		for (const property of type.properties)
+			if (property.data_type !== undefined)
+				declared.set(
+					JSON.stringify([type.name, property.name]),
+					property.data_type,
+				);
 	const typed = new Map<string, Set<string>>();
 	const key = (caseType: string, identifier: string) =>
 		JSON.stringify([caseType, identifier]);
@@ -95,6 +112,8 @@ export function knownCaseTypesOf(doc: BlueprintDoc): ReaderKnownCaseTypes {
 				},
 			});
 	return {
+		declaredTypeOf: (caseType, property) =>
+			declared.get(JSON.stringify([caseType, property])),
 		targetOf: (caseType, identifier): KnownIndexTarget | undefined => {
 			if (identifier === "parent") {
 				const parent = parents.get(caseType);

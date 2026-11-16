@@ -106,8 +106,13 @@ first reading; `matchingResolver` with the identities of the document Nova holds
 which `identityMapParity.test.ts` holds to `externalIdentityMap`), the source project space's
 lookup tables, organization levels and media files, the app strings Nova's build gives a
 document, the record dialect's judge, whether the project space applies "save only if changed",
-and, for an app Nova already holds, `knownCaseTypes`, the case type each index of a type reaches,
-consulted only where the app itself fixes none, and `knownLanguageCodes`
+and, for an app Nova already holds, `knownCaseTypes`: the case type each index of a type reaches,
+consulted only where the app itself fixes none, and the type the document declares for each
+property, which every property the reading holds takes (`catalog.ts::noteProperty`,
+`declareToldTypes`) unless a question writing it gives values that type cannot hold, since no print
+tells a reading a declared type and a sort's comparator, `datetime-coerce`, `format-date` and a
+comparison of dates and times each lower by it (`case-catalog-is-as-read` keeps every declared type
+of a property it keeps); and `knownLanguageCodes`
 (`languages.ts::knownLanguageCodesOf`), the language each stored wire code names, read before
 `languageIdentityForHqCode` because a stored code is never re-minted while the minter's spelling
 for an identity can change. A first reading is told neither. A test builds the input through

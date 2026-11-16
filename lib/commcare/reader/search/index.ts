@@ -431,12 +431,13 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		if (related && app.caseTypes != null)
 			ctx.writeDraft(() => {
 				app.caseTypes = produce(app.caseTypes ?? [], (draft) => {
+					const told = ctx.input.knownCaseTypes;
 					for (const property of properties)
-						noteProperty(draft, caseType, property);
+						noteProperty(draft, caseType, property, told);
 					for (const { links, properties: reads } of relations) {
 						for (const link of links) declareParent(draft, link);
 						for (const read of reads)
-							noteProperty(draft, read.caseType, read.property);
+							noteProperty(draft, read.caseType, read.property, told);
 					}
 				});
 			});

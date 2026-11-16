@@ -990,6 +990,9 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		entryFactsRefused: new Set(ctx.facts.entryFactsRefused),
 		formPlaces,
 		computedDatums,
+		...(ctx.input.knownCaseTypes !== undefined && {
+			knownCaseTypes: ctx.input.knownCaseTypes,
+		}),
 	};
 }
 
