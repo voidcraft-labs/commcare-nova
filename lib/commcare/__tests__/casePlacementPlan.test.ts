@@ -26,6 +26,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { eq } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
+import { expandDoc } from "../expander";
 import { formCaseEntryPlan } from "../formCaseEntryPlan";
 import { basicActionsWriteWorker } from "../session";
 import {
@@ -51,6 +52,25 @@ import {
 } from "./placementFixture";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
 import { blueprintDocArbitrary } from "./xformDocArbitrary";
+import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
+
+/** Whether a form's source holds the data node at the absolute `path` (`/data/a/b`): the main
+ *  instance's root and each step below it, by element name. */
+function dataNodeAt(source: string, path: string): boolean {
+	const find = (node: XmlEvidence, name: string): XmlEvidence | undefined =>
+		node.name === name
+			? node
+			: node.children.reduce<XmlEvidence | undefined>(
+					(found, child) => found ?? find(child, name),
+					undefined,
+				);
+	const instance = find(readXmlEvidence(source), "instance");
+	const [root, ...steps] = path.split("/").filter((step) => step !== "");
+	let at = instance?.children.find((child) => child.name === root);
+	for (const step of steps)
+		at = at?.children.find((child) => child.name === step);
+	return at !== undefined;
+}
 
 /** The plan of a form its menu emits basic. */
 function basicPlan(doc: BlueprintDoc, formUuid: Uuid): BasicFormCaseWirePlan {
@@ -227,6 +247,41 @@ describe("planFormCaseWire", () => {
 		expect(plan.appendedNames.map(({ name }) => name)).toEqual([
 			"commcare_usercase",
 		]);
+	});
+
+	it("names, for each case name a basic action reads, a node the form's source holds", () => {
+		// A question a Save to Case block names a case from is a guard candidate,
+		// and the builder writes its trimmed sibling only where an action reads it;
+		// the own case's rename from that same question must not name a sibling
+		// no source holds.
+		for (const keyed of [false, true]) {
+			const { doc, formUuid } = placementFixture("followup", {
+				operations: () => [
+					own({ rename: read("name") }),
+					...(keyed
+						? [
+								{
+									uuid: OP("household"),
+									id: "household",
+									action: "create",
+									caseType: "household",
+									target: { kind: "new", idFrom: U("name") },
+									name: read("name"),
+								} as CaseOperation,
+							]
+						: []),
+				],
+			});
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+			const path = basicPlan(doc, formUuid).actions.update_case.update.name
+				?.question_path;
+			if (path === undefined) throw new Error("The rename names no question.");
+			const hq = expandDoc(doc);
+			const form = hq.modules[0]?.forms[0];
+			const source = hq._attachments[`${form?.unique_id}.xml`];
+			if (typeof source !== "string") throw new Error("Missing form source");
+			expect(dataNodeAt(source, path), `${keyed}: ${path}`).toBe(true);
+		}
 	});
 
 	it("writes a held Save to Case path verbatim", () => {

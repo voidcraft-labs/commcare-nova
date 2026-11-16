@@ -222,7 +222,7 @@ it("never pushes places to the project space that manages them, and refreshes th
 			outcome.checks.find((check) => check.id === "organization"),
 		).toMatchObject({
 			status: "passed",
-			detail: managedPlacesPassed("clinic"),
+			detail: managedPlacesPassed("clinic", true),
 			items: [],
 		});
 		expect(publishRequests(peer)).toEqual([
@@ -403,4 +403,82 @@ it("stands a persona in the place CommCare HQ manages, by that place's id there"
 	expect(sent).toEqual([
 		{ locations: ["hq-north"], primary_location: "hq-north" },
 	]);
+});
+
+it("refuses, before any account exists, a persona standing in a managed place CommCare HQ no longer has", async () => {
+	const doc = await seed();
+	const [place] = (await readOrganization(SCOPE)).locations;
+	if (place === undefined) throw new Error("The copy holds no place.");
+	await commitGuardedBatch({
+		appId: APP,
+		batchId: crypto.randomUUID(),
+		actorUserId: ACTOR,
+		expectedProjectId: PROJECT,
+		kind: "autosave",
+		mutations: admitMutationBatch([
+			{
+				kind: "updatePersona",
+				uuid: AMINA,
+				patch: { locations: { primaryUuid: place.id } },
+			},
+		]),
+	});
+	await withHttpPeer(async (peer) => {
+		request(peer, "/a/clinic/api/location/v2/?limit=1000").reply(200, {
+			meta: { next: null },
+			objects: [
+				{
+					location_id: north.locationId,
+					name: north.name,
+					site_code: north.siteCode,
+					location_type_code: "region",
+					parent_location_id: "",
+					latitude: null,
+					longitude: null,
+					location_data: {},
+				},
+			],
+		});
+		acceptImport(peer, "clinic", 201);
+		serveSource(peer, "clinic", "source-shell");
+		acceptImport(peer, "clinic", 200);
+		serveSource(peer, "clinic", "source-after-create-then-update");
+		expect((await publish(doc, MANAGING)).landed).toBe(true);
+	});
+	/* A refresh that finds the place gone from CommCare HQ keeps it live
+	 * while Amina stands in it, marked gone and still holding its CommCare HQ
+	 * id. */
+	await h
+		.db()
+		.updateTable("app_locations")
+		.set({ hq_gone_at: new Date("2026-11-05T08:00:00.000Z") })
+		.where("id", "=", place.id)
+		.execute();
+	const assigned: BlueprintDoc = {
+		...doc,
+		personas: {
+			[AMINA]: {
+				uuid: AMINA,
+				name: "Amina",
+				locations: { primaryUuid: place.id },
+			},
+		},
+	};
+	const outcome = await withHttpPeer(async (peer) => {
+		const result = await provisionWorkers({
+			scope: SCOPE,
+			doc: assigned,
+			...MANAGING,
+			locations: (await readOrganization(SCOPE)).locations,
+			workers: [{ personaUuid: AMINA, username: "amina" }],
+		});
+		expect(publishRequests(peer)).toEqual([]);
+		return result;
+	});
+	expect(outcome.refusal).toMatchObject({
+		code: "workers_not_provisionable",
+		details: [
+			"Amina: stands in “North”, which CommCare HQ no longer has in this project space. You can stand them in another place, then provision them again.",
+		],
+	});
 });

@@ -501,11 +501,20 @@ offers Refresh from CommCare HQ and Open in CommCare HQ (the address and
 whether this viewer is connected there come from
 `readManagedPlacesViewAction`), invites a member with no connection on that
 server to connect in place of Refresh, and keeps what a refresh pressed in
-this tab answered (the places kept for a persona or an owner rule) until the
-tab's next refresh or reload. Places offers no add, edit, move or archive
+this tab answered (the places kept for a persona, an owner rule or an
+automation) until the tab's next refresh or reload. Places offers no add, edit, move or archive
 control while they are managed; Levels stays editable and states above them
 what Nova assumed; Personas, with none yet, says a persona is how Preview
-shows those places. The control and the answer's lines are
+shows those places. The builder's prechecks count the places the commit
+counts: archived ones too where Nova manages the places, live ones only in
+a managed copy, where an archived row is a place CommCare HQ no longer lists
+(`organizationUi.ts::placeBlocksChange`, `levelOccupancy`). A level removal,
+a level change or a place information change those places block is refused
+before any commit with the sentence that sends the author to CommCare HQ and
+Refresh, or, for a place CommCare HQ no longer has, to what uses it
+(`levelRemovalRefusal`, `organizationLevelPatchIssue` given the snapshot's
+`managedPlacesContext`, `placeInformationChangeRefusal`), never one telling
+them to move a place Nova can't move. The control and the answer's lines are
 `organizationUi.ts`'s, pure and tested.
 
 ## App setup: Automations
@@ -1210,6 +1219,12 @@ Nova, or the hand-back on a table Nova took over; a control a person can't
 use stays and says why, and a member with no connection on the table's server
 is invited to connect in place of Refresh and the hand-back. Its two
 confirmations (`ManagedTableDialogs.tsx`) name the apps that read the table.
+The banner's day of the last refresh is the snapshot's (`table.hq.refreshedAt`),
+since the manifest carries none, and the page reads the table again after its
+own refresh. A write the server refuses with `managed_in_hq` means the tab
+missed a change of who manages the table, so every writer reads the table and
+the manifest again (`projectDataModel.ts::readAgainAfterRefusal`,
+`isManagedRefusal`) and the controls step aside under the refusal they show.
 A column CommCare HQ's table no longer has carries **Gone in CommCare HQ** in
 its header and names, in its inspector, the apps that keep it.
 

@@ -1000,7 +1000,7 @@ test("native import file download lists the guide's steps once the file arrives"
 	const steps = manualImportGuide({
 		appFileName: "Endpoint app",
 		lookupTags: ["districts"],
-		managedLookupTables: [],
+		managedLookupFiles: [],
 		hasMedia: false,
 		versionFloor: "2.57",
 		capabilities: [],

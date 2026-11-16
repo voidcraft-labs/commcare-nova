@@ -32,7 +32,7 @@ import {
 	shouldCommitLookupCsvRead,
 } from "./csvImportModel";
 import { importLookupCsv } from "./lookupCsvClient";
-import { formatLookupCount } from "./projectDataModel";
+import { formatLookupCount, isManagedRefusal } from "./projectDataModel";
 
 type FileState =
 	| { readonly kind: "none" }
@@ -54,11 +54,15 @@ export function CsvImportDialog({
 	table,
 	onClose,
 	onImported,
+	onManagedInHq,
 }: {
 	open: boolean;
 	table: LookupTableSnapshot;
 	onClose: () => void;
 	onImported: () => Promise<void>;
+	/** Reads the table and the manifest again after the import was refused
+	 *  because CommCare HQ manages the table. */
+	onManagedInHq: () => Promise<void>;
 }) {
 	const fileId = useId();
 	const projectId = useProjectId();
@@ -390,6 +394,7 @@ export function CsvImportDialog({
 								if (result.code === "conflict") {
 									setReviewRequired(true);
 								}
+								if (isManagedRefusal(result)) await onManagedInHq();
 								setProblem(
 									result.code === "conflict"
 										? {

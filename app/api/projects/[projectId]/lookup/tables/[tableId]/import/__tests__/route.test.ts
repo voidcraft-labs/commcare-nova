@@ -216,6 +216,46 @@ describe("POST lookup CSV import", () => {
 		expect(req.bodyUsed).toBe(false);
 	});
 
+	it("refuses a table CommCare HQ manages before its revision or the CSV is judged", async () => {
+		mocks.getLookupTable.mockResolvedValue({
+			...TABLE,
+			hq: {
+				server: "production",
+				domain: "clinic",
+				remoteId: "hq-table-1",
+				managedBy: "commcare-hq",
+				broughtInAt: "2026-07-21T00:00:00.000Z",
+				refreshedAt: "2026-07-21T00:00:00.000Z",
+				takenOverAt: null,
+				takenOverBy: null,
+				goneColumnIds: [],
+			},
+		});
+		const managed = {
+			success: false,
+			code: "managed_in_hq",
+			message:
+				"The lookup table Facilities is managed in CommCare HQ (clinic), so Nova can't change it here. You can change it in CommCare HQ and refresh Nova's copy, or choose Manage in Nova on the table's page.",
+		};
+
+		/* A tab that loaded the table before CommCare HQ took it back. */
+		const stale = request({ contentType: "text/csv", revision: "6" });
+		const staleResponse = await POST(stale.req, context());
+		expect(staleResponse.status).toBe(409);
+		expect(await staleResponse.json()).toEqual(managed);
+		expect(stale.req.bodyUsed).toBe(false);
+
+		/* A current tab with a CSV that would not validate. */
+		const invalid = request({
+			contentType: "text/csv",
+			body: new TextEncoder().encode("unknown\nvalue\n"),
+		});
+		const invalidResponse = await POST(invalid.req, context());
+		expect(invalidResponse.status).toBe(409);
+		expect(await invalidResponse.json()).toEqual(managed);
+		expect(mocks.replaceLookupRows).not.toHaveBeenCalled();
+	});
+
 	it("checks the actual byte count after buffering", async () => {
 		const { req } = request({
 			contentType: "text/csv",

@@ -68,11 +68,11 @@ import {
 import {
 	HAND_BACK_OFFERED,
 	MANAGED_DATA_CHANGED,
-	MANAGED_DATA_PASSED,
-	MANAGED_PLACES_NOT_REFRESHED,
+	managedDataPassed,
 	managedDataUnreadable,
 	managedDataUnreadablePermission,
 	managedPlacesPassed,
+	managedTableFromElsewhereCurrentItem,
 	managedTableFromElsewhereItem,
 	managedTableRowsUnreadable,
 	managedTablesLeftOut,
@@ -122,6 +122,7 @@ import {
 import {
 	baselineFromTableOrigin,
 	isAccountRefusal,
+	type LookupTableOriginRead,
 	managedTableChangeItem,
 	readLookupTableOrigins,
 	refreshManagedPlacesFromRead,
@@ -1063,10 +1064,14 @@ export async function runDeploymentPreflight(
 						mappedRemoteId: remoteId,
 						hqTables,
 						baseline: baselineOf(push, remoteId),
-						/* A table Nova manages that came from CommCare HQ can be handed
-						 * back on its page, which takes CommCare HQ's version. */
-						handBackOffered:
-							originByTableId.get(push.tableId)?.managedBy === "nova",
+						/* A table Nova manages that came from this project space can be
+						 * handed back on its page, which takes the version CommCare HQ
+						 * holds here. One that came from another project space would
+						 * take that one's, not this change. */
+						handBackOffered: handBackTakesThisVersion(
+							originByTableId.get(push.tableId),
+							input,
+						),
 					}),
 			);
 			const unreadable = comparedTables.find(
@@ -1183,8 +1188,9 @@ export async function runDeploymentPreflight(
 	 * there. The edge still reads its places: an owner rule that picks a
 	 * place beneath the case owner is judged on that project space's tree,
 	 * and the read refreshes Nova's copy, which Preview shows. A copy that
-	 * cannot be refreshed stops nothing; Organization says why. */
+	 * cannot be refreshed stops nothing, and the check's item is why. */
 	if (placesManagedHere) {
+		const readAt = new Date();
 		const hqPlaces = await listHqLocations(creds, domain);
 		if ("success" in hqPlaces) return organizationUnreadable(hqPlaces);
 		const ambiguous = ambiguousReverseHopsOnTarget(
@@ -1196,13 +1202,14 @@ export async function runDeploymentPreflight(
 			input.access,
 			{ domain },
 			hqPlaces,
+			readAt,
 		);
 		checks.push({
 			id: "organization",
 			title: "Organization",
 			status: "passed",
-			detail: managedPlacesPassed(domain),
-			items: refreshed.ok ? [] : [MANAGED_PLACES_NOT_REFRESHED],
+			detail: managedPlacesPassed(domain, refreshed.ok),
+			items: refreshed.ok ? [] : [refreshed.message],
 		});
 	}
 	if (places.length > 0) {
@@ -1717,6 +1724,25 @@ export async function runDeploymentPreflight(
 }
 
 /**
+ * Whether Let CommCare HQ manage it again, on the table's page, would take
+ * the table this publish compares: the table is managed in Nova, and it came
+ * from the project space this publish writes to. The hand-back reads the
+ * project space the table came from, so for a table taken over from another
+ * one it would take that space's version, not this one's.
+ */
+function handBackTakesThisVersion(
+	origin: LookupTableOriginRead | undefined,
+	target: { readonly server: string; readonly domain: string },
+): boolean {
+	return (
+		origin !== undefined &&
+		origin.managedBy === "nova" &&
+		origin.server === target.server &&
+		origin.domain === target.domain
+	);
+}
+
+/**
  * The `managed-data` edge, or null where no table the app reads is managed
  * in CommCare HQ. It reads those tables again and refreshes Nova's copy
  * (`managedData.ts::reReadManagedTablesForPublish`), and stops where one
@@ -1795,17 +1821,38 @@ async function managedDataEdge(
 			),
 		});
 	}
+	/* A table the target manages is left out of the workbook; one another
+	 * project space manages goes in from Nova's copy, so its item says so:
+	 * as it was last refreshed where that space could not be read, and as it
+	 * is now where it could. */
 	const staleByTag = new Map(reRead.stale.map((table) => [table.tag, table]));
+	const here = managed.filter(
+		(definition) =>
+			definition.hq?.server === input.server &&
+			definition.hq.domain === input.domain,
+	);
 	return {
 		check: {
 			id: "managed-data",
 			title,
 			status: "passed",
-			detail: MANAGED_DATA_PASSED,
+			detail: managedDataPassed({
+				domain,
+				here: here.length,
+				elsewhere: managed.length - here.length,
+			}),
 			items: managed.map((definition) => {
+				const origin = definition.hq;
+				if (origin === undefined || here.includes(definition)) {
+					return definition.tag;
+				}
 				const stale = staleByTag.get(definition.tag);
 				return stale === undefined
-					? definition.tag
+					? managedTableFromElsewhereCurrentItem(
+							definition.tag,
+							origin.domain,
+							domain,
+						)
 					: managedTableFromElsewhereItem(
 							stale.tag,
 							stale.domain,
@@ -1891,14 +1938,19 @@ async function lookupRemoteChange(input: {
 	readonly hqTables: readonly HqLookupTable[];
 	readonly baseline: ResourceBaseline | undefined;
 	/**
-	 * The table is managed in Nova and came from CommCare HQ, so its page
-	 * offers Let CommCare HQ manage it again: the change says so last.
+	 * The table is managed in Nova and came from this project space, so its
+	 * page offers Let CommCare HQ manage it again, which takes the table
+	 * CommCare HQ holds here under the tag: a change to that table says so
+	 * last. A deleted or renamed table leaves nothing under the tag to take,
+	 * so neither says it.
 	 */
 	readonly handBackOffered: boolean;
 }): Promise<DeploymentRemoteChange | null | "unreadable"> {
 	/* A discard of a change to the table HQ still holds under this tag and
 	 * id replaces that table, so it carries the note; a deleted table is gone
 	 * and a renamed one is left alone, so theirs carry none. */
+	const withHandBack = (parts: readonly string[]): readonly string[] =>
+		input.handBackOffered ? [...parts, HAND_BACK_OFFERED] : parts;
 	const change = (
 		parts: readonly string[],
 		observedDigest: string,
@@ -1909,7 +1961,7 @@ async function lookupRemoteChange(input: {
 		novaResourceId: input.tableId,
 		name: input.name,
 		identity: input.tag,
-		parts: input.handBackOffered ? [...parts, HAND_BACK_OFFERED] : parts,
+		parts,
 		note,
 		observedDigest,
 		baselineKnown,
@@ -1952,13 +2004,13 @@ async function lookupRemoteChange(input: {
 	}
 	const { baseline } = input;
 	if (baseline === undefined || baseline.origin === "unread") {
-		return change([], lookupDefinitionDigest(current), false);
+		return change(withHandBack([]), lookupDefinitionDigest(current), false);
 	}
 	const canonical = baseline.canonical as CanonicalLookupTable;
 	const definition = lookupDefinitionChange(canonical, current);
 	if (definition.length > 0) {
 		return change(
-			definition.map(describe),
+			withHandBack(definition.map(describe)),
 			lookupDefinitionDigest(current),
 			true,
 		);
@@ -1973,7 +2025,7 @@ async function lookupRemoteChange(input: {
 	return changed.length === 0
 		? null
 		: change(
-				changed.map(describe),
+				withHandBack(changed.map(describe)),
 				canonicalLookupTable(current, rows.rows).digest,
 				true,
 			);

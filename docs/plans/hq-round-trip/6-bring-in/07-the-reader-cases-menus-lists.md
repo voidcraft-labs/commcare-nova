@@ -142,7 +142,8 @@ reads every pinned document as it did. No migration, no DDL and no `/api` route 
     `search-link-guards-are-carried-values`, `dormant-tile-cells`, `case-catalog-is-as-read`,
     `unheld-placements-are-held`, `unsorted-hidden-tile-columns-are-off-the-list`,
     `match-all-list-filter-is-absent`, `order-rules-on-the-columns-they-land-on`,
-    `columns-off-a-screen-last-in-its-order`, `derived-search-conditions-are-simple-fields`,
+    `columns-off-a-screen-last-in-its-order`, `columns-joined-as-read`, `columns-in-list-order`,
+    `derived-search-conditions-are-simple-fields`,
     `joined-search-guards-split-as-read`, `default-search-title-is-absent`,
     `required-messages-as-read`, `empty-search-settings-beside-fields-are-absent`,
     `exact-search-mode-is-absent`, `implicit-order-rule-is-absent`,
@@ -3125,7 +3126,7 @@ export interface ColumnProposal {
 	/** A calculated column's expression: its stored text, where it sits, its mode, place and
 	 *  surface key. 11.3's join registers it (2.2) once the column's identity is minted. */
 	readonly expression?: ColumnExpressionSource;
-	/** True for an `invisible` short column, which joins by its field alone (11.3, rule 1). */
+	/** True for an `invisible` short column, which joins by its field and its header alone (11.3, rule 1). */
 	readonly invisible: boolean;
 	/** The cursor the column was read from, for 11.5 and the (R2) comparison. */
 	readonly json: JsonCursor;
@@ -3274,8 +3275,9 @@ header. `details.ts::joinDetailColumns(short, long)`:
 1. Each short column joins the first long column not yet joined whose proposal is equal: the same kind,
    the same `field` or expression tree, the same header in every language, the same kind-specific
    slots. An `invisible` short column joins the first unjoined long column over the same `field`
-   (for a calculated one, the first unjoined calculated long column over the same expression tree),
-   and takes that column's proposal.
+   (for a calculated one, the first unjoined calculated long column over the same expression tree)
+   that holds its header in every language, and takes that column's proposal; where none is free
+   it joins none (rule 3).
 2. A joined pair is one column, `visibleInDetail` absent, `visibleInList: false` only for the
    `invisible` case.
 3. A short column with no partner has `visibleInDetail: false`.
@@ -3285,7 +3287,15 @@ header. `details.ts::joinDetailColumns(short, long)`:
    order. `detailColumnOrder` is the long detail's order, then the columns of rule 3 in the short
    detail's order. Neither detail holds a place for a column off it, so a Nova document that holds
    one elsewhere in that screen's order is the canonical choice `columns-off-a-screen-last-in-its-order`
-   (`details.ts::columnsOffAScreenLast`; part 09, section 9).
+   (`details.ts::columnsOffAScreenLast`; part 09, section 9). Neither detail prints a column's
+   identity, so where the join pairs a field with another column than its own (two columns that
+   print alike, or a field hidden from Results, which joins the first column over its property
+   that holds its header in every language and no other: Nova writes a column hidden from Results
+   and shown on Details under one header on both screens, so one whose header no such column holds
+   is hidden from Details too, and joined it would print its partner's header in its place, which
+   HQ's import file holds though its build reads none) the reading is the canonical choice
+   `columns-joined-as-read` (`details.ts::columnsJoinedAsRead`), and the `columns` array is built
+   in the join's order, which is `listColumnOrder`'s, the canonical choice `columns-in-list-order`.
 6. Each column's `uuid` is minted from `externalKey.caseListColumn(moduleUniqueId, kind, field, n)`:
    `field` is the column's case property and `""` for a calculated column, and `n` is the 0-based
    ordinal among the menu's columns of equal `(kind, field)`, in `listColumnOrder` (part 10 section
@@ -4063,8 +4073,8 @@ run") moves a row out of this table where a build file differs.
 |---|---|---|---|
 | `case-settings-respelled` | some form holds a non-empty `case_preload` or `usercase_preload` or advanced `preload`, an `open_case.external_id`, an `update_case.condition` Nova writes as another word (an `if`, or a `never` on one of the three shapes 3.2 holds), a `subcases[].reference_id` of `parent`, a `name_update.update_mode` of `edit` on a block that creates, or an `update_mode` of `edit` on a follow-up or close form's own update in a project space that does not apply it (3.2) | `modules[*].forms[*].actions`; the forms' setvalues | no |
 | `search-filter-rows-recut` (part 01's name) | some menu's `_xpath_query` rows are not in the order, or the number, Nova writes | `modules[*].search_config.default_properties` | no |
-| `sort-rule-kept-as-hidden-column` | some short detail holds a sort element no column joins, a `type` of `string`, or a `type` of `date` the first publish writes `plain` (over a property whose type is not of the date class) | `modules[*].case_details.short.columns`, `.sort_elements[*].type`, `.sort_elements[*].display` | no |
-| `list-settings-respelled` | some short detail holds a `max_select_value` of `-1`, a sort element whose `blanks` is `""`, a `sort_calculation` equal to the column its element joins, two sort elements with one `field`, or no sort elements under a first column that is `invisible`; or some search holds a `title_label` spelled other than as HQ's build shows it in each app language (12.4: a language it lacks, or holds blank, beside the first language's text, or that it lacks where every language is blank), a `description` that lacks a language where every language is blank, a `description` or a Search field's `label`, `hint`, `required.text` or `validations[0].text` spelled other than as HQ's build shows it in each app language (12.2, 12.4), a blank `""` in one of the keys HQ reads only where they hold text, a `data_registry_workflow` or `additional_registry_cases` where no registry is named, an `additional_case_types` naming only the menu's own type, or a `required` whose `test` is blank (12.2, 12.4); or some menu holds a `case_list.label` blank, or with no text, in a language beside `show: true`, or a `case_list.label` or a `case_list_form.label` with text spelled other than as Nova prints it (a language with no key, a `null`, a language the app no longer lists, spaces at a text's end) (8.6, 8.7); or some detail holds a column `header` or an ID mapping's `value` spelled other than as HQ's build shows it in each app language, a text with spaces at its end among them (11.2). Every text here is compared as held (`heldText.ts::heldText`); where holding it changes what a worker reads, the record is `text-spaces-dropped` instead (below) | `modules[*].case_details.short.max_select_value`, `.sort_elements`; `modules[*].case_details.*.columns[*].header`, `.enum[*].value`; `modules[*].search_config.title_label`, `.description`, its blank keys, `.data_registry_workflow`, `.additional_registry_cases`, `.additional_case_types`, and its `properties[*]`' text maps, blank keys and `required`; `modules[*].case_list.label`; `modules[*].case_list_form.label` | no |
+| `sort-rule-kept-as-hidden-column` | some short detail holds a sort element no column joins | `modules[*].case_details.short.columns`, `.sort_elements[*].field`, `.sort_elements[*].display` | no |
+| `list-settings-respelled` | some short detail holds a `max_select_value` of `-1`, a sort element whose `type` is `string` or another word Core compares as text, or `date` the first publish writes `plain` (over a property whose type is not of the date class; HQ's build writes `date`, `plain` and `string` alike, `detail_screen.py::FormattedDetailColumn.sort_node`), a sort element whose `blanks` is `""`, a `sort_calculation` equal to the column its element joins, two sort elements with one `field`, or no sort elements under a first column that is `invisible`; or some search holds a `title_label` spelled other than as HQ's build shows it in each app language (12.4: a language it lacks, or holds blank, beside the first language's text, or that it lacks where every language is blank), a `description` that lacks a language where every language is blank, a `description` or a Search field's `label`, `hint`, `required.text` or `validations[0].text` spelled other than as HQ's build shows it in each app language (12.2, 12.4), a blank `""` in one of the keys HQ reads only where they hold text, a `data_registry_workflow` or `additional_registry_cases` where no registry is named, an `additional_case_types` naming only the menu's own type, or a `required` whose `test` is blank (12.2, 12.4); or some menu holds a `case_list.label` blank, or with no text, in a language beside `show: true`, or a `case_list.label` or a `case_list_form.label` with text spelled other than as Nova prints it (a language with no key, a `null`, a language the app no longer lists, spaces at a text's end) (8.6, 8.7); or some detail holds a column `header` or an ID mapping's `value` spelled other than as HQ's build shows it in each app language, a text with spaces at its end among them (11.2). Every text here is compared as held (`heldText.ts::heldText`); where holding it changes what a worker reads, the record is `text-spaces-dropped` instead (below) | `modules[*].case_details.short.max_select_value`, `.sort_elements`; `modules[*].case_details.*.columns[*].header`, `.enum[*].value`; `modules[*].search_config.title_label`, `.description`, its blank keys, `.data_registry_workflow`, `.additional_registry_cases`, `.additional_case_types`, and its `properties[*]`' text maps, blank keys and `required`; `modules[*].case_list.label`; `modules[*].case_list_form.label` | no |
 | `search-filter-joined-to-list` | some menu whose forms read the search holds an `_xpath_query` conjunct that reads no Search field and restates no clause of its list filter (12.3, kind F) | `modules[*].case_details.short.filter` | no |
 | `search-restates-list-filter` | some menu whose forms read the search holds a clause of its list filter that no `_xpath_query` conjunct restates (12.3, the first closing check) | `modules[*].search_config.default_properties` (added rows) | yes |
 | `link-held-case-guards-added` | some form holds a `form_links` entry that carries a value onto a single-case selection and whose `xpath` does not end in that value's held-case guard (9.4, `guards: "added"`) | `modules[*].forms[*].form_links[*].xpath` | yes |
@@ -4386,7 +4396,7 @@ canonical member:
 | `dormant-tile-cells` (11.5) | `tile.test.ts` |
 | `match-all-list-filter-is-absent` (11.1) | `assemble.test.ts` |
 | `order-rules-on-the-columns-they-land-on` (11.4) | `order.landing.test.ts` (the property pair, the positional pairs the row leaves apart over `case_id` and over two ID mappings of `status` with one table, and an element naming a mapping with another table, read on its landing), `order.roundTrip.test.ts`, and `canonicalRowsKeepExport.test.ts` over every targeted and producer document |
-| `columns-off-a-screen-last-in-its-order` (11.3) | `columnsOffAScreen.test.ts` |
+| `columns-off-a-screen-last-in-its-order`, `columns-joined-as-read`, `columns-in-list-order` (11.3) | `columnsOffAScreen.test.ts`, `canon.test.ts`, and `columnOrders.readBack.fuzz.test.ts`, which reads back the workflow corpus with each list's two orders drawn apart from its `columns` array |
 | `case-catalog-is-as-read` (section 7) | `catalog.test.ts` |
 | `unheld-placements-are-held` (section 1) | `basicActions.roundTrip.test.ts`, `advancedActions.roundTrip.test.ts` and `saveToCase.roundTrip.test.ts`: every placement of the read document is held |
 | `unsorted-hidden-tile-columns-are-off-the-list` (11.6) | `joinDetailColumns.test.ts` |

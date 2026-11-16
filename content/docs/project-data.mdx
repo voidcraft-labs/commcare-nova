@@ -215,9 +215,10 @@ A table travels with the app it is read by, whichever way the app leaves Nova:
   table, each of them publishes it without being asked to take it over.
 - **The CommCare HQ app file** comes as a zip with a `lookup-tables.xlsx` beside
   it, for uploading on the project's Lookup Tables page. Tables managed in
-  CommCare HQ come in a second file, `lookup-tables-managed-in-commcare-hq.xlsx`.
-  The project space that manages them already has them, so you leave that file
-  out there; any other project space takes it the same way as the first.
+  CommCare HQ come in a file for each project space that manages them, named
+  after it, such as `lookup-tables-managed-in-acme-health.xlsx`. That project
+  space already has them, so you leave its file out there; every other project
+  space takes it the same way as the first.
 
 If a cell contains a character CommCare cannot preserve, Nova stops the export
 and names the table and column. You can remove the character or retype the

@@ -7,10 +7,12 @@ import {
 	personasOf,
 	type Uuid,
 } from "@/lib/domain";
+import { managedOrganizationCommitRefusal } from "@/lib/publish/managedData";
 import {
 	fixedLocationOwnerIssue,
+	type ManagedPlacesContext,
 	type OrganizationRuleInputs,
-	reverseLocationOwnerIssue,
+	reverseLocationOwnerRefusal,
 } from "./ownerTargetVerdicts";
 import type { StoredLocation } from "./types";
 
@@ -42,12 +44,21 @@ function candidateWithLevelPatch(
  * The server repeats these checks under locks; this planner's job is to keep a
  * gesture that is already known to be cross-store-invalid out of the local
  * Blueprint in the first place, so conflict recovery never has to discard it.
+ *
+ * `managed` is where CommCare HQ manages the app's places, where it does
+ * (the snapshot's `hq.domain` and `hq.goneIds`). There, as in the commit's
+ * own check, a placement and a reverse owner hop are answered with the step
+ * that works (the place in CommCare HQ and a refresh, or, for a place CommCare
+ * HQ no longer has, what in the app uses it), and archived places are passed
+ * over: each is a place CommCare HQ no longer lists, which no one can bring
+ * back or move in Nova.
  */
 export function organizationLevelPatchIssue(
 	doc: OrganizationRuleInputs,
 	locations: readonly StoredLocation[],
 	levelUuid: string,
 	patch: OrganizationLevelPatch,
+	managed?: ManagedPlacesContext,
 ): string | undefined {
 	const candidate = candidateWithLevelPatch(doc, levelUuid, patch);
 	if (candidate === undefined) return "This level no longer exists.";
@@ -57,23 +68,32 @@ export function organizationLevelPatchIssue(
 	);
 
 	for (const location of locations) {
+		if (managed !== undefined && location.archivedAt !== null) continue;
 		const level = levels[location.levelUuid];
-		if (level === undefined) {
-			return `“${location.name}” stands at a level this change removes.`;
-		}
-		if (location.parentId === null) {
-			if (level.parentLevelUuid !== undefined) {
-				return `“${location.name}” would be left without a parent place. Bring it back first if it is archived, move it to a valid parent, then retry this level change.`;
-			}
-			continue;
-		}
-		const parent = byId.get(location.parentId);
-		if (
-			parent === undefined ||
-			!levelMayNestUnder(location.levelUuid, parent.levelUuid, levels)
-		) {
-			return `“${location.name}” would no longer sit under a place at a level above it. Bring it back first if it is archived, move it to a valid parent, then retry this level change.`;
-		}
+		const parent =
+			location.parentId === null ? undefined : byId.get(location.parentId);
+		const sentence =
+			level === undefined
+				? `“${location.name}” stands at a level this change removes.`
+				: location.parentId === null
+					? level.parentLevelUuid === undefined
+						? undefined
+						: `“${location.name}” would be left without a parent place. Bring it back first if it is archived, move it to a valid parent, then retry this level change.`
+					: parent === undefined ||
+							!levelMayNestUnder(location.levelUuid, parent.levelUuid, levels)
+						? `“${location.name}” would no longer sit under a place at a level above it. Bring it back first if it is archived, move it to a valid parent, then retry this level change.`
+						: undefined;
+		if (sentence === undefined) continue;
+		return managed === undefined
+			? sentence
+			: managedOrganizationCommitRefusal(
+					{
+						kind: "placement",
+						place: `“${location.name}”`,
+						kept: managed.goneIds.has(location.id),
+					},
+					managed.domain,
+				);
 	}
 
 	for (const persona of Object.values(personasOf(candidate))) {
@@ -118,10 +138,11 @@ export function organizationLevelPatchIssue(
 		}
 	}
 	for (const destinationLevelUuid of reverseLevels) {
-		const issue = reverseLocationOwnerIssue(
+		const issue = reverseLocationOwnerRefusal(
 			candidate,
 			verdictRows,
 			destinationLevelUuid,
+			managed,
 		);
 		if (issue !== undefined) return issue;
 	}

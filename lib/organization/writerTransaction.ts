@@ -50,6 +50,8 @@ export interface LockedOrganization {
 		readonly domain: string;
 		readonly placesDigest: string;
 		readonly leftOut: Readonly<Record<string, number>>;
+		/** When the read of CommCare HQ the copy last took began. */
+		readonly refreshedAt: Date | null;
 	} | null;
 }
 
@@ -204,6 +206,7 @@ export async function lockOrganizationForWrite(
 			"hq_domain",
 			"hq_places_digest",
 			"hq_left_out",
+			"hq_refreshed_at",
 		])
 		.where("app_id", "=", scope.appId)
 		.forUpdate()
@@ -223,6 +226,7 @@ export async function lockOrganizationForWrite(
 					domain: state.hq_domain,
 					placesDigest: state.hq_places_digest,
 					leftOut: state.hq_left_out ?? {},
+					refreshedAt: state.hq_refreshed_at,
 				};
 	// Before the revision compare its caller makes, so a stale tab learns the
 	// places are managed rather than being sent to reload first.

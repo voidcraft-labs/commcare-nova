@@ -51,8 +51,10 @@ import type { ShownRefreshedView } from "@/components/builder/keptListModel";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
+	type PublishedDeploymentView,
 	type PublishLogoStepBody,
 	placementOfferCopy,
+	publishedViewToHold,
 	publishOutcome,
 	refusalOpensHqApp,
 	withAcceptedMoves,
@@ -119,7 +121,10 @@ import type {
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { viewerDriftDate } from "@/lib/publish/driftReference";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
-import type { ManualImportStep } from "@/lib/publish/manualImportGuide";
+import {
+	type ManualImportStep,
+	manualImportStepKey,
+} from "@/lib/publish/manualImportGuide";
 import {
 	ACCEPT_PLACEMENT_MOVES_LABEL,
 	type AcceptPlacementMoves,
@@ -652,6 +657,21 @@ export function PublishDialogBody({
 		},
 		[noteDeploymentRecordsChanged],
 	);
+	/* A publish response's record, each list it left out unread kept as the
+	 * held record shows it (`publishedViewToHold`). */
+	const upsertPublishedView = useCallback(
+		(next: PublishedDeploymentView) => {
+			setExisting((current) => {
+				const views = current.type === "ready" ? current.views : [];
+				return {
+					type: "ready",
+					views: upsertDeploymentViews(views, publishedViewToHold(views, next)),
+				};
+			});
+			noteDeploymentRecordsChanged();
+		},
+		[noteDeploymentRecordsChanged],
+	);
 	/* Every refresh answers with the record AND what Preview may now name,
 	 * with what that project space keeps of the settings Preview plays,
 	 * because an observation can change all three. */
@@ -984,7 +1004,8 @@ export function PublishDialogBody({
 			 * answer applies too: this call is the freshest word either way. */
 			applyPreviewAnswer(outcome.preview);
 			if (outcome.kind === "landed") {
-				if (outcome.deployment !== null) upsertView(outcome.deployment);
+				if (outcome.deployment !== null)
+					upsertPublishedView(outcome.deployment);
 				/* The check's rows were read before this publish stored what
 				 * was ticked; read them as the deployment holds them now, so
 				 * publishing again from here asks only what is unanswered. */
@@ -1029,7 +1050,7 @@ export function PublishDialogBody({
 				});
 				return;
 			}
-			if (outcome.deployment !== null) upsertView(outcome.deployment);
+			if (outcome.deployment !== null) upsertPublishedView(outcome.deployment);
 			/* A tick confirms one state of one resource. A refusal that lists
 			 * a resource again with another state asks afresh, so only ticks
 			 * still naming a listed change in the state shown now survive. */
@@ -1111,7 +1132,7 @@ export function PublishDialogBody({
 		getAppId,
 		session,
 		applyPreviewAnswer,
-		upsertView,
+		upsertPublishedView,
 		reconciler,
 	]);
 
@@ -1944,7 +1965,10 @@ function ManualImportGuide({ steps }: { steps: readonly ManualImportStep[] }) {
 			</h4>
 			<ol className="mt-2 flex list-decimal flex-col gap-3 pl-4">
 				{steps.map((step) => (
-					<li key={step.kind} className="text-xs leading-relaxed">
+					<li
+						key={manualImportStepKey(step)}
+						className="text-xs leading-relaxed"
+					>
 						<p className="font-medium text-nova-text">{step.title}</p>
 						<p className="mt-1 whitespace-pre-wrap break-words text-nova-text-secondary">
 							{step.lines.join("\n")}

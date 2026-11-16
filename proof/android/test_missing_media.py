@@ -19,12 +19,15 @@ screen's views as Android laid them out:
   ``showMissingMediaView`` with ``image_download_prompt``) and an audio button (``MediaLayout.setupStandardAudio``
   shows it for any reference); ``photo``'s screen shows no prompt;
 - the select ``answer``'s screen shows one audio button, its first choice's, the second choice naming no sound;
-- each row of the case list lays out an image in its image cell (``EntityView.setupImageLayout`` draws
-  ``ic_menu_archive`` where no bitmap is found);
+- the case list's image cell draws Android's archive icon for a case whose status maps to the picture
+  (``EntityView.setupImageLayout`` draws ``ic_menu_archive`` where no bitmap is found), and the transparent fill
+  for a case whose status maps to no picture (its counterpart, the same cell with nothing to draw); the case
+  database holds both (``proof/observe/casedata.py`` gives ``care_status`` text values and the two it maps);
 - the menus name the menu's icon and the form's sound, and the device holds no file for either.
 
 Plausible failures: a missing file Android draws nothing for where Nova refuses the reference (no prompt, no
-button, no image cell), and a prompt shown where the device holds the file. What the device draws on a menu's tile,
+button, no archive icon, which a cell holding the transparent fill would be), and a prompt shown where the device
+holds the file. What the device draws on a menu's tile,
 a form's tile and the Register action is not in the walk's record (a menu item is recorded by its texts and the
 media it names, and the list's actions by their names), so this test holds that the device names those references
 and holds no file for them, and does not hold what it draws there.
@@ -48,6 +51,11 @@ FORM_ENTRY = "FormEntryActivity"
 # ``MediaLayout.showMissingMediaView`` shows for a question's image the device holds no file for.
 IMAGE_MISSING = "Image file is missing for this question, Click the download button above to download"
 AUDIO_BUTTON = "AudioPlaybackButton"
+# What a case list's image cell draws (``proof/android/src/nova/proof/android/Views.java::drawable``): Android's
+# archive icon where the device holds no file for the value's picture, and ``R.color.transparent`` where the value
+# maps to no picture.
+ARCHIVE_ICON = "resource:ic_menu_archive"
+NO_PICTURE = "color:#00000000"
 
 
 @contextmanager
@@ -130,10 +138,15 @@ def test_android_prompts_for_a_questions_missing_image_and_offers_the_missing_so
 
     lists = [step["list"] for step in answer["walks"][REVIEW].get("steps", []) if step.get("list")]
     assert lists and all(listed["rows"] for listed in lists), lists
+    drawn = []
     for listed in lists:
         for row in listed["rows"]:
-            assert [view["class"] for view in _shown(row)].count("ImageView") == 1, row
+            cells = [view for view in _shown(row) if "drawable" in view]
+            assert len(cells) == 1, row
+            drawn.append(cells[0]["drawable"])
         assert "Register" in listed.get("actions", []), listed.get("actions")
+    assert ARCHIVE_ICON in drawn and NO_PICTURE in drawn, drawn
+    assert set(drawn) == {ARCHIVE_ICON, NO_PICTURE}, drawn
 
     items = [
         item

@@ -29,7 +29,7 @@ import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError } from "./errors";
 import { readLookupFixtureDataInTransaction } from "./fixtureSnapshot";
 import { formatLookupBytes, formatLookupCount } from "./format";
-import { lookupHqOriginOf } from "./managedRules";
+import { lookupHqOriginOf, lookupManifestHqOriginOf } from "./managedRules";
 import {
 	addLookupColumnInputSchema,
 	createLookupRowInputSchema,
@@ -133,7 +133,7 @@ function toIso(value: Date): string {
 }
 
 function manifestEntryOf(table: StoredTable): LookupTableManifestEntry {
-	const hq = lookupHqOriginOf(table, null);
+	const hq = lookupManifestHqOriginOf(table);
 	return {
 		id: lookupTableIdSchema.parse(table.id),
 		name: table.name,

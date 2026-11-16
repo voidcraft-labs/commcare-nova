@@ -19,9 +19,9 @@ import {
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
 } from "./constants";
-import { formatLookupBytes } from "./format";
+import { formatLookupBytes, formatLookupBytesOverCap } from "./format";
 import { utf8ByteLength } from "./schema";
-import type { LookupHqOrigin } from "./types";
+import type { LookupHqOrigin, LookupManifestHqOrigin } from "./types";
 
 /** What Postgres measured of a table's candidate rows. */
 export interface LookupRowsMeasure {
@@ -82,17 +82,17 @@ export function lookupCapExcess(
 	}
 	if (largestCellBytes > LOOKUP_MAX_CELL_BYTES) {
 		phrases.push(
-			`a value of ${formatLookupBytes(largestCellBytes)} (Nova takes ${formatLookupBytes(LOOKUP_MAX_CELL_BYTES)} in one cell)`,
+			`a value of ${formatLookupBytesOverCap(largestCellBytes)} (Nova takes ${formatLookupBytes(LOOKUP_MAX_CELL_BYTES)} in one cell)`,
 		);
 	}
 	if (measured.largestRowBytes > LOOKUP_MAX_ROW_BYTES) {
 		phrases.push(
-			`a row of ${formatLookupBytes(measured.largestRowBytes)} (Nova takes ${formatLookupBytes(LOOKUP_MAX_ROW_BYTES)} in one row)`,
+			`a row of ${formatLookupBytesOverCap(measured.largestRowBytes)} (Nova takes ${formatLookupBytes(LOOKUP_MAX_ROW_BYTES)} in one row)`,
 		);
 	}
 	if (measured.dataBytes > LOOKUP_MAX_TABLE_BYTES) {
 		phrases.push(
-			`${formatLookupBytes(measured.dataBytes)} of rows (Nova takes ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)} in one table)`,
+			`${formatLookupBytesOverCap(measured.dataBytes)} of rows (Nova takes ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)} in one table)`,
 		);
 	}
 	return phrases;
@@ -128,18 +128,21 @@ export interface StoredLookupHqColumns {
 	readonly hq_taken_over_by: string | null;
 }
 
+function partOfAnOrigin(): never {
+	throw new Error(
+		"A lookup table's CommCare HQ origin was stored only in part.",
+	);
+}
+
 /**
- * A stored table's origin, or undefined for a table made in Nova. With
- * `columns`, `goneColumnIds` is every column whose wire name is in no field
- * of CommCare HQ's table at the last refresh; without them (a manifest, which
- * holds no columns) it is empty.
+ * A stored table's origin as the manifest carries it, or undefined for a
+ * table made in Nova. It leaves out the day of the last refresh, which a
+ * refresh that changed nothing stamps without advancing the Project
+ * revision.
  */
-export function lookupHqOriginOf(
+export function lookupManifestHqOriginOf(
 	table: StoredLookupHqColumns,
-	columns:
-		| readonly { readonly id: LookupColumnId; readonly wireName: string }[]
-		| null,
-): LookupHqOrigin | undefined {
+): LookupManifestHqOrigin | undefined {
 	if (table.hq_server === null) return undefined;
 	if (
 		table.hq_domain === null ||
@@ -147,17 +150,7 @@ export function lookupHqOriginOf(
 		table.hq_brought_in_at === null ||
 		table.hq_refreshed_at === null
 	) {
-		throw new Error(
-			"A lookup table's CommCare HQ origin was stored only in part.",
-		);
-	}
-	const goneColumnIds: LookupColumnId[] = [];
-	if (columns !== null) {
-		const canonical = managedCanonicalSchema.parse(table.hq_canonical);
-		const fields = new Set(canonical.fields.map((field) => field.name));
-		for (const column of columns) {
-			if (!fields.has(column.wireName)) goneColumnIds.push(column.id);
-		}
+		partOfAnOrigin();
 	}
 	return {
 		server: table.hq_server,
@@ -165,9 +158,40 @@ export function lookupHqOriginOf(
 		remoteId: table.hq_remote_id,
 		managedBy: table.hq_taken_over_at === null ? "commcare-hq" : "nova",
 		broughtInAt: table.hq_brought_in_at.toISOString(),
-		refreshedAt: table.hq_refreshed_at.toISOString(),
 		takenOverAt: table.hq_taken_over_at?.toISOString() ?? null,
 		takenOverBy: table.hq_taken_over_by,
+	};
+}
+
+/**
+ * A stored table's origin, or undefined for a table made in Nova. While
+ * CommCare HQ manages the table, `goneColumnIds` is every column whose wire
+ * name is in no field of CommCare HQ's table at the last refresh. A table
+ * Nova manages has none: its stored copy of CommCare HQ's table is not read
+ * again while Nova manages it, so a column added or renamed in Nova would
+ * otherwise read as gone from CommCare HQ though it was never there.
+ */
+export function lookupHqOriginOf(
+	table: StoredLookupHqColumns,
+	columns: readonly {
+		readonly id: LookupColumnId;
+		readonly wireName: string;
+	}[],
+): LookupHqOrigin | undefined {
+	const origin = lookupManifestHqOriginOf(table);
+	if (origin === undefined) return undefined;
+	if (table.hq_refreshed_at === null) partOfAnOrigin();
+	const goneColumnIds: LookupColumnId[] = [];
+	if (origin.managedBy === "commcare-hq") {
+		const canonical = managedCanonicalSchema.parse(table.hq_canonical);
+		const fields = new Set(canonical.fields.map((field) => field.name));
+		for (const column of columns) {
+			if (!fields.has(column.wireName)) goneColumnIds.push(column.id);
+		}
+	}
+	return {
+		...origin,
+		refreshedAt: table.hq_refreshed_at.toISOString(),
 		goneColumnIds,
 	};
 }

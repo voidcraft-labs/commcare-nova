@@ -143,6 +143,36 @@ function elementAt(
 	return at;
 }
 
+/** The data node at `path` under `form`'s root, with its bind's `calculate`. */
+export function modelNodeAt(
+	form: FormSourceModel,
+	path: readonly string[],
+):
+	| { readonly name: string; readonly calculate: string | undefined }
+	| undefined {
+	const element = elementAt(form, path);
+	if (element === undefined) return undefined;
+	const [bind] = modelElements(form, form.binds, bindPathText, (one) =>
+		samePath(one, path),
+	);
+	return { name: element.name, calculate: bind?.element.attribs.calculate };
+}
+
+/**
+ * A form some of whose Save to Case rows hold a date and time in the spelling
+ * Nova wrote before its clock nodes existed, as the comparison reads it.
+ */
+export interface EarlierSpelling {
+	/** Whether a stored bind's `calculate` is that spelling of the emitted bind's `calculate`. */
+	readonly calculate: (
+		stored: Element,
+		emitted: string,
+		emittedForm: FormSourceModel,
+	) => boolean;
+	/** Whether the emitted node at `path` is a clock node that spelling never wrote. */
+	readonly emittedOnly: (path: readonly string[]) => boolean;
+}
+
 /** An element's attributes by namespace and local name, the namespace
  *  declarations left out. */
 function attributesOf(
@@ -293,13 +323,15 @@ export type HeldSlotPrint = (
  *  as a tree; a `vellum:` shadow is not compared. An expression `a` holds
  *  that the expression stage held as a slot's tree is the emitter's where
  *  `b`'s is that tree's print (`heldPrint`): the stage compared it with the
- *  source and reported what a first publish changes in it. */
+ *  source and reported what a first publish changes in it. A `calculate` in
+ *  the spelling Nova wrote before is the emitter's where `earlier` says so. */
 function sameBind(
 	a: { element: Element; path: string[] },
 	aForm: FormSourceModel,
 	b: { element: Element; path: string[] },
 	bForm: FormSourceModel,
 	heldPrint?: HeldSlotPrint,
+	earlier?: EarlierSpelling,
 ): boolean {
 	if (!samePath(a.path, b.path)) return false;
 	const skip = (namespace: string | null) => namespace === VELLUM_NS;
@@ -318,9 +350,11 @@ function sameBind(
 		if (plain && EXPRESSION_ATTRIBUTES.has(local)) {
 			if (sameXPathText(value, other, { ruleSet: "form" })) continue;
 			const held = heldPrint?.(a.element, local);
+			if (held !== undefined && sameXPathText(held, other, { ruleSet: "form" }))
+				continue;
 			if (
-				held === undefined ||
-				!sameXPathText(held, other, { ruleSet: "form" })
+				local !== "calculate" ||
+				earlier?.calculate(a.element, other, bForm) !== true
 			)
 				return false;
 		} else if (value !== other) return false;
@@ -368,6 +402,9 @@ function sameLists<T>(
  * no document the reading proposes, so it is left out of the comparison: its
  * own finding names it, and the blocks beside it are judged as Nova prints
  * them without it.
+ * Where `earlier` is given, a row in the spelling Nova wrote
+ * before is compared by the value it holds, and a clock node that spelling
+ * never wrote is left out of the emitted wrapper's children.
  */
 export function blockTreesEqual(
 	stored: StoredSaveToCaseBlock,
@@ -375,6 +412,7 @@ export function blockTreesEqual(
 	judgedApart: ReadonlySet<string> = new Set(),
 	heldPrint?: HeldSlotPrint,
 	leftOut: ReadonlySet<string> = new Set(),
+	earlier?: EarlierSpelling,
 ): boolean {
 	const { block, form } = stored;
 	/** The element at `path` on both sides alike with everything under it,
@@ -392,7 +430,7 @@ export function blockTreesEqual(
 			sameLists(
 				modelElements(form, form.binds, bindPathText, under),
 				modelElements(emitted, emitted.binds, bindPathText, under),
-				(a, b) => sameBind(a, form, b, emitted, heldPrint),
+				(a, b) => sameBind(a, form, b, emitted, heldPrint, earlier),
 			) &&
 			sameLists(
 				modelElements(form, form.setvalues, setvalueRef, under),
@@ -416,7 +454,11 @@ export function blockTreesEqual(
 			!sameDataElement(wrapper.element, form, emittedWrapper, emitted, false) ||
 			!sameLists(
 				storedChildren.map((child) => child.name),
-				children(emittedWrapper).map((child) => child.name),
+				children(emittedWrapper)
+					.map((child) => child.name)
+					.filter(
+						(name) => earlier?.emittedOnly([...wrapper.path, name]) !== true,
+					),
 				(a, b) => a === b,
 			)
 		)
@@ -439,7 +481,7 @@ export function blockTreesEqual(
 			sameLists(
 				modelElements(form, form.binds, bindPathText, at),
 				modelElements(emitted, emitted.binds, bindPathText, at),
-				(a, b) => sameBind(a, form, b, emitted, heldPrint),
+				(a, b) => sameBind(a, form, b, emitted, heldPrint, earlier),
 			) &&
 			sameLists(
 				modelElements(form, form.setvalues, setvalueRef, at),

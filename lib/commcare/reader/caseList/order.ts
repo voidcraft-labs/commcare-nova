@@ -516,13 +516,14 @@ export function readSortElements(
 		} else if (typeof type === "string") {
 			// Any other word, `string` among them, HQ writes through as it is (`sort_node`:
 			// `.get(type, type)`), and Core compares every word but `int` and `double` as text
-			// (`DetailFieldParser`: `string` and any other word leave the field's `DATATYPE_TEXT`).
+			// (`DetailFieldParser`: `string` and any other word leave the field's `DATATYPE_TEXT`),
+			// as it does `plain`, which the first publish writes: the stored word alone is new.
 			cursor.derived("type", O.typeString);
 			sameState(
 				ctx,
 				O.typeString.entry,
 				`${cursor.pointer}/type`,
-				"sort-rule-kept-as-hidden-column",
+				"list-settings-respelled",
 			);
 			if (!ownSort) textual.add(index);
 		}

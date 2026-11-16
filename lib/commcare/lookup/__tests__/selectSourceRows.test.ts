@@ -452,3 +452,82 @@ describe("lookupSelectSourceRowFindings — a table with no rows", () => {
 		).toEqual([]);
 	});
 });
+
+describe("lookupSelectSourceRowFindings — a table CommCare HQ manages", () => {
+	// Project data refuses every edit to a table CommCare HQ manages, so a
+	// finding over one ends where its rows are changed, never in Project data.
+	const managed = (
+		managedBy: "commcare-hq" | "nova" = "commcare-hq",
+	): LookupTableDefinition => ({
+		...table(),
+		hq: {
+			server: "www",
+			domain: "acme-health",
+			remoteId: "0a1b2c3d4e5f",
+			managedBy,
+			broughtInAt: "2026-11-01T09:00:00.000Z",
+			refreshedAt: "2026-11-03T22:15:00.000Z",
+			takenOverAt: managedBy === "nova" ? "2026-11-04T10:00:00.000Z" : null,
+			takenOverBy: managedBy === "nova" ? "user-1" : null,
+			goneColumnIds: [],
+		},
+	});
+
+	it("sends the person to CommCare HQ for a table with no rows", () => {
+		const [error] = lookupSelectSourceRowFindings(
+			carrierDoc(),
+			snapshot(managed(), []),
+		);
+		expect(error.code).toBe("LOOKUP_SELECT_SOURCE_EMPTY");
+		expect(error.details).toMatchObject({ managedInDomain: "acme-health" });
+		expect(error.message).toBe(
+			`Field "status" builds its choices from lookup table "Statuses", which has no rows, so a device won't open the question. CommCare HQ manages this table in acme-health. You can add rows to it there, then refresh Nova's copy on the table's page, or choose another table for its choices.`,
+		);
+		expect(userFacingError(error)).toBe(
+			`The question "status" in "Visit" gets its choices from "Statuses", which has no rows, so a phone won't open it. CommCare HQ manages this table in acme-health. You can add rows to it there, then refresh Nova's copy on the table's page, or choose another table for its choices.`,
+		);
+	});
+
+	it("ends every row finding with the managed remedy, in the finding and in the person's words", () => {
+		const errors = lookupSelectSourceRowFindings(
+			carrierDoc(),
+			snapshot(managed(), [
+				row(vals({ [LABEL_COL]: "Blank value" })),
+				row(vals({ [VALUE_COL]: "a b", [LABEL_COL]: "Spaced" })),
+				row(vals({ [VALUE_COL]: "x", [LABEL_COL]: "One" })),
+				row(vals({ [VALUE_COL]: "x", [LABEL_COL]: " " })),
+			]),
+		);
+		expect(errors.map((e) => e.code)).toEqual([
+			"LOOKUP_SELECT_SOURCE_VALUE_BLANK",
+			"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
+			"LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE",
+			"LOOKUP_SELECT_SOURCE_LABEL_BLANK",
+		]);
+		const remedy = (alternative: string) =>
+			`CommCare HQ manages this table in acme-health. You can change those rows there, then refresh Nova's copy on the table's page, or choose ${alternative}.`;
+		const expected = [
+			remedy("another value column"),
+			remedy("another value column"),
+			remedy("another value column"),
+			remedy("another label column"),
+		];
+		for (const [index, error] of errors.entries()) {
+			expect(error.details).toMatchObject({ managedInDomain: "acme-health" });
+			expect(error.message.endsWith(expected[index])).toBe(true);
+			expect(userFacingError(error).endsWith(expected[index])).toBe(true);
+			expect(userFacingError(error)).not.toContain("Project data");
+		}
+	});
+
+	it("keeps the Project data remedy for a table taken over to be managed in Nova", () => {
+		const [error] = lookupSelectSourceRowFindings(
+			carrierDoc(),
+			snapshot(managed("nova"), []),
+		);
+		expect(error.details?.managedInDomain).toBeUndefined();
+		expect(userFacingError(error)).toContain(
+			`You can add rows to "Statuses" in Project data`,
+		);
+	});
+});

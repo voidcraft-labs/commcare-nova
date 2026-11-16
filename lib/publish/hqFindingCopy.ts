@@ -832,6 +832,11 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "A question takes its choices from the lookup table {name} in {space}, and that table has no rows there, or has a row whose value is blank, starts or ends with a space or appears twice, or whose label is blank.",
 		next: "You can change those rows in CommCare HQ, then check again.",
 	},
+	"table-has-no-fields": {
+		title: "A lookup table has no fields",
+		body: "The lookup table {name} in {space} has no fields, and Nova holds a lookup table only with at least one.",
+		next: "You can add a field to it in CommCare HQ, then check again.",
+	},
 	"no-platform-runs-everything": {
 		title: "No one platform runs this whole app",
 		body: "This uses {name}. Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work.",

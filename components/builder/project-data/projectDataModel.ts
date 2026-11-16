@@ -37,6 +37,7 @@ import {
 	MANAGED_TABLE_ALREADY_MATCHES,
 	MANAGED_TABLE_REFRESHED_COLUMNS,
 	MANAGED_TABLE_REFRESHED_ROWS,
+	MANAGED_TABLE_REFRESHED_SINCE,
 	managedColumnKept,
 } from "@/lib/publish/managedData";
 import { parseClockTime } from "@/lib/ui/clockTime";
@@ -905,6 +906,33 @@ export const NO_TABLE_EDITS: TableEditability = {
 	deleteTable: false,
 };
 
+/**
+ * Whether a write was refused because CommCare HQ manages the table. Such a
+ * refusal means this tab's manifest missed a change of who manages it, so the
+ * page reads the table and the manifest again: the edit controls step aside
+ * and the banner says who manages it now.
+ */
+export function isManagedRefusal(failure: { readonly code: string }): boolean {
+	return failure.code === "managed_in_hq";
+}
+
+/**
+ * Reads again what a refused write showed this tab holds stale: the table
+ * after a conflict, and the table and the manifest after a refusal because
+ * CommCare HQ manages the table.
+ */
+export async function readAgainAfterRefusal(
+	failure: { readonly code: string },
+	reload: () => Promise<void>,
+	reloadManifest: () => Promise<void>,
+): Promise<void> {
+	if (isManagedRefusal(failure)) {
+		await Promise.all([reload(), reloadManifest()]);
+	} else if (failure.code === "conflict") {
+		await reload();
+	}
+}
+
 /** A manifest as the workspace holds it: the Project it is of, its clock and its entries. */
 export interface ManifestView {
 	readonly projectId: string;
@@ -994,12 +1022,12 @@ export function managedTableOutcomeLines(
 	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
 	const receipt = outcome.receipt;
 	if (receipt === null) return { tone: "status", lines: [] };
-	const changed =
-		receipt.changed === "nothing"
-			? MANAGED_TABLE_ALREADY_MATCHES
-			: receipt.changed === "rows"
-				? MANAGED_TABLE_REFRESHED_ROWS
-				: MANAGED_TABLE_REFRESHED_COLUMNS;
+	const changed = {
+		nothing: MANAGED_TABLE_ALREADY_MATCHES,
+		rows: MANAGED_TABLE_REFRESHED_ROWS,
+		definition: MANAGED_TABLE_REFRESHED_COLUMNS,
+		superseded: MANAGED_TABLE_REFRESHED_SINCE,
+	}[receipt.changed];
 	return {
 		tone: "status",
 		lines: [

@@ -39,6 +39,7 @@ import type {
 } from "@/lib/lookup/types";
 import { type ValidationError, validationError } from "../validator/errors";
 import { lookupFixtureCellText } from "./cellText";
+import { lookupTableManagedInDomain } from "./xmlText";
 
 const XML_WHITESPACE = /[\t\n\r ]/;
 const MAX_REPORTED_POSITIONS = 5;
@@ -59,6 +60,40 @@ function offenceDetails(offences: readonly RowOffence[]): {
 		offendingRowPositions: reported.map((o) => String(o.position)).join(","),
 		offendingRowIds: reported.map((o) => o.rowId).join(","),
 	};
+}
+
+/**
+ * The last sentence of a `LOOKUP_SELECT_SOURCE_*` finding over a table
+ * CommCare HQ manages in `domain`. Project data refuses every edit to such a
+ * table, so the sentence sends the person to change its rows where they are
+ * kept (`change`: what to do there) or to have the choice list read
+ * something else (`alternative`).
+ */
+export function selectSourceManagedRemedy(
+	domain: string,
+	change: "add rows to it" | "change those rows",
+	alternative:
+		| "another table for its choices"
+		| "another value column"
+		| "another label column",
+): string {
+	return `CommCare HQ manages this table in ${domain}. You can ${change} there, then refresh Nova's copy on the table's page, or choose ${alternative}.`;
+}
+
+/** The last sentence of a row finding: the remedy in Project data for a
+ * table Nova manages, the managed one for a table CommCare HQ manages. */
+function rowRemedy(
+	managedInDomain: string | undefined,
+	ownRemedy: string,
+	alternative: "another value column" | "another label column",
+): string {
+	return managedInDomain === undefined
+		? `${ownRemedy} or choose ${alternative}.`
+		: selectSourceManagedRemedy(
+				managedInDomain,
+				"change those rows",
+				alternative,
+			);
 }
 
 function sourceFindings(args: {
@@ -104,10 +139,12 @@ function sourceFindings(args: {
 		duplicateOffences.push(...offences);
 	}
 
+	const managedInDomain = lookupTableManagedInDomain(table);
 	const baseDetails = {
 		tableId: table.id as string,
 		tableTag: table.tag,
 		tableName: table.name,
+		...(managedInDomain !== undefined && { managedInDomain }),
 	};
 	const location = carrier.location;
 	const owner = describeLookupOptionsSourceOwner(carrier.owner);
@@ -117,7 +154,7 @@ function sourceFindings(args: {
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_BLANK",
 				carrier.location.scope,
-				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${blankValues.length} row(s) leave that column blank (row ${blankValues[0].position} first). Fill in those rows or choose another value column.`,
+				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${blankValues.length} row(s) leave that column blank (row ${blankValues[0].position} first). ${rowRemedy(managedInDomain, "Fill in those rows", "another value column")}`,
 				location,
 				{
 					...baseDetails,
@@ -133,7 +170,7 @@ function sourceFindings(args: {
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
 				carrier.location.scope,
-				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${whitespaceValues.length} row(s) contain spaces, tabs, or line breaks there (row ${whitespaceValues[0].position} first). A saved choice value cannot contain whitespace. Tidy those rows or choose another value column.`,
+				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${whitespaceValues.length} row(s) contain spaces, tabs, or line breaks there (row ${whitespaceValues[0].position} first). A saved choice value cannot contain whitespace. ${rowRemedy(managedInDomain, "Tidy those rows", "another value column")}`,
 				location,
 				{
 					...baseDetails,
@@ -149,7 +186,7 @@ function sourceFindings(args: {
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE",
 				carrier.location.scope,
-				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${duplicateValues.length} value(s) appear in more than one row (for example "${duplicateValues[0]}"). Make the values unique or choose another value column.`,
+				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${duplicateValues.length} value(s) appear in more than one row (for example "${duplicateValues[0]}"). ${rowRemedy(managedInDomain, "Make the values unique", "another value column")}`,
 				location,
 				{
 					...baseDetails,
@@ -167,7 +204,7 @@ function sourceFindings(args: {
 			validationError(
 				"LOOKUP_SELECT_SOURCE_LABEL_BLANK",
 				carrier.location.scope,
-				`${owner} builds its choices from lookup table "${table.name}", using "${labelColumn.label}" as the label, but ${blankLabels.length} row(s) leave that column blank (row ${blankLabels[0].position} first). Fill in those rows or choose another label column.`,
+				`${owner} builds its choices from lookup table "${table.name}", using "${labelColumn.label}" as the label, but ${blankLabels.length} row(s) leave that column blank (row ${blankLabels[0].position} first). ${rowRemedy(managedInDomain, "Fill in those rows", "another label column")}`,
 				location,
 				{
 					...baseDetails,
@@ -188,15 +225,25 @@ function emptySourceFinding(
 	const owner = describeLookupOptionsSourceOwner(carrier.owner);
 	const opens =
 		carrier.owner.kind === "field" ? "the question" : "its Search screen";
+	const managedInDomain = lookupTableManagedInDomain(table);
+	const remedy =
+		managedInDomain === undefined
+			? `Add rows to "${table.name}" in Project data, or choose another table for its choices.`
+			: selectSourceManagedRemedy(
+					managedInDomain,
+					"add rows to it",
+					"another table for its choices",
+				);
 	return validationError(
 		"LOOKUP_SELECT_SOURCE_EMPTY",
 		carrier.location.scope,
-		`${owner} builds its choices from lookup table "${table.name}", which has no rows, so a device won't open ${opens}. Add rows to "${table.name}" in Project data, or choose another table for its choices.`,
+		`${owner} builds its choices from lookup table "${table.name}", which has no rows, so a device won't open ${opens}. ${remedy}`,
 		carrier.location,
 		{
 			tableId: table.id as string,
 			tableTag: table.tag,
 			tableName: table.name,
+			...(managedInDomain !== undefined && { managedInDomain }),
 			ownerKind: carrier.owner.kind,
 			...(carrier.owner.kind === "search-input" && {
 				inputName: carrier.owner.inputName,

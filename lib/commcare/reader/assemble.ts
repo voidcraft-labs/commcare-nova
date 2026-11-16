@@ -50,6 +50,8 @@ import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
 import {
+	columnsInListOrder,
+	columnsJoinedAsRead,
 	columnsOfAMenuThatListsNoCasesOffTheDetail,
 	columnsOffAScreenLast,
 } from "./caseList/details";
@@ -73,6 +75,7 @@ import {
 	type GeneratedKeyVerdict,
 	generatedKeyOwner,
 	type HeldGeneratedKey,
+	type MediaKeyReading,
 	repositionGeneratedKey,
 } from "./generatedTranslationKeys";
 import {
@@ -81,12 +84,13 @@ import {
 	hqDeviceText,
 	recordTextRewrite,
 } from "./heldText";
-import { pointerToken, sameJson } from "./jsonCursor";
+import { isJsonObject, pointerToken, sameJson } from "./jsonCursor";
 import { resourcedDocument, sourceLanguageAsRead } from "./languages";
 import {
 	defaultPostSubmitAbsent,
 	searchLinkGuardsAreCarriedValues,
 } from "./menus/afterSubmit";
+import { shownBlockMedia } from "./menus/navMedia";
 import { registrationFormLast } from "./menus/registration";
 import { appPlace, placeOrder } from "./place";
 import { menuAndFormIdsAsRead, provisionalDocument } from "./provisional";
@@ -692,12 +696,35 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: columnsOfAMenuThatListsNoCasesOffTheDetail,
 	},
 	{
-		/** A column off the detail or off the list, anywhere in that screen's order, and the same
-		 *  column after the screen's own columns: neither detail holds a place for a column it does
-		 *  not show, so the reader returns each such column last, in the other screen's order. */
+		/** A column off the detail or off the list (one the short detail holds no field for, a
+		 *  column hidden from Results in a tile list included), anywhere in that screen's order, and
+		 *  the same column after the screen's own columns: neither detail holds a place for a column
+		 *  it does not show, so the reader returns each such column last, in the other screen's
+		 *  order, and on the list each column no screen shows after those Details shows
+		 *  (`caseList/details.ts::columnsOffAScreenLast`). */
 		id: "columns-off-a-screen-last-in-its-order",
 		kind: "one-wire",
 		apply: columnsOffAScreenLast,
+	},
+	{
+		/** A list whose short detail's fields join other columns of the long detail than their own,
+		 *  and the list that join gives: neither detail prints a column's identity, so the reader
+		 *  pairs them by print, a field hidden from Results by its property and its header, and returns the
+		 *  joined list (`caseList/details.ts::columnsJoinedAsRead`). It reads the orders
+		 *  `columns-off-a-screen-last-in-its-order` gives. */
+		id: "columns-joined-as-read",
+		kind: "one-wire",
+		apply: columnsJoinedAsRead,
+	},
+	{
+		/** A case list's `columns` array in any order, and in its list order: the array is a set,
+		 *  read through the two order arrays by every projection, so both print one source, and the
+		 *  reader returns the array in the order it joins the details, its list order
+		 *  (`caseList/details.ts::columnsInListOrder`). It reads the list order
+		 *  `columns-off-a-screen-last-in-its-order` gives. */
+		id: "columns-in-list-order",
+		kind: "one-wire",
+		apply: columnsInListOrder,
 	},
 	{
 		/** A document's catalog as authored, and the catalog the reader derives from the same
@@ -832,7 +859,10 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 	},
 	{
 		/** An app's logo, and none: a publish writes no `logo_refs`, and a logo reaches an app on
-		 *  CommCare HQ only when a person adds it there, so the reader returns none. */
+		 *  CommCare HQ only when a person adds it there, so the reader returns none. The local
+		 *  archive's profile names it under HQ's Web Apps banner key
+		 *  (`multimedia/logoEntry.ts::buildLogoProfileProperty`), which no runtime that installs a
+		 *  `.ccz` reads: Android reads only its login and home banners. */
 		id: "app-logo-is-absent",
 		kind: "not-carried",
 		apply: (doc) =>
@@ -1131,10 +1161,93 @@ function coveringFinding(
 	);
 }
 
+/** The formats whose column HQ's build gives an `<alt_text>` read from the app strings
+ *  (`detail_screen.py::EnumImage.alt_text`, which `ClickableIcon` extends). */
+const ALT_TEXT_FORMATS: ReadonlySet<unknown> = new Set([
+	"enum-image",
+	"clickable-icon",
+]);
+
+/**
+ * What CommCare HQ's build of the app as stored reads under `one`'s key where the key names a
+ * string a media map or an image map writes (`generatedTranslationKeys.ts::MediaKeyReading`),
+ * read from the source's menus by the key's own positions; undefined for any other key.
+ *
+ * - A menu's, a form's, a case list menu item's and a Register button's icon and audio
+ *   (`id_strings.py::module_icon_locale`, `form_icon_locale`, `case_list_icon_locale`,
+ *   `case_list_form_icon_locale` and their audio twins): the suite reads the key only where some
+ *   language holds a path of its own (`NavMenuItemMediaMixin.uses_image`, `uses_audio`), and a
+ *   language shows the path `menus/navMedia.ts::shownNavMedia` gives it.
+ * - An image map's alt text (`id_strings.py::detail_column_alt_text_variable`): every image map
+ *   and clickable icon column reads one per mapping key, and the reader holds no alt text but a
+ *   blank one (`caseList/columns.ts::claimAltText`), so where the key's menu lists such a column
+ *   the key is read; where it lists none, no screen reads it. Whether the key names one of that
+ *   menu's mapping keys is not told apart, so an override of a key no column names, in a menu
+ *   that holds an image map, is refused with the rest.
+ * - The search again button's icon and audio (`case_search_again.m#.again.icon`,
+ *   `case_search.m#.again.audio`) have no reader in HQ's build and no string it writes, so the
+ *   table's rule (no string of this app) holds them inert.
+ */
+function mediaKeyReading(
+	modules: unknown,
+	langs: readonly string[],
+	one: HeldGeneratedKey,
+): MediaKeyReading | undefined {
+	const owner = generatedKeyOwner(one.key);
+	if (owner.kind === "app") return undefined;
+	const menu = Array.isArray(modules) ? modules[owner.menu] : undefined;
+	const block = (value: unknown) =>
+		isJsonObject(value) ? (value as Readonly<Record<string, unknown>>) : {};
+	const shows = (
+		holder: Readonly<Record<string, unknown>>,
+		key: "media_image" | "media_audio",
+	): MediaKeyReading => {
+		const shown = shownBlockMedia((name) => holder[name], key, langs);
+		// A map holding a value that is no path is the media reader's to refuse; the override
+		// waits with it.
+		if (shown === undefined) return { kind: "read" };
+		if (Object.values(shown).every((path) => path === ""))
+			return { kind: "unread" };
+		return { kind: "shows", value: shown[one.language] ?? "" };
+	};
+	const mediaOf = (holder: unknown, prefix: string) => {
+		if (one.key === `${prefix}.icon`)
+			return shows(block(holder), "media_image");
+		if (one.key === `${prefix}.audio`)
+			return shows(block(holder), "media_audio");
+		return undefined;
+	};
+	if (owner.kind === "form") {
+		const forms = block(menu).forms;
+		return mediaOf(
+			Array.isArray(forms) ? forms[owner.form] : undefined,
+			`forms.m${owner.menu}f${owner.form}`,
+		);
+	}
+	const own =
+		mediaOf(menu, `modules.m${owner.menu}`) ??
+		mediaOf(block(menu).case_list, `case_lists.m${owner.menu}`) ??
+		mediaOf(block(menu).case_list_form, `case_list_form.m${owner.menu}`);
+	if (own !== undefined) return own;
+	const segments = one.key.split(".");
+	if (segments[0] !== `m${owner.menu}` || segments.at(-2) !== "alt_text")
+		return undefined;
+	const details = block(block(menu).case_details);
+	const imageMaps = ["short", "long"].some((detail) => {
+		const columns = block(details[detail]).columns;
+		return (
+			Array.isArray(columns) &&
+			columns.some((column) => ALT_TEXT_FORMATS.has(block(column).format))
+		);
+	});
+	return imageMaps ? { kind: "read" } : { kind: "unread" };
+}
+
 /**
  * Decides every generated translation key in the reading that meets it (16.5): each stands under
  * a finding where what it names did not read whole, and every other is classified against the
- * strings Nova's build makes of `doc` and claimed by its verdict. A fold writes the value as its
+ * strings Nova's build makes of `doc`, a media key against what CommCare HQ's build of the
+ * stored app shows (`mediaKeyReading`), and claimed by its verdict. A fold writes the value as its
  * unit's text in that language, once per unit, and is counted. Returns whether a key folded.
  */
 function decideGeneratedKeys(
@@ -1186,9 +1299,11 @@ function decideGeneratedKeys(
 		});
 	}
 	const verdicts = new Map<string, GeneratedKeyVerdict>();
+	const langs = reading.languages.codes;
 	classifyGeneratedTranslationKeys(
 		classified,
 		withDeferredNames(ctx, table, classified),
+		(one) => mediaKeyReading(ctx.input.source.raw.modules, langs, one),
 	).forEach((verdict, index) => {
 		const one = classified[index];
 		if (one !== undefined)

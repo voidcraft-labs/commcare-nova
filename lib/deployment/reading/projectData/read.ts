@@ -22,7 +22,10 @@ import { getAppDb } from "@/lib/db/pg";
 import { projectRoleFor } from "@/lib/db/projectMembership";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
-import { measureLookupRows } from "@/lib/lookup/managed";
+import {
+	measureLookupRows,
+	readKeptLookupColumnIds,
+} from "@/lib/lookup/managed";
 import type { LookupRowsMeasure } from "@/lib/lookup/managedRules";
 import { readAllLookupDefinitionsInTransaction } from "@/lib/lookup/service";
 import type {
@@ -49,12 +52,17 @@ import { sourceMayReadPlaces } from "./places";
 
 /** The Project's side of the read, and Postgres's measure of candidate rows. */
 export interface ReadingProjectSide {
-	/** The Project's tables whose tag is one of `tags`, each with its rows, in one snapshot. */
+	/**
+	 * The Project's tables whose tag is one of `tags`, each with its rows and
+	 * the columns CommCare HQ's content would keep (`ReadingProjectAnswers.keptColumns`),
+	 * in one snapshot.
+	 */
 	readonly tables: (tags: readonly string[]) => Promise<{
 		readonly projectId: string;
 		readonly projectRevision: LookupRevision;
 		readonly definitions: readonly LookupTableDefinition[];
 		readonly rowsByTable: Readonly<Record<string, readonly LookupFixtureRow[]>>;
+		readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 	}>;
 	/** The apps that reference each table, by table id. */
 	readonly referencingApps: (
@@ -124,16 +132,18 @@ export function postgresProjectSide(input: {
 					const definitions = all.definitions.filter((definition) =>
 						wanted.has(definition.tag),
 					);
+					const tableIds = definitions.map((definition) => definition.id);
 					const fixture = await readLookupFixtureDataInTransaction(
 						tx,
 						projectId,
-						definitions.map((definition) => definition.id),
+						tableIds,
 					);
 					return {
 						projectId,
 						projectRevision: all.projectRevision,
 						definitions,
 						rowsByTable: Object.fromEntries(fixture.rowsByTable),
+						keptColumns: await readKeptLookupColumnIds(tx, projectId, tableIds),
 					};
 				});
 		},
@@ -259,13 +269,18 @@ async function readPlaces(
 /**
  * Read a bring-in's project data, in order: CommCare HQ's lookup tables the
  * source's text may name, with their rows; the Project's tables of those tags
- * through `project`, with the apps that read them, the sibling mappings and
- * whether the actor may administer the Project; Postgres's measure of each
- * candidate's rows that have a stored form; and, where `places` is `always`
- * or the source's text may read places, CommCare HQ's levels and places.
- * Every id derives from `appId` and `readingId`, so nothing is minted and
- * nothing is written. A failed read of CommCare HQ is `failed`, classified by
- * the read that failed; a table's own unreadable rows or length is no failure.
+ * through `project`, with the apps that read them, the columns CommCare HQ's
+ * content would keep, the sibling mappings and whether the actor may
+ * administer the Project; Postgres's measure of each candidate's rows that
+ * have a stored form; and, where `places` is `always` or the source's text may
+ * read places, CommCare HQ's levels and places. Every id derives from `appId`
+ * and `readingId`, so nothing is minted and nothing is written. A failed read
+ * of CommCare HQ is `failed`, classified by the read that failed; a table's
+ * own unreadable rows or length is no failure, and neither is a failed read of
+ * the levels and places that only the source's text asked for, which is held
+ * as `placesUnread`, since the text's test can say yes for an app that reads
+ * no place. The caller ends the reading with it as `unreadPlacesFailure`
+ * says.
  */
 export async function readReadingProjectData(input: {
 	readonly creds: CommCareCredentials;
@@ -308,18 +323,23 @@ export async function readReadingProjectData(input: {
 	const siblings = await project.siblings(tableIds);
 	const mayAdminister = await project.mayAdminister();
 
-	const measured: Record<string, LookupRowsMeasure | null> = {};
+	const measured = new Map<string, LookupRowsMeasure | null>();
 	for (const read of lookups.tables) {
 		const rows = rowsToMeasure(read, ids);
-		measured[read.table.tag] =
-			rows === null ? null : await project.measureRows(rows);
+		measured.set(
+			read.table.tag,
+			rows === null ? null : await project.measureRows(rows),
+		);
 	}
 
 	let places: ReadingPlacesRead | null = null;
+	let placesUnread: HqFailure | null = null;
 	if (input.places === "always" || sourceMayReadPlaces(sourceText)) {
 		const answer = await readPlaces(creds, domain, cancel);
-		if (answer.kind === "failed") return answer;
-		places = answer.places;
+		if (answer.kind === "read") places = answer.places;
+		else if (input.places === "always" || cancel?.aborted === true) {
+			return answer;
+		} else placesUnread = answer.failure;
 	}
 
 	return {
@@ -336,11 +356,13 @@ export async function readReadingProjectData(input: {
 				definitions: projectTables.definitions,
 				rowsByTable: projectTables.rowsByTable,
 				apps,
+				keptColumns: projectTables.keptColumns,
 				siblings,
 				mayAdminister,
 			},
 			measured,
 			places,
+			placesUnread,
 		}),
 	};
 }

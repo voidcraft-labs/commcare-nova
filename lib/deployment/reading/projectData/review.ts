@@ -20,6 +20,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	bornPlaces,
+	keptColumnsOf,
 	type ReaderProjectDataReads,
 	type ReadingLookupTable,
 	type ReadingProjectData,
@@ -254,6 +255,7 @@ function standingWithReads(
 		),
 		appReads,
 		mayAdminister: project.mayAdminister,
+		keptColumnIds: keptColumnsOf(project.keptColumns, existing),
 	});
 	if (again.kind !== "choice") {
 		throw new Error(

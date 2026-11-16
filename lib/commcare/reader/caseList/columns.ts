@@ -530,7 +530,7 @@ export interface ColumnProposal {
 	readonly texts: Readonly<Record<string, Readonly<Record<string, string>>>>;
 	/** A calculated column's expression, registered by the join once the column is minted. */
 	readonly expression?: ColumnExpressionSource;
-	/** True for an `invisible` short column, which joins by `field` alone. */
+	/** True for an `invisible` short column, which joins by `field` and header alone. */
 	readonly invisible: boolean;
 	/** The cursor the column was read from, for the tile and the comparison. */
 	readonly json: JsonCursor;

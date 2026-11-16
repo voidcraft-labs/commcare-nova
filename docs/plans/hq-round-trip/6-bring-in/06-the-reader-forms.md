@@ -3951,8 +3951,17 @@ export type GeneratedKeyVerdict =
 	| { readonly kind: "fold"; readonly unit: TranslationUnitId; readonly language: string;
 	    readonly value: string }
 	| { readonly kind: "not-yet" };
+/** What HQ's build of the stored app reads under a key only a media map or an image map writes:
+ *  `unread` where no screen reads it, `shows` with the path a language shows there without the
+ *  override, `read` where a screen reads it and the app holds no text of its own there. */
+export type MediaKeyReading =
+	| { readonly kind: "unread" }
+	| { readonly kind: "shows"; readonly value: string }
+	| { readonly kind: "read" };
 export function classifyGeneratedTranslationKeys(
 	held: readonly HeldGeneratedKey[], table: AppStringTable,
+	/** Undefined for every key the table judges. */
+	media?: (one: HeldGeneratedKey) => MediaKeyReading | undefined,
 ): readonly GeneratedKeyVerdict[];
 ```
 
@@ -4003,7 +4012,10 @@ step 4), in order:
    over ids: a blank value, an id no string of the table has, and a value equal to the table's
    string are inert; an id whose source is one translation unit, where every other id that unit
    feeds holds the same value in that language or is this one, folds; anything else, an id whose
-   source is several units among it, is not-yet. `held` lists every generated key whose menu and
+   source is several units among it, is not-yet. A media key is the exception to the second rule
+   ("Media keys", below): the table holds no media string, so such a key is judged by what HQ's
+   build shows under it instead, and is inert only where no screen reads it or it names the path
+   the language already shows. `held` lists every generated key whose menu and
    form have drafts, the covered ones among them, because the fold rule reads the stored value of
    every id a unit feeds; a verdict is applied only to a key step 1 did not cover.
    `assembleDocument` claims each such key with
@@ -4032,6 +4044,32 @@ step 4), in order:
    worker then reads another text. A key that names a menu or form position CommCare HQ's app holds none at names
    nothing that failed to read: it is classified under its own spelling, which no string of the
    table has, and is inert.
+
+   **Media keys.** `localAppStringTable` leaves out every string only a media manifest writes
+   (part 09, section 15.1), so a key naming one is in no table, and "an id no string of the table
+   has" would call it inert. It is not: HQ's build writes a language's `translations` last, over
+   the strings it generates (`app_strings.py::SelectKnownAppStrings.app_strings_parts`,
+   `yield non_empty_only(app.translations.get(lang, {}))`), so an override of a key a screen reads
+   is the file a worker sees or hears, or the alt text a screen reader says, in that language. The
+   third argument answers, for a key a media map or an image map writes, what HQ's build of the
+   stored app reads there (`assemble.ts::mediaKeyReading`, from the source's menus by the key's own
+   positions), and undefined for every other key:
+
+   | The key | Read where | Answer |
+   |---|---|---|
+   | `modules.m#.icon` / `.audio`, `forms.m#f#.icon` / `.audio`, `case_lists.m#.icon` / `.audio`, `case_list_form.m#.icon` / `.audio` (`id_strings.py::module_icon_locale`, `form_icon_locale`, `case_list_icon_locale`, `case_list_form_icon_locale` and their audio twins) | some language of the item's `media_image` or `media_audio` holds a path of its own (`models/mixins.py::NavMenuItemMediaMixin.uses_image`, `uses_audio`; the suite reads the key through `icon_app_string` / `audio_app_string` there and nowhere else) | `shows` with the path the language shows without the override (`menus/navMedia.ts::shownNavMedia`); `unread` where no language holds one; `read` where a map holds a value that is no path, which the media reader refuses and the override waits with |
+   | `m#.<detail>.<column>.alt_text.<key>` (`id_strings.py::detail_column_alt_text_variable`) | the menu lists an `enum-image` or `clickable-icon` column on either detail (`app_strings.py`, line 185, under `supports_alt_text`, which `feature_support.py` gives every app from CommCare 2.54, below the 2.57 a publish requires; `detail_screen.py::EnumImage.alt_text`) | `read`, since the reader holds no alt text but a blank one (`caseList/columns.ts::claimAltText`); `unread` where the menu lists no such column |
+   | `case_search_again.m#.again.icon`, `case_search.m#.again.audio` | nowhere: HQ's build writes no such string and the suite reads none | undefined: the table's rule holds them inert |
+
+   The verdict is inert for `unread`, and for `shows` where the override names the path the
+   language shows; anything else is not-yet, `refuse(translations-generated-key-anything-else)`
+   with the key in `detail.name`, because no slot of Nova's document holds a file or an alt text
+   per language (media is one per slot for every language). An override of an alt text key in a
+   menu that holds an image map is refused whether or not it names one of that column's mapping
+   keys: the answer does not tell them apart. `generatedTranslationKeys.test.ts` holds the verdicts
+   on each answer, and `menus/__tests__/navMedia.test.ts` holds whole readings: an override of a
+   menu's icon naming another file is refused, one naming the file the language shows and one of
+   an item no language gives a path are inert.
 
 5. **Every other language keeps what HQ's build shows.** After the verdicts, each unit a key folded
    over is given, in every language, the text HQ's build shows there (`assemble.ts::keepShownText`):

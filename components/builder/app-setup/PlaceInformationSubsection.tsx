@@ -27,19 +27,25 @@ import {
 } from "@/lib/doc/hooks/useOrganizationCollections";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
 import type { LocationProperty, OrganizationLevel } from "@/lib/domain";
+import type { ManagedPlacesContext } from "@/lib/organization/ownerTargetVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
-import { locationValueCatalogIssueForProperties } from "@/lib/organization/valueCatalog";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { DraftCommitInput, DraftLinesField } from "./DraftCommitField";
+import { placeInformationChangeRefusal } from "./organizationUi";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 export function PlaceInformationSubsection({
 	locations,
+	managed,
 }: {
 	locations: readonly StoredLocation[];
+	/** Where CommCare HQ manages this app's places, while it does: a value
+	 *  that blocks a change is changed there, and an archived place there
+	 *  blocks nothing. */
+	managed?: ManagedPlacesContext;
 }) {
 	const properties = useLocationProperties();
 	const levels = useOrganizationLevels();
@@ -90,6 +96,7 @@ export function PlaceInformationSubsection({
 						peers={properties}
 						levels={levels}
 						locations={locations}
+						managed={managed}
 						open={openUuid === property.uuid}
 						onOpenChange={(next) =>
 							setOpenUuid(next ? property.uuid : undefined)
@@ -136,6 +143,7 @@ function PropertyRow({
 	peers,
 	levels,
 	locations,
+	managed,
 	open,
 	onOpenChange,
 	focusOnMount,
@@ -147,6 +155,7 @@ function PropertyRow({
 	peers: readonly LocationProperty[];
 	levels: readonly OrganizationLevel[];
 	locations: readonly StoredLocation[];
+	managed: ManagedPlacesContext | undefined;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	focusOnMount: boolean;
@@ -183,17 +192,14 @@ function PropertyRow({
 		const candidateProperties = peers.map((peer) =>
 			peer.uuid === property.uuid ? candidate : peer,
 		);
-		for (const location of locations) {
-			const issue = locationValueCatalogIssueForProperties(
-				candidateProperties,
-				location.levelUuid,
-				location.values,
-			);
-			if (issue !== undefined) {
-				const refusal = `“${location.name}” blocks this change. ${issue}`;
-				setMessage(refusal);
-				return { ok: false as const, messages: [refusal] };
-			}
+		const refusal = placeInformationChangeRefusal(
+			candidateProperties,
+			locations,
+			managed,
+		);
+		if (refusal !== undefined) {
+			setMessage(refusal);
+			return { ok: false as const, messages: [refusal] };
 		}
 		const outcome = mutations.updateLocationProperty(property.uuid, patch);
 		setMessage(outcome.ok ? undefined : outcome.messages[0]);

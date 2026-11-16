@@ -85,7 +85,11 @@ export function ColumnInspectorBody({
 	const labelId = useId();
 	const wireNameId = useId();
 	const typeId = useId();
-	const writes = useColumnWrites(table, workspace.reload);
+	const writes = useColumnWrites(
+		table,
+		workspace.reload,
+		workspace.reloadManifest,
+	);
 
 	const [label, setLabel] = useState(() =>
 		createRevisionedTextDraft(column.label, table.tableRevision),

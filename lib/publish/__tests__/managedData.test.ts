@@ -152,6 +152,14 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.MANAGED_TABLE_REFRESHED_COLUMNS],
 	},
+	MANAGED_TABLE_REFRESHED_SINCE: {
+		kind: "sentence",
+		texts: [copy.MANAGED_TABLE_REFRESHED_SINCE],
+	},
+	HAND_BACK_OVERTAKEN: {
+		kind: "sentence",
+		texts: [copy.HAND_BACK_OVERTAKEN],
+	},
 	managedColumnKept: {
 		kind: "sentence",
 		texts: [
@@ -223,6 +231,10 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.MANAGED_PLACES_ALREADY_MATCH],
 	},
+	MANAGED_PLACES_REFRESHED_SINCE: {
+		kind: "sentence",
+		texts: [copy.MANAGED_PLACES_REFRESHED_SINCE],
+	},
 	managedPlacesOverLimit: {
 		kind: "sentence",
 		texts: [copy.managedPlacesOverLimit("acme-health", 12400)],
@@ -258,13 +270,144 @@ const READINGS: Record<
 				},
 				"acme-health",
 			),
+			managedOrganizationCommitRefusal(
+				{ kind: "level-in-use", levels: ["Ward"], kept: true },
+				"acme-health",
+			),
+			managedOrganizationCommitRefusal(
+				{ kind: "placement", place: "Kisumu", kept: true },
+				"acme-health",
+			),
+			managedOrganizationCommitRefusal(
+				{
+					kind: "value",
+					place: "Kisumu",
+					issue: "Its Population value isn't a whole number.",
+					kept: true,
+				},
+				"acme-health",
+			),
+			managedOrganizationCommitRefusal(
+				{
+					kind: "owner-none-below",
+					level: "Facility",
+					source: "Riverside",
+					sourceKept: false,
+				},
+				"acme-health",
+			),
+			managedOrganizationCommitRefusal(
+				{
+					kind: "owner-none-below",
+					level: "Facility",
+					source: "Riverside",
+					sourceKept: true,
+				},
+				"acme-health",
+			),
+			managedOrganizationCommitRefusal(
+				{
+					kind: "owner-ambiguous",
+					level: "Facility",
+					source: "Riverside",
+					places: ["Mercy Clinic", "Hope Clinic"],
+					kept: null,
+				},
+				"acme-health",
+			),
+			managedOrganizationCommitRefusal(
+				{
+					kind: "owner-ambiguous",
+					level: "Facility",
+					source: "Riverside",
+					places: ["Mercy Clinic", "Hope Clinic"],
+					kept: "Mercy Clinic",
+				},
+				"acme-health",
+			),
+		],
+	},
+	managedPlacesRefreshRefusal: {
+		kind: "sentence",
+		texts: [
+			copy.managedPlacesRefreshRefusal(
+				{ kind: "placement", place: "Kisumu" },
+				"acme-health",
+			),
+			copy.managedPlacesRefreshRefusal(
+				{
+					kind: "value",
+					place: "Kisumu",
+					issue: '"Beds" is required for places at this level.',
+				},
+				"acme-health",
+			),
+			copy.managedPlacesRefreshRefusal(
+				{ kind: "kept", place: "Kisumu" },
+				"acme-health",
+			),
+			copy.managedPlacesRefreshRefusal(
+				{
+					kind: "owner-none-below",
+					level: "Facility",
+					source: "Kisumu",
+					sourceKept: false,
+				},
+				"acme-health",
+			),
+			copy.managedPlacesRefreshRefusal(
+				{
+					kind: "owner-none-below",
+					level: "Facility",
+					source: "Kisumu",
+					sourceKept: true,
+				},
+				"acme-health",
+			),
+			copy.managedPlacesRefreshRefusal(
+				{
+					kind: "owner-ambiguous",
+					level: "Facility",
+					source: "Kisumu",
+					places: ["North clinic", "South clinic"],
+					kept: null,
+				},
+				"acme-health",
+			),
+			copy.managedPlacesRefreshRefusal(
+				{
+					kind: "owner-ambiguous",
+					level: "Facility",
+					source: "Kisumu",
+					places: ["North clinic", "South clinic"],
+					kept: "South clinic",
+				},
+				"acme-health",
+			),
+			copy.managedPlacesRefreshRefusal(
+				{
+					kind: "owner-outside-address-book",
+					level: "Facility",
+					place: "North clinic",
+					persona: "Asha",
+				},
+				"acme-health",
+			),
 		],
 	},
 	CONNECT_TO_REFRESH_PLACES: {
 		kind: "label",
 		texts: [copy.CONNECT_TO_REFRESH_PLACES],
 	},
-	MANAGED_DATA_PASSED: { kind: "sentence", texts: [copy.MANAGED_DATA_PASSED] },
+	managedDataPassed: {
+		kind: "sentence",
+		texts: [
+			copy.managedDataPassed({ domain: "acme-health", here: 2, elsewhere: 0 }),
+			copy.managedDataPassed({ domain: "acme-health", here: 1, elsewhere: 1 }),
+			copy.managedDataPassed({ domain: "acme-health", here: 0, elsewhere: 1 }),
+			copy.managedDataPassed({ domain: "acme-health", here: 0, elsewhere: 2 }),
+		],
+	},
 	MANAGED_DATA_CHANGED: {
 		kind: "sentence",
 		texts: [copy.MANAGED_DATA_CHANGED],
@@ -312,6 +455,14 @@ const READINGS: Record<
 			]),
 		],
 	},
+	MANAGED_TABLE_NO_COLUMNS: {
+		kind: "sentence",
+		texts: [copy.MANAGED_TABLE_NO_COLUMNS],
+	},
+	managedTableNoColumnsItem: {
+		kind: "sentence",
+		texts: [copy.managedTableNoColumnsItem("districts")],
+	},
 	managedTableNameItem: {
 		kind: "sentence",
 		texts: [copy.managedTableNameItem("districts", "2nd name")],
@@ -327,6 +478,16 @@ const READINGS: Record<
 			),
 		],
 	},
+	managedTableFromElsewhereCurrentItem: {
+		kind: "sentence",
+		texts: [
+			copy.managedTableFromElsewhereCurrentItem(
+				"districts",
+				"acme-west",
+				"acme-health",
+			),
+		],
+	},
 	managedTablesLeftOut: {
 		kind: "sentence",
 		texts: [
@@ -337,11 +498,10 @@ const READINGS: Record<
 	HAND_BACK_OFFERED: { kind: "sentence", texts: [copy.HAND_BACK_OFFERED] },
 	managedPlacesPassed: {
 		kind: "sentence",
-		texts: [copy.managedPlacesPassed("acme-health")],
-	},
-	MANAGED_PLACES_NOT_REFRESHED: {
-		kind: "sentence",
-		texts: [copy.MANAGED_PLACES_NOT_REFRESHED],
+		texts: [
+			copy.managedPlacesPassed("acme-health", true),
+			copy.managedPlacesPassed("acme-health", false),
+		],
 	},
 	managedTableUnrepresentableItem: {
 		kind: "sentence",
@@ -358,6 +518,19 @@ const READINGS: Record<
 	MANAGED_LOOKUP_GUIDE_TITLE: {
 		kind: "label",
 		texts: [copy.MANAGED_LOOKUP_GUIDE_TITLE],
+	},
+	managedLookupGuideTitle: {
+		kind: "label",
+		texts: [false, true].map((several) =>
+			copy.managedLookupGuideTitle(
+				{
+					fileName: "lookup-tables-managed-in-acme-health.xlsx",
+					projectSpace: "acme-health",
+					tables: [{ tag: "districts", refreshedOn: "2026-11-03" }],
+				},
+				several,
+			),
+		),
 	},
 	reviewManagedTables: {
 		kind: "sentence",
@@ -457,6 +630,10 @@ const READINGS: Record<
 				{ offered: false, why: "fails-a-project-space-rule", name: null },
 				"Kenya rollout",
 			),
+			choiceNotOffered(
+				{ offered: false, why: "too-many-columns", name: "312" },
+				"Kenya rollout",
+			),
 		],
 	},
 	CHOICE_OTHER_PROJECT: { kind: "sentence", texts: [CHOICE_OTHER_PROJECT] },
@@ -505,6 +682,55 @@ describe("the forms a sentence chooses by its arguments", () => {
 			),
 		).toBe(
 			"Ward, Village and Zone still have places in them, and this app's places are managed in CommCare HQ (acme-health). You can move those places to another level there and refresh, then remove the levels.",
+		);
+	});
+
+	it("sends a place CommCare HQ no longer has to what uses it, in O14 to O16's kept forms", () => {
+		expect(
+			managedOrganizationCommitRefusal(
+				{ kind: "placement", place: '"Mercy Clinic"', kept: true },
+				"acme-health",
+			),
+		).toBe(
+			'"Mercy Clinic" wouldn\'t fit where it stands after this level change. CommCare HQ (acme-health) no longer has it, and Nova keeps it only while something in this app uses it or a place below it. You can move or change what uses it and refresh, then try the change again.',
+		);
+		expect(
+			managedOrganizationCommitRefusal(
+				{ kind: "level-in-use", levels: ["Ward", "Village"], kept: true },
+				"acme-health",
+			),
+		).toBe(
+			"Ward and Village still have places in them that CommCare HQ (acme-health) no longer has, and Nova keeps them only while something in this app uses them or a place below them. You can move or change what uses them and refresh, then remove the levels.",
+		);
+	});
+
+	it("words O24 and O25 with a step a managed copy takes", () => {
+		expect(
+			managedOrganizationCommitRefusal(
+				{
+					kind: "owner-none-below",
+					level: "Facility",
+					source: "Riverside",
+					sourceKept: false,
+				},
+				"acme-health",
+			),
+		).toBe(
+			'The owner rule for Facility needs exactly one live facility below "Riverside", and this app\'s places are managed in CommCare HQ (acme-health), which has none there. You can add one there and refresh, or change the rule.',
+		);
+		expect(
+			managedOrganizationCommitRefusal(
+				{
+					kind: "owner-ambiguous",
+					level: "Facility",
+					source: "Riverside",
+					places: ["Mercy Clinic", "Hope Clinic"],
+					kept: "Mercy Clinic",
+				},
+				"acme-health",
+			),
+		).toBe(
+			'The owner rule for Facility needs exactly one live facility below "Riverside", and both "Mercy Clinic" and "Hope Clinic" stand there. CommCare HQ (acme-health) no longer has "Mercy Clinic", and Nova keeps it only while something in this app uses it or a place below it. You can move or change what uses it and refresh, or change the rule.',
 		);
 	});
 
@@ -560,7 +786,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 
 	it("counts the places of O6 and O8 and spells a count with its separator", () => {
 		expect(managedPlacesKeptInUse(["Kisumu"])).toBe(
-			"1 place is gone from CommCare HQ, and a persona or an owner rule still uses it: Kisumu. Nova kept it. You can move those personas or rules, then refresh again.",
+			"1 place is gone from CommCare HQ, and a persona, an owner rule or an automation still uses it: Kisumu. Nova kept it. You can move or change what uses it, then refresh again.",
 		);
 		expect(managedPlacesLeftOut({ ward: 1 })).toBe(
 			"1 place in CommCare HQ sits at a level this app doesn't have (ward), so Nova's copy leaves it out. You can add a level with that code, then refresh.",
@@ -596,6 +822,47 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 		expect(copy.managedTableUnsupported(copy.HOLDS_MORE_THAN_ONE_VALUE)).toBe(
 			"This table now holds a field with more than one value in CommCare HQ, which Nova can't hold yet. Nova kept its copy as it was.",
+		);
+	});
+
+	it("says P1 sends none only of the tables the target manages", () => {
+		expect(
+			copy.managedDataPassed({ domain: "acme-health", here: 2, elsewhere: 0 }),
+		).toBe(
+			"Nova checked the lookup tables CommCare HQ manages for this app. Nothing this app reads is missing, and Nova sends none of them.",
+		);
+		expect(
+			copy.managedDataPassed({ domain: "acme-health", here: 1, elsewhere: 1 }),
+		).toBe(
+			"Nova checked the lookup tables CommCare HQ manages for this app. Nothing this app reads is missing in acme-health, and Nova sends none of the tables acme-health manages.",
+		);
+		expect(
+			copy.managedDataPassed({ domain: "acme-health", here: 0, elsewhere: 1 }),
+		).toBe(
+			"Nova checked the lookup table CommCare HQ manages for this app. Another project space manages it, so this publish puts Nova's copy in acme-health.",
+		);
+		expect(
+			copy.managedDataPassed({ domain: "acme-health", here: 0, elsewhere: 3 }),
+		).not.toMatch(/sends none/);
+	});
+
+	it("makes P13 agree with the tables it names", () => {
+		expect(copy.managedTablesLeftOut(["districts"], "acme-health")).toBe(
+			"CommCare HQ manages districts in acme-health, so Nova leaves it as it is.",
+		);
+		expect(
+			copy.managedTablesLeftOut(["districts", "clinics"], "acme-health"),
+		).toBe(
+			"CommCare HQ manages districts and clinics in acme-health, so Nova leaves them as they are.",
+		);
+	});
+
+	it("says P15 refreshed the places only where it did", () => {
+		expect(copy.managedPlacesPassed("acme-health", true)).toBe(
+			"acme-health manages this app's places. Nova refreshed its copy and sends none.",
+		);
+		expect(copy.managedPlacesPassed("acme-health", false)).toBe(
+			"acme-health manages this app's places, and Nova sends none.",
 		);
 	});
 });
@@ -734,6 +1001,14 @@ describe("the review's choice about a table that meets a Project table", () => {
 		).toBe(
 			"This app reads the column region, which Kenya rollout's table doesn't have.",
 		);
+		expect(
+			choiceNotOffered(
+				{ offered: false, why: "too-many-columns", name: "1,312" },
+				"Kenya rollout",
+			),
+		).toBe(
+			"Kenya rollout's table would have 1,312 columns with the ones its apps still read, and Nova takes 250.",
+		);
 		expect(() =>
 			choiceNotOffered(
 				{ offered: false, why: "managed-elsewhere", name: null },
@@ -768,36 +1043,67 @@ describe("the review's choice about a table that meets a Project table", () => {
 });
 
 describe("the HQ app file's guide to the tables CommCare HQ manages", () => {
-	const tables = [
-		{ tag: "districts", domain: "acme-health", refreshedOn: "2026-11-03" },
-		{ tag: "clinics", domain: "acme-health", refreshedOn: "2026-11-04" },
-	];
-	const workbook = "lookup-tables-managed-in-commcare-hq.xlsx";
+	const file = {
+		fileName: "lookup-tables-managed-in-acme-health.xlsx",
+		projectSpace: "acme-health",
+		tables: [
+			{ tag: "districts", refreshedOn: "2026-11-03" },
+			{ tag: "clinics", refreshedOn: "2026-11-04" },
+		],
+	};
 
-	it("lists each table, names the second file, and points at the step above", () => {
-		expect(managedLookupGuideLines(tables, workbook, true)).toEqual([
+	it("lists each table, names the file, and points at the step above", () => {
+		expect(
+			managedLookupGuideLines(file, { several: false, afterUploadStep: true }),
+		).toEqual([
 			"These tables are managed in CommCare HQ, and Nova only keeps a copy:",
 			"  districts (in acme-health, copied on 2026-11-03)",
 			"  clinics (in acme-health, copied on 2026-11-04)",
 			"",
 			"If you're importing into that project space, it already has them, so leave",
-			'"lookup-tables-managed-in-commcare-hq.xlsx" out. Uploading it there would',
+			'"lookup-tables-managed-in-acme-health.xlsx" out. Uploading it there would',
 			"replace their rows with Nova's copy.",
 			"",
 			"For any other project space, upload it on the Lookup Tables page too, the",
 			"same way as the file above.",
 		]);
+		expect(copy.managedLookupGuideTitle(file, false)).toBe(
+			copy.MANAGED_LOOKUP_GUIDE_TITLE,
+		);
 	});
 
-	it("says how to upload it where no step above carries a first file", () => {
-		const lines = managedLookupGuideLines(tables, workbook, false);
+	it("says how to upload it where no step above carries a lookup table file", () => {
+		const lines = managedLookupGuideLines(file, {
+			several: false,
+			afterUploadStep: false,
+		});
 		expect(lines.slice(-5)).toEqual([
 			"For any other project space, open the Lookup Tables page in CommCare HQ:",
 			"  https://www.commcarehq.org/a/<your-project>/fixtures/",
 			"",
-			'Upload "lookup-tables-managed-in-commcare-hq.xlsx" there, tick "Replace existing',
+			'Upload "lookup-tables-managed-in-acme-health.xlsx" there, tick "Replace existing',
 			'tables", and click Upload Tables.',
 		]);
 		expect(lines.join("\n")).not.toMatch(/above|[—…]/);
+	});
+
+	it("names its own project space where others manage tables in files of their own", () => {
+		const lines = managedLookupGuideLines(file, {
+			several: true,
+			afterUploadStep: true,
+		});
+		expect(lines.slice(0, 7)).toEqual([
+			"These tables are managed in acme-health on CommCare HQ, and Nova only keeps a copy:",
+			"  districts (copied on 2026-11-03)",
+			"  clinics (copied on 2026-11-04)",
+			"",
+			"If you're importing into acme-health, it already has them, so leave",
+			'"lookup-tables-managed-in-acme-health.xlsx" out. Uploading it there would',
+			"replace their rows with Nova's copy.",
+		]);
+		expect(lines.join("\n")).not.toMatch(/that project space/);
+		expect(copy.managedLookupGuideTitle(file, true)).toBe(
+			"Lookup tables managed in acme-health",
+		);
 	});
 });

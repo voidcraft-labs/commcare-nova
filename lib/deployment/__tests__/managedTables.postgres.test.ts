@@ -15,21 +15,25 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { BlueprintDoc } from "@/lib/domain";
 import { getLookupManifest, getLookupTable } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { driftDate } from "@/lib/publish/driftReference";
 import {
 	CONNECT_TO_REFRESH_TABLE,
 	cannotReadManagedTables,
 	HAND_BACK_OFFERED,
 	MANAGED_DATA_CHANGED,
-	MANAGED_DATA_PASSED,
 	MANAGED_TABLE_HANDED_BACK_AFTER_CREATE,
+	MANAGED_TABLE_NO_COLUMNS,
 	managedColumnGoneItem,
+	managedDataPassed,
 	managedDataUnreadablePermission,
+	managedTableFromElsewhereItem,
 	managedTableGone,
 	managedTableUnrepresentable,
 	managedTableUnsupported,
 } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import {
+	LOOKUP_TABLE_NOT_FOUND,
 	letHqManageLookupTable,
 	manageLookupTableInNova,
 	refreshManagedLookupTable,
@@ -39,6 +43,7 @@ import type { DeploymentConfirmationKey } from "../types";
 import {
 	acceptImport,
 	connect,
+	HOST,
 	type ManagedCopy,
 	makeManagedCopy,
 	publishRequests,
@@ -150,6 +155,26 @@ function refusal(outcome: PublishOutcome) {
 	return outcome.refusal;
 }
 
+/**
+ * The answers a first publish gets that creates `table` in the target from
+ * Nova's copy: no table under its tag, then the table, read back once the
+ * workbook is taken.
+ */
+function createPushingTable(
+	peer: Parameters<typeof acceptImport>[0],
+	table: ServedTable,
+): void {
+	serveTableList(peer, DOMAIN, []);
+	acceptImport(peer, DOMAIN, 201);
+	serveSource(peer, DOMAIN, "source-shell");
+	takeWorkbook(peer, DOMAIN);
+	serveTableList(peer, DOMAIN, [table]);
+	serveRows(peer, DOMAIN, table);
+	serveSource(peer, DOMAIN, "source-shell");
+	acceptImport(peer, DOMAIN, 200);
+	serveSource(peer, DOMAIN, "source-after-create-then-update");
+}
+
 /** The answers a first publish of an app holding no Project data CommCare HQ is sent gets. */
 function createAndFill(peer: Parameters<typeof acceptImport>[0]): void {
 	acceptImport(peer, DOMAIN, 201);
@@ -191,7 +216,7 @@ describe("a publish to the project space that manages the table", () => {
 				id: "managed-data",
 				title: "Data managed in CommCare HQ",
 				status: "passed",
-				detail: MANAGED_DATA_PASSED,
+				detail: managedDataPassed({ domain: DOMAIN, here: 1, elsewhere: 0 }),
 				items: ["facilities"],
 			});
 			expect(outcome.checks.some((check) => check.id === "project-data")).toBe(
@@ -229,7 +254,18 @@ describe("a publish to the project space that manages the table", () => {
 		await withHttpPeer(async (peer) => {
 			serveTableList(peer, DOMAIN, [empty]);
 			serveRows(peer, DOMAIN, empty);
-			expect(refusal(await publish(doc)).failure.code).toBe("app_not_ready");
+			const { failure } = refusal(await publish(doc));
+			expect(failure.code).toBe("app_not_ready");
+			// Project data refuses every edit to the table, so the item sends
+			// the person where its rows are changed (Copy X3).
+			expect(failure.details).toHaveLength(1);
+			expect(failure.details[0]).toContain("which has no rows");
+			expect(
+				failure.details[0].endsWith(
+					`CommCare HQ manages this table in ${DOMAIN}. You can add rows to it there, then refresh Nova's copy on the table's page, or choose another table for its choices.`,
+				),
+			).toBe(true);
+			expect(failure.details[0]).not.toContain("Project data");
 		});
 	});
 
@@ -424,6 +460,112 @@ describe("Manage in Nova, and the publish after it", () => {
 		});
 		expect(await lookupMappings()).toEqual([]);
 	});
+
+	it("names no hand-back where CommCare HQ deleted the table, since nothing is there to take", async () => {
+		const { doc, copy } = await seedApp();
+		const taken = await manageLookupTableInNova(ADMIN_LOOKUP, copy.tableId);
+		if (!taken.ok) throw new Error(taken.message);
+		await withHttpPeer(async (peer) => {
+			serveTableList(peer, DOMAIN, [facilities]);
+			serveRows(peer, DOMAIN, facilities);
+			acceptImport(peer, DOMAIN, 201);
+			serveSource(peer, DOMAIN, "source-shell");
+			takeWorkbook(peer, DOMAIN);
+			serveTableList(peer, DOMAIN, [facilities]);
+			serveRows(peer, DOMAIN, facilities);
+			serveSource(peer, DOMAIN, "source-shell");
+			acceptImport(peer, DOMAIN, 200);
+			serveSource(peer, DOMAIN, "source-after-create-then-update");
+			expect((await publish(doc)).landed).toBe(true);
+		});
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, DOMAIN, "source-after-create-then-update");
+			serveTableList(peer, DOMAIN, []);
+			const stopped = refusal(await publish(doc));
+			expect(stopped.failure.code).toBe("hq_changed");
+			expect(stopped.remoteChanges).toEqual([
+				expect.objectContaining({
+					kind: "lookup-table",
+					novaResourceId: copy.tableId,
+				}),
+			]);
+			expect(stopped.remoteChanges[0]?.parts).not.toContain(HAND_BACK_OFFERED);
+		});
+	});
+
+	it("names no hand-back for a table taken over from another project space that changed in this one", async () => {
+		await members();
+		const copy = await makeManagedCopy(h, EDITOR_LOOKUP, facilities, {
+			server: "india",
+			domain: "north",
+		});
+		const doc = readerOf([copy]);
+		await h.seedAppWithBlueprint(doc, {
+			id: APP,
+			owner: PUBLISHER,
+			projectId: PROJECT,
+		});
+		const taken = await manageLookupTableInNova(ADMIN_LOOKUP, copy.tableId);
+		if (!taken.ok) throw new Error(taken.message);
+		await withHttpPeer(async (peer) => {
+			createPushingTable(peer, facilities);
+			const outcome = await publish(doc);
+			expect(outcome.landed, JSON.stringify(outcome)).toBe(true);
+		});
+		const moved = {
+			...facilities,
+			rows: [{ code: "001", name: "North (renamed in HQ)" }],
+		};
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, DOMAIN, "source-after-create-then-update");
+			serveTableList(peer, DOMAIN, [moved]);
+			serveRows(peer, DOMAIN, moved);
+			const stopped = refusal(await publish(doc));
+			expect(stopped.failure.code).toBe("hq_changed");
+			expect(stopped.remoteChanges[0]?.parts.length).toBeGreaterThan(0);
+			// The hand-back would take north's version, not this change.
+			expect(stopped.remoteChanges[0]?.parts).not.toContain(HAND_BACK_OFFERED);
+		});
+	});
+});
+
+describe("a publish of a table another project space manages", () => {
+	it("says the publish puts Nova's copy there, and sends it in the workbook", async () => {
+		// The publisher's connection is approved for the target alone, so the
+		// table's own project space can't be read: the copy goes as it is.
+		await members();
+		const copy = await makeManagedCopy(h, EDITOR_LOOKUP, facilities, {
+			server: "india",
+			domain: "north",
+		});
+		const doc = readerOf([copy]);
+		await h.seedAppWithBlueprint(doc, {
+			id: APP,
+			owner: PUBLISHER,
+			projectId: PROJECT,
+		});
+		const refreshedAt = (await copyOf(copy)).hq?.refreshedAt ?? "";
+		await withHttpPeer(async (peer) => {
+			createPushingTable(peer, facilities);
+			const outcome = await publish(doc);
+			expect(outcome.landed, JSON.stringify(outcome)).toBe(true);
+			expect(
+				outcome.checks.find((check) => check.id === "managed-data"),
+			).toMatchObject({
+				status: "passed",
+				detail: managedDataPassed({ domain: DOMAIN, here: 0, elsewhere: 1 }),
+				items: [
+					managedTableFromElsewhereItem(
+						"facilities",
+						"north",
+						driftDate(refreshedAt),
+						DOMAIN,
+					),
+				],
+			});
+			expect(publishRequests(peer)).toContain(`POST ${WORKBOOK}`);
+		});
+	});
 });
 
 describe("Refresh from CommCare HQ, through its service", () => {
@@ -466,6 +608,11 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			{ reason: "over-cap", message: expect.stringContaining("in one cell") },
 		],
 		[
+			"a table with no columns",
+			{ ...facilities, fields: [], rows: [] },
+			{ reason: "unsupported", message: MANAGED_TABLE_NO_COLUMNS },
+		],
+		[
 			"a character XML can't carry",
 			{ ...facilities, rows: [{ code: "001", name: "North\u0002" }] },
 			{
@@ -489,6 +636,71 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			expect(await copyOf(copy)).toEqual(before);
 		},
 	);
+
+	it("refuses the hand-back of a table that now holds no columns, leaving Nova's copy as it was", async () => {
+		const { copy } = await seedApp();
+		const taken = await manageLookupTableInNova(ADMIN_LOOKUP, copy.tableId);
+		if (!taken.ok) throw new Error(taken.message);
+		const before = await copyOf(copy);
+		const bare = { ...facilities, fields: [], rows: [] };
+		const outcome = await withHttpPeer(async (peer) => {
+			serveTableList(peer, DOMAIN, [bare]);
+			serveRows(peer, DOMAIN, bare);
+			return letHqManageLookupTable(ADMIN_LOOKUP, copy.tableId);
+		});
+		expect(outcome).toEqual({
+			ok: false,
+			reason: "unsupported",
+			message: MANAGED_TABLE_NO_COLUMNS,
+		});
+		expect(await copyOf(copy)).toEqual(before);
+	});
+
+	it("answers a table removed while CommCare HQ was read as not there", async () => {
+		// No app reads this copy, so a person may remove it at any moment.
+		await members();
+		const copy = await makeManagedCopy(h, EDITOR_LOOKUP, facilities, TARGET);
+		const outcome = await withHttpPeer(async (peer) => {
+			peer
+				.get(HOST)
+				.intercept({
+					path: TABLES,
+					method: "GET",
+					headers: { authorization: "ApiKey account:fixture-key" },
+				})
+				.reply(async () => {
+					await h
+						.db()
+						.deleteFrom("lookup_tables")
+						.where("id", "=", copy.tableId)
+						.execute();
+					return {
+						statusCode: 200,
+						data: JSON.stringify({
+							meta: { next: null },
+							objects: [
+								{
+									id: facilities.id,
+									tag: facilities.tag,
+									is_global: true,
+									fields: facilities.fields.map((field) => ({
+										field_name: field,
+										properties: [],
+									})),
+								},
+							],
+						}),
+					};
+				});
+			serveRows(peer, DOMAIN, facilities);
+			return refreshManagedLookupTable(EDITOR_LOOKUP, copy.tableId);
+		});
+		expect(outcome).toEqual({
+			ok: false,
+			reason: "not-found",
+			message: LOOKUP_TABLE_NOT_FOUND,
+		});
+	});
 
 	it("cannot read where CommCare HQ refuses the rows", async () => {
 		const { copy } = await seedApp();

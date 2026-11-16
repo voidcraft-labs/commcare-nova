@@ -41,7 +41,11 @@ type LookupOrderingSectionProps =
 
 export function LookupOrderingSection(props: LookupOrderingSectionProps) {
 	const { kind, itemId, table, workspace, canEdit } = props;
-	const ordering = useLookupOrderingWrites(table, workspace.reload);
+	const ordering = useLookupOrderingWrites(
+		table,
+		workspace.reload,
+		workspace.reloadManifest,
+	);
 	const items = kind === "column" ? table.columns : table.rows;
 	const position = items.findIndex((item) => item.id === itemId);
 	const count = items.length;

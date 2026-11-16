@@ -6,13 +6,21 @@
  * `publishedCaseBlocks`, `hqEntryFacts`), with no build and no reader module,
  * and compared.
  *
- * Two things are taken on the reader's word, each bounded here: which leaves
- * are generated nodes (each side is cut by its own list, and a cut path that
- * is no leaf of its side is a difference), and which appearances it accounted
+ * Three things are taken on the reader's word, each bounded here: which
+ * leaves are generated nodes (each side is cut by its own list, a cut path
+ * that is no leaf of its side is a difference, and a cut leaf of CommCare HQ's
+ * side that holds a body control must be one the emission writes, for the
+ * same owner, with that control), which appearances it accounted
  * as inert (cut from CommCare HQ's side only, and never one of the four
- * appearances Nova writes). A case region (each scope's `nova_operations`
- * group and every Save to Case block) is compared as the case blocks it
- * holds, never leaf by leaf.
+ * appearances Nova writes), and where the case region stands (each scope's
+ * `nova_operations` group, its other containers and every Save to Case block,
+ * which is compared as the case blocks it holds, never leaf by leaf). A leaf
+ * or a container the reader's region alone cuts from CommCare HQ's side must
+ * be case scaffolding the emission writes too: a leaf with no control that the
+ * emission cuts as its own region's or a generated node, a container of the
+ * same kind with no appearance that the emission's region cuts. Anything else
+ * is a difference, so a question taken for scaffolding or for a generated
+ * node is never dropped unseen.
  *
  * Pure.
  */
@@ -294,8 +302,11 @@ function comparableBlock(
 				editOnly: sorted(block.editOnly),
 			};
 		case "advanced":
+			// The repeat an open action's block stands in, and whether it nests
+			// under its own element there, is said by its path alone.
 			return {
 				action: block.action,
+				path: block.path,
 				caseType: block.caseType,
 				condition: block.condition,
 				closeCondition: block.closeCondition,
@@ -548,6 +559,9 @@ function formDifferences(input: {
 					`${path} is cut as a generated node and is no answer leaf`,
 				);
 
+	generatedControlDifferences(sideA, sideE, at, differ);
+	regionDifferences(sideA, sideE, at, differ);
+
 	const leavesA = answerLeaves(sideA);
 	const leavesE = answerLeaves(sideE);
 	const containersA = new Map(sideA.identity.containers);
@@ -626,6 +640,91 @@ function formDifferences(input: {
 			places.formOf(xmlns),
 			`controls ${orderA.join(" ")} became ${orderE.join(" ")}`,
 		);
+}
+
+/**
+ * The bound on a generated node the reader names for CommCare HQ's side that
+ * a worker meets. Nova writes most generated nodes with no control, and the
+ * one it gives a control (a protected validation message's carrier, an
+ * `input`) it writes again for the same question. So a leaf of CommCare HQ's
+ * side that its generated list cuts and that holds a body control must be
+ * matched on the emission's side by a generated node of the same purpose and
+ * owner whose leaf holds the same control, wherever its name now stands.
+ */
+function generatedControlDifferences(
+	sideA: FormSide,
+	sideE: FormSide,
+	at: (path: string) => HqPlace,
+	differ: (segments: readonly string[], place: HqPlace, detail: string) => void,
+): void {
+	for (const [path, node] of sideA.generated) {
+		const leaf = sideA.identity.leaves.get(path);
+		if (leaf === undefined || leaf.control === "none") continue;
+		const written = [...sideE.generated].some(
+			([emitted, one]) =>
+				one.purpose === node.purpose &&
+				one.owner === node.owner &&
+				sideE.identity.leaves.get(emitted)?.control === leaf.control,
+		);
+		if (!written)
+			differ(
+				["generated", "control"],
+				at(path),
+				`${path} is cut as a generated node and holds a ${leaf.control} control the emission writes for no ${node.purpose} node of ${node.owner}`,
+			);
+	}
+}
+
+/**
+ * The bound on the case region the reader names for CommCare HQ's side. The
+ * reader takes a node for case scaffolding only where it holds no answer: its
+ * leaves have no control, and its containers are bare groups and their
+ * repeats. Nova's emission of the same operations writes that scaffolding at
+ * the same paths, its placements held. So a leaf the reader's region alone
+ * cuts must have no control and be cut on the emission's side too, by its
+ * region or as a generated node; and a container it alone cuts must hold no
+ * appearance and stand in the emission's region with the same kind.
+ */
+function regionDifferences(
+	sideA: FormSide,
+	sideE: FormSide,
+	at: (path: string) => HqPlace,
+	differ: (segments: readonly string[], place: HqPlace, detail: string) => void,
+): void {
+	const cutOnE = (path: string) =>
+		sideE.generated.has(path) || inRegion(path, sideE.region);
+	for (const [path, leaf] of sideA.identity.leaves) {
+		if (sideA.generated.has(path) || !inRegion(path, sideA.region)) continue;
+		if (leaf.control !== "none") {
+			differ(
+				["region", "control"],
+				at(path),
+				`${path} is cut as case scaffolding and holds a ${leaf.control} control`,
+			);
+			continue;
+		}
+		if (!sideE.identity.leaves.has(path) || !cutOnE(path))
+			differ(
+				["region", "phantom"],
+				at(path),
+				`${path} is cut as case scaffolding and the emission writes it as no scaffolding`,
+			);
+	}
+	for (const [path, container] of sideA.identity.containers) {
+		if (!inRegion(path, sideA.region)) continue;
+		const emitted = sideE.identity.containers.get(path);
+		if (
+			container.appearance !== null ||
+			emitted === undefined ||
+			emitted.kind !== container.kind ||
+			!inRegion(path, sideE.region)
+		)
+			differ(
+				["region", "container"],
+				at(path),
+				`${path} is cut as case scaffolding and the emission writes it as no scaffolding`,
+			);
+	}
 }
 
 /** Row 8 over one form: the same blocks, matched by kind and place, with the same members. */

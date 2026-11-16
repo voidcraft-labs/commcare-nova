@@ -86,6 +86,7 @@ describe("organization client at its transport boundary", () => {
 			domain: "district-health",
 			refreshedAt: "2026-11-02T09:00:00.000Z",
 			leftOut: { ward: 3 },
+			goneIds: [],
 		};
 		actions.read.mockResolvedValueOnce(
 			ok({ revision: "7", locations: [place], hq }),

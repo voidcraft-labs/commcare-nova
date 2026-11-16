@@ -25,14 +25,20 @@ import type {
 } from "@/lib/commcare/hq/sourceIdentity";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import type { ReadDraft } from "@/lib/commcare/reader/types";
+import { literalOutputText } from "@/lib/commcare/reader/xform/prose";
 import { buildLabelNodes } from "@/lib/commcare/xform/builder";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { isConsumerWhitespace } from "@/lib/commcare/xform/consumerWhitespace";
 import type { FormPath } from "@/lib/commcare/xform/formPath";
-import { w } from "@/lib/commcare/xpath/wire/builders";
 import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	Field,
+	FieldKind,
+	ProseTemplate,
+	Uuid,
+} from "@/lib/domain";
 import {
 	caseCreateNameFields,
 	caseScalarTextGuardIsChecked,
@@ -45,6 +51,7 @@ import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { adoptedIdentityRows } from "../adoption";
 import type { AcceptanceDifference } from "./acceptance";
 import { differenceSignature } from "./signature";
@@ -63,13 +70,13 @@ export interface DocumentSummaryRow {
 	readonly hasConstraint: boolean;
 	/** For a Hidden Value. */
 	readonly hasCalculate: boolean;
-	/** The label per language, normalized; a language with no text is absent. */
-	readonly label: Readonly<Record<string, string>>;
+	/** The label per language, in the summary's pieces; a language with no text is absent. */
+	readonly label: Readonly<Record<string, SummaryText>>;
 	/** Inline choices in order, or null. */
 	readonly options:
 		| readonly {
 				readonly value: string;
-				readonly label: Readonly<Record<string, string>>;
+				readonly label: Readonly<Record<string, SummaryText>>;
 		  }[]
 		| null;
 	readonly fieldUuid: Uuid;
@@ -103,36 +110,117 @@ export function normalizedText(text: string): string {
 	return out;
 }
 
-/** A prose value as HQ's summary renders it: its text, each output `____`. */
-function renderedProse(nodes: readonly ChildNode[]): string {
-	let out = "";
+/**
+ * A piece of a document's text as CommCare HQ's summary may render it:
+ * `text` is rendered as it stands, a reference or a calculated value as the
+ * hole `____`; `literal` is a run Nova writes as a literal output (a protected
+ * whitespace run, a bracket after `instance`), which a source Nova wrote holds
+ * as an output, rendered `____`, and a source made in CommCare HQ holds as
+ * the plain text it spells. Each piece's text is normalized.
+ */
+export type SummaryPiece =
+	| { readonly kind: "text"; readonly text: string }
+	| { readonly kind: "literal"; readonly text: string };
+
+/** A document's text in one language, as pieces; a text with no piece shows nothing. */
+export type SummaryText = readonly SummaryPiece[];
+
+/**
+ * A run of literal prose as the emitter writes it (`builder.ts::buildLabelNodes`),
+ * in pieces: each text node as text, each output as the literal it spells
+ * (`reader/xform/prose.ts::literalOutputText`).
+ */
+function literalPieces(nodes: readonly ChildNode[]): SummaryPiece[] {
+	const pieces: SummaryPiece[] = [];
 	for (const node of nodes) {
-		if (node.type === "text") out += node.data;
-		else if (node.type === "tag" && node.name === "output") out += OUTPUT_HOLE;
+		if (node.type === "text") pieces.push({ kind: "text", text: node.data });
+		else if (node.type === "tag" && node.name === "output") {
+			const spelled = literalOutputText(node.attribs.value ?? "");
+			pieces.push(
+				spelled === undefined
+					? { kind: "text", text: OUTPUT_HOLE }
+					: { kind: "literal", text: spelled },
+			);
+		}
+	}
+	return pieces;
+}
+
+/** Pieces normalized, empty text dropped and neighbouring text joined. */
+function normalizedPieces(pieces: readonly SummaryPiece[]): SummaryText {
+	const out: SummaryPiece[] = [];
+	for (const piece of pieces) {
+		const text = normalizedText(piece.text);
+		const last = out.at(-1);
+		if (piece.kind === "literal") out.push({ kind: "literal", text });
+		else if (text === "") continue;
+		else if (last?.kind === "text")
+			out[out.length - 1] = { kind: "text", text: last.text + text };
+		else out.push({ kind: "text", text });
 	}
 	return out;
 }
 
 /**
- * The text of a prose unit per language, printed through the emitter's own
- * node builder with a stub in place of the expression printer and
- * normalized; a language whose text is empty is absent.
+ * A prose value in the summary's pieces: each text part printed through the
+ * emitter's own node builder, so every literal output Nova writes is a
+ * `literal` piece, and each reference or calculated value the hole `____`.
+ */
+function summaryTextOf(template: ProseTemplate): SummaryText {
+	const pieces: SummaryPiece[] = [];
+	for (const part of template.parts) {
+		if (part.kind !== "text") {
+			pieces.push({ kind: "text", text: OUTPUT_HOLE });
+			continue;
+		}
+		pieces.push(
+			...literalPieces(
+				buildLabelNodes(
+					{ parts: [part] },
+					() => {
+						throw new Error("A literal text has no reference to lower.");
+					},
+					{ mode: XFORM_MODE, instances: new InstanceSink() },
+				),
+			),
+		);
+	}
+	return normalizedPieces(pieces);
+}
+
+/**
+ * Whether HQ's normalized text is one rendering of `held`: each text piece as
+ * it stands, each literal piece as its text or as `____`.
+ */
+export function rendersAs(held: SummaryText, hq: string): boolean {
+	let reached = new Set([0]);
+	for (const piece of held) {
+		const next = new Set<number>();
+		for (const at of reached) {
+			if (hq.startsWith(piece.text, at)) next.add(at + piece.text.length);
+			if (piece.kind === "literal" && hq.startsWith(OUTPUT_HOLE, at))
+				next.add(at + OUTPUT_HOLE.length);
+		}
+		if (next.size === 0) return false;
+		reached = next;
+	}
+	return reached.has(hq.length);
+}
+
+/**
+ * The text of a prose unit per language, in the summary's pieces (`summaryTextOf`);
+ * a language whose text has no piece is absent.
  */
 function proseByLanguage(
 	doc: BlueprintDoc,
 	unitId: ReturnType<typeof makeTranslationUnitId>,
-): Readonly<Record<string, string>> {
+): Readonly<Record<string, SummaryText>> {
 	if (!snapshotTranslationUnits(doc).has(unitId)) return {};
 	const localization = commCareLocalization(doc);
-	const out: Record<string, string> = {};
+	const out: Record<string, SummaryText> = {};
 	for (const language of localization.languages) {
-		const nodes = buildLabelNodes(
-			localization.prose(language, unitId),
-			() => w.str(""),
-			{ mode: XFORM_MODE, instances: new InstanceSink() },
-		);
-		const text = normalizedText(renderedProse(nodes));
-		if (text !== "") out[language] = text;
+		const text = summaryTextOf(localization.prose(language, unitId));
+		if (text.length > 0) out[language] = text;
 	}
 	return out;
 }
@@ -256,25 +344,28 @@ export function hqText(
 
 /**
  * Whether a label CommCare HQ summarized agrees with the document's in every
- * language of the app: where HQ sends text, the two are equal; where HQ sends
- * none in a language, the document's text there is its text in the first
- * language, in the app's order, for which HQ sent text (the form builder's
- * fill, and a missing translation printing its source, land on that text);
- * where HQ sends text in no language, the document holds none.
+ * language of the app: where HQ sends text, it is one rendering of the
+ * document's (`rendersAs`); where HQ sends none in a language, the document's
+ * text there is its text in the first language, in the app's order, for which
+ * HQ sent text (the form builder's fill, and a missing translation printing
+ * its source, land on that text); where HQ sends text in no language, the
+ * document's renders as nothing in every language.
  */
 export function summaryTextAgrees(
 	languages: readonly string[],
 	hq: Readonly<Record<string, string>>,
-	held: Readonly<Record<string, string>>,
+	held: Readonly<Record<string, SummaryText>>,
 ): boolean {
+	const textIn = (language: string): SummaryText => held[language] ?? [];
 	const firstSent = languages.find((language) => hq[language] !== undefined);
 	if (firstSent === undefined)
-		return languages.every((language) => held[language] === undefined);
+		return languages.every((language) => rendersAs(textIn(language), ""));
 	return languages.every((language) => {
 		const sent = hq[language];
 		return sent !== undefined
-			? held[language] === sent
-			: held[language] === held[firstSent];
+			? rendersAs(textIn(language), sent)
+			: canonicalJsonText(textIn(language)) ===
+					canonicalJsonText(textIn(firstSent));
 	});
 }
 

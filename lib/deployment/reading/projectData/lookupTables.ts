@@ -33,6 +33,7 @@ import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
+	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TAG_LENGTH,
 	LOOKUP_MAX_WIRE_NAME_LENGTH,
@@ -363,6 +364,15 @@ export function lookupTableFindings(
 	}
 	const tagFinding = nameFinding("tag", tag, place);
 	if (tagFinding !== null) findings.push(tagFinding);
+	// CommCare HQ's Manage Tables page saves a table with no field
+	// (`fixtures/views.py::update_tables` checks only the tag and the field
+	// names); Nova's table holds one column at least. A field added there
+	// settles it.
+	if (table.fields.length === 0) {
+		findings.push(
+			circumstanceFinding("table-has-no-fields", place, { name: tag }),
+		);
+	}
 	const seenFields = new Set<string>();
 	const repeated = new Set<string>();
 	for (const field of table.fields) {
@@ -642,6 +652,53 @@ function holdsUnrepresentableCell(
 }
 
 /**
+ * The columns the Project's table holds once CommCare HQ's content fills it,
+ * as `lib/lookup/managed.ts::refreshManagedLookupTableInTransaction` counts
+ * them in both its modes: CommCare HQ's fields, and each column no field names
+ * that an app's reference edge names or an accepted design protects.
+ */
+export function columnsAfterHqFills(
+	read: Extract<HqLookupTableRead, { kind: "read" }>,
+	table: LookupTableDefinition,
+	keptColumnIds: readonly string[],
+): number {
+	const fields = new Set(read.table.fields);
+	const kept = new Set(keptColumnIds);
+	return (
+		read.table.fields.length +
+		table.columns.filter(
+			(column) => !fields.has(column.wireName) && kept.has(column.id),
+		).length
+	);
+}
+
+/** The cap's phrase for a table CommCare HQ's content would fill past `LOOKUP_MAX_COLUMNS`. */
+function keptColumnsPhrase(columnCount: number): string {
+	return `${count(columnCount)} columns with the ones apps still read (Nova takes ${count(LOOKUP_MAX_COLUMNS)})`;
+}
+
+/**
+ * The caps finding of a `same-managed` tag whose refresh would hold more than
+ * `LOOKUP_MAX_COLUMNS` columns once the columns apps still read are kept; null
+ * for any other standing, or within the cap. Pure.
+ */
+export function sameManagedColumnCapFinding(
+	read: Extract<HqLookupTableRead, { kind: "read" }>,
+	standing: LookupTableStanding,
+	keptColumnIds: readonly string[],
+): Finding | null {
+	if (standing.kind !== "same-managed") return null;
+	const columns = columnsAfterHqFills(read, standing.table, keptColumnIds);
+	if (columns <= LOOKUP_MAX_COLUMNS) return null;
+	const tag = read.table.tag;
+	return manifestFinding(
+		CAPS_ENTRY,
+		{ kind: "lookup-table", tag },
+		`${tag}: ${keptColumnsPhrase(columns)}`,
+	);
+}
+
+/**
  * Where a candidate tag stands against the Project's table of that tag. A
  * standing's kind does not depend on which fields the app reads; the
  * `use-project` offer does (`appReads`).
@@ -665,6 +722,9 @@ export function lookupTableStanding(input: {
 	readonly appReads: readonly string[];
 	/** The Project's `delete` capability. */
 	readonly mayAdminister: boolean;
+	/** The ids of the Project table's columns an app's reference edge names or an accepted
+	 *  design protects (`readKeptLookupColumnIds`), which CommCare HQ's content keeps. */
+	readonly keptColumnIds: readonly string[];
 }): LookupTableStanding {
 	const { read, origin, existing } = input;
 	if (existing === null) return { kind: "new" };
@@ -700,6 +760,7 @@ export function lookupTableStanding(input: {
 	}
 
 	const fields = new Set(read.table.fields);
+	const columnsHeld = columnsAfterHqFills(read, table, input.keptColumnIds);
 	const useCommCareHq: LookupChoiceOffer =
 		managedElsewhere !== null
 			? {
@@ -709,18 +770,24 @@ export function lookupTableStanding(input: {
 				}
 			: !input.mayAdminister
 				? { offered: false, why: "needs-admin", name: null }
-				: {
-						offered: true,
-						goneColumns:
-							input.apps.length === 0
-								? []
-								: table.columns
-										.filter((column) => !fields.has(column.wireName))
-										.map((column) => column.label),
-						retypedColumns: table.columns
-							.filter((column) => column.dataType !== "text")
-							.map((column) => column.label),
-					};
+				: columnsHeld > LOOKUP_MAX_COLUMNS
+					? {
+							offered: false,
+							why: "too-many-columns",
+							name: count(columnsHeld),
+						}
+					: {
+							offered: true,
+							goneColumns:
+								input.apps.length === 0
+									? []
+									: table.columns
+											.filter((column) => !fields.has(column.wireName))
+											.map((column) => column.label),
+							retypedColumns: table.columns
+								.filter((column) => column.dataType !== "text")
+								.map((column) => column.label),
+						};
 
 	const wireNames = new Set(table.columns.map((column) => column.wireName));
 	const reads = new Set(input.appReads);

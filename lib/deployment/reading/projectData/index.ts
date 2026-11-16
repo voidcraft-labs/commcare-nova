@@ -9,6 +9,7 @@
  * reaches no store.
  */
 
+import type { HqFailure } from "@/lib/commcare/hq/failure";
 import type { HqLocation, HqLocationType } from "@/lib/commcare/hq/locations";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
@@ -56,6 +57,7 @@ import {
 	readerLookupCatalog,
 	readingLookupSnapshot,
 	resolveLookupBindings,
+	sameManagedColumnCapFinding,
 } from "./lookupTables";
 import {
 	documentReadsPlaces,
@@ -101,6 +103,13 @@ export interface ReadingProjectData {
 	readonly organization: ReaderOrganization;
 	/** Whether the levels and places were read. */
 	readonly placesRead: boolean;
+	/**
+	 * The failed read of the levels and places, where only the source's text
+	 * asked for them: null where they were read or never asked for. Such a read
+	 * ends a reading only as `unreadPlacesFailure` says, since the text's test
+	 * can say yes where nothing reads places.
+	 */
+	readonly placesUnread: HqFailure | null;
 	/** Everything read and decided, for the functions below. Held in memory for one request. */
 	readonly gathered: {
 		readonly origin: { readonly server: string; readonly domain: string };
@@ -120,6 +129,8 @@ export interface ReadingProjectData {
 			readonly apps: Readonly<
 				Record<string, readonly LookupReferencingAppSummary[]>
 			>;
+			/** The columns of each of those tables CommCare HQ's content keeps, by the table's id. */
+			readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 			readonly siblings: readonly SiblingLookupMapping[];
 			readonly mayAdminister: boolean;
 		};
@@ -147,6 +158,12 @@ export interface ReadingProjectAnswers {
 	readonly apps: Readonly<
 		Record<string, readonly LookupReferencingAppSummary[]>
 	>;
+	/**
+	 * By table id, the ids of the columns an app's reference edge names or an
+	 * accepted design protects, which CommCare HQ's content keeps where its
+	 * fields lack them (`readKeptLookupColumnIds`); a table absent keeps none.
+	 */
+	readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 	readonly siblings: readonly SiblingLookupMapping[];
 	readonly mayAdminister: boolean;
 }
@@ -244,8 +261,10 @@ export function assembleReadingProjectData(input: {
 	readonly hqTags: readonly string[];
 	readonly project: ReadingProjectAnswers;
 	/** Postgres's measure of each candidate's rows, by tag; absent or null where not measured. */
-	readonly measured: Readonly<Record<string, LookupRowsMeasure | null>>;
+	readonly measured: ReadonlyMap<string, LookupRowsMeasure | null>;
 	readonly places: ReadingPlacesRead | null;
+	/** The failed read of the levels and places the source's text alone asked for. */
+	readonly placesUnread: HqFailure | null;
 }): ReadingProjectData {
 	const { origin, project } = input;
 	const ids = { appId: input.appId, readingId: input.readingId };
@@ -256,9 +275,7 @@ export function assembleReadingProjectData(input: {
 		const tag = read.table.tag;
 		const existing = byTag.get(tag) ?? null;
 		const projectTable = existing === null ? null : metProjectTable(existing);
-		const measured = Object.hasOwn(input.measured, tag)
-			? input.measured[tag]
-			: null;
+		const measured = input.measured.get(tag) ?? null;
 		const findings = lookupTableFindings(read, measured);
 		if (findings.length > 0 || read.kind !== "read") {
 			return {
@@ -270,6 +287,8 @@ export function assembleReadingProjectData(input: {
 				projectTable,
 			};
 		}
+		const keptColumnIds =
+			existing === null ? [] : keptColumnsOf(project.keptColumns, existing);
 		const standing = lookupTableStanding({
 			read,
 			origin,
@@ -291,7 +310,23 @@ export function assembleReadingProjectData(input: {
 						),
 			appReads: [],
 			mayAdminister: project.mayAdminister,
+			keptColumnIds,
 		});
+		const capFinding = sameManagedColumnCapFinding(
+			read,
+			standing,
+			keptColumnIds,
+		);
+		if (capFinding !== null) {
+			return {
+				read,
+				findings: [capFinding],
+				standing: null,
+				binding: null,
+				choice: null,
+				projectTable,
+			};
+		}
 		const [binding] = resolveLookupBindings(
 			[read],
 			{ [tag]: standing },
@@ -315,6 +350,7 @@ export function assembleReadingProjectData(input: {
 			levels: places?.hqLevels ?? [],
 		},
 		placesRead: places !== null,
+		placesUnread: places === null ? input.placesUnread : null,
 		gathered: {
 			origin,
 			appId: input.appId,
@@ -325,6 +361,7 @@ export function assembleReadingProjectData(input: {
 				projectRevision: project.projectRevision,
 				rowsByTable: project.rowsByTable,
 				apps: project.apps,
+				keptColumns: project.keptColumns,
 				siblings: project.siblings,
 				mayAdminister: project.mayAdminister,
 			},
@@ -334,6 +371,14 @@ export function assembleReadingProjectData(input: {
 			placesPastLimit: places?.placesPastLimit ?? null,
 		},
 	};
+}
+
+/** The kept columns of a Project table, none where the read named none. */
+export function keptColumnsOf(
+	keptColumns: Readonly<Record<string, readonly string[]>>,
+	table: LookupTableDefinition,
+): readonly string[] {
+	return Object.hasOwn(keptColumns, table.id) ? keptColumns[table.id] : [];
 }
 
 function rowsOf(
@@ -480,6 +525,27 @@ export function projectDataReadsOf(
 		unreadTables: distinctTags(facts.unreadTables),
 		readsPlaces: documentReadsPlaces(doc),
 	};
+}
+
+/**
+ * The failed read of the levels and places a reading ends with, or null.
+ * `placesUnread` ends it where the reader's document reads places, and
+ * wherever the reader refused something (an `account`): the reader ran
+ * without CommCare HQ's levels, so a read of a place at a level names a
+ * level it does not hold and is refused as an expression no runtime can
+ * evaluate as its author meant, which no bound tree then shows as a read of
+ * places. Such an account would name a permission as a broken app; asking
+ * for the permission first leaves only refusals that are the app's own.
+ * Only a document the reader read whole, with no refusal, says the app
+ * reads no place, and then the failure is dropped. Pure.
+ */
+export function unreadPlacesFailure(
+	data: ReadingProjectData,
+	outcome: ReadOutcome,
+): HqFailure | null {
+	if (data.placesUnread === null) return null;
+	if (outcome.kind === "account") return data.placesUnread;
+	return documentReadsPlaces(outcome.draft.doc) ? data.placesUnread : null;
 }
 
 function distinctTags(

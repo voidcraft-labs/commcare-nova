@@ -592,6 +592,16 @@ export interface AppLocationsTable {
 	updated_by: string | null;
 	/** CommCare HQ's id of a place CommCare HQ manages; never blank. */
 	hq_location_id: string | null;
+	/**
+	 * When a refresh of a managed copy found this place gone from CommCare
+	 * HQ's list and kept it live because the app still uses it; null for
+	 * every place CommCare HQ lists, and for every place of an unmanaged app.
+	 */
+	hq_gone_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
 }
 
 export interface AppLocationReferencesTable {

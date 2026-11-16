@@ -113,13 +113,14 @@ import {
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
 	fixedLocationOwnerIssue,
-	reverseLocationOwnerIssue,
+	reverseLocationOwnerRefusal,
 } from "@/lib/organization/ownerTargetVerdicts";
 import { useOrganization } from "@/lib/organization/useOrganization";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
+import { managedPlacesContext } from "../app-setup/organizationUi";
 import { CaseOperationLinks } from "./CaseOperationLinks";
 import { useCaseTargetDraft } from "./CaseTargetDraftContext";
 import {
@@ -823,16 +824,22 @@ export function CaseOwnerSection({
 	const reverseAvailable =
 		ownerContext !== undefined &&
 		editorAxesOf(ownerContext).caseDataScope !== "global";
-	const reverseLevelIssues = useMemo(
-		() =>
-			new Map(
-				reverseLevels.map((level) => [
+	// Where CommCare HQ manages the places, a source with no destination or
+	// two is answered in CommCare HQ and a refresh, as the commit answers it.
+	const reverseLevelIssues = useMemo(() => {
+		const managed = managedPlacesContext(organization.hq);
+		return new Map(
+			reverseLevels.map((level) => [
+				level.uuid,
+				reverseLocationOwnerRefusal(
+					doc,
+					organization.locations,
 					level.uuid,
-					reverseLocationOwnerIssue(doc, organization.locations, level.uuid),
-				]),
-			),
-		[doc, organization.locations, reverseLevels],
-	);
+					managed,
+				),
+			]),
+		);
+	}, [doc, organization.hq, organization.locations, reverseLevels]);
 	const fixedModeIssue = fixedOwnerModeIssue(
 		organization,
 		fixedLocationCandidates.length,

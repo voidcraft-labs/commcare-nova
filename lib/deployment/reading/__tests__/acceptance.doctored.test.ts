@@ -21,7 +21,9 @@
  * - identity: a whole-number question read as a decimal, consistently, and
  *   a case write moved to another question pass the first three checks and
  *   are `identity/leaf/typeClass` and `identity/case-blocks/basic-own/
- *   properties`;
+ *   properties`; a question of the source the draft lacks and names case
+ *   region is `identity/region/control`, and one it names a generated node
+ *   is `identity/generated/control`;
  * - summary: two labels swapped, consistently, pass the first four checks
  *   and are `summary/question/label`, worded by `read-back-differs`' copy;
  * - a menu CommCare HQ could not summarize: a clean draft answers `ok`, and
@@ -47,6 +49,7 @@ import {
 	locationOwnerFixture,
 } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import type { HandOffRecord } from "@/lib/commcare/reader/accounting";
+import type { ReadFormFacts } from "@/lib/commcare/reader/types";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
@@ -547,6 +550,104 @@ describe("check 4, identity", () => {
 		const accepted = refused(acceptReading(input));
 		expect(accepted.check).toBe("identity");
 		expect(accepted.signature).toBe("identity/leaf/typeClass");
+	});
+
+	/**
+	 * The navigation base's Visit form serving a question `extra` the clean
+	 * draft does not hold, with that form's facts in the draft changed by
+	 * `facts`: a reader that took an authored node for one of Nova's own and
+	 * dropped it.
+	 */
+	async function extraTakenAs(
+		facts: (form: ReadFormFacts) => ReadFormFacts,
+	): Promise<AcceptReadingInput> {
+		const withExtra = await navigationBase({
+			body: (body) => ({
+				...body,
+				_attachments: Object.fromEntries(
+					Object.entries(body._attachments as Record<string, string>).map(
+						([name, xml]) => [
+							name,
+							xml.includes("<answer/>")
+								? xml
+										.replace("<answer/>", "<answer/><extra/>")
+										.replace(
+											'<bind type="xsd:string" vellum:nodeset="#form/answer"',
+											'<bind type="xsd:string" nodeset="/data/extra"/><bind type="xsd:string" vellum:nodeset="#form/answer"',
+										)
+										.replace(
+											"</h:body>",
+											'<input ref="/data/extra"><label>Extra</label></input></h:body>',
+										)
+								: xml,
+						],
+					),
+				),
+			}),
+		});
+		const clean = await navigationBase();
+		const visitXmlns = withExtra.source.modules
+			.flatMap((menu) => menu.forms)
+			.find((form) => form.attachment?.includes("<extra/>") === true)?.xmlns;
+		const visit = clean.outcome.draft.facts.forms.find(
+			(form) => form.xmlns === visitXmlns,
+		);
+		if (visit === undefined) throw new Error("The reading holds the visit.");
+		return {
+			...clean,
+			source: withExtra.source,
+			modules: withExtra.modules,
+			outcome: {
+				...clean.outcome,
+				draft: {
+					...clean.outcome.draft,
+					facts: {
+						...clean.outcome.draft.facts,
+						forms: clean.outcome.draft.facts.forms.map((form) =>
+							form === visit ? facts(form) : form,
+						),
+					},
+				},
+			},
+		};
+	}
+
+	it("finds a question the draft takes for case scaffolding", async () => {
+		const accepted = refused(
+			acceptReading(
+				await extraTakenAs((form) => ({
+					...form,
+					caseRegionPaths: ["/data/extra"],
+				})),
+			),
+		);
+		expect(accepted.check).toBe("identity");
+		expect(accepted.differences.map((one) => one.signature)).toEqual([
+			"identity/region/control",
+		]);
+	});
+
+	it("finds a question the draft takes for a generated node", async () => {
+		const accepted = refused(
+			acceptReading(
+				await extraTakenAs((form) => ({
+					...form,
+					generated: [
+						...form.generated,
+						{
+							purpose: "trimmed",
+							owner: "/data/answer",
+							path: "/data/extra",
+							name: "extra",
+						},
+					],
+				})),
+			),
+		);
+		expect(accepted.check).toBe("identity");
+		expect(accepted.differences.map((one) => one.signature)).toEqual([
+			"identity/generated/control",
+		]);
 	});
 
 	it("finds a case write moved to another question", async () => {

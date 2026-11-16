@@ -50,6 +50,7 @@
 
 import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
 import { changedByHqManagedRemedy } from "@/lib/commcare/lookup/hqCellText";
+import { selectSourceManagedRemedy } from "@/lib/commcare/lookup/selectSourceRows";
 import { unrepresentableManagedRemedy } from "@/lib/commcare/lookup/xmlText";
 import type {
 	ValidationError,
@@ -125,6 +126,20 @@ const fieldName = (e: ValidationError): string =>
 /** A `details` value, or the fallback. */
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
+
+/** The last sentence of a choice list's row finding: the remedy in Project
+ * data, or, for a table CommCare HQ manages (`managedInDomain`), the managed
+ * one, since Project data refuses every edit to it. */
+const selectSourceRowRemedy = (
+	e: ValidationError,
+	ownRemedy: string,
+	alternative: "another value column" | "another label column",
+): string => {
+	const domain = e.details?.managedInDomain;
+	return domain
+		? selectSourceManagedRemedy(domain, "change those rows", alternative)
+		: `${ownRemedy} or choose ${alternative}.`;
+};
 
 /** A sentence's subject placed later in a sentence. */
 const lowerFirst = (subject: string): string =>
@@ -1905,16 +1920,23 @@ const USER_MESSAGE_BY_CODE: Record<
 		return `The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. ${domain ? unrepresentableManagedRemedy(domain) : "You can remove them or retype the affected values in Project data."}`;
 	},
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
-		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another value column.`,
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. ${selectSourceRowRemedy(e, "Fill in those rows", "another value column")}`,
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>
-		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} contain spaces or line breaks there. Saved values can't contain whitespace. Tidy those rows or choose another value column.`,
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} contain spaces or line breaks there. Saved values can't contain whitespace. ${selectSourceRowRemedy(e, "Tidy those rows", "another value column")}`,
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: (e) =>
-		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "tableName", "the lookup table")} repeats the same value in several rows. Make the values unique or choose another value column.`,
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "tableName", "the lookup table")} repeats the same value in several rows. ${selectSourceRowRemedy(e, "Make the values unique", "another value column")}`,
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: (e) =>
-		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its labels, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another label column.`,
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its labels, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. ${selectSourceRowRemedy(e, "Fill in those rows", "another label column")}`,
 	LOOKUP_SELECT_SOURCE_EMPTY: (e) => {
 		const table = q(det(e, "tableName", "its data table"));
-		const next = `You can add rows to ${table} in Project data, or choose another table for its choices.`;
+		const domain = e.details?.managedInDomain;
+		const next = domain
+			? selectSourceManagedRemedy(
+					domain,
+					"add rows to it",
+					"another table for its choices",
+				)
+			: `You can add rows to ${table} in Project data, or choose another table for its choices.`;
 		if (e.details?.ownerKind === "search-input") {
 			const input = q(
 				present(e.details.inputLabel ?? e.details.inputName, "this field"),

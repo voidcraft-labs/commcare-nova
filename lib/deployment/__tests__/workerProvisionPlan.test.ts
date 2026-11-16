@@ -104,6 +104,7 @@ function plan(
 		workers: [worker()],
 		mappings: [],
 		managedPlaceIds: new Map(),
+		goneManagedPlaceIds: new Set(),
 		hqWorkers: [],
 		workerDataGaps: new Map(),
 		domain: DOMAIN,
@@ -358,6 +359,7 @@ describe("things CommCare HQ would take and then not do", () => {
 			workers: [worker({ locationUuids: [DENVER] })],
 			mappings: [],
 			managedPlaceIds: new Map([[DENVER, "hq-managed-denver"]]),
+			goneManagedPlaceIds: new Set<string>(),
 			workerDataGaps: new Map(),
 			domain: DOMAIN,
 		};
@@ -380,6 +382,32 @@ describe("things CommCare HQ would take and then not do", () => {
 				locationUuid: "second-place",
 			},
 		]);
+	});
+
+	it("refuses a persona standing in a managed place CommCare HQ no longer has, before any account exists", () => {
+		// A refresh keeps such a place live while a persona names it, with no
+		// CommCare HQ id; HQ's `_verify_location_ids` would refuse the
+		// assignment after the account was made, on every retry.
+		const input = {
+			workers: [worker({ locationUuids: [DENVER] })],
+			mappings: [],
+			managedPlaceIds: new Map<string, string>(),
+			goneManagedPlaceIds: new Set([DENVER]),
+			workerDataGaps: new Map(),
+			domain: DOMAIN,
+		};
+		expect(workerProvisionProblems(input)).toEqual([
+			{
+				kind: "place-gone-from-hq",
+				personaUuid: AMINA,
+				personaName: "Amina",
+				locationUuid: DENVER,
+			},
+		]);
+		expect(plan(input)).toMatchObject({
+			ok: false,
+			reason: "unprovisionable",
+		});
 	});
 });
 

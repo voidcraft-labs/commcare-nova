@@ -431,9 +431,10 @@ stored project-space list that outlived the membership.
 connection and before the export boundary (`managedData.ts::reReadManagedTablesForPublish`).
 It reads the tables managed in the target with the publisher's key, the list
 once and each table's rows, and where one changed in something the app reads
-(the table gone, a column the app reads gone, field properties, row
-attributes, rows limited to certain users, a field with several values, a cap,
-a field name outside the grammar, a character XML cannot carry) it refuses
+(the table gone, a column the app reads gone, no column at all, field
+properties, row attributes, rows limited to certain users, a field with
+several values, a cap, a field name outside the grammar, a character XML
+cannot carry) it refuses
 with `hq_managed_data_changed`, every change of every table listed in
 `details`, before any write; otherwise it refreshes each table whose content
 moved, each in its own short transaction, so the boundary validates and emits
@@ -442,13 +443,21 @@ A table managed in another project space is read where the publisher's
 connection reaches it and refreshed where nothing stops it; otherwise it goes
 out from Nova's copy as it is, and never stops a publish. The export boundary
 then leaves every table managed in the target out of the workbook
-(`lookupTarget`), and `project-data` reuses the list `managed-data` read.
+(`lookupTarget`), and `project-data` reuses the list `managed-data` read. The
+passed check says Nova sends none of the tables only of those the target
+manages: a table another project space manages goes in the workbook from the
+copy, and its item says so. Every refresh dates its read before CommCare HQ is
+asked, and passes that date as the refresh's own; one whose read began before
+the copy's last refresh or hand-back writes nothing (`superseded`, which the
+re-read leaves out of what it refreshed), so a slow read never replaces a
+newer one (`lib/lookup/CLAUDE.md`, `lib/organization/CLAUDE.md`).
 
 The `organization` edge, for places CommCare HQ manages in the target, plans
 no place and pushes none: it reads that project space's places, holds the
 owner rules that pick a place beneath the case owner to them, and refreshes
 Nova's copy from that read (`managedData.ts::refreshManagedPlacesFromRead`); a
-copy it cannot refresh stops nothing. Another project space gets the copy as
+copy it cannot refresh stops nothing, and the passed check then says it was
+not refreshed and carries the refresh's own refusal as its item. Another project space gets the copy as
 places Nova made there, with every existing refusal.
 
 ## Ownership, and why superseded rows are kept
@@ -1226,7 +1235,13 @@ gathers the same errors into one 400. The places a persona stands in reach
 CommCare HQ's ids through the deployment's `location` mappings and, for
 places CommCare HQ manages in the target, through each place's
 `hq_location_id` (`managedData.ts::readManagedPlaceIds`): such places were
-never pushed, so no mapping names them.
+never pushed, so no mapping names them. A managed place a refresh kept live
+with `hq_gone_at` set is one CommCare HQ no longer has
+(`api/user_updates.py::_verify_location_ids` reads `active_objects`); it keeps
+its `hq_location_id`, so a later refresh that finds it listed again matches it
+by that id and clears the mark. A persona standing in one is
+refused up front (`place-gone-from-hq`) rather than made and then refused its
+places on every retry.
 
 Nova speaks about a worker's places only when the app HAS an organization.
 `::_update_location` reads an empty list as "remove all", so an app with

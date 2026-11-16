@@ -8,9 +8,19 @@ import {
 	orderedOrganizationLevels,
 	organizationLevelsOf,
 } from "@/lib/domain";
-import type { OrganizationRuleInputs } from "@/lib/organization/ownerTargetVerdicts";
+import type {
+	ManagedPlacesContext,
+	OrganizationRuleInputs,
+} from "@/lib/organization/ownerTargetVerdicts";
+import type {
+	OrganizationSnapshot,
+	StoredLocation,
+} from "@/lib/organization/types";
+import { locationValueCatalogIssueForProperties } from "@/lib/organization/valueCatalog";
 import {
 	MANAGED_PLACES_ALREADY_MATCH,
+	MANAGED_PLACES_REFRESHED_SINCE,
+	managedOrganizationCommitRefusal,
 	managedPlacesKeptInUse,
 	managedPlacesRefreshed,
 } from "@/lib/publish/managedData";
@@ -201,7 +211,10 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesOutcome): {
 	readonly lines: readonly string[];
 } {
 	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
-	const { added, changed, archived, keptInUse } = outcome.refresh;
+	const { added, changed, archived, keptInUse, superseded } = outcome.refresh;
+	if (superseded) {
+		return { tone: "status", lines: [MANAGED_PLACES_REFRESHED_SINCE] };
+	}
 	return {
 		tone: "status",
 		lines: [
@@ -211,4 +224,138 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesOutcome): {
 			...(keptInUse.length === 0 ? [] : [managedPlacesKeptInUse(keptInUse)]),
 		],
 	};
+}
+
+/**
+ * Where CommCare HQ manages the app's places, as the builder's prechecks and
+ * `organizationLevelPatchIssue` take it, from the organization snapshot's
+ * `hq`; `undefined` where Nova manages them.
+ */
+export function managedPlacesContext(
+	hq: OrganizationSnapshot["hq"],
+): ManagedPlacesContext | undefined {
+	return hq === undefined
+		? undefined
+		: { domain: hq.domain, goneIds: new Set(hq.goneIds) };
+}
+
+/**
+ * Whether a place holds an organization change back, as the commit's own
+ * checks decide (`lib/organization/commitIntegrity.ts::blocksChange`): every
+ * place, archived ones included, except an archived place in a copy CommCare
+ * HQ manages. That is a place CommCare HQ no longer lists, which no one can
+ * bring back or move in Nova, and a refresh that restores it rewrites its
+ * level, parent and values from CommCare HQ's list.
+ */
+export function placeBlocksChange(
+	location: Pick<StoredLocation, "archivedAt">,
+	managed: ManagedPlacesContext | undefined,
+): boolean {
+	return managed === undefined || location.archivedAt === null;
+}
+
+/** A level that places stand at, so it can't be removed. */
+export interface LevelOccupancy {
+	/**
+	 * Where CommCare HQ manages the places: every place at the level is one
+	 * it no longer has, which the copy keeps only while something in the app
+	 * uses it. Always false where Nova manages them.
+	 */
+	readonly kept: boolean;
+}
+
+/**
+ * The levels places stand at, by level uuid, counting the places the commit
+ * counts ({@link placeBlocksChange}): archived ones too where Nova manages the
+ * places, because CommCare's own guard counts them and unarchiving into a
+ * removed level would bring back a row pointing at nothing; live ones only
+ * where CommCare HQ manages them.
+ */
+export function levelOccupancy(
+	locations: readonly StoredLocation[],
+	managed: ManagedPlacesContext | undefined,
+): ReadonlyMap<string, LevelOccupancy> {
+	const occupancy = new Map<string, LevelOccupancy>();
+	for (const location of locations) {
+		if (!placeBlocksChange(location, managed)) continue;
+		const kept = managed?.goneIds.has(location.id) === true;
+		const earlier = occupancy.get(location.levelUuid);
+		occupancy.set(location.levelUuid, {
+			kept: (earlier?.kept ?? true) && kept,
+		});
+	}
+	return occupancy;
+}
+
+/**
+ * What Remove level says when its plan refuses the removal, or `undefined`
+ * where it doesn't. Places standing at the level are the plan's first
+ * refusal. Where CommCare HQ manages the app's places, Nova moves none of
+ * them, so that refusal names the way that works: move them in CommCare HQ
+ * and refresh, or, where every one is a place CommCare HQ no longer has,
+ * change what in the app uses them. Every other refusal is the plan's own.
+ */
+export function levelRemovalRefusal(
+	plan:
+		| { readonly ok: true }
+		| { readonly ok: false; readonly userMessage: string },
+	levelName: string,
+	occupancy: LevelOccupancy | undefined,
+	managed: ManagedPlacesContext | undefined,
+): string | undefined {
+	if (plan.ok) return undefined;
+	if (occupancy !== undefined && managed !== undefined) {
+		return managedOrganizationCommitRefusal(
+			{
+				kind: "level-in-use",
+				levels: [`"${levelName}"`],
+				kept: occupancy.kept,
+			},
+			managed.domain,
+		);
+	}
+	return plan.userMessage;
+}
+
+/**
+ * What a place information change says before it commits, when some place's
+ * values no longer fit the candidate catalog: the first such place the
+ * commit's `assertLocationValuesValid` would refuse on
+ * ({@link placeBlocksChange}), or `undefined` where none would.
+ */
+export function placeInformationChangeRefusal(
+	candidateProperties: readonly LocationProperty[],
+	locations: readonly StoredLocation[],
+	managed: ManagedPlacesContext | undefined,
+): string | undefined {
+	for (const location of locations) {
+		if (!placeBlocksChange(location, managed)) continue;
+		const issue = locationValueCatalogIssueForProperties(
+			candidateProperties,
+			location.levelUuid,
+			location.values,
+		);
+		if (issue !== undefined) return placeValueRefusal(location, issue, managed);
+	}
+	return undefined;
+}
+
+/**
+ * What a place information change says when a place's value doesn't fit it.
+ * `issue` is the value check's own sentence. Where CommCare HQ manages the
+ * app's places, the value is changed there and refreshed, or, for a place
+ * CommCare HQ no longer has, what in the app uses it is changed.
+ */
+export function placeValueRefusal(
+	location: Pick<StoredLocation, "id" | "name">,
+	issue: string,
+	managed: ManagedPlacesContext | undefined,
+): string {
+	const place = `“${location.name}”`;
+	return managed === undefined
+		? `${place} blocks this change. ${issue}`
+		: managedOrganizationCommitRefusal(
+				{ kind: "value", place, issue, kept: managed.goneIds.has(location.id) },
+				managed.domain,
+			);
 }

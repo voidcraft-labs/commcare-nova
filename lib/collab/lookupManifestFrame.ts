@@ -8,10 +8,7 @@
  */
 
 import { z } from "zod";
-import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
@@ -41,9 +38,10 @@ const lookupTableManifestEntrySchema = z
 		definitionRevision: lookupRevisionSchema,
 		rowsRevision: lookupRevisionSchema,
 		tableRevision: lookupRevisionSchema,
-		/* Where a table came from in CommCare HQ. The relay omits the key for
-		 * a table made in Nova; a manifest holds no columns, so a frame's
-		 * `goneColumnIds` is always empty. */
+		/* Where a table came from in CommCare HQ and who manages it. The relay
+		 * omits the key for a table made in Nova. It carries no day of the last
+		 * refresh: a refresh that changed nothing stamps that day and advances
+		 * no revision, and one revision's frame never changes. */
 		hq: z
 			.strictObject({
 				server: z.string().min(1),
@@ -51,10 +49,8 @@ const lookupTableManifestEntrySchema = z
 				remoteId: z.string().min(1),
 				managedBy: z.enum(["commcare-hq", "nova"]),
 				broughtInAt: z.iso.datetime(),
-				refreshedAt: z.iso.datetime(),
 				takenOverAt: z.iso.datetime().nullable(),
 				takenOverBy: z.string().min(1).nullable(),
-				goneColumnIds: z.array(lookupColumnIdSchema).max(0),
 			})
 			.optional(),
 	})

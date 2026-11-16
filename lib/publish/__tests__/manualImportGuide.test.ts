@@ -18,7 +18,6 @@ import {
 	decodeManualImportGuide,
 	encodeManualImportGuide,
 	MANUAL_IMPORT_GUIDE_HEADER_LIMIT,
-	MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK,
 	MANUAL_IMPORT_STEP_IN_README,
 	type ManualImportGuideInput,
 	manualImportGuide,
@@ -30,7 +29,7 @@ import { PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL } from "../projectSpaceCompat
 const BARE: ManualImportGuideInput = {
 	appFileName: "Tracker",
 	lookupTags: [],
-	managedLookupTables: [],
+	managedLookupFiles: [],
 	hasMedia: false,
 	versionFloor: "2.57",
 	capabilities: [],
@@ -80,58 +79,80 @@ describe("manualImportGuide", () => {
 		]);
 	});
 
-	it("adds the step for tables CommCare HQ manages exactly when one is, right after the lookup tables, naming each table's project space and the second file", () => {
-		const managedLookupTables = [
-			{
-				tag: "districts",
-				domain: "acme-health",
-				refreshedOn: "3 November 2026",
-			},
-			{ tag: "clinics", domain: "acme-north", refreshedOn: "4 November 2026" },
-		];
+	it("adds one step per project space that manages tables, right after the lookup tables, each naming its own file and space", () => {
+		const health = {
+			fileName: "lookup-tables-managed-in-acme-health.xlsx",
+			projectSpace: "acme-health",
+			tables: [{ tag: "districts", refreshedOn: "3 November 2026" }],
+		};
+		const north = {
+			fileName: "lookup-tables-managed-in-acme-north.xlsx",
+			projectSpace: "acme-north",
+			tables: [{ tag: "clinics", refreshedOn: "4 November 2026" }],
+		};
 		expect(kinds({ ...BARE, lookupTags: ["visits"] })).not.toContain(
 			"managed-lookup-tables",
 		);
-		expect(
-			kinds({ ...BARE, lookupTags: ["visits"], managedLookupTables }),
-		).toEqual([
-			"lookup-tables",
-			"managed-lookup-tables",
-			"import-app",
-			"commcare-version",
-		]);
+
+		/* One project space: one step in the single-space wording. */
 		const [lookup, managed] = manualImportGuide({
 			...BARE,
 			lookupTags: ["visits"],
-			managedLookupTables,
+			managedLookupFiles: [health],
 		});
 		/* The first file carries only the tables Nova manages. */
 		expect(lookup.lines.join("\n")).not.toMatch(/districts|clinics/);
+		expect(managed.kind).toBe("managed-lookup-tables");
 		expect(managed.title).toBe("Lookup tables managed in CommCare HQ");
 		expect(managed.lines).toContain(
 			"  districts (in acme-health, copied on 3 November 2026)",
 		);
-		expect(managed.lines).toContain(
-			"  clinics (in acme-north, copied on 4 November 2026)",
-		);
-		const text = managed.lines.join("\n");
-		expect(text).toContain(`"${MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK}" out`);
+		expect(managed.lines.join("\n")).toContain(`"${health.fileName}" out`);
 		expect(managed.lines.at(-1)).toBe("same way as the file above.");
 
-		/* Every table managed: no first file, so the managed step comes first
-		 * and says how to upload it rather than pointing above. */
-		const alone = manualImportGuide({ ...BARE, managedLookupTables });
+		/* Two project spaces: a step each, so a person importing into one
+		 * leaves out that one's file alone and uploads the other's. */
+		const both = manualImportGuide({
+			...BARE,
+			lookupTags: ["visits"],
+			managedLookupFiles: [health, north],
+		});
+		expect(both.map((step) => step.kind)).toEqual([
+			"lookup-tables",
+			"managed-lookup-tables",
+			"managed-lookup-tables",
+			"import-app",
+			"commcare-version",
+		]);
+		const [, first, second] = both;
+		expect(first.title).toBe("Lookup tables managed in acme-health");
+		expect(second.title).toBe("Lookup tables managed in acme-north");
+		expect(first.lines.join("\n")).toContain(
+			`If you're importing into acme-health, it already has them, so leave\n"${health.fileName}" out.`,
+		);
+		expect(first.lines.join("\n")).not.toMatch(/clinics|acme-north/);
+		expect(second.lines.join("\n")).toContain(
+			`If you're importing into acme-north, it already has them, so leave\n"${north.fileName}" out.`,
+		);
+		expect(second.lines.join("\n")).not.toMatch(/districts|acme-health/);
+
+		/* Every table managed: no first file, so the first managed step says
+		 * how to upload it and the next points at it. */
+		const alone = manualImportGuide({
+			...BARE,
+			managedLookupFiles: [health, north],
+		});
 		expect(alone.map((step) => step.kind)).toEqual([
+			"managed-lookup-tables",
 			"managed-lookup-tables",
 			"import-app",
 			"commcare-version",
 		]);
 		const aloneText = alone[0].lines.join("\n");
 		expect(aloneText).not.toContain("above");
-		expect(aloneText).toContain(
-			`Upload "${MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK}" there`,
-		);
-		/* The header carries the new kind back. */
+		expect(aloneText).toContain(`Upload "${health.fileName}" there`);
+		expect(alone[1].lines.at(-1)).toBe("same way as the file above.");
+		/* The header carries the kind back. */
 		expect(
 			decodeManualImportGuide(encodeManualImportGuide(alone)).map(
 				(step) => step.kind,
@@ -172,7 +193,7 @@ describe("manualImportGuide", () => {
 			doc,
 			assets: new Map(),
 			lookupWorkbook: undefined,
-			managedLookupWorkbook: undefined,
+			managedLookupWorkbooks: [],
 			managedLookupTables: [],
 			attachmentTarget: null,
 			lookupNaming: undefined,
@@ -374,7 +395,7 @@ describe("manualImportGuide", () => {
 			doc,
 			assets: new Map(),
 			lookupWorkbook: undefined,
-			managedLookupWorkbook: undefined,
+			managedLookupWorkbooks: [],
 			managedLookupTables: [],
 			attachmentTarget: null,
 			lookupNaming: promptLookupNaming,
@@ -407,7 +428,7 @@ describe("manualImportGuide", () => {
 				doc: searchPromptFixture("prompt-guards"),
 				assets: new Map(),
 				lookupWorkbook: undefined,
-				managedLookupWorkbook: undefined,
+				managedLookupWorkbooks: [],
 				managedLookupTables: [],
 				attachmentTarget: null,
 				lookupNaming: undefined,

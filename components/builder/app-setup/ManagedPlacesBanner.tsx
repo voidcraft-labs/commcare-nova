@@ -6,8 +6,9 @@
  * the address in CommCare HQ and whether this viewer is connected there are
  * the deployment boundary's view, read once here, because `lib/organization`
  * reaches no CommCare HQ server. What a refresh pressed in this tab answered
- * (the places it kept because a persona or an owner rule still uses them)
- * stays until the tab's next refresh or reload: it is no stored fact.
+ * (the places it kept because a persona, an owner rule or an automation
+ * still uses them) stays until the tab's next refresh or reload: it is no
+ * stored fact.
  */
 "use client";
 
@@ -45,7 +46,7 @@ type PlacesView = NonNullable<
 >;
 
 const TRANSPORT_FAILURE =
-	"Nova couldn't reach CommCare HQ's copy of these places. Check your connection and try again.";
+	"Nova couldn't refresh its copy of these places. Check your connection and try again.";
 
 type RefreshLines = {
 	readonly tone: "status" | "alert";

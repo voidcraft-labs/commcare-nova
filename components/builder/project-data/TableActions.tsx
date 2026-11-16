@@ -41,8 +41,10 @@ import {
 	createRevisionedTextDraft,
 	discardRevisionedTextDraft,
 	editRevisionedTextDraft,
+	isManagedRefusal,
 	keepRevisionedTextDraft,
 	type RevisionedTextDraft,
+	readAgainAfterRefusal,
 	reconcileRevisionedTextDraft,
 	rowAdditionRefusal,
 	tableCapacity,
@@ -288,7 +290,11 @@ export function TableActions({
 										await workspace.reload();
 									} else {
 										setFailure(result.message);
-										if (result.code === "conflict") await workspace.reload();
+										await readAgainAfterRefusal(
+											result,
+											workspace.reload,
+											workspace.reloadManifest,
+										);
 									}
 								} catch {
 									setFailure(
@@ -372,7 +378,11 @@ export function TableActions({
 										await workspace.reload();
 									} else {
 										setFailure(result.message);
-										if (result.code === "conflict") await workspace.reload();
+										await readAgainAfterRefusal(
+											result,
+											workspace.reload,
+											workspace.reloadManifest,
+										);
 									}
 								} catch {
 									setFailure(
@@ -435,6 +445,12 @@ export function TableActions({
 									revision: result.currentRevisions.tableRevision,
 								});
 								await workspace.reload();
+							} else if (isManagedRefusal(result)) {
+								await readAgainAfterRefusal(
+									result,
+									workspace.reload,
+									workspace.reloadManifest,
+								);
 							}
 							return result.message;
 						}
@@ -450,6 +466,9 @@ export function TableActions({
 					table={table}
 					onClose={() => setImporting(false)}
 					onImported={workspace.reload}
+					onManagedInHq={async () => {
+						await Promise.all([workspace.reload(), workspace.reloadManifest()]);
+					}}
 				/>
 			)}
 
@@ -484,6 +503,12 @@ export function TableActions({
 							) {
 								setDeleting(result.currentRevisions.tableRevision);
 								await workspace.reload();
+							} else if (isManagedRefusal(result)) {
+								await readAgainAfterRefusal(
+									result,
+									workspace.reload,
+									workspace.reloadManifest,
+								);
 							}
 							return result;
 						}

@@ -22,7 +22,10 @@
  *     fault, or a 4xx from the route's own input and authorization gates.
  */
 
-import { sameConfirmationKey } from "@/components/builder/app-setup/publishingSectionModel";
+import {
+	deploymentViewKey,
+	sameConfirmationKey,
+} from "@/components/builder/app-setup/publishingSectionModel";
 import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
 import type { DeploymentView } from "@/lib/deployment/actions";
 import type {
@@ -208,6 +211,39 @@ export interface PublishResponseBody {
 	readonly error?: string;
 }
 
+/**
+ * The record a publish response carries. `unread` where the response left a
+ * list out because the server could not read it after the write landed
+ * (`service.ts::landedDeploymentKept`, `landedFirstPublish`): the record held
+ * for that target keeps the list it shows.
+ */
+export interface PublishedDeploymentView
+	extends Omit<DeploymentView, "kept" | "firstPublish"> {
+	readonly kept: DeploymentView["kept"] | "unread";
+	readonly firstPublish: DeploymentView["firstPublish"] | "unread";
+}
+
+/**
+ * The record to hold for a publish response's `next`: each list the response
+ * left out unread taken from the record `views` holds for the same target,
+ * none where it holds none, and every list the response carried as it is.
+ */
+export function publishedViewToHold(
+	views: readonly DeploymentView[],
+	next: PublishedDeploymentView,
+): DeploymentView {
+	const key = deploymentViewKey(next as DeploymentView);
+	const held = views.find((view) => deploymentViewKey(view) === key);
+	return {
+		...next,
+		kept: next.kept === "unread" ? (held?.kept ?? null) : next.kept,
+		firstPublish:
+			next.firstPublish === "unread"
+				? (held?.firstPublish ?? null)
+				: next.firstPublish,
+	};
+}
+
 export type PublishOutcome =
 	| {
 			readonly kind: "landed";
@@ -217,7 +253,7 @@ export type PublishOutcome =
 			 * explains it, so a response that somehow carried none is still
 			 * a success with nothing further to draw.
 			 */
-			readonly deployment: DeploymentView | null;
+			readonly deployment: PublishedDeploymentView | null;
 			/**
 			 * Whether this publish updated the app the project space already
 			 * held or created a fresh one. Null for a response that carried
@@ -247,7 +283,7 @@ export type PublishOutcome =
 			 * that never reached the project space has none, and the refusal
 			 * below is the whole answer.
 			 */
-			readonly deployment: DeploymentView | null;
+			readonly deployment: PublishedDeploymentView | null;
 			readonly refusal: {
 				/** Which stop it was, so the dialog can offer that stop's next step. */
 				readonly code: DeploymentFailureCode;
@@ -367,10 +403,15 @@ export function publishOutcome(
 					 * reports nothing left behind instead of the client guessing
 					 * from `superseded` and naming tables that are not there. */
 					leftBehind: body.left_behind ?? [],
-					/* Absent reads as no kept list, which draws nothing. */
-					kept: body.kept ?? null,
-					/* Absent reads as no list, as `kept` does. */
-					firstPublish: body.first_publish ?? null,
+					/* Absent is a list the server could not read after the
+					 * publish landed, which the dialog answers by keeping the
+					 * list it holds (`publishedViewToHold`); an explicit null is
+					 * no list, which a push that ended the list sends. */
+					kept: body.kept === undefined ? ("unread" as const) : body.kept,
+					firstPublish:
+						body.first_publish === undefined
+							? ("unread" as const)
+							: body.first_publish,
 				}
 			: null;
 	if (responseOk && body.success === true) {

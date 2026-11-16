@@ -15,7 +15,10 @@
  * step, is explained and any other row the document lacks is
  * `summary/row/unread/<HQ's type>`. The text rule: a language HQ sends no
  * text in agrees where the document's text there is the first sent
- * language's; whitespace is no difference. `documentSummary` gives a query
+ * language's; whitespace is no difference; a literal output Nova writes (a
+ * no-break space, an instance bracket) agrees with HQ's `____` and with the
+ * plain text a source made in CommCare HQ holds, so a label holding either
+ * as text agrees, and a reference agrees only with `____`. `documentSummary` gives a query
  * repeat in the count placement a row at its wrapper and a row at its row
  * path, which the emitter writes as a group and a repeat.
  *
@@ -44,6 +47,8 @@ import { identityDifferences } from "../identityAgreement";
 import {
 	documentSummary,
 	normalizedText,
+	rendersAs,
+	type SummaryText,
 	summaryDifferences,
 	summaryTextAgrees,
 } from "../summaryAgreement";
@@ -76,6 +81,37 @@ function eachQuestion(edit: (question: Body) => Body) {
 			})),
 		})),
 	});
+}
+
+/** HQ's summary with the answer question's label `text` in English. */
+function answerSummaryHolds(text: string) {
+	return eachQuestion((question) =>
+		question.value === "/data/answer"
+			? { ...question, label: text, translations: { en: text } }
+			: question,
+	);
+}
+
+/** `navigation-base` with the answer question's label `text` in its source and HQ's summary. */
+function answerLabelHolds(text: string) {
+	return {
+		body: eachForm((xml) =>
+			editXml(xml, (root) => {
+				const label = findElement(
+					root,
+					(element) =>
+						element.name === "text" && element.attribs.id === "answer-label",
+				);
+				if (label === undefined) return;
+				for (const value of label.children)
+					if ((value as { name?: string }).name === "value")
+						(value as { children: unknown[] }).children = [
+							{ type: "text", data: text },
+						];
+			}),
+		),
+		summary: answerSummaryHolds(text),
+	};
 }
 
 /** The summary differences of `navigation-base`'s read as doctored, the draft through `draft`. */
@@ -143,6 +179,22 @@ describe("summaryDifferences over CommCare HQ's retained summary", () => {
 			}),
 		);
 		expect(await signatures({ summary: noText, body: inline })).toEqual([]);
+	});
+
+	it("agrees on a label CommCare HQ holds with a no-break space or an instance bracket as plain text", async () => {
+		// HQ's bulk translation upload writes a cell's text into the form as it
+		// is; Nova writes both as literal outputs, which HQ would render `____`.
+		for (const text of ["Quel âge ?", "See instance('x')"]) {
+			const options = answerLabelHolds(text);
+			expect(await signatures(options), text).toEqual([]);
+			expect(
+				await signatures({
+					...options,
+					summary: answerSummaryHolds(`${text}!`),
+				}),
+				text,
+			).toEqual(["summary/question/label"]);
+		}
 	});
 
 	it("agrees on a name question with no validation, and finds a validation the source lacks", async () => {
@@ -259,24 +311,62 @@ describe("summaryDifferences over CommCare HQ's retained summary", () => {
 });
 
 describe("the text rule", () => {
+	/** A document's text with no literal output. */
+	const plain = (text: string): SummaryText => [{ kind: "text", text }];
+
 	it("reads a language HQ sends no text in as the first sent language's text", () => {
 		const languages = ["en", "fra"];
 		expect(
-			summaryTextAgrees(languages, { en: "Name" }, { en: "Name", fra: "Name" }),
+			summaryTextAgrees(
+				languages,
+				{ en: "Name" },
+				{ en: plain("Name"), fra: plain("Name") },
+			),
 		).toBe(true);
 		expect(
-			summaryTextAgrees(languages, { en: "Name" }, { en: "Name", fra: "Nom" }),
+			summaryTextAgrees(
+				languages,
+				{ en: "Name" },
+				{ en: plain("Name"), fra: plain("Nom") },
+			),
 		).toBe(false);
 		expect(
-			summaryTextAgrees(languages, { fra: "Nom" }, { en: "Nom", fra: "Nom" }),
+			summaryTextAgrees(
+				languages,
+				{ fra: "Nom" },
+				{ en: plain("Nom"), fra: plain("Nom") },
+			),
 		).toBe(true);
 		expect(summaryTextAgrees(languages, {}, {})).toBe(true);
-		expect(summaryTextAgrees(languages, {}, { en: "Name" })).toBe(false);
+		expect(summaryTextAgrees(languages, {}, { en: plain("Name") })).toBe(false);
 	});
 
 	it("takes no whitespace as a difference", () => {
 		expect(normalizedText(" ____ \t____  ")).toBe("________");
 		expect(normalizedText("A  name")).toBe("Aname");
+	});
+
+	it("reads a literal output Nova writes as an output or as the text it spells, and a value only as a hole", () => {
+		// "No\u00a0tes (" then a reference: the no-break space and the bracket
+		// are literal outputs, the reference a hole.
+		const held: SummaryText = [
+			{ kind: "text", text: "No" },
+			{ kind: "literal", text: "" },
+			{ kind: "text", text: "tesinstance" },
+			{ kind: "literal", text: "(" },
+			{ kind: "text", text: "____" },
+		];
+		for (const hq of [
+			"Notesinstance(____",
+			"No____tesinstance(____",
+			"Notesinstance________",
+			"No____tesinstance________",
+		])
+			expect(rendersAs(held, hq), hq).toBe(true);
+		expect(rendersAs(held, "Notesinstance(")).toBe(false);
+		expect(rendersAs(held, "Notesinstance(x")).toBe(false);
+		expect(rendersAs([{ kind: "literal", text: "" }], "")).toBe(true);
+		expect(rendersAs([{ kind: "literal", text: "" }], "____")).toBe(true);
 	});
 });
 

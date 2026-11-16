@@ -88,23 +88,32 @@ export function documentReadsPlaces(doc: BlueprintDoc): boolean {
 }
 
 /** Each spelling of a quote mark the source's text can carry: as written, and
- *  as an XML attribute's or text's entity. A JSON body's `\"` ends in `"`. */
-const QUOTE_SPELLINGS = ["'", '"', "&apos;", "&quot;"] as const;
+ *  as an XML attribute's or text's entity. Inside a JSON body a double quote
+ *  is `\"`, which begins in `\` and ends in `"`. */
+const QUOTED_LOCATIONS = [
+	"'locations'",
+	'"locations"',
+	'"locations\\"',
+	"&apos;locations&apos;",
+	"&quot;locations&quot;",
+] as const;
 
 /**
  * Whether the source's text (the app's body and every form's attachment) may
  * read places: it names the fixture address a form's instance declares for
- * them, whatever id the form gives that instance, or holds the word
- * `locations` directly after a quote mark, which is how a suite expression
- * names the instance by id in a string literal, in either quote and with any
- * white space inside the call's parentheses. This is a test of the text, not
- * a reading of an expression: it can say yes where nothing reads places, and
- * a yes costs two reads.
+ * them, whatever id the form gives that instance, or holds the whole word
+ * `locations` between two quote marks of one spelling, which is how a suite
+ * expression names the instance by id in a string literal, in either quote
+ * and with any white space inside the call's parentheses. A name that only
+ * begins with the word, such as a question's `locations_visited`, is no
+ * literal of the instance's id. This is a test of the text, not a reading of
+ * an expression: it can say yes where nothing reads places, and a yes costs
+ * two reads.
  */
 export function sourceMayReadPlaces(sourceText: string): boolean {
 	return (
 		sourceText.includes("jr://fixture/locations") ||
-		QUOTE_SPELLINGS.some((quote) => sourceText.includes(`${quote}locations`))
+		QUOTED_LOCATIONS.some((quoted) => sourceText.includes(quoted))
 	);
 }
 
@@ -175,7 +184,8 @@ function heldCoordinate(raw: string | null): string | null | false {
  * more is found or counted. At a `refresh` each place left out is counted in
  * `leftOut` under the level code that left it out: its own where the app has
  * no such level, else the code of the nearest place above it that was left
- * out.
+ * out. Their CommCare HQ ids are `leftOutHqLocationIds`, so a refresh tells a
+ * place left out from one CommCare HQ no longer has.
  *
  * `values` holds, for each location property that applies at the place's
  * level, the place's `location_data` under the property's slug, where it has
@@ -194,6 +204,7 @@ export function planManagedPlaces(input: {
 			places: [],
 			digest: placesDigest([]),
 			leftOut: {},
+			leftOutHqLocationIds: [],
 			findings: [placesOverNovaLimitFinding(hqPlaces.length)],
 		};
 	}
@@ -221,6 +232,7 @@ export function planManagedPlaces(input: {
 
 	const places: ManagedPlaceWrite[] = [];
 	const leftOut: Record<string, number> = {};
+	const leftOutHqLocationIds: string[] = [];
 	const findingNames: string[] = [];
 	const found = new Set<string>();
 	const notHoldable = (name: string) => {
@@ -319,8 +331,10 @@ export function planManagedPlaces(input: {
 		if (visit.leftOutUnder !== null || level === undefined) {
 			const under =
 				level === undefined ? place.locationTypeCode : visit.leftOutUnder;
-			if (mode === "refresh" && under !== null)
+			if (mode === "refresh" && under !== null) {
 				leftOut[under] = (leftOut[under] ?? 0) + 1;
+				leftOutHqLocationIds.push(place.locationId);
+			}
 			pushChildren(place.locationId, (child) => ({
 				place: child,
 				parent: null,
@@ -370,6 +384,7 @@ export function planManagedPlaces(input: {
 		places,
 		digest: placesDigest(places),
 		leftOut,
+		leftOutHqLocationIds,
 		findings: findingNames.map((name) =>
 			circumstanceFinding("place-not-holdable", ORGANIZATION, { name }),
 		),

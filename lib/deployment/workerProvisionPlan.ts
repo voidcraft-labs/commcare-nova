@@ -295,6 +295,18 @@ export type WorkerProvisionProblem =
 			readonly personaUuid: string;
 			readonly personaName: string;
 			readonly locationUuid: string;
+	  }
+	| {
+			/**
+			 * The persona stands in a place CommCare HQ manages for the app in
+			 * this project space and no longer has: a refresh found it gone and
+			 * kept it, because the persona names it. CommCare HQ would take the
+			 * account and refuse the assignment, and no retry could change that.
+			 */
+			readonly kind: "place-gone-from-hq";
+			readonly personaUuid: string;
+			readonly personaName: string;
+			readonly locationUuid: string;
 	  };
 
 /** A username already in use by an account Nova cannot account for. */
@@ -353,6 +365,12 @@ export interface PlanWorkerProvisioningInput {
 	 * project space.
 	 */
 	readonly managedPlaceIds: ReadonlyMap<string, string>;
+	/**
+	 * The places CommCare HQ manages for the app in this project space that
+	 * it no longer has, by Nova's place id; empty for every other project
+	 * space.
+	 */
+	readonly goneManagedPlaceIds: ReadonlySet<string>;
 	/** What the project space already holds under these names. */
 	readonly hqWorkers: readonly RemoteWorker[];
 	/** Required worker information still missing, by persona uuid. */
@@ -385,7 +403,12 @@ export interface PlanWorkerProvisioningInput {
 export function workerProvisionProblems(
 	input: Pick<
 		PlanWorkerProvisioningInput,
-		"workers" | "mappings" | "managedPlaceIds" | "workerDataGaps" | "domain"
+		| "workers"
+		| "mappings"
+		| "managedPlaceIds"
+		| "goneManagedPlaceIds"
+		| "workerDataGaps"
+		| "domain"
 	>,
 ): readonly WorkerProvisionProblem[] {
 	const problems: WorkerProvisionProblem[] = [];
@@ -435,6 +458,15 @@ export function workerProvisionProblems(
 		}
 
 		for (const locationUuid of worker.locationUuids) {
+			if (input.goneManagedPlaceIds.has(locationUuid)) {
+				problems.push({
+					kind: "place-gone-from-hq",
+					personaUuid: worker.personaUuid,
+					personaName: worker.personaName,
+					locationUuid,
+				});
+				continue;
+			}
 			if (remoteIdByLocationUuid.has(locationUuid)) continue;
 			problems.push({
 				kind: "place-not-pushed",

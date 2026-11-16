@@ -89,18 +89,31 @@ export interface LookupTableRevisions {
 	tableRevision: LookupRevision;
 }
 
-/** Where a table came from in CommCare HQ, and who manages it now. */
-export interface LookupHqOrigin {
+/**
+ * Where a table came from in CommCare HQ and who manages it now, as the
+ * manifest carries it: only what a write that advances the Project revision
+ * changes. A manifest's bytes at one revision never change, and a refresh
+ * that found CommCare HQ's table as it was stamps its day and advances
+ * nothing, so the day is read from the table, never from the manifest.
+ */
+export interface LookupManifestHqOrigin {
 	/** One of CommCare HQ's servers, by the name the deployment ledger uses. */
 	readonly server: string;
 	readonly domain: string;
 	readonly remoteId: string;
 	readonly managedBy: "commcare-hq" | "nova";
 	readonly broughtInAt: string;
-	readonly refreshedAt: string;
 	readonly takenOverAt: string | null;
 	readonly takenOverBy: string | null;
-	/** Columns CommCare HQ's table no longer has, kept because an app still reads them. */
+}
+
+/** Where a table came from in CommCare HQ, who manages it now, and when Nova's copy was last refreshed. */
+export interface LookupHqOrigin extends LookupManifestHqOrigin {
+	readonly refreshedAt: string;
+	/**
+	 * Columns CommCare HQ's table no longer has, kept because an app still
+	 * reads them. Only a refresh keeps one, so a table Nova manages has none.
+	 */
 	readonly goneColumnIds: readonly LookupColumnId[];
 }
 
@@ -111,9 +124,8 @@ export interface LookupTableManifestEntry extends LookupTableRevisions {
 	columnCount: number;
 	rowCount: number;
 	dataBytes: number;
-	/** Present exactly when the table came from CommCare HQ. The manifest
-	 *  holds no columns, so its `goneColumnIds` is always empty. */
-	hq?: LookupHqOrigin;
+	/** Present exactly when the table came from CommCare HQ. */
+	hq?: LookupManifestHqOrigin;
 }
 
 export interface LookupManifest {

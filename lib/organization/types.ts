@@ -102,6 +102,11 @@ export interface OrganizationSnapshot {
 		readonly refreshedAt: string;
 		/** Active places the copy left out because their level is not in the app, by level code. */
 		readonly leftOut: Readonly<Record<string, number>>;
+		/**
+		 * The live places CommCare HQ no longer has, which the copy keeps only
+		 * because something in the app uses them or a place below them.
+		 */
+		readonly goneIds: readonly Uuid[];
 	};
 }
 

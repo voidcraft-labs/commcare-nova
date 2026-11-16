@@ -9,6 +9,7 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { HAND_BACK_OVERTAKEN } from "@/lib/publish/managedData";
 import { createTable, type LookupTableOriginColumns } from "./authoringBatch";
 import { validateLookupRowValues } from "./coercion";
 import {
@@ -17,7 +18,7 @@ import {
 	LOOKUP_MAX_TABLE_BYTES,
 } from "./constants";
 import { LookupError } from "./errors";
-import { formatLookupBytes } from "./format";
+import { formatLookupBytes, formatLookupBytesOverCap } from "./format";
 import {
 	columnLabelFor,
 	type LookupRowsMeasure,
@@ -89,7 +90,12 @@ export interface ManagedLookupTableBinding {
 }
 
 export interface ManagedRefreshReceipt extends LookupTableRevisions {
-	readonly changed: "nothing" | "rows" | "definition";
+	/**
+	 * What the refresh did to the copy. `superseded`: nothing, because a
+	 * newer read of CommCare HQ's table, or a hand-back, landed while this
+	 * one was being read (`olderReadYields`).
+	 */
+	readonly changed: "nothing" | "rows" | "definition" | "superseded";
 	readonly addedColumns: readonly {
 		readonly id: LookupColumnId;
 		readonly wireName: string;
@@ -263,7 +269,7 @@ function storageFloor(tag: string, dataBytes: number): never {
 	throw new LookupError(
 		"storage_limit",
 		managedLookupCapRefusal(tag, [
-			`${formatLookupBytes(dataBytes)} of rows (Nova takes ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)} in one table)`,
+			`${formatLookupBytesOverCap(dataBytes)} of rows (Nova takes ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)} in one table)`,
 		]),
 	);
 }
@@ -360,7 +366,9 @@ export async function createManagedLookupTablesInTransaction(
 		const columnIdOf = new Map<string, LookupColumnId>();
 		const columnIds = new Set<string>();
 		for (const field of content.fields) {
-			const id = binding.columns[field];
+			const id = Object.hasOwn(binding.columns, field)
+				? binding.columns[field]
+				: undefined;
 			if (id === undefined) {
 				throw new Error(`The binding of ${tag} names no column for ${field}.`);
 			}
@@ -377,11 +385,13 @@ export async function createManagedLookupTablesInTransaction(
 			return textColumn(id, field);
 		});
 		const rows = rowValuesFor(content, columnIdOf);
-		checkCells(tag, columns, rows);
 		return { tag, name, tableId, content, origin, columns, rows };
 	});
+	// The caps first, so a cell or row over one is refused with its phrase;
+	// the cells' own check then finds nothing a cap does not name.
 	for (const table of prepared) {
 		await holdCaps(tx, table.tag, table.content, table.rows);
+		checkCells(table.tag, table.columns, table.rows);
 	}
 
 	const projectState = await lockLookupProjectState(tx, scope.projectId);
@@ -482,23 +492,64 @@ async function appsReadingColumn(
 	}));
 }
 
-/** Whether an accepted design still depends on the column, or on its whole table. */
-async function designProtectsColumn(
-	tx: Transaction<AppDatabase>,
+/**
+ * By table id, the ids of each table's columns that an app's reference edge
+ * names or an accepted design protects (that column, or its whole table), in
+ * each table's column order: the columns the refresh keeps, in both its modes,
+ * where CommCare HQ's fields lack them. A table with none is absent. The one
+ * home of that rule: the refresh reads it under its table lock, and a bring-in's
+ * review reads it to count the columns a refresh would keep. Takes no lock.
+ */
+export async function readKeptLookupColumnIds(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
 	projectId: string,
-	tableId: LookupTableId,
-	columnId: LookupColumnId,
-): Promise<boolean> {
-	const protection = await tx
-		.selectFrom("design_lookup_protections")
-		.select("id")
-		.where("project_id", "=", projectId)
-		.where("table_id", "=", tableId)
+	tableIds: readonly string[],
+): Promise<Readonly<Record<string, readonly string[]>>> {
+	if (tableIds.length === 0) return {};
+	const ids = tableIds.map((tableId) => lookupTableIdSchema.parse(tableId));
+	const rows = await db
+		.selectFrom("lookup_columns as column")
+		.select(["column.table_id", "column.id"])
+		.where("column.project_id", "=", projectId)
+		.where("column.table_id", "in", ids)
 		.where((eb) =>
-			eb.or([eb("column_id", "is", null), eb("column_id", "=", columnId)]),
+			eb.or([
+				eb.exists(
+					eb
+						.selectFrom("lookup_column_references as edge")
+						.innerJoin("apps as app", "app.id", "edge.app_id")
+						.select("edge.app_id")
+						.where("edge.project_id", "=", projectId)
+						.where("app.project_id", "=", projectId)
+						.whereRef("edge.table_id", "=", "column.table_id")
+						.whereRef("edge.column_id", "=", "column.id"),
+				),
+				eb.exists(
+					eb
+						.selectFrom("design_lookup_protections as protection")
+						.select("protection.id")
+						.where("protection.project_id", "=", projectId)
+						.whereRef("protection.table_id", "=", "column.table_id")
+						.where((inner) =>
+							inner.or([
+								inner("protection.column_id", "is", null),
+								inner("protection.column_id", "=", inner.ref("column.id")),
+							]),
+						),
+				),
+			]),
 		)
-		.executeTakeFirst();
-	return protection !== undefined;
+		.orderBy("column.table_id", "asc")
+		.orderBy("column.order_key", "asc")
+		.orderBy("column.id", "asc")
+		.execute();
+	const kept = new Map<string, string[]>();
+	for (const row of rows) {
+		const columns = kept.get(row.table_id) ?? [];
+		columns.push(row.id);
+		kept.set(row.table_id, columns);
+	}
+	return Object.fromEntries(kept);
 }
 
 function sameValues(left: LookupRowValues, right: LookupRowValues): boolean {
@@ -520,7 +571,9 @@ function sameValues(left: LookupRowValues, right: LookupRowValues): boolean {
  * `refresh`: the table is managed in CommCare HQ from `origin`'s server and
  * domain already; any other state is `conflict` (someone chose Manage in Nova
  * meanwhile), and an equal digest from the same remote table stamps the
- * refresh and changes nothing else. `adopt`: the table becomes CommCare HQ's
+ * refresh and changes nothing else. A refresh that changes which columns read
+ * as gone from CommCare HQ changes the definition, as an added or removed
+ * column does. `adopt`: the table becomes CommCare HQ's
  * copy, so every column is set to text, a takeover is cleared and the
  * definition is stamped, because every client reads who manages a table from
  * it. A table CommCare HQ manages from another project space is `conflict`.
@@ -529,6 +582,16 @@ function sameValues(left: LookupRowValues, right: LookupRowValues): boolean {
  * column; a column with no field is removed unless an app's reference edge or
  * an accepted design names it, and then stays, empty, after CommCare HQ's
  * columns. The rows are replaced by CommCare HQ's when they differ.
+ *
+ * `at` is when the read of CommCare HQ began. No lock spans that read, so
+ * two refreshes can read in one order and commit in the other. Where
+ * `olderReadYields`, a refresh whose read began before the table's stored
+ * `hq_refreshed_at` (a newer refresh or hand-back) writes nothing and answers
+ * `superseded`, and a hand-back whose read began before a Manage in Nova
+ * recorded since is `conflict`, so an older read of CommCare HQ never
+ * replaces a newer one or a later decision, the rule
+ * `lib/deployment/store.ts::recordRefreshedAppBaseline` keeps for an app's
+ * baseline.
  */
 export async function refreshManagedLookupTableInTransaction(
 	tx: Transaction<AppDatabase>,
@@ -540,6 +603,13 @@ export async function refreshManagedLookupTableInTransaction(
 		readonly at: Date;
 		/** `refresh`: the table is managed in CommCare HQ already. `adopt`: it becomes so. */
 		readonly mode: "refresh" | "adopt";
+		/**
+		 * Whether a read that began before the table's last refresh, hand-back
+		 * or takeover writes nothing (true for a publish's re-read, Refresh and
+		 * the hand-back). A birth passes false: its columns bind the ids the
+		 * reading gave them, so it writes what the reading read.
+		 */
+		readonly olderReadYields: boolean;
 		/** Column ids for fields the table has no column for; minted where absent. */
 		readonly newColumnIds?: Readonly<Record<string, LookupColumnId>>;
 	},
@@ -572,6 +642,20 @@ export async function refreshManagedLookupTableInTransaction(
 			"conflict",
 			`The lookup table ${table.tag} is managed in CommCare HQ (${table.hq_domain ?? ""}), so it can't come from ${origin.domain} too.`,
 		);
+	}
+	if (input.olderReadYields) {
+		if (table.hq_taken_over_at !== null && table.hq_taken_over_at > at) {
+			throw new LookupError("conflict", HAND_BACK_OVERTAKEN);
+		}
+		if (table.hq_refreshed_at !== null && table.hq_refreshed_at > at) {
+			return {
+				changed: "superseded",
+				addedColumns: [],
+				removedColumns: [],
+				keptGoneColumns: [],
+				...lookupTableRevisions(table),
+			};
+		}
 	}
 	checkContent(table.tag, content);
 
@@ -614,20 +698,22 @@ export async function refreshManagedLookupTableInTransaction(
 		column: (typeof stored)[number];
 		apps: LookupReferencingAppSummary[];
 	}[] = [];
+	const keptIds = new Set(
+		(await readKeptLookupColumnIds(tx, scope.projectId, [tableId]))[tableId] ??
+			[],
+	);
 	for (const column of stored) {
 		if (fieldSet.has(column.wire_name)) continue;
-		const columnId = lookupColumnIdSchema.parse(column.id);
-		const apps = await appsReadingColumn(
-			tx,
-			scope.projectId,
-			tableId,
-			columnId,
-		);
-		if (
-			apps.length > 0 ||
-			(await designProtectsColumn(tx, scope.projectId, tableId, columnId))
-		) {
-			kept.push({ column, apps });
+		if (keptIds.has(column.id)) {
+			kept.push({
+				column,
+				apps: await appsReadingColumn(
+					tx,
+					scope.projectId,
+					tableId,
+					lookupColumnIdSchema.parse(column.id),
+				),
+			});
 		} else {
 			removed.push(column);
 		}
@@ -642,19 +728,76 @@ export async function refreshManagedLookupTableInTransaction(
 		);
 	}
 
+	// Every column's id before anything is written: a new field's is the one
+	// `newColumnIds` gives under the field's own key, or one Postgres mints
+	// now. The rows are then keyed as they will be stored, and judged against
+	// the caps before the first write, so a refusal names the cap it is over.
 	const newIds = input.newColumnIds ?? {};
-	const added: { id: LookupColumnId | null; wireName: string }[] = [];
-	for (const field of content.fields) {
-		if (byWireName.has(field)) continue;
-		const given = newIds[field];
-		added.push({
-			id: given === undefined ? null : lookupColumnIdSchema.parse(given),
-			wireName: field,
-		});
+	const newFields = content.fields.filter((field) => !byWireName.has(field));
+	const missing = newFields.filter(
+		(field) => !Object.hasOwn(newIds, field),
+	).length;
+	const minted =
+		missing === 0
+			? []
+			: (
+					await sql<{ id: string }>`
+						SELECT uuidv7()::text AS id FROM generate_series(1, ${missing}::integer)
+					`.execute(tx)
+				).rows.map((row) => lookupColumnIdSchema.parse(row.id));
+	const added: { id: LookupColumnId; wireName: string }[] = [];
+	let nextMinted = 0;
+	for (const field of newFields) {
+		const id = Object.hasOwn(newIds, field)
+			? lookupColumnIdSchema.parse(newIds[field])
+			: minted[nextMinted++];
+		if (id === undefined) throw new Error(`No id was minted for ${field}.`);
+		added.push({ id, wireName: field });
 	}
+	const columnIdOf = new Map<string, LookupColumnId>();
+	for (const field of content.fields) {
+		const existing = byWireName.get(field);
+		const id =
+			existing === undefined
+				? added.find((column) => column.wireName === field)?.id
+				: lookupColumnIdSchema.parse(existing.id);
+		if (id === undefined) throw new Error(`No column holds ${field}.`);
+		columnIdOf.set(field, id);
+	}
+	const rows = rowValuesFor(content, columnIdOf);
+	await holdCaps(tx, table.tag, content, rows);
+	checkCells(
+		table.tag,
+		content.fields.map((field) => {
+			const id = columnIdOf.get(field);
+			if (id === undefined) throw new Error(`No column holds ${field}.`);
+			return textColumn(id, field);
+		}),
+		rows,
+	);
+
+	// Which columns read as gone from CommCare HQ is part of the definition
+	// every open page holds (`lookupHqOriginOf`): it was every stored column
+	// with no field in the stored copy of CommCare HQ's table, and it becomes
+	// the kept ones. A refresh that changes that set changes the definition,
+	// even where no column is added, removed or moved and no row differs.
+	const goneBefore = new Set<string>();
+	if (managedInHq) {
+		const storedFields = new Set(
+			managedCanonicalSchema
+				.parse(table.hq_canonical)
+				.fields.map((field) => field.name),
+		);
+		for (const column of stored) {
+			if (!storedFields.has(column.wire_name)) goneBefore.add(column.id);
+		}
+	}
+	const goneChanged =
+		goneBefore.size !== kept.length ||
+		kept.some(({ column }) => !goneBefore.has(column.id));
 
 	let definitionChanged =
-		mode === "adopt" || table.hq_remote_id !== origin.remoteId;
+		mode === "adopt" || table.hq_remote_id !== origin.remoteId || goneChanged;
 
 	// Text, in adopt mode, for every column that stays. Nothing stored is
 	// coerced: the rows below are CommCare HQ's strings, and a kept column
@@ -714,7 +857,6 @@ export async function refreshManagedLookupTableInTransaction(
 	const reordered = survivingBefore.some(
 		(id, index) => survivingAfter[index] !== id,
 	);
-	const columnIdOf = new Map<string, LookupColumnId>();
 	const addedColumns: { id: LookupColumnId; wireName: string }[] = [];
 	if (added.length > 0 || reordered) {
 		const orderKeys = balancedKeysBetween(null, null, finalOrder.length);
@@ -729,44 +871,26 @@ export async function refreshManagedLookupTableInTransaction(
 					.execute();
 				continue;
 			}
-			const given = added.find((column) => column.wireName === entry.wireName);
-			const inserted = await tx
+			const column = added.find((one) => one.wireName === entry.wireName);
+			if (column === undefined) {
+				throw new Error(`No column was planned for ${entry.wireName}.`);
+			}
+			await tx
 				.insertInto("lookup_columns")
 				.values({
 					project_id: scope.projectId,
 					table_id: tableId,
-					...(given === undefined || given.id === null ? {} : { id: given.id }),
-					wire_name: entry.wireName,
-					label: columnLabelFor(entry.wireName),
+					id: column.id,
+					wire_name: column.wireName,
+					label: columnLabelFor(column.wireName),
 					data_type: "text",
 					order_key: orderKeys[index],
 				})
-				.returning("id")
-				.executeTakeFirstOrThrow();
-			const id = lookupColumnIdSchema.parse(inserted.id);
-			columnIdOf.set(entry.wireName, id);
-			addedColumns.push({ id, wireName: entry.wireName });
+				.execute();
+			addedColumns.push(column);
 		}
 		definitionChanged = true;
 	}
-	for (const field of content.fields) {
-		const existing = byWireName.get(field);
-		if (existing !== undefined) {
-			columnIdOf.set(field, lookupColumnIdSchema.parse(existing.id));
-		}
-	}
-
-	const rows = rowValuesFor(content, columnIdOf);
-	checkCells(
-		table.tag,
-		content.fields.map((field) => {
-			const id = columnIdOf.get(field);
-			if (id === undefined) throw new Error(`No column holds ${field}.`);
-			return textColumn(id, field);
-		}),
-		rows,
-	);
-	await holdCaps(tx, table.tag, content, rows);
 
 	const current = await tx
 		.selectFrom("lookup_rows")

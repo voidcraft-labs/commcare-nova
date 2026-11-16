@@ -30,9 +30,11 @@ export type LookupChoiceOffer =
 				| "needs-admin"
 				| "managed-elsewhere"
 				| "app-reads-a-missing-column"
-				| "fails-a-project-space-rule";
+				| "fails-a-project-space-rule"
+				| "too-many-columns";
 			/** `managed-elsewhere`: the other project space. `app-reads-a-missing-column`: the first
-			 *  such field, in CommCare HQ's order. Null for the other two. */
+			 *  such field, in CommCare HQ's order. `too-many-columns`: the columns the table would
+			 *  hold, with a thousands separator. Null for the other two. */
 			readonly name: string | null;
 	  };
 
@@ -77,6 +79,7 @@ export const lookupChoiceOfferSchema: z.ZodType<LookupChoiceOffer> =
 				"managed-elsewhere",
 				"app-reads-a-missing-column",
 				"fails-a-project-space-rule",
+				"too-many-columns",
 			]),
 			name: z.string().nullable(),
 		}),

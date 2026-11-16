@@ -6,14 +6,14 @@
 // that shape: the app JSON (carrying its `jr://file/commcare/<hash><ext>`
 // references), the HQ bulk-upload `multimedia.zip` holding the bytes those
 // references resolve to, the app's logo as `logo<ext>`, the fixture workbook
-// holding the lookup tables the app reads that Nova manages, a second one
-// holding Nova's copy of those CommCare HQ manages, and a README that walks a
-// person through the steps that apply.
+// holding the lookup tables the app reads that Nova manages, one more per
+// project space holding Nova's copy of the tables that space manages in
+// CommCare HQ, and a README that walks a person through the steps that apply.
 //
-// The file is made for no project space, so it must work for the space that
+// The file is made for no project space, so it must work for a space that
 // manages a table and for one that has never seen it: a person importing into
-// the space that manages the tables leaves the second workbook out, and
-// anywhere else uploads it too.
+// a space that manages some of the tables leaves that space's workbook out,
+// and uploads every other one.
 //
 // The app JSON carries no `logo_refs`, and HQ's bulk upload maps no
 // app-level media (`hqmedia/models.py::ApplicationMediaMixin.all_media`), so
@@ -43,7 +43,7 @@ import { carriesViaBulkUpload, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { driftDate } from "@/lib/publish/driftReference";
 import {
 	MANUAL_IMPORT_LOOKUP_WORKBOOK,
-	MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK,
+	MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK_PREFIX,
 	MANUAL_IMPORT_MEDIA_ZIP,
 	type ManualImportStep,
 	manualImportGuide,
@@ -61,6 +61,7 @@ import {
 } from "../planPrivileges";
 import { requiredProjectSpaceCapabilities } from "../projectSpaceCompatibility";
 import { sameTypeBasicChildCases } from "../sameTypeChildCases";
+import { COMMCARE_SERVERS, isCommCareServer } from "../servers";
 import type { HqApplication } from "../types";
 import { COMMCARE_VERSION_FLOOR } from "../versionFloor";
 import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
@@ -128,15 +129,98 @@ function sameTypeChildFormNames(doc: BlueprintDoc): string[] {
  */
 export interface HqImportFileManagedTable {
 	readonly tag: string;
+	/** The project space that manages it: its server and domain. */
+	readonly server: string;
 	readonly domain: string;
 	/** When Nova's copy was last refreshed, an ISO instant. */
 	readonly refreshedAt: string;
 }
 
 /**
+ * One workbook of the tables one project space manages, as the export
+ * boundary builds them (`PreparedExportBoundary.managedLookupWorkbooks`).
+ */
+export interface HqImportFileManagedWorkbook {
+	readonly server: string;
+	readonly domain: string;
+	readonly workbook: LookupWorkbook;
+}
+
+/** A managed workbook as the archive holds it and the guide names it. */
+interface ManagedWorkbookMember {
+	readonly server: string;
+	readonly domain: string;
+	readonly fileName: string;
+	/** The domain, with its server's label where another member has the same domain. */
+	readonly projectSpace: string;
+	readonly bytes: LookupWorkbook["bytes"];
+}
+
+/** A project space's name as a ZIP member carries it: every character but a letter, digit, dot, underscore or hyphen becomes a hyphen. */
+function memberSegment(text: string): string {
+	return text
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, "-")
+		.replace(/^[.-]+/, "");
+}
+
+function serverLabel(server: string): string {
+	return isCommCareServer(server) ? COMMCARE_SERVERS[server].label : server;
+}
+
+/**
+ * Each managed workbook's member: `lookup-tables-managed-in-<domain>.xlsx`,
+ * with the server's label after the domain where two workbooks share a
+ * domain on two servers, and a count after that where two names still meet.
+ * A name depends on the set of workbooks alone, never their order, so the
+ * archive and the guide, which both derive it, name each file alike.
+ */
+function managedWorkbookMembers(
+	workbooks: readonly HqImportFileManagedWorkbook[],
+): readonly ManagedWorkbookMember[] {
+	const domainCount = new Map<string, number>();
+	for (const { domain } of workbooks) {
+		domainCount.set(domain, (domainCount.get(domain) ?? 0) + 1);
+	}
+	const shared = (domain: string) => (domainCount.get(domain) ?? 0) > 1;
+	const baseOf = (workbook: HqImportFileManagedWorkbook) =>
+		`${MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK_PREFIX}${memberSegment(workbook.domain)}${
+			shared(workbook.domain)
+				? `-${memberSegment(serverLabel(workbook.server))}`
+				: ""
+		}`;
+	/* Two bases meet only where two domains spell alike once made safe; the
+	 * order a count follows is the workbooks' by server and domain. */
+	const sorted = [...workbooks].sort((left, right) =>
+		`${left.server}\u0000${left.domain}` <
+		`${right.server}\u0000${right.domain}`
+			? -1
+			: 1,
+	);
+	const taken = new Set<string>();
+	const nameOf = new Map<HqImportFileManagedWorkbook, string>();
+	for (const workbook of sorted) {
+		const base = baseOf(workbook);
+		let name = base;
+		for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+		taken.add(name);
+		nameOf.set(workbook, `${name}.xlsx`);
+	}
+	return workbooks.map((workbook) => ({
+		server: workbook.server,
+		domain: workbook.domain,
+		fileName: nameOf.get(workbook) ?? "",
+		projectSpace: shared(workbook.domain)
+			? `${workbook.domain} (${serverLabel(workbook.server)})`
+			: workbook.domain,
+		bytes: workbook.workbook.bytes,
+	}));
+}
+
+/**
  * The manual-import steps for this file, from the same derivations a
  * publish's own checks read: the capabilities and plan features the document
- * needs, the two workbooks' tables, the media the bulk upload carries, the logo,
+ * needs, the workbooks' tables, the media the bulk upload carries, the logo,
  * whether the app runs in Web Apps, whether the app reads places, whether it sends forms to CommCare Connect,
  * whether a publish would ask that sync on form entry or CommCare Supply is off, the forms that make a case linked to a case of their own type, and the properties its searches measure distance on. An import file has no target and sends no places.
  *
@@ -149,9 +233,9 @@ export function hqImportFileGuide(input: {
 	readonly doc: BlueprintDoc;
 	readonly assets: AssetManifest;
 	readonly lookupWorkbook: LookupWorkbook | undefined;
-	/** The second workbook, of the tables CommCare HQ manages. */
-	readonly managedLookupWorkbook: LookupWorkbook | undefined;
-	/** The tables the second workbook carries, in the definitions' order. */
+	/** The workbooks of the tables CommCare HQ manages, one per project space that manages some. */
+	readonly managedLookupWorkbooks: readonly HqImportFileManagedWorkbook[];
+	/** The tables those workbooks carry, in the definitions' order. */
 	readonly managedLookupTables: readonly HqImportFileManagedTable[];
 	/** The target the app JSON beside it was written for (`expandDoc`'s). */
 	readonly attachmentTarget: AttachmentUrlTarget | null;
@@ -165,10 +249,20 @@ export function hqImportFileGuide(input: {
 		/* The guide is made on the server for whoever opens the ZIP, so it has
 		 * no reader's locale: the day is the UTC day, spelled as every drift
 		 * sentence's default spells one. */
-		managedLookupTables: input.managedLookupTables.map((table) => ({
-			tag: table.tag,
-			domain: table.domain,
-			refreshedOn: driftDate(table.refreshedAt),
+		managedLookupFiles: managedWorkbookMembers(
+			input.managedLookupWorkbooks,
+		).map((member) => ({
+			fileName: member.fileName,
+			projectSpace: member.projectSpace,
+			tables: input.managedLookupTables
+				.filter(
+					(table) =>
+						table.server === member.server && table.domain === member.domain,
+				)
+				.map((table) => ({
+					tag: table.tag,
+					refreshedOn: driftDate(table.refreshedAt),
+				})),
 		})),
 		hasMedia: bulkUploadAssets(input.doc, input.assets).size > 0,
 		versionFloor: `${COMMCARE_VERSION_FLOOR.major}.${COMMCARE_VERSION_FLOOR.minor}`,
@@ -178,11 +272,11 @@ export function hqImportFileGuide(input: {
 		planFeatures: requiredPlanFeatures(
 			input.doc,
 			{
-				/* Either workbook needs the plan's lookup tables, wherever the
-				 * second goes but the project space that manages its tables. */
+				/* Every workbook needs the plan's lookup tables, wherever a managed
+				 * one goes but the project space that manages its tables. */
 				lookupTables:
 					input.lookupWorkbook !== undefined ||
-					input.managedLookupWorkbook !== undefined,
+					input.managedLookupWorkbooks.length > 0,
 				places: false,
 			},
 			input.attachmentTarget,
@@ -202,9 +296,9 @@ export function hqImportFileGuide(input: {
  * Build the `<app>.zip`: the app JSON, the HQ bulk-upload `multimedia.zip`
  * when the bulk upload carries any media, the logo as `logo<ext>` when the
  * app has one, the fixture workbook when it reads a lookup table Nova
- * manages, the second workbook when it reads one CommCare HQ manages, and
- * `README.txt`, the rendered guide its caller derived with
- * `hqImportFileGuide` over the same inputs.
+ * manages, one workbook per project space that manages a table it reads in
+ * CommCare HQ, named as the guide names it, and `README.txt`, the rendered
+ * guide its caller derived with `hqImportFileGuide` over the same inputs.
  *
  * The JSON is pretty-printed: it lands as a file a person may open. The
  * `multimedia.zip` IS CommCare HQ's bulk-upload format (each entry at the
@@ -212,9 +306,8 @@ export function hqImportFileGuide(input: {
  * `buildMediaBulkUploadZip` over `bulkUploadAssets`, so a manual import and
  * an API upload speak one format. The caller resolves the manifest
  * `withBytes: true` first: every entry must carry its bytes or
- * `buildMediaBulkUploadZip` throws. The workbook arrives already built, from
- * the same validated lookup generation the export boundary measured, and so
- * does the second.
+ * `buildMediaBulkUploadZip` throws. The workbooks arrive already built, from
+ * the same validated lookup generation the export boundary measured.
  */
 export function buildHqJsonExportArchive(
 	appName: string,
@@ -222,7 +315,7 @@ export function buildHqJsonExportArchive(
 	hqJson: HqApplication,
 	assets: AssetManifest,
 	lookupWorkbook: LookupWorkbook | undefined,
-	managedLookupWorkbook: LookupWorkbook | undefined,
+	managedLookupWorkbooks: readonly HqImportFileManagedWorkbook[],
 	readme: string,
 ): Buffer {
 	const bundle = new AdmZip();
@@ -250,11 +343,8 @@ export function buildHqJsonExportArchive(
 			Buffer.from(lookupWorkbook.bytes),
 		);
 	}
-	if (managedLookupWorkbook !== undefined) {
-		bundle.addFile(
-			MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK,
-			Buffer.from(managedLookupWorkbook.bytes),
-		);
+	for (const member of managedWorkbookMembers(managedLookupWorkbooks)) {
+		bundle.addFile(member.fileName, Buffer.from(member.bytes));
 	}
 	bundle.addFile("README.txt", Buffer.from(readme, "utf-8"));
 	return bundle.toBuffer();
