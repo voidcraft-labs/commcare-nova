@@ -2,13 +2,15 @@
  * The bring-in family's scope gate, through the real SDK client and server:
  * a credential without a tool's scope gets `scope_missing` naming it, and
  * nothing behind the gate runs, so the answer says nothing of whether the
- * app, the table or the Project exists.
+ * app, the table or the Project exists. Through the HTTP dispatch, an OAuth
+ * client without it is challenged for the same scope before the tool runs.
  *
  * The services and every read before them are replaced at the module
  * boundary only to observe that none is reached; a test that let them run
  * would prove the gate by an error they happen to throw.
  */
 import { beforeEach, expect, it, vi } from "vitest";
+import { dispatchMcpTools } from "@/app/api/mcp/dispatch";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { getCommCareSettings, getHqCredentials } from "@/lib/db/settings";
 import {
@@ -25,6 +27,7 @@ import {
 	readHqAppForReview,
 } from "@/lib/deployment/reading";
 import { stopPublishing } from "@/lib/deployment/service";
+import { MCP_RESOURCE_METADATA_URL } from "@/lib/hostnames";
 import { loadAppBlueprint } from "../loadApp";
 import { requireProjectAccess } from "../ownership";
 import { registerNovaTools } from "../server";
@@ -185,6 +188,51 @@ it.each(TOOLS)(
 			error_type: "scope_missing",
 			required_scope: scope,
 		});
+		for (const fn of BEHIND_THE_GATE) expect(fn).not.toHaveBeenCalled();
+	},
+);
+
+/* An OAuth client is challenged at HTTP before the tool runs, so it can be
+ * offered the missing grant; an API key never is, which is why the test above
+ * proves only the tool's own check. This one proves each tool declares the
+ * challenge for the scope it asserts. */
+it.each(TOOLS)(
+	"challenges an OAuth client without $scope before $name runs, naming the grant to add",
+	async ({ name, scope, args }) => {
+		const scopes = [
+			"nova.read",
+			"nova.write",
+			"nova.hq.read",
+			"nova.hq.write",
+		].filter((granted) => granted !== scope);
+		const response = await dispatchMcpTools(
+			new Request("https://mcp.commcare.app/mcp", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					accept: "application/json, text/event-stream",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: { name, arguments: args },
+				}),
+			}),
+			{ userId: "member", scopes, authKind: "oauth" },
+			{
+				token: "verified-test-token",
+				clientId: "scope-test-client",
+				scopes: [...scopes],
+				resourceMetadataUrl: MCP_RESOURCE_METADATA_URL,
+			},
+		);
+		await response.text();
+		expect(response.status).toBe(403);
+		const challenge = response.headers.get("www-authenticate");
+		expect(challenge).toContain('error="insufficient_scope"');
+		const grants = /scope="([^"]+)"/.exec(challenge ?? "")?.[1].split(" ");
+		expect(grants).toEqual(expect.arrayContaining([...scopes, scope]));
 		for (const fn of BEHIND_THE_GATE) expect(fn).not.toHaveBeenCalled();
 	},
 );

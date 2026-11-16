@@ -33,16 +33,20 @@ import {
 	devAssertReferenceIndexParity,
 	ensureReferenceIndex,
 	planReferenceIndexMaintenance,
+	ReferenceIndexBatch,
 } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
+import { ownRecordValue } from "@/lib/domain";
 import { assertNever } from "@/lib/utils/assertNever";
 import { normalizeBlueprintOwnRecords } from "../ownRecords";
 import { applyAppMutation } from "./app";
 import { applyAutomationMutation } from "./automations";
 import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
+import { noteFieldParent } from "./helpers";
 import {
 	applyModuleMutation,
+	MenusAbove,
 	reconcileFirstMenuCaseChange,
 	watchFirstMenuCase,
 } from "./modules";
@@ -63,6 +67,7 @@ import { applyUserMutation } from "./users";
 function dispatchMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
+	above: MenusAbove,
 ): MutationResult {
 	switch (mut.kind) {
 		case "addEntryPoint":
@@ -116,7 +121,7 @@ function dispatchMutation(
 			// A write of a menu or a form can turn whether every form listed
 			// from a menu above opens one chosen case, which the after-submit
 			// destinations of the submenus under those menus read.
-			const watch = watchFirstMenuCase(draft);
+			const watch = watchFirstMenuCase(draft, above);
 			applyModuleMutation(draft, mut);
 			reconcileFirstMenuCaseChange(draft, watch);
 			return;
@@ -133,7 +138,7 @@ function dispatchMutation(
 		case "setFormOtherwise":
 		case "setFormMedia": {
 			// As for a menu's write above.
-			const watch = watchFirstMenuCase(draft);
+			const watch = watchFirstMenuCase(draft, above);
 			applyFormMutation(draft, mut);
 			reconcileFirstMenuCaseChange(draft, watch);
 			return;
@@ -196,11 +201,27 @@ function dispatchMutation(
  * (a rename following an add that referenced it) read fresh lookups,
  * which is what lets them be lookup-driven at all.
  */
-function applyOne(draft: Draft<BlueprintDoc>, mut: Mutation): MutationResult {
+function applyOne(
+	draft: Draft<BlueprintDoc>,
+	mut: Mutation,
+	batch: ReferenceIndexBatch,
+	above: MenusAbove,
+): MutationResult {
 	const doc = draft as unknown as BlueprintDoc;
-	const plan = planReferenceIndexMaintenance(doc, mut);
-	const result = dispatchMutation(draft, mut);
-	applyReferenceIndexMaintenance(doc, plan);
+	const plan = planReferenceIndexMaintenance(doc, mut, batch);
+	const born =
+		mut.kind === "addField" &&
+		ownRecordValue(doc.fields, mut.field.uuid) === undefined;
+	batch.before(doc, mut);
+	const result = dispatchMutation(draft, mut, above);
+	above.after(draft, mut);
+	batch.after(doc, mut);
+	/* A field this batch placed is found through its hint for the rest of the
+	 * batch, rather than by a scan of every membership array. */
+	if (born) noteFieldParent(draft, mut.field.uuid, mut.parentUuid);
+	else if (mut.kind === "moveField")
+		noteFieldParent(draft, mut.uuid, mut.toParentUuid);
+	applyReferenceIndexMaintenance(doc, plan, batch);
 	return result;
 }
 
@@ -227,8 +248,10 @@ export function applyMutation(
  * O(N × M) rebuild cost (N = fields, M = mutations) into one O(N) pass when
  * agent streams land hundreds of mutations. Batches that cannot change field
  * ancestry retain the index by reference and pay no document-wide walk.
- * Mid-batch reads of `fieldParent` may be stale, but no reducer reads it;
- * structural lookups use `fieldOrder` directly.
+ * Mid-batch, `fieldParent` also holds a hint for each field the batch has
+ * added or moved (`noteFieldParent`); `findFieldParent` checks a hint against
+ * `fieldOrder` before trusting it, so a stale entry costs a scan, never a
+ * wrong parent.
  *
  * The reference index is the opposite: maintained PER MUTATION (see
  * `applyOne`), because reducers inside the batch read it — its
@@ -260,9 +283,12 @@ export function applyMutations(
 	// The authoritative batch itself remains frozen and byte-stable for its
 	// accepted-row, event, stream, and tool-result consumers.
 	const reductionMutations = structuredClone(muts) as Mutation[];
+	const batch = new ReferenceIndexBatch();
+	const above = new MenusAbove();
 	for (const mut of reductionMutations) {
-		results.push(applyOne(draft, mut));
+		results.push(applyOne(draft, mut, batch, above));
 	}
+	batch.finish(draft as unknown as BlueprintDoc);
 	// Translation overlays are dependent state of the final structural
 	// endpoint, not an invariant any mid-batch reducer reads. Prune and collapse
 	// once after the complete batch: initial localization may contain one entry

@@ -1,11 +1,12 @@
 /**
  * A stop: a read of CommCare HQ ended at something that is no fact about the
  * app's content (a key HQ refused, a membership that ended, an app already in
- * Nova). One block draws every stop, from
- * `lib/publish/hqFindingCopy.ts::circumstanceBlock`: the whole screen for a
- * read's stop and a create's `changed` answer that carries one, the App
- * field's place for a stop met while choosing, and the block above the review
- * for a create answered `held`.
+ * Nova). Every stop's words come from
+ * `lib/publish/hqFindingCopy.ts::circumstanceBlock`. This module draws two of
+ * its places: the whole screen for a read's stop and a create's `changed`
+ * answer that carries one, and the App field's place for a stop met while
+ * choosing. The block above the review for a create answered `held` is the
+ * review's own (`BringInReview.tsx::HeldBlock`), over the same words.
  *
  * Amber and an information mark, never a tick and never rose: a stop is no
  * error of the person's and no failure of Nova's. Nothing here decides which
@@ -27,7 +28,10 @@ import {
 	stopActionLabel,
 } from "@/components/bring-in/bringInModel";
 import { Button } from "@/components/shadcn/button";
-import { stopNothingChangedLine } from "@/lib/publish/bringInCopy";
+import {
+	type BringInAnswerSource,
+	stopNothingChangedLine,
+} from "@/lib/publish/bringInCopy";
 import {
 	type CircumstanceContext,
 	circumstanceBlock,
@@ -97,17 +101,23 @@ export function StopActionControl({
 
 /**
  * The block of one stop: its title, its body and its next step, every
- * placeholder filled. It sits under a screen's own heading (the picker's, or
- * the review's for a create answered `held`), so its title is an `h2`; a held
- * stop passes no actions, since the review's own button is the way on.
+ * placeholder filled. It stands in the picker's App field, under the picker's
+ * own heading, so its title is an `h2`.
  */
 export function BringInStopBlock({
 	finding,
 	context,
+	nothingChanged,
 	children,
 }: {
 	readonly finding: CircumstanceFinding;
 	readonly context: CircumstanceContext;
+	/**
+	 * Where the block is a stop of its own, what it came from, for the line
+	 * that nothing was created under its next step; left out, the block draws
+	 * no such line.
+	 */
+	readonly nothingChanged?: BringInAnswerSource;
 	/** What stands under the next step: the actions of a stop met while choosing. */
 	readonly children?: ReactNode;
 }) {
@@ -133,6 +143,12 @@ export function BringInStopBlock({
 					<p className="mt-2 text-sm leading-relaxed text-nova-text-secondary">
 						{block.next}
 					</p>
+					{nothingChanged !== undefined &&
+					finding.code !== "already-in-nova" ? (
+						<p className="mt-2 text-sm leading-relaxed text-nova-text-muted">
+							{stopNothingChangedLine(nothingChanged)}
+						</p>
+					) : null}
 				</div>
 			</div>
 			{children !== undefined ? (

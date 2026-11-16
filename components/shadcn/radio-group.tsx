@@ -145,54 +145,60 @@ function RadioGroupItem<Value>({
 			className={(state) =>
 				cn(
 					selectableRowCls(state.checked, { focus: "inset", unavailable }),
-					"group/radio items-start",
+					"group/radio",
 					className,
 				)
 			}
 			{...props}
 		>
-			<span
-				aria-hidden="true"
-				className={cn(
-					"flex h-5 shrink-0 items-center [&>svg]:size-4",
-					unavailable && "opacity-(--disabled-opacity)",
-				)}
-			>
-				<Icon
-					icon={tablerCircle}
-					className="text-nova-text-muted group-data-[checked]/radio:hidden"
-				/>
-				<Icon
-					icon={tablerCircleDotFilled}
-					className="hidden text-nova-violet-bright group-data-[checked]/radio:block"
-				/>
-			</span>
-			<span className="flex min-w-0 flex-1 flex-col gap-0.5 [overflow-wrap:anywhere]">
+			{/* The box keeps the shared row's centring, so a one-line row sits
+			    centred. Its content is one block that sets the mark, one line
+			    tall, beside the label's first line, so a taller row keeps the
+			    mark at the top of its text and not in the row's middle. */}
+			<span className="flex min-w-0 flex-1 items-start gap-2.5">
 				<span
-					id={labelId}
-					className={cn(unavailable && "opacity-(--disabled-opacity)")}
+					aria-hidden="true"
+					className={cn(
+						"flex h-5 shrink-0 items-center [&>svg]:size-4",
+						unavailable && "opacity-(--disabled-opacity)",
+					)}
 				>
-					{children}
+					<Icon
+						icon={tablerCircle}
+						className="text-nova-text-muted group-data-[checked]/radio:hidden"
+					/>
+					<Icon
+						icon={tablerCircleDotFilled}
+						className="hidden text-nova-violet-bright group-data-[checked]/radio:block"
+					/>
 				</span>
-				{hasDescription ? (
+				<span className="flex min-w-0 flex-1 flex-col gap-0.5 [overflow-wrap:anywhere]">
 					<span
-						id={descriptionId}
-						className={cn(
-							"text-[13px] font-normal text-nova-text-muted",
-							unavailable && "opacity-(--disabled-opacity)",
-						)}
+						id={labelId}
+						className={cn(unavailable && "opacity-(--disabled-opacity)")}
 					>
-						{description}
+						{children}
 					</span>
-				) : null}
-				{unavailable ? (
-					<span
-						id={reasonId}
-						className="text-[13px] font-normal text-nova-text-secondary"
-					>
-						{unavailableReason}
-					</span>
-				) : null}
+					{hasDescription ? (
+						<span
+							id={descriptionId}
+							className={cn(
+								"text-[13px] font-normal text-nova-text-muted",
+								unavailable && "opacity-(--disabled-opacity)",
+							)}
+						>
+							{description}
+						</span>
+					) : null}
+					{unavailable ? (
+						<span
+							id={reasonId}
+							className="text-[13px] font-normal text-nova-text-secondary"
+						>
+							{unavailableReason}
+						</span>
+					) : null}
+				</span>
 			</span>
 		</RadioPrimitive.Root>
 	);

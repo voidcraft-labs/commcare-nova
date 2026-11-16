@@ -10,7 +10,9 @@
  * fetched; a review offered before its files were judged; a first finding
  * hiding the rest; an unbounded answer; a guessed flag, or a probe every read
  * pays for, or a flag's answer the reader never sees; a read that outlives a closed tab; a caller that authorizes one
- * Project and reads in another; and a word of an app in a log line.
+ * Project and reads in another; a word of an app in a log line, its error
+ * argument included; and a reader that throws logged with nothing that says
+ * where it threw.
  */
 
 import { readFileSync } from "node:fs";
@@ -27,12 +29,24 @@ import {
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { decrypt } from "@/lib/commcare/encryption";
+import {
+	LOCATION_LEVELS,
+	locationOwnerFixture,
+} from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { hqPrivateFeatureFlag } from "@/lib/commcare/projectSpaceCompatibility";
-import { readHqApp } from "@/lib/commcare/reader";
+import { readHqAppSteps, STAGES } from "@/lib/commcare/reader";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
+import type { BlueprintDoc } from "@/lib/domain";
+import {
+	FIXTURE_MODULE,
+	PLATFORM_FEATURE_FIXTURES,
+} from "@/lib/domain/__tests__/platformFeatureFixtures";
 import { log } from "@/lib/logger";
 import {
 	CIRCUMSTANCE_STANDINGS,
+	READ_CIRCUMSTANCES,
 	type ReadCircumstance,
 } from "@/lib/publish/hqFindings";
 import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
@@ -45,12 +59,14 @@ import {
 	type ReadingKey,
 } from "../types";
 import { FIXTURE_PATHS, serveAnswer, serveFixtureApp } from "./adoptionFixture";
+import { servedExport } from "./novaReading";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-/* The reader runs as it is; the spy only shows what each run was handed. */
+/* The reader runs as it is, a stage at a time as a request runs it; the spy
+ * only shows what each run was handed. */
 vi.mock("@/lib/commcare/reader", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/commcare/reader")>();
-	return { ...actual, readHqApp: vi.fn(actual.readHqApp) };
+	return { ...actual, readHqAppSteps: vi.fn(actual.readHqAppSteps) };
 });
 vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(),
@@ -86,6 +102,7 @@ const PATHS = {
 	list: `/a/${DOMAIN}/apps/api/list_apps/`,
 	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=100`,
 	levels: `/a/${DOMAIN}/api/location_type/v1/?limit=1000`,
+	places: `/a/${DOMAIN}/api/location/v2/?limit=1000`,
 	spaces: "/api/user_domains/v1/?limit=100",
 	flagged: `/api/user_domains/v1/?limit=100&feature_flag=${hqPrivateFeatureFlag("save-only-edited-answers").slug}`,
 	media: (id: string) => `/hq/multimedia/file/CommCareImage/${id}/`,
@@ -265,6 +282,139 @@ function withFirstForm(
 		if (next.form !== undefined) Object.assign(form, next.form);
 		if (next.xml !== undefined) attachments[key] = next.xml;
 		return body;
+	});
+}
+
+/**
+ * `doc`'s export as CommCare HQ serves it, on HQ's own app shell, with an
+ * application resource that summarizes each menu and form by its ids alone.
+ * Every circumstance these serve stands before acceptance compares HQ's
+ * question summary, so no question needs summarizing.
+ */
+function serveExport(peer: MockAgent, doc: BlueprintDoc): void {
+	const body = servedExport(doc).body;
+	const menus = body.modules as Body[];
+	serveApp(peer, {
+		source: {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		},
+		resource: changed(application(), (resource) => ({
+			...resource,
+			modules: menus.map((menu) => ({
+				case_properties: [],
+				case_type: menu.case_type ?? null,
+				name: menu.name,
+				unique_id: menu.unique_id,
+				forms: (menu.forms as Body[]).map((form) => ({
+					name: form.name,
+					unique_id: form.unique_id,
+					xmlns: form.xmlns,
+					questions: [],
+				})),
+			})),
+		})),
+	});
+}
+
+/**
+ * `forms-read-search`'s app with `case-list-here`'s case list and no
+ * declaration: content Nova never admits, and an app CommCare HQ holds.
+ */
+function runsNowhereWhole(): BlueprintDoc {
+	const doc = PLATFORM_FEATURE_FIXTURES["forms-read-search"].with();
+	const here = PLATFORM_FEATURE_FIXTURES["case-list-here"].with();
+	const menu = doc.modules[FIXTURE_MODULE];
+	const list = here.modules[FIXTURE_MODULE]?.caseListConfig;
+	if (
+		menu === undefined ||
+		list === undefined ||
+		menu.caseListConfig === undefined
+	)
+		throw new Error("Both fixtures hold the fixture menu's case list.");
+	menu.caseListConfig = {
+		...list,
+		searchInputs: menu.caseListConfig.searchInputs,
+	};
+	delete doc.appSettings.runsOnlyOn;
+	return doc;
+}
+
+/** `doc` with the question `external` given its sibling's id, `name`. */
+function withSiblingId(doc: BlueprintDoc): BlueprintDoc {
+	const field = Object.values(doc.fields).find((one) => one.id === "external");
+	if (field === undefined) throw new Error("The document holds `external`.");
+	return {
+		...doc,
+		fields: { ...doc.fields, [field.uuid]: { ...field, id: "name" } },
+	};
+}
+
+/** The levels `locationOwnerFixture` holds, region over district over clinic, each sharing
+ *  cases, as `LocationTypeResource` serves them. */
+function serveLevels(peer: MockAgent): void {
+	const parentOf = (index: number) =>
+		index === 0 ? null : `/a/${DOMAIN}/api/location_type/v1/${index}/`;
+	serve(peer, PATHS.levels, {
+		status: 200,
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			meta: { next: null, total_count: LOCATION_LEVELS.length },
+			objects: LOCATION_LEVELS.map((level, index) => ({
+				id: index + 1,
+				name: level.name,
+				code: level.code,
+				parent: parentOf(index),
+				administrative: false,
+				shares_cases: true,
+				view_descendants: false,
+			})),
+		}),
+	});
+}
+
+/** One place as `LocationResource` v2 serves it. */
+function hqPlace(
+	siteCode: string,
+	level: string,
+	parent: string | null,
+): Record<string, unknown> {
+	return {
+		domain: DOMAIN,
+		last_modified: "2026-10-05T10:02:16",
+		latitude: null,
+		location_data: {},
+		location_id: `${siteCode}-id`,
+		location_type_code: level,
+		location_type_name: level,
+		longitude: null,
+		name: siteCode,
+		parent_location_id: parent === null ? "" : `${parent}-id`,
+		site_code: siteCode,
+	};
+}
+
+/** The place list, one page, `meta` changed where given. */
+function servePlaces(
+	peer: MockAgent,
+	places: readonly Record<string, unknown>[],
+	meta: Record<string, unknown> = {},
+): void {
+	serve(peer, PATHS.places, {
+		status: 200,
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			meta: {
+				limit: 1000,
+				next: null,
+				offset: 0,
+				previous: null,
+				total_count: places.length,
+				...meta,
+			},
+			objects: places,
+		}),
 	});
 }
 
@@ -619,6 +769,101 @@ describe("readHqAppForReview", () => {
 				},
 			},
 			{
+				/* A menu whose forms read the search, which Web Apps alone runs, beside a case list
+				 * column that reads where the device is, which Android alone runs. CommCare HQ holds
+				 * both in one app; no declaration runs it whole. */
+				code: "no-platform-runs-everything",
+				serving: (peer) => serveExport(peer, runsNowhereWhole()),
+			},
+			{
+				/* CommCare HQ's place list names more places than an app holds. */
+				code: "places-over-nova-limit",
+				serving: (peer) => {
+					serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
+					serveLevels(peer);
+					servePlaces(peer, [hqPlace("north", "region", null)], {
+						total_count: 10_001,
+						next: `/a/${DOMAIN}/api/location/v2/?limit=1000&offset=1000`,
+					});
+				},
+			},
+			{
+				/* A place whose parent CommCare HQ's list does not hold. */
+				code: "place-not-holdable",
+				serving: (peer) => {
+					serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
+					serveLevels(peer);
+					servePlaces(peer, [
+						hqPlace("north", "region", null),
+						hqPlace("north_district", "district", "elsewhere"),
+					]);
+				},
+			},
+			{
+				/* Two clinics below one district: the owner rule that gives a case to the clinic
+				 * below its owner names no one place. */
+				code: "owner-rule-needs-one-place",
+				serving: (peer) => {
+					serveExport(peer, locationOwnerFixture("direct"));
+					serveLevels(peer);
+					servePlaces(peer, [
+						hqPlace("north", "region", null),
+						hqPlace("north_district", "district", "north"),
+						hqPlace("first_clinic", "clinic", "north_district"),
+						hqPlace("second_clinic", "clinic", "north_district"),
+					]);
+				},
+			},
+			{
+				/* Two rows of `district` hold one value, so no question can take them as its
+				 * choices. */
+				code: "table-choices-unusable",
+				serving: (peer) =>
+					serveFixtureApp(peer, {
+						rows: changed(
+							retainedGroupRead(
+								"targeted-hq-side-lookup/fixture-rows-district",
+							),
+							(body) => {
+								const [first, second] = body.objects as Body[];
+								if (first === undefined || second === undefined)
+									throw new Error("The district table holds two rows.");
+								(second.fields as Body).code = (first.fields as Body).code;
+								return body;
+							},
+						),
+					}),
+			},
+			{
+				/* What stands in for a reader defect: the reader's draft of `navigation-base`
+				 * doctored as acceptance's own tests doctor one, a question given its sibling's id,
+				 * which no source CommCare HQ serves can make the reader give. Acceptance alone
+				 * sees it, and the read answers Nova's own failure. */
+				code: "read-back-differs",
+				serving: (peer) => serveApp(peer),
+				before: async () => {
+					const { readHqAppSteps: actual } = await vi.importActual<
+						typeof import("@/lib/commcare/reader")
+					>("@/lib/commcare/reader");
+					vi.mocked(readHqAppSteps).mockImplementationOnce(
+						function* (input, options) {
+							const outcome = yield* actual(input, options);
+							if (outcome.kind !== "read")
+								throw new Error("navigation-base reads to an account.");
+							const doc = withSiblingId(outcome.draft.doc);
+							return {
+								...outcome,
+								draft: {
+									...outcome.draft,
+									doc,
+									batch: diffDocsToMutations(emptyBlueprintDoc(doc.appId), doc),
+								},
+							};
+						},
+					);
+				},
+			},
+			{
 				code: "table-cell-unrepresentable",
 				serving: (peer) =>
 					serveFixtureApp(peer, {
@@ -650,6 +895,22 @@ describe("readHqAppForReview", () => {
 			expect(await rowCounts()).toEqual(counts);
 			expect(uploadAssetBytes).not.toHaveBeenCalled();
 			expect(deleteAsset).not.toHaveBeenCalled();
+		});
+
+		it("drives every code a read can raise, here or where its source is built", () => {
+			/* Three codes are driven where their source is built: a source one byte over the
+			 * bound in cap.test.ts, and below, an app saved twice during the read and a menu
+			 * CommCare HQ could not summarize beside the form's own finding. A new code with no
+			 * case fails here. */
+			const elsewhere: readonly ReadCircumstance[] = [
+				"too-large",
+				"changed-while-reading",
+				"menu-unreadable-in-hq",
+			];
+			const driven = new Set([...cases.map(({ code }) => code), ...elsewhere]);
+			expect(READ_CIRCUMSTANCES.filter((code) => !driven.has(code))).toEqual(
+				[],
+			);
 		});
 	});
 
@@ -793,7 +1054,7 @@ describe("readHqAppForReview", () => {
 			notes.update_mode = "edit";
 			return { form: { actions } };
 		});
-		vi.mocked(readHqApp).mockClear();
+		vi.mocked(readHqAppSteps).mockClear();
 		const flagged = await read((peer) => {
 			serveApp(peer, { source: editMode });
 			serve(peer, PATHS.spaces, spaces("project-spaces"));
@@ -805,10 +1066,10 @@ describe("readHqAppForReview", () => {
 		expect(flagged.answer.kind).not.toBe("stop");
 		const handed = () =>
 			vi
-				.mocked(readHqApp)
+				.mocked(readHqAppSteps)
 				.mock.calls.map(([input]) => input.saveOnlyEditedApplied);
 		expect(new Set(handed())).toEqual(new Set([true]));
-		vi.mocked(readHqApp).mockClear();
+		vi.mocked(readHqAppSteps).mockClear();
 
 		const unflagged = await read((peer) => {
 			serveApp(peer, { source: editMode });
@@ -817,7 +1078,7 @@ describe("readHqAppForReview", () => {
 		});
 		expect(unflagged.answer.kind).not.toBe("stop");
 		expect(new Set(handed())).toEqual(new Set([false]));
-		vi.mocked(readHqApp).mockClear();
+		vi.mocked(readHqAppSteps).mockClear();
 
 		const plain = await read((peer) => serveApp(peer));
 		/* No flag read, so the reader is handed no answer and guesses none. */
@@ -933,8 +1194,95 @@ describe("readHqAppForReview", () => {
 		const whys = (context as { defects: string[] }).defects;
 		expect(whys.length).toBeGreaterThan(0);
 		for (const why of whys) expect(message).not.toContain(why);
-		const logged = JSON.stringify(calls);
+		/* An error argument titles and groups its Sentry issue, so none is handed one; the
+		 * serialization spells out an Error's message and stack, which JSON leaves out. */
+		for (const [, error] of vi.mocked(log.error).mock.calls)
+			expect(error).toBeUndefined();
+		const logged = loggedText(calls);
 		for (const word of Object.values(MARK))
 			expect(logged.toLowerCase()).not.toContain(word.toLowerCase());
 	});
+
+	it("tells a caller each stage the reader runs, in order, then its close", async () => {
+		const { readHqAppSteps: actual } = await vi.importActual<
+			typeof import("@/lib/commcare/reader")
+		>("@/lib/commcare/reader");
+		const told: (number | "close")[] = [];
+		vi.mocked(readHqAppSteps).mockImplementationOnce((input, options) =>
+			actual(input, {
+				...options,
+				onStage: (at) => {
+					told.push(at);
+					options?.onStage?.(at);
+				},
+			}),
+		);
+		const { answer } = await read((peer) => serveApp(peer));
+		expect(answer.kind).toBe("review");
+		expect(told).toEqual([...STAGES.keys(), "close"]);
+	});
+
+	it("logs a reader that throws by the stage it threw in and what it threw, never by its message", async () => {
+		const quoted = "zqmarkquestion";
+		vi.mocked(readHqAppSteps).mockImplementationOnce(
+			function* (_input, options) {
+				options?.onStage?.(0);
+				yield;
+				options?.onStage?.(4);
+				throw new TypeError(
+					`Cannot read properties of undefined (reading '${quoted}')`,
+				);
+			},
+		);
+		const { answer } = await read((peer) => serveApp(peer));
+		expect(answer).toMatchObject({
+			kind: "account",
+			findings: [{ code: "read-back-differs", detail: { name: "reader" } }],
+		});
+		const line = vi
+			.mocked(log.error)
+			.mock.calls.find(([message]) =>
+				message.startsWith("[reading] read-back differs: reader"),
+			);
+		expect(line).toEqual([
+			"[reading] read-back differs: reader: contract",
+			undefined,
+			expect.objectContaining({
+				phase: "reader",
+				signatures: ["reader/contract"],
+				at: "stage/4",
+				thrown: "TypeError",
+			}),
+		]);
+		const calls = [
+			...vi.mocked(log.info).mock.calls,
+			...vi.mocked(log.warn).mock.calls,
+			...vi.mocked(log.error).mock.calls,
+		];
+		expect(loggedText(calls)).not.toContain(quoted);
+	});
+
+	it("logs a reader that throws something no Error class names as other", async () => {
+		vi.mocked(readHqAppSteps).mockImplementationOnce(function* () {
+			yield;
+			throw "zqmarkquestion";
+		});
+		const { answer } = await read((peer) => serveApp(peer));
+		expect(answer.kind).toBe("account");
+		const line = vi
+			.mocked(log.error)
+			.mock.calls.find(([message]) =>
+				message.startsWith("[reading] read-back differs: reader"),
+			);
+		expect(line?.[2]).toMatchObject({ at: "input", thrown: "other" });
+	});
 });
+
+/** Every log call's arguments as text, an Error spelled by its message and stack. */
+function loggedText(calls: readonly unknown[]): string {
+	return JSON.stringify(calls, (_key, value: unknown) =>
+		value instanceof Error
+			? { name: value.name, message: value.message, stack: value.stack }
+			: value,
+	);
+}

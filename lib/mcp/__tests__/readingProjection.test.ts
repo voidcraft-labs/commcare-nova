@@ -623,6 +623,36 @@ describe("an account a page at a time", () => {
 		});
 	});
 
+	it("answers a page that meets a stop with the stop alone, never as an app that changed", () => {
+		const before = account(
+			Array.from({ length: 300 }, (_, index) => longest(index)),
+		);
+		const first = describeReading(before, KEY, FIRST_PAGE).account?.next_page;
+		if (first == null) throw new Error("one page held the whole account");
+		const cursor = parseAccountPage(first);
+		const busy: ReadingAnswer = {
+			kind: "stop",
+			finding: circumstanceFinding("rate-limited", { kind: "app" }, {}),
+		};
+		const start = pageFor(busy, cursor);
+		expect(start).toEqual({ from: 0, restarted: false });
+		const projection = describeReading(busy, KEY, {
+			...(start as NonNullable<typeof start>),
+			project: PROJECT,
+		});
+		expect(projection).toMatchObject({
+			state: "stop",
+			restarted: false,
+			message: null,
+			stop: { code: "rate-limited" },
+		});
+		/* The same cursor still pages the account once CommCare HQ answers. */
+		expect(pageFor(before, cursor)).toEqual({
+			from: cursor?.from,
+			restarted: false,
+		});
+	});
+
 	it("reads only a cursor Nova gives", () => {
 		expect(parseAccountPage(`12:${DIGEST}`)).toEqual({
 			from: 12,

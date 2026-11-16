@@ -123,6 +123,29 @@ describe("readBringInStream", () => {
 		expect(end).toEqual({ type: "lost" });
 	});
 
+	it("resolves with the last line where the connection breaks after it arrived", async () => {
+		for (const last of [
+			{ type: "done", answer: ANSWER },
+			{ type: "failed" },
+		] as const) {
+			const { end } = await read(
+				responseOf(lines({ type: "stage", stage: "connecting" }, last), [4], {
+					breakAfter: true,
+				}),
+			);
+			expect(end, last.type).toEqual(last);
+		}
+	});
+
+	it("resolves lost where the connection breaks inside the last line", async () => {
+		const text = lines({ type: "done", answer: ANSWER });
+		// The line arrives without its line break, then the connection breaks.
+		const { end } = await read(
+			responseOf(text.slice(0, -1), [8], { breakAfter: true }),
+		);
+		expect(end).toEqual({ type: "lost" });
+	});
+
 	it("resolves lost for a line that is no JSON object of a known type, and hands on nothing after it", async () => {
 		for (const bad of [
 			"not json\n",

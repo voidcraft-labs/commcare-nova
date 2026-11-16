@@ -44,6 +44,7 @@ import {
 	deploymentTargetSchema,
 } from "@/lib/deployment/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { driftDate } from "@/lib/publish/driftReference";
 import {
 	keptChanged,
 	keptListUnreadSentence,
@@ -228,8 +229,9 @@ export function registerRefreshDeployment(
 
 /**
  * `refresh_deployment` with `kept_values`: read the kept settings again and
- * answer with the sentence the Publishing card shows, dated with the ISO date
- * of the read the list stood on, and with the deployment where the outcome
+ * answer with the sentence the Publishing card shows, dated with the UTC day
+ * of the read the list stood on (`driftDate`, as every MCP sentence writes a
+ * date), and with the deployment where the outcome
  * carries one. A `DeploymentError` (no key, a key that cannot reach the
  * project space, a key on another server) reaches the client as the tool's
  * error, as Check status's does.
@@ -242,7 +244,7 @@ async function refreshKeptValuesResult(
 	const before = await readTargetFacts(scope, target);
 	const outcome = await refreshKeptValues(scope, target);
 	const context = {
-		date: before === null ? "the last read" : before.observedAt.slice(0, 10),
+		date: before === null ? "the last read" : driftDate(before.observedAt),
 		space: target.domain,
 	};
 	if (outcome.kind !== "refreshed" && outcome.kind !== "superseded") {

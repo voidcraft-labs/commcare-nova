@@ -40,21 +40,17 @@ import { FirstPublishLines } from "@/components/bring-in/FirstPublishLines";
 import {
 	broughtInElsewhere,
 	type ConfirmationRequest,
+	cardKind,
 	compactTargetRows,
 	confirmationRequests,
 	everyConfirmationGiven,
 	preseededDomainSelection,
-	previewAnswerAfterStop,
 	sameConfirmationKey,
 	upsertDeploymentViews,
 	withLandedConfirmations,
 } from "@/components/builder/app-setup/publishingSectionModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
-import {
-	useApplyPreviewDeploymentAnswer,
-	useDeploymentProjectSpace,
-	useDeploymentTargetFacts,
-} from "@/components/builder/DeploymentTargetProvider";
+import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
 import { HqNotConnected } from "@/components/builder/HqNotConnected";
 import type { ShownRefreshedView } from "@/components/builder/keptListModel";
 import {
@@ -110,6 +106,7 @@ import {
 	type DownloadTargetsView,
 	readDeploymentsAction,
 	readDownloadTargetsAction,
+	type StoppedPublishingView,
 } from "@/lib/deployment/actions";
 import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
 import { nextPublishAction } from "@/lib/deployment/resources";
@@ -416,8 +413,12 @@ export function PublishDialogBody({
 	});
 	/** The CCZ's project space, as `downloadTargetKey` spells it; "" for none chosen. */
 	const [cczTargetKey, setCczTargetKey] = useState("");
-	/** Counts the publishes that landed while this is open, so the CCZ's project spaces are read again after each. */
-	const [landedPublishes, setLandedPublishes] = useState(0);
+	/**
+	 * Counts what changed where a CCZ can be made while this is open, a
+	 * publish that landed and a stop, so the CCZ's project spaces are read
+	 * again after each.
+	 */
+	const [targetChanges, setTargetChanges] = useState(0);
 	/**
 	 * Which of the tables already on the selected project space this person
 	 * has said Nova may take over.
@@ -624,11 +625,12 @@ export function PublishDialogBody({
 	 * the same lines the download itself answers from, so the dialog never
 	 * offers a space the download would refuse. It is read when this opens
 	 * and again after each publish that lands, since that publish can be
-	 * what puts the app on a space. A pick that is still offered stays; one
-	 * target is chosen for the person; several wait for their pick. */
+	 * what puts the app on a space, and after each stop, which takes one
+	 * away. A pick that is still offered stays; one target is chosen for the
+	 * person; several wait for their pick. */
 	useEffect(() => {
 		if (!open) return;
-		void landedPublishes;
+		void targetChanges;
 		let live = true;
 		void readDownloadTargetsAction(getAppId())
 			.then((result) => {
@@ -654,7 +656,7 @@ export function PublishDialogBody({
 		return () => {
 			live = false;
 		};
-	}, [open, getAppId, landedPublishes]);
+	}, [open, getAppId, targetChanges]);
 	const cczTarget =
 		downloadTargets.type === "ready"
 			? (downloadTargets.view.targets.find(
@@ -713,34 +715,75 @@ export function PublishDialogBody({
 	);
 	/* Stopping publishing at a change made in CommCare HQ answers the
 	 * refusal another way: the refusal and every tick go, the dialog returns
-	 * to its destination step saying so, and the plan line there reads off
-	 * the ended record (`creates-beside`). */
-	const previewProjectSpace = useDeploymentProjectSpace();
-	const previewTargetFacts = useDeploymentTargetFacts();
+	 * to its destination step saying so, the plan line there reads off the
+	 * ended record (`creates-beside`), and the CCZ's project spaces are read
+	 * again, since the stopped one is no longer among them. */
+	const settleStopped = useCallback((domain: string) => {
+		operationGenerationRef.current += 1;
+		setStatus({ type: "idle" });
+		setAdoptResourceIds([]);
+		setDiscardRemoteChanges([]);
+		setConfirmations([]);
+		setConfirmWebApps(null);
+		setAcceptMoves(null);
+		setStoppedDomain(domain);
+		setTargetChanges((count) => count + 1);
+		pendingStepFocus.current = true;
+		setReviewing(false);
+	}, []);
+	/* Where the app stands, read again after a stop that answered no record,
+	 * or no stop at all: an answer lost on the way may follow a stop that
+	 * landed. A record that now shows the deployment ended settles the stop
+	 * as its answer would have, unless the person has moved on since. */
+	const readRecordsAfterStop = useCallback(
+		(
+			target: { readonly server: CommCareServer; readonly domain: string },
+			settleIfEnded: boolean,
+		) => {
+			const generation = operationGenerationRef.current;
+			void readDeploymentsAction(getAppId())
+				.then((result) => {
+					if (!result.success) return;
+					setExisting({ type: "ready", views: result.data });
+					noteDeploymentRecordsChanged();
+					const view = result.data.find(
+						(candidate) =>
+							candidate.deployment.deployment.server === target.server &&
+							candidate.deployment.deployment.domain === target.domain,
+					);
+					if (
+						settleIfEnded &&
+						operationGenerationRef.current === generation &&
+						view !== undefined &&
+						cardKind(view) === "ended"
+					) {
+						settleStopped(target.domain);
+					}
+				})
+				/* The records on screen stay; the next opening reads them. */
+				.catch(() => {});
+		},
+		[getAppId, noteDeploymentRecordsChanged, settleStopped],
+	);
+	/* The stop's answer was read on the server after the ending landed, the
+	 * Preview answer included, so it is applied as it came, whichever of it
+	 * and the stream's frames arrives last. */
 	const handleStopped = useCallback(
 		(
-			next: DeploymentView & { readonly previewProjectSpace: string | null },
+			next: StoppedPublishingView,
+			target: { readonly server: CommCareServer; readonly domain: string },
 		) => {
-			const { previewProjectSpace: stoppedSpace, ...stoppedView } = next;
-			upsertView(stoppedView);
-			applyPreviewAnswer(
-				previewAnswerAfterStop(stoppedSpace, {
-					projectSpace: previewProjectSpace,
-					targetFacts: previewTargetFacts,
-				}),
-			);
-			operationGenerationRef.current += 1;
-			setStatus({ type: "idle" });
-			setAdoptResourceIds([]);
-			setDiscardRemoteChanges([]);
-			setConfirmations([]);
-			setConfirmWebApps(null);
-			setAcceptMoves(null);
-			setStoppedDomain(stoppedView.deployment.deployment.domain);
-			pendingStepFocus.current = true;
-			setReviewing(false);
+			if (next.view !== null) upsertView(next.view);
+			applyPreviewAnswer(next.preview);
+			settleStopped(target.domain);
+			if (next.view === null) readRecordsAfterStop(target, false);
 		},
-		[upsertView, applyPreviewAnswer, previewProjectSpace, previewTargetFacts],
+		[upsertView, applyPreviewAnswer, settleStopped, readRecordsAfterStop],
+	);
+	const handleStopUnanswered = useCallback(
+		(target: { readonly server: CommCareServer; readonly domain: string }) =>
+			readRecordsAfterStop(target, true),
+		[readRecordsAfterStop],
 	);
 
 	/* What publishing to the selected project space will do. The SAME
@@ -1110,7 +1153,7 @@ export function PublishDialogBody({
 				/* The deployment holds what was confirmed from now on. */
 				setConfirmations([]);
 				setConfirmWebApps(null);
-				setLandedPublishes((count) => count + 1);
+				setTargetChanges((count) => count + 1);
 				const record = outcome.deployment?.deployment.deployment;
 				setStatus({
 					type: "landed",
@@ -1640,6 +1683,7 @@ export function PublishDialogBody({
 																	domain: selectedDomain,
 																},
 																onStopped: handleStopped,
+																onRecordsStale: handleStopUnanswered,
 															}
 												}
 											/>
@@ -2781,8 +2825,13 @@ function RemoteChangeChoice({
 			readonly domain: string;
 		};
 		readonly onStopped: (
-			next: DeploymentView & { readonly previewProjectSpace: string | null },
+			next: StoppedPublishingView,
+			target: { readonly server: CommCareServer; readonly domain: string },
 		) => void;
+		readonly onRecordsStale: (target: {
+			readonly server: CommCareServer;
+			readonly domain: string;
+		}) => void;
 	} | null;
 }) {
 	return (
@@ -2841,6 +2890,7 @@ function RemoteChangeChoice({
 								canStop={stop.canStop}
 								target={stop.target}
 								onStopped={stop.onStopped}
+								onRecordsStale={stop.onRecordsStale}
 							/>
 						) : null}
 					</li>
@@ -2860,6 +2910,7 @@ function DriftStop({
 	canStop,
 	target,
 	onStopped,
+	onRecordsStale,
 }: {
 	canStop: boolean;
 	target: {
@@ -2868,11 +2919,25 @@ function DriftStop({
 		readonly domain: string;
 	};
 	onStopped: (
-		next: DeploymentView & { readonly previewProjectSpace: string | null },
+		next: StoppedPublishingView,
+		target: { readonly server: CommCareServer; readonly domain: string },
 	) => void;
+	onRecordsStale: (target: {
+		readonly server: CommCareServer;
+		readonly domain: string;
+	}) => void;
 }) {
 	const [open, setOpen] = useState(false);
 	const helperId = useId();
+	const { server, domain } = target;
+	const handleStopped = useCallback(
+		(next: StoppedPublishingView) => onStopped(next, { server, domain }),
+		[onStopped, server, domain],
+	);
+	const handleRecordsStale = useCallback(
+		() => onRecordsStale({ server, domain }),
+		[onRecordsStale, server, domain],
+	);
 	if (!canStop) {
 		return (
 			<p className="mt-2 border-t border-nova-border pt-2 text-xs leading-relaxed text-nova-text-secondary">
@@ -2903,7 +2968,8 @@ function DriftStop({
 				open={open}
 				onOpenChange={setOpen}
 				target={target}
-				onStopped={onStopped}
+				onStopped={handleStopped}
+				onRecordsStale={handleRecordsStale}
 			/>
 		</div>
 	);

@@ -670,7 +670,11 @@ under every declaration the review will offer, the exact fixed point over
 Nova's own emission of the document and of the split document a declaration
 can make, identity agreement between CommCare HQ's source and that emission,
 and agreement with CommCare HQ's own question summary. It is pure and runs on
-the request. A failure after a clean read is `read-back-differs`, Nova's own.
+the request, in pieces: `acceptReadingSteps` and the reader's
+`readHqAppSteps` stop between checks and stages, and `gather.ts::Pieces` lets
+the event loop turn between them, so an app at the byte cap holds the instance
+for no piece longer than a few seconds. A failure after a clean read is
+`read-back-differs`, Nova's own.
 It reads no expression's meaning: the reader's re-emission comparisons and
 the proof lane hold that. `reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES`
 is the closed list of what a first publish over an adopted app may change;
@@ -1090,7 +1094,12 @@ still stop, and the HQ app stays exactly as it is. A deployment whose live
 mapping is a first publish's empty app can be stopped too. The Server Action
 `actions.ts::stopPublishingAction` goes through `service.ts::stopPublishing`,
 the one lifecycle a stop has, which also answers the setup artifact as a
-refresh does.
+refresh does. A stop whose ending committed answers as stopped whatever
+faults after it: the artifact is then null, the action's record null and its
+Preview answer null, each logged, and the surface reads its records again.
+MCP's `stop_publishing` answers the ended deployment with what it could read:
+`setup_artifact` null, the resource names null (only superseded apps listed
+as left behind) and the kept list `unread`, each logged by class and code.
 
 **The transaction** (`lib/db/hqAppClaims.ts::endDeploymentInTransaction`),
 under the app row and the deployment row: it supersedes the live `app` mapping

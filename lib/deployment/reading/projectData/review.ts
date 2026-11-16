@@ -92,7 +92,7 @@ export function projectDataReview(
 		data.gathered.tables.map((table) => [table.read.table.tag, table]),
 	);
 	const tags = Object.keys(reads.lookupFields).sort(compareCodeUnits);
-	const entries = tags.map((tag) => {
+	const entries = tags.map((tag, index) => {
 		const table = byTag.get(tag);
 		if (
 			table === undefined ||
@@ -100,8 +100,11 @@ export function projectDataReview(
 			table.standing === null ||
 			table.binding === null
 		) {
+			/* Every invariant here names a table by its id or its place, never its tag: the
+			 * message reaches the route's failed line and Sentry (layer 7's
+			 * small edits, kept for the rebase). */
 			throw new Error(
-				`The document reads the lookup table ${tag}, which cannot come in.`,
+				`The document reads a lookup table that cannot come in (table ${index + 1} of the ${tags.length} it reads).`,
 			);
 		}
 		return {
@@ -168,7 +171,7 @@ export function projectDataReview(
 		let rows = 0;
 		let cells = 0;
 		let bytes = 0;
-		for (const { tag, table } of entries) {
+		for (const [index, { tag, table }] of entries.entries()) {
 			const tableId = table.binding?.tableId ?? "";
 			const forms = [asHqs.get(tableId)];
 			if (projectTags.includes(tag)) forms.push(asProjects.get(tableId));
@@ -176,7 +179,11 @@ export function projectDataReview(
 				(form): form is CompiledLookupFixture => form !== undefined,
 			);
 			if (present.length === 0) {
-				throw new Error(`The lookup table ${tag} built no fixture.`);
+				/* Named by its place, never its tag: this reaches the route's failed line and
+				 * Sentry (layer 7's small edit, kept for the rebase). */
+				throw new Error(
+					`A lookup table built no fixture (table ${index + 1} of ${entries.length} in the review).`,
+				);
 			}
 			rows += Math.max(...present.map((form) => form.rowCount));
 			cells += Math.max(...present.map((form) => form.cellCount));
@@ -199,9 +206,13 @@ export function projectDataReview(
 		}
 	}
 
-	const tables = entries.map(({ tag, table, standing }): ReviewTable => {
+	const tables = entries.map(({ tag, table, standing }, index): ReviewTable => {
 		if (table.read.kind !== "read") {
-			throw new Error(`The lookup table ${tag} was never read.`);
+			/* Named by its place, never its tag (layer 7's small edit, kept for
+			 * the rebase). */
+			throw new Error(
+				`A lookup table in the review was never read (table ${index + 1} of ${entries.length}).`,
+			);
 		}
 		const options = offers.get(tag);
 		return {
@@ -240,7 +251,7 @@ function standingWithReads(
 	const existing = standing.table;
 	if (!Object.hasOwn(project.rowsByTable, existing.id)) {
 		throw new Error(
-			`The Project's lookup table ${existing.tag} was read without its rows.`,
+			`The Project's lookup table ${existing.id} was read without its rows.`,
 		);
 	}
 	const again = lookupTableStanding({
@@ -259,7 +270,7 @@ function standingWithReads(
 	});
 	if (again.kind !== "choice") {
 		throw new Error(
-			`The lookup table ${existing.tag} stood otherwise once the fields read were known.`,
+			`The Project's lookup table ${existing.id} stood otherwise once the fields read were known.`,
 		);
 	}
 	return again;

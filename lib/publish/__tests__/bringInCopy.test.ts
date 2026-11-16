@@ -33,6 +33,10 @@ const CALLS: { readonly [K in FunctionName]: () => readonly unknown[] } = {
 		copy.readingStatusLine("Household visits"),
 		copy.readingStatusLine(null),
 	],
+	readFailedAfterCreateBody: () => [
+		copy.readFailedAfterCreateBody("Household visits"),
+		copy.readFailedAfterCreateBody(null),
+	],
 	stopNothingChangedLine: () => [
 		copy.stopNothingChangedLine("read"),
 		copy.stopNothingChangedLine("create"),
@@ -169,6 +173,21 @@ describe("bringInCopy", () => {
 		for (const label of labels) {
 			expect(label.trim()).toBe(label);
 			expect(label.endsWith(".")).toBe(false);
+		}
+	});
+
+	it("reads an app whose CommCare HQ name is blank as an app with no name", () => {
+		for (const blank of ["", "   "]) {
+			for (const heading of ["yet", "this-time"] as const) {
+				expect(copy.accountHeadingLine(heading, blank)).toBe(
+					copy.accountHeadingLine(heading, null),
+				);
+			}
+			expect(copy.reviewHeading(blank)).toBe(copy.reviewHeading(null));
+			expect(copy.readingStatusLine(blank)).toBe(copy.readingStatusLine(null));
+			expect(copy.readFailedAfterCreateBody(blank)).toBe(
+				copy.readFailedAfterCreateBody(null),
+			);
 		}
 	});
 

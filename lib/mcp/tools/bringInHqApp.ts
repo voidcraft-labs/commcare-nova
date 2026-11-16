@@ -12,8 +12,12 @@
  * the person's, so no input is optional and none has a default.
  *
  * Scope: `nova.hq.write`, checked before any read: the create records a
- * deployment that authorizes later writes to that HQ app. Nothing is sent to
- * CommCare HQ.
+ * deployment that authorizes later writes to that HQ app. The create reads
+ * the app again with the person's key and changes nothing in CommCare HQ.
+ *
+ * A `changed` answer carries a fresh read's first page, up to the 80,000
+ * characters an account page fills, so the tool declares the large-result
+ * ceiling `read_hq_app` declares for the same projection.
  */
 
 import type { McpServer } from "@modelcontextprotocol/server";
@@ -35,6 +39,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import { LARGE_RESULT_META } from "../resultSize";
 import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { bringInProgress, openBringInCall } from "./readHqApp";
@@ -66,6 +71,18 @@ type BringInBody =
 	| { status: "read_again"; message: string }
 	| { status: "check_failed"; message: string; reading: ReadingProjection }
 	| { status: "held"; message: string; stop: StopProjection };
+
+/**
+ * The two answers whose screen lead names something only the page does: the
+ * page starts the next read itself and keeps the review on screen, while a
+ * tool call has returned and the agent decides what comes next. Each says
+ * what stands; the description says what to call.
+ */
+export const BRING_IN_TOOL_LEADS = {
+	readAgain:
+		"A lookup table this app reads changed in your Project while Nova was creating the app. No app was created. Any pictures and sounds Nova already added to your Project stay in its files, and bringing the app in uses them. Nova can read the app again and show you the review as it stands now.",
+	held: "Nova stopped before creating anything. Your answers to the review still apply, so Nova can create the app from them once this is sorted.",
+} as const;
 
 /** The lead the screen sets above a `changed` answer, by what stands now. */
 function changedLead(now: ReadingAnswer): string {
@@ -107,7 +124,7 @@ function bodyOf(
 		case "read-again":
 			return {
 				status: "read_again",
-				message: CREATE_ANSWER_LEADS["read-again"],
+				message: BRING_IN_TOOL_LEADS.readAgain,
 			};
 		case "check-failed":
 			return {
@@ -122,7 +139,7 @@ function bodyOf(
 		case "held":
 			return {
 				status: "held",
-				message: CREATE_ANSWER_LEADS.held,
+				message: BRING_IN_TOOL_LEADS.held,
 				stop: stopProjection(answer.finding, circumstanceContextFor(key, null)),
 			};
 	}
@@ -171,7 +188,7 @@ export function registerBringInHqApp(
 					.min(1)
 					.max(255)
 					.describe(
-						"The app's name in Nova. review.app_name is CommCare HQ's; ask the user whether to keep it.",
+						"The app's name in Nova. review.app_name is CommCare HQ's, and empty where CommCare HQ holds none: ask the user whether to keep it, or for a name where it is empty.",
 					),
 				runs_only_on: z
 					.enum(["web-apps", "android"])
@@ -190,6 +207,7 @@ export function registerBringInHqApp(
 						"The user's answer for each lookup table whose review entry has a choice, by tag. {} where none has.",
 					),
 			}),
+			_meta: LARGE_RESULT_META,
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {

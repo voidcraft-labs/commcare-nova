@@ -14,14 +14,12 @@ import {
 	getEntryPointLinkSchema,
 } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
-import {
-	previewDeploymentAnswerFor,
-	previewProjectSpaceFor,
-} from "./previewSpace";
+import { previewDeploymentAnswerFor } from "./previewSpace";
 import { firstPublishOf, leftBehindResources } from "./resources";
 import {
 	currentResourceIdentities,
 	deploymentKept,
+	faultCode,
 	type KeptReadAfter,
 	landedDeploymentKept,
 	landedFirstPublish,
@@ -505,21 +503,40 @@ export async function withdrawDeploymentConfirmationAction(
 }
 
 /**
+ * A stop's answer. Every part of it is read after the ending committed, so
+ * none of it can turn the stop into a failure: what cannot be read just now
+ * is null, and the stop still answers as stopped.
+ */
+export interface StoppedPublishingView {
+	/**
+	 * The ended record as a card draws it. Null where Nova could not read it
+	 * back after the ending landed: the surface reads its records again.
+	 */
+	readonly view: DeploymentView | null;
+	/**
+	 * What Preview names and plays now, the project space and its kept
+	 * settings together, read as Check status reads it
+	 * (`previewDeploymentAnswerFor`). An ending can take the project space
+	 * away, or leave one other space for Preview to name. Null where it could
+	 * not be read: the tab keeps what it holds, and the stream's deployment
+	 * lane, which the ending poked, brings the answer.
+	 */
+	readonly preview: PreviewDeploymentAnswer | null;
+}
+
+/**
  * "Stop publishing here" (`service.ts::stopPublishing`): this app stops
  * publishing to one project space, and the app there stays as it is.
  *
  * The scope resolves at `edit`, as Check status does, so a viewer or a
  * stranger finds nothing to stop; an editor, who can see and publish to the
- * deployment, gets `not_permitted` with who may. The answer carries the
- * project space Preview names now, since an ending can take it away.
+ * deployment, gets `not_permitted` with who may. A failure is answered only
+ * for a stop that did not land; once the ending commits, the answer is
+ * `success` whatever faults after it (`StoppedPublishingView`).
  */
 export async function stopPublishingAction(
 	input: unknown,
-): Promise<
-	DeploymentActionResult<
-		DeploymentView & { readonly previewProjectSpace: string | null }
-	>
-> {
+): Promise<DeploymentActionResult<StoppedPublishingView>> {
 	const parsed = deploymentTargetSchema.safeParse(input);
 	if (!parsed.success) {
 		return {
@@ -531,34 +548,63 @@ export async function stopPublishingAction(
 	}
 	const resolved = await resolveScope(parsed.data.appId, "edit");
 	if (!resolved.ok) return resolved.result;
+	let stopped: Awaited<ReturnType<typeof stopPublishing>>;
+	let doc: CommittedDoc["doc"];
 	try {
-		const { doc, locations } = await committedDocWithLocations(resolved.scope);
-		const stopped = await stopPublishing(
+		const committed = await committedDocWithLocations(resolved.scope);
+		doc = committed.doc;
+		stopped = await stopPublishing(
 			resolved.scope,
 			{ server: parsed.data.server, domain: parsed.data.domain },
 			doc,
-			locations,
+			committed.locations,
 		);
-		const [identities, kept, previewProjectSpace, firstPublish] =
-			await Promise.all([
-				currentResourceIdentities(resolved.scope, doc),
-				deploymentKept(resolved.scope, stopped.deployment),
-				previewProjectSpaceFor(resolved.scope),
-				deploymentFirstPublish(resolved.scope, stopped.deployment, doc),
-			]);
-		return {
-			success: true,
-			data: {
-				deployment: stopped.deployment,
-				artifact: stopped.artifact,
-				leftBehind: leftBehindResources(stopped.deployment, identities),
-				kept,
-				firstPublish,
-				previewProjectSpace,
-			},
-		};
 	} catch (error) {
 		return failure(error, "stop publishing", resolved.scope);
+	}
+	const [view, preview] = await Promise.all([
+		stoppedView(resolved.scope, stopped, doc),
+		previewDeploymentAnswerFor(resolved.scope),
+	]);
+	return { success: true, data: { view, preview } };
+}
+
+/**
+ * The ended record as a card draws it, read after the ending landed, or null
+ * where any of its reads faulted. Logged by the fault's class and code alone,
+ * as `service.ts::landedDeploymentKept` logs one.
+ */
+async function stoppedView(
+	scope: DeploymentScope,
+	stopped: Awaited<ReturnType<typeof stopPublishing>>,
+	doc: CommittedDoc["doc"],
+): Promise<DeploymentView | null> {
+	if (stopped.artifact === null) return null;
+	try {
+		const [identities, kept, firstPublish] = await Promise.all([
+			currentResourceIdentities(scope, doc),
+			deploymentKept(scope, stopped.deployment),
+			deploymentFirstPublish(scope, stopped.deployment, doc),
+		]);
+		return {
+			deployment: stopped.deployment,
+			artifact: stopped.artifact,
+			leftBehind: leftBehindResources(stopped.deployment, identities),
+			kept,
+			firstPublish,
+		};
+	} catch (error) {
+		log.error(
+			"[deployment] record unavailable after a stop landed",
+			undefined,
+			{
+				appId: scope.appId,
+				domain: stopped.deployment.deployment.domain,
+				errorName: error instanceof Error ? error.name : typeof error,
+				errorCode: faultCode(error),
+			},
+		);
+		return null;
 	}
 }
 

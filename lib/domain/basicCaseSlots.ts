@@ -16,8 +16,15 @@
 // `case_config_utils.js` reads, and HQ's build writes them as
 // `xform.py::XForm._create_casexml` does.
 //
-// Pure, and memoized per document object (documents are replaced, never
-// changed in place).
+// Pure. A form's facts and its slots are remembered per document object only
+// while no write can reach the document (`settled.ts::isDeeplySettled`: the
+// doc store's documents, the commit gate's candidates, the reader's working
+// documents); an Immer draft or a document still open to a write is asked
+// afresh each time, because a remembered answer for a document changed under
+// it would be a wrong commit verdict. The case types the modules name, one
+// answer for every form, are remembered by a settled `modules` record, so a
+// document under a declaration choice, whose root stays open, still shares
+// the answer of the modules it did not change.
 
 import type { BlueprintDoc } from "./blueprint";
 import { caseWriteValueField } from "./caseWriteViews";
@@ -25,6 +32,7 @@ import { formConnectIds } from "./connectIds";
 import type { Expression } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
 import { type Field, isCaptureField, isContainer } from "./fields";
+import { firstOrderedModuleListingForm } from "./formMembership";
 import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
@@ -43,6 +51,7 @@ import type {
 	PlacementIneligibilityReason,
 	SaveToCasePlacement,
 } from "./placements";
+import { isDeeplySettled, isSettled } from "./settled";
 import type { Uuid } from "./uuid";
 
 // ── The form's facts ────────────────────────────────────────────────────
@@ -78,10 +87,32 @@ export interface CaseSlotFacts {
 
 const facts = new WeakMap<BlueprintDoc, Map<Uuid, CaseSlotFacts>>();
 
+/** The case types of each settled `modules` record: one answer for every
+ *  form of a document, so a whole-document pass derives it once. */
+const caseTypesByModules = new WeakMap<object, ReadonlySet<string>>();
+
+/**
+ * The case types `modules` names. Remembered only where the record and each
+ * module in it are frozen and no Immer draft, because a module's `caseType`
+ * is its own property and a record still open to a write could change it
+ * under a remembered answer.
+ */
+function moduleCaseTypesOf(
+	modules: BlueprintDoc["modules"],
+): ReadonlySet<string> {
+	const known = caseTypesByModules.get(modules);
+	if (known !== undefined) return known;
+	const all = Object.values(modules);
+	const types = new Set(
+		all.flatMap((mod) => (mod.caseType ? [mod.caseType] : [])),
+	);
+	if (isSettled(modules) && all.every((mod) => isSettled(mod)))
+		caseTypesByModules.set(modules, types);
+	return types;
+}
+
 function owningModule(doc: BlueprintDoc, formUuid: Uuid): Uuid | undefined {
-	for (const moduleUuid of doc.moduleOrder)
-		if (doc.formOrder[moduleUuid]?.includes(formUuid)) return moduleUuid;
-	return undefined;
+	return firstOrderedModuleListingForm(doc, formUuid) as Uuid | undefined;
 }
 
 /** The facts of `formUuid` the slot eligibility reads. */
@@ -90,11 +121,11 @@ export function caseSlotFacts(
 	formUuid: Uuid,
 ): CaseSlotFacts {
 	let forms = facts.get(doc);
-	if (forms === undefined) {
+	if (forms === undefined && isDeeplySettled(doc)) {
 		forms = new Map();
 		facts.set(doc, forms);
 	}
-	const known = forms.get(formUuid);
+	const known = forms?.get(formUuid);
 	if (known !== undefined) return known;
 	const form = doc.forms[formUuid];
 	if (form === undefined)
@@ -131,13 +162,9 @@ export function caseSlotFacts(
 			form.type === "close" ||
 			(form.type === "registration" && form.closeCondition !== undefined),
 		repeatOf,
-		moduleCaseTypes: new Set(
-			Object.values(doc.modules).flatMap((mod) =>
-				mod.caseType ? [mod.caseType] : [],
-			),
-		),
+		moduleCaseTypes: moduleCaseTypesOf(doc.modules),
 	};
-	forms.set(formUuid, built);
+	forms?.set(formUuid, built);
 	return built;
 }
 
@@ -824,11 +851,11 @@ export function basicCaseSlots(
 	const carried = options.carried ?? new Set<Uuid>();
 	const key = `${formUuid}\u0000${extra.join(",")}\u0000${options.forceBasic ?? ""}\u0000${[...carried].sort().join(",")}`;
 	let byKey = slotPlans.get(doc);
-	if (byKey === undefined) {
+	if (byKey === undefined && isDeeplySettled(doc)) {
 		byKey = new Map();
 		slotPlans.set(doc, byKey);
 	}
-	const known = byKey.get(key);
+	const known = byKey?.get(key);
 	if (known !== undefined) return known;
 	const f = caseSlotFacts(doc, formUuid);
 	const exclude = new Set(extra);
@@ -1008,7 +1035,7 @@ export function basicCaseSlots(
 		subcases,
 		sharers,
 	};
-	byKey.set(key, result);
+	byKey?.set(key, result);
 	return result;
 }
 

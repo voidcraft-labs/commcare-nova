@@ -22,12 +22,17 @@ function tool(name: string) {
 	if (!found) throw new Error(`Tool ${name} was not delivered to the client`);
 	return found;
 }
-it.each(["get_app", "search_blueprint", "add_fields"])(
-	"%s declares the host's 100,000-character ceiling",
-	(name) => {
-		expect(tool(name)._meta?.["anthropic/maxResultSizeChars"]).toBe(100_000);
-	},
-);
+/* read_hq_app answers an account page of up to 80,000 characters, and
+ * bring_in_hq_app's `changed` carries the same page. */
+it.each([
+	"get_app",
+	"search_blueprint",
+	"add_fields",
+	"read_hq_app",
+	"bring_in_hq_app",
+])("%s declares the host's 100,000-character ceiling", (name) => {
+	expect(tool(name)._meta?.["anthropic/maxResultSizeChars"]).toBe(100_000);
+});
 it("keeps downloadable compile archives on the host's default ceiling", () => {
 	expect(
 		tool("compile_app")._meta?.["anthropic/maxResultSizeChars"],

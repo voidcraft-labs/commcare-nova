@@ -227,8 +227,10 @@ export function assignMediaPaths(
 	>();
 	for (const file of files) {
 		if (!file.hqPath.startsWith(JR_FILE)) {
+			/* The asset's id names the file, never its path, which is the app's word: a
+			 * bring-in's failed line carries this message to Sentry. */
 			throw new Error(
-				`Nova was given the media path “${file.hqPath}” to keep, and it doesn't start with jr://file/. ` +
+				`Nova was given a media path to keep for the asset ${file.assetId}, and it doesn't start with jr://file/. ` +
 					"CommCare HQ can't build an app with such a path, so the reader should have reported this file before the app was created.",
 			);
 		}

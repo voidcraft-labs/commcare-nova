@@ -38,16 +38,23 @@ import {
 	NAMED_IN_HQ_LEAD,
 	PICKER_APP_FILTER_PLACEHOLDER,
 	PICKER_HEADING,
+	PICKER_READ_WAITS_LINE,
 	PICKER_SPACE_LABEL,
+	PICKER_SPACE_NO_MATCH,
 	pickerOneSpaceLine,
 	pickerProjectLine,
+	READING_LOST_AFTER_CREATE_LINE,
 	READING_LOST_LINE,
 	READING_SLOW_LINE,
 	REVIEW_CHOICE_MISSING,
+	REVIEW_NAME_NONE_IN_HQ,
 	REVIEW_NO_CHOICE_OPEN,
 	REVIEW_WEB_APPS_ASKS_OFF,
+	readFailedAfterCreateBody,
 	readingStatusLine,
 	reviewHeading,
+	SIGNED_OUT_LINE,
+	SIGNED_OUT_TITLE,
 	stopNothingChangedLine,
 	TRYING_AGAIN,
 } from "@/lib/publish/bringInCopy";
@@ -645,6 +652,18 @@ test.describe("choosing", () => {
 
 			// A row Nova already holds, in a Project the person is part of.
 			await expect(growth).toHaveAttribute("aria-disabled", "true");
+			/* Its reason makes it taller, and the mark keeps to the label's first
+			 * line rather than the row's middle. */
+			const growthMark = await growth
+				.locator('span[aria-hidden="true"]')
+				.first()
+				.boundingBox();
+			const growthLabel = await growth.locator('[id$="-label"]').boundingBox();
+			const growthRow = await growth.boundingBox();
+			if (growthMark === null || growthLabel === null || growthRow === null)
+				throw new Error("Missing the claimed row");
+			expect(Math.round(growthRow.height)).toBeGreaterThan(44);
+			expect(Math.round(growthMark.y)).toBe(Math.round(growthLabel.y));
 			await expect(
 				page.getByRole("button", {
 					name: `${HQ_APP_CLAIM_OPEN_ACTION} Growth monitoring`,
@@ -805,6 +824,184 @@ test.describe("choosing", () => {
 			await expect(page.getByRole("radio")).toHaveCount(0);
 			await expect(button(page, BRING_IN_ACTIONS.readThisApp)).toHaveCount(0);
 			expect(asked).toEqual([]);
+		} finally {
+			await routes.removeAll();
+		}
+	});
+
+	test("a list that found no key is read again once Check connection finds one", async ({
+		page,
+	}) => {
+		const routes = removableRoutes(page);
+		try {
+			/* The page loaded with a connection, and the key was removed
+			 * elsewhere before the list was read: the list answers that there is
+			 * no connection, and the connection route finds the key again. */
+			const asked: string[] = [];
+			await routes.route("**/api/commcare/hq-apps?*", async (route) => {
+				asked.push(
+					new URL(route.request().url()).searchParams.get("domain") ?? "",
+				);
+				const picker: HqAppPicker =
+					asked.length === 1 ? { kind: "not-connected" } : CLINIC_APPS;
+				await route.fulfill({ json: { picker } });
+			});
+			let checks = 0;
+			await routes.route("**/api/commcare/connection", async (route) => {
+				checks++;
+				await route.fulfill({ json: { connection: CONNECTED } });
+			});
+			await open(page, routes, CHOOSE_ADDRESS);
+			await expect(
+				page.getByRole("heading", { name: BRING_IN_NOT_CONNECTED_TITLE }),
+			).toBeVisible();
+			await expect(page.getByRole("radio")).toHaveCount(0);
+
+			await button(page, "Check connection").click();
+			await expect(
+				page.getByRole("radio", { name: "Household visits", exact: true }),
+			).toBeVisible();
+			await expect(
+				page.getByText(pickerOneSpaceLine("clinic", SERVER_LABEL), {
+					exact: true,
+				}),
+			).toBeFocused();
+			await expect(
+				page.getByRole("heading", { name: BRING_IN_NOT_CONNECTED_TITLE }),
+			).toHaveCount(0);
+			expect(checks).toBe(1);
+			expect(asked).toEqual(["clinic", "clinic"]);
+		} finally {
+			await routes.removeAll();
+		}
+	});
+
+	test("a stop met while choosing is announced, says nothing was created, and Check again keeps focus in the card", async ({
+		page,
+	}) => {
+		const routes = removableRoutes(page);
+		try {
+			const stop = circumstanceFinding("rate-limited", { kind: "app" }, {});
+			const asked: string[] = [];
+			await routes.route("**/api/commcare/hq-apps?*", async (route) => {
+				asked.push(
+					new URL(route.request().url()).searchParams.get("domain") ?? "",
+				);
+				const picker: HqAppPicker =
+					asked.length === 1 ? { kind: "stop", finding: stop } : CLINIC_APPS;
+				await route.fulfill({ json: { picker } });
+			});
+			await open(page, routes, CHOOSE_ADDRESS);
+			const block = circumstanceBlock(stop, ADDRESS_CONTEXT);
+			await expect(
+				page.getByRole("heading", { level: 2, name: block.title }),
+			).toBeVisible();
+			/* The screen's heading never changes, so the region says the stop. */
+			await expect(page.locator("[data-bring-in-status]")).toContainText(
+				block.title,
+			);
+			await expect(
+				page.getByText(stopNothingChangedLine("read"), { exact: true }),
+			).toBeVisible();
+
+			await button(page, BRING_IN_ACTIONS.checkAgain).click();
+			const appTitle = page.getByText("App", { exact: true });
+			await expect(appTitle).toBeFocused();
+			await expect(
+				page.getByRole("radio", { name: "Household visits", exact: true }),
+			).toBeVisible();
+			await expect(appTitle).toBeFocused();
+			expect(asked).toEqual(["clinic", "clinic"]);
+		} finally {
+			await routes.removeAll();
+		}
+	});
+
+	test("Read this app waits while the filter hides the chosen app, and a one-line row sits centred", async ({
+		page,
+	}) => {
+		const routes = removableRoutes(page);
+		try {
+			await answerApps(routes, { district: DISTRICT_APPS });
+			await open(page, routes, CHOOSE_ADDRESS, {
+				settings: {
+					...CONNECTED,
+					availableDomains: [{ name: "district", displayName: "District" }],
+				},
+			});
+			const water = page.getByRole("radio", {
+				name: "Water points",
+				exact: true,
+			});
+			await water.click();
+			await expect(water).toBeChecked();
+
+			/* The 44px row keeps its content centred: the mark sits as far from
+			 * the top as from the bottom. */
+			const row = await water.boundingBox();
+			const mark = await water
+				.locator('span[aria-hidden="true"]')
+				.first()
+				.boundingBox();
+			if (row === null || mark === null) throw new Error("Missing the row");
+			expect(
+				Math.round(mark.y - row.y) -
+					Math.round(row.y + row.height - (mark.y + mark.height)),
+			).toBe(0);
+
+			const read = button(page, BRING_IN_ACTIONS.readThisApp);
+			await expect(read).not.toHaveAttribute("aria-disabled", "true");
+			await page
+				.getByRole("searchbox", { name: PICKER_APP_FILTER_PLACEHOLDER })
+				.fill("health");
+			await expect(page.getByRole("radio")).toHaveCount(1);
+			await expect(page.getByRole("radio", { checked: true })).toHaveCount(0);
+			await expect(read).toHaveAttribute("aria-disabled", "true");
+			await expect(read).toHaveAccessibleDescription(PICKER_READ_WAITS_LINE);
+			// A press on a button that waits is still a press, and changes nothing.
+			await read.click({ force: true });
+			await expect(page).toHaveURL(`${peer.origin}${CHOOSE_ADDRESS}`);
+
+			/* The filter never cleared the choice. */
+			await page
+				.getByRole("searchbox", { name: PICKER_APP_FILTER_PLACEHOLDER })
+				.fill("");
+			await expect(water).toBeChecked();
+			await expect(read).not.toHaveAttribute("aria-disabled", "true");
+		} finally {
+			await routes.removeAll();
+		}
+	});
+
+	test("more than eight project spaces are searched, and a search that matches none says so", async ({
+		page,
+	}) => {
+		const routes = removableRoutes(page);
+		try {
+			await answerApps(routes, { clinic: CLINIC_APPS });
+			await open(page, routes, CHOOSE_ADDRESS, {
+				settings: {
+					...CONNECTED,
+					availableDomains: Array.from({ length: 9 }, (_, index) => ({
+						name: `space-${index + 1}`,
+						displayName: `Space ${index + 1}`,
+					})),
+				},
+			});
+			const search = page.getByRole("combobox", { name: PICKER_SPACE_LABEL });
+			await search.click();
+			await search.fill("clinic");
+			await expect(
+				page.getByText(PICKER_SPACE_NO_MATCH, { exact: true }),
+			).toBeVisible();
+			await expect(page.getByRole("option")).toHaveCount(0);
+			await search.fill("Space 9");
+			await expect(
+				page.getByRole("option", { name: "Space 9", exact: true }),
+			).toBeVisible();
+			await expect(
+				page.getByText(PICKER_SPACE_NO_MATCH, { exact: true }),
+			).toHaveCount(0);
 		} finally {
 			await routes.removeAll();
 		}
@@ -1568,13 +1765,20 @@ test.describe("a create's answers", () => {
 				fulfillNdjson(route, answered({ kind: "changed", now })),
 			);
 			await open(page, routes, APP_ADDRESS);
-			await answerTheReview(page);
+			/* The status region a lead is said in stood before the screen
+			 * changed: a region mounted already holding its text says nothing. */
 			await expect(
-				page.getByText(
-					`${CREATE_ANSWER_LEADS.changed.review} ${CREATE_ANSWER_LEADS.choicesDropped}`,
-					{ exact: true },
-				),
+				heading(page, reviewHeading("Household visits")),
 			).toBeVisible();
+			await page
+				.locator("[data-bring-in-status]")
+				.evaluate((region) => region.setAttribute("data-before-create", ""));
+			await answerTheReview(page);
+			const lead = `${CREATE_ANSWER_LEADS.changed.review} ${CREATE_ANSWER_LEADS.choicesDropped}`;
+			await expect(page.getByText(lead, { exact: true })).toBeVisible();
+			await expect(
+				page.locator("[data-bring-in-status][data-before-create]"),
+			).toContainText(lead);
 			await expect(
 				page.getByRole("textbox", { name: "App name", exact: true }),
 			).toHaveValue("Visits for the clinic");
@@ -1686,6 +1890,79 @@ test.describe("a create's answers", () => {
 		} finally {
 			await routes.removeAll();
 			await stream.close();
+		}
+	});
+
+	test("a read after read-again that fails or is lost twice keeps the lead and says no app was created", async ({
+		page,
+	}) => {
+		const routes = removableRoutes(page);
+		await page.clock.install({ time: CLOCK_START });
+		try {
+			let failNext = true;
+			const reads = await recorded(
+				routes,
+				"/api/commcare/bring-in/read",
+				(route, index) => {
+					if (index === 0)
+						return fulfillNdjson(route, answered(reviewAnswer()));
+					if (failNext) {
+						failNext = false;
+						return fulfillNdjson(
+							route,
+							ndjson([
+								{ type: "stage", stage: "connecting" },
+								{ type: "failed" },
+							]),
+						);
+					}
+					// A response with no last line: a lost request.
+					return fulfillNdjson(
+						route,
+						ndjson([{ type: "stage", stage: "connecting" }]),
+					);
+				},
+			);
+			await recorded(routes, "/api/commcare/bring-in/create", (route) =>
+				fulfillNdjson(route, answered({ kind: "read-again" })),
+			);
+			await open(page, routes, APP_ADDRESS);
+			await answerTheReview(page);
+			const leadLine = page.getByText(CREATE_ANSWER_LEADS["read-again"], {
+				exact: true,
+			});
+
+			// Nova's own failure in that read.
+			await expect(heading(page, READING_FAILED_COPY.read.title)).toBeVisible();
+			await expect(leadLine).toBeVisible();
+			await expect(
+				page.getByText(readFailedAfterCreateBody("Household visits"), {
+					exact: true,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText(READING_FAILED_COPY.read.body("Household visits"), {
+					exact: true,
+				}),
+			).toHaveCount(0);
+			expect(reads).toHaveLength(2);
+
+			// Try again, lost twice.
+			await page.clock.pauseAt(CLOCK_PAUSE);
+			await button(page, BRING_IN_ACTIONS.tryAgain).click();
+			await expect(page.getByText(TRYING_AGAIN, { exact: true })).toBeVisible();
+			await page.clock.runFor(3_000);
+			await expect(
+				page.getByText(READING_LOST_AFTER_CREATE_LINE, { exact: true }),
+			).toBeVisible();
+			await expect(leadLine).toBeVisible();
+			await expect(
+				page.getByText(READING_LOST_LINE, { exact: true }),
+			).toHaveCount(0);
+			expect(reads).toHaveLength(4);
+		} finally {
+			await page.clock.resume();
+			await routes.removeAll();
 		}
 	});
 
@@ -2042,6 +2319,69 @@ test.describe("a reload during a create", () => {
 				await routes.removeAll();
 			}
 		});
+	}
+});
+
+// ---------------------------------------------------------------------------
+// An app CommCare HQ holds no name for, and a session that ended
+// ---------------------------------------------------------------------------
+
+test("an app CommCare HQ holds no name for reads as this app, and its review asks for a name it can't keep", async ({
+	page,
+}) => {
+	const routes = removableRoutes(page);
+	try {
+		let answer: ReadingAnswer = { ...ACCOUNT, appName: "" };
+		await recorded(routes, "/api/commcare/bring-in/read", (route) =>
+			fulfillNdjson(route, answered(answer)),
+		);
+		const creates = await recorded(
+			routes,
+			"/api/commcare/bring-in/create",
+			(route) => route.abort("failed"),
+		);
+		await open(page, routes, APP_ADDRESS);
+		await expect(heading(page, accountHeadingLine("yet", null))).toBeVisible();
+
+		answer = reviewAnswer(reviewOf({ appName: "" }));
+		await button(page, BRING_IN_ACTIONS.checkAgain).click();
+		await expect(heading(page, reviewHeading(null))).toBeVisible();
+		const name = page.getByRole("textbox", { name: "App name", exact: true });
+		await expect(name).toHaveValue("");
+		await button(page, BRING_IN_ACTIONS.bringItIn).click();
+		await expect(name).toBeFocused();
+		await expect(
+			page.getByText(REVIEW_NAME_NONE_IN_HQ, { exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByText(READING_REFUSAL_COPY.name_missing, { exact: true }),
+		).toHaveCount(0);
+		expect(creates).toEqual([]);
+	} finally {
+		await routes.removeAll();
+	}
+});
+
+test("a request that finds the session ended offers a reload and asks for nothing more", async ({
+	page,
+}) => {
+	const routes = removableRoutes(page);
+	try {
+		const reads = await recorded(
+			routes,
+			"/api/commcare/bring-in/read",
+			(route) =>
+				route.fulfill({ status: 401, json: { error: "Not signed in" } }),
+		);
+		await open(page, routes, APP_ADDRESS);
+		await expect(heading(page, SIGNED_OUT_TITLE)).toBeFocused();
+		await expect(
+			page.getByText(SIGNED_OUT_LINE, { exact: true }),
+		).toBeVisible();
+		await expect(button(page, BRING_IN_ACTIONS.reload)).toBeVisible();
+		expect(reads).toHaveLength(1);
+	} finally {
+		await routes.removeAll();
 	}
 });
 

@@ -151,6 +151,12 @@ export function prepareGenesisCandidate(args: {
 
 // ── The shared write tail ──────────────────────────────────────────
 
+/** Entity rows per insert statement. Each row binds six parameters, and one
+ *  statement may bind at most 65,535 (the protocol counts them in 16 bits), so
+ *  an app brought in whole, at thousands of menus, forms and fields, is
+ *  written in statements of this size inside the one birth transaction. */
+const ENTITY_INSERT_CHUNK = 1000;
+
 /** The holder + reservation column groups a design-slice genesis transfers
  *  onto the app row (the exact columns the design session held; §11.5 —
  *  never an interval with two holders or an ownerless reservation). Absent
@@ -308,11 +314,11 @@ export async function writePreparedGenesisInTransaction(
 		targets: candidate.lookupTargets,
 	});
 	const rows = decomposeBlueprint(candidate.persistable);
-	if (rows.length > 0) {
+	for (let start = 0; start < rows.length; start += ENTITY_INSERT_CHUNK) {
 		await tx
 			.insertInto("blueprint_entities")
 			.values(
-				rows.map((r) => ({
+				rows.slice(start, start + ENTITY_INSERT_CHUNK).map((r) => ({
 					app_id: appId,
 					uuid: r.uuid,
 					kind: r.kind,

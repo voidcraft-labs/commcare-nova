@@ -54,7 +54,10 @@ import {
 	READING_REFUSAL_COPY,
 } from "@/lib/publish/hqReadingCopy";
 import { uploadAssetBytes } from "@/lib/storage/media";
-import { registerBringInHqApp } from "../tools/bringInHqApp";
+import {
+	BRING_IN_TOOL_LEADS,
+	registerBringInHqApp,
+} from "../tools/bringInHqApp";
 import { registerListHqApps } from "../tools/listHqApps";
 import { registerReadHqApp } from "../tools/readHqApp";
 import { withMcpClient } from "./client";
@@ -117,6 +120,7 @@ const h = setupAppStateTestDb("mcp_bring_in_", {
 const PROJECT = "bring-in-project";
 const ACTOR = "bring-in-editor";
 const STRANGER = "bring-in-stranger";
+const VIEWER = "bring-in-viewer";
 const SCOPES = ["nova.read", "nova.write", "nova.hq.read", "nova.hq.write"];
 const LIST = `/a/${FIXTURE_DOMAIN}/apps/api/list_apps/`;
 const PROBE = `/a/${FIXTURE_DOMAIN}/api/lookup_table/v1/?limit=1`;
@@ -461,6 +465,62 @@ describe("bring_in_hq_app", () => {
 		});
 		expect(await h.db().selectFrom("apps").select("id").execute()).toEqual([]);
 	});
+
+	it("answers read_again where a table the app reads was made in the Project under the birth, and the next read asks its choice", async () => {
+		observed.beforeBirth = seedProjectDistrict;
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { times: 3 });
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				const { isError, body } = await call(client, "bring_in_hq_app", args);
+				expect(isError).toBe(false);
+				/* Over MCP nothing reads on its own: the sentence says what stands. */
+				expect(body).toEqual({
+					status: "read_again",
+					message: BRING_IN_TOOL_LEADS.readAgain,
+				});
+				expect(body.message).not.toBe(CREATE_ANSWER_LEADS["read-again"]);
+				observed.beforeBirth = null;
+				const again = await readReview(client);
+				expect((again.body.review as { tables: Json[] }).tables).toEqual([
+					expect.objectContaining({ tag: "district", standing: "choice" }),
+				]);
+			});
+		});
+		expect(await h.db().selectFrom("apps").select("id").execute()).toEqual([]);
+	});
+
+	it("answers held with the stop where CommCare HQ is away on the create's read, and the same arguments create once it answers", async () => {
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer);
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				const resource = fixtureResource();
+				serveAnswer(peer, FIXTURE_PATHS.application, resource);
+				serveAnswer(peer, FIXTURE_PATHS.source, fixtureSource());
+				serveAnswer(peer, FIXTURE_PATHS.version, { status: 503, headers: {} });
+				const held = await call(client, "bring_in_hq_app", args);
+				expect(held.isError).toBe(false);
+				expect(held.body).toEqual({
+					status: "held",
+					message: BRING_IN_TOOL_LEADS.held,
+					stop: {
+						code: "hq-unavailable",
+						title: expect.any(String),
+						body: expect.any(String),
+						next: expect.any(String),
+					},
+				});
+				expect(await h.db().selectFrom("apps").select("id").execute()).toEqual(
+					[],
+				);
+				/* The answers still apply: the same call creates once HQ answers. */
+				serveFixtureApp(peer);
+				const created = await call(client, "bring_in_hq_app", args);
+				expect(created.body.status).toBe("created");
+			});
+		});
+	});
 });
 
 describe("each refusal a call can make arrives with its tag and refusal", () => {
@@ -481,18 +541,69 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 		});
 	});
 
-	it("invalid_input, for a project space that is no slug", async () => {
-		await withTools(async (client) => {
-			const { isError, body } = await call(client, "read_hq_app", {
+	it.each([
+		["read_hq_app", READ_ARGS],
+		[
+			"bring_in_hq_app",
+			{
 				...READ_ARGS,
-				domain: "not a project space",
+				reading_id: "01936a52-7c00-7000-8000-000000000001",
+				review_digest: "f".repeat(64),
+				app_name: "Visits",
+				runs_only_on: null,
+				split_datetime: false,
+				table_choices: {},
+			},
+		],
+	] as const)(
+		"no_project_access, at %s, for a member who may only view the Project, asking CommCare HQ nothing",
+		async (tool, args) => {
+			await h.seedProjectMember(VIEWER, PROJECT, "viewer");
+			await seedFixtureConnection(VIEWER);
+			await withHttpPeer(async (peer) => {
+				await withTools(async (client) => {
+					const { isError, body } = await call(client, tool, args);
+					expect(isError).toBe(true);
+					expect(body).toEqual({
+						error_type: "permission_denied",
+						message: READING_REFUSAL_COPY.no_project_access,
+						project_id: PROJECT,
+						refusal: "no_project_access",
+					});
+				}, VIEWER);
+				expect(requested(peer)).toEqual([]);
 			});
-			expect(isError).toBe(true);
-			expect(body).toEqual({
-				error_type: "invalid_input",
-				message: READING_REFUSAL_COPY.invalid_input,
-				refusal: "invalid_input",
+			expect(await h.db().selectFrom("apps").select("id").execute()).toEqual(
+				[],
+			);
+		},
+	);
+
+	it("invalid_input, for a project space that is no slug, naming the spaces the key reaches at both tools", async () => {
+		const notASpace = `“My Clinic” isn't the name of a CommCare HQ project space. Your stored CommCare HQ API key reaches: ${FIXTURE_DOMAIN}. You can pass one of those as \`domain\`: the \`name\` of one of get_hq_connection's \`available_domains\`, not its display name.`;
+		await withHttpPeer(async (peer) => {
+			await withTools(async (client) => {
+				const read = await call(client, "read_hq_app", {
+					...READ_ARGS,
+					domain: "My Clinic",
+				});
+				const create = await call(client, "bring_in_hq_app", {
+					...READ_ARGS,
+					domain: "My Clinic",
+					reading_id: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+					review_digest: "a".repeat(64),
+					app_name: "Clinic visits",
+					runs_only_on: null,
+					split_datetime: false,
+					table_choices: {},
+				});
+				for (const answer of [read, create])
+					expect(answer).toEqual({
+						isError: true,
+						body: { error_type: "invalid_input", message: notASpace },
+					});
 			});
+			expect(requested(peer)).toEqual([]);
 		});
 	});
 

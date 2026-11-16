@@ -143,7 +143,7 @@ its section 3.3 sets the byte cap (its "Executed during planning").
   `lib/organization/commitIntegrity.ts::extractLocationReferenceTargets` and
   `applyOrganizationCommitIntegrity` with the six checks it runs; the DDL of `app_locations` and
   `app_location_references` (`lib/case-store/migrations/20260802010000_organization_model.ts`, both
-  `REFERENCES apps(id)`); `lib/export/boundaryValidation.ts::organizationExportFindings` (a
+  `REFERENCES apps(id)`); `lib/export/boundaryFindings.ts::organizationExportFindings` (a
   fixed-place owner is refused by export readiness, `LOCATION_OWNER_EXPORT_NOT_ACTIVE`).
 - **Media.** `lib/media/CLAUDE.md` (two statuses; two concurrent key-lock bodies against three
   pooled connections); `lib/storage/mediaObjectKeyLock.ts::withMediaObjectKeyLock`;
@@ -868,11 +868,14 @@ The document acceptance judges under each choice is the reduction of `[...draft.
 birth itself reduces for the choice the person makes (6.2), so what acceptance judged is what
 `prepareGenesisCandidate` will reduce, but for the name.
 
-**The synchronous pieces.** The reader's run and acceptance's run are each one synchronous
-computation, and step 9's digest is a third. `gather.ts` times each with `performance.now()` into
-`GatherFacts`, and between any two of them that no awaited read separates it awaits
-`node:timers/promises::setImmediate()`, so the event loop turns between pieces. Section 3.6 says
-why a piece's length matters and what holds it.
+**The synchronous pieces.** The reader runs a stage at a time (`readHqAppSteps`, one piece per
+stage of `STAGES`), acceptance a check at a time (`acceptReadingSteps`: each choice's gate, each
+choice's export readiness, each document's emission, each stage of each re-read, identity,
+summary, each choice's first-publish list), step 9's review a part at a time (each declaration's
+plan features, the baseline the birth will write, the Project data), and the digest is one piece
+more. `gather.ts::Pieces` times each with `performance.now()` into `GatherFacts`, and before each
+it awaits `node:timers/promises::setImmediate()`, so the event loop turns between pieces. Section
+3.6 says why a piece's length matters and what holds it.
 
 ### 3.4 Media: judged in both requests
 
@@ -937,16 +940,18 @@ for. What follows is what the cap means to this part's two requests.
 
 **Time at the cap.** Processing is synchronous on the request, in pieces with the event loop
 turning between them (3.3): the reader's run, the reader's second run where one is due, acceptance,
-the digest, and in a create the same again under the published ids (5.3, step 8). While a piece
+the digest, each cut into the pieces 3.3 names, and in a create the same again under the
+published ids (5.3, step 8). While a piece
 runs, the instance answers nothing else, and a timer that comes due during a piece does not merely
 fire late: Node runs expired timers before it reads the network answers that arrived meanwhile, so
 another request's wait that ran out during the piece fails even though its answer had arrived. The
 nearest such timer is the 10 second wait for a database connection
 (`lib/case-store/postgres/connection.ts::POOL_CONNECTION_TIMEOUT_MS`), on a pool of three
 (`POOL_MAX_PER_INSTANCE`). The next is the 30 second deadline on a CommCare HQ read. So what must
-be short is a piece, not the request. By part 05's arithmetic an app at the cap is under six
-seconds of processing in a read, over at least three pieces, and `cap.test.ts` holds each piece of
-such a read under five seconds ("Tests"). A piece that runs longer is a defect in the reader or in
+be short is a piece, not the request. Measured, a source of 16.7 MB (1,145 copies of one retained
+menu) is about 28 seconds of processing in a read on a laptop, in 65 pieces of which the longest
+is about 1.6 seconds, and `cap.test.ts` holds each piece of such a read under five seconds
+("Tests"). A piece that runs longer is a defect in the reader or in
 acceptance, fixed there by cutting the piece where it is long, and never a reason to lower the cap.
 
 **Memory at the cap.** Three bounds are real, because each is enforced: a body is at most 16 MiB,
@@ -1169,8 +1174,9 @@ work then stops by `cancel` (3.2). For a create it runs on (6.1).
 // lib/deployment/reading/stream.ts (client-safe; pure but for the response it is handed)
 /**
  * Reads a bring-in route's response body line by line, calls `onEvent` for each stage and file
- * event, and resolves with the last line's event. It resolves `{ type: "lost" }` where the body
- * ends with no `done` or `failed` line, or a line is no JSON object of a known `type`.
+ * event, and resolves with the last line's event, also where the connection breaks after that
+ * line arrived. It resolves `{ type: "lost" }` where the body ends or breaks with no `done` or
+ * `failed` line, or a line is no JSON object of a known `type`.
  */
 export function readBringInStream(
 	response: Response,
@@ -1327,7 +1333,7 @@ Where each field comes from, in `gather.ts`, after acceptance:
 | `runsOnWhy` | `web-apps-off-in-hq` where the draft's `narrowedByHq` is true and the proposal stands, `keeps-web-apps` where `keepsWebApps` is true and the proposal stands, and `content` otherwise, including where part 11's files removed the proposal. The proposal stands where the choice at the draft's `proposed` index is the preselected entry of `runsOn` |
 | `webAppsOnInHq` | `draft.facts.webAppsOnInHq` (part 06, section 17.3) |
 | `datetimeQuestions` | the count of date-and-time questions a splitting choice changes: `splits.length` of a choice of `AcceptReadingInput.choices` whose `split` is true (every such choice splits the same questions); 0 where no choice splits |
-| `platformsOut` | one entry per platform no offered choice declares, in `PLATFORMS`' order: `features` the distinct features of `platformUses.ts::unavailableUses(doc, [platform])` in table order, and `media` true where some held file's format does not play there (`mediaFormatPlaysOn`), which for an offered platform is where `readingMediaFindings().playsOn` leaves it out, and which `playsOn` cannot say for a platform no choice of the draft offers |
+| `platformsOut` | one entry per platform no offered choice declares, in `PLATFORMS`' order: `features` the distinct features of `platformUses.ts::unavailableUses(doc, [platform])` in table order, and `media` true where `readingMediaFindings().playsOn` leaves the platform out: `playsOn` is answered over every platform, offered or not, so it says this for a platform no choice of the draft offers |
 | `kept` | `keptListFor(facts)` (part 01, section 6.1), `facts` being `targetFactsFromSource` over the source as the adopted baseline will store it, with `observedAt` the read's `readAt`, `adopted: true` and `novaOwnsAutoGpsCapture` the `autoGpsCapture` of the ownership part 10's `adoptedAppBaselineWrite` gives that baseline (its 6.3); the empty list where the answer is null |
 | `tables`, `places` | `projectDataReview(data, reads, doc, mintingResolver(appId))` (part 11, 14.1) |
 | `mediaLeftOut` | `HqMediaPlan.inert.length` and `readingMediaFindings().inert.length` together (3.3, step 8.3) |
@@ -1745,7 +1751,7 @@ Why the seam is where it is:
   the tail, the same copy would commit unjudged and then fail the person's first unrelated edit.
   The step's edges are not the reason: a brought-in document names no place. It holds no persona
   (part 10, 2.2) and no automation, and a case owner set to one fixed place cannot be in it, since
-  export readiness refuses that term (`lib/export/boundaryValidation.ts::organizationExportFindings`,
+  export readiness refuses that term (`lib/export/boundaryFindings.ts::organizationExportFindings`,
   `LOCATION_OWNER_EXPORT_NOT_ACTIVE`) and the reader admits only what the gate and export readiness
   admit. So `extractLocationReferenceTargets` is empty at a birth, and no place id has to be known
   before the transaction.
@@ -1865,6 +1871,7 @@ been.
 | a primary-key conflict on `apps` | this reading's app exists and is in recently deleted: only a delete racing a replay gives it | as `replay` |
 | `GenesisGateRejectedError`, every published asset still a ready file of the Project | the tail's gate or export readiness refused a document acceptance had just passed | `check-failed`, `birth-` and the error's `check`: `birth-gate` or `birth-export` |
 | part 11's `BroughtInTableChangedError`; its `LookupError` with code `tag_taken` or `conflict` | a table the app reads changed in the Project between this create's read and the birth's lock: a table of that tag was created, edited, or taken over with Manage in Nova | `read-again`. The caller reads the app again, and the fresh review shows the table as it now stands, with its choice where it asks one |
+| a `LookupError` of any other code (`storage_limit`, `invalid_input`, and the rest) from the tables written in the seam | Nova's defect: the lookup store refused a table the review passed, or an answer it offered, so the review judged a cap or a cell the store judges otherwise. Part 11's review must offer no answer the birth cannot keep (its 7.2): Use CommCare HQ's copy, and a `same-managed` table, are judged against `LOOKUP_MAX_COLUMNS` with the columns apps still read that the refresh keeps beside CommCare HQ's fields, and the birth judges that count again under its lock, where a column an app began to read since the create's read moves the standing (`BroughtInTableChangedError`, the row above). Its message names the table by its tag | `check-failed`, `birth-integrity`, logged with `why`, C8's line, which names the error's code and never its message |
 | `BlueprintCommitRejectedError`, or `GenesisGateRejectedError` with `check` `export` (export readiness reads the referenced asset rows before media admission does, so a removed file meets it first), and some published asset is no longer a ready file of the Project (`lib/db/mediaAssets.ts::loadAssetsByIds` after the rollback) | someone removed a file from the Project's library between its publication and the birth | `refused: project_changed`. The next create fetches and publishes the file again |
 | `BlueprintCommitRejectedError`, and every published asset is still a ready file of the Project | the tail's lookup context, organization integrity or media admission refused what acceptance and part 11's plans had passed | `check-failed`, `birth-integrity` |
 | `CommitReauthError` | the person no longer edits in the Project | `refused: no_project_access` |
@@ -1898,9 +1905,10 @@ message is the findings' own sentences (`describeCommitFindings`, and each expor
 (`Sentry.captureException`) and writes its stack to Cloud Logging. A message alone is a message
 event, which groups by its text: one issue per check, which is section 10's rule. `findingCodes` is
 the validator codes (the `findingCodes` of either error class, and empty for the three checks that
-hold none), never a sentence. For `identity` and `bindings` the context also carries `why`, C8's
-line for the check ("Copy"): its slots are the derived app id and, for `bindings`,
-`movedBindingCount`'s answer, so it holds no word of the app.
+hold none, and for a lookup store refusal), never a sentence. For `identity`, `bindings` and a
+lookup store refusal the context also carries `why`, C8's line for the case ("Copy"): its slots are
+the derived app id and, for `bindings`, `movedBindingCount`'s answer, and for a lookup store
+refusal the `LookupError`'s code, so it holds no word of the app.
 
 ### 6.6 Every repeat of one create
 
@@ -2211,12 +2219,12 @@ holds that over every constructor (its section 5.1 and "Tests").
 | Message | Level | When | Further context |
 |---|---|---|---|
 | `[reading] answered` | info | a read or a create answered | `phase`: `stop`, `account`, `review`, `created`, `changed`, `read-again`, `check-failed`, `held` or `refused`; `elapsedMs`; `checkMs` and `longestPieceMs`, the time the request's synchronous pieces took and the longest of them, with `sourceBytes`, which together say what the reader's rate is on real apps (3.6); `mediaTotal`; for an account, `findingCount`, `codeCount`, `notYet`, `never`, `fixInHq`; `expressionRounds` where the reader gave a draft (`ReadFacts.expressionRounds`, the count part 08's section 2.5 keeps for this line) |
-| `[reading] failed` | error | something was thrown that is no answer, and the stream ended in a `failed` line | `phase`: the stage that was running (null before the first), and the error itself. The route writes it, so a read's line carries no `appId`: the reading's id is minted inside `readHqAppForReview`, and a create's carries the one the route derives from the body. What reaches it is infrastructure or a bug of Nova's, never a judgment of content: acceptance never throws for content (part 09, section 2.5), and the errors whose messages hold the app's words are caught and answered before it (6.5) |
+| `[reading] failed` | error | something was thrown that is no answer, and the stream ended in a `failed` line | `phase`: the stage that was running (null before the first), and the error itself. The route writes it, so a read's line carries no `appId`: the reading's id is minted inside `readHqAppForReview`, and a create's carries the one the route derives from the body. What reaches it is infrastructure or a bug of Nova's, never a judgment of content: acceptance never throws for content (part 09, section 2.5), and the errors whose messages hold the app's words are caught and answered before it (6.5). Every invariant a read or a create can throw on the way names a lookup table by its id or its place among the tables, a field by its place, and a file by its asset id, never by a tag, a field's name or a path: part 11's `reading/projectData` (`index.ts`, `lookupTables.ts`, `review.ts`, `lookupTableStore.ts`), `lib/lookup/managed.ts` and `lib/deployment/adoption.ts::assignMediaPaths` |
 | `[reading] stopped` | warn | a stop was answered | `phase`: the circumstance code |
 | `[reading] places read missed` | error | 3.3, step 6.2: the document reads places and part 11's source test named none, so the request read them in a second pass | |
 | `[reading] unrecognized: <log key>` | error | once per distinct log key of the request's `unrecognized` findings | `defects`: the `why` of each `ReaderDefect` whose `name` gives that log key, at most five (below) |
-| `[reading] read-back differs: <check>: <signature>` | error | once per failing check, its message the first difference's signature | `phase`: the check; `differenceCount`; `signatures`, the request's distinct signatures, at most five (part 09, 14.3); for `accounting/defect`, `defects`, the `why` of each defect, at most five |
-| `[reading] could not create: <check>` | error | 6.5; a message with no error object | `findingCodes`; for `identity` and `bindings`, `why`, C8's line for the check |
+| `[reading] read-back differs: <check>: <signature>` | error | once per failing check, its message the first difference's signature | `phase`: the check; `differenceCount`; `signatures`, the request's distinct signatures, at most five (part 09, 14.3); for `accounting/defect`, `defects`, the `why` of each defect, at most five; for `reader: contract`, `at`, where the reader broke its contract (`input` before its first stage, `stage/<index in STAGES>`, `close`, or `declaration` for a draft whose declarations offer nothing), and `thrown`, the thrown value's constructor name of `Error`, `TypeError`, `RangeError`, `ReferenceError` and `SyntaxError`, else `other`, never its message, which can quote the app; no line is handed the error itself |
+| `[reading] could not create: <check>` | error | 6.5; a message with no error object | `findingCodes`; for `identity`, `bindings` and a lookup store refusal (`integrity`), `why`, C8's line for the case |
 | `[reading] request refused` | warn | a route body failed its schema, or its `domain` is no project space slug (4.1) | `phase` and `operation`: the route; `issue`: the first Zod issue as `<top-level key>: <issue code>`, `body: <issue code>` where the issue has no key (a body that is no object, a key the schema does not hold), and `domain: not_a_project_space` for the slug, never a deeper path (a key of `tableChoices` is a table's tag) and never a value |
 | `[reading] created` | info | the birth committed | `elapsedMs`, the transaction's own time; `tables`, `places`, `mediaFiles`, `identityRows` as counts |
 
@@ -2333,6 +2341,11 @@ refusal is a code with one sentence and carries nothing else: `choice_missing` n
 because the caller holds the review, whose `tables[].choice` names every table that asks. The
 unauthenticated answer is `requireSession`'s existing 401.
 
+The `name_missing` sentence offers to keep CommCare HQ's name, so it is said only where CommCare HQ
+holds one. The review's name field says part 13's V4a where `review.appName` is blank, and MCP's
+`bring_in_hq_app` refuses a blank or overlong `app_name` by its schema before the create, its
+`app_name` description saying `review.app_name` is empty where CommCare HQ holds no name.
+
 ### C2. What stands after a create that did not create (`CREATE_ANSWER_LEADS`)
 
 One sentence above whatever the answer carries.
@@ -2346,7 +2359,7 @@ One sentence above whatever the answer carries.
 | `read-again` | nothing; the caller reads again | A lookup table this app reads changed in your Project while Nova was creating the app, so Nova is reading it again. No app was created. Any pictures and sounds Nova already added to your Project stay in its files, and bringing the app in uses them. |
 | `check-failed` | the one `read-back-differs` finding | Nova stopped before creating this app. Any pictures and sounds Nova already added to your Project stay in its files. |
 | `held` | a circumstance | Nova stopped before creating anything. Your review is still here. |
-| `changed` with a review, or `read-again`, where an answer the person had given could not be kept | | (added after the lead) Some of your choices no longer apply, so Nova chose for those again. |
+| `changed` with a review, or `read-again`, where an answer the person had given could not be kept | | (added after the lead) Some of your choices no longer apply, so those are back to how the review offers them. (A dropped declaration falls back to the preselected one; a dropped table answer is left unanswered, so the sentence never says Nova chose.) |
 
 Under a `held` answer the page shows the circumstance's own title, body and next step (part 01,
 section 9.3). The lead says nothing of why, because the circumstances it sits above differ: a key
@@ -2415,6 +2428,7 @@ derived app id, which joins the request's log lines.
 | `gather.ts`, `getHqCredentials` answering `ambiguous` for a named project space | `Nova asked for CommCare HQ credentials for a named project space and was told the choice is ambiguous, which a named project space can't be. Look at lib/db/settings.ts::resolveHqTarget.` |
 | `gather.ts` (3.3, step 9) and `create.ts` (6.2), `adoptedIdentityRows` answering `ok: false` | `The reading ${id} holds a form that has no real CommCare HQ id. A reading with a menu CommCare HQ could not summarize should have ended as an account. Look at gather.ts, step 4.` The answer's `at` is not printed: it names a menu or a form of the app |
 | `create.ts`, the bindings under the answers differ from the bindings read (5.3, step 6) | `The reading ${id} bound ${count} of its lookup tables one way before the person answered and another way after. No answer the review offers may move a binding the reader read. Look at lib/deployment/reading/projectData/lookupTables.ts::resolveLookupBindings.` `${count}` is `create.ts::movedBindingCount`'s answer (5.3, step 6); the tags reach no log |
+| `create.ts`, a `LookupError` other than `tag_taken` or `conflict` from the birth (6.5) | `The reading ${id} could not write its lookup tables at the birth: the lookup store refused the write with ${code}. The review passed a table, or offered an answer for one, that the birth cannot keep. Look at lib/deployment/reading/projectData/lookupTables.ts::lookupTableStanding.` `${code}` is the error's `code`; its message, which names the table by its tag, reaches no log |
 
 ### C9. Nova's own failure (`READING_FAILED_COPY`)
 
@@ -2453,7 +2467,7 @@ runs in the work's own CI.
 | Test | Catches |
 |---|---|
 | a retained readable app reads to a review; the same app with one variant reads to an account | a wrong answer for a readable app, or for one Nova cannot hold |
-| table-driven over every code 3.8 lists as raised by a read: the controlled answer gives a stop where the table says a stop and an account where it says an account | a circumstance answered as an account, or the reverse |
+| table-driven over every code 3.8 lists as raised by a read: the controlled answer gives a stop where the table says a stop and an account where it says an account. Place and table codes come from crafted level, place and row answers on the suite's peer; `no-platform-runs-everything` from an app no declaration runs whole; `read-back-differs` from the reader's draft doctored as acceptance's own tests doctor one, which stands in for a reader defect no source can make. A last test fails where a code of `READ_CIRCUMSTANCES` is neither a case nor one of the three driven where their source is built (`too-large` in `cap.test.ts`, `changed-while-reading` and `menu-unreadable-in-hq` below) | a circumstance answered as an account, or the reverse; a code no test raises |
 | the row counts of every table, and the storage peer's writes, are equal before and after each of those reads | a read that leaves a row, a file or a byte behind |
 | the save counter moves once and then holds: a review. It moves twice: the stop `changed-while-reading` | mixing two versions of the app; stopping on the first save |
 | an app that references files and holds one finding: the account has `mediaChecked: false` and the media peer saw no request | fetching every file of an app that cannot come in |
@@ -2463,7 +2477,10 @@ runs in the work's own CI.
 | a source holding a write saved only if changed makes one flag read and hands the reader its answer; a source holding none makes none (the peer counts requests) | a guessed flag; a probe every read pays for |
 | `cancel` aborted while the HQ peer holds the source open: the request in flight is aborted, the promise settles, and no later request is sent | a read that outlives a closed tab |
 | a person who edits two Projects: with the actor `authorizeBringIn` gave for the first and a key that names the second, `readHqAppForReview` and `createFromReview` each reject, the HQ peer saw no request and no row of any table was written | a caller that authorizes one Project and reads or creates in another (3.1) |
+| a member who may only view the Project calls `read_hq_app` and `bring_in_hq_app` (in `lib/mcp/__tests__/bringInTools.postgres.test.ts`, through the real `authorizeBringIn`): each answers `permission_denied` with `refusal: "no_project_access"`, the HQ peer saw no request, and no app exists | a viewer shown the Project's side of its lookup tables, or let bring an app in, by an authorization that asks for `view` |
 | a reader defect behind an `unrecognized` finding, over a source whose every menu name, form name, question id, table tag and file path is a marker string: the finding's log line carries the defect's `why` in its context and not in its message, and no line the read logged holds the marker in its message or in its context | a defect a developer cannot find; a defect's text titling an issue; a word of an app in a log line |
+| every `log.error` the read writes is handed no error argument, and the search for marker strings spells out an Error's message and stack, which JSON leaves out | a word of an app titling a Sentry issue through an error argument the search cannot see |
+| a reader that throws a `TypeError` quoting a marker in stage 4 logs `reader: contract` with `at: "stage/4"` and `thrown: "TypeError"` and no marker; one that throws a string logs `thrown: "other"`; the reader tells its caller each stage in order, then `close` | every reader crash one indistinguishable line |
 
 ### Real Postgres: the create
 
@@ -2501,6 +2518,7 @@ the create tests control with `vi.mock`.
 | another Nova app already holds the HQ app when the create is sent: `changed` with `already-in-nova`, and no `media_assets` row was written for this reading's files | files published into a shared Project for an app that can never be born |
 | after an edit raises the app's sequence, the repeated create's receipt carries that sequence and the edited blueprint, with a digest that matches it; after the app moves to another Project, the receipt names the destination; after it moves to recently deleted, the answer is `refused: app_unavailable` | a stale receipt installing over newer work; a receipt for an app the person cannot open |
 | a create that fails after its publish (the test's seam throws before the transaction) and is sent again: one app, and no second copy of any file | media that is not idempotent by content |
+| a person authorized as an editor who is a viewer by the time the create runs, over an app that holds files: `refused: no_project_access` from the publish's `MediaPublishPermissionError`, no row of any table written and no storage write; and one demoted by the test's seam before the transaction: `refused: no_project_access` from the birth's `CommitReauthError`, with no `apps` row and no deployment (6.5) | a person who lost edit putting files or an app in a Project; either refusal answered as Nova's failure |
 
 ### Real Postgres: the birth
 
@@ -2517,10 +2535,17 @@ the create tests control with `vi.mock`.
 | a `GenesisGateRejectedError` carries `check` and `findingCodes`, and the create answers `check-failed` with `read-back-differs` and `detail.name` `birth-gate`. The candidate holds a sentinel in a question's label that the gate's finding sentence quotes; a capture of everything `log.error` was called with (message, error argument and context) holds the check and the codes, an `undefined` error argument, and no occurrence of the sentinel | Nova's defect shown as the app's; an app's words reaching Sentry through an error's message |
 | a published asset deleted from the Project's library before the birth: the answer is `refused: project_changed`, and the next create publishes the file again and is born | a removed file answered as Nova's defect; a retry that fails forever on a dead asset id |
 | a table of a tag the app reads is created in the Project after the create's read and before the birth's lock (the test's seam between them): the birth rolls back, the answer is `read-again`, and the next read's review holds the table's choice | a table that changed under the birth answered with a stale review |
-| a second connection holds the HQ app's advisory lock: the birth is pending (asserted by a statement that returns while it waits), then commits when the lock is released | the claim not serializing births before either writes |
-| a second connection holds `lookup_project_state` of the Project, and a third then begins a membership write: the birth, the lookup writer and the membership write all finish, in an order the test joins | the gate-after-Project-state cycle of 6.2 |
+| a second connection holds the HQ app's advisory lock: while the birth waits, `pg_locks` shows its backend waiting for an advisory lock and holding no transaction id (a backend that had written a row would hold its own; another connection's count of `apps` cannot see an uncommitted insert), and the birth commits once the lock is released | the claim not serializing births before either writes |
+| a lookup writer holds the shared membership gate and asks for the Project's state only once the birth waits; a membership write waits behind the writer, and the birth behind both: while the birth waits, another connection takes `lookup_project_state` of the Project `FOR UPDATE NOWAIT` without meeting a lock, and the writer, the membership write and the birth all finish | the gate-after-Project-state cycle of 6.2 (a birth that took Project state before the gate fails the `NOWAIT`, and would close the cycle) |
 | the HQ app's holder is in recently deleted: the birth commits and the holder's mapping is released | a deleted app holding its HQ app against a bring-in |
+| a birth whose `district` rows hold a NUL in every cell: `adoptHqAppInTransaction` throws a `LookupError` `invalid_input` whose message holds the tag; through `createFromReview`, the answer is `check-failed` with `detail.name` `birth-integrity`, no app row exists, the `[reading] could not create: integrity` line has no error argument, `findingCodes` `[]` and a `why` holding `invalid_input`, and every `log.error` call, an Error spelled by its message and stack, holds no `district` | a lookup store refusal reaching the route's failed line and Sentry with the table's tag (6.5) |
 | the three existing births pass no `afterAppInsert` and write exactly what they wrote (the existing genesis tests, unchanged, stay green) | the seam changing an existing birth |
+
+`lib/db/__tests__/appGenesis.postgres.test.ts`
+
+| Test | Catches |
+|---|---|
+| a genesis of one menu, twelve forms and twelve thousand text questions (12,013 entity rows, past the 10,922 one statement of six parameters a row can bind) through `prepareGenesisCandidate` and `writePreparedGenesisInTransaction`: every row is stored, and `loadApp` gives back `toPersistableDoc` of the document | a birth that writes its entity rows in one statement, which Postgres refuses past 65,535 bound parameters, so a large app brought in can never be created however often the person tries (6.3) |
 
 ### No database
 
@@ -2532,7 +2557,7 @@ the create tests control with `vi.mock`.
 | `lib/deployment/reading/__tests__/digest.test.ts` | changing each of `review`'s fields, `document`, one identity row or one media path changes the digest; changing `readAt` cannot (it is not in the input type); two asset ids of one content give one digest | a part of the review the digest forgot |
 | `lib/deployment/reading/__tests__/mediaIds.test.ts` | both mints are stable, differ from each other, and pass `CANONICAL_UUID_PATTERN` | a provisional id that changes between the two requests |
 | `lib/deployment/reading/__tests__/gather.test.ts` | `unrecognizedLogKey`: a declared surface key is returned whole; `xform:<an author's question id>` returns `xform-element`, an undeclared `<class>.<an author's key>` returns `undeclared-json-key`, a file path, a table's tag and an appearance's value return `other`, and the result holds no character of the planted name | an app's own names in a Sentry issue title |
-| `lib/deployment/reading/__tests__/stream.test.ts` | `readBringInStream` over a `Response` whose body the test feeds in chunks that split a line: each stage and file event reaches `onEvent` once, in order, and the promise resolves with the `done` line's event; a body that ends after a stage line resolves `lost`; a `failed` line resolves `failed`; a line that is no JSON object of a known `type` resolves `lost` | a line lost at a chunk's edge; a dropped connection read as an answer |
+| `lib/deployment/reading/__tests__/stream.test.ts` | `readBringInStream` over a `Response` whose body the test feeds in chunks that split a line: each stage and file event reaches `onEvent` once, in order, and the promise resolves with the `done` line's event; a body that ends after a stage line resolves `lost`; a `failed` line resolves `failed`; a line that is no JSON object of a known `type` resolves `lost`; a connection that breaks after a whole `done` or `failed` line resolves that line's event, and one that breaks inside it resolves `lost` | a line lost at a chunk's edge; a dropped connection read as an answer; an answer that arrived read as lost, and the request sent again |
 | `lib/commcare/surface/__tests__/revision.test.ts` | `isDeclaredSurfaceKey` is true for a key some checked-in entry's `surfaceKeys` lists and false for a question id | an author's name passed off as a declared key |
 | `lib/publish/__tests__/hqReadingCopy.test.ts` | every `ReadingRefusal` has a sentence and a status in `READING_REFUSAL_STATUS`; every `ReadingStage` has a label, the two media stages with a count and with none; every kind of `CreateAnswer` that is not `created` or `refused` has a lead, `changed` one for each thing `now` can hold; both forms of `READING_FAILED_COPY` answer with a name and with null; none holds an em dash or ends a label with an ellipsis; none holds "this reading", "that reading", "a reading" or "Nova's reading", the code's noun for what a person calls the app they are bringing in; no lead or refusal a `CreateAnswer` carries holds "Nothing was created"; and the leads of `read-again`, `check-failed` and `changed` with `already-in-nova` each hold "stay in its files" | a code with no words; the code's vocabulary shown to a person; a sentence that is false after a publish; an answer that can follow a publish and says nothing of the files it left (section 8) |
 | `components/chat/__tests__/chatLifecycle.adoption.test.ts` | the thirteen-key receipt parses with its `adoption`; it is refused with a non-null `starter`, `designSessionId` or `changeSetId`, with a fourth key in `adoption`, with an unknown server, with a fourteenth key; the twelve-key receipts of the three existing births parse as before with `adoption: null`; twelve keys plus `adoption: null` is refused | an arm that loosens the strict boundary |
@@ -2549,7 +2574,8 @@ controlled boundary (the routes are thin shells):
 | each route answers 200 with stage lines and then exactly one `done` line, for a stop, an account, a review and each kind of `CreateAnswer` | a stop thrown away as an error status; two last lines |
 | a service function that throws: the stream ends in one `failed` line, and `[reading] failed` is logged once with the stage that was running | an error that ends a stream with no last line, or with a status nothing reads |
 | `isPathAllowedOnHost(HOSTNAMES.main, p)` is true for both paths and false on the MCP and docs hosts | the proxy answering 404 in production |
-| the read handler, called with a request whose signal the test aborts while the service's controlled read is pending, hands the service a signal that is then aborted; the create handler hands its service none | a closed tab that leaves a read running; a closed tab cancelling a create |
+| the read handler, called with a request whose signal the test aborts while the service's controlled read is pending, hands the service a signal that is then aborted; the create handler hands its service none | a closed tab that leaves a read running; a closed tab cancelling a create through a signal |
+| the create's controlled service writes one stage line and waits; the test reads that line, cancels the body's reader, and lets the service write a files line and a stage line and answer `created`: the service's promise resolves with that answer, every event after the cancel returned to it, and `log.error` was never called | a closed tab cancelling a create through a write that throws into the service mid-create, after its files were published and before its birth; every closed tab logged to Sentry as a failure |
 
 ### Held by other parts' tests
 
@@ -2841,11 +2867,12 @@ gaps.
     create it. The ordinary app pays about two seconds for the second fetch (3.7), and the tail is
     bounded by the export ceiling (3.4). So one path is built: fetch, judge, and at a create
     publish.
-19. **Weighed and not taken: a reader and an acceptance that yield to the event loop inside a
-    run**, so that no piece is long whatever an app's size (3.6). `readHqApp` is one synchronous
-    pure function (part 06, section 2.2) and acceptance calls it whole. Making both resumable is
-    more change than one constant and one test, for apps of a size nothing here has seen: the cap
-    is set where the measured rate leaves each piece short, and the test at the cap holds it.
+19. **A reader and an acceptance that yield to the event loop inside a run** (3.3, 3.6). Measured
+    at the cap, the reader's run and acceptance's run were each tens of seconds as one piece, so
+    each is a generator that stops where a piece may end (`readHqAppSteps` after each stage,
+    `acceptReadingSteps` between its checks and inside the fixed point's re-reads), and
+    `readHqApp` and `acceptReading` drive their generators whole for every caller that is not a
+    request. Neither holds anything outside its own context across a stop.
 20. **Acceptance has one mode and takes no choice of the person's** (3.3). Not done: a mode that
     judges everything but the files before they are fetched, and a create that hands acceptance
     the chosen declaration so that the split document is checked only once it is chosen. The
@@ -2915,7 +2942,8 @@ Changed:
 
 | File | Change |
 |---|---|
-| `lib/db/appGenesis.ts` | `WritePreparedGenesisArgs.afterAppInsert` and its call; `GenesisGateRejectedError.check` and `findingCodes`; `AppAdoption`, `AdoptedAppReceipt`; the header (6.2, 7.1, "Contracts") |
+| `lib/db/appGenesis.ts` | `WritePreparedGenesisArgs.afterAppInsert` and its call; `GenesisGateRejectedError.check` and `findingCodes`; `AppAdoption`, `AdoptedAppReceipt`; the header (6.2, 7.1, "Contracts"); `writePreparedGenesisInTransaction` inserts the entity rows in statements of `ENTITY_INSERT_CHUNK` (1,000 rows, six bound parameters each), all in the one transaction, since one statement binds at most 65,535 parameters (6.3) |
+| part 11's `lib/deployment/reading/projectData/index.ts`, `lookupTables.ts`, `review.ts`, `lookupTableStore.ts`; `lib/lookup/managed.ts`; `lib/deployment/adoption.ts` | the invariants a read or a create can throw name a lookup table by its id or its place, a field by its place and a file by its asset id, never a tag, a field's name or a path (10) |
 | `lib/apiError.ts` | `HQ_READING_REQUEST_MAX_BYTES` and its line in the budgets comment (4.1) |
 | `lib/deployment/index.ts` | re-exports, as types only, what a client component needs of a bring-in: from `reading/types.ts`, `ReadingKey`, `ReadingAnswer`, `ReadingReview`, `ReviewTable`, `ReviewPlaces`, `ReadingDeclarationChoice`, `ReadingStage`, `ReadingEvent`, `ReadingRefusal`, `BringInInput`, `CreateAnswer`; from `lib/db/appGenesis.ts`, `AdoptedAppReceipt`; and from part 11's `reading/projectData/reviewTypes.ts`, `LookupTableChoice`. It exports no function of `read.ts`, `create.ts` or `gather.ts`: client components import this file today (`components/builder/PublishPanel.tsx`, `PublishDialogBody.tsx`, `DeploymentStatus.tsx`), and those modules reach Kysely, `pg` and `lib/commcare/hq`. A client module that needs a value of `reading/types.ts` or `reading/stream.ts` (the schema, the stages, the stream's reader) imports that client-safe file itself. Routes and MCP tools import `@/lib/deployment/reading` |
 | `lib/mcp/progress.ts` | `ProgressStage` gains the seven `hq_` tags; `readingProgressSink` (4.4) |

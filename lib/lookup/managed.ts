@@ -178,7 +178,10 @@ function rowValuesFor(
 			if (!Object.hasOwn(row, field)) continue;
 			const columnId = columnIdOf.get(field);
 			if (columnId === undefined) {
-				throw new Error(`No column holds the field ${field}.`);
+				/* By its place, never its name (layer 7's small edit, kept for the rebase). */
+				throw new Error(
+					`No column holds the table's field ${content.fields.indexOf(field) + 1}.`,
+				);
 			}
 			values[columnId] = row[field];
 		}
@@ -369,19 +372,28 @@ export async function createManagedLookupTablesInTransaction(
 			const id = Object.hasOwn(binding.columns, field)
 				? binding.columns[field]
 				: undefined;
+			/* These name the table by its id and a field by its place, never by a tag or a
+			 * field name, which are the app's words: a bring-in's failed line carries this
+			 * message to Sentry (layer 7's small edit, kept for the rebase). */
 			if (id === undefined) {
-				throw new Error(`The binding of ${tag} names no column for ${field}.`);
+				throw new Error(
+					`The binding of the lookup table ${tableId} names no column for its field ${content.fields.indexOf(field) + 1}.`,
+				);
 			}
 			const columnId = lookupColumnIdSchema.parse(id);
 			if (columnIds.has(columnId)) {
-				throw new Error(`The binding of ${tag} gives two fields one column.`);
+				throw new Error(
+					`The binding of the lookup table ${tableId} gives two fields one column.`,
+				);
 			}
 			columnIds.add(columnId);
 			columnIdOf.set(field, columnId);
 		}
-		const columns = content.fields.map((field) => {
+		const columns = content.fields.map((field, index) => {
 			const id = columnIdOf.get(field);
-			if (id === undefined) throw new Error(`No column holds ${field}.`);
+			if (id === undefined) {
+				throw new Error(`No column holds the table's field ${index + 1}.`);
+			}
 			return textColumn(id, field);
 		});
 		const rows = rowValuesFor(content, columnIdOf);

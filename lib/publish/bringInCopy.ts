@@ -26,6 +26,14 @@ function counted(n: number, singular: string, plural: string): string {
 	return `${n} ${n === 1 ? singular : plural}`;
 }
 
+/**
+ * CommCare HQ's name for an app, or null where it holds none. HQ stores a
+ * blank name as it was typed, and a sentence never names an app by spaces.
+ */
+function namedApp(appName: string | null): string | null {
+	return appName === null || appName.trim() === "" ? null : appName;
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -50,6 +58,7 @@ export const BRING_IN_ACTIONS = {
 	hideTheQuestions: "Hide the questions",
 	bringItIn: "Bring it in",
 	seeWhatCameIn: "See what came in",
+	reload: "Reload",
 } as const;
 
 /** The action that opens the app once it is in: "Open {appName}". */
@@ -112,6 +121,9 @@ export const PICKER_SPACE_PLACEHOLDER = "Search project spaces";
 /** The placeholder of the list of two to eight project spaces, which takes no typing. */
 export const PICKER_SPACE_SELECT_PLACEHOLDER = "Choose a project space";
 
+/** The search of more than eight project spaces matches none of them. */
+export const PICKER_SPACE_NO_MATCH = "No project space matches that";
+
 export const PICKER_APP_LABEL = "App";
 
 /** The status while a project space's apps are read. */
@@ -163,9 +175,10 @@ export const CONNECTION_CHECK_FAILED =
 
 /** The reading screen's status, naming the app where the page knows its name. */
 export function readingStatusLine(appName: string | null): string {
-	return appName === null
+	const app = namedApp(appName);
+	return app === null
 		? "Reading your app from CommCare HQ"
-		: `Reading ${appName} from CommCare HQ`;
+		: `Reading ${app} from CommCare HQ`;
 }
 
 /** After twenty seconds of reading. */
@@ -181,6 +194,28 @@ export const TRYING_AGAIN = "Trying again";
 /** A read's request lost twice. */
 export const READING_LOST_LINE =
 	"Nova lost its connection partway. Nothing was created, and you can try again.";
+
+/**
+ * A read lost twice under a create's lead: the read a `read-again` asked for,
+ * after that create may have added files to the Project, so no "Nothing".
+ */
+export const READING_LOST_AFTER_CREATE_LINE =
+	"Nova lost its connection partway. No app was created, and you can try again.";
+
+/**
+ * Nova's own failure in a read under a create's lead: the body of the read's
+ * failed screen, in the form that stays true after that create added files
+ * to the Project. Its title is the read's.
+ */
+export function readFailedAfterCreateBody(appName: string | null): string {
+	return `Nova ran into a problem of its own while reading ${namedApp(appName) ?? "this app"}. That's on Nova, and the team has been told. No app was created, and nothing changed in CommCare HQ.`;
+}
+
+/** Any request of the flow answered that the session ended: the title, over its one line. */
+export const SIGNED_OUT_TITLE = "You're signed out";
+
+/** Under that title, beside the Reload action. */
+export const SIGNED_OUT_LINE = "Reload the page to sign in again";
 
 // ---------------------------------------------------------------------------
 // A stop
@@ -209,7 +244,7 @@ export function accountHeadingLine(
 	heading: "yet" | "this-time",
 	appName: string | null,
 ): string {
-	const app = appName ?? "this app";
+	const app = namedApp(appName) ?? "this app";
 	return heading === "yet"
 		? `Nova can't bring in ${app} yet`
 		: `Nova couldn't bring in ${app} this time`;
@@ -274,7 +309,7 @@ export function accountTextFirstLine(
 
 /** The review's heading. `appName` is null where CommCare HQ holds no name for the app. */
 export function reviewHeading(appName: string | null): string {
-	return `Nova can bring in ${appName ?? "this app"}`;
+	return `Nova can bring in ${namedApp(appName) ?? "this app"}`;
 }
 
 export const REVIEW_LEAD =
@@ -283,6 +318,13 @@ export const REVIEW_LEAD =
 export const REVIEW_APP_SECTION = "Your app";
 
 export const REVIEW_APP_NAME_LABEL = "App name";
+
+/**
+ * The name field's error where CommCare HQ holds no name for the app: the
+ * refusal's own sentence offers to keep a name there is none of.
+ */
+export const REVIEW_NAME_NONE_IN_HQ =
+	"The app needs a name of up to 255 characters. CommCare HQ holds none for it, so you can type one.";
 
 /** The counts of what comes in, joined by the metadata separator. */
 export function reviewCountsLine(counts: {
@@ -475,6 +517,10 @@ export function stoppedPublishingLine(domain: string): string {
 
 export const STOP_PUBLISHING_FAILED =
 	"Nova couldn't stop publishing just now. Nothing was changed, and you can try again.";
+
+/** A stop whose answer never arrived, so it may have landed (D10b). */
+export const STOP_PUBLISHING_UNANSWERED =
+	"Nova lost its connection before it heard whether publishing stopped here. Nova is checking where this app stands, so you can see what happened before you try again.";
 
 /** The restore toast's title. */
 export const RESTORED_TOAST_TITLE =

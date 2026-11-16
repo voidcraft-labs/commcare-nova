@@ -49,6 +49,22 @@ import {
 const PAGE_NOT_GIVEN =
 	"That page isn't one Nova gave for this app. You can call read_hq_app without `page` to read it from the start.";
 
+/**
+ * A `domain` no project space can be named, most often a space's display name
+ * sent where its name belongs. It names the spaces the stored key reaches, as
+ * `list_hq_apps` does for a space the key does not reach.
+ */
+export function domainNotASpace(
+	domain: string,
+	reachable: readonly { readonly name: string }[],
+): string {
+	const lead = `“${domain}” isn't the name of a CommCare HQ project space.`;
+	if (reachable.length === 0)
+		return `${lead} Your stored CommCare HQ API key reaches no project space yet, so you can update it in Settings and then pass the \`name\` of one of get_hq_connection's \`available_domains\` as \`domain\`.`;
+	const names = reachable.map((space) => space.name).join(", ");
+	return `${lead} Your stored CommCare HQ API key reaches: ${names}. You can pass one of those as \`domain\`: the \`name\` of one of get_hq_connection's \`available_domains\`, not its display name.`;
+}
+
 /** What both bring-in tools resolve before they read: the person, the server, the Project's name. */
 export interface BringInCall {
 	readonly actor: BringInActor;
@@ -71,7 +87,10 @@ export async function openBringInCall(
 	if (!settings.configured)
 		throw new BringInToolError("hq_not_configured", READ_HQ_APP_NOT_CONFIGURED);
 	if (!isValidDomainSlug(domain))
-		throw mapReadingRefusal("invalid_input", projectId);
+		throw new BringInToolError(
+			"invalid_input",
+			domainNotASpace(domain, settings.availableDomains),
+		);
 	const actor = await authorizeBringIn(userId, projectId);
 	if (actor === null) throw mapReadingRefusal("no_project_access", projectId);
 	const project = (await listUserProjects(userId)).find(
@@ -110,7 +129,9 @@ export function registerReadHqApp(server: McpServer, ctx: ToolContext): void {
 					.string()
 					.trim()
 					.min(1)
-					.describe("The exact CommCare HQ project space the app is in."),
+					.describe(
+						"The exact CommCare HQ project space the app is in. One of get_hq_connection's available_domains names.",
+					),
 				hq_app_id: z
 					.string()
 					.regex(/^[\w-]{1,255}$/)

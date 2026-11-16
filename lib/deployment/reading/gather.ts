@@ -38,7 +38,7 @@ import {
 	type ReadDraft,
 	type ReaderInput,
 	type ReadOutcome,
-	readHqApp,
+	readHqAppSteps,
 } from "@/lib/commcare/reader";
 import {
 	type ClaimLog,
@@ -69,7 +69,7 @@ import {
 	type PlatformFeatureId,
 } from "@/lib/domain";
 import { remapAssetRefs } from "@/lib/domain/mediaRefs";
-import { type MediaAssetId, mediaFormatPlaysOn } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { PLATFORM_FEATURE_IDS } from "@/lib/domain/platforms";
 import { unavailableUses } from "@/lib/domain/platformUses";
 import { log } from "@/lib/logger";
@@ -96,7 +96,7 @@ import {
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { readHqAppClaims } from "../store";
 import { keptListFor } from "../targetFacts";
-import { type AcceptedReading, acceptReading } from "./acceptance";
+import { type AcceptedReading, acceptReadingSteps } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
 import { readingAppStrings } from "./appStrings";
 import { reviewDigestOf } from "./digest";
@@ -301,6 +301,14 @@ class Pieces {
 			if (took > this.longest) this.longest = took;
 		}
 	}
+
+	/** Runs `steps` to their end, each step its own piece. */
+	async steps<T>(steps: Generator<void, T, void>): Promise<T> {
+		for (;;) {
+			const step = await this.run(() => steps.next());
+			if (step.done) return step.value;
+		}
+	}
 }
 
 interface Tally {
@@ -484,38 +492,85 @@ function readerInputFor(
 	};
 }
 
+/** The constructor names a thrown value is logged under: any other is `other`. */
+const THROWN_NAMES: ReadonlySet<string> = new Set([
+	"Error",
+	"TypeError",
+	"RangeError",
+	"ReferenceError",
+	"SyntaxError",
+]);
+
+/**
+ * Where the reader broke its own contract, in closed words only: the part of
+ * the reading that ran (`input` before the first stage, `stage/<index in
+ * STAGES>`, `close`, or `declaration` for a draft that offers no choice) and
+ * the thrown value's constructor name. Never the thrown message, which can
+ * quote the app.
+ */
+interface ReaderBreak {
+	readonly at: string;
+	readonly thrown: string | null;
+}
+
 type ReaderRun =
 	| { readonly kind: "outcome"; readonly outcome: ReadOutcome }
 	/** The reader broke its own contract: it threw, or gave a draft whose declarations offer
 	 *  nothing. */
-	| { readonly kind: "contract" };
+	| { readonly kind: "contract"; readonly broke: ReaderBreak };
 
-function runReader(input: ReaderInput, claims: "counts" | "full"): ReaderRun {
+function thrownName(error: unknown): string {
+	const name = error instanceof Error ? error.constructor.name : typeof error;
+	return THROWN_NAMES.has(name) ? name : "other";
+}
+
+/** The reader over `input`, each of its stages one of `pieces`. */
+async function runReader(
+	pieces: Pieces,
+	input: ReaderInput,
+	claims: "counts" | "full",
+): Promise<ReaderRun> {
+	let at = "input";
 	let outcome: ReadOutcome;
 	try {
-		outcome = readHqApp(input, { claims });
-	} catch {
-		return { kind: "contract" };
+		outcome = await pieces.steps(
+			readHqAppSteps(input, {
+				claims,
+				onStage: (stage) => {
+					at = stage === "close" ? "close" : `stage/${stage}`;
+				},
+			}),
+		);
+	} catch (error) {
+		return { kind: "contract", broke: { at, thrown: thrownName(error) } };
 	}
 	if (outcome.kind === "read" && outcome.draft.declaration.kind !== "choices")
-		return { kind: "contract" };
+		return { kind: "contract", broke: { at: "declaration", thrown: null } };
 	return { kind: "outcome", outcome };
 }
 
-/** The account of one of Nova's own failures at the app, logged under the reader's check. */
+/**
+ * The account of one of Nova's own failures at the app, logged under the reader's check. A
+ * contract break carries where it broke (`broke`) and an identity-row fault its own closed `why`;
+ * the message and the signatures stay one per kind of fault.
+ */
 function readerFault(
 	scope: LogScope,
 	signature: "contract" | "identity-rows",
 	appName: string | null,
 	mediaChecked: boolean,
-	why?: string,
+	detail: { readonly why?: string; readonly broke?: ReaderBreak } = {},
 ): GatherResult {
 	log.error(`[reading] read-back differs: reader: ${signature}`, undefined, {
 		...scopeContext(scope),
 		phase: "reader",
 		differenceCount: 1,
 		signatures: [`reader/${signature}`],
-		...(why !== undefined && { why }),
+		...(detail.why !== undefined && { why: detail.why }),
+		...(detail.broke !== undefined && {
+			at: detail.broke.at,
+			...(detail.broke.thrown !== null && { thrown: detail.broke.thrown }),
+		}),
 	});
 	return accountOf(
 		[circumstanceFinding("read-back-differs", APP, { name: "reader" })],
@@ -914,11 +969,15 @@ export async function gatherFromHq(
 		data: current,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 	});
-	let run = await pieces.run(() =>
-		runReader(readerInputFor(appId, key, fetchedOf(data), null), claimsMode),
+	let run = await runReader(
+		pieces,
+		readerInputFor(appId, key, fetchedOf(data), null),
+		claimsMode,
 	);
 	if (run.kind === "contract")
-		return answer(readerFault(scope, "contract", appName, false));
+		return answer(
+			readerFault(scope, "contract", appName, false, { broke: run.broke }),
+		);
 	let reads = projectDataReadsOf(data, run.outcome);
 	if (reads.readsPlaces && !data.placesRead) {
 		/* The source test of step 5 missed a spelling: read places, then the reader again. One
@@ -939,11 +998,15 @@ export async function gatherFromHq(
 		if (again.kind === "failed") return answer(failedRead(again.failure));
 		data = again.data;
 		onEvent({ type: "stage", stage: "checking" });
-		run = await pieces.run(() =>
-			runReader(readerInputFor(appId, key, fetchedOf(data), null), claimsMode),
+		run = await runReader(
+			pieces,
+			readerInputFor(appId, key, fetchedOf(data), null),
+			claimsMode,
 		);
 		if (run.kind === "contract")
-			return answer(readerFault(scope, "contract", appName, false));
+			return answer(
+				readerFault(scope, "contract", appName, false, { broke: run.broke }),
+			);
 		reads = projectDataReadsOf(data, run.outcome);
 	}
 	const first = run.outcome;
@@ -1119,17 +1182,19 @@ async function checkWith(
 			Object.hasOwn(plan.verdicts, file.key) &&
 			plan.verdicts[file.key]?.kind === "missing",
 	);
+	let read: ReaderRun;
+	if (input.first !== undefined && !missing)
+		read = { kind: "outcome", outcome: input.first };
+	else
+		read = await runReader(
+			pieces,
+			readerInputFor(appId, key, fetched, plan),
+			"counts",
+		);
 	const stage = await pieces.run(() => {
-		let outcome: ReadOutcome;
-		if (input.first !== undefined && !missing) outcome = input.first;
-		else {
-			const run = runReader(
-				readerInputFor(appId, key, fetched, plan),
-				"counts",
-			);
-			if (run.kind === "contract") return { kind: "contract" as const };
-			outcome = run.outcome;
-		}
+		if (read.kind === "contract")
+			return { kind: "contract" as const, broke: read.broke };
+		const outcome = read.outcome;
 		const reads = projectDataReadsOf(data, outcome);
 		if (outcome.kind === "account")
 			return {
@@ -1176,10 +1241,9 @@ async function checkWith(
 	});
 	if (stage.kind === "contract")
 		return none(
-			readerFault(scope, "contract", appName, false) as Exclude<
-				GatherResult,
-				{ kind: "stop" }
-			>,
+			readerFault(scope, "contract", appName, false, {
+				broke: stage.broke,
+			}) as Exclude<GatherResult, { kind: "stop" }>,
 		);
 	if (stage.kind === "account") {
 		const findings = [...unsummarized.findings, ...stage.findings];
@@ -1225,8 +1289,8 @@ async function checkWith(
 	const lookup = readingLookupSnapshot(data, reads);
 	const mediaFiles = adoptedMediaFiles(plan);
 	const reader = readerInputFor(appId, key, fetched, plan);
-	const accepted = await pieces.run(() =>
-		acceptReading({
+	const accepted = await pieces.steps(
+		acceptReadingSteps({
 			appId,
 			target: { server: key.server, domain: key.domain },
 			source,
@@ -1269,17 +1333,13 @@ async function checkWith(
 	const identityRows = adoptedIdentityRows(draft.identities, fetched.modules);
 	if (!identityRows.ok)
 		return none(
-			readerFault(
-				scope,
-				"identity-rows",
-				appName,
-				true,
-				formWithNoRealId(appId),
-			) as Exclude<GatherResult, { kind: "stop" }>,
+			readerFault(scope, "identity-rows", appName, true, {
+				why: formWithNoRealId(appId),
+			}) as Exclude<GatherResult, { kind: "stop" }>,
 			judgedPlan.claims,
 		);
-	const built = await pieces.run(() => {
-		const review = reviewOf({
+	const review = await pieces.steps(
+		reviewOf({
 			appId,
 			key,
 			fetched,
@@ -1293,11 +1353,13 @@ async function checkWith(
 			lookup,
 			mediaFiles,
 			identityRows: identityRows.rows,
-		});
+		}),
+	);
+	const reviewDigest = await pieces.run(() => {
 		const contentId = new Map<MediaAssetId, MediaAssetId>(
 			mediaFiles.map((file) => [file.assetId, reviewMediaId(file.contentHash)]),
 		);
-		const reviewDigest = reviewDigestOf({
+		return reviewDigestOf({
 			v: 1,
 			review,
 			document: canonicalJsonDigest(
@@ -1311,7 +1373,6 @@ async function checkWith(
 				})),
 			),
 		});
-		return { review, reviewDigest };
 	});
 	return none(
 		{
@@ -1324,8 +1385,8 @@ async function checkWith(
 				lookup,
 				media: plan,
 				mediaFiles,
-				review: built.review,
-				reviewDigest: built.reviewDigest,
+				review,
+				reviewDigest,
 			},
 		},
 		judgedPlan.claims,
@@ -1336,7 +1397,9 @@ async function checkWith(
 // The review
 // ---------------------------------------------------------------------------
 
-function reviewOf(input: {
+/** The review, a piece at a time: each declaration's plan features, the
+ *  baseline the birth will write, and the Project data each its own. */
+function* reviewOf(input: {
 	readonly appId: string;
 	readonly key: ReadingKey;
 	readonly fetched: Fetched;
@@ -1350,32 +1413,36 @@ function reviewOf(input: {
 	readonly lookup: LookupFixtureDataSnapshot;
 	readonly mediaFiles: readonly AdoptedMediaFile[];
 	readonly identityRows: Parameters<typeof targetWireIdentity>[0];
-}): ReadingReview {
+}): Generator<void, ReadingReview, void> {
 	const { appId, key, fetched, draft, plan, choices, accepted } = input;
 	const { source } = fetched;
 	const doc = draft.doc;
 	const target = { server: key.server, domain: key.domain };
 
 	const localization = effectiveAppLocalization(doc.localization);
-	const heldFormats = plan.files.flatMap((file) => {
-		const verdict = Object.hasOwn(plan.verdicts, file.key)
-			? plan.verdicts[file.key]
-			: undefined;
-		return verdict?.kind === "held" ? [verdict.file.mediaFormat] : [];
-	});
+	const heldFiles = plan.files.filter(
+		(file) =>
+			Object.hasOwn(plan.verdicts, file.key) &&
+			plan.verdicts[file.key]?.kind === "held",
+	).length;
 
-	const runsOn = accepted.declarations.map((declaration) => ({
-		runsOnlyOn: declaration.runsOnlyOn,
-		splitDatetime: declaration.splitDatetime,
-		preselected: declaration.preselected,
-		recordedFeatures: adoptionPlanFeatureConfirmations({
-			doc: docUnder(doc, declaration.mutations),
-			target,
-			sourceWebAppsOn: source.cloudcareEnabled,
-			sourceHoldsSaveToCase: accepted.sourceHoldsSaveToCase,
-		}),
-		firstPublish: declaration.firstPublish,
-	}));
+	const runsOn: ReadingReview["runsOn"][number][] = [];
+	for (const declaration of accepted.declarations) {
+		yield;
+		runsOn.push({
+			runsOnlyOn: declaration.runsOnlyOn,
+			splitDatetime: declaration.splitDatetime,
+			preselected: declaration.preselected,
+			recordedFeatures: adoptionPlanFeatureConfirmations({
+				doc: docUnder(doc, declaration.mutations),
+				target,
+				sourceWebAppsOn: source.cloudcareEnabled,
+				sourceHoldsSaveToCase: accepted.sourceHoldsSaveToCase,
+			}),
+			firstPublish: declaration.firstPublish,
+		});
+	}
+	yield;
 	const preselectedAt = accepted.declarations.findIndex(
 		(declaration) => declaration.preselected,
 	);
@@ -1403,9 +1470,7 @@ function reviewOf(input: {
 		return {
 			platform,
 			features: PLATFORM_FEATURE_IDS.filter((feature) => uses.has(feature)),
-			media: heldFormats.some(
-				(format) => !mediaFormatPlaysOn(format).includes(platform),
-			),
+			media: !input.playsOn.includes(platform),
 		};
 	});
 
@@ -1416,6 +1481,7 @@ function reviewOf(input: {
 			"Acceptance answered declarations with none preselected. Look at lib/deployment/reading/acceptance.ts.",
 		);
 	const origin = COMMCARE_SERVERS[key.server].baseUrl;
+	yield;
 	const baseline = adoptedAppBaselineWrite({
 		remoteAppId: key.remoteAppId,
 		source,
@@ -1438,6 +1504,7 @@ function reviewOf(input: {
 		adopted: true,
 	});
 
+	yield;
 	const projectReview = projectDataReview(
 		fetched.data,
 		input.reads,
@@ -1464,7 +1531,7 @@ function reviewOf(input: {
 					);
 				return code;
 			}),
-			mediaFiles: heldFormats.length,
+			mediaFiles: heldFiles,
 		},
 		runsOn,
 		runsOnWhy,

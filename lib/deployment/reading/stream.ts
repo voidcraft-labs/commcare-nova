@@ -57,8 +57,9 @@ function eventOf(line: string): ProgressEvent | LastEvent | null {
 
 /**
  * Reads a bring-in route's response body line by line, calls `onEvent` for each stage and file
- * event, and resolves with the last line's event. It resolves `{ type: "lost" }` where the body
- * ends with no `done` or `failed` line, or a line is no JSON object of a known `type`.
+ * event, and resolves with the last line's event, also where the connection breaks after that
+ * line arrived. It resolves `{ type: "lost" }` where the body ends or breaks with no `done` or
+ * `failed` line, or a line is no JSON object of a known `type`.
  */
 export async function readBringInStream(
 	response: Response,
@@ -91,9 +92,10 @@ export async function readBringInStream(
 			try {
 				chunk = await reader.read();
 			} catch {
-				// The connection ended under the read.
+				// The connection ended under the read. A last line already read is the
+				// answer: nothing may follow it, so the break cannot change it.
 				settled = true;
-				return { type: "lost" };
+				return last ?? { type: "lost" };
 			}
 			if (chunk.done) {
 				settled = true;

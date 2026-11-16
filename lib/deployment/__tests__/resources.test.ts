@@ -226,6 +226,7 @@ describe("an ended deployment", () => {
 		byName: "Ada",
 		reason: "stopped",
 		hqAppId: "hq-ended",
+		heldByAnotherApp: false,
 	} as const;
 	/* A mapping a recreate replaced long before the ending. */
 	const replaced = appMapping({ remoteId: "hq-old", supersededAt: EARLIER });
@@ -233,6 +234,23 @@ describe("an ended deployment", () => {
 	it("reads the latest ending at state ended", () => {
 		const view = record([], [replaced, ended], undefined, "ended");
 		expect(deploymentEnding(view)).toEqual(ENDING);
+		expect(nextPublishAction(view)).toBe("creates-beside");
+	});
+
+	/* After a stop, a teammate brings the HQ app in as another Nova app: the
+	 * ledger read marks the stopped mapping, and the ending carries it so the
+	 * card names no way back to an app that is another's now. */
+	it("says another Nova app holds the HQ app it stopped at", () => {
+		const view = record(
+			[],
+			[replaced, { ...ended, heldByAnotherApp: true }],
+			undefined,
+			"ended",
+		);
+		expect(deploymentEnding(view)).toEqual({
+			...ENDING,
+			heldByAnotherApp: true,
+		});
 		expect(nextPublishAction(view)).toBe("creates-beside");
 	});
 

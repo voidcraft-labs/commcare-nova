@@ -32,10 +32,14 @@ import type {
 	ProvisionWorkersView,
 } from "@/lib/deployment/actions";
 import { provisionWorkersAction } from "@/lib/deployment/actions";
-import { publishedRemoteApp } from "@/lib/deployment/resources";
+import {
+	deploymentEnding,
+	publishedRemoteApp,
+} from "@/lib/deployment/resources";
 import type { DeploymentWithResources } from "@/lib/deployment/types";
 import { defaultWorkerUsername } from "@/lib/deployment/workerProvisionPlan";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
+import { ENDED_WORKERS_LINE } from "@/lib/publish/stopPublishing";
 import {
 	useDismissUnconfirmedWorker,
 	useProvisioningOutcome,
@@ -183,6 +187,31 @@ export function DeploymentWorkers({
 		sessionApi,
 		recordOutcome,
 	]);
+
+	/* A deployment someone stopped makes no more workers, but the passwords
+	 * this page already holds for it stay until the person leaves the page,
+	 * as they were told: the panel shows those alone, or nothing. */
+	if (deploymentEnding(deployment) !== null) {
+		const held =
+			(outcome !== undefined && outcome.workers.length > 0) ||
+			heldUnconfirmed.length > 0;
+		if (!held) return null;
+		return (
+			<section aria-labelledby={headingId} className="mt-4">
+				<h4 id={headingId} className="text-[13px] font-medium text-nova-text">
+					Workers
+				</h4>
+				<p className="mt-1 text-[13px] leading-relaxed text-nova-text-secondary">
+					{ENDED_WORKERS_LINE}
+				</p>
+				<WorkerCredentials
+					workers={outcome?.workers ?? []}
+					unconfirmed={heldUnconfirmed}
+					onDismiss={dismissUnconfirmed}
+				/>
+			</section>
+		);
+	}
 
 	if (personas.length === 0) return null;
 

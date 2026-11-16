@@ -7,11 +7,18 @@
  *
  * The screen is a `section` labelled by its heading, which is the one `h1` of
  * the centred column and takes focus when the screen appears (a deferred
- * handoff: a control the person already chose keeps focus). The heading
- * region holds the screen's one `role="status"` region, so progress, a
- * create's lead and a confirmation are each said once. Where the card is
- * under 560px wide the footer's buttons stack, primary first, each at its one
- * 44px height.
+ * handoff: a control the person already chose keeps focus). Above the heading
+ * stands one `role="status"` region, so progress, a create's lead and a
+ * confirmation are each said once. Where the card is under 560px
+ * wide the footer's buttons stack, primary first, each at its one 44px
+ * height.
+ *
+ * A live region announces only what changes inside it after it is in the
+ * document, and a create's lead arrives together with a new screen. So inside
+ * the flow the region is the flow's own, mounted once above every screen
+ * (`BringInStatusRegion`), and each screen renders what it says into it: the
+ * lead of a screen that has just appeared is then a change to a region that
+ * was already there. Outside the flow, the frame holds a region of its own.
  *
  * It holds no decision: what each region says is its screen's.
  */
@@ -20,7 +27,16 @@
 import { Icon } from "@iconify/react/offline";
 import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import { motion } from "motion/react";
-import { type ReactNode, useEffect, useId, useRef } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useContext,
+	useEffect,
+	useId,
+	useRef,
+	useState,
+} from "react";
+import { createPortal } from "react-dom";
 import {
 	type BringInModel,
 	createLeadLine,
@@ -29,6 +45,38 @@ import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 
 /** The lead of a create that did not create, as the model holds it. */
 export type BringInLead = BringInModel["lead"];
+
+/**
+ * The flow's status region, once it is in the document. Null outside the
+ * flow, where a frame holds a region of its own.
+ */
+const StatusRegionContext = createContext<{
+	readonly element: HTMLElement | null;
+} | null>(null);
+
+/**
+ * The one status region of the flow: it stands above the screen and stays
+ * mounted while the screens beneath it change, so what each new screen
+ * renders into it is announced. `children` is the screen.
+ */
+export function BringInStatusRegion({
+	children,
+}: {
+	readonly children: ReactNode;
+}) {
+	const [element, setElement] = useState<HTMLElement | null>(null);
+	return (
+		<StatusRegionContext.Provider value={{ element }}>
+			<div
+				role="status"
+				ref={setElement}
+				className="shrink-0 px-5 sm:px-6"
+				data-bring-in-status=""
+			/>
+			{children}
+		</StatusRegionContext.Provider>
+	);
+}
 
 export function BringInScreenLayout({
 	title,
@@ -68,7 +116,18 @@ export function BringInScreenLayout({
 		() => deferFocus(() => headingRef.current?.focus({ preventScroll: true })),
 		[deferFocus, focusKey],
 	);
+	const region = useContext(StatusRegionContext);
 	const leadLine = lead === null ? null : createLeadLine(lead);
+	const said = (
+		<>
+			{leadLine !== null ? (
+				<p className="mb-3 text-sm leading-relaxed text-nova-text-secondary">
+					{leadLine}
+				</p>
+			) : null}
+			{status}
+		</>
+	);
 	return (
 		<motion.section
 			aria-labelledby={headingId}
@@ -77,17 +136,21 @@ export function BringInScreenLayout({
 			transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
 			className="@container flex min-h-0 flex-auto flex-col"
 		>
-			<div className="shrink-0 px-5 pt-5 pb-3 sm:px-6">
-				{/* Always rendered, empty or not: a live region announces only the
-				    changes made after it is in the document. */}
-				<div role="status">
-					{leadLine !== null ? (
-						<p className="mb-3 text-sm leading-relaxed text-nova-text-secondary">
-							{leadLine}
-						</p>
-					) : null}
-					{status}
-				</div>
+			<div className="shrink-0 px-5 pb-3 sm:px-6">
+				{region === null ? (
+					/* Always rendered, empty or not: a live region announces only
+					 * the changes made after it is in the document. */
+					<div role="status" className="pt-5">
+						{said}
+					</div>
+				) : region.element !== null ? (
+					/* The flow's region stands above this section; the top inset
+					 * travels with what is said, so the heading sits where it would
+					 * under a region of its own. */
+					createPortal(<div className="pt-5">{said}</div>, region.element)
+				) : (
+					<div className="pt-5" />
+				)}
 				<div className="flex items-start gap-3">
 					{icon === "info" ? (
 						<Icon

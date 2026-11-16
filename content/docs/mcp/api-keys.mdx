@@ -72,8 +72,8 @@ Each key can have any combination of these:
 |---|---|
 | `nova.read` | List, read, and search apps in your account. **Required.** |
 | `nova.write` | Create and edit apps. **Required.** |
-| `nova.hq.read` | Look up which CommCare HQ project spaces your stored API key can reach. |
-| `nova.hq.write` | Upload finished apps to CommCare HQ. |
+| `nova.hq.read` | Use your stored CommCare HQ API key to read from CommCare HQ: see which project spaces it reaches and check one, see where an app is published, list a project space's apps, and read an app to bring it in to Nova. |
+| `nova.hq.write` | Upload apps to CommCare HQ and look after where they're published: check how a published app is doing, make worker accounts and links into an app, and stop publishing to a project space. It also brings an app in from CommCare HQ, refreshes lookup tables and places that CommCare HQ manages, and hands a lookup table to Nova or back to CommCare HQ. |
 | `nova.projects.read` | See a shared Project's member list and pending invitations, including members' names and emails. |
 | `nova.projects.write` | Create shared Projects, invite members, change member roles, and move apps between Projects. |
 

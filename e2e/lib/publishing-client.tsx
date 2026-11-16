@@ -22,6 +22,7 @@ import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
+import { asUuid } from "@/lib/domain/uuid";
 import {
 	decodeManualImportGuide,
 	MANUAL_IMPORT_GUIDE_HEADER,
@@ -32,8 +33,21 @@ import {
 } from "@/lib/session/provider";
 
 const appId = "native-publishing";
-const doc = endpointWireFixture("multiple");
 const params = new URLSearchParams(location.search);
+/* One persona, so the Publishing section's Workers panel has someone to make
+ * an account for. */
+const PERSONA_UUID = asUuid("0199a000-0000-7000-8000-00000000a001");
+const fixture = endpointWireFixture("multiple");
+const doc =
+	params.get("persona") === "true"
+		? {
+				...fixture,
+				personas: {
+					[PERSONA_UUID]: { uuid: PERSONA_UUID, name: "Nurse" },
+				},
+				personaOrder: [PERSONA_UUID],
+			}
+		: fixture;
 const viewer = params.get("viewer") === "true";
 /* The member's Project role: `admin` may stop publishing, `editor` may not. */
 const role = params.get("role") ?? undefined;

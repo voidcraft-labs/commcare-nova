@@ -337,6 +337,21 @@ describe("accountAsText", () => {
 			"Nova couldn't bring in this app this time (demo-space, checked 2026-11-15)",
 		);
 	});
+
+	it("reads an app whose CommCare HQ name is blank as this app", () => {
+		for (const appName of ["", "   "]) {
+			const text = accountAsText(
+				account([manifestFinding(QUESTION_PLACE(0, 0, "/data/age"))], {
+					appName,
+				}),
+				CONTEXT,
+				"2026-11-15",
+			);
+			expect(text.split("\n")[0]).toBe(
+				"Nova can't bring in this app yet (demo-space, checked 2026-11-15)",
+			);
+		}
+	});
 });
 
 describe("STOP_ACTIONS", () => {

@@ -516,6 +516,60 @@ describe("the signal each route hands its service", () => {
 		expect(options).toEqual({ onEvent: expect.any(Function) });
 		expect(Object.keys(options ?? {})).toEqual(["onEvent"]);
 	});
+
+	it("runs a create to its end where the client stops reading mid-stream, and logs nothing", async () => {
+		const failed = vi.spyOn(log, "error").mockImplementation(() => {});
+		let release: () => void = () => {};
+		const released = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		/* The shell serializes the done line in the same synchronous run that
+		 * enqueues it, so once the answer has been serialized, whatever an enqueue
+		 * into a gone client's stream throws has already happened. */
+		let serialized: () => void = () => {};
+		const doneWritten = new Promise<void>((resolve) => {
+			serialized = resolve;
+		});
+		const created: CreateAnswer = { kind: "created", receipt: RECEIPT };
+		Object.defineProperty(created, "toJSON", {
+			enumerable: false,
+			value(this: CreateAnswer) {
+				serialized();
+				return { ...this };
+			},
+		});
+		const reached: string[] = [];
+		vi.mocked(createFromReview).mockImplementation(
+			async (_actor, _input, { onEvent }) => {
+				onEvent({ type: "stage", stage: "connecting" });
+				await released;
+				onEvent({ type: "files", done: 1, total: 1 });
+				reached.push("files");
+				onEvent({ type: "stage", stage: "creating" });
+				reached.push("creating");
+				return created;
+			},
+		);
+
+		const response = await createPost(request("create", INPUT));
+		const body = response.body;
+		if (body === null) throw new Error("The create answered no stream.");
+		const reader = body.getReader();
+		const first = await reader.read();
+		expect(JSON.parse(new TextDecoder().decode(first.value))).toEqual({
+			type: "stage",
+			stage: "connecting",
+		});
+		await reader.cancel();
+		release();
+
+		await expect(
+			vi.mocked(createFromReview).mock.results[0]?.value,
+		).resolves.toBe(created);
+		await doneWritten;
+		expect(reached).toEqual(["files", "creating"]);
+		expect(failed).not.toHaveBeenCalled();
+	});
 });
 
 describe("the hosts that reach the bring-in routes", () => {
