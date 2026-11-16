@@ -132,7 +132,16 @@ function requestBatch(request: ProviderRequest): BatchPayload {
 	throw new Error("No translation source in the provider request");
 }
 
-it("recovers accepted batches across a replacement run, preserves references and saves one complete language", async () => {
+it("recovers accepted batches across a replacement run, preserves references and saves one complete language", {
+	// Its time is the contract's own steps, none heavy and none the contract
+	// can drop: authoring the app through four shared tools, an interrupted
+	// run, a replacement claim, four session openings, the translation, its
+	// receipt, a save and the translations after it, each a transaction on
+	// Postgres. Alone they take under a second, about 0.25 s the fixture's and
+	// no step more than 0.1 s; under a full parallel run every one waits on the
+	// shared database, which took the test near the 5 s default.
+	timeout: 20_000,
+}, async () => {
 	const f = await fixture();
 	let session = f.session;
 	let authority = f.authority;

@@ -3770,10 +3770,22 @@ def _prompt_reader(test):
     return reader
 
 
+# The input types HQ's Case List page shows over an address appearance (``case_claim.js::_getAppearance`` tests them
+# last), which HQ's build also writes over the ``input="address"`` the appearance gives
+# (``remote_requests.py::build_query_prompts``): beside one, the prompt is no address field.
+INPUTS_OVER_ADDRESS = frozenset({"date", "daterange", "checkbox"})
+
+
+def _address_field(prompt):
+    return prompt.get("appearance") == "address" and prompt.get("input_") not in INPUTS_OVER_ADDRESS
+
+
 address_with_required_or_validations = _prompt_reader(
-    lambda prompt: prompt.get("appearance") == "address" and (_required(prompt) or bool(_validations(prompt)))
+    lambda prompt: _address_field(prompt) and (_required(prompt) or bool(_validations(prompt)))
 )
-address_with_required_or_validations.__doc__ = """``case-search/appearance-address-with-required-or-validations``."""
+address_with_required_or_validations.__doc__ = """``case-search/appearance-address-with-required-or-validations``: an
+address field (an address appearance with no ``input_`` HQ's build and Case List page put over it) with a requirement
+or a validation."""
 
 hidden_with_required_or_validations = _prompt_reader(
     lambda prompt: bool(prompt.get("hidden")) and (_required(prompt) or bool(_validations(prompt)))
@@ -3781,7 +3793,7 @@ hidden_with_required_or_validations = _prompt_reader(
 hidden_with_required_or_validations.__doc__ = """``case-search/hidden-together-with-required-or-validations``."""
 
 later_validations = _prompt_reader(
-    lambda prompt: len(_validations(prompt)) > 1 and not prompt.get("hidden") and prompt.get("appearance") != "address"
+    lambda prompt: len(_validations(prompt)) > 1 and not prompt.get("hidden") and not _address_field(prompt)
 )
 later_validations.__doc__ = """``case-search/validations-1``: ``validations[1:]`` on a prompt neither hidden nor an
 address (the editor edits only ``[0]``)."""
@@ -3796,6 +3808,27 @@ mobile_ucr_reports = _prompt_reader(
     lambda prompt: prompt.get("input_") in ("select1", "select") and _itemset_scheme(prompt) == "commcare-reports"
 )
 mobile_ucr_reports.__doc__ = """``case-search/input-select1-select-commcare-reports-itemset-mobile-ucr``."""
+
+# The input types a runtime names (commcare-core ``QueryPrompt.INPUT_TYPE_*``): the six Formplayer supports
+# (``QueryScreen.getSupportedPrompts``), of which Android supports three (``QueryRequestActivity``).
+RUNTIME_PROMPT_INPUTS = frozenset({"select1", "select", "date", "daterange", "checkbox", "address"})
+
+
+def input_no_runtime_names(use, manifest):
+    """``case-search/input-no-runtime-names``: a prompt's input type no runtime names, read on the stored
+    prompt's ``input_`` (an app JSON) or on the suite prompt's ``input`` (Core's ``QueryPromptParser``)."""
+    json_at = _json(use)
+    if json_at is not None:
+        prompt = json_at.nearest("CaseSearchProperty")
+        if prompt is None:
+            return None
+        value = prompt.get("input_")
+    else:
+        xml_at = _xml(use)
+        if xml_at is None or _local(xml_at.element) != "prompt":
+            return None
+        value = xml_at.element.get("input")
+    return value not in (None, "") and value not in RUNTIME_PROMPT_INPUTS
 
 
 SEARCH_BUTTON_LABEL = {"en": "Search All Cases"}
@@ -7771,6 +7804,7 @@ VALUE_CLASSES = {
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
+    "case-search/input-no-runtime-names": input_no_runtime_names,
     "case-search/search-button-label-any-other-value": other_search_button_label,
     "case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with": list_first_with_web_apps,
     "case-search/a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys": reserved_request_key,

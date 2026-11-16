@@ -26,7 +26,7 @@ import {
 import { readApplication } from "../../appShell";
 import type { DraftForm, ReadContext } from "../../context";
 import { readStructure } from "../../structure";
-import type { ReaderInput } from "../../types";
+import type { ReaderInput, ReadOutcome } from "../../types";
 import {
 	type DraftField,
 	mintFields,
@@ -70,6 +70,9 @@ export interface CaseReading {
 	readonly ctx: ReadContext;
 	readonly forms: readonly DraftForm[];
 	readonly findings: readonly Finding[];
+	/** The whole reading of the same source, held to the commit gate; undefined for a
+	 *  reading told lookup tables, which its own test holds under their context. */
+	readonly whole: ReadOutcome | undefined;
 }
 
 /** The menu stage's case type for each basic menu, from its stored `case_type`, and where
@@ -164,9 +167,11 @@ export async function readCasesOfBody(
 	// The whole reading binds every expression, which asks the record dialect;
 	// each record print is held to read back, as `novaExport.ts::inputFor` tells
 	// a whole reading.
-	const whole = await tell();
-	if (whole.lookup.definitions.size === 0)
-		readHeld({ ...whole, recordDialect: () => undefined });
+	const told = await tell();
+	const whole =
+		told.lookup.definitions.size === 0
+			? readHeld({ ...told, recordDialect: () => undefined })
+			: undefined;
 	const ctx = readContext(await tell());
 	readApplication(ctx);
 	readStructure(ctx);
@@ -180,7 +185,7 @@ export async function readCasesOfBody(
 	// bound form under its own row.
 	settleCaseManagement(ctx, ctx.draft);
 	const forms = ctx.draft.modules.flatMap((module) => module.forms);
-	return { ctx, forms, findings: ctx.close().findings };
+	return { ctx, forms, findings: ctx.close().findings, whole };
 }
 
 /** Every field of a form's reading in document order. */

@@ -39,12 +39,19 @@ export const EMISSION_REWRITES: Readonly<
 	"absent-session-value-guard": { behavior: "changes" },
 	/** `formReads.ts::formReadToWire`, and a Save to Case block's binding
 	 *  (`formReads.ts::placeBindingWithheld`): a row filter inside a repeat
-	 *  reads this entry's answer. */
+	 *  reads this entry's answer. Also a block's read, inside a row filter, of
+	 *  the id of a create in a repeat, which `xform/caseOps.ts::bindOperationPaths`
+	 *  prints through `current()` and the reader prints by the create block's
+	 *  absolute path where this is withheld (`reader/expressions/readExpression.ts::relocatedOperationIds`):
+	 *  the read is of this entry's case. */
 	"row-predicate-current": { behavior: "changes" },
 	/** `formReads.ts::formReadToWire`, the `default_value` slot, and a Save to
 	 *  Case block's binding of its own repeat's answer outside a row filter
 	 *  (`formReads.ts::placeBindingWithheld`): Core resolves the absolute and
-	 *  the `current()` spelling of the read to one node. */
+	 *  the `current()` spelling of the read to one node. Also a block's read of
+	 *  an earlier create's id anywhere else, which `xform/caseOps.ts::bindOperationPaths`
+	 *  prints through `current()` and the reader prints by the create block's
+	 *  absolute path where this is withheld (`reader/expressions/readExpression.ts::relocatedOperationIds`). */
 	"default-reads-current": { behavior: "none" },
 	/** `csql/print.ts`: a search value picks its quote mark and fails closed. */
 	"search-value-guards": { behavior: "changes" },

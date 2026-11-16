@@ -48,9 +48,11 @@ import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUni
 import type { Uuid } from "@/lib/domain/uuid";
 import { compileCcz } from "../../compiler";
 import { expandDoc } from "../../expander";
+import { localeFileIssue } from "../../localeFile";
 import { commCareLocalization } from "../../localization";
 import { runValidation } from "../../validator/runner";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
+import { holdText, unheldText } from "../heldText";
 import { cleanTrans } from "../hqText";
 import { readHqApp } from "../index";
 import { inSpanish } from "../menus/__tests__/menuReading";
@@ -1514,6 +1516,45 @@ describe("an app string Nova's gate admits no spelling of", () => {
 				).toEqual(one.places.map((place) => [shape.entry, place, shape.text]));
 			});
 		}
+});
+
+/**
+ * A stored text spelling each thing the locale file shows otherwise (`localeFile.ts::localeFileIssue`):
+ * a device's reading of it holds none of them but a backslash before `#`, so the text is held as
+ * the device shows it, or refused for that one cause, and a text held never holds what the gate
+ * refuses. The failure it catches: a stored spelling that gives a cause other than its own (the
+ * backslash before `#` read as a character XML cannot carry), or a held text the gate refuses.
+ */
+describe("a stored text spelling what the locale file shows otherwise", () => {
+	const shapes = [
+		{ stored: "Uno\\nDos", held: "Uno\nDos" },
+		{ stored: "Uno\\\\nDos", held: "Uno\\\nDos" },
+		{ stored: "Uno \\#", held: "Uno #" },
+		{ stored: "Uno\\#n", held: "Uno#n" },
+		{ stored: "Uno\rDos", held: "Uno" },
+		{ stored: " Uno \n", held: "Uno" },
+		{ stored: "\nUno\\n", held: "Uno" },
+		{ stored: "Uno \\\\#", cause: "backslash-before-hash" },
+		{ stored: "\\\\\\#", cause: "backslash-before-hash" },
+	] as const;
+	for (const shape of shapes)
+		it(`holds ${JSON.stringify(shape.stored)} as a device shows it, or refuses it for its own cause`, () => {
+			const held = holdText(shape.stored);
+			const unheld = unheldText(
+				{ es: shape.stored },
+				["es"],
+				"es",
+				"search-input-hint",
+			);
+			if ("held" in shape) {
+				expect(held).toBe(shape.held);
+				expect(localeFileIssue(shape.held)).toBeUndefined();
+				expect(unheld).toBeUndefined();
+			} else {
+				expect(held).toBeUndefined();
+				expect(unheld).toEqual({ cause: shape.cause, text: shape.stored });
+			}
+		});
 });
 
 /**

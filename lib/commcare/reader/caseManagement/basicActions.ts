@@ -158,13 +158,25 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-case-condition-never-on-a-registration-form`,
 		"schema:FormActions.update_case",
 	),
+	updateNeverRegistrationCondition: take(
+		`${F}/update-case-condition-never-on-a-registration-form`,
+		"schema:UpdateCaseAction.condition",
+	),
 	updateNeverWithOthers: take(
 		`${F}/update-case-condition-never-on-a-follow-up-with-any-other-entry`,
 		"schema:FormActions.update_case",
 	),
+	updateNeverWithOthersCondition: take(
+		`${F}/update-case-condition-never-on-a-follow-up-with-any-other-entry`,
+		"schema:UpdateCaseAction.condition",
+	),
 	updateNeverMulti: take(
 		`${F}/update-case-condition-never-on-a-follow-up-in-a-multi-select-or`,
 		"schema:FormActions.update_case",
+	),
+	updateNeverMultiCondition: take(
+		`${F}/update-case-condition-never-on-a-follow-up-in-a-multi-select-or`,
+		"schema:UpdateCaseAction.condition",
 	),
 	updateNeverAlone: refuse(
 		`${F}/update-case-condition-never-on-a-follow-up-with-no-other-active`,
@@ -543,6 +555,15 @@ export interface BasicCaseReading {
 	readonly bareOwnId?: string;
 	/** The menu's case type, the own arm's. */
 	readonly caseType: string;
+	/**
+	 * The questions a child case the reading refuses reads its name or its
+	 * external id from. Nova's emitter conjoins its check onto such a question
+	 * only while a case action reads it so (`lib/domain/caseScalarTextGuard.ts`),
+	 * and the document leaves the refused child out, so the check the question
+	 * carries stands under that child's finding, as a refused Save to Case
+	 * block's does (`saveToCase.ts::scalarFieldsOfRefusedBlocks`).
+	 */
+	readonly refusedScalarFields: readonly DraftField[];
 }
 
 const READINGS = new WeakMap<DraftForm, BasicCaseReading>();
@@ -1126,6 +1147,9 @@ interface FormReading {
 	readonly applied: boolean;
 	/** The names a create reads: the questions whose bind's `required` is HQ's. */
 	readonly createNames: DraftField[];
+	/** The questions a child case the reading refuses reads its name or external id
+	 *  from (`BasicCaseReading.refusedScalarFields`). */
+	readonly refusedScalarFields: DraftField[];
 }
 
 function rewrite(ctx: ReadContext, entry: string, path: string): void {
@@ -1512,6 +1536,7 @@ export function readBasicActions(
 		caseType,
 		applied: ctx.input.saveOnlyEditedApplied === true,
 		createNames: [],
+		refusedScalarFields: [],
 	};
 	const opens = active.has("open_case");
 	const loads = row.type === "followup" || row.type === "close";
@@ -1639,10 +1664,17 @@ export function readBasicActions(
 	else if (loads && !defaultCaseManagement) {
 		if (updateType === "never") {
 			// HQ writes no primary block here under either word; Nova writes `always`.
-			A.object(
+			const U = A.object(
 				"update_case",
 				"UpdateCaseAction",
 				BASIC_CLAIMS.updateNeverMulti,
+			);
+			consume(
+				U.take(
+					"condition",
+					BASIC_CLAIMS.updateNeverMultiCondition,
+					(value) => value,
+				),
 			);
 			rewrite(
 				ctx,
@@ -1675,14 +1707,20 @@ export function readBasicActions(
 				);
 			}
 		} else if (row.type === "registration") {
-			claims = { container: BASIC_CLAIMS.updateNeverRegistration };
+			claims = {
+				container: BASIC_CLAIMS.updateNeverRegistration,
+				condition: BASIC_CLAIMS.updateNeverRegistrationCondition,
+			};
 			rewrite(
 				ctx,
 				BASIC_CLAIMS.updateNeverRegistration.entry,
 				`${A.pointer}/update_case/condition`,
 			);
 		} else if (others) {
-			claims = { container: BASIC_CLAIMS.updateNeverWithOthers };
+			claims = {
+				container: BASIC_CLAIMS.updateNeverWithOthers,
+				condition: BASIC_CLAIMS.updateNeverWithOthersCondition,
+			};
 			rewrite(
 				ctx,
 				BASIC_CLAIMS.updateNeverWithOthers.entry,
@@ -1888,6 +1926,7 @@ export function readBasicActions(
 		conditions,
 		...(bareOwn !== undefined && { bareOwn, bareOwnId }),
 		caseType,
+		refusedScalarFields: r.refusedScalarFields,
 	});
 }
 
@@ -1956,6 +1995,38 @@ function readSubcases(
 	);
 	cursors.forEach((S, index) => {
 		const subcase = stored[index] as Record<string, unknown>;
+		const conditionStored = S.peek("condition");
+		const type = conditionType(conditionStored);
+		// A child case that never opens is one cause, whatever else the entry
+		// holds: HQ's build reads every entry (`FormActions.get_subcases` keeps
+		// it, `Form.active_actions` drops no entry of a non-empty list) and
+		// writes its block with a create whose relevance is `false()`
+		// (`xform.py::XForm._create_casexml`, `action_relevance`), which Nova
+		// writes in no shape. Removing the child case on HQ's Case Management
+		// page removes all of it, so the entry is refused once, whole.
+		if (type === "never") {
+			S.refuseWhole(BASIC_CLAIMS.subcaseNever);
+			// The check Nova's emitter conjoins onto the question that names the
+			// child, and onto the one its external id reads, stands under this
+			// finding too.
+			const properties = isJsonObject(subcase.case_properties)
+				? subcase.case_properties
+				: {};
+			const scalars: [unknown, string][] = [
+				[subcase.name_update, "name"],
+				[properties.external_id, "external_id"],
+			];
+			for (const [update, property] of scalars) {
+				const path = isJsonObject(update) ? update.question_path : undefined;
+				const read =
+					typeof path === "string" && path !== ""
+						? questionValue(ctx, form, path, property)
+						: undefined;
+				if (read?.kind === "value")
+					r.refusedScalarFields.push(read.value.field);
+			}
+			return;
+		}
 		let ok = true;
 		const caseType = S.peek("case_type");
 		if (typeof caseType !== "string" || !moduleTypes.has(caseType)) {
@@ -1987,17 +2058,10 @@ function readSubcases(
 			S.refuse("reference_id", BASIC_CLAIMS.subcaseReferenceOther);
 			ok = false;
 		}
-		const conditionStored = S.peek("condition");
-		const type = conditionType(conditionStored);
-		if (type === "never") {
-			S.refuse("condition", BASIC_CLAIMS.subcaseNever);
-			ok = false;
-		} else {
-			consume(
-				S.take("condition", BASIC_CLAIMS.subcaseCondition, (value) => value),
-			);
-			noteConditionQuestion(r, conditionStored);
-		}
+		consume(
+			S.take("condition", BASIC_CLAIMS.subcaseCondition, (value) => value),
+		);
+		noteConditionQuestion(r, conditionStored);
 
 		// The name and the writes.
 		const nameUpdate = consume(
@@ -2117,8 +2181,14 @@ function readSubcases(
 			);
 			noteConditionQuestion(r, closeStored);
 		}
-		if (!ok || name === undefined || typeof caseType !== "string") return;
-		if (name !== undefined) r.createNames.push(name.field);
+		if (!ok || name === undefined || typeof caseType !== "string") {
+			if (name !== undefined) r.refusedScalarFields.push(name.field);
+			for (const write of writes)
+				if (write.property === "external_id")
+					r.refusedScalarFields.push(write.value.field);
+			return;
+		}
+		r.createNames.push(name.field);
 
 		const shared =
 			(perRepeat.get(

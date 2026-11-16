@@ -10,20 +10,81 @@ import {
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { entriesAt } from "../../__tests__/readerInput";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
-import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
+import {
+	codesOf,
+	readMenusOf as readMenusOfUnheld,
+} from "../../menus/__tests__/menuReading";
 import {
 	type AppJson,
+	type CaseReading,
 	readCases as readCasesOf,
 	readFields,
 } from "./caseReading";
 
 const F = "forms-and-case-writes";
 
-const readCases = namingFromHqPages(readCasesOf);
+/** The case management findings of a reading, its own `unrecognized` left out. */
+function caseCodes(findings: readonly Finding[]): string[] {
+	return findings
+		.map((one) => one.code)
+		.filter((code) => code.startsWith(`${F}/`) || code.startsWith("questions/"))
+		.sort();
+}
+
+/** Each `unrecognized` finding of a reading, by its surface key and its place
+ *  (`<surface key> at <place kind>`, then a question's path). */
+function unrecognizedOf(findings: readonly Finding[]): string[] {
+	return findings
+		.filter((one) => one.code === "unrecognized")
+		.map((one) => {
+			const path = (one.place as { path?: string }).path;
+			return `${(one.detail as { name?: string }).name} at ${one.place.kind}${path === undefined ? "" : ` ${path}`}`;
+		});
+}
+
+/**
+ * Every source a stage reading here reads is also read whole, and the whole
+ * account is the stage's: the same case management findings, no reader
+ * defect, and no `unrecognized` finding beyond `unrecognized` (each as
+ * `unrecognizedOf` names it). The plausible failure: a source the stage holds
+ * whose whole reading gives a lone `unrecognized` at the form's actions,
+ * which the settle's comparison raises where the stage never compares.
+ */
+function holdWhole(reading: CaseReading, unrecognized: string[] = []): void {
+	const whole = reading.whole;
+	if (whole === undefined)
+		throw new Error("Every source here is read whole: none is told tables.");
+	expect(whole.defects).toEqual([]);
+	const findings = whole.kind === "account" ? whole.findings : [];
+	expect(unrecognizedOf(findings)).toEqual(unrecognized);
+	expect(caseCodes(findings)).toEqual(caseCodes(reading.findings));
+}
+
+/** A stage reading whose whole reading gives the account `holdWhole` asks. */
+const readCasesHolding = (unrecognized: string[]) =>
+	namingFromHqPages(async (...args: Parameters<typeof readCasesOf>) => {
+		const reading = await readCasesOf(...args);
+		holdWhole(reading, unrecognized);
+		return reading;
+	});
+
+const readCases = readCasesHolding([]);
+
+/** A whole reading, held to give no reader defect and no `unrecognized`
+ *  finding: each source here is one whose every use the reader accounts. */
+async function readMenusOf(
+	...args: Parameters<typeof readMenusOfUnheld>
+): ReturnType<typeof readMenusOfUnheld> {
+	const reading = await readMenusOfUnheld(...args);
+	expect(reading.outcome.defects).toEqual([]);
+	expect(unrecognizedOf(reading.findings)).toEqual([]);
+	return reading;
+}
 
 function app(
 	forms: FormSpec[],
@@ -272,7 +333,12 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 				}),
 			],
 		};
-		const reading = await readCases(app([hiddenName]), {
+		// The bind's `required` is left where it stands, for the rules of the
+		// question's own logic: here, with nothing else reading it, unclaimed,
+		// in the whole reading as in the stage's.
+		const reading = await readCasesHolding([
+			"xform:bind@required at question name",
+		])(app([hiddenName]), {
 			edit: nameQuestionDirectly,
 			editSource: (xml) =>
 				xml.replace(
@@ -1082,6 +1148,117 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 		expect(atActions(reading)).toEqual([
 			`${F}/update-path-naming-no-question-in-the-form-in-an-active-action`,
 		]);
+	});
+
+	it("refuses a child case that never opens once, whatever its name and external id read", async () => {
+		// HQ's build writes every `subcases[]` entry, a `never` one with a create
+		// whose relevance is `false()` (`xform.py::XForm._create_casexml`), and
+		// removing the child on HQ's Case Management page removes all of it. The
+		// failure this catches: the check Nova's emitter conjoins onto the
+		// question the child's external id reads (`caseScalarTextGuard.ts`) left
+		// beside the one finding as an `unrecognized` constraint, since the
+		// document leaves the refused child out.
+		const KID = testUuid("never-kid");
+		const CODE = testUuid("never-code");
+		const NOTE = testUuid("never-note");
+		const VISIT = testUuid("never-visit");
+		const doc = buildDoc(
+			{
+				caseTypes: [
+					{ name: "patient", properties: [] },
+					{
+						name: "visit",
+						parent_type: "patient",
+						properties: [{ name: "note", label: "Note" }],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								uuid: "never-visit",
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({ kind: "text", id: "kid", uuid: KID }),
+									f({ kind: "text", id: "code", uuid: CODE }),
+									f({ kind: "text", id: "note", uuid: NOTE }),
+								],
+							},
+						],
+					},
+					{ name: "Visits", caseType: "visit", forms: [] },
+				],
+			},
+			(draft) => {
+				draft.forms[VISIT] = {
+					...draft.forms[VISIT],
+					caseOperations: [
+						{ uuid: testUuid("never-own"), id: "patient", action: "own" },
+						{
+							uuid: testUuid("never-create"),
+							id: "visit",
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new" },
+							name: term(formField(KID)),
+							writes: [
+								{ property: "external_id", value: term(formField(CODE)) },
+								{ property: "note", value: term(formField(NOTE)) },
+							],
+							links: [
+								{
+									identifier: "parent",
+									targetType: "patient",
+									target: { kind: "session" },
+									relationship: "child",
+								},
+							],
+						},
+					] as CaseOperation[],
+				} as never;
+			},
+		);
+		// Nova's own export of the child reads back with no finding.
+		expect(codesOf(await readMenusOf(doc))).toEqual([]);
+		const subcase = (json: AppJson) => {
+			const [only] = actionsOf(json).subcases as unknown as Record<
+				string,
+				unknown
+			>[];
+			if (only === undefined) throw new Error("The form opens one child.");
+			const properties = only.case_properties as Record<string, unknown>;
+			if (!("external_id" in properties))
+				throw new Error("The export writes the child's external id.");
+			only.condition = { type: "never", doc_type: "FormActionCondition" };
+			return only;
+		};
+		const edits: Record<string, (json: AppJson) => void> = {
+			never: (json) => {
+				subcase(json);
+			},
+			"never, an extension of a host": (json) => {
+				const only = subcase(json);
+				only.relationship = "extension";
+				only.reference_id = "host";
+			},
+			"never, its name read from the question itself": (json) => {
+				const only = subcase(json);
+				only.name_update = {
+					question_path: "/data/kid",
+					update_mode: "always",
+				};
+			},
+		};
+		for (const [label, edit] of Object.entries(edits)) {
+			const reading = await readMenusOf(doc, (json) => edit(json as AppJson));
+			expect(
+				reading.findings.map((one) => [one.code, one.place.kind]),
+				label,
+			).toEqual([[`${F}/subcases-condition-never`, "form"]]);
+		}
 	});
 
 	it("refuses a child case's close on a question the form no longer has", async () => {

@@ -8,7 +8,10 @@
  */
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
-import { formStructure } from "@/lib/domain/expression/formStructure";
+import {
+	formFieldPath,
+	formStructure,
+} from "@/lib/domain/expression/formStructure";
 import type {
 	CheckError,
 	CheckErrorCode,
@@ -42,6 +45,7 @@ import {
 	locationDataNameRefused,
 	workerDataNameRefused,
 } from "../worldEntities";
+import { absolutePathText, contextPathText } from "./folds";
 
 /** The name of every expression slot a registration can stand in. */
 export type SlotName = SlotContextRef["slot"];
@@ -1912,16 +1916,83 @@ function readsLookupChoices(
 }
 
 /** What a form declares beside its expressions that a parse issue's entry
- *  reads: each declared instance's `src` by id, and the ids the form's
- *  computed datums give (an advanced form's `arbitrary_datums`). */
+ *  reads: each declared instance's `src` by id, the ids the form's computed
+ *  datums give (an advanced form's `arbitrary_datums`), and the absolute
+ *  path of each Save to Case create's id (`DraftForm.operationIdPaths`). */
 export interface FormDeclarations {
 	readonly instanceSources: ReadonlyMap<string, string>;
 	readonly computedDatums: ReadonlySet<string>;
+	readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 }
 const NO_DECLARATIONS: FormDeclarations = {
 	instanceSources: new Map(),
 	computedDatums: new Set(),
+	operationIdPaths: new Map(),
 };
+
+/** Whether the issue's span stands in the path of a Save to Case create's id
+ *  in the slot's form: the parser refuses the path at its first step no
+ *  question takes, so the path read is the longest plain path of the slot's
+ *  text that holds the span, absolute, or relative or from `current()` read
+ *  from the question a question's slot evaluates at (`folds.ts::contextPathText`).
+ *  Core reads the path, and HQ's
+ *  form builder offers a block's case id as a reference, while Nova holds the
+ *  read of a create's id only in a case operation's slots
+ *  (`folds.ts::operationId`), so elsewhere it is a form expression Nova's
+ *  checker narrows, never a read of a node that is not there. */
+function readsOperationId(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	issue: { readonly from?: number; readonly to?: number },
+	form: FormDeclarations,
+): boolean {
+	const { from, to } = issue;
+	if (
+		form.operationIdPaths.size === 0 ||
+		from === undefined ||
+		to === undefined
+	)
+		return false;
+	let read: ReturnType<typeof readFormSyntax>;
+	try {
+		read = readFormSyntax(pending.text);
+	} catch {
+		return false;
+	}
+	if (!read.ok || read.node === undefined) return false;
+	const whole = read.node;
+	const context = questionContext(doc, pending, form);
+	let longest: { readonly text: string; readonly length: number } | undefined;
+	visitSyntax(whole, (node) => {
+		if (node.from > from || node.to < to) return;
+		const text =
+			absolutePathText(node) ??
+			(context === undefined ? undefined : contextPathText(node, context));
+		if (text !== undefined && (longest?.length ?? -1) < node.to - node.from)
+			longest = { text, length: node.to - node.from };
+	});
+	return longest !== undefined && form.operationIdPaths.has(longest.text);
+}
+
+/** The names from the form's root down to the question a question's slot
+ *  evaluates at, the context Core reads a relative path from; the root's name
+ *  is the one every create's id path in the form starts with. */
+function questionContext(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	form: FormDeclarations,
+): readonly string[] | undefined {
+	const ref = pending.ref;
+	if (ref.entity !== "field") return undefined;
+	const formUuid = formOfField(doc, ref.uuid);
+	const structure =
+		formUuid === undefined ? undefined : formStructure(doc, formUuid);
+	const path =
+		structure === undefined ? undefined : formFieldPath(structure, ref.uuid);
+	const [first] = form.operationIdPaths.keys();
+	const root = first?.split("/")[1];
+	return path === undefined || root === undefined ? undefined : [root, ...path];
+}
 
 /** "By parse issue", from its second row down: the entry, `"unrecognized"`,
  *  or `"slot-default"`, with the `detail.reason`. The two refusals of HQ's
@@ -2068,8 +2139,11 @@ export function parseIssueEntry(
 		case "lookup-unavailable":
 			return answer(M2);
 		case "unknown-field":
-		case "relative-unknown":
+		case "relative-unknown": {
+			if (readsOperationId(doc, pending, issue, form))
+				return { entryId: M3, reason: "operation-id-outside-case-operation" };
 			return readsBuildBlock(spanned()) ? answer(M3) : answer(M2);
+		}
 		case "unknown-location-property": {
 			// A reading declares a location property for every name a
 			// `location_data` read names but one no location property takes

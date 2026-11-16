@@ -25,14 +25,7 @@ import { HQ_CASE_RESERVED_WORDS } from "../../constants";
 import { activeActions, isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
 import type { Admitted } from "../accounting";
 import { withCandidate } from "../candidate";
-import {
-	type Claim,
-	defineClaims,
-	derived,
-	drop,
-	refuse,
-	take,
-} from "../claims";
+import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
 import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { externalKey } from "../identity";
@@ -59,10 +52,6 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 	casePreloadMap: take(
 		`${F}/case-preload-question-property-into-a-question-outside-any`,
 		"schema:PreloadAction.preload",
-	),
-	authoredDefault: derived(
-		`${F}/case-preload-question-property-into-a-question-outside-any`,
-		"xform:setvalue",
 	),
 	parentPreload: take(
 		`${F}/case-preload-from-parent-paths-into-a-question-outside-any`,
@@ -228,32 +217,65 @@ export function holdsDefault(form: DraftForm, field: DraftField): boolean {
 	);
 }
 
-/** Moves a question's default to the preload: the authored default HQ's
- *  load ran after is read past, and its setvalue claimed under the load. */
+/** The default each preload gives its question, by form: written into the
+ *  document once every expression is bound (`settlePreloadDefaults`). */
+const PRELOAD_DEFAULTS = new WeakMap<
+	DraftForm,
+	Map<DraftField, Expression | undefined>
+>();
+
+/** Moves a question's default to the preload. The authored default HQ's load
+ *  runs after stays registered as the form stage read it (`xform/logic.ts::readDefaults`:
+ *  the setvalue, its `event` and its `ref` the form stage's, its `value` the
+ *  expression stage's), so the expression stage judges and claims its value
+ *  as it does a default no preload replaces: a value HQ's build refuses, or
+ *  one Core fails on as the form loads, keeps the form out under its own
+ *  finding, since the form never loads to run the preload. The preload's
+ *  default takes the slot once every expression is bound
+ *  (`settlePreloadDefaults`). */
 export function writeDefault(
 	ctx: ReadContext,
 	form: DraftForm,
 	field: DraftField,
 	value: Expression | undefined,
 ): void {
-	const xform = form.xform;
-	if (xform === null) return;
-	for (const setvalue of xform.setvalues) {
-		if (setvalue.event !== "xforms-ready" || setvalue.target === undefined)
-			continue;
-		if (setvalue.target.join("/") !== field.node.path.join("/")) continue;
-		xform.cursor.derived(
-			{ element: setvalue.element },
-			PRELOAD_CLAIMS.authoredDefault,
-		);
-	}
+	if (form.xform === null) return;
 	ctx.writeDraft(() => {
-		const at = field.expressions.findIndex(
-			(one) => one.slot === "default_value",
-		);
-		if (at !== -1) field.expressions.splice(at, 1);
 		if (value === undefined) delete field.field.default_value;
 		else field.field.default_value = value;
+	});
+	const known = PRELOAD_DEFAULTS.get(form);
+	if (known === undefined)
+		PRELOAD_DEFAULTS.set(form, new Map([[field, value]]));
+	else known.set(field, value);
+}
+
+/** Writes each preload's default over the authored default the expression
+ *  stage bound in its place (`writeDefault`), before any settle reads the
+ *  document's defaults. */
+export function settlePreloadDefaults(
+	ctx: ReadContext,
+	forms: readonly DraftForm[],
+): void {
+	const doc = ctx.doc;
+	if (doc === undefined) return;
+	const writes: [Uuid, Expression | undefined][] = [];
+	for (const form of forms)
+		for (const [field, value] of PRELOAD_DEFAULTS.get(form) ?? []) {
+			const uuid = field.uuid;
+			if (uuid === undefined || doc.fields[uuid] === undefined) continue;
+			const now = (doc.fields[uuid] as { default_value?: Expression })
+				.default_value;
+			if (!sameJson(now, value)) writes.push([uuid, value]);
+		}
+	if (writes.length === 0) return;
+	ctx.doc = withCandidate(doc, (draft) => {
+		for (const [uuid, value] of writes) {
+			const field = draft.fields[uuid] as Record<string, unknown> | undefined;
+			if (field === undefined) continue;
+			if (value === undefined) delete field.default_value;
+			else field.default_value = value;
+		}
 	});
 }
 

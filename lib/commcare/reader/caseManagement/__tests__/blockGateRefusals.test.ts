@@ -51,6 +51,7 @@
  * The plausible failure: each read as an operation with no finding, into a
  * document the gate refuses, which the held sweep (`heldReading.ts`) fails.
  */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -85,6 +86,8 @@ const DECLARED_TYPE =
 const CASE_TYPE_NAME =
 	"questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters";
 const LONG_TYPE = `v${"x".repeat(299)}`;
+const EXPRESSION_OUTSIDE =
+	"questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id";
 const LONG_LINK =
 	"questions/a-savetocase-link-name-longer-than-commcare-hq-stores";
 
@@ -598,4 +601,114 @@ describe("Save to Case blocks a device refuses, as a person writes them in HQ", 
 					: [],
 			).toEqual([]);
 		});
+});
+
+// A change whose case is the one a create in a repeat makes, from outside
+// that repeat's rows: from the root, which every row's case answers
+// (`CASE_OPERATION_AMBIGUOUS_REFERENCE`), and from another repeat, whose rows
+// are not the create's (`CASE_OPERATION_REPEAT_CORRELATION`). Each row makes
+// its own case, and Nova holds a change of it only in the same row. Each is
+// read from Nova's print, which names the create's id from `current()`, and
+// with that id named by the create block's absolute path, as an author may
+// write it in HQ, which Core resolves to the same nodes. Either way the source
+// is one finding at the block, never a reader defect and never an expression
+// Core cannot evaluate:
+// - from the root, the block-shape entry: Nova writes a form's root blocks
+//   before its repeats', so the change's case id reads a block after it, which
+//   no block Nova writes for a document the gate admits does;
+// - from another repeat, the gate's refusal, the entry of a case id outside
+//   Nova's typed vocabularies (`index.ts::settleCaseChanges`), where the id is
+//   read from `current()`; and the block-shape entry where it is spelled by
+//   the absolute path, which Nova writes from `current()` and the block's
+//   re-emission holds the source to (`saveToCase.ts::settleSaveToCase`).
+const PETS = testUuid("block-gate-pets");
+const PET = testUuid("block-gate-pet");
+
+/** `app`'s followup with a second repeat, `pets`, beside `kids`. */
+function twoRepeats(operations: CaseOperation[]): BlueprintDoc {
+	return produce(app("followup", operations), (draft) => {
+		const pets = f({
+			kind: "repeat",
+			id: "pets",
+			uuid: PETS,
+			repeat_mode: "user_controlled",
+		} as never);
+		const pet = f({ kind: "text", id: "pet", uuid: PET });
+		draft.fields[PETS as Uuid] = pets as never;
+		draft.fields[PET as Uuid] = pet as never;
+		draft.fieldOrder[FORM]?.push(PETS as Uuid);
+		draft.fieldOrder[PETS as Uuid] = [PET as Uuid];
+	});
+}
+
+const kidVisit = visitCreate({ forEach: { repeat: KIDS } });
+const opTargets: readonly (readonly [
+	string,
+	string,
+	() => BlueprintDoc,
+	string,
+	{ readonly printed: string; readonly absolute: string },
+])[] = [
+	[
+		"a change at the root of the case a repeat's create makes",
+		"CASE_OPERATION_AMBIGUOUS_REFERENCE",
+		() =>
+			twoRepeats([
+				own,
+				kidVisit,
+				update({
+					caseType: "visit",
+					target: { kind: "op", opUuid: VISIT },
+					writes: [{ property: "outcome", value: answer, condition: onYes }],
+				}),
+			]),
+		"current()/../../../../kids/nova_operations/mk/case/@case_id",
+		{ printed: OUTSIDE, absolute: OUTSIDE },
+	],
+	[
+		"a change in another repeat of the case a repeat's create makes",
+		"CASE_OPERATION_REPEAT_CORRELATION",
+		() =>
+			twoRepeats([
+				own,
+				kidVisit,
+				update({
+					caseType: "visit",
+					forEach: { repeat: PETS },
+					target: { kind: "op", opUuid: VISIT },
+					writes: [{ property: "outcome", value: answer, condition: onYes }],
+				}),
+			]),
+		"current()/../../../../../kids/nova_operations/mk/case/@case_id",
+		{ printed: EXPRESSION_OUTSIDE, absolute: OUTSIDE },
+	],
+];
+
+describe("Save to Case changes of the case a repeat's create makes, from outside its rows", () => {
+	for (const [name, code, make, printed, entries] of opTargets)
+		for (const spelling of ["printed", "absolute"] as const)
+			it(`reads ${name}, its case id ${spelling === "printed" ? "as Nova prints it" : "by the create's absolute path"}, as one finding at the block`, async () => {
+				const doc = make();
+				expect(gateCodes(doc)).toContain(code);
+				const outcome = await readBack(
+					doc,
+					spelling === "printed"
+						? {}
+						: {
+								xml: (xml) =>
+									replaceOnce(
+										xml,
+										`calculate="${printed}"`,
+										`calculate="/data/kids/nova_operations/mk/case/@case_id"`,
+									),
+							},
+				);
+				expect(outcome.defects).toEqual([]);
+				if (outcome.kind !== "account")
+					throw new Error(`${name}, which the gate refuses, was read.`);
+				expect(outcome.findings.map((one) => one.code)).toEqual([
+					entries[spelling],
+				]);
+				expect(outcome.findings[0]?.place).toMatchObject({ kind: "question" });
+			});
 });

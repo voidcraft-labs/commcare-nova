@@ -1133,7 +1133,12 @@ function promptDifference(
 	)
 		return "schema:CaseSearchProperty.appearance";
 	for (const [key, role] of PROMPT_TEXT_KEYS)
-		if (!sameTexts(codes, source, role, stored[key], ours[key]))
+		if (
+			// A hidden prompt's hint is shown nowhere, and the reading holds none
+			// (`prompts.ts::readPrompt`).
+			!(key === "hint" && stored.hidden === true && ours.hint === undefined) &&
+			!sameTexts(codes, source, role, stored[key], ours[key])
+		)
 			return `schema:CaseSearchProperty.${key}`;
 	if (!sameXPathValue(stored.default_value, ours.default_value))
 		return "schema:CaseSearchProperty.default_value";

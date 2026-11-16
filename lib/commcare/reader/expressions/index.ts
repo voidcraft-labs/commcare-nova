@@ -472,6 +472,9 @@ function declarationsOf(
 		computedDatums:
 			(form === undefined ? undefined : env.computedDatums.get(form)) ??
 			new Set(),
+		operationIdPaths:
+			(form === undefined ? undefined : env.operationIdPaths.get(form)) ??
+			new Map(),
 	};
 }
 
@@ -517,12 +520,15 @@ function refusalOf(
 	};
 }
 
+/** The refusal of `candidate`, the slot's tree, which the document the slots
+ *  are judged against leaves out where the checker refuses it. */
 function checkRefusal(
 	error: CheckError,
 	doc: BlueprintDoc,
 	pending: PendingExpression,
+	candidate: Expression,
 ): Resolution {
-	const answer = checkErrorEntry(error, doc, pending);
+	const answer = checkErrorEntry(error, doc, pending, candidate);
 	return {
 		kind: "entry",
 		entryId:
@@ -656,13 +662,49 @@ export function readExpressions(
 	// The trees step 4 holds at the second level, which every slot is judged
 	// against once they differ from what the slot bound.
 	let settled = new Map<number, Expression>();
-	const treesOf = (): Map<number, Expression> =>
+	// Every tree bound or held so far, by registration.
+	const boundTrees = (): Map<number, Expression> =>
 		new Map([
 			...[...bindings].map(
 				([index, bound]) => [index, bound.candidate] as const,
 			),
 			...settled,
 		]);
+	// The trees the checker refuses over the document the slots are printed
+	// over. A refused tree is one finding, its slot's (step 5), and is left out
+	// of that document: written in, it is a tree the emitter refuses, and every
+	// other slot printed over the document (a Save to Case block's others,
+	// printed through the form's case wire) would fail to print beside it. The
+	// check of step 5 is still made over the document that holds every tree, so
+	// one refusal does not change the type another slot is checked under.
+	const refusedTrees = new WeakSet<Expression>();
+	const treesOf = (): Map<number, Expression> =>
+		new Map([...boundTrees()].filter(([, tree]) => !refusedTrees.has(tree)));
+	/** The document holding every tree the checker admits over it: each
+	 *  tree is checked over the document written so far, and a refused one
+	 *  is left out, until none more is. */
+	const writtenAdmitted = (): BlueprintDoc => {
+		for (;;) {
+			const trees = treesOf();
+			const doc = written(base, pending, sites, trees);
+			let more = false;
+			for (const [index, tree] of trees) {
+				const context = slotContext(
+					doc,
+					(pending[index] as PendingExpression).ref,
+					types,
+				);
+				if (
+					context !== undefined &&
+					refusals(checkExpression(tree, context).errors).length > 0
+				) {
+					refusedTrees.add(tree);
+					more = true;
+				}
+			}
+			if (!more) return doc;
+		}
+	};
 	let current = base;
 	let judgments = new Map<number, SlotJudgment>();
 	let rounds = 0;
@@ -672,14 +714,21 @@ export function readExpressions(
 	let levels = new Map<number, PrintLevel>();
 	for (;;) {
 		const start =
-			settled.size === 0 ? base : written(base, pending, sites, settled);
+			settled.size === 0
+				? base
+				: written(
+						base,
+						pending,
+						sites,
+						new Map([...settled].filter(([, tree]) => !refusedTrees.has(tree))),
+					);
 		// A leveled slot keeps the sites it withdrew; every other slot is
 		// offered its folds again over the leveled document.
 		withdrawn.forEach((taken, index) => {
 			if (!settled.has(index)) taken.clear();
 		});
 		for (const index of bindable) bindAt(start, index);
-		current = written(base, pending, sites, treesOf());
+		current = writtenAdmitted();
 		for (;;) {
 			rounds++;
 			judgments = new Map(
@@ -700,7 +749,7 @@ export function readExpressions(
 				withdrawn[index]?.add(site);
 				bindAt(current, index);
 			}
-			current = written(base, pending, sites, treesOf());
+			current = writtenAdmitted();
 		}
 
 		// 4. Level: a slot still unequal is compared with the print that leaves
@@ -802,10 +851,12 @@ export function readExpressions(
 		settled = leveled;
 	}
 	const circumstances: ExpressionReading["circumstances"][number][] = [];
-	const checked =
-		leveled.size === 0
-			? current
-			: written(base, pending, sites, new Map([...treesOf(), ...leveled]));
+	const checked = written(
+		base,
+		pending,
+		sites,
+		new Map([...boundTrees(), ...leveled]),
+	);
 
 	// 5. Check every held slot over the document that holds every bound
 	// candidate; 6. hand every held record slot to the dialect's judge.
@@ -841,7 +892,7 @@ export function readExpressions(
 		if (first !== undefined) {
 			outcomes.set(index, {
 				kind: "refused",
-				resolution: checkRefusal(first, checked, registration),
+				resolution: checkRefusal(first, checked, registration, candidate),
 			});
 			continue;
 		}

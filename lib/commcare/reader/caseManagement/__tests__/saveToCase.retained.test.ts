@@ -74,6 +74,26 @@ describe("Save to Case blocks of an earlier shape, as CommCare HQ served them", 
 		expect(outcome.kind).toBe("account");
 		expect(outside).toEqual(expect.arrayContaining(blocks));
 		expect(outside).toHaveLength(blocks.length);
+		// The whole account: beside each block, the form's one inactive child case
+		// (a `subcases[]` entry whose condition is `never`, which Nova wrote then
+		// beside the block that carries the extension) is one finding, whatever
+		// else the entry holds (its `relationship: extension`, the check on its
+		// name's question), since removing it on HQ's Case Management page
+		// removes all of it; no reader defect and no `unrecognized` finding.
+		expect(outcome.defects).toEqual([]);
+		const NEVER = "forms-and-case-writes/subcases-condition-never";
+		expect(
+			(outcome.kind === "account" ? outcome.findings : []).map((finding) => [
+				finding.code,
+				finding.place.kind,
+				(finding.place as { path?: string }).path ?? null,
+			]),
+		).toEqual(
+			blocks.flatMap((block) => [
+				[NEVER, "form", null],
+				[OUTSIDE, "question", block.path],
+			]),
+		);
 	});
 
 	it("raises the new entry at no block of targeted-migration-case-writes, whose Discharge form closes its own case beside its own change", async () => {

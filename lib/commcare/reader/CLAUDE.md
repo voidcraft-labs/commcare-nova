@@ -275,6 +275,19 @@ The places that look as if they could and do not:
 Shapes CommCare HQ can give that the reader refuses rather than holds, each with a true finding.
 A change that holds one removes its line.
 
+- **A Save to Case block's case id that names an earlier create by the create block's absolute
+  path** (`/data/…/mk/case/@case_id`), which Core resolves to the node Nova's `current()`
+  spelling names: one finding at the block under
+  `questions/savetocase-block-outside-nova-s-own-block-shape`, since `saveToCase.ts::readTarget`
+  reads the path as the create while the block's re-emission (`settleSaveToCase`, test 4) holds the
+  source to Nova's `current()` print. Inside a block's expression (a value, a condition) the same
+  path is held (`expressions/folds.ts::operationId`).
+- **A question's own logic (a calculate, a display condition) that reads a Save to Case create's
+  id by the create block's path** (absolute, relative or from `current()`, the last two read from
+  the question as Core reads them): one finding at the question under
+  `expressions-and-data/a-form-expression-outside-what-nova-types`, reason
+  `operation-id-outside-case-operation` (`expressions/findings.ts::readsOperationId`). Core reads
+  the path, but Nova holds the read of a create's id only in a case operation's slots.
 - **A carriage return in an app string whose rest defines another app string**: refused under
   `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`
   at the text's place, or at its key in `translations` (`heldText.ts::refuseLineEndKey`,
@@ -326,6 +339,15 @@ A change that holds one removes its line.
   screen title read the text through Core's `Localizer.processArguments` (`Visits ${0}` shows as
   `Visits`), while Web Apps' menu list shows it as stored, so no text Nova holds shows alike on
   every screen, and the gate refuses each (`localeFile.ts::appStringValueIssue`).
+- **A form expression no XPath grammar reads, outside a bind** (a setvalue's `value` of `((((`):
+  `unrecognized` at the question under the slot's key, with the `expression-not-written-back`
+  defect beside it (`expressions/findings.ts::parseIssueEntry`, `parse:syntax`, which names an
+  entry only for a bind attribute, a menu's display condition and a case list's filter;
+  `provisional.ts::applyExpressionCircumstance`). No entry yet names a syntax error in a setvalue,
+  an output or an itemset's filter.
+- **A `required` on a Hidden Value's bind**: `unrecognized` at the question,
+  `xform:bind@required` (`xform/logic.ts::readBindLogic`, which claims a `required` only on a kind
+  that holds one and refuses it only on a label), wherever no other reader claims it.
 - **An after-submit link's condition or carried value that prints as the source only with a
   rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
   `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with

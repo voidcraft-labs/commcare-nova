@@ -98,6 +98,11 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	ownerKey: take(`${S}a-search-key-named-owner-id`, "csql-key:owner_id"),
 	label: take(`${S}label-lang`, "schema:CaseSearchProperty.label"),
 	hint: take(`${S}hint-lang`, "schema:CaseSearchProperty.hint"),
+	/** A hint on a hidden prompt, which no runtime shows (`readPrompt`). */
+	hiddenHint: drop(
+		`${S}hint-on-a-hidden-prompt`,
+		"schema:CaseSearchProperty.hint",
+	),
 	barcode: take(
 		`${S}appearance-barcode-scan`,
 		"schema:CaseSearchProperty.appearance",
@@ -108,6 +113,12 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	),
 	addressRequired: refuse(
 		`${S}appearance-address-with-required-or-validations`,
+		"schema:CaseSearchProperty.appearance",
+	),
+	/** `appearance: address` beside an `input_` of `date`, `daterange` or `checkbox`, which HQ's
+	 *  build writes over it (`readPrompt`). */
+	addressUnderInput: drop(
+		`${S}appearance-address-beside-an-input-hq-s-build-writes-over-it`,
 		"schema:CaseSearchProperty.appearance",
 	),
 	appearanceOther: drop(
@@ -167,6 +178,26 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	itemsetScheme: refuse(
 		`${S}itemset-scheme-other-than-item-list-commcare-reports`,
 		"schema:Itemset.instance_id",
+	),
+	itemsetElsewhere: refuse(
+		`${S}itemset-without-the-item-list-its-instance-id-names`,
+		"schema:Itemset.nodeset",
+	),
+	/** A label, value or sort ref naming a column the told table lacks: a read of what is not
+	 *  there, which a device reads blank for every choice. */
+	itemsetColumn: refuse(
+		"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
+		null,
+	),
+	inputUnnamed: refuse(
+		`${S}input-no-runtime-names`,
+		"schema:CaseSearchProperty.input_",
+	),
+	/** `input_: address`, which HQ's build writes as the prompt's `input` as it does an address
+	 *  appearance (`remote_requests.py::build_query_prompts`). */
+	inputAddress: refuse(
+		`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
+		"parser:QueryPromptParser/prompt@input",
 	),
 	itemsetRefs: refuse(
 		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
@@ -239,6 +270,11 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	blankDefault: drop(
 		BLANK_IS_ABSENT,
 		"schema:CaseSearchProperty.default_value",
+	),
+	blankInput: drop(BLANK_IS_ABSENT, "schema:CaseSearchProperty.input_"),
+	blankAppearance: drop(
+		BLANK_IS_ABSENT,
+		"schema:CaseSearchProperty.appearance",
 	),
 	blankRequiredTest: drop(
 		BLANK_IS_ABSENT,
@@ -370,11 +406,11 @@ function itemsetSource(
 	return filter === undefined ? { tag: item } : { tag: item, filter };
 }
 
-/** Whether a prompt carries a widget: an itemset, an input type or an appearance. */
+/** Whether a prompt carries a widget: an itemset, an input type or an appearance, a blank input
+ *  type or appearance being none (`readPrompt`). */
 function carriesWidget(prompt: JsonCursor): boolean {
-	return (
-		prompt.used("itemset") || prompt.used("input_") || prompt.used("appearance")
-	);
+	const holds = (key: string) => prompt.used(key) && prompt.peek(key) !== "";
+	return prompt.used("itemset") || holds("input_") || holds("appearance");
 }
 
 /**
@@ -476,6 +512,10 @@ function readPrompt(
 	// every plain or lookup prompt and `default_value` for a multi-select one on each save
 	// (`views/modules.py::_update_search_properties`), and HQ's build and Web Apps read each only
 	// where it holds text (`remote_requests.py`: `if prop.default_value`; `query.js`, `receive`).
+	// A blank `input_` or `appearance` is no widget: HQ's build writes neither where it is blank
+	// (`remote_requests.py::build_query_prompts`: `if prop.input_`, `if prop.appearance`), so both
+	// runtimes show a plain text field, and HQ's Case List page reads a plain text field
+	// (`case_claim.js::_getAppearance`), whose save writes neither.
 	// A `required` whose test is blank is no requirement, whatever its text: HQ's build writes no
 	// `<required>` and no text for it (`remote_requests.py`, `app_strings.py`:
 	// `if prop.required.test`).
@@ -495,10 +535,13 @@ function readPrompt(
 			prompt.peek("receiver_expression") === "",
 		],
 		["default_value", P.blankDefault, prompt.peek("default_value") === ""],
+		["input_", P.blankInput, prompt.peek("input_") === ""],
+		["appearance", P.blankAppearance, prompt.peek("appearance") === ""],
 		["required", P.blankRequiredTest, prompt.used("required") && !requires],
 	] as const)
 		if (blank && prompt.used(key)) {
 			prompt.drop(key, claim);
+			claimed.add(site(prompt, key));
 			sameState(
 				ctx,
 				claim.entry,
@@ -506,8 +549,9 @@ function readPrompt(
 				"list-settings-respelled",
 			);
 		}
-	const holds = (key: "receiver_expression" | "default_value") =>
-		prompt.used(key) && prompt.peek(key) !== "";
+	const holds = (
+		key: "receiver_expression" | "default_value" | "input_" | "appearance",
+	) => prompt.used(key) && prompt.peek(key) !== "";
 	// Each text as HQ's build shows it in each app language (`app_strings.py`, `clean_trans` of
 	// the map): a language the map lacks, or holds blank, shows another language's text.
 	// Each is held as every app string is (`caseList/columns.ts::heldTextsIn`): no space at
@@ -551,7 +595,7 @@ function readPrompt(
 	if (holds("receiver_expression"))
 		refuseWith(
 			"receiver_expression",
-			prompt.used("appearance") && prompt.peek("appearance") !== "barcode_scan"
+			holds("appearance") && prompt.peek("appearance") !== "barcode_scan"
 				? P.receiverOther
 				: P.receiver,
 		);
@@ -560,9 +604,17 @@ function readPrompt(
 	const checked = requires || prompt.used("validations");
 	const appearance = prompt.peek("appearance");
 	const input = prompt.peek("input_");
+	// HQ's build writes a stored `input_` over the `input="address"` an address appearance gives
+	// the prompt, and writes no `appearance` for it (`remote_requests.py::build_query_prompts`), and
+	// HQ's Case List page shows a date, date range or checkbox input over an address appearance
+	// (`case_claim.js::_getAppearance` tests those last): beside one of the three, no runtime and no
+	// page of HQ's shows an address field, and the appearance is read as nothing.
+	const inputOverAddress =
+		input === "date" || input === "daterange" || input === "checkbox";
 	// A hidden prompt Nova cannot hold is read as a Hidden Value, and each key whose meaning the
 	// refusal names (its checks, its widget, `exclude`) stands under the refusal's finding.
 	let hiddenRefused = false;
+	let addressRefused: Finding | undefined;
 	if (hidden) {
 		const claim = checked
 			? P.hiddenChecked
@@ -588,11 +640,19 @@ function readPrompt(
 				refuseWith("hidden", claim),
 			);
 		}
-	} else if (appearance === "address")
-		refuseWith("appearance", checked ? P.addressRequired : P.address);
+	} else if (appearance === "address" && !inputOverAddress)
+		addressRefused = refuseWith(
+			"appearance",
+			checked ? P.addressRequired : P.address,
+		);
 	const validations = prompt.peek("validations");
-	if (!hiddenRefused && Array.isArray(validations) && validations.length > 1)
-		refuseWith("validations", P.validationsLater);
+	// An address field's checks are the address finding's, which names them: HQ's Case List page
+	// blanks every check of an address field on a save (`case_claim.js::_getProperties`).
+	if (!hiddenRefused && Array.isArray(validations) && validations.length > 1) {
+		if (addressRefused !== undefined)
+			cover(prompt, ["validations"], addressRefused);
+		else refuseWith("validations", P.validationsLater);
+	}
 	// A check whose message is blank in every language: HQ's build shows the runtime's own
 	// sentence for a validation (`remote_requests.py` writes no text where `has_text` is false)
 	// and a blank one for a requirement, and Nova holds no check without a message of its own.
@@ -643,6 +703,12 @@ function readPrompt(
 		else if (input === "select1" || input === "select") {
 			const itemset = prompt.peek("itemset");
 			const instance = isJsonObject(itemset) ? itemset.instance_id : undefined;
+			// The scheme HQ's build checks, where the itemset names an instance
+			// (`helpers/validators.py::validate_search_config`: `instance_id.split(':', 1)[0]`).
+			const scheme =
+				typeof instance === "string" && instance !== ""
+					? instance.split(":")[0]
+					: undefined;
 			const source = isJsonObject(itemset)
 				? itemsetSource(itemset.nodeset)
 				: undefined;
@@ -653,10 +719,7 @@ function readPrompt(
 				"value",
 				"sort",
 			] as const;
-			if (
-				typeof instance === "string" &&
-				instance.startsWith("commcare-reports:")
-			)
+			if (scheme === "commcare-reports")
 				cover(prompt, ["itemset"], refuseWith("input_", P.reports));
 			else if (!isJsonObject(itemset))
 				cover(
@@ -684,8 +747,18 @@ function readPrompt(
 				const labelColumn =
 					label === undefined ? undefined : table?.column(label);
 				const sortColumn = sort === undefined ? undefined : table?.column(sort);
-				if (source === undefined || instance !== `item-list:${source.tag}`) {
+				if (scheme !== undefined && scheme !== "item-list") {
+					// An instance of another scheme, which HQ's build refuses.
 					const raised = refuseWith("instance_id", P.itemsetScheme, cursor);
+					cover(cursor, ITEMSET_KEYS, raised);
+					cover(prompt, ["input_"], raised);
+				} else if (
+					source === undefined ||
+					instance !== `item-list:${source.tag}`
+				) {
+					// No instance named, or a lookup table's instance whose nodeset reads elsewhere
+					// than its item list: HQ builds it, and Nova's choices are the table's item list.
+					const raised = refuseWith("nodeset", P.itemsetElsewhere, cursor);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
 				} else if (
@@ -719,7 +792,17 @@ function readPrompt(
 					labelColumn === undefined ||
 					(sort !== undefined && sortColumn === undefined)
 				) {
-					const raised = unrecognizedAt("schema:Itemset.value");
+					// A ref to a column the table lacks reads blank for every choice on a device; the
+					// one finding stands at the first such ref.
+					const raised = refuseWith(
+						valueColumn === undefined
+							? "value"
+							: labelColumn === undefined
+								? "label"
+								: "sort",
+						P.itemsetColumn,
+						cursor,
+					);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
 				} else {
@@ -756,16 +839,26 @@ function readPrompt(
 						options.filter = pendingPlaceholder("condition");
 				}
 			}
+		} else if (input === "address") {
+			// HQ's build writes it as the prompt's `input`, as it does an address appearance: the
+			// address field's finding, once where the appearance already gave it.
+			if (addressRefused !== undefined)
+				cover(prompt, ["input_", "itemset"], addressRefused);
+			else cover(prompt, ["itemset"], refuseWith("input_", P.inputAddress));
 		} else if (input !== undefined && input !== null && input !== "")
-			cover(
-				prompt,
-				["input_", "itemset"],
-				unrecognizedAt("schema:CaseSearchProperty.input_"),
-			);
+			cover(prompt, ["itemset"], refuseWith("input_", P.inputUnnamed));
 		if (!refusedHere("appearance")) {
 			if (appearance === "barcode_scan" && type === "text") {
 				prompt.take("appearance", P.barcode, String).value;
 				type = "barcode";
+			} else if (appearance === "address" && inputOverAddress) {
+				prompt.drop("appearance", P.addressUnderInput);
+				sameState(
+					ctx,
+					P.addressUnderInput.entry,
+					`${prompt.pointer}/appearance`,
+					"list-settings-respelled",
+				);
 			} else if (typeof appearance === "string" && appearance !== "")
 				prompt.drop("appearance", P.appearanceOther);
 		}
@@ -833,9 +926,36 @@ function readPrompt(
 			);
 	};
 	claimText(prompt, "label", P.label, labelRead);
-	claimText(prompt, "hint", P.hint, hintRead);
 	respelled(prompt, "label", P.label.entry, labelRead.held);
-	respelled(prompt, "hint", P.hint.entry, hintRead.held);
+	// A hidden prompt's hint is shown nowhere: Web Apps hides the prompt (`query.js`, `d-none`) and
+	// Android shows a prompt's label alone (`QueryRequestUiController.getLabel`). Nova's hidden
+	// field holds none, and the first publish writes none. A hint the gate admits no spelling of,
+	// or one holding a carriage return, whose rest a device reads as a line of the app strings
+	// HQ's build writes it into, is read as any prompt's is.
+	const storedHint = prompt.peek("hint");
+	if (
+		hidden &&
+		hintRead.held !== undefined &&
+		!(
+			isJsonObject(storedHint) &&
+			Object.values(storedHint).some(
+				(text) => typeof text === "string" && text.includes("\r"),
+			)
+		)
+	) {
+		if (prompt.used("hint")) {
+			prompt.drop("hint", P.hiddenHint);
+			sameState(
+				ctx,
+				P.hiddenHint.entry,
+				`${prompt.pointer}/hint`,
+				"list-settings-respelled",
+			);
+		}
+	} else {
+		claimText(prompt, "hint", P.hint, hintRead);
+		respelled(prompt, "hint", P.hint.entry, hintRead.held);
+	}
 	const register = (
 		slot:
 			| "search_input_default"
@@ -969,7 +1089,7 @@ function readPrompt(
 		"text",
 		translatedTexts(ctx, label),
 	);
-	const hint = sourceText(ctx, hintMap);
+	const hint = hidden ? "" : sourceText(ctx, hintMap);
 	if (hint !== "")
 		ctx.translations.set(
 			makeTranslationUnitId("search-input", uuid, "hint"),

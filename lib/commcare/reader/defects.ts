@@ -32,7 +32,6 @@ export const READER_DEFECT_CODES = [
 	"identity-met-twice",
 	"form-source",
 	"xmlns-differs",
-	"itemset-column",
 	"assembly",
 	"unregistered-expression-claim",
 	"translation",
@@ -228,11 +227,6 @@ export const readerDefect = {
 			`xmlns differs between the form and its source at ${placeKey(place)}`,
 		);
 	},
-	itemsetColumn(place: HqPlace, ref: "value" | "label"): ReaderDefectWhy {
-		return why(
-			`itemset column at ${placeKey(place)}: the ${oneOf(ref, ["value", "label"], "unknown-ref")} ref names a column the catalog lacks`,
-		);
-	},
 	/** `issue` is the first issue of the document schema's parse. */
 	assembly(
 		place: HqPlace,
@@ -289,7 +283,6 @@ export const READER_DEFECT_CONSTRUCTORS = {
 	"identity-met-twice": "identityMetTwice",
 	"form-source": "formSource",
 	"xmlns-differs": "xmlnsDiffers",
-	"itemset-column": "itemsetColumn",
 	assembly: "assembly",
 	"unregistered-expression-claim": "unregisteredExpressionClaim",
 	translation: "translation",

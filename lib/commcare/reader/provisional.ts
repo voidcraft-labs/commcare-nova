@@ -78,6 +78,14 @@ function documentField(field: DraftField, uuid: Uuid): Field {
 		id: field.id,
 		kind: field.kind,
 	};
+	/* A select whose choices got a finding (`xform/options.ts::readChoices`)
+	 * holds none: its finding stands for them, and the select keeps its kind,
+	 * so every read of its answer binds as it would. */
+	if (
+		(field.kind === "single_select" || field.kind === "multi_select") &&
+		slots.optionsSource === undefined
+	)
+		slots.optionsSource = { kind: "inline", options: [] };
 	if (field.kind === "repeat") {
 		if (slots.repeat_mode === "count_bound" && slots.repeat_count === undefined)
 			slots.repeat_count = pendingPlaceholder("value");

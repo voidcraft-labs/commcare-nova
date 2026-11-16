@@ -31,12 +31,20 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { applyMutations } from "@/lib/doc/mutations";
+import {
+	type BlueprintDoc,
+	collectTranslationUnits,
+	type ProseTemplate,
+	type TranslationUnit,
+	type Uuid,
+} from "@/lib/domain";
 import { term } from "@/lib/domain/expression";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { expandDoc } from "../../expander";
 import type { HqLocationType } from "../../hq/locations";
 import { mintingResolver } from "../identity";
-import { knownCaseTypesOf, readHqApp } from "../index";
+import { knownCaseTypesOf, knownLanguageCodesOf, readHqApp } from "../index";
 import {
 	levelsFromHq,
 	namedWorkerReadsAreProperties,
@@ -438,6 +446,115 @@ describe("Nova's own document reading a property and its slug in other letters b
 			),
 		).toEqual(["Region"]);
 		expect(gateFindings(outcome.draft.doc)).toEqual([]);
+	});
+
+	/* A text in a language other than the source reads the property and the
+	 * name too: a translation holds the source's protected parts, so a
+	 * canonical row that rebinds a read rewrites a current translation alike
+	 * and keeps it current, and the reading's text in that language is the
+	 * row's. */
+	it("rebinds the reads a second language's text makes and keeps it current", async () => {
+		const uuid = "11111111-1111-4111-8111-111111111111" as Uuid;
+		const placeLabel = (draft: BlueprintDoc) =>
+			Object.values(draft.fields).find((field) => field.id === "place");
+		const labelUnit = (of: BlueprintDoc): TranslationUnit => {
+			const place = placeLabel(of);
+			const unit = collectTranslationUnits(of).find(
+				(one) =>
+					one.role === "field-label" &&
+					one.owner.kind === "field" &&
+					one.owner.fieldUuid === place?.uuid,
+			);
+			if (unit === undefined) throw new Error("The question has a label.");
+			return unit;
+		};
+		const sourced = produce(authored(), (draft) => {
+			const place = placeLabel(draft as BlueprintDoc);
+			if (place === undefined) throw new Error("The survey asks the place.");
+			(place as { label: ProseTemplate }).label = {
+				parts: [
+					{ kind: "text", text: "Place in " },
+					{ kind: "user-property-ref", userPropertyUuid: uuid },
+					{ kind: "text", text: " or " },
+					{ kind: "user-ref", property: "Region" },
+				],
+			};
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fr" },
+			]);
+			delete draft.refIndex;
+		});
+		const unit = labelUnit(sourced);
+		const doc = produce(sourced, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "setTranslation",
+					language: "fra",
+					unitId: unit.id,
+					entry: {
+						value: {
+							parts: [
+								{ kind: "user-ref", property: "Region" },
+								{ kind: "text", text: " ou lieu à " },
+								{ kind: "user-property-ref", userPropertyUuid: uuid },
+							],
+						},
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+					},
+				},
+			]);
+			delete draft.refIndex;
+		});
+		expect(gateFindings(doc)).toEqual([]);
+
+		const canonical = worldPropertiesAsRead(namedWorkerReadsAreProperties(doc));
+		const held = Object.values(canonical.userProperties ?? {});
+		expect(held.map((one) => one.slug)).toEqual(["Region"]);
+		const translated = canonical.localization?.translations.fra?.[unit.id];
+		expect(translated?.value).toEqual({
+			parts: [
+				{ kind: "user-property-ref", userPropertyUuid: held[0]?.uuid },
+				{ kind: "text", text: " ou lieu à " },
+				{ kind: "user-ref", property: "region" },
+			],
+		});
+		expect(
+			translationSourceFingerprintsEqual(
+				translated?.sourceFingerprint ?? "",
+				labelUnit(canonical).sourceFingerprint,
+			),
+		).toBe(true);
+		expect(JSON.stringify(expandDoc(canonical))).toBe(
+			JSON.stringify(expandDoc(doc)),
+		);
+		expect(gateFindings(canonical)).toEqual([]);
+
+		const outcome = readHqApp(
+			await inputFor(exportedBody(doc), {
+				knownCaseTypes: knownCaseTypesOf(doc),
+				knownLanguageCodes: knownLanguageCodesOf(doc),
+			}),
+		);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The document did not read.");
+		const read = outcome.draft.doc;
+		expect(gateFindings(read)).toEqual([]);
+		const slugOf = (template: unknown) =>
+			(template as ProseTemplate).parts.map((part) =>
+				part.kind === "user-property-ref"
+					? { slug: read.userProperties?.[part.userPropertyUuid]?.slug }
+					: part,
+			);
+		expect(
+			slugOf(read.localization?.translations.fra?.[labelUnit(read).id]?.value),
+		).toEqual([
+			{ slug: "Region" },
+			{ kind: "text", text: " ou lieu à " },
+			{ kind: "user-ref", property: "region" },
+		]);
 	});
 
 	/* The property is read from the session, which the gate holds only by
