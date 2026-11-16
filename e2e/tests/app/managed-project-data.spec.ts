@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import {
 	appsThatReadIt,
 	CONNECT_TO_REFRESH_TABLE,
@@ -42,6 +42,12 @@ const seed = MANAGED_DATA_SEED;
 /** The banner above the table, by its label. */
 function tableBanner(page: Page, label: string) {
 	return page.getByRole("complementary", { name: label, exact: true });
+}
+
+/** The banner's Open in CommCare HQ: a link drawn as a Button, which names
+ *  itself a button as every link-styled Button in the app does. */
+function openInHq(banner: Locator) {
+	return banner.getByRole("button", { name: OPEN_IN_HQ, exact: true });
 }
 
 /** The edits a table offers an author, none of which a managed table offers. */
@@ -88,9 +94,7 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the tab
 		await expect(
 			banner.getByRole("button", { name: REFRESH_FROM_HQ, exact: true }),
 		).toBeEnabled({ timeout: 20_000 });
-		await expect(
-			banner.getByRole("link", { name: OPEN_IN_HQ, exact: true }),
-		).toHaveAttribute(
+		await expect(openInHq(banner)).toHaveAttribute(
 			"href",
 			`https://india.commcarehq.org/a/${seed.domain}/fixtures/`,
 		);
@@ -205,9 +209,7 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the tab
 		await expect(
 			banner.getByRole("button", { name: REFRESH_FROM_HQ, exact: true }),
 		).toBeEnabled({ timeout: 20_000 });
-		await expect(
-			banner.getByRole("link", { name: OPEN_IN_HQ, exact: true }),
-		).toHaveAttribute(
+		await expect(openInHq(banner)).toHaveAttribute(
 			"href",
 			`https://india.commcarehq.org/a/${seed.domain}/settings/locations/list/`,
 		);

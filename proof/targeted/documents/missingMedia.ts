@@ -14,9 +14,10 @@
  *
  * With no entry: the survey "Visit"'s question `remarks`'s image and sound,
  * the sound of its select `answer`'s first choice, its menu's icon and its
- * form's sound, the image column of the case list "Patients" (every status
- * a case can hold maps to the one picture), and that list's Register
- * action's icon. With an entry and no file: the image of the question
+ * form's sound, the image column of the case list "Patients" (the statuses
+ * "active" and "closed" map to the one picture, and a case holding any other
+ * status maps to none, which is the counterpart: the same cell with nothing
+ * to draw), and that list's Register action's icon. With an entry and no file: the image of the question
  * `photo`.
  *
  * Fixed values: the survey holds the answer a worker gives `remarks`.

@@ -102,6 +102,10 @@ export function managedTableOverCap(phrases: readonly string[]): string {
 	return `This table now has ${phrases.join(" and ")} in CommCare HQ. Nova kept its copy as it was.`;
 }
 
+/** T22: a refresh that finds the table holds no column in CommCare HQ. */
+export const MANAGED_TABLE_NO_COLUMNS =
+	"This table now has no columns in CommCare HQ, and Nova holds a lookup table only with at least one. Nova kept its copy as it was. You can add a column there, then refresh.";
+
 /** T8: every refused write to a lookup table CommCare HQ manages. */
 export function managedLookupTableRefusal(
 	name: string,
@@ -186,6 +190,9 @@ export const MANAGED_TABLE_REFRESHED_ROWS =
 /** T15: a refresh that took new columns and rows. */
 export const MANAGED_TABLE_REFRESHED_COLUMNS =
 	"Nova's copy now has CommCare HQ's columns and rows.";
+/** T23: a refresh whose read a newer refresh or hand-back overtook, so it wrote nothing. */
+export const MANAGED_TABLE_REFRESHED_SINCE =
+	"Nova's copy was refreshed again while this one was reading CommCare HQ, so it already holds the newer read.";
 
 /** T16: a refresh that kept a column CommCare HQ's table no longer has, because apps read it. */
 export function managedColumnKept(
@@ -216,6 +223,10 @@ export const MANAGEMENT_NEEDS_ADMIN =
 /** T19: a refresh of a table or of places, for a member who can't edit. */
 export const REFRESH_NEEDS_EDITOR =
 	"An editor of this Project can refresh this copy.";
+
+/** T24: a hand-back whose read began before someone chose Manage in Nova again. */
+export const HAND_BACK_OVERTAKEN =
+	"Someone chose Manage in Nova for this table while CommCare HQ was being read, so Nova kept it as they left it.";
 
 /** T20: a refresh that met a table someone had just taken over. */
 export const TABLE_TAKEN_OVER_MEANWHILE =
@@ -251,10 +262,14 @@ export const MANAGED_PLACES_NO_PERSONA =
 export const MANAGED_PLACES_NO_EXTERNAL_IDS =
 	"CommCare HQ doesn't send external IDs for places, so Nova's copy has none.";
 
-/** O6: after a refresh, the places gone from CommCare HQ that a persona or an owner rule still uses. */
+/**
+ * O6: after a refresh, the places gone from CommCare HQ that a persona, an
+ * owner rule or an automation still uses (every edge of
+ * `app_location_references`).
+ */
 export function managedPlacesKeptInUse(names: readonly string[]): string {
 	const one = names.length === 1;
-	return `${count(names.length)} ${one ? "place is" : "places are"} gone from CommCare HQ, and a persona or an owner rule still uses ${one ? "it" : "them"}: ${namesInWords(names)}. Nova kept ${one ? "it" : "them"}. You can move those personas or rules, then refresh again.`;
+	return `${count(names.length)} ${one ? "place is" : "places are"} gone from CommCare HQ, and a persona, an owner rule or an automation still uses ${one ? "it" : "them"}: ${namesInWords(names)}. Nova kept ${one ? "it" : "them"}. You can move or change what uses ${one ? "it" : "them"}, then refresh again.`;
 }
 
 /** O7: every refused write to places CommCare HQ manages. */
@@ -290,6 +305,10 @@ export function managedPlacesRefreshed(
 export const MANAGED_PLACES_ALREADY_MATCH =
 	"Nova's copy already matches CommCare HQ.";
 
+/** O26: a places refresh whose read a newer refresh overtook, so it wrote nothing. */
+export const MANAGED_PLACES_REFRESHED_SINCE =
+	"Nova's copy was refreshed again while this one was reading CommCare HQ, so it already holds the newer read.";
+
 /**
  * O11: a refresh that finds more places than Nova holds for an app. `total`
  * is CommCare HQ's count, null where its list named none and the read
@@ -312,32 +331,161 @@ export function managedPlaceNotHoldable(name: string, domain: string): string {
 	return `${name} in ${domain} has a code, a name or a value Nova can't hold yet. Nova kept its copy as it was.`;
 }
 
-/** A refusal of an organization commit's integrity checks, where CommCare HQ manages the places. */
+/**
+ * A refusal of an organization commit's integrity checks, where CommCare HQ
+ * manages the places. Places in O14 to O16 come quoted; places and levels in
+ * O24 and O25 are bare, and the sentence quotes them. `kept` marks a place
+ * CommCare HQ no longer has, which the copy keeps live only because something
+ * in the app uses it or a place below it: its step is to change what uses it.
+ */
 export type ManagedOrganizationCommitRefusal =
-	/** O14: levels removed while places stand at them, by name. */
-	| { readonly kind: "level-in-use"; readonly levels: readonly string[] }
+	/** O14: levels removed while places stand at them, by name. `kept`: every such place is kept. */
+	| {
+			readonly kind: "level-in-use";
+			readonly levels: readonly string[];
+			readonly kept?: boolean;
+	  }
 	/** O15: a place left with no valid parent or level by a level change. */
-	| { readonly kind: "placement"; readonly place: string }
+	| {
+			readonly kind: "placement";
+			readonly place: string;
+			readonly kept?: boolean;
+	  }
 	/** O16: a property change a place's value doesn't fit. `issue` is `locationValueCatalogIssue`'s sentence. */
-	| { readonly kind: "value"; readonly place: string; readonly issue: string };
+	| {
+			readonly kind: "value";
+			readonly place: string;
+			readonly issue: string;
+			readonly kept?: boolean;
+	  }
+	/** O24: an owner rule's source place with no place at the rule's level below it. */
+	| {
+			readonly kind: "owner-none-below";
+			readonly level: string;
+			readonly source: string;
+			readonly sourceKept: boolean;
+	  }
+	/** O25: an owner rule's source place with two places at the rule's level below it. `kept` names one of the two where it is kept. */
+	| {
+			readonly kind: "owner-ambiguous";
+			readonly level: string;
+			readonly source: string;
+			readonly places: readonly [string, string];
+			readonly kept: string | null;
+	  };
 
 /**
- * O14 to O16: an organization commit refused where CommCare HQ manages the
- * app's places, with the way forward through CommCare HQ.
+ * O14 to O16, O24 and O25: an organization commit refused where CommCare HQ
+ * manages the app's places, with the way forward through CommCare HQ, or,
+ * for a place it no longer has, through what in the app uses it.
  */
 export function managedOrganizationCommitRefusal(
 	refusal: ManagedOrganizationCommitRefusal,
 	domain: string,
 ): string {
+	const keptOnlyWhileUsed = (it: "it" | "them") =>
+		`Nova keeps ${it} only while something in this app uses ${it} or a place below ${it}`;
 	switch (refusal.kind) {
 		case "level-in-use": {
 			const several = refusal.levels.length > 1;
-			return `${namesInWords(refusal.levels)} still ${several ? "have places in them" : "has places in it"}, and this app's places are managed in CommCare HQ (${domain}). You can move those places to another level there and refresh, then remove ${several ? "the levels" : "the level"}.`;
+			const level = several ? "the levels" : "the level";
+			return refusal.kept === true
+				? `${namesInWords(refusal.levels)} still ${several ? "have places in them" : "has places in it"} that CommCare HQ (${domain}) no longer has, and ${keptOnlyWhileUsed("them")}. You can move or change what uses them and refresh, then remove ${level}.`
+				: `${namesInWords(refusal.levels)} still ${several ? "have places in them" : "has places in it"}, and this app's places are managed in CommCare HQ (${domain}). You can move those places to another level there and refresh, then remove ${level}.`;
 		}
 		case "placement":
-			return `${refusal.place} wouldn't fit where it stands after this level change, and this app's places are managed in CommCare HQ (${domain}). You can move it there and refresh, then try the change again.`;
+			return refusal.kept === true
+				? `${refusal.place} wouldn't fit where it stands after this level change. CommCare HQ (${domain}) no longer has it, and ${keptOnlyWhileUsed("it")}. You can move or change what uses it and refresh, then try the change again.`
+				: `${refusal.place} wouldn't fit where it stands after this level change, and this app's places are managed in CommCare HQ (${domain}). You can move it there and refresh, then try the change again.`;
 		case "value":
-			return `${refusal.place} blocks this change. ${refusal.issue} This app's places are managed in CommCare HQ (${domain}), so you can change that value there and refresh, then try the change again.`;
+			return refusal.kept === true
+				? `${refusal.place} blocks this change. ${refusal.issue} CommCare HQ (${domain}) no longer has it, and ${keptOnlyWhileUsed("it")}. You can move or change what uses it and refresh, then try the change again.`
+				: `${refusal.place} blocks this change. ${refusal.issue} This app's places are managed in CommCare HQ (${domain}), so you can change that value there and refresh, then try the change again.`;
+		case "owner-none-below": {
+			const needs = `The owner rule for ${refusal.level} needs exactly one live ${refusal.level.toLowerCase()} below "${refusal.source}"`;
+			return refusal.sourceKept
+				? `${needs}, which CommCare HQ (${domain}) no longer has. ${keptOnlyWhileUsed("it")}. You can move or change what uses it and refresh, or change the rule.`
+				: `${needs}, and this app's places are managed in CommCare HQ (${domain}), which has none there. You can add one there and refresh, or change the rule.`;
+		}
+		case "owner-ambiguous": {
+			const [first, second] = refusal.places;
+			const needs = `The owner rule for ${refusal.level} needs exactly one live ${refusal.level.toLowerCase()} below "${refusal.source}", and both "${first}" and "${second}" stand there`;
+			return refusal.kept === null
+				? `${needs}. This app's places are managed in CommCare HQ (${domain}), so you can archive one of them there and refresh, or change the rule.`
+				: `${needs}. CommCare HQ (${domain}) no longer has "${refusal.kept}", and ${keptOnlyWhileUsed("it")}. You can move or change what uses it and refresh, or change the rule.`;
+		}
+	}
+}
+
+/**
+ * A refresh refused because the copy it would write doesn't fit the app.
+ * Place and level names are bare; the sentence quotes them. A place is
+ * `kept` where CommCare HQ no longer lists it and the copy keeps it live
+ * because something in the app uses it or a place below it.
+ */
+export type ManagedPlacesRefreshRefusal =
+	/** O18: a place CommCare HQ lists at a level or under a parent the app's levels refuse. */
+	| { readonly kind: "placement"; readonly place: string }
+	/** O19: a place CommCare HQ lists with a value the place information refuses. `issue` is `locationValueCatalogIssue`'s sentence. */
+	| { readonly kind: "value"; readonly place: string; readonly issue: string }
+	/** O20: a kept place that no longer fits where it stands. */
+	| { readonly kind: "kept"; readonly place: string }
+	/** O21: an owner rule's source place with no place at the rule's level below it. */
+	| {
+			readonly kind: "owner-none-below";
+			readonly level: string;
+			readonly source: string;
+			readonly sourceKept: boolean;
+	  }
+	/** O22: an owner rule's source place with two places at the rule's level below it. `kept` names one of the two where it is kept. */
+	| {
+			readonly kind: "owner-ambiguous";
+			readonly level: string;
+			readonly source: string;
+			readonly places: readonly [string, string];
+			readonly kept: string | null;
+	  }
+	/** O23: an owner rule that resolves to a place outside a persona's address book. */
+	| {
+			readonly kind: "owner-outside-address-book";
+			readonly level: string;
+			readonly place: string;
+			readonly persona: string;
+	  };
+
+/**
+ * O18 to O23: a refresh of managed places refused because the rows it would
+ * write don't fit the app, with a step that works where Nova can't change the
+ * places.
+ */
+export function managedPlacesRefreshRefusal(
+	refusal: ManagedPlacesRefreshRefusal,
+	domain: string,
+): string {
+	const kept = "Nova kept its copy as it was.";
+	const keptOnlyWhileUsed = `is gone from CommCare HQ (${domain}) and kept only while something in this app uses it or a place below it`;
+	switch (refusal.kind) {
+		case "placement":
+			return `"${refusal.place}" stands in CommCare HQ (${domain}) at a level, or under a parent, that this app's levels don't allow. You can match the levels in Nova or move the place in CommCare HQ, then refresh. ${kept}`;
+		case "value":
+			return `"${refusal.place}" in CommCare HQ (${domain}) doesn't fit this app's place information. ${refusal.issue} You can change the value in CommCare HQ or the place information in Nova, then refresh. ${kept}`;
+		case "kept":
+			return `"${refusal.place}" ${keptOnlyWhileUsed}, and after this refresh it no longer fits this app's levels or place information. You can move or change what uses it, then refresh. ${kept}`;
+		case "owner-none-below": {
+			const needs = `The owner rule for ${refusal.level} needs exactly one live ${refusal.level.toLowerCase()} below "${refusal.source}"`;
+			return refusal.sourceKept
+				? `${needs}, which ${keptOnlyWhileUsed}. You can move or change what uses it, or change the rule in Nova, then refresh. ${kept}`
+				: `${needs}, and CommCare HQ (${domain}) now has none there. You can add one there or change the rule in Nova, then refresh. ${kept}`;
+		}
+		case "owner-ambiguous": {
+			const [first, second] = refusal.places;
+			const needs = `The owner rule for ${refusal.level} needs exactly one live ${refusal.level.toLowerCase()} below "${refusal.source}"`;
+			return refusal.kept === null
+				? `${needs}, and CommCare HQ (${domain}) now has two there: "${first}" and "${second}". You can archive one of them there or change the rule in Nova, then refresh. ${kept}`
+				: `${needs}, and after this refresh "${first}" and "${second}" would both stand there. "${refusal.kept}" ${keptOnlyWhileUsed}. You can move or change what uses it, or change the rule in Nova, then refresh. ${kept}`;
+		}
+		case "owner-outside-address-book":
+			return `The ${refusal.level} owner rule can resolve to "${refusal.place}", but after this refresh that place is outside ${refusal.persona}'s address book. You can widen the address book or change the rule in Nova, then refresh. ${kept}`;
 	}
 }
 
@@ -349,9 +497,29 @@ export const CONNECT_TO_REFRESH_PLACES =
 // Publish
 // ---------------------------------------------------------------------------
 
-/** P1: the `managed-data` check, passed. */
-export const MANAGED_DATA_PASSED =
-	"Nova checked the lookup tables CommCare HQ manages for this app. Nothing this app reads is missing, and Nova sends none of them.";
+/**
+ * P1: the `managed-data` check, passed. `here` counts the tables the app
+ * reads that `domain`, the project space this publish writes to, manages;
+ * `elsewhere` those another project space manages, which this publish puts
+ * in `domain` from Nova's copy. So the sentence says Nova sends none of them
+ * only of the tables `domain` manages.
+ */
+export function managedDataPassed(input: {
+	readonly domain: string;
+	readonly here: number;
+	readonly elsewhere: number;
+}): string {
+	const { domain, here, elsewhere } = input;
+	if (elsewhere === 0) {
+		return "Nova checked the lookup tables CommCare HQ manages for this app. Nothing this app reads is missing, and Nova sends none of them.";
+	}
+	if (here > 0) {
+		return `Nova checked the lookup tables CommCare HQ manages for this app. Nothing this app reads is missing in ${domain}, and Nova sends none of the tables ${domain} manages.`;
+	}
+	return elsewhere === 1
+		? `Nova checked the lookup table CommCare HQ manages for this app. Another project space manages it, so this publish puts Nova's copy in ${domain}.`
+		: `Nova checked the lookup tables CommCare HQ manages for this app. Other project spaces manage them, so this publish puts Nova's copy of each in ${domain}.`;
+}
 
 /** P2: `hq_managed_data_changed`, before one item per change. */
 export const MANAGED_DATA_CHANGED =
@@ -410,6 +578,11 @@ export function managedTableOverCapItem(
 	return `${tag} now has ${phrases.join(" and ")} in CommCare HQ. You can shorten it there, then publish again.`;
 }
 
+/** P20: an item, a table that holds no column. */
+export function managedTableNoColumnsItem(tag: string): string {
+	return `${tag} now has no columns in CommCare HQ, and Nova holds a lookup table only with at least one. You can add a column there, then publish again.`;
+}
+
 /** P11: an item, a field name Nova can't hold. */
 export function managedTableNameItem(tag: string, name: string): string {
 	return `${tag} now has a column named ${name} in CommCare HQ, which Nova can't hold yet. You can rename it there, then publish again.`;
@@ -425,26 +598,42 @@ export function managedTableFromElsewhereItem(
 	return `Nova's copy of ${tag} was last refreshed from ${originDomain} on ${date}. This publish puts that copy in ${domain}.`;
 }
 
+/** P19: a passed check's item, a copy of another project space's table that Nova read just now. */
+export function managedTableFromElsewhereCurrentItem(
+	tag: string,
+	originDomain: string,
+	domain: string,
+): string {
+	return `Nova's copy of ${tag} matches ${originDomain} as it is now. This publish puts that copy in ${domain}.`;
+}
+
 /** P13: the `project-data` check, passed, with tables left out of the workbook. */
 export function managedTablesLeftOut(
 	tags: readonly string[],
 	domain: string,
 ): string {
-	return `CommCare HQ manages ${namesInWords(tags)} in ${domain}, so Nova leaves them as they are.`;
+	return tags.length === 1
+		? `CommCare HQ manages ${tags[0]} in ${domain}, so Nova leaves it as it is.`
+		: `CommCare HQ manages ${namesInWords(tags)} in ${domain}, so Nova leaves them as they are.`;
 }
 
 /** P14: the last sentence of a drift item on a table Nova manages that came from CommCare HQ. */
 export const HAND_BACK_OFFERED =
 	"You can also choose Let CommCare HQ manage it again on the table's page to take CommCare HQ's version.";
 
-/** P15: the `organization` check, passed, with managed places. */
-export function managedPlacesPassed(domain: string): string {
-	return `${domain} manages this app's places. Nova refreshed its copy and sends none.`;
+/**
+ * P15: the `organization` check, passed, with managed places. `refreshed`
+ * says whether the publish's read refreshed Nova's copy; where it could not,
+ * the check's one item is the refresh's own refusal (P16).
+ */
+export function managedPlacesPassed(
+	domain: string,
+	refreshed: boolean,
+): string {
+	return refreshed
+		? `${domain} manages this app's places. Nova refreshed its copy and sends none.`
+		: `${domain} manages this app's places, and Nova sends none.`;
 }
-
-/** P16: the `organization` check's item where the copy couldn't be refreshed. */
-export const MANAGED_PLACES_NOT_REFRESHED =
-	"Nova's copy of these places couldn't be refreshed. Organization says why.";
 
 /** P17: an item, a character CommCare can't carry. */
 export function managedTableUnrepresentableItem(
@@ -466,39 +655,75 @@ export const MANAGED_TABLE_HANDED_BACK_AFTER_CREATE =
 // The HQ app file's guide
 // ---------------------------------------------------------------------------
 
-/** G1: the title of the guide's step for the second workbook. */
+/** G1: the title of the guide's step for the tables CommCare HQ manages, where one project space manages them all. */
 export const MANAGED_LOOKUP_GUIDE_TITLE =
 	"Lookup tables managed in CommCare HQ";
 
-/** One table the second workbook carries. `refreshedOn` is the UTC day of its last refresh. */
-export interface ManagedLookupGuideTable {
-	readonly tag: string;
-	readonly domain: string;
-	readonly refreshedOn: string;
+/**
+ * One workbook of the HQ app file's tables CommCare HQ manages, as the guide
+ * names it: its file, the project space that manages its tables, and each
+ * table with the UTC day Nova's copy was last refreshed (`refreshedOn`).
+ */
+export interface ManagedLookupGuideFile {
+	readonly fileName: string;
+	/** The project space by its domain, with its server where two files share one domain. */
+	readonly projectSpace: string;
+	readonly tables: readonly {
+		readonly tag: string;
+		readonly refreshedOn: string;
+	}[];
 }
 
 /**
- * G1: the guide's lines for the second workbook, named `workbook`. Where the
- * file carries no first workbook, the guide has no step above to point to,
- * so the last paragraph says how to upload it.
+ * G1: the title of one workbook's step. Where several project spaces manage
+ * the app's tables, each step names its own, since each file is left out of
+ * a different import.
+ */
+export function managedLookupGuideTitle(
+	file: ManagedLookupGuideFile,
+	several: boolean,
+): string {
+	return several
+		? `Lookup tables managed in ${file.projectSpace}`
+		: MANAGED_LOOKUP_GUIDE_TITLE;
+}
+
+/**
+ * G1: the guide's lines for one workbook of tables CommCare HQ manages.
+ * `several` says whether other project spaces manage tables of their own in
+ * files of their own; then the lines name this file's project space, since a
+ * person importing into it leaves this file out and uploads the others.
+ * Where no step above says how to upload a lookup table file
+ * (`afterUploadStep` false), the last paragraph says how.
  */
 export function managedLookupGuideLines(
-	tables: readonly ManagedLookupGuideTable[],
-	workbook: string,
-	afterLookupTablesStep: boolean,
+	file: ManagedLookupGuideFile,
+	options: { readonly several: boolean; readonly afterUploadStep: boolean },
 ): readonly string[] {
+	const { fileName, projectSpace, tables } = file;
 	return [
-		"These tables are managed in CommCare HQ, and Nova only keeps a copy:",
-		...tables.map(
-			(table) =>
-				`  ${table.tag} (in ${table.domain}, copied on ${table.refreshedOn})`,
-		),
-		"",
-		"If you're importing into that project space, it already has them, so leave",
-		`"${workbook}" out. Uploading it there would`,
+		...(options.several
+			? [
+					`These tables are managed in ${projectSpace} on CommCare HQ, and Nova only keeps a copy:`,
+					...tables.map(
+						(table) => `  ${table.tag} (copied on ${table.refreshedOn})`,
+					),
+					"",
+					`If you're importing into ${projectSpace}, it already has them, so leave`,
+				]
+			: [
+					"These tables are managed in CommCare HQ, and Nova only keeps a copy:",
+					...tables.map(
+						(table) =>
+							`  ${table.tag} (in ${projectSpace}, copied on ${table.refreshedOn})`,
+					),
+					"",
+					"If you're importing into that project space, it already has them, so leave",
+				]),
+		`"${fileName}" out. Uploading it there would`,
 		"replace their rows with Nova's copy.",
 		"",
-		...(afterLookupTablesStep
+		...(options.afterUploadStep
 			? [
 					"For any other project space, upload it on the Lookup Tables page too, the",
 					"same way as the file above.",
@@ -507,7 +732,7 @@ export function managedLookupGuideLines(
 					"For any other project space, open the Lookup Tables page in CommCare HQ:",
 					"  https://www.commcarehq.org/a/<your-project>/fixtures/",
 					"",
-					`Upload "${workbook}" there, tick "Replace existing`,
+					`Upload "${fileName}" there, tick "Replace existing`,
 					'tables", and click Upload Tables.',
 				]),
 	];
@@ -558,7 +783,8 @@ export type LookupChoiceRefusal =
 	| "needs-admin"
 	| "managed-elsewhere"
 	| "app-reads-a-missing-column"
-	| "fails-a-project-space-rule";
+	| "fails-a-project-space-rule"
+	| "too-many-columns";
 
 /** An answer's offer, as a review table's choice carries it. */
 export type ReviewChoiceOffer =
@@ -566,7 +792,8 @@ export type ReviewChoiceOffer =
 	| {
 			readonly offered: false;
 			readonly why: LookupChoiceRefusal;
-			/** The other project space, or the first missing column; null for the other two. */
+			/** The other project space, the first missing column, or the count of columns the
+			 *  table would hold; null for the other two. */
 			readonly name: string | null;
 	  };
 
@@ -673,7 +900,7 @@ function offerName(offer: {
 }): string {
 	if (offer.name === null)
 		throw new Error(
-			`An answer refused as "${offer.why}" names what it is about (the other project space, or the missing column), and this one names nothing. The review's offer carries that name as \`name\`.`,
+			`An answer refused as "${offer.why}" names what it is about (the other project space, the missing column, or the count of columns), and this one names nothing. The review's offer carries that name as \`name\`.`,
 		);
 	return offer.name;
 }
@@ -692,6 +919,8 @@ export function choiceNotOffered(
 			return `This app reads the column ${offerName(offer)}, which ${project}'s table doesn't have.`;
 		case "fails-a-project-space-rule":
 			return `${project}'s table, as it stands, holds something this app couldn't be published or exported with, so this app can't use it.`;
+		case "too-many-columns":
+			return `${project}'s table would have ${offerName(offer)} columns with the ones its apps still read, and Nova takes 250.`;
 	}
 }
 

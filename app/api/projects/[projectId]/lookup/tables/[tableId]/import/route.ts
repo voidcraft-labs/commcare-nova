@@ -24,6 +24,7 @@ import type {
 	LookupImportErrorCode,
 	LookupScope,
 } from "@/lib/lookup/types";
+import { managedLookupTableRefusal } from "@/lib/publish/managedData";
 
 interface RouteContext {
 	params: Promise<{ projectId: string; tableId: string }>;
@@ -177,8 +178,18 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
 		/* Read the current definition before buffering/parsing. This is both the
 		 * header/coercion context and a cheap stale-token rejection. A concurrent
-		 * change after this snapshot is caught again under the service's locks. */
+		 * change after this snapshot is caught again under the service's locks.
+		 * A table CommCare HQ manages is refused before the revision or the CSV
+		 * is judged, as the service's lock refuses it: a stale tab learns the
+		 * table is managed, not that it should reload first. */
 		const current = await getLookupTable(scope, tableId);
+		if (current.hq?.managedBy === "commcare-hq") {
+			return failureResponse({
+				success: false,
+				code: "managed_in_hq",
+				message: managedLookupTableRefusal(current.name, current.hq.domain),
+			});
+		}
 		if (current.tableRevision !== expectedTableRevision) {
 			return failureResponse({
 				success: false,

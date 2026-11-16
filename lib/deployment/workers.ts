@@ -259,12 +259,15 @@ export async function provisionWorkers(
 	}));
 	const workers = plannedWorkersFor(input.doc, requested);
 
+	/* The places CommCare HQ manages for the app here were never pushed, so
+	 * a persona standing in one stands in CommCare HQ's own place, unless a
+	 * refresh found it gone there. */
+	const managedPlaces = await readManagedPlaceIds(input.scope, target);
 	const planInput = {
 		workers,
 		mappings: deployment.active,
-		/* The places CommCare HQ manages for the app here were never pushed,
-		 * so a persona standing in one stands in CommCare HQ's own place. */
-		managedPlaceIds: await readManagedPlaceIds(input.scope, target),
+		managedPlaceIds: managedPlaces.ids,
+		goneManagedPlaceIds: managedPlaces.gone,
 		workerDataGaps: requiredWorkerDataGaps(input.doc),
 		domain,
 	} as const;
@@ -761,6 +764,8 @@ function describeProblem(
 			return `${problem.personaName}: no value for ${problem.missing.join(", ")}. CommCare HQ won't save a worker without the information marked required.`;
 		case "place-not-pushed":
 			return `${problem.personaName}: stands in ${places.get(problem.locationUuid) ?? "a place this app no longer has"}, which isn't on this project space yet. Publish the app there first.`;
+		case "place-gone-from-hq":
+			return `${problem.personaName}: stands in ${places.get(problem.locationUuid) ?? "a place this app no longer has"}, which CommCare HQ no longer has in this project space. You can stand them in another place, then provision them again.`;
 	}
 }
 

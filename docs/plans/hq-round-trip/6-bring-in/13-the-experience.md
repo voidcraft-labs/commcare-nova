@@ -1257,7 +1257,7 @@ key reaches now (part 01, 8.3).
 
 ### 6.3 Every circumstance, and where it is drawn
 
-Part 01's `READ_CIRCUMSTANCES` holds thirty-four codes (its 8.3). Each has one layout, decided by
+Part 01's `READ_CIRCUMSTANCES` holds thirty-five codes (its 8.3). Each has one layout, decided by
 its standing alone, so a code added later needs a row of 6.2 where its standing is `stop` and
 nothing else of this part. The title, the body and the next step of every code are part 01's
 (`CIRCUMSTANCE_COPY`, through `circumstanceBlock`); this part writes none.
@@ -1270,7 +1270,7 @@ nothing else of this part. The title, the body and the next step of every code a
 | `menu-unreadable-in-hq`, `shadow-disagrees`, `media-file-unreadable`, `app-unreadable-in-hq`, `table-rows-unreadable` | `fix-in-hq` | the same block, under the amber label |
 | `no-platform-runs-everything` | `fix-in-hq` | the same block; its next step is the sentence about the date and time question where `detail.reason` is `split-refused`, which `circumstanceBlock` chooses |
 | `places-over-nova-limit`, `place-not-holdable`, `owner-rule-needs-one-place` | `not-yet` | the same block, under the violet label; the heading is A1 |
-| `media-not-played-where-app-runs`, `table-cell-unrepresentable`, `table-choices-unusable` | `fix-in-hq` | the same block; a finding at a `media` place sits in the "Pictures and sounds" group, its line beginning with the path (7.2) |
+| `media-not-played-where-app-runs`, `table-cell-unrepresentable`, `table-choices-unusable`, `table-has-no-fields` | `fix-in-hq` | the same block; a finding at a `media` place sits in the "Pictures and sounds" group, its line beginning with the path (7.2) |
 
 An account never holds a `stop` code and a stop never holds one of the other fifteen: a stop is
 answered only as a `stop` answer or a `held` answer (part 12, 3.8), which is what keeps a stop out
@@ -1628,8 +1628,8 @@ R11) and its data (`ReviewTable.choice`):
   **R9** ("Use {Project}'s table") with its line;
 - an answer that is not offered is a row that cannot be chosen (`aria-disabled`, in the tab order),
   with its reason under it: **R10**'s sentence for the offer's `why`, one of `needs-admin`,
-  `managed-elsewhere`, `app-reads-a-missing-column` and `fails-a-project-space-rule`. The last is
-  part 11's (its 7.2): the app could not be born on the Project's table as it stands, so
+  `managed-elsewhere`, `app-reads-a-missing-column`, `too-many-columns` and
+  `fails-a-project-space-rule`. The last is part 11's (its 7.2): the app could not be born on the Project's table as it stands, so
   `use-project` is not offered, and R10 says "{Project}'s table, as it stands, holds something this
   app couldn't be published or exported with, so this app can't use it.";
 - under the group, where at least one answer is offered, **R11**, with the action **Choose another
@@ -2586,7 +2586,8 @@ export interface ReadingProjection {
 					lines: string[];
 					/**
 					 * R10's sentence where the answer is not offered, for its `why`: needs-admin,
-					 * managed-elsewhere, app-reads-a-missing-column or fails-a-project-space-rule.
+					 * managed-elsewhere, app-reads-a-missing-column, too-many-columns or
+					 * fails-a-project-space-rule.
 					 */
 					reason: string | null;
 				}[];

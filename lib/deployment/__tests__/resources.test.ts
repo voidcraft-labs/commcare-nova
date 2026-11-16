@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	deploymentEnding,
+	firstPublishOf,
 	nextPublishAction,
 	plannedInPlaceUpdate,
 	publishedRemoteApp,
@@ -303,5 +304,59 @@ describe("a released mapping", () => {
 		expect(
 			plannedInPlaceUpdate(record([appMapping({ ...shell, releasedAt: AT })])),
 		).toBeNull();
+	});
+});
+
+/** A list stored for the HQ app the mappings above name. */
+const storedList = {
+	remoteAppId: "hq-app",
+	stored: {
+		ids: ["forms-and-settings-rewritten", "unused-media-entries-removed"],
+		webAppsOnInHq: true,
+		of: "first-publish",
+	},
+} as const;
+
+// Contract: the stored first-publish list is shown exactly while the next
+// publish updates the HQ app it was stored for. The failure it catches: a
+// Publish dialog that leads with what a first publish changes in an HQ app
+// CommCare HQ reported gone, where the publish makes a new app instead.
+describe("the stored first-publish list", () => {
+	it("is shown while the live mapping names the app it was stored for", () => {
+		expect(
+			firstPublishOf(record([appMapping({})]), storedList, undefined),
+		).toEqual({
+			ids: ["forms-and-settings-rewritten", "unused-media-entries-removed"],
+			touchesWorkers: false,
+			of: "first-publish",
+		});
+	});
+
+	it("is not shown for another HQ app, an ended deployment, or an app CommCare HQ reported gone", () => {
+		expect(
+			firstPublishOf(
+				record([appMapping({ remoteId: "other" })]),
+				storedList,
+				undefined,
+			),
+		).toBeNull();
+		expect(firstPublishOf(record([]), storedList, undefined)).toBeNull();
+		expect(
+			firstPublishOf(
+				record([appMapping({ remoteMissingAt: AT })]),
+				storedList,
+				undefined,
+			),
+		).toBeNull();
+	});
+
+	it("is shown for a released mapping, which the publish takes back and updates in place", () => {
+		expect(
+			firstPublishOf(
+				record([appMapping({ releasedAt: AT })]),
+				storedList,
+				undefined,
+			)?.ids,
+		).toEqual(["forms-and-settings-rewritten", "unused-media-entries-removed"]);
 	});
 });

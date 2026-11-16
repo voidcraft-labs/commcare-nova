@@ -1171,7 +1171,23 @@ name, add or drop one (part 06, section 13.4). Each side is cut by its own list:
 The two lists are not required to be equal. Their difference is `generatedDifference` (section 11.1),
 which the register reads. What check 4 requires is that everything else is equal, and that nothing
 but a generated node was cut: a path of `GA` that is not a leaf of `A`, or of `GE` not a leaf of `E`, is
-signature `identity/generated/phantom`.
+signature `identity/generated/phantom`. Nova writes every generated node with no body control but one,
+a protected message's carrier (an `input`), which it writes again wherever the document holds that
+message. So a leaf of `A` that `GA` cuts and that holds a body control must be matched in `GE` by a node
+of the same purpose and owner whose leaf of `E` holds the same control, wherever its name now stands;
+otherwise it is `identity/generated/control`. A question taken for a generated node then fails the
+check, and a carrier renamed by the allocator does not.
+
+**The case region, cut from each side.** Rows 5 to 7 leave out each side's case region: for `A`, the
+paths of `outcome.draft.facts.forms[i].caseRegionPaths`; for `E`, each authored scope's
+`nova_operations`, `nova_subcases` and selected-cases containers as `planGeneratedNodes` names them. Row 8
+compares what the region holds. The region `A` is cut by is the reader's word, so it is bounded as `GA`
+is: a leaf `A`'s region alone cuts that has a body control is `identity/region/control`; one that is no
+leaf of `E` cut by `E`'s region or `GE` is `identity/region/phantom`; and a container `A`'s region cuts
+that holds an appearance, or that `E` does not hold with the same kind inside its own region, is
+`identity/region/container`. The reader takes a node for scaffolding only where its leaves have no
+control and its containers are bare groups and their repeats, and Nova's emission writes that
+scaffolding at the same paths, its placements held, so a correct reading meets none of the three.
 
 **An authored container** is one that has an `appearance` after the cut below, or is a `repeat`, or
 has at least one leaf under its path that is not in its side's generated list. Nova's own groups
@@ -1235,7 +1251,9 @@ For each `xmlns`, `publishedCaseBlocks(A).forms.get(xmlns)` and `publishedCaseBl
 .get(xmlns)` must hold the same blocks: matched by `kind` and `path` (a `basic-subcase` by `index`, an
 `advanced` block by `tag`), and for a matched pair equal `caseType`, `condition`, `closeCondition`,
 `indices`, `ownerWritten`, `editOnly`, `sessionDatum`, `opens`, `closes`, `repeatContext`, `actions`
-and `properties`, and equal `modelIterationRows` as sets. Three things are applied before comparing,
+and `properties`, and equal `modelIterationRows` as sets. An `advanced` block holds no `repeatContext`:
+the repeat an open action's block stands in, and whether it nests under its own element there, is its
+`path`, which is compared for that kind. Three things are applied before comparing,
 and nothing else:
 
 1. **A generated sibling's path maps to its owner question, on each side by that side's list.** A
@@ -1279,15 +1297,21 @@ own reader of case blocks cannot read.
 
 ### 6.5 What check 4 holds and does not
 
-It holds, trusting two things of the reader and no more (which leaves are generated nodes, and which
-appearances it accounted as inert): that no answer leaf moved, appeared, vanished, changed its repeat,
+It holds, trusting three things of the reader and no more (which leaves are generated nodes, which
+appearances it accounted as inert, and where its case region stands): that no answer leaf moved, appeared, vanished, changed its repeat,
 its stored type class, its control or its choices; that no container changed kind, and none changed
 an appearance some runtime reads; that every case block Nova will write, a guard included, stands
 where CommCare HQ's stood, with the same type, condition, indices and properties from the same
 questions; and that CommCare HQ's entry builder is handed the same facts.
 
 Each trust is bounded from outside the reader. A leaf the reader calls generated is folded only where
-its tree equals the production emitter's (part 06, section 13), and a phantom fails the check. An
+its tree equals the production emitter's (part 06, section 13), which is the reader's own comparison;
+check 4 bounds it again from outside: a phantom fails the check, and so does a generated leaf that holds
+a body control the emission writes for no node of the same purpose and owner (6.3), so a question a
+worker answers, taken for a generated node, fails the check. A Hidden Value taken for one is not
+bounded: Nova may drop a generated node, so no rule outside the reader tells the two apart. A node
+the reader's case region cuts must be scaffolding Nova's emission writes there too (6.3), so a question
+taken for scaffolding fails the check. An
 appearance the reader calls inert is held by part 06's `appearances.test.ts` over each entry's own
 examples and, for the three classes the lane reads, by part 14's parity, and one of
 Nova's own four is never taken on the reader's word (6.3); a claim that is wrong there
@@ -1382,18 +1406,23 @@ in CommCare HQ never holds, and 7.4 says how the comparison treats a source that
 ### 7.3 Text
 
 A label per language is `commCareLocalization(doc).prose(language, unitId)` for the field's label unit
-under `lib/domain/translationFill.ts::filledProse`, the projection every export reads, passed through
-`builder.ts::buildLabelNodes` with a stub in place of the expression printer: each text node is its
-text, each `<output>` it builds is `____`. Using the emitter's own node builder puts a hole exactly
-where Nova writes an output (a reference, a calculated value, a protected whitespace run, part 03's
-bracket output), which is where part 06 read one (its section 12.3 confirms each literal output by
-that same print). `buildLabelNodes` is exported from `builder.ts`, body unchanged.
+under `lib/domain/translationFill.ts::filledProse`, the projection every export reads, printed as
+pieces: a reference or a calculated value is the hole `____`, and each text part goes through
+`builder.ts::buildLabelNodes`, each text node it builds a piece of fixed text and each `<output>` a
+literal piece holding the text it spells (`reader/xform/prose.ts::literalOutputText`: a protected
+whitespace run, part 03's bracket output). HQ's text agrees with a label where it is one rendering of
+the pieces: fixed text as it stands, a hole as `____`, and a literal piece either as `____` or as its
+text. A source holds a literal output only where Nova wrote that source; a source made in CommCare HQ
+holds the same characters as plain text (HQ's bulk translation upload writes a cell's no-break space
+into the form as it is, `corehq/apps/translations/app_translations/upload_form.py::_update_translation_node`),
+which part 06 reads as the same text, so either rendering is a correct reading. `buildLabelNodes` is
+exported from `builder.ts`, body unchanged.
 
 Both sides are then **normalized**: every character `lib/commcare/xform/consumerWhitespace.ts
 ::isConsumerWhitespace` answers true for is removed, and so is every other Unicode white space
 character. Core drops a whitespace-only text node before it reads a text and lxml keeps it, so
 whitespace is where the two parses differ without the reading being wrong. A language whose normalized
-text is empty is absent on that side.
+text is empty is absent on HQ's side, and one whose pieces are none is absent on the document's.
 
 **Which labels are compared.** CommCare HQ summarizes a label only where the `<label>` holds a `ref`
 (`xform.py::XForm._get_label_translations`: `'ref' in label_node.attrib`), and sends no text for a label
@@ -1409,7 +1438,7 @@ a text there once any language does, because `filledProse` fills a blank and a m
 prints its source (`lib/domain/translationFill.ts`; `lib/commcare/CLAUDE.md`, "Multilingual
 emission"). So, for a compared label:
 
-- where HQ sends text in a language, the two normalized strings are equal;
+- where HQ sends text in a language, it is one rendering of the document's pieces there;
 - where HQ sends none in a language `L`, the document's text in `L` equals the document's text in the
   first language, in the app's language order, for which HQ did send text. That is the fill's own
   rule: for a reading the app's first language is the default (part 06, section 6.3), the fill takes
@@ -1417,7 +1446,7 @@ emission"). So, for a compared label:
   text, which is the first language's unless the app's name or Nova's own sentences tell another
   source (part 06, section 6.3, item 4), and HQ sends none in `L` only where that text is blank too, so a
   missing translation and a blank one land on the same text;
-- where HQ sends text in no language, the document's label is absent in every language.
+- where HQ sends text in no language, the document's label renders as nothing in every language.
 
 Check 5 does not ask whether `blank-translations-filled` applies. Whether the first publish fills a
 blank is the register's question (section 11.2), and a label CommCare HQ never translated is a
@@ -1611,8 +1640,8 @@ rewrite over the typed document.
 | `unsorted-hidden-tile-columns-are-off-the-list` | one-wire | in a tile list, a column hidden from Results, shown on Details and holding no order rule, with `notOnList` and without it | the one that holds `notOnList` | in a tile list a column hidden from Results with no order rule is no field of the short detail either way (`lib/domain/caseListOrder.ts`, rule 1), so neither document writes one | part 07, section 11.6 |
 | `registration-form-last` | one-wire | a registration form a list offers after an empty search at any place in its menu; the same form last | last | the emission plan moves the form into its own hidden menu, so its place among the menu's forms reaches no wire | part 07, section 8.7 |
 | `unheld-placements-are-held` | one-wire | a document with a placement it does not hold (a case change, a form's own close in its own block, a query repeat, a menu emitted advanced); the same document holding every placement `lib/commcare/placementHolds.ts::placementsToHold` derives | holding | holding what the emission derives changes no byte (`lib/commcare/__tests__/heldPlacementEmission.test.ts`). `apply` is `holdPlacements` over `placementsToHold(doc)` | part 07, section 1 |
-| `expression-print-collisions` | one-wire | every row of part 08's `PRINT_COLLISIONS` | the canonical tree, and no case list filter where that tree is `match-all` (the emitter writes none for it) | `printCollisions.test.ts` (part 08) | part 08, section 5.5 |
-| `case-catalog-is-as-read` | one-wire | a document's `caseTypes` as authored; the catalog part 07 derives from the same document | the derived catalog, and no catalog (`null`, as `emptyBlueprintDoc` holds) where it derives no case type, so the document a birth builds from the construction batch is the one read | the emitter reads a property's type through `effectiveCaseTypes`, and part 07 declares a type exactly where a comparator, a search predicate or a Hidden Value bound `xsd:dateTime` reads one no writer gives; an unread property reaches no export, and a choice's label reaches one only through a plain column that shows the property's choices, which then are the document's own, labels and translations alike, whatever its select questions give; a property a plain column shows by its values, where no column shows its labels, holds no choices in either. A type's `parent_type` and `relationship` are the document's own where its links and parent selections give none: the export carries no such parent, and every re-read of a document Nova holds is told it (`ReaderInput.knownCaseTypes`, section 5.2) | part 07, section 7 |
+| `expression-print-collisions` | one-wire | every row of part 08's `PRINT_COLLISIONS`; and a text's read of a worker field by name (a prose `user-ref`) where the app holds the worker property that name prints as, and the read of that property (`user-property-ref`) | the canonical tree, and no case list filter where that tree is `match-all` (the emitter writes none for it); the property's read | `printCollisions.test.ts` (part 08); both prose references print `#user/<slug>`'s path, and a reading binds the path to the property (`xpath/referenceBindings.ts::formUserProperty`) | part 08, section 5.5 (`canon.ts::proseNamedReadsAsProperties`) |
+| `case-catalog-is-as-read` | one-wire | a document's `caseTypes` as authored; the catalog part 07 derives from the same document | the derived catalog, and no catalog (`null`, as `emptyBlueprintDoc` holds) where it derives no case type, so the document a birth builds from the construction batch is the one read | the emitter reads a property's type through `effectiveCaseTypes`, and a declared type no writer gives changes a print wherever it is read: a sort's comparator (a sorted plain or calculated column, whose comparator is its expression's result type), a search predicate, a Hidden Value bound `xsd:dateTime`, and every form or list slot whose lowering reads the operand's type (`datetime-coerce`, `date-coerce`, `format-date`, a comparison of dates and times). No print tells a reading such a type, so the reader is told the declared type of each property of a document Nova holds (`ReaderInput.knownCaseTypes`, section 5.2) and declares it on each property it reads that no writer types, and the derived catalog keeps the declared type of every property it keeps; an unread property reaches no export, and a choice's label reaches one only through a plain column that shows the property's choices, which then are the document's own, labels and translations alike, whatever its select questions give; a property a plain column shows by its values, where no column shows its labels, holds no choices in either. A type's `parent_type` and `relationship` are the document's own where its links and parent selections give none: the export carries no such parent, and every re-read of a document Nova holds is told it (`ReaderInput.knownCaseTypes`, section 5.2) | part 07, section 7 |
 | `joined-search-guards-split-as-read` | one-wire | in a language other than the source where a Search field's runtime guard is joined after fields' own validation messages and no field holds it alone, a guard translation and messages split anywhere; the split `guardSplit.ts::readGuardText` makes of the joined texts | that split | the emitter writes each field's message, a space and the guard's text (`searchPrompts.ts::buildValidation`), so the stored bytes are the join alone | part 07, section 12.2 (`search/guardSplit.ts::joinedGuardsSplitAsRead`) |
 | `default-search-title-is-absent` | one-wire | a search whose `searchScreenTitle` is "Search"; one with no title of its own | no title | `searchScreenTitleText` gives an absent title "Search", so the title unit's source and every translation of it are the same in both | part 07, section 12.4 (`search/settings.ts::defaultSearchTitleIsAbsent`) |
 | `empty-search-settings-beside-fields-are-absent` | one-wire | a menu with Search fields whose `caseSearchConfig` sets nothing; one with no `caseSearchConfig` | none | `effectiveCaseSearchConfig` gives `{}` for both, which every projection reads; the row reads what `default-search-title-is-absent` leaves | part 07, section 12.4 (`search/settings.ts::emptySearchSettingsBesideFieldsAreAbsent`) |
@@ -1620,15 +1649,17 @@ rewrite over the typed document.
 | `required-messages-as-read` | one-wire | where a required Search field's own message is Nova's sentence (`SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`) in the source language, the required messages held anywhere that prints the same text in every language; the document where the first required field, in menu and field order, whose source text is that sentence holds no message, Nova's message takes that field's texts, every required field whose texts are those in every language holds none and every other holds its texts as its own | the second | each required field prints its own message or Nova's whole (`searchPrompts.ts::buildRequired`), so the stored bytes are each field's text in each language alone; the row reads the source language `source-language-is-as-read` settles | part 07, section 12.2 (`search/systemSentences.ts::requiredMessagesAsRead`) |
 | `derived-search-conditions-are-simple-fields` | one-wire | an advanced Search field whose condition is a simple field's derivation, where the rows come out in one order either way; that simple field | the simple field | `simpleArmDerivation.ts::deriveSimpleArmPredicate` writes the simple field's row as the advanced field's condition prints it | part 07, section 12.3 (`search/rows.ts::derivedConditionsAreSimpleFields`) |
 | `columns-of-a-menu-that-lists-no-cases-are-off-the-detail` | not-carried | a menu with a case type whose forms are all surveys and which offers no case list entry, whatever its list (columns, header translations, order rules, tile, filter, selection, Search fields) and its search settings hold | one plain `case_name` column headed "Name", off the detail, and nothing else: no search settings, no other column, no translation of what is gone | the expander writes such a menu the pair every new menu holds in CommCare HQ (`expander.ts`, `hasCases`, `emptyShortListColumns`), one `name` column headed "Name" in every language, and the search's shell defaults; the column keeps the identity of the menu's own first plain `case_name` column, else `identityMap.ts::reReadUuidOf(doc, …)` of the key a re-read claims (part 10, section 2.3); the row runs before `columns-off-a-screen-last-in-its-order` | part 07, section 11.3 (`caseList/details.ts::columnsOfAMenuThatListsNoCasesOffTheDetail`) |
-| `columns-off-a-screen-last-in-its-order` | one-wire | a case list holding a column the detail does not show (`visibleInDetail: false`) anywhere in `detailColumnOrder`, or a column not on the list (`notOnList`) anywhere in `listColumnOrder`; the same list with each such column after the screen's own columns, those off the detail in the list's order and those off the list in the detail's | the second | `projectCaseListForHq` writes the long detail from the detail's shown columns and the short one from the list's, so neither holds a place for a column off it | part 07, section 11.3, rule 5 (`caseList/details.ts::columnsOffAScreenLast`) |
+| `columns-off-a-screen-last-in-its-order` | one-wire | a case list holding a column the detail does not show (`visibleInDetail: false`) anywhere in `detailColumnOrder`, or a column the short detail holds no field for (one not on the list, `notOnList`, and in a tile list one hidden from Results, `caseListOrder.ts`, rule 1) anywhere in `listColumnOrder`; the same list with each such column after the screen's own columns, those off the detail in the list's order and those off the list in the detail's, then the columns no screen shows, which only an order rule carries, in the order `tile-columns-shown-nowhere-are-as-read` gives them; each column under the identity of its place, since a reading names a column by its kind, its property and its ordinal among such columns in the list's order (`identityMap.ts::externalIdentityMap`) | the second | `projectCaseListForHq` writes the long detail from the detail's shown columns and the short one from `caseListOrderPlan`'s fields, so neither holds a place for a column off it; the reader joins the long detail's columns no short column takes after the short detail's (`joinDetailColumns`) and appends each column an order rule alone carries as it reads the rule (`order.ts::readSortElements`) | part 07, section 11.3, rule 5 (`caseList/details.ts::columnsOffAScreenLast`) |
+| `columns-joined-as-read` | one-wire | a case list whose short detail's fields, joined with the long detail's columns as the reader joins them, take other columns than their own: a shown field the first long detail column not yet joined that prints the same column (two columns that differ only in identity, order rule, tile cell and place on each screen and hold the same text in every language), a field hidden from Results the first over its property that holds its header in every language, and none where no such column is free (joined to a column under another header it would print that column's header in its `invisible` place, which HQ's import file holds); the list that join gives | the second: each field holding the print of the column it joined beside its own order rule, tile cell and place on Results, off the detail where it joined none, each long detail column no field joined after them off the list, every column under the identity a re-read gives its key there (`identityMap.ts::reReadUuidOf`), its print's translations with it | neither detail prints a column's identity, and an `invisible` field carries its property and its header alone (`hqJson/caseList.ts::projectColumnForShortDetail`), so the reader pairs the two details by print (`joinDetailColumns`) and both members print one export. The row runs after `columns-off-a-screen-last-in-its-order` | part 07, section 11.3 (`caseList/details.ts::columnsJoinedAsRead`) |
+| `columns-in-list-order` | one-wire | a case list whose `columns` array holds its columns in any order; the same list with the array in `listColumnOrder`'s order | the second | the array is the set and its position reaches no export: every projection reads the columns through the two order arrays (`modules.ts::orderedColumns`, `lib/domain/CLAUDE.md`), and the reader builds the array in its join order, which is its list order | part 07, section 11.3 (`caseList/details.ts::columnsInListOrder`) |
 | `purpose-notes-are-absent` | not-carried | `Module.purpose` and `Form.purpose` (`lib/domain/modules.ts`, `lib/domain/forms.ts`) | absent | purpose notes are outside the wire inventory (`lib/commcare/CLAUDE.md`, "`APP_TEXT_UNREPRESENTABLE`") | part 06, section 16.2 (`assemble.ts`) |
-| `app-logo-is-absent` | not-carried | `logo` | absent | a publish writes no `logo_refs` (`importApplication.ts`), and a logo reaches an app on CommCare HQ only when a person adds it there (`expander.ts::ExpandOptions`) | part 06, section 16.2 (`assemble.ts`) |
+| `app-logo-is-absent` | not-carried | `logo` | absent | a publish writes no `logo_refs` (`importApplication.ts`), and a logo reaches an app on CommCare HQ only when a person adds it there (`expander.ts::ExpandOptions`); the local archive's profile names it under HQ's Web Apps banner key (`brand-banner-web-apps`, `multimedia/logoEntry.ts::buildLogoProfileProperty`), which no runtime that installs a `.ccz` reads (Android reads only its login and home banners, commcare-android `HiddenPreferences.java`), so its case holds every other file equal and the profile different by that one property | part 06, section 16.2 (`assemble.ts`) |
 | `menu-and-form-ids-as-read` | not-carried | `Module.id` and `Form.id` as authored | the id a reading mints: a menu's the slug of its name in the source language, else in the first language that holds one, fallback `menu`; a form's the slug of its name in the source language, fallback `form`; each suffixed `_2`, `_3` past the ids of its kind before it in menu and form order | every HQ menu and form id is derived from the entity's UUID, so no export carries either | part 06, section 16.2 (`provisional.ts::menuAndFormIdsAsRead`, beside `menus/modules.ts::writeMenuIds`) |
 | `worker-fields-read-by-name-are-properties` | one-wire | a worker field the logic reads by name (`session-user`, a prose `user-ref`) that no worker property names; the read of a worker property of that slug, labelled with it, under the UUID a re-read gives `userProperty(slug)` (`freeEntityUuid` against the document's own properties, part 10, section 2.3) | the second | both print `#user/<slug>` or the session path of the slug, and a reading mints the property (part 08, section 2.5) under the UUID a re-read under the app's own id gives, and each read by name of its slug becomes the read of the property, keeping its source, as the parser binds a declared slug and the gate holds it (`worker-property-read-by-name`) | part 06, section 16.2 (`worldEntities.ts::namedWorkerReadsAreProperties`) |
 | `world-properties-as-read` | not-carried | the worker and location properties as authored | each one the logic reads, labelled with its slug, with no choices and no requirement, in the code-unit order of the slugs; none that nothing reads | no export carries a property, only the slug a read prints (`worldEntities.ts::worldEntitiesFromReads`, run over what the document's logic reads) | part 06, section 16.2 (`worldEntities.ts::worldPropertiesAsRead`) |
 | `organization-levels-as-read` | not-carried | the organization's levels as authored | each level as `levelsFromHq` reads it from the list a publish sets up (`levelsAsPublished`): holding workers, its descendant cases all or none, its own branch's address book, no description, parent before child | the export carries no level, and CommCare HQ's list says only a level's code, name, parent, whether it shares cases and whether it views descendants (part 11, O3) | part 06, section 16.2 (`worldEntities.ts::levelsAsRead`) |
 
-Forty-five rows: forty-four entries of `READER_CANONICAL_CHOICES` and
+Forty-seven rows: forty-six entries of `READER_CANONICAL_CHOICES` and
 `expression-print-collisions`, which `canonicalExpression` applies slot by slot. Part 07's check of
 a form-builder save of Nova's Save to Case shapes adds none: where
 the builder changed a block's structure the block is refused, and a canonicalization rewrites to a
@@ -1657,7 +1688,8 @@ the row names where one already prints both members: `unheld-placements-are-held
 held by `canonicalRowsKeepExport.test.ts`, which applies every row of `CANONICALIZATIONS` to each
 document the lane publishes and holds `expandDoc` byte for byte. A case of `canon.test.ts` builds
 the two documents of the pair from production builders, runs `expandDoc` over each under identical
-options and, for an app that declares Android, the archive `compileLocalArchive` compiles (its
+options, the media manifest an export resolves for every asset either member references among them,
+and, for an app that declares Android, the archive `compileLocalArchive` compiles (its
 `expandDoc` under the runtime target, then `compileCcz`: `compileLocalArchive` itself takes a
 `PreparedExportBoundary` that only the server's export boundary prepares), and requires every
 emitted file byte for byte equal. A
@@ -1984,7 +2016,7 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 11 | `search-today-device-day` | the same | `/modules/*/search_config/*` | yes |
 | 12 | `case-settings-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/forms/*/actions`; `/_attachments/*` | no |
 | 13 | `search-filter-rows-recut` | the same test for its id | `/modules/*/search_config/default_properties` | no |
-| 14 | `sort-rule-kept-as-hidden-column` | the same | `/modules/*/case_details/short/columns`; `/modules/*/case_details/short/sort_elements/*/field` (`caseList/order.ts` records the rule at a sort element's `field` where it names the hidden column); `/modules/*/case_details/short/sort_elements/*/type`; `/modules/*/case_details/short/sort_elements/*/display` | no |
+| 14 | `sort-rule-kept-as-hidden-column` | the same | `/modules/*/case_details/short/columns`; `/modules/*/case_details/short/sort_elements/*/field` (`caseList/order.ts` records the rule at a sort element's `field` where it names the hidden column); `/modules/*/case_details/short/sort_elements/*/display`. A sort word the first publish writes another way (`string`, or `date` over a property not of the date class) is recorded under `list-settings-respelled`, whose `/modules/*/case_details/short/sort_elements` covers it, whether or not its element names a hidden column: HQ's build writes the words alike, and no hidden column is added for one the list shows | no |
 | 15 | `list-settings-respelled` | the same | `/modules/*/case_details/short/max_select_value`; `/modules/*/case_details/short/sort_elements`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description` (the last two for a search text map that lacks a language where every language is blank, or a title or description spelled other than as HQ's build shows it, part 07, section 12.4); `/modules/*/search_config/<key>` (written out key by key: `search_button_display_condition`, `blacklisted_owner_ids_expression`, `data_registry`, `custom_related_case_property`, `instance_name`, `data_registry_workflow`, `additional_registry_cases`, `additional_case_types`, the keys `search/settings.ts` records at) for a blank `""` in a key HQ reads only where it holds text, a `data_registry_workflow` or `additional_registry_cases` where no registry is named, or an `additional_case_types` naming only the menu's own type, and `/modules/*/search_config/properties/*/<key>` (`label`, `hint`, `receiver_expression`, `default_value`, `required`, `validations/*/text`) for a Search field's text map spelled other than as the build shows it, a blank `receiver_expression` or `default_value`, or a `required` whose test is blank (part 07, sections 12.2 and 12.4); `/modules/*/case_list/label` (a case list menu item's label with no text, read as "Case List", part 07, section 8.6, or a label held as every app string is, `heldText.ts::heldText`); `/modules/*/case_list_form/label` (a Register button's label with text that Nova prints another way: a language with no key, a `null`, a language the app no longer lists, spaces at a text's end, part 07, section 8.7); `/modules/*/case_details/*/columns/*/header` and `/modules/*/case_details/*/columns/*/enum/*/value` (a column's header or a mapping's label or image path spelled other than as the build shows it, part 07, section 11.2); `/modules/*/case_details/*/no_items_text`, `/modules/*/case_details/*/select_text`, `/modules/*/search_config/search_button_label` and `/modules/*/case_details/*/columns/*/enum/*/alt_text` (a text a device shows as HQ's default, or an image map's alt text it shows blank, in a map Nova writes another way, part 07, sections 11.2 and 12.4) | no |
 | 16 | `search-filter-joined-to-list` | the same | `/modules/*/case_details/short/filter` | no |
 | 17 | `search-restates-list-filter` | the same | `/modules/*/search_config/default_properties` | yes |
@@ -2336,7 +2368,8 @@ same value, with its keys in snake case, as `first_publish` on each entry of `re
 `review.runs_on`, built with surface `review` (its section 14.3), and on
 `check_project_space_compatibility`, built with surface `publish` (its section 14.7). On the second
 it is null exactly where `firstPublishOf` (12.3) answers null: no list is stored for the
-deployment, or its live app mapping is not the one the list was stored for (an ended deployment).
+deployment, its live app mapping is not the one the list was stored for (an ended deployment), or
+CommCare HQ reported that app gone.
 A list of kind `next-publish` is drawn with part 15's heading and lead (its section 9.4).
 
 ### 12.3 Where the list is kept between the review and the first publish
@@ -2432,7 +2465,8 @@ the ids that remain.
 
   ```ts
   // lib/deployment/resources.ts, beside part 10's deploymentEnding
-  /** The stored list, while the live app mapping names the app it was stored for; null otherwise. */
+  /** The stored list, while the live app mapping names the app it was stored for and CommCare HQ
+   * has not reported that app gone (`remoteMissingAt` null); null otherwise. */
   export function firstPublishOf(
   	deployment: DeploymentWithResources,
   	state: { readonly remoteAppId: string; readonly stored: StoredFirstPublish } | undefined,
@@ -2442,8 +2476,13 @@ the ids that remain.
 
   It answers `firstPublishViewFromStored(state.stored, runsOnlyOn)` where `state` is defined and
   `activeRemoteApp(deployment)` is a mapping whose remote id is `state.remoteAppId`, whatever its
-  ownership, and null otherwise, so an ended deployment shows none, and a deployment has no entry
-  in the map from a push, which clears the column, until part 15 next stores a list for it.
+  ownership, and whose `remoteMissingAt` is null, and null otherwise, so an ended deployment shows
+  none, and a deployment has no entry in the map from a push, which clears the column, until part
+  15 next stores a list for it. A mapping CommCare HQ reported gone shows none, since the next
+  publish makes a new app (`plannedInPlaceUpdate`) that none of the list's lines is about; the list
+  stays stored, and shows again where a check finds the app restored through HQ's own undo. A
+  released mapping still shows it: the publish settles the claim before it reads anything of HQ
+  and, taking it back, updates that same app.
   `readDeploymentsAction` calls `readFirstPublishStates(scope)` once beside its one read of the
   document, and it, `refreshDeploymentAction`, `withdrawDeploymentConfirmationAction` and part 10's
   `stopPublishingAction` (its section 8.3) each call
@@ -2451,8 +2490,12 @@ the ids that remain.
   publish route, as `first_publish` beside `kept`, and a view built after a write landed (a
   publish, Check status, a refresh of the kept values) reads it through
   `service.ts::landedFirstPublish`, which answers `unread` for a fault as `landedDeploymentKept`
-  does: `RefreshedDeploymentView.firstPublish` admits it, the publish route leaves the key out,
-  and the card keeps the list it shows (`keptListModel.ts::refreshedViewToShow`). The Publish dialog
+  does: `RefreshedDeploymentView.firstPublish` admits it, and the card keeps the list it shows
+  (`keptListModel.ts::refreshedViewToShow`). The publish route leaves the key out, which
+  `publishOutcome.ts` reads as `unread` (`PublishedDeploymentView`; an explicit `null` is no list),
+  and the Publish dialog, on a landed and a refused publish alike, holds the record through
+  `publishOutcome.ts::publishedViewToHold`, which takes an unread list (`kept` too) from the record
+  it holds for the same server and project space, none where it holds none. The Publish dialog
   draws the value before the person confirms a publish, and `check_project_space_compatibility`
   calls `readFirstPublishStates(scope)` and the same function (part 13, sections 11.2 and 14.7).
 
@@ -2728,7 +2771,10 @@ part splits it, and `readingAppStrings`, below, puts the gate in front:
   texts, keyed by a file's path). `appStrings.test.ts` holds these claims over the corpus, by
   compiling under two targets and under two namings of the same tables (their own tags and
   column names, and others) and requiring equal tables, and by comparing with
-  `compileLocalArchive`'s tables made with the document's media.
+  `compileLocalArchive`'s tables made with the document's media. Because the tables hold no media
+  string, part 06's classifier does not judge an override of a media key against them: it judges
+  it by what CommCare HQ's build of the stored app shows under that key (its section 16.5, "Media
+  keys", over `reader/assemble.ts::mediaKeyReading`).
 
 The stand-in target and the catalog's definitions are why `localAppStringTable` needs nothing else
 of the reading.
@@ -2901,7 +2947,7 @@ list are functions of data, and part 13 owns the Playwright specs that show the 
 | `readBack.retained.test.ts` (written where part 05's bracket closes over the three files, 9.1): `read(served(D))` over CommCare HQ's retained answers for `navigation-base` equals `canonDocument(D)` | the production reader over CommCare HQ's own stored and served answers, with no Docker | a read back that fails on a source CommCare HQ normalized, found only in the lane |
 | `lib/commcare/reader/__tests__/canon.test.ts`: one case per row of section 9 that names no other test, both documents printed and compared byte for byte, the local archive too where the app declares Android (`compileCcz` over the runtime target's expansion, as `compileLocalArchive` compiles it); every row of `CANONICALIZATIONS` has a case or names its test; both cases of `dormant-tile-cells` (a cell on a list that is no tile, and a cell on a column hidden from Results in a tile list); `canonDocument` idempotent; `canonDocument(read(A)) = read(A)` over retained reads | the production emitter | a canonicalization that hides a difference a runtime reads |
 | `lib/deployment/reading/__tests__/canonReadBack.fuzz.test.ts`, in ordinary CI: over the fuzz corpora, `readBackDifferences(canonDocument(D), read(expandDoc(D)))` is empty. The read is made as part 14's read back is (its section 5.2, step 4): under `matchingResolver(D.appId, externalIdentityMap(D, identity))`, so D's own uuids come back, with the rest of the reader's input the document's own; the comparison takes the draft's `doc` and `declaration.choices` | the reader over Nova's own emission, through the one comparison | a pair the list lacks (section 9 gives the rule for a failure) |
-| `lib/deployment/reading/__tests__/firstPublishChanges.test.ts`: for every entry, a `FirstPublishFacts` on which it applies and one on which it does not, each built from a retained read or a production builder (`forms-and-settings-rewritten` applies on both, and is held to that); `GENERATED_NODE_CHANGE` total; every `sameStateRewrites` record of every retained read names an entry whose `paths` cover it; `FIRST_PUBLISH_TOUCHES_WORKERS` equals the register; every id of `EMISSION_REWRITES` whose `behavior` is `changes` is an id of this table whose entry touches workers; `MEDIA_REFERENCE_PATHS` equals part 11's slots; exactly `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`; for every choice of every retained reading, the choice's list equals `firstPublishViewFromStored` of what the birth stores for it under that choice's `runsOnlyOn`, and under the other declarations it gains or loses only the two Web Apps ids; a stored list of kind `next-publish` comes back as a view of that kind, with a Web App line only where the stored setting differs from the declaration; `unused-media-entries-removed` applies to a source with a map entry no reference and no logo entry names, and not to one whose only extra entry a logo names; `date-and-time-saved-as-hq-stores-it` applies to a reading of a source whose `nova_datetime_` sibling holds the earlier calculation, and to one whose Save to Case value holds the earlier spelling, and to neither source written in the current spelling; and for each of `connect-app-captures-location`, `location-list-setting-reset`, `web-apps-turned-off` and `web-apps-turned-on`, over the facts on which it applies, `lib/deployment/importApplication.ts::hqImportApplication`'s body (built over `adoptionExportBoundary`'s options, with the reading's source as the update's read) holds the entry's one top-level key (`auto_gps_capture`, `location_fixture_restore`, `cloudcare_enabled`) at a value other than the source's, and over the facts on which it does not, at the source's value or absent | the register over readings, and over the body a first publish sends | an entry that never applies; a same-state rule with no declaration; a rewrite the reader reports that no line says; a stored list that tells a person Web Apps is turned off after they turned it on; a shell edit and a predicate that part ways |
+| `lib/deployment/reading/__tests__/firstPublishChanges.test.ts`: for every entry, a `FirstPublishFacts` on which it applies and one on which it does not, each built from a retained read or a production builder (`forms-and-settings-rewritten` applies on both, and is held to that), and an entry whose predicate reads what the reader records (`rewrites`, `sameStateRewrites`, `foldedTranslationKeys`, a form's `blankTranslations`) on a whole reading (`readHqApp`) of a production export changed to the source shape that makes the reader record it, never on a record added to the facts by hand, every record of those readings covered by its entry's `paths`; `GENERATED_NODE_CHANGE` total; every `sameStateRewrites` record of every retained read names an entry whose `paths` cover it; `FIRST_PUBLISH_TOUCHES_WORKERS` equals the register; every id of `EMISSION_REWRITES` whose `behavior` is `changes` is an id of this table whose entry touches workers; `MEDIA_REFERENCE_PATHS` equals part 11's slots; exactly `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`; for every choice of every retained reading, the choice's list equals `firstPublishViewFromStored` of what the birth stores for it under that choice's `runsOnlyOn`, and under the other declarations it gains or loses only the two Web Apps ids; a stored list of kind `next-publish` comes back as a view of that kind, with a Web App line only where the stored setting differs from the declaration; `unused-media-entries-removed` applies to a source with a map entry no reference and no logo entry names, and not to one whose only extra entry a logo names; `date-and-time-saved-as-hq-stores-it` applies to a reading of a source whose `nova_datetime_` sibling holds the earlier calculation, and to a whole reading of one whose Save to Case value holds the earlier spelling with no clock node, which reads to the document the current spelling gives, and to neither source written in the current spelling; and for each of `connect-app-captures-location`, `location-list-setting-reset`, `web-apps-turned-off` and `web-apps-turned-on`, over the facts on which it applies, `lib/deployment/importApplication.ts::hqImportApplication`'s body (built over `adoptionExportBoundary`'s options, with the reading's source as the update's read) holds the entry's one top-level key (`auto_gps_capture`, `location_fixture_restore`, `cloudcare_enabled`) at a value other than the source's, and over the facts on which it does not, at the source's value or absent | the register over readings, and over the body a first publish sends | an entry that never applies; a same-state rule with no declaration; a rewrite the reader reports that no line says; a stored list that tells a person Web Apps is turned off after they turned it on; a shell edit and a predicate that part ways |
 | `lib/publish/__tests__/firstPublishCopy.test.ts`: every sentence is non-empty, ends in a full stop, holds no em dash and no ellipsis; `firstPublishLines` puts each line in the group `FIRST_PUBLISH_TOUCHES_WORKERS` gives it, in registry order, gives the reassurance exactly where `touchesWorkers` is false, the review's lead for `review` and the publish's for `publish`, and the note always; a view of kind `next-publish` takes part 15's heading and lead on the `publish` surface and every other member as any view does; two ids said by one sentence give one line; an id and the id that says it have the same `touchesWorkers`; every value of `FIRST_PUBLISH_SAID_BY` is a `FirstPublishSentenceId` | the copy | a line with no words; a list ordered by accident; a worker-touching first publish told workers see the same questions; one sentence shown twice |
 | `proof/ci/__tests__/firstPublishChanges.test.ts`: the file's ids are `FIRST_PUBLISH_CHANGE_IDS` in order; each object's `source` rows are exactly the entry's `paths` (entry 1's four written pointers; its inert allowance has no row); a `proof3` row stands only under an entry whose `touchesWorkers` is true | `proof/first-publish-changes.json` against the register (section 13.2) | the lane accepting a stored-app difference the register does not allow, or a behavior difference under an entry that declares none |
 | `lib/commcare/__tests__/appStrings.test.ts`: `localAppStringTable(doc, definitions)` equals, language by language, the tables `compileLocalArchive` serializes for the same document, over the corpus, a document that reads a lookup table among them; the tables are equal under two stand-in targets and under two namings of the same tables, and the archive holds beside them only the strings a media manifest writes; a document whose app string holds a literal backslash-`n` gives its table and does not throw; `compileCcz`'s archive is exactly its parts, each table written through `hqLocaleFileValue` (its bytes against `main` were held once, over 2,760 archives, section 15.1) | the split of `compileCcz` | a classifier judging keys against strings no build makes; a reading that throws on a string the archive cannot carry; a changed archive |

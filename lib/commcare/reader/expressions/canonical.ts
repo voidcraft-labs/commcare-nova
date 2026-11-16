@@ -53,9 +53,11 @@ import { sameJson } from "../jsonCursor";
 import { shapedLiteral as shapedLiteralText } from "./folds";
 
 /** What the emitter's print of the slot binds beside its context: the
- *  questions whose read prints as the path the case operation emitter binds
- *  it to, whatever its spelling, where `xform/caseOps.ts` prints the slot
- *  from a Save to Case block's node (`readExpression.ts::slotPrint`). */
+ *  questions whose read prints as the path the emitter binds it to, whatever
+ *  its spelling, where `xform/caseOps.ts` prints the slot from a Save to Case
+ *  block's node, and every question of the form in a select's choices from a
+ *  table or from cases (`bindLookupFilterFieldPaths`;
+ *  `readExpression.ts::slotPrintUnder`). */
 export interface SlotPrint {
 	readonly boundFields?: ReadonlySet<Uuid>;
 }
@@ -520,21 +522,37 @@ function workerLeaf(
 	context: ExpressionContext,
 	source: "worker-record" | undefined,
 ): Term {
-	const matches = [...context.facts.userPropertySlugs].filter(
+	const held = workerPropertyNamed(slug, context.facts.userPropertySlugs);
+	const provenance = source === undefined ? {} : { source };
+	return held !== undefined
+		? {
+				kind: "session-user-property",
+				userPropertyUuid: held,
+				...provenance,
+			}
+		: { kind: "session-user", field: slug, ...provenance };
+}
+
+/**
+ * The worker property a read of `slug` by name prints as, as the parser binds
+ * `#user/<slug>` (`xpath/referenceBindings.ts::formUserProperty`): the one
+ * property whose slug is `slug` in any letters, where it is exactly `slug`
+ * and `slug` is a valid slug; otherwise none, and the read stays by name.
+ */
+export function workerPropertyNamed(
+	slug: string,
+	slugs: ReadonlyMap<Uuid, string>,
+): Uuid | undefined {
+	const matches = [...slugs].filter(
 		([, held]) => held.toLowerCase() === slug.toLowerCase(),
 	);
 	const [only] = matches;
-	const provenance = source === undefined ? {} : { source };
 	return matches.length === 1 &&
 		only !== undefined &&
 		only[1] === slug &&
 		userPropertySlugVerdict(slug, NO_SLUGS).ok
-		? {
-				kind: "session-user-property",
-				userPropertyUuid: only[0],
-				...provenance,
-			}
-		: { kind: "session-user", field: slug, ...provenance };
+		? only[0]
+		: undefined;
 }
 
 /** The worker-record leaf of a slug, as the parser binds `#user/<slug>`. */

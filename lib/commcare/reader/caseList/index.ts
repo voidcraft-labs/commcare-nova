@@ -431,14 +431,15 @@ function sortDifference(
 		if (reading.sort.textual.has(index) && numericWord(other.type))
 			ctx.accounting.finding(ORDER_CLAIMS.typeText, place);
 		// A date comparison over a property whose type is not of the date class HQ's build writes as
-		// it writes a text one (`detail_screen.py::FormattedDetailColumn.sort_node`), and the first
-		// publish writes Nova's word for it.
+		// it writes a text one (`detail_screen.py::FormattedDetailColumn.sort_node` maps `date` and
+		// `plain` to `string`), and the first publish writes Nova's word for it: the stored word
+		// alone is new.
 		if (element.type === "date" && other.type === "plain")
 			sameState(
 				ctx,
 				ORDER_CLAIMS.typeDerived.entry,
 				`${reading.short.pointer}/sort_elements/${index}/type`,
-				"sort-rule-kept-as-hidden-column",
+				"list-settings-respelled",
 			);
 	}
 	return undefined;

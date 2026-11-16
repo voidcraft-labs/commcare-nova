@@ -21,6 +21,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
+import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { caseListColumnTextShows } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
@@ -390,13 +391,18 @@ function sameProposal(a: ColumnProposal, b: ColumnProposal): boolean {
 		if (ta === undefined || tb === undefined || !sameXPathText(ta, tb))
 			return false;
 	} else if (!sameJson(restA, restB)) return false;
+	return sameHeader(a, b) && sameJson(a.texts, b.texts);
+}
+
+/** Whether two proposals hold the same header text in every language. */
+function sameHeader(a: ColumnProposal, b: ColumnProposal): boolean {
 	const languages = new Set([
 		...Object.keys(a.header),
 		...Object.keys(b.header),
 	]);
 	for (const language of languages)
 		if ((a.header[language] ?? "") !== (b.header[language] ?? "")) return false;
-	return sameJson(a.texts, b.texts);
+	return true;
 }
 
 function fieldOf(proposal: ColumnProposal): string | undefined {
@@ -432,8 +438,13 @@ function sameHiddenField(
 /**
  * The short and the long detail's columns as one set of columns. Each short column joins the
  * first long column not yet joined whose proposal is equal; an `invisible` short column joins the
- * first unjoined long column over its field and takes that column's proposal. A short column
- * with no partner is hidden from the detail; a long column with no partner is not on the list.
+ * first unjoined long column over its field that holds its header in every language, and takes
+ * that column's proposal. A short column with no partner is hidden from the detail; a long column
+ * with no partner is not on the list. An `invisible` column joins no column over its field with
+ * another header: Nova writes a column hidden from Results and shown on Details with one header
+ * on both screens (`hqJson/caseList.ts::projectColumnForShortDetail`), so one whose header no
+ * such column holds is hidden from Details too, and a join would print its partner's header in
+ * its place.
  */
 export function joinDetailColumns(
 	short: readonly (ColumnProposal | undefined)[],
@@ -444,18 +455,20 @@ export function joinDetailColumns(
 	const listOrder: number[] = [];
 	short.forEach((proposal, s) => {
 		if (proposal === undefined) return;
-		let partner = -1;
-		for (let l = 0; l < long.length; l++) {
-			const candidate = long[l];
-			if (candidate === undefined || joinedLong.has(l)) continue;
-			const match = proposal.invisible
-				? sameHiddenField(proposal, candidate)
-				: sameProposal(proposal, candidate);
-			if (match) {
-				partner = l;
-				break;
-			}
-		}
+		const first = (match: (candidate: ColumnProposal) => boolean) =>
+			long.findIndex(
+				(candidate, l) =>
+					candidate !== undefined && !joinedLong.has(l) && match(candidate),
+			);
+		// An `invisible` column carries its property and its header alone, so it joins the column
+		// over its property that holds its header, the column it is, and no other.
+		const partner = proposal.invisible
+			? first(
+					(candidate) =>
+						sameHiddenField(proposal, candidate) &&
+						sameHeader(proposal, candidate),
+				)
+			: first((candidate) => sameProposal(proposal, candidate));
 		const index = columns.length;
 		if (partner === -1) {
 			columns.push({
@@ -1351,11 +1364,16 @@ export function readCaseDetails(
 
 /**
  * The reader's canonical choice `columns-off-a-screen-last-in-its-order`: a column the detail does
- * not show (`visibleInDetail: false`) has no place in the long detail, and a column that is not on
- * the list (`notOnList`) none in the short one, so a document that holds either anywhere in that
- * screen's order prints what one that holds it last prints. The reader returns the screen's own
- * columns in their order, then the others: those off the detail in the list's order, those off the
- * list in the detail's (`joinDetailColumns`, rules 3 to 5).
+ * not show (`visibleInDetail: false`) has no place in the long detail, and a column the short
+ * detail holds no field for has none in the short one, so a document that holds either anywhere in
+ * that screen's order prints what one that holds it last prints. A column the short detail holds
+ * no field for is one not on the list (`notOnList`) and, in a tile list, one hidden from Results
+ * (`caseListOrder.ts`, rule 1, which `caseListOrderPlan`'s fields state). The reader returns the
+ * screen's own columns in their order, then the others: on the detail, those off it in the list's
+ * order; on the list, those Details shows in the detail's order (the long detail's columns no short
+ * column joins, `joinDetailColumns`), then those no screen shows, which only an order rule carries,
+ * in the order `tile-columns-shown-nowhere-are-as-read` gives them (`order.ts::readSortElements`
+ * appends each as it reads its rule).
  */
 export function columnsOffAScreenLast(doc: BlueprintDoc): BlueprintDoc {
 	const next = new Map<Uuid, { list: Uuid[]; detail: Uuid[] }>();
@@ -1363,30 +1381,35 @@ export function columnsOffAScreenLast(doc: BlueprintDoc): BlueprintDoc {
 		const config = doc.modules[moduleUuid]?.caseListConfig;
 		if (config === undefined) continue;
 		const columns = new Map(config.columns.map((one) => [one.uuid, one]));
-		const last = (
-			order: readonly Uuid[],
-			other: readonly Uuid[],
-			off: (column: Column) => boolean,
-		): Uuid[] => {
-			const isOff = (uuid: Uuid) => {
-				const column = columns.get(uuid);
-				return column !== undefined && off(column);
-			};
-			return [
-				...order.filter((uuid) => !isOff(uuid)),
-				...other.filter((uuid) => isOff(uuid) && order.includes(uuid)),
-			];
-		};
-		const detail = last(
-			config.detailColumnOrder,
-			config.listColumnOrder,
-			(column) => column.visibleInDetail === false,
+		// Which columns are fields depends on no property, no comparator and no expression's
+		// print, so the plan is asked with none of them.
+		const fields = new Set(
+			caseListOrderPlan(config, [], {
+				mediaOn: false,
+				calculatedType: () => undefined,
+				expressionText: () => "",
+			}).fields.map((field) => field.column.uuid),
 		);
-		const list = last(
-			config.listColumnOrder,
-			config.detailColumnOrder,
-			(column) => column.notOnList === true,
-		);
+		const onDetail = (uuid: Uuid) =>
+			columns.get(uuid)?.visibleInDetail !== false;
+		const list = [
+			...config.listColumnOrder.filter((uuid) => fields.has(uuid)),
+			...config.detailColumnOrder.filter(
+				(uuid) =>
+					!fields.has(uuid) &&
+					onDetail(uuid) &&
+					config.listColumnOrder.includes(uuid),
+			),
+			...config.listColumnOrder.filter(
+				(uuid) => !fields.has(uuid) && !onDetail(uuid),
+			),
+		];
+		const detail = [
+			...config.detailColumnOrder.filter(onDetail),
+			...list.filter(
+				(uuid) => !onDetail(uuid) && config.detailColumnOrder.includes(uuid),
+			),
+		];
 		if (
 			detail.join() !== config.detailColumnOrder.join() ||
 			list.join() !== config.listColumnOrder.join()
@@ -1398,8 +1421,416 @@ export function columnsOffAScreenLast(doc: BlueprintDoc): BlueprintDoc {
 		for (const [moduleUuid, { list, detail }] of next) {
 			const config = draft.modules[moduleUuid]?.caseListConfig;
 			if (config === undefined) continue;
+			const renamed = identitiesByListOrder(
+				config.columns,
+				config.listColumnOrder,
+				list,
+			);
 			config.listColumnOrder = list;
 			config.detailColumnOrder = detail;
+			renameColumns(draft, config, renamed);
+		}
+	});
+}
+
+/** The key a reading claims a column under, less its ordinal: its kind and its property. */
+function columnPairKey(column: Column): string {
+	return JSON.stringify([
+		column.kind,
+		column.kind === "calculated" ? "" : column.field,
+	]);
+}
+
+/**
+ * The identity each column takes where a list's order on Results moves from `before` to
+ * `after`: a reading names a column by its kind, its property and its ordinal among such columns
+ * in that order (`identityMap.ts::externalIdentityMap`, which a re-read's resolver answers), so
+ * the n-th such column in the new order takes the identity the n-th held in the old one. Only a
+ * column whose identity moves is named.
+ */
+function identitiesByListOrder(
+	columns: readonly Column[],
+	before: readonly Uuid[],
+	after: readonly Uuid[],
+): ReadonlyMap<Uuid, Uuid> {
+	const byUuid = new Map(columns.map((column) => [column.uuid, column]));
+	const held = new Map<string, Uuid[]>();
+	for (const uuid of before) {
+		const column = byUuid.get(uuid);
+		if (column === undefined) continue;
+		const key = columnPairKey(column);
+		held.set(key, [...(held.get(key) ?? []), uuid]);
+	}
+	const seen = new Map<string, number>();
+	const renamed = new Map<Uuid, Uuid>();
+	for (const uuid of after) {
+		const column = byUuid.get(uuid);
+		if (column === undefined) continue;
+		const key = columnPairKey(column);
+		const n = seen.get(key) ?? 0;
+		seen.set(key, n + 1);
+		const target = held.get(key)?.[n];
+		if (target !== undefined && target !== uuid) renamed.set(uuid, target);
+	}
+	return renamed;
+}
+
+/** `config`'s columns renamed by `renamed` in the draft, in both orders and with the
+ *  translations each one's print holds. */
+function renameColumns(
+	draft: Draft<BlueprintDoc>,
+	config: Draft<CaseListConfig>,
+	renamed: ReadonlyMap<Uuid, Uuid>,
+): void {
+	if (renamed.size === 0) return;
+	const rename = (uuid: Uuid) => renamed.get(uuid) ?? uuid;
+	for (const column of config.columns) column.uuid = rename(column.uuid);
+	config.listColumnOrder = config.listColumnOrder.map(rename);
+	config.detailColumnOrder = config.detailColumnOrder.map(rename);
+	for (const targets of Object.values(draft.localization?.translations ?? {})) {
+		if (targets === undefined) continue;
+		const moved: [string, unknown][] = [];
+		for (const [from, to] of renamed) {
+			const prefix = columnUnitPrefix(from);
+			for (const unit of Object.keys(targets) as TranslationUnitId[])
+				if (unit.startsWith(prefix)) {
+					moved.push([
+						`${columnUnitPrefix(to)}${unit.slice(prefix.length)}`,
+						targets[unit],
+					]);
+					delete targets[unit];
+				}
+		}
+		for (const [unit, entry] of moved)
+			(targets as Record<string, unknown>)[unit] = entry;
+	}
+}
+
+/** The prefix of every translation unit a column owns (its header, its text, its mappings'
+ *  labels), which names the column by its uuid. */
+function columnUnitPrefix(uuid: Uuid): string {
+	return makeTranslationUnitId("column", uuid);
+}
+
+/** A column less what its print on the detail does not read: its identity, its order rule, its
+ *  tile cell and its place on each screen. */
+function columnContent(column: Column): Record<string, unknown> {
+	const {
+		uuid: _uuid,
+		sort: _sort,
+		tile: _tile,
+		visibleInList: _visibleInList,
+		visibleInDetail: _visibleInDetail,
+		notOnList: _notOnList,
+		...rest
+	} = column as Column & Record<string, unknown>;
+	return rest;
+}
+
+/** What of a column its print on the detail reads: its content (`columnContent`) and the text
+ *  each language holds for each of its translation units. */
+function detailPrintKey(column: Column, doc: BlueprintDoc): string {
+	const prefix = columnUnitPrefix(column.uuid);
+	const texts = Object.entries(doc.localization?.translations ?? {}).map(
+		([language, entries]) => [
+			language,
+			Object.entries(entries ?? {})
+				.filter(([unit]) => unit.startsWith(prefix))
+				.map(([unit, entry]) => [
+					unit.slice(prefix.length),
+					(entry as { readonly value?: unknown }).value,
+				])
+				.sort(([a], [b]) => (String(a) < String(b) ? -1 : 1)),
+		],
+	);
+	return JSON.stringify([columnContent(column), texts]);
+}
+
+/** The header a column prints in each app language: on Details its header's text map (a
+ *  current translation, else the source), and in a column hidden from Results and from Details,
+ *  whose `invisible` field carries it, its stored header in every language
+ *  (`hqJson/caseList.ts::projectColumnForShortDetail`). */
+function headerTexts(
+	column: Column,
+	doc: BlueprintDoc,
+	onDetail: boolean,
+): Record<string, string> {
+	const languages = doc.localization?.languageOrder ?? ["source"];
+	const unit = makeTranslationUnitId("column", column.uuid, "header");
+	return Object.fromEntries(
+		languages.map((language) => {
+			const entry = onDetail
+				? (
+						doc.localization?.translations?.[language] as
+							| Record<string, { readonly value?: unknown }>
+							| undefined
+					)?.[unit]
+				: undefined;
+			return [
+				language,
+				typeof entry?.value === "string" ? entry.value : column.header,
+			];
+		}),
+	);
+}
+
+/** Whether a long detail column is over the field a column hidden from Results reads, as the
+ *  join asks it (`sameHiddenField`): one property, or for a calculated column one expression. */
+function overItsField(hidden: Column, candidate: Column): boolean {
+	if (hidden.kind === "calculated" || candidate.kind === "calculated")
+		return (
+			hidden.kind === "calculated" &&
+			candidate.kind === "calculated" &&
+			sameJson(hidden.expression, candidate.expression)
+		);
+	return hidden.field === candidate.field;
+}
+
+/**
+ * The reader's canonical choice `columns-joined-as-read`. Neither detail prints a column's
+ * identity, so the reader pairs the short detail's fields with the long detail's columns by what
+ * they print (`joinDetailColumns`): each field, in its order on Results, joins the first long
+ * detail column not yet joined that prints the same column, or, for a field hidden from Results,
+ * whose `invisible` column carries its property and its header alone, the first over that property
+ * with that header in every language, whose print it then takes, and none where no such column
+ * is free. A list whose fields join other columns than their own prints what the list that
+ * join gives prints, and the reader returns that list: each field holding the print of the column
+ * it joined (its own where it is shown on Results) beside its own order rule, tile cell and place
+ * on Results, in its order there; off the detail where it joined none; each long detail column
+ * no field joined after them, off the list; the rest as they stand. Each column then takes the
+ * identity a re-read gives its key there (`identityMap.ts::reReadUuidOf`), its print's
+ * translations with it. Two columns print the same column where they differ only in identity,
+ * order rule, tile cell and place on each screen, and hold the same text in every language
+ * (`detailPrintKey`). It reads the orders `columns-off-a-screen-last-in-its-order` gives.
+ */
+export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const next = new Map<
+		Uuid,
+		{
+			readonly config: CaseListConfig;
+			readonly units: ReadonlyMap<Uuid, Uuid>;
+		}
+	>();
+	const reRead = reReadUuidOf(doc, DERIVED_WIRE_IDENTITY);
+	for (const moduleUuid of doc.moduleOrder) {
+		const config = doc.modules[moduleUuid]?.caseListConfig;
+		if (config === undefined) continue;
+		const columns = new Map(config.columns.map((one) => [one.uuid, one]));
+		const column = (uuid: Uuid) => columns.get(uuid) as Column;
+		const fieldSet = new Set(
+			caseListOrderPlan(config, [], {
+				mediaOn: false,
+				calculatedType: () => undefined,
+				expressionText: () => "",
+			}).fields.map((field) => field.column.uuid),
+		);
+		const fields = config.listColumnOrder.filter(
+			(uuid) => fieldSet.has(uuid) && columns.has(uuid),
+		);
+		const long = config.detailColumnOrder.filter(
+			(uuid) => columns.has(uuid) && column(uuid).visibleInDetail !== false,
+		);
+		const joinedBy = new Map<Uuid, Uuid>();
+		const partnerOf = new Map<Uuid, Uuid>();
+		for (const short of fields) {
+			const own = column(short);
+			const hidden = own.visibleInList === false;
+			const key = hidden ? undefined : detailPrintKey(own, doc);
+			const free = (uuid: Uuid) => !joinedBy.has(uuid);
+			const partner = hidden
+				? long.find(
+						(uuid) =>
+							free(uuid) &&
+							overItsField(own, column(uuid)) &&
+							sameJson(
+								headerTexts(column(uuid), doc, true),
+								headerTexts(own, doc, own.visibleInDetail !== false),
+							),
+					)
+				: long.find(
+						(uuid) => free(uuid) && detailPrintKey(column(uuid), doc) === key,
+					);
+			if (partner === undefined) continue;
+			joinedBy.set(partner, short);
+			partnerOf.set(short, partner);
+		}
+		const unchanged = fields.every(
+			(uuid) =>
+				partnerOf.get(uuid) ===
+				(column(uuid).visibleInDetail !== false ? uuid : undefined),
+		);
+		if (unchanged) continue;
+
+		// The list the join gives, each column with the uuid of the column whose print it holds.
+		const built: { column: Column; printOf: Uuid }[] = [];
+		for (const short of fields) {
+			const own = column(short);
+			const partner = partnerOf.get(short);
+			const printOf =
+				partner !== undefined && own.visibleInList === false ? partner : short;
+			built.push({
+				column: {
+					...columnContent(column(printOf)),
+					uuid: short,
+					...(own.sort !== undefined && { sort: own.sort }),
+					...(own.tile !== undefined && { tile: own.tile }),
+					...(own.visibleInList === false && { visibleInList: false }),
+					...(partner === undefined && { visibleInDetail: false }),
+				} as Column,
+				printOf,
+			});
+		}
+		const longOnly = long.filter((uuid) => !joinedBy.has(uuid));
+		// A long detail column no field joined is off the list: one the short detail holds a field
+		// for, whose field joined another column, is read as its print alone; any other is read as
+		// it stands (off the list, or in a tile list a column hidden from Results whose order rule
+		// the reader lands on it).
+		for (const uuid of longOnly)
+			built.push({
+				column: fieldSet.has(uuid)
+					? ({
+							...columnContent(column(uuid)),
+							uuid,
+							visibleInList: false,
+							notOnList: true,
+						} as Column)
+					: column(uuid),
+				printOf: uuid,
+			});
+		// Every column the join reads (each field, each column on Details, joined or not) is
+		// rebuilt above; the rest (columns no screen shows, which an order rule alone carries)
+		// stand as they are.
+		const placed = new Set([...fields, ...long]);
+		const rest = config.listColumnOrder.filter(
+			(uuid) => !placed.has(uuid) && columns.has(uuid),
+		);
+
+		// Each built column's identity: the one a re-read gives its key, by kind, property and
+		// ordinal among equal pairs in its list order, as the reader claims it. A uuid of the
+		// document can stand twice among them (a field hidden from Results that joined another
+		// column, and its own column on Details that no field joined), so each is named by place.
+		const counts = new Map<string, number>();
+		const units = new Map<Uuid, Uuid>();
+		const module = doc.modules[moduleUuid];
+		const named = built.map(({ column: one, printOf }) => {
+			const field = (one as { field?: unknown }).field;
+			const property = typeof field === "string" ? field : "";
+			const pair = JSON.stringify([one.kind, property]);
+			const n = counts.get(pair) ?? 0;
+			counts.set(pair, n + 1);
+			const uuid = reRead(
+				externalKey.caseListColumn(
+					DERIVED_WIRE_IDENTITY.moduleUniqueId(module?.uuid ?? moduleUuid),
+					one.kind,
+					property,
+					n,
+				),
+			);
+			units.set(uuid, printOf);
+			return { ...one, uuid } as Column;
+		});
+		const shortAt = new Map(fields.map((uuid, index) => [uuid, index]));
+		const longAt = new Map(
+			longOnly.map((uuid, index) => [uuid, fields.length + index]),
+		);
+		const at = (index: number) => named[index]?.uuid as Uuid;
+		const list = [...named.map((one) => one.uuid), ...rest];
+		const onDetail = long.map((uuid) => {
+			const joined = joinedBy.get(uuid);
+			return joined !== undefined
+				? at(shortAt.get(joined) ?? -1)
+				: at(longAt.get(uuid) ?? -1);
+		});
+		const detail = [
+			...onDetail,
+			...list.filter((uuid) => !onDetail.includes(uuid)),
+		];
+		next.set(moduleUuid, {
+			config: {
+				...config,
+				columns: [...named, ...rest.map(column)],
+				listColumnOrder: list,
+				detailColumnOrder: detail,
+			},
+			units,
+		});
+	}
+	if (next.size === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const [moduleUuid, { config, units }] of next) {
+			const module = draft.modules[moduleUuid];
+			if (module === undefined) continue;
+			const before =
+				module.caseListConfig?.columns.map((one) => one.uuid) ?? [];
+			module.caseListConfig = structuredClone(config);
+			// Each column's translations follow its print: those of the column whose print it
+			// holds, under its own uuid; the units of a column whose print no column holds go.
+			for (const targets of Object.values(
+				draft.localization?.translations ?? {},
+			)) {
+				if (targets === undefined) continue;
+				const held = new Map<Uuid, [string, unknown][]>();
+				for (const uuid of before) {
+					const prefix = columnUnitPrefix(uuid);
+					const own: [string, unknown][] = [];
+					for (const unit of Object.keys(targets) as TranslationUnitId[])
+						if (unit.startsWith(prefix)) {
+							own.push([unit.slice(prefix.length), targets[unit]]);
+							delete targets[unit];
+						}
+					held.set(uuid, own);
+				}
+				for (const [uuid, printOf] of units)
+					for (const [suffix, entry] of held.get(printOf) ?? [])
+						(targets as Record<string, unknown>)[
+							`${columnUnitPrefix(uuid)}${suffix}`
+						] = structuredClone(entry);
+				for (const uuid of before)
+					if (
+						!units.has(uuid) &&
+						config.columns.some((one) => one.uuid === uuid)
+					)
+						for (const [suffix, entry] of held.get(uuid) ?? [])
+							(targets as Record<string, unknown>)[
+								`${columnUnitPrefix(uuid)}${suffix}`
+							] = structuredClone(entry);
+			}
+		}
+	});
+}
+
+/**
+ * The reader's canonical choice `columns-in-list-order`: a case list's `columns` array is the set
+ * of its columns, and its position reaches no export (every projection reads the columns through
+ * `listColumnOrder` and `detailColumnOrder`, `modules.ts::orderedColumns`), so a list whose array
+ * holds its columns in any order prints what one holding them in the list's order prints. The
+ * reader builds the array in the order it joins the two details (`joinDetailColumns`, then each
+ * column an order rule alone carries), which is its list order, so it returns the array in
+ * `listColumnOrder`'s order, a column that order does not name after the rest as it stands. It
+ * runs after `columns-off-a-screen-last-in-its-order`, whose list order it reads.
+ */
+export function columnsInListOrder(doc: BlueprintDoc): BlueprintDoc {
+	const next = new Map<Uuid, Column[]>();
+	for (const moduleUuid of doc.moduleOrder) {
+		const config = doc.modules[moduleUuid]?.caseListConfig;
+		if (config === undefined) continue;
+		const place = new Map(
+			config.listColumnOrder.map((uuid, index) => [uuid, index]),
+		);
+		const rank = (column: Column) =>
+			place.get(column.uuid) ?? config.listColumnOrder.length;
+		const ordered = config.columns
+			.map((column, index) => ({ column, index }))
+			.sort((a, b) => rank(a.column) - rank(b.column) || a.index - b.index)
+			.map(({ column }) => column);
+		if (ordered.some((column, index) => column !== config.columns[index]))
+			next.set(moduleUuid, ordered);
+	}
+	if (next.size === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const [moduleUuid, columns] of next) {
+			const config = draft.modules[moduleUuid]?.caseListConfig;
+			if (config !== undefined) config.columns = structuredClone(columns);
 		}
 	});
 }

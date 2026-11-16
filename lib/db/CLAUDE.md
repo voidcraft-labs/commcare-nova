@@ -358,7 +358,8 @@ index finds a Project's brought-in tables by project space.
 `app_organization_state` carries the same whole-or-absent origin for an
 app's places (with the places' digest and what the copy left out, by level
 code), and `app_locations.hq_location_id` is CommCare HQ's id of a managed
-place, never blank. Every one of these columns is nullable with no default,
+place, never blank, with `hq_gone_at` set while a refresh keeps a place
+CommCare HQ no longer has because the app still uses it. Every one of these columns is nullable with no default,
 so a writer that names none of them leaves them as they were.
 
 **Lookup-reference carriers are dormant; authoritative writers are integrated.**

@@ -12,7 +12,15 @@
  * input listed as inert passes; a group whose `<label>` stands on one side
  * alone, and `field-list` written in another letter case, compare equal; a
  * guard block Nova writes that the source lacks is
- * `identity/case-blocks/save-to-case/added`; and the four conditions name
+ * `identity/case-blocks/save-to-case/added`; a reading of each published
+ * document's export that holds case scaffolding compares equal, while a
+ * question the reading names case region is `identity/region/control` and a
+ * Hidden Value it names so is `identity/region/phantom`; a question the
+ * reading names a generated node is `identity/generated/control`, while a
+ * protected message's carrier, the one generated node Nova gives a control,
+ * compares equal; an advanced open
+ * action's block moved to another repeat is
+ * `identity/case-blocks/advanced/path`; and the four conditions name
  * exactly the appearances Nova's emitter writes, over every document the
  * proof lane publishes, both fuzz corpora and a document built for each
  * condition.
@@ -20,7 +28,9 @@
  * Plausible failures: a correct reading of an inert appearance or a blank
  * group label failed as Nova's mistake; a number keypad, a signature or a
  * question list dropped on the reader's word; a guard added or dropped
- * passing unseen.
+ * passing unseen; a question dropped as case scaffolding on the reader's
+ * word; a question dropped as a generated node on the reader's word; a
+ * child case written in the rows of another repeat.
  */
 
 import { removeElement } from "domutils";
@@ -35,7 +45,7 @@ import { suiteDocArbitrary } from "@/lib/commcare/__tests__/suiteDocArbitrary";
 import { blueprintDocArbitrary } from "@/lib/commcare/__tests__/xformDocArbitrary";
 import { expandDoc } from "@/lib/commcare/expander";
 import { sourceIdentity } from "@/lib/commcare/hq/sourceIdentity";
-import type { ReadDraft } from "@/lib/commcare/reader";
+import { type ReadDraft, readHqApp } from "@/lib/commcare/reader";
 import {
 	hydrated,
 	publishExpansion,
@@ -44,15 +54,21 @@ import {
 } from "@/lib/commcare/reader/__tests__/publishedDocuments";
 import { kindAppearanceToken } from "@/lib/commcare/xform/appearance";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc } from "@/lib/domain";
-import { holdsNovaAppearance, identityDifferences } from "../identityAgreement";
-import { DOMAIN, HOST } from "./acceptanceInput";
+import { type BlueprintDoc, proseText } from "@/lib/domain";
+import { readingEmission } from "../emission";
+import {
+	holdsNovaAppearance,
+	identityDifferences,
+	sourceApplication,
+} from "../identityAgreement";
+import { DOMAIN, HOST, readingInput } from "./acceptanceInput";
 import {
 	controlAt,
 	editXml,
 	findElement,
 	servedReading,
 	servedSource,
+	unsummarized,
 } from "./servedReading";
 
 const TARGET = { origin: HOST, domain: DOMAIN };
@@ -168,6 +184,245 @@ describe("identityDifferences", () => {
 		expect(await signatures(appearanceAt("/data/grp", "Field-List"))).toEqual(
 			[],
 		);
+	});
+
+	it("finds none over a reading of each published document's export that holds case scaffolding or a protected message's carrier", {
+		timeout: 300_000,
+	}, async () => {
+		let read = 0;
+		let carriers = 0;
+		for (const document of publishedCorpus()) {
+			const doc = hydrated(document);
+			if (publishRefuses(document, doc) || document.lookup !== undefined)
+				continue;
+			const emitted = expandDoc(doc, publishExpansion(document, doc).options);
+			const scaffolded = Object.values(emitted._attachments).some(
+				(xml) =>
+					typeof xml === "string" &&
+					(xml.includes("nova_operations") ||
+						xml.includes('vellum:role="SaveToCase"') ||
+						xml.includes("nova_constraint_message_")),
+			);
+			if (!scaffolded) continue;
+			// A first reading of the export: a document whose first reading is an
+			// account (one that needs what only a re-read is told) is no case.
+			const source = await servedSource(doc);
+			const reader = readingInput(source, unsummarized(source));
+			const outcome = readHqApp(reader);
+			if (outcome.kind !== "read") continue;
+			const emission = readingEmission({
+				doc: outcome.draft.doc,
+				source,
+				draft: outcome.draft,
+				reader,
+				lookupDefinitions: [],
+				files: [],
+			});
+			expect(
+				identityDifferences({
+					source,
+					emission,
+					draft: outcome.draft,
+					attachmentTarget: TARGET,
+				}).differences.map((one) => `${one.signature} ${one.detail}`),
+				document.id,
+			).toEqual([]);
+			read++;
+			carriers += outcome.draft.facts.forms
+				.flatMap((form) => form.generated)
+				.filter((node) => node.purpose === "constraint-message").length;
+		}
+		expect(read).toBeGreaterThan(0);
+		expect(carriers).toBeGreaterThan(0);
+	});
+
+	it("never cuts a node the reading names case region and the emission writes as no scaffolding", async () => {
+		const read = servedReading(await servedSource(APPEARANCES));
+		const extra = (control: boolean) => (xml: string) =>
+			xml
+				.replace("<plain/>", "<plain/><extra/>")
+				.replace(
+					"</model>",
+					`<bind nodeset="/data/extra" type="xsd:string"${control ? "" : ' calculate="&apos;x&apos;"'}/></model>`,
+				)
+				.replace(
+					"</h:body>",
+					control
+						? '<input ref="/data/extra"><label>Extra</label></input></h:body>'
+						: "</h:body>",
+				);
+		const differences = async (
+			control: boolean,
+			region: readonly string[],
+		): Promise<string[]> => {
+			const source = await servedSource(APPEARANCES, extra(control));
+			const draft: ReadDraft = {
+				...read.outcome.draft,
+				facts: {
+					...read.outcome.draft.facts,
+					forms: read.outcome.draft.facts.forms.map((form) => ({
+						...form,
+						caseRegionPaths: region,
+					})),
+				},
+			};
+			return identityDifferences({
+				source,
+				emission: read.emission,
+				draft,
+				attachmentTarget: TARGET,
+			}).differences.map((one) => one.signature);
+		};
+		expect(await differences(true, [])).toContain("identity/leaf/missing");
+		expect(await differences(true, ["/data/extra"])).toEqual([
+			"identity/region/control",
+		]);
+		expect(await differences(false, [])).toContain("identity/leaf/missing");
+		expect(await differences(false, ["/data/extra"])).toEqual([
+			"identity/region/phantom",
+		]);
+	});
+
+	it("never cuts a question the reading names a generated node", async () => {
+		const read = servedReading(await servedSource(APPEARANCES));
+		const source = await servedSource(APPEARANCES, (xml) =>
+			xml
+				.replace("<plain/>", "<plain/><extra/>")
+				.replace(
+					"</model>",
+					'<bind nodeset="/data/extra" type="xsd:string"/></model>',
+				)
+				.replace(
+					"</h:body>",
+					'<input ref="/data/extra"><label>Extra</label></input></h:body>',
+				),
+		);
+		const differences = (named: boolean): string[] =>
+			identityDifferences({
+				source,
+				emission: read.emission,
+				draft: {
+					...read.outcome.draft,
+					facts: {
+						...read.outcome.draft.facts,
+						forms: read.outcome.draft.facts.forms.map((form) => ({
+							...form,
+							generated: named
+								? [
+										...form.generated,
+										{
+											purpose: "trimmed",
+											owner: "/data/plain",
+											path: "/data/extra",
+											name: "extra",
+										},
+									]
+								: form.generated,
+						})),
+					},
+				},
+				attachmentTarget: TARGET,
+			}).differences.map((one) => one.signature);
+		expect(differences(false)).toEqual([
+			"identity/leaf/missing",
+			"identity/order",
+		]);
+		expect(differences(true)).toEqual(["identity/generated/control"]);
+	});
+
+	it("cuts a protected message's carrier, the one generated node with a control", async () => {
+		const doc = buildDoc({
+			appName: "Carrier",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "int",
+									id: "count",
+									label: proseText("Count"),
+									validate: ". > 0",
+									// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal `${` is what makes a message protected
+									validate_msg: proseText("Over ${1}"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const read = servedReading(await servedSource(doc));
+		const carriers = read.outcome.draft.facts.forms.flatMap((form) =>
+			form.generated.filter((node) => node.purpose === "constraint-message"),
+		);
+		expect(carriers.map((node) => node.owner)).toEqual(["/data/count"]);
+		const source = read.reader.source;
+		const leaves = [
+			...sourceIdentity(sourceApplication(source)).forms.values(),
+		].flatMap((form) =>
+			carriers.flatMap((node) => form.leaves.get(node.path)?.control ?? []),
+		);
+		expect(leaves).toEqual(["input"]);
+		expect(
+			identityDifferences({
+				source,
+				emission: read.emission,
+				draft: read.outcome.draft,
+				attachmentTarget: TARGET,
+			}).differences.map((one) => one.signature),
+		).toEqual([]);
+	});
+
+	it("finds an advanced open action's block moved to another repeat", {
+		timeout: 120_000,
+	}, async () => {
+		type Open = { repeat_context?: string; case_indices?: unknown[] };
+		const opensIn = (emitted: ReturnType<typeof expandDoc>): Open[] =>
+			emitted.modules.flatMap((menu) =>
+				menu.forms.flatMap((form) => {
+					const actions = (form as { actions?: { open_cases?: Open[] } })
+						.actions;
+					return (actions?.open_cases ?? []).filter(
+						(open) =>
+							typeof open.repeat_context === "string" &&
+							open.repeat_context !== "",
+					);
+				}),
+			);
+		const repeated = publishedCorpus().find((document) => {
+			const doc = hydrated(document);
+			if (publishRefuses(document, doc) || document.lookup !== undefined)
+				return false;
+			return (
+				opensIn(expandDoc(doc, publishExpansion(document, doc).options))
+					.length > 0
+			);
+		});
+		if (repeated === undefined)
+			throw new Error(
+				"The published corpus holds an advanced open action in a repeat.",
+			);
+		const doc = hydrated(repeated);
+		const read = servedReading(await servedSource(doc));
+		const signaturesOf = (emission: typeof read.emission) =>
+			identityDifferences({
+				source: read.reader.source,
+				emission,
+				draft: read.outcome.draft,
+				attachmentTarget: TARGET,
+			}).differences.map((one) => one.signature);
+		expect(signaturesOf(read.emission)).toEqual([]);
+		const moved = JSON.parse(
+			JSON.stringify(read.emission),
+		) as typeof read.emission;
+		const [open] = opensIn(moved);
+		if (open === undefined) throw new Error("The emission opens in a repeat.");
+		open.repeat_context = "/data/elsewhere";
+		expect(signaturesOf(moved)).toContain("identity/case-blocks/advanced/path");
 	});
 
 	it("finds a guard block Nova writes that the source lacks", {

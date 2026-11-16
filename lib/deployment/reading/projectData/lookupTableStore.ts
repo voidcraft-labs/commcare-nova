@@ -24,6 +24,7 @@ import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot
 import {
 	createManagedLookupTablesInTransaction,
 	type ManagedOriginWrite,
+	readKeptLookupColumnIds,
 	refreshManagedLookupTableInTransaction,
 } from "@/lib/lookup/managed";
 import type { ManagedLookupContent } from "@/lib/lookup/managedRules";
@@ -38,6 +39,7 @@ import {
 	type HqLookupTableRead,
 	lookupTableStanding,
 	managedLookupContentOf,
+	sameManagedColumnCapFinding,
 } from "./lookupTables";
 
 // ---------------------------------------------------------------------------
@@ -174,14 +176,17 @@ export class BroughtInTableChangedError extends Error {
  * lookup definitions.
  *
  * Under the Project's lookup lock it reads the Project's tables of the written
- * tags with their rows and derives each standing again, with the sibling
- * mappings read on the same transaction. Where a standing's kind is no longer
- * the one its binding was made for, an answered offer is no longer offered,
- * or a Project table's revisions moved since the read, it throws
- * `BroughtInTableChangedError` and the birth rolls back whole. Otherwise one
- * create for the `new` tables, a refresh for each `same-managed` and an adopt
- * for each `use-commcare-hq`; nothing for a table used as it stands. A
- * `choice` with no answer never reaches here.
+ * tags with their rows and the columns CommCare HQ's content would keep, and
+ * derives each standing again, with the sibling mappings read on the same
+ * transaction. Where a standing's kind is no longer the one its binding was
+ * made for, an answered offer is no longer offered, a `same-managed` table
+ * would now hold more columns than Nova takes, or a Project table's revisions
+ * moved since the read, it throws `BroughtInTableChangedError` and the birth
+ * rolls back whole. Otherwise one create for the `new` tables, then a refresh
+ * for each `same-managed` and an adopt for each `use-commcare-hq`, in table id
+ * order, the order every writer that locks several of the Project's tables
+ * takes them in; nothing for a table used as it stands. A `choice` with no
+ * answer never reaches here.
  *
  * The standing is derived again with no apps and no fields read: its kind
  * depends on neither, and the one offer that reads the fields, `use-project`'s
@@ -259,6 +264,11 @@ export async function writeBroughtInLookupTablesInTransaction(
 		tableIds,
 		tx,
 	);
+	const keptColumns = await readKeptLookupColumnIds(
+		tx,
+		scope.projectId,
+		tableIds,
+	);
 
 	const created: Parameters<
 		typeof createManagedLookupTablesInTransaction
@@ -290,6 +300,10 @@ export async function writeBroughtInLookupTablesInTransaction(
 		if (row !== undefined && definition === undefined) {
 			throw new BroughtInTableChangedError(tag);
 		}
+		const keptColumnIds =
+			definition === undefined || !Object.hasOwn(keptColumns, definition.id)
+				? []
+				: keptColumns[definition.id];
 		const standing = lookupTableStanding({
 			read: table.read,
 			origin,
@@ -306,8 +320,12 @@ export async function writeBroughtInLookupTablesInTransaction(
 			),
 			appReads: [],
 			mayAdminister,
+			keptColumnIds,
 		});
-		if (standing.kind !== table.standing.kind) {
+		if (
+			standing.kind !== table.standing.kind ||
+			sameManagedColumnCapFinding(table.read, standing, keptColumnIds) !== null
+		) {
 			throw new BroughtInTableChangedError(tag);
 		}
 		const content = managedLookupContentOf(table.read.table, table.read.rows);
@@ -372,6 +390,9 @@ export async function writeBroughtInLookupTablesInTransaction(
 			write.at,
 		);
 	}
+	refreshes.sort((left, right) =>
+		left.tableId < right.tableId ? -1 : left.tableId > right.tableId ? 1 : 0,
+	);
 	for (const refresh of refreshes) {
 		await refreshManagedLookupTableInTransaction(tx, lookupScope, {
 			tableId: lookupTableIdSchema.parse(refresh.tableId),
@@ -380,6 +401,9 @@ export async function writeBroughtInLookupTablesInTransaction(
 			at: write.at,
 			mode: refresh.mode,
 			newColumnIds: refresh.newColumnIds,
+			/* The app's columns bind the ids the reading gave them, so the
+			 * birth writes what the reading read. */
+			olderReadYields: false,
 		});
 	}
 }

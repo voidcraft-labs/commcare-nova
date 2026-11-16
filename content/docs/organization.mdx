@@ -13,8 +13,9 @@ them: the **levels** of your organization, the **information** its places
 carry, and the **places** themselves.
 
 Nova authors this model, and publishing puts these places on your CommCare HQ
-project space, except places managed in CommCare HQ, which Nova copies and never
-changes there. Previewing as a persona shows what that worker's device would
+project space. Places managed in CommCare HQ are the exception in the project
+space that manages them: Nova copies them and never changes them there. Any
+other project space you publish to gets Nova's copy. Previewing as a persona shows what that worker's device would
 hold: their assigned places ride their session identity, case delivery decides
 which cases their lists show, and place-based case-owner expressions run when
 a form submits.
@@ -61,8 +62,9 @@ Those two are independent, and all four combinations are useful:
 are authoring, and Preview applies it the same way. "Everything below" is the
 common answer. On a real project space, stopping at a particular level also
 needs a setting on the CommCare project itself, which Nova does not configure.
-Publishing puts the places themselves on the project space, except places
-managed in CommCare HQ, which Nova copies and never changes there.
+Publishing puts the places themselves on the project space, except in the
+project space that manages them in CommCare HQ, where Nova never changes them.
+Any other project space gets Nova's copy.
 
 ### Address-book reach
 
@@ -201,7 +203,9 @@ of an older one.
 
 When an app you brought in from CommCare HQ reads places, its places come in as
 a copy. They live in the project space on CommCare HQ. Nova keeps the copy so
-Preview can show them, and never changes them there.
+Preview can show them, and never changes them there. When you publish the app
+to another project space, that project space gets Nova's copy, as places Nova
+made there.
 
 You can add or change places in CommCare HQ, then choose **Refresh from CommCare
 HQ** in Organization. Nova refreshes the copy before each publish too. Levels

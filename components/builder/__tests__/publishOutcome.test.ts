@@ -39,6 +39,7 @@ import {
 	type PublishAnswers,
 	type PublishResponseBody,
 	placementOfferCopy,
+	publishedViewToHold,
 	publishOutcome,
 	refusalOpensHqApp,
 	withAcceptedMoves,
@@ -221,8 +222,8 @@ describe("a publish that landed", () => {
 				deployment: VIEW,
 				artifact: ARTIFACT,
 				leftBehind: [],
-				kept: null,
-				firstPublish: null,
+				kept: "unread",
+				firstPublish: "unread",
 			},
 			hqAppAction: null,
 			appUrl: "https://hq/app",
@@ -249,10 +250,66 @@ describe("a publish that landed", () => {
 		const landed = publishOutcome(true, { ...body, kept });
 		if (landed.kind !== "landed") throw new Error("Expected a landed publish");
 		expect(landed.deployment?.kept).toStrictEqual(kept);
-		/* Absent reads as no kept list, which draws nothing. */
+		/* An explicit null is no kept list, which draws nothing. */
+		const none = publishOutcome(true, { ...body, kept: null });
+		if (none.kind !== "landed") throw new Error("Expected a landed publish");
+		expect(none.deployment?.kept).toBeNull();
+		/* Absent is a list the server could not read after the write. */
 		const absent = publishOutcome(true, body);
 		if (absent.kind !== "landed") throw new Error("Expected a landed publish");
-		expect(absent.deployment?.kept).toBeNull();
+		expect(absent.deployment?.kept).toBe("unread");
+	});
+
+	// Contract: a list the response leaves out keeps the list the dialog holds
+	// for that target, and an explicit null ends it. The failure it catches: a
+	// refused first publish whose list read faulted wiping the first-publish
+	// list from the dialog, so the retry goes ahead without it.
+	it("keeps the held record's lists where the response left them out, and ends one the response says is gone", () => {
+		const firstPublish = {
+			ids: ["forms-and-settings-rewritten"] as const,
+			touchesWorkers: false,
+			of: "first-publish",
+		} as const;
+		const kept = {
+			labels: ["fuzzy-search"] as const,
+			valuesDigest: "b".repeat(64),
+			observedAt: "2026-11-01T09:00:00.000Z",
+		};
+		const body = {
+			success: false,
+			refusal: REFUSAL,
+			deployment: VIEW,
+			setup_artifact: ARTIFACT,
+		};
+		/** The record a refused publish answers with. */
+		const recordOf = (response: PublishResponseBody) => {
+			const outcome = publishOutcome(true, response);
+			if (outcome.kind !== "refused" || outcome.deployment === null)
+				throw new Error("Expected a refused publish with its record");
+			return outcome.deployment;
+		};
+		const heldView = publishedViewToHold(
+			[],
+			recordOf({ ...body, kept, first_publish: firstPublish }),
+		);
+		expect(heldView.firstPublish).toStrictEqual(firstPublish);
+
+		const faulted = recordOf(body);
+		expect(publishedViewToHold([heldView], faulted)).toMatchObject({
+			kept,
+			firstPublish,
+		});
+		// Nothing held for the target: an unread list shows none.
+		expect(publishedViewToHold([], faulted)).toMatchObject({
+			kept: null,
+			firstPublish: null,
+		});
+
+		const ended = recordOf({ ...body, kept: null, first_publish: null });
+		expect(publishedViewToHold([heldView], ended)).toMatchObject({
+			kept: null,
+			firstPublish: null,
+		});
 	});
 
 	it("carries the logo step the publish offers, and none for an app with no logo", () => {
@@ -535,8 +592,8 @@ describe("a publish that was refused", () => {
 			deployment: { ...VIEW, deployment: { ...RECORD, state: "runnable" } },
 			artifact: ARTIFACT,
 			leftBehind: [],
-			kept: null,
-			firstPublish: null,
+			kept: "unread",
+			firstPublish: "unread",
 		});
 		expect(outcome.resourceConflicts).toStrictEqual([]);
 	});

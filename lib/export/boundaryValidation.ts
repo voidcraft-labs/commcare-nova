@@ -57,6 +57,7 @@ import {
 	exportCarrierFindings,
 	type LookupTarget,
 	type ManagedLookupTable,
+	type ManagedLookupWorkbook,
 } from "./boundaryFindings";
 
 export {
@@ -64,6 +65,7 @@ export {
 	type ExportMode,
 	type LookupTarget,
 	type ManagedLookupTable,
+	type ManagedLookupWorkbook,
 } from "./boundaryFindings";
 
 export type AvailableLookupValidationContext = Extract<
@@ -157,12 +159,13 @@ export interface PreparedExportBoundary {
 	 */
 	readonly managedLookupTables: readonly ManagedLookupTable[];
 	/**
-	 * The HQ app file's second workbook: Nova's copy of every table CommCare
-	 * HQ manages, which a person importing into the project space that
-	 * manages them leaves out. Present on `hq-json` only, where a table is
-	 * managed.
+	 * The HQ app file's workbooks of the tables CommCare HQ manages: Nova's
+	 * copy of each project space's tables in a workbook of its own, which a
+	 * person importing into that project space leaves out. On `hq-json`
+	 * only, one per project space that manages a table the app reads; empty
+	 * everywhere else.
 	 */
-	readonly managedLookupWorkbook?: LookupWorkbook;
+	readonly managedLookupWorkbooks: readonly ManagedLookupWorkbook[];
 }
 
 export type PrepareExportBoundaryResult =
@@ -353,7 +356,7 @@ async function prepareWithRegistry(
 		lookupWire,
 		lookupWorkbook,
 		managedLookupTables,
-		managedLookupWorkbook,
+		managedLookupWorkbooks,
 	} = carrier;
 
 	/* This subordinate loader evaluates the complete document gate with both
@@ -398,7 +401,7 @@ async function prepareWithRegistry(
 			attachmentTarget: input.attachmentTarget,
 			...(lookupWorkbook !== undefined && { lookupWorkbook }),
 			managedLookupTables,
-			...(managedLookupWorkbook !== undefined && { managedLookupWorkbook }),
+			managedLookupWorkbooks,
 		},
 	};
 }

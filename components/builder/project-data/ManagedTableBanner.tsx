@@ -7,7 +7,10 @@
  * every edit control on the page) over the moment the frame lands. The rest
  * (the address in CommCare HQ, whether this viewer is connected there, the
  * apps that read the table) is the deployment boundary's view, read again
- * whenever the table's revision moves.
+ * whenever the table's revision moves. The day the copy was last refreshed is
+ * read from the table, which this page reads again after its own refresh: a
+ * refresh that found CommCare HQ's table unchanged stamps that day and moves
+ * no revision, so the manifest never carries it.
  *
  * A control a person can't use stays on screen and says why: a role that
  * can't do it names who can, and a person with no CommCare HQ connection on
@@ -55,7 +58,7 @@ import {
 import { useManagedLookupTableView, useManifestEntry } from "./useProjectData";
 
 const TRANSPORT_FAILURE =
-	"Nova couldn't reach CommCare HQ's copy of this table. Check your connection and try again.";
+	"Nova couldn't refresh its copy of this table. Check your connection and try again.";
 
 export function ManagedTableBanner({
 	table,
@@ -83,7 +86,9 @@ export function ManagedTableBanner({
 		canEdit,
 		canDelete,
 	);
-	const day = keptDateText(hq.refreshedAt, new Date());
+	const refreshedAt = table.hq?.refreshedAt;
+	const day =
+		refreshedAt === undefined ? null : keptDateText(refreshedAt, new Date());
 
 	/** After a change landed: the table, the manifest and the view are read again. */
 	const settle = async (answer: ManagedTableOutcome) => {
@@ -243,9 +248,11 @@ export function ManagedTableBanner({
 					<p className="text-[13px] leading-relaxed text-nova-text">
 						{managedTableBanner(hq.domain)}
 					</p>
-					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-						{managedTableBannerRefreshed(day)}
-					</p>
+					{day !== null && (
+						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+							{managedTableBannerRefreshed(day)}
+						</p>
+					)}
 				</>
 			) : (
 				<p className="text-[13px] leading-relaxed text-nova-text">

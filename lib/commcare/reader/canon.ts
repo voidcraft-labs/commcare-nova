@@ -12,7 +12,12 @@
  */
 
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type LanguageTag,
+	type TranslationUnitId,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { type Expression, isExpression } from "@/lib/domain/expression/types";
@@ -21,11 +26,16 @@ import {
 	expressionSlotValues,
 	rewriteExpressionSlotValues,
 } from "@/lib/domain/referenceSlots";
+import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
+import { userPropertySlugsByUuid } from "@/lib/domain/users";
 import type { Uuid } from "@/lib/domain/uuid";
 import { identityLookupWireNaming } from "../lookup/naming";
 import { READER_CANONICAL_CHOICES } from "./assemble";
 import { withCandidate } from "./candidate";
-import { canonicalExpression } from "./expressions/canonical";
+import {
+	canonicalExpression,
+	workerPropertyNamed,
+} from "./expressions/canonical";
 import { slotPrintUnder } from "./expressions/readExpression";
 import { sameJson } from "./jsonCursor";
 
@@ -116,6 +126,109 @@ function canonicalSlots(doc: BlueprintDoc): BlueprintDoc {
 	});
 }
 
+/** Whether `value` holds a text's read of a worker field by name. */
+function holdsNamedProseRead(value: unknown): boolean {
+	if (Array.isArray(value)) return value.some(holdsNamedProseRead);
+	if (value === null || typeof value !== "object") return false;
+	const node = value as Record<string, unknown>;
+	if (node.kind === "user-ref" && typeof node.property === "string")
+		return true;
+	return Object.values(node).some(holdsNamedProseRead);
+}
+
+/**
+ * Every text's read of a worker field by name (a prose `user-ref`) where the
+ * app holds the worker property that name prints as
+ * (`expressions/canonical.ts::workerPropertyNamed`), as the read of that
+ * property (`user-property-ref`): both print `#user/<slug>`'s path, and a
+ * reading binds the path to the property and stores the reference part
+ * `proseExpression.ts::canonicalProseAtom` gives its read. A text holds a
+ * reference part in no expression slot, so the slot rows never meet it.
+ *
+ * A translation of such a text holds the same reference parts as its source
+ * (`translationUnits.ts::proseReferenceIdentity`), and a reading binds each
+ * language's text alike, so each current translation of a text the row moves
+ * is moved with it and stays current: it holds the same reads, and the
+ * fingerprint of the moved source. Left as it was, it would no longer match
+ * its source, and the export, which prints it, would be compared with a
+ * document that drops it.
+ */
+function proseNamedReadsAsProperties(doc: BlueprintDoc): BlueprintDoc {
+	const slugs = userPropertySlugsByUuid(doc);
+	if (slugs.size === 0) return doc;
+	const named = (Object.keys(doc.fields) as Uuid[]).filter((uuid) => {
+		const field = doc.fields[uuid];
+		return field !== undefined && holdsNamedProseRead(field);
+	});
+	const rewrite = (value: unknown): boolean => {
+		if (value === null || typeof value !== "object") return false;
+		let changed = false;
+		for (const [key, child] of Object.entries(value)) {
+			if (child === null || typeof child !== "object") continue;
+			const part = child as Record<string, unknown>;
+			const held =
+				part.kind === "user-ref" && typeof part.property === "string"
+					? workerPropertyNamed(part.property, slugs)
+					: undefined;
+			if (held !== undefined) {
+				(value as Record<string, unknown>)[key] = {
+					kind: "user-property-ref",
+					userPropertyUuid: held,
+				};
+				changed = true;
+			} else if (rewrite(child)) changed = true;
+		}
+		return changed;
+	};
+	const moves = named.filter((uuid) =>
+		rewrite(structuredClone(doc.fields[uuid])),
+	);
+	if (moves.length === 0) return doc;
+	const moved = withCandidate(doc, (draft) => {
+		for (const uuid of moves) rewrite(draft.fields[uuid]);
+	});
+
+	// Each translation that was current for a text whose source the rewrite moved.
+	const before = snapshotTranslationUnits(doc);
+	const after = snapshotTranslationUnits(moved);
+	const carried: [LanguageTag, TranslationUnitId, string][] = [];
+	for (const [language, entries] of Object.entries(
+		doc.localization?.translations ?? {},
+	))
+		for (const [unit, entry] of Object.entries(entries ?? {})) {
+			const was = before.get(unit as TranslationUnitId);
+			const now = after.get(unit as TranslationUnitId);
+			if (
+				was === undefined ||
+				now === undefined ||
+				entry === undefined ||
+				translationSourceFingerprintsEqual(
+					was.sourceFingerprint,
+					now.sourceFingerprint,
+				) ||
+				!translationSourceFingerprintsEqual(
+					entry.sourceFingerprint,
+					was.sourceFingerprint,
+				)
+			)
+				continue;
+			carried.push([
+				language as LanguageTag,
+				unit as TranslationUnitId,
+				now.sourceFingerprint,
+			]);
+		}
+	if (carried.length === 0) return moved;
+	return withCandidate(moved, (draft) => {
+		for (const [language, unit, fingerprint] of carried) {
+			const entry = draft.localization?.translations[language]?.[unit];
+			if (entry === undefined) continue;
+			rewrite(entry);
+			entry.sourceFingerprint = fingerprint;
+		}
+	});
+}
+
 export const CANONICALIZATIONS: readonly Canonicalization[] = [
 	...READER_CANONICAL_CHOICES.map(
 		(choice): Canonicalization => ({
@@ -127,10 +240,13 @@ export const CANONICALIZATIONS: readonly Canonicalization[] = [
 	{
 		/** Two trees of one slot that print the same bytes there
 		 *  (`expressions/canonical.ts::PRINT_COLLISIONS`): the reader returns the
-		 *  canonical one, and no case list filter where that tree is `match-all`. */
+		 *  canonical one, and no case list filter where that tree is `match-all`;
+		 *  and a text's read of a worker field by name where a worker property
+		 *  prints the same path, which the reader returns as that property's
+		 *  read (`proseNamedReadsAsProperties`). */
 		id: "expression-print-collisions",
 		kind: "one-wire",
-		apply: canonicalSlots,
+		apply: (doc) => proseNamedReadsAsProperties(canonicalSlots(doc)),
 	},
 ];
 

@@ -80,6 +80,7 @@ import {
 	HOLDS_MORE_THAN_ONE_VALUE,
 	HQ_UNAVAILABLE,
 	holdsColumnNamed,
+	MANAGED_TABLE_NO_COLUMNS,
 	MANAGEMENT_NEEDS_ADMIN,
 	managedColumnGoneItem,
 	managedPlaceNotHoldable,
@@ -88,6 +89,7 @@ import {
 	managedTableGoneItem,
 	managedTableManyValuesItem,
 	managedTableNameItem,
+	managedTableNoColumnsItem,
 	managedTableOverCap,
 	managedTableOverCapItem,
 	managedTableUnrepresentable,
@@ -143,6 +145,7 @@ export type ManagedTableChange =
 			readonly kind: "unsupported";
 			readonly holds: readonly UnsupportedLookupContent[];
 	  }
+	| { readonly kind: "no-columns" }
 	| { readonly kind: "more-than-one-value" }
 	| { readonly kind: "over-cap"; readonly phrase: string }
 	| { readonly kind: "name"; readonly name: string }
@@ -187,9 +190,11 @@ type TableRead =
 /**
  * What stops a copy of `stored` from taking CommCare HQ's table, in the
  * order a person reads them: the table gone; a column the app reads gone;
- * content Nova can't hold (field properties, row attributes, rows limited to
- * certain users); a field with more than one value; a cap; a field name
- * outside the grammar; a cell holding a character XML 1.0 cannot carry.
+ * no column at all, where no column the app reads is gone already (Nova
+ * holds a table only with one); content Nova can't hold (field properties,
+ * row attributes, rows limited to certain users); a field with more than one
+ * value; a cap; a field name outside the grammar; a cell holding a character
+ * XML 1.0 cannot carry.
  * Empty where the copy can take it. The caps are judged over Postgres's own
  * measure of the rows, keyed as they would be stored, and the column cap
  * counts the columns a refresh keeps because an app still reads them.
@@ -211,6 +216,11 @@ async function managedTableChanges(
 				uses: column.uses,
 			});
 		}
+	}
+	/* CommCare HQ's table editor can remove every field, and the copy's own
+	 * rule holds a table only with a column. */
+	if (table.fields.length === 0 && changes.length === 0) {
+		changes.push({ kind: "no-columns" });
 	}
 	const holds = unsupportedLookupContent(table);
 	if (holds.length > 0) changes.push({ kind: "unsupported", holds });
@@ -291,7 +301,7 @@ function rowsAsStored(
 	});
 }
 
-/** One item of `hq_managed_data_changed` per change: P6 to P11 and P17. */
+/** One item of `hq_managed_data_changed` per change: P6 to P11, P17 and P20. */
 export function managedTableChangeItem(
 	tag: string,
 	change: ManagedTableChange,
@@ -301,6 +311,8 @@ export function managedTableChangeItem(
 			return managedTableGoneItem(tag);
 		case "column-gone":
 			return managedColumnGoneItem(change.column, tag, change.uses);
+		case "no-columns":
+			return managedTableNoColumnsItem(tag);
 		case "unsupported":
 			return managedTableUnsupportedItem(
 				tag,
@@ -499,13 +511,18 @@ async function originCredentials(
 	return { ok: true, creds: result.creds };
 }
 
-/** CommCare HQ's table as the copy takes it, in the copy's own refresh. */
+/**
+ * CommCare HQ's table as the copy takes it, in the copy's own refresh. `at`
+ * is when the read began, taken before CommCare HQ was asked, so the copy
+ * records the moment its content was CommCare HQ's at the latest.
+ */
 async function refreshTable(
 	scope: LookupScope,
 	stored: StoredManagedTable,
 	table: HqLookupTable,
 	rows: readonly HqFixtureRow[],
 	mode: "refresh" | "adopt",
+	at: Date,
 ): Promise<ManagedRefreshReceipt> {
 	const canonical = canonicalLookupTable(table, rows);
 	return withAppTx((tx) =>
@@ -518,8 +535,9 @@ async function refreshTable(
 				remoteId: table.id,
 				canonical: { ...canonical },
 			},
-			at: new Date(),
+			at,
 			mode,
+			olderReadYields: true,
 		}),
 	);
 }
@@ -588,6 +606,8 @@ export async function reReadManagedTablesForPublish(input: {
 	| { readonly unreadable: HqFailure; readonly rows: string | null }
 > {
 	const { access, doc, target, creds } = input;
+	/* Every refresh this publish writes is of reads that begin after now. */
+	const at = new Date();
 	const scope: LookupScope = {
 		projectId: access.projectId,
 		actorId: access.actorUserId,
@@ -719,10 +739,19 @@ export async function reReadManagedTablesForPublish(input: {
 		if (canonical.digest === stored.digest && table.id === stored.remoteId)
 			continue;
 		try {
-			refreshed.push({
-				tag: stored.tag,
-				receipt: await refreshTable(scope, stored, table, rows, "refresh"),
-			});
+			const receipt = await refreshTable(
+				scope,
+				stored,
+				table,
+				rows,
+				"refresh",
+				at,
+			);
+			/* A newer refresh landed while this publish read CommCare HQ: the
+			 * copy holds that read, and this one changed nothing. */
+			if (receipt.changed !== "superseded") {
+				refreshed.push({ tag: stored.tag, receipt });
+			}
 		} catch (error) {
 			/* Someone chose Manage in Nova for the table since it was read: it is
 			 * Nova's to publish now, and the copy stays as they left it. */
@@ -1008,6 +1037,8 @@ function changeRefusal(
 				"unsupported",
 				managedTableUnsupported(describeUnsupportedLookupContent(change.holds)),
 			);
+		case "no-columns":
+			return refusedTable("unsupported", MANAGED_TABLE_NO_COLUMNS);
 		case "more-than-one-value":
 			return refusedTable(
 				"unsupported",
@@ -1074,6 +1105,7 @@ export async function refreshManagedLookupTable(
 	if (stored.managedBy !== "commcare-hq") {
 		return refusedTable("state-changed", TABLE_TAKEN_OVER_MEANWHILE);
 	}
+	const at = new Date();
 	const read = await readForCopy(scope, stored);
 	if (!read.ok) return read;
 	try {
@@ -1083,16 +1115,36 @@ export async function refreshManagedLookupTable(
 			read.table,
 			read.rows,
 			"refresh",
+			at,
 		);
 		return landed(scope, stored.id, receipt);
 	} catch (error) {
-		if (error instanceof LookupError && error.code === "conflict") {
-			return refusedTable("state-changed", TABLE_TAKEN_OVER_MEANWHILE);
-		}
-		if (error instanceof LookupError && error.code === "storage_limit") {
-			return refusedTable("over-cap", error.message);
-		}
+		const refused = refusedWrite(error, TABLE_TAKEN_OVER_MEANWHILE);
+		if (refused !== null) return refused;
 		throw error;
+	}
+}
+
+/**
+ * The outcome for a write of the copy that the copy's own transaction
+ * refused, or null for a fault: the table taken over or handed back
+ * meanwhile (`conflict`, worded by `conflictMessage`), removed meanwhile, a
+ * cap Postgres measured, or content the copy's own rules refuse. Each
+ * leaves the table as it was.
+ */
+function refusedWrite(error: unknown, conflictMessage: string): Refused | null {
+	if (!(error instanceof LookupError)) return null;
+	switch (error.code) {
+		case "conflict":
+			return refusedTable("state-changed", conflictMessage);
+		case "not_found":
+			return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
+		case "storage_limit":
+			return refusedTable("over-cap", error.message);
+		case "invalid_input":
+			return refusedTable("unsupported", error.message);
+		default:
+			return null;
 	}
 }
 
@@ -1111,9 +1163,18 @@ export async function manageLookupTableInNova(
 	if (!roleAllowsApp(scope.role, "delete")) {
 		return refusedTable("not-permitted", MANAGEMENT_NEEDS_ADMIN);
 	}
-	await withAppTx((tx) =>
-		takeOverManagedLookupTableInTransaction(tx, scope, stored.id, new Date()),
-	);
+	try {
+		await withAppTx((tx) =>
+			takeOverManagedLookupTableInTransaction(tx, scope, stored.id, new Date()),
+		);
+	} catch (error) {
+		/* Removed since it was read: the page answers as for any table that
+		 * is not there. */
+		if (error instanceof LookupError && error.code === "not_found") {
+			return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
+		}
+		throw error;
+	}
 	return landed(scope, stored.id, null);
 }
 
@@ -1135,6 +1196,7 @@ export async function letHqManageLookupTable(
 		return refusedTable("not-permitted", MANAGEMENT_NEEDS_ADMIN);
 	}
 	if (stored.managedBy === "commcare-hq") return landed(scope, stored.id, null);
+	const at = new Date();
 	const read = await readForCopy(scope, stored);
 	if (!read.ok) return read;
 	try {
@@ -1144,15 +1206,15 @@ export async function letHqManageLookupTable(
 			read.table,
 			read.rows,
 			"adopt",
+			at,
 		);
 		return landed(scope, stored.id, receipt);
 	} catch (error) {
-		if (error instanceof LookupError && error.code === "conflict") {
-			return refusedTable("state-changed", error.message);
-		}
-		if (error instanceof LookupError && error.code === "storage_limit") {
-			return refusedTable("over-cap", error.message);
-		}
+		const refused = refusedWrite(
+			error,
+			error instanceof Error ? error.message : "",
+		);
+		if (refused !== null) return refused;
 		throw error;
 	}
 }
@@ -1259,14 +1321,14 @@ export const NO_MANAGED_PLACES =
  * planned over the app's levels and location properties as the document
  * holds them in the same transaction, and written by the organization's
  * refresh writer. A plan with findings writes nothing. Never writes the
- * document.
+ * document. `at` is when the read began, taken before CommCare HQ was asked.
  */
 export async function refreshManagedPlacesFromRead(
 	scope: OrganizationScope,
 	origin: { readonly domain: string },
 	hqPlaces: readonly HqLocation[],
+	at: Date,
 ): Promise<ManagedPlacesOutcome> {
-	const at = new Date();
 	try {
 		return await withAppTx(async (tx: Transaction<AppDatabase>) => {
 			const app = await loadAppInTransaction(tx, scope.appId);
@@ -1347,6 +1409,7 @@ export async function refreshManagedPlaces(
 			? placesRefused("not-connected", CONNECT_TO_REFRESH_PLACES)
 			: placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain));
 	}
+	const at = new Date();
 	const places = await listHqLocations(credentials.creds, hq.domain, {
 		stopPast: MAX_LOCATIONS_PER_APP,
 	});
@@ -1361,7 +1424,7 @@ export async function refreshManagedPlaces(
 			? placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain))
 			: placesRefused("unavailable", HQ_UNAVAILABLE);
 	}
-	return refreshManagedPlacesFromRead(scope, hq, places);
+	return refreshManagedPlacesFromRead(scope, hq, places, at);
 }
 
 /** What the Organization banner shows of places that came from CommCare HQ. `view`. */
@@ -1382,33 +1445,50 @@ export async function readManagedPlacesView(scope: OrganizationScope): Promise<{
 	};
 }
 
+/** The app's managed places as provisioning reads them on one project space. */
+export interface ManagedPlaceIds {
+	/** Each live place of the copy, by Nova's id, to CommCare HQ's id for it. */
+	readonly ids: ReadonlyMap<string, string>;
+	/**
+	 * The live places of the copy a refresh found gone from CommCare HQ
+	 * (`hq_gone_at`) and kept, because a persona, an owner rule or an
+	 * automation still names them. CommCare HQ refuses an account standing in
+	 * one, so provisioning refuses it first.
+	 */
+	readonly gone: ReadonlySet<string>;
+}
+
 /**
- * Each live place of the app's copy, by Nova's id, to CommCare HQ's id for
- * it, where the target is the project space that manages the places; empty
- * everywhere else, where places reach CommCare HQ through the publish's own
- * `location` mappings. `view`.
+ * The app's managed places on `target`, where the target is the project
+ * space that manages them: each live place's CommCare HQ id, and the live
+ * places CommCare HQ no longer has. Empty everywhere else, where places reach
+ * CommCare HQ through the publish's own `location` mappings. `view`.
  */
 export async function readManagedPlaceIds(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-): Promise<ReadonlyMap<string, string>> {
-	if (!roleAllowsApp(scope.role, "view")) return new Map();
+): Promise<ManagedPlaceIds> {
+	if (!roleAllowsApp(scope.role, "view")) {
+		return { ids: new Map(), gone: new Set() };
+	}
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("app_locations as l")
 		.innerJoin("app_organization_state as s", "s.app_id", "l.app_id")
 		.innerJoin("apps as a", "a.id", "l.app_id")
-		.select(["l.id", "l.hq_location_id"])
+		.select(["l.id", "l.hq_location_id", "l.hq_gone_at"])
 		.where("l.app_id", "=", scope.appId)
 		.where("a.project_id", "=", scope.projectId)
 		.where("s.hq_server", "=", target.server)
 		.where("s.hq_domain", "=", target.domain)
 		.where("l.archived_at", "is", null)
-		.where("l.hq_location_id", "is not", null)
 		.execute();
-	return new Map(
-		rows.flatMap((row) =>
-			row.hq_location_id === null ? [] : [[row.id, row.hq_location_id]],
-		),
-	);
+	const ids = new Map<string, string>();
+	const gone = new Set<string>();
+	for (const row of rows) {
+		if (row.hq_location_id === null || row.hq_gone_at !== null)
+			gone.add(row.id);
+		else ids.set(row.id, row.hq_location_id);
+	}
+	return { ids, gone };
 }

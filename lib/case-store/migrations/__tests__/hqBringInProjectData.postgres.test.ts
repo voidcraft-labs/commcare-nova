@@ -6,7 +6,9 @@
  * or update that names none of the new columns; a CHECK that admits half an
  * origin or a takeover nobody made; a `down` that leaves a column behind; a
  * lock request that waits with no bound behind a reader of the serving
- * revision; and a lock timeout left set for the next migration of the batch.
+ * revision; a wait for one table while the batch holds another, which closes
+ * a cycle with the serving revision's App Test start; and a lock timeout left
+ * set for the next migration of the batch.
  */
 
 import { type Kysely, type RawBuilder, sql } from "kysely";
@@ -241,7 +243,8 @@ async function seedPlainRows(db: Kysely<unknown>) {
 	return { tableId, parent, child };
 }
 
-const NINETEEN_COLUMNS = [
+const TWENTY_COLUMNS = [
+	"app_locations.hq_gone_at",
 	"app_locations.hq_location_id",
 	"app_organization_state.hq_brought_in_at",
 	"app_organization_state.hq_brought_in_by",
@@ -271,7 +274,7 @@ describe(MIGRATION, () => {
 
 		await runUp(db);
 
-		expect(await originColumns(db)).toEqual(NINETEEN_COLUMNS);
+		expect(await originColumns(db)).toEqual(TWENTY_COLUMNS);
 		const constraints = await sql<{ name: string; validated: boolean }>`
 			SELECT conname AS name, convalidated AS validated FROM pg_constraint
 			WHERE conname IN ('lookup_tables_hq_origin_whole',
@@ -517,7 +520,7 @@ describe(MIGRATION, () => {
 		await seedPlainRows(db);
 		const before = { catalog: await catalog(db), data: await data(db) };
 		await runUp(db);
-		expect(await originColumns(db)).toEqual(NINETEEN_COLUMNS);
+		expect(await originColumns(db)).toEqual(TWENTY_COLUMNS);
 
 		await db.transaction().execute((tx) => down(tx));
 
@@ -527,30 +530,59 @@ describe(MIGRATION, () => {
 		);
 	});
 
-	it("gives up after five seconds behind a reader, adds nothing, and resets the timeout once it runs", {
+	it("gives up after five seconds behind a reader of its last table, holding none of the others while it waits, adds nothing, and resets the timeout once it runs", {
 		timeout: 30_000,
 	}, async () => {
 		const db = database.db;
-		await seedPlainRows(db);
+		const { tableId } = await seedPlainRows(db);
 		const before = { catalog: await catalog(db), data: await data(db) };
 		const reader = new Client({ connectionString: database.uri });
+		const writer = new Client({ connectionString: database.uri });
+		const observer = new Client({ connectionString: database.uri });
 		await reader.connect();
+		await writer.connect();
+		await observer.connect();
+		let migration: Promise<{ code: string } | undefined> | undefined;
+		let settled = false;
 		try {
 			await reader.query("BEGIN");
 			await reader.query(
 				"LOCK TABLE public.app_locations IN ACCESS SHARE MODE",
 			);
+			const readerPid = await backendPid(reader);
+			const writerPid = await backendPid(writer);
 
 			const started = performance.now();
-			const refused = await refusal(() => runUp(db));
+			migration = refusal(() => runUp(db)).finally(() => {
+				settled = true;
+			});
+			await untilContending(observer, [readerPid, writerPid], () => settled);
+
+			/* The serving revision's writes to the two tables before the busy one
+			 * pass while the migration waits: it holds neither of them. A request
+			 * the migration held back fails here instead of hanging. */
+			await writer.query("SET lock_timeout = '3s'");
+			await writer.query("BEGIN");
+			await writer.query(
+				`UPDATE public.lookup_tables SET updated_at = now()
+					WHERE project_id = $1 AND id = $2::uuid`,
+				[PROJECT, tableId],
+			);
+			await writer.query(
+				`UPDATE public.app_organization_state SET updated_at = now()
+					WHERE app_id = $1`,
+				[APP],
+			);
+			await writer.query("COMMIT");
+			expect(settled).toBe(false);
+
+			const refused = await migration;
 			const waited = performance.now() - started;
 			expect(refused?.code).toBe("55P03");
 			expect(waited).toBeGreaterThanOrEqual(5_000);
 			expect(waited).toBeLessThan(10_000);
 			expect(await originColumns(db)).toEqual([]);
-			expect({ catalog: await catalog(db), data: await data(db) }).toEqual(
-				before,
-			);
+			expect(await catalog(db)).toEqual(before.catalog);
 
 			await reader.query("COMMIT");
 			const timeout = await db.transaction().execute(async (tx) => {
@@ -561,9 +593,111 @@ describe(MIGRATION, () => {
 				return shown.rows[0]?.lock_timeout;
 			});
 			expect(timeout).toBe("0");
-			expect(await originColumns(db)).toEqual(NINETEEN_COLUMNS);
+			expect(await originColumns(db)).toEqual(TWENTY_COLUMNS);
 		} finally {
+			/* A ROLLBACK outside a transaction only warns. */
+			await reader.query("ROLLBACK");
+			await writer.query("ROLLBACK");
+			await migration;
 			await reader.end();
+			await writer.end();
+			await observer.end();
+		}
+	});
+
+	it("fails alone, with nothing applied, where the batch holds lookup_tables and the serving revision's App Test start holds app_locations and waits for it", {
+		timeout: 30_000,
+	}, async () => {
+		const db = database.db;
+		await seedPlainRows(db);
+		const tester = new Client({ connectionString: database.uri });
+		const observer = new Client({ connectionString: database.uri });
+		await tester.connect();
+		await observer.connect();
+		let start: Promise<{ code: string } | undefined> | undefined;
+		try {
+			const testerPid = await backendPid(tester);
+			const refused = await refusal(() =>
+				db.transaction().execute(async (tx) => {
+					/* An earlier migration of the batch altered lookup_tables. */
+					await sql`LOCK TABLE public.lookup_tables IN ACCESS EXCLUSIVE MODE`.execute(
+						tx,
+					);
+					/* The App Test start clones apps and app_locations, keeping each,
+					 * and then waits for lookup_tables. */
+					await tester.query("BEGIN");
+					start = refusal(() =>
+						tester.query(
+							"SELECT public.nova_create_app_test_namespace($1::uuid)",
+							["01992000-0000-7000-8000-00000000d001"],
+						),
+					);
+					for (let attempt = 0; ; attempt += 1) {
+						const waiting = await observer.query<{ waiting: boolean }>(
+							`SELECT EXISTS (SELECT 1 FROM pg_locks
+								WHERE pid = $1 AND NOT granted
+									AND relation = 'public.lookup_tables'::regclass) AS waiting`,
+							[testerPid],
+						);
+						if (waiting.rows[0]?.waiting === true) break;
+						if (attempt > 2_000)
+							throw new Error(
+								"The App Test start never reached its wait for lookup_tables.",
+							);
+						await new Promise<void>((resolve) => setImmediate(resolve));
+					}
+					await up(tx);
+				}),
+			);
+
+			/* No cycle: the migration never waited while it held a table, so it
+			 * gave up with 55P03 and the App Test start went on once it was gone. */
+			expect(refused?.code).toBe("55P03");
+			expect(await start).toBeUndefined();
+			await tester.query("ROLLBACK");
+			expect(await originColumns(db)).toEqual([]);
+		} finally {
+			await tester.query("ROLLBACK");
+			await start;
+			await tester.end();
+			await observer.end();
 		}
 	});
 });
+
+async function backendPid(client: Client): Promise<number> {
+	const pid = (
+		await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+	).rows[0]?.pid;
+	if (pid === undefined) throw new Error("The connection named no backend.");
+	return pid;
+}
+
+/** Waits until a backend other than the observer and the given ones waits for a lock or sleeps between tries. */
+async function untilContending(
+	observer: Client,
+	others: readonly number[],
+	settled: () => boolean,
+) {
+	for (let attempt = 0; ; attempt += 1) {
+		await observer.query("SELECT pg_stat_clear_snapshot()");
+		const waiting = await observer.query<{ count: number }>(
+			`SELECT count(*)::int AS count FROM pg_stat_activity
+				WHERE datname = current_database()
+					AND pid <> pg_backend_pid() AND NOT (pid = ANY($1::int[]))
+					AND state = 'active'
+					AND (wait_event_type = 'Lock' OR wait_event = 'PgSleep')`,
+			[others],
+		);
+		if ((waiting.rows[0]?.count ?? 0) > 0) return;
+		if (settled())
+			throw new Error(
+				"The migration finished before it ever waited behind the open reader.",
+			);
+		if (attempt > 2_000)
+			throw new Error(
+				"The migration never reached its wait behind the open reader.",
+			);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+	}
+}

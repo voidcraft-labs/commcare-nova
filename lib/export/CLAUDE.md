@@ -80,8 +80,10 @@ leaves out of its workbook every table managed in exactly that server and
 domain; CommCare HQ's upload leaves a table it is not sent alone, and a managed
 table of another project space goes in and is made there from Nova's copy.
 `hq-json` is made for no project space, so it puts every managed table in a
-second workbook (`managedLookupWorkbook`, the HQ app file's
-`lookup-tables-managed-in-commcare-hq.xlsx`) and the rest in the first. `ccz`
+workbook of the project space that manages it (`managedLookupWorkbooks`, one
+per project space, which the HQ app file names
+`lookup-tables-managed-in-<domain>.xlsx` and its guide tells a person to leave
+out only when importing into that space) and the rest in the first. `ccz`
 embeds every table. `managedLookupTables` lists every table the mode left out
 of `lookupWorkbook`, in the definitions' order, and `lookupWorkbook` is absent
 where no table goes. The HQ cell-text check, the reserved tag and the workbook
@@ -98,7 +100,12 @@ over a table with no rows (`LOOKUP_SELECT_SOURCE_EMPTY`) never opens there,
 since Core refuses an itemset whose path reaches no row
 (`ItemSetUtils.populateDynamicChoices`; a Search prompt's
 `RemoteQuerySessionManager.populateItemSetChoices`). A row filter that leaves
-no choice over rows that exist still opens. All are
+no choice over rows that exist still opens. Over a table CommCare HQ manages
+these too end with the managed remedy (add or change its rows there, then
+refresh Nova's copy, or choose another table or column) and carry
+`managedInDomain`: a publish's re-read refreshes the copy whatever its rows
+are, so a table emptied or a cell blanked in CommCare HQ reaches this check.
+All are
 `environment`-class: rows change outside the document, so they never gate a
 commit. Export therefore needs its own selected-target verdict over those
 current external rows in addition to the absolute document commit gate.

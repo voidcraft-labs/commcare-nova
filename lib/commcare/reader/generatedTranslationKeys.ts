@@ -107,6 +107,19 @@ export type GeneratedKeyVerdict =
 	  }
 	| { readonly kind: "not-yet" };
 
+/**
+ * What CommCare HQ's build of the app as it is stored reads under a held key that names a string
+ * only a media map or an image map writes, which Nova's table of the document holds none of
+ * (`appStrings.ts::localAppStringTable` builds it with no media manifest): `unread` where no
+ * screen reads the key, `shows` with the path a language shows there without the override, and
+ * `read` where a screen reads it and the app holds no text of its own under it. Undefined for
+ * every other key, which the table judges.
+ */
+export type MediaKeyReading =
+	| { readonly kind: "unread" }
+	| { readonly kind: "shows"; readonly value: string }
+	| { readonly kind: "read" };
+
 /** The units a string's source names: one, several, or none for a constant. */
 function unitsOf(
 	source: WireStringSource | undefined,
@@ -122,10 +135,21 @@ function unitsOf(
  * is this one, folds into that unit's text in that language; anything else is not yet held. The
  * fold rule reads the stored value of every id a unit feeds, so `held` lists every generated key
  * whose menu and form read, those a finding covers among them.
+ *
+ * A key a media map or an image map writes (`media` answers for it) is judged by what HQ's build
+ * reads there instead, since the table holds no such string: HQ's build writes a language's
+ * override over the string it generates (`app_strings.py::SelectKnownAppStrings.app_strings_parts`,
+ * the language's `translations` last), so where a screen reads the key the override is the file a
+ * worker sees or hears, or the alt text a screen reader says, in that language. It is inert only
+ * where no screen reads the key, or where it names the path the language shows without it; any
+ * other override is a different file or text in one language, which no slot of Nova's document
+ * holds (media is one per slot for every language), so it is not yet held.
  */
 export function classifyGeneratedTranslationKeys(
 	held: readonly HeldGeneratedKey[],
 	table: AppStringTable,
+	media: (one: HeldGeneratedKey) => MediaKeyReading | undefined = () =>
+		undefined,
 ): readonly GeneratedKeyVerdict[] {
 	const stored = new Map<string, string>();
 	for (const one of held)
@@ -139,6 +163,12 @@ export function classifyGeneratedTranslationKeys(
 		}
 	return held.map((one): GeneratedKeyVerdict => {
 		if (one.value === "") return { kind: "inert" };
+		const reading = media(one);
+		if (reading !== undefined)
+			return reading.kind === "unread" ||
+				(reading.kind === "shows" && reading.value === one.value)
+				? { kind: "inert" }
+				: { kind: "not-yet" };
 		const strings = table.languages[one.language];
 		if (strings === undefined || !Object.hasOwn(strings, one.id))
 			return { kind: "inert" };

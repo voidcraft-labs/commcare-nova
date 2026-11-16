@@ -46,6 +46,7 @@ import {
 	conflictOverwriteInput,
 	conflictSaveAsNewInput,
 	hasRetainedRowWorkForProject,
+	isManagedRefusal,
 	manifestProvesTableUnavailable,
 	mergeUnavailableRowDraft,
 	type RemovedConflictCell,
@@ -342,6 +343,19 @@ function ActiveHost({
 	const manifestNeeded = projectDataRoute || hasCurrentProjectRowWork;
 	const { state: manifest, reload: reloadManifest } =
 		useProjectDataManifest(manifestNeeded);
+	/** A refused write's outcome. A table CommCare HQ manages again refuses
+	 *  every edit, and this tab missed that change, so the table and the
+	 *  manifest are read again: the edit controls step aside and the banner
+	 *  says who manages it now. */
+	const failedWrite = useCallback(
+		async (failure: LookupFailure): Promise<ProjectDataWriteOutcome> => {
+			if (isManagedRefusal(failure)) {
+				await Promise.all([reload(), reloadManifest()]);
+			}
+			return { kind: "failed", failure };
+		},
+		[reload, reloadManifest],
+	);
 	const pendingInspectorFocusRef = useRef<Exclude<
 		ProjectDataSelection,
 		null
@@ -833,7 +847,7 @@ function ActiveHost({
 					return { kind: "saved", rowId };
 				}
 				if (retried.code !== "conflict") {
-					return { kind: "failed", failure: retried };
+					return failedWrite(retried);
 				}
 				const after = await getLookupTableAction(projectId, tableId);
 				if (!after.success) return { kind: "failed", failure: after };
@@ -865,7 +879,14 @@ function ActiveHost({
 				}),
 			};
 		},
-		[projectId, tableId, reload, clearSavedRowState, conflictFromSnapshot],
+		[
+			projectId,
+			tableId,
+			reload,
+			clearSavedRowState,
+			conflictFromSnapshot,
+			failedWrite,
+		],
 	);
 
 	const saveRow = useCallback(
@@ -889,11 +910,18 @@ function ActiveHost({
 				return { kind: "saved", rowId };
 			}
 			if (result.code !== "conflict") {
-				return { kind: "failed", failure: result };
+				return failedWrite(result);
 			}
 			return resolveRowConflict(rowId, values, baseline);
 		},
-		[projectId, tableId, reload, resolveRowConflict, clearSavedRowState],
+		[
+			projectId,
+			tableId,
+			reload,
+			resolveRowConflict,
+			clearSavedRowState,
+			failedWrite,
+		],
 	);
 
 	const addRow = useCallback(
@@ -912,7 +940,7 @@ function ActiveHost({
 				rowId = result.value.rowId;
 			} else {
 				if (result.code !== "conflict") {
-					return { kind: "failed", failure: result };
+					return failedWrite(result);
 				}
 				const fresh = await getLookupTableAction(projectId, tableId);
 				if (!fresh.success) return { kind: "failed", failure: fresh };
@@ -922,7 +950,7 @@ function ActiveHost({
 					toIndex: fresh.value.rowCount,
 					values,
 				});
-				if (!retried.success) return { kind: "failed", failure: retried };
+				if (!retried.success) return failedWrite(retried);
 				rowId = retried.value.rowId;
 			}
 			await reload();
@@ -933,7 +961,7 @@ function ActiveHost({
 			});
 			return { kind: "saved", rowId };
 		},
-		[projectId, tableId, snapshot, reload],
+		[projectId, tableId, snapshot, reload, failedWrite],
 	);
 
 	const deleteRow = useCallback(
@@ -956,7 +984,7 @@ function ActiveHost({
 				return { kind: "saved", rowId };
 			}
 			if (result.code !== "conflict") {
-				return { kind: "failed", failure: result };
+				return failedWrite(result);
 			}
 			const fresh = await getLookupTableAction(projectId, tableId);
 			if (!fresh.success) return { kind: "failed", failure: fresh };
@@ -985,7 +1013,7 @@ function ActiveHost({
 					return { kind: "saved", rowId };
 				}
 				if (retried.code !== "conflict") {
-					return { kind: "failed", failure: retried };
+					return failedWrite(retried);
 				}
 				const after = await getLookupTableAction(projectId, tableId);
 				if (!after.success) return { kind: "failed", failure: after };
@@ -1020,7 +1048,14 @@ function ActiveHost({
 				}),
 			};
 		},
-		[projectId, tableId, reload, conflictFromSnapshot, clearSavedRowState],
+		[
+			projectId,
+			tableId,
+			reload,
+			conflictFromSnapshot,
+			clearSavedRowState,
+			failedWrite,
+		],
 	);
 
 	const overwriteConflictRow = useCallback(
@@ -1055,7 +1090,7 @@ function ActiveHost({
 				return { kind: "saved", rowId: conflict.rowId };
 			}
 			if (result.code !== "conflict") {
-				return { kind: "failed", failure: result };
+				return failedWrite(result);
 			}
 			const fresh = await getLookupTableAction(projectId, conflict.tableId);
 			if (!fresh.success) return { kind: "failed", failure: fresh };
@@ -1078,6 +1113,7 @@ function ActiveHost({
 			clearSavedRowState,
 			conflictFromSnapshot,
 			setRowConflict,
+			failedWrite,
 		],
 	);
 
@@ -1112,7 +1148,7 @@ function ActiveHost({
 				return { kind: "saved", rowId: result.value.rowId };
 			}
 			if (result.code !== "conflict") {
-				return { kind: "failed", failure: result };
+				return failedWrite(result);
 			}
 			const fresh = await getLookupTableAction(projectId, conflict.tableId);
 			if (!fresh.success) return { kind: "failed", failure: fresh };
@@ -1133,6 +1169,7 @@ function ActiveHost({
 			clearSavedRowState,
 			conflictFromSnapshot,
 			setRowConflict,
+			failedWrite,
 		],
 	);
 
@@ -1162,7 +1199,7 @@ function ActiveHost({
 				return { kind: "saved", rowId: conflict.rowId };
 			}
 			if (result.code !== "conflict") {
-				return { kind: "failed", failure: result };
+				return failedWrite(result);
 			}
 			const fresh = await getLookupTableAction(projectId, conflict.tableId);
 			if (!fresh.success) return { kind: "failed", failure: fresh };
@@ -1190,6 +1227,7 @@ function ActiveHost({
 			clearSavedRowState,
 			conflictFromSnapshot,
 			setRowConflict,
+			failedWrite,
 		],
 	);
 

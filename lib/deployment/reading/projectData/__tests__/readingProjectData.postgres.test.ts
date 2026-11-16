@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
@@ -26,11 +26,21 @@ import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { levelsFromHq } from "@/lib/commcare/reader/worldEntities";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { lookupContextForAuthoritativeWrite } from "@/lib/db/canonicalCommitKernel";
+import { replaceLookupReferenceEdges } from "@/lib/db/lookupReferenceEdges";
 import { withAppTx } from "@/lib/db/pg";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
-import type { LookupColumnId } from "@/lib/domain/lookupIds";
+import {
+	type LookupColumnId,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
+import {
+	createManagedLookupTablesInTransaction,
+	readKeptLookupColumnIds,
+	refreshManagedLookupTableInTransaction,
+} from "@/lib/lookup/managed";
 import {
 	createLookupTable,
 	getLookupTable,
@@ -53,9 +63,13 @@ import {
 import { broughtInLookupColumnId, broughtInLookupTableId } from "../lookupIds";
 import {
 	BroughtInTableChangedError,
+	readHqLookupTablesForReading,
 	writeBroughtInLookupTablesInTransaction,
 } from "../lookupTableStore";
-import type { LookupTableBinding } from "../lookupTables";
+import {
+	type LookupTableBinding,
+	managedLookupContentOf,
+} from "../lookupTables";
 import { writeBroughtInPlacesInTransaction } from "../placeStore";
 import {
 	postgresProjectSide,
@@ -64,9 +78,11 @@ import {
 } from "../read";
 import { projectDataReview } from "../review";
 
+// Three: one test holds a lock on one connection while a birth waits on a
+// second and the test watches for that wait on a third.
 const h = setupAppStateTestDb("reading_project_data_", {
 	authSchema: "migrated",
-	poolMax: 2,
+	poolMax: 3,
 });
 
 const PROJECT = "reading-project";
@@ -76,6 +92,17 @@ const SERVER = "india";
 const ORIGIN = { server: SERVER, domain: DOMAIN } as const;
 const APP_ID = "0b4f6a52-7c55-4a35-9d1e-3c2f8a1b4e6d";
 const READING_ID = "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b";
+/** The ids of a reading: the app it is for and its own. */
+interface ReadingIds {
+	readonly appId: string;
+	readonly readingId: string;
+}
+const FIRST: ReadingIds = { appId: APP_ID, readingId: READING_ID };
+/** A second app brought in from the same project space, into the same Project. */
+const SECOND: ReadingIds = {
+	appId: "5e1d7c3a-9b2f-4c6e-8a0d-1f3b5c7e9a2b",
+	readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a6c",
+};
 const AT = new Date("2026-11-10T09:00:00.000Z");
 const SCOPE: LookupScope = {
 	projectId: PROJECT,
@@ -130,6 +157,73 @@ function serveTables(peer: MockAgent): void {
 	serve(peer, LIST, retained("lookups/lookup-tables.json"));
 	serve(peer, rowsPath(PLAIN_ID), retained("lookups/fixture-rows-plain.json"));
 	serve(peer, rowsPath(RICH_ID), retained("lookups/fixture-rows-rich.json"));
+}
+
+/** A row in the shape `FixtureResource` serves. */
+function hqRow(id: string, tag: string, fields: Record<string, string>) {
+	return { id, fixture_type: tag, fields, resource_uri: "" };
+}
+
+/** A list or a page of rows in the shape tastypie serves. */
+function page(objects: readonly unknown[]) {
+	return {
+		meta: { limit: 100, next: null, offset: 0, total_count: objects.length },
+		objects,
+	};
+}
+
+/** CommCare HQ's tables once `plain` gained the field `region`, with its rows. */
+function serveWithRegion(peer: MockAgent): void {
+	serve(peer, LIST, retained("lookups/lookup-tables-after-column-added.json"));
+	serveJson(
+		peer,
+		rowsPath(PLAIN_ID),
+		page([
+			hqRow("afee9d3436974abab80b9ecd5b7f0656", "plain", {
+				code: "001",
+				name: "Clinic",
+				region: "north",
+			}),
+			hqRow("098753f4f32d423f9b2f93223bb42ada", "plain", {
+				code: "002",
+				name: "Hospital",
+				region: "south",
+			}),
+		]),
+	);
+	serve(peer, rowsPath(RICH_ID), retained("lookups/fixture-rows-rich.json"));
+}
+
+const ZONES_ID = "3f0a5d2c7b1e4a9c8d6f0e2b4a6c8e01";
+const CLINICS_ID = "3f0a5d2c7b1e4a9c8d6f0e2b4a6c8e02";
+
+/** Two plain tables, `zones` listed first, with a row each. */
+function serveTwoTables(peer: MockAgent): void {
+	const table = (id: string, tag: string) => ({
+		id,
+		tag,
+		fields: [{ field_name: "code", properties: [] }],
+		is_global: true,
+		item_attributes: [],
+		resource_uri: "",
+	});
+	serveJson(
+		peer,
+		LIST,
+		page([table(ZONES_ID, "zones"), table(CLINICS_ID, "clinics")]),
+	);
+	serveJson(
+		peer,
+		rowsPath(ZONES_ID),
+		page([hqRow("3f0a5d2c7b1e4a9c8d6f0e2b4a6c8e11", "zones", { code: "z1" })]),
+	);
+	serveJson(
+		peer,
+		rowsPath(CLINICS_ID),
+		page([
+			hqRow("3f0a5d2c7b1e4a9c8d6f0e2b4a6c8e12", "clinics", { code: "c1" }),
+		]),
+	);
 }
 
 /** The level answer in the shape `LocationTypeResource` serves. */
@@ -197,11 +291,11 @@ async function namingSource(): Promise<HqAppSource> {
 	});
 }
 
-function side(): ReadingProjectSide {
+function side(ids: ReadingIds = FIRST): ReadingProjectSide {
 	return postgresProjectSide({
 		projectId: PROJECT,
 		actorUserId: ACTOR,
-		appId: APP_ID,
+		appId: ids.appId,
 		origin: ORIGIN,
 	});
 }
@@ -209,16 +303,17 @@ function side(): ReadingProjectSide {
 async function read(
 	source: HqAppSource,
 	places: "when-source-reads" | "always" = "when-source-reads",
-	project: ReadingProjectSide = side(),
+	project?: ReadingProjectSide,
+	ids: ReadingIds = FIRST,
 ) {
 	return readReadingProjectData({
 		creds: CREDS,
 		server: SERVER,
 		domain: DOMAIN,
-		appId: APP_ID,
-		readingId: READING_ID,
+		appId: ids.appId,
+		readingId: ids.readingId,
 		source,
-		project,
+		project: project ?? side(ids),
 		places,
 	});
 }
@@ -227,8 +322,9 @@ async function readData(
 	source: HqAppSource,
 	places: "when-source-reads" | "always" = "when-source-reads",
 	project?: ReadingProjectSide,
+	ids: ReadingIds = FIRST,
 ): Promise<ReadingProjectData> {
-	const answer = await read(source, places, project);
+	const answer = await read(source, places, project, ids);
 	if (answer.kind !== "read")
 		throw new Error(`the read failed: ${JSON.stringify(answer.failure)}`);
 	return answer.data;
@@ -253,6 +349,7 @@ const PLAIN_READS: ReaderProjectDataReads = {
 function bornDoc(
 	binding: LookupTableBinding,
 	levels: readonly OrganizationLevel[] = [],
+	appId: string = APP_ID,
 ): BlueprintDoc {
 	const doc = buildDoc({
 		appName: "Clinics",
@@ -283,7 +380,7 @@ function bornDoc(
 	});
 	return {
 		...doc,
-		appId: APP_ID,
+		appId,
 		organizationLevels: Object.fromEntries(
 			levels.map((level) => [level.uuid, level]),
 		),
@@ -310,6 +407,73 @@ async function seedProjectPlain(): Promise<LookupTableSnapshot> {
 	return getLookupTable(SCOPE, created.id);
 }
 
+/** The Project's own `plain`, equal to CommCare HQ's columns and rows. */
+async function seedEqualPlain(): Promise<LookupTableSnapshot> {
+	const created = await createLookupTable(SCOPE, {
+		name: "Clinics",
+		tag: "plain",
+		columns: [
+			{ wireName: "code", label: "Code", dataType: "text" },
+			{ wireName: "name", label: "Name", dataType: "text" },
+		],
+	});
+	const [code, name] = created.columns;
+	await replaceLookupRows(SCOPE, {
+		tableId: created.id,
+		expectedTableRevision: created.tableRevision,
+		rows: [
+			{ [code.id]: "001", [name.id]: "Clinic" },
+			{ [code.id]: "002", [name.id]: "Hospital" },
+		],
+	});
+	return getLookupTable(SCOPE, created.id);
+}
+
+const SIBLING_APP = "7c3e9a1b-5d2f-4e8a-9c0b-2d4f6a8c0e1f";
+
+/**
+ * Another app of the Project that publishes the Project's table to CommCare
+ * HQ's `plain` in this project space: its deployment and its live mapping.
+ * Answers the mapping's id.
+ */
+async function seedSiblingMapping(tableId: string): Promise<string> {
+	await h.seedApp({ id: SIBLING_APP, owner: ACTOR, project_id: PROJECT });
+	const deployment = await h
+		.db()
+		.insertInto("app_deployments")
+		.values({
+			app_id: SIBLING_APP,
+			project_id: PROJECT,
+			server: SERVER,
+			domain: DOMAIN,
+			state: "uploaded",
+			phases: JSON.stringify({ upload: { status: "succeeded" } }),
+			created_by: ACTOR,
+			content_generation: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a7d",
+			last_observed_at: new Date("2026-11-02T00:00:00.000Z"),
+		})
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	const mapping = await h
+		.db()
+		.insertInto("app_deployment_resources")
+		.values({
+			deployment_id: deployment.id,
+			kind: "lookup-table",
+			nova_resource_id: tableId,
+			remote_id: PLAIN_ID,
+			pushed_identity: "plain",
+			ownership: "nova-created",
+			adopted_at: null,
+			adopted_by: null,
+			pushed_revision: null,
+			pushed_at: new Date("2026-11-02T00:00:00.000Z"),
+		})
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	return mapping.id;
+}
+
 async function rowCounts() {
 	const tables = await sql<{ count: string }>`
 		SELECT count(*)::text AS count FROM lookup_tables WHERE project_id = ${PROJECT}
@@ -330,11 +494,12 @@ async function rowCounts() {
 /** The birth's app row, inserted on the birth's own transaction. */
 async function insertBornApp(
 	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+	appId: string = APP_ID,
 ): Promise<void> {
 	await tx
 		.insertInto("apps")
 		.values({
-			id: APP_ID,
+			id: appId,
 			owner: ACTOR,
 			project_id: PROJECT,
 			app_name: "Clinics",
@@ -354,22 +519,23 @@ async function birth(
 	reads: ReaderProjectDataReads,
 	doc: BlueprintDoc,
 ) {
+	const { appId } = doc;
 	const write = readingProjectDataWrite(
 		data,
 		reads,
 		doc,
-		mintingResolver(APP_ID),
+		mintingResolver(appId),
 	);
 	return withAppTx(async (tx) => {
-		await insertBornApp(tx);
+		await insertBornApp(tx, appId);
 		await writeBroughtInLookupTablesInTransaction(
 			tx,
-			{ projectId: PROJECT, actorUserId: ACTOR, appId: APP_ID },
+			{ projectId: PROJECT, actorUserId: ACTOR, appId },
 			{ origin: write.origin, tables: write.tables, at: AT },
 		);
 		await writeBroughtInPlacesInTransaction(
 			tx,
-			{ appId: APP_ID, projectId: PROJECT, actorUserId: ACTOR },
+			{ appId, projectId: PROJECT, actorUserId: ACTOR },
 			{ origin: write.origin, places: write.places, at: AT },
 		);
 		const lookup = await lookupContextForAuthoritativeWrite(
@@ -378,7 +544,7 @@ async function birth(
 			extractLookupReferenceTargets(doc),
 		);
 		await applyOrganizationCommitIntegrity(tx, {
-			appId: APP_ID,
+			appId,
 			previousDoc: doc,
 			candidateDoc: doc,
 		});
@@ -576,6 +742,7 @@ describe("readReadingProjectData over Postgres", () => {
 				projectRevision: "0" as LookupRevision,
 				definitions: [],
 				rowsByTable: {},
+				keptColumns: {},
 			}),
 			referencingApps: async () => ({}),
 			siblings: async () => [],
@@ -775,5 +942,493 @@ describe("the birth's two writers, in a birth's order", () => {
 			WHERE id = ${broughtInLookupTableId(APP_ID, READING_ID, "plain")}
 		`.execute(h.db());
 		expect(derived.rows[0]?.count).toBe("0");
+	});
+
+	it("takes CommCare HQ's rows into a met, unmoved Project table answered use-commcare-hq, under its own ids, so the gate finds it", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const project = await seedProjectPlain();
+		const source = await namingSource();
+		const data = underTableChoices(
+			await withHttpPeer(async (peer) => {
+				serveTables(peer);
+				return readData(source);
+			}),
+			{ plain: "use-commcare-hq" },
+		);
+		const binding = bindingOf(data, "plain");
+		const [code, name] = project.columns;
+		expect(binding).toEqual({
+			tag: "plain",
+			tableId: project.id,
+			columns: { code: code.id, name: name.id },
+		});
+		const doc = bornDoc(binding);
+		const lookup = await birth(data, PLAIN_READS, doc);
+		if (lookup.kind !== "available") throw new Error("no lookup context");
+		expect(
+			lookup.definitions
+				.find((table) => table.id === project.id)
+				?.columns.map((column) => [column.wireName, column.id]),
+		).toEqual([
+			["code", code.id],
+			["name", name.id],
+		]);
+		const adopted = await getLookupTable(SCOPE, project.id);
+		expect(
+			adopted.rows.map((row) => [row.values[code.id], row.values[name.id]]),
+		).toEqual([
+			["001", "Clinic"],
+			["002", "Hospital"],
+		]);
+		expect(adopted.columns.map((column) => column.dataType)).toEqual([
+			"text",
+			"text",
+		]);
+		expect(adopted.hq).toMatchObject({
+			server: SERVER,
+			domain: DOMAIN,
+			remoteId: PLAIN_ID,
+			managedBy: "commcare-hq",
+		});
+	});
+
+	it("writes nothing to a Project table answered use-project", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const project = await seedProjectPlain();
+		const source = await namingSource();
+		const data = underTableChoices(
+			await withHttpPeer(async (peer) => {
+				serveTables(peer);
+				return readData(source);
+			}),
+			{ plain: "use-project" },
+		);
+		const before = await rowCounts();
+		const lookup = await birth(
+			data,
+			PLAIN_READS,
+			bornDoc(bindingOf(data, "plain")),
+		);
+		expect(lookup.kind).toBe("available");
+		expect(await getLookupTable(SCOPE, project.id)).toEqual(project);
+		expect(await rowCounts()).toEqual({ ...before, apps: "1" });
+	});
+
+	it("writes nothing to an equal table an app of the Project publishes as this very table, and refuses it once that mapping is gone", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const project = await seedEqualPlain();
+		const mapping = await seedSiblingMapping(project.id);
+		const source = await namingSource();
+		const data = await withHttpPeer(async (peer) => {
+			serveTables(peer);
+			return readData(source);
+		});
+		expect(data.gathered.tables[0].standing?.kind).toBe("same-equal");
+		const reads = PLAIN_READS;
+		const doc = bornDoc(bindingOf(data, "plain"));
+
+		// The mapping superseded: the tag asks a choice now, and no answer was given.
+		await h
+			.db()
+			.updateTable("app_deployment_resources")
+			.set({ superseded_at: new Date("2026-11-10T08:00:00.000Z") })
+			.where("id", "=", mapping)
+			.execute();
+		const before = await rowCounts();
+		await expect(birth(data, reads, doc)).rejects.toBeInstanceOf(
+			BroughtInTableChangedError,
+		);
+		expect(await rowCounts()).toEqual(before);
+
+		await h
+			.db()
+			.updateTable("app_deployment_resources")
+			.set({ superseded_at: null })
+			.where("id", "=", mapping)
+			.execute();
+		expect((await birth(data, reads, doc)).kind).toBe("available");
+		expect(await getLookupTable(SCOPE, project.id)).toEqual(project);
+	});
+
+	it("refreshes a table managed from this project space, giving a field it lacks the id the binding derived", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const source = await namingSource();
+		const first = await withHttpPeer(async (peer) => {
+			serveTables(peer);
+			return readData(source);
+		});
+		await birth(first, PLAIN_READS, bornDoc(bindingOf(first, "plain")));
+		const managed = bindingOf(first, "plain");
+
+		const second = await withHttpPeer(async (peer) => {
+			serveWithRegion(peer);
+			return readData(source, "when-source-reads", undefined, SECOND);
+		});
+		expect(second.gathered.tables[0].standing?.kind).toBe("same-managed");
+		const binding = bindingOf(second, "plain");
+		const region = broughtInLookupColumnId(
+			SECOND.appId,
+			SECOND.readingId,
+			"plain",
+			"region",
+		);
+		expect(binding).toEqual({
+			tag: "plain",
+			tableId: managed.tableId,
+			columns: { ...managed.columns, region },
+		});
+		await birth(second, PLAIN_READS, bornDoc(binding, [], SECOND.appId));
+		const table = await getLookupTable(SCOPE, managed.tableId);
+		expect(table.columns.map((column) => [column.wireName, column.id])).toEqual(
+			[
+				["code", managed.columns.code],
+				["name", managed.columns.name],
+				["region", region],
+			],
+		);
+		expect(
+			table.rows.map((row) => row.values[region as LookupColumnId]),
+		).toEqual(["north", "south"]);
+	});
+
+	it("refreshes a table managed from this project space whose rows alone changed, leaving its definition where it was", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const source = await namingSource();
+		const first = await withHttpPeer(async (peer) => {
+			serveTables(peer);
+			return readData(source);
+		});
+		await birth(first, PLAIN_READS, bornDoc(bindingOf(first, "plain")));
+		const managed = bindingOf(first, "plain");
+		const before = await getLookupTable(SCOPE, managed.tableId);
+
+		const second = await withHttpPeer(async (peer) => {
+			serve(peer, LIST, retained("lookups/lookup-tables.json"));
+			serveJson(
+				peer,
+				rowsPath(PLAIN_ID),
+				page([
+					hqRow("afee9d3436974abab80b9ecd5b7f0656", "plain", {
+						code: "001",
+						name: "Health centre",
+					}),
+					hqRow("098753f4f32d423f9b2f93223bb42ada", "plain", {
+						code: "002",
+						name: "Hospital",
+					}),
+				]),
+			);
+			serve(
+				peer,
+				rowsPath(RICH_ID),
+				retained("lookups/fixture-rows-rich.json"),
+			);
+			return readData(source, "when-source-reads", undefined, SECOND);
+		});
+		expect(second.gathered.tables[0].standing?.kind).toBe("same-managed");
+		const binding = bindingOf(second, "plain");
+		expect(binding).toEqual(managed);
+		await birth(second, PLAIN_READS, bornDoc(binding, [], SECOND.appId));
+		const table = await getLookupTable(SCOPE, managed.tableId);
+		// A refresh from the same remote table whose fields and kept columns
+		// are as they were changes the rows alone; an adopt would stamp the
+		// definition too.
+		expect(table.definitionRevision).toBe(before.definitionRevision);
+		expect(table.rowsRevision).not.toBe(before.rowsRevision);
+		expect(
+			table.rows.map(
+				(row) => row.values[managed.columns.name as LookupColumnId],
+			),
+		).toEqual(["Health centre", "Hospital"]);
+	});
+
+	it("refuses a use-commcare-hq answer that is no longer offered once the person is no admin, though neither revision moved", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const project = await seedProjectPlain();
+		const source = await namingSource();
+		const data = underTableChoices(
+			await withHttpPeer(async (peer) => {
+				serveTables(peer);
+				return readData(source);
+			}),
+			{ plain: "use-commcare-hq" },
+		);
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
+		const before = await rowCounts();
+		await expect(
+			birth(data, PLAIN_READS, bornDoc(bindingOf(data, "plain"))),
+		).rejects.toBeInstanceOf(BroughtInTableChangedError);
+		expect(await rowCounts()).toEqual(before);
+		expect(await getLookupTable(SCOPE, project.id)).toEqual(project);
+	});
+});
+
+describe("the columns CommCare HQ's content keeps, and the order the birth locks tables in", () => {
+	it("names the columns an app reads, which the refresh keeps where CommCare HQ's fields lack them", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const source = await namingSource();
+		const data = await withHttpPeer(async (peer) => {
+			serveTables(peer);
+			return readData(source);
+		});
+		const doc = bornDoc(bindingOf(data, "plain"));
+		await birth(data, PLAIN_READS, doc);
+		const { tableId, columns } = bindingOf(data, "plain");
+		expect(await readKeptLookupColumnIds(h.db(), PROJECT, [tableId])).toEqual(
+			{},
+		);
+		await withAppTx((tx) =>
+			replaceLookupReferenceEdges(tx, {
+				appId: APP_ID,
+				projectId: PROJECT,
+				targets: {
+					tableIds: [tableId],
+					columnTargets: [{ tableId, columnId: columns.name }],
+				},
+			}),
+		);
+		expect(await readKeptLookupColumnIds(h.db(), PROJECT, [tableId])).toEqual({
+			[tableId]: [columns.name],
+		});
+
+		const read = data.gathered.tables[0].read;
+		if (read.kind !== "read") throw new Error("plain was not read");
+		const receipt = await withAppTx((tx) =>
+			refreshManagedLookupTableInTransaction(tx, SCOPE, {
+				tableId,
+				content: { fields: ["code"], rows: [{ code: "001" }] },
+				origin: {
+					server: SERVER,
+					domain: DOMAIN,
+					remoteId: PLAIN_ID,
+					canonical: { ...read.canonical, digest: "f".repeat(64) },
+				},
+				at: AT,
+				mode: "refresh",
+				olderReadYields: true,
+			}),
+		);
+		expect(receipt.keptGoneColumns.map((column) => column.id)).toEqual([
+			columns.name,
+		]);
+		expect(receipt.removedColumns).toEqual([]);
+	});
+
+	it("names the columns an accepted design protects, by column and by whole table, which the refresh keeps alike", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const source = await namingSource();
+		const data = await withHttpPeer(async (peer) => {
+			serveTables(peer);
+			return readData(source);
+		});
+		await birth(data, PLAIN_READS, bornDoc(bindingOf(data, "plain")));
+		const { tableId, columns } = bindingOf(data, "plain");
+		const read = data.gathered.tables[0].read;
+		if (read.kind !== "read") throw new Error("plain was not read");
+		const project = await getLookupTable(SCOPE, tableId);
+		const lineage = await h.seedDesignLineage({
+			project_id: PROJECT,
+			owner_user_id: ACTOR,
+		});
+		const materializationId = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("design_lookup_materializations")
+			.values({
+				id: materializationId,
+				design_session_id: lineage.designSessionId,
+				design_revision_id: lineage.designRevisionId,
+				design_revision_digest: lineage.designRevisionDigest,
+				project_id: PROJECT,
+				project_revision: project.projectRevision,
+				result_digest: "a".repeat(64),
+				mapping: JSON.stringify({}),
+				created_by_run_id: "run-reading-protection",
+			})
+			.execute();
+		const protect = (columnId: LookupColumnId | null) =>
+			h
+				.db()
+				.insertInto("design_lookup_protections")
+				.values({
+					materialization_id: materializationId,
+					project_id: PROJECT,
+					table_id: tableId,
+					column_id: columnId,
+				})
+				.execute();
+		/** CommCare HQ's `plain` with `code` alone, as a refresh writes it. */
+		const refreshToCode = (digest: string) =>
+			withAppTx((tx) =>
+				refreshManagedLookupTableInTransaction(tx, SCOPE, {
+					tableId,
+					content: { fields: ["code"], rows: [{ code: "001" }] },
+					origin: {
+						server: SERVER,
+						domain: DOMAIN,
+						remoteId: PLAIN_ID,
+						canonical: { ...read.canonical, digest },
+					},
+					at: AT,
+					mode: "refresh",
+					olderReadYields: true,
+				}),
+			);
+
+		await protect(columns.name);
+		expect(await readKeptLookupColumnIds(h.db(), PROJECT, [tableId])).toEqual({
+			[tableId]: [columns.name],
+		});
+		expect(
+			(await refreshToCode("f".repeat(64))).keptGoneColumns.map(
+				(column) => column.id,
+			),
+		).toEqual([columns.name]);
+
+		await h
+			.db()
+			.deleteFrom("design_lookup_protections")
+			.where("materialization_id", "=", materializationId)
+			.execute();
+		await protect(null);
+		// A whole table's protection keeps every column; the one CommCare HQ's
+		// fields name is counted once (`columnsAfterHqFills`).
+		expect(await readKeptLookupColumnIds(h.db(), PROJECT, [tableId])).toEqual({
+			[tableId]: [columns.code, columns.name],
+		});
+		const receipt = await refreshToCode("e".repeat(64));
+		expect(receipt.keptGoneColumns.map((column) => column.id)).toEqual([
+			columns.name,
+		]);
+		expect(receipt.removedColumns).toEqual([]);
+	});
+
+	it("refreshes two Project tables in id order, so a writer that takes them in that order never deadlocks with it", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		// `zones` has the lower id and the later tag.
+		const low = lookupTableIdSchema.parse(
+			"019a8000-0000-7000-8000-000000000001",
+		);
+		const high = lookupTableIdSchema.parse(
+			"019a8000-0000-7000-8000-000000000002",
+		);
+		const source = await sourceFromBody({
+			...retainedSourceBody(
+				"navigation-base/app-source-after-form-settings-save",
+			),
+			note: "instance('item-list:zones') instance('item-list:clinics')",
+		});
+		const reads = await withHttpPeer(async (peer) => {
+			serveTwoTables(peer);
+			const answer = await readHqLookupTablesForReading({
+				creds: CREDS,
+				domain: DOMAIN,
+				sourceText: JSON.stringify(source.raw),
+			});
+			if ("success" in answer) throw new Error("the tables did not read");
+			return answer.tables;
+		});
+		await withAppTx((tx) =>
+			createManagedLookupTablesInTransaction(
+				tx,
+				SCOPE,
+				reads.map((read, at) => {
+					if (read.kind !== "read") throw new Error("a table was not read");
+					const tag = read.table.tag;
+					return {
+						binding: {
+							tag,
+							tableId: tag === "zones" ? low : high,
+							columns: {
+								code: lookupColumnIdSchema.parse(
+									`019a8000-0000-7000-8000-0000000000a${at}`,
+								),
+							},
+						},
+						name: tag,
+						content: managedLookupContentOf(read.table, read.rows),
+						origin: {
+							server: SERVER,
+							domain: DOMAIN,
+							remoteId: read.table.id,
+							canonical: { ...read.canonical },
+						},
+					};
+				}),
+				AT,
+			),
+		);
+		const data = await withHttpPeer(async (peer) => {
+			serveTwoTables(peer);
+			return readData(source, "when-source-reads", undefined, SECOND);
+		});
+		expect(
+			data.gathered.tables.map((table) => [
+				table.read.table.tag,
+				table.standing?.kind,
+			]),
+		).toEqual([
+			["zones", "same-managed"],
+			["clinics", "same-managed"],
+		]);
+		const write = readingProjectDataWrite(
+			data,
+			{
+				lookupFields: { clinics: ["code"], zones: ["code"] },
+				unreadTables: [],
+				readsPlaces: false,
+			},
+			buildDoc({ appName: "Two tables", modules: [] }),
+			mintingResolver(SECOND.appId),
+		);
+
+		/* Another app's autosave takes the tables FOR KEY SHARE in id order. It
+		 * holds `zones` (the lower id) until the birth waits on it, then asks
+		 * for `clinics`. A birth that took `clinics` first deadlocks with it. */
+		let locked!: () => void;
+		const holding = new Promise<void>((resolve) => {
+			locked = resolve;
+		});
+		const keyShare = (
+			tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+			id: string,
+		) =>
+			sql`SELECT id FROM lookup_tables WHERE project_id = ${PROJECT} AND id = ${id} FOR KEY SHARE`.execute(
+				tx,
+			);
+		const autosave = h
+			.db()
+			.transaction()
+			.execute(async (tx) => {
+				await keyShare(tx, low);
+				locked();
+				await vi.waitFor(
+					async () => {
+						const waiting = await sql<{ count: string }>`
+							SELECT count(*)::text AS count FROM pg_stat_activity
+							WHERE datname = current_database() AND wait_event_type = 'Lock'
+						`.execute(h.db());
+						expect(waiting.rows[0]?.count).toBe("1");
+					},
+					{ timeout: 5_000, interval: 20 },
+				);
+				await keyShare(tx, high);
+			});
+		await holding;
+		// A plain transaction: a retry would hide the deadlock this test is for.
+		const born = h
+			.db()
+			.transaction()
+			.execute(async (tx) => {
+				await insertBornApp(tx, SECOND.appId);
+				await writeBroughtInLookupTablesInTransaction(
+					tx,
+					{ projectId: PROJECT, actorUserId: ACTOR, appId: SECOND.appId },
+					{ origin: write.origin, tables: write.tables, at: AT },
+				);
+			});
+		const [saved, birthed] = await Promise.allSettled([autosave, born]);
+		expect(saved).toEqual({ status: "fulfilled", value: undefined });
+		expect(birthed).toEqual({ status: "fulfilled", value: undefined });
 	});
 });

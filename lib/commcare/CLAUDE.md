@@ -68,7 +68,11 @@ no media, and each table the document reads named by the definitions given
 (a column's type decides how a comparison over it prints, so no stand-in
 naming will do) and carried with no rows. It leaves out exactly the strings
 only a media manifest writes (a menu's media paths, an image map's alt
-texts, keyed by a file's path). It throws, as the compiler's oracles do, for
+texts, keyed by a file's path), so a reading judges an app's override of
+one of those keys by what CommCare HQ's build of the stored app shows there
+instead (`reader/assemble.ts::mediaKeyReading`): inert where no screen reads
+the key or it names the file the language already shows, refused otherwise.
+It throws, as the compiler's oracles do, for
 a document the gate refuses; a reading asks the gate first
 (`lib/deployment/reading/appStrings.ts::readingAppStrings`).
 
@@ -1749,7 +1753,11 @@ suite fixtures, and the two HQ modes build the fixapi workbook. The
 row-dependent select-source findings are common to all three — a choice list
 whose saved values are blank or duplicated is equally broken however the table
 reached the device — and are `environment`-class, since rows change outside the
-document and must never gate a commit. What differs is what each CARRIER can
+document and must never gate a commit. Over a table CommCare HQ manages, each
+ends with the managed remedy (`selectSourceRows.ts::selectSourceManagedRemedy`:
+change its rows there and refresh Nova's copy, or choose another table or
+column) and carries `managedInDomain`, as the two cell-text findings do, since
+Project data refuses every edit to such a table. What differs is what each CARRIER can
 hold: `ccz` takes the aggregate fixture budgets, and the HQ modes take one
 size verdict, `LOOKUP_HQ_PUSH_TOO_LARGE` (CommCare HQ's whole-workbook row
 ceiling). HQ's upload reads a 32-character sheet name, so a 32-character tag

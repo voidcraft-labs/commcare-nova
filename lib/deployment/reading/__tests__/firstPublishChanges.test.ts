@@ -5,16 +5,22 @@
  * Contract: every entry applies on some reading and not on another, each
  * built from a retained read of CommCare HQ's or a reading of a document
  * production builders made, through `firstPublishFactsOf`
- * (`forms-and-settings-rewritten` applies on every one); the register's
- * columns agree with the client-safe copies of them and with the emitter's
- * rewrites; every same-state record a retained read makes is covered by the
- * paths of the entry it names; what the birth stores for a choice gives
+ * (`forms-and-settings-rewritten` applies on every one), and an entry that
+ * reads what the reader records applies on a whole reading of a production
+ * export changed to the source shape that makes the reader record it, never
+ * on a record added by hand; the register's columns agree with the
+ * client-safe copies of them and with the emitter's rewrites; every
+ * same-state record a retained read or one of those readings makes is
+ * covered by the paths of the entry it names; a Save to Case value in the
+ * spelling Nova wrote before reads whole to the document the current
+ * spelling gives; what the birth stores for a choice gives
  * that choice's list back under its declaration and differs only by the
  * two Web Apps lines under another; and the four entries a shell key carries
  * part ways with the source in the body a first publish sends exactly where
  * they apply.
  *
- * Plausible failures: an entry that never applies, or always does; a
+ * Plausible failures: an entry that never applies, or always does; an
+ * entry whose record the reader never makes; a
  * same-state rule whose rewrite no entry allows; a rewrite a worker meets
  * that no line says; a stored list that tells a person Web Apps is turned
  * off after they turned it on; a predicate and the shell it speaks for
@@ -23,17 +29,38 @@
 
 import { type Element, isTag } from "domhandler";
 import { findAll, findOne, removeElement } from "domutils";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { constraintMessageFixture } from "@/lib/commcare/__tests__/constraintMessageFixture";
+import { buildShape } from "@/lib/commcare/__tests__/formLinkDocArbitrary";
+import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
 import { EMISSION_REWRITES } from "@/lib/commcare/emissionRewrites";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
-import { exportedBody } from "@/lib/commcare/reader/__tests__/novaExport";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	type ExportEdits,
+	exportedBody,
+} from "@/lib/commcare/reader/__tests__/novaExport";
 import { hydrated } from "@/lib/commcare/reader/__tests__/publishedDocuments";
 import { sourceFromBody } from "@/lib/commcare/reader/__tests__/readerInput";
-import { readCases } from "@/lib/commcare/reader/caseManagement/__tests__/caseReading";
-import type { ReadFacts, SameStateRewrite } from "@/lib/commcare/reader/types";
+import {
+	patients,
+	uuid,
+} from "@/lib/commcare/reader/caseList/__tests__/fixtures";
+import {
+	csqlRow,
+	csqlVectorDoc,
+} from "@/lib/commcare/reader/expressions/__tests__/csqlVectors";
+import { knownCaseTypesOf } from "@/lib/commcare/reader/index";
+import { inSpanish } from "@/lib/commcare/reader/menus/__tests__/menuReading";
+import { readFormSyntax } from "@/lib/commcare/reader/syntaxRead";
+import type {
+	ReaderInput,
+	ReadFacts,
+	SameStateRewrite,
+} from "@/lib/commcare/reader/types";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { FormPath } from "@/lib/commcare/xform/formPath";
@@ -48,10 +75,31 @@ import type { DeclarationChoice } from "@/lib/doc/platformDeclaration";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	NEW_APP_SETTINGS,
 	type Platform,
 	proseText,
+	type SearchInputDef,
 } from "@/lib/domain";
-import { now } from "@/lib/domain/expression/builders";
+import {
+	eq,
+	input,
+	literal,
+	lte,
+	neq,
+	now,
+	prop,
+	tableColumn,
+	term,
+	today,
+	whenInput,
+} from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	type CaseListConfig,
+	type CaseSearchConfig,
+	plainColumn,
+} from "@/lib/domain/modules";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
@@ -68,6 +116,7 @@ import {
 import { hqImportApplication } from "../../importApplication";
 import type { DeploymentTargetKey } from "../../store";
 import { adoptionExportBoundary } from "../adoptionBoundary";
+import { readingAppStrings } from "../appStrings";
 import {
 	FIRST_PUBLISH_CHANGES,
 	type FirstPublishFacts,
@@ -365,19 +414,6 @@ function withEarlierClockRow(property: string): (xml: string) => string {
 	};
 }
 
-async function readEdited(
-	doc: BlueprintDoc,
-	xml: (xml: string) => string,
-): Promise<RegisterReading> {
-	const source = await sourceFromBody(
-		exportedBody(doc, { xml, expand: { attachmentTarget: TARGET } }),
-	);
-	const reading = readWhole(doc.appId, source);
-	if (!("draft" in reading))
-		throw new Error(`The edited export read to an account: ${reading.codes}`);
-	return reading;
-}
-
 // ── The register's columns ───────────────────────────────────────────────
 
 describe("the register", () => {
@@ -486,6 +522,17 @@ describe("the register", () => {
 			false,
 		);
 		expect(pointerCovers("/modules/*/name/en", "/modules/0/name")).toBe(false);
+		// A record at a list or a map above a key the pattern names is not covered.
+		expect(
+			pointerCovers(
+				"/modules/*/case_details/short/sort_elements/*/field",
+				"/modules/0/case_details/short/sort_elements",
+			),
+		).toBe(false);
+		expect(
+			pointerCovers("/translations/*/app.display.name", "/translations"),
+		).toBe(false);
+		expect(pointerCovers("/translations/*/*", "/translations")).toBe(true);
 	});
 });
 
@@ -579,62 +626,434 @@ function coveredByItsEntry(record: SameStateRewrite): boolean {
 
 // ── Each entry applies and does not ──────────────────────────────────────
 
-/** A same-state record of `id` at the first concrete pointer its paths give. */
-function recordOf(id: FirstPublishChangeId): SameStateRewrite {
-	const [path] = FIRST_PUBLISH_CHANGES[id].paths;
-	return {
-		entry: "test/record",
-		path: (path as string).replaceAll("*", "0"),
-		register: id as SameStateRewrite["register"],
-	};
-}
-
 interface Pair {
 	readonly on: () => Promise<FirstPublishFacts>;
 	readonly off: () => Promise<FirstPublishFacts>;
 }
 
-/** Facts of the base reading with the reader's report holding `id` once, and with it held nowhere. */
-function reported(
-	id: FirstPublishChangeId,
-	where: "rewrites" | "sameStateRewrites",
+type Json = Record<string, unknown>;
+
+/** A stored menu as the edits below reach into it. */
+type StoredMenu = Json & {
+	forms: Json[];
+	case_list_form: Json;
+	case_details: { short: Json & { sort_elements: Json[] } };
+	search_config: Json & { default_properties: Json[] };
+};
+
+/**
+ * A whole reading of `doc`'s export as CommCare HQ serves it, written for the
+ * reading's project space, with `edits` made to the source as HQ's pages, an
+ * author or an earlier Nova would store it.
+ */
+async function readAs(
+	doc: BlueprintDoc,
+	edits: ExportEdits = {},
+	input: Partial<ReaderInput> = {},
+): Promise<RegisterReading> {
+	const source = await sourceFromBody(
+		exportedBody(doc, {
+			...edits,
+			expand: { attachmentTarget: TARGET, ...edits.expand },
+		}),
+	);
+	const reading = readWhole(doc.appId, source, {
+		knownCaseTypes: knownCaseTypesOf(doc),
+		...input,
+	});
+	if (!("draft" in reading))
+		throw new Error(
+			`The source read to an account: ${reading.codes.join(", ")}`,
+		);
+	return reading;
+}
+
+/**
+ * The facts of a whole reading of `doc`'s export with `edits` made, where the
+ * reader itself records what the entry reads, and of the export as Nova
+ * writes it, where it records nothing of the kind.
+ */
+function editedPair(
+	doc: () => BlueprintDoc,
+	edits: ExportEdits,
+	input: Partial<ReaderInput> = {},
 ): Pair {
 	return {
-		on: async () => {
-			const base = await baseReading();
-			return factsOf(base, {
-				facts:
-					where === "rewrites"
-						? {
-								rewrites: [
-									...base.draft.facts.rewrites,
-									{
-										id: id as ReadFacts["rewrites"][number]["id"],
-										place: { kind: "app" },
-										key: "test",
-									},
-								],
-							}
-						: {
-								sameStateRewrites: [
-									...base.draft.facts.sameStateRewrites,
-									recordOf(id),
-								],
-							},
-			});
-		},
-		off: async () => {
-			const base = await baseReading();
-			return factsOf(base, {
-				facts: {
-					rewrites: base.draft.facts.rewrites.filter((one) => one.id !== id),
-					sameStateRewrites: base.draft.facts.sameStateRewrites.filter(
-						(one) => one.register !== id,
-					),
-				},
-			});
+		on: async () => factsOf(await readAs(doc(), edits, input)),
+		off: async () =>
+			factsOf(
+				await readAs(
+					doc(),
+					edits.expand === undefined ? {} : { expand: edits.expand },
+					input,
+				),
+			),
+	};
+}
+
+/** Edits of the stored menus, each given the first menu. */
+function onMenu(edit: (menu: StoredMenu) => void): ExportEdits {
+	return {
+		modules: (modules) => {
+			edit(modules[0] as StoredMenu);
+			return modules;
 		},
 	};
+}
+
+/** Each form's bind whose nodeset ends with `nodesetEnding` changed by `edit`. */
+function editBind(
+	nodesetEnding: string,
+	edit: (attributes: Record<string, string>) => void,
+): (xml: string) => string {
+	return (xml) => {
+		const document = parseXml(xml);
+		const bind = findOne(
+			(element: Element) =>
+				element.name === "bind" &&
+				(element.attribs.nodeset ?? "").endsWith(nodesetEnding),
+			document.children.filter(isTag),
+			true,
+		);
+		if (bind === null) return xml;
+		edit(bind.attribs);
+		return serializeXml(document);
+	};
+}
+
+/** `text` with every `from` written as `to`: an author's respelling of a read. */
+const respelled = (text: string | undefined, from: string, to: string) =>
+	(text ?? "").split(from).join(to);
+
+const WIDTH = "instance('commcaresession')/session/context/window_width";
+
+/** A web app whose menu shows on wide screens alone. */
+function widthDoc(): BlueprintDoc {
+	return buildDoc({
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		modules: [
+			{
+				name: "Wide",
+				displayCondition: {
+					kind: "gt",
+					left: {
+						kind: "term",
+						term: { kind: "session-context", field: "window_width" },
+					},
+					right: { kind: "term", term: literal(400) },
+				},
+				forms: [
+					{
+						name: "Form",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** A survey whose question shows where one date and time is before another. */
+function instantDoc(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				name: "Menu",
+				forms: [
+					{
+						name: "Form",
+						type: "survey",
+						fields: [
+							f({ kind: "datetime", id: "start" }),
+							f({ kind: "datetime", id: "end" }),
+							f({
+								kind: "text",
+								id: "after",
+								relevant: "#form/start < #form/end",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+const KINDS_TABLE = "01890000-0000-7000-8000-000000000501" as LookupTableId;
+const KINDS_CODE = "01890000-0000-7000-8000-000000000502" as LookupColumnId;
+const KINDS_NAME = "01890000-0000-7000-8000-000000000503" as LookupColumnId;
+const KINDS = [
+	{
+		id: KINDS_TABLE,
+		name: "Kinds",
+		tag: "kinds",
+		columns: [
+			{ id: KINDS_CODE, wireName: "code", label: "Code", dataType: "text" },
+			{ id: KINDS_NAME, wireName: "name", label: "Name", dataType: "text" },
+		],
+	},
+] as const;
+
+/** The name of the kind whose code is `code`, read from the project space's table of kinds. */
+const kindNamed = (code: Expression): Expression => ({
+	kind: "table-lookup",
+	tableId: KINDS_TABLE,
+	resultColumnId: KINDS_NAME,
+	where: eq(term(tableColumn(KINDS_TABLE, KINDS_CODE)), code),
+});
+
+/** A survey that works out the name of the kind coded `a` from the project space's table. */
+function kindsDoc(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				name: "Kinds",
+				forms: [
+					{
+						name: "Form",
+						type: "survey",
+						fields: [
+							f({
+								kind: "hidden",
+								id: "kind_name",
+								calculate: kindNamed({ kind: "term", term: literal("a") }),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+const ROUND_KIND = testUuid("first-publish-round-kind");
+
+/** A survey whose repeat works out, in each entry, the name of the kind the entry gives. */
+function roundsDoc(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				name: "Rounds",
+				forms: [
+					{
+						name: "Rounds",
+						type: "survey",
+						fields: [
+							f({
+								kind: "repeat",
+								id: "visits",
+								children: [
+									f({ kind: "text", uuid: ROUND_KIND, id: "kind" }),
+									f({
+										kind: "hidden",
+										id: "kind_name",
+										calculate: kindNamed({
+											kind: "term",
+											term: { kind: "field", uuid: ROUND_KIND },
+										}),
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** The project space's table of kinds, as a reading is told it. */
+const KINDS_INPUT: Partial<ReaderInput> = {
+	lookup: {
+		table: (tag) =>
+			tag === "kinds"
+				? {
+						tableId: KINDS_TABLE,
+						column: (name) =>
+							KINDS[0].columns.find((column) => column.wireName === name)?.id,
+					}
+				: undefined,
+		definitions: new Map(KINDS.map((table) => [table.id, table])),
+	} as ReaderInput["lookup"],
+};
+
+/** `text`'s read with Nova's empty-rows guard taken off: `if(count(rows) > 0, read, '')` read as `read`. */
+function unguarded(text: string): string {
+	const read = readFormSyntax(text);
+	const node = read.ok ? read.node : undefined;
+	const value = node?.kind === "call" ? node.args[1] : undefined;
+	if (node?.kind !== "call" || node.name !== "if" || value === undefined)
+		throw new Error("Nova printed no guarded read of the table here.");
+	return text.slice(value.from, value.to);
+}
+
+const NOTES: SearchInputDef = {
+	uuid: uuid(9),
+	name: "notes",
+	label: "Notes",
+	kind: "simple",
+	type: "text",
+	property: "notes",
+};
+
+const notesIs = (value: string) => eq(prop("patient", "notes"), literal(value));
+
+/** One menu of patients, its list filtered as given, searched by its notes. */
+function searched(
+	search: CaseSearchConfig,
+	filter: NonNullable<CaseListConfig["filter"]>,
+): BlueprintDoc {
+	return patients([plainColumn(uuid(1), "case_name", "Name")], {
+		searchInputs: [NOTES],
+		search,
+		list: { filter },
+	});
+}
+
+/** The answer to the vector document's Search field `region`, as a search row reads it. */
+const REGION_ANSWER =
+	"instance('search-input:results')/input/field[@name = 'region']";
+
+/** The first stored `_xpath_query` row of the first menu's search. */
+function queryRow(menu: StoredMenu): Json {
+	const row = menu.search_config.default_properties.find(
+		(one) => one.property === "_xpath_query",
+	);
+	if (row === undefined)
+		throw new Error("The search holds no _xpath_query row.");
+	return row;
+}
+
+/** A follow-up of patients that saves its notes and asks one more question. */
+function followUpDoc(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "notes",
+								caseWrite: { caseType: "patient", property: "notes" },
+							}),
+							f({ kind: "text", id: "other" }),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+const REGISTER_FORM = testUuid("first-publish-register");
+
+/** A menu of patients whose case list offers the registration form of another menu. */
+function registeringDoc(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Registration",
+				caseType: "patient",
+				forms: [
+					{
+						uuid: "first-publish-register",
+						name: "Register",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "name",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			},
+		],
+	});
+	return produce(doc, (draft) => {
+		const host = Object.values(draft.modules).find(
+			(one) => one.name === "Patients",
+		);
+		if (host !== undefined)
+			host.caseListRegistrationForm = {
+				kind: "always",
+				formUuid: REGISTER_FORM,
+				afterSubmit: "case-list",
+			};
+	});
+}
+
+const MENU_ICON = "jr://file/commcare/image/menu.png";
+
+/** A two-language app of one menu, and the one icon CommCare HQ holds a file for. */
+function twoLanguageDoc(): BlueprintDoc {
+	return inSpanish(
+		buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
+						},
+					],
+				},
+			],
+		}),
+		new Map(),
+	);
+}
+
+const MENU_ICON_INPUT: Partial<ReaderInput> = {
+	media: {
+		resolve: (path) =>
+			path === MENU_ICON
+				? {
+						kind: "asset",
+						assetId: testMediaAssetId("first-publish-menu-icon"),
+						mediaKind: "image",
+					}
+				: { kind: "no-entry" },
+	},
+};
+
+/** The first translation of a language other than the first with its first label left blank, in every form it holds. */
+function withBlankSecondLabel(xml: string): string {
+	const document = parseXml(xml);
+	const translations = findAll(
+		(element: Element) => element.name === "translation",
+		document.children.filter(isTag),
+	);
+	const second = translations.find(
+		(element) => element.attribs.default === undefined,
+	);
+	const label = second?.children
+		.filter(isTag)
+		.find((text) => (text.attribs.id ?? "").endsWith("-label"));
+	const values = (label?.children ?? []).filter(isTag);
+	if (values.length === 0) return xml;
+	for (const value of values) value.children = [];
+	return serializeXml(document);
 }
 
 /** A reading of `doc`'s export, and the same reading of a source that held none of Nova's nodes. */
@@ -677,6 +1096,12 @@ const file = (
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 
+/** A menu's name map as CommCare HQ's page stores it. */
+const menuNamed = (name: Json): ExportEdits =>
+	onMenu((menu) => {
+		menu.name = name;
+	});
+
 const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	"forms-and-settings-rewritten": {
 		on: async () => factsOf(await baseReading()),
@@ -688,63 +1113,189 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	"validation-messages-composed": generatedPair(
 		() => constraintMessageFixture("literal").doc,
 	),
-	"instant-comparison": reported("instant-comparison", "rewrites"),
-	"empty-rows-guard": reported("empty-rows-guard", "rewrites"),
-	"absent-session-value-guard": reported(
-		"absent-session-value-guard",
-		"rewrites",
+	// The comparison of two dates and times an author types bare.
+	"instant-comparison": editedPair(instantDoc, {
+		xml: editBind("/after", (bind) => {
+			bind.relevant = "/data/start < /data/end";
+			bind["vellum:relevant"] = "#form/start < #form/end";
+		}),
+	}),
+	// A read of a table's column with no guard for a table with no rows.
+	"empty-rows-guard": editedPair(
+		kindsDoc,
+		{
+			expand: { lookupNaming: lookupWireNaming(KINDS) },
+			xml: editBind("/kind_name", (bind) => {
+				bind.calculate = unguarded(bind.calculate ?? "");
+			}),
+		},
+		KINDS_INPUT,
 	),
-	"row-predicate-current": reported("row-predicate-current", "rewrites"),
-	"search-value-guards": reported("search-value-guards", "rewrites"),
-	"search-today-device-day": reported("search-today-device-day", "rewrites"),
-	"case-settings-respelled": reported(
-		"case-settings-respelled",
-		"sameStateRewrites",
+	// A read of the screen's width with no guard for a device that has none.
+	"absent-session-value-guard": editedPair(
+		widthDoc,
+		onMenu((menu) => {
+			menu.module_filter = `${WIDTH} > 400`;
+		}),
 	),
-	"search-filter-rows-recut": reported(
-		"search-filter-rows-recut",
-		"sameStateRewrites",
+	// An entry's own answer read inside a row filter by its absolute path.
+	"row-predicate-current": editedPair(
+		roundsDoc,
+		{
+			expand: { lookupNaming: lookupWireNaming(KINDS) },
+			xml: editBind("/kind_name", (bind) => {
+				bind.calculate = respelled(
+					bind.calculate,
+					"current()/../kind",
+					"/data/visits/kind",
+				);
+			}),
+		},
+		KINDS_INPUT,
 	),
-	"sort-rule-kept-as-hidden-column": reported(
-		"sort-rule-kept-as-hidden-column",
-		"sameStateRewrites",
+	// A search's answer quoted as CommCare HQ's documentation spells it, with
+	// no guard of a quote mark inside the answer.
+	"search-value-guards": editedPair(
+		() => csqlVectorDoc(),
+		onMenu((menu) => {
+			queryRow(menu).defaultValue =
+				`if(count(${REGION_ANSWER}), concat('village = "', ${REGION_ANSWER}, '"'), 'match-all()')`;
+		}),
 	),
-	"list-settings-respelled": reported(
-		"list-settings-respelled",
-		"sameStateRewrites",
+	// A search's `today()` sent for CommCare HQ's server to work out.
+	"search-today-device-day": editedPair(
+		() =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [NOTES],
+				list: { filter: lte(prop("patient", "dob"), today()) },
+			}),
+		onMenu((menu) => {
+			queryRow(menu).defaultValue = csqlRow("dob <= today()");
+		}),
 	),
-	"search-filter-joined-to-list": reported(
-		"search-filter-joined-to-list",
-		"sameStateRewrites",
+	// A form's update of its case under a condition CommCare HQ's page sets.
+	"case-settings-respelled": editedPair(
+		followUpDoc,
+		onMenu((menu) => {
+			const actions = menu.forms[0]?.actions as Record<string, Json>;
+			(actions.update_case as Json).condition = {
+				type: "if",
+				question: "/data/other",
+				answer: "x",
+				operator: "=",
+				doc_type: "FormActionCondition",
+			};
+		}),
 	),
-	"search-restates-list-filter": reported(
-		"search-restates-list-filter",
-		"sameStateRewrites",
+	// The search's filter rows in another order.
+	"search-filter-rows-recut": editedPair(
+		() => {
+			const field: SearchInputDef = {
+				uuid: uuid(9),
+				name: "number",
+				label: "Number",
+				kind: "advanced",
+				type: "text",
+				predicate: whenInput(
+					input(uuid(9)),
+					neq(prop("patient", "phone"), input(uuid(9))),
+				),
+			};
+			return patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [field],
+				search: {},
+				list: { filter: notesIs("open") },
+			});
+		},
+		onMenu((menu) => {
+			menu.search_config.default_properties.reverse();
+		}),
 	),
-	"link-held-case-guards-added": reported(
-		"link-held-case-guards-added",
-		"sameStateRewrites",
+	// A sort over a property the list does not show.
+	"sort-rule-kept-as-hidden-column": editedPair(
+		() => patients([plainColumn(uuid(1), "case_name", "Name")]),
+		onMenu((menu) => {
+			menu.case_details.short.sort_elements = [
+				{
+					doc_type: "SortElement",
+					field: "phone",
+					type: "plain",
+					direction: "ascending",
+					blanks: "",
+					display: {},
+					sort_calculation: "",
+				},
+			];
+		}),
 	),
-	"registration-label-fixed": reported(
-		"registration-label-fixed",
-		"sameStateRewrites",
+	// A several-case list's limit of -1, which CommCare HQ reads as its own default.
+	"list-settings-respelled": editedPair(
+		() =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				list: { selection: { kind: "multiple", maximum: 100 } },
+			}),
+		onMenu((menu) => {
+			menu.case_details.short.max_select_value = -1;
+		}),
 	),
-	"date-and-time-saved-as-hq-stores-it": {
+	// A row that reads no field on a menu whose forms read the search.
+	"search-filter-joined-to-list": editedPair(
+		() => searched({ formsReadSearch: true }, notesIs("open")),
+		onMenu((menu) => {
+			const rows = menu.search_config.default_properties;
+			const [first] = rows;
+			if (first !== undefined)
+				rows.push({ ...first, defaultValue: `"notes = 'other'"` });
+		}),
+	),
+	// A list clause no row restates, on a menu whose forms read the search.
+	"search-restates-list-filter": editedPair(
+		() => searched({ formsReadSearch: true }, notesIs("open")),
+		onMenu((menu) => {
+			menu.search_config.default_properties = [];
+		}),
+	),
+	// A link that carries a case with no guard of it.
+	"link-held-case-guards-added": editedPair(
+		() => buildShape([{ carry: "c0", toMenu: false }], { kind: "none" }),
+		onMenu((menu) => {
+			const [first] = (menu.forms[0]?.form_links ?? []) as Json[];
+			if (first !== undefined) first.xpath = "";
+		}),
+	),
+	// A Register button's label with no text.
+	"registration-label-fixed": editedPair(registeringDoc, {
+		modules: (modules) => {
+			const host = modules.find(
+				(one) => (one.name as Json | undefined)?.en === "Patients",
+			) as StoredMenu | undefined;
+			if (host !== undefined) host.case_list_form.label = { en: "" };
+			return modules;
+		},
+	}),
+	// A translation left blank in a language other than the first.
+	"blank-translations-filled": editedPair(
+		() => localizationWireFixture("bilingual"),
+		{ xml: withBlankSecondLabel },
+	),
+	"translation-overrides-folded": {
+		// A translation of the app that words the first menu's name.
 		on: async () =>
 			factsOf(
-				await readEdited(
-					registrationDoc(),
-					withBindAttribute(
-						"/nova_datetime_seen",
-						"calculate",
-						serializeWire(
-							typedInstantValue(FormPath.root().child("seen").toWire()),
-							{ target: "xform", constraint: false },
-						).text,
-					),
+				await readAs(
+					followUpDoc(),
+					{ root: { translations: { en: { "modules.m0": "Registration" } } } },
+					{ appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE) },
 				),
 			),
-		off: async () => factsOf(await readExport(registrationDoc(), TARGET)),
+		off: async () =>
+			factsOf(
+				await readAs(
+					followUpDoc(),
+					{},
+					{ appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE) },
+				),
+			),
 	},
 	"connect-app-captures-location": {
 		on: async () => {
@@ -756,12 +1307,6 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 			});
 		},
 		off: async () => factsOf(await connectReading()),
-	},
-	"translation-overrides-folded": {
-		on: async () =>
-			factsOf(await baseReading(), { facts: { foldedTranslationKeys: 1 } }),
-		off: async () =>
-			factsOf(await baseReading(), { facts: { foldedTranslationKeys: 0 } }),
 	},
 	"location-list-setting-reset": {
 		on: async () => {
@@ -799,20 +1344,17 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 		},
 		off: async () => factsOf(await readExport(registrationDoc(), TARGET)),
 	},
-	"blank-translations-filled": {
-		on: async () => {
-			const base = await baseReading();
-			return factsOf(base, {
-				facts: {
-					forms: base.draft.facts.forms.map((form, index) => ({
-						...form,
-						blankTranslations: index === 0 ? 1 : 0,
-					})),
-				},
-			});
-		},
-		off: async () => factsOf(await baseReading()),
-	},
+	// A date and time a question's sibling saves in the spelling Nova wrote before.
+	"date-and-time-saved-as-hq-stores-it": editedPair(registrationDoc, {
+		xml: withBindAttribute(
+			"/nova_datetime_seen",
+			"calculate",
+			serializeWire(typedInstantValue(FormPath.root().child("seen").toWire()), {
+				target: "xform",
+				constraint: false,
+			}).text,
+		),
+	}),
 	"media-paths-joined": {
 		on: async () =>
 			factsOf(await baseReading(), {
@@ -875,9 +1417,36 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 			});
 		},
 	},
-	"names-respelled": reported("names-respelled", "sameStateRewrites"),
-	"media-maps-respelled": reported("media-maps-respelled", "sameStateRewrites"),
-	"text-spaces-dropped": reported("text-spaces-dropped", "sameStateRewrites"),
+	// A menu's name with spaces at its end, which no device shows.
+	"names-respelled": editedPair(followUpDoc, menuNamed({ en: "Patients  " })),
+	// A menu's icon stored under the language being edited alone.
+	"media-maps-respelled": {
+		on: async () =>
+			factsOf(
+				await readAs(
+					twoLanguageDoc(),
+					onMenu((menu) => {
+						menu.media_image = { en: MENU_ICON };
+					}),
+					MENU_ICON_INPUT,
+				),
+			),
+		off: async () =>
+			factsOf(
+				await readAs(
+					twoLanguageDoc(),
+					onMenu((menu) => {
+						menu.media_image = { en: MENU_ICON, es: MENU_ICON };
+					}),
+					MENU_ICON_INPUT,
+				),
+			),
+	},
+	// A menu's name with a space at its start, which every device shows.
+	"text-spaces-dropped": editedPair(
+		followUpDoc,
+		menuNamed({ en: " Patients" }),
+	),
 };
 
 /** A media map item as CommCare HQ stores one for an image. */
@@ -891,6 +1460,23 @@ function mediaMapItem(id: string): Record<string, unknown> {
 	};
 }
 
+/** The entries whose `applies` reads only what the reader records, each pair a whole reading. */
+const READER_RECORDED: readonly FirstPublishChangeId[] =
+	FIRST_PUBLISH_CHANGE_IDS.filter(
+		(id) =>
+			FIRST_PUBLISH_CHANGES[id].scope === "reading" &&
+			![
+				"forms-and-settings-rewritten",
+				"connect-app-captures-location",
+				"location-list-setting-reset",
+				"date-and-time-questions-split",
+				"media-paths-joined",
+				"media-files-renamed",
+				"media-references-with-no-file-removed",
+				"unused-media-entries-removed",
+			].includes(id),
+	);
+
 describe("each entry", () => {
 	for (const id of FIRST_PUBLISH_CHANGE_IDS)
 		it(`${id} applies on one reading and not on another`, {
@@ -903,6 +1489,17 @@ describe("each entry", () => {
 			);
 		});
 
+	it("covers each record a reading of an entry's source makes by the paths of the entry it names", {
+		timeout: 120_000,
+	}, async () => {
+		const uncovered: string[] = [];
+		for (const id of READER_RECORDED)
+			for (const record of (await PAIRS[id].on()).facts.sameStateRewrites)
+				if (!coveredByItsEntry(record))
+					uncovered.push(`${id}: ${record.register} ${record.path}`);
+		expect(uncovered).toEqual([]);
+	});
+
 	it("lists the ids that apply in registry order, touching workers where one of them does", async () => {
 		const view = firstPublishChangesFor(await PAIRS["case-names-checked"].on());
 		expect(view.of).toBe("first-publish");
@@ -913,31 +1510,20 @@ describe("each entry", () => {
 		expect(view.touchesWorkers).toBe(true);
 	});
 
-	it("applies where the Save to Case reader records a value in the spelling Nova wrote before, and not over the current spelling", async () => {
-		// The case management stages alone: a whole reading of such a block is
-		// refused at the settle today, which re-prints the row in the current
-		// spelling beside its clock node.
-		const earlier = await readCases(visitDoc(), {
-			editSource: withEarlierClockRow("visited_at"),
+	it("reads a Save to Case value in the spelling Nova wrote before as the same write, holding the document the current spelling gives", async () => {
+		const doc = visitDoc();
+		const earlier = await readAs(doc, {
+			xml: withEarlierClockRow("visited_at"),
 		});
-		const records = earlier.ctx.facts.sameStateRewrites.filter(
+		const current = await readAs(doc);
+		expect(earlier.draft.doc).toEqual(current.draft.doc);
+		const records = earlier.draft.facts.sameStateRewrites.filter(
 			(one) => one.register === "date-and-time-saved-as-hq-stores-it",
 		);
 		expect(records).toHaveLength(1);
 		expect(records.every(coveredByItsEntry)).toBe(true);
-		const current = await readExport(visitDoc(), TARGET);
 		expect(
-			applies(
-				"date-and-time-saved-as-hq-stores-it",
-				factsOf(current, {
-					facts: {
-						sameStateRewrites: [
-							...current.draft.facts.sameStateRewrites,
-							...records,
-						],
-					},
-				}),
-			),
+			applies("date-and-time-saved-as-hq-stores-it", factsOf(earlier)),
 		).toBe(true);
 		expect(
 			applies("date-and-time-saved-as-hq-stores-it", factsOf(current)),

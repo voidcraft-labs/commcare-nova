@@ -5,8 +5,9 @@
  * A direct upload must never write a managed table in the project space that
  * manages it, so the workbook it pushes holds no sheet for it; a managed table
  * of another project space goes, and is made there from Nova's copy. The HQ
- * app file is made for no project space, so it splits the tables into two
- * workbooks, and the `.ccz` embeds every one. A finding about a managed table
+ * app file is made for no project space, so it puts the tables Nova manages
+ * in one workbook and each project space's managed tables in one of their
+ * own, and the `.ccz` embeds every one. A finding about a managed table
  * must not send a person to Project data, which refuses every edit to it.
  *
  * The lookup and media reads are the IO seam the boundary takes; the
@@ -92,6 +93,7 @@ function table(
 const VISITS = table("visits", 1);
 const DISTRICTS = table("districts", 2, ORIGIN);
 const CLINICS = table("clinics", 3, ORIGIN);
+const WARDS = table("wards", 4, { ...ORIGIN, ...ELSEWHERE });
 
 /** A survey whose form reads each table through a choice list. */
 function docReading(tables: readonly LookupTableDefinition[]) {
@@ -239,7 +241,7 @@ describe("a direct upload of a table CommCare HQ manages", () => {
 				refreshedAt: "2026-11-03T22:15:00.000Z",
 			},
 		]);
-		expect(result.managedLookupWorkbook).toBeUndefined();
+		expect(result.managedLookupWorkbooks).toEqual([]);
 		/* The app is emitted under every table's name, whatever carries it. */
 		expect(result.lookupNaming?.tables.map((t) => t.tag).sort()).toEqual([
 			"districts",
@@ -329,25 +331,36 @@ describe("a direct upload of a table CommCare HQ manages", () => {
 	});
 });
 
-describe("the HQ app file's two workbooks", () => {
-	it("puts each table in exactly one: the managed ones in the second", async () => {
-		const result = await prepared("hq-json", [VISITS, DISTRICTS, CLINICS]);
+describe("the HQ app file's workbooks", () => {
+	it("puts each table in exactly one: the managed ones in a workbook of the project space that manages them", async () => {
+		const result = await prepared("hq-json", [
+			VISITS,
+			DISTRICTS,
+			WARDS,
+			CLINICS,
+		]);
 		expect(sheetNames(result.lookupWorkbook?.bytes)).toEqual([
 			"types",
 			"visits",
 		]);
-		expect(sheetNames(result.managedLookupWorkbook?.bytes)).toEqual([
-			"types",
-			"clinics",
-			"districts",
+		expect(
+			result.managedLookupWorkbooks.map((managed) => [
+				managed.server,
+				managed.domain,
+				sheetNames(managed.workbook.bytes),
+			]),
+		).toEqual([
+			["www", "acme-health", ["types", "clinics", "districts"]],
+			["www", "acme-north", ["types", "wards"]],
 		]);
-		expect(result.managedLookupTables.map((t) => t.tag)).toEqual([
-			"districts",
-			"clinics",
+		expect(result.managedLookupTables.map((t) => [t.tag, t.domain])).toEqual([
+			["districts", "acme-health"],
+			["wards", "acme-north"],
+			["clinics", "acme-health"],
 		]);
 	});
 
-	it("judges the second workbook's cells too, with the managed remedy", async () => {
+	it("judges a managed workbook's cells too, with the managed remedy", async () => {
 		const findings = await refused("hq-json", [VISITS, DISTRICTS], {
 			label: "South ",
 		});
@@ -363,9 +376,9 @@ describe("the HQ app file's two workbooks", () => {
 		]);
 	});
 
-	it("builds no second workbook where no table is managed", async () => {
+	it("builds no managed workbook where no table is managed", async () => {
 		const result = await prepared("hq-json", [VISITS]);
-		expect(result.managedLookupWorkbook).toBeUndefined();
+		expect(result.managedLookupWorkbooks).toEqual([]);
 		expect(result.managedLookupTables).toEqual([]);
 	});
 });
@@ -374,7 +387,7 @@ describe("a downloadable app", () => {
 	it("embeds every table's fixture, the managed ones included, and leaves none out", async () => {
 		const result = await prepared("ccz", [VISITS, DISTRICTS]);
 		expect(result.lookupWorkbook).toBeUndefined();
-		expect(result.managedLookupWorkbook).toBeUndefined();
+		expect(result.managedLookupWorkbooks).toEqual([]);
 		expect(result.managedLookupTables).toEqual([]);
 		expect(result.lookupWire?.naming.tables.map((t) => t.tag).sort()).toEqual([
 			"districts",

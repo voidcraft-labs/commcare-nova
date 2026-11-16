@@ -14,15 +14,31 @@
  * Client-safe: no `server-only`, no database, no Node built-ins.
  */
 export function formatLookupBytes(bytes: number): string {
+	return formatWith(bytes, Math.round);
+}
+
+/**
+ * A measured size beside the cap it is over, rounded up to the next tenth so
+ * it never reads as the cap: 8,400,000 bytes beside an 8 MB cap is "8.1 MB",
+ * where `formatLookupBytes` would write "8 MB" and make the refusal read as a
+ * mistake.
+ */
+export function formatLookupBytesOverCap(bytes: number): string {
+	return formatWith(bytes, Math.ceil);
+}
+
+function formatWith(bytes: number, round: (value: number) => number): string {
 	if (!Number.isFinite(bytes) || bytes < 0) return "an unknown size";
 	if (bytes < 1024) return `${bytes} ${bytes === 1 ? "byte" : "bytes"}`;
 	const kib = bytes / 1024;
-	if (kib < 1024) return `${roundToOneDecimal(kib)} KB`;
-	return `${roundToOneDecimal(kib / 1024)} MB`;
+	if (kib < 1024 && round(kib * 10) / 10 < 1024) {
+		return `${toOneDecimal(kib, round)} KB`;
+	}
+	return `${toOneDecimal(kib / 1024, round)} MB`;
 }
 
-function roundToOneDecimal(value: number): string {
-	const rounded = Math.round(value * 10) / 10;
+function toOneDecimal(value: number, round: (value: number) => number): string {
+	const rounded = round(value * 10) / 10;
 	return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 

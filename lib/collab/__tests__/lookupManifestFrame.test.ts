@@ -126,10 +126,8 @@ describe("lookup manifest stream frames", () => {
 			remoteId: "hq-table-1",
 			managedBy: "commcare-hq",
 			broughtInAt: "2026-11-01T09:30:00.000Z",
-			refreshedAt: "2026-11-02T10:00:00.000Z",
 			takenOverAt: null,
 			takenOverBy: null,
-			goneColumnIds: [],
 		};
 		const managed = {
 			...MANIFEST,
@@ -143,9 +141,13 @@ describe("lookup manifest stream frames", () => {
 		for (const malformed of [
 			{ ...hq, managedBy: "someone-else" },
 			{ ...hq, domain: "" },
-			{ ...hq, refreshedAt: "yesterday" },
+			{ ...hq, broughtInAt: "yesterday" },
 			{ ...hq, takenOverAt: "2026-11-03T00:00:00.000Z", takenOverBy: "" },
-			{ ...hq, goneColumnIds: ["01890f45-0000-7000-8000-000000000003"] },
+			/* The day of the last refresh moves with no revision, so a frame
+			 * never carries it, nor the gone columns, which a manifest can't
+			 * know. */
+			{ ...hq, refreshedAt: "2026-11-02T10:00:00.000Z" },
+			{ ...hq, goneColumnIds: [] },
 			{ ...hq, extra: true },
 		]) {
 			expect(

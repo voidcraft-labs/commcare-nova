@@ -245,11 +245,6 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/sort_elements/*/type"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
 				"path": "/modules/*/case_details/short/sort_elements/*/display"
 			}
 		]

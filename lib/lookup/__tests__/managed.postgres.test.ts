@@ -16,6 +16,7 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { HAND_BACK_OVERTAKEN } from "@/lib/publish/managedData";
 import { applyLookupAuthoringBatchInTransaction } from "../authoringBatch";
 import { LookupError } from "../errors";
 import {
@@ -602,8 +603,53 @@ describe("the create arm", () => {
 			hq_brought_in_by: SCOPE.actorId,
 			hq_refreshed_by: SCOPE.actorId,
 		});
+		/* The manifest carries who manages the table, never the day of the
+		 * last refresh nor the gone columns. */
 		const entry = (await getLookupManifest(SCOPE)).tables[0];
-		expect(entry.hq).toEqual(table.hq);
+		expect(entry.hq).toEqual({
+			server: "production",
+			domain: DOMAIN,
+			remoteId: "hq-table-1",
+			managedBy: "commcare-hq",
+			broughtInAt: AT.toISOString(),
+			takenOverAt: null,
+			takenOverBy: null,
+		});
+	});
+
+	it("refuses a cell over the cap with the cap's phrase, its size above the cap's", async () => {
+		const content: ManagedLookupContent = {
+			fields: ["name"],
+			rows: [{ name: "x".repeat(64 * 1024 + 1) }],
+		};
+		const before = await getLookupManifest(SCOPE);
+		const error = await caught(
+			h
+				.db()
+				.transaction()
+				.execute((tx) =>
+					createManagedLookupTablesInTransaction(
+						tx,
+						SCOPE,
+						[
+							{
+								binding: bindingFor("wide_cells", content.fields),
+								name: "wide_cells",
+								content,
+								origin: originFor(content),
+							},
+						],
+						AT,
+					),
+				),
+		);
+		expect(error).toBeInstanceOf(LookupError);
+		expect(error).toMatchObject({
+			code: "storage_limit",
+			message:
+				"The lookup table wide_cells has a value of 64.1 KB (Nova takes 64 KB in one cell) in CommCare HQ, so Nova can't hold a copy of it.",
+		});
+		expect(await getLookupManifest(SCOPE)).toEqual(before);
 	});
 
 	it("refuses a taken tag and keeps nothing of the call", async () => {
@@ -739,15 +785,16 @@ async function refresh(
 				origin: originFor(content, remoteId),
 				at: LATER,
 				mode,
+				olderReadYields: true,
 				...(newColumnIds === undefined ? {} : { newColumnIds }),
 			}),
 		);
 }
 
 describe("the refresh arm", () => {
-	it("stamps the refresh and advances nothing when CommCare HQ's table is as it was", async () => {
+	it("stamps the refresh and advances nothing when CommCare HQ's table is as it was, leaving every byte of the manifest", async () => {
 		const table = await createManaged();
-		const before = await projectRevision();
+		const manifest = JSON.stringify(await getLookupManifest(SCOPE));
 		const receipt = await refresh(table.id, CONTENT);
 		expect(receipt).toMatchObject({
 			changed: "nothing",
@@ -756,7 +803,192 @@ describe("the refresh arm", () => {
 		const after = await getLookupTable(SCOPE, table.id);
 		expect(after.hq?.refreshedAt).toBe(LATER.toISOString());
 		expect({ ...after, hq: undefined }).toEqual({ ...table, hq: undefined });
-		expect(await projectRevision()).toBe(before);
+		/* One revision's manifest never changes: every open page holds these
+		 * bytes for it, and a frame that differs at the same revision is a
+		 * corrupt one to them. */
+		expect(JSON.stringify(await getLookupManifest(SCOPE))).toBe(manifest);
+	});
+
+	it("stores CommCare HQ's moved digest and leaves every byte of the manifest where the copy is as it was", async () => {
+		const table = await createManaged();
+		const manifest = JSON.stringify(await getLookupManifest(SCOPE));
+		const origin = {
+			...originFor(CONTENT),
+			canonical: { ...originFor(CONTENT).canonical, digest: "b".repeat(64) },
+		};
+		const receipt = await h
+			.db()
+			.transaction()
+			.execute((tx) =>
+				refreshManagedLookupTableInTransaction(tx, SCOPE, {
+					tableId: table.id,
+					content: CONTENT,
+					origin,
+					at: LATER,
+					mode: "refresh",
+					olderReadYields: true,
+				}),
+			);
+		expect(receipt).toMatchObject({
+			changed: "nothing",
+			tableRevision: table.tableRevision,
+		});
+		const stored = await h
+			.db()
+			.selectFrom("lookup_tables")
+			.select("hq_canonical")
+			.where("id", "=", table.id)
+			.executeTakeFirstOrThrow();
+		expect(stored.hq_canonical).toMatchObject({ digest: "b".repeat(64) });
+		expect(JSON.stringify(await getLookupManifest(SCOPE))).toBe(manifest);
+	});
+
+	it("changes the definition, and tells every open page, when only which columns read as gone moves", async () => {
+		const empty: ManagedLookupContent = { fields: FIELDS, rows: [] };
+		const table = await createManaged("districts", empty);
+		const appId = await h.seedApp({
+			id: "app-reads-count",
+			project_id: SCOPE.projectId,
+		});
+		await h
+			.db()
+			.insertInto("lookup_table_references")
+			.values({
+				project_id: SCOPE.projectId,
+				table_id: table.id,
+				app_id: appId,
+			})
+			.execute();
+		await h
+			.db()
+			.insertInto("lookup_column_references")
+			.values({
+				project_id: SCOPE.projectId,
+				table_id: table.id,
+				column_id: columnId(table, "count"),
+				app_id: appId,
+			})
+			.execute();
+		const entryOf = async () =>
+			(await getLookupManifest(SCOPE)).tables.find(
+				(entry) => entry.id === table.id,
+			);
+
+		/* CommCare HQ drops the last field: the column an app reads stays where
+		 * it stood and no row changes, so only the gone set moves. */
+		const seen: { dropped?: Awaited<ReturnType<typeof refresh>> } = {};
+		await listen(async (notifications) => {
+			const receipt = await refresh(table.id, {
+				fields: ["name", "code"],
+				rows: [],
+			});
+			seen.dropped = receipt;
+			expect(receipt).toMatchObject({
+				changed: "definition",
+				addedColumns: [],
+				removedColumns: [],
+				keptGoneColumns: [{ id: columnId(table, "count"), wireName: "count" }],
+				rowsRevision: table.rowsRevision,
+			});
+			expect(receipt.definitionRevision).toBe(await projectRevision());
+			expect(receipt.definitionRevision).not.toBe(table.definitionRevision);
+			await vi.waitFor(() => expect(notifications).toHaveLength(1));
+			expect(notifications).toEqual([
+				{ projectId: SCOPE.projectId, revision: receipt.definitionRevision },
+			]);
+		});
+		const { dropped } = seen;
+		if (dropped === undefined) throw new Error("The refresh did not answer.");
+		expect((await entryOf())?.tableRevision).toBe(dropped.tableRevision);
+		expect((await getLookupTable(SCOPE, table.id)).hq?.goneColumnIds).toEqual([
+			columnId(table, "count"),
+		]);
+
+		/* The field comes back in CommCare HQ: its column matches it by wire
+		 * name, in place, and the badge it carried goes. */
+		const back = await refresh(table.id, empty);
+		expect(back).toMatchObject({ changed: "definition", keptGoneColumns: [] });
+		expect(back.definitionRevision).toBe(await projectRevision());
+		expect(BigInt(back.definitionRevision)).toBeGreaterThan(
+			BigInt(dropped.definitionRevision),
+		);
+		expect((await entryOf())?.tableRevision).toBe(back.tableRevision);
+		expect((await getLookupTable(SCOPE, table.id)).hq?.goneColumnIds).toEqual(
+			[],
+		);
+	});
+
+	it("mints a column for a new field named like an object's own members", async () => {
+		const table = await createManaged();
+		const content: ManagedLookupContent = {
+			fields: [...CONTENT.fields, "constructor", "toString", "__proto__"],
+			rows: [{ name: "Alpha", constructor: "c", toString: "t" }],
+		};
+		const receipt = await refresh(table.id, content);
+		expect(receipt.changed).toBe("definition");
+		expect(receipt.addedColumns.map((column) => column.wireName)).toEqual([
+			"constructor",
+			"toString",
+			"__proto__",
+		]);
+		for (const column of receipt.addedColumns) {
+			expect(lookupColumnIdSchema.safeParse(column.id).success).toBe(true);
+		}
+		const after = await getLookupTable(SCOPE, table.id);
+		expect(after.columns.map((column) => column.wireName)).toEqual(
+			content.fields,
+		);
+		const byWireName = new Map(
+			receipt.addedColumns.map((column) => [column.wireName, column.id]),
+		);
+		expect(after.rows.map((row) => row.values)).toEqual([
+			values([
+				[columnId(table, "name"), "Alpha"],
+				[byWireName.get("constructor") as LookupColumnId, "c"],
+				[byWireName.get("toString") as LookupColumnId, "t"],
+			]),
+		]);
+	});
+
+	it("refuses a cell over the cap with the cap's phrase before any column is written", async () => {
+		const table = await createManaged();
+		const content: ManagedLookupContent = {
+			fields: [...CONTENT.fields, "notes"],
+			rows: [{ name: "Alpha", notes: "x".repeat(64 * 1024 + 1) }],
+		};
+		const error = await caught(refresh(table.id, content));
+		expect(error).toBeInstanceOf(LookupError);
+		expect(error).toMatchObject({
+			code: "storage_limit",
+			message:
+				"The lookup table districts has a value of 64.1 KB (Nova takes 64 KB in one cell) in CommCare HQ, so Nova can't hold a copy of it.",
+		});
+		expect(await getLookupTable(SCOPE, table.id)).toEqual(table);
+	});
+
+	it("reports no gone column on a table Nova manages, whatever its columns became", async () => {
+		const table = await createManaged();
+		await takeOver(table.id);
+		const added = await addLookupColumn(SCOPE, {
+			tableId: table.id,
+			expectedTableRevision: (await getLookupTable(SCOPE, table.id))
+				.tableRevision,
+			column: { wireName: "notes", label: "Notes", dataType: "text" },
+		});
+		await updateLookupColumnWireName(SCOPE, {
+			tableId: table.id,
+			expectedTableRevision: added.tableRevision,
+			columnId: columnId(table, "code"),
+			wireName: "district_code",
+		});
+		const after = await getLookupTable(SCOPE, table.id);
+		expect(after.columns.map((column) => column.wireName)).toEqual([
+			"name",
+			"district_code",
+			"count",
+			"notes",
+		]);
+		expect(after.hq).toMatchObject({ managedBy: "nova", goneColumnIds: [] });
 	});
 
 	it("advances the rows revision alone where only rows changed", async () => {
@@ -1034,6 +1266,7 @@ describe("the refresh arm", () => {
 						origin: originFor(CONTENT),
 						at: LATER,
 						mode: "adopt",
+						olderReadYields: true,
 					},
 				);
 				adopted();
@@ -1100,5 +1333,91 @@ describe("the two CHECKs", () => {
 					.execute(),
 			),
 		).toMatchObject({ constraint: "lookup_tables_hq_takeover_attributed" });
+	});
+});
+
+describe("a refresh whose read of CommCare HQ began before the copy's last write", () => {
+	/* No lock spans a read of CommCare HQ, so refresh A can read at T1, refresh
+	 * B read at T2 and commit, and A commit after it. */
+	const T1 = new Date("2026-11-01T12:00:00.000Z");
+	const NEWER: ManagedLookupContent = {
+		fields: FIELDS,
+		rows: [{ name: "Gamma", code: "003" }],
+	};
+	const OLDER: ManagedLookupContent = {
+		fields: FIELDS,
+		rows: [{ name: "Alpha", code: "001" }],
+	};
+
+	function refreshAt(
+		tableId: LookupTableId,
+		content: ManagedLookupContent,
+		at: Date,
+		mode: "refresh" | "adopt" = "refresh",
+	) {
+		return h
+			.db()
+			.transaction()
+			.execute((tx) =>
+				refreshManagedLookupTableInTransaction(tx, SCOPE, {
+					tableId,
+					content,
+					origin: originFor(content),
+					at,
+					mode,
+					olderReadYields: true,
+				}),
+			);
+	}
+
+	it("writes nothing over the newer read and keeps its date", async () => {
+		const table = await createManaged();
+		expect((await refreshAt(table.id, NEWER, LATER)).changed).toBe("rows");
+		const after = await getLookupTable(SCOPE, table.id);
+		const manifest = JSON.stringify(await getLookupManifest(SCOPE));
+
+		const receipt = await refreshAt(table.id, OLDER, T1);
+		expect(receipt).toMatchObject({
+			changed: "superseded",
+			tableRevision: after.tableRevision,
+		});
+		const now = await getLookupTable(SCOPE, table.id);
+		expect(now.rows.map((row) => row.values)).toEqual(
+			after.rows.map((row) => row.values),
+		);
+		expect(now.hq?.refreshedAt).toBe(LATER.toISOString());
+		expect(JSON.stringify(await getLookupManifest(SCOPE))).toBe(manifest);
+	});
+
+	it("writes nothing over a hand-back recorded since", async () => {
+		const table = await createManaged();
+		await takeOver(table.id);
+		// The hand-back, reading CommCare HQ after the takeover.
+		const handedBackAt = new Date(LATER.getTime() + 60_000);
+		expect(
+			(await refreshAt(table.id, NEWER, handedBackAt, "adopt")).changed,
+		).not.toBe("superseded");
+		const after = await getLookupTable(SCOPE, table.id);
+		// A second hand-back whose read began before the first one's.
+		const receipt = await refreshAt(table.id, OLDER, LATER, "adopt");
+		expect(receipt.changed).toBe("superseded");
+		const now = await getLookupTable(SCOPE, table.id);
+		expect(now.rows).toEqual(after.rows);
+		expect(now.hq).toMatchObject({
+			managedBy: "commcare-hq",
+			refreshedAt: handedBackAt.toISOString(),
+		});
+	});
+
+	it("refuses a hand-back whose read began before someone chose Manage in Nova", async () => {
+		const table = await createManaged();
+		await takeOver(table.id); // taken over at LATER
+		const before = await getLookupTable(SCOPE, table.id);
+		await expect(refreshAt(table.id, NEWER, T1, "adopt")).rejects.toMatchObject(
+			{ code: "conflict", message: HAND_BACK_OVERTAKEN },
+		);
+		const now = await getLookupTable(SCOPE, table.id);
+		expect(now.hq).toMatchObject({ managedBy: "nova" });
+		expect(now.rows).toEqual(before.rows);
 	});
 });

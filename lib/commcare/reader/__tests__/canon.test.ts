@@ -43,9 +43,16 @@ import {
 	U,
 } from "@/lib/commcare/__tests__/advancedPlacementFixture";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
+import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { tileFixture } from "@/lib/commcare/__tests__/tileFixture";
+import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
+import {
+	readBackInput,
+	servedExport,
+} from "@/lib/deployment/reading/__tests__/novaReading";
+import { readBackDifferences } from "@/lib/deployment/reading/readBack";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
@@ -85,9 +92,11 @@ import {
 import { declaredPlatforms } from "@/lib/domain/platforms";
 import { EMPTY_PROSE_TEMPLATE } from "@/lib/domain/prose";
 import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
+import type { CorpusDocument } from "@/proof/corpus/documents";
 import { compileCcz } from "../../compiler";
 import { DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION } from "../../connectDefaults";
 import { expandDoc } from "../../expander";
+import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { withCandidate } from "../candidate";
 import {
 	CANONICALIZATIONS,
@@ -105,18 +114,23 @@ import { readerInput, sourceFromBody } from "./readerInput";
 /** Every file a document's exports hold, by name: the HQ import file, and
  *  where the app declares Android each file of the local archive Nova
  *  compiles for one project space (`lib/export/localArchive.ts` compiles the
- *  same expansion and archive for a prepared document). */
-function emittedFiles(doc: BlueprintDoc): Map<string, string> {
+ *  same expansion and archive for a prepared document). Both are compiled
+ *  under `assets`, the media manifest a publish and an export resolve, as
+ *  `importApplication.ts` and `localArchive.ts` pass theirs. */
+function emittedFiles(
+	doc: BlueprintDoc,
+	assets: AssetManifest,
+): Map<string, string> {
 	const files = new Map<string, string>([
-		["hq-import.json", JSON.stringify(expandDoc(doc))],
+		["hq-import.json", JSON.stringify(expandDoc(doc, { assets }))],
 	]);
 	if (declaredPlatforms(doc).includes("android")) {
 		const archive = new AdmZip(
 			compileCcz(
-				expandDoc(doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+				expandDoc(doc, { runtimeTarget: TEST_RUNTIME_TARGET, assets }),
 				doc.appName,
 				doc,
-				{ runtimeTarget: TEST_RUNTIME_TARGET },
+				{ runtimeTarget: TEST_RUNTIME_TARGET, assets },
 			),
 		);
 		for (const entry of archive.getEntries())
@@ -125,10 +139,17 @@ function emittedFiles(doc: BlueprintDoc): Map<string, string> {
 	return files;
 }
 
+/** One manifest resolving every asset either document references, so both
+ *  members of a pair are compiled with their media on, as an export is. */
+function manifestOf(a: BlueprintDoc, b: BlueprintDoc): AssetManifest {
+	return new Map([...manifestFor(a), ...manifestFor(b)]);
+}
+
 /** The names of the files two documents' exports hold that differ, or that one holds alone. */
 function differingFiles(a: BlueprintDoc, b: BlueprintDoc): string[] {
-	const one = emittedFiles(a);
-	const other = emittedFiles(b);
+	const assets = manifestOf(a, b);
+	const one = emittedFiles(a, assets);
+	const other = emittedFiles(b, assets);
 	return [...new Set([...one.keys(), ...other.keys()])]
 		.filter((name) => one.get(name) !== other.get(name))
 		.sort();
@@ -253,6 +274,74 @@ function localized(): BlueprintDoc {
 			},
 		} as never;
 	});
+}
+
+/** A survey whose one question's label reads a worker field by name, in
+ *  English and, through a reviewed translation of the current source, in
+ *  French. */
+function namedReadTranslated(): BlueprintDoc {
+	const doc = survey([
+		f({
+			kind: "text",
+			id: "note",
+			label: {
+				parts: [
+					{ kind: "text", text: "Hello " },
+					{ kind: "user-ref", property: "role" },
+				],
+			},
+		}),
+	]);
+	const note = fieldNamed(doc, "note").uuid as Uuid;
+	const unit = makeTranslationUnitId("field", note, "label");
+	return produce(doc, (draft) => {
+		draft.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "fra"],
+			wireCodes: { eng: "en", fra: "fr" },
+			translations: {
+				fra: {
+					[unit]: {
+						value: {
+							parts: [
+								{ kind: "text", text: "Bonjour " },
+								{ kind: "user-ref", property: "role" },
+							],
+						},
+						sourceFingerprint:
+							translationUnitsById(doc).get(unit)?.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+					},
+				},
+			},
+		} as never;
+	});
+}
+
+/** A list holding a column hidden from Results and from Details over a
+ *  property another column shows, under a header of its own, with or without
+ *  an order rule. */
+function hiddenColumnHeadedApart(sorted: boolean): BlueprintDoc {
+	return catalogued(
+		patients(
+			[
+				plainColumn(uuid(1), "phone", "Phone"),
+				plainColumn(uuid(2), "phone", "Secret", {
+					visibleInList: false,
+					visibleInDetail: false,
+					...(sorted && { sort: columnSort("asc", 0) }),
+				}),
+				plainColumn(uuid(3), "case_name", "Name"),
+			],
+			{
+				listOrder: [uuid(2), uuid(3), uuid(1)],
+				detailOrder: [uuid(1), uuid(3), uuid(2)],
+			},
+		),
+	);
 }
 
 /** A survey whose one question's label is blank in English and held in French. */
@@ -553,6 +642,23 @@ interface Pair {
 	readonly name: string;
 	readonly other: () => BlueprintDoc;
 	readonly afterEarlierRows?: true;
+	/** A `not-carried` row whose content the local archive's profile holds as
+	 *  one property no runtime that installs the archive reads: every other
+	 *  file is equal, and the profile differs by that property alone. */
+	readonly archiveProfileProperty?: string;
+}
+
+/** The profile's children of two archives, each child's name, attributes and text, with the
+ *  property `key` left out. */
+function profileWithout(files: Map<string, string>, key: string): unknown[] {
+	const text = files.get("ccz/profile.ccpr");
+	if (text === undefined) throw new Error("The archive holds no profile.");
+	const profile = readXmlEvidence(Buffer.from(text, "base64").toString());
+	return profile.children
+		.filter(
+			(child) => !(child.name === "property" && child.attributes.key === key),
+		)
+		.map((child) => [child.name, child.attributes, child.children]);
 }
 
 const PAIRS: readonly Pair[] = [
@@ -993,6 +1099,74 @@ const PAIRS: readonly Pair[] = [
 			),
 	},
 	{
+		id: "columns-off-a-screen-last-in-its-order",
+		name: "a sorted tile column hidden from Results and shown on Details amid the list's order",
+		other: () =>
+			patients(
+				[
+					plainColumn(uuid(1), "case_name", "Name", {
+						tile: tileCell(0, 0, 12, 1),
+					}),
+					plainColumn(uuid(2), "notes", "Notes", {
+						visibleInList: false,
+						sort: columnSort("desc", 1),
+					}),
+					plainColumn(uuid(3), "phone", "Phone", {
+						tile: tileCell(0, 1, 12, 1),
+						sort: columnSort("asc", 0),
+					}),
+				],
+				{ list: { tile: {} } },
+			),
+	},
+	{
+		id: "columns-joined-as-read",
+		name: "two equal columns in one order on Results and the other on Details",
+		other: () =>
+			patients(
+				[
+					plainColumn(uuid(1), "phone", "Phone"),
+					plainColumn(uuid(2), "phone", "Phone"),
+				],
+				{
+					listOrder: [uuid(2), uuid(1)],
+					detailOrder: [uuid(1), uuid(2)],
+				},
+			),
+	},
+	{
+		id: "columns-joined-as-read",
+		name: "a column hidden from Results after another over its property and with its header on Details",
+		other: () =>
+			patients(
+				[
+					plainColumn(uuid(1), "phone", "Phone"),
+					phoneColumn(uuid(2), "phone", "Phone", { visibleInList: false }),
+				],
+				{
+					listOrder: [uuid(2), uuid(1)],
+					detailOrder: [uuid(1), uuid(2)],
+				},
+			),
+	},
+	{
+		id: "columns-in-list-order",
+		name: "a list whose columns array is in neither screen's order",
+		afterEarlierRows: true,
+		other: () =>
+			patients(
+				[
+					plainColumn(uuid(1), "case_name", "Name"),
+					plainColumn(uuid(2), "notes", "Notes"),
+					plainColumn(uuid(3), "phone", "Phone"),
+				],
+				{
+					listOrder: [uuid(3), uuid(1), uuid(2)],
+					detailOrder: [uuid(2), uuid(3), uuid(1)],
+				},
+			),
+	},
+	{
 		id: "case-catalog-is-as-read",
 		name: "a catalog holding a label no export holds and a property nothing reads",
 		other: () =>
@@ -1235,6 +1409,11 @@ const PAIRS: readonly Pair[] = [
 	{
 		id: "app-logo-is-absent",
 		name: "an app's logo",
+		// The archive's profile names the logo under HQ's Web Apps banner key
+		// (`multimedia/logoEntry.ts::buildLogoProfileProperty`), which no runtime
+		// that installs a `.ccz` reads: Android reads only its login and home
+		// banners (commcare-android `HiddenPreferences.java`, `BRAND_BANNER_*`).
+		archiveProfileProperty: "brand-banner-web-apps",
 		other: () =>
 			produce(caseApp(), (draft) => {
 				draft.logo = "33333333-3333-4333-8333-333333333333" as never;
@@ -1363,6 +1542,51 @@ describe("each canonicalization's pair", () => {
 		).toHaveLength(2);
 	});
 
+	// Documents a row could move to the other member of no pair: every row keeps
+	// each one's export, and the canonical form keeps a text's translation.
+	const kept: readonly (readonly [string, () => BlueprintDoc])[] = [
+		[
+			"a column hidden from Results and from Details under its own header",
+			() => hiddenColumnHeadedApart(false),
+		],
+		[
+			"a sorted column hidden from Results and from Details under its own header",
+			() => hiddenColumnHeadedApart(true),
+		],
+		["a translated label reading a worker field by name", namedReadTranslated],
+	];
+	for (const [name, build] of kept)
+		it(`keeps the export of ${name} through every row`, () => {
+			let current = build();
+			for (const each of CANONICALIZATIONS) {
+				const next = each.apply(current);
+				if (each.kind === "one-wire")
+					expect(differingFiles(current, next), each.id).toEqual([]);
+				current = next;
+			}
+		});
+
+	it("carries a current translation of a text whose read by name becomes a worker property's", () => {
+		const doc = namedReadTranslated();
+		const canon = canonDocument(doc);
+		const note = fieldNamed(canon, "note").uuid as Uuid;
+		const unit = makeTranslationUnitId("field", note, "label");
+		const entry = canon.localization?.translations.fra?.[unit];
+		expect(entry?.value).toEqual({
+			parts: [
+				{ kind: "text", text: "Bonjour " },
+				(fieldNamed(canon, "note").label as { parts: unknown[] }).parts[1],
+			],
+		});
+		expect(
+			(fieldNamed(canon, "note").label as { parts: { kind: string }[] })
+				.parts[1]?.kind,
+		).toBe("user-property-ref");
+		expect(entry?.sourceFingerprint).toBe(
+			translationUnitsById(canon).get(unit)?.sourceFingerprint,
+		);
+	});
+
 	for (const pair of PAIRS)
 		it(`prints one export for ${pair.id}: ${pair.name}`, () => {
 			const chosen = row(pair.id);
@@ -1378,8 +1602,178 @@ describe("each canonicalization's pair", () => {
 			const returned = chosen.apply(other);
 			// The document holds the other member, so the row moves it.
 			expect(sameJson(stored(returned), stored(other))).toBe(false);
-			expect(differingFiles(returned, other)).toEqual([]);
+			const key = pair.archiveProfileProperty;
+			expect(differingFiles(returned, other)).toEqual(
+				key === undefined ? [] : ["ccz/profile.ccpr"],
+			);
+			if (key !== undefined) {
+				const assets = manifestOf(returned, other);
+				const held = profileWithout(emittedFiles(other, assets), key);
+				expect(profileWithout(emittedFiles(returned, assets), key)).toEqual(
+					held,
+				);
+				expect(
+					readXmlEvidence(
+						Buffer.from(
+							emittedFiles(other, assets).get("ccz/profile.ccpr") ?? "",
+							"base64",
+						).toString(),
+					).children.some(
+						(child) =>
+							child.name === "property" && child.attributes.key === key,
+					),
+				).toBe(true);
+			}
 			expect(stored(chosen.apply(returned))).toEqual(stored(returned));
+		});
+});
+
+/** The patient list's three catalogued properties, typed, so the gate admits each list. */
+function catalogued(doc: BlueprintDoc): BlueprintDoc {
+	return withCandidate(doc, (draft) => {
+		draft.caseTypes = [
+			{
+				name: "patient",
+				properties: ["notes", "phone"]
+					.map((name) => ({ name, label: proseText(name) }))
+					.concat([{ name: "dob", label: proseText("dob") }]),
+			},
+		];
+	});
+}
+
+/** A read back of `doc`'s export, as a read back of a document Nova holds is made. */
+async function readBack(doc: BlueprintDoc, lookup?: CorpusDocument["lookup"]) {
+	const served = servedExport(doc, lookup === undefined ? {} : { lookup });
+	const outcome = readHqApp(
+		await readBackInput(doc, served, lookup === undefined ? {} : { lookup }),
+	);
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(
+			`Nova's export did not read: ${outcome.findings.map((one) => one.code).join(", ")}`,
+		);
+	return outcome.draft;
+}
+
+describe("a read back of Nova's export", () => {
+	const cases: readonly (readonly [string, () => BlueprintDoc])[] = [
+		[
+			"a list whose columns array is in neither screen's order",
+			() =>
+				catalogued(
+					patients(
+						[
+							plainColumn(uuid(1), "case_name", "Name"),
+							plainColumn(uuid(2), "notes", "Notes"),
+							plainColumn(uuid(3), "phone", "Phone"),
+						],
+						{
+							listOrder: [uuid(3), uuid(1), uuid(2)],
+							detailOrder: [uuid(2), uuid(3), uuid(1)],
+						},
+					),
+				),
+		],
+		[
+			"a tile list with a sorted column hidden from Results and shown on Details amid its order",
+			() =>
+				catalogued(
+					patients(
+						[
+							plainColumn(uuid(1), "case_name", "Name", {
+								tile: tileCell(0, 0, 12, 1),
+							}),
+							plainColumn(uuid(2), "notes", "Notes", {
+								visibleInList: false,
+								sort: columnSort("desc", 1),
+							}),
+							plainColumn(uuid(3), "phone", "Phone", {
+								tile: tileCell(0, 1, 12, 1),
+								sort: columnSort("asc", 0),
+							}),
+						],
+						{ list: { tile: {} } },
+					),
+				),
+		],
+		[
+			"a column hidden from Results after another over its property on Details",
+			() =>
+				catalogued(
+					patients(
+						[
+							plainColumn(uuid(1), "phone", "Phone"),
+							phoneColumn(uuid(2), "phone", "Phone", { visibleInList: false }),
+							plainColumn(uuid(3), "case_name", "Name"),
+						],
+						{
+							listOrder: [uuid(2), uuid(3), uuid(1)],
+							detailOrder: [uuid(1), uuid(3), uuid(2)],
+						},
+					),
+				),
+		],
+		[
+			"a label reading a worker field by name",
+			() =>
+				survey([
+					f({
+						kind: "text",
+						id: "note",
+						label: {
+							parts: [
+								{ kind: "text", text: "Hello " },
+								{ kind: "user-ref", property: "role" },
+							],
+						},
+					}),
+				]),
+		],
+		["a label reading a worker field by name, translated", namedReadTranslated],
+		[
+			"a column hidden from Results and from Details under its own header, over a property another column shows",
+			() => hiddenColumnHeadedApart(false),
+		],
+		[
+			"a sorted column hidden from Results and from Details under its own header, over a property another column shows",
+			() => hiddenColumnHeadedApart(true),
+		],
+	];
+	for (const [name, build] of cases)
+		it(`gives the canonical form of ${name}`, async () => {
+			const doc = build();
+			const draft = await readBack(doc);
+			expect(
+				readBackDifferences(canonDocument(doc), {
+					doc: draft.doc,
+					choices:
+						draft.declaration.kind === "choices"
+							? draft.declaration.choices
+							: [],
+				}),
+			).toEqual([]);
+			expect(stored(canonDocument(draft.doc))).toEqual(stored(draft.doc));
+		});
+
+	// A lookup filter of a select inside a repeat reads a question of that repeat, which the
+	// filter's print binds to its path from `current()` whatever the read's spelling.
+	for (const id of ["lookup-app", "lookup-reversed"])
+		it(`gives the canonical form of the lane's ${id}, a table filter inside a repeat, which is the reading's own`, async () => {
+			const document = publishedCorpus().find((one) => one.id === id);
+			if (document === undefined) throw new Error(`No corpus document ${id}.`);
+			const doc = hydrated(document);
+			const draft = await readBack(doc, document.lookup);
+			expect(
+				readBackDifferences(canonDocument(doc), {
+					doc: draft.doc,
+					choices:
+						draft.declaration.kind === "choices"
+							? draft.declaration.choices
+							: [],
+				}),
+			).toEqual([]);
+			expect(stored(canonDocument(draft.doc))).toEqual(stored(draft.doc));
 		});
 });
 

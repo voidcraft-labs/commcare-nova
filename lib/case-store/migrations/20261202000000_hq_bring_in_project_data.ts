@@ -12,22 +12,60 @@
 //         brought in from, the digest of the places as read, what the reading
 //         left out, and who brought them in and refreshed them and when, held
 //         whole or wholly absent the same way.
-//   (7)   `app_locations.hq_location_id`: CommCare HQ's id of a managed place.
+//   (7)   `app_locations.hq_location_id`: CommCare HQ's id of a managed place,
+//         and `hq_gone_at`: when a refresh found a place CommCare HQ no longer
+//         has and kept it, because the app still uses it.
 //
 // Every new column is nullable with no default, and each CHECK reads only the
 // columns this migration adds, which the serving revision names in no insert
 // or update: every row it writes leaves them as they were, and every row
 // stored before passes with them null. Every statement replays over its own
 // result, because the adoption tests erase the migration ledger and run the
-// chain again. The batch waits at most five seconds for each lock, since the
-// serving revision reads and writes the three tables this changes, and hands
-// the timeout back as it found it.
+// chain again.
+//
+// The serving revision reads and writes the three tables this changes, and the
+// batch reaches this migration already holding tables an earlier migration of
+// it altered, `lookup_tables` among them. A migration that waited for one of
+// these three while the batch held another would close a cycle with a request
+// that held the second and waited for the first: the serving revision's App
+// Test start clones `app_locations` and then `lookup_tables`, keeping each until
+// it commits. So statement 0b takes all three before the first change, never
+// waiting while it holds one: it asks for all of them at once without waiting,
+// gives back what it got when any is busy, and asks again until five seconds
+// have passed. Contention can then only end with the Job failing and nothing
+// applied; a request only waits for the commit. Statement 8 hands statement 0's
+// timeout back as it found it.
 
 import { type Kysely, sql } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
 	// 0. Wait five seconds for a lock, and no longer, while the previous revision serves.
 	await sql`SET LOCAL lock_timeout = '5s'`.execute(db);
+
+	// 0b. The three tables, all at once and only while none is busy, so it never
+	//     waits while it holds one. ACCESS EXCLUSIVE, which each ALTER below
+	//     takes. A lock taken in the inner block is released when that block
+	//     fails; one the batch took before this migration stays held.
+	await sql`
+		DO $$
+		DECLARE
+			deadline constant timestamptz := clock_timestamp() + interval '5 seconds';
+		BEGIN
+			LOOP
+				BEGIN
+					LOCK TABLE public.lookup_tables, public.app_organization_state,
+						public.app_locations IN ACCESS EXCLUSIVE MODE NOWAIT;
+					RETURN;
+				EXCEPTION WHEN lock_not_available THEN
+					IF clock_timestamp() >= deadline THEN
+						RAISE EXCEPTION USING ERRCODE = 'lock_not_available',
+							MESSAGE = 'The bring-in project data migration could not take lookup_tables, app_organization_state and app_locations together within five seconds, because the serving revision was using one of them each time it asked. It never waits for one while it holds another, so it stopped, and nothing was changed. Running the deploy again tries again.';
+					END IF;
+				END;
+				PERFORM pg_sleep(0.01);
+			END LOOP;
+		END $$
+	`.execute(db);
 
 	// 1. A lookup table's origin in CommCare HQ and its takeover.
 	await sql`
@@ -116,17 +154,20 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		)
 	`.execute(db);
 
-	// 7. CommCare HQ's id of a managed place.
+	// 7. CommCare HQ's id of a managed place, and when a refresh kept one
+	//    CommCare HQ no longer has.
 	await sql`
-		ALTER TABLE public.app_locations ADD COLUMN IF NOT EXISTS hq_location_id text
-			CHECK (hq_location_id IS NULL OR btrim(hq_location_id) <> '')
+		ALTER TABLE public.app_locations
+			ADD COLUMN IF NOT EXISTS hq_location_id text
+				CHECK (hq_location_id IS NULL OR btrim(hq_location_id) <> ''),
+			ADD COLUMN IF NOT EXISTS hq_gone_at timestamptz(3)
 	`.execute(db);
 
 	// 8. Hand the batch back as it was found.
 	await sql`SET LOCAL lock_timeout = 0`.execute(db);
 }
 
-/** Teardown only: drops the index, the three named constraints and the nineteen columns. */
+/** Teardown only: drops the index, the three named constraints and the twenty columns. */
 export async function down(db: Kysely<unknown>): Promise<void> {
 	await sql`DROP INDEX IF EXISTS public.lookup_tables_hq_origin`.execute(db);
 	await sql`
@@ -157,6 +198,8 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 			DROP COLUMN IF EXISTS hq_refreshed_by
 	`.execute(db);
 	await sql`
-		ALTER TABLE public.app_locations DROP COLUMN IF EXISTS hq_location_id
+		ALTER TABLE public.app_locations
+			DROP COLUMN IF EXISTS hq_location_id,
+			DROP COLUMN IF EXISTS hq_gone_at
 	`.execute(db);
 }

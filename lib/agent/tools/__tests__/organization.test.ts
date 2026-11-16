@@ -376,6 +376,7 @@ describe("organization authoring tools", () => {
 					domain: "district-health",
 					refreshedAt: "2026-11-02T09:30:00.000Z",
 					leftOut: {},
+					goneIds: [],
 				},
 			});
 			const first = await h.runTool(getOrganizationTool, { limit: 2 });

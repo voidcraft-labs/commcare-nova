@@ -181,6 +181,11 @@ async function readOrganizationInTransaction(
 							domain: state.hq_domain,
 							refreshedAt: state.hq_refreshed_at.toISOString(),
 							leftOut: state.hq_left_out ?? {},
+							goneIds: locations
+								.filter(
+									(row) => row.archived_at === null && row.hq_gone_at !== null,
+								)
+								.map((row) => asUuid(row.id)),
 						},
 					}),
 		},

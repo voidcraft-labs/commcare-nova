@@ -2755,7 +2755,7 @@ export async function importFile(
 		assets,
 		lookupWorkbook,
 		managedLookupTables,
-		managedLookupWorkbook,
+		managedLookupWorkbooks,
 	} = prepared;
 	const hqJson = expandDoc(doc, {
 		attachmentTarget: prepared.attachmentTarget,
@@ -2767,7 +2767,7 @@ export async function importFile(
 		doc,
 		assets,
 		lookupWorkbook,
-		managedLookupWorkbook,
+		managedLookupWorkbooks,
 		managedLookupTables,
 		attachmentTarget: prepared.attachmentTarget,
 		lookupNaming: prepared.lookupNaming,
@@ -2779,7 +2779,7 @@ export async function importFile(
 			hqJson,
 			assets,
 			lookupWorkbook,
-			managedLookupWorkbook,
+			managedLookupWorkbooks,
 			renderManualImportGuide(guide),
 		),
 	);

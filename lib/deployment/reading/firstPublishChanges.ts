@@ -443,7 +443,12 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		applies: sameStateRecorded("search-filter-rows-recut"),
 		paths: ["/modules/*/search_config/default_properties"],
 	},
-	/** A sort rule over a property the list doesn't show, written as a hidden column, recorded by `caseList/order.ts`. */
+	/**
+	 * A sort rule over a property the list doesn't show, written as a hidden
+	 * column, recorded by `caseList/order.ts` where a sort element names a
+	 * property no shown column or link joins. A sort word respelled on a column
+	 * the list shows is `list-settings-respelled`'s.
+	 */
 	"sort-rule-kept-as-hidden-column": {
 		touchesWorkers: false,
 		scope: "reading",
@@ -451,7 +456,6 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: [
 			"/modules/*/case_details/short/columns",
 			"/modules/*/case_details/short/sort_elements/*/field",
-			"/modules/*/case_details/short/sort_elements/*/type",
 			"/modules/*/case_details/short/sort_elements/*/display",
 		],
 	},
@@ -693,14 +697,15 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
  * each segment matches, `*` matching any one, over the shorter of the two,
  * and where the pattern is the longer, every segment past `path`'s end is
  * `*`. A pointer covers everything under it, and a record at a map covers
- * a pattern that names each of its keys.
+ * a pattern that names each of its keys; a record at a list or a map above
+ * a key the pattern names is not covered.
  */
 export function pointerCovers(pattern: string, path: string): boolean {
 	const want = pattern.split("/").slice(1);
 	const got = path.split("/").slice(1);
 	for (let at = 0; at < want.length; at++) {
 		const segment = want[at] as string;
-		if (at >= got.length) return segment === "*";
+		if (at >= got.length) return want.slice(at).every((past) => past === "*");
 		if (segment !== "*" && segment !== got[at]) return false;
 	}
 	return true;

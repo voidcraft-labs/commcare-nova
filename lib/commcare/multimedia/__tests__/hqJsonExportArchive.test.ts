@@ -27,7 +27,10 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { lookupWireCorpus } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { buildLookupWorkbook } from "@/lib/commcare/lookup/workbook";
-import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
+import {
+	manualImportStepKey,
+	renderManualImportGuide,
+} from "@/lib/publish/manualImportGuide";
 import type { LookupWorkbook } from "../../lookup/workbook";
 import type { AssetManifest, ResolvedMediaAsset } from "../assetWirePath";
 import {
@@ -56,7 +59,7 @@ function importFile(
 			doc,
 			assets,
 			lookupWorkbook,
-			managedLookupWorkbook: undefined,
+			managedLookupWorkbooks: [],
 			managedLookupTables: [],
 			attachmentTarget: null,
 			lookupNaming: undefined,
@@ -68,7 +71,7 @@ function importFile(
 		HQ,
 		assets,
 		lookupWorkbook,
-		undefined,
+		[],
 		readme,
 	);
 }
@@ -164,7 +167,7 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 					doc,
 					assets: NO_MEDIA,
 					lookupWorkbook: undefined,
-					managedLookupWorkbook: undefined,
+					managedLookupWorkbooks: [],
 					managedLookupTables: [],
 					attachmentTarget: null,
 					lookupNaming: undefined,
@@ -249,7 +252,7 @@ describe("the logo in the HQ import file", () => {
 				doc: logoDoc,
 				assets,
 				lookupWorkbook: undefined,
-				managedLookupWorkbook: undefined,
+				managedLookupWorkbooks: [],
 				managedLookupTables: [],
 				attachmentTarget: null,
 				lookupNaming: undefined,
@@ -261,7 +264,7 @@ describe("the logo in the HQ import file", () => {
 			expandDoc(logoDoc, { assets }),
 			assets,
 			undefined,
-			undefined,
+			[],
 			readme,
 		);
 		expect(bulkEntries(archive).has(logoAsset.wirePath)).toBe(false);
@@ -278,7 +281,7 @@ describe("the logo in the HQ import file", () => {
 			expandDoc(noLogo, { assets: ONE_ASSET }),
 			ONE_ASSET,
 			undefined,
-			undefined,
+			[],
 			"",
 		);
 		expect(
@@ -288,25 +291,39 @@ describe("the logo in the HQ import file", () => {
 });
 
 describe("the HQ app file's tables managed in CommCare HQ", () => {
-	const MANAGED = [
-		{
-			tag: "records",
-			domain: "acme-health",
-			refreshedAt: "2026-11-03T22:15:00.000Z",
-		},
-	];
+	const SECOND = buildLookupWorkbook(
+		lookupWireNaming(corpus.definitions.slice(0, 1)),
+		corpus.rowsByTable,
+	);
+	const HEALTH = {
+		tag: "records",
+		server: "production",
+		domain: "acme-health",
+		refreshedAt: "2026-11-03T22:15:00.000Z",
+	};
+	const NORTH = {
+		tag: "clinics",
+		server: "production",
+		domain: "acme-north",
+		refreshedAt: "2026-11-04T08:00:00.000Z",
+	};
+	const workbookOf = (table: typeof HEALTH) => ({
+		server: table.server,
+		domain: table.domain,
+		workbook: SECOND,
+	});
 
 	function guideOf(
 		lookupWorkbook: LookupWorkbook | undefined,
-		managedLookupWorkbook: LookupWorkbook | undefined,
-		managedLookupTables: typeof MANAGED,
+		managedLookupTables: readonly (typeof HEALTH)[],
+		managedLookupWorkbooks = managedLookupTables.map(workbookOf),
 	) {
 		return hqImportFileGuide({
 			appName: "Tracker",
 			doc,
 			assets: NO_MEDIA,
 			lookupWorkbook,
-			managedLookupWorkbook,
+			managedLookupWorkbooks,
 			managedLookupTables,
 			attachmentTarget: null,
 			lookupNaming: undefined,
@@ -319,8 +336,26 @@ describe("the HQ app file's tables managed in CommCare HQ", () => {
 		).filter((line) => line.startsWith("  - "));
 	}
 
+	function archiveOf(
+		lookupWorkbook: LookupWorkbook | undefined,
+		managedLookupTables: readonly (typeof HEALTH)[],
+		managedLookupWorkbooks = managedLookupTables.map(workbookOf),
+	): Buffer {
+		return buildHqJsonExportArchive(
+			"Tracker",
+			doc,
+			HQ,
+			NO_MEDIA,
+			lookupWorkbook,
+			managedLookupWorkbooks,
+			renderManualImportGuide(
+				guideOf(lookupWorkbook, managedLookupTables, managedLookupWorkbooks),
+			),
+		);
+	}
+
 	it("still asks for the plan's lookup tables, and adds the managed step, where every table is managed", () => {
-		const steps = guideOf(undefined, ONE_TABLE, MANAGED);
+		const steps = guideOf(undefined, [HEALTH]);
 		expect(
 			planFeatureLines(steps).some((line) =>
 				line.startsWith("  - Lookup Tables: "),
@@ -336,42 +371,103 @@ describe("the HQ app file's tables managed in CommCare HQ", () => {
 		);
 		/* With no workbook to carry, no step asks for the plan's lookup tables. */
 		expect(
-			planFeatureLines(guideOf(undefined, undefined, [])).some((line) =>
+			planFeatureLines(guideOf(undefined, [])).some((line) =>
 				line.startsWith("  - Lookup Tables: "),
 			),
 		).toBe(false);
 	});
 
-	it("writes both workbooks under their two names", () => {
-		const second = buildLookupWorkbook(
-			lookupWireNaming(corpus.definitions.slice(0, 1)),
-			corpus.rowsByTable,
-		);
-		const steps = guideOf(ONE_TABLE, second, MANAGED);
-		const archive = buildHqJsonExportArchive(
-			"Tracker",
-			doc,
-			HQ,
-			NO_MEDIA,
-			ONE_TABLE,
-			second,
-			renderManualImportGuide(steps),
-		);
+	it("writes the first workbook and the managed one under a name that carries its project space", () => {
+		const archive = archiveOf(ONE_TABLE, [HEALTH]);
 		const zip = new AdmZip(archive);
 		expect(memberNames(archive).sort()).toEqual([
 			"README.txt",
 			"Tracker.json",
-			"lookup-tables-managed-in-commcare-hq.xlsx",
+			"lookup-tables-managed-in-acme-health.xlsx",
 			"lookup-tables.xlsx",
 		]);
 		expect(zip.readFile("lookup-tables.xlsx")).toEqual(
 			Buffer.from(ONE_TABLE.bytes),
 		);
-		expect(zip.readFile("lookup-tables-managed-in-commcare-hq.xlsx")).toEqual(
-			Buffer.from(second.bytes),
+		expect(zip.readFile("lookup-tables-managed-in-acme-health.xlsx")).toEqual(
+			Buffer.from(SECOND.bytes),
 		);
 		const text = readme(archive);
 		expect(text).toContain("=== 1. Upload the lookup tables ===");
 		expect(text).toContain("=== 2. Lookup tables managed in CommCare HQ ===");
+		expect(text).toContain('"lookup-tables-managed-in-acme-health.xlsx" out');
+	});
+
+	it("writes one managed workbook per project space, each step leaving out its own file there", () => {
+		const archive = archiveOf(ONE_TABLE, [HEALTH, NORTH]);
+		expect(memberNames(archive).sort()).toEqual([
+			"README.txt",
+			"Tracker.json",
+			"lookup-tables-managed-in-acme-health.xlsx",
+			"lookup-tables-managed-in-acme-north.xlsx",
+			"lookup-tables.xlsx",
+		]);
+		const text = readme(archive);
+		expect(text).toContain("=== 2. Lookup tables managed in acme-health ===");
+		expect(text).toContain("=== 3. Lookup tables managed in acme-north ===");
+		expect(text).toContain(
+			`If you're importing into acme-health, it already has them, so leave\n"lookup-tables-managed-in-acme-health.xlsx" out.`,
+		);
+		expect(text).toContain(
+			`If you're importing into acme-north, it already has them, so leave\n"lookup-tables-managed-in-acme-north.xlsx" out.`,
+		);
+		/* Each file's step lists that space's tables and no other's. */
+		const steps = guideOf(ONE_TABLE, [HEALTH, NORTH]);
+		const managed = steps.filter(
+			(step) => step.kind === "managed-lookup-tables",
+		);
+		expect(managed.map((step) => step.lines.join("\n"))).toEqual([
+			expect.not.stringMatching(/clinics/),
+			expect.not.stringMatching(/records/),
+		]);
+	});
+
+	it("names apart two project spaces that share a domain, and two domains that spell alike once made safe", () => {
+		const india = { ...HEALTH, tag: "wards", server: "india" };
+		const colon = { ...HEALTH, tag: "zones", domain: "acme:health" };
+		const archive = archiveOf(undefined, [HEALTH, india]);
+		expect(
+			memberNames(archive)
+				.filter((name) => name.endsWith(".xlsx"))
+				.sort(),
+		).toEqual([
+			"lookup-tables-managed-in-acme-health-india.xlsx",
+			"lookup-tables-managed-in-acme-health-us.xlsx",
+		]);
+		const text = readme(archive);
+		expect(text).toContain("Lookup tables managed in acme-health (US)");
+		expect(text).toContain("Lookup tables managed in acme-health (India)");
+
+		const alike = memberNames(archiveOf(undefined, [HEALTH, colon])).filter(
+			(name) => name.endsWith(".xlsx"),
+		);
+		expect([...alike].sort()).toEqual([
+			"lookup-tables-managed-in-acme-health-2.xlsx",
+			"lookup-tables-managed-in-acme-health.xlsx",
+		]);
+		for (const name of alike) {
+			expect(name).toMatch(/^lookup-tables-managed-in-[a-z0-9._-]+\.xlsx$/);
+		}
+		/* Each step of either guide has a key of its own, which the publish
+		 * dialog lists them by. */
+		for (const pair of [
+			[HEALTH, india],
+			[HEALTH, colon],
+			[HEALTH, NORTH],
+		]) {
+			const keys = guideOf(ONE_TABLE, pair).map(manualImportStepKey);
+			expect(new Set(keys).size).toBe(keys.length);
+		}
+		/* The names follow the set of workbooks, not their order. */
+		expect(
+			memberNames(archiveOf(undefined, [colon, HEALTH]))
+				.filter((name) => name.endsWith(".xlsx"))
+				.sort(),
+		).toEqual([...alike].sort());
 	});
 });

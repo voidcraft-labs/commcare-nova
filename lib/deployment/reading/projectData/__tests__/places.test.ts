@@ -14,18 +14,27 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import type { HqFailure } from "@/lib/commcare/hq/failure";
 import type { HqLocation, HqLocationType } from "@/lib/commcare/hq/locations";
 import {
 	LOCATION_LEVELS,
 	locationOwnerFixture,
 } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
-import type { LocationProperty, OrganizationLevel, Uuid } from "@/lib/domain";
+import type { ReadOutcome } from "@/lib/commcare/reader/types";
+import type {
+	BlueprintDoc,
+	LocationProperty,
+	OrganizationLevel,
+	Uuid,
+} from "@/lib/domain";
 import type { LookupRevision } from "@/lib/lookup/types";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import { manifestFinding } from "../findings";
 import {
 	assembleReadingProjectData,
 	readingProjectDataFindingsFor,
+	unreadPlacesFailure,
 } from "../index";
 import {
 	documentReadsPlaces,
@@ -143,6 +152,115 @@ describe("sourceMayReadPlaces", () => {
 		const text = `{"name": "Visits", "note": "visits at their locations",
 			"filter": "instance('casedb')/casedb/case[@case_type = 'visit']"}`;
 		expect(sourceMayReadPlaces(text)).toBe(false);
+	});
+
+	it.each([
+		// The form builder's text id for a question named locations_visited.
+		[`<label ref="jr:itext('locations_visited-label')"/>`],
+		['<text id="locations_visited-label"><value>Places</value></text>'],
+		// A case property whose name begins with the word, in the JSON body.
+		['{"case_properties": ["locations_count"]}'],
+		['{"filter": "instance(\\"casedb\\")/casedb/case[@locations_seen = 1]"}'],
+	])("is false of a name that only begins with the word: %s", (text) => {
+		expect(sourceMayReadPlaces(text)).toBe(false);
+	});
+});
+
+describe("unreadPlacesFailure", () => {
+	const failure: HqFailure = {
+		kind: "permission",
+		request: "location-types",
+		status: 403,
+		permission: "locations",
+	};
+	const unread = (placesUnread: HqFailure | null) =>
+		assembleReadingProjectData({
+			origin: { server: "india", domain: "clinic" },
+			appId: "0b4f6a52-7c55-4a35-9d1e-3c2f8a1b4e6d",
+			readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
+			tables: [],
+			hqTags: [],
+			project: {
+				projectId: "project-1",
+				projectRevision: "0" as LookupRevision,
+				definitions: [],
+				rowsByTable: {},
+				apps: {},
+				keptColumns: {},
+				siblings: [],
+				mayAdminister: true,
+			},
+			measured: new Map(),
+			places: null,
+			placesUnread,
+		});
+	const work = { nodes: 0, syntaxReads: 0, rebuilds: 0 };
+	const claims = {
+		counts: {},
+		handOffs: [],
+		records(): never {
+			throw new Error("counts alone");
+		},
+	};
+	// A reading run without CommCare HQ's levels refuses a read of a place at
+	// a level as an expression it cannot evaluate, and no bound tree then
+	// reads places: an account that says it reads none.
+	const account: ReadOutcome = {
+		kind: "account",
+		findings: [
+			manifestFinding(
+				"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
+				{ kind: "app" },
+				"district",
+			),
+		],
+		work,
+		claims,
+		defects: [],
+		unreadTables: [],
+		readsLocations: false,
+	};
+	const readOf = (doc: BlueprintDoc): ReadOutcome => ({
+		kind: "read",
+		draft: {
+			doc,
+			batch: [],
+			identities: { modules: [], forms: [], keyedCreates: [], entries: [] },
+			declaration: { kind: "none", blocking: [] },
+			facts: {
+				webAppsOnInHq: false,
+				mediaReferences: [],
+				pendingMedia: [],
+				unreadTables: [],
+				foldedTranslationKeys: 0,
+				forms: [],
+				sameStateRewrites: [],
+				entryFactsRefused: [],
+				rewrites: [],
+				expressionRounds: 0,
+			},
+		},
+		work,
+		claims,
+		defects: [],
+	});
+
+	it("ends a reading the reader refused, whatever its refusals read, so a permission is never shown as a broken app", () => {
+		expect(unreadPlacesFailure(unread(failure), account)).toEqual(failure);
+	});
+
+	it("ends a reading whose document reads places", () => {
+		const doc = locationOwnerFixture("plain", { placeRead: true });
+		expect(unreadPlacesFailure(unread(failure), readOf(doc))).toEqual(failure);
+	});
+
+	it("drops the failure where the reader read the whole document and it reads no place", () => {
+		const doc = locationOwnerFixture("plain");
+		expect(unreadPlacesFailure(unread(failure), readOf(doc))).toBeNull();
+	});
+
+	it("ends nothing where no read of the places failed", () => {
+		expect(unreadPlacesFailure(unread(null), account)).toBeNull();
 	});
 });
 
@@ -343,13 +461,20 @@ describe("planManagedPlaces at a level the app lacks", () => {
 		const result = plan(hqPlaces, "birth");
 		expect(result.findings).toEqual([]);
 		expect(result.leftOut).toEqual({});
+		expect(result.leftOutHqLocationIds).toEqual([]);
 		expect(result.places.map((one) => one.siteCode)).toEqual(["north"]);
 	});
 
-	it("counts at a refresh each place left out under the code that did it", () => {
+	it("counts at a refresh each place left out under the code that did it, and names each by CommCare HQ's id", () => {
 		const result = plan(hqPlaces, "refresh");
 		expect(result.findings).toEqual([]);
 		expect(result.leftOut).toEqual({ ward: 3, annex: 1 });
+		expect([...result.leftOutHqLocationIds].sort()).toEqual([
+			"hq-ward-1",
+			"hq-ward-1-clinic",
+			"hq-ward-1-clinic-annex",
+			"hq-ward-2",
+		]);
 		expect(result.places.map((one) => one.siteCode)).toEqual(["north"]);
 	});
 });
@@ -431,15 +556,17 @@ describe("readingProjectDataFindingsFor, places past Nova's limit", () => {
 					definitions: [],
 					rowsByTable: {},
 					apps: {},
+					keptColumns: {},
 					siblings: [],
 					mayAdminister: true,
 				},
-				measured: {},
+				measured: new Map(),
 				places: {
 					hqLevels: [UNHOLDABLE],
 					hqPlaces: [],
 					placesPastLimit: { totalCount },
 				},
+				placesUnread: null,
 			}),
 			{ lookupFields: {}, unreadTables: [], readsPlaces: true },
 			null,

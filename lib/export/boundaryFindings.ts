@@ -79,6 +79,19 @@ export interface ManagedLookupTable {
 	readonly refreshedAt: string;
 }
 
+/**
+ * One workbook of the HQ app file's tables CommCare HQ manages: Nova's copy
+ * of every table one project space manages. One per project space, so a
+ * person importing into a space that manages some of them leaves out that
+ * space's file alone and uploads every other space's.
+ */
+export interface ManagedLookupWorkbook {
+	/** The project space that manages its tables: its server and domain. */
+	readonly server: string;
+	readonly domain: string;
+	readonly workbook: LookupWorkbook;
+}
+
 export interface ExportCarrierFindings {
 	/**
 	 * What each table the snapshot holds is called on the wire. Absent when
@@ -102,11 +115,12 @@ export interface ExportCarrierFindings {
 	 */
 	readonly managedLookupTables: readonly ManagedLookupTable[];
 	/**
-	 * `hq-json`'s second workbook, Nova's copy of every table in
-	 * `managedLookupTables`, built when no cell or tag refuses it. Undefined
-	 * in the other two modes and where no table is managed.
+	 * `hq-json`'s workbooks of the tables in `managedLookupTables`, one per
+	 * project space that manages some of them, in the order those tables
+	 * first name each space, built when no cell or tag refuses them. Empty in
+	 * the other two modes and where no table is managed.
 	 */
-	readonly managedLookupWorkbook: LookupWorkbook | undefined;
+	readonly managedLookupWorkbooks: readonly ManagedLookupWorkbook[];
 	/** `lookupExportFindings`, then `organizationExportFindings`: the order
 	 *  the export boundary joins them in, after the document's own verdict. */
 	readonly rowFindings: readonly ValidationError[];
@@ -146,13 +160,14 @@ export function exportCarrierFindings(
 		(definition) => !leftOutIds.has(definition.id),
 	);
 	/* Each HQ workbook's tables, judged and built over its own: the main one,
-	 * and for `hq-json` the second one of every table CommCare HQ manages. A
-	 * table no workbook carries is never sent, so CommCare HQ never trims it
-	 * and its tag is never refused. */
+	 * and for `hq-json` one of the tables each project space manages. A table
+	 * no workbook carries is never sent, so CommCare HQ never trims it and its
+	 * tag is never refused. */
+	const managedOrigins = mode === "hq-json" ? groupByOrigin(leftOut) : [];
 	const workbookTables =
 		mode === "ccz"
 			? []
-			: [mainDefinitions, ...(mode === "hq-json" ? [leftOut] : [])].map(
+			: [mainDefinitions, ...managedOrigins.map((group) => group.tables)].map(
 					(definitions) =>
 						definitions.length === 0
 							? undefined
@@ -173,21 +188,24 @@ export function exportCarrierFindings(
 					naming,
 					fixtures: buildLookupFixtures(naming, fixtureData.rowsByTable),
 				};
-	const [lookupWorkbook, managedLookupWorkbook] = workbookTables.map(
-		(tables) =>
-			tables === undefined ||
-			hasUnpushableTag(tables) ||
-			textFindings.length > 0
-				? undefined
-				: buildLookupWorkbook(tables, fixtureData.rowsByTable),
+	const [lookupWorkbook, ...managedWorkbooks] = workbookTables.map((tables) =>
+		tables === undefined || hasUnpushableTag(tables) || textFindings.length > 0
+			? undefined
+			: buildLookupWorkbook(tables, fixtureData.rowsByTable),
 	);
+	const managedLookupWorkbooks = managedOrigins.flatMap((group, index) => {
+		const workbook = managedWorkbooks[index];
+		return workbook === undefined
+			? []
+			: [{ server: group.server, domain: group.domain, workbook }];
+	});
 	const rowFindings = [
 		...lookupExportFindings(doc, {
 			fixtureData,
 			textFindings,
 			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
 			hqNamings: workbookTables.filter((tables) => tables !== undefined),
-			workbooks: [lookupWorkbook, managedLookupWorkbook].filter(
+			workbooks: [lookupWorkbook, ...managedWorkbooks].filter(
 				(workbook) => workbook !== undefined,
 			),
 		}),
@@ -199,7 +217,7 @@ export function exportCarrierFindings(
 		lookupWire,
 		lookupWorkbook,
 		managedLookupTables: leftOut.map(managedLookupTable),
-		managedLookupWorkbook,
+		managedLookupWorkbooks,
 		rowFindings,
 		get selectionFindings() {
 			selectionFindings ??=
@@ -217,8 +235,8 @@ export function exportCarrierFindings(
  * the whole of never writing it. A managed table of another project space
  * stays in, and the upload makes it there from Nova's copy. The HQ app file
  * is made for no project space, so it moves every table CommCare HQ manages
- * to its second workbook, which a person importing into the project space
- * that manages them leaves out.
+ * to a workbook of the project space that manages it, which a person
+ * importing into that space leaves out.
  */
 function leftOutOfMainWorkbook(
 	definition: LookupTableDefinition,
@@ -239,6 +257,29 @@ function leftOutOfMainWorkbook(
 				hq.domain === target.domain
 			);
 	}
+}
+
+/** The managed tables grouped by the project space that manages them, in the order they first name each. */
+function groupByOrigin(
+	definitions: readonly LookupTableDefinition[],
+): readonly {
+	readonly server: string;
+	readonly domain: string;
+	readonly tables: readonly LookupTableDefinition[];
+}[] {
+	const groups = new Map<
+		string,
+		{ server: string; domain: string; tables: LookupTableDefinition[] }
+	>();
+	for (const definition of definitions) {
+		const { server, domain } = managedLookupTable(definition);
+		const key = `${server}\u0000${domain}`;
+		const group = groups.get(key);
+		if (group === undefined) {
+			groups.set(key, { server, domain, tables: [definition] });
+		} else group.tables.push(definition);
+	}
+	return [...groups.values()];
 }
 
 function managedLookupTable(

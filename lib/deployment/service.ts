@@ -2079,10 +2079,17 @@ async function pushLookupTables(
 			? []
 			: [{ kind: "lookup-table" as const, remoteId: push.mappedRemoteId }],
 	);
-	/* The last read of who manages each table, one statement and one request
-	 * before the workbook goes: a table handed back to CommCare HQ from this
-	 * project space since preflight is CommCare HQ's again, and writing it
-	 * would replace what a person chose to leave there. Nothing is sent. */
+	/* Read before the push writes over them: a table HQ makes again under a
+	 * new id is named only where its baseline shows the definition unchanged. */
+	const priorBaselines = new Map(
+		(await readResourceBaselines(scope, target, mappedRefs)).map(
+			(baseline) => [baseline.remoteId, baseline] as const,
+		),
+	);
+	/* The last read of who manages each table, the one statement right before
+	 * the workbook goes: a table handed back to CommCare HQ from this project
+	 * space since preflight is CommCare HQ's again, and writing it would
+	 * replace what a person chose to leave there. Nothing is sent. */
 	const handedBack = await managedTablesHandedBack(
 		scope,
 		target,
@@ -2103,13 +2110,6 @@ async function pushLookupTables(
 			warnings: [],
 		};
 	}
-	/* Read before the push writes over them: a table HQ makes again under a
-	 * new id is named only where its baseline shows the definition unchanged. */
-	const priorBaselines = new Map(
-		(await readResourceBaselines(scope, target, mappedRefs)).map(
-			(baseline) => [baseline.remoteId, baseline] as const,
-		),
-	);
 	const upload = await uploadLookupTableWorkbook(
 		creds,
 		domain,

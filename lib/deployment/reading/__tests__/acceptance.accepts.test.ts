@@ -7,7 +7,11 @@
  * version read), read by the production reader with a fresh minting
  * resolver, answer `ok` through all five checks, with one declaration per
  * choice the reading offers, the preselected one's first-publish list, and
- * whether the source holds a Save to Case block. The registration form
+ * whether the source holds a Save to Case block. A label holding a
+ * no-break space as plain text, and a second language whose itext has no
+ * `<text>` for one label, which HQ's summary sends in the first language
+ * alone, answer `ok` too, and HQ's text for that second language differing
+ * from the document's is `summary/question/label`. The registration form
  * there holds Nova's conjoined case-name check alone, which HQ's summary
  * reports as the source's validation and the document holds as none. Each
  * named case is a reading of a source CommCare HQ could hold, built from
@@ -18,6 +22,8 @@
  * every bring-in.
  */
 
+import { cloneNode, type Element } from "domhandler";
+import { appendChild, removeElement } from "domutils";
 import { describe, expect, it } from "vitest";
 import {
 	retainedBodyJson,
@@ -25,12 +31,14 @@ import {
 } from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { commCareLocalization } from "@/lib/commcare/localization";
 import { exportedBody } from "@/lib/commcare/reader/__tests__/novaExport";
 import { sourceFromBody } from "@/lib/commcare/reader/__tests__/readerInput";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import { typedInstantValue } from "@/lib/commcare/xpath/wire/instant";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
+import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { type AcceptReadingInput, acceptReading } from "../acceptance";
 import {
 	acceptanceInput,
@@ -159,6 +167,101 @@ describe("acceptReading over CommCare HQ's retained answers", () => {
 					: question,
 			),
 		});
+	});
+
+	it("accepts a label CommCare HQ holds with a no-break space as plain text", async () => {
+		// HQ's bulk translation upload writes a cell's text into the form as it
+		// is; Nova writes the no-break space as a literal output.
+		const text = "Quel âge ?";
+		await navigationBase({
+			body: eachForm((root) => {
+				const label = findElement(
+					root,
+					(element) =>
+						element.name === "text" && element.attribs.id === "answer-label",
+				);
+				if (label === undefined) return;
+				for (const value of label.children)
+					if ((value as { name?: string }).name === "value")
+						(value as { children: unknown[] }).children = [
+							{ type: "text", data: text },
+						];
+			}),
+			summary: eachQuestion((question) =>
+				question.value === "/data/answer"
+					? { ...question, label: text, translations: { en: text } }
+					: question,
+			),
+		});
+	});
+
+	it("accepts a label whose second language has no <text>, as CommCare HQ summarizes it", async () => {
+		// `fra` beside `en`: every form's itext holds a French translation that
+		// copies the English one but for the answer question's label, which
+		// has no `<text>` there. HQ's summary sends that label in English
+		// alone (`XForm.localize` answers `None` for French) and every other
+		// label in both.
+		const body = (source: Body): Body => ({
+			...eachForm((root) => {
+				const english = findElement(
+					root,
+					(element) =>
+						element.name === "translation" && element.attribs.lang === "en",
+				);
+				if (english === undefined || english.parent === null) return;
+				const french = cloneNode(english, true);
+				french.attribs = { lang: "fra" };
+				const missing = findElement(
+					french,
+					(element) =>
+						element.name === "text" && element.attribs.id === "answer-label",
+				);
+				if (missing !== undefined) removeElement(missing);
+				appendChild(english.parent as Element, french);
+			})(source),
+			langs: ["en", "fra"],
+		});
+		const summary = eachQuestion((question) => {
+			const translations = question.translations as Record<string, string>;
+			return question.value === "/data/answer" || translations.en === undefined
+				? question
+				: {
+						...question,
+						translations: { ...translations, fra: translations.en },
+					};
+		});
+		const { source, modules } = await navigationBaseRead({ body, summary });
+		const reader = readingInput(source, modules);
+		const outcome = readClean(reader);
+		const doc = outcome.draft.doc;
+		const localization = commCareLocalization(doc);
+		expect(localization.languages).toHaveLength(2);
+		const answer = Object.values(doc.fields).find((one) => one.id === "answer");
+		if (answer === undefined) throw new Error("The reading holds the answer.");
+		const unit = makeTranslationUnitId("field", answer.uuid, "label");
+		const [first, second] = localization.languages.map((language) =>
+			localization.prose(language, unit),
+		);
+		expect(second).toEqual(first);
+		accepted(acceptanceInput(reader, outcome));
+
+		// The summary check compares the second language: HQ's French text
+		// differing from the document's is a difference.
+		const { source: other, modules: otherModules } = await navigationBaseRead({
+			body,
+			summary: eachQuestion((question) =>
+				question.value === "/data/answer"
+					? { ...question, translations: { en: "Notes", fra: "Remarques" } }
+					: question,
+			),
+		});
+		const otherReader = readingInput(other, otherModules);
+		const answerOther = acceptReading(
+			acceptanceInput(otherReader, readClean(otherReader)),
+		);
+		expect(answerOther.ok ? "ok" : answerOther.signature).toBe(
+			"summary/question/label",
+		);
 	});
 
 	it("skips a menu CommCare HQ could not summarize", async () => {

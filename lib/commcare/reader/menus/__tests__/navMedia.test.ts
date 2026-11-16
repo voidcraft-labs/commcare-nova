@@ -22,6 +22,7 @@ import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain";
+import { localAppStringTable } from "../../../appStrings";
 import { expandDoc } from "../../../expander";
 import {
 	readerInput,
@@ -110,7 +111,8 @@ function app(): BlueprintDoc {
 	);
 }
 
-/** `doc` emitted on HQ's shell, `edit` applied as HQ's page stores it, and read back. */
+/** `doc` emitted on HQ's shell, `edit` applied as HQ's page stores it, and read back, with the
+ *  app strings Nova's build gives the document read beside it, so a generated key is judged. */
 async function readWithMedia(
 	doc: BlueprintDoc,
 	edit: (app: AppJson) => void,
@@ -128,7 +130,40 @@ async function readWithMedia(
 	const input = readerInput(await sourceFromBody(json), {
 		media: (path) => ASSETS[path] ?? { kind: "no-entry" },
 	});
-	return readHqApp({ ...input, recordDialect: () => undefined });
+	return readHqApp(
+		{
+			...input,
+			recordDialect: () => undefined,
+			appStrings: (read) => localAppStringTable(read, []),
+		},
+		{ claims: "full" },
+	);
+}
+
+/** The entries the reading accounted each `translations` key under, by key. */
+function translationEntries(
+	outcome: ReturnType<typeof readHqApp>,
+): Record<string, string> {
+	return Object.fromEntries(
+		[...outcome.claims.records()]
+			.filter((record) => record.where.includes("/translations/"))
+			.map((record) => [
+				record.where.slice(record.where.lastIndexOf("/") + 1),
+				record.entry.slice(record.entry.indexOf("/") + 1),
+			]),
+	);
+}
+
+/** HQ's `translations` with `overrides` added in English. */
+function overriding(json: AppJson, overrides: Record<string, string>): void {
+	const translations = (json.translations ?? {}) as Record<
+		string,
+		Record<string, string>
+	>;
+	json.translations = {
+		...translations,
+		en: { ...(translations.en ?? {}), ...overrides },
+	};
 }
 
 function findings(outcome: ReturnType<typeof readHqApp>): string[] {
@@ -350,5 +385,71 @@ describe("a case list menu item's and a Register button's media read as HQ shows
 		expect(findings(outcome)).toEqual([
 			"menus-and-case-lists/media-image-media-audio-differing-by-language",
 		]);
+	});
+});
+
+describe("an override of a generated media key in `translations`", () => {
+	// HQ's build writes a language's override over the string it generates
+	// (`app_strings.py::SelectKnownAppStrings.app_strings_parts`), and the suite reads a menu's or
+	// a form's icon and audio through those strings (`suite_xml/sections/menus.py`,
+	// `entries.py`, `image_locale_id`), so the override is the file a worker sees there.
+	it("holds an override naming the file the language already shows as inert", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			(json.modules[0] as AppJson["modules"][number]).media_image = {
+				en: MENU_ICON,
+			};
+			overriding(json, { "modules.m0.icon": MENU_ICON });
+		});
+		expect(findings(outcome)).toEqual([]);
+		expect(translationEntries(outcome)["modules.m0.icon"]).toBe(
+			"translations-generated-key-with-no-effect",
+		);
+	});
+
+	it("refuses an override showing another file than the menu's in one language", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			(json.modules[0] as AppJson["modules"][number]).media_image = {
+				en: MENU_ICON,
+			};
+			overriding(json, { "modules.m0.icon": OTHER_ICON });
+		});
+		expect(findings(outcome)).toEqual([
+			"application-and-settings/translations-generated-key-anything-else",
+		]);
+		expect(
+			outcome.kind === "account"
+				? outcome.findings.map((one) => one.detail.name)
+				: [],
+		).toEqual(["modules.m0.icon"]);
+	});
+
+	it("refuses an override of a form's audio label naming another file", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0] as AppJson["modules"][number];
+			(menu.forms[0] as Record<string, unknown>).media_audio = {
+				en: FORM_AUDIO,
+			};
+			overriding(json, { "forms.m0f0.audio": OTHER_ICON });
+		});
+		expect(findings(outcome)).toEqual([
+			"application-and-settings/translations-generated-key-anything-else",
+		]);
+	});
+
+	it("holds an override of media no language shows as inert: no screen reads the key", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			overriding(json, {
+				"modules.m0.icon": OTHER_ICON,
+				"forms.m0f0.audio": FORM_AUDIO,
+				"m0.case_short.case_photo_1.alt_text.kyes": "A photo",
+			});
+		});
+		expect(findings(outcome)).toEqual([]);
+		expect(translationEntries(outcome)).toMatchObject({
+			"modules.m0.icon": "translations-generated-key-with-no-effect",
+			"forms.m0f0.audio": "translations-generated-key-with-no-effect",
+			"m0.case_short.case_photo_1.alt_text.kyes":
+				"translations-generated-key-with-no-effect",
+		});
 	});
 });

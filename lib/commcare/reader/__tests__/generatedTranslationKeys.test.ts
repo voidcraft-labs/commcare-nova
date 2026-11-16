@@ -17,6 +17,7 @@ import {
 	classifyGeneratedTranslationKeys,
 	generatedKeyOwner,
 	type HeldGeneratedKey,
+	type MediaKeyReading,
 	repositionGeneratedKey,
 } from "../generatedTranslationKeys";
 import type { AppStringTable } from "../types";
@@ -186,5 +187,36 @@ describe("the classifier", () => {
 			expect(
 				classifyGeneratedTranslationKeys([held(key, "Vérifiez")], table),
 			).toEqual([{ kind: "inert" }]);
+	});
+
+	it("judges a key a media map or an image map writes by what CommCare HQ's build reads there, which the table holds none of", () => {
+		const icon = held("modules.m0.icon", "jr://file/commcare/image/b.png");
+		const alt = held("m0.case_short.case_photo_1.alt_text.kyes", "A photo");
+		const verdicts = (reading: MediaKeyReading) =>
+			classifyGeneratedTranslationKeys([icon, alt], TABLE, () => reading);
+		expect(verdicts({ kind: "unread" })).toEqual([
+			{ kind: "inert" },
+			{ kind: "inert" },
+		]);
+		expect(
+			verdicts({ kind: "shows", value: "jr://file/commcare/image/b.png" })[0],
+		).toEqual({ kind: "inert" });
+		expect(
+			verdicts({ kind: "shows", value: "jr://file/commcare/image/a.png" })[0],
+		).toEqual({ kind: "not-yet" });
+		expect(verdicts({ kind: "read" })).toEqual([
+			{ kind: "not-yet" },
+			{ kind: "not-yet" },
+		]);
+		// A blank override is dropped by HQ's build whatever the key reads.
+		expect(
+			classifyGeneratedTranslationKeys(
+				[held("modules.m0.icon", "")],
+				TABLE,
+				() => ({
+					kind: "read",
+				}),
+			),
+		).toEqual([{ kind: "inert" }]);
 	});
 });

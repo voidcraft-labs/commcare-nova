@@ -10,6 +10,7 @@ import {
 	personasOf,
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { managedOrganizationCommitRefusal } from "@/lib/publish/managedData";
 
 /** The authored inputs shared by owner, assignment, and topology preflights. */
 export type OrganizationRuleInputs = Pick<
@@ -284,24 +285,137 @@ export function reverseHopDestinationLevelUuids(
 	return [...targets].sort();
 }
 
+/**
+ * Why one reverse owner hop is not scalar and total over `rows`, as data, so
+ * a caller that can't offer an author's remedy (a refresh of places CommCare
+ * HQ manages) can say what works there instead.
+ */
+export type ReverseLocationOwnerVerdict =
+	| { readonly kind: "level-missing" }
+	| { readonly kind: "level-owns-no-cases"; readonly level: string }
+	| { readonly kind: "no-owning-level-above"; readonly level: string }
+	| {
+			readonly kind: "ambiguous";
+			readonly level: string;
+			readonly source: OwnerVerdictLocation;
+			readonly first: OwnerVerdictLocation;
+			readonly second: OwnerVerdictLocation;
+	  }
+	| {
+			readonly kind: "outside-address-book";
+			readonly level: string;
+			readonly destination: OwnerVerdictLocation;
+			readonly persona: string;
+	  }
+	| {
+			readonly kind: "none-below";
+			readonly level: string;
+			readonly source: OwnerVerdictLocation;
+	  };
+
 /** The exact reverse-hop scalar/footprint verdict for one destination level. */
 export function reverseLocationOwnerIssue(
 	doc: OrganizationRuleInputs,
 	rows: readonly OwnerVerdictLocation[],
 	destinationLevelUuid: string,
 ): string | undefined {
+	const verdict = reverseLocationOwnerVerdict(doc, rows, destinationLevelUuid);
+	return verdict === undefined ? undefined : authorOwnerSentence(verdict);
+}
+
+/**
+ * Where CommCare HQ manages the app's places: its project space, and the live
+ * places of the copy CommCare HQ no longer has, which the copy keeps only
+ * because something in the app uses them (`hq_gone_at`).
+ */
+export interface ManagedPlacesContext {
+	readonly domain: string;
+	readonly goneIds: ReadonlySet<string>;
+}
+
+/**
+ * {@link reverseLocationOwnerIssue} for a commit or a builder check, worded
+ * for where the places are managed. An author adds or archives a place to
+ * give a source exactly one destination, and a copy CommCare HQ manages
+ * refuses both, so there the two place verdicts say what works: the place in
+ * CommCare HQ and a refresh, or, for a place CommCare HQ no longer has, what
+ * in the app uses it (Copy O24, O25).
+ */
+export function reverseLocationOwnerRefusal(
+	doc: OrganizationRuleInputs,
+	rows: readonly OwnerVerdictLocation[],
+	destinationLevelUuid: string,
+	managed: ManagedPlacesContext | undefined,
+): string | undefined {
+	const verdict = reverseLocationOwnerVerdict(doc, rows, destinationLevelUuid);
+	if (verdict === undefined) return undefined;
+	if (managed === undefined) return authorOwnerSentence(verdict);
+	const gone = (place: OwnerVerdictLocation) => managed.goneIds.has(place.id);
+	switch (verdict.kind) {
+		case "none-below":
+			return managedOrganizationCommitRefusal(
+				{
+					kind: "owner-none-below",
+					level: verdict.level,
+					source: verdict.source.name,
+					sourceKept: gone(verdict.source),
+				},
+				managed.domain,
+			);
+		case "ambiguous":
+			return managedOrganizationCommitRefusal(
+				{
+					kind: "owner-ambiguous",
+					level: verdict.level,
+					source: verdict.source.name,
+					places: [verdict.first.name, verdict.second.name],
+					kept: gone(verdict.first)
+						? verdict.first.name
+						: gone(verdict.second)
+							? verdict.second.name
+							: null,
+				},
+				managed.domain,
+			);
+		default:
+			return authorOwnerSentence(verdict);
+	}
+}
+
+function authorOwnerSentence(verdict: ReverseLocationOwnerVerdict): string {
+	switch (verdict.kind) {
+		case "level-missing":
+			return "The owner level no longer exists.";
+		case "level-owns-no-cases":
+			return `${verdict.level} does not own cases. Choose a case-owning destination level.`;
+		case "no-owning-level-above":
+			return `${verdict.level} has no case-owning level above it.`;
+		case "ambiguous":
+			return `The owner rule for ${verdict.level} is ambiguous below "${verdict.source.name}": both "${verdict.first.name}" and "${verdict.second.name}" match. Keep one live ${verdict.level.toLowerCase()} there, or choose a fixed place owner.`;
+		case "outside-address-book":
+			return `The ${verdict.level} owner rule can resolve to "${verdict.destination.name}", but that place is outside ${verdict.persona}'s address book. Widen the address book or choose a fixed place the worker carries.`;
+		case "none-below":
+			return `The owner rule for ${verdict.level} has no live ${verdict.level.toLowerCase()} below "${verdict.source.name}". Add exactly one there (include it in the same create request's descendants when adding this source), or choose a fixed place owner.`;
+	}
+}
+
+/** {@link reverseLocationOwnerIssue}'s verdict before it is worded. */
+export function reverseLocationOwnerVerdict(
+	doc: OrganizationRuleInputs,
+	rows: readonly OwnerVerdictLocation[],
+	destinationLevelUuid: string,
+): ReverseLocationOwnerVerdict | undefined {
 	const levels = organizationLevelsOf(doc);
 	const destinationLevel = levels[destinationLevelUuid];
-	if (destinationLevel === undefined)
-		return "The owner level no longer exists.";
+	if (destinationLevel === undefined) return { kind: "level-missing" };
 	if (!levelOwnsCases(destinationLevel)) {
-		return `${destinationLevel.name} does not own cases. Choose a case-owning destination level.`;
+		return { kind: "level-owns-no-cases", level: destinationLevel.name };
 	}
 	const sourceLevel = ancestorLevels(destinationLevel, levels).find(
 		levelOwnsCases,
 	);
 	if (sourceLevel === undefined) {
-		return `${destinationLevel.name} has no case-owning level above it.`;
+		return { kind: "no-owning-level-above", level: destinationLevel.name };
 	}
 	const live = rows.filter((row) => row.archivedAt === null);
 	const byId = new Map(live.map((row) => [row.id, row]));
@@ -315,7 +429,13 @@ export function reverseLocationOwnerIssue(
 		if (source === undefined) continue;
 		const first = firstBySource.get(source.id);
 		if (first !== undefined) {
-			return `The owner rule for ${destinationLevel.name} is ambiguous below "${source.name}": both "${first.name}" and "${destination.name}" match. Keep one live ${destinationLevel.name.toLowerCase()} there, or choose a fixed place owner.`;
+			return {
+				kind: "ambiguous",
+				level: destinationLevel.name,
+				source,
+				first,
+				second: destination,
+			};
 		}
 		firstBySource.set(source.id, destination);
 		for (const { persona, assigned } of assignments) {
@@ -328,14 +448,19 @@ export function reverseLocationOwnerIssue(
 				assignmentFootprintIncludes(destination, row, byId, doc),
 			);
 			if (!destinationIsReachable) {
-				return `The ${destinationLevel.name} owner rule can resolve to "${destination.name}", but that place is outside ${persona.name}'s address book. Widen the address book or choose a fixed place the worker carries.`;
+				return {
+					kind: "outside-address-book",
+					level: destinationLevel.name,
+					destination,
+					persona: persona.name,
+				};
 			}
 		}
 	}
 	for (const source of live) {
 		if (source.levelUuid !== sourceLevel.uuid) continue;
 		if (firstBySource.has(source.id)) continue;
-		return `The owner rule for ${destinationLevel.name} has no live ${destinationLevel.name.toLowerCase()} below "${source.name}". Add exactly one there (include it in the same create request's descendants when adding this source), or choose a fixed place owner.`;
+		return { kind: "none-below", level: destinationLevel.name, source };
 	}
 	return undefined;
 }

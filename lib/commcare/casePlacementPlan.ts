@@ -243,7 +243,29 @@ function buildPlan(
 			);
 		return location.path;
 	};
-	const guarded = caseScalarTextGuards(doc, formUuid);
+	// The questions whose trimmed sibling the form's source holds: those a
+	// change this plan gives an action reads a case name or an external id
+	// from (the own case's, each basic subcase's, each basic or advanced
+	// placement's), the rule `placement.ts::placedBasic` gives the XForm
+	// builder, which writes the sibling. The set every candidate gives is
+	// wider: a question a Save to Case block names a case from is in it, and
+	// a basic slot reading that question by another write would name a
+	// sibling no source holds.
+	const ownUuid = operations.find((op) => op.action === "own")?.uuid;
+	const subcaseOperations = new Set(
+		subcases.map((subcase) => subcase.operationUuid),
+	);
+	const guarded = caseScalarTextGuards(doc, formUuid, {
+		placedBasic: (operationUuid) => {
+			const kind = placements.get(operationUuid)?.placement.kind;
+			return (
+				operationUuid === ownUuid ||
+				kind === "basic" ||
+				kind === "advanced" ||
+				subcaseOperations.has(operationUuid)
+			);
+		},
+	});
 	/**
 	 * The node a basic slot names for `property`: the question, its trimmed
 	 * sibling for a case name or an external id, its date-and-time text, or

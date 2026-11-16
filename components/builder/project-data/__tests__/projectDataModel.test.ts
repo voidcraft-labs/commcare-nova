@@ -22,6 +22,7 @@ import {
 	MANAGED_TABLE_ALREADY_MATCHES,
 	MANAGED_TABLE_REFRESHED_COLUMNS,
 	MANAGED_TABLE_REFRESHED_ROWS,
+	MANAGED_TABLE_REFRESHED_SINCE,
 	managedColumnKept,
 } from "@/lib/publish/managedData";
 import {
@@ -45,6 +46,7 @@ import {
 	managedTableOutcomeLines,
 	manifestProvesTableUnavailable,
 	mergeUnavailableRowDraft,
+	readAgainAfterRefusal,
 	reconcileConflictDraft,
 	reconcileRevisionedTextDraft,
 	reconcileRowDraft,
@@ -1136,6 +1138,48 @@ describe("tables that came from CommCare HQ", () => {
 		});
 	});
 
+	describe("readAgainAfterRefusal", () => {
+		const reads = () => {
+			const read: string[] = [];
+			return {
+				read,
+				reload: async () => {
+					read.push("table");
+				},
+				reloadManifest: async () => {
+					read.push("manifest");
+				},
+			};
+		};
+
+		it("reads the table and the manifest again after a write CommCare HQ's management refused, so a stale tab stops offering edits", async () => {
+			const tab = reads();
+			await readAgainAfterRefusal(
+				{ code: "managed_in_hq" },
+				tab.reload,
+				tab.reloadManifest,
+			);
+			expect(tab.read.sort()).toEqual(["manifest", "table"]);
+		});
+
+		it("reads only the table after a conflict, and nothing after any other refusal", async () => {
+			const conflict = reads();
+			await readAgainAfterRefusal(
+				{ code: "conflict" },
+				conflict.reload,
+				conflict.reloadManifest,
+			);
+			expect(conflict.read).toEqual(["table"]);
+			const other = reads();
+			await readAgainAfterRefusal(
+				{ code: "storage_limit" },
+				other.reload,
+				other.reloadManifest,
+			);
+			expect(other.read).toEqual([]);
+		});
+	});
+
 	describe("managedTableBannerModel", () => {
 		it("offers a refresh to a connected editor, invites one with no connection to connect, and names who can for a viewer", () => {
 			const hq = origin("commcare-hq");
@@ -1185,7 +1229,7 @@ describe("tables that came from CommCare HQ", () => {
 
 	describe("managedTableOutcomeLines", () => {
 		const landed = (
-			changed: "nothing" | "rows" | "definition",
+			changed: "nothing" | "rows" | "definition" | "superseded",
 			keptGoneColumns: {
 				wireName: string;
 				apps: { appId: string; appName: string; deleted: boolean }[];
@@ -1219,6 +1263,9 @@ describe("tables that came from CommCare HQ", () => {
 			expect(
 				managedTableOutcomeLines(landed("definition"), "district-health"),
 			).toEqual({ tone: "status", lines: [MANAGED_TABLE_REFRESHED_COLUMNS] });
+			expect(
+				managedTableOutcomeLines(landed("superseded"), "district-health"),
+			).toEqual({ tone: "status", lines: [MANAGED_TABLE_REFRESHED_SINCE] });
 		});
 
 		it("names each column a refresh kept for the apps that read it, and none an app does not read", () => {

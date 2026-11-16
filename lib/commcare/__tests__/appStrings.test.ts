@@ -272,6 +272,7 @@ describe("localAppStringTable", () => {
 					}),
 					attachmentTarget: null,
 					managedLookupTables: [],
+					managedLookupWorkbooks: [],
 				},
 				TEST_RUNTIME_TARGET,
 				DERIVED_WIRE_IDENTITY,

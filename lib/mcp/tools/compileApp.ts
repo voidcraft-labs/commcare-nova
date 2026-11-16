@@ -201,7 +201,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					lookupNaming,
 					lookupWorkbook,
 					managedLookupTables,
-					managedLookupWorkbook,
+					managedLookupWorkbooks,
 				} = boundary.prepared;
 				const hasMedia = assets.size > 0;
 				const projectSpaceCompatibility =
@@ -251,7 +251,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							doc: preparedDoc,
 							assets,
 							lookupWorkbook,
-							managedLookupWorkbook,
+							managedLookupWorkbooks,
 							managedLookupTables,
 							attachmentTarget,
 							lookupNaming,
@@ -265,7 +265,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							hqJson,
 							assets,
 							lookupWorkbook,
-							managedLookupWorkbook,
+							managedLookupWorkbooks,
 							renderManualImportGuide(guide),
 						);
 						return {
