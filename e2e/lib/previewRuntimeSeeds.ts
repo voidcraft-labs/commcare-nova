@@ -1,6 +1,6 @@
 /**
- * Six running-app fixtures that only a real browser over real case rows can
- * exercise, one per smoke:
+ * Seven running-app fixtures that only a real browser over real case rows
+ * can exercise, one per smoke:
  *
  * - **form-refused**: a follow-up form whose date question preloads a case
  *   property. One record holds text that no date cast accepts, the shape an
@@ -22,6 +22,17 @@
  *   field's condition, then watches Preview's results change with the Area
  *   and Radius answers. Three sites sit about 1, 6 and 56 kilometers from
  *   the point.
+ * - **search-value-list**: a menu whose Region field matches one fixed
+ *   region and whose Age field orders ages. The journey turns the Region
+ *   value into a list of values, edits the list, and searches it in
+ *   Preview; it offers the list beside Age's ordering only disabled, with
+ *   the gate's reason. Four clients live in four regions.
+ *
+ * - **search-start-refused**: a menu whose forms read the search, whose one
+ *   Search field starts on the worker's primary place, and whose visit form
+ *   has a deep link. Opened through that link with no search behind it, the
+ *   form reads the field's starting value as a phone builds the search it
+ *   reads, and for a worker assigned nowhere a phone stops there.
  *
  * - **preview-android-media**: an app that runs only on Android whose one
  *   question's label carries an AMR recording, which only Android plays, so
@@ -44,10 +55,13 @@ import {
 } from "@/lib/domain";
 import {
 	count,
+	eq,
+	gt,
 	input,
 	literal,
 	matchAll,
 	prop,
+	sessionUser,
 	term,
 	whenInput,
 	within,
@@ -446,6 +460,108 @@ export function searchChoiceRoute(appId: string): string {
 	});
 }
 
+export const SEARCH_VALUE_LIST_SEED = {
+	appName: "Smoke — Search value list",
+	moduleUuid: testUuid("search-value-list-module"),
+	moduleName: "Clients",
+	caseType: "client",
+	columnUuid: testUuid("search-value-list-name-column"),
+	region: {
+		uuid: testUuid("search-value-list-region-input"),
+		name: "region",
+		label: "Region",
+	},
+	age: {
+		uuid: testUuid("search-value-list-age-input"),
+		name: "age",
+		label: "Age",
+	},
+	/** The region the Region field matches before the journey edits it. */
+	startRegion: "north",
+	clients: [
+		{ caseName: "Ada", region: "north", age: 30 },
+		{ caseName: "Bo", region: "south", age: 40 },
+		{ caseName: "Cy", region: "east", age: 50 },
+		{ caseName: "Di", region: "west", age: 60 },
+	],
+} as const;
+
+/** The Region field applies, once answered, "region is north"; the Age
+ * field, once answered, "age is more than 35". */
+export function buildSearchValueListBlueprint(appId: string): BlueprintDoc {
+	const seed = SEARCH_VALUE_LIST_SEED;
+	return buildDoc({
+		appId,
+		appName: seed.appName,
+		caseTypes: [
+			{
+				name: seed.caseType,
+				properties: [
+					{ name: "region", label: proseText("Region"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: seed.moduleUuid,
+				name: seed.moduleName,
+				caseType: seed.caseType,
+				caseListConfig: {
+					columns: [plainColumn(seed.columnUuid, "case_name", "Client")],
+					searchInputs: [
+						advancedSearchInputDef(
+							seed.region.uuid,
+							seed.region.name,
+							seed.region.label,
+							"text",
+							whenInput(
+								input(seed.region.uuid),
+								eq(
+									prop(seed.caseType, "region"),
+									term(literal(seed.startRegion)),
+								),
+							),
+						),
+						advancedSearchInputDef(
+							seed.age.uuid,
+							seed.age.name,
+							seed.age.label,
+							"text",
+							whenInput(
+								input(seed.age.uuid),
+								gt(prop(seed.caseType, "age"), term(literal(35))),
+							),
+						),
+					],
+				},
+				forms: [
+					{
+						name: "Visit client",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+								caseWrite: { caseType: seed.caseType, property: "note" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+export function searchValueListRoute(appId: string): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "search-config",
+		moduleUuid: SEARCH_VALUE_LIST_SEED.moduleUuid,
+	});
+}
+
 export const PREVIEW_ANDROID_MEDIA_SEED = {
 	appName: "Smoke — Android audio",
 	moduleUuid: testUuid("preview-android-media-module"),
@@ -501,5 +617,174 @@ export function previewAndroidMediaRoute(appId: string): string {
 		kind: "form",
 		moduleUuid: PREVIEW_ANDROID_MEDIA_SEED.moduleUuid,
 		formUuid: PREVIEW_ANDROID_MEDIA_SEED.formUuid,
+	});
+}
+
+export const REGISTER_FROM_LIST_SEED = {
+	appName: "Smoke — Register from list",
+	hostUuid: testUuid("register-from-list-host"),
+	hostName: "Patients",
+	registrationUuid: testUuid("register-from-list-registration"),
+	registrationName: "Registration",
+	formUuid: testUuid("register-from-list-form"),
+	formName: "Register patient",
+	caseType: "patient",
+	columnUuid: testUuid("register-from-list-name-column"),
+	/** The patient already on the device, so the list shows a row. */
+	existing: "Ada",
+	/** The patient the journey registers from the list. */
+	registered: "Kofi",
+} as const;
+
+/** `Patients` lists patients for a follow-up and offers no registration yet;
+ *  `Registration` holds the one registration form of patients, which the
+ *  journey offers on the list. */
+export function buildRegisterFromListBlueprint(appId: string): BlueprintDoc {
+	const seed = REGISTER_FROM_LIST_SEED;
+	const column = () => [plainColumn(seed.columnUuid, "case_name", "Name")];
+	return buildDoc({
+		appId,
+		appName: seed.appName,
+		caseTypes: [{ name: seed.caseType, properties: [] }],
+		modules: [
+			{
+				uuid: seed.hostUuid,
+				name: seed.hostName,
+				caseType: seed.caseType,
+				caseListConfig: { columns: column(), searchInputs: [] },
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				uuid: seed.registrationUuid,
+				name: seed.registrationName,
+				caseType: seed.caseType,
+				caseListConfig: {
+					columns: [
+						plainColumn(
+							testUuid("register-from-list-registration-name"),
+							"case_name",
+							"Name",
+						),
+					],
+					searchInputs: [],
+				},
+				forms: [
+					{
+						uuid: seed.formUuid,
+						name: seed.formName,
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: seed.caseType, property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** The host's Results canvas, where the setting lives. */
+export function registerFromListRoute(appId: string): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "cases",
+		moduleUuid: REGISTER_FROM_LIST_SEED.hostUuid,
+	});
+}
+
+export const SEARCH_START_REFUSED_SEED = {
+	appName: "Smoke — Search start refused",
+	moduleUuid: testUuid("search-start-refused-module"),
+	moduleName: "Patients",
+	formUuid: testUuid("search-start-refused-form"),
+	formName: "Visit",
+	caseType: "patient",
+	columnUuid: testUuid("search-start-refused-name-column"),
+	searchInputUuid: testUuid("search-start-refused-place-input"),
+	prompt: { name: "place", label: "Place" },
+	noteLabel: "Visit note",
+	entryPoint: {
+		uuid: testUuid("search-start-refused-entry-point"),
+		id: "visit_patient",
+	},
+	patient: { caseName: "Kofi Mensah" },
+} as const;
+
+export function buildSearchStartRefusedBlueprint(appId: string): BlueprintDoc {
+	const seed = SEARCH_START_REFUSED_SEED;
+	const doc = buildDoc({
+		appId,
+		appName: seed.appName,
+		caseTypes: [
+			{
+				name: seed.caseType,
+				properties: [
+					{ name: "note", label: proseText(seed.noteLabel), data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: seed.moduleUuid,
+				name: seed.moduleName,
+				caseType: seed.caseType,
+				caseListConfig: {
+					columns: [plainColumn(seed.columnUuid, "case_name", "Patient")],
+					searchInputs: [
+						simpleSearchInputDef(
+							seed.searchInputUuid,
+							seed.prompt.name,
+							seed.prompt.label,
+							"text",
+							"case_name",
+							// The worker's primary place, which a worker assigned
+							// nowhere holds no key for.
+							{ default: term(sessionUser("commcare_location_id")) },
+						),
+					],
+				},
+				caseSearchConfig: { formsReadSearch: true },
+				forms: [
+					{
+						uuid: seed.formUuid,
+						name: seed.formName,
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: proseText(seed.noteLabel),
+								caseWrite: { caseType: seed.caseType, property: "note" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const form = doc.forms[seed.formUuid];
+	if (form === undefined) throw new Error("The visit form is missing.");
+	doc.forms[seed.formUuid] = {
+		...form,
+		entryPoint: { uuid: seed.entryPoint.uuid, id: seed.entryPoint.id },
+	};
+	return doc;
+}
+
+/** The deep link's own page in App setup, where Preview launches it. */
+export function searchStartRefusedRoute(appId: string): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "app-setup",
+		section: "deep-links",
 	});
 }

@@ -446,6 +446,10 @@ function compiler(bindings: QueryBindings) {
 				[name === "concat" ? "parts" : "values"]: args.map(value),
 			};
 		}
+		if (name === "list") {
+			arity(name, args);
+			return { kind: "value-list", items: args.map(value) };
+		}
 		if (name === "if") {
 			arity(name, args);
 			return {

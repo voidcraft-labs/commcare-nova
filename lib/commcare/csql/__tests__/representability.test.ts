@@ -748,4 +748,29 @@ it("refuses a list compared with a date and time, which HQ matches by text", () 
 			}),
 		),
 	).toEqual([]);
+	// The builder's line names the cause, which beside "is" is never the verb.
+	const details = (predicate: Expression) =>
+		checkCsqlRepresentability(predicate, types).map((issue) => issue.details);
+	expect(details(eq(field("last_seen"), list))).toEqual([
+		{ placement: "moment", property: "last_seen" },
+	]);
+	expect(details(neq(field("status"), list))).toEqual([
+		{ placement: "anchor", property: "status" },
+	]);
+	expect(details(gt(field("visit_date"), list))).toEqual([undefined]);
+});
+
+it("refuses a case property among a list's values, which HQ's list can't hold", () => {
+	// A case read keeps the value position, where the emitter has no print
+	// for it.
+	expect(
+		issues(
+			eq(field("name"), {
+				kind: "value-list",
+				items: [term(literal("north")), term(field("nickname"))],
+			}),
+		),
+	).toEqual([
+		{ reason: "case-property-on-value-side", path: ["right", "items", 1] },
+	]);
 });

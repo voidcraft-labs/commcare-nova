@@ -136,7 +136,7 @@ export function planTileLayoutDisable(moduleUuid: Uuid): readonly Mutation[] {
 }
 
 /**
- * Keep the tile on screen above this module's forms, or stop doing so.
+ * Keep the tile on screen once its case is chosen, or stop doing so.
  *
  * `patch.tile` replaces the layout object wholesale, so this rebuilds it
  * from the current one rather than writing a bare `{ persistOnForms }`.

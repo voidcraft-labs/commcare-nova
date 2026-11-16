@@ -2,6 +2,7 @@
  * The browser adapter supplies History writes; no React state duplicates the URL. */
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import type { PreviewHeldCaseListMenu } from "@/lib/preview/menuProjection";
 import { buildUrl, parsePathToLocation } from "./location";
 import {
 	type AppSetupSection,
@@ -60,6 +61,30 @@ export interface NavigateActions {
 	 */
 	openFormLinks: (moduleUuid: Uuid, formUuid: Uuid, linkUuid?: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
+	/**
+	 * Show a Preview case list's own form menu holding its chosen cases, as an
+	 * entry of its own at the list's URL (`previewHeldMenu.ts`): pushed after
+	 * the list, or in place of the case's details the choice went through,
+	 * which a device leaves behind once the case is chosen.
+	 */
+	holdPreviewMenu: (
+		held: PreviewHeldCaseListMenu,
+		opts?: { replace?: boolean },
+	) => void;
+	/**
+	 * Reach a Preview case list's own form menu holding these cases again, from
+	 * the crumb of its case on a form chosen there: a step back where the
+	 * entry before is that menu's (the form was opened from it), otherwise the
+	 * menu on an entry of its own (`previewHeldMenu.ts`).
+	 */
+	reopenPreviewHeldMenu: (held: PreviewHeldCaseListMenu) => void;
+	/**
+	 * A screen's own Back to the screen it was opened from: a step back onto
+	 * that screen's entry where it is the one behind this, otherwise `next`
+	 * in place of this entry (`useClientPath.ts::stepBackToBuilderEntry`).
+	 * `leave` lets go of what the screen held, as the move happens.
+	 */
+	stepBackTo: (next: Location, leave: () => void) => void;
 	back: () => void;
 	up: () => void;
 }
@@ -77,7 +102,13 @@ export interface NavigationPort {
 	getPathname(): string;
 	getSegments(): string[];
 	getDoc(): BlueprintDoc;
-	write(url: string, replace?: boolean): void;
+	write(
+		url: string,
+		replace?: boolean,
+		heldMenu?: PreviewHeldCaseListMenu,
+	): void;
+	reopenHeldMenu(url: string, heldMenu: PreviewHeldCaseListMenu): void;
+	stepBackTo(url: string, leave: () => void): void;
 	back(): void;
 }
 
@@ -156,6 +187,25 @@ export function createNavigateActions(port: NavigationPort): NavigateActions {
 			}),
 		openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 			push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
+		holdPreviewMenu: (held, opts) =>
+			port.write(
+				buildUrl(getBasePath(), {
+					kind: "cases",
+					moduleUuid: held.moduleUuid,
+				}),
+				opts?.replace,
+				held,
+			),
+		reopenPreviewHeldMenu: (held) =>
+			port.reopenHeldMenu(
+				buildUrl(getBasePath(), {
+					kind: "cases",
+					moduleUuid: held.moduleUuid,
+				}),
+				held,
+			),
+		stepBackTo: (next, leave) =>
+			port.stepBackTo(buildUrl(getBasePath(), next), leave),
 		back: () => port.back(),
 		up: () => {
 			const current = parsePathToLocation(port.getSegments(), port.getDoc());

@@ -26,7 +26,7 @@ import {
 	organizationLevelSchema,
 } from "./organization";
 import { PLATFORMS } from "./platforms";
-import { proseTemplateSchema } from "./prose";
+import { catalogProseTemplateSchema } from "./prose";
 import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
@@ -49,11 +49,13 @@ export {
 
 export const casePropertySchema = z.strictObject({
 	name: authoredCasePropertyNameSchema,
-	label: proseTemplateSchema,
+	label: catalogProseTemplateSchema,
 	data_type: casePropertyDataTypeSchema.optional(),
-	hint: proseTemplateSchema.optional(),
+	hint: catalogProseTemplateSchema.optional(),
 	options: z
-		.array(z.strictObject({ value: z.string(), label: proseTemplateSchema }))
+		.array(
+			z.strictObject({ value: z.string(), label: catalogProseTemplateSchema }),
+		)
 		.optional(),
 });
 export type CaseProperty = z.infer<typeof casePropertySchema>;

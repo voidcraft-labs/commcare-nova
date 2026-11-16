@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 
 interface AskQuestionsInput {
 	header: string;
@@ -65,7 +66,7 @@ export function AskQuestionsCard({
 	 */
 	const questionIds = useRef<string[]>([]);
 	while (questionIds.current.length < questions.length) {
-		questionIds.current.push(crypto.randomUUID());
+		questionIds.current.push(uuidv4());
 	}
 
 	/** Apply an answer keyed by the current question index. Questions are

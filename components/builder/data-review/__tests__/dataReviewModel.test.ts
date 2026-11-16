@@ -182,24 +182,25 @@ describe("replacementDraftToValue", () => {
 		});
 	});
 
-	it("stamps a datetime with the editing viewer's own offset", () => {
-		// Not `Z`: the device stamps the zone the answer was entered in
-		// (`DateTimeData::uncast`), and the viewer-local `format-date` reads
-		// the value back the same way. A value put back here has to land on
-		// the same instant as the identical value entered through a form.
+	it("saves a datetime as the moment's stored text, read in the editing viewer's zone", () => {
+		// The wall clock is the viewer's, as a form answer's is, and the case
+		// holds the text a submitted form writes: CommCare HQ's UTC spelling,
+		// never the viewer's offset. A value put back here lands on the same
+		// moment, in the same text, as the identical value entered through a
+		// form.
 		expect(
 			replacementDraftToValue(
 				"datetime",
 				"2026-07-20T09:30",
 				"America/New_York",
 			),
-		).toEqual({ ok: true, value: "2026-07-20T09:30:00.000-04:00" });
+		).toEqual({ ok: true, value: "2026-07-20T13:30:00.000000Z" });
 	});
 
 	it("reads a datetime as UTC when no viewer zone is supplied", () => {
 		expect(replacementDraftToValue("datetime", "2026-07-20T09:30")).toEqual({
 			ok: true,
-			value: "2026-07-20T09:30:00.000Z",
+			value: "2026-07-20T09:30:00.000000Z",
 		});
 	});
 
@@ -226,7 +227,7 @@ describe("replacementDraftToValue", () => {
 		});
 		expect(replacementDraftToValue("datetime", "2026-07-20T2:05 pm")).toEqual({
 			ok: true,
-			value: "2026-07-20T14:05:00.000Z",
+			value: "2026-07-20T14:05:00.000000Z",
 		});
 	});
 

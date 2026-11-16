@@ -64,7 +64,7 @@ import {
 } from "@/lib/domain/expression/jsonSchema";
 import type { RelationPath } from "@/lib/domain/expression/types";
 import {
-	storageDatetimeValue,
+	caseDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
@@ -5236,12 +5236,14 @@ function normalizeValueForType(
 			};
 		}
 		case "datetime": {
-			// UTC, because a migration has no viewer whose zone could
-			// stand in for the device's. The value being cast is stored
-			// text with no zone of its own, so any other reading would be
-			// invented — and one that varied by whoever triggered the
-			// migration would make the same row convert differently.
-			return { ok: true, value: storageDatetimeValue(stringValue, "UTC") };
+			// The text CommCare HQ stores for the moment, as every writer of
+			// a case's date and time writes it. UTC, because a migration has
+			// no viewer whose zone could stand in for the device's. The value
+			// being cast is stored text with no zone of its own, so any other
+			// reading would be invented, and one that varied by whoever
+			// triggered the migration would make the same row convert
+			// differently.
+			return { ok: true, value: caseDatetimeValue(stringValue, "UTC") };
 		}
 		case "multi_select": {
 			if (Array.isArray(value)) {

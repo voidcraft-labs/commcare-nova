@@ -1,5 +1,11 @@
 import type { AppTestScope } from "@/lib/db/appTests";
-import { caseListRegistrationFormOf } from "@/lib/domain";
+import {
+	afterEmptySearchRegistrationFormOf,
+	alwaysOfferedRegistrationOf,
+	type Form,
+	moduleUuidOfForm,
+	type Uuid,
+} from "@/lib/domain";
 import { caseListRegistrationAdmission } from "../caseListRegistration";
 import { readCases } from "../engine/caseDataBindingHelpers";
 import {
@@ -7,6 +13,7 @@ import {
 	serverRecordsRead,
 } from "../engine/serverSearchRead";
 import type { AppTestContext } from "./context";
+import { readingSurface } from "./dataRefusal";
 import { AppTestActionError } from "./errors";
 import type { AppTestSessionState } from "./types";
 
@@ -47,21 +54,26 @@ export async function prepareAppTestRecords(
 		throw new AppTestActionError("Open a record list first.");
 	const registeredCaseId =
 		answers === undefined ? screen.registeredCaseId : undefined;
-	const { search, searched, read, refusal } = await serverRecordsRead(
-		appTestSearchWorld(context, scope, state),
-		{
-			moduleUuid: screen.moduleUuid,
-			submitted: screen.searchAnswers,
-			entry: screen.searchEntry,
-			answers,
-			registeredCaseId,
-		},
-		(reason) =>
-			new AppTestActionError(
-				reason === "parent-required"
-					? "Select the required parent record first."
-					: "This menu has no record list.",
-			),
+	/* The Search evaluation names its own reads' surfaces (the Search
+	 * action's condition the list's, the Search screen's the search's); what
+	 * is left is the Results read, the list's, as Preview shows it. */
+	const { search, searched, read, refusal } = await readingSurface("list", () =>
+		serverRecordsRead(
+			appTestSearchWorld(context, scope, state),
+			{
+				moduleUuid: screen.moduleUuid,
+				submitted: screen.searchAnswers,
+				entry: screen.searchEntry,
+				answers,
+				registeredCaseId,
+			},
+			(reason) =>
+				new AppTestActionError(
+					reason === "parent-required"
+						? "Select the required parent record first."
+						: "This menu has no record list.",
+				),
+		),
 	);
 	const next = {
 		...state,
@@ -94,11 +106,13 @@ export async function appTestRecords(
 				} as const)
 			: read === undefined
 				? undefined
-				: await readCases(context.store, {
-						...read,
-						page: { offset: screen.offset ?? 0, limit: 50 },
-					});
-	const candidateUuid = caseListRegistrationFormOf(
+				: await readingSurface("list", () =>
+						readCases(context.store, {
+							...read,
+							page: { offset: screen.offset ?? 0, limit: 50 },
+						}),
+					);
+	const candidateUuid = afterEmptySearchRegistrationFormOf(
 		context.doc,
 		screen.moduleUuid,
 	);
@@ -132,6 +146,37 @@ export async function appTestRecords(
 		search,
 		searched,
 		result,
-		registration: admission.kind === "admitted" ? candidate : undefined,
+		registration:
+			admission.kind === "admitted" && candidate !== undefined
+				? {
+						form: candidate,
+						moduleUuid: screen.moduleUuid,
+						arm: "after-empty-search",
+					}
+				: alwaysOfferedRegistrationForm(context, screen.moduleUuid),
 	};
+}
+
+/** A registration a records screen offers: the form, the menu that holds
+ *  it, and the arm that offers it. */
+export interface AppTestRecordsRegistration {
+	readonly form: Form;
+	readonly moduleUuid: Uuid;
+	readonly arm: "after-empty-search" | "always";
+}
+
+/** The form the host's list always offers, on every read of its records,
+ *  with no search and no admission to pass: the Register action shows
+ *  wherever the list shows, and the form opens in its own menu. */
+function alwaysOfferedRegistrationForm(
+	context: AppTestContext,
+	hostModuleUuid: Uuid,
+): AppTestRecordsRegistration | undefined {
+	const slot = alwaysOfferedRegistrationOf(context.doc, hostModuleUuid);
+	if (slot === undefined) return undefined;
+	const form = context.doc.forms[slot.formUuid];
+	const moduleUuid = moduleUuidOfForm(context.doc, slot.formUuid);
+	return form === undefined || moduleUuid === undefined
+		? undefined
+		: { form, moduleUuid, arm: "always" };
 }

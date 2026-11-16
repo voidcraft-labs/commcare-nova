@@ -11,12 +11,16 @@
 // Each rule below states what HQ's build does with the short detail Nova
 // sends. Citations are HQ's (`corehq/apps/app_manager`) and commcare-core's.
 //
-//   1. Fields. Every column of the Results sequence is a field of the short
-//      detail, a column hidden from Results included: HQ stores it as an
-//      `invisible` column, a field at width 0 (`detail_screen.py::Invisible`,
-//      `HideShortColumn`). In a list with a tile layout a column hidden from
-//      Results is no field: its order rule rides as a sort row with no stored
-//      column (rule 4, exception iii), so no Case List save can give it a cell.
+//   1. Fields. Every column of the Results sequence that is on the list is a
+//      field of the short detail, a column hidden from Results included: HQ
+//      stores it as an `invisible` column, a field at width 0
+//      (`detail_screen.py::Invisible`, `HideShortColumn`). In a list with a
+//      tile layout a column hidden from Results is no field: its order rule
+//      rides as a sort row with no stored column (rule 4, exception iii), so
+//      no Case List save can give it a cell. A column that is not on the list
+//      (`notOnList`, `modules.ts::columnOnList`) is no field in either layout
+//      and has no rule: the case's detail alone holds it, so no device
+//      matches it when a worker filters the list.
 //
 //   2. Wire class and join text. A `property` field's HQ `field` is a
 //      property name that `detail_screen.py::PropertyXpathGenerator.xpath`
@@ -34,7 +38,8 @@
 //      `invisible` have none.
 //
 //   4. Authored rules become sort elements, in priority order, ties by
-//      Results position. A rule on a property field is a property element; a
+//      Results position. A column that is not on the list gives no rule (its
+//      `sort` is refused, `CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`). A rule on a property field is a property element; a
 //      rule on an expression field is the positional `_cc_calculated_<i>`
 //      (`util.py::get_sort_and_sort_only_columns`, which raises for a
 //      positional element on a column that is not an expression). Exceptions:
@@ -71,9 +76,11 @@
 //      key over an integer or decimal value; every rule 3 key is text
 //      (`sort_node` writes `SORT_TYPE`, `string`, on its first branch).
 //
-//   9. Blanks. First for ascending, last for descending, on every rule
-//      (`static/app_manager/js/details/bootstrap5/sort_rows.js`); Core places a
-//      blank by `blanks` whatever the direction
+//   9. Blanks. The rule's own, which follows its direction where the author
+//      says nothing: first ascending, last descending, HQ's sort rows' own
+//      default (`static/app_manager/js/details/bootstrap5/sort_rows.js`). The
+//      implicit rule is ascending with blanks first. Core places a blank by
+//      `blanks` whatever the direction
 //      (commcare-core `cases/entity/EntitySorter.getCmp`).
 
 import type { CasePropertyDataType } from "./casePropertyTypes";
@@ -81,9 +88,13 @@ import type { ScalarType } from "./expression/typeChecker";
 import {
 	type CaseListConfig,
 	type Column,
+	columnOnList,
+	defaultSortBlanks,
 	imageMapShowsImages,
 	orderedColumns,
+	type SortBlanks,
 	type SortDirection,
+	sortBlanks,
 } from "./modules";
 import { ATTRIBUTE_BACKED_COLUMN_PROPERTIES } from "./standardCaseProperties";
 import type { Uuid } from "./uuid";
@@ -123,8 +134,8 @@ export interface CaseListOrderRule {
 	/** 1-based. */
 	readonly order: number;
 	readonly direction: SortDirection;
-	/** First when ascending, last when descending. */
-	readonly blanks: "first" | "last";
+	/** The rule's own (rule 9). */
+	readonly blanks: SortBlanks;
 	/** The rule of a list with no authored rule (rule 7). */
 	readonly implicit: boolean;
 	/** HQ JSON writes it as a sort element. */
@@ -248,6 +259,7 @@ interface Pending {
 	/** Position in the rule sequence. */
 	readonly sequence: number;
 	readonly direction: SortDirection;
+	readonly blanks: SortBlanks;
 	readonly implicit: boolean;
 	readonly written: boolean;
 	readonly element: CaseListOrderElement;
@@ -264,7 +276,8 @@ interface Pending {
  *
  * Total: every document has a plan, a document the validator refuses
  * included. A tile list's hidden order rule on a calculated column or on a
- * column over `case_id` has no element and takes no part in the order.
+ * column over `case_id` has no element and takes no part in the order, and
+ * neither does a rule on a column that is not on the list.
  */
 export function caseListOrderPlan(
 	config: CaseListConfig,
@@ -280,6 +293,7 @@ export function caseListOrderPlan(
 	// Rules 1 to 3: the fields, their wire class, join text and resting key.
 	const fields: FieldDraft[] = [];
 	for (const column of results) {
+		if (!columnOnList(column)) continue;
 		const hidden = column.visibleInList === false;
 		if (tiled && hidden) continue;
 		fields.push(fieldDraft(column, fields.length, hidden));
@@ -405,7 +419,7 @@ export function caseListOrderPlan(
 	// Rule 4: authored rules, in priority order, ties by Results position.
 	const authoredColumns = results
 		.map((column, index) => ({ column, index }))
-		.filter(({ column }) => column.sort !== undefined)
+		.filter(({ column }) => column.sort !== undefined && columnOnList(column))
 		.sort((a, b) => {
 			const ap = a.column.sort?.priority ?? 0;
 			const bp = b.column.sort?.priority ?? 0;
@@ -420,6 +434,7 @@ export function caseListOrderPlan(
 		const base = {
 			sequence: pending.length,
 			direction: sort.direction,
+			blanks: sortBlanks(sort),
 			implicit: false,
 			written: true,
 			authoredOn: column,
@@ -467,6 +482,7 @@ export function caseListOrderPlan(
 		pending.push({
 			sequence: 0,
 			direction: "asc",
+			blanks: defaultSortBlanks("asc"),
 			implicit: true,
 			written: target.position !== 0,
 			element:
@@ -519,7 +535,7 @@ export function caseListOrderPlan(
 	const finalRule = (rule: Pending): CaseListOrderRule => ({
 		order: orderOf.get(rule) ?? 0,
 		direction: rule.direction,
-		blanks: rule.direction === "asc" ? "first" : "last",
+		blanks: rule.blanks,
 		implicit: rule.implicit,
 		written: rule.written,
 		element: rule.element,

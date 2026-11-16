@@ -116,6 +116,49 @@ app stream as a migration so open clients reload. The production sequence is:
 read-only scan, dry run in the write-capable deployment environment, reviewed
 `--execute`, then the read-only scan again with zero references.
 
+## Undeclared worker-field repair
+
+The checker refuses two worker reads by name: a read from the session of a
+field that is neither built in nor declared by the app as a worker property
+(`undeclared-worker-field`), and a read, from the session or the worker's
+record (`#user/`, a text's worker reference), of a slug the app declares
+(`worker-property-read-by-name`). A saved app holding either fails the
+whole-document gate until it is repaired. The scan and the writer ask one
+finder, which walks the whole saved document, translations and automations
+included. The writer declares each undeclared field as a worker property
+`{ uuid, slug, label: slug }` (uuid derived from the app and the slug) and
+rebinds every read by name of a declared slug to the property's identity,
+which prints the same path; a translation that was current is rewritten with
+its text and stays current:
+
+```bash
+# Read-only inventory. `--prod` uses the read-only gcloud IAM connection.
+npx tsx --conditions=react-server scripts/scan-undeclared-worker-fields.ts --prod
+
+# Dry run: plans each app and proves it from a read-only snapshot (the
+# production commit gate with no finding, and the HQ import file and every
+# .ccz entry byte for byte unchanged). Prints app ids and counts only.
+npx tsx --conditions=react-server scripts/migrate-undeclared-worker-fields.ts --prod
+
+# Writes each proved app in its own transaction.
+npx tsx --conditions=react-server scripts/migrate-undeclared-worker-fields.ts --execute
+
+# Required postcondition: no app holds the read.
+npx tsx --conditions=react-server scripts/scan-undeclared-worker-fields.ts --prod
+```
+
+Use `--app <appId>` to constrain either command. The writer locks each app,
+skips one a run holds or one edited since its plan (reported, never
+overwritten), plans again from the locked document, and writes one
+`blueprint-migration` batch by `system:undeclared-worker-fields` through the
+durable change log, so open builders reload. A second run finds nothing. An
+app it cannot prove is reported by id with a reason code and left as it is
+(for example `stale-translation-read`, a read in a translation that is out of
+date, or `slug-collides`, a field named like a declared slug but for its
+capitals). The human `--prod` identity is read-only, so a production write
+needs a write-capable identity; it is the repo owner's decision. Both scripts
+are removed once the repair has run.
+
 ## Reviewed-build cutover repair
 
 The reviewed-build runtime reads only design-session-backed build lineage.

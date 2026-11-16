@@ -160,7 +160,7 @@ describe("setCaseSearchDisplay", () => {
 	it("turns an owner-only config into explicit Search when the action's condition is set", async () => {
 		const baseDoc = makeCaseSearchDoc();
 		const owner = term({ kind: "literal", value: "owner-a" });
-		const supervisor = eq(sessionUser("role"), literal("supervisor"));
+		const supervisor = eq(sessionUser("user_type"), literal("supervisor"));
 		const mod = baseDoc.modules[MOD_A];
 		if (mod?.caseListConfig === undefined) {
 			throw new Error("fixture must carry a case-list config");

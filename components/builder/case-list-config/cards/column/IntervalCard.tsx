@@ -229,12 +229,14 @@ function slotsFrom(value: Extract<Column, { kind: "interval" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	notOnList?: typeof value.notOnList;
 	tile?: typeof value.tile;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		notOnList: value.notOnList,
 		tile: value.tile,
 	};
 }

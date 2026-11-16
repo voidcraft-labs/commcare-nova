@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { previewLeafAsksParentCase } from "@/lib/preview/engine/parentCaseSelection";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -10,8 +11,9 @@ import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDevi
 import {
 	previewMenuCaseContext,
 	previewModuleVisibility,
+	previewRoutingModuleVisibility,
 } from "@/lib/preview/menuProjection";
-import { locationToPreviewScreen } from "@/lib/preview/screenProjection";
+import { previewRunningScreenForLocation } from "@/lib/preview/screenProjection";
 import type { Location } from "@/lib/routing/types";
 import {
 	useEditMode,
@@ -53,12 +55,15 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const moduleVisibility = useMemo(
 		() =>
-			previewModuleVisibility(menuSource.doc, {
-				authoring: mode === "edit" || bypass,
-				session,
-				lookup,
-				deviceCases,
-			}),
+			previewRoutingModuleVisibility(
+				menuSource.doc,
+				previewModuleVisibility(menuSource.doc, {
+					authoring: mode === "edit" || bypass,
+					session,
+					lookup,
+					deviceCases,
+				}),
+			),
 		[lookup, menuSource, mode, session, bypass, deviceCases],
 	);
 	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
@@ -71,6 +76,10 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 		loc.kind !== "module-condition"
 			? loc.moduleUuid
 			: undefined;
+	const leafFormUuid = "formUuid" in loc ? loc.formUuid : undefined;
+	/* A leaf whose entry chooses the parent case enters through its module,
+	 * which asks for it; a registration or a survey opens without one
+	 * (`parentCaseSelection.ts::previewLeafAsksParentCase`). */
 	const requiredCaseAdmissionModuleUuid = useMemo(() => {
 		if (continuesExistingTask) return undefined;
 		if (directRunningModuleUuid === undefined) return undefined;
@@ -78,11 +87,17 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 			menuSource,
 			directRunningModuleUuid,
 			menuCaseSelections,
-		).requiredParentCase
+		).requiredParentCase &&
+			previewLeafAsksParentCase(
+				menuSource.doc,
+				directRunningModuleUuid,
+				leafFormUuid,
+			)
 			? directRunningModuleUuid
 			: undefined;
 	}, [
 		directRunningModuleUuid,
+		leafFormUuid,
 		menuCaseSelections,
 		menuSource,
 		continuesExistingTask,
@@ -90,19 +105,25 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 
 	return useMemo(
 		() =>
-			locationToPreviewScreen(
+			previewRunningScreenForLocation({
 				loc,
+				mode,
+				doc: menuSource.doc,
 				moduleOrder,
-				menuSource.modules,
+				modules: menuSource.modules,
 				formOrder,
 				moduleVisibility,
-				requiredCaseAdmissionModuleUuid,
+				...(requiredCaseAdmissionModuleUuid !== undefined && {
+					requiredCaseAdmissionModuleUuid,
+				}),
 				continuesExistingTask,
-			),
+			}),
 		[
 			loc,
+			mode,
 			moduleOrder,
 			menuSource.modules,
+			menuSource.doc,
 			formOrder,
 			moduleVisibility,
 			requiredCaseAdmissionModuleUuid,

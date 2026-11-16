@@ -45,6 +45,7 @@
  * a rose-tree built at construction time — see `fieldTree.ts`.
  */
 
+import { v4 as uuidv4 } from "uuid";
 import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
@@ -756,6 +757,10 @@ export class EngineController {
 	/** A selected persona disappeared. Never fall through to anonymous form
 	 * execution while the user is deciding which identity to use instead. */
 	private previewIdentityBlocked = false;
+	/** The session is still waiting for its worker
+	 *  (`identity.ts::awaitsPreviewIdentity`): a requested entry is held until
+	 *  it arrives. Session-scoped like the identity. */
+	private previewIdentityPending = false;
 	/** The device Preview runs on (`previewDevice.ts`), installed by the
 	 *  running shell from the session store; an engine input beside the
 	 *  identity. `undefined` until installed: an engine then plays the
@@ -1606,47 +1611,52 @@ export class EngineController {
 
 	/**
 	 * Install the resolved preview identity. A materially different
-	 * identity rebuilds any active engine so every computed value agrees
-	 * on one evaluation world — identity is engine-lifetime state, not an
-	 * incremental input. A re-derived-but-identical identity (session
-	 * refetches mint new object references) is a no-op, so entered
-	 * preview values survive it.
+	 * identity starts any active entry anew (a new entry key, no answer
+	 * kept), so every computed value agrees on one evaluation world —
+	 * identity is engine-lifetime state, not an incremental input, and never
+	 * takes the same-entry rebuild (`rebuildActiveForm`). A
+	 * re-derived-but-identical identity (session refetches mint new object
+	 * references) is a no-op, so entered preview values survive it.
 	 *
-	 * Values typed under the ANONYMOUS world survive an arriving
-	 * identity: the cold session resolving after form activation is the
-	 * same human finishing their answers, not a persona switch, so the
-	 * rebuild restores user-touched values through the engine's shared
-	 * snapshot/restore path (identity-backed reads still re-evaluate).
-	 * Replacing a non-null identity discards — a sign-out or a different
-	 * worker is a different evaluation world, and restoring would leak
-	 * one worker's entries into another's session.
+	 * Replacing an identity discards: a sign-out or a different worker is a
+	 * different evaluation world, and restoring would leak one worker's
+	 * entries into another's session. A first identity is no exception:
+	 * the engine provider and the standalone harnesses install the session
+	 * through `installSessionIdentity`, which holds each entry until the
+	 * worker arrives, so a first identity finds no live entry there; on a
+	 * controller that never installs one, the answers its entries took with
+	 * no worker are not the arriving worker's.
 	 */
 	setPreviewIdentity(identity: ResolvedPreviewIdentity | null): void {
 		if (samePreviewIdentity(this.previewIdentity, identity)) {
 			this.previewIdentity = identity;
 			return;
 		}
-		const coldIdentityArrival =
-			this.previewIdentity === null && identity !== null;
 		this.previewIdentity = identity;
 		const formUuid = this.activeFormUuid;
-		if (formUuid !== undefined) {
-			if (coldIdentityArrival) {
-				if (this.xpathRuntime) {
-					this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
-						() => undefined,
-					);
-				} else this.rebuildActiveForm(formUuid, this.activeCaseData);
-			} else {
-				// A different concrete worker (or sign-out) is a new answer world,
-				// not a same-entry rebuild. Rotate the capture namespace with it.
-				if (this.xpathRuntime) {
-					this.activateFormAsync(formUuid, this.activeCaseData).catch(
-						() => undefined,
-					);
-				} else this.activateForm(formUuid, this.activeCaseData);
+		if (formUuid === undefined) {
+			/* An entry refused as it opened read the previous worker's session:
+			 * this worker's can hold what it lacked, so it opens again, as a new
+			 * entry. One refused at its links stays: its form is saved. */
+			if (this.formRefusal !== undefined) {
+				this.reopenRefusedEntry();
+				return;
 			}
+			/* A rebuild waiting for lookup data resumes the same entry with its
+			 * answers, which belong to the previous worker: this one starts
+			 * anew. */
+			const wait = this.lookupWait;
+			if (wait?.resume !== undefined)
+				this.lookupWait = { formUuid: wait.formUuid };
+			return;
 		}
+		// A different worker (or sign-out) is a new answer world, not a
+		// same-entry rebuild. Rotate the capture namespace with it.
+		if (this.xpathRuntime) {
+			this.activateFormAsync(formUuid, this.activeCaseData).catch(
+				() => undefined,
+			);
+		} else this.activateForm(formUuid, this.activeCaseData);
 	}
 
 	/**
@@ -1702,7 +1712,7 @@ export class EngineController {
 	}
 
 	/** The install id of a controller no shell has given a device. */
-	private readonly defaultAndroidDeviceId = crypto.randomUUID();
+	private readonly defaultAndroidDeviceId = uuidv4();
 
 	/** The rules of the platform the controller's entries play, for the
 	 *  worker requests it makes outside a form engine (Search screen checks
@@ -1716,6 +1726,75 @@ export class EngineController {
 				undefined,
 			);
 		return previewPlatformRules(platform);
+	}
+
+	/**
+	 * Install whether the session is still waiting for its worker: the
+	 * signed-in member's session has not resolved, so the session is not yet
+	 * the worker's (`identity.ts::awaitsPreviewIdentity`). While it waits no
+	 * entry opens, since a form that reads a worker key would read it against
+	 * a session holding none and show the refusal a device shows for a worker
+	 * who lacks it. A requested entry is held, as one waiting for the
+	 * device's cases is, and opens once the worker arrives; an entry already
+	 * open ends with the session it read, and opens again the same way.
+	 */
+	setPreviewIdentityPending(pending: boolean): void {
+		if (this.previewIdentityPending === pending) return;
+		this.previewIdentityPending = pending;
+		if (pending) {
+			const refusal = this.formRefusal;
+			if (refusal?.kind === "data" && refusal.stage === "links") return;
+			this.clearLookupWait();
+			this.clearRefusal();
+			this.runtimeFault = undefined;
+			this.clearActiveForm();
+			this.publishEntryState();
+			return;
+		}
+		const requested = this.requestedActivation;
+		if (
+			requested === undefined ||
+			this.engine !== undefined ||
+			this.formRefusal !== undefined ||
+			this.lookupWait !== undefined
+		)
+			return;
+		if (this.xpathRuntime) {
+			this.activateFormAsync(
+				requested.formUuid,
+				requested.caseData,
+				requested.caseDatabase,
+				requested.searchAnswers,
+				requested.session,
+			).catch(() => undefined);
+		} else
+			this.activateForm(
+				requested.formUuid,
+				requested.caseData,
+				requested.caseDatabase,
+				requested.searchAnswers,
+				requested.session,
+			);
+	}
+
+	/**
+	 * Install the signed-in member's session as the running app's: their
+	 * resolved identity, or `null` while their session has not resolved, when
+	 * the session is still waiting for its worker and every entry is held
+	 * (`setPreviewIdentityPending`). The order keeps an entry from opening
+	 * against a session that is not the worker's: a session that stops
+	 * resolving holds the entry before the identity goes, and an arriving one
+	 * installs the identity before the held entry opens. The engine provider
+	 * and the standalone field harnesses install their session here.
+	 */
+	installSessionIdentity(identity: ResolvedPreviewIdentity | null): void {
+		if (identity === null) {
+			this.setPreviewIdentityPending(true);
+			this.setPreviewIdentity(null);
+			return;
+		}
+		this.setPreviewIdentity(identity);
+		this.setPreviewIdentityPending(false);
 	}
 
 	/** Suspend form execution while a selected persona cannot be resolved. */
@@ -1953,16 +2032,17 @@ export class EngineController {
 		this.runtimeFault = undefined;
 		this.clearRefusal();
 		if (
-			caseDatabase === undefined &&
-			this.caseDatabaseGate.required &&
-			this.caseDatabaseGate.status !== "ready"
+			this.previewIdentityPending ||
+			(caseDatabase === undefined &&
+				this.caseDatabaseGate.required &&
+				this.caseDatabaseGate.status !== "ready")
 		) {
 			this.clearActiveForm();
 			this.publishEntryState();
 			return;
 		}
 		this.contain("activate", formUuid, undefined, () => {
-			this.mountForm(formUuid, caseData, crypto.randomUUID(), caseDatabase);
+			this.mountForm(formUuid, caseData, uuidv4(), caseDatabase);
 		});
 	}
 
@@ -2003,9 +2083,10 @@ export class EngineController {
 		this.runtimeFault = undefined;
 		this.clearRefusal();
 		if (
-			caseDatabase === undefined &&
-			this.caseDatabaseGate.required &&
-			this.caseDatabaseGate.status !== "ready"
+			this.previewIdentityPending ||
+			(caseDatabase === undefined &&
+				this.caseDatabaseGate.required &&
+				this.caseDatabaseGate.status !== "ready")
 		) {
 			this.clearActiveForm();
 			this.publishEntryState();
@@ -2014,7 +2095,7 @@ export class EngineController {
 		return this.mountFormAsync(
 			formUuid,
 			caseData,
-			crypto.randomUUID(),
+			uuidv4(),
 			undefined,
 			caseDatabase,
 		);
@@ -2054,7 +2135,7 @@ export class EngineController {
 			return this.mountFormAsync(
 				formUuid,
 				caseData,
-				previousEntryKey ?? crypto.randomUUID(),
+				previousEntryKey ?? uuidv4(),
 				checkpoint ? { checkpoint, preserveAllValues } : undefined,
 				this.caseDatabaseOverrideFor(formUuid),
 			);
@@ -2313,15 +2394,22 @@ export class EngineController {
 	}
 
 	/**
-	 * Rebuild the same live entry after cold identity/lookup/case context arrives.
-	 * The answer world may be reconstructed, but the upload namespace must not
-	 * rotate underneath already staged captures.
+	 * Rebuild the same live entry when context it already runs in changes:
+	 * lookup data or case context arriving, the case database, the worker
+	 * language, the session's device naming a different install id, or an
+	 * edit to the form's type, case type, case selection or worker
+	 * properties. The answer world may be
+	 * reconstructed, but the upload namespace must not rotate underneath
+	 * already staged captures. An identity never takes this path: a different
+	 * worker, a first one included, starts the entry anew
+	 * (`setPreviewIdentity`).
 	 */
 	rebuildActiveForm(
 		formUuid: Uuid,
 		caseData?: CaseDataByType,
 		preserveAllValues = false,
 	): void {
+		if (this.previewIdentityPending) return;
 		if (this.deferCaseDatabaseRebuild(formUuid, caseData)) return;
 		if (this.runtimeFault?.formUuid === formUuid) return;
 		this.runtimeFault = undefined;
@@ -2330,7 +2418,7 @@ export class EngineController {
 			const entryKey =
 				this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
 					? this.currentEntryKey
-					: crypto.randomUUID();
+					: uuidv4();
 			const checkpoint = (
 				this.retainedPresentation?.engine ?? this.engine
 			)?.entryCheckpoint();
@@ -2432,12 +2520,13 @@ export class EngineController {
 
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
-		// The Web Crypto GLOBAL, not `node:crypto`. This controller runs in
-		// the browser, where importing `node:crypto` resolves to a shim whose
-		// `randomUUID` is undefined — so the import form throws here at
-		// runtime while typechecking and every node/jsdom test passes, both
-		// of which have a real `crypto`. `lib/doc/scaffolds.ts` mints uuids
-		// the same way for the same reason.
+		// Entry keys come from `uuid`, never `node:crypto` nor the Web
+		// Crypto `randomUUID`. This controller runs in the browser, where
+		// importing `node:crypto` resolves to a shim whose `randomUUID` is
+		// undefined, and where a page served over plain http on a LAN address
+		// has no `crypto.randomUUID` either; both throw only at runtime, while
+		// typechecking and every node/jsdom test pass. `uuid` draws on
+		// `crypto.getRandomValues`, which every browsing context holds.
 		this.currentEntryKey = entryKey;
 
 		const mod = s.modules[moduleUuid];
@@ -2647,7 +2736,7 @@ export class EngineController {
 			this.mountForm(
 				formUuid,
 				this.activeCaseData,
-				crypto.randomUUID(),
+				uuidv4(),
 				this.caseDatabaseOverrideFor(formUuid),
 			);
 			return this.currentEntryKey;
@@ -2657,7 +2746,7 @@ export class EngineController {
 	async restartActiveEntryAsync(): Promise<string | undefined> {
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return undefined;
-		const entryKey = crypto.randomUUID();
+		const entryKey = uuidv4();
 		return (await this.mountFormAsync(
 			formUuid,
 			this.activeCaseData,
@@ -2737,10 +2826,14 @@ export class EngineController {
 		 * different instance. FormScreen also makes controls inert for this
 		 * window; this imperative guard closes the event/render race. */
 		if (this.atomicRevisionsPending > 0) return undefined;
-		engine.setValue(path, value);
-		this.pendingValuePaths.add(path);
+		const stored = engine.setValue(path, value);
+		/* An answer the platform's number keypad refused is shown with its
+		 * message and changes nothing the form reads, so it stages nothing and
+		 * opens no request (Web Apps' `PhoneEntry` sends Formplayer nothing). */
+		if (stored) this.pendingValuePaths.add(path);
 		this.syncPathsToStore([path]);
-		if (this.xpathRuntime === undefined) return Promise.resolve(true);
+		if (!stored || this.xpathRuntime === undefined)
+			return Promise.resolve(true);
 		return this.runAsyncRevision(
 			"value-change",
 			formUuid,

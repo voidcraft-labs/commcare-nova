@@ -60,7 +60,7 @@ import {
 	prop,
 	relationStep,
 	sessionContext,
-	sessionUser,
+	sessionUserProperty,
 	term,
 	today,
 	whenInput,
@@ -193,7 +193,10 @@ export function csqlComposition() {
 		),
 		rule(
 			"in_my_region",
-			eq(prop(VISIT, "region"), term(sessionUser("region"))),
+			eq(
+				prop(VISIT, "region"),
+				term(sessionUserProperty(uuid("worker-region"))),
+			),
 		),
 		rule("near_in_yards", within(gps, center, 250, "yards")),
 		// A worker types a number of meters, and the prompt keeps back anything else.
@@ -343,6 +346,14 @@ export function csqlComposition() {
 			built.modules[members].parentModuleUuid = households;
 		},
 	);
+	// The condition reads the worker's region, a worker property the app
+	// declares, which the setup list a publish shows names for someone to add
+	// on CommCare HQ.
+	const regionProperty = uuid("worker-region");
+	doc.userProperties = {
+		[regionProperty]: { uuid: regionProperty, slug: "region", label: "Region" },
+	};
+	doc.userPropertyOrder = [regionProperty];
 	// Two households in two villages, each with a member and a visit in its
 	// own village and one in the other's.
 	const household = (id: string, village: string) => ({

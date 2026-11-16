@@ -9,6 +9,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	blueprintDocSchema,
+	entryPointInventory,
 	moduleFormsReadSearch,
 	moduleSearchWorkflow,
 } from "@/lib/domain";
@@ -32,13 +33,17 @@ import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildPreviewAndroidMediaBlueprint,
+	buildRegisterFromListBlueprint,
 	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
+	buildSearchStartRefusedBlueprint,
+	buildSearchValueListBlueprint,
 	HERE_COLUMN_SEED,
 	SEARCH_CHOICE_SEED,
 	SEARCH_CLAIM_SEED,
 	SEARCH_RESULTS_SEED,
+	SEARCH_START_REFUSED_SEED,
 } from "./previewRuntimeSeeds";
 
 const APP_ID = "5f3c1d2e-8a4b-4c6d-9e0f-1a2b3c4d5e6f";
@@ -49,7 +54,10 @@ describe("Preview runtime smoke seeds", () => {
 		["here-column", buildHereColumnBlueprint],
 		["search-claim", buildSearchClaimBlueprint],
 		["search-results", buildSearchResultsBlueprint],
+		["search-start-refused", buildSearchStartRefusedBlueprint],
 		["search-choice", buildSearchChoiceBlueprint],
+		["search-value-list", buildSearchValueListBlueprint],
+		["register-from-list", buildRegisterFromListBlueprint],
 	])("%s is a persistable app with no validator findings", (_name, build) => {
 		const doc = build(APP_ID);
 		const persistable = toPersistableDoc(doc);
@@ -109,6 +117,24 @@ describe("Preview runtime smoke seeds", () => {
 		const [formUuid] = doc.formOrder[SEARCH_RESULTS_SEED.moduleUuid] ?? [];
 		if (formUuid === undefined) throw new Error("form missing");
 		expect(formReadsSearchResults(doc, formUuid)).toBe(true);
+	});
+
+	it("deep-links the visit form of a menu whose forms read the search", () => {
+		const seed = SEARCH_START_REFUSED_SEED;
+		const doc = buildSearchStartRefusedBlueprint(APP_ID);
+		const module = doc.modules[seed.moduleUuid];
+		if (module === undefined) throw new Error("module missing");
+		expect(moduleFormsReadSearch(module)).toBe(true);
+		expect(entryPointInventory(doc)).toEqual([
+			{
+				target: {
+					kind: "form",
+					moduleUuid: seed.moduleUuid,
+					formUuid: seed.formUuid,
+				},
+				entryPoint: seed.entryPoint,
+			},
+		]);
 	});
 });
 

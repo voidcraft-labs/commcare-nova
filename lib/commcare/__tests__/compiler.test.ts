@@ -607,9 +607,9 @@ describe("a survey menu's case type on the local path", () => {
 });
 
 describe("a module's display condition on the local path", () => {
-	const supervisor = eq(sessionUser("role"), literal("supervisor"));
+	const supervisor = eq(sessionUser("user_type"), literal("supervisor"));
 	const role =
-		"instance('commcaresession')/session/user/data/role = 'supervisor'";
+		"instance('commcaresession')/session/user/data/user_type = 'supervisor'";
 	function menuOf(change: (doc: BlueprintDoc) => void) {
 		const doc = buildDoc({
 			appName: "Conditions",

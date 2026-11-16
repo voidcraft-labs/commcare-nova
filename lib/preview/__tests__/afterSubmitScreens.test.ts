@@ -1,0 +1,316 @@
+/**
+ * Where Preview lands a worker when a menu shows its forms in the menu above:
+ * a link's target read through the screens Formplayer's frame walk passes, a
+ * frame read back to a screen that exists, and an entry point's off-the-menu
+ * refusal. Each runs the production model over documents built by
+ * `buildDoc`; none renders a screen.
+ */
+import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { projectPreviousTask } from "@/lib/commcare";
+import {
+	formFrameChildren,
+	formLinkProjectionContext,
+	moduleFrameChildren,
+} from "@/lib/commcare/formLinkProjection";
+import type { BlueprintDoc, ResolvedFormLinkTarget } from "@/lib/domain";
+import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import {
+	afterSubmitRoute,
+	afterSubmitTargetVisibility,
+	screenOfFrame,
+} from "../afterSubmitRouting";
+import { WEB_APPS_RULES } from "../engine/__tests__/fixtures/previewDevices";
+import type { CaseRow } from "../engine/caseDataBindingTypes";
+import {
+	previousTaskDestination,
+	resolvePreviousTask,
+} from "../engine/previousTask";
+import { moduleEntriesOffTheMenu } from "../entryPointLaunch";
+import { previewCaseFirstModuleUuids } from "../menuProjection";
+
+const PARENT = testUuid("parent");
+const ABOVE = testUuid("above");
+const OWN = testUuid("own-screen");
+const PARENT_FORM = testUuid("parent-form");
+const ABOVE_FORM = testUuid("above-form");
+const OWN_FORM = testUuid("own-form");
+
+function followUp(uuid: string, name: string) {
+	return {
+		uuid,
+		name,
+		type: "followup" as const,
+		fields: [f({ kind: "text", id: "notes" })],
+	};
+}
+
+/** A top-level household menu holding two submenus: one that shows its forms
+ *  on the household screen, one that keeps its own screen. */
+function nested(): BlueprintDoc {
+	const doc = buildDoc({
+		caseTypes: [{ name: "household", properties: [] }],
+		modules: [
+			{
+				uuid: "parent",
+				name: "Households",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [followUp("parent-form", "Visit household")],
+			},
+			{
+				uuid: "above",
+				name: "Members",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [followUp("above-form", "Check members")],
+			},
+			{
+				uuid: "own-screen",
+				name: "Water",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [followUp("own-form", "Check water")],
+			},
+		],
+	});
+	doc.modules[ABOVE].parentModuleUuid = PARENT;
+	doc.modules[ABOVE].formsInMenuAbove = true;
+	doc.modules[OWN].parentModuleUuid = PARENT;
+	return doc;
+}
+
+function household(caseId: string): CaseRow {
+	return {
+		case_id: caseId,
+		app_id: "app",
+		case_type: "household",
+		owner_id: "worker",
+		status: "open",
+		opened_on: new Date("2026-09-01"),
+		modified_on: new Date("2026-10-01"),
+		closed_on: null,
+		case_name: caseId,
+		external_id: null,
+		parent_case_id: null,
+		properties: {},
+	};
+}
+
+const SESSION = { context: {}, user: {}, userPropertySlugs: {} };
+
+function visibilityOf(doc: BlueprintDoc, target: ResolvedFormLinkTarget) {
+	return afterSubmitTargetVisibility({
+		doc,
+		target,
+		session: SESSION,
+		lookup: { kind: "idle" },
+		deviceCases: { snapshot: null, caseTypes: doc.caseTypes ?? [] },
+		caseSelections: [],
+	});
+}
+
+// Formplayer's frame walk fails on a screen whose menu or form condition
+// reads a worker-data key the session lacks (a place key of a worker
+// assigned nowhere): Preview's walk reads that condition as hidden, so it
+// stops on the screen that lists the item, which reads the same condition
+// and shows the refusal there, rather than throwing out of the save.
+describe("after submit to a target whose condition reads a place the worker lacks", () => {
+	const placed = () =>
+		eq(sessionUser("commcare_location_id"), literal("place-north"));
+	it("stops on the screen that lists a menu or a form that refuses, and opens where the worker has the place", () => {
+		const menu = nested();
+		menu.modules[OWN].displayCondition = placed();
+		const ownTarget = { type: "module", moduleUuid: OWN } as const;
+		expect(visibilityOf(menu, ownTarget)).toEqual({
+			kind: "module-hidden",
+			shownModuleUuid: PARENT,
+		});
+		const form = nested();
+		form.forms[PARENT_FORM].displayCondition = placed();
+		const formTarget = {
+			type: "form",
+			moduleUuid: PARENT,
+			formUuid: PARENT_FORM,
+		} as const;
+		expect(visibilityOf(form, formTarget)).toEqual({
+			kind: "form-hidden",
+			shownModuleUuid: PARENT,
+		});
+		const atNorth = {
+			...SESSION,
+			user: {
+				commcare_location_id: "place-north",
+				commcare_location_ids: "place-north",
+				commcare_primary_case_sharing_id: "place-north",
+			},
+		};
+		expect(
+			afterSubmitTargetVisibility({
+				doc: menu,
+				target: ownTarget,
+				session: atNorth,
+				lookup: { kind: "idle" },
+				deviceCases: { snapshot: null, caseTypes: menu.caseTypes ?? [] },
+				caseSelections: [],
+			}),
+		).toBe("shown");
+	});
+});
+
+describe("after submit with forms in the menu above", () => {
+	it("lands a link to a hidden form of a submenu shown above on the screen that lists it", () => {
+		const doc = nested();
+		doc.modules[ABOVE].displayCondition = eq(literal("a"), literal("b"));
+		const target = {
+			type: "form",
+			moduleUuid: ABOVE,
+			formUuid: ABOVE_FORM,
+		} as const;
+		const visibility = visibilityOf(doc, target);
+		expect(visibility).toEqual({
+			kind: "form-in-hidden-module",
+			shownModuleUuid: PARENT,
+		});
+		expect(
+			afterSubmitRoute({
+				sourceFormUuid: PARENT_FORM,
+				rules: WEB_APPS_RULES,
+				targetVisibility: () => visibility,
+				choice: {
+					kind: "destination",
+					index: 0,
+					link: { uuid: testUuid("lnk"), target },
+				},
+				doc,
+				caseFirstModules: previewCaseFirstModuleUuids(doc),
+				caseSelections: () => [],
+				carriedCase: () => ({ kind: "none" }),
+			}),
+		).toMatchObject({ kind: "module", moduleUuid: PARENT });
+	});
+
+	it("opens a form of a submenu that keeps its screen under a top-level menu above that is off the menu", () => {
+		const doc = nested();
+		doc.modules[PARENT].formsInMenuAbove = true;
+		doc.modules[PARENT].hiddenFromMenu = true;
+		const target = {
+			type: "form",
+			moduleUuid: OWN,
+			formUuid: OWN_FORM,
+		} as const;
+		/* The submenu lists on the first menu by its own condition alone. */
+		const visibility = visibilityOf(doc, target);
+		expect(visibility).toBe("shown");
+		expect(
+			afterSubmitRoute({
+				sourceFormUuid: PARENT_FORM,
+				rules: WEB_APPS_RULES,
+				targetVisibility: () => visibility,
+				choice: {
+					kind: "destination",
+					index: 0,
+					link: { uuid: testUuid("lnk"), target },
+				},
+				doc,
+				caseFirstModules: previewCaseFirstModuleUuids(doc),
+				caseSelections: () => [],
+				carriedCase: () => ({ kind: "none" }),
+			}),
+		).toMatchObject({ kind: "form", moduleUuid: OWN, formUuid: OWN_FORM });
+		/* Its parent's forms are off the menu; its own are not. */
+		expect(moduleEntriesOffTheMenu(doc, PARENT)).toBe(true);
+		expect(moduleEntriesOffTheMenu(doc, OWN)).toBe(false);
+		expect(moduleEntriesOffTheMenu(doc, ABOVE)).toBe(true);
+	});
+
+	it("takes a submenu off with a parent that keeps its screen", () => {
+		const doc = nested();
+		doc.modules[PARENT].hiddenFromMenu = true;
+		expect(moduleEntriesOffTheMenu(doc, OWN)).toBe(true);
+		expect(moduleEntriesOffTheMenu(doc, ABOVE)).toBe(true);
+		expect(
+			visibilityOf(doc, { type: "form", moduleUuid: OWN, formUuid: OWN_FORM }),
+		).toEqual({ kind: "form-in-hidden-module", shownModuleUuid: null });
+	});
+
+	it("reads every frame back to a screen that exists", () => {
+		const doc = nested();
+		const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+		const toAbove = screenOfFrame(ctx, moduleFrameChildren(doc, ctx, ABOVE));
+		expect(toAbove.screen).toEqual({ kind: "menu", moduleUuid: PARENT });
+		const toAboveForm = screenOfFrame(
+			ctx,
+			formFrameChildren(doc, ctx, ABOVE, ABOVE_FORM),
+		);
+		expect(toAboveForm).toMatchObject({
+			screen: { kind: "menu", moduleUuid: PARENT },
+			formUuid: ABOVE_FORM,
+		});
+		const toOwn = screenOfFrame(ctx, moduleFrameChildren(doc, ctx, OWN));
+		expect(toOwn.screen).toEqual({ kind: "menu", moduleUuid: OWN });
+		expect(screenOfFrame(ctx, [])).toEqual({
+			screen: { kind: "first-menu" },
+			selectingModuleUuids: [],
+		});
+	});
+
+	it("lands the preceding task of a form shown above on the screen that lists it, with its case kept", () => {
+		const doc = nested();
+		const destination = previousTaskDestination(
+			doc,
+			ABOVE_FORM,
+			projectPreviousTask(doc, ABOVE_FORM),
+		);
+		expect(destination).toEqual({ kind: "menu", moduleUuid: PARENT });
+		const task = resolvePreviousTask({
+			doc,
+			formUuid: ABOVE_FORM,
+			submittedCaseIds: ["house-a"],
+			selections: {
+				[PARENT]: { caseType: "household", cases: [{ caseId: "house-a" }] },
+			},
+			caseDatabase: { rows: [household("house-a")], indices: [] },
+		});
+		expect(task.destination).toEqual(destination);
+		expect(
+			Object.values(task.selections).map((selection) =>
+				selection.cases.map((choice) => choice.caseId),
+			),
+		).toEqual([["house-a"]]);
+	});
+
+	it("reopens the form's own case list where the screen above lists forms first", () => {
+		const doc = nested();
+		doc.forms[PARENT_FORM].type = "survey";
+		const destination = previousTaskDestination(
+			doc,
+			ABOVE_FORM,
+			projectPreviousTask(doc, ABOVE_FORM),
+		);
+		expect(destination).toMatchObject({
+			kind: "record-selection",
+			moduleUuid: ABOVE,
+			formUuid: ABOVE_FORM,
+		});
+	});
+
+	it("lands a top-level menu shown above on the first menu", () => {
+		const doc = nested();
+		doc.modules[PARENT].formsInMenuAbove = true;
+		const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+		for (const moduleUuid of [PARENT, ABOVE])
+			expect(
+				screenOfFrame(ctx, moduleFrameChildren(doc, ctx, moduleUuid)).screen,
+			).toEqual({ kind: "first-menu" });
+		/* A frame through the first menu holds no menu screen to keep. */
+		expect(previewCaseFirstModuleUuids(doc).has(PARENT)).toBe(false);
+	});
+});

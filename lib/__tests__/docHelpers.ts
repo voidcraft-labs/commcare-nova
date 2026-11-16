@@ -35,6 +35,7 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppSettings,
 	type BlueprintDoc,
+	BUILT_IN_USER_PROPERTY_SLUGS,
 	type CaseOperation,
 	type CaseProperty,
 	type CaseType,
@@ -64,9 +65,11 @@ import {
 	type FormStructure,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
-import type {
-	Expression,
-	ExpressionSlotRef,
+import {
+	type Expression,
+	type ExpressionSlotRef,
+	isProseSlotRef,
+	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
@@ -118,12 +121,21 @@ export function f(spec: FieldSpec): FieldSpec {
 	return spec;
 }
 
+/** A field's text as a fixture writes it: a calculated value's expression
+ *  may be form text, which `resolveDocExpressions` parses in its prose slot. */
+export type FixtureProseTemplate = {
+	parts: (
+		| Exclude<ProseTemplate["parts"][number], { kind: "value" }>
+		| { kind: "value"; expression: Expression | string }
+	)[];
+};
+
 /** A spec for a single field (possibly with nested children). */
 export type FieldSpec = {
 	kind: FieldKind;
 	id: string;
 	uuid?: string;
-	label?: string | ProseTemplate;
+	label?: string | ProseTemplate | FixtureProseTemplate;
 	children?: FieldSpec[];
 	[key: string]: unknown;
 };
@@ -287,6 +299,113 @@ export interface DocSpec {
 	 * `appSettings` is used as given. */
 	appSettings?: AppSettings;
 	modules?: ModuleSpec[];
+	/** Worker properties the app declares, by slug, each labelled with its
+	 *  slug and given the identity `testUuid("worker-<slug>")`. A fixture
+	 *  whose expressions read a worker field from the session declares it, as
+	 *  the gate asks (`undeclared-worker-field`). */
+	workerProperties?: readonly string[];
+}
+
+/** The identity `DocSpec.workerProperties` gives a declared slug. */
+export function workerPropertyUuid(slug: string): Uuid {
+	return testUuid(`worker-${slug}`);
+}
+
+/**
+ * Declare as a worker property every worker field `doc`'s expressions read
+ * by name from the session and the document does not declare yet, and read
+ * each declared one by its identity, so a generated fixture holds only reads
+ * Nova's gate admits (`undeclared-worker-field`,
+ * `worker-property-read-by-name`). The worker's record and CommCare's
+ * built-in keys need no declaration.
+ */
+export function declareSessionWorkerFields(doc: BlueprintDoc): void {
+	const declared = new Set(
+		Object.values(doc.userProperties ?? {}).map((property) => property.slug),
+	);
+	const fields = new Set<string>();
+	const visit = (value: unknown): void => {
+		if (Array.isArray(value)) {
+			for (const item of value) visit(item);
+			return;
+		}
+		if (typeof value !== "object" || value === null) return;
+		const node = value as Record<string, unknown>;
+		if (
+			node.kind === "session-user" &&
+			node.source === undefined &&
+			typeof node.field === "string" &&
+			!BUILT_IN_USER_PROPERTY_SLUGS.has(node.field) &&
+			!declared.has(node.field)
+		)
+			fields.add(node.field);
+		for (const child of Object.values(node)) visit(child);
+	};
+	visit([doc.modules, doc.forms, doc.fields]);
+	if (fields.size > 0) declareWorkerProperties(doc, [...fields].sort());
+	else bindDeclaredWorkerReads(doc);
+}
+
+/** Declare each slug as a worker property of `doc` after the slugs it
+ *  already declares, as `DocSpec.workerProperties` does at build. */
+export function declareWorkerProperties(
+	doc: BlueprintDoc,
+	slugs: readonly string[],
+): void {
+	doc.userProperties = {
+		...doc.userProperties,
+		...Object.fromEntries(
+			slugs.map((slug) => [
+				workerPropertyUuid(slug),
+				{ uuid: workerPropertyUuid(slug), slug, label: slug },
+			]),
+		),
+	};
+	doc.userPropertyOrder = [
+		...(doc.userPropertyOrder ?? []),
+		...slugs.map(workerPropertyUuid),
+	];
+	bindDeclaredWorkerReads(doc);
+}
+
+/**
+ * Rebind every read of a declared worker property by its name (the
+ * name-backed `session-user` leaf, from the session or the worker's record)
+ * to the property's identity, `session-user-property`, as the parser binds
+ * the same text and as the gate asks (`worker-property-read-by-name`). Both
+ * leaves print the same path.
+ */
+export function bindDeclaredWorkerReads(doc: BlueprintDoc): void {
+	const bySlug = new Map(
+		Object.values(doc.userProperties ?? {}).map((property) => [
+			property.slug,
+			property.uuid,
+		]),
+	);
+	if (bySlug.size === 0) return;
+	const visit = (value: unknown): void => {
+		if (Array.isArray(value)) {
+			for (const item of value) visit(item);
+			return;
+		}
+		if (typeof value !== "object" || value === null) return;
+		const node = value as Record<string, unknown>;
+		const uuid =
+			node.kind === "session-user" && typeof node.field === "string"
+				? bySlug.get(node.field)
+				: undefined;
+		if (uuid !== undefined) {
+			const source = node.source;
+			delete node.field;
+			delete node.source;
+			node.kind = "session-user-property";
+			node.userPropertyUuid = uuid;
+			if (source !== undefined) node.source = source;
+			return;
+		}
+		for (const child of Object.values(node)) visit(child);
+	};
+	visit([doc.modules, doc.forms, doc.fields]);
 }
 
 type FixtureProse = string | ProseTemplate;
@@ -429,6 +548,8 @@ export function buildDoc(
 		fieldOrder,
 		fieldParent: {},
 	};
+	if (spec.workerProperties !== undefined)
+		declareWorkerProperties(doc, spec.workerProperties);
 	configure?.(doc);
 	rebuildFieldParent(doc);
 	addOwnCases(doc);
@@ -436,6 +557,7 @@ export function buildDoc(
 	// datum projection reads while it resolves the fixture's text.
 	lowerCaseWrites(doc, caseWrites);
 	resolveDocExpressions(doc);
+	bindDeclaredWorkerReads(doc);
 	if (spec.appSettings === undefined) declareContentPlatforms(doc);
 	return doc;
 }
@@ -761,7 +883,9 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 	const pending = new Map<string, { ref: ExpressionSlotRef; source: string }>();
 	for (const owner of owners) {
 		rewriteExpressionSlotValues(doc, owner, (value, ref) => {
-			if (typeof value === "string")
+			// A calculated value in prose is no slot another expression reads;
+			// each is parsed in its prose slot after the slots are resolved.
+			if (typeof value === "string" && !isProseSlotRef(ref))
 				pending.set(expressionSlotKey(ref), { ref, source: value });
 			return value;
 		});
@@ -862,13 +986,28 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 	}
 	for (const { ref } of pending.values()) read(ref);
 	for (const owner of owners)
-		rewriteExpressionSlotValues(doc, owner, (value, ref) =>
-			typeof value === "string" ? resolved.get(expressionSlotKey(ref)) : value,
-		);
+		rewriteExpressionSlotValues(doc, owner, (value, ref) => {
+			if (typeof value !== "string") return value;
+			if (!isProseSlotRef(ref)) return resolved.get(expressionSlotKey(ref));
+			const form = [...structures.values()].find((candidate) =>
+				candidate.fields.has(ref.uuid),
+			);
+			const parsed = parseFormExpression(value, {
+				doc: parsingDoc,
+				slot: ref,
+				lookup: "unavailable",
+				...(form === undefined ? {} : { form }),
+			});
+			if (!parsed.ok || parsed.expression === undefined)
+				throw new Error(
+					`Fixture calculated value in ${expressionSlotKey(ref)} does not parse: ${parsed.ok ? "it is empty" : parsed.issues.map((issue) => issue.message).join("\n")}`,
+				);
+			return parsed.expression;
+		});
 	return doc;
 }
 
-function isFormLinkSlot(ref: ExpressionSlotRef): boolean {
+function isFormLinkSlot(ref: SlotContextRef): ref is ExpressionSlotRef {
 	return (
 		ref.entity === "form" &&
 		(ref.slot === "form_link_condition" || ref.slot === "form_link_datum_xpath")
@@ -919,7 +1058,8 @@ function installFields(
 		// Hidden has no `label`, and a section's title is optional (absent =
 		// untitled, the canonical state) — omit it when the caller does too.
 		if (label !== undefined) {
-			base.label = fixtureProse(label);
+			// A calculated value written as form text is parsed after assembly.
+			base.label = fixtureProse(label as FixtureProse);
 		} else if (kind !== "hidden" && kind !== "section") {
 			base.label = proseText(id);
 		}

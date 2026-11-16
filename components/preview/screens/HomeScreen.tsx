@@ -14,6 +14,7 @@ import {
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PreviewSetupNotice } from "@/components/builder/PreviewSetupNotice";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
+import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { Badge } from "@/components/shadcn/badge";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
@@ -27,10 +28,13 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
+	formLaunch,
+	type MenuScreen,
 	makeTranslationUnitId,
-	moduleIsBareCaseList,
 	moduleLanding,
 } from "@/lib/domain";
+import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
+import type { NavigationItemVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -38,11 +42,17 @@ import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDevi
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
+	authoringScreenEntries,
+	menuScreenEntryKey,
 	moduleHasChildren,
 	OFF_THE_MENU_SUMMARY,
+	previewCaseListMenuEntry,
+	previewHiddenScreenEntries,
 	previewMenuCaseContext,
-	previewMenuModuleUuids,
-	previewModuleVisibility,
+	previewModuleOwnVisibility,
+	previewModuleScreenIsBareCaseList,
+	previewScreenEntries,
+	previewScreenEntryVisibility,
 } from "@/lib/preview/menuProjection";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -53,10 +63,17 @@ import {
 	usePreviewDevice,
 	usePreviewMenuCaseSelections,
 	usePreviewPlatformRules,
+	useSetPreviewCaseTarget,
 	useSetPreviewParentCaseRequest,
 } from "@/lib/session/hooks";
 import { DeviceHomeScreen } from "./DeviceHomeScreen";
-import { openModuleLanding } from "./moduleLanding";
+import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
+import { choosePreviewMenuTile } from "./moduleScreenNavigation";
+
+const FIRST_MENU: MenuScreen = { kind: "first-menu" };
+/** No entry's place, while the screen shows a refusal in place of its list. */
+const NO_ENTRY_VISIBILITY: ReadonlyMap<string, NavigationItemVisibility> =
+	new Map();
 
 /** The app's home: Android's device home screen while Preview running as
  *  Android is there, else the module list. Edit mode always shows the
@@ -89,10 +106,21 @@ function ModuleListHome() {
 	const menuSource = usePreviewMenuSource();
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
-	const modules = useMemo(() => {
-		const roots = new Set(previewMenuModuleUuids(menuSource, null));
-		return orderedModules.filter((mod) => roots.has(mod.uuid));
-	}, [menuSource, orderedModules]);
+	const setPreviewCaseTarget = useSetPreviewCaseTarget();
+	/* The first menu lists, in place, the forms and case lists of every menu
+	 * that shows its forms there; edit mode keeps every top-level menu as the
+	 * container of its forms. */
+	const entries = useMemo(
+		() =>
+			mode === "edit"
+				? authoringScreenEntries(menuSource.doc, FIRST_MENU)
+				: previewScreenEntries(menuSource.doc, FIRST_MENU),
+		[menuSource.doc, mode],
+	);
+	const modulesByUuid = useMemo(
+		() => new Map(orderedModules.map((mod) => [mod.uuid, mod] as const)),
+		[orderedModules],
+	);
 	/* Case-first modules (every form case-loading) land on the case list,
 	 * not a form menu: the running app hoists the shared case selection. */
 	const caseFirstModules = useCaseFirstModuleUuids();
@@ -116,35 +144,84 @@ function ModuleListHome() {
 	 * (`<menu relevant>`); edit mode ("authoring surfaces never hide")
 	 * shows everything. Hidden modules stay reachable through the reveal
 	 * affordance below: ghosted, with each condition's summary. */
-	const moduleVisibility = useMemo(() => {
-		return previewModuleVisibility(menuSource.doc, {
-			authoring: mode === "edit",
+	const ownModuleVisibility = useMemo(
+		() =>
+			previewModuleOwnVisibility(menuSource.doc, {
+				authoring: mode === "edit",
+				session,
+				lookup,
+				deviceCases,
+			}),
+		[mode, session, lookup, menuSource, deviceCases],
+	);
+	/* Each entry's place on the running menu: a tile by its menu's tile
+	 * visibility; a form or case list row by the menus whose condition it
+	 * carries, then a form by its own condition. The first menu chooses no
+	 * case, so a form condition reads the session alone. */
+	/* A condition the screen reads over data the device lacks (a worker key
+	 * the worker has none of, a table with no rows) is Core's refusal of the
+	 * whole screen, which takes the list's place (`readPreviewScreen`). */
+	const screenRead = useMemo(
+		() =>
+			readPreviewScreen(() =>
+				previewScreenEntryVisibility({
+					doc: menuSource.doc,
+					entries,
+					ownModuleVisibility,
+					authoring: mode === "edit",
+					session,
+					lookup,
+					deviceCases,
+					selectedCaseOf: () => undefined,
+				}),
+			),
+		[
+			entries,
+			ownModuleVisibility,
+			menuSource,
+			mode,
 			session,
 			lookup,
 			deviceCases,
-		});
-	}, [mode, session, lookup, menuSource, deviceCases]);
-	const hiddenModules = useMemo(
+		],
+	);
+	const entryVisibility =
+		screenRead.kind === "read" ? screenRead.value : NO_ENTRY_VISIBILITY;
+	const hiddenEntries = useMemo(
 		() =>
-			modules
-				.filter((mod) => moduleVisibility.get(mod.uuid) === "hidden")
-				.map((mod) => ({
-					key: mod.uuid,
-					name:
-						(localizedValues.get(
-							makeTranslationUnitId("module", mod.uuid, "name"),
-						) as string | undefined) ?? mod.name,
-					summary:
-						mod.hiddenFromMenu === true
-							? OFF_THE_MENU_SUMMARY
-							: summarizeFilter(mod.displayCondition, {
-									...(mod.caseType !== undefined && {
-										currentCaseType: mod.caseType,
-									}),
-									projectProse,
+			previewHiddenScreenEntries({
+				doc: menuSource.doc,
+				entries,
+				visibility: entryVisibility,
+				ownModuleVisibility,
+				name: (entry) =>
+					(localizedValues.get(
+						entry.kind === "form"
+							? makeTranslationUnitId("form", entry.formUuid, "name")
+							: makeTranslationUnitId("module", entry.moduleUuid, "name"),
+					) as string | undefined) ??
+					(entry.kind === "form"
+						? menuSource.forms[entry.formUuid]?.name
+						: menuSource.modules[entry.moduleUuid]?.name) ??
+					"",
+				summary: (owner) =>
+					owner.hiddenFromMenu === true
+						? OFF_THE_MENU_SUMMARY
+						: summarizeFilter(owner.displayCondition, {
+								...(owner.caseType !== undefined && {
+									currentCaseType: owner.caseType,
 								}),
-				})),
-		[modules, moduleVisibility, projectProse, localizedValues],
+								projectProse,
+							}),
+			}),
+		[
+			entries,
+			entryVisibility,
+			menuSource,
+			ownModuleVisibility,
+			localizedValues,
+			projectProse,
+		],
 	);
 
 	/* Forward the gated dispatch's outcome: a refused rename keeps the
@@ -159,6 +236,13 @@ function ModuleListHome() {
 	);
 
 	if (!hasData) return null;
+	if (screenRead.kind === "refused")
+		return (
+			<PreviewDataRefusalPanel
+				surface="menu"
+				reason={screenRead.refusal.reason}
+			/>
+		);
 
 	const canEdit = mode === "edit" && isReady;
 
@@ -192,18 +276,85 @@ function ModuleListHome() {
 			</div>
 			{mode !== "edit" && <PreviewSetupNotice />}
 			<div className="grid gap-3">
-				{modules.map((mod, mIdx) => {
+				{entries.map((entry, mIdx) => {
+					const key = menuScreenEntryKey(entry);
+					const visibility = entryVisibility.get(key) ?? "shown";
+					if (visibility === "hidden") return null;
+					if (visibility === "pending") {
+						return (
+							<Skeleton
+								key={key}
+								className={
+									entry.kind === "menu"
+										? "h-[74px] w-full rounded-xl"
+										: "h-[58px] w-full rounded-lg"
+								}
+							/>
+						);
+					}
+					if (entry.kind === "form") {
+						const form = menuSource.forms[entry.formUuid];
+						if (form === undefined) return null;
+						return (
+							<PreviewFormRow
+								key={key}
+								form={form}
+								index={mIdx}
+								label={
+									(localizedValues.get(
+										makeTranslationUnitId("form", form.uuid, "name"),
+									) as string | undefined) ?? form.name
+								}
+								onClick={() => {
+									/* The first menu chooses no case: a form that opens one
+									 * opens its own menu's case list first. */
+									const launch = formLaunch({
+										formType: form.type,
+										moduleHasCaseType:
+											menuSource.modules[entry.moduleUuid]?.caseType !==
+											undefined,
+									});
+									if (launch.kind === "select-case-first") {
+										setPreviewCaseTarget({ formUuid: form.uuid });
+										navigate.openCaseList(entry.moduleUuid);
+									} else {
+										setPreviewCaseTarget(undefined);
+										navigate.openForm(entry.moduleUuid, form.uuid);
+									}
+								}}
+							/>
+						);
+					}
+					if (entry.kind === "case-list") {
+						const caseList = previewCaseListMenuEntry(
+							menuSource.doc,
+							entry.moduleUuid,
+							{ isCaseFirst: false, hasSelectedCase: false },
+						);
+						if (caseList === undefined) return null;
+						return (
+							<PreviewCaseListRow
+								key={key}
+								entry={caseList}
+								index={mIdx}
+								label={
+									(localizedValues.get(caseList.labelUnitId) as
+										| string
+										| undefined) ?? caseList.label
+								}
+								onClick={() => {
+									setPreviewCaseTarget(undefined);
+									navigate.openCaseList(entry.moduleUuid);
+								}}
+							/>
+						);
+					}
+					const mod = modulesByUuid.get(entry.moduleUuid);
+					if (mod === undefined) return null;
 					const localizedModuleName =
 						(localizedValues.get(
 							makeTranslationUnitId("module", mod.uuid, "name"),
 						) as string | undefined) ?? mod.name;
-					const visibility = moduleVisibility.get(mod.uuid) ?? "shown";
-					if (visibility === "hidden") return null;
-					if (visibility === "pending") {
-						return (
-							<Skeleton key={mod.uuid} className="h-[74px] w-full rounded-xl" />
-						);
-					}
 					const formCount = menuFormCounts[mod.uuid] ?? 0;
 					const hasChildren = moduleHasChildren(menuSource, mod.uuid);
 					const menuCaseContext = previewMenuCaseContext(
@@ -221,39 +372,41 @@ function ModuleListHome() {
 								duration: 0.3,
 								ease: [0.16, 1, 0.3, 1],
 							}}
-							onClick={() => {
-								if (menuCaseContext.requiredParentCase) {
-									setPreviewParentCaseRequest({
-										selectingModuleUuid:
-											menuCaseContext.requiredParentCase.moduleUuid,
-										returnModuleUuids: [mod.uuid],
+							onClick={() =>
+								/* A menu that asks for its parent case before it lists
+								 * its screen opens the parent's list; otherwise
+								 * case-first modules land on the case list (the running
+								 * app hoists the shared case selection), and a bare case
+								 * list (its case list menu entry and no forms) has no
+								 * form menu at all, so it too opens straight to its case
+								 * list. `moduleLanding` is the one rule, shared with a
+								 * form's after-submit link to a module, and
+								 * `choosePreviewMenuTile` the one tile, shared with a
+								 * menu's submenus. */
+								choosePreviewMenuTile(
+									{
+										setPreviewCaseTarget,
+										setPreviewParentCaseRequest,
+										navigate,
+									},
+									{
+										source: menuSource,
+										moduleUuid: mod.uuid,
+										selections: menuCaseSelections,
 										cancelLocation: { kind: "home" },
-									});
-									navigate.openModule(
-										menuCaseContext.requiredParentCase.moduleUuid,
-									);
-									return;
-								}
-								/* Case-first modules land on the case list (the running
-								 * app hoists the shared case selection); a bare case list
-								 * (its case list menu entry and no forms) has no form menu
-								 * at all, so it too opens straight to its case list.
-								 * `moduleLanding` is the one rule, shared with a form's
-								 * after-submit link to a module. */
-								openModuleLanding(
-									navigate,
-									mod.uuid,
-									moduleLanding({
-										isCaseFirst: caseFirstModules.has(mod.uuid),
-										isBareCaseList: moduleIsBareCaseList(
-											menuSource.doc,
-											mod.uuid,
-										),
-										hasChildren,
-										hasSelectedCase: menuCaseContext.selectedCase !== undefined,
-									}),
-								);
-							}}
+										landing: moduleLanding({
+											isCaseFirst: caseFirstModules.has(mod.uuid),
+											isBareCaseList: previewModuleScreenIsBareCaseList(
+												menuSource.doc,
+												mod.uuid,
+											),
+											hasChildren,
+											hasSelectedCase:
+												menuCaseContext.selectedCase !== undefined,
+										}),
+									},
+								)
+							}
 							className="nova-focusable w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>
 							{mod.icon ? (
@@ -297,7 +450,7 @@ function ModuleListHome() {
 					);
 				})}
 			</div>
-			<HiddenItemsReveal items={hiddenModules} />
+			<HiddenItemsReveal items={hiddenEntries} />
 		</ContentFrame>
 	);
 }

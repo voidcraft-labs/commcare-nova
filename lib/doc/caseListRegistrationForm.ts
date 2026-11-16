@@ -17,8 +17,10 @@
 // field's property where it has one.
 
 import { produce } from "immer";
+import { v4 as uuidv4 } from "uuid";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	afterEmptySearchRegistrationFormOf,
 	asUuid,
 	type BlueprintDoc,
 	type Field,
@@ -173,7 +175,8 @@ export function caseListRegistrationMutations(
 ): Mutation[] {
 	const mod = doc.modules[moduleUuid];
 	if (entry === null) {
-		if (mod?.caseListRegistrationForm?.formUuid !== formUuid) return [];
+		if (afterEmptySearchRegistrationFormOf(doc, moduleUuid) !== formUuid)
+			return [];
 		const defaultsCleared = searchAnswerDefaultsOf(
 			doc,
 			moduleUuid,
@@ -436,7 +439,7 @@ export function searchAnswerFields(
 		}
 		const id = suffixUntilFree(input.name, occupiedIds);
 		occupiedIds.add(id);
-		const uuid = asUuid(crypto.randomUUID());
+		const uuid = asUuid(uuidv4());
 		const label = proseText(
 			input.label.trim().length > 0 ? input.label : input.name,
 		);

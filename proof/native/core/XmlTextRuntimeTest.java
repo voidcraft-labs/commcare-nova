@@ -110,7 +110,8 @@ public class XmlTextRuntimeTest {
                 FormEntryModel checkedEntry = at(form, "checked");
                 FormEntryPrompt checked = checkedEntry.getQuestionPrompt();
                 assertEquals(meals + "\n\n14 Example Lane", checked.getHintText());
-                assertEquals(meals + "\n\n14 Example Lane",
+                // A hint writes no markdown form: no runtime reads one.
+                assertNull(
                     checked.getSpecialFormQuestionText("checked-hint", FormEntryCaption.TEXT_FORM_MARKDOWN));
                 assertEquals(meals + " 14 Example Lane", checked.getHelpText());
                 assertEquals(meals + " 14 Example Lane",

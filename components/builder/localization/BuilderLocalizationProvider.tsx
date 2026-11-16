@@ -33,7 +33,7 @@ import {
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
 import {
-	pushBuilderHistory,
+	pushBuilderLensHistory,
 	useBuilderSearch,
 } from "@/lib/routing/useClientPath";
 
@@ -73,7 +73,9 @@ export function BuilderLocalizationProvider({
 	const selectLanguage = useCallback((next: LanguageTag) => {
 		const url = new URL(window.location.href);
 		url.searchParams.set(LANGUAGE_QUERY_KEY, next);
-		pushBuilderHistory(`${url.pathname}${url.search}`);
+		/* A language is a lens on the screen on show, so the new entry keeps
+		 * the Preview case list's held form menu the screen shows. */
+		pushBuilderLensHistory(`${url.pathname}${url.search}`);
 	}, []);
 	const value = useMemo<BuilderLanguageState>(() => {
 		const identity = parseLanguageTag(language);

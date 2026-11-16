@@ -24,7 +24,7 @@ import {
 	formField,
 	gt,
 	literal,
-	sessionUser,
+	sessionContext,
 	term,
 	today,
 } from "@/lib/domain/expression/builders";
@@ -52,7 +52,10 @@ function fixture(): BlueprintDoc {
 						formLinks: [
 							{
 								uuid: Q("link"),
-								condition: eq(sessionUser("username"), literal("supervisor")),
+								condition: eq(
+									sessionContext("username"),
+									literal("supervisor"),
+								),
 								target: {
 									type: "form",
 									moduleUuid: Q("case-module"),
@@ -319,7 +322,7 @@ describe("field reference projection after rename and move", () => {
 				member: { linkUuid: Q("link") },
 			}),
 		).toBe(
-			"instance('commcaresession')/session/user/data/username = 'supervisor'",
+			"instance('commcaresession')/session/context/username = 'supervisor'",
 		);
 		expect(
 			projectSlot(next, {

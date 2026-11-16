@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import { CASE_CHANGES_SEED } from "../../lib/caseChangesSeed";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { openBuilder } from "../../lib/pageLoads";
@@ -122,8 +123,11 @@ test(
 				exact: true,
 			}),
 		).toBeVisible();
+		/* The referrals' entry names no details for the patient it asks for, so
+		 * Patients' list, as the parent selector, goes on at the row
+		 * (`lib/preview/engine/parentCaseSelection.ts`). */
 		await expect(
-			main.getByRole("button", { name: /^View details for Smoke patient/ }),
+			main.getByRole("button", { name: /^Continue with Smoke patient/ }),
 		).toBeVisible();
 		await page.goBack();
 		await expect(patients).toBeVisible();
@@ -170,19 +174,15 @@ test("Home starts a fresh parent choice when reopening a related record list", {
 			}),
 		).toBeVisible();
 		await main
-			.getByRole("button", { name: /^View details for Smoke patient/ })
+			.getByRole("button", { name: /^Continue with Smoke patient/ })
 			.click();
-		await main.getByRole("button", { name: "Continue", exact: true }).click();
 		await expect(
 			main.getByRole("heading", {
 				name: CASE_CHANGES_SEED.archivedModuleName,
 				exact: true,
 			}),
 		).toBeVisible();
-		await page
-			.getByRole("navigation", { name: "Page navigation" })
-			.getByRole("button", { name: "Home", exact: true })
-			.click();
+		await pressTrailCrumb(page, "Home");
 		await expect(
 			main.getByRole("textbox", { name: "Application name", exact: true }),
 		).toBeVisible();

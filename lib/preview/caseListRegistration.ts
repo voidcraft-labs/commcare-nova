@@ -1,6 +1,9 @@
 /**
  * Whether the running app may open a module's case list registration form
- * (`Module.caseListRegistrationForm`, `caseListRegistrationFormOf`).
+ * offered after an empty search (`Module.caseListRegistrationForm`,
+ * `afterEmptySearchRegistrationFormOf`). A form a case list always offers
+ * is an ordinary form of its own menu, opened from the list with a launch
+ * that only decides where it returns (`alwaysOfferedRegistrationReturn`).
  *
  * On the wire the form is reachable only through the Register action on
  * Results, relevant when the inline search found nothing
@@ -13,16 +16,37 @@
  */
 
 import type { BlueprintDoc, Form, SearchInputDef, Uuid } from "@/lib/domain";
-import { caseListRegistrationFormOf, moduleUuidOfForm } from "@/lib/domain";
+import {
+	afterEmptySearchRegistrationFormOf,
+	moduleUuidOfForm,
+} from "@/lib/domain";
+import {
+	type PreviewScreenRead,
+	readPreviewScreen,
+} from "@/lib/preview/engine/dataRefusal";
+import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import {
 	type SearchInputValues,
 	searchInputInstanceValues,
 } from "@/lib/preview/engine/runtimeBindings";
+import type { PreviewSearchEnvironment } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
+import { searchAttemptOf } from "@/lib/session/previewSearchState";
 import type {
 	PreviewSearchAnswers,
 	PreviewSearchLaunch,
 	PreviewSearchState,
 } from "@/lib/session/types";
+
+/* The Register action a list draws, for either arm, and the return of a form
+ * a list always offers, which read the wire owner's frames. */
+export {
+	alwaysOfferedRegistrationReturn,
+	type PreviewRegisterAction,
+	previewRegisterAction,
+	registeredCaseOnDevice,
+	selectionsAfterRegistrationReturn,
+} from "./engine/caseListRegisterAction";
 
 type RegistrationDoc = Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
 
@@ -36,7 +60,7 @@ export function isCaseListRegistrationForm(
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	return (
 		moduleUuid !== undefined &&
-		caseListRegistrationFormOf(doc, moduleUuid) === formUuid
+		afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid
 	);
 }
 
@@ -81,7 +105,7 @@ export function caseListRegistrationAdmission(args: {
 	readonly launch: PreviewSearchLaunch | undefined;
 	readonly searchState: PreviewSearchState | undefined;
 }): CaseListRegistrationAdmission {
-	const { doc, formUuid, moduleUuid, launch, searchState } = args;
+	const { doc, formUuid, moduleUuid, launch } = args;
 	if (!isCaseListRegistrationForm(doc, formUuid)) {
 		return { kind: "not-applicable" };
 	}
@@ -89,7 +113,10 @@ export function caseListRegistrationAdmission(args: {
 	if (moduleUuid === undefined || launch.moduleUuid !== moduleUuid) {
 		return { kind: "refused", reason: "foreign-module" };
 	}
-	if (searchState === undefined || searchState.kind === "not-searched") {
+	/* Only a search of a menu whose forms read it can have offered the form;
+	 * a Search screen asked for again holds none. */
+	const searchState = searchAttemptOf(args.searchState);
+	if (searchState === undefined) {
 		return { kind: "refused", reason: "not-searched" };
 	}
 	if (searchState.attempt !== launch.attempt) {
@@ -103,6 +130,19 @@ export function caseListRegistrationAdmission(args: {
 	}
 	if (searchState.matchCount !== 0) {
 		return { kind: "refused", reason: "has-matches" };
+	}
+	/* A search a registration's return keyed to its case is no search that
+	 * found nothing, so a launch from before that return is stale. */
+	if (searchState.registeredCaseId !== undefined) {
+		return { kind: "refused", reason: "stale-launch" };
+	}
+	/* Nor is a search history ran again past its list with other answers
+	 * (`previewSearchState.ts::searchRunPastItsList`): what offered the form
+	 * was an empty result for the answers it ran with before, and Web Apps
+	 * shows the list again over the new run rather than reopening the form
+	 * (`MenuSessionRunnerService.advanceSessionWithSelections`, `nonAppNav`). */
+	if (searchState.rerunPastList) {
+		return { kind: "refused", reason: "stale-launch" };
 	}
 	return { kind: "admitted", answers: searchState.answers };
 }
@@ -165,7 +205,7 @@ export function formSearchAnswers(args: {
 	/** A form link opened the form (`PreviewCaseTarget.openedByLink`). */
 	readonly openedByLink: boolean;
 	/** The Search fields' starting values, as the Search screen fills its
-	 * prompts (`searchExpressionEvaluation.ts::resolveSearchInputDefaults`). */
+	 * prompts as it opens (`searchRunState.ts::openSearchRunState`). */
 	readonly defaults: SearchInputValues;
 }): SearchInputValues | undefined {
 	const { searchInputs, admission, formsReadSearch, searchState, defaults } =
@@ -182,6 +222,70 @@ export function formSearchAnswers(args: {
 				new Map(Object.entries(searchState.answers)),
 			)
 		: searchInputInstanceValues(searchInputs, defaults);
+}
+
+/**
+ * Whether the form reaches its `#search/` answers through its menu's Search
+ * screen opening now: a form of a menu whose forms read the search, opened
+ * with no completed search behind it (a form link, an entry point). Web Apps
+ * rebuilds such a form's query step with a query manager built as the Search
+ * screen is built (`RemoteQuerySessionManager`'s constructor).
+ */
+export function formOpensSearchScreen(args: {
+	readonly admission: CaseListRegistrationAdmission;
+	readonly formsReadSearch: boolean;
+	readonly searchState: PreviewSearchState | undefined;
+	readonly openedByLink: boolean;
+}): boolean {
+	return (
+		args.formsReadSearch &&
+		args.admission.kind === "not-applicable" &&
+		!formReadsCompletedSearch(args.searchState, args.openedByLink)
+	);
+}
+
+const NO_STARTING_VALUES: SearchInputValues = new Map();
+
+/**
+ * What a form's `#search/<name>` reads (`formSearchAnswers`), read as its
+ * screen reads it (`readPreviewScreen`). Where the form reaches them through
+ * its menu's Search screen opening (`formOpensSearchScreen`), that screen
+ * opens as Preview's Search screen opens, App Tests' and the form check's
+ * too (`searchRunState.ts::openSearchRunState`): every starting value, hidden
+ * value and required condition, and the check of each field a starting value
+ * answers, is read, and a read of data the worker's device lacks refuses the
+ * form as it refuses that screen. `world` is undefined while what those reads
+ * read (the worker, the lookups, the device's cases) still loads; nothing is
+ * read then, and the form reads no starting value.
+ */
+export function readFormSearchAnswers(args: {
+	readonly searchInputs: readonly SearchInputDef[];
+	readonly admission: CaseListRegistrationAdmission;
+	readonly formsReadSearch: boolean;
+	readonly searchState: PreviewSearchState | undefined;
+	readonly openedByLink: boolean;
+	readonly world:
+		| {
+				readonly session: PreviewSearchSessionValues;
+				readonly environment: PreviewSearchEnvironment;
+		  }
+		| undefined;
+}): PreviewScreenRead<SearchInputValues | undefined> {
+	let defaults = NO_STARTING_VALUES;
+	if (formOpensSearchScreen(args) && args.world !== undefined) {
+		const { session, environment } = args.world;
+		const opened = readPreviewScreen(() =>
+			openSearchRunState(
+				environment.moduleUuid,
+				args.searchInputs,
+				session,
+				environment,
+			),
+		);
+		if (opened.kind === "refused") return opened;
+		defaults = opened.value.defaults;
+	}
+	return { kind: "read", value: formSearchAnswers({ ...args, defaults }) };
 }
 
 /** Whether a form of a menu whose forms read the search reads its module's

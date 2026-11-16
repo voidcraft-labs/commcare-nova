@@ -12,7 +12,8 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
-import { useCallback, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
+import { alsoOfferedOnLine } from "@/components/builder/case-list-config/canvas/registerFromListModel";
 import {
 	CaseListRegistrationReviewDialog,
 	planCaseListRegistrationChoice,
@@ -29,6 +30,10 @@ import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
+import {
+	useAfterEmptySearchOfferBlocked,
+	useCaseListsOffering,
+} from "@/lib/doc/hooks/useRegisterFromList";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import {
 	caseSelectionCardinality,
@@ -36,6 +41,7 @@ import {
 	menuFormUuidsOf,
 } from "@/lib/domain";
 import { platformPickerLine, platformRefusal } from "@/lib/domain/platforms";
+import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { InlineField } from "./InlineField";
 import { noMatchesAfterSubmitModel } from "./noMatchesAfterSubmit";
@@ -52,6 +58,10 @@ export function FormEntrySection({
 	const docApi = useBlueprintDocApi();
 	const { inline } = useBlueprintMutations();
 	const entry = useCaseListRegistration(moduleUuid);
+	const navigate = useNavigate();
+	/* The case lists that always offer this form, from their Register
+	 * button; the form stays on its own menu. */
+	const offeredBy = useCaseListsOffering(formUuid);
 	/* Opening a form from an empty search turns on Forms read the search,
 	 * which a platform the app runs on may not run: the offer is disabled
 	 * with that platform's line, else with the gate's sentence for this
@@ -60,7 +70,9 @@ export function FormEntrySection({
 		"forms-read-search",
 		useDeclaredPlatforms(),
 	);
-	const slot = mod?.caseListRegistrationForm;
+	const registration = mod?.caseListRegistrationForm;
+	const slot =
+		registration?.kind === "after-empty-search" ? registration : undefined;
 	const plan = useCallback(
 		(doc: BlueprintDoc) => {
 			const planned = planCaseListRegistrationChoice(doc, moduleUuid, {
@@ -78,8 +90,13 @@ export function FormEntrySection({
 			slot === undefined &&
 			platformLine === undefined,
 	);
+	/* The list's one registration offer: while it always offers another
+	 * menu's form, offering this one would replace that one. */
+	const armBlocked = useAfterEmptySearchOfferBlocked(moduleUuid);
 	const offerRefusal =
-		platformLine !== undefined ? platformPickerLine(platformLine) : gate.offer;
+		platformLine !== undefined
+			? platformPickerLine(platformLine)
+			: (armBlocked ?? gate.offer);
 	const [carried, setCarried] = useState("");
 	const [carryRefusal, setCarryRefusal] = useState<string | undefined>(
 		undefined,
@@ -94,9 +111,10 @@ export function FormEntrySection({
 			caseListConfig: mod.caseListConfig,
 			caseSearchConfig: mod.caseSearchConfig,
 		}) !== undefined;
-	// A menu registration form with nothing to offer it from stays silent:
-	// the row exists to explain an entry or to offer one.
-	if (!noMatches && !searchAction) return null;
+	// A menu registration form with nothing to offer it from, and that no
+	// case list offers, stays silent: the row exists to explain an entry or
+	// to offer one.
+	if (!noMatches && !searchAction && offeredBy.length === 0) return null;
 	const other = forms.find(
 		(candidate) =>
 			candidate.uuid !== formUuid && candidate.uuid === slot?.formUuid,
@@ -156,6 +174,27 @@ export function FormEntrySection({
 							: "From the module menu."}
 				</p>
 			</div>
+
+			{offeredBy.length > 0 && (
+				<p
+					className="text-[13px] leading-relaxed text-nova-text-secondary"
+					data-form-offered-on
+				>
+					{alsoOfferedOnLine(offeredBy.map((host) => host.hostName))}{" "}
+					{offeredBy.map((host, index) => (
+						<Fragment key={host.hostModuleUuid}>
+							{index > 0 && " "}
+							<Button
+								type="button"
+								variant="link"
+								onClick={() => navigate.openCaseList(host.hostModuleUuid)}
+							>
+								Open {host.hostName}&apos;s case list
+							</Button>
+						</Fragment>
+					))}
+				</p>
+			)}
 
 			<p
 				role="status"

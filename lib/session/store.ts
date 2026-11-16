@@ -24,6 +24,7 @@ import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchType
  */
 
 import type { VirtualItem } from "@tanstack/react-virtual";
+import { v4 as uuidv4, v7 as uuidv7 } from "uuid";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type {
@@ -59,11 +60,19 @@ import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
+import { previewSelectionsTargetOf } from "@/lib/routing/previewSelectionsHistory";
+import {
+	NO_SEARCH_INPUTS_GIVEN,
+	type PreviewSearchInputsGiven,
+	withSearchInputsGiven,
+} from "./previewSearchState";
 import type {
 	PreviewAfterSubmitStack,
+	PreviewCaseListRegistrationEntry,
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
+	PreviewSearchAnswers,
 	PreviewSearchState,
 	PreviewSelectedCase,
 	PreviewTaskContinuation,
@@ -267,6 +276,13 @@ export interface BuilderSessionState {
 	 *  the form. Cleared on every preview-mode toggle (see `setPreviewing`)
 	 *  so previewing a form fresh never reloads a stale case. */
 	previewCaseTarget: PreviewCaseTarget | undefined;
+	/** The form entry a case list's Register action opened, while the
+	 *  running app stays on that launch's path (`PreviewShell` ends it at any
+	 *  other location, `FormScreen` at its submission). Cleared with the
+	 *  case target everywhere it is. */
+	previewCaseListRegistrationEntry:
+		| PreviewCaseListRegistrationEntry
+		| undefined;
 	previewTaskContinuation: PreviewTaskContinuation | undefined;
 	/** The after-submit frames a submission left pending: ephemeral like
 	 *  `previewTaskContinuation`, and cleared everywhere it is, and when
@@ -290,10 +306,35 @@ export interface BuilderSessionState {
 	/** Pending case-type parent selection, independent of menu ancestry. */
 	previewParentCaseRequest: PreviewParentCaseRequest | undefined;
 
+	/** The identity of the worker's running Preview session: a new one each
+	 *  time the session starts over for another worker, another platform,
+	 *  another Preview run, an entry point's launch or another Project
+	 *  (`newPreviewSessionId`). A step the browser's history keeps (a case
+	 *  list's held form menu, `lib/routing/previewHeldMenu.ts`) records the
+	 *  session that took it and stands only in that session, as a case the
+	 *  previous worker chose has no standing in the next worker's session. */
+	previewSessionId: string;
+
+	/** The running task of the Preview session: a new one at every arrival
+	 *  at Home (`clearPreviewNavigation`), which ends the task. A history
+	 *  entry records the case selections it was shown with and the task it
+	 *  was shown in (`lib/routing/previewSelectionsHistory.ts`), so Back
+	 *  past Home, into another task of the same session, puts that entry's
+	 *  selections back (`restorePreviewSelections`) as Web Apps replays a
+	 *  popped address's selections. */
+	previewTaskId: string;
+
 	/** Each module's search context in the running app, keyed by module
 	 * uuid; an absent entry is "not searched". Cleared with the other
 	 * navigation facts: a search belongs to one Preview run of one worker. */
 	previewSearchStates: Readonly<Record<string, PreviewSearchState>>;
+
+	/** The answers the worker last gave each module's query, for the session
+	 *  that gave them (`previewSearchState.ts::PreviewSearchInputsGiven`).
+	 *  Home and a submission keep them, as Web Apps' page does; a new
+	 *  `previewSessionId` reads none. History runs a search that stands
+	 *  again with them on Web Apps (`lib/preview/searchStanding.ts::previewSearchArrival`). */
+	previewSearchInputs: PreviewSearchInputsGiven;
 
 	/** Which persona Preview runs as, by uuid — `undefined` means the
 	 *  signed-in member ("Preview as me"). Ephemeral like every other
@@ -696,6 +737,11 @@ export interface BuilderSessionState {
 	 *  case list feeds and the selected case. No-ops when shallow-equal so
 	 *  repeated sets don't notify subscribers. */
 	setPreviewCaseTarget: (target: PreviewCaseTarget | undefined) => void;
+	/** Set (or end) the Register launch's form entry. No-ops when the same
+	 *  launch is set again. */
+	setPreviewCaseListRegistrationEntry: (
+		entry: PreviewCaseListRegistrationEntry | undefined,
+	) => void;
 	setPreviewTaskContinuation: (
 		task: PreviewTaskContinuation | undefined,
 	) => void;
@@ -707,8 +753,34 @@ export interface BuilderSessionState {
 	 *  shallow-equal. */
 	setPreviewSelectedCase: (selected: PreviewSelectedCase | undefined) => void;
 
-	/** Home ends the running task, retaining worker identity and authorization. */
+	/** Home ends the running task, retaining worker identity and authorization,
+	 *  and starts a new one (`previewTaskId`). */
 	clearPreviewNavigation: () => void;
+
+	/** Back or Forward past Home onto a history entry of an earlier task of
+	 *  this session, on Web Apps: the entry's case selections become the
+	 *  session's, and the session takes up the entry's task again. The rest
+	 *  of the ended task's facts stay cleared, as Home cleared them.
+	 *  (`lib/routing/previewSelectionsHistory.ts`). */
+	restorePreviewSelections: (recorded: {
+		readonly task: string;
+		readonly menu: Readonly<Record<string, PreviewMenuCaseSelection>>;
+		readonly target: PreviewCaseTarget | undefined;
+		readonly selected: PreviewSelectedCase | undefined;
+	}) => void;
+
+	/** Back or Forward onto a history entry of this task whose selections
+	 *  differ from the session's, on Web Apps: the entry's case selections
+	 *  become the session's, as Formplayer replays a popped address's
+	 *  selections, and the task's other facts stand. A form target whose
+	 *  form and cases are the entry's keeps what it carries beyond them (a
+	 *  Register launch, a link's device world), which no address holds
+	 *  (`lib/routing/previewSelectionsHistory.ts`). */
+	replayPreviewSelections: (recorded: {
+		readonly menu: Readonly<Record<string, PreviewMenuCaseSelection>>;
+		readonly target: PreviewCaseTarget | undefined;
+		readonly selected: PreviewSelectedCase | undefined;
+	}) => void;
 
 	/** Set or clear one module menu's selected case. */
 	setPreviewMenuCaseSelection: (
@@ -723,6 +795,12 @@ export interface BuilderSessionState {
 	setPreviewSearchState: (
 		moduleUuid: string,
 		state: PreviewSearchState | undefined,
+	) => void;
+	/** The worker gave one module's query these answers in the running
+	 *  session (`previewSearchState.ts::withSearchInputsGiven`). */
+	setPreviewSearchInputs: (
+		moduleUuid: string,
+		answers: PreviewSearchAnswers,
 	) => void;
 
 	/** Set one sidebar's visibility. Preserves the other sidebar + all stash
@@ -826,6 +904,15 @@ export interface SessionStoreInit {
 	canEdit?: boolean;
 }
 
+/** A new identity for the worker's running Preview session
+ *  (`previewSessionId`). `uuid` draws on `crypto.getRandomValues`, which
+ *  every browsing context holds, where `crypto.randomUUID` needs a secure
+ *  one. Unique per page load as well, so a history entry a reloaded page
+ *  wrote never matches the session the page now runs. */
+export function newPreviewSessionId(): string {
+	return uuidv7();
+}
+
 /** Create a scoped Zustand session store. Called once per BuilderProvider
  *  mount — the parent provider's `buildId` controls the store lifetime.
  *
@@ -886,6 +973,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewing: false,
 				activeFieldId: undefined,
 				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
+				previewCaseListRegistrationEntry: undefined as
+					| PreviewCaseListRegistrationEntry
+					| undefined,
 				previewTaskContinuation: undefined as
 					| PreviewTaskContinuation
 					| undefined,
@@ -902,11 +992,17 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					| PreviewParentCaseRequest
 					| undefined,
 				previewSearchStates: {} as Readonly<Record<string, PreviewSearchState>>,
+				previewSearchInputs: NO_SEARCH_INPUTS_GIVEN,
 				previewPersonaUuid: undefined as string | undefined,
 				previewPlatform: undefined as Platform | undefined,
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
-				previewAndroidDeviceId: crypto.randomUUID(),
+				/* `uuid` rather than `crypto.randomUUID`, for the reason
+				 * `newPreviewSessionId` gives: the builder opened over plain
+				 * http on a LAN address would throw making this store. */
+				previewAndroidDeviceId: uuidv4(),
+				previewSessionId: newPreviewSessionId(),
+				previewTaskId: newPreviewSessionId(),
 
 				/* Chrome */
 				sidebars: {
@@ -1096,11 +1192,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							...(confirmedProjectChanged
 								? {
 										previewCaseTarget: undefined,
+										previewCaseListRegistrationEntry: undefined,
 										previewTaskContinuation: undefined,
 										previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 										previewEntryPointLaunch: undefined,
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
+										previewSessionId: newPreviewSessionId(),
 										previewParentCaseRequest: undefined,
 										previewSearchStates: {},
 										previewPersonaUuid: undefined,
@@ -1302,7 +1400,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewCaseTarget: launch.formTarget,
+						previewCaseListRegistrationEntry: undefined,
 						previewMenuCaseSelections: launch.menuSelections,
+						previewSessionId: newPreviewSessionId(),
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
@@ -1340,11 +1440,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						set({
 							previewing: true,
 							previewCaseTarget: undefined,
+							previewCaseListRegistrationEntry: undefined,
 							previewTaskContinuation: undefined,
 							previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 							previewEntryPointLaunch: undefined,
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
+							previewSessionId: newPreviewSessionId(),
 							previewParentCaseRequest: undefined,
 							previewSearchStates: {},
 							previewAtDeviceHome: android && at?.atHome === true,
@@ -1376,11 +1478,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewAtDeviceHome: false,
 						previewDeviceSyncedAt: undefined,
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
+						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						sidebars: {
@@ -1405,11 +1509,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewPersonaUuid: personaUuid,
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
+						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						/* The identity menu also navigates home; a new worker on a
@@ -1428,11 +1534,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewPlatform: platform,
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
+						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						previewAtDeviceHome: android,
@@ -1442,13 +1550,31 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				setPreviewAtDeviceHome(atHome: boolean) {
 					if (get().previewAtDeviceHome === atHome) return;
-					/* The phone's home screen resets the session, and with it
-					 * every frame still pending. */
+					/* The phone's home screen starts the session over: Android
+					 * resets it when the worker steps back from the root menu
+					 * (`HomeScreenBaseActivity.java::processCanceledGetCommandOrCase`
+					 * → `AndroidSessionWrapper.reset` →
+					 * `CommCareSession.clearAllState`, a new frame and an empty
+					 * frame stack), so every command, chosen case, search and
+					 * pending frame goes, and a step the browser's history kept
+					 * from the old session no longer stands. The logged-in worker,
+					 * the platform and its last sync are the device's, and stay.
+					 * Leaving the home screen (Start) begins on that new
+					 * session. */
 					set(
 						atHome
 							? {
 									previewAtDeviceHome: true,
+									previewCaseTarget: undefined,
+									previewCaseListRegistrationEntry: undefined,
+									previewTaskContinuation: undefined,
 									previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+									previewEntryPointLaunch: undefined,
+									previewSelectedCase: undefined,
+									previewMenuCaseSelections: {},
+									previewSessionId: newPreviewSessionId(),
+									previewParentCaseRequest: undefined,
+									previewSearchStates: {},
 								}
 							: { previewAtDeviceHome: false },
 					);
@@ -1475,11 +1601,29 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						current?.caseDatabase === target?.caseDatabase &&
 						current?.searchLaunch?.moduleUuid ===
 							target?.searchLaunch?.moduleUuid &&
-						current?.searchLaunch?.attempt === target?.searchLaunch?.attempt
+						current?.searchLaunch?.attempt === target?.searchLaunch?.attempt &&
+						current?.caseListSearchText === target?.caseListSearchText &&
+						current?.openedByLink === target?.openedByLink &&
+						current?.formChosenAfterCase?.caseListModuleUuid ===
+							target?.formChosenAfterCase?.caseListModuleUuid &&
+						current?.formChosenAfterCase?.fromCaseListMenu ===
+							target?.formChosenAfterCase?.fromCaseListMenu
 					) {
 						return;
 					}
 					set({ previewCaseTarget: target });
+				},
+				setPreviewCaseListRegistrationEntry(
+					entry: PreviewCaseListRegistrationEntry | undefined,
+				) {
+					const current = get().previewCaseListRegistrationEntry;
+					if (
+						current?.hostModuleUuid === entry?.hostModuleUuid &&
+						current?.moduleUuid === entry?.moduleUuid &&
+						current?.formUuid === entry?.formUuid
+					)
+						return;
+					set({ previewCaseListRegistrationEntry: entry });
 				},
 				setPreviewTaskContinuation(task: PreviewTaskContinuation | undefined) {
 					set({ previewTaskContinuation: task });
@@ -1509,6 +1653,21 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ previewSearchStates: { ...states, [moduleUuid]: next } });
 				},
 
+				setPreviewSearchInputs(
+					moduleUuid: string,
+					answers: PreviewSearchAnswers,
+				) {
+					const state = get();
+					const next = withSearchInputsGiven(
+						state.previewSearchInputs,
+						state.previewSessionId,
+						moduleUuid,
+						answers,
+					);
+					if (next !== state.previewSearchInputs)
+						set({ previewSearchInputs: next });
+				},
+
 				setPreviewSelectedCase(selected: PreviewSelectedCase | undefined) {
 					const current = get().previewSelectedCase;
 					if (
@@ -1534,24 +1693,48 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						current.previewAfterSubmitStack.snapshot?.length === 0
 							? current.previewAfterSubmitStack
 							: EMPTY_AFTER_SUBMIT_STACK;
-					if (
-						current.previewCaseTarget === undefined &&
-						current.previewTaskContinuation === undefined &&
-						current.previewAfterSubmitStack === afterSubmitStack &&
-						current.previewSelectedCase === undefined &&
-						current.previewParentCaseRequest === undefined &&
-						Object.keys(current.previewMenuCaseSelections).length === 0 &&
-						Object.keys(current.previewSearchStates).length === 0
-					)
-						return;
+					/* Every arrival at Home ends the task, whatever it held, so
+					 * a history entry shown before it belongs to a task that has
+					 * ended (`lib/routing/previewSelectionsHistory.ts`). */
 					set({
+						previewTaskId: newPreviewSessionId(),
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: afterSubmitStack,
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
 						previewMenuCaseSelections: {},
 						previewSearchStates: {},
+					});
+				},
+
+				restorePreviewSelections(recorded) {
+					/* The ended task's other facts stay as Home left them: a
+					 * popped address carries selections and its queries alone
+					 * (the queries return through the entry's own search
+					 * record, `lib/routing/previewSearchHistory.ts`). */
+					set({
+						previewTaskId: recorded.task,
+						previewMenuCaseSelections: recorded.menu,
+						previewCaseTarget: recorded.target,
+						previewSelectedCase: recorded.selected,
+						previewCaseListRegistrationEntry: undefined,
+						previewTaskContinuation: undefined,
+						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+						previewParentCaseRequest: undefined,
+					});
+				},
+
+				replayPreviewSelections(recorded) {
+					const current = get().previewCaseTarget;
+					const sameTarget =
+						JSON.stringify(previewSelectionsTargetOf(current)) ===
+						JSON.stringify(previewSelectionsTargetOf(recorded.target));
+					set({
+						previewMenuCaseSelections: recorded.menu,
+						previewCaseTarget: sameTarget ? current : recorded.target,
+						previewSelectedCase: recorded.selected,
 					});
 				},
 
@@ -1584,15 +1767,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setPreviewParentCaseRequest(
 					request: PreviewParentCaseRequest | undefined,
 				) {
-					const current = get().previewParentCaseRequest;
 					if (
-						current?.selectingModuleUuid === request?.selectingModuleUuid &&
-						stringArraysEqual(
-							current?.returnModuleUuids,
-							request?.returnModuleUuids,
-						) &&
-						locationsEqual(current?.resumeLocation, request?.resumeLocation) &&
-						locationsEqual(current?.cancelLocation, request?.cancelLocation)
+						parentCaseRequestsEqual(get().previewParentCaseRequest, request)
 					) {
 						return;
 					}
@@ -1904,11 +2080,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: false,
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
+						previewCaseListRegistrationEntry: undefined,
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
+						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						previewPersonaUuid: undefined,
@@ -2021,6 +2199,22 @@ function stringArraysEqual(
 			right !== undefined &&
 			left.length === right.length &&
 			left.every((value, index) => value === right[index]))
+	);
+}
+
+function parentCaseRequestsEqual(
+	left: PreviewParentCaseRequest | undefined,
+	right: PreviewParentCaseRequest | undefined,
+): boolean {
+	return (
+		left === right ||
+		(left !== undefined &&
+			right !== undefined &&
+			left.selectingModuleUuid === right.selectingModuleUuid &&
+			stringArraysEqual(left.returnModuleUuids, right.returnModuleUuids) &&
+			locationsEqual(left.resumeLocation, right.resumeLocation) &&
+			locationsEqual(left.cancelLocation, right.cancelLocation) &&
+			parentCaseRequestsEqual(left.previous, right.previous))
 	);
 }
 

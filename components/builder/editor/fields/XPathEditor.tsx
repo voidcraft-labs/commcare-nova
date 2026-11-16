@@ -197,6 +197,11 @@ export function XPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 						onSave={saveValidateMsg}
 						onEmpty={clearValidateMsg}
 						autoFocus={addingMsg || focusHint === "validate_msg"}
+						proseSlot={{
+							entity: "field",
+							uuid: field.uuid,
+							slot: "validate_msg",
+						}}
 					/>
 					{validateMsgRejection && (
 						<RejectionInline message={validateMsgRejection} />

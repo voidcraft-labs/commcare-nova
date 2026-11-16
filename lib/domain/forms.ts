@@ -105,6 +105,17 @@ export interface PostSubmitMenuShape {
 	readonly parentMultiSelect?: boolean;
 	/** The module itself is off the menu (`hiddenFromMenu`). */
 	readonly offTheMenu?: boolean;
+	/** The module shows its forms in the menu above (`formsInMenuAbove`). */
+	readonly formsInMenuAbove?: boolean;
+	/** The module's forms list on the app's first menu: it shows its forms
+	 *  above and is top-level, or sits under a parent that shows its forms
+	 *  above too (`menuScreens.ts::menuScreenOf`). */
+	readonly formsOnFirstMenu?: boolean;
+	/** The module keeps its screen under a top-level menu that shows its
+	 *  forms above, and every form of every menu that shows its forms above
+	 *  opens one chosen case (`menuScreens.ts::firstMenuOpensOneCase`), which
+	 *  HQ's frame to the module's screen opens with. */
+	readonly opensWithFirstMenuCase?: boolean;
 }
 
 /**
@@ -113,9 +124,11 @@ export interface PostSubmitMenuShape {
  * takes the first destination its module offers of `previous`, `module`,
  * `firstMenu` (`postSubmit.ts::postSubmitDestinationsOffered`): the screen
  * before the form, unless the module's forms read the search, selects several
- * cases, sits under a parent that does, or is off the menu; then the
- * module's first screen, unless its parent selects several cases or it is
- * off the menu; and otherwise the app's first menu, which is always offered.
+ * cases, sits under a parent that does, is off the menu, or lists its forms
+ * on the app's first menu; then the module's first screen, unless its parent
+ * selects several cases, it is off the menu, it shows its forms in the menu
+ * above, or it opens through the first menu with the case every form listed
+ * there opens; and otherwise the app's first menu, which is always offered.
  */
 export function defaultPostSubmit(
 	formType: FormType,
@@ -127,11 +140,16 @@ export function defaultPostSubmit(
 	if (
 		!parentOrSelfWithholds &&
 		shape.multiSelect !== true &&
-		shape.formsReadSearch !== true
+		shape.formsReadSearch !== true &&
+		shape.formsOnFirstMenu !== true
 	) {
 		return "previous";
 	}
-	return parentOrSelfWithholds ? "firstMenu" : "module";
+	return parentOrSelfWithholds ||
+		shape.formsInMenuAbove === true ||
+		shape.opensWithFirstMenuCase === true
+		? "firstMenu"
+		: "module";
 }
 
 const formLinkDatumSchema = z.strictObject({
@@ -793,6 +811,9 @@ export const formSchema = z.strictObject({
 	 * after-submit link and from an entry point.
 	 */
 	hiddenFromMenu: z.literal(true).optional(),
+	/** Text formatting is off for the whole form: no label, choice or help text writes a markdown
+	 *  form, so each shows as its platform shows a text without one. */
+	plainText: z.literal(true).optional(),
 	/**
 	 * When a registration creates its case; absent, on every submission.
 	 * Registration only (`OPEN_CONDITION_WRONG_TYPE`).

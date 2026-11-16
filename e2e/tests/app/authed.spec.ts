@@ -3,6 +3,7 @@ import type { Page, Request, Route } from "@playwright/test";
 import { EXTRACTOR_VERSION } from "../../../lib/domain/multimedia";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../../lib/projects/moveTargets";
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import {
 	CASE_CHANGES_ROUTINE,
 	CASE_CHANGES_SEED,
@@ -1293,10 +1294,11 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 
 		// Results reads in the worker-facing order: how many cases move into a
-		// form, what each row says, which cases may appear, then how the matching
-		// rows are ordered.
+		// form, which registration form the list offers, what each row says,
+		// which cases may appear, then how the matching rows are ordered.
 		await expect(page.locator("[data-case-list-layout] h2")).toHaveText([
 			"Case selection",
+			"Register from this list",
 			"Information shown",
 			"Cases available",
 			"Default order",
@@ -2413,7 +2415,7 @@ test.describe("authenticated builder", () => {
 	 * statement about what a CommCare client draws, so a regression here is
 	 * a preview that has stopped agreeing with the device.
 	 */
-	test("a tile-laid-out case list renders at parity and pins its tile above the form", {
+	test("a tile-laid-out case list renders at parity and pins its tile above the form menu and the form", {
 		tag: "@seed:workspace",
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "workspace");
@@ -2505,9 +2507,43 @@ test.describe("authenticated builder", () => {
 			await expect(phone).toBeFocused();
 		});
 
-		await test.step("the same tile pins above the module's form", async () => {
+		await test.step("the same tile pins above the menu the chosen case opens", async () => {
+			/* Choosing the case lists the menu's form, as CommCare does, and the
+			 * session holds the case there: Formplayer sets the tile on every
+			 * menu response once it does, and Android's menu holds the tile's
+			 * frame (`lib/preview/pinnedCaseTile.ts`). */
 			await rows.first().locator("[data-case-result-action]").click();
 			const persistent = page.locator("[data-persistent-case-tile]");
+			const menuTitle = page.locator("[data-form-menu-case-title]");
+			await expect(menuTitle).toBeVisible({ timeout: 20_000 });
+			await expect(persistent).toBeVisible({ timeout: 20_000 });
+			await expect(persistent).toHaveCount(1);
+			await expect(
+				persistent.locator('[data-case-tile="persistent"]'),
+			).toHaveAttribute("data-tile-columns", "6");
+			// Context, not a chooser: nothing in the band opens a case.
+			await expect(persistent.locator("[data-case-result-action]")).toHaveCount(
+				0,
+			);
+			const [band, menu] = await Promise.all([
+				persistent.boundingBox(),
+				menuTitle.boundingBox(),
+			]);
+			expect(band).not.toBeNull();
+			expect(menu).not.toBeNull();
+			if (band === null || menu === null) return;
+			expect(band.y + band.height).toBeLessThanOrEqual(menu.y + 1);
+		});
+
+		await test.step("the same tile pins above the module's form", async () => {
+			await page
+				.locator("main")
+				.getByRole("button", { name: "Record a visit", exact: true })
+				.click();
+			const persistent = page.locator("[data-persistent-case-tile]");
+			await expect(page.locator("[data-form-header]")).toBeVisible({
+				timeout: 20_000,
+			});
 			await expect(persistent).toBeVisible({ timeout: 20_000 });
 			await expect(
 				persistent.locator('[data-case-tile="persistent"]'),
@@ -2789,15 +2825,7 @@ test.describe("authenticated builder", () => {
 					historyLength,
 				);
 				const selectedUrl = page.url();
-				const breadcrumbMenu = page.getByRole("button", {
-					name: "Show breadcrumb path",
-				});
-				await expect(breadcrumbMenu).toBeVisible();
-				await breadcrumbMenu.click();
-				await expect(
-					page.getByRole("button", { name: "Home", exact: true }),
-				).toBeVisible();
-				await page.getByRole("button", { name: "Home", exact: true }).click();
+				await pressTrailCrumb(page, "Home");
 				await expect(page).toHaveURL(
 					`${new URL(page.url()).origin}/build/${fixture.appId}?lang=eng`,
 				);
@@ -4159,21 +4187,21 @@ test.describe("authenticated builder", () => {
 				// Archived referrals explicitly select through Patients. Opening that
 				// module runs the parent-first selector before showing its
 				// direct children. Pick the patient this submission linked, then continue
-				// into the originally requested Results screen.
+				// into the originally requested Results screen. Patients' own list
+				// opens details, but the patient's datum in the referrals' entry
+				// names none, so the row goes on at once
+				// (`lib/preview/engine/parentCaseSelection.ts`).
 				await expect(
 					page.getByRole("heading", {
 						name: CASE_CHANGES_SEED.moduleName,
 						level: 1,
 					}),
 				).toBeVisible();
-				await page
-					.getByRole("button", { name: /^View details for Smoke patient/ })
-					.click();
 				await expect(
-					page.getByRole("heading", { name: "Smoke patient", level: 1 }),
-				).toBeVisible();
+					page.getByRole("button", { name: /^View details for / }),
+				).toHaveCount(0);
 				await page
-					.getByRole("button", { name: "Continue", exact: true })
+					.getByRole("button", { name: /^Continue with Smoke patient/ })
 					.click();
 				await expect(
 					page.getByRole("heading", {
@@ -4242,6 +4270,47 @@ test.describe("authenticated builder", () => {
 						await expect(
 							viewerPage.getByText(
 								"Work out the id of the case at the other end.",
+							),
+						).toBeVisible();
+
+						/* A viewer may run the form in Preview but not save its
+						 * case data: Submit is disabled and says why, rather
+						 * than looking ready and doing nothing when pressed
+						 * (`lib/preview/submitOffer.ts`). */
+						await viewerPage
+							.getByRole("button", { name: "Preview", exact: true })
+							.click();
+						/* The viewer's device holds none of the editor's cases, so
+						 * the referral registration, which loads none, is the
+						 * form to run. */
+						const viewerMain = viewerPage.locator("main");
+						await viewerPage
+							.getByRole("navigation", { name: "Page navigation" })
+							.getByRole("button", { name: "Home", exact: true })
+							.click({ timeout: 20_000 });
+						await viewerMain
+							.getByRole("button", {
+								name: new RegExp(`^${CASE_CHANGES_SEED.caseWrites.moduleName}`),
+							})
+							.click({ timeout: 20_000 });
+						await viewerMain
+							.getByRole("button", {
+								name: CASE_CHANGES_SEED.caseWrites.registration.formName,
+								exact: true,
+							})
+							.click({ timeout: 20_000 });
+						await expect(
+							viewerPage.getByRole("textbox", { name: "Referral name" }),
+						).toBeVisible({ timeout: 20_000 });
+						await expect(
+							viewerPage
+								.locator("main")
+								.getByRole("button", { name: "Submit", exact: true }),
+						).toBeDisabled();
+						await expect(
+							viewerPage.getByText(
+								"Submitting saves case data, which needs edit access to this app.",
+								{ exact: true },
 							),
 						).toBeVisible();
 					} finally {

@@ -34,7 +34,7 @@
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText, type Uuid } from "@/lib/domain";
-import { eq, literal, not, sessionUser } from "@/lib/domain/expression";
+import { eq, literal, not, sessionUserProperty } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -98,7 +98,10 @@ export function hiddenFromMenu() {
 					{
 						...survey("hidden-rest", "Hidden with rest"),
 						displayCondition: not(
-							eq(sessionUser("role"), literal("supervisor")),
+							eq(
+								sessionUserProperty(uuid("worker-role")),
+								literal("supervisor"),
+							),
 						),
 					},
 					survey("hidden-plain", "Hidden plain"),
@@ -114,6 +117,14 @@ export function hiddenFromMenu() {
 			},
 		],
 	});
+	// The condition reads the worker's role, a worker property the app
+	// declares, which the setup list a publish shows names for someone to add
+	// on CommCare HQ.
+	const roleProperty = uuid("worker-role");
+	doc.userProperties = {
+		[roleProperty]: { uuid: roleProperty, slug: "role", label: "Role" },
+	};
+	doc.userPropertyOrder = [roleProperty];
 	const form = (formUuid: Uuid) => {
 		const found = doc.forms[formUuid];
 		if (found === undefined) throw new Error(`No form ${formUuid}.`);

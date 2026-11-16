@@ -9,10 +9,7 @@ import type {
 	ProseTemplate,
 } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
-import {
-	LabelContent,
-	ownerHoldsPlainLabel,
-} from "@/lib/references/LabelContent";
+import { LabelContent } from "@/lib/references/LabelContent";
 import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
@@ -70,14 +67,16 @@ export function LabelField({
 				onSave={saveField ? (v) => saveField("label", v) : undefined}
 				fieldType="label"
 				formatText={labelFormatText}
+				proseSlot={{ entity: "field", uuid: field.uuid, slot: "label" }}
 			>
 				<LabelContent
 					label={field.label}
 					resolvedLabel={state.resolvedLabel}
 					isEditMode={isEditMode}
 					rendering={labelRendering}
-					plainLabel={ownerHoldsPlainLabel(field)}
+					plainLabel={labelFormatText?.plain === true}
 					className={FIELD_STYLES.label}
+					proseSlot={{ entity: "field", uuid: field.uuid, slot: "label" }}
 				/>
 			</TextEditable>
 		</div>

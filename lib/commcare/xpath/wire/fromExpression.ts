@@ -75,8 +75,11 @@ import {
 } from "./instances";
 import {
 	datetimeCoerceValue,
+	deviceInstantText,
 	type InstantEmission,
 	instantOperandWire,
+	mayHoldInstantText,
+	storedDatetimeValue,
 } from "./instant";
 import {
 	buildAncestorJoinNodeset,
@@ -161,6 +164,49 @@ const comparison: Record<
 > = { eq: "=", neq: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=" };
 /** Lower admitted domain expressions once. Serializers own every lexical choice. */
 export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return emitExpression(normalized, context);
+}
+/**
+ * A date and time written to a case, as the text CommCare HQ stores
+ * (`instant.ts::storedDatetimeValue`): `expr` classified leaf by leaf in its
+ * slot, each leaf printed as `toWire` prints it. `clock` names the node that
+ * reads a typed leaf holding `now()` once.
+ */
+export function storedDatetimeWire(
+	expr: Expression,
+	ctx: WireBuildContext,
+	clock?: (leaf: Expression) => WireExpr | undefined,
+): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return storedDatetimeValue(
+		instantOperand(normalized, context.types, { memo: instantMemo(context) }),
+		instantEmission(context),
+		clock,
+	);
+}
+/**
+ * A value cast into a node bound `xsd:dateTime` as it starts (a question's
+ * starting value, a preload among them, or a Hidden Value's default), as
+ * `toWire` prints it, read through `instant.ts::deviceInstantText` where it
+ * can hold date-and-time text: Core casts the starting value through its
+ * date-and-time parse, which keeps the written date, so CommCare HQ's UTC
+ * text would open a day away wherever the device's date for the moment is
+ * not the UTC one, and saving the form unchanged would move the case's value
+ * by that day. A typed value is cast as it is.
+ */
+export function startingDatetimeWire(
+	expr: Expression,
+	ctx: WireBuildContext,
+): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return deviceTemporalValue(normalized, context);
+}
+/** The context `toWire` emits in, and the expression normalized in it. */
+function prepareWire(
+	expr: Expression,
+	ctx: WireBuildContext,
+): { readonly normalized: Expression; readonly context: Context } {
 	const bindings = ctx.bindings ?? {};
 	const context: Context = {
 		...ctx,
@@ -203,7 +249,23 @@ export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 					if (override !== undefined) overrides.set(replacement, override);
 				},
 	);
-	return emitExpression(normalized, { ...context, overrides });
+	return { normalized, context: { ...context, overrides } };
+}
+/**
+ * `expr` as `toWire` prints it for a reader that parses it as a date and time
+ * (`format-date`, `date()`, a cast into a date-and-time node), read through
+ * `instant.ts::deviceInstantText` where a leaf can hold date-and-time text
+ * with a written offset, so the parse reads the moment in the device's own
+ * date and clock. A form literal is typed by its shape, as a comparison
+ * types it.
+ */
+function deviceTemporalValue(expr: Expression, ctx: Context): WireExpr {
+	const value = emitExpression(expr, ctx);
+	const operand = instantOperand(expr, ctx.types, {
+		memo: instantMemo(ctx),
+		...(ctx.types.ruleSet === "form" ? { literals: "shaped" as const } : {}),
+	});
+	return mayHoldInstantText(operand) ? deviceInstantText(value) : value;
 }
 /** The classification memo of the context `ctx` types in. */
 function instantMemo(ctx: Context): InstantOperandMemo {
@@ -983,7 +1045,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			return result;
 		}
 		case "date-coerce":
-			return w.call("date", [emit(expr.value)]);
+			return w.call("date", [deviceTemporalValue(expr.value, ctx)]);
 		case "datetime-coerce":
 			return ctx.dayComparison === true
 				? w.call("date", [emitExpression(expr.value, plain)])
@@ -1045,7 +1107,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 		}
 		case "format-date":
 			return w.call("format-date", [
-				emit(expr.date),
+				deviceTemporalValue(expr.date, ctx),
 				typeof expr.pattern === "string"
 					? w.str(resolveCommCareDatePattern(expr.pattern))
 					: emit(expr.pattern),

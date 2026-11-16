@@ -3,6 +3,7 @@ import { PLATFORMS } from "@/lib/domain/platforms";
 import {
 	type DisplayConditionCarrier,
 	displayConditionCopy,
+	FIRST_MENU_NAME,
 	formOffTheMenuNote,
 	moduleOffTheMenuNote,
 } from "../displayConditionCopy";
@@ -18,6 +19,8 @@ describe("displayConditionCopy", () => {
 			kind: "module",
 			moduleName: "Mothers",
 			moduleIsBareCaseList: false,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
 		});
 		expect(copy.title).toBe("When “Mothers” appears");
 		expect(copy.locus.join(" ")).toContain("home screen");
@@ -29,11 +32,15 @@ describe("displayConditionCopy", () => {
 			kind: "module",
 			moduleName: "Clinics",
 			moduleIsBareCaseList: true,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
 		});
 		const withForms = copyOf({
 			kind: "module",
 			moduleName: "Clinics",
 			moduleIsBareCaseList: false,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
 		});
 		expect(withList.locus[0]).toContain("case list");
 		expect(withForms.locus[0]).not.toContain("case list");
@@ -45,6 +52,8 @@ describe("displayConditionCopy", () => {
 			moduleName: "Visits",
 			parentModuleName: "Mothers",
 			moduleIsBareCaseList: true,
+			formsInMenuAbove: false,
+			aboveName: "Mothers",
 		});
 		expect(copy.lede).toContain("submenu inside “Mothers”");
 		expect(copy.locus.join(" ")).toContain("inside “Mothers”");
@@ -60,7 +69,6 @@ describe("displayConditionCopy", () => {
 			moduleName: "Mothers",
 			caseFirst: true,
 			caseType: "mother",
-			formCount: 3,
 		});
 		expect(copy.locus.join(" ")).toContain("mother");
 		expect(copy.scopeNote).toBe(
@@ -68,25 +76,55 @@ describe("displayConditionCopy", () => {
 		);
 	});
 
-	it("warns a single case-first form that a non-matching case stops at the list", () => {
-		const single = copyOf({
+	it("says a case-first form's condition decides whether it is offered, and never that it opens by itself", () => {
+		/* CommCare lists a menu's forms once its case is chosen, however many
+		 * it shows, so a lone form is offered on the list like any other
+		 * (`CommCareSession.getNeededData`, `STATE_COMMAND_ID` for a menu's
+		 * command). */
+		const copy = copyOf({
 			kind: "form",
 			formName: "Visit",
 			moduleName: "Mothers",
 			caseFirst: true,
 			caseType: "mother",
-			formCount: 1,
 		});
-		const several = copyOf({
+		expect(copy.locus).toContain(
+			"It decides whether “Visit” is on the list of forms offered for that mother.",
+		);
+		expect(copy.locus.join(" ")).not.toContain("immediately");
+	});
+
+	it("names a case list entry that chooses its case apart from the forms beside it", () => {
+		const copy = copyOf({
 			kind: "form",
 			formName: "Visit",
 			moduleName: "Mothers",
-			caseFirst: true,
+			caseFirst: false,
 			caseType: "mother",
-			formCount: 2,
+			caseFirstBlocker: { reason: "case-list-entry-apart" },
 		});
-		expect(single.locus.join(" ")).toContain("only form here");
-		expect(several.locus.join(" ")).not.toContain("only form here");
+		expect(copy.locus.join(" ")).toContain(
+			"“Mothers”'s case list entry on that screen chooses its case apart from the forms beside it",
+		);
+		expect(copy.scopeNote).toContain("No case has been chosen");
+	});
+
+	it("names a form that chooses its case apart from the forms beside it", () => {
+		const copy = copyOf({
+			kind: "form",
+			formName: "Visit",
+			moduleName: "Mothers",
+			caseFirst: false,
+			caseType: "mother",
+			caseFirstBlocker: {
+				reason: "form-chooses-apart",
+				blockingFormName: "Review",
+			},
+		});
+		expect(copy.locus.join(" ")).toContain(
+			"“Review” on that screen chooses its case apart from the forms beside it",
+		);
+		expect(copy.scopeNote).toContain("No case has been chosen");
 	});
 
 	it("gives a forms-first form the no-case scope", () => {
@@ -96,7 +134,6 @@ describe("displayConditionCopy", () => {
 			moduleName: "Mothers",
 			caseFirst: false,
 			caseType: "mother",
-			formCount: 2,
 		});
 		expect(copy.locus.join(" ")).toContain("starts a new case");
 		expect(copy.scopeNote).toContain("No case has been chosen");
@@ -109,7 +146,6 @@ describe("displayConditionCopy", () => {
 			moduleName: "Records",
 			caseFirst: true,
 			caseType: undefined,
-			formCount: 1,
 		});
 		expect(copy.locus.join(" ")).toContain("case");
 		expect(copy.locus.join(" ")).not.toContain("undefined");
@@ -120,6 +156,8 @@ describe("displayConditionCopy", () => {
 			kind: "module",
 			moduleName: "Archive",
 			moduleIsBareCaseList: false,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
 		});
 		const form = copyOf({
 			kind: "form",
@@ -127,7 +165,6 @@ describe("displayConditionCopy", () => {
 			moduleName: "Archive",
 			caseFirst: false,
 			caseType: undefined,
-			formCount: 2,
 		});
 		expect(module.menuSwitchLabel).toBe("Show on the menu");
 		expect(form.menuSwitchLabel).toBe("Show on the menu");
@@ -162,14 +199,91 @@ describe("displayConditionCopy", () => {
 				moduleName: "Archive",
 				caseFirst: false,
 				caseType: undefined,
-				formCount: 2,
 			}).offTheMenuNote,
 		);
 		expect(
 			displayConditionCopy(
-				{ kind: "module", moduleName: "Archive", moduleIsBareCaseList: false },
+				{
+					kind: "module",
+					moduleName: "Archive",
+					moduleIsBareCaseList: false,
+					formsInMenuAbove: false,
+					aboveName: FIRST_MENU_NAME,
+				},
 				["web-apps"],
 			).offTheMenuNote,
 		).toBe(moduleOffTheMenuNote(["web-apps"]));
+	});
+
+	it("says a menu that shows its forms above is checked where its forms list, with its parent's condition", () => {
+		const copy = copyOf({
+			kind: "module",
+			moduleName: "Members",
+			parentModuleName: "Households",
+			moduleIsBareCaseList: false,
+			formsInMenuAbove: true,
+			aboveName: "Households",
+		});
+		expect(copy.locus).toEqual([
+			"CommCare checks this in “Households”.",
+			"While it's false, “Members”'s forms don't show there.",
+			"“Households”'s condition applies to them too.",
+		]);
+		expect(copy.offTheMenuNote).toMatch(
+			/^“Members”'s forms are off “Households”\. On Android/,
+		);
+		const topLevel = copyOf({
+			kind: "module",
+			moduleName: "Registration",
+			moduleIsBareCaseList: false,
+			formsInMenuAbove: true,
+			aboveName: FIRST_MENU_NAME,
+		});
+		expect(topLevel.locus).toEqual([
+			"CommCare checks this in the app's first menu.",
+			"While it's false, “Registration”'s forms don't show there.",
+		]);
+	});
+
+	it("names the app's first menu for a submenu under a parent that shows its forms above", () => {
+		const copy = copyOf({
+			kind: "module",
+			moduleName: "Water",
+			parentModuleName: "Households",
+			moduleIsBareCaseList: false,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
+		});
+		expect(copy.locus[0]).toBe(
+			"CommCare checks this on the app's first menu, before anyone opens “Water”.",
+		);
+	});
+
+	it("says which menu keeps a form's screen forms first", () => {
+		const copy = copyOf({
+			kind: "form",
+			formName: "Check members",
+			moduleName: "Members",
+			caseFirst: false,
+			caseFirstBlocker: {
+				reason: "opens-without-a-case",
+				otherModuleName: "Households",
+				blockingFormName: "Register household",
+			},
+			caseType: "household",
+		});
+		expect(copy.locus[0]).toContain(
+			"shows with “Households”'s forms on one screen, and “Register household” there opens without a case",
+		);
+		expect(
+			copyOf({
+				kind: "form",
+				formName: "Check members",
+				moduleName: "Members",
+				caseFirst: false,
+				caseFirstBlocker: { reason: "first-menu" },
+				caseType: "household",
+			}).locus[0],
+		).toContain("shows on the app's first menu");
 	});
 });

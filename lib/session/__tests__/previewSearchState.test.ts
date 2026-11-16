@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+	actionSearch,
 	beginSearch,
+	manualSearch,
 	NOT_SEARCHED,
 	newSearchSubmission,
 	noMatchesActionAvailable,
 	recordRegisteredCase,
 	recordSearchDeviceValues,
+	searchAttemptOf,
 	searchesAwaitingDeviceValues,
+	searchRunPastItsList,
+	searchWithLatestInputs,
 	settleSearch,
+	submittedSearchOf,
 } from "../previewSearchState";
 import type { PreviewSearchState } from "../types";
 
@@ -132,6 +138,25 @@ describe("previewSearchState", () => {
 		expect(noMatchesActionAvailable(registered)).toBe(false);
 	});
 
+	it("records a registration that created no case as no match, and offers no registration on it", () => {
+		const searched = settleSearch(beginSearch(undefined, answers, "s1"), 1, {
+			kind: "completed",
+			matchCount: 3,
+		});
+		const registered = recordRegisteredCase(searched, "case-new", false);
+		expect(registered).toEqual({
+			kind: "completed",
+			attempt: 1,
+			submission: "s1",
+			answers,
+			matchCount: 0,
+			registeredCaseId: "case-new",
+		});
+		// The search is keyed to the registered case, not one that found
+		// nothing.
+		expect(noMatchesActionAvailable(registered)).toBe(false);
+	});
+
 	it("records a registration with no search context as a fresh completed attempt", () => {
 		expect(recordRegisteredCase(undefined, "case-new")).toEqual({
 			kind: "completed",
@@ -183,16 +208,17 @@ describe("a search's device values", () => {
 	});
 
 	it("keeps a search retired by Search again apart from the next, whose count starts over", () => {
-		// Search again clears the module's search, so the next search is
-		// attempt 1 again: its values are its own, never the last search's.
+		// Search again replaces the module's search with the Search screen
+		// asked for again, so the next search is attempt 1 again: its values
+		// are its own, never the last search's.
 		const retired = recordSearchDeviceValues(
 			beginSearch(undefined, answers, "s1"),
 			"s1",
 			first,
 		);
 		expect(retired).toMatchObject({ deviceValues: { value: first } });
-		const next = beginSearch(undefined, answers);
-		if (next.kind === "not-searched") throw new Error("Not begun.");
+		const next = searchAttemptOf(beginSearch(manualSearch("s2"), answers));
+		if (next === undefined) throw new Error("Not begun.");
 		expect(next.attempt).toBe(1);
 		expect(next.submission).not.toBe("s1");
 		// The retired search's evaluation, arriving late, lands nowhere.
@@ -264,6 +290,156 @@ describe("the searches awaiting the device's values", () => {
 				) as PreviewSearchState,
 			}).map((search) => search.moduleUuid),
 		).toEqual(["m1"]);
+	});
+});
+
+/*
+ * Web Apps replays the whole address on every request, so history returning
+ * to a menu or a form past a list runs that list's query again with the
+ * latest answers there (`MenuSessionRunnerService.advanceSessionWithSelections`
+ * over `CloudcareUrl.fromJson`'s `Utils.getCurrentQueryInputs`), and a form of
+ * a menu whose forms read the search reads what that run finds.
+ */
+describe("a search history runs again past its list", () => {
+	const prompts = new Set(["patient_name", "region"]);
+	const value = { segments: { '0:["right"]': "North" }, choices: {} };
+	const found: Extract<PreviewSearchState, { kind: "completed" }> = {
+		kind: "completed",
+		attempt: 2,
+		submission: "s",
+		answers: { patient_name: "Kofi", region: "n" },
+		matchCount: 3,
+		deviceValues: { value },
+	};
+	const latest = { patient_name: "Ama", region: "n" };
+
+	it("stays completed with the latest answers, its device values to work out again", () => {
+		const rerun = searchRunPastItsList(found, latest, prompts);
+		expect(rerun).toEqual({
+			kind: "completed",
+			attempt: 2,
+			submission: "s",
+			answers: latest,
+			matchCount: 3,
+			rerunPastList: true,
+		});
+		// The form reads the new run's results, which wait for the values the
+		// device works out for these answers.
+		expect(searchesAwaitingDeviceValues({ m1: rerun })).toEqual([
+			{ moduleUuid: "m1", submission: "s", answers: latest },
+		]);
+		const recorded = recordSearchDeviceValues(rerun, "s", value);
+		expect(recorded).toMatchObject({
+			rerunPastList: true,
+			deviceValues: { value },
+		});
+		if (recorded === undefined) throw new Error("Not recorded.");
+		expect(searchesAwaitingDeviceValues({ m1: recorded })).toEqual([]);
+	});
+
+	it("offers no registration on a count no list made for its answers, and its list runs it again", () => {
+		const rerun = searchRunPastItsList(
+			{ ...found, matchCount: 0 },
+			latest,
+			prompts,
+		);
+		expect(noMatchesActionAvailable(rerun)).toBe(false);
+		if (rerun.kind === "not-searched") throw new Error("A search.");
+		// On show again, the list counts it, whatever the answers given since.
+		expect(searchWithLatestInputs(rerun, latest, prompts)).toEqual({
+			kind: "running",
+			attempt: 2,
+			submission: "s",
+			answers: latest,
+		});
+		expect(searchWithLatestInputs(rerun, undefined, prompts)).toEqual({
+			kind: "running",
+			attempt: 2,
+			submission: "s",
+			answers: latest,
+		});
+	});
+
+	it("is the same search where the answers agree, and where only its list reads it", () => {
+		expect(
+			searchRunPastItsList(
+				found,
+				{ patient_name: "Kofi", region: "n" },
+				prompts,
+			),
+		).toBe(found);
+		expect(searchRunPastItsList(found, undefined, prompts)).toBe(found);
+		// The default search and a registration's return run as they are.
+		const automatic = { ...found, automatic: true as const };
+		expect(searchRunPastItsList(automatic, latest, prompts)).toBe(automatic);
+		const registered = { ...found, registeredCaseId: "case-1" };
+		expect(searchRunPastItsList(registered, latest, prompts)).toBe(registered);
+		// A Search action's search is read by its list alone, and a search
+		// still running or failed has no screen past its list.
+		const action = actionSearch(answers, "a1");
+		if (action.kind === "not-searched") throw new Error("A search.");
+		expect(searchRunPastItsList(action, latest, prompts)).toBe(action);
+		const running = beginSearch(undefined, answers, "r1");
+		if (running.kind === "not-searched") throw new Error("A search.");
+		expect(searchRunPastItsList(running, latest, prompts)).toBe(running);
+	});
+});
+
+// Every list's search stands and lets go by one rule, so the session also
+// holds a Search action's search and a Search screen asked for again. Neither
+// is an attempt of a menu whose forms read the search: neither settles, is
+// worked out on the session, offers registration or numbers the next attempt.
+describe("a Search action's search and a Search screen asked for again", () => {
+	const action = actionSearch(answers, "a1");
+	const manual = manualSearch("m1");
+
+	it("hold their own identity, and the action its answers", () => {
+		expect(action).toEqual({ kind: "action", submission: "a1", answers });
+		expect(manual).toEqual({ kind: "manual", submission: "m1" });
+		// Each request is its own, so an entry recording an earlier one holds
+		// none of a later one.
+		expect(manualSearch()).not.toEqual(manualSearch());
+	});
+
+	it("are no attempt; the action is a submitted search the list takes back, the Search screen is none", () => {
+		expect(searchAttemptOf(action)).toBeUndefined();
+		expect(searchAttemptOf(manual)).toBeUndefined();
+		expect(submittedSearchOf(action)).toBe(action);
+		expect(submittedSearchOf(manual)).toBeUndefined();
+		const running = beginSearch(undefined, answers, "s1");
+		expect(searchAttemptOf(running)).toBe(running);
+		expect(submittedSearchOf(running)).toBe(running);
+		expect(submittedSearchOf(NOT_SEARCHED)).toBeUndefined();
+	});
+
+	it("never settle, wait for the session's device values, take them, or offer registration", () => {
+		for (const state of [action, manual]) {
+			expect(settleSearch(state, 1, { kind: "completed", matchCount: 0 })).toBe(
+				state,
+			);
+			expect(
+				recordSearchDeviceValues(
+					state,
+					state.kind === "action" ? "a1" : "m1",
+					undefined,
+				),
+			).toBe(state);
+			expect(noMatchesActionAvailable(state)).toBe(false);
+		}
+		expect(searchesAwaitingDeviceValues({ m1: action, m2: manual })).toEqual(
+			[],
+		);
+	});
+
+	it("start the next attempt at 1, and a registration over them is a fresh attempt", () => {
+		expect(beginSearch(action, answers)).toMatchObject({ attempt: 1 });
+		expect(beginSearch(manual, answers)).toMatchObject({ attempt: 1 });
+		expect(recordRegisteredCase(manual, "case-new")).toMatchObject({
+			kind: "completed",
+			attempt: 1,
+			answers: {},
+			registeredCaseId: "case-new",
+		});
 	});
 });
 

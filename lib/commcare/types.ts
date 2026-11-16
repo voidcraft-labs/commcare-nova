@@ -307,8 +307,10 @@ export interface DetailBase<XPath = string> {
 	persist_case_context: null;
 	persistent_case_context_xml: XPath;
 	/**
-	 * Keeps the short detail on screen above every form in the module —
-	 * the persistent case tile. CCHQ turns it into `detail-persistent` on
+	 * Keeps the short detail on screen once a case is chosen from the list,
+	 * the persistent case tile: Formplayer and Android draw it above every
+	 * screen whose session holds that case (the menu it opens, later lists,
+	 * Web Apps' search, the forms). CCHQ turns it into `detail-persistent` on
 	 * each of the module's case-loading datums
 	 * (`suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`).
 	 */
@@ -648,11 +650,9 @@ interface HqModuleBase<XPath> {
 		custom_icons: unknown[];
 	};
 	/**
-	 * HQ `CaseListForm` (`models/modules.py`): the registration form the
-	 * Register action on the case list opens. Nova emits it only for a
-	 * host whose forms read the search and that names a case list
-	 * registration form (`Module.caseListRegistrationForm`); every other module keeps
-	 * the null shell.
+	 * HQ `CaseListForm` (`models/modules.py`). The registration a case list
+	 * offers (`Module.caseListRegistrationForm`, either arm); every other
+	 * module keeps the blank block.
 	 */
 	case_list_form: {
 		doc_type: "CaseListForm";
@@ -660,6 +660,8 @@ interface HqModuleBase<XPath> {
 		label: Record<string, string> | Record<string, never>;
 		post_form_workflow?: "default" | "case_list";
 		relevancy_expression?: XPath;
+		media_image?: Record<string, string>;
+		media_audio?: Record<string, string>;
 	};
 	search_config: CaseSearchConfig<XPath>;
 	media_image: Record<string, string>;

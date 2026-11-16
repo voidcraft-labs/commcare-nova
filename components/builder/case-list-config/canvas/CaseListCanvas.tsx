@@ -54,6 +54,7 @@ import {
 	DisplayFieldComposer,
 } from "./DisplayFieldComposer";
 import { ParentCaseSelectionSetting } from "./ParentCaseSelectionSetting";
+import { RegisterFromListSetting } from "./RegisterFromListSetting";
 
 export interface CaseListCanvasProps {
 	readonly moduleUuid: Uuid;
@@ -175,6 +176,9 @@ export function CaseListCanvas({
 						severalRefusal={severalRefusal}
 						onChange={onCaseSelectionChange}
 					/>
+					{caseType !== undefined && (
+						<RegisterFromListSetting moduleUuid={moduleUuid} />
+					)}
 
 					<section aria-labelledby="results-information-heading">
 						<div className="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
@@ -204,7 +208,7 @@ export function CaseListCanvas({
 									tileDisabledReason={tileDisabledReason}
 									rowsConsequence={
 										tile?.persistOnForms === true
-											? "Your tile arrangement is kept, and comes back whenever you choose Tile again. The tile will no longer stay on screen during this module's forms."
+											? "Your tile arrangement is kept, and comes back whenever you choose Tile again. The tile will no longer stay on screen once a case is chosen."
 											: undefined
 									}
 									onChange={onArrangementChange}

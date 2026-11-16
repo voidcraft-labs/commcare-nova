@@ -59,6 +59,7 @@ import {
 	formLinkTargetVerdict,
 } from "../formLinkReview";
 import type { Uuid } from "../types";
+import { firstMenuSharedCaseSentence } from "../userFacingErrors";
 import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 import { useBlueprintMutations } from "./useBlueprintMutations";
 
@@ -143,7 +144,10 @@ function refused(message: string): CommitOutcome {
 
 /** The builder's sentence for a planner's refusal: what went wrong, and
  *  what the person can do next. */
-function refusalMessage(reason: FormLinkRefusal): string {
+function refusalMessage(
+	reason: FormLinkRefusal,
+	menuNameOf: (moduleUuid: Uuid) => string | undefined,
+): string {
 	switch (reason.kind) {
 		case "form-not-found":
 			return "This form is no longer part of the app.";
@@ -163,6 +167,10 @@ function refusalMessage(reason: FormLinkRefusal): string {
 			return "A module's form list asks for no values. You can remove the carried values, or send the link to a form inside it.";
 		case "selection-cardinality":
 			return "That form chooses cases differently from this one, so the link can't hand its cases on. You can choose another destination.";
+		case "first-menu-shared-case":
+			return firstMenuSharedCaseSentence(
+				menuNameOf(reason.aboveModuleUuid) ?? "",
+			);
 		case "otherwise-unreachable":
 			return "Give a destination a condition first, so there is a time when none runs.";
 		case "otherwise-not-offered":
@@ -274,12 +282,18 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 	 * over the store at invocation, never the render's doc. */
 	const commitPlanned = useCallback(
 		(planned: FormLinkCommitPlan): FormLinkWriteOutcome => {
-			if (!planned.ok) return refused(refusalMessage(planned.reason));
+			if (!planned.ok)
+				return refused(
+					refusalMessage(
+						planned.reason,
+						(moduleUuid) => docApi.getState().modules[moduleUuid]?.name,
+					),
+				);
 			if (planned.mutations.length === 0) return { ok: true };
 			const outcome = mutations.inline.commitMany([...planned.mutations]);
 			return outcome.ok ? { ...outcome, ...reportsOf(planned) } : outcome;
 		},
-		[mutations],
+		[docApi, mutations],
 	);
 
 	const add = useCallback(

@@ -10,14 +10,15 @@ import {
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
 import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { proseReferenceExpression } from "@/lib/commcare/xform/proseExpression";
 import {
 	type FormNodeProjection,
 	formNodeProjection,
 } from "@/lib/commcare/xpath/formNodeProjection";
 import { formReads } from "@/lib/commcare/xpath/wire/formReads";
 import {
+	startingDatetimeWire,
 	toWire,
+	type WireBuildContext,
 	type WireTermBindings,
 } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
@@ -37,7 +38,8 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { expressionAt } from "@/lib/domain/expressionSource";
-import type { ProseReferencePart } from "@/lib/domain/prose";
+import type { ProseAtomPart } from "@/lib/domain/prose";
+import { proseAtomExpression } from "@/lib/domain/proseExpression";
 import type { PreviewLookupData } from "./lookupEvaluation";
 import { previewQueryWrapperName } from "./queryWrapperName";
 
@@ -179,10 +181,20 @@ export interface FormExpressionRuntime {
 	expression(slot: ExpressionSlotRef): Expression | undefined;
 	/** The slot's printed text, printed once per runtime. */
 	source(slot: ExpressionSlotRef): string | undefined;
-	/** One prose reference's printed text, the value the XForm's `<output>`
-	 * for it reads (`xform/formExpressions.ts::prose`), printed once per
+	/** A field's starting value printed as the XForm's `<setvalue>` into a
+	 * node bound `xsd:dateTime` prints it
+	 * (`xform/formExpressions.ts::startingDatetime`): date-and-time text read
+	 * in the device's own date and clock before the cast. Printed once per
 	 * runtime. */
-	prose(part: ProseReferencePart, slot: ProseSlotRef): string;
+	startingDatetimeSource(slot: {
+		readonly entity: "field";
+		readonly uuid: Uuid;
+		readonly slot: "default_value";
+	}): string | undefined;
+	/** One prose atom's printed text (a reference's read or a calculated
+	 * value's expression), the value the XForm's `<output>` for it reads
+	 * (`xform/formExpressions.ts::prose`), printed once per runtime. */
+	prose(part: ProseAtomPart, slot: ProseSlotRef): string;
 	lower(expression: Expression, slot: SlotContextRef): string;
 }
 
@@ -219,7 +231,11 @@ export function formExpressionRuntime(
 		contexts.set(key, result);
 		return result;
 	};
-	const lower = (expression: Expression, slot: SlotContextRef): string => {
+	const lower = (
+		expression: Expression,
+		slot: SlotContextRef,
+		startingDatetime = false,
+	): string => {
 		for (const { node } of formReads(expression)) {
 			if (
 				node.kind !== "field" &&
@@ -230,27 +246,31 @@ export function formExpressionRuntime(
 					`Preview cannot yet evaluate the generated form node ${formNodeKey(node)}.`,
 				);
 		}
+		const build: WireBuildContext = {
+			target: "preview",
+			types: context(slot),
+			form: projection,
+			bindings: {
+				...bindings,
+				...(lookup === undefined
+					? {}
+					: {
+							lookup: {
+								naming: lookup.naming,
+								instanceScope: "xform" as const,
+							},
+						}),
+			},
+		};
 		return serializeWire(
-			toWire(expression, {
-				target: "preview",
-				types: context(slot),
-				form: projection,
-				bindings: {
-					...bindings,
-					...(lookup === undefined
-						? {}
-						: {
-								lookup: {
-									naming: lookup.naming,
-									instanceScope: "xform" as const,
-								},
-							}),
-				},
-			}),
+			startingDatetime
+				? startingDatetimeWire(expression, build)
+				: toWire(expression, build),
 			{ target: "preview" },
 		).text;
 	};
 	const texts = new Map<string, string | undefined>();
+	const startingTexts = new Map<string, string | undefined>();
 	const proseTexts = new Map<string, string>();
 	return {
 		doc,
@@ -269,11 +289,20 @@ export function formExpressionRuntime(
 			texts.set(key, text);
 			return text;
 		},
+		startingDatetimeSource(slot) {
+			const key = JSON.stringify(slot);
+			if (startingTexts.has(key)) return startingTexts.get(key);
+			const expression = expressionAt(doc, slot);
+			const text =
+				expression === undefined ? undefined : lower(expression, slot, true);
+			startingTexts.set(key, text);
+			return text;
+		},
 		prose(part, slot) {
 			const key = JSON.stringify([slot, part]);
 			const cached = proseTexts.get(key);
 			if (cached !== undefined) return cached;
-			const text = lower(proseReferenceExpression(part), slot);
+			const text = lower(proseAtomExpression(part), slot);
 			proseTexts.set(key, text);
 			return text;
 		},

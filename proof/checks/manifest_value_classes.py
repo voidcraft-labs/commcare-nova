@@ -668,7 +668,9 @@ def _protected_message_values(form, base):
             if _local(value) != "value" or name in values:
                 return None
             values[name] = value
-        if None not in values or "markdown" not in values:
+        # The message's own markdown copy is optional: Nova writes none, and a retained control holds the one it
+        # was emitted with.
+        if None not in values:
             return None
         internal = set(values) - allowed
         held_media = internal & set(media_modes)
@@ -4452,6 +4454,47 @@ on_display_only_module_with_tile_list.__doc__ = (
 )
 
 
+def default_on_multi_select_host(use, manifest):
+    """``menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host``: a registration
+    form offered from a case list that selects several cases, whose ``post_form_workflow`` is ``default``: HQ's
+    return frame carries the one new case into the selection (``CaseListFormWorkflow._get_stack_frames``)."""
+    return _case_list_form_reader(
+        lambda at, module, form_id: (
+            ((module.get("case_list_form") or {}).get("post_form_workflow") or "default") == "default"
+            and _multi_select(module)
+        )
+    )(use, manifest)
+
+
+def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
+    """``menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of``: a module that shows
+    its forms in the menu above (``put_in_root``) beside one of what HQ's build refuses there: its own
+    ``session_endpoint_id``, inline search (``util.py::module_uses_inline_search``), a form of its own whose
+    ``post_form_workflow`` is ``module``, a form of a child module whose ``post_form_workflow`` is
+    ``parent_module``, or a ``form_links`` entry anywhere in the app that names it by ``module_unique_id`` with no
+    ``form_id`` (``helpers/validators.py``: ``endpoint to display only forms``, ``inline search to display only
+    forms``, ``form link to display only forms``)."""
+    at, module = _module_of_detail(use)
+    if module is None:
+        return None
+    if not module.get("put_in_root"):
+        return False
+    if module.get("session_endpoint_id") or _inline_search(module):
+        return True
+    if any(form.get("post_form_workflow") == "module" for form in _forms(module)):
+        return True
+    me = module.get("unique_id")
+    for other in at.app.modules:
+        child = other.get("root_module_id") == me
+        for form in _forms(other):
+            if child and form.get("post_form_workflow") == "parent_module":
+                return True
+            for link in form.get("form_links") or []:
+                if isinstance(link, dict) and link.get("module_unique_id") == me and not link.get("form_id"):
+                    return True
+    return False
+
+
 def _root_reader(test):
     """A reader of the module a use's module sits under (``root_module_id``), on a module and a suite menu
     alike where the suite does not settle it (None there)."""
@@ -5639,6 +5682,50 @@ def choice_value_refused_by_vellum(use, manifest):
     )
 
 
+# HQ's pattern for an instance read (``suite_xml/post_process/instances.py::instance_re``), over literal text,
+# with the name widened to any run that holds no quote mark: the reading Nova refuses a choice's value and a form's
+# name by (``lib/domain/hqInstanceRead.ts::instanceScanRead``). Python's ``\s`` over text is ``str.isspace``, HQ's
+# own.
+INSTANCE_READ = re.compile(r"""instance\(\s*['"][^'"]+['"]\s*\)""")
+
+
+def form_name_read_as_an_instance(use, manifest):
+    """``forms-and-case-writes/form-name-read-as-an-instance``: a form whose name in the app's default language
+    (``Application.default_language``: the first of ``langs``, ``en`` where there is none) holds text CommCare HQ's
+    build reads as an instance. That name is the text of the form's ``<h:title>`` and its data root's ``name``,
+    which HQ's form builder writes from it on every save (``views/formdesigner.py::_get_vellum_core_context``,
+    ``formName``), and ``XForm.add_missing_instances`` reads both in the whole rendered form (``xform.py``). A
+    name in another language reaches only the app's strings, which that scan does not read. A name that holds no
+    text in the default language does not say what the source's title holds: not settled here."""
+    at = _json(use)
+    if at is None or at.key != "name":
+        return None
+    names = at.value
+    if not isinstance(names, dict):
+        return None
+    langs = at.app.doc.get("langs") or []
+    name = names.get(langs[0] if langs else "en")
+    if not isinstance(name, str):
+        return None
+    return INSTANCE_READ.search(name) is not None
+
+
+def choice_value_read_as_an_instance(use, manifest):
+    """``questions/choice-value-read-as-an-instance``: a choice's value holding text CommCare HQ's build reads as an
+    instance, which ``XForm.add_missing_instances`` reads in the whole rendered form, a choice's ``<value>`` text
+    among the rest (``xform.py``)."""
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    item = element.getparent()
+    if _local(element) != "value" or item is None or _local(item) != "item":
+        return False
+    select = item.getparent()
+    if select is None or _local(select) not in SELECTS:
+        return False
+    return INSTANCE_READ.search(_choice_value(item)) is not None
+
+
 def no_add_remove_without_count(use, manifest):
     """``questions/jr-noaddremove-without-jr-count``: a ``<repeat>`` with ``jr:noAddRemove`` and no ``jr:count``,
     which Vellum filters out (``mugs/types/group.js``, Repeat's ``controlChildFilter`` writes it only beside a
@@ -6353,11 +6440,19 @@ def _inner(element):
     return (element.text or "") + "".join(etree.tostring(child, encoding=str) for child in element)
 
 
+# The texts no runtime reads a ``markdown`` value of: a hint (``FormEntryPrompt.getHintText``) and a validation
+# message, by the body's ``<alert>`` or the bind's ``jr:constraintMsg`` (``FormEntryPrompt.getConstraintText``),
+# each asking for no form. Their copies are ``questions/hint-markdown-form``'s and
+# ``questions/validation-message-markdown-form``'s, INERT whether they equal the text or differ from it.
+UNREAD_MARKDOWN_KINDS = frozenset({"hint", "alert", "message"})
+
+
 def markdown_differing(use, manifest):
     """``questions/markdown-form-differing-from-the-default-text``: a ``markdown`` value whose content differs from
-    its text's default value in the same language, which a Vellum save replaces with it
-    (``javaRosa/plugin.js::loadXML`` loads the markdown value as the default text, and the writer writes both from
-    it). A text holding no default value has none to differ from: not settled here."""
+    its text's default value in the same language, on a label, a choice or a help text, which a Vellum save
+    replaces with it (``javaRosa/plugin.js::loadXML`` loads the markdown value as the default text, and the writer
+    writes both from it). A text holding no default value has none to differ from: not settled here. A text every
+    question reference names as a hint or a validation message is the INERT entries' (``UNREAD_MARKDOWN_KINDS``)."""
     form, value = _itext_value(use)
     if form is None:
         return None
@@ -6366,7 +6461,15 @@ def markdown_differing(use, manifest):
     plain = [other for other in _children(value.getparent()) if _local(other) == "value" and other.get("form") is None]
     if not plain:
         return None
-    return _inner(plain[0]) != _inner(value)
+    if _inner(plain[0]) == _inner(value):
+        return False
+    kinds, unplaced = form.itext_references
+    held = kinds.get(value.getparent().get("id"))
+    if held is not None and held <= UNREAD_MARKDOWN_KINDS:
+        return False
+    if held is None and unplaced:
+        return None
+    return True
 
 
 def markdown_in_some_languages(use, manifest):
@@ -6569,6 +6672,32 @@ def appearance_token_no_runtime_reads(use, manifest):
     return bool(appearance_words(manifest, form, element, value)[1])
 
 
+def case_variant_read_differently(use, manifest):
+    """``questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole``: a whole appearance an Android read
+    takes ignoring case (``WidgetFactory.buildBasicWidget``: ``equalsIgnoreCase("numeric")`` on a text input or
+    secret, ``toLowerCase().equals("ethiopian")`` on a date; ``StringWidget.shouldSupportIMEAction``:
+    ``equalsIgnoreCase`` of ``short``) spelled otherwise than the lowercase value, such as ``Numeric``. Web Apps
+    compares each space-separated token exactly (``form_ui.js::getMatchingStyles``), so it ignores the variant
+    Android reads as the value. The use's key names the read (``appearance:android/<value>``); its rule, as the
+    surface records it, must compare the whole appearance of this element and act on it, and the use is in the
+    class where the appearance is not the value itself. A read recorded otherwise than as a whole match is not
+    placed here: None."""
+    form, element, value = _control_appearance(use)
+    if element is None:
+        return None if form is None else False
+    facts = element_facts(manifest, form, element)
+    reads = [
+        rule
+        for rule in appearance_rules(manifest)
+        if rule.key == use.key and rule.reads(facts) and appearance_matches(value, rule)
+    ]
+    if not reads:
+        return False
+    if any(rule.match != "whole" for rule in reads):
+        return None
+    return any(value != rule.token for rule in reads)
+
+
 # Data Parent ------------------------------------------------------------------------
 
 
@@ -6689,6 +6818,7 @@ VALUE_CLASSES = {
     "questions/authored-data-meta-block": authored_meta_block,
     "questions/a-root-question-commcare-usercase-in-a-form-with-usercase": usercase_root_question,
     "questions/choice-value-with-whitespace-empty-or-duplicated": choice_value_refused_by_vellum,
+    "questions/choice-value-read-as-an-instance": choice_value_read_as_an_instance,
     "questions/jr-noaddremove-without-jr-count": no_add_remove_without_count,
     "questions/user-controlled-repeat-inside-a-question-list-a-group-whose": user_repeat_in_field_list,
     "questions/a-count-that-depends-on-the-rows-it-creates-through-calculations": count_reading_its_rows,
@@ -6715,6 +6845,7 @@ VALUE_CLASSES = {
     "questions/itext-pragma-entries-pragma-form-descriptor-pragma-skip-full": unreferenced_pragma,
     "questions/an-appearance-holding-such-whitespace-that-some-runtime-reads": appearance_whitespace_read_otherwise,
     "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": appearance_token_no_runtime_reads,
+    "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": case_variant_read_differently,
     "questions/data-parent-crossing-a-repeat": data_parent_crossing_a_repeat,
     "questions/any-other-bind-id-named-by-a-control-s-bind": other_bind_id,
     "questions/label-big-image": _big_image("label"),
@@ -6730,6 +6861,7 @@ VALUE_CLASSES = {
         sense_or_review_entry_mode
     ),
     # Forms and case writes
+    "forms-and-case-writes/form-name-read-as-an-instance": form_name_read_as_an_instance,
     "forms-and-case-writes/form-requires-referral": referral,
     "forms-and-case-writes/form-requires-none-with-child-cases-but-no-open": child_cases_without_open,
     "forms-and-case-writes/subcases-condition-never": subcase_never,
@@ -6892,6 +7024,12 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/case-list-form-on-a-put-in-root-module-whose-case-list-is-a-tile": (
         on_display_only_module_with_tile_list
+    ),
+    "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
+        default_on_multi_select_host
+    ),
+    "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of": (
+        put_in_root_beside_an_endpoint_inline_search_or_form_return
     ),
     "menus-and-case-lists/any-module-under-a-training-menu": names_a_training_module,
     "menus-and-case-lists/any-other-module-under-a-shadow-menu": names_a_shadow_module,

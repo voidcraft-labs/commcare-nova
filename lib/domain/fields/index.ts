@@ -99,7 +99,12 @@ import {
 	singleSelectFieldMetadata,
 	singleSelectFieldSchema,
 } from "./singleSelect";
-import { type TextField, textFieldMetadata, textFieldSchema } from "./text";
+import {
+	TEXT_KEYPADS,
+	type TextField,
+	textFieldMetadata,
+	textFieldSchema,
+} from "./text";
 import { type TimeField, timeFieldMetadata, timeFieldSchema } from "./time";
 import { type VideoField, videoFieldMetadata, videoFieldSchema } from "./video";
 
@@ -813,4 +818,5 @@ export {
 	groupBornFieldList,
 	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	hiddenFieldCarriesBothValueSources,
+	TEXT_KEYPADS,
 };

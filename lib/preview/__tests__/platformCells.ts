@@ -186,6 +186,9 @@ export const PLATFORM_CELLS: Readonly<
 		model("case-list-menu-item-web-apps"),
 	"menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule@web-apps":
 		model("case-list-menu-item-web-apps"),
+	"menus-and-case-lists/case-list-form-media-image-media-audio@web-apps": model(
+		"register-action-media",
+	),
 	"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows@android":
 		model("tiles-flat-android"),
 	"menus-and-case-lists/show-border-show-shading@android": model(
@@ -230,6 +233,9 @@ export const PLATFORM_CELLS: Readonly<
 	// ── Browser ────────────────────────────────────────────────────────
 	"questions/gps-geopoint@web-apps": browser("location-map-web-apps"),
 	"questions/barcode-barcode@web-apps": browser("barcode-text-web-apps"),
+	"questions/phone-number-xsd-string-appearance-numeric@web-apps": browser(
+		"number-keypad-web-apps",
+	),
 	"questions/image-capture-upload-image@web-apps": browser(
 		"image-attach-web-apps",
 	),
@@ -245,14 +251,11 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/help-media@web-apps": browser("help-web-apps"),
 	"questions/help-text-markdown-form@web-apps": browser("help-web-apps"),
 	"questions/help-text-markdown-form@android": browser("help-android"),
+	"questions/help-text-with-no-markdown-form@web-apps": browser(
+		"help-plain-web-apps",
+	),
 	"questions/hint-text@web-apps": browser("hint-markdown-web-apps"),
 	"questions/hint-text@android": browser("hint-plain-android"),
-	"questions/validation-message-markdown-form@web-apps": browser(
-		"validation-plain-web-apps",
-	),
-	"questions/validation-message-markdown-form@android": browser(
-		"validation-plain-android",
-	),
 	"questions/choice-label-text-markdown@web-apps": browser(
 		"choice-label-markdown-web-apps",
 	),

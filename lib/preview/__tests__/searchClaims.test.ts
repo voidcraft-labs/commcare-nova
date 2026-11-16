@@ -14,7 +14,6 @@ import {
 	type NavigationDeviceCases,
 	navigationSelectedCase,
 } from "@/lib/preview/engine/displayConditionEvaluation";
-import { previewAutomaticForm } from "@/lib/preview/menuProjection";
 import {
 	claimableCaseIds,
 	claimPostsAtResult,
@@ -108,14 +107,11 @@ describe("deviceCasesHoldingClaims", () => {
 	it("waits for the claimed case rather than reading it as missing", () => {
 		const decided = decide(device("held"));
 		expect(decided[0]?.visibility).toBe("pending");
-		/* No form opens on its own while the claim is on its way. */
-		expect(previewAutomaticForm(decided)).toBeUndefined();
 	});
 
-	it("decides, and continues into the form, once the device holds the claim", () => {
+	it("decides once the device holds the claim", () => {
 		const decided = decide(device("held", "claimed"));
 		expect(decided[0]?.visibility).toBe("shown");
-		expect(previewAutomaticForm(decided)).toBe(FORM);
 	});
 
 	it("reads the device as it is for a choice that claimed nothing", () => {

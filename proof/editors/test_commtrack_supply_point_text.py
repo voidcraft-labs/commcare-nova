@@ -1,32 +1,39 @@
-"""HQ's build adds the supply-point step to a form once HQ's form builder has saved the text, and only with CommCare
-Supply on.
+"""HQ's build adds no supply-point step to a form whose label or string says the session's supply point, before or
+after a save in HQ's form builder, even with CommCare Supply on.
 
-Contract: Nova's publish asks the person to confirm the project space has
-CommCare Supply off (``commtrack-off``) for an app whose form source holds
-``instance('commcaresession')/session/data/supply_point_id``, read decoded
-(``lib/commcare/xform/supplyPointText.ts``). HQ's build gives such a form's
-entry a ``supply_point_id`` datum, the location the worker's user data names,
-with the two assertions that it is there and names a case
-(``suite_xml/sections/entries.py::EntriesHelper.entry_for_module``, where
-``app.commtrack_enabled`` and ``session_var('supply_point_id')`` is a substring
-of the stored ``form.source``; ``EntriesHelper.get_userdata_autoselect``). Nova
-writes every ``'`` as ``&apos;``, so its own bytes never meet HQ's substring
-test; a save in HQ's form builder writes the form again, after which they can.
+Contract: HQ's build gives a form's entry a ``supply_point_id`` datum, the
+location the worker's user data names, with the two assertions that it is
+there and names a case, where CommCare Supply is on and
+``instance('commcaresession')/session/data/supply_point_id`` is a substring of
+the stored ``form.source``
+(``suite_xml/sections/entries.py::EntriesHelper.entry_for_module``;
+``EntriesHelper.get_userdata_autoselect``). Nova writes a label's bracket after
+``instance`` as a literal output (``lib/commcare/xform/builder.ts::literalLabelNodes``)
+and splits a string literal there (``lib/commcare/xpath/wire/serialize.ts::literalPieces``),
+so no stretch of the source holds the text, decoded or not, and Nova's publish
+asks nothing about CommCare Supply for it
+(``lib/commcare/planPrivileges.ts::commtrackReasons``).
 
 ``targeted-supply-point-text`` holds a survey form with the text in a label in
 two languages and in a calculate's string literal. It is published as Nova's
 publish leaves it, saved in HQ's form builder, and HQ builds it before and
-after the save, each with CommCare Supply off and on: four builds. The datum
-and its assertions appear in the build after the save with CommCare Supply on,
-and in no other. Which of the label's text and the calculate's attribute hold
-the text after the save is written as the run's evidence: it decides the
-predicate's reach.
+after the save, each with CommCare Supply off and on: four builds, none of
+which adds the step. Where each form's source holds the text, decoded and as
+stored, is written as the run's evidence.
 
-The plausible failures: a save that leaves the text as Nova escaped it (then
-nothing a person does in HQ turns the step on, and Nova asks about nothing a
-person meets), a step HQ adds with CommCare Supply off (then confirming the
-setting off would not keep it away), and a step HQ adds to Nova's own bytes
-before any save.
+The control is the published source written by hand with each bracket output
+joined back into its label's text, so the label holds the text as one node, as
+a label written whole would. HQ builds it with CommCare Supply off and on, and
+gives the step, the datum from the worker's supply point with its two
+assertions, to every form whose source then holds the text, with CommCare
+Supply on only. So the four builds' empty answers mean the step's trigger is
+absent, not that HQ's build at the pin no longer has the step.
+
+The plausible failures: a save that writes the bracket output back as text
+(then the save would put the text in the source, and a project space with
+CommCare Supply on would give the form a step Nova never asked about), a
+calculate the save writes back as one string, a step HQ adds to Nova's own
+bytes, and a pin move that drops or moves HQ's step, which the control shows.
 """
 
 from __future__ import annotations
@@ -49,11 +56,12 @@ SUPPLY_POINT_TEXT = "instance('commcaresession')/session/data/supply_point_id"
 DATUM = "supply_point_id"
 USER_DATA = "instance('commcaresession')/session/user/data/commtrack-supply-point"
 ASSERTIONS = ("case_autoload.location.property_missing", "case_autoload.location.case_missing")
+XFORMS = "http://www.w3.org/2002/xforms"
 
 
 def _holds_text(source):
-    """Where a form's source holds the text as a parsed XML reads it: ``(element tag, "text" or an attribute
-    name)`` for each text node and attribute value whose decoded value contains it."""
+    """Where a form's source holds the text as a parsed XML reads it: ``(element tag, "text", "tail" or an
+    attribute name)`` for each text node, tail and attribute value whose decoded value contains it."""
     root = etree.fromstring(source.encode("utf-8"))
     found = []
     for element in root.iter():
@@ -62,8 +70,27 @@ def _holds_text(source):
         name = etree.QName(element).localname
         if SUPPLY_POINT_TEXT in (element.text or ""):
             found.append((name, "text"))
+        if SUPPLY_POINT_TEXT in (element.tail or ""):
+            found.append((name, "tail"))
         found.extend((name, attribute) for attribute, value in element.attrib.items() if SUPPLY_POINT_TEXT in value)
     return sorted(found)
+
+
+def _joined(source):
+    """The source with each literal bracket output Nova writes after ``instance`` joined back into the text around
+    it, so a label that says the text holds it as one text node: the control's hand-written spelling."""
+    root = etree.fromstring(source.encode("utf-8"))
+    for output in list(root.iter(f"{{{XFORMS}}}output")):
+        if output.get("value") != "'('":
+            continue
+        parent, previous = output.getparent(), output.getprevious()
+        joined = "(" + (output.tail or "")
+        if previous is None:
+            parent.text = (parent.text or "") + joined
+        else:
+            previous.tail = (previous.tail or "") + joined
+        parent.remove(output)
+    return etree.tostring(root, encoding="unicode")
 
 
 def _supply_point_step(built):
@@ -104,51 +131,64 @@ def _builds(state, record, app_id, configuration):
     return {commtrack: _supply_point_step(built) for commtrack, built in found.items()}
 
 
-def test_hqs_build_adds_the_supply_point_step_after_a_form_builder_save_with_commcare_supply_on(
-    hq, core_runner, editor_driver
-):
+def test_hqs_build_adds_no_supply_point_step_before_or_after_a_form_builder_save(hq, core_runner, editor_driver):
     from proof.observe import publish
 
     export = corpus_document(DOCUMENT).exports["minimum"]
     configuration = export.configuration.hq()
-    # Nova's publish asks this document's project space to have CommCare Supply off.
+    # Nova's publish asks nothing about CommCare Supply for this document.
     assert not configuration.commtrack
     configuration = dataclasses.replace(configuration, privileges=configuration.privileges | {"CLOUDCARE"})
     with hq_check(configuration) as (state, record):
         app_id, refusal, _ = publish.create(state, export)
         assert refusal is None, refusal
         app = operations.held_app(state, app_id)
-        forms = [form.unique_id for form in app.get_forms() if form.source and _holds_text(form.source)]
-        assert forms, f"{DOCUMENT} holds no form whose source holds {SUPPLY_POINT_TEXT}."
-        # Nova's bytes hold the text escaped, so HQ's substring test does not meet it.
-        assert not any(SUPPLY_POINT_TEXT in app.get_form(form_id).source for form_id in forms)
+        forms = [form.unique_id for form in app.get_forms() if form.source]
+        assert forms, f"{DOCUMENT} holds no form with a source."
+
+        def held_by(held_app):
+            return {
+                form_id: {
+                    "decoded": _holds_text(held_app.get_form(form_id).source),
+                    "plain": SUPPLY_POINT_TEXT in held_app.get_form(form_id).source,
+                }
+                for form_id in forms
+            }
+
+        published = held_by(app)
+        published_sources = {form_id: app.get_form(form_id).source for form_id in forms}
         before = _builds(state, record, app_id, configuration)
-        runs = {}
         for form_id in forms:
             run = vellum.open_and_save(editor_driver, state, app_id, form_id)
             record_timing("vellum_open", run.seconds["open"])
             record_timing("vellum_save", run.seconds["save"])
             assert run.loaded and run.saved and run.save_button == "saved", (run.load_error, run.save_refusal)
-            runs[form_id] = run
-        saved = operations.held_app(state, app_id)
-        held = {
-            form_id: {
-                "decoded": _holds_text(saved.get_form(form_id).source),
-                "plain": SUPPLY_POINT_TEXT in saved.get_form(form_id).source,
-            }
-            for form_id in forms
-        }
+        saved = held_by(operations.held_app(state, app_id))
         after = _builds(state, record, app_id, configuration)
+
+        control = operations.held_app(state, app_id)
+        for form_id, source in published_sources.items():
+            control.get_form(form_id).source = _joined(source)
+        control.save()
+        joined = [form_id for form_id in forms if SUPPLY_POINT_TEXT in _joined(published_sources[form_id])]
+        assert joined, f"No form of {DOCUMENT} holds the text once its bracket outputs are joined."
+        stepped = _builds(state, record, app_id, configuration)
 
     write_evidence(
         "commtrack-supply-point-text",
-        {"held": held, "builds": {"before": before, "after": after}},
+        {
+            "held": {"published": published, "saved": saved},
+            "builds": {"before": before, "after": after, "control": stepped},
+        },
     )
+    nowhere = {form_id: {"decoded": [], "plain": False} for form_id in forms}
+    assert published == nowhere, published
+    assert saved == nowhere, saved
     assert before == {False: {}, True: {}}, before
-    assert after[False] == {}, after
-    assert all(each["plain"] for each in held.values()), held
-    stepped = after[True]
-    assert len(stepped) == len(forms), stepped
-    for step in stepped.values():
+    assert after == {False: {}, True: {}}, after
+    # The control: HQ's build at the pin gives the step where the source holds the text, with CommCare Supply on.
+    assert stepped[False] == {}, stepped
+    assert len(stepped[True]) == len(joined), stepped
+    for step in stepped[True].values():
         assert len(step["datums"]) == 1 and USER_DATA in step["datums"][0], step
         assert step["assertions"] == sorted(ASSERTIONS), step

@@ -12,12 +12,14 @@
  *
  * "Stock note", a survey in English and French, says the path in a text
  * question's label in both languages, and holds it as a string literal in
- * a hidden value's calculate. Nova's export writes the path's apostrophes as
- * `&apos;`, so the bytes Nova sends never hold the substring; a save in HQ's
- * form builder writes them plainly. So Nova's publish asks the person to
- * confirm CommCare Supply is off for this document (`commtrack-off`,
- * `lib/commcare/planPrivileges.ts::commtrackReasons`), and its verdict
- * requires it off (`minimumConfiguration.commtrackEnabled: false`).
+ * a hidden value's calculate. The label writes the bracket after `instance`
+ * as a literal output (`lib/commcare/xform/builder.ts::literalLabelNodes`)
+ * and the calculate splits the literal at it
+ * (`lib/commcare/xpath/wire/serialize.ts::literalPieces`), so no stretch of
+ * the source holds the text, in Nova's bytes or after a save in HQ's form
+ * builder. Nova's publish therefore asks nothing about CommCare Supply for
+ * this document (`lib/commcare/planPrivileges.ts::commtrackReasons` names no
+ * form), and its verdict requires nothing off.
  *
  * Fixed values: the note answered `ok` holds `ok`, and the hidden value holds
  * the path as text.

@@ -21,6 +21,7 @@ import {
 import { slotContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { XPathInvalidPathError } from "@/lib/preview/xpath/runtimeValues";
 import type { PreviewSearchSessionValues } from "../identity";
 import { previewAsMe, previewSessionValues } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
@@ -180,17 +181,17 @@ describe("preview case-search expression evaluation", () => {
 		).toBe("worker-42");
 		// `session/user/data` carries CommCare's `commcare_`-prefixed framework
 		// keys, not the usercase's unprefixed ones — the two projections are
-		// separate, and an unprefixed name reads as the blank an absent node
-		// gives on a device.
+		// separate, and a device holds no node for an unprefixed name, so Core
+		// refuses its read (`XPathNodeset.unpack`) rather than reading a blank.
 		expect(
 			evaluatePreviewSearchExpression(
 				term(sessionUser("commcare_first_name")),
 				SESSION,
 			),
 		).toBe("Amina");
-		expect(
+		expect(() =>
 			evaluatePreviewSearchExpression(term(sessionUser("first_name")), SESSION),
-		).toBe("");
+		).toThrow(XPathInvalidPathError);
 	});
 
 	it("binds submitted search inputs before evaluating a dependent expression", () => {

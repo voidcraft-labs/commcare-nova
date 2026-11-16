@@ -587,7 +587,15 @@ const canonicalCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 );
 
 type WithoutColumnFacets<T> = T extends Column
-	? Omit<T, "uuid" | "sort" | "tile" | "visibleInList" | "visibleInDetail">
+	? Omit<
+			T,
+			| "uuid"
+			| "sort"
+			| "tile"
+			| "visibleInList"
+			| "visibleInDetail"
+			| "notOnList"
+		>
 	: never;
 type ColumnContent = WithoutColumnFacets<Column>;
 
@@ -600,6 +608,7 @@ const columnContentSchema = z.discriminatedUnion(
 			tile: true,
 			visibleInList: true,
 			visibleInDetail: true,
+			notOnList: true,
 		}),
 	) as unknown as [z.ZodObject<z.ZodRawShape>, ...z.ZodObject<z.ZodRawShape>[]],
 ) as unknown as z.ZodType<ColumnContent>;
@@ -1563,14 +1572,34 @@ function createMutationSchema({
 				column: columnContentSchema.optional(),
 				sortPatch: columnSortSchema.nullable().optional(),
 				tilePatch: tileCellSchema.nullable().optional(),
+				/**
+				 * One screen's visibility. On Results it is the column's list
+				 * state: `visible: true` shows it (and puts it back on the list),
+				 * `visible: false` hides it, and `notOnList` beside a hide says
+				 * whether the list still carries it (`false`) or the case's
+				 * detail alone holds it (`true`); a hide that leaves `notOnList`
+				 * out keeps whichever the column holds.
+				 */
 				visibilityPatch: z
 					.strictObject({
 						surface: z.enum(["list", "detail"]),
 						visible: z.boolean(),
+						notOnList: z.boolean().optional(),
 					})
 					.optional(),
 			})
 			.superRefine((mutation, ctx) => {
+				const visibility = mutation.visibilityPatch;
+				if (
+					visibility?.notOnList !== undefined &&
+					(visibility.surface !== "list" || visibility.visible)
+				) {
+					ctx.addIssue({
+						code: "custom",
+						message:
+							"A column's notOnList is set only by hiding it from Results.",
+					});
+				}
 				const payloadCount = [
 					mutation.column,
 					mutation.sortPatch,

@@ -127,6 +127,28 @@ describe("SELECT_OPTION_VALUE_INVALID", () => {
 		);
 	});
 
+	it("refuses a value CommCare HQ's build reads as a data source, and admits the word alone", () => {
+		// A value is the text of an <item>'s <value> in the form's source,
+		// where HQ's build reads instance('…') as a data source; a value is
+		// data, so no writer spells it another way.
+		const findings = fieldFindings(
+			select("single_select", [
+				["instance('abc')", "Clinic"],
+				["instance", "Word"],
+				["instance_abc", "Taken"],
+			]),
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.details).toMatchObject({
+			optionValue: "instance('abc')",
+			problem: "instance-read",
+			suggestedValue: "instance_abc_2",
+		});
+		expect(findings[0]?.message).toContain(
+			"which CommCare HQ reads as a data source the form reads",
+		);
+	});
+
 	it("refuses an empty value and suggests a slug from the label", () => {
 		const findings = fieldFindings(
 			select("single_select", [
@@ -282,6 +304,19 @@ describe("CASE_PROPERTY_OPTION_VALUE_INVALID", () => {
 				{ value: "closed", label: "Closed" },
 			]),
 		).toEqual([]);
+	});
+
+	it("refuses a catalog value CommCare HQ's build reads as a data source", () => {
+		const findings = catalogFindings([
+			{ value: 'instance("casedb")', label: "Cases" },
+			{ value: "closed", label: "Closed" },
+		]);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.details).toMatchObject({
+			optionValue: 'instance("casedb")',
+			problem: "instance-read",
+			suggestedValue: "instance_casedb",
+		});
 	});
 
 	it("refuses a catalog value the suite could not compare, naming the property", () => {

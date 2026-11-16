@@ -2,6 +2,7 @@
 import type { ToolUIPart } from "ai";
 import type { ReactNode } from "react";
 import { useRef } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
 	Reasoning,
@@ -164,7 +165,7 @@ export function ChatMessage({
 			/* Assign/reuse this text part's stable id (ordinal = Nth text part). */
 			const idx = textPartOrdinal++;
 			if (idx >= textPartIds.current.length) {
-				textPartIds.current.push(crypto.randomUUID());
+				textPartIds.current.push(uuidv4());
 			}
 			const text = part.text.trim();
 			if (!text) continue;

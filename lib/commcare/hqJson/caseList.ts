@@ -69,6 +69,7 @@ import {
 	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
+	searchScreenTitleText,
 	tileCellFor,
 } from "@/lib/domain";
 import {
@@ -397,7 +398,8 @@ function projectColumnForShortDetail(
  *     compared as text over a date, datetime or time property; `plain`
  *     otherwise. HQ's build writes `string` for `date` and `plain` alike
  *     (`detail_screen.py::FormattedDetailColumn.sort_node`).
- *   - `blanks`: `first` ascending, `last` descending.
+ *   - `blanks`: the rule's own, which follows its direction (`first`
+ *     ascending, `last` descending) where the author says nothing.
  *   - `display`: the first language's wire code with empty text, which the
  *     save adds where it is missing.
  *   - `sort_calculation`: always empty; the save empties it unless the
@@ -701,7 +703,8 @@ function projectDefaultProperties(
  *
  * Slots covered:
  *
- *   - `caseSearchConfig.searchScreenTitle` → `title_label`.
+ *   - `caseSearchConfig.searchScreenTitle` → `title_label`, blank in every
+ *     language for a search with no title.
  *   - `caseSearchConfig.searchScreenSubtitle` → `description`.
  *   - `caseSearchConfig.searchButtonDisplayCondition` →
  *     `search_button_display_condition` (compiled to on-device XPath).
@@ -757,10 +760,14 @@ function buildSearchConfigDocument(
 
 	if (caseSearchConfig !== undefined) {
 		// Use Nova's shared friendly default so a fresh search never inherits
-		// CCHQ's blank or case-type-derived chrome on either wire path.
-		config.title_label = localization.textMap(
-			makeTranslationUnitId("module", moduleUuid, "search-title"),
-		);
+		// CCHQ's blank or case-type-derived chrome on either wire path. A
+		// search with no title keeps the shell's blank in every language, the
+		// map HQ's Case List page leaves where nothing was typed.
+		if (searchScreenTitleText(caseSearchConfig) !== null) {
+			config.title_label = localization.textMap(
+				makeTranslationUnitId("module", moduleUuid, "search-title"),
+			);
+		}
 		if (
 			caseSearchConfig.searchScreenSubtitle !== undefined &&
 			caseSearchConfig.searchScreenSubtitle !== ""

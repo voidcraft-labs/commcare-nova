@@ -84,6 +84,56 @@ describe("configureCaseList", () => {
 		);
 	});
 
+	it("stores blanks only where it differs from the direction's own, and a search with no title", async () => {
+		const h = makeCaseListFixture();
+		const first = testUuid("configure-case-list-blanks-first");
+		const last = testUuid("configure-case-list-blanks-last");
+		const result = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			columns: [
+				{
+					columnUuid: first,
+					kind: "plain",
+					field: "phone",
+					header: "Phone",
+					// The direction's own side: stored as its absence, not refused.
+					sort: { direction: "asc", priority: 0, blanks: "first" },
+				},
+				{
+					columnUuid: last,
+					kind: "plain",
+					field: "case_name",
+					header: "Name again",
+					sort: { direction: "asc", priority: 1, blanks: "last" },
+				},
+			],
+			searchScreenTitle: { kind: "none" },
+			searchScreenSubtitle: null,
+			searchButtonDisplayCondition: null,
+		});
+
+		if ("error" in result.result) throw new Error(result.result.error);
+		const columns = h.currentDoc().modules[MOD_A].caseListConfig?.columns;
+		expect(columns?.find((column) => column.uuid === first)?.sort).toEqual({
+			direction: "asc",
+			priority: 0,
+		});
+		expect(columns?.find((column) => column.uuid === last)?.sort).toEqual({
+			direction: "asc",
+			priority: 1,
+			blanks: "last",
+		});
+		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toMatchObject({
+			searchScreenTitle: { kind: "none" },
+		});
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				searchScreenTitle: { kind: "untitled" },
+			}).success,
+		).toBe(false);
+	});
+
 	it("sets and clears Forms read the search as the only requested resource", async () => {
 		const doc = makeCaseListDoc();
 		const form = doc.forms[FORM_A];

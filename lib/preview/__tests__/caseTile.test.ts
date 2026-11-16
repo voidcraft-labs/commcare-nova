@@ -275,6 +275,20 @@ describe("the columns a tile carries", () => {
 		]);
 	});
 
+	it("carries no field for a column that is not on the list, in either layout", () => {
+		const offList = plainColumn(PRIORITY, "care_priority", "Priority", {
+			visibleInList: false,
+			notOnList: true,
+		});
+		for (const layout of [undefined, TILE_ON]) {
+			expect(
+				tileResultsColumns([columns[0], offList], layout).map(
+					(entry) => entry.column.uuid,
+				),
+			).toEqual([NAME]);
+		}
+	});
+
 	it("carries a calculated column like any other placed column", () => {
 		const carried = tileResultsColumns(
 			[

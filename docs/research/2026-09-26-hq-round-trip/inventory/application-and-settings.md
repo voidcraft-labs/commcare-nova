@@ -144,7 +144,7 @@ Every add-on is UI visibility only: no build, suite or validator reads `app.add_
 | `conditional_form_actions` | **INERT**: unlocks open/close conditions | n/a | `true` when any open/close condition exists |
 | `display_conditions` | **INERT**: unlocks `module_filter`/`form_filter` | n/a | `true` when any display condition exists |
 | `enum_image` | **INERT**: unlocks the icon format | n/a | `true` when any icon column exists |
-| `menu_mode` | **INERT**: unlocks `put_in_root` | n/a | `true` when any module shows forms in its parent |
+| `menu_mode` | **INERT**: unlocks `put_in_root` | n/a | `true` when any module shows its forms in the menu above |
 | `register_from_case_list` | **INERT**: unlocks `case_list_form` | n/a | `true` when any case list form exists |
 | `subcases` | **INERT**: unlocks child cases (privilege `child_cases` is the editing gate) | n/a | `true` when any child case exists |
 | `submenus` | **INERT**: unlocks `root_module_id` | n/a | `true` when any child module exists |

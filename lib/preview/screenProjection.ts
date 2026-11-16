@@ -1,10 +1,11 @@
 /** Pure URL-to-running-screen projection shared by preview and wayfinding. */
 
 import type { Uuid } from "@/lib/doc/types";
-import type { Module } from "@/lib/domain";
+import type { MenuScreenSource, Module } from "@/lib/domain";
 import { moduleParent } from "@/lib/domain/moduleHierarchy";
 import type { NavigationItemVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { previewRunningModuleScreen } from "@/lib/preview/menuProjection";
 import type { Location } from "@/lib/routing/types";
 
 /**
@@ -87,4 +88,52 @@ export function locationToPreviewScreen(
 		moduleUuid: loc.moduleUuid,
 		formUuid: loc.formUuid,
 	};
+}
+
+/**
+ * The screen the running app shows for a location: `locationToPreviewScreen`,
+ * then, in Preview, a module screen of a menu with no screen of its own (a
+ * stored location, a typed URL, Back, a breadcrumb) resolved to the screen
+ * that lists its forms (`previewRunningModuleScreen`). A module entered for
+ * its parent case selection keeps its own screen, which starts that
+ * selection. A parent case selector is entered at its case list
+ * (`parentCaseSelectorLocation`), never at its menu, so a selector with no
+ * screen of its own still chooses its case. Edit mode keeps every menu the
+ * container of its own forms.
+ */
+export function previewRunningScreenForLocation(args: {
+	readonly loc: Location;
+	readonly mode: "edit" | "preview";
+	readonly doc: MenuScreenSource;
+	readonly moduleOrder: readonly Uuid[];
+	readonly modules: Readonly<Record<string, Module>>;
+	readonly formOrder: Readonly<Record<Uuid, readonly Uuid[]>>;
+	readonly moduleVisibility: ReadonlyMap<Uuid, NavigationItemVisibility>;
+	readonly requiredCaseAdmissionModuleUuid?: Uuid;
+	readonly continuesExistingTask?: boolean;
+}): PreviewScreen {
+	const screen = locationToPreviewScreen(
+		args.loc,
+		args.moduleOrder,
+		args.modules,
+		args.formOrder,
+		args.moduleVisibility,
+		args.requiredCaseAdmissionModuleUuid,
+		args.continuesExistingTask,
+	);
+	return args.mode === "preview" &&
+		screen.type === "module" &&
+		screen.moduleUuid !== args.requiredCaseAdmissionModuleUuid
+		? previewRunningModuleScreen(args.doc, screen.moduleUuid)
+		: screen;
+}
+
+/** Where a parent case selection enters its selector: the selector's case
+ *  list. Its case list route mounts the selector's own screen first while
+ *  the selector itself still needs a parent case, so a chain of selectors
+ *  walks through each in turn. */
+export function parentCaseSelectorLocation(
+	selectorModuleUuid: Uuid,
+): Extract<Location, { kind: "cases" }> {
+	return { kind: "cases", moduleUuid: selectorModuleUuid };
 }

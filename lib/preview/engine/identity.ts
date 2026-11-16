@@ -75,6 +75,12 @@ export interface PreviewSearchSessionValues {
 	 * values sets. The device supplies it through `previewSessionValues`; an
 	 * identity's own session never carries it. */
 	readonly dayNumberEpoch?: DayNumberEpoch;
+	/** The worker's record as the identity holds it
+	 * (`ResolvedPreviewIdentity.usercase`), which a list's worker-record read
+	 * answers from where the store holds no row for the worker, as a form's
+	 * does (`previewWorkerPropertyBinding`). `previewSessionValues` supplies
+	 * it; an identity's own session never carries it. */
+	readonly usercase?: Readonly<Record<string, string>>;
 }
 
 /** Narrow user shape shared by Better Auth's client and server session. */
@@ -101,9 +107,9 @@ export interface ResolvedPreviewIdentity {
 }
 
 /**
- * The signed-out projection: device context only, no user values. This is
- * NOT an identity. Navigation conditions wait for hydration rather than
- * interpreting its absent values as the selected worker's permissions.
+ * The projection with no worker: device context only, no user values. This
+ * is NOT an identity, and its empty user data is not a worker who holds no
+ * keys: see {@link awaitsPreviewIdentity}.
  */
 const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
 	identityPending: true,
@@ -111,6 +117,24 @@ const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
 	user: {},
 	userPropertySlugs: {},
 };
+
+/**
+ * Whether the session is still waiting for its worker: the signed-in
+ * member's session has not resolved, so the session is not yet the worker's.
+ * Nothing reads a worker key against it, because a device refuses a read of a
+ * key its worker lacks and this session lacks every key: a read would show
+ * that refusal for a worker whose device holds the key. Every screen that
+ * reads the session waits instead, as a menu's display condition does
+ * (`displayConditionEvaluation.ts`), the form engine holds its entry
+ * (`EngineController.setPreviewIdentityPending`), and the Search screen and a
+ * form's search answers wait with the rest of their world
+ * (`useSearchCsqlRuntime.ts::searchWorld`).
+ */
+export function awaitsPreviewIdentity(
+	session: Pick<PreviewSearchSessionValues, "identityPending">,
+): boolean {
+	return session.identityPending === true;
+}
 
 /**
  * The framework keys CommCare injects into `session/user/data` AFTER the
@@ -320,6 +344,7 @@ export function previewSessionValues(
 		...base,
 		context: { ...base.context, ...previewDeviceContext(device) },
 		dayNumberEpoch: previewPlatformRules(device.platform).dayNumberEpoch,
+		...(identity === null ? {} : { usercase: identity.usercase }),
 	};
 }
 
@@ -370,6 +395,41 @@ export function samePreviewIdentity(
 		) &&
 		sameStringRecord(a.usercase, b.usercase)
 	);
+}
+
+/**
+ * What Preview is selected to run as: the resolved identity (`null` while
+ * the member's session has not resolved), or a selected persona the
+ * document no longer holds, which must never run as anyone.
+ */
+export type SelectedPreviewIdentityState =
+	| {
+			readonly kind: "ready";
+			readonly identity: ResolvedPreviewIdentity | null;
+	  }
+	| { readonly kind: "persona-unavailable"; readonly personaUuid: string };
+
+/**
+ * The selection to hand on once `next` is derived: the one already `held`
+ * while `next` names the same worker ({@link samePreviewIdentity}) or the
+ * same missing persona, else `next`. A session refetch mints a new user
+ * object and so a new identity object for the same worker; keeping the held
+ * one means every consumer that keys a reset, an effect or a cache on the
+ * selection by reference (the refusal backstop's reset keys, the engine
+ * provider's install) changes exactly when the worker does.
+ */
+export function heldSelectedPreviewIdentityState(
+	held: SelectedPreviewIdentityState,
+	next: SelectedPreviewIdentityState,
+): SelectedPreviewIdentityState {
+	if (held.kind === "ready" && next.kind === "ready")
+		return samePreviewIdentity(held.identity, next.identity) ? held : next;
+	if (
+		held.kind === "persona-unavailable" &&
+		next.kind === "persona-unavailable"
+	)
+		return held.personaUuid === next.personaUuid ? held : next;
+	return next;
 }
 
 function sameStringRecord(

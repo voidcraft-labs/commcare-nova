@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useContext, useMemo } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
@@ -88,7 +89,7 @@ export function useEntryPointActions() {
 			const destination = entryPointDestination(current, target);
 			if (destination.issue)
 				return { ok: false, messages: [destination.issue] };
-			const uuid = asUuid(crypto.randomUUID());
+			const uuid = asUuid(uuidv4());
 			const id = suggestEntryPointId(current, target);
 			const outcome = commit(planEntryPointAdd(current, target, { uuid, id }));
 			return { ...outcome, ...(outcome.ok ? { uuid } : {}) };

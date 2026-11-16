@@ -35,7 +35,10 @@ DOCUMENTS = (
     "targeted-hidden-from-menu",
     "targeted-media-slots",
     "targeted-multi-select-destinations",
+    "targeted-number-keypad",
     "targeted-platform-declaration",
+    "targeted-search-no-title",
+    "targeted-search-workflow",
     "targeted-survey-menu",
     "targeted-tile-hidden-order",
 )

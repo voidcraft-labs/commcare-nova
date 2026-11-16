@@ -30,6 +30,8 @@
 //
 // `caseListMenuItem.icon` / `audioLabel` are walked wherever the module holds
 // the entry: CCHQ emits the case list menu command they land on exactly then.
+// The `always` arm's `caseListRegistrationForm.icon` / `audioLabel` are walked
+// wherever the module holds that arm: they land on its Register action.
 
 import { produce } from "immer";
 import type { BlueprintDoc, PersistableDoc } from "./blueprint";
@@ -106,6 +108,16 @@ export type MediaRefLocation =
 			readonly moduleName: string;
 	  }
 	| {
+			readonly kind: "case_list_registration_icon";
+			readonly moduleUuid: Uuid;
+			readonly moduleName: string;
+	  }
+	| {
+			readonly kind: "case_list_registration_audio_label";
+			readonly moduleUuid: Uuid;
+			readonly moduleName: string;
+	  }
+	| {
 			readonly kind: "form_icon";
 			readonly moduleUuid: Uuid;
 			readonly moduleName: string;
@@ -156,8 +168,9 @@ export type MediaRefLocation =
  * and the location info a validator error needs to point at the
  * exact carrier.
  *
- * Uploaded references are strict `MediaAssetId`; the three menu-icon carriers
- * may instead hold a closed `BuiltinIconRef`. `IconRef` is exactly that union
+ * Uploaded references are strict `MediaAssetId`; the menu-icon carriers
+ * (module, form, case list menu item, Register button) may instead hold a
+ * closed `BuiltinIconRef`. `IconRef` is exactly that union
  * and is therefore the complete type of a walked carrier identity.
  */
 export interface AssetRef {
@@ -228,6 +241,34 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 					moduleName,
 				},
 			};
+		}
+		// The Register button's media, on a list that always offers another
+		// menu's registration form (`case_list_form.media_image` /
+		// `media_audio`).
+		const registration = mod.caseListRegistrationForm;
+		if (registration?.kind === "always") {
+			if (registration.icon) {
+				yield {
+					assetId: registration.icon,
+					slotKind: "image",
+					location: {
+						kind: "case_list_registration_icon",
+						moduleUuid,
+						moduleName,
+					},
+				};
+			}
+			if (registration.audioLabel) {
+				yield {
+					assetId: registration.audioLabel,
+					slotKind: "audio",
+					location: {
+						kind: "case_list_registration_audio_label",
+						moduleUuid,
+						moduleName,
+					},
+				};
+			}
 		}
 		const columns = mod.caseListConfig?.columns ?? [];
 		for (const column of columns) {
@@ -583,6 +624,13 @@ export function remapAssetRefs(
 			const item = mod.caseListMenuItem;
 			if (item?.icon) item.icon = remapModuleIcon(item.icon);
 			if (item?.audioLabel) item.audioLabel = remapUploaded(item.audioLabel);
+			const registration = mod.caseListRegistrationForm;
+			if (registration?.kind === "always") {
+				if (registration.icon)
+					registration.icon = remapFormIcon(registration.icon);
+				if (registration.audioLabel)
+					registration.audioLabel = remapUploaded(registration.audioLabel);
+			}
 			for (const column of mod.caseListConfig?.columns ?? []) {
 				if (column.kind !== "image-map") continue;
 				for (const row of column.mapping) {
@@ -678,6 +726,9 @@ export function describeCarrier(ref: AssetRef): string {
 			return `the case-list icon on module "${loc.moduleName}"`;
 		case "case_list_audio_label":
 			return `the case-list audio label on module "${loc.moduleName}"`;
+		case "case_list_registration_icon":
+		case "case_list_registration_audio_label":
+			return `the Register button on ${loc.moduleName}'s case list`;
 		case "form_icon":
 			return `the icon on form "${loc.formName}" (module "${loc.moduleName}")`;
 		case "form_audio_label":

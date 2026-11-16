@@ -5,8 +5,9 @@
 // entry is a view command: it holds no form, so nothing follows the choice.
 // Formplayer steps the session back over the datum and asks for the next
 // screen again (`session/MenuSession.java::getNextScreen`, `isViewCommand` →
-// `stepBack`), so the screen before the choice shows: the case list with
-// nothing chosen in a forms-first menu, the menu in a case-first one.
+// `stepBack`); the entry still needs that datum, so the case list shows again
+// with nothing chosen. A screen lists the entry only while it needs a datum
+// (`menuProjection.ts::previewCaseListMenuEntry`), so it is always a list.
 // Android, with no case detail, ends the session at its home screen
 // (`EntitySelectActivity.java::onEntitySelected` → `returnWithResult`;
 // `HomeScreenBaseActivity.java::handleNoFormFromSessionNav` →

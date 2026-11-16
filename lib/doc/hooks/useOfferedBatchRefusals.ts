@@ -17,7 +17,7 @@
 import { useMemo } from "react";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { caseListRegistrationFormOf } from "@/lib/domain";
+import { afterEmptySearchRegistrationFormOf } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 import { useBlueprintMutations } from "./useBlueprintMutations";
 
@@ -58,6 +58,6 @@ export function useIsCaseListRegistrationForm(
 		(doc) =>
 			moduleUuid !== undefined &&
 			formUuid !== undefined &&
-			caseListRegistrationFormOf(doc, moduleUuid) === formUuid,
+			afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid,
 	);
 }

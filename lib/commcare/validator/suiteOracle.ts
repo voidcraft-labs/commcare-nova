@@ -1249,28 +1249,34 @@ function checkMenuCommands(
 	return errors;
 }
 
+/** Core's id for the root menu (`Menu.ROOT_MENU_ID`), which `MenuParser`
+ * gives a `<menu>` with no `root` attribute. It is always present, so a
+ * `root="root"` and a `<menu id="root">` need no other declaration. */
+const SUITE_ROOT_MENU_ID = "root";
+
 /** Every rooted menu must lead to a real, distinct root menu. Core uses this
  * relation to surface child menus; a dangling or cyclic root makes the child
- * unreachable even though all of its commands resolve. */
+ * unreachable even though all of its commands resolve. Several `<menu>`
+ * elements may share an id (Core lists the commands of each in suite order,
+ * `MenuLoader.getMenuDisplayables`), so a root resolves where any top-level
+ * menu of another id holds it, and `root` always resolves. */
 function checkMenuRoots(
 	model: SuiteModel,
 	loc: ValidationLocation,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const byId = new Map(
-		model.menuScopes.flatMap((menu) =>
-			menu.id === undefined ? [] : ([[menu.id, menu]] as const),
-		),
-	);
 	for (const menu of model.menuScopes) {
 		if (menu.root === undefined) continue;
-		const root = byId.get(menu.root);
-		if (
-			menu.id === undefined ||
-			root === undefined ||
-			root === menu ||
-			root.root !== undefined
-		) {
+		const resolves =
+			menu.id !== undefined &&
+			menu.root !== menu.id &&
+			(menu.root === SUITE_ROOT_MENU_ID ||
+				model.menuScopes.some(
+					(candidate) =>
+						candidate.id === menu.root &&
+						(candidate.root ?? SUITE_ROOT_MENU_ID) === SUITE_ROOT_MENU_ID,
+				));
+		if (!resolves) {
 			errors.push(
 				validationError(
 					"SUITE_MENU_ROOT_UNRESOLVED",

@@ -85,7 +85,9 @@ const valueSchemas = {
 		),
 	localized: z
 		.string()
-		.describe("Translated text. Keep the source's inserted references."),
+		.describe(
+			"Translated text. Keep every inserted reference and {{= formula}} from the source.",
+		),
 	message: z
 		.string()
 		.describe(
@@ -94,7 +96,7 @@ const valueSchemas = {
 	text: z
 		.string()
 		.describe(
-			"Markdown. {{field_id}} inserts an answer; \\{{ keeps literal braces.",
+			"Markdown. {{field_id}} inserts an answer; {{#case/property}} inserts a saved value; {{= formula}} inserts a calculated value, such as {{= format-date(date(#form/dob), '%e %b %Y')}}. \\{{ keeps literal braces.",
 		),
 	xpath: z
 		.union([z.string(), z.boolean()])

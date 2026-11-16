@@ -10,7 +10,9 @@ the CCZ form alike the label reads its exact decoded text and the default
 keeps its tab, newline and carriage return (``'A\\tB\\nC\\rD'``), while the
 profile carries the app's name. Reference-separated prose retains whitespace
 outputs through both the local and HQ-regenerated forms in each
-language and text variant. ``XmlTextRuntimeTest`` then reads exact substituted
+language and text variant (a label's and a help text's plain and markdown
+values, a hint's and a validation message's plain value alone, since they
+write no markdown form). ``XmlTextRuntimeTest`` then reads exact substituted
 plain and Markdown prompts in Core. The plausible failures: a character Nova's gate admits that
 libxml refuses (or the reverse), a pre-fix source HQ starts to accept, and
 whitespace or text HQ's parse changes. DTDs and XML 1.1 are Nova policy, not
@@ -27,6 +29,8 @@ from proof.native.hq_support import hq_commit, sha256, write_evidence
 FAMILIES = ("xml",)
 CORPUS = Path(__file__).resolve().parent / "xml" / "well-formedness.json"
 NAMESPACES = {"x": "http://www.w3.org/2002/xforms"}
+# The prose texts that write only their plain value: a hint's and a validation message's.
+UNREAD_MARKDOWN = {"checked-hint", "checked-constraintMsg"}
 
 
 def test_libxml_verdicts_match_the_well_formedness_corpus(native):
@@ -172,7 +176,10 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
                 values = translation.xpath(
                     "x:text[@id=$id]/x:value[not(@form) or @form='markdown']", id=text_id, namespaces=NAMESPACES
                 )
-                assert [value.attrib.get("form") for value in values] == [None, "markdown"], (path, text_id)
+                # A hint and a validation message write no markdown form: no runtime reads one
+                # (FormEntryPrompt.getHintText, getConstraintText ask for none).
+                forms = [None] if text_id in UNREAD_MARKDOWN else [None, "markdown"]
+                assert [value.attrib.get("form") for value in values] == forms, (path, text_id)
                 for value in values:
                     outputs = value.xpath("x:output/@value", namespaces=NAMESPACES)
                     assert outputs == expected, (path, text_id, outputs)
@@ -191,7 +198,10 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
                 ], path
             for value in translation.xpath('x:text[@id="escaped_markup-label"]/x:value', namespaces=NAMESPACES):
                 assert len(value) == 0, path
-                assert value.text == "Literal &lt;output value=\"'x'\"/&gt; &amp; &#65; &#x1; &#xB; &#xFFFF; &#xD800; &amp;lt; #form/meals", path
+                assert value.text == (
+                    "Literal &lt;output value=\"'x'\"/&gt; &amp; &#65; &#x1; &#xB; &#xFFFF; &#xD800; "
+                    "&amp;lt; #form/meals"
+                ), path
     write_evidence(
         exports,
         "prose-separators",

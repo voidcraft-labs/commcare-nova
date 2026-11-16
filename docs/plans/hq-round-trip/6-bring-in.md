@@ -50,7 +50,7 @@ output is never committed.
 | Scan | What it looks for | What it prints | Why it is needed |
 |---|---|---|---|
 | `scripts/scan-case-list-registration-registrations.ts` (part 02, section 16) | a saved app whose case list registration form also creates a case of the list's own type at its root | the id of each such app, and nothing else | `several-registrations` is the one rule of part 02 that could refuse a saved app |
-| `scripts/scan-instance-text.ts` (part 03, section 5.1) | a saved app whose form name, or CommCare Connect block name or description, holds text CommCare HQ's build reads as a data source | the id of each such app: no name, no form, never the text | the gate rule `FORM_TEXT_READ_AS_INSTANCE` is absolute |
+| `scripts/scan-instance-text.ts` (part 03, section 5.1) | a saved app whose form name, CommCare Connect block name or description, or choice value (of a question or of a case property's catalog) holds text CommCare HQ's build reads as a data source | the id of each such app: no name, no form, never the text | the gate rule `FORM_TEXT_READ_AS_INSTANCE` and the choice value grammar's refusal are absolute |
 | `scripts/scan-hq-app-claims.ts` (part 10, "Written and not yet run") | a CommCare HQ app that two live Nova apps publish to | two counts and nothing else: the CommCare HQ apps that two or more live Nova apps publish to, and those that several Nova apps publish to with at most one of them live | the ledger migration's unique index admits one |
 
 **The runs, and what each is for.** A scan says what production held at the moment it ran. Until
@@ -561,10 +561,14 @@ Part 13 holds the old sentence and its replacement in full, with every other pla
 constant ("Contracts and docs these changes make false"), and exit check 8 fails while the old
 sentence stands.
 
-`lib/db/appTests.ts::RUNTIME_VERSION` moves once, from 18 to 19, for two reasons: Preview's query
-repeat wrapper is renamed (part 04, section 3.4), and Preview stores a date and time saved to a case
-in CommCare HQ's spelling (part 03, section 7.1). An App Test journey in flight at the deploy is
-refused its next step and started again. `scripts/test-schema.ts` goes from 63 entries to 65, with
+`lib/db/appTests.ts::RUNTIME_VERSION` moves once, from 18 to 19, for four reasons: Preview's query
+repeat wrapper is renamed (part 04, section 3.4), Preview stores a date and time saved to a case
+in CommCare HQ's spelling (part 03, section 7.1), the Search screen opens as Core's query manager is
+built, and a menu that needs a parent case asks for it before its screen only where Core does, goes
+on at the parent's row unless the datum names a details screen, and Back lets go every case chosen
+after the screen it returns to (part 02, section 16). The
+stack deploys once, so the value moves once whatever number of its layers gives it a reason. An App
+Test journey in flight at the deploy is refused its next step and started again. `scripts/test-schema.ts` goes from 63 entries to 65, with
 `setFormSections` (part 03) and `getOrganization` (part 11).
 
 ### The plugin

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { PreviewHeldCaseListMenu } from "@/lib/preview/menuProjection";
 import {
 	createNavigateActions,
 	createSelectAction,
@@ -29,15 +30,26 @@ function fixture() {
 	const formUuid = doc.formOrder[moduleUuid][0];
 	const fieldUuid = doc.fieldOrder[formUuid][0];
 	let pathname = `/build/new/${fieldUuid}`;
-	const writes: { url: string; replace: boolean }[] = [];
+	const writes: {
+		url: string;
+		replace: boolean;
+		heldMenu?: PreviewHeldCaseListMenu;
+	}[] = [];
+	const reopened: { url: string; heldMenu: PreviewHeldCaseListMenu }[] = [];
 	let back = 0;
 	const port: NavigationPort = {
 		getDoc: () => doc,
 		getPathname: () => pathname,
 		getSegments: () => pathname.split("/").filter(Boolean).slice(2),
-		write: (url, replace = false) => {
-			writes.push({ url, replace });
+		write: (url, replace = false, heldMenu) => {
+			writes.push({ url, replace, ...(heldMenu && { heldMenu }) });
 			pathname = url;
+		},
+		reopenHeldMenu: (url, heldMenu) => {
+			reopened.push({ url, heldMenu });
+		},
+		stepBackTo: () => {
+			throw new Error("No navigation action under test steps back");
 		},
 		back: () => {
 			back += 1;
@@ -50,6 +62,7 @@ function fixture() {
 		fieldUuid,
 		port,
 		writes,
+		reopened,
 		setPath: (value: string) => {
 			pathname = value;
 		},
@@ -99,6 +112,36 @@ describe("navigation actions", () => {
 			},
 			{ url: "/build/new", replace: true },
 			{ url: `/build/new/${h.moduleUuid}`, replace: true },
+		]);
+	});
+
+	it("holds a case list's form menu on an entry at the list's URL, after the list or in place of a case's details", () => {
+		const h = fixture();
+		const nav = createNavigateActions(h.port);
+		const held = {
+			moduleUuid: h.moduleUuid,
+			cases: [{ caseId: "ana" }],
+			session: "worker",
+		};
+		nav.holdPreviewMenu(held);
+		nav.holdPreviewMenu(held, { replace: true });
+		nav.reopenPreviewHeldMenu(held);
+		// Reopening reaches the same list's URL, through the port's own
+		// history decision (`previewHeldMenu.ts::previewHeldMenuIsPrevious`).
+		expect(h.reopened).toEqual([
+			{ url: `/build/new/${h.moduleUuid}/results`, heldMenu: held },
+		]);
+		expect(h.writes).toEqual([
+			{
+				url: `/build/new/${h.moduleUuid}/results`,
+				replace: false,
+				heldMenu: held,
+			},
+			{
+				url: `/build/new/${h.moduleUuid}/results`,
+				replace: true,
+				heldMenu: held,
+			},
 		]);
 	});
 

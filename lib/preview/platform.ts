@@ -127,6 +127,23 @@ export interface PreviewPlatformRules {
 	 *  `case-search/title-label-lang-non-empty`, `description-lang-markdown`,
 	 *  `hint-lang`, which Android ignores). */
 	readonly searchScreenText: boolean;
+	/** The pinned case tile above the search screen. Formplayer sets it on
+	 *  every response, a search's included
+	 *  (`MenuSessionRunnerService.getNextMenu`, `setPersistentCaseTile`);
+	 *  Android's search (`QueryRequestUiController`, `http_request_layout.xml`)
+	 *  holds no `universal_frame_tile`, where
+	 *  `BreadcrumbBarHelper.addUniversalFrameTile` places it, so its search
+	 *  draws none (`lib/preview/pinnedCaseTile.ts`). */
+	readonly searchScreenCaseTile: boolean;
+	/** The tile of the case a case's details show, where no case the session
+	 *  holds pins one. Android's details screen asks for it when the frame
+	 *  names none (`BreadcrumbBarHelper.loadTile` falling back to
+	 *  `EntityDetailActivity.requestEntityContext`), drawn with the persistent
+	 *  detail of the datum being chosen (`EntityDetailUtils.populateDetailIntent`,
+	 *  `DETAIL_PERSISTENT_ID`); Formplayer's details answer carries no tile
+	 *  (`MenuController.getDetails`), so Web Apps draws none
+	 *  (`lib/preview/pinnedCaseTile.ts`). */
+	readonly caseDetailsCaseTile: boolean;
 	/** A Search field's required condition and checks (manifest
 	 *  `case-search/required-test-text`, `validations-0-test-text`). */
 	readonly searchFieldChecks: boolean;
@@ -140,11 +157,35 @@ export interface PreviewPlatformRules {
 	 *  `activities/QueryRequestActivity.java::processSuccess` shows a toast and
 	 *  stays on the search. */
 	readonly zeroSearchResults: "results" | "stay-on-search";
+	/** Whether the Search screen offers Clear, which empties its fields. Web
+	 *  Apps draws it on every query screen (`cloudcare/partials/query/list.html`,
+	 *  `#query-clear-button`, `menus/views/query.js::QueryListView.clearAction`);
+	 *  Android's search screen holds its prompts, its search button and its
+	 *  error line alone (`activities/QueryRequestUiController.kt`, layout
+	 *  `http_request_layout.xml`), and `QueryRequestActivity` clears no field. */
+	readonly searchClear: boolean;
 	/** Whether the case list's Search action launches on its own: search first
 	 *  and skip to results. Core's cli `EntityScreen.evaluateAutoLaunch`, which
 	 *  Formplayer runs; commcare-android holds no reader of `auto_launch`, so it
 	 *  opens the worker's list first, with the Search action. */
 	readonly searchActionAutoLaunch: boolean;
+	/** The answers a search history gives back runs with
+	 *  (`searchStanding.ts::PreviewSearchReplay`). Web Apps answers the query
+	 *  an address records with the answers the worker last gave that query
+	 *  (`formplayer/utils/utils.js::CloudcareUrl.fromJson` over
+	 *  `Utils.getCurrentQueryInputs`); Android's session keeps the query a
+	 *  step ran (`CommCareSession.setQueryDatum`). */
+	readonly searchReplay: "latest-answers" | "own-answers";
+	/** What a history entry Back or Forward returns to shows its screen with
+	 *  (`lib/routing/previewSelectionsHistory.ts`). Web Apps'
+	 *  address holds the session's selections
+	 *  (`formplayer/utils/utils.js::CloudcareUrl`), and a popped address is
+	 *  routed again (`formplayer/router.js::listMenus`) to Formplayer, which
+	 *  replays them (`MenuSessionRunnerService.advanceSessionWithSelections`):
+	 *  `address`. Android has no address; its Back is the device's step back
+	 *  (`CommCareSession.stepBack`), so an entry shows the session as it
+	 *  stands: `session`. */
+	readonly poppedEntrySelections: "address" | "session";
 	/** `here()`'s value. Formplayer `util/FormplayerHereFunctionHandler.java::eval`
 	 *  gives two numbers; Android `utils/AndroidHereFunctionHandler.java::toGeoPointData`
 	 *  four, Core `GeoPointData.java::fillArray` flooring altitude and accuracy
@@ -196,6 +237,14 @@ export interface PreviewPlatformRules {
 	 *  finds its markdown form, else draws `getSelectChoiceText` as written
 	 *  (`views/widgets/SelectOneWidget.java`, `QuestionWidget.java`). */
 	readonly plainChoice: "markdown" | "literal";
+	/** A help text shown as typed (its question holds `plainHelp`, or its form
+	 *  `plainText`), whose itext writes no markdown form. Web Apps formats a
+	 *  help text's default text always (`form_entry/form_ui.js::Question.prototype.fromJS`,
+	 *  `help`; Formplayer `PromptToJson.java::parseQuestion` sends
+	 *  `getHelpText()`); Android formats it only where its markdown form exists,
+	 *  else draws `getHelpText()` as written
+	 *  (`views/widgets/QuestionWidget.java::createHelpLayout`). */
+	readonly plainHelp: "markdown" | "literal";
 	/** Android `views/QuestionsView.java::deriveGroupText`: one header line
 	 *  per screen, the enclosing groups joined with ` > `. */
 	readonly groupLabel: "card" | "screen-header";
@@ -210,6 +259,11 @@ export interface PreviewPlatformRules {
 	/** Web Apps `entries.js::getEntry` (a barcode question falls through to
 	 *  `FreeTextEntry`); manifest `questions/barcode-barcode`. */
 	readonly barcodeQuestion: "text" | "scan-or-text";
+	/** A Text question with a number keypad. Web Apps `form_entry/entries.js::PhoneEntry` stores an
+	 *  answer only where it matches its pattern; Android `views/widgets/StringNumberWidget.java` limits
+	 *  the keys and stores what its key listener leaves in the box: a + or - only as its first
+	 *  character, and one period. */
+	readonly numberKeypad: "pattern" | "keys";
 	/** Web Apps `entries.js::FileEntry`, `entry_file.html`; Android
 	 *  `views/widgets/ImageWidget.java`, `CommCareAudioWidget.java`,
 	 *  `VideoWidget.java`. */
@@ -219,6 +273,11 @@ export interface PreviewPlatformRules {
 	/** Manifest `application-and-settings/logo-refs-hq-logo-web-apps`
 	 *  (Android ignores it). */
 	readonly logo: boolean;
+	/** A case list action's icon and spoken label, the Register button's:
+	 *  Android draws both (`views/EntityActionViewUtils.java::setupActionImage`,
+	 *  `setupActionAudio`); Web Apps draws the action's text alone
+	 *  (`cloudcare/partials/case_list/list.html`, `action.text`). */
+	readonly caseListActionMedia: "shown" | "text-only";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -242,11 +301,16 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileVerticalAlign: "as-authored",
 		linkColumnInList: "link",
 		searchScreenText: true,
+		searchScreenCaseTile: true,
+		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
 		hiddenSearchFieldWithDefault: "hidden",
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
+		searchClear: true,
 		searchActionAutoLaunch: true,
+		searchReplay: "latest-answers",
+		poppedEntrySelections: "address",
 		hereValue: "lat-lon",
 		formScreens: "one-screen",
 		recalculation: "every-request",
@@ -260,14 +324,17 @@ export const PREVIEW_PLATFORM_RULES = {
 			images: "shown",
 		}),
 		plainChoice: "markdown",
+		plainHelp: "markdown",
 		groupLabel: "card",
 		repeatAdd: "buttons",
 		choiceMedia: false,
 		locationQuestion: "map",
 		barcodeQuestion: "text",
+		numberKeypad: "pattern",
 		capture: "attach",
 		submitLabel: "submit",
 		logo: true,
+		caseListActionMedia: "text-only",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -287,11 +354,16 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileVerticalAlign: "middle-only",
 		linkColumnInList: "raw-text",
 		searchScreenText: false,
+		searchScreenCaseTile: false,
+		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
 		hiddenSearchFieldWithDefault: "editable",
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
+		searchClear: false,
 		searchActionAutoLaunch: false,
+		searchReplay: "own-answers",
+		poppedEntrySelections: "session",
 		hereValue: "lat-lon-alt-acc",
 		formScreens: "field-list-or-question",
 		recalculation: "on-change",
@@ -305,14 +377,17 @@ export const PREVIEW_PLATFORM_RULES = {
 			images: "alt-text",
 		}),
 		plainChoice: "literal",
+		plainHelp: "literal",
 		groupLabel: "screen-header",
 		repeatAdd: "prompt",
 		choiceMedia: true,
 		locationQuestion: "record-location",
 		barcodeQuestion: "scan-or-text",
+		numberKeypad: "keys",
 		capture: "device",
 		submitLabel: "finish",
 		logo: false,
+		caseListActionMedia: "shown",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 
@@ -322,12 +397,16 @@ export function previewPlatformRules(platform: Platform): PreviewPlatformRules {
 }
 
 /** The search screen's heading and description. Web Apps shows the
- *  authored title and description; Android shows neither, and its heading is
- *  the search action's label (`searchScreenText`). */
+ *  authored title and description, and no heading for a search with no title
+ *  (`title: null`); Android shows neither, and its heading is the search
+ *  action's label (`searchScreenText`). */
 export function searchScreenHeading(
 	rules: Pick<PreviewPlatformRules, "searchScreenText">,
-	authored: { readonly title: string; readonly subtitle: string | undefined },
-): { readonly title: string; readonly subtitle: string | undefined } {
+	authored: {
+		readonly title: string | null;
+		readonly subtitle: string | undefined;
+	},
+): { readonly title: string | null; readonly subtitle: string | undefined } {
 	return rules.searchScreenText
 		? authored
 		: { title: CASE_SEARCH_BUTTON_LABEL, subtitle: undefined };

@@ -24,7 +24,7 @@ import {
 	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { eq, literal, sessionContext } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 
@@ -121,7 +121,7 @@ const childModule = (): ModuleSpec => ({
 	forms: [{ name: "Note", type: "followup", fields: [question()] }],
 });
 
-const buttonCondition = () => eq(sessionUser("username"), literal("alice"));
+const buttonCondition = () => eq(sessionContext("username"), literal("alice"));
 
 describe("formsReadSearchRequiresCaseFirstModule", () => {
 	const CODE = "FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE";

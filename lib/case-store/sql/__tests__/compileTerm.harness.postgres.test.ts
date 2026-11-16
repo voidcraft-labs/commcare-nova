@@ -298,7 +298,7 @@ test("explicit self reads preserve the distinction between absent and blank", as
 	]);
 });
 
-test("form multi-select answers remain JSON arrays and explicit null does not use the missing-user fallback", async ({
+test("form multi-select answers remain JSON arrays, an explicit null stays null, and a worker key the device lacks refuses", async ({
 	db,
 }) => {
 	const uuid = testUuid("answer");
@@ -306,7 +306,7 @@ test("form multi-select answers remain JSON arrays and explicit null does not us
 		bindings: {
 			formFields: new Map([[uuid, ["alpha", "O'Brien"]]]),
 			sessionUser: new Map([["region", null]]),
-			sessionUserFallback: "",
+			sessionUserAbsent: { readsBlank: new Set(["commcare_project"]) },
 		},
 	});
 	expect(
@@ -314,10 +314,18 @@ test("form multi-select answers remain JSON arrays and explicit null does not us
 			.selectNoFrom([
 				compileTerm(formField(uuid), ctx).as("answer"),
 				compileTerm(sessionUser("region"), ctx).as("present"),
-				compileTerm(sessionUser("missing"), ctx).as("absent"),
+				compileTerm(sessionUser("commcare_project"), ctx).as("unknown"),
 			])
 			.executeTakeFirstOrThrow(),
-	).toEqual({ answer: ["alpha", "O'Brien"], present: null, absent: "" });
+	).toEqual({ answer: ["alpha", "O'Brien"], present: null, unknown: "" });
+	// A place key of a worker assigned nowhere: Core refuses the read
+	// (`XPathNodeset.unpack`), so the compile does too, by name.
+	expect(() => compileTerm(sessionUser("commcare_location_id"), ctx)).toThrow(
+		expect.objectContaining({
+			name: "AbsentWorkerFieldError",
+			field: "commcare_location_id",
+		}),
+	);
 });
 
 test("worker-record reads use the current worker's visible record in the bound tenant", async ({
@@ -416,5 +424,62 @@ test("worker-record reads use the current worker's visible record in the bound t
 		record: "",
 		name: "",
 		session: "Session value",
+	});
+});
+
+test("a worker-record read answers from the derived record only where the worker has no row", async ({
+	db,
+}) => {
+	const derived = {
+		hq_user_id: "current-worker",
+		region: "Derived",
+		case_name: "Derived name",
+	};
+	const ctx = makeCtx(db, {
+		bindings: {
+			sessionContext: new Map([["userid", "current-worker"]]),
+			workerRecordWithoutRow: derived,
+		},
+	});
+	const read = () =>
+		db
+			.selectNoFrom([
+				compileTerm(
+					{ kind: "session-user", field: "region", source: "worker-record" },
+					ctx,
+				).as("region"),
+				compileTerm(
+					{ kind: "session-user", field: "case_name", source: "worker-record" },
+					ctx,
+				).as("name"),
+				compileTerm(
+					{ kind: "session-user", field: "phone", source: "worker-record" },
+					ctx,
+				).as("undeclared"),
+			])
+			.executeTakeFirstOrThrow();
+	expect(await read()).toEqual({
+		region: "Derived",
+		name: "Derived name",
+		undeclared: "",
+	});
+	// Once the row exists it answers alone, a property it lacks reading blank.
+	await db
+		.insertInto("cases")
+		.values(
+			makeCaseRow({
+				case_id: "worker",
+				app_id: APP_ID,
+				project_id: PROJECT_ID,
+				case_type: "commcare-user",
+				case_name: "Stored name",
+				properties: JSON.stringify({ hq_user_id: "current-worker" }),
+			}),
+		)
+		.execute();
+	expect(await read()).toEqual({
+		region: "",
+		name: "Stored name",
+		undeclared: "",
 	});
 });

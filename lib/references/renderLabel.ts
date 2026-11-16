@@ -9,12 +9,13 @@
  * format.
  */
 
+import { v4 as uuidv4 } from "uuid";
 import { HASHTAG_REF_PATTERN } from "./config";
 import type { ReferenceProvider } from "./provider";
 import type { Reference } from "./types";
 
 /** A segment from splitting text on a reference-matching pattern.
- *  Each segment gets a unique `key` at creation time via `crypto.randomUUID()`.
+ *  Each segment gets a unique `key` at creation time (`uuid`'s v4).
  *  `parseLabelSegments` caches results by input string, so the same text always
  *  returns the same segment objects with the same keys. */
 export type LabelSegment =
@@ -42,13 +43,13 @@ function splitOnPattern(
 			segments.push({
 				kind: "text",
 				text: text.slice(lastIndex, match.index),
-				key: crypto.randomUUID(),
+				key: uuidv4(),
 			});
 		}
 		segments.push({
 			kind: "ref",
 			value: extractValue(match),
-			key: crypto.randomUUID(),
+			key: uuidv4(),
 		});
 		lastIndex = globalPattern.lastIndex;
 		match = globalPattern.exec(text);
@@ -58,7 +59,7 @@ function splitOnPattern(
 		segments.push({
 			kind: "text",
 			text: text.slice(lastIndex),
-			key: crypto.randomUUID(),
+			key: uuidv4(),
 		});
 	}
 

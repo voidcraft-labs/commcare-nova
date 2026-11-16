@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
 	hydratePersistedBlueprint,
@@ -17,7 +18,9 @@ import {
 	asWalkableDoc,
 	collectAssetRefs,
 	collectAuthoredAssetRefs,
+	describeCarrier,
 	remapAssetRefs,
+	walkAssetRefs,
 } from "../mediaRefs";
 import { plainColumn } from "../modules";
 
@@ -337,5 +340,99 @@ describe("collectAuthoredAssetRefs", () => {
 		expect(collectAuthoredAssetRefs(doc).has(media("dormant-image"))).toBe(
 			true,
 		);
+	});
+});
+
+/** `Patients` always offers `Registration`'s form, its Register button
+ *  carrying an icon and a spoken label. */
+function docWithRegisterButtonMedia() {
+	const host = testUuid("mod-host");
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: "mod-host",
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "host-visit",
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				uuid: "mod-registration",
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "register",
+						name: "Register patient",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[host].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: testUuid("register"),
+		icon: media("register-icon"),
+		audioLabel: media("register-audio"),
+		afterSubmit: "case-list",
+	};
+	return toPersistableDoc(expectAdmittedDoc(doc));
+}
+
+describe("the Register button's media", () => {
+	it("is walked for export, named by its carrier, and moved with the app", () => {
+		const persisted = docWithRegisterButtonMedia();
+		const doc = asWalkableDoc(persisted);
+		const refs = [...walkAssetRefs(doc)].filter(
+			(ref) =>
+				ref.location.kind === "case_list_registration_icon" ||
+				ref.location.kind === "case_list_registration_audio_label",
+		);
+		expect(refs.map((ref) => [ref.assetId, ref.slotKind])).toEqual([
+			[media("register-icon"), "image"],
+			[media("register-audio"), "audio"],
+		]);
+		expect(refs.map(describeCarrier)).toEqual([
+			"the Register button on Patients's case list",
+			"the Register button on Patients's case list",
+		]);
+		expect(collectAuthoredAssetRefs(doc).has(media("register-audio"))).toBe(
+			true,
+		);
+		const remapped = remapAssetRefs(
+			persisted,
+			new Map([
+				[media("register-icon"), media("register-icon-2")],
+				[media("register-audio"), media("register-audio-2")],
+			]),
+		);
+		expect(
+			remapped.modules[testUuid("mod-host")]?.caseListRegistrationForm,
+		).toMatchObject({
+			icon: media("register-icon-2"),
+			audioLabel: media("register-audio-2"),
+		});
 	});
 });

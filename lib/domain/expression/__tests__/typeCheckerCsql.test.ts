@@ -313,7 +313,7 @@ describe("a value in place of a distance", () => {
 
 describe("a choice between clauses", () => {
 	const choice = ifExpr(
-		eq(term(sessionUser("role")), term(literal("supervisor"))),
+		eq(term(sessionUser("user_type")), term(literal("supervisor"))),
 		matchAll(),
 		eq(member("age"), term(literal(5))),
 	);
@@ -324,7 +324,7 @@ describe("a choice between clauses", () => {
 			codes(
 				PREDICATE,
 				switchExpr(
-					term(sessionUser("role")),
+					term(sessionUser("user_type")),
 					[switchCase(literal("a"), matchAll())],
 					eq(member("age"), term(literal(5))),
 				),
@@ -336,7 +336,7 @@ describe("a choice between clauses", () => {
 			codes(
 				FILTER(chosen.villages),
 				ifExpr(
-					eq(term(sessionUser("role")), term(literal("supervisor"))),
+					eq(term(sessionUser("user_type")), term(literal("supervisor"))),
 					matchAll(),
 					eq(term(prop("village", "region")), term(literal("north"))),
 				),
@@ -549,7 +549,7 @@ describe("the values a device works out before the search runs", () => {
 		expect(
 			visited(
 				ifExpr(
-					eq(term(sessionUser("role")), term(literal("a"))),
+					eq(term(sessionUser("user_type")), term(literal("a"))),
 					matchAll(),
 					eq(member("age"), term(literal(5))),
 				),

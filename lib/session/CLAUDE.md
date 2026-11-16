@@ -29,16 +29,62 @@ The running menu keeps three distinct case facts, and they must not collapse:
   compatible same-type child may reuse it without turning the Form target into
   shared state.
 
+`previewSessionId` names the worker's running Preview session. It is new each
+time the session starts over: entering or leaving Preview, a change of
+worker or platform, an entry point's launch, Android's home screen
+(`setPreviewAtDeviceHome(true)`), a confirmed Project change and
+`reset()`; a store made on a page load starts with its own. Every
+identifier the store mints comes from the `uuid` package (`newPreviewSessionId`,
+`previewAndroidDeviceId`), never `crypto.randomUUID`, which a browser offers
+only in a secure context: the builder opened over plain http on a LAN
+address would throw making the store. `lib/lint/randomUuid.grit` refuses
+`crypto.randomUUID()` in every client directory. The worker's own
+steps (menu selections, case targets, Home) keep it. A step the browser's
+history keeps, a case list's held form menu (`lib/routing/previewHeldMenu.ts`),
+records the session that took it and stands only in that session, so Back
+onto it after a change of worker shows the list rather than the previous
+worker's case.
+
+`previewTaskId` names the running task of that session: every arrival at
+Home (`clearPreviewNavigation`) mints a new one, whatever the task held.
+Each history entry records the case selections it was shown with (the menu
+selections, the selections part of the case target, the selected case) and
+the session and task it was shown in (`lib/routing/previewSelectionsHistory.ts`).
+Back or Forward onto an entry of the same session and another task (past
+Home) puts that entry's selections back on Web Apps, before the screens
+render it (`restorePreviewSelections`, from a popstate listener in
+`lib/preview/hooks/usePreviewSelectionsArrival.ts`), and the session takes
+up that entry's task again; the rest of the ended task (a Register launch,
+a task continuation, the after-submit stack, a parent case request) stays
+cleared, as Home cleared it. That is Web Apps' popped address: its
+`selections` are replayed by `navigate_menu`. Within one task an entry whose
+record differs from the session's selections (a crumb let a case go since,
+or a later list chose another) puts its selections back the same way
+(`replayPreviewSelections`), and the task's other facts stand; a form target
+whose form and cases are the entry's keeps what it carries beyond them. On
+Android (`rules.poppedEntrySelections: "session"`) nothing is returned.
+
 `previewParentCaseRequest` is a separate selector plus ordered return chain, so
 multi-level case ancestry can visit each required selector before the original
 module. A direct running leaf also records its exact `resumeLocation` (including
 the Form UUID, selected field, or Results case UUID) and a safe
-`cancelLocation`; every intermediate selector preserves both. Its selecting
+`cancelLocation` (the module's own menu where it listed its forms before the
+parent was asked for, as a device's Back steps over the form's command);
+every intermediate selector preserves both. Its selecting
 module is derived from case-type `parent_type`, not from structural
 `parentModuleUuid`; this keeps menu ancestry and case ancestry independent when
 a nested child belongs under one menu but its case parent is selected through
 another module. Explicit cancel, browser Back, and navigation away clear the
-request so an abandoned selector cannot redirect a later visit. All navigation
+request so an abandoned selector cannot redirect a later visit. A selector
+reached after a case chosen on an earlier selector of the same request
+holds that earlier request as `previous`
+(`moduleScreenNavigation.ts::previewParentCaseRequestAfterChoice`), and the
+list's own Back there returns to the earlier selector's list with its case
+let go, in place, as `CommCareSession.stepBack` pops the last datum it
+collected (`previewParentCaseStepBack`). On a selector with nothing before it
+the list's own Back reaches `cancelLocation` by a step back where that screen
+is the entry behind the list (`navigate.stepBackTo`), so history never holds
+it twice and the browser's next Back goes on past it. All navigation
 facts clear on Preview mode or persona changes and on a confirmed Project
 boundary.
 They are session-only and never enter the document, undo history, or persisted
@@ -48,14 +94,51 @@ state.
 `previewSearchStates` is the fourth running fact, keyed by module UUID: the
 completed-search context of a module's search (`previewSearchState.ts`,
 reducers only; `setPreviewSearchState(moduleUuid, state | undefined)` stores
-it and clears the entry on `undefined` or `not-searched`). It is written by
+it and clears the entry on `undefined` or `not-searched`). It also holds a
+Search action's search (`action`, on a menu whose forms do not read the
+search) and a Search screen asked for again (`manual`), which only the case
+list reads, so every list's search and Web Apps' forced manual search stand
+and let go by one rule. It is written by
 the case-list screen as its query settles and read by the form screen to admit
 the case list registration form, and to load the completed attempt's results
 snapshot for a form of a menu whose forms read the search. `previewCaseTarget.searchLaunch
 { moduleUuid, attempt }` is the launch that opened that form from Results;
 the attempt pins the form to the search it was offered on. Both clear with the
 case facts: entering or leaving Preview, a persona change, `reset()`, and a
-confirmed Project boundary.
+confirmed Project boundary. A search stands only on the history entries that
+record it (`lib/routing/previewSearchHistory.ts`): the screens read it through
+`lib/preview/hooks/usePreviewStandingSearch.ts`, which records a search on
+the current entry, with its context, before the store holds it, and a crumb,
+a step to a screen above the list, a submission (on the screen it lands on
+alone), Home and Android's home screen let it go
+(`lib/preview/searchStanding.ts`, `lib/preview/CLAUDE.md`). The store keeps
+the module's current search only: where history returns to an entry whose
+search the store has since replaced, the arrival puts the entry's context
+back (`lib/preview/hooks/usePreviewSearchArrival.ts`).
+`previewSearchInputs` is the answers the worker last gave each module's
+query, kept with the `previewSessionId` that gave them
+(`previewSearchState.ts::PreviewSearchInputsGiven`): a Search press and a
+field changed on the Search screen, each with every hidden field's value
+beside the worker's answers, and the Search screen shown with no search
+standing, which gives none, hidden values included. Home and a submission
+keep them, as Web Apps' page keeps `Utils.queryInputs`, and a new session
+reads none without a write. On Web Apps an arrival on a list runs that
+list's standing search with them, every prompt answered by them alone
+(`previewSearchState.ts::searchWithLatestInputs`), and an arrival on a menu
+or a form past the list holds a completed search with them, marked
+`rerunPastList` until its list counts it again (`searchRunPastItsList`); the menu's default search
+is marked `automatic` on its state, since it gave no answers and runs as the
+default search again.
+
+`previewCaseListRegistrationEntry` is the launch a case list's Register action
+made of a form the list always offers: the host, and the form and menu it
+opened. It is its own fact, never part of `previewCaseTarget`, because the
+target is rewritten by every screen on the way (a parent case selection clears
+it), while the launch belongs to the one form entry it opened. `PreviewShell`
+ends it at any location off the launch's path
+(`lib/preview/caseListRegistrationEntry.ts::caseListRegistrationEntryContinues`),
+`FormScreen` when its submission lands, and it clears with the case facts and
+on Home.
 
 Preview plays one platform the app runs on at a time, and four running facts
 carry it. `previewPlatform` is the platform the author chose under **Runs on**,
@@ -68,7 +151,17 @@ screen: true when Preview opens on the app's home on Android (`setPreviewing(on,
 { atHome })`, whose `atHome` the preview-mode transition passes because the URL,
 not this store, owns the location), on a change of worker on Android and after
 an Android landing that returns there; false on leaving Preview, on an
-entry-point launch and on Start. `previewDeviceSyncedAt` is this Preview run's
+entry-point launch and on Start. `setPreviewAtDeviceHome(true)` starts the
+session over as Android's reset does
+(`HomeScreenBaseActivity.processCanceledGetCommandOrCase` →
+`AndroidSessionWrapper.reset` → `CommCareSession.clearAllState`: a new
+frame and an empty frame stack): it clears every navigation fact (the case
+target, the Register launch, the task continuation, the after-submit stack,
+an entry point's launch, the selected case, the menu selections, a parent
+case request, the searches) and mints a new `previewSessionId`, so a held
+form menu the browser's history kept no longer stands. The worker, the
+platform, the last sync and the device id are the device's and stay; Start
+opens the app on that new session. `previewDeviceSyncedAt` is this Preview run's
 last sync on Android, set when Preview starts on Android, by a change of worker
 or an entry-point launch there, and by Sync with server; it clears on leaving
 Preview. `previewAndroidDeviceId` is the UUID of Android's `deviceid`, minted

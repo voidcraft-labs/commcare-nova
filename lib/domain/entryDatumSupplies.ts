@@ -12,7 +12,8 @@ import type { FormStructure } from "./expression/formStructure";
 import { type DatumRef, datumRefKey } from "./expression/types";
 import type { ResolvedFormLinkTarget } from "./formLinkTargets";
 import { CASE_LOADING_FORM_TYPES } from "./forms";
-import { menuFormUuidsOf, moduleIsCaseFirst } from "./menuForms";
+import { menuFormUuidsOf } from "./menuForms";
+import { menuScreenOf, screenChoosesCaseFirst } from "./menuScreens";
 import { moduleParent } from "./moduleHierarchy";
 import {
 	caseSelectionCanFlowBetweenModules,
@@ -71,9 +72,16 @@ export interface EntryDatumSupplies {
 	}[];
 }
 
+/** The slice of a document the selection projections read: the menus,
+ * their order, and the forms each menu holds. */
+export type EntrySelectionSource = Pick<
+	BlueprintDoc,
+	"modules" | "moduleOrder" | "forms" | "formOrder"
+>;
+
 const EMPTY_SUPPLIES: EntryDatumSupplies = { refs: [] };
 const alignments = new WeakMap<
-	BlueprintDoc,
+	EntrySelectionSource,
 	Map<string, RootSelectionAlignment>
 >();
 const supplies = new WeakMap<BlueprintDoc, Map<string, EntryDatumSupplies>>();
@@ -84,7 +92,10 @@ function entryKey(entry: DatumEntry): string {
 		: JSON.stringify([entry.kind, entry.module]);
 }
 
-function parentSelectionChain(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
+function parentSelectionChain(
+	doc: EntrySelectionSource,
+	moduleUuid: Uuid,
+): Uuid[] {
 	const reverse: Uuid[] = [];
 	const seen = new Set<Uuid>([moduleUuid]);
 	let current = moduleUuid;
@@ -99,7 +110,7 @@ function parentSelectionChain(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
 }
 
 function selectionModules(
-	doc: BlueprintDoc,
+	doc: EntrySelectionSource,
 	entry: DatumEntry,
 	prepared?: FormStructure,
 ): Uuid[] {
@@ -119,7 +130,7 @@ function selectionModules(
  * parent values do not consume a child selection; wire naming and their
  * placement remain with the entry projector. */
 export function rootSelectionAlignment(
-	doc: BlueprintDoc,
+	doc: EntrySelectionSource,
 	entry: DatumEntry,
 	prepared?: FormStructure,
 ): RootSelectionAlignment {
@@ -425,7 +436,7 @@ export interface EntrySelection {
 }
 
 export function entrySelections(
-	doc: BlueprintDoc,
+	doc: EntrySelectionSource,
 	entry: DatumEntry,
 	visiting: ReadonlySet<Uuid> = new Set(),
 ): readonly EntrySelection[] {
@@ -560,7 +571,11 @@ export function entryDatumSupplies(
 	if (point.kind === "form") {
 		result = suppliedAtEntry(doc, point, new Set(), prepared);
 	} else if (point.kind === "form-menu") {
-		if (moduleIsCaseFirst(doc, point.module, prepared)) {
+		// A case is chosen before the form is listed only where the screen
+		// that lists it chooses one first, which every entry there decides.
+		if (
+			screenChoosesCaseFirst(doc, menuScreenOf(doc, point.module), prepared)
+		) {
 			const entry = suppliedAtEntry(
 				doc,
 				{ ...point, kind: "form" },

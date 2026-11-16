@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test";
 import AdmZip from "adm-zip";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
@@ -6,6 +7,42 @@ import { replaceRichText } from "../../lib/richText";
 
 const source = FORM_SECTIONS_SEED.aboutYou.nameFieldUuid;
 test.use({ actionTimeout: 15_000 });
+
+/** Runs `body` with every CSS animation and transition at a tenth of its
+ * speed, as on a busy machine. Choosing Calculated value then closes the
+ * reference picker so slowly that it hands focus back to the text after the
+ * formula has taken it, which is the order a loaded runner meets by chance. */
+async function withSlowTransitions(page: Page, body: () => Promise<void>) {
+	const cdp = await page.context().newCDPSession(page);
+	try {
+		await cdp.send("Animation.enable");
+		await cdp.send("Animation.setPlaybackRate", { playbackRate: 0.1 });
+		await body();
+	} finally {
+		await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
+		await cdp.detach();
+	}
+}
+
+/** A calculated value's formula reads `shown`, its question drawn as the
+ * question's chip standing for `#form/about_you/your_name`. */
+async function expectFormula(formula: Locator, shown: string) {
+	await expect(formula).toHaveText(shown);
+	const chip = formula.locator("[data-ref-raw]");
+	await expect(chip).toHaveCount(1);
+	await expect(chip).toHaveAttribute(
+		"data-ref-raw",
+		"#form/about_you/your_name",
+	);
+	await expect(chip).toHaveText("Your name");
+}
+
+/** The formula is empty: CodeMirror draws its placeholder only over an empty
+ * document, and the editor holds nothing beside it. */
+async function expectEmptyFormula(formula: Locator) {
+	await expect(formula.locator(".cm-placeholder")).toBeVisible();
+	await expect(formula).toHaveText("A formula's result shows here");
+}
 
 test("inspector explicitly converts literal references, preserves drafts and saves identities", {
 	tag: "@seed:sections",
@@ -323,4 +360,269 @@ test("hashtag suggestions select namespaces and references without ending the dr
 	await expect(
 		main.getByRole("button", { name: "Your name", exact: true }),
 	).toBeVisible();
+});
+
+test("inserts, edits and removes calculated values in a hint and shows their results", {
+	tag: "@seed:sections",
+}, async ({ page, scenario, request }) => {
+	const { formSections } = seedFor(scenario, "sections");
+	await openBuilder(page, formSections.route);
+	await page
+		.getByRole("button", { name: "Your name", exact: true })
+		.first()
+		.click();
+	const properties = page.getByRole("dialog", {
+		name: "Properties",
+		exact: true,
+	});
+	await properties.getByRole("button", { name: "Hint", exact: true }).click();
+	const hint = properties.getByRole("textbox", { name: "Hint", exact: true });
+	await expect(hint).toBeFocused();
+	const popover = page.getByRole("dialog", {
+		name: "Calculated value",
+		exact: true,
+	});
+	const formula = popover.locator(".cm-content");
+	const picker = page.getByRole("dialog", {
+		name: "Insert reference",
+		exact: true,
+	});
+	/** Opens the value popover from the picker. The formula takes focus
+	 *  while the picker closes, and once the picker is gone focus must still
+	 *  be in the formula, or what the person types lands in the hint. */
+	const openNewValue = async () => {
+		await properties
+			.getByRole("button", { name: "Insert reference", exact: true })
+			.click();
+		await page.getByRole("button", { name: /^Calculated value/ }).click();
+		await expect(popover).toBeVisible();
+		await expect(picker).toHaveCount(0);
+		await expect(formula).toBeFocused();
+	};
+	/** Writes `text` into a new value. */
+	const insertValue = async (text: string) => {
+		await openNewValue();
+		await page.keyboard.type(text);
+		await popover.getByRole("button", { name: "Insert", exact: true }).click();
+		await expect(popover).toHaveCount(0);
+	};
+	/** Selects the `index`th value chip and opens it for editing. */
+	const openValue = async (index: number) => {
+		await hint.locator("[data-prose-value]").nth(index).click();
+		await properties
+			.getByRole("button", { name: "Edit calculated value", exact: true })
+			.click();
+		await expect(popover).toBeVisible();
+	};
+
+	await withSlowTransitions(page, async () => {
+		// An empty formula inserts nothing.
+		await openNewValue();
+		await expect(
+			popover.getByRole("button", { name: "Insert", exact: true }),
+		).toBeDisabled();
+		await page.keyboard.press("Escape");
+		await expect(popover).toHaveCount(0);
+
+		await insertValue("string-length(#form/about_you/your_name)");
+		await hint.press("End");
+		await hint.pressSequentially(" letters, ");
+		await insertValue("concat(#form/about_you/your_name, '!')");
+	});
+	await expect(hint.locator("[data-prose-value]")).toHaveCount(2);
+	await expect(hint.locator("[data-prose-value]").first()).toHaveAttribute(
+		"title",
+		"string-length(#form/about_you/your_name)",
+	);
+
+	// Each value opens on its own formula.
+	await openValue(0);
+	await expectFormula(formula, "string-length(Your name)");
+	await page.keyboard.press("Escape");
+	await openValue(1);
+	await expectFormula(formula, "concat(Your name, '!')");
+	await page.keyboard.press("ControlOrMeta+a");
+	await page.keyboard.press("Backspace");
+	await expectEmptyFormula(formula);
+	await page.keyboard.type("concat(#form/about_you/your_name, '?')");
+	await popover.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(hint.locator("[data-prose-value]").nth(1)).toHaveAttribute(
+		"title",
+		"concat(#form/about_you/your_name, '?')",
+	);
+
+	// A formula that only reads the answer lands as the answer's reference.
+	await openValue(1);
+	await page.keyboard.press("ControlOrMeta+a");
+	await page.keyboard.press("Backspace");
+	await expectEmptyFormula(formula);
+	await page.keyboard.type("#form/about_you/your_name");
+	await popover.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(hint.locator("[data-prose-value]")).toHaveCount(1);
+	await expect(
+		hint.locator('[data-ref-raw="#form/about_you/your_name"]'),
+	).toBeVisible();
+
+	await hint.press("Enter");
+	await expect
+		.poll(async () =>
+			(
+				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
+					.blueprint.fields[source].hint as
+					| { parts?: { kind: string }[] }
+					| undefined
+			)?.parts?.map((part) => part.kind),
+		)
+		.toEqual(["value", "text", "field-ref"]);
+
+	// The running form shows each value's result.
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	await page
+		.getByRole("main")
+		.getByRole("textbox", { name: "Your name" })
+		.fill("Asha");
+	await expect(
+		page.getByRole("main").getByText("4 letters, Asha", { exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Back to edit", exact: true }).click();
+
+	// Remove takes the value out of the text.
+	await openValue(0);
+	await popover.getByRole("button", { name: "Remove", exact: true }).click();
+	await expect(hint.locator("[data-prose-value]")).toHaveCount(0);
+	await hint.press("Enter");
+	await expect
+		.poll(async () =>
+			(
+				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
+					.blueprint.fields[source].hint as
+					| { parts?: { kind: string }[] }
+					| undefined
+			)?.parts?.map((part) => part.kind),
+		)
+		.toEqual(["text", "field-ref"]);
+});
+
+test("inserts, edits and removes calculated values in a label on the canvas", {
+	tag: "@seed:sections",
+}, async ({ page, scenario, request }) => {
+	const { formSections } = seedFor(scenario, "sections");
+	await openBuilder(page, formSections.route);
+	const main = page.getByRole("main");
+	await main.getByRole("button", { name: "Your name", exact: true }).click();
+	const label = main.getByRole("textbox", { name: "Label", exact: true });
+	await replaceRichText(label, "Hello ");
+	const popover = page.getByRole("dialog", {
+		name: "Calculated value",
+		exact: true,
+	});
+	const formula = popover.locator(".cm-content");
+	const values = label.locator("[data-prose-value]");
+	const picker = page.getByRole("dialog", {
+		name: "Insert reference",
+		exact: true,
+	});
+	/** Opens the value popover from the canvas toolbar's picker and inserts
+	 *  `text`, once the picker is gone and focus is still in the formula. */
+	const insertValue = async (text: string) => {
+		await page
+			.getByRole("button", { name: "Insert reference", exact: true })
+			.click();
+		await page.getByRole("button", { name: /^Calculated value/ }).click();
+		await expect(popover).toBeVisible();
+		await expect(picker).toHaveCount(0);
+		await expect(formula).toBeFocused();
+		await page.keyboard.type(text);
+		await popover.getByRole("button", { name: "Insert", exact: true }).click();
+		await expect(popover).toHaveCount(0);
+		// Focus moving into the popover and back does not end the label's edit.
+		await expect(label).toBeFocused();
+	};
+	/** Selects the `index`th value chip of the label and opens it for editing. */
+	const openValue = async (index: number) => {
+		await values.nth(index).click();
+		await page
+			.getByRole("button", { name: "Edit calculated value", exact: true })
+			.click();
+		await expect(popover).toBeVisible();
+	};
+
+	await withSlowTransitions(page, async () => {
+		await insertValue("string-length(#form/about_you/your_name)");
+		await label.press("End");
+		await label.pressSequentially(" letters, ");
+		await insertValue("concat(#form/about_you/your_name, '!')");
+	});
+	await expect(values).toHaveCount(2);
+
+	// Two values in one label each open on their own formula.
+	await openValue(0);
+	await expectFormula(formula, "string-length(Your name)");
+	await page.keyboard.press("Escape");
+	await expect(popover).toHaveCount(0);
+	await openValue(1);
+	await expectFormula(formula, "concat(Your name, '!')");
+	await page.keyboard.press("ControlOrMeta+a");
+	await page.keyboard.press("Backspace");
+	await expectEmptyFormula(formula);
+	await page.keyboard.type("concat(#form/about_you/your_name, '?')");
+	await popover.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(popover).toHaveCount(0);
+	await expect(values.nth(1)).toHaveAttribute(
+		"title",
+		"concat(#form/about_you/your_name, '?')",
+	);
+	await expect(values.nth(0)).toHaveAttribute(
+		"title",
+		"string-length(#form/about_you/your_name)",
+	);
+
+	await label.press("ControlOrMeta+Enter");
+	await expect(label).toHaveCount(0);
+	await expect
+		.poll(async () =>
+			(
+				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
+					.blueprint.fields[source].label as
+					| { parts?: { kind: string }[] }
+					| undefined
+			)?.parts?.map((part) => part.kind),
+		)
+		.toEqual(["text", "value", "text", "value"]);
+	// The closed label draws each value as its chip.
+	await expect(main.locator("[data-prose-value]")).toHaveCount(2);
+
+	// The running form shows each value's result in the label, and the
+	// label names the question's input: before an answer the values work
+	// out over an empty name. The input's name opens with the question's
+	// position, so the label is matched inside it.
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	await main.getByRole("textbox", { name: "Hello 0 letters, ?" }).fill("Asha");
+	await expect(
+		main.getByText("Hello 4 letters, Asha?", { exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Back to edit", exact: true }).click();
+
+	// Remove takes one value out of the label and keeps the other.
+	await main
+		.locator("button[data-text-editable]")
+		.filter({ has: page.locator("[data-prose-value]") })
+		.click();
+	await expect(label).toBeFocused();
+	await openValue(0);
+	await popover.getByRole("button", { name: "Remove", exact: true }).click();
+	await expect(popover).toHaveCount(0);
+	await expect(values).toHaveCount(1);
+	await label.press("ControlOrMeta+Enter");
+	await expect(label).toHaveCount(0);
+	await expect
+		.poll(async () =>
+			(
+				(await (await request.get(`/api/apps/${formSections.appId}`)).json())
+					.blueprint.fields[source].label as
+					| { parts?: { kind: string }[] }
+					| undefined
+			)?.parts?.map((part) => part.kind),
+		)
+		.toEqual(["text", "value"]);
 });

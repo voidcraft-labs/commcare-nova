@@ -24,14 +24,15 @@ import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
+import { useMenuScreenSource } from "@/lib/doc/hooks/useMenuScreenSource";
 import {
 	useIsBareCaseListModule,
-	useIsCaseFirstModule,
-	useOrderedMenuForms,
+	useScreenCaseFirstReading,
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
-import type { CaseType } from "@/lib/domain";
+import { type CaseType, moduleShowsFormsInMenuAbove } from "@/lib/domain";
 import type { Expression, ExpressionContext } from "@/lib/domain/expression";
+import { menuAboveName } from "../detail/moduleSettings/menuScreenCopy";
 import {
 	type DisplayConditionCarrier,
 	type DisplayConditionCopy,
@@ -78,9 +79,11 @@ export function useDisplayConditionCarrier(
 	const mod = useModule(target.moduleUuid);
 	const parentModule = useModule(mod?.parentModuleUuid);
 	const form = useForm(target.kind === "form" ? target.formUuid : undefined);
-	const menuForms = useOrderedMenuForms(target.moduleUuid);
-	const caseFirst = useIsCaseFirstModule(target.moduleUuid);
 	const moduleIsBareCaseList = useIsBareCaseListModule(target.moduleUuid);
+	/* Whether a case is chosen before the form is listed is a fact of the
+	 * screen that lists it, which may be the menu above. */
+	const source = useMenuScreenSource();
+	const screenReading = useScreenCaseFirstReading(target.moduleUuid);
 	const caseTypes = useEffectiveCaseTypes();
 	const mutations = useBlueprintMutations();
 	const platforms = useDeclaredPlatforms();
@@ -106,25 +109,41 @@ export function useDisplayConditionCarrier(
 				moduleName: mod.name,
 				parentModuleName: parentModule?.name,
 				moduleIsBareCaseList,
+				formsInMenuAbove: moduleShowsFormsInMenuAbove(mod),
+				aboveName: menuAboveName(source, target.moduleUuid),
 			};
 		}
 		if (form === undefined) return null;
+		const { caseFirst, reason, blockingModuleUuid, blockingFormUuid } =
+			screenReading;
 		return {
 			kind: "form",
 			formName: form.name,
 			moduleName: mod.name,
 			caseFirst,
+			...(reason !== undefined && {
+				caseFirstBlocker: {
+					reason,
+					...(blockingModuleUuid !== undefined &&
+						blockingModuleUuid !== target.moduleUuid && {
+							otherModuleName: source.modules[blockingModuleUuid]?.name,
+						}),
+					...(blockingFormUuid !== undefined && {
+						blockingFormName: source.forms[blockingFormUuid]?.name,
+					}),
+				},
+			}),
 			caseType: mod.caseType,
-			formCount: menuForms.length,
 		};
 	}, [
 		mod,
 		parentModule,
 		form,
-		menuForms,
-		caseFirst,
+		screenReading,
+		source,
 		moduleIsBareCaseList,
 		target.kind,
+		target.moduleUuid,
 	]);
 
 	const targetKind = target.kind;

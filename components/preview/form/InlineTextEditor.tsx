@@ -84,7 +84,9 @@ import {
 } from "@/components/tiptap-ui-primitive/toolbar";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import type { CommitOutcome, ProseTemplate } from "@/lib/domain";
+import type { ProseSlotRef } from "@/lib/domain/expression/types";
 import {
+	ProseSlotScope,
 	useLiveFormUuidGetter,
 	useReferenceProvider,
 } from "@/lib/references/ReferenceContext";
@@ -112,6 +114,7 @@ import {
 	FORMAT_TEXT_CONFIRM_KEEP,
 	FORMAT_TEXT_CONFIRM_OFF,
 	FORMAT_TEXT_FOLLOWS_SOURCE,
+	FORMAT_TEXT_FORM_OFF,
 	FORMAT_TEXT_NAME,
 	FORMAT_TEXT_UNAVAILABLE,
 	formatTextGesture,
@@ -134,9 +137,12 @@ interface InlineTextEditorProps {
 	 *  provided, the cursor is placed at the corresponding text position
 	 *  instead of jumping to the end of the field. */
 	clickPosition?: { x: number; y: number } | null;
-	/** A label's Format text toggle. Absent for hints, which keep their
-	 *  formatting. */
+	/** A label's Format text toggle. Absent for hints, which have no such
+	 *  setting. */
 	formatText?: FormatTextControl;
+	/** The text's prose slot, where a calculated value is parsed, checked and
+	 *  printed. */
+	proseSlot?: ProseSlotRef;
 }
 
 /** The label toolbar's formatting buttons, as they stand while Format text
@@ -167,7 +173,8 @@ const UNAVAILABLE_FORMATTING: ReadonlyArray<
 /**
  * The Format text toggle, first in the label toolbar. Pressed means the
  * label is formatted. Under a worker language other than the source it shows
- * the source's state and changes nothing.
+ * the source's state and changes nothing; while the form's text formatting
+ * is off it shows off and changes nothing, keeping the label's own setting.
  */
 function FormatTextToggle({
 	formatText,
@@ -177,6 +184,7 @@ function FormatTextToggle({
 	onToggle: () => void;
 }) {
 	const formatted = !formatText.plain;
+	const changeable = formatText.isSource && !formatText.formOff;
 	return (
 		<ToolbarButton
 			type="button"
@@ -185,16 +193,20 @@ function FormatTextToggle({
 			data-format-text={formatted ? "on" : "off"}
 			aria-label={FORMAT_TEXT_NAME}
 			aria-pressed={formatted}
-			aria-disabled={formatText.isSource ? undefined : true}
+			aria-disabled={changeable ? undefined : true}
 			className={
-				formatText.isSource
+				changeable
 					? undefined
 					: "cursor-not-allowed opacity-(--disabled-opacity)"
 			}
 			tooltip={
-				formatText.isSource ? FORMAT_TEXT_NAME : FORMAT_TEXT_FOLLOWS_SOURCE
+				formatText.formOff
+					? FORMAT_TEXT_FORM_OFF
+					: formatText.isSource
+						? FORMAT_TEXT_NAME
+						: FORMAT_TEXT_FOLLOWS_SOURCE
 			}
-			onClick={formatText.isSource ? onToggle : undefined}
+			onClick={changeable ? onToggle : undefined}
 		>
 			<TiptapIcon icon={tablerTypography} className="tiptap-button-icon" />
 		</ToolbarButton>
@@ -247,6 +259,7 @@ function LabelToolbar({
 	onLeaveEditor,
 	formatText,
 	onToggleFormatText,
+	proseSlot,
 }: {
 	editor: Editor;
 	compact?: boolean;
@@ -254,6 +267,7 @@ function LabelToolbar({
 	anchorRef: React.RefObject<HTMLDivElement | null>;
 	formatText?: FormatTextControl;
 	onToggleFormatText: () => void;
+	proseSlot?: ProseSlotRef;
 }) {
 	const plain = formatText?.plain === true;
 	const portalRef = useRef<HTMLDivElement>(null);
@@ -387,7 +401,11 @@ function LabelToolbar({
 						<ToolbarSeparator />
 					</>
 				)}
-				<ProseReferencePicker editor={editor} onLeaveEditor={onLeaveEditor} />
+				<ProseReferencePicker
+					editor={editor}
+					onLeaveEditor={onLeaveEditor}
+					proseSlot={proseSlot}
+				/>
 				<ToolbarSaveHint />
 			</Toolbar>
 		</div>,
@@ -403,6 +421,7 @@ export function InlineTextEditor({
 	autoFocus,
 	clickPosition,
 	formatText,
+	proseSlot,
 }: InlineTextEditorProps) {
 	const plain = formatText?.plain === true;
 	/* The draft as last edited, carried into the other editor when the stored
@@ -430,6 +449,7 @@ export function InlineTextEditor({
 			autoFocus={swapped || autoFocus}
 			clickPosition={swapped ? null : clickPosition}
 			formatText={formatText}
+			proseSlot={proseSlot}
 		/>
 	);
 }
@@ -444,6 +464,7 @@ function InlineTextEditorSurface({
 	autoFocus,
 	clickPosition,
 	formatText,
+	proseSlot,
 }: Omit<InlineTextEditorProps, "value"> & {
 	/** The text the editor opens with. */
 	initial: ProseTemplate;
@@ -677,7 +698,7 @@ function InlineTextEditorSurface({
 	);
 
 	const toggleFormatText = useCallback(() => {
-		if (!formatText || !editor) return;
+		if (!formatText || !editor || formatText.formOff) return;
 		const gesture = formatTextGesture({
 			plain: formatText.plain,
 			isSource: formatText.isSource,
@@ -708,85 +729,90 @@ function InlineTextEditorSurface({
 
 	return (
 		<Tiptap editor={editor}>
-			<div ref={anchorRef} className="relative" data-no-drag>
-				<LabelToolbar
-					anchorRef={anchorRef}
-					editor={editor}
-					compact={fieldType !== "label"}
-					onLeaveEditor={() => saveRef.current(editor)}
-					formatText={formatText}
-					onToggleFormatText={toggleFormatText}
-				/>
-				{/* Text styling + preview-markdown on a single wrapper: matches the
-				 * static LabelContent structure for flipbook parity. */}
-				<div className={`preview-markdown ${FIELD_STYLES[fieldType]}`}>
-					<Tiptap.Content />
-				</div>
-				{formatText && plain && (
-					<p
-						data-format-text-line
-						className="mt-1.5 text-xs leading-relaxed text-nova-text-muted"
-					>
-						{formatTextOffLine("label", platforms)}
-					</p>
-				)}
-				{confirming && (
-					<fieldset
-						data-inline-toolbar
-						data-format-text-prompt
-						className="m-0 mt-2 min-w-0 rounded-lg border border-white/[0.06] bg-nova-deep/50 p-3"
-						onMouseDown={(event) => event.preventDefault()}
-						onKeyDown={(event) => {
-							if (event.key === "Escape") {
-								event.stopPropagation();
-								keepFormatting();
-							}
-						}}
-						onBlur={() => {
-							/* Focus that leaves the question for somewhere outside the
-							 * editing context ends the edit, as a blur from the editor
-							 * does. */
-							requestAnimationFrame(() => {
-								if (
-									!aliveRef.current ||
-									editor.isDestroyed ||
-									editor.view.hasFocus() ||
-									prosePickerIsOpen(editor) ||
-									document.activeElement?.closest("[data-inline-toolbar]")
-								) {
-									return;
+			<ProseSlotScope slot={proseSlot}>
+				<div ref={anchorRef} className="relative" data-no-drag>
+					<LabelToolbar
+						anchorRef={anchorRef}
+						editor={editor}
+						compact={fieldType !== "label"}
+						onLeaveEditor={() => saveRef.current(editor)}
+						formatText={formatText}
+						onToggleFormatText={toggleFormatText}
+						proseSlot={proseSlot}
+					/>
+					{/* Text styling + preview-markdown on a single wrapper: matches the
+					 * static LabelContent structure for flipbook parity. */}
+					<div className={`preview-markdown ${FIELD_STYLES[fieldType]}`}>
+						<Tiptap.Content />
+					</div>
+					{formatText && plain && (
+						<p
+							data-format-text-line
+							className="mt-1.5 text-xs leading-relaxed text-nova-text-muted"
+						>
+							{formatText.formOff
+								? FORMAT_TEXT_FORM_OFF
+								: formatTextOffLine("label", platforms)}
+						</p>
+					)}
+					{confirming && (
+						<fieldset
+							data-inline-toolbar
+							data-format-text-prompt
+							className="m-0 mt-2 min-w-0 rounded-lg border border-white/[0.06] bg-nova-deep/50 p-3"
+							onMouseDown={(event) => event.preventDefault()}
+							onKeyDown={(event) => {
+								if (event.key === "Escape") {
+									event.stopPropagation();
+									keepFormatting();
 								}
-								setConfirming(false);
-								saveRef.current(editor);
-							});
-						}}
-					>
-						<legend className="float-left w-full p-0 text-xs leading-relaxed text-nova-text-secondary">
-							{FORMAT_TEXT_CONFIRM}
-						</legend>
-						<div className="clear-both flex flex-wrap gap-2 pt-2">
-							<Button
-								type="button"
-								variant="secondary"
-								data-format-text-confirm="off"
-								ref={focusOnOpen}
-								onClick={() => writeFormatText(true)}
-							>
-								{FORMAT_TEXT_CONFIRM_OFF}
-							</Button>
-							<Button
-								type="button"
-								variant="ghost"
-								data-format-text-confirm="keep"
-								onClick={keepFormatting}
-							>
-								{FORMAT_TEXT_CONFIRM_KEEP}
-							</Button>
-						</div>
-					</fieldset>
-				)}
-				<RejectionInline message={formatRefusal} className="max-w-sm" />
-			</div>
+							}}
+							onBlur={() => {
+								/* Focus that leaves the question for somewhere outside the
+								 * editing context ends the edit, as a blur from the editor
+								 * does. */
+								requestAnimationFrame(() => {
+									if (
+										!aliveRef.current ||
+										editor.isDestroyed ||
+										editor.view.hasFocus() ||
+										prosePickerIsOpen(editor) ||
+										document.activeElement?.closest("[data-inline-toolbar]")
+									) {
+										return;
+									}
+									setConfirming(false);
+									saveRef.current(editor);
+								});
+							}}
+						>
+							<legend className="float-left w-full p-0 text-xs leading-relaxed text-nova-text-secondary">
+								{FORMAT_TEXT_CONFIRM}
+							</legend>
+							<div className="clear-both flex flex-wrap gap-2 pt-2">
+								<Button
+									type="button"
+									variant="secondary"
+									data-format-text-confirm="off"
+									ref={focusOnOpen}
+									onClick={() => writeFormatText(true)}
+								>
+									{FORMAT_TEXT_CONFIRM_OFF}
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									data-format-text-confirm="keep"
+									onClick={keepFormatting}
+								>
+									{FORMAT_TEXT_CONFIRM_KEEP}
+								</Button>
+							</div>
+						</fieldset>
+					)}
+					<RejectionInline message={formatRefusal} className="max-w-sm" />
+				</div>
+			</ProseSlotScope>
 		</Tiptap>
 	);
 }

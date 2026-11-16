@@ -15,8 +15,9 @@ const english = {
 	breadcrumbPath: "Show breadcrumb path",
 	pageNavigation: "Page navigation",
 	formGettingReady: "This form is getting ready.",
+	searchGettingReady: "This search is getting ready.",
 	answersLocked: "Answers are locked while this submission finishes.",
-	freshFormReady: "A fresh form entry is ready.",
+	freshFormStarting: "A fresh form entry is opening.",
 	caseDataRefreshing: "Case data is refreshing. Your answers are still here.",
 	selectedRecordLoading:
 		"The selected record is loading. Answers will be available shortly.",
@@ -28,7 +29,6 @@ const english = {
 	thisCase: "this case",
 	formCountOne: "{count} form",
 	formCountMany: "{count} forms",
-	selectedCase: "Selected: {name}",
 	caseCountOne: "{count} case",
 	caseCountMany: "{count} cases",
 	groupCountOne: "{count} group",
@@ -142,6 +142,8 @@ const english = {
 	integerRange:
 		"The number needs to be between -2,147,483,648 and 2,147,483,647.",
 	numberTooLarge: "The number is too large to save.",
+	numberKeypadAnswer:
+		"This answer takes digits, with an optional + or - in front and an optional decimal part.",
 	date: "“{value}” isn't a date. Pick one from the calendar.",
 	time: "“{value}” isn't a time yet. Enter a clock time like 2:30 PM.",
 	missingTime: "Enter a clock time: this question needs both.",
@@ -236,9 +238,12 @@ const english = {
 	dataRefusalLinksTitle: "This form's next step stops on a phone",
 	dataRefusalMenuTitle: "This menu doesn't open on a phone",
 	dataRefusalSearchTitle: "This search doesn't open on a phone",
+	dataRefusalListTitle: "This case list doesn't open on a phone",
 	dataRefusalSubjectForm: "This form reads",
 	dataRefusalSubjectLinks: "This form's links read",
 	dataRefusalSubjectMenu: "This menu reads",
+	dataRefusalSubjectSearch: "This search reads",
+	dataRefusalSubjectList: "This case list reads",
 	dataRefusalPlacesPersona:
 		"{subject} a place, and {worker} is assigned nowhere, so a phone stops here. You can give {worker} a place under Users and personas in App setup.",
 	dataRefusalPlacesMe:
@@ -255,6 +260,12 @@ const english = {
 		"Search field “{input}” gets its choices from “{table}”, which has no rows, so a phone won't open this search. You can add rows to “{table}” in Project data.",
 	dataRefusalSearchAnswers:
 		"{subject} a search answer that was left blank, so a phone stops here. You can search again with that answer filled in.",
+	dataRefusalStartingChoice:
+		"Search field “{input}” starts on a choice its list doesn't offer. CommCare sets such a choice aside only on a search with more than one field, so a phone won't open this search. You can give “{input}” a starting value its list offers.",
+	dataRefusalWorkerPersona:
+		"{subject} worker information {worker} doesn't have, so a phone stops here. If it reads {worker}'s place, you can give {worker} a place under Users and personas in App setup.",
+	dataRefusalWorkerMe:
+		"{subject} worker information you don't have, so a phone stops here. If it reads your place, you can preview as a persona who has a place.",
 	dataRefusalOther:
 		"{subject} a value a phone doesn't have at this point, so a phone stops here.",
 	thisQuestion: "this question",
@@ -319,8 +330,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	breadcrumbPath: "Mostrar la ruta de navegación",
 	pageNavigation: "Navegación de páginas",
 	formGettingReady: "El formulario se está preparando.",
+	searchGettingReady: "La búsqueda se está preparando.",
 	answersLocked: "Las respuestas están bloqueadas mientras termina el envío.",
-	freshFormReady: "El formulario está listo para una nueva entrada.",
+	freshFormStarting: "Se está abriendo una nueva entrada del formulario.",
 	caseDataRefreshing:
 		"Los datos se están actualizando. Sus respuestas siguen aquí.",
 	selectedRecordLoading:
@@ -335,7 +347,6 @@ const spanish: Record<RuntimeMessage, string> = {
 	thisCase: "este registro",
 	formCountOne: "{count} formulario",
 	formCountMany: "{count} formularios",
-	selectedCase: "Seleccionado: {name}",
 	caseCountOne: "{count} registro",
 	caseCountMany: "{count} registros",
 	groupCountOne: "{count} grupo",
@@ -459,6 +470,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	number: "Esta pregunta necesita un número.",
 	integerRange: "El número debe estar entre -2,147,483,648 y 2,147,483,647.",
 	numberTooLarge: "El número es demasiado grande para guardarlo.",
+	numberKeypadAnswer:
+		"Esta respuesta admite dígitos, con un + o un - opcional al principio y una parte decimal opcional.",
 	date: "«{value}» no es una fecha. Elija una en el calendario.",
 	time: "«{value}» no es una hora. Introduzca una hora como 14:30.",
 	missingTime: "Introduzca una hora: esta pregunta necesita ambas.",
@@ -555,9 +568,12 @@ const spanish: Record<RuntimeMessage, string> = {
 		"El siguiente paso de este formulario se detiene en un teléfono",
 	dataRefusalMenuTitle: "Este menú no se abre en un teléfono",
 	dataRefusalSearchTitle: "Esta búsqueda no se abre en un teléfono",
+	dataRefusalListTitle: "Esta lista de casos no se abre en un teléfono",
 	dataRefusalSubjectForm: "Este formulario lee",
 	dataRefusalSubjectLinks: "Los enlaces de este formulario leen",
 	dataRefusalSubjectMenu: "Este menú lee",
+	dataRefusalSubjectSearch: "Esta búsqueda lee",
+	dataRefusalSubjectList: "Esta lista de casos lee",
 	dataRefusalPlacesPersona:
 		"{subject} un lugar, y {worker} no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalPlacesMe:
@@ -574,6 +590,12 @@ const spanish: Record<RuntimeMessage, string> = {
 		"El campo de búsqueda «{input}» toma sus opciones de «{table}», que no tiene filas, así que un teléfono no abrirá esta búsqueda. Puede añadir filas a «{table}» en los datos del proyecto.",
 	dataRefusalSearchAnswers:
 		"{subject} una respuesta de búsqueda que quedó en blanco, así que un teléfono se detiene aquí. Puede buscar de nuevo con esa respuesta.",
+	dataRefusalStartingChoice:
+		"El campo de búsqueda «{input}» empieza con una opción que su lista no ofrece. CommCare deja de lado esa opción solo en una búsqueda de más de un campo, así que un teléfono no abrirá esta búsqueda. Puede darle a «{input}» un valor inicial que su lista ofrezca.",
+	dataRefusalWorkerPersona:
+		"{subject} información del trabajador que {worker} no tiene, así que un teléfono se detiene aquí. Si lee el lugar de {worker}, puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
+	dataRefusalWorkerMe:
+		"{subject} información del trabajador que usted no tiene, así que un teléfono se detiene aquí. Si lee su lugar, puede ver la vista previa como una persona que tenga un lugar.",
 	dataRefusalOther:
 		"{subject} un valor que un teléfono no tiene en este punto, así que un teléfono se detiene aquí.",
 	thisQuestion: "esta pregunta",
@@ -709,7 +731,11 @@ export function refusalCopy(
 }
 
 /** Where a data refusal stops the running app. */
-export type DataRefusalSurface = PreviewDataRefusalStage | "menu" | "search";
+export type DataRefusalSurface =
+	| PreviewDataRefusalStage
+	| "menu"
+	| "search"
+	| "list";
 
 /** The names a data refusal's copy reads, resolved by the surface showing it. */
 export interface DataRefusalCopyNames {
@@ -727,6 +753,7 @@ const DATA_REFUSAL_TITLE: Readonly<Record<DataRefusalSurface, RuntimeMessage>> =
 		links: "dataRefusalLinksTitle",
 		menu: "dataRefusalMenuTitle",
 		search: "dataRefusalSearchTitle",
+		list: "dataRefusalListTitle",
 	};
 
 const DATA_REFUSAL_SUBJECT: Readonly<
@@ -735,9 +762,8 @@ const DATA_REFUSAL_SUBJECT: Readonly<
 	form: "dataRefusalSubjectForm",
 	links: "dataRefusalSubjectLinks",
 	menu: "dataRefusalSubjectMenu",
-	/* A Search screen reads nothing but its choices that can refuse; the
-	 * menu's wording stands for any other read there. */
-	search: "dataRefusalSubjectMenu",
+	search: "dataRefusalSubjectSearch",
+	list: "dataRefusalSubjectList",
 };
 
 /**
@@ -795,6 +821,19 @@ export function dataRefusalCopy(
 			};
 		case "search-answers":
 			return { title, body: body("dataRefusalSearchAnswers") };
+		case "starting-choice":
+			return {
+				title,
+				body: body("dataRefusalStartingChoice", { input: subject.input }),
+			};
+		case "worker-information":
+			return {
+				title,
+				body:
+					names.worker === undefined
+						? body("dataRefusalWorkerMe")
+						: body("dataRefusalWorkerPersona", { worker: names.worker }),
+			};
 		case "other":
 			return { title, body: body("dataRefusalOther") };
 	}

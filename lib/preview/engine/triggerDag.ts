@@ -937,6 +937,18 @@ export class TriggerDag {
 		if (wording.length > 0) {
 			expressions.push({ type: "output", expr: "" });
 			for (const part of wording) {
+				// A calculated value redraws its text when anything it reads
+				// changes, as a reference does when its answer does.
+				if (part.kind === "value") {
+					for (const dependency of formReadPaths(
+						part.expression,
+						runtime.projection,
+						runtime.readPath,
+					))
+						if (dependency !== path)
+							this.settleFreeEdges.push([dependency, path]);
+					continue;
+				}
 				if (part.kind !== "field-ref") continue;
 				const dependency = this.fieldPaths.get(part.uuid);
 				if (dependency !== undefined && dependency !== path)

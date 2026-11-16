@@ -316,6 +316,17 @@ export function formLogicFinding(
 				details = { identity: "place" };
 			break;
 		}
+		case "undeclared-worker-field":
+		case "worker-property-read-by-name":
+			code = "INVALID_REF";
+			details = {
+				identity:
+					error.code === "undeclared-worker-field"
+						? "worker-field"
+						: "worker-property-by-name",
+				...(term?.kind === "session-user" ? { workerField: term.field } : {}),
+			};
+			break;
 		case "form-answer-unavailable":
 			code = "INVALID_REF";
 			if (ctx?.profile.scope === "session") message = SESSION_FORM_READ_MESSAGE;
@@ -644,9 +655,12 @@ export function formLogicFinding(
 				};
 				const entries =
 					repeat === undefined ? "a repeat" : `the repeat "${repeat.id}"`;
-				// Text shows a reference as written, so it can't count or join.
+				// Text shows a reference as written, so it can't count or join; a
+				// calculated value is a formula, which can.
 				const prose =
-					ctx !== undefined && PROSE_SLOTS.has(ctx.slot.slot as string);
+					ctx !== undefined &&
+					PROSE_SLOTS.has(ctx.slot.slot as string) &&
+					expression?.kind === "term";
 				if (prose) details = { ...details, prose: "true" };
 				message = prose
 					? `${owner.slotSubject} shows an answer from every entry of ${entries}, where it can show only one. CommCare stops the form when there's more than one. You can move this question into the repeat, or show a hidden value that counts or joins the entries.`

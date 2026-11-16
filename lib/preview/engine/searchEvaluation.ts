@@ -15,6 +15,7 @@ import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
+import { readPreviewScreen } from "./dataRefusal";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import { previewSessionValues } from "./identity";
@@ -30,9 +31,11 @@ import { searchInputSubmissionErrorsOnDevice } from "./searchInputValidation";
 import {
 	buildSearchRunState,
 	changeSearchRunDraft,
+	openSearchRunState,
 	restoreSearchRun,
 	withHiddenValues,
 } from "./searchRunState";
+import { readingSurfaceNow, surfacedRefusal } from "./surfacedDataRefusal";
 
 export interface SearchEvaluationInput {
 	language?: LanguageTag;
@@ -49,8 +52,24 @@ export interface SearchEvaluationInput {
 }
 
 /** Runs the authored Search screen in the same bounded worker as FormEngine.
- * The caller supplies answers, never an expression or a replacement condition. */
+ * The caller supplies answers, never an expression or a replacement condition.
+ * A read of data the device lacks is the refusal of the surface Preview shows
+ * it on (`surfacedDataRefusal.ts`): the Search action's condition stops the
+ * case list that offers the action, and every other read here is the Search
+ * screen's. */
 export async function evaluateSearchSnapshot(
+	doc: BlueprintDoc,
+	input: SearchEvaluationInput,
+	context: FormEvaluationContext,
+) {
+	try {
+		return await searchSnapshot(doc, input, context);
+	} catch (error) {
+		throw surfacedRefusal(error, "search");
+	}
+}
+
+async function searchSnapshot(
 	doc: BlueprintDoc,
 	input: SearchEvaluationInput,
 	context: FormEvaluationContext,
@@ -75,25 +94,57 @@ export async function evaluateSearchSnapshot(
 		input.moduleUuid,
 		lookup.naming,
 	);
+	const actionCondition = search?.searchButtonDisplayCondition;
 	const relevant =
 		search !== undefined &&
-		(search.searchButtonDisplayCondition === undefined ||
-			evaluatePreviewSearchPredicate(
-				search.searchButtonDisplayCondition,
-				expressions({ slot: "search_button_display_condition" }),
-				environment,
-				inputs,
-				session,
-				new Map(),
+		(actionCondition === undefined ||
+			readingSurfaceNow("list", () =>
+				evaluatePreviewSearchPredicate(
+					actionCondition,
+					expressions({ slot: "search_button_display_condition" }),
+					environment,
+					inputs,
+					session,
+					new Map(),
+				),
 			));
-	let run = buildSearchRunState(input.moduleUuid, inputs, session, environment);
-	if (input.submitted !== undefined)
+	const workflow = moduleSearchWorkflow(mod);
+	const formsReadSearch = moduleFormsReadSearch(mod);
+	/* The Search screen opens as Preview opens it (`openSearchRunState`),
+	 * making every read Core's query manager makes as it is built. A read of
+	 * data the device lacks stops a menu that opens on its search or its
+	 * results (the step is not `browse`); a list that opens first keeps its
+	 * cases, holds no field and no search, and its Search pane is the
+	 * refusal, so the worker's Search is refused as the device refuses it
+	 * when the press builds the query screen (`CaseListScreen`'s
+	 * `screenRefusal` and its refused pane). */
+	const opened = readPreviewScreen(() =>
+		openSearchRunState(input.moduleUuid, inputs, session, environment),
+	);
+	if (opened.kind === "refused") {
+		const step = caseListStep({
+			workflow,
+			formsReadSearch,
+			searchRelevant: relevant,
+			hasSubmitted: false,
+			rules,
+		});
+		if (step !== "browse" || (relevant && input.answers !== undefined))
+			throw opened.refusal;
+	}
+	const paneRefusal =
+		opened.kind === "refused" && relevant ? opened.refusal.reason : undefined;
+	let run =
+		opened.kind === "read"
+			? opened.value
+			: buildSearchRunState(input.moduleUuid, [], session, environment);
+	if (opened.kind === "read" && input.submitted !== undefined)
 		run = restoreSearchRun(
 			run,
 			run,
 			new Map(input.submitted.map(({ name, value }) => [name, value])),
 		);
-	if (input.entry)
+	if (opened.kind === "read" && input.entry)
 		run = changeSearchRunDraft(
 			run,
 			run,
@@ -161,8 +212,6 @@ export async function evaluateSearchSnapshot(
 	/* The case list's step decides what the worker sees, as on the running
 	 * app: where it is Results with nothing submitted, the default search
 	 * runs as the menu opens (skip to results). */
-	const workflow = moduleSearchWorkflow(mod);
-	const formsReadSearch = moduleFormsReadSearch(mod);
 	if (
 		!run.hasSubmitted &&
 		caseListStep({
@@ -191,8 +240,26 @@ export async function evaluateSearchSnapshot(
 						lookup,
 					),
 				);
+	/* The assigned-case exclusion is a rule of the Results read, which
+	 * Preview evaluates as it reads Results (`caseDataBinding.ts::
+	 * prepareRunningCaseRead`) and shows a refusal of as the list's. So a
+	 * refusal here is held as data, and the records read throws it, named
+	 * the list's, only where it reads Results
+	 * (`serverSearchRead.ts::serverRecordsRead`): a menu on its Search
+	 * screen reads no Results and refuses nothing for it. */
+	const exclusion = readPreviewScreen(() => ({
+		excludedOwnerIds: excluded(expressionValues),
+		authoredExcludedOwnerIds: excluded(
+			withSearchInputExpressionValues(inputs, new Map()),
+		),
+	}));
 	return {
 		relevant,
+		/** The Search pane's refusal on a list that opens first: the screen
+		 *  refused data the worker's device lacks as it opened, so the list
+		 *  holds no search and a Search press is refused. Plain data, so it
+		 *  crosses the worker thread. */
+		...(paneRefusal === undefined ? {} : { paneRefusal }),
 		/** The module's search workflow; undefined with no effective search. */
 		workflow,
 		/** The menu's forms read the search (`moduleFormsReadSearch`). */
@@ -207,9 +274,16 @@ export async function evaluateSearchSnapshot(
 		errors: Object.fromEntries(errors),
 		inputValues: values,
 		expressionValues,
-		excludedOwnerIds: excluded(expressionValues),
-		authoredExcludedOwnerIds: excluded(
-			withSearchInputExpressionValues(inputs, new Map()),
-		),
+		excludedOwnerIds:
+			exclusion.kind === "read" ? exclusion.value.excludedOwnerIds : undefined,
+		authoredExcludedOwnerIds:
+			exclusion.kind === "read"
+				? exclusion.value.authoredExcludedOwnerIds
+				: undefined,
+		/** The exclusion's refusal of data the worker's device lacks, which
+		 *  the Results read throws as the list's. Plain data, so it crosses
+		 *  the worker thread. */
+		exclusionRefusal:
+			exclusion.kind === "refused" ? exclusion.refusal.reason : undefined,
 	};
 }

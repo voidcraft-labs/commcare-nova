@@ -27,6 +27,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { v4 as uuidv4 } from "uuid";
 import {
 	InputGroup,
 	InputGroupAddon,
@@ -159,7 +160,7 @@ export const PromptInputProvider = ({
 			...prev,
 			...incoming.map((file) => ({
 				filename: file.name,
-				id: crypto.randomUUID(),
+				id: uuidv4(),
 				mediaType: file.type,
 				type: "file" as const,
 				url: URL.createObjectURL(file),
@@ -485,7 +486,7 @@ export const PromptInput = ({
 
 			const next: (FileUIPart & { id: string })[] = capped.map((file) => ({
 				filename: file.name,
-				id: crypto.randomUUID(),
+				id: uuidv4(),
 				mediaType: file.type,
 				type: "file" as const,
 				url: URL.createObjectURL(file),
@@ -713,7 +714,7 @@ export const PromptInput = ({
 				const array = Array.isArray(incoming) ? incoming : [incoming];
 				setReferencedSources((prev) => [
 					...prev,
-					...array.map((s) => ({ ...s, id: crypto.randomUUID() })),
+					...array.map((s) => ({ ...s, id: uuidv4() })),
 				]);
 			},
 			clear: clearReferencedSources,

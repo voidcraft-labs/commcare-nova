@@ -8,6 +8,7 @@
  */
 
 import type { Draft } from "immer";
+import { v4 as uuidv4 } from "uuid";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import { type Field, ownRecordValue } from "@/lib/domain";
@@ -49,6 +50,25 @@ export function cascadeDeleteForm(
 	}
 	delete draft.fieldOrder[uuid];
 	delete draft.forms[uuid];
+}
+
+/**
+ * Delete every module's case list registration slot that names a removed
+ * form, under either arm: the form's own module's `after-empty-search` slot
+ * and any other module's `always` arm. A removal the planners admitted
+ * leaves no such slot standing (the dependents refusal of
+ * `caseListRegistrationDependents.ts`); a replayed or concurrent removal
+ * still leaves no dangling identity.
+ */
+export function dropCaseListRegistrationsNaming(
+	draft: Draft<BlueprintDoc>,
+	removedFormUuids: ReadonlySet<string>,
+): void {
+	for (const mod of Object.values(draft.modules)) {
+		const slot = mod.caseListRegistrationForm;
+		if (slot !== undefined && removedFormUuids.has(slot.formUuid))
+			delete mod.caseListRegistrationForm;
+	}
 }
 
 /**
@@ -250,7 +270,7 @@ export function cloneFieldSubtree(
 			);
 			return undefined;
 		}
-		const newUuid = asUuid(crypto.randomUUID());
+		const newUuid = asUuid(uuidv4());
 		clonedFields[newUuid] = { ...src, uuid: newUuid };
 		const childOrder = ownRecordValue(doc.fieldOrder, uuid);
 		if (childOrder !== undefined) {

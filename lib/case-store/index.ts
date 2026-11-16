@@ -38,6 +38,7 @@ export { readCasePropertyRenameStoragePreflightInTransaction } from "./casePrope
 // Typed user-domain errors.
 export type { CasePropertyFailure, SubmissionRejection } from "./errors";
 export {
+	AbsentWorkerFieldError,
 	AutomationHostAmbiguityError,
 	CaptureSubmissionRejectedError,
 	CaseNotFoundError,

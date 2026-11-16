@@ -51,10 +51,13 @@ import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-c
 import { Spinner } from "@/components/shadcn/spinner";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { caseListRegistrationEntryContinues } from "@/lib/preview/caseListRegistrationEntry";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useEntryPointLaunchLifecycle } from "@/lib/preview/hooks/useEntryPointLaunch";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
+import { usePreviewSearchArrival } from "@/lib/preview/hooks/usePreviewSearchArrival";
+import { usePreviewSelectionsArrival } from "@/lib/preview/hooks/usePreviewSelectionsArrival";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { continuesPreviewTask } from "@/lib/preview/taskContinuation";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -63,11 +66,13 @@ import type { AppSetupSection } from "@/lib/routing/types";
 import {
 	useClearPreviewNavigation,
 	useEditMode,
+	usePreviewCaseListRegistrationEntry,
 	usePreviewCaseTarget,
 	usePreviewDevice,
 	usePreviewParentCaseRequest,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
+	useSetPreviewCaseListRegistrationEntry,
 	useSetPreviewing,
 	useSetPreviewParentCaseRequest,
 	useSetPreviewPersonaUuid,
@@ -218,15 +223,55 @@ export function PreviewShell() {
 	useEffect(() => {
 		if (previewParentCaseRequest === undefined) return;
 		const atActiveSelector =
-			(loc.kind === "module" || loc.kind === "cases") &&
+			loc.kind === "cases" &&
 			loc.moduleUuid === previewParentCaseRequest.selectingModuleUuid;
 		if (!atActiveSelector) setPreviewParentCaseRequest(undefined);
 	}, [loc, previewParentCaseRequest, setPreviewParentCaseRequest]);
+
+	/* A case list's Register launch belongs to the one form entry it opened.
+	 * It ends here at any location off that launch's path, whatever moved
+	 * there (a menu, the app tree, a finding, a breadcrumb, browser history),
+	 * so a later entry of the same form is an ordinary form; the parent case
+	 * selection that admits the launched form is on its path. */
+	const caseListRegistrationEntry = usePreviewCaseListRegistrationEntry();
+	const setCaseListRegistrationEntry = useSetPreviewCaseListRegistrationEntry();
+	useEffect(() => {
+		if (
+			caseListRegistrationEntry !== undefined &&
+			!caseListRegistrationEntryContinues(
+				caseListRegistrationEntry,
+				loc,
+				previewParentCaseRequest,
+			)
+		)
+			setCaseListRegistrationEntry(undefined);
+	}, [
+		caseListRegistrationEntry,
+		loc,
+		previewParentCaseRequest,
+		setCaseListRegistrationEntry,
+	]);
 
 	const clearPreviewNavigation = useClearPreviewNavigation();
 	useLayoutEffect(() => {
 		if (mode === "preview" && loc.kind === "home") clearPreviewNavigation();
 	}, [mode, loc.kind, clearPreviewNavigation]);
+	/* Each entry records the cases it was shown with; Back or Forward past
+	 * Home puts them back on Web Apps, as a popped address's selections are
+	 * replayed. Before the search arrival, which reads them. */
+	usePreviewSelectionsArrival(mode, loc);
+	/* The searches the worker left behind on the way here no longer stand,
+	 * and the list on show runs its own as its platform replays it. */
+	usePreviewSearchArrival(
+		mode,
+		loc,
+		projectedScreen.type === "caseList" ||
+			projectedScreen.type === "searchConfig" ||
+			projectedScreen.type === "detailConfig" ||
+			projectedScreen.type === "dataReview"
+			? projectedScreen.moduleUuid
+			: undefined,
+	);
 
 	/* The case the running-app case list passed into a case-loading form.
 	 * The URL tracks which form; this ephemeral target carries the selected
@@ -476,6 +521,9 @@ export function PreviewShell() {
 			formScreenRef.current = zustandScreen;
 			break;
 	}
+	/* The form screen's Back, which its refusal backstop offers as the form's
+	 * own refusal panel does. */
+	const formModuleUuid = formScreenRef.current?.moduleUuid;
 
 	/* ── Per-screen scroll position save/restore ───────────────────────
 	 * All Activity-wrapped screens share a single scroll container. Save
@@ -598,6 +646,7 @@ export function PreviewShell() {
 									<ModuleScreen
 										key={screenKey(moduleScreenRef.current)}
 										screen={moduleScreenRef.current}
+										current={zustandScreen.type === "module"}
 									/>
 								</PreviewDataRefusalScope>
 							</div>
@@ -706,6 +755,12 @@ export function PreviewShell() {
 									<CaseListScreen
 										key={screenKey(caseListScreenRef.current)}
 										screen={caseListScreenRef.current}
+										current={
+											zustandScreen.type === "caseList" ||
+											zustandScreen.type === "searchConfig" ||
+											zustandScreen.type === "detailConfig" ||
+											zustandScreen.type === "dataReview"
+										}
 									/>
 								</PreviewDataRefusalScope>
 							</div>
@@ -723,10 +778,19 @@ export function PreviewShell() {
 					>
 						<PortaledContentDirectionProvider direction={direction}>
 							<div dir={direction} className="contents">
-								<FormScreen
-									key={screenKey(formScreenRef.current)}
-									screen={formScreenRef.current}
-								/>
+								<PreviewDataRefusalScope
+									screenKey={screenKey(formScreenRef.current)}
+									surface="form"
+									moduleUuid={formScreenRef.current.moduleUuid}
+									{...(formModuleUuid === undefined
+										? {}
+										: { back: () => navigate.openModule(formModuleUuid) })}
+								>
+									<FormScreen
+										key={screenKey(formScreenRef.current)}
+										screen={formScreenRef.current}
+									/>
+								</PreviewDataRefusalScope>
 							</div>
 						</PortaledContentDirectionProvider>
 					</Activity>

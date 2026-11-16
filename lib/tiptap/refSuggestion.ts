@@ -19,6 +19,7 @@ import type {
 } from "@tiptap/suggestion";
 import { createElement, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { v4 as uuidv4 } from "uuid";
 import {
 	ReferenceAutocomplete,
 	type ReferenceAutocompleteHandle,
@@ -160,7 +161,7 @@ export function createRefSuggestion(
 				onStart: (props: SuggestionProps) => {
 					container = document.createElement("div");
 					activeEditor = props.editor;
-					listId = `prose-options-${crypto.randomUUID()}`;
+					listId = `prose-options-${uuidv4()}`;
 					props.editor.view.dom.setAttribute("aria-controls", listId);
 					props.editor.view.dom.setAttribute("aria-autocomplete", "list");
 					document.body.appendChild(container);

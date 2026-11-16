@@ -171,6 +171,75 @@ export function literalInstantText(text: string): string | undefined {
 	return `${literal.date}T${literal.hour}:${literal.minute}:${literal.second}.${(literal.fraction ?? "").padEnd(3, "0")}${zone}`;
 }
 
+/**
+ * A literal's moment as the text CommCare HQ stores for it, UTC with six
+ * fraction digits and `Z` (`json_format_datetime`), or undefined when it
+ * names no moment. A literal whose UTC year has no four digits (a moment
+ * past 9999-12-31 or before 0000-01-01 in UTC) keeps `literalInstantText`,
+ * the only spelling of it a device reads back. A fraction finer than the
+ * microsecond is rounded as the device parse rounds it
+ * (`literalInstantMicros`), so the text names the moment the fold does.
+ */
+export function literalStoredInstantText(text: string): string | undefined {
+	const literal = parseLiteralInstant(text);
+	if (literal === undefined) return undefined;
+	// Whole seconds and the microseconds apart, each an exact integer, so the
+	// text is exact past 2^53 microseconds too.
+	let fraction =
+		literal.fraction === undefined
+			? 0
+			: Math.floor(Number(`0.${literal.fraction}`) * 1_000_000 + 0.5);
+	let total =
+		literal.days * 86400 +
+		Number(literal.hour) * 3600 +
+		Number(literal.minute) * 60 +
+		Number(literal.second) -
+		literal.offset.seconds;
+	if (fraction === 1_000_000) {
+		fraction = 0;
+		total += 1;
+	}
+	const days = Math.floor(total / 86400);
+	const seconds = total - days * 86400;
+	const civil = civilFromDays(days);
+	if (civil.year < 0 || civil.year > 9999) return literalInstantText(text);
+	const pad = (value: number, width: number) =>
+		String(value).padStart(width, "0");
+	return `${pad(civil.year, 4)}-${pad(civil.month, 2)}-${pad(civil.day, 2)}T${pad(
+		Math.floor(seconds / 3600),
+		2,
+	)}:${pad(Math.floor((seconds % 3600) / 60), 2)}:${pad(seconds % 60, 2)}.${pad(
+		fraction,
+		6,
+	)}Z`;
+}
+
+/** The proleptic Gregorian date of a day count since 1970-01-01, the inverse
+ * of `daysFromCivil`. */
+function civilFromDays(days: number): {
+	year: number;
+	month: number;
+	day: number;
+} {
+	const z = days + 719468;
+	const era = Math.floor(z / 146097);
+	const dayOfEra = z - era * 146097;
+	const yearOfEra = Math.floor(
+		(dayOfEra -
+			Math.floor(dayOfEra / 1460) +
+			Math.floor(dayOfEra / 36524) -
+			Math.floor(dayOfEra / 146096)) /
+			365,
+	);
+	const dayOfYear =
+		dayOfEra -
+		(365 * yearOfEra + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100));
+	const mp = Math.floor((5 * dayOfYear + 2) / 153);
+	const day = dayOfYear - Math.floor((153 * mp + 2) / 5) + 1;
+	const month = mp < 10 ? mp + 3 : mp - 9;
+	return { year: yearOfEra + era * 400 + (month <= 2 ? 1 : 0), month, day };
+}
+
 export type InstantComparisonKind = "eq" | "neq" | "lt" | "lte" | "gt" | "gte";
 
 /** What one leaf of an operand holds on a device:
@@ -185,8 +254,9 @@ export type InstantComparisonKind = "eq" | "neq" | "lt" | "lte" | "gt" | "gte";
  * - `coerced-text`: a `datetime-coerce` of text, a date or a date and time;
  * - `epoch-days`: a `datetime-coerce` of a number of days since 1970-01-01;
  * - `day-only`: `date_opened` or `last_modified` read from `casedb`, which
- *   Core holds as the device's day (`CaseChildElement.java`, `DateData`), or
- *   a search result's `date_opened`, text HQ writes as the UTC day;
+ *   Core holds as the device's day (`CaseChildElement.java`, `DateData`),
+ *   `held` `date`; or a search result's `date_opened`, text HQ writes as the
+ *   UTC day, `held` `string`;
  * - `clock-lost`: a date and time some value of which kept only its day;
  * - `not-instant`: a value that names no moment (blank, text, a number, a
  *   date), `data` its type;
@@ -216,6 +286,7 @@ export type InstantLeaf =
 			readonly class: "day-only";
 			readonly value: Expression;
 			readonly property: "date_opened" | "last_modified";
+			readonly held: "date" | "string";
 	  }
 	| {
 			readonly kind: "leaf";
@@ -372,9 +443,18 @@ function byType(
 	if (data === "datetime") {
 		// A casedb system date is held as Core's day; a search result's
 		// `date_opened` is text that names a day.
-		const property = held === "date" ? systemDateRead(value) : type?.dayText;
-		if (property !== undefined)
-			return { kind: "leaf", class: "day-only", value, property };
+		if (held === "date") {
+			const property = systemDateRead(value);
+			if (property !== undefined)
+				return { kind: "leaf", class: "day-only", value, property, held };
+		} else if (type?.dayText !== undefined)
+			return {
+				kind: "leaf",
+				class: "day-only",
+				value,
+				property: type.dayText,
+				held: "string",
+			};
 		if (held === "date") return { kind: "leaf", class: "typed", value };
 		if (held === "string") return { kind: "leaf", class: "text", value };
 		return {

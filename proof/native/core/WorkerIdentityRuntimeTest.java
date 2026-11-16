@@ -1,9 +1,11 @@
 package nova.compatibility;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import org.commcare.cases.model.Case;
 import org.commcare.session.CommCareSession;
 import org.commcare.util.CommCarePlatform;
 import org.commcare.core.process.CommCareInstanceInitializer;
+import org.commcare.core.process.XmlFormRecordProcessor;
 import org.commcare.suite.model.Suite;
 import org.commcare.util.mocks.MockDataUtils;
 import org.commcare.util.mocks.MockUserDataSandbox;
@@ -15,12 +17,15 @@ import org.javarosa.core.model.instance.*;
 import org.javarosa.core.model.instance.utils.InstanceUtils;
 import org.javarosa.core.test.FormParseInit;
 import org.javarosa.form.api.FormEntryController;
+import org.javarosa.model.xform.XFormSerializingVisitor;
+import org.javarosa.xpath.XPathException;
 import org.javarosa.xpath.expr.FunctionUtils;
+import org.json.JSONObject;
 import java.util.*;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-/** Real case database filters plus separate menu-session worker data. */
+/** Real case database filters plus separate menu-session worker data, and a case owner read from the session. */
 public class WorkerIdentityRuntimeTest {
  private static TreeElement node(String name,String value){TreeElement n=new TreeElement(name,0);if(value!=null)n.setValue(new StringData(value));return n;}
  private static final class Runtime extends CommCareInstanceInitializer {
@@ -65,5 +70,52 @@ public class WorkerIdentityRuntimeTest {
    while(controller.stepToNextEvent()!=FormEntryController.EVENT_END_OF_FORM){if(++steps>20)throw new AssertionError("Unexpected traversal");if(parsed.getFormEntryModel().getEvent()==FormEntryController.EVENT_QUESTION)count++;}
    assertEquals(slug+" menu="+menuValue+" case="+caseValue,caseValue.equals("n")?1:0,count);
   }
+ }
+ /** A worker's session holding exactly {@code user} as its user data, choosing the case {@code patient-1}. */
+ private static final class PlaceRuntime extends CommCareInstanceInitializer {
+  final MockUserDataSandbox sandbox;final Map<String,String> user;
+  PlaceRuntime(Map<String,String> user){this(MockDataUtils.getStaticStorage(),user);}
+  private PlaceRuntime(MockUserDataSandbox sandbox,Map<String,String> user){super(sandbox);this.sandbox=sandbox;this.user=user;}
+  @Override protected InstanceRoot setupSessionData(ExternalDataInstance instance){
+   TreeElement root=node("session",null),context=node("context",null),userNode=node("user",null),userData=node("data",null),data=node("data",null);
+   context.addChild(node("userid","worker"));for(String key:new String[]{"deviceid","username","appversion"})context.addChild(node(key,"fixture-"+key));context.addChild(node("drift","0"));
+   for(Map.Entry<String,String> field:user.entrySet())userData.addChild(node(field.getKey(),field.getValue()));
+   data.addChild(node("case_id","patient-1"));userNode.addChild(userData);root.addChild(context);root.addChild(userNode);root.addChild(data);
+   InstanceUtils.setUpInstanceRoot(root,instance.getInstanceId(),instance.getBase());return new ConcreteInstanceRoot(root);
+  }
+ }
+ /**
+  * A case owner read from a field the worker's session lacks ({@code worker-place-owner}: a follow-up whose case
+  * change moves the patient to the worker's case-sharing group, {@code external-user('commcare_primary_case_sharing_id')},
+  * which HQ writes only for a worker assigned somewhere). A case block's owner is a calculate Core runs as the form
+  * opens ({@code FormDef.initialize}), so a worker assigned nowhere is refused there, naming the field, and a placed
+  * worker fills the form in and the patient's owner becomes the worker's group, on Nova's form and HQ's regeneration;
+  * Preview refuses the form at open exactly for the first ({@code worker-place-owner.refusals.jsonl}, from its form
+  * engine's opening, {@code dataRefusal.ts::caseBlocksReadAbsentWorkerKey}). Each reading parses the form again, since
+  * Core checks a parsed path only until the check first passes ({@code XPathPathExpr.templatePathChecked}).
+  */
+ @Test public void aCaseOwnerReadFromAFieldTheWorkerLacksRefusesTheFormAtOpenWhereNovaSays()throws Exception{
+  List<JSONObject> readings=new ArrayList<>();
+  try(BufferedReader reader=new BufferedReader(new InputStreamReader(getClass().getResourceAsStream("/worker/worker-place-owner.refusals.jsonl"),StandardCharsets.UTF_8))){String line;while((line=reader.readLine())!=null)if(!line.isEmpty())readings.add(new JSONObject(line));}
+  int refused=0,opened=0;
+  for(JSONObject reading:readings)for(boolean hq:new boolean[]{false,true}){
+   Map<String,String> user=new LinkedHashMap<>();JSONObject fields=reading.getJSONObject("user");for(String key:fields.keySet())user.put(key,fields.getString(key));
+   String label="user="+user+" hq="+hq;
+   PlaceRuntime runtime=new PlaceRuntime(user);
+   Case patient=new Case("Patient","patient");patient.setCaseId("patient-1");patient.setUserId("worker");runtime.sandbox.getCaseStorage().write(patient);
+   FormParseInit parsed=new FormParseInit("/worker/worker-place-owner"+(hq?".hq.xml":".xml"));
+   XPathException failure=null;
+   try{parsed.getFormDef().initialize(true,runtime);}catch(XPathException e){failure=e;}
+   assertEquals(label,reading.getBoolean("refused"),failure!=null);
+   if(failure!=null){assertTrue(label+": "+failure.getMessage(),failure.getMessage().contains("commcare_primary_case_sharing_id"));refused++;continue;}
+   FormEntryController controller=parsed.getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());int steps=0;
+   while(controller.stepToNextEvent()!=FormEntryController.EVENT_END_OF_FORM){if(++steps>20)throw new AssertionError("Form did not terminate");}
+   parsed.getFormDef().postProcessInstance();byte[] xml=new XFormSerializingVisitor().serializeInstance(parsed.getFormDef().getMainInstance());
+   XmlFormRecordProcessor.process(runtime.sandbox,new ByteArrayInputStream(xml));
+   assertEquals(label,user.get("commcare_primary_case_sharing_id"),runtime.sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID,"patient-1").getUserId());
+   opened++;
+  }
+  // The worker assigned nowhere is refused on both forms, and the placed worker's group owns the patient on both.
+  assertEquals(2,refused);assertEquals(2,opened);
  }
 }

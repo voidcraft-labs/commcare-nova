@@ -52,11 +52,16 @@ import type {
 	CasePropertyDataType,
 	CaseType,
 	Column,
-	ColumnSort,
+	SortBlanks,
 	SortDirection,
 	Uuid,
 } from "@/lib/domain";
-import { type CaseListConfig, orderedColumns } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	columnSort,
+	orderedColumns,
+	sortBlanks,
+} from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
 import {
 	type ExpressionContext,
@@ -70,7 +75,12 @@ import {
 import { useCanEdit } from "@/lib/session/hooks";
 import { AuthoredDragPreviewLabel } from "./canvas/canvasChrome";
 import { seedColumnForProperty } from "./seeds";
-import { resolveSortedColumns } from "./sortPriority";
+import { blanksAfterDirectionChange } from "./sortBlanksChoice";
+import {
+	columnsAfterRuleSequence,
+	orderChoiceColumn,
+	resolveSortedColumns,
+} from "./sortPriority";
 
 export interface CaseOrderingComposerProps {
 	/** The module whose list this orders: the Add menu asks the gate's order
@@ -125,6 +135,13 @@ export function CaseOrderingComposer({
 	const orderAddReasonId = useId();
 	const [expanded, setExpanded] = useState(false);
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
+	/* The side of the Blank values control the person last picked, per
+	 * column, while this workspace is open: a rule stores `blanks` only where
+	 * it differs from its direction's own, so a turn of direction reads the
+	 * choice from here (`blanksAfterDirectionChange`). */
+	const [pickedBlanks, setPickedBlanks] = useState<
+		ReadonlyMap<Uuid, SortBlanks>
+	>(() => new Map());
 	const pendingRemovalFocusRef = useRef<{
 		readonly removedUuid: string;
 		readonly nextUuid?: string;
@@ -162,8 +179,19 @@ export function CaseOrderingComposer({
 		for (const column of unsorted) {
 			if (column.kind === "calculated") continue;
 			const name = column.field;
-			if (!unsortedByProperty.has(name)) unsortedByProperty.set(name, column);
+			const held = unsortedByProperty.get(name);
+			/* The first column over the property, unless it is off the list and
+			 * a later one is on it: that one can take the rule as it is. */
+			if (
+				held === undefined ||
+				(held.notOnList === true && column.notOnList !== true)
+			) {
+				unsortedByProperty.set(name, column);
+			}
 		}
+		const tiled = config.tile !== undefined;
+		const offered = (column: Column): Column =>
+			orderChoiceColumn(column, tiled);
 		/* A choice an order rule would refuse stays in the menu, disabled, with
 		 * the refusal's own line as its reason: the column `addRule` would
 		 * commit, carrying the rule it would take, is put to the gate's order
@@ -171,7 +199,7 @@ export function CaseOrderingComposer({
 		const withheld = (column: Column) =>
 			orderChoiceRefusal({
 				...column,
-				sort: { direction: "asc", priority: sorted.length },
+				sort: columnSort("asc", sorted.length),
 			} as Column);
 
 		for (const property of properties) {
@@ -179,7 +207,7 @@ export function CaseOrderingComposer({
 			if (sortedPropertyNames.has(name)) continue;
 			const existing = unsortedByProperty.get(name);
 			const column =
-				existing ??
+				(existing === undefined ? undefined : offered(existing)) ??
 				seedColumnForProperty(property, projectProse, {
 					visibleInList: false,
 					visibleInDetail: false,
@@ -201,7 +229,8 @@ export function CaseOrderingComposer({
 			if (column.kind !== "calculated" && propertyByName.has(column.field)) {
 				continue;
 			}
-			const disabledReason = withheld(column);
+			const choice = offered(column);
+			const disabledReason = withheld(choice);
 			choices.push({
 				id: `saved:${column.uuid}`,
 				label: friendlyColumnLabel(column, caseType, projectProse),
@@ -213,12 +242,19 @@ export function CaseOrderingComposer({
 					column.kind === "calculated"
 						? "Calculated information"
 						: "More information",
-				value: { column },
+				value: { column: choice },
 				...(disabledReason !== undefined && { disabledReason }),
 			});
 		}
 		return choices;
-	}, [caseType, orderChoiceRefusal, sorted, unsorted, projectProse]);
+	}, [
+		caseType,
+		config.tile,
+		orderChoiceRefusal,
+		sorted,
+		unsorted,
+		projectProse,
+	]);
 	const orderSummary = useMemo(() => {
 		if (sorted.length === 0) return "Ordered by the first column";
 		const shown = sorted.slice(0, 2).map((column) => {
@@ -229,7 +265,9 @@ export function CaseOrderingComposer({
 					caseType,
 					columnExpressionContext(column),
 				).find((option) => option.value === direction)?.label ?? "A to Z";
-			return `${friendlyColumnLabel(column, caseType, projectProse)} ${directionSummaryPhrase(directionLabel)}`;
+			const blanks = column.sort?.blanks;
+			const blanksPhrase = blanks === undefined ? "" : `, blanks ${blanks}`;
+			return `${friendlyColumnLabel(column, caseType, projectProse)} ${directionSummaryPhrase(directionLabel)}${blanksPhrase}`;
 		});
 		const sentence =
 			shown.length === 1
@@ -243,31 +281,7 @@ export function CaseOrderingComposer({
 
 	const applyRuleSequence = useCallback(
 		(nextRules: readonly Column[]) => {
-			const sortByUuid = new Map<string, ColumnSort>();
-			nextRules.forEach((column, index) => {
-				sortByUuid.set(column.uuid, {
-					direction: column.sort?.direction ?? "asc",
-					priority: index,
-				});
-			});
-			const nextColumns = [...value];
-			const knownUuids = new Set(value.map((column) => column.uuid));
-			for (const column of nextRules) {
-				if (knownUuids.has(column.uuid)) continue;
-				knownUuids.add(column.uuid);
-				nextColumns.push(column);
-			}
-			onChange(
-				nextColumns.map((column) => {
-					const nextSort = sortByUuid.get(column.uuid);
-					if (nextSort !== undefined) {
-						return { ...column, sort: nextSort } as Column;
-					}
-					if (column.sort === undefined) return column;
-					const { sort: _sort, ...withoutSort } = column;
-					return withoutSort as Column;
-				}),
-			);
+			onChange(columnsAfterRuleSequence(value, nextRules));
 		},
 		[onChange, value],
 	);
@@ -321,17 +335,40 @@ export function CaseOrderingComposer({
 	);
 
 	const setDirection = useCallback(
-		(columnUuid: string, direction: SortDirection) => {
+		(columnUuid: Uuid, direction: SortDirection) => {
 			if (!canEdit) return;
 			applyRuleSequence(
 				sorted.map((column) =>
 					column.uuid === columnUuid
 						? {
 								...column,
-								sort: {
+								sort: blanksAfterDirectionChange(
+									column.sort ?? columnSort("asc", 0),
 									direction,
-									priority: column.sort?.priority ?? 0,
-								},
+									pickedBlanks.get(columnUuid),
+								),
+							}
+						: column,
+				),
+			);
+		},
+		[applyRuleSequence, canEdit, pickedBlanks, sorted],
+	);
+
+	const setBlanks = useCallback(
+		(columnUuid: Uuid, blanks: SortBlanks) => {
+			if (!canEdit) return;
+			setPickedBlanks((current) => new Map(current).set(columnUuid, blanks));
+			applyRuleSequence(
+				sorted.map((column) =>
+					column.uuid === columnUuid
+						? {
+								...column,
+								sort: columnSort(
+									column.sort?.direction ?? "asc",
+									column.sort?.priority ?? 0,
+									blanks,
+								),
 							}
 						: column,
 				),
@@ -394,7 +431,7 @@ export function CaseOrderingComposer({
 				...sorted,
 				{
 					...choice.column,
-					sort: { direction: "asc", priority: sorted.length },
+					sort: columnSort("asc", sorted.length),
 				} as Column,
 			]);
 		},
@@ -528,6 +565,9 @@ export function CaseOrderingComposer({
 													onDirectionChange={(direction) =>
 														setDirection(column.uuid, direction)
 													}
+													onBlanksChange={(blanks) =>
+														setBlanks(column.uuid, blanks)
+													}
 													onRemove={() => removeRule(column.uuid)}
 												/>
 												{previewPortal}
@@ -594,6 +634,7 @@ function CaseOrderingRuleRow({
 	setHandleEl,
 	onMove,
 	onDirectionChange,
+	onBlanksChange,
 	onRemove,
 }: {
 	readonly column: Column;
@@ -604,6 +645,7 @@ function CaseOrderingRuleRow({
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onMove: (key: "ArrowUp" | "ArrowDown" | "Home" | "End") => void;
 	readonly onDirectionChange: (direction: SortDirection) => void;
+	readonly onBlanksChange: (blanks: SortBlanks) => void;
 	readonly onRemove: () => void;
 }) {
 	const projectProse = useProseProjection();
@@ -613,6 +655,10 @@ function CaseOrderingRuleRow({
 	const currentDirection =
 		options.find((option) => option.value === direction)?.label ??
 		options[0].label;
+	const blanks = sortBlanks(column.sort ?? columnSort(direction, 0));
+	const currentBlanks = BLANKS_OPTIONS.find(
+		(option) => option.value === blanks,
+	)?.label;
 
 	return (
 		<div
@@ -697,6 +743,42 @@ function CaseOrderingRuleRow({
 						{currentDirection}
 					</span>
 				)}
+
+				{canEdit ? (
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={<Button type="button" variant="field" />}
+							aria-label={`Change where blank values sort for ${label}, currently ${currentBlanks}`}
+							data-case-ordering-blanks={blanks}
+							className="w-full shrink-0 @min-[28rem]:w-auto"
+						>
+							<span className="text-nova-text-muted">Blank values</span>
+							{currentBlanks}
+							<Icon icon={tablerChevronDown} width="14" height="14" />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end" preferredMinWidth="11rem">
+							<DropdownMenuRadioGroup
+								value={blanks}
+								onValueChange={(value) => onBlanksChange(value as SortBlanks)}
+							>
+								{BLANKS_OPTIONS.map((option) => (
+									<DropdownMenuRadioItem
+										key={option.value}
+										value={option.value}
+										closeOnClick
+									>
+										<span>{option.label}</span>
+									</DropdownMenuRadioItem>
+								))}
+							</DropdownMenuRadioGroup>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				) : (
+					<span className="inline-flex min-h-11 w-full items-center gap-1 text-[14px] font-medium text-nova-text-secondary @min-[28rem]:w-auto">
+						<span className="text-nova-text-muted">Blank values</span>
+						{currentBlanks}
+					</span>
+				)}
 			</div>
 
 			{canEdit && (
@@ -715,6 +797,15 @@ function CaseOrderingRuleRow({
 		</div>
 	);
 }
+/** The Blank values control's two sides. */
+const BLANKS_OPTIONS: ReadonlyArray<{
+	readonly value: SortBlanks;
+	readonly label: string;
+}> = [
+	{ value: "first", label: "First" },
+	{ value: "last", label: "Last" },
+];
+
 function directionOptions(
 	column: Column,
 	caseType: CaseType | undefined,

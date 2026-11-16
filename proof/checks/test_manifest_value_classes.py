@@ -93,13 +93,16 @@ def _protected_form(
     media=False,
     typed=True,
     media_modes=True,
+    markdown_copy=True,
 ):
     """Independent wire shapes for the classifier, read by the observation's real Core/HQ parsers.
 
     Noncontiguous ordinals, a blank localized piece, nested paths, every media mode and a case predicate
     distinguish this class from an observed fixture or a simple-path-only approximation. ``media_modes``
     writes the four ``__nova_mode;<medium>`` forms a retained control keeps; without them the message is the
-    one Nova writes since defect 16. No Nova emitter or private consumer artifact supplies these bytes.
+    one Nova writes since defect 16. ``markdown_copy`` writes the message's own ``markdown`` value a retained
+    control keeps; without it the message is the one Nova writes now, which writes no formatted copy of a
+    validation message. No Nova emitter or private consumer artifact supplies these bytes.
     """
     parent = "/data/items/item" if nested else "/data"
     source, carrier = f"{parent}/q", f"{parent}/nova_constraint_message_q{'_2' if collision else ''}"
@@ -133,7 +136,9 @@ def _protected_form(
             payload = json.dumps({"v": literal}, ensure_ascii=True).replace("$", "\\u0024")
             helpers[f"__nova_piece_{piece}"] = payload
             helpers[f"__nova_piece_{piece};markdown"] = payload
-        values = "<value>Message</value><value form='markdown'>Message</value>"
+        values = "<value>Message</value>"
+        if markdown_copy:
+            values += "<value form='markdown'>Message</value>"
         if media:
             values += "".join(
                 f"<value form='{name}'>jr://file/{name}.bin</value>"
@@ -186,6 +191,7 @@ def _protected_cases():
             "nested-collision": _protected_form(nested=True, collision=True),
             "media-and-blank-localized-pieces": _protected_form(languages=("en", "fr", "es"), media=True),
             "without-media-modes": _protected_form(media_modes=False),
+            "without-markdown-copy": _protected_form(media_modes=False, markdown_copy=False),
         }
     )
     refused_cases = {}
@@ -1354,6 +1360,17 @@ def _settings_and_forms():
     survey_child = _form_json("none", subcases=[_subcase(relationship="extension")])
     closing = _form_json("case", update_case={"condition": NEVER}, close_case={"condition": ALWAYS})
     lone_never = _form_json("case", update_case={"condition": NEVER}, close_case={"condition": NEVER})
+
+    def named(names, langs=("en",)):
+        """An app whose one form is named ``names``, its languages ``langs`` (the first the default)."""
+        return _app([_module([{**_form_json("none"), "name": names}])], langs=list(langs))
+
+    def advanced_named(names):
+        app = _advanced_app()
+        app["modules"][0]["forms"][0]["name"] = names
+        return app
+
+    form_name = "/modules/0/forms/0/name"
     preloaded = _form(
         data="<q/><r/>",
         model='<setvalue event="xforms-ready" ref="/data/r" value="/data/q"/>',
@@ -1481,6 +1498,25 @@ def _settings_and_forms():
             ),
         ),
         # Forms and case writes
+        "forms-and-case-writes/form-name-read-as-an-instance": (
+            refused("app", named({"en": "instance('abc') practice"}), "schema:Form.name", form_name),
+            refused(
+                "app",
+                named({"fr": 'instance( "item-list:v" )', "en": "Visit"}, ("fr", "en")),
+                "schema:Form.name",
+                form_name,
+            ),
+            refused("app", advanced_named({"en": "instance('casedb')"}), "schema:AdvancedForm.name", form_name),
+            # The spelling Nova offers: a space before the bracket, which HQ's pattern does not read.
+            accepted("app", named({"en": "instance ('abc') practice"}), "schema:Form.name", form_name),
+            # A name in another language reaches only the app's strings.
+            accepted(
+                "app", named({"en": "Visit", "fr": "instance('abc')"}, ("en", "fr")), "schema:Form.name", form_name
+            ),
+            accepted("app", advanced_named({"en": "Visit"}), "schema:AdvancedForm.name", form_name),
+            # No default-language name: what the source's title holds is not in the app JSON.
+            unsettled("app", named({"fr": "instance('abc')"}, ("en", "fr")), "schema:Form.name", form_name),
+        ),
         "forms-and-case-writes/form-requires-referral": (
             refused(
                 "app", _app([_module([_form_json("referral")])]), "schema:Form.requires", "/modules/0/forms/0/requires"
@@ -3467,6 +3503,118 @@ def _search_and_menus():
                 "/modules/0/case_list_form/form_id",
             ),
         ),
+        "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
+            refused(
+                "app",
+                columns_app(case_list_form={"form_id": "r", "post_form_workflow": "default"}, short=multi["short"]),
+                "schema:CaseListForm.form_id",
+                "/modules/0/case_list_form/form_id",
+            ),
+            accepted(
+                "app",
+                columns_app(case_list_form={"form_id": "r", "post_form_workflow": "case_list"}, short=multi["short"]),
+                "schema:CaseListForm.form_id",
+                "/modules/0/case_list_form/form_id",
+            ),
+            accepted(
+                "app",
+                columns_app(case_list_form={"form_id": "r", "post_form_workflow": "default"}),
+                "schema:CaseListForm.form_id",
+                "/modules/0/case_list_form/form_id",
+            ),
+        ),
+        "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of": (
+            # Each of the five things HQ's build refuses beside put_in_root, then the starter shape.
+            refused(
+                "app",
+                _app([plain(put_in_root=True, session_endpoint_id="visit")]),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        plain(
+                            put_in_root=True,
+                            search_config={
+                                "properties": [{"name": "name"}],
+                                "inline_search": True,
+                                "auto_launch": True,
+                            },
+                        )
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            refused(
+                "app",
+                _app([plain(put_in_root=True, forms=[{**_form_json("case"), "post_form_workflow": "module"}])]),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        plain(put_in_root=True),
+                        plain(
+                            unique_id="c",
+                            root_module_id="p",
+                            forms=[{**_form_json("case"), "post_form_workflow": "parent_module"}],
+                        ),
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        plain(put_in_root=True),
+                        plain(
+                            unique_id="o",
+                            forms=[
+                                {
+                                    **_form_json("case"),
+                                    "post_form_workflow": "form",
+                                    "form_links": [{"xpath": "", "module_unique_id": "p"}],
+                                }
+                            ],
+                        ),
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            accepted(
+                "app",
+                _app(
+                    [
+                        plain(
+                            put_in_root=True,
+                            forms=[_form_json("none"), {**_form_json("case"), "post_form_workflow": "default"}],
+                        ),
+                        plain(
+                            unique_id="o",
+                            forms=[
+                                {
+                                    **_form_json("case"),
+                                    "post_form_workflow": "form",
+                                    "form_links": [
+                                        {"xpath": "", "form_id": "f", "form_module_id": "p", "module_unique_id": "p"}
+                                    ],
+                                }
+                            ],
+                        ),
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+        ),
         "menus-and-case-lists/any-module-under-a-training-menu": (
             refused(
                 "app",
@@ -3915,6 +4063,13 @@ def _data_binds_and_itext():
         body="""<select1 ref="/data/s"><item><value>a b</value></item><item><value>ok</value></item></select1>
           <select ref="/data/m"><item><value>x</value></item><item><value>x</value></item></select>""",
     )
+    instance_choices = form(
+        data="<s/><m/>",
+        body="""<select1 ref="/data/s"><item><value>instance('abc')</value></item>
+          <item><value>instance_abc</value></item></select1>
+          <select ref="/data/m"><item><value>instance( "item-list:v")</value></item>
+          <item><value>instance</value></item></select>""",
+    )
     repeats = form(
         data='<r jr:template=""/><c jr:template=""/><fl><r2 jr:template=""/></fl><u jr:template=""/><n/>',
         model='<bind nodeset="/data/n" type="xsd:int"/>',
@@ -4018,6 +4173,14 @@ def _data_binds_and_itext():
             <text id="t3"><value/></text><text id="t4"><value/></text></translation>
           <translation lang="es"><text id="t4"><value>Hola</value></text></translation></itext>""",
     )
+    # A hint's and a label's copy that differs from its text: the hint's is no runtime's to read.
+    hinted = form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q-hint"><value>A</value><value form="markdown">B</value></text>
+            <text id="q-label"><value>A</value><value form="markdown">B</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q-label')"/><hint ref="jr:itext('q-hint')"/></input>""",
+    )
     # Vellum's default language is the app's first (fr here, though the form marks en), and it fills a blank value
     # from the default, else from any app language with content (t4: es).
     translated = _with_forms(_app([_module([_form_json("none")])], langs=["fr", "en", "es"]), f=translations)
@@ -4027,6 +4190,16 @@ def _data_binds_and_itext():
         body="""<select1 ref="/data/a" appearance="minimal "><item><value>x</value></item></select1>
           <select1 ref="/data/b" appearance="minimal"><item><value>x</value></item></select1>
           <select1 ref="/data/c" appearance="minimal foo"><item><value>x</value></item></select1>""",
+    )
+    # Each whole appearance Android reads ignoring case, as Nova writes it (a, c, e) and as a case variant (b, d, f).
+    keypads = form(
+        data="<a/><b/><c/><d/><e/><f/>",
+        model="""<bind nodeset="/data/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/>
+          <bind nodeset="/data/c" type="xsd:string"/><bind nodeset="/data/d" type="xsd:string"/>
+          <bind nodeset="/data/e" type="xsd:date"/><bind nodeset="/data/f" type="xsd:date"/>""",
+        body="""<input ref="/data/a" appearance="numeric"/><input ref="/data/b" appearance="Numeric"/>
+          <input ref="/data/c" appearance="short"/><input ref="/data/d" appearance="SHORT"/>
+          <input ref="/data/e" appearance="ethiopian"/><input ref="/data/f" appearance="Ethiopian"/>""",
     )
     parents = form(
         data='<r jr:template=""/><other><q/></other><top/>',
@@ -4146,6 +4319,12 @@ def _data_binds_and_itext():
             refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
             accepted("form", choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
             refused("form", choices, "xform:select/item/value", "select[1]/item[2]/value[1]"),
+        ),
+        "questions/choice-value-read-as-an-instance": (
+            refused("form", instance_choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
+            accepted("form", instance_choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
+            refused("form", instance_choices, "xform:select/item/value", "select[1]/item[1]/value[1]"),
+            accepted("form", instance_choices, "xform:select/item/value", "select[1]/item[2]/value[1]"),
         ),
         "questions/jr-noaddremove-without-jr-count": (
             refused("form", repeats, "xform:repeat@jr:noAddRemove", "group[1]/repeat[1]/@jr:noAddRemove"),
@@ -4273,6 +4452,11 @@ def _data_binds_and_itext():
         "questions/markdown-form-differing-from-the-default-text": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
             accepted("form", translations, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
+            # a hint's differing copy is questions/hint-markdown-form's; the label's beside it stays refused
+            accepted(
+                "form", hinted, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form", readings=True
+            ),
+            refused("form", hinted, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form", readings=True),
         ),
         "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
@@ -4309,6 +4493,14 @@ def _data_binds_and_itext():
         "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": (
             refused("form", appearances, "xform:select1@appearance", "select1[3]/@appearance"),
             accepted("form", appearances, "xform:select1@appearance", "select1[2]/@appearance"),
+        ),
+        "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": (
+            refused("form", keypads, "appearance:android/numeric", "input[2]/@appearance"),
+            accepted("form", keypads, "appearance:android/numeric", "input[1]/@appearance"),  # Nova's Phone Number
+            refused("form", keypads, "appearance:android/short", "input[4]/@appearance"),
+            accepted("form", keypads, "appearance:android/short", "input[3]/@appearance"),
+            refused("form", keypads, "appearance:android/ethiopian", "input[6]/@appearance"),
+            accepted("form", keypads, "appearance:android/ethiopian", "input[5]/@appearance"),
         ),
         "questions/any-other-bind-id-named-by-a-control-s-bind": (
             refused("form", bound, "xform:input@bind", "body[1]/input[2]/@bind"),
@@ -4593,12 +4785,15 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not",
         "menus-and-case-lists/module-lazy-load-case-list-fields-true",
         "menus-and-case-lists/parent-select-relationship-null-other",
-        "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of",
         "menus-and-case-lists/report-context-tile-true",
         "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1",
-        "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole",
         "questions/a-choice-bind-type-contradicting-the-control-listitem-select1-on",
         "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
+        # Its keys are a Connect block's mug types and Vellum's Connect plugin, and the extraction makes a use of
+        # neither: HQ's reader types a question from its body control (``xform.py::_infer_vellum_type``), and a
+        # Connect block is data with none, whose leaves ``get_questions`` lists as ``DataBindOnly``; no family reads
+        # a ``vellum-plugin:`` key.
+        "questions/connect-block-text-read-as-an-instance",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
         "questions/bare-repeat-with-no-group-wrapper",

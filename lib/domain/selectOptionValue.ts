@@ -22,7 +22,13 @@
 // printed between the other quote mark. A value holding both an apostrophe
 // and a double quote has no XPath string literal, so a rule naming the
 // choice could not be shown as text. An empty value is a choice that saves
-// nothing, which no reader can tell from "unanswered".
+// nothing, which no reader can tell from "unanswered". A value written like
+// `instance('abc')` is read by CommCare HQ's build as a data source the form
+// reads (`hqInstanceRead.ts`): the text of an `<item>`'s `<value>` sits in
+// the form's source, where HQ's scan reads it, and a value is data, which no
+// writer may spell another way. HQ then refuses to build the form, or
+// declares a data source no formula reads, which stops the form from opening
+// on a device that lacks that fixture.
 //
 // Everything else is admitted: the grammar is deliberately NOT a slug
 // grammar, because stored values are data and a stricter rule would
@@ -30,13 +36,16 @@
 // slug is the shape Nova TEACHES and mints, not the only one it accepts.
 
 import { z } from "zod";
+import { instanceScanRead } from "./hqInstanceRead";
 import { suffixUntilFree } from "./idSlug";
 
 /**
  * The admitted grammar as one anchored pattern, for schemas that carry a
  * `pattern` to the model: no whitespace, not empty. A value holding both
- * quote marks is refused beside it (`SELECT_OPTION_VALUE_BOTH_QUOTES`),
- * since no pattern every provider's engine reads can state it.
+ * quote marks, and one CommCare HQ reads as a data source, are refused
+ * beside it (`SELECT_OPTION_VALUE_BOTH_QUOTES`,
+ * `SELECT_OPTION_VALUE_INSTANCE_READ`), since no pattern every provider's
+ * engine reads can state either.
  */
 export const SELECT_OPTION_VALUE_PATTERN = /^\S+$/;
 
@@ -56,6 +65,10 @@ export const SELECT_OPTION_VALUE_REJECTION =
 export const SELECT_OPTION_VALUE_BOTH_QUOTES =
 	"Nova can't yet write a rule that names a choice holding both an apostrophe and a double quote. Keeping one kind of quote mark, or neither, works.";
 
+/** The refusal for a value CommCare HQ's build reads as a data source. */
+export const SELECT_OPTION_VALUE_INSTANCE_READ =
+	"CommCare HQ reads a choice value written like instance('…') as a data source when it builds the form, so the app couldn't be built as written. A value without the brackets and quote marks, such as instance_abc, works.";
+
 /**
  * The one Zod leaf every model-facing `value` slot is: the grammar as a
  * `pattern`, the rejection as its message, and the description that
@@ -69,10 +82,14 @@ export const selectOptionValueSchema = z
 		(value) => !(value.includes("'") && value.includes('"')),
 		SELECT_OPTION_VALUE_BOTH_QUOTES,
 	)
+	.refine(
+		(value) => instanceScanRead(value) === undefined,
+		SELECT_OPTION_VALUE_INSTANCE_READ,
+	)
 	.describe(SELECT_OPTION_VALUE_DESCRIPTION);
 
 /**
- * Why a choice's value is refused: the three problems a value has alone,
+ * Why a choice's value is refused: the four problems a value has alone,
  * and `duplicate`, a value an earlier choice of the same list holds.
  * HQ's form builder reports a repeated value among one question's choices
  * on exact string equality (Vellum `src/mugs/types/select.js`), and an
@@ -82,6 +99,7 @@ export type SelectOptionValueProblem =
 	| "empty"
 	| "whitespace"
 	| "both-quotes"
+	| "instance-read"
 	| "duplicate";
 
 /** Why a value is refused alone, or `undefined` when it is admitted. */
@@ -91,6 +109,7 @@ export function selectOptionValueProblem(
 	if (value.length === 0) return "empty";
 	if (/\s/.test(value)) return "whitespace";
 	if (value.includes("'") && value.includes('"')) return "both-quotes";
+	if (instanceScanRead(value) !== undefined) return "instance-read";
 	return undefined;
 }
 

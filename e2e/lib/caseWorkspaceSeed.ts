@@ -299,11 +299,11 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 				name: "Patient tile",
 				caseType: ids.caseType,
 				// Nothing is shown on Details on purpose: with no confirm screen the
-				// running tile continues straight into the follow-up form, which is
-				// the shortest honest path to the persistent tile.
+				// running tile continues straight into the menu of its follow-up
+				// form, which is the shortest honest path to the persistent tile.
 				caseListConfig: {
 					// Presence is the switch; `persistOnForms` additionally keeps the
-					// same tile above every form in this module.
+					// same tile on every screen once its case is chosen.
 					tile: { persistOnForms: true },
 					columns: [
 						plainColumn(ids.tile.columns.patientName, "case_name", "Patient", {
@@ -658,7 +658,10 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
 			village: "Riverside",
 			phoneNumber: "",
 			dateOfBirth: "1959-08-11",
-			lastVisit: "2026-06-21",
+			// No last visit: the list's default order (Last visit, newest first)
+			// puts her last, and a rule's Blank values control moves her.
+			lastVisit: null,
+			visitStarted: "2026-06-21",
 			carePriority: "priority",
 		},
 	] as const;
@@ -674,9 +677,9 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
 			village: row.village,
 			phone_number: row.phoneNumber,
 			date_of_birth: row.dateOfBirth,
-			last_visit: row.lastVisit,
+			...(row.lastVisit === null ? {} : { last_visit: row.lastVisit }),
 			care_priority: row.carePriority,
-			visit_started: row.lastVisit,
+			visit_started: "visitStarted" in row ? row.visitStarted : row.lastVisit,
 			next_dose: SEEDED_NEXT_DOSE,
 		},
 	}));

@@ -100,8 +100,9 @@ export function BuilderFormEngineProvider({
 	 * install we did in this component's own `useEffect` would land too
 	 * late — descendants would already have called `activateForm` against
 	 * an unwired controller. For the identity that lateness would mean
-	 * every warm-session form mount builds its engine identity-less and
-	 * immediately rebuilds when the parent effect lands. The `useState`
+	 * every warm-session form mount opens its entry with no worker and no
+	 * hold, and the parent effect's install then discards that entry and
+	 * starts a new one for the worker (`setPreviewIdentity`). The `useState`
 	 * initializer runs during render, before any descendant mounts, so
 	 * both are in place before anyone needs them (`previewAsMe` is pure,
 	 * and Better Auth resolves a warm client session synchronously). */
@@ -142,9 +143,8 @@ export function BuilderFormEngineProvider({
 		if (docStore) c.setDocStore(docStore);
 		c.setPresentationLanguage(presentationLanguage);
 		c.setPreviewIdentityBlocked(identityState.kind === "persona-unavailable");
-		if (identityState.kind === "ready") {
-			c.setPreviewIdentity(identityState.identity);
-		}
+		if (identityState.kind === "ready")
+			c.installSessionIdentity(identityState.identity);
 		return c;
 	});
 
@@ -175,7 +175,7 @@ export function BuilderFormEngineProvider({
 	 * session resolving after mount, a sign-out broadcast from another
 	 * tab. The controller's setter treats a materially-identical identity
 	 * as a no-op, so session refetches minting new user references don't
-	 * rebuild an active engine. The provider's warm-session opt-in changes
+	 * start an active entry anew. The provider's warm-session opt-in changes
 	 * only this non-rendered controller; visual consumers retain the
 	 * identity-free hydration render. */
 	useEffect(() => {
@@ -184,7 +184,7 @@ export function BuilderFormEngineProvider({
 			return;
 		}
 		controller.setPreviewIdentityBlocked(false);
-		controller.setPreviewIdentity(identityState.identity);
+		controller.installSessionIdentity(identityState.identity);
 	}, [controller, identityState]);
 
 	/* URL-owned language changes must reach the engine before paint so a

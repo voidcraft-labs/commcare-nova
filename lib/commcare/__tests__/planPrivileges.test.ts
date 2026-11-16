@@ -584,6 +584,67 @@ describe("each privilege's reasons", () => {
 		]);
 	});
 
+	it("names a form whose only read of the worker's record is a label's calculated value", () => {
+		const region = testUuid("plan-privileges-worker-region");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Team",
+					forms: [
+						{
+							name: "Greet team",
+							type: "survey",
+							fields: [
+								f({
+									kind: "label",
+									id: "team",
+									label: {
+										parts: [
+											{
+												kind: "value",
+												expression: {
+													kind: "concat",
+													parts: [
+														{
+															kind: "term",
+															term: {
+																kind: "session-user-property",
+																userPropertyUuid: region,
+																source: "worker-record",
+															},
+														},
+														{
+															kind: "term",
+															term: { kind: "literal", value: " team" },
+														},
+													],
+												},
+											},
+										],
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.userProperties = {
+			[region]: { uuid: region, slug: "region", label: "Region" },
+		};
+		doc.userPropertyOrder = [region];
+		expect(
+			formsUsingWorkerRecord(doc).map(({ name, reads, writes }) => ({
+				name,
+				reads,
+				writes,
+			})),
+		).toEqual([{ name: "Greet team", reads: true, writes: false }]);
+		expect(reasonsOf(doc, "user_case")).toEqual([
+			"Greet team reads worker information.",
+		]);
+	});
+
 	it("names a lookup table read and each form that offers cases as a question's choices", () => {
 		const doc = buildDoc({
 			caseTypes: [
@@ -959,10 +1020,12 @@ describe("CommCare Supply", () => {
 		caseListConfig([{ field: "case_name", header: "Name" }]);
 	/** A household app: Households holds its case list as its menu item
 	 *  beside a follow-up form, its kind held advanced where `held` says, and
-	 *  Visits holds a survey with the fields given. */
+	 *  Visits holds a survey, Stock count unless `formName` says otherwise,
+	 *  with the fields given. */
 	const supplyDoc = (options: {
 		readonly held?: boolean;
 		readonly menuItem?: boolean;
+		readonly formName?: string;
 		readonly fields?: readonly FieldSpec[];
 	}): BlueprintDoc =>
 		buildDoc(
@@ -997,7 +1060,7 @@ describe("CommCare Supply", () => {
 						name: "Visits",
 						forms: [
 							{
-								name: "Stock count",
+								name: options.formName ?? "Stock count",
 								type: "survey" as const,
 								fields: [
 									f({ kind: "text", id: "count" }),
@@ -1018,8 +1081,14 @@ describe("CommCare Supply", () => {
 		);
 	const menuReason =
 		"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.";
-	const formReason =
-		"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.";
+	const formReason = (name: string) =>
+		`${name} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`;
+	/** The codes of the gate's findings: a form's name holding the text is
+	 *  refused, so only a document the gate refuses gives a form reason. */
+	const findingCodes = (
+		doc: BlueprintDoc,
+		context = LOOKUP_CONTEXT_UNAVAILABLE,
+	) => runValidation(doc, context).map(({ code }) => code);
 
 	it("names an advanced menu whose case list is its own menu item", () => {
 		const doc = supplyDoc({ held: true });
@@ -1034,8 +1103,12 @@ describe("CommCare Supply", () => {
 		);
 	});
 
-	it("names a form whose label holds the text", () => {
+	it("names no form whose label holds the text, which the source writes with the label's bracket as an output", () => {
+		/* A label's `instance(` before a quote mark is written with its
+		 * bracket as a literal output (`xform/builder.ts::literalLabelNodes`),
+		 * so no stretch of the source holds the text. */
 		const doc = supplyDoc({
+			held: true,
 			fields: [
 				f({
 					kind: "label",
@@ -1045,7 +1118,28 @@ describe("CommCare Supply", () => {
 			],
 		});
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		expect(commtrackReasons(doc, undefined)).toEqual([formReason]);
+		const source = Object.values(
+			expandDoc(doc, { attachmentTarget: null })._attachments,
+		).find((xml) => xml.includes("/data/note"));
+		expect(source).toContain(
+			'Your place is instance<output value="&apos;(&apos;"/>&apos;commcaresession&apos;)/session/data/supply_point_id',
+		);
+		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
+	});
+
+	it("names a form whose source holds the text, after the menu, from a document the gate refuses", () => {
+		/* A form's name is plain text in the source (`<h:title>` and the data
+		 * root's `name`), the one place no output can cut it, and the gate
+		 * refuses it there (`FORM_TEXT_READ_AS_INSTANCE`). The emission is
+		 * read all the same, so this branch is what stands if some later
+		 * spelling writes the text whole. */
+		const name = `Stock at ${SUPPLY_POINT_SESSION_TEXT}`;
+		const doc = supplyDoc({ held: true, formName: name });
+		expect(findingCodes(doc)).toEqual(["FORM_TEXT_READ_AS_INSTANCE"]);
+		expect(commtrackReasons(doc, undefined)).toEqual([
+			menuReason,
+			formReason(name),
+		]);
 	});
 
 	it("names no form for a calculated value's literal holding the text, which the source writes split at its instance call", () => {
@@ -1073,20 +1167,6 @@ describe("CommCare Supply", () => {
 		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
 	});
 
-	it("names the menu before the form, in document order", () => {
-		const doc = supplyDoc({
-			held: true,
-			fields: [
-				f({
-					kind: "label",
-					id: "note",
-					label: proseText(SUPPLY_POINT_SESSION_TEXT),
-				}),
-			],
-		});
-		expect(commtrackReasons(doc, undefined)).toEqual([menuReason, formReason]);
-	});
-
 	it("reads the emission under the Project's lookup naming, whose column types lower a table's value compared with a date", () => {
 		/* The Search filter compares a case's date with a table's value read
 		 * as a date, which lowers by that column's type
@@ -1105,29 +1185,35 @@ describe("CommCare Supply", () => {
 		doc.fieldOrder[formUuid] = [...(doc.fieldOrder[formUuid] ?? []), note];
 		rebuildFieldParent(doc);
 		expect(runValidation(doc, functionLookupContext)).toEqual([]);
-		const reason = `${doc.forms[formUuid].name} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`;
-		expect(commtrackReasons(doc, functionLookupNaming)).toEqual([reason]);
+		/* The label is cut, so the admitted document gives no reason. */
+		expect(commtrackReasons(doc, functionLookupNaming)).toEqual([]);
+		/* A name holding the text, which the gate refuses, is read through
+		 * the same emission. A copy again, for the derivations kept above. */
+		const name = `Count at ${SUPPLY_POINT_SESSION_TEXT}`;
+		const named = structuredClone(doc);
+		named.forms[formUuid] = { ...named.forms[formUuid], name };
+		expect(findingCodes(named, functionLookupContext)).toEqual([
+			"FORM_TEXT_READ_AS_INSTANCE",
+		]);
+		expect(commtrackReasons(named, functionLookupNaming)).toEqual([
+			formReason(name),
+		]);
 		expect(
 			requiredConfirmations(
-				doc,
+				named,
 				{ lookupTables: true, places: false },
 				null,
 				functionLookupNaming,
 			).find((need) => need.kind === "commtrack-off")?.reasons,
-		).toEqual([reason]);
+		).toEqual([formReason(name)]);
 	});
 
-	it("names no form whose label holds a near miss", () => {
+	it("names no form whose name holds a near miss", () => {
+		/* The name is written whole, unlike a label, so the source holds the
+		 * near miss and the substring test is what answers. */
 		const doc = supplyDoc({
-			fields: [
-				f({
-					kind: "label",
-					id: "note",
-					label: proseText(
-						"Your place is instance('commcaresession')/session/data/supply_point",
-					),
-				}),
-			],
+			formName:
+				"Stock at instance('commcaresession')/session/data/supply_point",
 		});
 		expect(commtrackReasons(doc, undefined)).toEqual([]);
 	});

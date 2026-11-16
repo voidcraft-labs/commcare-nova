@@ -65,10 +65,12 @@ test("Preview case cards reflow at their own width and retain independent native
 		expect(
 			await form.evaluate((node) => node.scrollWidth <= node.clientWidth),
 		).toBe(true);
-		await page.getByRole("button", { name: "Back", exact: true }).click();
+		// The menu's Back reaches the list past the detail the choice went
+		// through, as a step back off the menu does on both platforms.
 		await page
 			.getByRole("button", { name: "Back to results", exact: true })
 			.click();
+		await expect(page.locator("[data-case-detail]")).toHaveCount(0);
 		expect(
 			await page.evaluate(
 				() => document.documentElement.scrollWidth <= window.innerWidth,
@@ -199,8 +201,106 @@ test("Several-case selection survives pagination in order and rejects a validati
 				),
 			)
 			.toEqual(["patient-2", "patient-1"]);
+
+		/* The form was chosen from the menu after its cases, so the session
+		 * holds them beneath its command: a step back lands on that menu
+		 * with both still chosen (`CommCareSession.stepBack`), and its Back
+		 * lets them go as a second step back does. */
+		const menuHeading = page.getByRole("heading", {
+			name: "2 cases selected",
+			exact: true,
+		});
+		expect(
+			await page.evaluate(
+				() => window.previewCasesAudit.target()?.formChosenAfterCase,
+			),
+		).toMatchObject({ fromCaseListMenu: true });
+		await page.goBack();
+		await expect(menuHeading).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: /^CompleteTheCommunityFollowUp/ }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Back to results", exact: true }),
+		).toBeFocused();
+		await page
+			.getByRole("button", { name: "Back to results", exact: true })
+			.click();
+		await expect(menuHeading).toHaveCount(0);
+		/* The menu's Back is a step back off the menu's own history entry: the
+		 * target keeps the form and the cases, and the list it reaches holds
+		 * neither, so a step forward shows the menu with both still chosen. */
+		expect(
+			await page.evaluate(() => window.previewCasesAudit.target()),
+		).toMatchObject({
+			cases: [{ caseId: "patient-2" }, { caseId: "patient-1" }],
+			formChosenAfterCase: { fromCaseListMenu: true },
+		});
+		await page.goForward();
+		await expect(menuHeading).toBeVisible();
+		await page.goBack();
+		await expect(menuHeading).toHaveCount(0);
 	} finally {
 		release.resolve();
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewCasesAudit?.dispose());
+		} finally {
+			await page.close();
+			await peer.close();
+		}
+	}
+});
+
+test("Several cases whose menu reads a worker field the device lacks show the menu's refusal in its place", async ({
+	page,
+}) => {
+	page.setDefaultTimeout(10_000);
+	const boundary = resolve("e2e/lib/preview-cases-boundary.ts");
+	const peer = await componentPeer("e2e/lib/preview-cases-client.tsx", [], {
+		"@/lib/preview/engine/caseDataBinding": boundary,
+		"@/lib/preview/engine/lookupDataBinding": boundary,
+		"@/lib/preview/entryPointLaunchAction": boundary,
+		"@/lib/auth/hooks/useAuth": boundary,
+	});
+	await page.route(`${peer.origin}/validate-selection`, async (route) => {
+		const ids: string[] = route.request().postDataJSON();
+		await route.fulfill({ json: ids });
+	});
+	try {
+		await page.goto(peer.origin);
+		await expect(
+			page.getByRole("button", { name: /^View details for/ }),
+		).toBeVisible();
+		/* The Close case form shows only for a worker at one place. The
+		 * member runs the app assigned nowhere, so the device holds no
+		 * `commcare_location_id`, and Core fails the menu it lists once the
+		 * cases are chosen (`MenuLoader`) rather than hiding the form. */
+		await page.evaluate(() =>
+			window.previewCasesAudit.severalReadingThePlace(),
+		);
+		await page.getByRole("checkbox", { name: /^Choose Patient 2,/ }).check();
+		await page.getByRole("checkbox", { name: /^Choose Patient 1,/ }).check();
+		await page.getByRole("button", { name: "Continue", exact: true }).click();
+		const refusal = page.locator('[data-preview-data-refusal-surface="menu"]');
+		await expect(refusal).toBeVisible();
+		await expect(refusal).toHaveAttribute("role", "alert");
+		await expect(
+			page.getByRole("heading", { name: "2 cases selected", exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: /^CompleteTheCommunityFollowUp/ }),
+		).toHaveCount(0);
+		await expect(
+			page.getByText("The selected cases could not be checked. Try again."),
+		).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Back to results", exact: true }),
+		).toBeFocused();
+		expect(
+			await page.evaluate(() => window.previewCasesAudit.target()),
+		).toBeUndefined();
+	} finally {
 		try {
 			if (!page.isClosed())
 				await page.evaluate(() => window.previewCasesAudit?.dispose());
@@ -269,13 +369,13 @@ test("Worker case navigation follows Spanish and preserves the open record when 
 		await expect(
 			page.getByText("Choose what to do with this case", { exact: true }),
 		).toBeVisible();
-		await page.getByRole("button", { name: "Back", exact: true }).click();
-		await expect(
-			page.locator("[data-case-detail]").getByText("No value", { exact: true }),
-		).toHaveCount(1);
+		// Back from the menu lets the case go and reaches the list, past the
+		// detail the choice went through (`CommCareSession.stepBack` pops the
+		// case, and both platforms show their case list there).
 		await page
 			.getByRole("button", { name: "Back to results", exact: true })
 			.click();
+		await expect(page.locator("[data-case-detail]")).toHaveCount(0);
 		await expect(
 			page.getByRole("button", { name: /^View details for/ }),
 		).toHaveCount(1);

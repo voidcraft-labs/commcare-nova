@@ -99,8 +99,10 @@ function selectNoOptions(field: Field, ctx: FieldContext): ValidationError[] {
  * one holding whitespace: CommCare Android throws on any select value with
  * a space, and a multi-select answer is a space-joined token list. A value
  * holding both an apostrophe and a double quote has no XPath string
- * literal, so no rule naming the choice could be shown as text. An empty
- * value saves nothing, indistinguishable from "unanswered".
+ * literal, so no rule naming the choice could be shown as text. A value
+ * written like `instance('abc')` is read by CommCare HQ's build as a data
+ * source the form reads. An empty value saves nothing, indistinguishable
+ * from "unanswered".
  * `lib/domain/selectOptionValue.ts` owns the grammar; this rule applies it
  * to inline options, with `CASE_PROPERTY_OPTION_VALUE_INVALID` (`app.ts`)
  * covering the catalog copy.
@@ -134,7 +136,9 @@ function selectOptionValueInvalid(
 				? `${position} has an empty value. A choice's value is the answer the app stores, so an empty one saves nothing and reads as unanswered. Give it a value such as "${suggestion}": a lowercase slug with words joined by underscores, with the wording kept in the label.`
 				: problem === "whitespace"
 					? `${position} has the value ${JSON.stringify(option.value)}, which contains a space. A choice's value is the answer the app stores, not the wording, and the device refuses a choice value holding a space (a multi-select answer is a space-separated list of these values). Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`
-					: `${position} has the value ${JSON.stringify(option.value)}, which holds both an apostrophe and a double quote. ${SELECT_OPTION_VALUE_BOTH_QUOTES}`;
+					: problem === "both-quotes"
+						? `${position} has the value ${JSON.stringify(option.value)}, which holds both an apostrophe and a double quote. ${SELECT_OPTION_VALUE_BOTH_QUOTES}`
+						: `${position} has the value ${JSON.stringify(option.value)}, which CommCare HQ reads as a data source the form reads: the value sits in the form's source as written, and HQ's build reads instance('…') there wherever it stands. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`;
 		errors.push(
 			validationError(
 				"SELECT_OPTION_VALUE_INVALID",

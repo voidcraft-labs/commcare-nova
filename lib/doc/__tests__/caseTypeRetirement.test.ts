@@ -26,7 +26,7 @@ import {
 	subcasePath,
 	term,
 } from "@/lib/domain/expression/builders";
-import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
+import type { SlotContextRef } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -38,7 +38,7 @@ const SUMMARY = testUuid("retire-summary");
 
 function expressionForSlot(
 	doc: BlueprintDoc,
-	slot: ExpressionSlotRef,
+	slot: SlotContextRef,
 	source: string,
 ) {
 	const parsed = parseFormExpressionForSlot(doc, slot, source, "unavailable");
@@ -381,6 +381,35 @@ describe("case type retirement from admitted workflows", () => {
 			'field "summary" in form "Review patient" (module "Patients") references #visit/… in its "label" text',
 		]);
 		expect(plan.userMessage).not.toContain("#visit/");
+	});
+	it("names a question whose hint shows a calculated value reading the retiring type", () => {
+		const doc = fixture();
+		parent(doc, "patient", "visit");
+		const next = commit(doc, [
+			{
+				kind: "updateField",
+				uuid: SUMMARY,
+				targetKind: "text",
+				patch: {
+					hint: {
+						parts: [
+							{
+								kind: "value",
+								expression: expressionForSlot(
+									doc,
+									{ entity: "field", uuid: SUMMARY, slot: "hint" },
+									"concat(#visit/case_name, ' last')",
+								),
+							},
+						],
+					},
+				},
+			},
+		]);
+		expect(blocked(next).references).toEqual([
+			'case type "patient" declares "visit" as its parent',
+			'field "summary" in form "Review patient" (module "Patients") references #visit/… in its "hint" text',
+		]);
 	});
 	it("names a type restriction nested inside a filtered case collection", () => {
 		const doc = fixture();

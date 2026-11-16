@@ -97,8 +97,19 @@ document whose expressions the current model does not read. Version 17 fences pl
 a journey started before it ran Preview's former mix of runtimes.
 Version 18 fences repeats and case writes: a journey started before it pinned
 a document whose query repeats, counts and case operations the current
-runtime reads differently. Runtime version 19 names a query repeat's
-wrapper `<id>.query`. A session's
+runtime reads differently. Runtime version 19 fences four things: it names a
+query repeat's wrapper `<id>.query`; it saves a date and time to a case as
+the text CommCare HQ stores for its moment, UTC with six fraction digits and
+`Z` (`lib/domain/temporalValues.ts::caseDatetimeValue`), where a journey
+started before it saved the viewer's offset; it opens the Search screen as
+Core's query manager is built (`searchRunState.ts::openSearchRunState`),
+reading every choice list and letting go a starting choice the rows do not
+offer, refusing a menu that opens on its search or its results as it opens,
+and refusing the assigned-case exclusion only where Results are read; and it
+walks a menu's parent case as Preview does (`parentCaseSelection.ts`), asking
+for it before the menu's screen only where Core does, going on at the
+parent's row unless the datum it chooses for names a details screen, and
+letting every case chosen after a screen go when Back returns to it. A session's
 platform is its own `platform`, else the start's, else the one the saved app
 previews on by default (`context.ts::appTestPlatform`, which refuses a platform
 the app does not declare with `platformUnavailableSentence`); the session keeps
@@ -153,11 +164,62 @@ menu entry's list (`navigation.ts::isCaseListMenuItemList`: the list the
 menu's entry opened, or a bare case list's landing) routes a chosen case by
 `caseListMenuItemSelection(context.rules)` instead of opening a form, and on
 Android its Details answer `continue` with Done, which returns to the list; the
-menu observation lists the entry after the forms (`caseListEntry`), and the
-`records` action chooses it, which in a case-first menu with its case chosen is
-the selection itself. A next-task failure preserves an
+menu observation lists the entry after the forms (`caseListEntry`) only while
+it still needs a case the screen has not chosen
+(`menuProjection.ts::previewCaseListMenuEntry`), so a case-first menu with its
+case chosen does not list its own, and the `records` action chooses it and
+opens its list. A home or menu screen also lists, in place, the forms and
+case list entries of each menu that shows its forms there
+(`navigation.ts::appTestScreenForms`, `appTestScreenCaseLists`, over
+`menuProjection.ts::previewScreenEntries`): its observation carries them as `forms` and
+`caseLists`, each naming the menu it belongs to (`menuUuid`), the menu's own
+entry staying `caseListEntry`. The `form` action opens a listed form from its
+own menu, and the `records` action takes an optional `moduleUuid` naming the
+menu whose case list to open, needed where the screen lists several and
+omitted on a menu for its own. Choosing a menu lands where Preview lands it
+(`moduleDestination`): a case-first or bare case list screen on its records,
+submenus or not. A menu that needs a parent case the session lacks asks for
+it before its screen only where Core does
+(`engine/parentCaseSelection.ts::previewParentCaseBeforeMenu`); a menu that
+lists a survey or a registration beside a follow-up lists its forms first,
+and the `form` or `records` action that needs the parent opens the parent's
+records first (`navigation.ts::enterAppTestForm`, `appTestCaseListScreen`),
+then the form's own records or the list with its mark (`resumesList`); a
+survey there opens with no parent. A case chosen on a parent's records goes
+on at once unless the datum it chooses for names a details screen
+(`navigation.ts::appTestRecordsHaveDetails` over
+`previewParentCaseListHasDetails`), which a basic menu never gives a
+parent. Once a case is chosen, `continue` opens a form only where the
+worker chose it before the case (or a retained command names it), and then
+the menu is not listed and no condition is read; otherwise the observation is
+the menu, listing its forms however many there are, and the
+`form` action opens one (`menuProjection.ts::previewRequestedForm`), as a
+device lists a menu after its case. A next-task failure preserves an
 already successful test submission.
 An action rejected before submission leaves no partial effects.
+A screen Core would fail because a
+condition it reads asks for data the device lacks (a worker key the worker has
+none of, a table with no rows) is the action's refusal too, in the data
+refusal's words (`dataRefusal.ts::appTestDataRefusal` over
+`engine/dataRefusal.ts`), never an aborted call. It is worded for the surface
+Preview shows it on, the inner read's name winning
+(`dataRefusal.ts::readingSurface`, `engine/surfacedDataRefusal.ts`): a case
+list's filter, columns, order and Results read and the Search action's
+condition the list's, the Search screen's starting and hidden values,
+choice lists and checks the search's, a form's the form's, the links after it the links', and
+an unnamed read a menu's display condition; and for the worker the session
+runs as, by the persona's name. The Search screen opens as Preview opens it
+(`engine/searchRunState.ts::openSearchRunState`, through
+`engine/searchEvaluation.ts::evaluateSearchSnapshot`): a menu that opens on
+its search or its results refuses as it opens, and a list that opens first
+keeps its records, holds no search, observes `search.refusal` and refuses
+the `search` action, as Preview's Search pane shows the refusal. The list's
+assigned-case exclusion refuses only where a Results read is made, as the
+list's (`engine/serverSearchRead.ts::serverRecordsRead` over the snapshot's
+`exclusionRefusal`), so a menu on its Search screen opens. A refusal
+met after a submission saved (the links' conditions, the next screen's menu
+or list) keeps the save and is the observation's `nextTaskError`, as Preview
+shows it on the next step (`__tests__/dataRefusal.postgres.test.ts`).
 
 Retained sessions expose held-open interleavings: open a form in A, submit in B,
 then observe or submit A. Explicit sync refreshes only the addressed session's
@@ -190,8 +252,17 @@ production device-scoped detail reader and then applies ordinary form/menu
 eligibility. Informational details have no Continue action. Details opened
 through ordinary Back read current stored values, even if the record no longer
 matches its old Results page. Back retains the visited destinations; returning to a form
-starts a fresh entry. These observations describe Preview navigation, not a
-native session-stack proof.
+starts a fresh entry (`navigation.ts::appTestBackScreen`), which carries no case list
+Register launch, since a launch belongs to the one entry it opened. Each visited
+destination keeps the case selections the session held while it was shown
+(`types.ts::AppTestHistoryEntry`, written by `navigation.ts::appTestHistoryEntry`
+at every push), and Back returns to them (`appTestStepBack`), so a case chosen
+after that screen, a parent case asked for after a form's command included, is
+let go and the next walk past it asks for it again. One rule on both platforms:
+Android's Back is `CommCareSession.stepBack`, which pops each datum collected
+since, and Web Apps' is the previous address, whose `selections` Formplayer
+replays. Sync refreshes those kept selections with the session's own. These
+observations describe Preview navigation, not a native session-stack proof.
 
 A leaf record's inline form chooser carries its selection on that screen and
 offers only case-loading forms, matching the browser chooser. It

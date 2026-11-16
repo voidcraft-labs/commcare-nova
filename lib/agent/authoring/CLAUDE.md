@@ -147,7 +147,16 @@ over a coincidentally identical display label. External worker values print as
 when a predicate may legally contain both names. Canonical prose admission
 already rejects that collision for prose references.
 In record expressions, `user(...)` and `#user/...` require a declared worker property. Built-in identity
-uses `session(...)`; undeclared custom metadata requires `external-user(...)`.
+uses `session(...)`; `external-user(...)` reads only a key CommCare itself
+gives every worker (`BUILT_IN_USER_PROPERTY_SLUGS`). The checker refuses an
+`external-user` read of any other key (`undeclared-worker-field`): a project
+space defines a custom field only where a person defined it, a phone stops on
+a read of a field its project space lacks, and the setup list a publish shows
+names only the worker information the app declares, so custom data is declared
+first. An
+`external-user` read of a declared slug is refused too
+(`worker-property-read-by-name`): declared information is read by `user(...)`,
+its identity, which a rename keeps.
 Forms instead read built-in identity from the worker record through
 `#user/hq_user_id`, `#user/username` and `#user/case_name`. `workerIdentity.ts`
 projects these supported readings through the expressions guide and `getUsers`;
@@ -155,7 +164,12 @@ its runtime check executes the returned expressions in both scopes.
 The same worker-information read exposes primary place, all assigned places and
 the primary case-sharing group in form and record scopes. Preview projects them
 from actual or disposable persona assignments; HQ supplies the corresponding
-worker case and session facts. Missing assignments remain empty. Location IDs
+worker case and session facts. A worker assigned nowhere reads them blank in
+a form (the worker's record always holds them), but holds no such key in the
+session, so a record expression that reads one stops its screen on a phone,
+and a case owner that reads one stops the form as it opens; Preview stops at
+each of those places (`lib/preview/CLAUDE.md`).
+Location IDs
 are not new authored worker properties or a substitute for case-flow settings.
 An unknown property must never silently become an external metadata dependency.
 
@@ -181,7 +195,7 @@ rather than becoming opaque text that renames cannot maintain.
 
 Wording is Markdown. Answer interpolation is parsed at this boundary and printed
 back to the same authoring representation. Literal braces and backslashes must
-round-trip. Expressions are authored in two grammars, one per slot family: form
+round-trip. A `{{= formula}}` insertion ends at the first `}}` outside a quoted string. Wording takes `{{= formula}}` for a calculated value, parsed in the text's prose slot (`proseSlots.ts`). Expressions are authored in two grammars, one per slot family: form
 logic (fields, Connect, form links) in CommCare's form XPath, and record
 expressions (filters, calculated columns, search, case operations, display
 conditions) in the record dialect. Each holds the round-trip law under the
@@ -190,6 +204,10 @@ is canonical, so a read sent back as an edit stores the same tree. A form-logic
 re-parse of an edited slot takes its stored tree as its binding hint. Instance
 and current()-rooted paths bind to typed identities in their actual slot.
 Connect expressions resolve from their generated evaluation node through the same form graph as field expressions.
+`list(<value>, …)` is `value-list`: several values a case value is compared
+with by `=` or `!=`. The parser adds no rule about where one stands: the
+checker admits the arm only in a slot CommCare's server search alone reads,
+and CSQL representability refuses it anywhere but opposite `=` or `!=`.
 
 Preparation runs inside the authorized workspace invocation. Agent and MCP workspaces retain incomplete construction privately; saving
 passes the full canonical gate. Builder edits retain their immediate canonical

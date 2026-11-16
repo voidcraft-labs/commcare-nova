@@ -5,6 +5,8 @@ import {
 	type ProseTemplate,
 	printProseTemplate,
 	projectProseTemplate,
+	proseAtomParts,
+	proseReferenceParts,
 	proseTemplateText,
 	type ReferenceNamesDoc,
 	resolveProseTemplate,
@@ -87,5 +89,59 @@ describe("prose identity projection", () => {
 		expect(() => resolveProseTemplate(TEMPLATE, doc, String)).toThrow(
 			ProseProjectionError,
 		);
+	});
+});
+
+describe("a calculated value in prose", () => {
+	const VALUE_TEMPLATE: ProseTemplate = {
+		parts: [
+			{ kind: "text", text: "Due " },
+			{
+				kind: "value",
+				expression: { kind: "term", term: { kind: "literal", value: 3 } },
+			},
+		],
+	};
+
+	it("prints through the caller's printer, and reads [calculated value] with none", () => {
+		const doc = makeDoc();
+		expect(projectProseTemplate(VALUE_TEMPLATE, doc)).toEqual({
+			ok: true,
+			text: "Due [calculated value]",
+		});
+		expect(
+			printProseTemplate(VALUE_TEMPLATE, doc, { value: () => "today() + 3" }),
+		).toBe("Due today() + 3");
+		expect(() => printProseTemplate(VALUE_TEMPLATE, doc)).toThrow(
+			ProseProjectionError,
+		);
+	});
+
+	it("is no typed text and no reference part", () => {
+		expect(proseTemplateText(VALUE_TEMPLATE)).toBe("Due ");
+		expect(proseReferenceParts(VALUE_TEMPLATE)).toEqual([]);
+		expect(proseAtomParts(VALUE_TEMPLATE)).toEqual([VALUE_TEMPLATE.parts[1]]);
+	});
+
+	it("hands every atom, a value among them, to a runtime evaluator", () => {
+		const doc = makeDoc();
+		const seen: string[] = [];
+		expect(
+			resolveProseTemplate(
+				{
+					parts: [
+						{ kind: "field-ref", uuid: FIELD },
+						{ kind: "text", text: ": " },
+						...VALUE_TEMPLATE.parts.slice(1),
+					],
+				},
+				doc,
+				(part) => {
+					seen.push(part.kind);
+					return part.kind === "value" ? "3" : "Ana";
+				},
+			),
+		).toBe("Ana: 3");
+		expect(seen).toEqual(["field-ref", "value"]);
 	});
 });

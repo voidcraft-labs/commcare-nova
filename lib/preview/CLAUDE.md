@@ -47,7 +47,7 @@ declares derives away with no write.
 differs by platform is one field of `PreviewPlatformRules` (where the app
 opens, after-submit landings, entry points, a case list menu entry and its
 detail, tile grouping, borders and alignment, search screen text and checks,
-zero results, whether the Search action launches on its own, `here()`'s spelling, form screens, recalculation, day-number
+zero results, whether the Search screen offers Clear, whether the Search action launches on its own, `here()`'s spelling, form screens, recalculation, day-number
 epoch, help, hints, labels, capture and more), each citing the CommCare reader
 it plays. No other module under `lib/preview`, `components/preview`,
 `lib/preview/app-tests` or the authoring evaluator compares a platform value:
@@ -62,12 +62,18 @@ Preview's reading goes stale.
 
 Labels render through `lib/references/LabelContent.tsx` (a question's, a
 display label's and a section title with the platform's `labelMarkdown` rule),
-hints by `rules.hint`, validation messages as plain text.
-A question, group, repeat or section label whose owner holds `plainLabel`
+hints by `rules.hint`, validation messages as plain text. A help text holding
+`plainHelp`, or in a form holding `plainText`, follows `rules.plainHelp`.
+A Text question with a number keypad follows `rules.numberKeypad`. Its
+message answers only a typed answer the platform refused
+(`FieldState.keypadRefused`); a starting value or a preloaded case value is
+never checked against the keypad, as neither runtime checks one.
+A question, group, repeat or section label whose owner holds `plainLabel`, or
+whose form holds `plainText` (`lib/domain/plainText.ts::labelShowsAsTyped`),
 writes no markdown form, and both runtimes show such a label as written, so
 `LabelContent` renders its text with its line breaks kept and its references
-as chips on both platforms, in edit mode too. A choice holding `plainLabel`
-follows `rules.plainChoice`: Web Apps formats every choice through its
+as chips on both platforms, in edit mode too. A choice shown as typed the
+same way follows `rules.plainChoice`: Web Apps formats every choice through its
 markdown renderer anyway (`"markdown"`), Android shows it as written
 (`"literal"`); edit mode shows it as written. A tag in a plain label is not
 played: the Web Apps client draws it as sanitized HTML, and Preview renders no
@@ -93,6 +99,31 @@ parses it (`previewDeviceInput`) and checks it against the committed blueprint
 form's `commcaresession` cannot answer two ways. A journey or a check with no
 browser window uses `serverPreviewDevice`, whose Web Apps window is 1280 wide.
 An engine built without a device plays a Web Apps device with a fresh id.
+
+Until the signed-in member's session resolves, the session is not yet the
+worker's: `previewSessionValues(null, …)` carries `identityPending`
+(`identity.ts::awaitsPreviewIdentity`), and nothing reads a worker key against
+it, because it holds none and a device refuses a read of a key its worker
+lacks. Every screen waits instead: a display condition is `pending`; the
+engine provider holds every entry (`EngineController.setPreviewIdentityPending`)
+and opens it when the worker arrives, and an entry refused as it opened opens
+again when a different worker arrives; the Search screen's run state reads
+nothing, draws no field and launches no automatic search (as it does while
+the lookup data its opening reads loads), its Search action's
+condition is undecided, so a list whose step that condition decides waits
+(`caseListPhase.ts::caseListScreenStep`, as it does while the condition's
+lookup tables load), and a form's search answers wait with the rest of their
+world (`useSearchCsqlRuntime.ts::searchWorld`). After-submit links, and where
+their targets land, read the session the entry ran in when it was submitted
+(`FormScreen`'s `SubmittedContextSnapshot.identity`), and a route still
+waiting on a target's lookup data is dropped once another worker runs
+Preview (`afterSubmitRouting.ts::settleAfterSubmitRoute`), so no worker's
+next screen lands on another's session. Only hydration renders without the worker: a screen
+mounted afterwards reads the session in its first render
+(`useSelectedPreviewIdentity.ts`). A screen reads data that can be refused
+through `readPreviewScreen` and shows the refusal as its state, never as an
+error leaving its render; a held refusal stands only while what it was judged
+against is unchanged.
 
 `FormEngine` reads its device's rules for three things. **Screens**:
 `formScreens()` is the one page model the pager's successors, App Tests and
@@ -197,9 +228,13 @@ fixtures under their suite ids. The running Search screen's `session/data` is
 the map of its module's case list step (`entrySessionData.ts::caseListStepSession`:
 the datums supplied before the module's own selection, a parent selection or a
 copied root datum from the menu case map, the worker's record and a grouped
-tile's companion evaluated over the device's cases), which the screen's
-defaults, hidden values, prompt checks and the search's runtime values all
-read. The second runtime is needed because a user-authored
+tile's companion evaluated over the device's cases). Of the screen's reads
+only the search's runtime values (an advanced field's condition) can read a
+datum: the checker gives datum supplies to no starting value, hidden value,
+required condition, check or Search action condition
+(`lib/domain/expression/context.ts::slotContext`), so the screen opens alike
+over any step's map, and App Tests and the form check open it with none. The
+second runtime is needed because a user-authored
 `matches-pattern` runs ONLY in the worker (the JDK `Pattern` runtime is
 worker-only; the synchronous JavaRosa function table returns `unsupported` for
 a user pattern). `engine/searchInputConstraints.ts` is the split:
@@ -233,8 +268,9 @@ untouched defaults against those retained rows. Only pending section snapshots
 recapture newly available context; consumed zero-row membership stays empty.
 A language change retains all defaults as well as edited answers. This is
 Nova context recovery, not a native repeat-insertion event. Rebuilds serialize
-within the same entry, so a presentation refresh cannot discard later identity
-or case-data recovery. Edits arriving during initialization catch up through the
+within the same entry, so a presentation refresh cannot discard a later
+case-data recovery. A different worker is never a same-entry rebuild: it starts
+the entry anew (`EngineController.setPreviewIdentity`). Edits arriving during initialization catch up through the
 ordinary topology, field and worker reconciliation handlers before entry is
 ready; they do not replay an old checkpoint over the newer schema. Blur records touched state synchronously
 before queuing worker validation. A
@@ -426,7 +462,66 @@ Home ends the current running task. It clears selected parent records, the curre
 Form/Details target, and transient search context while retaining the chosen worker,
 actor authorization, and a claim stays, because it is a case row that outlives the task as HQ's does. Reopening a related-record history therefore offers its
 parent selection again, matching isolated app-test Home. Moving within a parent
-menu still retains the parent needed by its children.
+menu still retains the parent needed by its children. Home also starts a new
+task of the session, and every history entry records the selections it was
+shown with, so on Web Apps the browser's Back (or Forward) shows the popped
+entry with them wherever the session holds others, past Home (taking up the
+entry's task again) and within one task (an entry shown before a crumb let a
+case go, or before a later list chose another case), as Web Apps' address
+carries `selections` that Formplayer replays on every request
+(`CloudcareUrl`, `router.js::listMenus`,
+`MenuSessionRunnerService.advanceSessionWithSelections`); Android has no
+address, and shows the session as it stands
+(`lib/routing/previewSelectionsHistory.ts`, `rules.poppedEntrySelections`).
+
+A form's entry is where the builder's address and Web Apps' part. Web Apps
+writes the form session onto the form's address as the form opens
+(`menus/controller.js::selectMenu` sets `urlObject.sessionId` from the
+response's `session_id`, replacing the entry), and a request that names one
+is not app navigation: Formplayer drops its last selection and shows the
+screen before the form, on the form's address, without the form
+(`MenuSessionRunnerService.advanceSessionWithSelections`, `nonAppNav`). So in
+Web Apps, Back or Forward onto a form's address, a refresh of it included,
+shows the menu that listed the form, or the list holding a form chosen before
+its case. Preview's address is the builder's (`lib/routing/CLAUDE.md`): the
+entry names the form for edit and Preview alike, so showing another screen
+there would leave the address naming what is not on show, and rewriting the
+entry would take the form out of the author's own history and out of a flip
+to edit mode. Preview keeps the builder's contract: Back or Forward onto a
+form's entry opens that form as a new entry, with the entry's selections, so
+no answer of the earlier entry survives, as none survives in Web Apps; its Go
+back reaches the screen Web Apps would have shown.
+
+While Preview plays Android, the browser's Back and Forward walk the
+builder's entries and replay nothing: a phone keeps no address, so an entry
+shows its screen with the session as it stands (`poppedEntrySelections:
+"session"`), a search on its path runs with the answers its own step ran with
+(`searchReplay: "own-answers"`), and a form's entry opens the form. The
+trail's Go back is a step of the browser's history too, except on the module
+list, where it shows the phone's home screen (`BreadcrumbStrip`'s
+`backToDeviceHome`). What Android's own Back does, `CommCareSession.stepBack`,
+is each screen's in-app Back (`navigate.stepBackTo`,
+`moduleScreenNavigation.ts::previewParentCaseStepBack`), which the source
+shows no defect in, so it stays as it is.
+
+What Submit offers is one pure decision, `submitOffer.ts::previewSubmitOffer`
+over the form's state: `offered`; `busy` (its own submission, or Clear form
+from the press until the fresh entry's key arrives); `waiting` (the entry
+opening or rebuilding, device case data refreshing, the selected record
+binding, a repeat settling, an access check); `unavailable` (case data that
+failed to refresh, no edit access); or `fault` (a form the document holds
+that names nowhere to go after submit, which `effectivePostSubmit` never
+gives: the screen shows its fault state and reports it once). `FormScreen`
+disables Submit exactly where the offer is not `offered` and says why under
+it, and `handleSubmit` reads the same offer from the entry store and the
+session at the press, so a press that does nothing only ever meets a Submit
+that already shows it cannot. A taken press is busy from the press, through
+the save barrier, until it settles; a press that goes stale on the way (the
+worker moved, the entry or access changed) settles back to idle and writes
+nothing. So a change to the form under a running press (its entry rebuilding,
+its case data refreshing or failing, its record binding, a repeat settling)
+outranks the press in the offer, and the line under Submit names that change
+rather than a submission that will not finish.
 
 A required device-case database refresh pauses an existing entry without retiring
 its answers, query membership or attachment entry key. New input, validation and
@@ -451,14 +546,63 @@ FormEngine and non-writing form evaluator retain their boolean validation APIs.
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
 those selectors in case-type order, then replaces the selector with that exact
-original location. Selector URLs are replace-driven and their ephemeral request
-clears on cancel, browser Back, or unrelated navigation. Menu nesting never
+original location. A selector is entered at its case list
+(`screenProjection.ts::parentCaseSelectorLocation`), never at its menu, so a
+selector whose forms show in the menu above, which has no screen of its own,
+still chooses its case; a selector that needs a parent case of its own enters
+through its module screen (`previewRunningScreenForLocation` keeps it). Selector
+URLs are replace-driven and their ephemeral request clears on cancel, browser
+Back, or any location other than the selector's case list. Menu nesting never
 implies case ancestry: the required selector comes from `CaseType.parent_type`
 and may be a structurally unrelated module. Once selected, a direct same-type
 child Form binds the exact inherited menu case; a different-type child lookup
 is constrained by the selected parent and must never fall back to an
 unfiltered first row. Direct Results records are checked against that same
 parent before their detail is shown.
+
+A menu asks for its parent case before it lists its screen only where Core
+does: `engine/parentCaseSelection.ts::previewParentCaseBeforeMenu` replays
+`CommCareSession.getNeededData` over the datums the suite prints
+(`engine/menuDatumReplay.ts`, which `caseListEntryListing.ts` shares), and a
+menu that also lists an entry asking for no case (a registration or a survey
+beside a follow-up) lists its forms first and asks for the parent after a
+form's command, as `MenuActivity` and Formplayer's menu screen both do. Home's
+module tile and a menu's submenu tile choose through one rule,
+`components/preview/screens/moduleScreenNavigation.ts::choosePreviewMenuTile`,
+which lets the case target go before it routes. The module screen starts the
+selection at its own URL only where the menu asks first, and at every leaf of
+it whose entry chooses the parent (`previewModuleAsksParentCase`, and
+`previewLeafAsksParentCase`, which `usePreviewScreenForLocation`'s admission
+reads, so a survey of such a menu opens with no case); cancelling a parent
+asked for after a form's command returns to that menu, as
+`CommCareSession.stepBack` pops the form's command and stops where the session
+asks for one. A parent's list goes on at the row unless the datum it chooses
+for names a details screen (`previewParentCaseListHasDetails`, read by
+`CaseListScreen` for a parent request): Formplayer's `hasDetails` reads the
+needed datum's long detail (`EntityListResponse`, `EntityScreen.getLongDetail`),
+the Web Apps client's row selects at once without one
+(`menus/views.js::CaseView.rowClick`), and Android's `EntitySelectActivity`
+returns the row in `mNoDetailMode`, one rule on both platforms. A basic
+entry's parent datum names none, whatever the parent's own list shows; an
+advanced entry's parent load keeps its list's where an open action indexes
+it (`formLinkProjection.ts::advancedEntrySessionDatums`). A case the parent's
+list's address names (`/cases/{caseId}`) follows the same rule
+(`caseSelectionNavigation.ts::caseSelectionRouteCaseAction`): where the row
+goes on, the case goes on once it loads and its details never show. Back
+from a later selector's list of a chain of parents (a village, then its
+household, for a member's menu) returns to the earlier selector's list with
+its case let go, as `CommCareSession.stepBack` pops the datum just collected
+(`moduleScreenNavigation.ts::previewParentCaseStepBack`); from the first it
+cancels the request. A submenu of its parent case's own case-first menu
+asks for no parent: the wire aligns its parent datum with the menu above
+(`add_parent_datums`), which collected it, and Preview reads that menu's
+selection; a submenu under another menu of the parent's case type is
+refused (`CASE_PARENT_SELECTION_CONFLICT`), so the alignment never hands a
+menu a parent case Preview would ask for again
+(`engine/__tests__/parentCaseSelection.test.ts`). App Tests walk the same
+rules (`app-tests/navigation.ts`). `MenuScreensRuntimeTest`'s pinned-tile
+walks hold both to Core (a step's `confirms`, and a menu's command reaching
+its menu).
 
 ## First-class date type in the XPath evaluator
 
@@ -476,7 +620,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 - **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission. Both synchronous and worker-backed blur obey this rule; a required warning already shown by submission remains until the answer changes.
 - **Typed answers are checked before authored validation.** `answerShapeError` checks numeric and temporal answers on blur and at submission. Empty values belong to requiredness. Integer answers use signed decimal digits in the signed 32-bit range; decimal answers accept finite decimal and exponent notation. The numeric widget preserves incomplete text so an optional malformed answer cannot become an empty value through native input sanitization. Numeric case-write projection uses the same full-answer parser and never truncates a prefix. Temporal checks accept every spelling `isReadableTemporalValue` can canonicalize, including older stored values. Errors stay beside the owning question instead of surfacing later as a case-property refusal. Submit retains answer focus during a mouse press so blur validation cannot move the button out from under its release; activation then blurs the current control so local coordinate drafts and clock normalization commit before submission captures answers. A refusal reveals and focuses the first invalid question. Keyboard activation remains native.
-- **A setvalue casts as Core casts, and refuses as Core refuses.** Every value Preview writes into a typed node outside a calculate (a starting value, a preload among them, a repeat insert's defaults) goes through `engine/answerCast.ts`: `coreAnswerType` from the XForm emitter's own bind-type function (`lib/commcare/xform/bindType.ts::fieldBindType`, so a Hidden Value binds by its writer destination), `setvalueText` (`Recalculate.wrapData(...).uncast()`) and `castAnswerText`, the port of `SetValueAction`'s cast (decimals through `xpath/javaDouble.ts`, Java's `Double.parseDouble` grammar). Blank text never casts. A cast that succeeds stores Core's held text for a date and a date and time (the held instant's canonical text); a time keeps its written clock, because Nova's stored time carries a `Z` storage tag meaning UTC and holding the converted clock would move a saved time by the viewer's offset; a whole number and a number hold Core's held text, never the written one, because a later setvalue's uncast and the submission both carry it (`IntegerData`/`DecimalData` uncast, Java's print of the parsed value: `007` and `+7` hold `7`, `٧` holds `7`, `-0` into a whole number holds `0`; into a number `5` holds `5.0`, ` 1e3` holds `1000.0`, `0x1p3` holds `8.0`, `-0` holds `-0.0`); a location keeps the written text. One that fails at activation makes the entry `refused` (`EngineController.recordRefusal`): a terminal state beside the missing-selected-record state, with no controls and a route back (**Choose another record** and **Back to the list** for a preload, **Back** for a starting value), cleared when the document or the case data next changes. At a repeat insert the row is not added, and the repeat shows why in place; after the document changes (an edited starting value, or a rebuild restoring the entry) each user-controlled repeat's refused insert is tried again and rolled back, so the note stays only while the insert would still be refused. A refusal never reaches `faultReporter`. App Tests and `engine/evaluateForm.ts` report the same refusal as `FormRefusedError` (`form-refused`, a `FormEvaluationInputError`, with the sentence Preview shows). A calculate never casts, so it never refuses.
+- **A setvalue casts as Core casts, and refuses as Core refuses.** Every value Preview writes into a typed node outside a calculate (a starting value, a preload among them, a repeat insert's defaults) goes through `engine/answerCast.ts`: `coreAnswerType` from the XForm emitter's own bind-type function (`lib/commcare/xform/bindType.ts::fieldBindType`, so a Hidden Value binds by its writer destination), `setvalueText` (`Recalculate.wrapData(...).uncast()`) and `castAnswerText`, the port of `SetValueAction`'s cast; a starting value into a date-and-time bind is the tree the XForm's `<setvalue>` prints, its stored text read in the device's own date and clock first (`formEngine.ts::startingValueSource`, `lib/commcare/xpath/wire/instant.ts::deviceInstantText`), because the cast keeps the written date and moves only the clock (decimals through `xpath/javaDouble.ts`, Java's `Double.parseDouble` grammar). Blank text never casts. A cast that succeeds stores Core's held text for a date and a date and time (the held instant's canonical text); a time keeps its written clock, because Nova's stored time carries a `Z` storage tag meaning UTC and holding the converted clock would move a saved time by the viewer's offset; a whole number and a number hold Core's held text, never the written one, because a later setvalue's uncast and the submission both carry it (`IntegerData`/`DecimalData` uncast, Java's print of the parsed value: `007` and `+7` hold `7`, `٧` holds `7`, `-0` into a whole number holds `0`; into a number `5` holds `5.0`, ` 1e3` holds `1000.0`, `0x1p3` holds `8.0`, `-0` holds `-0.0`); a location keeps the written text. One that fails at activation makes the entry `refused` (`EngineController.recordRefusal`): a terminal state beside the missing-selected-record state, with no controls and a route back (**Choose another record** and **Back to the list** for a preload, **Back** for a starting value), cleared when the document or the case data next changes. At a repeat insert the row is not added, and the repeat shows why in place; after the document changes (an edited starting value, or a rebuild restoring the entry) each user-controlled repeat's refused insert is tried again and rolled back, so the note stays only while the insert would still be refused. A refusal never reaches `faultReporter`. App Tests and `engine/evaluateForm.ts` report the same refusal as `FormRefusedError` (`form-refused`, a `FormEvaluationInputError`, with the sentence Preview shows). A calculate never casts, so it never refuses.
 - **Default text remains text.** A default evaluating to `"false"` is a nonempty answer in both synchronous and worker execution; only the empty string means no default value. XPath numeric coercion and `selected()` use Java ASCII-control trimming, so nonbreaking spaces remain significant.
 - **`reset()` is a full reinitialization** — rebuild instance, replay scoped initialization actions, re-cascade. Returns to the exact initial state.
 - **`resetValidation()` clears touched state + errors only** — called when leaving test mode so fields start clean on re-entry.
@@ -594,9 +738,10 @@ never through a Server Action — a `File` argument would make React encode
 multipart, which the edge WAF reads as header injection.
 
 `EngineController.entryKey` is the idempotency/reservation scope, minted per
-`activateForm`. It lives on the CONTROLLER, not the engine, and survives cold
-identity, lookup, case-data rebuilds, and an access refresh confirmed for the
-same Project; a key minted by each rebuilt engine or scope epoch would rotate
+`activateForm`. It lives on the CONTROLLER, not the engine, and survives the
+same-entry rebuilds (lookup data, case data, the worker language, the
+session's device arriving) and an access refresh confirmed for the same
+Project; a key minted by each rebuilt engine or scope epoch would rotate
 under already staged bytes. A confirmed app/form/Project change, materially
 different worker projection, terminal revoke/upgrade boundary, or **Clear
 form** retires the entry and rotates the key. Clear mounts the fresh answer
@@ -968,7 +1113,8 @@ holds these paths.
 Navigation display conditions (`displayConditionEvaluation.ts`) evaluate at
 render through the same printing path: module conditions gate the home
 screen's module list; form conditions gate the case-list screen's
-post-selection form menu + single-form auto-continue (over the device
+post-selection form menu and whether a form the worker chose before the case
+still opens (over the device
 snapshot, reading the chosen case through the suite's own casedb walk keyed on
 `session/data/<datum>`, with the same suite emitters `compiler.ts` writes the
 attributes with; the menu's session also holds the case list step's map, so
@@ -985,7 +1131,9 @@ mode never hides. A condition is evaluated as stored
 `x and never` still waits for `x`'s data.
 
 An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
-read, and a module off the menu takes its child modules off with it, as on
+read, and a module off the menu takes its forms off with it, and its child
+modules too unless it shows its forms in the menu above, where a child that
+keeps its screen stays on the app's first menu by its own condition, as on
 both runtimes; its reveal summary reads "Off the menu" (`menuProjection.ts::
 OFF_THE_MENU_SUMMARY`). App Tests cannot open one from a menu. Preview plays
 the platform it runs as (`lib/preview/platform.ts`): after submit, a link's
@@ -996,10 +1144,10 @@ conditions on Web Apps unless it ignores them and ignores them on Android
 both; `app_home` opens it on Web Apps and the device home screen on Android
 (`postSubmitAppHome`); and `parentMenu` opens the parent module's screen with
 its selection kept. On Web Apps a form target off the menu or whose condition
-is false lands on its module, and a target inside or under a module the menu
-hides, or a module target whose condition is false, lands on the menu above the
-topmost hidden module: its shown parent's, or the app's first screen for a
-top-level module (`afterSubmitRouting.ts::afterSubmitTargetVisibility`), as Formplayer's
+is false lands on its module, and a target the menu hides lands on the screen
+that would have listed it (`menuScreenOf` of a form's module, `menuTileScreenOf`
+of a module), walked up while that screen's own entry is hidden
+(`afterSubmitRouting.ts::afterSubmitTargetVisibility`), as Formplayer's
 `MenuSessionFactory.rebuildSessionFromFrame` walks the frame only through the
 menus it would show.
 
@@ -1007,20 +1155,129 @@ A module's case list menu entry (`Module.caseListMenuItem`) plays the runtime,
 formless or beside forms. `menuProjection.ts::previewCaseListMenuEntry` lists
 it after the module's forms, under the item's label unit when it has one and
 the module's name otherwise, with the item's icon; a bare case list
-(`moduleIsBareCaseList`) keeps its landing, since the menu is its list. In a
-forms-first menu the entry opens the case list; in a case-first menu
-(`moduleIsCaseFirst`) the case is chosen first, as Core asks a datum every
-entry shares before the command, and the menu then lists the forms and the
-entry (the module screen, and the case list's form menu, which also never skips
-to a lone form while the entry is listed). A case list opened from the entry
-(`CaseListScreen`'s `openedFromCaseListMenuItem`: a bare case list, or a
-forms-first menu's list with no form chosen) routes a chosen case by
-`caseListMenuItemRoute.ts::caseListMenuItemSelection` instead of opening a
-form, and in a case-first menu choosing the entry with the case already chosen
-is the selection. Web Apps steps back (`step-back`, Formplayer's
-`MenuSession.getNextScreen` stepping a view command back): choosing a case
-shows the screen before it again, the list with nothing chosen in a
-forms-first menu and the menu in a case-first one. Android returns to the
+(`moduleIsBareCaseList`) keeps its landing, since the menu is its list. The
+entry is a view command, and Core lists a view only while the session still
+needs one of its datums (`MenuLoader.addRelevantCommandEntries`,
+`getNeededDatum(e) == null` skips it); before listing a screen Core collects
+every datum all of the screen's entries need first, on each screen on the way
+(`getDataNeededByAllEntries`). `engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`
+replays that over the datums the suite prints (`caseListSessionDatums`,
+`entrySessionDatums`), and the entry is listed only where it holds. No
+screen shape short-cuts it: a forms-first submenu under a case-first parent of
+the same case type does not list its entry, because the parent's screen
+already chose that case. Where it is listed, choosing it opens the case list.
+A case-first screen lists nothing before its case is chosen, and then lists the
+entry only where its datums go past that case (a menu showing its forms there
+whose list chooses a child of the chosen case, say); the screen's own menu's
+entry chooses exactly the chosen case and is not listed. Once a case is
+chosen Preview opens a form only where one was requested (the form the worker
+chose before the case, a link's or a retained command's), as that form's
+command names its entry, and it opens without listing the menu, so no
+display condition is read on the way, whatever it would say: Core reads a
+command's condition only as `MenuLoader` lists a menu; otherwise it lists the
+menu, however many forms it shows, reading every condition there
+(`menuProjection.ts::previewRequestedForm`, at every choice site of
+`CaseListScreen` and in `app-tests/navigation.ts`). What a list goes on to
+once its case is chosen is `previewCaseListContinuation`, which
+`CaseListScreen` and the menu-screens producer both read. A form the worker chose
+from the menu after its case sits above the case in the session, so one step
+back from it stops on that menu with the case held and a second reaches the
+list with nothing chosen (`CommCareSession.stepBack` pops the form's command
+and stops where the session waits for a command, `shouldPopNext`; Android
+shows `MenuActivity` there and Web Apps the selections less the form). Its
+target carries `formChosenAfterCase`, naming the list that chose the case
+and, where that list's own form menu listed the form, `fromCaseListMenu`.
+Each step has its own place in the browser's history, as each is a step of a
+device's session. Choosing a case on a list that goes on into its own form
+menu opens that menu on a history entry of its own at the list's URL, pushed
+after the list, or in place of the case's details the choice went through,
+which a device leaves behind (`CaseListScreen`'s `holdFormMenu`,
+`navigate.holdPreviewMenu`); the entry carries the held cases, and the
+Preview session that held them (the session store's `previewSessionId`), in
+its history state (`lib/routing/previewHeldMenu.ts`), the list shows its menu
+exactly on an entry that holds one in the session running now
+(`previewCaseListHeldChoices`), and a form chosen there is pushed after it.
+So Back off the form lands on the menu with the case held, Back off the menu
+(its own Back, the strip's Go back or the browser's) reaches the list with
+nothing chosen, and Back, Forward and Back land where a device's steps do. A
+change of worker, platform or Preview run starts a new session, so Back onto
+an earlier menu's entry shows the list: a case the previous worker chose has
+no standing in the next one's session. A language change on the menu keeps
+the menu one lens deeper, and the menu's own Back steps past all of its
+entries at once and keeps the language, as a device has no language history
+(`useClientPath.ts::stepBackOffPreviewHeldMenu`); where no list entry is
+behind the menu (a deep-linked case's details opened with nothing before
+them, a menu its case's crumb opened again from a form that is not right
+after the menu), its own Back shows the list in the menu's entry instead
+(`previewHeldMenu.ts::previewHeldMenuBack`). The case's crumb on a form chosen
+from the menu steps back onto the menu where the form was opened from it
+(`navigate.reopenPreviewHeldMenu`), as a device's Back off the form does;
+a menu screen's case crumb always reaches that menu screen, whatever target a
+list's form menu left in the session. A menu screen holds the case
+in its selection, on the module's own URL. The marks are written by
+`previewCaseListMenuChoice` and `previewMenuScreenChoice`, which the
+producer calls too. Every route from a form back to a list (a refusal's
+Choose another record and Back to the list, a before-case form's crumb)
+goes through `previewCaseListReturn`, to the list that chose the case
+holding no form, or to the form's own list holding the form where the
+worker chose it before the case; the list reads its held form through
+`previewCaseListFormRequest`, which ignores a form chosen after its case,
+and the trail names that held form alone. The trail follows the session's
+steps as Web Apps' does: a form chosen before its case reads menu, form,
+case, and one chosen from the menu after its case reads menu, case, form,
+whose case crumb (`holdsCaseOn`) reaches that menu with the case held. A
+menu screen's trail names each case its session holds after the crumb of the
+menu that chose it, App / Patients / the patient, as Web Apps' trail grows one
+crumb per selection (`previewBreadcrumbs.ts::withHeldCaseCrumbs`, over
+`previewMenuHeldSelections`), as Formplayer adds each step's breadcrumb
+(`MenuSession.handleInput`) and Android's form title names each step of the
+frame (`CommCareActivity.getTitle`). A list, a case's details and a form
+name the parent cases their menu goes on with the same way (`heldBefore`,
+over `previewSelectionsBefore`; `previewBreadcrumbs.ts::previewTrailHeldCases`
+picks the cases for whichever screen is on show), so a submenu's list reads
+App / Households / the household / Members. A parent case a list off the trail chose (a
+`parentCaseModuleUuid` naming a menu elsewhere), or a forms-first menu's list
+on the trail chose for its submenu (`PreviewHeldCaseSelection.askedForBy`),
+was asked for by the next menu's command, so its crumb follows that menu's crumb, before the menu's
+own case, or follows the form a form-first menu chose before its cases, and
+it reaches the screen after it (`parentCaseOn`): that menu's list asking for
+its case, the menu itself where it was the last case chosen, or the list
+holding the form. Each
+crumb cuts the session back to the screen it names, as Web Apps'
+`spliceSelections` does: a crumb to a menu or to the first menu lets a held
+target go (`previewTargetAboveForm`) and every menu's chosen case but those
+held as its menu's command was chosen (`previewMenuSelectionsLetGo` over
+`previewSelectionsBeforeCommand`: what a case-first menu above holds, never
+a parent case a forms-first menu's list chose after the command), so a
+case-first menu's crumb asks for its case again, and so does a submenu's
+whose parent case its forms-first menu's list chose; a case's crumb keeps every case
+chosen up to it (`keepsCasesOf`), a parent case a list off the trail chose
+included, and lets every later one go. A menu's crumb, a form's and the
+crumb of the form a list holds keep the cases named before them the same
+way (`previewBreadcrumbs.ts::previewBreadcrumbLetGo`, the one cut the strip
+runs): a menu after a parent case a list off the trail chose keeps it, and
+the crumb of a form chosen before its cases lets go the parent case asked
+for after the form's command, as Formplayer asks for it there. The list then
+asks for it again and still holds the form: a parent case selection keeps
+the form the list it resumes holds
+(`components/preview/screens/moduleScreenNavigation.ts::previewTargetKeptForParentCase`,
+in `ModuleScreen`'s redirect to the selector and the selector list's
+continuation), so the form opens once the case is chosen. A crumb lets the searches past its
+screen go too (`searchStanding.ts`, § The completed-search context). A menu's command names no
+entry, so even with one entry under it `CommCareSession.getNeededData` finds
+none for the menu's id (`getEntryForCommand`) and asks for a command; Android
+opens `MenuActivity` there (`HomeScreenBaseActivity.handleGetCommand`) and
+Formplayer advances past it only under `cc-auto-advance-menu`
+(`FormplayerPropertyManager.isAutoAdvanceMenu`, off by default), which Nova
+never writes, so the rule is one on both platforms. Edit mode lists every entry
+(`caseListMenuEntryOf`). A case list opened from the entry
+(`CaseListScreen`'s `openedFromCaseListMenuItem`: a bare case list, a
+forms-first menu's list with no form chosen, or on a case-first screen the list
+of a menu showing its forms there whose entry is listed) routes a chosen case
+by `caseListMenuItemRoute.ts::caseListMenuItemSelection` instead of opening a
+form. Web Apps steps back (`step-back`, Formplayer's
+`MenuSession.getNextScreen` stepping a view command back): the entry still
+needs the choice, so the list shows again with nothing chosen. Android returns to the
 phone's home screen (`device-home`, which sets `previewAtDeviceHome`). With
 Details columns a chosen row shows its detail first; on Android the detail's
 button is the runtime message `detailDone` ("Done",
@@ -1038,9 +1295,9 @@ Blueprint mutations in edit mode recreate the engine. The engine hook snapshots 
 
 **Two ids, and they are NOT interchangeable.** `actorUserId` is the signed-in member and the ONLY thing that ever authorizes. `ownerId` is the CommCare worker the preview acts as — the `owner_id` stamped on rows it writes and what `session/context/userid` resolves to. Previewing as yourself makes them the same string; previewing as a persona makes `ownerId` that persona's UUID while the member still authorizes. `ownerId` is authored blueprint content, so keying an authorization decision on it would let an app choose whose data a request reads; `resolveAuthorizedPreviewContext` passes `actorUserId` into the locked authorized-app snapshot before resolving any persona and threads `ownerId` through `withProjectContext(projectId, actorUserId, ownerId)` as the worker only, and the consumer tests pin that the two cannot be re-conflated (including Project-scoped lookup reads, which always use the actor). A Server Action accepts a persona SELECTOR (a uuid) and resolves it against the committed document; it never accepts an identity.
 
-**The usercase reading is the ROW, not a second computation.** `commcare-user` is materialized per app and worker, and `#user/<prop>` on the wire resolves against `casedb` — so once a form can write through `usercase_update` a computed projection and the row diverge the moment a worker answers. They diverge without that too: the sync's never-remove diff keeps a key on the row after the catalog drops the property, while the projection forgets it. The derivation survives as the materializer's INPUT (`lib/domain/usercase.ts`), and `resolveAuthorizedPreviewContext` reads back what the row holds. Never compute the usercase independently here: only the row stays equal to what the device holds. Its case id is distinct from the worker's identity: materialization, submission writes and durable device patches resolve the app-scoped `hq_user_id` join, preserving historical row ids. Previewing as the same signed-in member in different apps therefore keeps independent stored answers.
+**The usercase reading is the ROW, not a second computation.** `commcare-user` is materialized per app and worker, and `#user/<prop>` on the wire resolves against `casedb` — so once a form can write through `usercase_update` a computed projection and the row diverge the moment a worker answers. They diverge without that too: the sync's never-remove diff keeps a key on the row after the catalog drops the property, while the projection forgets it. The derivation survives as the materializer's INPUT (`lib/domain/usercase.ts`), and `resolveAuthorizedPreviewContext` reads back what the row holds. Never compute the usercase independently here: only the row stays equal to what the device holds. Creating a missing row is a case write, which the case store authorizes against the member's `edit` capability, so a Project viewer's Preview never attempts it (`previewAuthorization.ts::withMaterializedUsercase`, `mayCreate`): it reads the row where an editor's Preview or the commit path made one (`syncUsercaseRow.ts::storedUsercaseProperties`), and the derived record where none exists. Both evaluators then give that record's answer: a form's read prints it, as the device snapshot holds no row for the worker (`previewWorkerPropertyBinding`), and a read compiled to SQL (a list's filter, column or order) answers from it where the store holds no row (`previewSessionValues` carries the identity's `usercase`, which `previewCaseStoreBindings` binds as `TermBindings.workerRecordWithoutRow`), so a list and a form of the same app read one worker (`engine/__tests__/previewViewerUsercase.postgres.test.ts`). Its case id is distinct from the worker's identity: materialization, submission writes and durable device patches resolve the app-scoped `hq_user_id` join, preserving historical row ids. Previewing as the same signed-in member in different apps therefore keeps independent stored answers.
 
-**Two readings, because the wire has two.** `session` is `instance('commcaresession')/session/…` (`SessionInstanceBuilder.addMetadata` + `addUserProperties`); `usercase` is the `commcare-user` case `#user/<prop>` reads (`sync_usercase.py::_get_user_case_fields`). Same authored data, different built-in keys — `first_name` in the usercase, `commcare_first_name` in the session block — so collapsing them would make one of the two lie. The serializable session projection also carries `userPropertySlugs` (custom UUID→CURRENT slug), which is binding metadata rather than worker data; `previewUserPropertySlugMap` turns it into the typed emitter/compiler map. Thus `session-user-property`, in record slots and form logic alike, evaluates against the same property after a rename without rewriting the stored tree, while name-backed built-in/external arms remain literal. Every session/usercase read uses an own-key lookup, so authored `__proto__` and `constructor` values cannot inherit from the object prototype. **The three location keys diverge, and it is easy to get backwards**: `get_user_session_data` writes all three or none, so the session block omits them while nobody is assigned anywhere, but `_get_user_case_fields` takes an `else` branch to `''` for all three, so the usercase always carries them. Values are otherwise honest: `commcare_project` is ABSENT in BOTH projections until a deployment names one (the domain is never empty on a device, so an empty value would be one no worker can hold), and the worker's name rides as `case_name` rather than `name` (HQ pops `name` into the case's name and never writes it as a property), while the session's first/last/phone keys and the usercase's first/last/phone/email keys are PRESENT, derived when possible and empty otherwise, because HQ writes those slots unconditionally. `user_type` IS present and reads `"standard"` — HQ sends the key only for a practice user, but every `commcare-core .../User.java` constructor calls `setUserType(STANDARD)` before `UserXmlParser::parse` applies any `<data key>`, so the device always has it and a condition on it must behave the same here. A DECLARED property with no value is present-and-empty, matching HQ's `UserData.to_dict` seed, while an undeclared key is genuinely absent — the split a `= ''` comparison depends on.
+**Two readings, because the wire has two.** `session` is `instance('commcaresession')/session/…` (`SessionInstanceBuilder.addMetadata` + `addUserProperties`); `usercase` is the `commcare-user` case `#user/<prop>` reads (`sync_usercase.py::_get_user_case_fields`). Same authored data, different built-in keys — `first_name` in the usercase, `commcare_first_name` in the session block — so collapsing them would make one of the two lie. The serializable session projection also carries `userPropertySlugs` (custom UUID→CURRENT slug), which is binding metadata rather than worker data; `previewUserPropertySlugMap` turns it into the typed emitter/compiler map. Thus `session-user-property`, in record slots and form logic alike, evaluates against the same property after a rename without rewriting the stored tree, while name-backed built-in/external arms remain literal. Every session/usercase read uses an own-key lookup, so authored `__proto__` and `constructor` values cannot inherit from the object prototype. **The three location keys diverge, and it is easy to get backwards**: `get_user_session_data` writes all three or none, so the session block omits them while nobody is assigned anywhere, but `_get_user_case_fields` takes an `else` branch to `''` for all three, so the usercase always carries them. Values are otherwise honest: `commcare_project` is ABSENT in BOTH projections until a deployment names one (the domain is never empty on a device, so an empty value would be one no worker can hold), and the worker's name rides as `case_name` rather than `name` (HQ pops `name` into the case's name and never writes it as a property), while the session's first/last/phone keys and the usercase's first/last/phone/email keys are PRESENT, derived when possible and empty otherwise, because HQ writes those slots unconditionally. `user_type` IS present and reads `"standard"` — HQ sends the key only for a practice user, but every `commcare-core .../User.java` constructor calls `setUserType(STANDARD)` before `UserXmlParser::parse` applies any `<data key>`, so the device always has it and a condition on it must behave the same here. A DECLARED property with no value is present-and-empty, matching HQ's `UserData.to_dict` seed, while an undeclared key is genuinely absent. The session instance (`xpathInstances.ts::commcareSessionXPathInstance`) holds `user/data` with no wildcard template, so a read of an absent key is Core's refusal (`DataInstance.hasTemplatePath`, then `XPathNodeset.unpack`), never a blank: a menu or Search screen that reads one shows the data refusal in place of the screen (`engine/dataRefusal.ts`, subject `worker-information`; `HomeScreen` and `ModuleScreen` hold it as state through `readPreviewScreen`, so no error leaves the render for Next's `onCaughtError` to log) and a form stops at entry, as Formplayer and Android fail the screen (`MenuLoader`'s load exception, `MenuScreen.init`, `MenuAdapter.showAnyLoadErrors`; `MenuScreensRuntimeTest` reads both on `worker-place-read`, each worker over its own parse of the suite, because Core checks a parsed expression's path only until the check first passes, `XPathPathExpr.templatePathChecked`, so an install that once read the key for another worker reads it blank afterwards; Preview reads as the worker's own install does). The one exception is `commcare_project`, which every device holds and Preview leaves out until the app is published to one project space: it stays a template and reads blank. After the gate refuses a session read by name of a key that is not built in (`undeclared-worker-field`) and a read by name of a declared slug (`worker-property-read-by-name`, so every declared read is its identity, which a declared property's present-and-empty seed always answers), the absent keys a Nova app can meet are the place keys of a worker assigned nowhere. A screen reads only the menus' conditions Core reads on it: `menuProjection.ts::previewModuleOwnVisibility` and `inheritedModuleVisibility` read each module's condition when a screen first asks (`LazyModuleVisibility`), so one menu's refusal stops the screens that list it or are its own and no other, and routing reads a refused menu as not shown (`previewRoutingModuleVisibility`) so the location lands on the screen that shows the refusal; Web Apps' after-submit walk reads a refusing condition as hidden too (`afterSubmitRouting.ts::refusedAsHidden`), so it stops on the screen that lists the item, which shows the refusal as Formplayer's rebuilt session fails there, and an entry point that keeps display conditions refuses with `entryPointLaunch.ts::ENTRY_POINT_DATA_REFUSAL`. A case-first menu reads its forms' conditions once the case is chosen (`MenuLoader.addRelevantCommandEntries`), and `CaseListScreen` holds a refusal there as the form menu's state (`readPreviewScreen`), never as an error out of a click or a render. Every read compiled to SQL binds the worker's session with `TermBindings.sessionUserAbsent` (`runtimeBindings.ts::previewCaseStoreBindings`, and the submission program): an absent key throws `AbsentWorkerFieldError` as the read compiles, except `commcare_project` (`workerSessionKeys.ts`), which reads blank. The case read actions map it (`serverDataRefusal.ts::serverPreviewDataRefusalOf`, as App Tests do) to the `data-refused` arm, so a case list whose filter, column, order or search reads the key, a case's Details and the persistent tile show the refusal in their place (surface `list`) and nothing reaches telemetry; a Search runtime value that reads it comes back as `SearchCsqlRuntimeWire.dataRefusal`. The Search screen holds its refusal as state too. As it opens it reads what Core's query manager reads as it is built, on Web Apps and Android alike (`RemoteQuerySessionManager`'s constructor, which Formplayer's `QueryScreen.init` and Android's `QueryRequestActivity` both run): each starting value and hidden value, each choice list's rows (`refreshItemSetChoices`: a table with no rows, or a row filter over a key the worker lacks), letting go each chosen value of a starting value those rows do not offer (`checkForValidSelectValue`, `searchRunState.ts::searchStartingValuesOffered`), each required condition, and the check of each field a starting value still answers (`searchRunState.ts::openSearchRunState`, `useSearchInputRunState`'s `refusal`), though Android then marks nothing required and checks no answer. Core gives that choice pass one round per prompt (every Search field, a hidden one included), and the round that lets a value go is still dirty, so on a screen of one prompt a starting choice its list does not offer fails the screen instead ("Invalid itemset state"): Formplayer answers with that error and Android's `QueryRequestActivity`, which catches only an `XPathException` there, stops. Preview refuses the screen there (`searchRunState.ts::searchStartingChoicesFail`, reason `unoffered-starting-choice`, subject `starting-choice`), naming the field and asking for a starting value its list offers; a screen of two or more prompts lets the choice go. The screen opens only over lookup data that covers those reads (`searchScreenOpeningCovered`): until it arrives the run state is `pending`, holds no field, refuses nothing and launches no automatic search, and Results that open on the default search say the search is getting ready; a lookup load that failed opens it over what the data covers. Formplayer builds that manager before it runs an automatic search (`QueryScreen.init`), so a menu that opens on its results refuses there too, Search pane or not. The Search action's condition refuses the whole list (`CaseListScreen`'s `searchActionRead`), and a check of an answer the worker typed refuses when Web Apps judges it (`SearchInputForm`). `SearchPromptRuntimeTest` holds Core's manager to each of these on `prompt-worker-place`, and to the starting answers each opened screen holds, a starting choice the list does not offer let go (`unoffered-choice`) or failing a screen of one field for every worker (`unoffered-choice-alone`). A list that opens first keeps its cases and shows the refusal in its Search pane (or, with no field to fill in, in place of its Search button), holding no search; a menu that opens on its search or its results shows it in place of the screen. App Tests and the form check open the Search screen through the same `openSearchRunState` (`searchEvaluation.ts::evaluateSearchSnapshot`, `evaluationContext.ts::formsReadSearchFormAnswers`), so they refuse at the same step: a menu that opens on its search or its results refuses as it opens, and a list that opens first keeps its cases and refuses a Search press. The assigned-case exclusion is a rule of the Results read, which Preview evaluates as it reads Results and words as the list's; App Tests and the form check hold its refusal as data (`searchEvaluation.ts`'s `exclusionRefusal`) and throw it, named the list's, only where their records read reads Results (`serverSearchRead.ts::serverRecordsRead`), so a menu on its Search screen refuses nothing for it. A form of a menu whose forms read the search opened with no completed search behind it (a form link, an entry point), which Web Apps rebuilds through the menu's query step, opens that Search screen too, in Preview's form screen (`caseListRegistration.ts::readFormSearchAnswers`) as in the form check, so it reads every hidden value, required condition and check there and refuses in place of the form. A form whose case blocks read the key (an operation's owner, values, name or conditions, the open and close conditions) is refused when it opens, or when a row of the repeat that carries the operation exists (`dataRefusal.ts::caseBlocksReadAbsentWorkerKey`), since Core calculates those binds as their nodes exist (`WorkerIdentityRuntimeTest` holds Core's form entry to it on `worker-place-owner`, an owner read from the worker's case-sharing group). These SQL and case-block checks are static, so they refuse a read inside a branch the device never takes, and a list with no cases, which a device never evaluates a filter or a column over.
 
 **The running app reads what the worker's device would hold, and it is a
 SEPARATE axis from identity.** CommCare does not filter a restore by
@@ -1068,7 +1325,12 @@ the claim has landed: a chosen result continues, and a form whose entry holds
 the claim (the chosen cases and, under a selected parent, the entry's other
 case datums, `parentSelectClaimChoices`) opens on a device that holds them. A
 claim that did not land keeps the worker where they were with its reason.
-Until the device snapshot holds every id of the claim in flight, the screens
+A claim that lands after the worker has moved on (a crumb, Back or Forward,
+leaving Preview, another worker) goes on to nothing: `CaseListScreen` holds
+the menu or opens the form only where the worker still is
+(`useClientPath.ts::readBuilderHistoryMove` and the Preview session, read
+as the choice was made), as it does for a several-case selection checked
+after the worker moved. Until the device snapshot holds every id of the claim in flight, the screens
 pass those ids to `deviceCasesHoldingClaims`, so a menu condition that reads
 the device's cases waits rather than reading a claimed case as missing. An App
 Test journey writes its claim rows in its own namespace (`app-tests/CLAUDE.md`).
@@ -1115,7 +1377,7 @@ into its request identity. Without it the preview keeps serving the previous
 worker's rows with nothing on screen to say so, which is the exact failure the
 note exists to prevent, arriving through the back door.
 
-Server side, every persona-aware running path — Results/Details reads, sample populate/reset, and submission — calls `resolveAuthorizedPreviewContext` once. It authenticates the member, resolves membership plus the committed blueprint under the same app-row and membership locks, resolves the selector from that one authorized snapshot, and binds the explicit actor/owner pair. A selector naming a missing persona returns `persona-unavailable`; it never silently runs a read or write as the member. The selected owner rides populate/reset and `submitFormAction`, so all rows the persona creates belong to the persona, while the actor remains the authorization and lookup identity. Client side, `useSelectedPreviewIdentityState()` makes selected-but-missing a distinct `persona-unavailable` state rather than collapsing it with signed-out/loading or falling back to the member for one frame. `PreviewShell` replaces the running screens with an explicit unavailable-persona refusal and a **Preview as me** recovery action, while `BuilderFormEngineProvider` marks the `EngineController` blocked so activation cannot execute behind that refusal. Leaving Preview clears the persona selector before edit-only sample/data surfaces become active; the next preview therefore starts as the member unless the author chooses another persona. Visual consumers of the compatibility `useSelectedPreviewIdentity()` keep the server/client hydration render identity-free, while `BuilderFormEngineProvider` opts into a warm cached session and seeds that result on the `EngineController` inside its `useState` initializer — the provider itself renders no identity-dependent markup, and child effects flush before parent effects, so an effect-only install would hand every warm-session form mount an identity-less engine plus an immediate rebuild. A follow-up effect tracks later session changes. Identity is engine-lifetime state: a materially different identity rebuilds any active engine (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), a cold session resolving mid-entry restores edited or blurred answers through the engine's shared snapshot/restore (the same contract as blueprint-edit recreation; untouched defaults may depend on the worker and must re-derive), and replacing a NON-null identity (sign-out, different worker) discards — restoring would leak one worker's entries into another's session. React adapter tests that mount `BuilderFormEngineProvider` control `@/lib/auth/hooks/useAuth` so the session atom cannot start an unowned session fetch. Native browser tests may instead exercise the real auth hook against a controlled `/api/auth/get-session` transport, and must join that request and close their browser context. `#user/<prop>` prints the wire's walk to the worker's `commcare-user` row in the device snapshot, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
+Server side, every persona-aware running path — Results/Details reads, sample populate/reset, and submission — calls `resolveAuthorizedPreviewContext` once. It authenticates the member, resolves membership plus the committed blueprint under the same app-row and membership locks, resolves the selector from that one authorized snapshot, and binds the explicit actor/owner pair. A selector naming a missing persona returns `persona-unavailable`; it never silently runs a read or write as the member. The selected owner rides populate/reset and `submitFormAction`, so all rows the persona creates belong to the persona, while the actor remains the authorization and lookup identity. Client side, `useSelectedPreviewIdentityState()` makes selected-but-missing a distinct `persona-unavailable` state rather than collapsing it with signed-out/loading or falling back to the member for one frame. It hands on the same object for as long as it names the same worker (`identity.ts::heldSelectedPreviewIdentityState` over `samePreviewIdentity`), since a session refetch mints a new user object and its consumers compare it by reference: the refusal backstop's reset keys (`PreviewDataRefusalScope`) and the engine provider's install. A peer that fakes `@/lib/auth/hooks/useAuth` returns one user object across renders too, as Better Auth's session atom does (`e2e/lib/signed-in-auth-boundary.ts`). `PreviewShell` replaces the running screens with an explicit unavailable-persona refusal and a **Preview as me** recovery action, while `BuilderFormEngineProvider` marks the `EngineController` blocked so activation cannot execute behind that refusal. Leaving Preview clears the persona selector before edit-only sample/data surfaces become active; the next preview therefore starts as the member unless the author chooses another persona. Visual consumers of the compatibility `useSelectedPreviewIdentity()` keep the server/client hydration render identity-free, while `BuilderFormEngineProvider` opts into a warm cached session and seeds that result on the `EngineController` inside its `useState` initializer — the provider itself renders no identity-dependent markup, and child effects flush before parent effects, so an effect-only install would open every warm-session form mount's entry with no worker and no hold, then discard that entry and start a new one when the identity lands. A follow-up effect tracks later session changes. The provider installs the session through `EngineController.installSessionIdentity`: an unresolved session (`null`) holds every entry (`setPreviewIdentityPending`) before the identity goes, and a resolved one installs the identity before a held entry opens, so no entry opens against a session that is not the worker's (§ Platforms). Identity is engine-lifetime state: a materially different identity starts any active entry again (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), and every replacement discards, a first identity included: restoring would leak one worker's entries into another's session. The provider and the standalone field harnesses (`e2e/lib/preview-geopoint-client.tsx`, `preview-attachments-client.tsx`) install their session through `installSessionIdentity`, so no entry runs without a worker and a session resolving finds no live entry to keep answers for. The rebuilds that keep an entry and its answers are the worker language's (`setPresentationLanguage`) and the session's Android device arriving on the controller's own install id (`setPreviewDevice`), never an identity's. React adapter tests that mount `BuilderFormEngineProvider` control `@/lib/auth/hooks/useAuth` so the session atom cannot start an unowned session fetch. Native browser tests may instead exercise the real auth hook against a controlled `/api/auth/get-session` transport, and must join that request and close their browser context. `#user/<prop>` prints the wire's walk to the worker's `commcare-user` row in the device snapshot, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
 
 ## Several-case selection and batch forms
 
@@ -1232,9 +1494,55 @@ a bare `.5`) is no number in Preview.
 A `caseListConfig.tile` turns each Results row into a grid. `caseTileLayout.ts`
 resolves the geometry and `caseTileRendering.ts` turns it into declarations;
 `components/preview/shared/CaseTile.tsx` is the only renderer, shared by the
-Results rows and the tile pinned above forms, so the two cannot draw one case
+Results rows and the pinned tile, so the two cannot draw one case
 differently. Both files carry the CommCare citations — read them before changing
 a number.
+
+**The pinned tile is one rule over the session's held cases**
+(`pinnedCaseTile.ts::previewPinnedCaseTile`, drawn by
+`components/preview/shared/PinnedCaseTile.tsx`). Both platforms pin the tile
+of the EARLIEST case the session holds whose datum names a persistent detail
+(`MenuSessionRunnerService.getStepToFrame`, `BreadcrumbBarHelper.loadTile`),
+and Nova's wire names one on every datum a list that keeps its tile on screen
+(`persistOnForms`) chose; several cases chosen together are another kind of
+step, which neither reads. The tile shows on every screen holding that case:
+a menu screen, a case list's own form menu, a case list chosen past it (its
+details included) and a form, on both platforms, and a search on Web Apps
+only (`searchScreenCaseTile`: Formplayer sets it on every response, and
+Android's search layout holds no `universal_frame_tile`). Each screen hands
+the rule its held cases in the order they were chosen:
+`menuProjection.ts::previewSelectionsBefore` (the cases held as a module's
+command is chosen, `previewSelectionsBeforeCommand`: what a case-first menu
+above holds, which stays a step of the session whatever the submenu's case
+type, then the parent cases the module goes on with, which its command asked
+for) and `previewMenuHeldSelections`
+(those and the menu's own, with the list that chose it, a parent menu's for a
+same-type submenu), and the form adds its own case with the list that chose
+it. `MenuScreensRuntimeTest` holds Core's own frame walk (Formplayer's
+`getStepToFrame` and Android's `loadTile` over
+`CommCareSession.findDatumDefinition`) to the case and detail this rule names
+on each screen of a parent-select chain, a same-type submenu and a submenu of
+an unrelated case type (`pinned-tile.tiles.json`).
+
+Android's case details add the case they show (`caseDetailsCaseTile`): where
+no held case pins a tile, `BreadcrumbBarHelper.loadTile` falls back to
+`EntityDetailActivity.requestEntityContext`, the case on show drawn with the
+persistent detail of the datum being chosen
+(`EntityDetailUtils.populateDetailIntent`'s `DETAIL_PERSISTENT_ID`, passed only
+beside the datum's details screen). So it shows where that list keeps its tile
+on screen and chooses for its own datum (`PreviewViewedDatum` `list`: a browse
+list, or the results of a search its forms read), and not on a search action's
+results, which choose for the remote request's `search_case_id`, a datum with
+no persistent detail (`searchSession.ts::buildSearchSession`, as HQ writes it),
+nor for a parent another list asked for, whose datum has no details screen.
+`CaseListScreen` hands the rule that case and its datum as `viewing` on the
+`case-details` surface (`claimsAtResult` is a search action's results,
+`selectsForParentRequest` a parent request); Formplayer's details answer
+carries no tile (`MenuController.getDetails`), so Web Apps' details show only
+a held case's. `MenuScreensRuntimeTest` reads Android's fallback on a list's own
+datum and on a search action's `search_case_id` (the `pinned-tile` walk through
+Patients' Search action, whose claim then rewinds the case into the list's
+datum and pins its tile).
 
 On Android the list is flat, borderless and aligned only in the middle, as
 commcare-android draws it (`tileGrouping`, `tileBorderShading`,
@@ -1287,7 +1595,15 @@ Four things the rest of the preview has to know:
 - **The persistent tile is a separate read.** `PersistentCaseTile` loads its own
   row with the display config attached so calculated cells project exactly as in
   Results; the form's case read stays display-free because it feeds the engine.
-  It sticks to the preview scroller, which is why `FormScreen`'s frame grows with
+  It reads the case where the list that chose it reads its cases
+  (`pinnedCaseTile.ts::pinnedTileSearchReading`): a list whose forms read the
+  search chooses from that search's results (each datum of its entries reads
+  `results:inline`, and Formplayer draws the tile from the datum's own nodeset,
+  `getPersistentDetail` → `getEntityFromID`), so while its search stands the
+  tile reads the search population with the search's answers, a case the
+  device does not hold yet included (such a menu claims only as a form opens);
+  every other list's tile reads the worker's device, whose search action
+  claims before the choice goes on. It sticks to the preview scroller, which is why `FormScreen`'s frame grows with
   its content (`min-h-full` + a growing frame) rather than being pinned to one
   viewport height — a sticky element can only travel as far as its containing
   block.
@@ -1318,7 +1634,7 @@ Case-search scalar prompt defaults run through `engine/searchExpressionEvaluatio
 
 Preview derives navigation from the effective Search action, not from the mere presence of the compatibility settings bag. An explicit zero-input Search action on the worker's list renders one functional manual Search action; what launches on its own is the author's workflow, below. An owner-only exclusion still constrains every Results query, but it mounts no Search screen and triggers no automatic transition by itself. For a prompted Search, `searchButtonDisplayCondition` gates the whole combined Search pane from the case-list action's pre-prompt session/global context; it never reacts to the pane's draft, and the pane's single authored-label submit remains available whenever the action is relevant.
 
-What a worker sees first is the author's workflow (`moduleSearchWorkflow`) as the platform plays it, decided by `lib/preview/caseListPhase.ts::caseListStep` in order: Android keeps the Search screen after a submitted search found nothing (`zeroSearchResults`); a module with no effective search is `browse`; a menu whose forms read the search (`moduleFormsReadSearch`, which only an app declaring Web Apps alone holds) is `results` from the start under skip to results and `search` until a search is submitted under search first; on Web Apps (`searchActionAutoLaunch`), with the Search button's condition holding, skip to results is `results` and search first is `search` until a search is submitted; everything else is `browse`: list first, search first and skip to results on Android, and a false Search button condition in Web Apps. A search first with no visible field is `search` with only its Search button. `search` shows only the Search pane, no results query runs (`useCases` gets no case type); `results` shows a search's rows with a **Search again** ghost action that clears the run and refocuses the first prompt, and for skip to results Search again opens the Search screen (`searchReopened`) until the worker searches, as the Web Apps client asks for the query screen with a forced manual search. The default search runs where the step is `results` with nothing submitted. The `results` of a menu whose forms do not read the search is the Search action's Results (the search population, `heldOnDevice`, the claim at the chosen result). `resultsConstraintContext` reads an unconstrained empty answer on `results` as the worker's search rather than an invitation to add case data, so the empty state and the unfiltered-count probe say "nothing matched" there. Post-submit routing reads the after-submit plan, so a case form in a menu whose forms read the search returns to the module (Search) rather than to a previous screen that was the search itself.
+What a worker sees first is the author's workflow (`moduleSearchWorkflow`) as the platform plays it, decided by `lib/preview/caseListPhase.ts::caseListStep` in order: Android keeps the Search screen after a submitted search found nothing (`zeroSearchResults`); a module with no effective search is `browse`; a menu whose forms read the search (`moduleFormsReadSearch`, which only an app declaring Web Apps alone holds) is `results` from the start under skip to results and `search` until a search is submitted under search first; on Web Apps (`searchActionAutoLaunch`), with the Search button's condition holding, skip to results is `results` and search first is `search` until a search is submitted; everything else is `browse`: list first, search first and skip to results on Android, and a false Search button condition in Web Apps. A search first with no visible field is `search` with only its Search button. `search` shows only the Search pane, no results query runs (`useCases` gets no case type); `results` shows a search's rows with a **Search again** ghost action that clears the run and refocuses the first prompt, and for skip to results Search again opens the Search screen until the worker searches, as the Web Apps client asks for the query screen with a forced manual search; that request is the module's search state `manual`, which stands and lets go as a search does (`searchStanding.ts::previewSearchReopened`), so a crumb above the list, Home, a submission or a new session drop it and the menu runs its default search again, as Web Apps drops `force_manual_search` with the address's query data (`proof/formplayer/test_search.py::test_formplayer_runs_the_default_search_unless_search_again_forces_its_screen` holds Formplayer to the switch, and `proof/webapps/test_search.py::test_web_apps_forces_the_sidebars_search_and_runs_the_default_search_again_after_home` the client to forcing its own search and dropping it at Home). The default search runs where the step is `results` with nothing submitted, and those Results read nothing until it has (`caseListPhase.ts::caseListReadsResults`): their rows are the default search's, hidden values included. A search that stands on the screen is the list's standing query, whether its menu's forms read it or a Search action ran it: a list shown again takes it back with the worker's answers, and no default search runs over it (`caseListPhase.ts::caseListLaunchesDefaultSearch`), as Formplayer answers the prompts from the session's query data before it runs the query (`MenuSessionRunnerService.java::handleQueryScreen`) and Web Apps restores that query data with the page's address on a step back through history (`cloudcare/js/formplayer/utils/utils.js::CloudcareUrl.fromJson`). A search the worker left behind (a crumb above the list, a submission, Home, § The completed-search context) stands no more, so the list runs its default search again, or opens on its list, on a list Preview only hid as on one built afresh: the screen's run follows the module's search where it stands, a Search action's included (`searchStanding.ts::previewSearchRunFollows`). The list's search run and its default search belong to one Preview session (`previewSessionId` in the run's scope and in the opening, `caseListPhase.ts::caseListDefaultSearchOpening` and `caseListDefaultSearchLaunch`): a new worker, platform or Preview run starts the run over and runs the default search again with the list's settings unchanged, as Formplayer builds a new session's query screen afresh, and a Search screen refused as it opens runs none (`caseListLaunchesDefaultSearch`'s `refused`), until the refusal lifts. A list Preview only hid (a form of the menu returned to it) keeps its state; one built afresh (history returning to it past another module's list) is where the gate decides, which `e2e/tests/app/search-workflow.spec.ts` holds. Where the Search button's condition decides the step (Web Apps' search first and skip to results) and is not yet decided (the session waiting for its worker, its lookup tables loading), the screen waits, showing neither the worker's list nor the Search screen (`caseListScreenStep`); a condition whose lookup load failed is false. The `results` of a menu whose forms do not read the search is the Search action's Results (the search population, `heldOnDevice`, the claim at the chosen result). `resultsConstraintContext` reads an unconstrained empty answer on `results` as the worker's search rather than an invitation to add case data, so the empty state and the unfiltered-count probe say "nothing matched" there. Post-submit routing reads the after-submit plan, so a case form in a menu whose forms read the search returns to the module (Search) rather than to a previous screen that was the search itself.
 
 Expression-bearing Results and Details reads carry the caller's actual live
 `BlueprintDoc` plus module UUID. The action authorizes the app and worker from
@@ -1440,20 +1756,47 @@ or the client error funnel:
   requested activation goes, nothing opens that form again until `deactivate`
   starts a new entry, and the panel's **Back** is the next step. Opening it
   again would submit the same answers twice.
-- A menu's display condition and a Search prompt's choices are read while
-  their screen renders, so `PreviewShell` wraps the home, module and case-list
-  screens in `PreviewDataRefusalScope` (`components/preview/shared/PreviewDataRefusal.tsx`),
-  an error boundary that renders the refusal for `previewDataRefusalOf` errors
-  and rethrows every other error to the canvas boundary. A refused choice list
-  there is the Search screen's; any other read is the menu's. It tries again
-  when the lookup status or the screen changes, and on the next document
-  revision, which it watches only while a refusal shows: it notes the
-  document's state when it catches the refusal, and a commit that landed
-  before the watch began, or a different document, tries the screen again at
-  once (`PreviewDataRefusal.tsx::refusalWatchStep`).
+- A menu's display conditions, the Search action's condition, the Search
+  screen's opening reads and each Search prompt's choices are read as their
+  screen's state (`dataRefusal.ts::readPreviewScreen`): `HomeScreen` and
+  `ModuleScreen` hold a menu's refusal, `CaseListScreen` the Search action's
+  and the opening reads' (`useSearchInputRunState`'s `refusal`), and
+  `SearchInputForm` each prompt's choice rows (`choicesRead`), which it shows
+  through the screen's `renderRefusal`, naming the prompt. No refusal leaves a
+  render as an error. `PreviewShell` still wraps the home, module,
+  case-list and form screens in `PreviewDataRefusalScope`
+  (`components/preview/shared/PreviewDataRefusal.tsx`), a backstop for a
+  read no screen holds yet: an error boundary that renders the refusal for
+  `previewDataRefusalOf` errors (`boundaryRefusalPanel`: a refused choice
+  list as the Search screen's, any other read as the menu's, or on the form
+  screen as the form's, or the links', with the form's Back) and rethrows
+  every other error to the canvas boundary. It catches only while Preview
+  runs the app: the same screens draw the authoring canvas, which reads no
+  worker's data and shows no phone's stop, so there it rethrows a refusal as
+  the fault it is. It tries again when the screen, the lookup status, the
+  worker or the mode changes, and on the next document revision, which it watches only while a
+  refusal shows: it notes the document's state when it catches the refusal,
+  and a commit that landed before the watch began, or a different document,
+  tries the screen again at once (`PreviewDataRefusal.tsx::refusalWatchStep`).
+  A caught refusal is still an error React hands to the root's
+  `onCaughtError`, which Next's production build logs with `console.error`,
+  so the backstop is a floor, never a screen's way to show a refusal.
+  `e2e/tests/browser/preview-refusal-backstop.spec.ts` holds the shell's
+  form wiring: the real `PreviewShell` over a form screen that throws as it
+  renders shows the form's (or the links') panel with Back, the authoring
+  canvas when Preview stops, and the module after Back.
 - `evaluateFormSnapshot` (App Tests, `evaluate_form`) reports the same refusal
   as a `FormEvaluationInputError` carrying the sentence in the evaluation's
-  language.
+  language, the one `FormEngine` meets as it is built (a case block reading
+  an absent worker key, an owner moved to no place) included. The Search and after-submit evaluations throw the refusal itself,
+  named with the surface Preview shows it on
+  (`engine/surfacedDataRefusal.ts::SurfacedDataRefusal`: the Search action's
+  condition is the case list's, every other read of the Search screen the
+  search's, and every read of an after-submit evaluation the links'), and the
+  bounded thread they run in sends it back as its reason, stage and surface
+  (`DataRefusalTransfer`), since a structured clone keeps an error's message
+  and drops its class. App Tests and the form check word it from there, and a
+  refusal of the links keeps the saved form (`app-tests/CLAUDE.md`).
 
 A case owner moved to the worker's place at a level prints bare, so a phone
 refuses that form for a worker assigned nowhere as soon as it calculates the
@@ -1484,7 +1827,10 @@ visited-screen history. The wire owner's `previousEntryFrameChildren` also
 feeds `previousTaskProjection.ts`, which exposes stable destination and
 selection identities without wire names. `engine/previousTask.ts` resolves
 only those retained ordered selections against the submitting entry plus its
-receipt. Forms-first reopens the exact form's missing record selector;
+receipt, and lands the frame where `engine/frameLanding.ts::screenOfFrame`
+lands every frame (`previousTask.ts::previousTaskDestination`, over
+`previousTaskProjection.ts::previousTaskFrame`), so a menu that shows its forms
+above lands on the screen that lists them. Forms-first reopens the exact form's missing record selector;
 case-first returns to the module menu with its selected records and updated
 values. Computed slots remain runtime values, never invented selections of a
 newly created record. Browser and App Tests use this same resolver for both a
@@ -1505,9 +1851,9 @@ A form's destinations and its otherwise run in the running app the way they run 
 - **Every destination that holds, evaluated as the device's XPath after the write, then each platform's stack.** The frames are the projection's (`projectAfterSubmit`): every destination whose condition and carried-case guards hold, in emitted order, and the otherwise when none that may not run does. Android runs each after the one above it finishes and drops the rest when the worker leaves the path a destination opened; Web Apps opens only the top one (`platform.ts::PreviewPlatformRules.afterSubmitFrames`, `"stack"` or `"top"`; `afterSubmitStack.ts::completeAfterSubmit`). Under `"top"` only the frame on top is routed. The frames still pending are the session's `previewAfterSubmitStack` (`lib/session`), and a case list registration form's return frame is pushed and pops like any other (`completeAfterSubmitWithOwnFrame`). Each condition lowers through `projectFormLinkSessionExpression` with its actual document, source form, and link slot, prints at the `preview` target, and the preview evaluator decides it in the entry's post-form scope: `instance('commcaresession')/session/context|user/...` from the identity, `/session/data/<id>` from the entry's session map, which the form's close leaves unchanged, as a device's session is, and `#user/<prop>` and `#<type>/<prop>` through the wire's casedb walk over the device casedb captured at entry and patched by the submission, with the lookup fixtures beside them. The shared checker refuses reads of the closed form. Any case-bearing app with an after-submit link or Previous loads the complete entry-time device casedb even when no expression reads the case database: a link can carry an unchanged existing case or ancestor, while the transaction patch contains only affected rows. `applySubmission` reads every affected row and direct index edge before its transaction commits and persists that exact patch in the durable receipt. Preview applies the patch to the device casedb captured when the entry opened, then derives source and target case preloads from that one world. There is no post-commit case read: it could observe a later writer, and a fresh restore can omit a just-closed case the device still retains locally until sync. Registration-created cases, advanced-operation targets, and the worker usercase all enter through the same patch. A survey with no case or usercase effects contributes an empty patch. A direct linked form carries both its case preload and this patched casedb across navigation so its first render cannot replace a just-closed case with a newer restore. The write is announced to the other running surfaces (`invalidateCaseData`) only once the route is decided: announcing earlier could reload or clear the source binding before routing finishes.
 - **The carried case is the wire's match, valued from the complete case session.** `carriedCaseFor` asks `selectedCaseDatumId` for the target's projected own-case selection datum (`case_id` when flat, potentially `case_id_<type>` after root-menu alignment), evaluates a manual datum under that exact id when the link names its datums, and otherwise reads the source datum `matchFrameToSource` picked. The entry's session map (`entrySessionData`, held by `EngineController.entrySession`; `afterSubmitSessionDatums` adds the names the submission saved) is the one mapping from source datum ids to values: the projected own-case datum is the case the form loaded; every projected ancestor/inherited selection reads the module-keyed case session that `FormScreen` already resolved through `previewMenuCaseContext`; a registration's `case_id_new_<module type>_0` is the id the submission created its case with: the id the entry minted, or the id a receipt replayed from before entries minted ids saved; and a non-repeat child's `case_id_new_<type>_<n>` is the id its child was created with. `projectTargetCaseSelections` values EVERY matched selection datum in the target frame; the exact `FrameDatum` already carries its stable source-module UUID through root alignment and frame-prefix projection, so Preview never reconstructs ownership from menu shape or display names. `FormScreen` applies that root-to-leaf projection before navigating, so manual parent datums and automatically matched created cases establish the same nested menu session the device frame establishes. Parent changes clear stale descendants before later target selections replace them; a defined blank datum stays installed so Core and Preview both skip a picker, while its empty id still binds no case. A nonblank selection is hydrated from the exact matching row in the transaction-captured post-submit patch before a module menu evaluates case-property conditions. Module landing is decided from that prospective session, including same-type structural inheritance, not from the pre-submit menu snapshot. The created-child mapping comes from the durable structured receipt: every concrete child names its authored child index and selected/generated parent, so `FormScreen` never infers metadata from flat result order. A historical receipt that carries only flat child ids remains replayable, but contributes no created-child metadata because that mapping cannot be proved. A child created in a repeat takes a fresh id per iteration and has no session datum, as on a device, so a repeat bucket of the same type never shadows a non-repeat child's datum. A manual XPath reads the same map, so `instance('commcaresession')/session/data/case_id_new_patient_1` names the created child.
 - **A blank carried value binds nothing, visibly.** A value the held-case guard covers (a carried value on a single-case selection) never opens a frame with a blank id, since no case on the device has it; an automatic match can still carry one. `previewCaseTarget.caseId === ""` is a case the navigation bound, to nothing; `FormScreen` opens the form without auto-selecting a case, loads nothing, disables Submit, and says the link carried no case. Absent `caseId` keeps meaning "direct preview, auto-select the first case".
-- **Running menus use one UUID/topology projection.** `menuProjection.ts` consumes `lib/domain/moduleHierarchy.ts`: Home renders root modules only, while a parent module renders its native Forms (or an explicit **Cases** entry) plus its child-module tiles. `PreviewScreen` carries module/Form UUIDs, and retained component + scroll keys come from those UUIDs, so reorder cannot transfer state to a sibling. Module conditions combine through ancestry with `hidden` winning over `pending`; a child condition previews on its structural parent menu rather than Home.
-- **A module target lands where the home screen lands it.** `moduleLanding.ts` reads the module-URL rule (`moduleScreenNavigation.ts`) from the outside: a module with children always lands on its menu so those children remain reachable; a terminal case-first or bare-case-list module opens Results unless its menu already has a selected case. Home tiles and after-submit module targets use the same rule.
-- **Menu selection and Form launch are separate session facts.** A case-list/case-first parent selected through its explicit **Cases** entry stores a UUID-keyed ordered case set and returns to the parent menu; it does not seed a Form target. Same-case-type structural children may reuse that complete set only when `caseSelectionCanFlowBetweenModules` proves their authored type, cardinality, and maxima compatible. Different-type modules follow their explicit `parentCaseModuleUuid`, independently of structural menu parentage. An absent selector leaves the list flat even when its record type has a parent; Preview records an ordered selector/return chain, selects there, then constrains the child's Results query to the union of direct non-extension children of EVERY selected parent before continuing. An advanced chain's list step is constrained through its named index instead: the browser's screens and App Tests take one constraint (`caseSelectionNavigation.ts::parentCaseConstraint`), which carries the index identifier `advancedChainIndex` gives where the menu is emitted advanced (`ParentCaseSelection.index`, the store's `SelectedParentCases.index`), and the list holds the children whose index of that name names the parent, whatever its relationship, as HQ's advanced load reads `index/<identifier>`. A direct running Form or Results URL enters through that same module checkpoint while the parent selection is missing, so deep links cannot skip the chain. For a basic registration form, the selected parents remain navigation/session context: the form does not preload them or persist a primary-case index. Never infer case ancestry from `parentModuleUuid`.
+- **Running menus use one UUID/topology projection.** `menuProjection.ts` consumes `lib/domain/moduleHierarchy.ts`: Home renders root modules only, while a parent module renders its native Forms plus its child-module tiles, a case-first parent's only once its case is chosen. `PreviewScreen` carries module/Form UUIDs, and retained component + scroll keys come from those UUIDs, so reorder cannot transfer state to a sibling. Module conditions combine through ancestry with `hidden` winning over `pending`; a child condition previews on its structural parent menu rather than Home.
+- **A module target lands where the home screen lands it.** `moduleLanding.ts` reads the module-URL rule (`lib/domain/navigation.ts::moduleScreenLanding`) from the outside: a case-first or bare-case-list screen opens Results unless its menu already has a selected case, submenus or not, because CommCare asks for the case before it lists anything on the screen, submenu tiles included (`CommCareSession.getNeededData` over the entries of every `<menu>` with the screen's id; a submenu is a `<menu root>` of its own), and lists the forms and the submenus once it is chosen. `MenuScreensRuntimeTest` holds the landing (`landsOnCaseList`) to Core. Edit mode keeps a menu with submenus, so an author reaches them. Home tiles and after-submit module targets use the same rule. The list takes the module URL's place in history (`ModuleScreen` replaces it), so Back from it reaches the screen before, a submitted form or the screen a crumb was pressed on, rather than a module URL that routes the worker to the list again.
+- **Menu selection and Form launch are separate session facts.** A case-list/case-first parent selected on the case list it lands on stores a UUID-keyed ordered case set and returns to the parent menu; it does not seed a Form target. Same-case-type structural children may reuse that complete set only when `caseSelectionCanFlowBetweenModules` proves their authored type, cardinality, and maxima compatible. Different-type modules follow their explicit `parentCaseModuleUuid`, independently of structural menu parentage. An absent selector leaves the list flat even when its record type has a parent; Preview records an ordered selector/return chain, selects there, then constrains the child's Results query to the union of direct non-extension children of EVERY selected parent before continuing. An advanced chain's list step is constrained through its named index instead: the browser's screens and App Tests take one constraint (`caseSelectionNavigation.ts::parentCaseConstraint`), which carries the index identifier `advancedChainIndex` gives where the menu is emitted advanced (`ParentCaseSelection.index`, the store's `SelectedParentCases.index`), and the list holds the children whose index of that name names the parent, whatever its relationship, as HQ's advanced load reads `index/<identifier>`. A direct running Form or Results URL enters through that same module checkpoint while the parent selection is missing, so deep links cannot skip the chain. For a basic registration form, the selected parents remain navigation/session context: the form does not preload them or persist a primary-case index. Never infer case ancestry from `parentModuleUuid`.
 - **The submit row stays running until the next screen is pushed**, because the write has landed and a second press must not land it again. A failure after the write (the read-back did not answer a row, the target is not in the document, the evaluation threw) settles an inline error that says the answers were saved and logs through `log.error`; it never throws and never silently goes back.
 
 ## The completed-search context and the case list registration form
@@ -1523,15 +1869,146 @@ effect completes or fails it from `engine/searchPhase.ts::searchOutcomeFromLoad`
 over the `useCases` load, but only after it has SEEN a fetch start and end for
 that attempt (`awaitingSearchFetchRef` / `sawSearchFetchRef`), because the
 submit commits before the query effect fires and an earlier load's `rows`
-would otherwise settle the new attempt. **Search again** resets to
-not-searched. Failure is its own state: an `invalid-search`, transport, or
+would otherwise settle the new attempt. **Search again** replaces it with
+the Search screen asked for again (`manual`), so the next search is attempt 1.
+Every other list's search is held there too, so it stands and lets go by the
+same rule: a Search action's search, on a menu whose forms do not read it, is
+`action` with its answers (its device values stay the screen's own, per Search
+press), and none of the attempt readers (the registration form, the results
+snapshot, the device-values recorder, the pinned tile) reads either kind
+(`previewSearchState.ts::searchAttemptOf`). Failure is its own state: an `invalid-search`, transport, or
 persona refusal is not "no matches", and nothing is offered on it. The
 screen's run state (`useSearchInputRunState`) is screen-local while the
-context outlives the screen, so `CaseListScreen` keeps them one search: on a
-module's first pass the run state follows the context (`restore`, so a form
-of the module that returned to its list finds the standing search, as the
-device re-runs the query it kept); after that a retired context clears the
-run state, and a run state the screen dropped on its own retires the context.
+context outlives the screen, so `CaseListScreen` keeps them one search
+(`searchStanding.ts::previewSearchRunFollows`): a search that stands and the
+run does not hold is taken back (`restore`, on a list built afresh, a form of
+the module that returned to its list, or history returning to an entry the
+search stands on, as the device re-runs the query it kept); a search let go
+clears the run state; and a run state the screen dropped on its own while
+holding the standing search retires the context. The screen remembers what
+its run last took, the search and the answers it ran with
+(`previewSearchState.ts::submittedSearchKey`), which is what tells the last
+two apart and what makes a search history gives back with other answers run
+again.
+The screen reads its module's context only where that search stands on the
+current history entry (`hooks/usePreviewStandingSearch.ts`), and both effects
+act only while the location on show is a list's (`current`): PreviewShell
+keeps the screen being left visible over the changed session while the next
+one renders (`useDeferredValue`), and it must neither clear its run state
+nor launch the default search there. `ModuleScreen` routes only while it is
+the screen on show for the same reason, so a crumb to Home that lets a
+case-first menu's case go does not send the worker to that menu's list.
+
+**When a search lets go** is one rule, `searchStanding.ts`, read where
+Web Apps keeps each query on the page's address with the selections that
+led to its list (`utils.js::CloudcareUrl.setQueryData`) and Android keeps it
+as a step of the session frame. Each browser history entry records the
+searches that stand on it (`lib/routing/previewSearchHistory.ts`): a search
+stands on the entry it was begun on (`useSetPreviewStandingSearchState`
+records it before the session holds it) and on every entry a step forward
+pushes from one it stands on, as `addSelection` keeps the address's query
+data; arriving on a screen, by a step or by Back and Forward, keeps only the
+searches whose list is on the path to it (`hooks/usePreviewSearchArrival.ts`
+over `searchStanding.ts::previewSearchArrival`; `previewSearchScreenOf` and
+`previewSearchPathModules`: the lists whose cases the session held as the
+screen's menu's command was chosen, `menuProjection.ts::previewSelectionsBeforeCommand`,
+its own menu's list and every case its menu holds where the screen is past
+that list, and a list it was reached past, the host of a Register action, a
+Results launch, the list that chose a form's case, a parent case request).
+A structural menu above is on the path only where it chose its case before
+the command: a forms-first menu's list that chose a submenu's parent case did
+so after the submenu's command, so the submenu's own menu, and its crumb,
+are above that search, as `spliceSelections` drops the query recorded after
+the cut.
+A crumb keeps only the searches recorded strictly before the screen it names
+(`spliceSelections`; `BreadcrumbStrip`'s `cutSearches`), so a crumb to a
+list's menu, or to a form chosen before the list's case, lets that list's
+search go, and a case's crumb keeps it. Back and Forward return to the
+searches each entry held. A submission lets every search go on the screen it
+lands on: Web Apps clears the query data of the address it pushes after one
+(`app.js`'s submit handler, `CloudcareUrl.onSubmit`) and Android's frame ends
+with the form, so the list it returns to runs its default search, while the
+entries before it keep theirs and Back returns to them. `FormScreen` marks
+the form's entry (`useClientPath.ts::endPreviewStandingSearches`) and the
+next write from it carries on only the searches begun there since, a landing
+that keys a menu's search to a registered case among them
+(`previewSearchHistory.ts::previewSearchHistoryWrite`). Home
+(`clearExceptApp`) and Android's home screen (`setPreviewAtDeviceHome(true)`)
+clear them with the session. The session keeps one context per module, the
+search its list runs now, so each entry also records the context of each
+search standing on it, with the Preview session that ran it: where the
+session has since replaced a search that stands on the entry history returns
+to (the menu's default search run again after a submission or a crumb, or a
+later search), the entry's context is the module's search again
+(`previewSearchHistory.ts::previewSearchesOnEntry`, which the screens read
+through `usePreviewStandingSearchState` and the arrival hands back to the
+session), and the list takes it back. What answers it runs with is the
+platform's (`platform.ts::searchReplay`, `searchStanding.ts::PreviewSearchReplay`).
+On Web Apps an address records only that its query ran (`execute`,
+`force_manual_search`), and `CloudcareUrl.fromJson` takes the answers from
+the ones the page keeps per query key (`Utils.getCurrentQueryInputs`), which
+every `setQueryData` writes and no submission, crumb or Home clears: a Search
+press, every field the worker changes as the client checks it
+(`query.js::_updateModelsForValidation`, Search pressed or not), and the
+Search screen as it is drawn, with no answers (`menus/utils.js::getMenuView`).
+A field change's validation round trip draws nothing: it asks Formplayer
+through `app:select:menus` directly and only updates the field models
+(`QueryListView.updateModels`), never through `menus/controller.js::selectMenu`,
+whose `showMenu` is what calls `getMenuView`. So the Search screen writes
+its empty answers only as it is drawn (a menu that asks first, Search again,
+history returning to its address), and Clear writes nothing: it empties each
+field (`QueryListView.clearAction` over `QueryView.clear`, which fires no
+field change) and the page keeps the answers the worker last gave
+(`searchStanding.ts::previewSearchAfterClear`, which also keeps a Search
+screen asked for again on show, never the menu's default search; Nova writes
+no `search_on_clear`). Clear is Web Apps' alone (`rules.searchClear`,
+`searchStanding.ts::previewSearchClearOffered`): Android's search screen
+holds its prompts, its search button and its error line
+(`QueryRequestUiController`), so Preview playing Android offers no Clear, and
+a search that found nothing stays on its Search screen
+(`zeroSearchResults`) until the worker searches again or goes back.
+The session keeps those per module for the running Preview session
+(`previewSearchInputs`, written by `CaseListScreen`'s Search press and its
+draft changes, each with every hidden field's value beside the worker's
+answers, as `query.js::getAnswers` gives every prompt view's, and by its
+Search screen shown with no search standing, which gives none, once as it
+appears). Formplayer
+answers every prompt from them, a hidden one included, and a prompt they
+leave out has none (`QueryScreen.answerPrompts`), so a search history gives
+back after the Search screen was drawn runs with no answer at all
+(`previewSearchState.ts::searchWithLatestInputs` over
+`searchRunState.ts::searchPromptKeys`), an attempt running again where the
+answers differ. That replay runs only where the arrival shows the module's
+own list (`PreviewSearchScreen.listShown`, from the shell's projected screen),
+the one screen that runs the query and settles it, and only on a move to the
+screen (`readBuilderHistoryMove`), not when the list's own settle rewrites the
+entry's record: a search standing on a menu, a form or another list keeps the
+answers it ran with until its list is on show, so a form that reads the
+search opens over the search it was opened under rather than waiting on one
+nothing runs. Web Apps replays the whole address on every request, so a
+step back onto a menu or a form past the list runs its query with the latest
+answers there too (`MenuSessionRunnerService.advanceSessionWithSelections`),
+and a form opened from that menu reads those results. Preview plays it with
+the search held completed there (`previewSearchState.ts::searchRunPastItsList`):
+it takes the latest answers and drops the device values worked out for the
+old ones, which the session works out again (`searchesAwaitingDeviceValues`),
+so the form reads the new run's `results:inline`; it is marked
+`rerunPastList`, since no list counted what these answers find, so it offers
+no registration (`noMatchesActionAvailable`, and a Register launch from the
+earlier empty result is stale), and its list runs it again as it comes on
+show. The case the list chose stands: Formplayer trusts it while it holds the
+selections as confirmed (`RestoreFactory.isConfirmedSelection`,
+`MenuSession.handleInput` setting the datum with no lookup), which every
+navigation records for an hour and a submission's commit clears
+(`RestoreFactory.commit`); past a submission the case is looked up in the new
+results again, and one they lack fails the step with "Could not select case"
+(`EntityScreen.setSelectedEntity`), shown over that list's results, which
+Preview does not play. The
+menu's default search (`automatic`) writes no query data and runs as the
+default search again; a Search screen asked for again and a search
+keyed to a registered case keep theirs. On Android a search is a step of the
+session frame, which holds the query it ran (`CommCareSession.setQueryDatum`),
+so a search that stands again keeps its own answers.
 The context keeps the screen's answers (a date range as its two bounds);
 `runtimeBindings.ts::searchInputInstanceValues` folds them to the instance's
 one field per prompt where `FormScreen` hands them to the engine.
@@ -1622,6 +2099,75 @@ form is on no menu:
 `useOrderedMenuForms` / `useMenuFormCounts`, while `screenProjection.ts` still
 projects the form URL so a stale link meets the refusal rather than a blank
 screen.
+
+The `always` arm (`{ kind: "always", … }`) offers a registration form that
+stays on its own menu. `caseListRegistration.ts::previewRegisterAction` is
+what a case list draws: the action shows whenever the host's list shows
+(before its forms, from its case list entry, as another menu's parent
+choice), with the arm's icon and spoken label on Android alone
+(`platform.ts::PreviewPlatformRules.caseListActionMedia`, `"shown"` or
+`"text-only"`). Choosing it opens the form in its own menu and sets the
+session's `previewCaseListRegistrationEntry = { hostModuleUuid, moduleUuid,
+formUuid }` (`lib/session/types.ts::PreviewCaseListRegistrationEntry`,
+ephemeral), its own fact rather than part of the case target, which other
+screens rewrite. It belongs to the one form entry that launch opened:
+`PreviewShell` ends it at every location off the launch's path
+(`caseListRegistrationEntry.ts::caseListRegistrationEntryContinues`: the
+launched form's own locations, and the case list of a parent case selection
+resuming that form, are on it), whatever moved there, and `FormScreen` ends
+it when the submission lands; the form reads it only where it names that form
+in that menu. So the same form reached later by any route, the app tree and
+browser history included, is an ordinary form. After submit,
+`alwaysOfferedRegistrationReturn` decides the landing before ordinary routing
+(`FormScreen.dispatchAfterSubmit`, `app-tests/submission.ts`): undefined, which
+is ordinary routing, where there is no launch, where the host no longer offers
+the form, or where the form's own after-submit is in force
+(`caseListRegistrationReturnOf` gives `own`); otherwise the frame whose guard
+holds of `formLinkProjection.ts::caseListFormReturnFrames` (the one frame of
+`case-list`; for `new-case` the first where the submission created a case,
+else the second), landed by `screenOfFrame` as every frame is, the created
+case set as the host's selection where the frame carries it. Where the frame
+keys a menu's search to the registered case (a host whose forms read the
+search, `CaseListFormReturnFrame.newCaseSearchModuleUuids`), that menu's search
+state is `recordRegisteredCase` of it, one match where the form created the
+case and none where it did not, so Results and the forms' `results:inline`
+read that case alone, as the frame's `case_fixture` query does; App Tests carry
+the same `registeredCaseId` on that menu's records screen. So `case-list`
+lands on the host's screen with no case chosen, `new-case` with a created
+case lands there with that case chosen, and a bare case list lands on its list
+under either value. The form opened any other way is an ordinary form. App
+Tests reach the action as a worker does: a records read of the host returns
+the form as `registration`, and the form screen carries the launch; Back to a
+form opens a fresh entry without it (`app-tests/navigation.ts::appTestBackScreen`).
+
+## Menus that show their forms above
+
+A menu holding `formsInMenuAbove` has no screen of its own. The home screen
+and each menu screen list `menuProjection.ts::previewScreenEntries` of their
+screen (`lib/domain/menuScreens.ts::menuScreenEntries`), each entry by kind in
+the projection's order: a menu tile, a form row with the form's own name,
+media and condition, and a case list row. A contributor's rows show by
+`previewContributorVisibility`, the conjunction of the conditions of
+`conditionModulesOf` (the module, and its parent where it shows above), and
+then by each form's own condition. Whether a screen opens on a case list is
+`screenChoosesCaseFirst` of the screen (`ModuleScreen`, `CaseListScreen`): a
+case-first screen opens on the host's case list, submenus or not, and, once the
+case is chosen, lists every form, its submenu tiles and the case list entries
+that still need a case (`previewCaseListMenuEntry`); a screen any of whose
+entries asks for another datum first is not case-first
+(`menuScreens.ts::screenCaseFirstBlocker`: an advanced form's first datum is
+its first load's `case_id_<tag>`, `form-chooses-apart`, and an advanced case
+list entry's `case_id_case_<type>`, `case-list-entry-apart`); any other screen lists its entries at once, and a form that
+opens a case then opens its own menu's case list. A route naming a menu with no
+screen resolves to `menuScreenOf` of it
+(`screenProjection.ts::previewRunningScreenForLocation`), and the breadcrumb
+trail names no such menu (`lib/routing/previewBreadcrumbs.ts`).
+After submit a frame lands where `engine/frameLanding.ts::screenOfFrame` says:
+the screen of its last menu command (the first menu where it holds none),
+with its selections applied to the menus that supply them, then the form its
+form command names. An entry point refuses a form whose entries are off the
+menu (`entryPointLaunch.ts::moduleEntriesOffTheMenu`). App Tests list and admit
+choices by the same projection.
 
 ## Case-data Server Action wire shape (edge-WAF constraint)
 

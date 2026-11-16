@@ -525,6 +525,56 @@ describe("path spelling and shadow eligibility", () => {
 	});
 });
 
+describe("w.paren", () => {
+	const role = w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("user"),
+		w.step("data"),
+		w.step("role"),
+	]);
+	const own = w.eq(role, w.str("nurse"));
+	const parent = w.or(w.eq(role, w.str("lead")), w.eq(role, w.str("admin")));
+
+	it("prints its operand in parentheses in every mode, as HQ's forced paren does", () => {
+		for (const mode of modes) {
+			const printed = serializeWire(w.and(w.paren(own), w.paren(parent)), mode);
+			expect(printed.text, mode.target).toBe(
+				`(${serializeWire(own, mode).text}) and (${serializeWire(parent, mode).text})`,
+			);
+			// The instances the whole printed condition reads.
+			expect([...printed.instances].map((decl) => decl.id)).toEqual([
+				"commcaresession",
+			]);
+		}
+	});
+
+	it("is a primary to its parent, so no second pair is added", () => {
+		expect(
+			serializeWire(w.neg(w.paren(w.add(w.num(1), w.num(2)))), {
+				target: "suite",
+			}).text,
+		).toBe("-(1 + 2)");
+		expect(
+			serializeWire(w.and(w.paren(parent), w.paren(parent)), {
+				target: "suite",
+			}).text,
+		).toBe(
+			`(${serializeWire(parent, { target: "suite" }).text}) and (${serializeWire(parent, { target: "suite" }).text})`,
+		);
+	});
+
+	it("is evaluated as its operand", () => {
+		const text = serializeWire(
+			w.mul(w.paren(w.add(w.num(1), w.num(2))), w.num(3)),
+			{
+				target: "preview",
+			},
+		).text;
+		expect(text).toBe("(1 + 2) * 3");
+		expect(evaluate(text, context)).toBe(9);
+	});
+});
+
 // This is a type boundary as well as a runtime serializer.
 function noRawFunctionOrVariableEscape(mode: WireMode): void {
 	// @ts-expect-error Only the pinned native table and three context calls exist.

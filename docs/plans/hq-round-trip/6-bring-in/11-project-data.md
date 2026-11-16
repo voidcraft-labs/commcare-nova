@@ -2694,7 +2694,15 @@ So a persona standing in a managed place gets that very place in CommCare HQ.
   slug is claimed once, so every claim answers `ok: true`. A slug outside
   `USER_PROPERTY_SLUG_PATTERN`, over its length, or in `BUILT_IN_USER_PROPERTY_SLUGS` is not this
   part's to mint: the reader keeps it in the name-backed `session-user` arm where that arm admits
-  it, and gives its own finding where it does not (part 08, section 9.2; part 04, section 2.5).
+  it, and gives its own finding where it does not (part 08, section 9.2; part 04, section 2.5). The
+  arm admits a session read only of a built-in key (the checker's `undeclared-worker-field`, issue
+  #913): a project space defines a custom field only where someone defined it, Core refuses a read
+  of a key the device lacks, and the setup list a publish shows names only the worker properties
+  the app declares, for someone to add on CommCare HQ (a publish defines none), which is why every
+  custom slug read comes in as one. The arm never holds a
+  declared slug, from the session or the worker's record (`worker-property-read-by-name`): every
+  read of a slug this part mints binds to the property's identity, `session-user-property`, so a
+  rename or a removal finds it.
 - Neither has a type in Nova, so nothing is typed from how the app uses it.
 
 **The order, decided.** A read binds to one of these entities by UUID, and only to an entity the

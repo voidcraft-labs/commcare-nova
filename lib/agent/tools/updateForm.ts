@@ -1,5 +1,6 @@
 /** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
+import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
@@ -9,8 +10,8 @@ import {
 import { formRecordNameMutations } from "@/lib/doc/formRecordName";
 import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
 import {
+	afterEmptySearchRegistrationFormOf,
 	appConnectIds,
-	caseListRegistrationFormOf,
 	formRootFieldIds,
 	moduleFormsReadSearch,
 	POST_SUBMIT_DESTINATIONS,
@@ -102,6 +103,13 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"true takes the form off the menu, null puts it back, omission keeps it. Off the menu, the form opens on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions.",
 			),
+		plain_text: z
+			.boolean()
+			.nullable()
+			.optional()
+			.describe(
+				"true turns text formatting off for the whole form, whatever a text's own plain_label or plain_help says: every label shows as typed, and every choice and help text shows as typed on Android (Web Apps formats those two either way). false or null turns it back on.",
+			),
 		case_list_registration: caseListRegistrationInputSchema
 			.nullable()
 			.optional()
@@ -149,6 +157,7 @@ export const updateFormTool = {
 			connect,
 			displayCondition,
 			hiddenFromMenu,
+			plain_text,
 			case_list_registration,
 		} = input;
 		try {
@@ -173,6 +182,8 @@ export const updateFormTool = {
 			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
 			if (purpose !== undefined) patch.purpose = purpose;
+			if (plain_text !== undefined)
+				patch.plainText = plain_text === true ? true : null;
 			// Each condition arrives parsed in its own form slot; the checker
 			// reports a question the form does not have, and the gate refuses
 			// an open condition on a form that is not a registration.
@@ -183,6 +194,15 @@ export const updateFormTool = {
 				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
 			if (case_list_registration != null) {
+				/* The menu's case list holds one registration offer: one that
+				 * always offers another menu's form is not replaced in passing. */
+				const armBlocked = afterEmptySearchOfferBlocked(doc, module.uuid);
+				if (armBlocked !== undefined)
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						result: { error: armBlocked.message },
+					};
 				/* A registration from the case list returns to the results or
 				 * explicitly to the app's first menu, and is on no menu. */
 				const effectivePostSubmit =
@@ -419,7 +439,8 @@ export const updateFormTool = {
 					}),
 					...(case_list_registration !== undefined && {
 						caseListRegistration:
-							caseListRegistrationFormOf(newDoc, module.uuid) === formUuid,
+							afterEmptySearchRegistrationFormOf(newDoc, module.uuid) ===
+							formUuid,
 						formsReadSearch: moduleFormsReadSearch(newDoc.modules[module.uuid]),
 					}),
 					...(clearedSearchDefaults.length > 0 && { clearedSearchDefaults }),

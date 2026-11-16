@@ -26,7 +26,9 @@ import java.util.Vector;
  * template AnswerDataFactory gives the question's control and data type.
  *
  * A question's values come from the first of: the Nova kind the request names
- * for its data path, the entry for its control, the entry for its data type.
+ * for its data path, the number keypad's list for a question a worker answers on
+ * a number keypad (numberKeypad), the entry for its control, the entry for its
+ * data type.
  *
  * Two values stand for the run's clock: "@clock:today" is its date and
  * "@clock:now" its instant, spelled as Core spells a date and a date-time
@@ -48,6 +50,10 @@ final class Answers {
                         + " in proof/core/answers.json.");
             }
         }
+        if (!(table.opt("numberKeypad") instanceof JSONArray)) {
+            throw new RequestException("The answer table has no \"numberKeypad\" list; send the table in"
+                    + " proof/core/answers.json.");
+        }
     }
 
     int repeatsToAdd() {
@@ -64,6 +70,9 @@ final class Answers {
             }
             return new Choice("novaKind:" + kind, strings(values));
         }
+        if (numberKeypad(prompt)) {
+            return new Choice("numberKeypad", strings(table.getJSONArray("numberKeypad")));
+        }
         String control = CoreNames.control(prompt.getControlType());
         JSONArray values = table.getJSONObject("controls").optJSONArray(control);
         if (values != null) {
@@ -72,6 +81,18 @@ final class Answers {
         String dataType = CoreNames.dataType(prompt.getDataType());
         values = table.getJSONObject("dataTypes").optJSONArray(dataType);
         return new Choice("dataType:" + dataType, values == null ? null : strings(values));
+    }
+
+    /**
+     * Whether a worker answers the question on a number keypad, which takes no letter: a text question whose
+     * whole appearance is "numeric" or "numbers", in any case, for which CommCare Android builds
+     * StringNumberWidget (WidgetFactory.java::buildBasicWidget) and Web Apps draws PhoneEntry for the style
+     * "numeric" (entries.js::getEntry). Its values are what a worker types on that keypad.
+     */
+    static boolean numberKeypad(FormEntryPrompt prompt) {
+        String appearance = prompt.getAppearanceHint();
+        return prompt.getDataType() == Constants.DATATYPE_TEXT && appearance != null
+                && (appearance.equalsIgnoreCase("numeric") || appearance.equalsIgnoreCase("numbers"));
     }
 
     private static List<String> strings(JSONArray values) {

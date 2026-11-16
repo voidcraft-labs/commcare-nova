@@ -129,6 +129,12 @@ test("live exceptions, console errors, reports, and same-origin 5xx fail indepen
 		await expect
 			.poll(() => receiver.reports)
 			.toEqual(["Handled operation failed"]);
+		// The throw is on a timer of this page, and a navigation discards the
+		// page's pending timers. The report above can arrive first, so the
+		// exception is awaited here, before the page is left.
+		await expect
+			.poll(() => guard.errors)
+			.toContain("pageerror: Native uncaught failure");
 		await page.goto(`${receiver.origin}/failure`);
 		await expect
 			.poll(() => guard.errors)

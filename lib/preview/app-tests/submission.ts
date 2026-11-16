@@ -1,11 +1,17 @@
 import type { AppTestScope } from "@/lib/db/appTests";
+import type { Uuid } from "@/lib/domain";
 import { afterSubmitFrameLanding, appHomeLanding } from "../afterSubmitRouting";
 import {
 	afterSubmitPath,
 	completeAfterSubmit,
 	completeAfterSubmitWithOwnFrame,
 } from "../afterSubmitStack";
-import { caseListRegistrationPostSubmit } from "../caseListRegistration";
+import {
+	alwaysOfferedRegistrationReturn,
+	caseListRegistrationPostSubmit,
+	registeredCaseOnDevice,
+	selectionsAfterRegistrationReturn,
+} from "../caseListRegistration";
 import { validateCaptureSubmissionProjection } from "../engine/captureSubmissionValidation";
 import {
 	buildSubmissionOperationProgram,
@@ -19,9 +25,14 @@ import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
 import type { FormEvaluationContext } from "../engine/formEvaluationTypes";
 import { submittedEntryPath } from "../engine/formLinkEvaluation";
 import type { AppTestContext } from "./context";
+import { appTestDataRefusal } from "./dataRefusal";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
-import { enterAppTestMenu } from "./navigation";
-import type { AppTestAfterSubmitRoute, AppTestSessionState } from "./types";
+import { appTestHistoryEntry, enterAppTestMenu } from "./navigation";
+import type {
+	AppTestAfterSubmitRoute,
+	AppTestScreen,
+	AppTestSessionState,
+} from "./types";
 
 export async function submitAppTest(
 	context: AppTestContext,
@@ -160,6 +171,125 @@ export async function submitAppTest(
 									searchAnswers: screen.searchAnswers,
 									registeredCaseId: result.primaryCaseIds[0],
 								},
+				},
+				identity,
+				effects: result,
+				validation: undefined,
+			};
+		}
+		/* A form the record list always offers, opened from its Register
+		 * action, returns where that list's frame lands, as the browser's form
+		 * does (`alwaysOfferedRegistrationReturn`); its own after-submit, or
+		 * an opening any other way, routes as any form does. */
+		const launch = screen.caseListRegistrationLaunch;
+		const hostCaseType =
+			launch === undefined
+				? undefined
+				: context.doc.modules[launch.hostModuleUuid]?.caseType;
+		const createdCase =
+			mutation.kind === "registration" &&
+			launch !== undefined &&
+			result.primaryCaseIds[0] !== undefined
+				? registeredCaseOnDevice(
+						result.caseDatabasePatch,
+						result.primaryCaseIds[0],
+						hostCaseType,
+					)
+				: undefined;
+		const registrationLanding = alwaysOfferedRegistrationReturn(
+			context.doc,
+			screen.formUuid,
+			launch,
+			createdCase?.caseId,
+		);
+		if (registrationLanding !== undefined && launch !== undefined) {
+			const selections = selectionsAfterRegistrationReturn(
+				state.selections,
+				registrationLanding,
+				launch.hostModuleUuid,
+				hostCaseType ?? "",
+				createdCase,
+			);
+			const landingScreen = registrationLanding.screen;
+			const afterSubmitStack = completeAfterSubmitWithOwnFrame(
+				state.afterSubmitStack,
+				submittedPath,
+				landingScreen.kind === "first-menu"
+					? []
+					: afterSubmitPath(
+							context.doc,
+							{ moduleUuid: landingScreen.moduleUuid },
+							Object.entries(selections).map(([moduleUuid, selection]) => ({
+								moduleUuid: moduleUuid as Uuid,
+								caseIds: selection.cases.map((row) => row.caseId),
+							})),
+						),
+				context.rules.afterSubmitFrames,
+			);
+			/* Where the frame runs a menu's search again keyed to the
+			 * registered case (a host whose forms read the search), that
+			 * menu's records hold that case alone, under the answers its
+			 * last search was run with, as the browser records it. The
+			 * landing's own list is that read; a menu the frame passes
+			 * through on its way holds it as the screen Back returns to,
+			 * which its forms read what the search found from. */
+			const registeredCaseId =
+				mutation.kind === "registration" ? result.primaryCaseIds[0] : undefined;
+			const keyedRecords = (
+				moduleUuid: Uuid,
+				caseId: string,
+			): Extract<AppTestScreen, { kind: "records" }> => {
+				const searched = [state.screen, ...[...state.history].reverse()].find(
+					(prior): prior is Extract<AppTestScreen, { kind: "records" }> =>
+						prior.kind === "records" &&
+						prior.moduleUuid === moduleUuid &&
+						prior.searchAnswers !== undefined,
+				);
+				return {
+					kind: "records",
+					moduleUuid,
+					...(searched?.searchAnswers !== undefined && {
+						searchAnswers: searched.searchAnswers,
+					}),
+					registeredCaseId: caseId,
+				};
+			};
+			const keyed =
+				registeredCaseId === undefined
+					? []
+					: registrationLanding.newCaseSearchModuleUuids.map((moduleUuid) =>
+							keyedRecords(moduleUuid, registeredCaseId),
+						);
+			const returned: AppTestSessionState = {
+				...state,
+				selections,
+				deviceCases,
+				afterSubmitStack,
+				history: [],
+			};
+			const entered: AppTestScreen =
+				landingScreen.kind === "first-menu"
+					? { kind: "home" as const }
+					: enterAppTestMenu(
+							{ ...context, identity },
+							returned,
+							landingScreen.moduleUuid,
+						);
+			const keyedLanding =
+				entered.kind === "records"
+					? keyed.find((records) => records.moduleUuid === entered.moduleUuid)
+					: undefined;
+			const landing: AppTestScreen =
+				entered.kind === "records" && keyedLanding !== undefined
+					? { ...entered, ...keyedLanding }
+					: entered;
+			return {
+				state: {
+					...returned,
+					history: keyed
+						.filter((records) => records !== keyedLanding)
+						.map((records) => appTestHistoryEntry(records, selections)),
+					screen: landing,
 				},
 				identity,
 				effects: result,
@@ -316,7 +446,10 @@ export async function submitAppTest(
 						nextState,
 						next.route.moduleUuid,
 					),
-					history: [...state.history, retiredScreen],
+					history: [
+						...state.history,
+						appTestHistoryEntry(retiredScreen, state.selections),
+					],
 				};
 				break;
 			case "form": {
@@ -334,7 +467,10 @@ export async function submitAppTest(
 						caseIds: ids,
 						entryCases: cases,
 					},
-					history: [...state.history, retiredScreen],
+					history: [
+						...state.history,
+						appTestHistoryEntry(retiredScreen, state.selections),
+					],
 				};
 				break;
 			}
@@ -358,9 +494,13 @@ export async function submitAppTest(
 			validation: undefined,
 		};
 	} catch (error) {
-		if (!expectedAppTestRefusal(error)) throw error;
 		// Production saves first and reports a next-screen failure afterward.
 		// Preserve that distinction rather than rolling back a successful save.
+		// A refusal of data the device lacks after the save (a link's condition
+		// over a worker key the worker has none of) is such a failure, which
+		// Preview shows on the saved form's links.
+		const refused = appTestDataRefusal(context, error);
+		if (!expectedAppTestRefusal(refused)) throw error;
 		return {
 			state: {
 				...state,
@@ -368,10 +508,7 @@ export async function submitAppTest(
 				screen: {
 					kind: "after-submit" as const,
 					moduleUuid: screen.moduleUuid,
-					message:
-						error instanceof Error
-							? error.message
-							: "The next task could not be opened.",
+					message: refused.message,
 				},
 			},
 			effects: result,

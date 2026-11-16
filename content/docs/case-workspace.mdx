@@ -29,6 +29,11 @@ parent record type. People select that parent, then see its linked records.
 **No parent selection** opens a flat list that can include records with or
 without a parent. Other Results filters still apply.
 
+If the module also has a registration or survey form, its forms show first,
+and people choose the parent once they pick a form that opens an existing
+record. Picking the parent moves straight on, without the parent list's
+details, in Web Apps and on Android alike.
+
 This choice is separate from placing a module in a submenu. It changes how
 people find existing records; it does not link new registrations to a parent.
 A form on the selected parent can create a child by saving answers to the
@@ -91,6 +96,8 @@ Details** at the bottom of its properties when you only want it off that
 screen. Hiding is reversible. An item hidden from Results stays part of the
 list, so the list's search still matches its value; a tile works a little
 differently (see [Lay results out as a tile](#lay-results-out-as-a-tile)).
+You can turn **List search matches this** off for a hidden field, and then
+only Details shows it and Default order can't sort by it.
 **Delete information** removes that display
 setup from both screens and Default order, if used, but never deletes the case
 property or saved case data. Results must keep at least one item so people can
@@ -172,9 +179,17 @@ those behave in ways worth knowing up front:
 
 The tile is the layout for Results everywhere Results appear, so the list
 people search into looks the same as the list they browse. You can also ask for
-the tile to stay on screen above every form in the module, so the person
-filling in a form can always see which case they are working on. Details keeps
-its own arrangement either way.
+the tile to stay on screen once a case is chosen from the list, so the person
+can always see which case they are working on: above the menu of forms the case
+opens, above each form, and above the screens after it, a search included in
+Web Apps. Where cases are chosen from more than one list, the first chosen
+case whose list keeps its tile is the one shown, as CommCare does. When a
+menu's forms read its search, the tile shows the case as that search found it,
+even before the worker's device holds it. On
+Android, a case's details on the list show that case's tile above them too,
+while no other chosen case's tile is on screen. The details of a case a
+Search action found show none until it is chosen. Details keeps its own
+arrangement either way.
 
 Going back to a row of columns keeps every placement. Nothing you arranged is
 lost, so you can try a tile, switch back, and switch to it again without
@@ -266,7 +281,7 @@ every selected parent before the worker makes the child's own selection.
 
 A tile can still group cases, but it cannot stay pinned above a several-case
 form: that banner has room for one current case, not a batch. When several-case
-selection is enabled, Nova turns off **Keep tile visible in forms** and explains
+selection is enabled, Nova turns off **Keep the tile on screen once a case is chosen** and explains
 the change before saving it.
 
 ## Choose which cases people can find
@@ -321,6 +336,18 @@ lookup-backed question does. Nova does not offer a typed-in list of choices on
 the Search screen, so a fixed yes/no choice is a two-row table you own. A
 multiple-choice field finds cases whose value is any of the chosen answers.
 
+A phone reads every choice field's table as the Search screen opens, before a
+menu that opens on its results runs its search. If the table has no rows, the
+search doesn't open, and Preview shows why in its place. A starting value the
+table doesn't offer is left blank, as a phone leaves it, on a search with more
+than one field. On a search whose only field is that choice field, a phone
+can't set the choice aside, so the search doesn't open either, and Preview
+names the field so you can give it a starting value its table offers.
+
+A search field's rule can also compare a case value with a list of values. A
+case matches when its value is any one of them, and a value in the list can be
+one you type or a search field's answer.
+
 **Sort choices by** picks the column whose text orders the choices, and starts
 as the label column. The choices are listed in that column's order character
 by character, the same on every device: digits come before capital letters,
@@ -370,7 +397,20 @@ Each choice says what workers see:
   Results then shows only what that search found, with **Search again** at the
   top to start over.
 - **Results first**: workers see the cases the search finds with its starting
-  values, and can search again to narrow them.
+  values, and can search again to narrow them. Coming back to the list from a
+  form without submitting it, or with the browser's Back, keeps the search the
+  worker ran. In Web Apps the browser's Back to the list runs it with the
+  answers the worker last gave that search, as Web Apps keeps only the latest
+  answers, so after a second search an earlier page shows the second search's
+  answers, and after the search fields were shown empty it runs with none,
+  hidden fields included;
+  on Android a search kept on the way back keeps its own. Leaving it behind starts the search over, as
+  Web Apps does: after a breadcrumb to the menu or above it, a submitted form,
+  or Home, the list opens on the menu's starting search again. The same goes
+  for **Search again**: the search fields stay until the worker searches or
+  leaves the list behind. In Preview it also starts over when you start
+  Preview again, run it as another worker, or change where it runs, since each
+  of those starts a new session.
 - **Case list first**: workers see their cases and can search from the list. In
   an app that runs in Web Apps the choice says **Not available in Web Apps. You
   can open this menu on Search first, which Android still opens on its case
@@ -588,6 +628,19 @@ This is a Results-availability setting, not a Search action: it applies whether
 people browse Results directly or arrive through Search, and it never adds a
 Search action by itself.
 
+### Register from the list
+
+A case list can offer a registration form at any time, so people look for a
+case before adding a new one. In Results, under **Register from this list**,
+choose a registration form from another menu. It stays on its own menu too. You
+can choose where people go after registering from the list: **Back to this
+list**, or **Continue with the new case**, which goes on to this menu's forms
+for it. Back to this list returns to the list, where the new case now shows, or
+to the menu's forms where people choose a form first there. A form that has its
+own After submit goes there instead. Nova offers this on a list whose menu's
+forms all open an existing case. In Nova's tools this is
+`register_from_case_list` on the menu.
+
 ### The case list in the menu
 
 **Show the case list in this menu**, under **Case list in the menu** in the
@@ -595,7 +648,14 @@ menu's settings, lists the menu's case list as an entry of its own, beside its
 forms or as the menu's only entry. Choosing a case there shows its details. In
 Web Apps the case list shows again. On Android, choosing a case returns to the
 home screen when the list has no case details, and with them, **Done** returns
-to the list. You can give the entry its own label, icon and spoken label; with
+to the list. The entry shows only while its case is still to be chosen, as in
+CommCare. A menu that asks for its case first, because every form on it opens
+the same existing case, lists its forms and its submenus once that case is
+chosen, without the entry. A submenu whose case a menu above it already chose
+doesn't show the entry either. A menu CommCare HQ receives as an advanced one
+(see [Case changes](/docs/case-changes#when-a-forms-link-opens-the-case-it-creates)) chooses the entry's case apart from
+its forms', so there people choose a form or the entry before any case.
+You can give the entry its own label, icon and spoken label; with
 no label it takes the menu's name. A menu with no forms and no submenus is its case list, so the
 switch stays on until the menu has a form.
 

@@ -71,8 +71,7 @@ consumer must select a lexical context before descending.
 ## Context and projection
 
 `ExpressionSlotRef` is the canonical owner UUID, slot, and typed member identity.
-Array indexes are never slot identities. `ProseSlotRef` extends context selection
-without pretending prose is a stored expression. The reference-slot registry owns
+Array indexes are never slot identities. `ProseSlotRef` is the context of a prose slot and of each calculated value it holds: expressionSlotValues yields a value part under its prose slot with its path, and expressionSlotKey keys a prose slot too. The reference-slot registry owns
 stored access; `FormStructure.expressionAt` supplies the same read to a prepared
 form without manufacturing a partial document. `slotContext` retains the actual
 slot while lexical row and form-node context can change.
@@ -263,9 +262,11 @@ never stored raw-XPath validation codes. There is no printed-source checker.
   stored by stable identity and resolved to its current slug only at Preview,
   SQL, or CommCare emission. `source: "worker-record"` reads the worker's own
   case (a form's `#user/`); no `source` reads session user data. The separate
-  `session-user { field }` arm stays name-backed for CommCare-provided or
-  external worker fields that have no Nova entity, and authoring never infers
-  one arm from the other's text.
+  `session-user { field }` arm stays name-backed for fields with no Nova
+  entity: from the session only a key CommCare writes itself
+  (`undeclared-worker-field` refuses any other), and from either source never
+  a declared slug (`worker-property-read-by-name`), which the parser binds to
+  its identity instead.
 - A `via` of kind `self` collapses to the inner `where` (no identity join).
 - `any-relation` is direction-agnostic: for the canonical `parent` index its
   possible destination types are the origin's parent UNION its direct children,

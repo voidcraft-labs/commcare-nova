@@ -1,6 +1,8 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
 import { SEARCH_CLAIM_SEED } from "../../lib/previewRuntimeSeeds";
+import { removableRoutes } from "../../lib/routes";
 
 /**
  * A search reads past the worker's device, so it can find a record another
@@ -14,7 +16,8 @@ test("a searched record another persona owns opens its form with its case data, 
 	tag: "@seed:search-claim",
 }, async ({ scenario, page }) => {
 	const { searchClaim } = seedFor(scenario, "search-claim");
-	const { searcher, match, prompt, moduleName, noteLabel } = SEARCH_CLAIM_SEED;
+	const { searcher, match, prompt, moduleName, formName, noteLabel } =
+		SEARCH_CLAIM_SEED;
 	test.setTimeout(90_000);
 	const main = page.locator("main");
 	const identity = page
@@ -59,6 +62,91 @@ test("a searched record another persona owns opens its form with its case data, 
 		await expect(main.getByText(/would not be on .* device/)).toHaveCount(0);
 	});
 
+	await test.step("a claim that lands after the worker went Home leaves them there", async () => {
+		/* The menu's forms read the search, so the claim posts as the form is
+		 * chosen and the form opens once it lands. Home meanwhile is where the
+		 * worker went: the late claim opens nothing over it. */
+		const form = main.getByRole("button", { name: formName, exact: true });
+		const release = Promise.withResolvers<void>();
+		let arrived = false;
+		let delivered = false;
+		const claimRoutes = removableRoutes(page);
+		await claimRoutes.route("**/build/**", async (route) => {
+			const request = route.request();
+			if (request.method() !== "POST" || !request.headers()["next-action"])
+				return route.continue();
+			const args: unknown = request.postDataJSON();
+			const claim =
+				Array.isArray(args) && args.length === 1 ? args[0] : undefined;
+			if (
+				typeof claim !== "object" ||
+				claim === null ||
+				!Array.isArray((claim as { caseIds?: unknown }).caseIds) ||
+				"caseType" in claim
+			)
+				return route.continue();
+			const response = await route.fetch();
+			arrived = true;
+			await release.promise;
+			await route.fulfill({ response });
+			delivered = true;
+		});
+		try {
+			await main
+				.getByRole("button", {
+					name: new RegExp(`^View details for ${match.caseName}`),
+				})
+				.click();
+			await main.getByRole("button", { name: "Continue", exact: true }).click();
+			await form.click();
+			await expect.poll(() => arrived).toBe(true);
+			await pressTrailCrumb(page, "Home");
+			const moduleTile = main.getByRole("button", {
+				name: new RegExp(`^${moduleName}\\b`),
+			});
+			await expect(moduleTile).toBeVisible({ timeout: 20_000 });
+			release.resolve();
+			await expect.poll(() => delivered).toBe(true);
+			/* The claim has landed once the identity menu counts it. */
+			await identity.click();
+			await expect(
+				page.getByRole("menuitem", {
+					name: "Release 1 claimed case",
+					exact: true,
+				}),
+			).toBeVisible({ timeout: 20_000 });
+			await page.keyboard.press("Escape");
+			await expect(moduleTile).toBeVisible();
+			await expect(
+				main.getByRole("button", { name: "Submit", exact: true }),
+			).toHaveCount(0);
+			await expect(form).toHaveCount(0);
+		} finally {
+			release.resolve();
+			await claimRoutes.removeAll();
+		}
+		/* History still holds the menu holding the record behind Home. */
+		await page.goBack();
+		await expect(form).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: "Submit", exact: true }),
+		).toHaveCount(0);
+		/* Search for the record again from Home. */
+		await pressTrailCrumb(page, "Home");
+		await main
+			.getByRole("button", { name: new RegExp(`^${moduleName}\\b`) })
+			.click();
+		await expect(searchScreen).toBeVisible({ timeout: 20_000 });
+		await searchScreen
+			.getByRole("textbox", { name: prompt.label })
+			.fill(match.caseName);
+		await searchScreen
+			.getByRole("button", { name: "Search All Cases", exact: true })
+			.click();
+		await expect(rows).toHaveCount(1, { timeout: 20_000 });
+		await expect(rows.first()).toContainText(match.caseName);
+	});
+
 	await test.step("choosing it opens the form with its saved values", async () => {
 		await main
 			.getByRole("button", {
@@ -66,6 +154,8 @@ test("a searched record another persona owns opens its form with its case data, 
 			})
 			.click();
 		await main.getByRole("button", { name: "Continue", exact: true }).click();
+		/* CommCare lists the menu's one form once the record is chosen. */
+		await main.getByRole("button", { name: formName, exact: true }).click();
 		const note = main.getByRole("textbox", {
 			name: new RegExp(`${noteLabel}$`),
 		});

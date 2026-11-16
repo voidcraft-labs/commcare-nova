@@ -19,7 +19,7 @@
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { eq, literal, sessionUserProperty } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -34,7 +34,7 @@ const uuid = (name: string) => targetedUuid(ID, name);
  * worker can meet.
  */
 function hidden() {
-	return eq(sessionUser("role"), literal("supervisor"));
+	return eq(sessionUserProperty(uuid("worker-role")), literal("supervisor"));
 }
 
 function note(name: string) {
@@ -139,6 +139,14 @@ export function formLinkHiddenTarget() {
 			},
 		],
 	});
+	// The condition reads the worker's role, a worker property the app
+	// declares, which the setup list a publish shows names for someone to add
+	// on CommCare HQ.
+	const roleProperty = uuid("worker-role");
+	doc.userProperties = {
+		[roleProperty]: { uuid: roleProperty, slug: "role", label: "Role" },
+	};
+	doc.userPropertyOrder = [roleProperty];
 	return targetedDocument({
 		id: ID,
 		rows: ["58, a form link to a target its menu does not show"],

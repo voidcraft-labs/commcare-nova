@@ -41,6 +41,7 @@ import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	CALCULATED_SEARCH_EXPRESSION_GUIDANCE,
 	CASE_LIST_ORDER_GUIDANCE,
+	columnListStateRefusal,
 	columnUpdateInputSchema,
 	stampColumnUuid,
 	uuidInputSchema,
@@ -93,6 +94,17 @@ export const updateCaseListColumnTool = {
 			}
 			const { moduleUuid, module: mod } = address;
 
+			const listStateRefusal = columnListStateRefusal(column);
+			if (listStateRefusal !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: listStateRefusal },
+				};
+			}
+
+			/* A replacement that leaves `notOnList` out puts the column back on
+			 * the list: the body is the whole column. */
 			const replacement = stampColumnUuid(column, columnUuid);
 			const result = updateColumnMutation(mod, columnUuid, replacement);
 			if ("error" in result) {

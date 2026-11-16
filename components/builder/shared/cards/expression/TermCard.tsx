@@ -772,7 +772,7 @@ function EditableTermCard({
 										id={replacementUserFieldHelpId}
 										className="text-[13px] leading-5 text-nova-text-secondary"
 									>
-										Use the field name saved on the user, like assigned_region
+										{USER_FIELD_HELP}
 									</p>
 								) : (
 									<FieldError
@@ -2339,11 +2339,19 @@ function userFieldForTerm(term: Term | undefined): string {
  * The raw source is an explicit promise to preserve the authored name. Custom
  * worker information is selected through `UserPropertyMenu` and never inferred
  * from text, so a raw field remains raw even when its spelling happens to equal
- * a current custom slug.
+ * a current custom slug, and the gate then refuses it
+ * (`worker-property-read-by-name`), pointing to the worker information list.
  */
 function userFieldTerm(field: string): Term {
 	return sessionUser(field);
 }
+
+/** What the raw source takes: a key CommCare keeps for every worker. Any
+ * other name is refused at commit (`undeclared-worker-field`), and a name the
+ * app declares is read through Worker information
+ * (`worker-property-read-by-name`), so the help points there. */
+const USER_FIELD_HELP =
+	"Use a key CommCare keeps for every worker, like commcare_first_name. For information your app declares, choose Worker information.";
 
 function userFieldError(value: string): string {
 	return value.length === 0
@@ -2528,7 +2536,7 @@ function UserFieldInput({
 					id={helpId}
 					className="mt-2 text-[13px] leading-5 text-nova-text-secondary"
 				>
-					Use the field name saved on the user, like assigned_region
+					{USER_FIELD_HELP}
 				</p>
 			)}
 		</div>

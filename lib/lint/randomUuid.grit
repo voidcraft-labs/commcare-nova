@@ -1,0 +1,8 @@
+or {
+	`crypto.randomUUID()`,
+	`globalThis.crypto.randomUUID()`,
+	`window.crypto.randomUUID()`,
+	`self.crypto.randomUUID()`
+} as $call where {
+	register_diagnostic(span=$call, message="This mints a UUID with crypto.randomUUID, which a browser offers only in a secure context: the builder opened over plain http on a LAN address throws here. Use the uuid package's v4 (or v7), which draws on crypto.getRandomValues, as lib/session/store.ts does.")
+}

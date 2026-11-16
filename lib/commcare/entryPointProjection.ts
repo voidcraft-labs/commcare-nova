@@ -1,7 +1,7 @@
 /** HQ EndpointsHelper projection. Computed datums remain runtime-owned. */
 import {
+	afterEmptySearchRegistrationFormOf,
 	type BlueprintDoc,
-	caseListRegistrationFormOf,
 	type EntryPointTarget,
 	type Uuid,
 } from "@/lib/domain";
@@ -50,7 +50,8 @@ export function projectEntryPoint(
 ): EntryPointProjection {
 	if (
 		target.kind === "form" &&
-		caseListRegistrationFormOf(doc, target.moduleUuid) === target.formUuid
+		afterEmptySearchRegistrationFormOf(doc, target.moduleUuid) ===
+			target.formUuid
 	)
 		throw new Error(
 			"Registration after an empty search cannot be opened through a deep link.",

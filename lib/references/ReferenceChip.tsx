@@ -9,6 +9,7 @@
  */
 
 import { Icon } from "@iconify/react/offline";
+import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import { CHIP, displayId, REF_TYPE_CONFIG } from "./config";
 import type { UnresolvedReferenceProjection } from "./provider";
 import type { Reference } from "./types";
@@ -57,13 +58,26 @@ export function UnresolvedReferenceChip({
 }: {
 	unresolved: UnresolvedReferenceProjection;
 }) {
-	const config = REF_TYPE_CONFIG[unresolved.type];
+	const value = unresolved.referenceKind === "value";
+	/* A calculated value names no one source, so its repair chip wears the
+	 * working value chip's icon and neutral colors (`ValueChip.tsx`). */
+	const config = value
+		? {
+				icon: tablerMathFunction,
+				bgClass: "bg-nova-surface",
+				textClass: "text-nova-text-secondary",
+				borderClass: "border-nova-border",
+			}
+		: REF_TYPE_CONFIG[unresolved.type];
 	const accessibleKind =
 		unresolved.type === "form"
 			? "Form field"
 			: unresolved.type === "user"
 				? "Worker information"
 				: "Case property";
+	const text = value
+		? "Calculated value needs repair"
+		: "Reference needs repair";
 
 	return (
 		<span
@@ -77,7 +91,7 @@ export function UnresolvedReferenceChip({
 			}}
 			data-reference-repair={unresolved.referenceKind}
 			role="img"
-			aria-label={`${accessibleKind} reference needs repair`}
+			aria-label={value ? text : `${accessibleKind} reference needs repair`}
 		>
 			<Icon
 				icon={config.icon}
@@ -85,7 +99,7 @@ export function UnresolvedReferenceChip({
 				height={CHIP.iconSize}
 				className="shrink-0"
 			/>
-			<span className="whitespace-nowrap">Reference needs repair</span>
+			<span className="whitespace-nowrap">{text}</span>
 		</span>
 	);
 }

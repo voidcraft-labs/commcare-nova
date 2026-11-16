@@ -24,6 +24,7 @@ import { previewPlatformRules } from "../platform";
 import { projectWorkerModule } from "../workerModule";
 import type { readCases } from "./caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "./caseListOrder";
+import { PreviewDataRefusal } from "./dataRefusal";
 import { caseListStepSession } from "./entrySessionData";
 import { evaluateSearch } from "./evaluateForm";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
@@ -37,6 +38,7 @@ import {
 } from "./searchCsqlRuntime";
 import type { SearchEvaluationInput } from "./searchEvaluation";
 import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
+import { SurfacedDataRefusal } from "./surfacedDataRefusal";
 import type {
 	CaseDatabaseSnapshot,
 	SearchResultsSnapshot,
@@ -139,8 +141,11 @@ export async function serverRecordsRead(
 	const rules = previewPlatformRules(world.device.platform);
 	const session = previewSessionValues(world.identity, world.device);
 	/* Results stay hidden while the case list is on its Search screen with
-	 * nothing submitted: no results query has run there. */
+	 * nothing submitted: no results query has run there. A registration's
+	 * return runs its own query, keyed to the registered case, and shows
+	 * its Results whatever the Search screen holds. */
 	const resultVisible =
+		request.registeredCaseId !== undefined ||
 		search.hasSubmitted ||
 		caseListStep({
 			workflow: search.workflow,
@@ -207,10 +212,19 @@ export async function serverRecordsRead(
 		wire?.unevaluated === true || searchCsql?.unfoldedDeviceRead === true
 			? SEARCH_CSQL_UNEVALUATED_MESSAGE
 			: undefined;
+	const readsResults =
+		resultVisible &&
+		Object.keys(search.errors).length === 0 &&
+		refusal === undefined;
+	/* The assigned-case exclusion is the Results read's rule: its refusal
+	 * stops the list where Preview's Results read stops, and is the list's. */
+	if (readsResults && search.exclusionRefusal !== undefined)
+		throw new SurfacedDataRefusal(
+			new PreviewDataRefusal(search.exclusionRefusal),
+			"list",
+		);
 	const read: Omit<Parameters<typeof readCases>[1], "page"> | undefined =
-		!resultVisible ||
-		Object.keys(search.errors).length > 0 ||
-		refusal !== undefined
+		!readsResults
 			? undefined
 			: {
 					appId: world.appId,

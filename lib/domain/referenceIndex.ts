@@ -25,6 +25,11 @@
 //     UUID text happens to match an authored entity.
 //   - `p:<uuid>` — a custom worker-information property reference by stable
 //     uuid. Renaming its saved slug never re-keys the edge.
+//   - `w:<name>` — a read of a worker field by its name: an expression's
+//     `session-user` leaf or a prose `user-ref` part, which name a field no
+//     Nova entity holds. Declaring worker information under that name, or
+//     renaming worker information to it, rebinds exactly these reads to the
+//     property's identity in the same batch (`lib/doc/userMutations.ts`).
 //   - `c:<caseType>/<property>` — a case-property reference. Typed XPath/prose
 //     `case-ref` atoms, predicate-AST `PropertyRef` leaves (keyed under the
 //     walk's DESTINATION type, mirroring the rename rewriter's matching rule),
@@ -106,6 +111,12 @@ export const USER_PROPERTY_TARGET_PREFIX = "p:";
 /** Target key for a custom worker-information property identity. */
 export function userPropertyTargetKey(uuid: Uuid | string): string {
 	return `${USER_PROPERTY_TARGET_PREFIX}${uuid}`;
+}
+
+/** Target key for a read of a worker field by its name, from the session or
+ *  from the worker's record. */
+export function workerFieldNameTargetKey(name: string): string {
+	return `w:${name}`;
 }
 
 /**

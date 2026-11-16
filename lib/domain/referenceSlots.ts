@@ -46,6 +46,8 @@ import {
 	type Expression,
 	type ExpressionSlotRef,
 	isExpression,
+	type ProseSlotRef,
+	type SlotContextRef,
 } from "./expression/types";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
 import { FORM_TYPES, type FormType } from "./forms";
@@ -848,7 +850,9 @@ export interface ExpressionCarrierRef {
 }
 
 export interface ExpressionSlotValue {
-	readonly ref: ExpressionSlotRef;
+	/** The slot the expression is checked in. A calculated value in prose
+	 *  carries its prose slot. */
+	readonly ref: SlotContextRef;
 	readonly expression: Expression;
 	/** The key path from the owner entity to the value, collection positions
 	 * included: the walk a scope takes through what encloses the slot. */
@@ -860,11 +864,15 @@ type ExpressionRegistryEntry = Extract<
 	{ kind: "expression" | "options-source" }
 >;
 
-/** A stable address key. Collection positions are never part of identity. */
-export function expressionSlotKey(ref: ExpressionSlotRef): string {
+/** A stable address key. Collection positions are never part of identity. A
+ *  prose slot keys as its owner and slot, with the option's uuid after them
+ *  for a choice label; no prose slot shares a name with an expression slot. */
+export function expressionSlotKey(ref: SlotContextRef): string {
 	const base = [ref.entity, ref.uuid, ref.slot];
 	if (!("member" in ref)) return JSON.stringify(base);
 	const member = ref.member;
+	if ("optionUuid" in member)
+		return JSON.stringify([...base, member.optionUuid]);
 	if ("datum" in member) {
 		return JSON.stringify([
 			...base,
@@ -1067,10 +1075,10 @@ function visitExpressionSlots(
 		holder: Record<string, unknown>,
 		key: string,
 		value: unknown,
-		ref: ExpressionSlotRef,
+		ref: SlotContextRef,
 		path: readonly (string | number)[],
 	) => void,
-	onlySlot?: ExpressionSlotRef["slot"],
+	onlySlot?: SlotContextRef["slot"],
 ): void {
 	const entity =
 		owner.entity === "field"
@@ -1112,6 +1120,80 @@ function visitExpressionSlots(
 				visit(holder, key, value, ref, concreteSlotPath(segments, indices));
 		});
 	}
+	if (owner.entity === "field") visitProseValues(doc, owner, visit, onlySlot);
+}
+
+/** A field's calculated values in prose, after its expression entries: each
+ *  applicable prose entry in registry order and, within a template, each
+ *  `value` part in part order, addressed by its prose slot and the concrete
+ *  key path to the part's expression. */
+function visitProseValues(
+	doc: ExpressionReadableDoc,
+	owner: ExpressionCarrierRef,
+	visit: (
+		holder: Record<string, unknown>,
+		key: string,
+		value: unknown,
+		ref: SlotContextRef,
+		path: readonly (string | number)[],
+	) => void,
+	onlySlot: SlotContextRef["slot"] | undefined,
+): void {
+	const field = ownRecordValue(doc.fields, owner.uuid);
+	if (field === undefined) return;
+	for (const entry of FIELD_REFERENCE_SLOTS) {
+		if (entry.kind !== "prose") continue;
+		if (onlySlot !== undefined && entry.slot !== onlySlot) continue;
+		if (
+			!fieldSlotApplies(
+				entry,
+				field.kind,
+				field.kind === "repeat" ? field.repeat_mode : undefined,
+			)
+		)
+			continue;
+		const segments = entry.path.split(".");
+		walkSlotValues(field, segments, [], (_holder, _key, template, indices) => {
+			const ref = proseRefForEntry(field, owner.uuid, entry.slot, indices);
+			if (ref === undefined) return;
+			const parts = (template as { parts?: unknown } | undefined)?.parts;
+			if (!Array.isArray(parts)) return;
+			const base = concreteSlotPath(segments, indices);
+			parts.forEach((part: unknown, index) => {
+				if (
+					typeof part !== "object" ||
+					part === null ||
+					(part as { kind?: unknown }).kind !== "value"
+				)
+					return;
+				const holder = part as Record<string, unknown>;
+				visit(holder, "expression", holder.expression, ref, [
+					...base,
+					"parts",
+					index,
+					"expression",
+				]);
+			});
+		});
+	}
+}
+
+/** The prose slot a registry walk position names: an option label carries
+ *  its option's uuid. */
+function proseRefForEntry(
+	field: object,
+	uuid: Uuid,
+	slot: FieldProseSlotId,
+	indices: readonly number[],
+): ProseSlotRef | undefined {
+	if (slot !== "option_label") return { entity: "field", uuid, slot };
+	const options = (
+		field as { optionsSource?: { options?: readonly { uuid?: Uuid }[] } }
+	).optionsSource?.options;
+	const optionUuid = options?.[indices[0] ?? -1]?.uuid;
+	return optionUuid === undefined
+		? undefined
+		: { entity: "field", uuid, slot, member: { optionUuid } };
 }
 
 /** A registry path with each `[]` fan-out replaced by the position the walk chose. */
@@ -1130,7 +1212,8 @@ function concreteSlotPath(
 	return path;
 }
 
-/** Present expressions on one owner, in registry and collection order. */
+/** Present expressions on one owner, in registry and collection order, then a
+ *  field's calculated values in prose under their prose slots. */
 export function expressionSlotValues(
 	doc: ExpressionReadableDoc,
 	owner: ExpressionCarrierRef,
@@ -1167,7 +1250,7 @@ export function expressionSlotValue(
 export function rewriteExpressionSlotValues(
 	doc: ExpressionReadableDoc,
 	owner: ExpressionCarrierRef,
-	rewrite: (value: unknown, ref: ExpressionSlotRef) => unknown,
+	rewrite: (value: unknown, ref: SlotContextRef) => unknown,
 ): number {
 	let changed = 0;
 	visitExpressionSlots(doc, owner, (holder, key, value, ref) => {
@@ -1380,10 +1463,13 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	repeat_mode: "discriminator",
 	// A query repeat's held placement: a closed enum, naming nothing.
 	placement: "config",
-	// Display flags: a group shown on one screen, and a label (a field's or a
-	// choice's) written with no markdown form. Literals, naming nothing.
+	// Display flags: a group shown on one screen, a label (a field's or a
+	// choice's) or a help text written with no markdown form, and a Text
+	// question's number keypad. Literals, naming nothing.
 	fieldList: "config",
 	plainLabel: "config",
+	plainHelp: "config",
+	keypad: "config",
 	"optionsSource.options[].plainLabel": "config",
 	label_media: "media",
 	help_media: "media",
@@ -1407,6 +1493,8 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	purpose: "display-text",
 	postSubmit: "config",
 	hiddenFromMenu: "config",
+	// The form's text formatting switch: a literal, naming nothing.
+	plainText: "config",
 	"formLinks[].uuid": "identity",
 	"otherwise.kind": "discriminator",
 	"otherwise.destination": "config",
@@ -1457,6 +1545,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	id: "declaration",
 	name: "display-text",
 	hiddenFromMenu: "config",
+	formsInMenuAbove: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
 	purpose: "display-text",
@@ -1468,10 +1557,14 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListMenuItem.icon": "media",
 	"caseListMenuItem.audioLabel": "media",
 	// The case list registration form: `kind` selects when the list offers
-	// it, `label` is the Register action's text, and `formUuid` is the
-	// `module_case_list_registration_form` reference slot.
+	// it, `label` is the Register action's text, its icon and spoken label
+	// are media, `afterSubmit` is where a worker goes after registering, and
+	// `formUuid` is the `module_case_list_registration_form` reference slot.
 	"caseListRegistrationForm.kind": "discriminator",
 	"caseListRegistrationForm.label": "display-text",
+	"caseListRegistrationForm.icon": "media",
+	"caseListRegistrationForm.audioLabel": "media",
+	"caseListRegistrationForm.afterSubmit": "config",
 	// The two Results/Details sequences are lists of column uuids — identity,
 	// not a reference a rename or a case-type retirement would follow.
 	"caseListConfig.listColumnOrder[]": "identity",
@@ -1489,8 +1582,10 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].pattern": "config",
 	"caseListConfig.columns[].sort.direction": "config",
 	"caseListConfig.columns[].sort.priority": "config",
+	"caseListConfig.columns[].sort.blanks": "config",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",
+	"caseListConfig.columns[].notOnList": "config",
 	// Tile placement and presentation. Every slot is `config`: the four
 	// coordinates are geometry and the five presentation slots are closed
 	// enumerations or booleans, so none of them can carry a reference, a

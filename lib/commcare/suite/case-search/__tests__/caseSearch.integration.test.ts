@@ -27,7 +27,7 @@ it.each(["display-first", "advanced-first"])(
 		const doc = searchEmissionFixture("remote");
 		const moduleUuid = doc.moduleOrder[0];
 		const workspace = makeCaseSearchFixture(doc);
-		const condition = eq(sessionUser("role"), literal("supervisor"));
+		const condition = eq(sessionUser("user_type"), literal("supervisor"));
 		const excluded = term(literal("owner-x"));
 		const display = {
 			moduleUuid,
@@ -68,7 +68,7 @@ it.each(["display-first", "advanced-first"])(
 			en: "Search All Cases",
 		});
 		expect(hq.modules[0].search_config.search_button_display_condition).toBe(
-			"instance('commcaresession')/session/user/data/role = 'supervisor'",
+			"instance('commcaresession')/session/user/data/user_type = 'supervisor'",
 		);
 		const zip = new AdmZip(
 			compileCcz(hq, current.appName, current, {

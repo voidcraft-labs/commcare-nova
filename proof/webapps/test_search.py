@@ -37,6 +37,25 @@
   order, where the table's row order differs. The plausible failure: a
   drop-down in row order, which a sort-less itemset gives.
 
+- **A default search, and the worker's own search beside its results**
+  (``targeted-search-workflow``'s "Recent patients", which skips to the
+  results of its default search, with one visible field). Contract: the
+  client enters the menu with no query data and Formplayer runs the default
+  search; the client lays the search beside the results
+  (``menus/utils.js::isSidebarEnabled``, from the ``queryResponse``
+  Formplayer hands with them) and sends the worker's Search there with the
+  search forced to be the worker's (``router.js``'s ``menu:query``,
+  ``force_manual_search`` where the sidebar is enabled), which runs the one
+  search that carries the answer; and Home drops the query data (the Home
+  crumb, ``menus/views.js::BreadcrumbListView.onClickHome``, triggers
+  ``app.js``'s ``navigateHome``, whose ``urlObject.clearExceptApp()``,
+  ``utils/utils.js``, sets ``queryData`` to null before the app list
+  shows), so entering the menu again runs the default search again. Plausible failures: a client
+  that sends the sidebar's search without forcing it (Formplayer would run
+  the default search instead), or query data that outlives Home (the menu
+  would open on the worker's last search). Preview's ``manual`` search state
+  and its standing rules (``lib/preview/searchStanding.ts``) play these.
+
 The Search screen opens with the menu. Results are read only after the worker
 submits that screen, as the search workflow requires.
 """
@@ -223,3 +242,83 @@ def test_web_apps_lists_a_lookup_prompts_choices_in_label_order(
     evidence("lookup-choices", {"prompts": prompts, "query": run.screens[-1].get("query")})
     assert run.page_errors == [] and run.screens[-1].get("query") is not None
     assert prompts["Region"] == prompts["Regions"] == ["East", "North & coast"]
+
+
+DEFAULT_SEARCH = "targeted-search-workflow"
+TO_RECENT = steps.path(steps.open_app("Search workflows"), steps.choose("Recent patients"))
+TYPED = "Amina"
+# Where HQ's case search views answer Formplayer (``ota/urls.py``, under ``/a/<domain>/phone/``).
+HQ_SEARCH = "/phone/search/"
+
+
+def _menu_requests(run):
+    """Each menu navigation the client asked of Formplayer: its query data, what Formplayer answered, and whether
+    Formplayer searched HQ to answer it."""
+    found = []
+    for exchange in run.answered("navigate_menu"):
+        asked = exchange.request_json() or {}
+        found.append(
+            {
+                "selections": asked.get("selections"),
+                "queryData": asked.get("query_data") or {},
+                "screen": exchange.json().get("type"),
+                "searched": any(HQ_SEARCH in path for _, path in exchange.asked),
+            }
+        )
+    return found
+
+
+def test_web_apps_forces_the_sidebars_search_and_runs_the_default_search_again_after_home(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    with webapps_hq.project(webapps_documents[DEFAULT_SEARCH]) as project:
+        with project.released(formplayer_runner) as release:
+            run = Session(release, editor_driver).run(
+                [
+                    *TO_RECENT,
+                    steps.SCREEN,
+                    *steps.type_prompt(0, TYPED),
+                    *steps.run_search(),
+                    steps.SCREEN,
+                    *steps.click(steps.HOME),
+                    *TO_RECENT,
+                    steps.SCREEN,
+                ]
+            )
+    requests = _menu_requests(run)
+    defaulted, searched, again = run.screens
+    evidence(
+        "default-search-sidebar",
+        {
+            "requests": requests,
+            "screens": [{key: screen.get(key) for key in ("list", "query")} for screen in run.screens],
+        },
+    )
+    assert run.page_errors == []
+    # Each time the menu is entered it runs its default search, with no query data, and the search shows beside
+    # the results.
+    entered = [request for request in requests if request["selections"] == ["2"] and not request["queryData"]]
+    assert [(request["screen"], request["searched"]) for request in entered] == [("entities", True)] * 2, requests
+    for screen in (defaulted, again):
+        assert screen.get("list") is not None and screen.get("query") is not None, screen
+        assert screen["query"]["beside"] is True, screen["query"]
+    # The worker's Search beside the results: one request that runs a search, forced to be the worker's, with the
+    # answer typed, answered with the results.
+    executed = [
+        request
+        for request in requests
+        if any(isinstance(entry, dict) and entry.get("execute") for entry in request["queryData"].values())
+    ]
+    assert len(executed) == 1, requests
+    [entry] = executed[0]["queryData"].values()
+    assert entry.get("force_manual_search") is True, entry
+    assert TYPED in (entry.get("inputs") or {}).values(), entry
+    assert (executed[0]["screen"], executed[0]["searched"]) == ("entities", True)
+    assert searched.get("list") is not None, searched
+    # Asking whether the typed prompt holds sends HQ no search.
+    checked = [
+        request
+        for request in requests
+        if request["queryData"] and request not in executed and request["selections"] == ["2"]
+    ]
+    assert checked and not any(request["searched"] for request in checked), requests

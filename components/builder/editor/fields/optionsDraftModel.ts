@@ -55,9 +55,11 @@ export function settleDraft<T extends SelectOption>(draft: T[]): T[] {
 /**
  * Why a row's value can't be saved, or `undefined`. The value box already
  * turns a typed space into an underscore (`sanitizeSelectOptionValue`);
- * this refuses the two things the box leaves as typed: a value holding both
+ * this refuses the three things the box leaves as typed: a value holding both
  * an apostrophe and a double quote, which no rule naming the choice could
- * print (the gate's `SELECT_OPTION_VALUE_INVALID`), and a value an earlier
+ * print, a value CommCare HQ's build reads as a data source, written like
+ * `instance('abc')`, offering the gate's own repair (both the gate's
+ * `SELECT_OPTION_VALUE_INVALID`), and a value an earlier
  * choice of the list holds, compared exactly as the gate's
  * `SELECT_OPTION_VALUE_DUPLICATE` compares. A blank value is settled at
  * commit, so it is no refusal here.
@@ -72,6 +74,20 @@ export function optionValueRefusal(
 	const problem = selectOptionValueProblemAmong(value, earlier);
 	if (problem === "both-quotes") {
 		return "This value holds both an apostrophe and a double quote. Keeping one kind works.";
+	}
+	if (problem === "instance-read") {
+		const option = draft[index];
+		const repaired = repairSelectOptionValue(
+			value,
+			option === undefined ? "" : proseTemplateText(option.label),
+			mintSelectOptionPlaceholder(index + 1).value,
+			new Set(
+				draft
+					.filter((_, otherIndex) => otherIndex !== index)
+					.map((other) => other.value),
+			),
+		);
+		return `CommCare HQ reads this value as a data source when it builds the form, not as a choice. "${repaired}" works.`;
 	}
 	if (problem !== "duplicate") return undefined;
 	const free = suffixUntilFree(

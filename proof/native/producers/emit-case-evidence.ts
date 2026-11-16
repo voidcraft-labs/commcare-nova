@@ -23,12 +23,14 @@ import {
 } from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "../../../lib/domain";
+import { HQ_INSTANT_VECTORS } from "../../../lib/domain/__tests__/hqInstantText.vectors";
 
 import { operationRelevanceDoc } from "../../../lib/preview/engine/__tests__/fixtures/submissionProgram";
 import {
 	advancedModule,
 	rootCaseBlockNames,
 } from "../../targeted/documents/advancedModules";
+import { datetimeSaved } from "../../targeted/documents/datetimeSaved";
 import { caseOrderDocument, caseOrderScenarios } from "./caseOrderScenarios";
 import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
@@ -138,11 +140,13 @@ for (const [scenario, doc, moduleIndex = 0] of [
  * The targeted documents the case family's Core classes open whole: every form of each (`<name>.m<i>f<j>.xml`),
  * its suite and its HQ import body, which HQ's step builds again (`proof/native/steps/case_emission.py`).
  * `targeted-advanced-module` is `AdvancedFormRuntimeTest`'s; `targeted-root-case-block-names` the
- * `CaseOperationRuntimeTest` scenario on targeted-root-case-block-names.
+ * `CaseOperationRuntimeTest` scenario on targeted-root-case-block-names; `targeted-datetime-saved`
+ * `StoredInstantRuntimeTest`'s, whose "Revisit" form it opens on a visit holding each stored moment.
  */
 for (const [name, document] of [
 	["advanced-module", advancedModule()],
 	["root-case-block-names", rootCaseBlockNames()],
+	["datetime-saved", datetimeSaved()],
 ] as const) {
 	const doc = hydratePersistedBlueprint(document.doc);
 	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -171,3 +175,12 @@ for (const [name, document] of [
 		});
 	});
 }
+
+// StoredInstantRuntimeTest sets each moment as the sequence form's answer and
+// clock, and as the stored value targeted-datetime-saved's "Revisit" form
+// opens on, in every device zone, and reads the text the case then holds: the
+// text CommCare HQ stores for it, written out by hand in the vectors.
+writeFileSync(
+	resolve(output, "stored-instants.json"),
+	`${JSON.stringify({ schemaVersion: 1, vectors: HQ_INSTANT_VECTORS })}\n`,
+);

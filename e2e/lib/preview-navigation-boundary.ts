@@ -1,6 +1,8 @@
 // Remote transport is controlled. PreviewShell, HomeScreen, ModuleScreen,
 // CaseListScreen, the session, the platform rules and the controller stay
-// real; the worker's cases are two fixed rows the device holds.
+// real; the worker's cases are fixed rows the device holds: two patients,
+// and the households of `child-list-above` with their members, each
+// household under a village of `parent-chain`.
 export {
 	getAllLookupDefinitionsAction,
 	launchEntryPointAction,
@@ -27,11 +29,19 @@ import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBinding
 import {
 	NAVIGATION_APP_ID,
 	NAVIGATION_CASES,
+	NAVIGATION_HOUSEHOLDS,
+	NAVIGATION_VILLAGES,
+	PLACED_PATIENTS_MODULE_UUID,
 } from "./previewNavigationFixture";
 
-const rows: CaseRowWithCalculated[] = NAVIGATION_CASES.map((name, index) => ({
-	case_id: `navigation-case-${index + 1}`,
-	case_type: "patient",
+const caseRow = (
+	caseId: string,
+	caseType: string,
+	name: string,
+	parentCaseId: string | null = null,
+): CaseRowWithCalculated => ({
+	case_id: caseId,
+	case_type: caseType,
 	case_name: name,
 	app_id: NAVIGATION_APP_ID,
 	owner_id: "native-worker",
@@ -40,15 +50,57 @@ const rows: CaseRowWithCalculated[] = NAVIGATION_CASES.map((name, index) => ({
 	modified_on: null,
 	closed_on: null,
 	external_id: null,
-	parent_case_id: null,
+	parent_case_id: parentCaseId,
 	properties: {},
 	calculated: {},
-}));
+});
+
+const rows: CaseRowWithCalculated[] = [
+	...NAVIGATION_CASES.map((name, index) =>
+		caseRow(`navigation-case-${index + 1}`, "patient", name),
+	),
+	...NAVIGATION_VILLAGES.map((name, index) =>
+		caseRow(`navigation-village-${index + 1}`, "village", name),
+	),
+	...NAVIGATION_HOUSEHOLDS.flatMap((household, index) => {
+		const householdId = `navigation-household-${index + 1}`;
+		return [
+			caseRow(
+				householdId,
+				"household",
+				household.name,
+				`navigation-village-${index + 1}`,
+			),
+			...household.members.map((member, at) =>
+				caseRow(
+					`${householdId}-member-${at + 1}`,
+					"person",
+					member,
+					householdId,
+				),
+			),
+		];
+	}),
+];
 
 export const loadCasesAction: typeof Actions.loadCasesAction = async (args) => {
-	const chosen = args.caseIds
-		? rows.filter((row) => args.caseIds?.includes(row.case_id))
-		: rows;
+	/* The list's filter reads the place of a worker assigned nowhere, which the
+	 * case store refuses as it compiles the read (`AbsentWorkerFieldError`),
+	 * and the action answers with the refusal. */
+	if (args.moduleUuid === PLACED_PATIENTS_MODULE_UUID)
+		return {
+			kind: "data-refused",
+			reason: { kind: "empty-instance", instanceId: "commcaresession" },
+		};
+	const chosen = rows.filter(
+		(candidate) =>
+			candidate.case_type === args.caseType &&
+			(args.caseIds === undefined ||
+				args.caseIds.includes(candidate.case_id)) &&
+			(args.parentCase === undefined ||
+				(candidate.parent_case_id !== null &&
+					args.parentCase.caseIds.includes(candidate.parent_case_id))),
+	);
 	return {
 		kind: "rows",
 		rows: chosen,
@@ -58,8 +110,13 @@ export const loadCasesAction: typeof Actions.loadCasesAction = async (args) => {
 		constraintSource: "unconstrained",
 	};
 };
-export const loadCaseCountAction: typeof Actions.loadCaseCountAction =
-	async () => ({ kind: "count", count: rows.length });
+export const loadCaseCountAction: typeof Actions.loadCaseCountAction = async (
+	args,
+) => ({
+	kind: "count",
+	count: rows.filter((candidate) => candidate.case_type === args.caseType)
+		.length,
+});
 export const loadCaseDataAction: typeof Actions.loadCaseDataAction = async (
 	_appId,
 	_caseType,
@@ -73,7 +130,7 @@ export const loadCaseDataAction: typeof Actions.loadCaseDataAction = async (
 export const loadCaseDatabaseSnapshotAction: typeof Actions.loadCaseDatabaseSnapshotAction =
 	async () => ({ kind: "data", snapshot: { rows, indices: [] } });
 
-// The device holds both cases, so nothing a worker chooses is claimed.
+// The device holds every case, so nothing a worker chooses is claimed.
 async function unexpectedClaim(): Promise<never> {
 	throw new Error("Unexpected search claim in navigation evidence");
 }

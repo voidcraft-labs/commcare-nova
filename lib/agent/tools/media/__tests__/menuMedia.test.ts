@@ -3,9 +3,11 @@
  * native persistence and SA/MCP transport are separate proofs. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
+import { proseText } from "@/lib/domain";
 import { getFormTool } from "../../getForm";
 import { setAppLogoTool } from "../setAppLogo";
 import {
@@ -366,4 +368,195 @@ describe("menu-media attach verdict", () => {
 		expect(cleared.kind).toBe("mutate");
 		expect(typeof cleared.result).toBe("string");
 	});
+});
+
+const REGISTER_FORM = testUuid("menu-media-register-form");
+
+/** The fixture module as a case list offering another menu's registration
+ *  form, with its case list as an item of its menu: every carrier
+ *  `setMenuMedia` sets, on one document. */
+function fourCarrierDoc({ caseListItem = true } = {}) {
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: "11111111-1111-1111-1111-111111111111",
+				name: "Patients",
+				caseType: "patient",
+				...(caseListItem && { caseListMenuItem: { label: "All patients" } }),
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "22222222-2222-2222-2222-222222222222",
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				uuid: "menu-media-registration-menu",
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "menu-media-register-form",
+						name: "Register patient",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[MOD_A].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: REGISTER_FORM,
+		label: "New patient",
+		afterSubmit: "case-list",
+	};
+	return doc;
+}
+
+type CaseListItemItem = Extract<
+	SetMenuMediaInput["items"][number],
+	{ target: "case-list-menu-item" }
+>;
+type RegisterItem = Extract<
+	SetMenuMediaInput["items"][number],
+	{ target: "case-list-registration" }
+>;
+
+const caseListItem = (
+	icon: CaseListItemItem["icon"],
+	audioLabel: CaseListItemItem["audioLabel"],
+): CaseListItemItem => ({
+	target: "case-list-menu-item",
+	moduleUuid: MOD_A,
+	icon,
+	audioLabel,
+});
+
+const registerButton = (
+	icon: RegisterItem["icon"],
+	audioLabel: RegisterItem["audioLabel"],
+): RegisterItem => ({
+	target: "case-list-registration",
+	moduleUuid: MOD_A,
+	icon,
+	audioLabel,
+});
+
+describe("setMenuMedia on a case list's menu item and its Register button", () => {
+	it("sets all four carriers in one call, keeping the item's label and the arm's other fields", async () => {
+		const h = makeMediaFixture({ doc: fourCarrierDoc() });
+		const result = await h.runTool(setMenuMediaTool, {
+			items: [
+				moduleItem("household", null),
+				formItem("follow_up", null),
+				caseListItem(ASSET_ICON, ASSET_AUDIO),
+				registerButton("register", ASSET_AUDIO),
+			],
+		});
+		expect(result.result).toMatchObject({ ok: true, summary: { count: 4 } });
+		const mod = h.currentDoc().modules[MOD_A];
+		expect(mod?.icon).toBe("nova-icon:household");
+		expect(h.currentDoc().forms[FORM_A]?.icon).toBe("nova-icon:follow_up");
+		expect(mod?.caseListMenuItem).toEqual({
+			label: "All patients",
+			icon: ASSET_ICON,
+			audioLabel: ASSET_AUDIO,
+		});
+		expect(mod?.caseListRegistrationForm).toEqual({
+			kind: "always",
+			formUuid: REGISTER_FORM,
+			label: "New patient",
+			icon: "nova-icon:register",
+			audioLabel: ASSET_AUDIO,
+			afterSubmit: "case-list",
+		});
+	});
+
+	it("clears both new carriers' slots after JSON serialization and reducer application", async () => {
+		const h = makeMediaFixture({ doc: fourCarrierDoc() });
+		await h.runTool(setMenuMediaTool, {
+			items: [
+				caseListItem("household", ASSET_AUDIO),
+				registerButton(ASSET_ICON, ASSET_AUDIO),
+			],
+		});
+		const seededDoc = h.currentDoc();
+		const clear = await h.runTool(setMenuMediaTool, {
+			items: [caseListItem(null, null), registerButton(null, ASSET_AUDIO)],
+		});
+		const overWire = applyOverWire(seededDoc, clear.mutations);
+		expect(overWire.modules[MOD_A]?.caseListMenuItem).toEqual({
+			label: "All patients",
+		});
+		expect(overWire.modules[MOD_A]?.caseListRegistrationForm).toEqual({
+			kind: "always",
+			formUuid: REGISTER_FORM,
+			label: "New patient",
+			audioLabel: ASSET_AUDIO,
+			afterSubmit: "case-list",
+		});
+	});
+
+	it("refuses a module with no case list item, and writes no other item of the batch", async () => {
+		const h = makeMediaFixture({
+			doc: fourCarrierDoc({ caseListItem: false }),
+		});
+		const result = await h.runTool(setMenuMediaTool, {
+			items: [
+				moduleItem("household", null),
+				registerButton("register", null),
+				caseListItem("household", null),
+			],
+		});
+		expect(result.mutations).toEqual([]);
+		const error = errorOf(result);
+		expect(error).toContain("items[2]");
+		expect(error).toContain(
+			'Module "Patients" has no case list item in its menu, so there is no item to set media on. You can add one with case_list_menu_item on update_module.',
+		);
+		expect(h.currentDoc().modules[MOD_A]?.icon).toBeUndefined();
+		expect(
+			h.currentDoc().modules[MOD_A]?.caseListRegistrationForm,
+		).not.toHaveProperty("icon");
+	});
+
+	it.each([
+		["case list item", caseListItem("household", ASSET_ICON)],
+		["Register button", registerButton("register", ASSET_ICON)],
+	])(
+		"refuses an image in the %s's audio label slot",
+		async (_carrier, item) => {
+			const h = makeMediaFixture({ doc: fourCarrierDoc() });
+			const result = await h.runTool(setMenuMediaTool, { items: [item] });
+			expect(result.mutations).toEqual([]);
+			const error = errorOf(result);
+			expect(error).toContain("audio label");
+			expect(error).toContain("an image");
+			const mod = h.currentDoc().modules[MOD_A];
+			expect(mod?.caseListMenuItem).toEqual({ label: "All patients" });
+			expect(mod?.caseListRegistrationForm).toEqual({
+				kind: "always",
+				formUuid: REGISTER_FORM,
+				label: "New patient",
+				afterSubmit: "case-list",
+			});
+		},
+	);
 });

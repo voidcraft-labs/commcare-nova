@@ -26,16 +26,14 @@ import {
 import { serverOnlySearchSlot } from "./expression/profiles";
 import { walkSearchRuntimeValues } from "./expression/searchRuntimeValues";
 import { scalarDataType, typeOf } from "./expression/typeChecker";
-import type {
-	CheckPath,
-	Expression,
-	ExpressionSlotRef,
-} from "./expression/types";
+import type { CheckPath, Expression, SlotContextRef } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
+import { fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
 import {
 	caseSelectionCardinality,
+	columnOnList,
 	effectiveCaseSearchConfig,
 	isHiddenSearchInput,
 	isVisibleSearchInput,
@@ -97,7 +95,7 @@ export type PlatformFeatureSite =
 	/** An expression node: its slot and the path to it inside the stored tree. */
 	| {
 			readonly kind: "expression";
-			readonly ref: ExpressionSlotRef;
+			readonly ref: SlotContextRef;
 			readonly path: CheckPath;
 	  };
 
@@ -255,7 +253,7 @@ export function platformFeatureUses(
 			readonly entity: "field" | "form" | "module";
 			readonly uuid: Uuid;
 		},
-		ownerOf: (ref: ExpressionSlotRef) => PlatformFeatureOwner,
+		ownerOf: (ref: SlotContextRef) => PlatformFeatureOwner,
 	): PlatformFeatureUse[] => {
 		if (!walksExpressions) return [];
 		const uses: PlatformFeatureUse[] = [];
@@ -355,6 +353,8 @@ export function platformFeatureUses(
 				formUses.push(
 					slotUse("after-submit-several-destinations", formOwner, "formLinks"),
 				);
+			if (form.plainText === true && wanted("plain-text"))
+				formUses.push(slotUse("plain-text", formOwner, "plainText"));
 			formUses.push(
 				...expressionUses({ entity: "form", uuid: formUuid }, () => formOwner),
 			);
@@ -395,7 +395,7 @@ type ExpressionUses = (
 		readonly entity: "field" | "form" | "module";
 		readonly uuid: Uuid;
 	},
-	ownerOf: (ref: ExpressionSlotRef) => PlatformFeatureOwner,
+	ownerOf: (ref: SlotContextRef) => PlatformFeatureOwner,
 ) => PlatformFeatureUse[];
 
 function moduleUses(
@@ -426,19 +426,40 @@ function moduleUses(
 		own.push(slotUse("several-cases", owner, "caseListConfig.selection"));
 	if (moduleHasCaseListMenuItem(module) && wanted("case-list-menu-item"))
 		own.push(slotUse("case-list-menu-item", owner, "caseListMenuItem"));
+	// The Register button of a list that always offers another menu's form
+	// draws its icon and spoken label on Android alone.
+	const registration = module.caseListRegistrationForm;
+	if (
+		registration?.kind === "always" &&
+		(registration.icon !== undefined ||
+			registration.audioLabel !== undefined) &&
+		wanted("case-list-registration-media")
+	)
+		own.push(
+			slotUse(
+				"case-list-registration-media",
+				owner,
+				registration.icon !== undefined
+					? "caseListRegistrationForm.icon"
+					: "caseListRegistrationForm.audioLabel",
+			),
+		);
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
+	// A search with no title holds no text for Android to leave out, so only
+	// an authored title text is a use.
+	const authoredTitleText =
+		search !== undefined && typeof search.searchScreenTitle === "string";
 	if (
 		search !== undefined &&
-		(search.searchScreenTitle !== undefined ||
-			search.searchScreenSubtitle !== undefined) &&
+		(authoredTitleText || search.searchScreenSubtitle !== undefined) &&
 		wanted("search-screen-text")
 	)
 		own.push(
 			slotUse(
 				"search-screen-text",
 				owner,
-				search.searchScreenTitle !== undefined
+				authoredTitleText
 					? "caseSearchConfig.searchScreenTitle"
 					: "caseSearchConfig.searchScreenSubtitle",
 			),
@@ -464,7 +485,7 @@ function moduleUses(
 		moduleUuid,
 		inputUuid,
 	});
-	const slotOwner = (ref: ExpressionSlotRef): PlatformFeatureOwner => {
+	const slotOwner = (ref: SlotContextRef): PlatformFeatureOwner => {
 		if ("member" in ref && "columnUuid" in ref.member)
 			return columnOwner(ref.member.columnUuid);
 		if ("member" in ref && "searchInputUuid" in ref.member)
@@ -520,8 +541,11 @@ function moduleUses(
 					),
 				),
 			);
+		/* A column that is not on the list is no field, so Web Apps holds no
+		 * hidden field for it to search or sort by. */
 		if (
 			column.visibleInList === false &&
+			columnOnList(column) &&
 			list?.tile === undefined &&
 			wanted("column-hidden-from-results")
 		)
@@ -604,12 +628,20 @@ function fieldUses(
 			(field.kind === "group" && field.fieldList === true))
 	)
 		uses.push(slotUse("question-pages", owner, "kind"));
+	// Every display setting whose value a platform reads differently, found
+	// through the one registry, so a new setting needs no detector here.
+	for (const { key, row } of fieldDisplayValues(field)) {
+		if (row.feature !== undefined && wanted(row.feature))
+			uses.push(slotUse(row.feature, owner, key));
+	}
 	if (
 		"plainLabel" in field &&
 		field.plainLabel === true &&
 		wanted("plain-text")
 	)
 		uses.push(slotUse("plain-text", owner, "plainLabel"));
+	if ("plainHelp" in field && field.plainHelp === true && wanted("plain-text"))
+		uses.push(slotUse("plain-text", owner, "plainHelp"));
 	if (
 		"help_media" in field &&
 		field.help_media !== undefined &&

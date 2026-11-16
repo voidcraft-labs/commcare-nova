@@ -42,9 +42,15 @@
 
 import { produce } from "immer";
 import { useContext, useMemo } from "react";
+import { v4 as uuidv4 } from "uuid";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
+import {
+	type CaseListRegistrationDependentsPlan,
+	planCaseListRegistrationDependentsOnRemove,
+	stopOfferingDependentsMutations,
+} from "@/lib/doc/caseListRegistrationDependents";
 import {
 	type CaseTypeRetirement,
 	planCaseTypeRetirementOnRemove,
@@ -76,8 +82,8 @@ import {
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { type IdentityMove, withIdentityMoves } from "@/lib/doc/identityMoves";
 import {
+	choicePreservationFor,
 	planKindConversion,
-	withChoicePreservation,
 } from "@/lib/doc/kindConversionCascade";
 import {
 	type LookupCommitState,
@@ -129,12 +135,14 @@ import type {
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
 	addPersonaMutations,
-	addUserPropertyMutations,
 	addUserTypeMutations,
+	planAddUserProperty,
+	planUpdateUserProperty,
 	type RemoveUserPropertyPlan,
 	removePersonaMutations,
 	removeUserPropertyPlan,
 	removeUserTypePlan,
+	type UserPropertyPlan,
 	updatePersonaMutations,
 	updatePersonaValueMutations,
 	updateUserTypeMutations,
@@ -218,6 +226,59 @@ export type StructuredCommitOutcome =
  *  identity move first), only review it, or commit a batch whose moves the
  *  person has already been shown. */
 type GuardedMode = "commit" | "review" | "stated";
+
+/**
+ * What `guardedApply` dispatches: a batch, or an authored batch with the
+ * rewrites that keep the document's reads meaning what they meant
+ * (`followUps`). The worker-language lens shapes only `authored`, moving
+ * edited wording into a translation; a follow-up changes which identity a
+ * read names or turns a read into its value, never the wording, so it is a
+ * source-document change in every language. It is planned over the shaped
+ * authored batch and sent as it is.
+ */
+type GuardedBatch =
+	| readonly Mutation[]
+	| {
+			readonly authored: readonly Mutation[];
+			readonly followUps: (
+				doc: BlueprintDoc,
+				authored: readonly Mutation[],
+			) => readonly Mutation[];
+	  };
+
+function isMutationList(batch: GuardedBatch): batch is readonly Mutation[] {
+	return Array.isArray(batch);
+}
+
+/**
+ * A field edit with the choice reads it would strand kept as their values
+ * (`kindConversionCascade.ts::planChoicePreservation`), planned over the
+ * authored edit as the worker-language lens shapes it. The count is read
+ * after the dispatch.
+ */
+function choicePreservingBatch(authored: readonly Mutation[]): {
+	readonly batch: GuardedBatch;
+	readonly preservedChoiceCount: () => number;
+} {
+	let preservedChoiceCount = 0;
+	return {
+		batch: {
+			authored,
+			followUps: (doc, shaped) => {
+				const plan = choicePreservationFor(doc, shaped);
+				preservedChoiceCount = plan.preservedChoiceCount;
+				return plan.mutations;
+			},
+		},
+		preservedChoiceCount: () => preservedChoiceCount,
+	};
+}
+
+/** A worker-information write with the reads it rebinds as follow-ups, so
+ *  the worker-language lens never reads a rebind as a translation edit. */
+function userPropertyBatch(plan: UserPropertyPlan): GuardedBatch {
+	return { authored: [plan.write], followUps: () => plan.rebind };
+}
 
 type GuardedApplyResult =
 	| {
@@ -350,8 +411,8 @@ export interface BlueprintMutations {
 	 * or navigation, and the honest rejection otherwise — never a
 	 * fabricated sentinel a caller could mistake for an identity.
 	 *
-	 * Accepts a Field without uuid — the hook mints one via
-	 * `crypto.randomUUID()`. Callers that already own a uuid (e.g. the
+	 * Accepts a Field without uuid — the hook mints one with
+	 * `uuid`'s v4. Callers that already own a uuid (e.g. the
 	 * replay stream) can pass it through the optional `uuid` field on the
 	 * input object and it will be used verbatim.
 	 */
@@ -921,7 +982,7 @@ export function createBlueprintMutations(
 		 * validated. The batch is then RECORDED: it is the author's
 		 * un-persisted intent until the reconciler PUTs it. */
 		const guardedApply = (
-			mutations: readonly Mutation[],
+			batch: GuardedBatch,
 			mode: GuardedMode = "commit",
 			announceRefusal = announce,
 		): GuardedApplyResult => {
@@ -944,6 +1005,7 @@ export function createBlueprintMutations(
 				return { ok: false, messages: admission.messages };
 			}
 			const doc = get();
+			const authored = isMutationList(batch) ? batch : batch.authored;
 			/* The waiting batch was projected into the worker language when
 			 * it was dispatched, and the gate admitted it as it stands;
 			 * projecting it again would read its own translation writes as
@@ -951,7 +1013,8 @@ export function createBlueprintMutations(
 			const alreadyProjected =
 				mode === "stated" &&
 				pending !== null &&
-				deepEqual(pending.batch, mutations);
+				isMutationList(batch) &&
+				deepEqual(pending.batch, batch);
 			const snapshotAuthoringLanguage =
 				authoringLanguage === null
 					? null
@@ -962,22 +1025,28 @@ export function createBlueprintMutations(
 						readonly ok: true;
 						readonly mutations: readonly Mutation[];
 				  } = alreadyProjected
-				? { ok: true, mutations }
+				? { ok: true, mutations: authored }
 				: projectBuilderLanguageMutations(
 						doc,
 						snapshotAuthoringLanguage,
-						mutations,
+						authored,
 					);
 			if (!projected.ok) {
 				const lines = [projected.message];
 				if (announceRefusal) notifyRejectedCommit(lines);
 				return { ok: false, messages: lines };
 			}
+			const mutations = isMutationList(batch)
+				? projected.mutations
+				: [
+						...projected.mutations,
+						...batch.followUps(doc, projected.mutations),
+					];
 			/* Where the edit leaves a held identity unable to stay where a
 			 * publish recorded it, the planner appends the move and states it.
 			 * Over a document that holds one it prepares the candidate, and the
 			 * verdict evaluates that candidate rather than preparing again. */
-			const plan = withIdentityMoves(doc, projected.mutations, {
+			const plan = withIdentityMoves(doc, mutations, {
 				recorded: doc.recordedHolds,
 			});
 			const verdict =
@@ -1047,6 +1116,26 @@ export function createBlueprintMutations(
 			];
 			if (announce) notifyRejectedCommit(messages);
 			return { ok: false, messages };
+		};
+		/* Removing a form a case list always offers is refused naming each
+		 * list. The toast's "Stop offering it" clears the offer on every named
+		 * list that still offers the form, in one gated batch on the
+		 * announcing flavor, read from the document at the press; the person
+		 * then removes the form again. */
+		const refuseOfferedRemoval = (
+			plan: Extract<CaseListRegistrationDependentsPlan, { kind: "blocked" }>,
+		): void => {
+			if (!announce) return;
+			notifyRejectedCommit([plan.userMessage], {
+				label: "Stop offering it",
+				onPress: () => {
+					const mutations = stopOfferingDependentsMutations(
+						get(),
+						plan.dependents,
+					);
+					if (mutations.length > 0) guardedApply(mutations, "commit", true);
+				},
+			});
 		};
 		const rejectAutomationConflict = (): CommitOutcome & { ok: false } => {
 			const messages = [
@@ -1119,7 +1208,7 @@ export function createBlueprintMutations(
 				const uuid = asUuid(
 					typeof maybeUuid === "string" && maybeUuid.length > 0
 						? maybeUuid
-						: crypto.randomUUID(),
+						: uuidv4(),
 				);
 				// Field is a discriminated union; the narrowed generic input is a
 				// specific variant's Omit — we stamp the uuid and cast via
@@ -1161,7 +1250,7 @@ export function createBlueprintMutations(
 				// in `Mutation` — at the value level the shape is structurally
 				// identical, but TS treats the union arms as distinct types
 				// rather than a parameterized one.
-				const planned = withChoicePreservation(doc, [
+				const preserving = choicePreservingBatch([
 					{
 						kind: "updateField",
 						uuid,
@@ -1171,9 +1260,9 @@ export function createBlueprintMutations(
 						) as FieldPatchFor<typeof targetKind>,
 					} as Mutation,
 				]);
-				const applied = guardedApply(planned.mutations);
-				if (applied.ok && planned.preservedChoiceCount > 0)
-					notifyPreservedChoices(planned.preservedChoiceCount);
+				const applied = guardedApply(preserving.batch);
+				if (applied.ok && preserving.preservedChoiceCount() > 0)
+					notifyPreservedChoices(preserving.preservedChoiceCount());
 				return toOutcome(applied);
 			},
 
@@ -1348,7 +1437,7 @@ export function createBlueprintMutations(
 						kind: "inline",
 						options: DEFAULT_SELECT_OPTIONS.map((option) => ({
 							...option,
-							uuid: asUuid(crypto.randomUUID()),
+							uuid: asUuid(uuidv4()),
 						})),
 					},
 				});
@@ -1363,10 +1452,10 @@ export function createBlueprintMutations(
 					};
 				}
 				batch.push(...plan.mutations);
-				const planned = withChoicePreservation(doc, batch);
-				const applied = guardedApply(planned.mutations);
-				if (applied.ok && planned.preservedChoiceCount > 0)
-					notifyPreservedChoices(planned.preservedChoiceCount);
+				const preserving = choicePreservingBatch(batch);
+				const applied = guardedApply(preserving.batch);
+				if (applied.ok && preserving.preservedChoiceCount() > 0)
+					notifyPreservedChoices(preserving.preservedChoiceCount());
 				return toOutcome(applied);
 			},
 
@@ -1408,7 +1497,7 @@ export function createBlueprintMutations(
 					warnUnresolved("addDatetimeAsTwoQuestions", { parentUuid });
 					return NOOP_REJECTION;
 				}
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const entity: Field = {
 					kind: "datetime",
 					uuid,
@@ -1459,7 +1548,7 @@ export function createBlueprintMutations(
 				const formUuid = asUuid(
 					typeof maybeUuid === "string" && maybeUuid.length > 0
 						? maybeUuid
-						: crypto.randomUUID(),
+						: uuidv4(),
 				);
 				const applied = guardedApply([
 					{
@@ -1599,6 +1688,17 @@ export function createBlueprintMutations(
 				if (dependents.kind === "blocked") {
 					if (announce) notifyRejectedCommit([dependents.userMessage]);
 					return { ok: false, messages: [dependents.userMessage] };
+				}
+				/* A case list that always offers this form would offer nothing;
+				 * the removal waits until each list stops offering it
+				 * (`lib/doc/caseListRegistrationDependents.ts`). */
+				const offering = planCaseListRegistrationDependentsOnRemove(doc, {
+					kind: "form",
+					formUuid: uuid,
+				});
+				if (offering.kind === "blocked") {
+					refuseOfferedRemoval(offering);
+					return { ok: false, messages: [offering.userMessage] };
 				}
 				const mutations: Mutation[] = [{ kind: "removeForm", uuid }];
 				/* Removing the LAST menu form of a case-managing module would
@@ -1790,6 +1890,14 @@ export function createBlueprintMutations(
 					if (announce) notifyRejectedCommit([dependents.userMessage]);
 					return { ok: false, messages: [dependents.userMessage] };
 				}
+				const offering = planCaseListRegistrationDependentsOnRemove(doc, {
+					kind: "module",
+					moduleUuid: uuid,
+				});
+				if (offering.kind === "blocked") {
+					refuseOfferedRemoval(offering);
+					return { ok: false, messages: [offering.userMessage] };
+				}
 				return toOutcome(
 					guardedApply([
 						{ kind: "removeModule", uuid },
@@ -1799,7 +1907,7 @@ export function createBlueprintMutations(
 			},
 
 			addOrganizationLevel(level) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(
 					addOrganizationLevelMutations(get(), uuid, level),
 				);
@@ -1829,7 +1937,7 @@ export function createBlueprintMutations(
 			},
 
 			addLocationProperty(property) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(
 					addLocationPropertyMutations(get(), uuid, property),
 				);
@@ -1965,22 +2073,21 @@ export function createBlueprintMutations(
 			},
 
 			addUserProperty(property) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(
-					addUserPropertyMutations(get(), uuid, property),
+					userPropertyBatch(planAddUserProperty(get(), uuid, property)),
 				);
 				if (!applied.ok) return applied;
 				return { ok: true, uuid };
 			},
 
 			updateUserProperty(uuid, patch) {
-				if (ownRecordValue(get().userProperties, uuid) === undefined) {
+				const plan = planUpdateUserProperty(get(), uuid, patch);
+				if (plan === undefined) {
 					warnUnresolved("updateUserProperty", { uuid });
 					return NOOP_REJECTION;
 				}
-				return toOutcome(
-					guardedApply([{ kind: "updateUserProperty", uuid, patch }]),
-				);
+				return toOutcome(guardedApply(userPropertyBatch(plan)));
 			},
 
 			removeUserProperty(uuid) {
@@ -2002,7 +2109,7 @@ export function createBlueprintMutations(
 			},
 
 			addUserType(userType) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(
 					addUserTypeMutations(get(), uuid, userType),
 				);
@@ -2055,7 +2162,7 @@ export function createBlueprintMutations(
 			},
 
 			addPersona(persona) {
-				const uuid = asUuid(crypto.randomUUID());
+				const uuid = asUuid(uuidv4());
 				const applied = guardedApply(addPersonaMutations(get(), uuid, persona));
 				if (!applied.ok) return applied;
 				return { ok: true, uuid };

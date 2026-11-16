@@ -2510,7 +2510,45 @@ describe("loadCasesAction", () => {
 			PATIENT_CASE_TYPE,
 		);
 		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
-		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
+		expect(queryArg?.bindings?.sessionUserAbsent?.readsBlank).toEqual(
+			new Set(["commcare_project"]),
+		);
+	});
+
+	it("answers a read of a worker key the device lacks with the list's refusal, and reports nothing", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { AbsentWorkerFieldError, withProjectContext } = await import(
+			"@/lib/case-store"
+		);
+		const { log } = await import("@/lib/logger");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			...actionStore(),
+			query: vi.fn(async () => {
+				throw new AbsentWorkerFieldError("commcare_location_id");
+			}),
+			applySubmission: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+		const reported = vi.spyOn(log, "error");
+		try {
+			const { loadCasesAction } = await import("../caseDataBinding");
+			await expect(
+				loadCasesAction({
+					appId: APP_ID,
+					caseType: "patient",
+					caseTypes: [PATIENT_CASE_TYPE],
+				}),
+			).resolves.toEqual({
+				kind: "data-refused",
+				reason: { kind: "empty-instance", instanceId: "commcaresession" },
+			});
+			expect(reported).not.toHaveBeenCalled();
+		} finally {
+			reported.mockRestore();
+		}
 	});
 
 	it("caps only an explicit new-client page request", async () => {
@@ -3360,8 +3398,8 @@ describe("loadCaseDataAction session projection", () => {
 				columns: [
 					calculatedColumn(
 						calculatedUuid,
-						"Region",
-						term(sessionUser("region")),
+						"Place",
+						term(sessionUser("commcare_location_id")),
 						{ visibleInDetail: true },
 					),
 				],
@@ -3389,7 +3427,9 @@ describe("loadCaseDataAction session projection", () => {
 		expect(result.kind).toBe("row");
 		const queryArg = appCaseQueryArg(stubStore.query);
 		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
-		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
+		expect(queryArg?.bindings?.sessionUserAbsent?.readsBlank).toEqual(
+			new Set(["commcare_project"]),
+		);
 	});
 
 	it.each([
@@ -3780,7 +3820,9 @@ describe("loadFilterPreviewAction", () => {
 		const countArg = stubStore.count.mock.calls[0]?.[0];
 		expect(queryArg?.bindings).toBe(countArg?.bindings);
 		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
-		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
+		expect(queryArg?.bindings?.sessionUserAbsent?.readsBlank).toEqual(
+			new Set(["commcare_project"]),
+		);
 	});
 
 	it("binds UUID worker refs through the parsed candidate catalog", async () => {

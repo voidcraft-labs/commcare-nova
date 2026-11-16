@@ -22,6 +22,7 @@
  * doc's `fields`/`fieldOrder` maps). Internally it walks the fields as a
  * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
+import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
@@ -48,7 +49,7 @@ import type {
 	FormType,
 	LanguageTag,
 	LookupOptionsSource,
-	ProseReferencePart,
+	ProseAtomPart,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -133,7 +134,13 @@ import {
 	choiceAnswerDiagnostic,
 } from "./choiceAnswerDiagnostic";
 import { DataInstance, type DataInstanceSnapshot } from "./dataInstance";
-import { ownerMovesToNoPlace, PreviewDataRefusal } from "./dataRefusal";
+import {
+	caseBlocksReadAbsentWorkerKey,
+	ownerMovesToNoPlace,
+	PreviewDataRefusal,
+	type PreviewDataRefusalReason,
+	WORKER_INFORMATION_REFUSAL,
+} from "./dataRefusal";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import {
 	type FormExpressionRuntime,
@@ -164,6 +171,11 @@ import {
 	type PreviewLookupData,
 	predicateLookupsCovered,
 } from "./lookupEvaluation";
+import {
+	numberKeypadStores,
+	numberKeypadTyped,
+	withKeypadRefused,
+} from "./numberKeypad";
 import { defaultPreviewDevice, type PreviewDevice } from "./previewDevice";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { resolveCurrentPage } from "./sectionPaging";
@@ -733,9 +745,13 @@ export class FormEngine {
 	/** The last refused insert of each repeat, by concrete repeat path. It
 	 * stays until an insert of that repeat succeeds or the entry restarts. */
 	private repeatInsertRefusals = new Map<string, SetvalueRefusalDetails>();
-	/** The repeats whose rows move a case to the place of a worker assigned
-	 * nowhere: Core refuses the form as soon as one of their rows exists. */
-	private readonly ownerRepeatsWithoutPlace: ReadonlySet<Uuid>;
+	/** The repeats whose rows Core refuses as soon as one exists, each with
+	 * why: a case moved to the place of a worker assigned nowhere, or a case
+	 * block that reads a worker-data key the worker's device lacks. */
+	private readonly refusedRowRepeats: ReadonlyMap<
+		Uuid,
+		PreviewDataRefusalReason
+	>;
 
 	constructor(
 		input: FormEngineInput,
@@ -774,7 +790,19 @@ export class FormEngine {
 		);
 		if (ownerWithoutPlace?.form === true)
 			throw new PreviewDataRefusal({ kind: "owner-without-place" });
-		this.ownerRepeatsWithoutPlace = ownerWithoutPlace?.repeats ?? new Set();
+		const absentWorkerKey = caseBlocksReadAbsentWorkerKey(
+			printableDocOf(input),
+			{ uuid: input.formUuid, caseOperations: input.form.caseOperations },
+			previewSessionValues(this.previewIdentity, this.device).user,
+		);
+		if (absentWorkerKey?.form === true)
+			throw new PreviewDataRefusal(WORKER_INFORMATION_REFUSAL);
+		const refusedRowRepeats = new Map<Uuid, PreviewDataRefusalReason>();
+		for (const repeat of absentWorkerKey?.repeats ?? [])
+			refusedRowRepeats.set(repeat, WORKER_INFORMATION_REFUSAL);
+		for (const repeat of ownerWithoutPlace?.repeats ?? [])
+			refusedRowRepeats.set(repeat, { kind: "owner-without-place" });
+		this.refusedRowRepeats = refusedRowRepeats;
 		this.secondaryInstances = secondaryXPathInstances({
 			session: previewSessionValues(this.previewIdentity, this.device),
 			lookupData: this.lookupData,
@@ -1054,7 +1082,9 @@ export class FormEngine {
 		value: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		this.setValue(path, value);
+		/* An answer the platform refused opens no request: Web Apps sends
+		 * Formplayer nothing it refuses. */
+		if (!this.setValue(path, value)) return;
 		await this.settleValueChangesAsync([path], evaluateAsync);
 		await this.reenterActiveScreenAsync(evaluateAsync);
 	}
@@ -1197,29 +1227,58 @@ export class FormEngine {
 
 	/** Set a value and trigger recalculation cascade. Only changed paths
 	 *  are written to the store — Zustand's shallow merge keeps unchanged
-	 *  paths' references stable, so their subscribers skip re-rendering. */
-	setValue(path: string, value: string): void {
-		if (this.asyncRuntime) this.stagedValues.set(path, value);
-		else {
-			this.beginRequest();
-			this.instance.set(path, value);
+	 *  paths' references stable, so their subscribers skip re-rendering.
+	 *  Returns whether the instance takes the answer: false for one the
+	 *  platform's number keypad refused, which changes nothing the form reads
+	 *  and so opens no request. */
+	setValue(path: string, typed: string): boolean {
+		/* A Text question with a number keypad plays the platform's keypad:
+		 * Android's box holds only the keys it offers, and Web Apps keeps the
+		 * earlier answer in the instance when its pattern refuses the typed one,
+		 * sends nothing, and shows its message (`answerShapeError`). */
+		const { shown: value, stores } = this.keypadAnswer(path, typed);
+		if (stores) {
+			if (this.asyncRuntime) this.stagedValues.set(path, value);
+			else {
+				this.beginRequest();
+				this.instance.set(path, value);
+			}
 		}
 
 		const updates: EngineStoreState = {};
 		const current = this.store.getState()[path];
-		if (current && current.value !== value) {
-			updates[path] = { ...current, value, edited: true };
+		if (
+			current &&
+			(current.value !== value || (current.keypadRefused === true) !== !stores)
+		) {
+			updates[path] = withKeypadRefused(
+				{ ...current, value, edited: true },
+				!stores,
+			);
 		}
 
 		/* Cascade: re-evaluate what the answer reaches, narrowed to it as
 		 * Core narrows it. Only paths whose state actually changed are
-		 * included in the update. */
-		const affected = this.cascadeWork([{ anchor: path }]);
-		this.evaluateWorkInto(affected, updates);
+		 * included in the update. An answer the platform refused changed
+		 * nothing the form reads. */
+		if (stores) {
+			const affected = this.cascadeWork([{ anchor: path }]);
+			this.evaluateWorkInto(affected, updates);
+		}
 
-		/* Re-validate the changed field itself */
+		/* Re-validate the changed field itself. A refused answer's verdict is
+		 * the keypad's own message, which needs no evaluation, so it lands
+		 * here on the worker runtime too, where no request follows. */
 		const latestState = updates[path] ?? current;
-		if (latestState) {
+		if (latestState && !stores) {
+			const refusal = this.answerShapeError(path, latestState);
+			if (latestState.valid || latestState.errorMessage !== refusal)
+				updates[path] = {
+					...latestState,
+					valid: false,
+					errorMessage: refusal,
+				};
+		} else if (latestState) {
 			if (latestState.touched) {
 				this.validateAndCollect(path, latestState, updates);
 			} else {
@@ -1230,8 +1289,28 @@ export class FormEngine {
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
+		if (!stores) return false;
 		this.settleLiveRepeats();
 		if (!this.asyncRuntime) this.reenterActiveScreen();
+		return true;
+	}
+
+	/** What a typed answer leaves for a Text question with a number keypad:
+	 * the text the box shows and whether the instance stores it, by the
+	 * platform's `numberKeypad` rule (`numberKeypad.ts`). Every other question
+	 * shows and stores what was typed. */
+	private keypadAnswer(
+		path: string,
+		typed: string,
+	): { readonly shown: string; readonly stores: boolean } {
+		const field = this.findField(path);
+		if (field?.kind !== "text" || field.keypad === undefined)
+			return { shown: typed, stores: true };
+		const shown = numberKeypadTyped(this.rules.numberKeypad, typed);
+		return {
+			shown,
+			stores: numberKeypadStores(this.rules.numberKeypad, shown),
+		};
 	}
 
 	/**
@@ -1745,7 +1824,7 @@ export class FormEngine {
 	 *  edit) shares. */
 	private computeDefault(field: Field, path: string): string | undefined {
 		if (this.asyncRuntime) return undefined;
-		const defaultValue = this.expressionSource(field, "default_value");
+		const defaultValue = this.startingValueSource(field);
 		if (!defaultValue) return undefined;
 		const result = evaluate(defaultValue, this.createEvalContext(path));
 		const value = this.startingValueText(field, path, result, "starting-value");
@@ -1847,7 +1926,7 @@ export class FormEngine {
 		count: number,
 	): string[] {
 		const keys = this.repeatInstanceKeys.get(repeatPath) ?? [];
-		while (keys.length < count) keys.push(crypto.randomUUID());
+		while (keys.length < count) keys.push(uuidv4());
 		if (keys.length > count) keys.length = count;
 		this.repeatInstanceKeys.set(repeatPath, keys);
 		return keys;
@@ -2553,6 +2632,21 @@ export class FormEngine {
 		slot: FieldExpressionSlotRef["slot"],
 	): string | undefined {
 		return this.expressions.source({ entity: "field", uuid: field.uuid, slot });
+	}
+
+	/** A field's starting value as the XForm's `<setvalue>` prints it: under
+	 * a date-and-time bind, date-and-time text is read in the device's own
+	 * date and clock before the cast (`answerCast.ts`), as Core's cast keeps
+	 * the written date and moves only the clock. */
+	private startingValueSource(field: Field): string | undefined {
+		const slot = {
+			entity: "field",
+			uuid: field.uuid,
+			slot: "default_value",
+		} as const;
+		return this.bindTypeOf(field) === "xsd:dateTime"
+			? this.expressions.startingDatetimeSource(slot)
+			: this.expressions.source(slot);
 	}
 
 	/** A `required` that is the constant match-all. Requiredness decides by
@@ -3565,10 +3659,12 @@ export class FormEngine {
 		values: Map<string, string>;
 		touched: Set<string>;
 		edited: Set<string>;
+		held: Map<string, string>;
 	} {
 		const values = new Map<string, string>();
 		const touched = new Set<string>();
 		const edited = new Set<string>();
+		const held = new Map<string, string>();
 		for (const [path, state] of Object.entries(this.store.getState())) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
 			if (
@@ -3578,11 +3674,15 @@ export class FormEngine {
 				state.edited
 			) {
 				values.set(path, state.value);
+				/* A number keypad's refused answer is shown and not stored: the
+				 * instance keeps the earlier answer, which the rebuild keeps too. */
+				if (state.keypadRefused === true)
+					held.set(path, this.instance.get(path) ?? "");
 			}
 			if (state.touched) touched.add(path);
 			if (state.edited) edited.add(path);
 		}
-		return { values, touched, edited };
+		return { values, touched, edited, held };
 	}
 
 	/** Restore values from a snapshot and re-evaluate expressions. */
@@ -3591,6 +3691,9 @@ export class FormEngine {
 			values: Map<string, string>;
 			touched: Set<string>;
 			edited?: ReadonlySet<string>;
+			/** The instance's answer where the shown value is one the
+			 *  platform's number keypad refused. */
+			held?: ReadonlyMap<string, string>;
 		},
 		options?: { restoreAllValues?: boolean },
 	): void {
@@ -3608,12 +3711,20 @@ export class FormEngine {
 			const value = snapshot.values.get(path);
 			const current = currentState[path];
 			if (value !== undefined && current) {
-				this.instance.set(path, value);
-				updates[path] = {
-					...current,
-					value,
-					edited: snapshot.edited?.has(path),
-				};
+				/* A refused answer stays refused while this engine's keypad
+				 * would refuse it too; the instance keeps the earlier answer. */
+				const held = snapshot.held?.get(path);
+				const refused =
+					held !== undefined && !this.keypadAnswer(path, value).stores;
+				this.instance.set(path, refused ? held : value);
+				updates[path] = withKeypadRefused(
+					{
+						...current,
+						value,
+						edited: snapshot.edited?.has(path),
+					},
+					refused,
+				);
 			}
 		}
 
@@ -3771,11 +3882,10 @@ export class FormEngine {
 				case "output": {
 					const field = this.findField(path);
 					if (field === undefined) break;
-					const resolve =
-						(slot: ProseSlotRef) => async (part: ProseReferencePart) =>
-							xpathToString(
-								await evaluateAsync(this.expressions.prose(part, slot), path),
-							);
+					const resolve = (slot: ProseSlotRef) => async (part: ProseAtomPart) =>
+						xpathToString(
+							await evaluateAsync(this.expressions.prose(part, slot), path),
+						);
 					const nextLabel = await resolveLabelAsync(
 						fieldProseTemplate(field, "label"),
 						resolve(fieldProseSlot(field, "label")),
@@ -4044,7 +4154,7 @@ export class FormEngine {
 					if (f) {
 						const resolve =
 							(slot: ProseSlotRef) =>
-							(part: ProseReferencePart): string =>
+							(part: ProseAtomPart): string =>
 								xpathToString(
 									evaluate(this.expressions.prose(part, slot), ctx),
 								);
@@ -4239,7 +4349,7 @@ export class FormEngine {
 		updates: EngineStoreState,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		const shapeError = this.answerShapeError(path, state.value);
+		const shapeError = this.answerShapeError(path, state);
 		if (shapeError !== undefined) {
 			if (state.valid || state.errorMessage !== shapeError) {
 				updates[path] = { ...state, valid: false, errorMessage: shapeError };
@@ -4314,7 +4424,7 @@ export class FormEngine {
 		updates: EngineStoreState,
 	): void {
 		if (this.asyncRuntime) return;
-		const shapeError = this.answerShapeError(path, state.value);
+		const shapeError = this.answerShapeError(path, state);
 		if (shapeError !== undefined) {
 			if (state.valid || state.errorMessage !== shapeError) {
 				updates[path] = { ...state, valid: false, errorMessage: shapeError };
@@ -4368,10 +4478,22 @@ export class FormEngine {
 	 * Check typed answers before authored rules, on blur and at submission.
 	 * Empty answers belong to requiredness. Readable temporal values may use
 	 * older storage spellings; numeric text must describe the entire answer.
+	 * A number keypad's message answers only what the worker typed and the
+	 * platform refused (`keypadRefused`): a starting value or a preloaded case
+	 * value is never checked against the keypad, as neither runtime checks
+	 * one (Web Apps' `PhoneEntry` checks only in `onPreProcess`, which a
+	 * seeded answer never reaches).
 	 */
-	private answerShapeError(path: string, value: string): string | undefined {
+	private answerShapeError(
+		path: string,
+		state: Pick<FieldState, "value" | "keypadRefused">,
+	): string | undefined {
+		const { value } = state;
 		if (value === "") return undefined;
-		const kind = this.findField(path)?.kind;
+		if (state.keypadRefused === true)
+			return runtimeMessage(this.presentationLanguage, "numberKeypadAnswer");
+		const field = this.findField(path);
+		const kind = field?.kind;
 		if (kind === "int" || kind === "decimal") {
 			const parsed = readNumericAnswer(kind, value, this.presentationLanguage);
 			return parsed.ok ? undefined : parsed.error;
@@ -4445,7 +4567,7 @@ export class FormEngine {
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<string | undefined> {
-		const source = this.expressionSource(field, "default_value");
+		const source = this.startingValueSource(field);
 		if (!source) return undefined;
 		const value = this.startingValueText(
 			field,
@@ -4568,7 +4690,7 @@ export class FormEngine {
 		const snapshots = new Map<string, RepeatInitializationSnapshot>();
 		for (const { node, path } of fields) {
 			const field = node.field;
-			const source = this.expressionSource(field, "default_value");
+			const source = this.startingValueSource(field);
 			const previous = this.store.getState()[path];
 			if (
 				source !== undefined &&
@@ -5051,30 +5173,37 @@ export class FormEngine {
 		this.refuseOwnerRowWithoutPlace();
 	}
 
-	/** Refuse the entry once a row exists whose case operation moves the case
-	 * to the place of a worker assigned nowhere, as Core does when it
-	 * calculates that row's owner. */
+	/** Refuse the entry once a row exists whose case block Core refuses as it
+	 * calculates it: one that moves the case to the place of a worker assigned
+	 * nowhere, or one that reads a worker-data key the device lacks. */
 	private refuseOwnerRowWithoutPlace(): void {
-		const repeats = this.ownerRepeatsWithoutPlace;
+		const repeats = this.refusedRowRepeats;
 		if (repeats.size === 0) return;
-		const rowExists = (
+		const refusedRow = (
 			nodes: readonly FieldTreeNode[],
 			prefix: string,
-		): boolean =>
-			nodes.some((node) => {
+		): PreviewDataRefusalReason | undefined => {
+			for (const node of nodes) {
 				const field = node.field;
 				const path = `${prefix}/${field.id}`;
-				if (field.kind === "group" || field.kind === "section")
-					return rowExists(node.children ?? [], path);
-				if (field.kind !== "repeat") return false;
+				if (field.kind === "group" || field.kind === "section") {
+					const found = refusedRow(node.children ?? [], path);
+					if (found !== undefined) return found;
+					continue;
+				}
+				if (field.kind !== "repeat") continue;
 				const count = this.instance.getRepeatCount(path);
-				if (count > 0 && repeats.has(field.uuid)) return true;
-				for (let index = 0; index < count; index++)
-					if (rowExists(node.children ?? [], `${path}[${index}]`)) return true;
-				return false;
-			});
-		if (rowExists(this.tree, "/data"))
-			throw new PreviewDataRefusal({ kind: "owner-without-place" });
+				const reason = repeats.get(field.uuid);
+				if (count > 0 && reason !== undefined) return reason;
+				for (let index = 0; index < count; index++) {
+					const found = refusedRow(node.children ?? [], `${path}[${index}]`);
+					if (found !== undefined) return found;
+				}
+			}
+			return undefined;
+		};
+		const reason = refusedRow(this.tree, "/data");
+		if (reason !== undefined) throw new PreviewDataRefusal(reason);
 	}
 
 	private async settleLiveRepeatsAsync(

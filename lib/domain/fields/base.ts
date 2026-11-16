@@ -137,6 +137,7 @@ export type InputFieldBase = FieldBase & {
 	hint?: ProseTemplate;
 	help?: ProseTemplate;
 	help_media?: Media;
+	plainHelp?: true;
 	required?: Expression; // an expression, or the "true()" sentinel
 	relevant?: Expression;
 };
@@ -145,6 +146,9 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
 	help: proseTemplateSchema.optional(),
 	help_media: mediaSchema.optional(),
+	/** The help text shows exactly as written on Android, with no markdown form on the wire.
+	 *  Absent: markdown. */
+	plainHelp: z.literal(true).optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
 });

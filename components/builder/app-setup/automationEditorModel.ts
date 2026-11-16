@@ -1,4 +1,5 @@
 import { current, type Draft, isDraft, type WritableDraft } from "immer";
+import { v4 as uuidv4 } from "uuid";
 import type { AutomationFormChoice } from "@/lib/automations/formChoices";
 import {
 	type Automation,
@@ -74,7 +75,7 @@ export function automationTimeText(value: string): string {
 }
 
 export function uuid(): Uuid {
-	return asUuid(crypto.randomUUID());
+	return asUuid(uuidv4());
 }
 
 export function newCaseUpdate(

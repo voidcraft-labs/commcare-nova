@@ -12,7 +12,7 @@
  * with a fixture blueprint to verify the cross-store dispatch contract.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -39,6 +39,7 @@ import {
 	EMPTY_AFTER_SUBMIT_STACK,
 } from "@/lib/preview/afterSubmitStack";
 import { toastStore } from "@/lib/ui/toastStore";
+import { searchInputsGivenIn } from "../previewSearchState";
 import { type ConnectSwitchRequest, createBuilderSessionStore } from "../store";
 
 /** The fixture docs carry no lookup reference, so an unavailable context is
@@ -180,6 +181,34 @@ describe("BuilderSession store", () => {
 		});
 	});
 
+	/* Web Apps keeps the answers the worker last gave each query in the page
+	 * (`utils.js::Utils.queryInputs`): no submission, crumb or Home clears
+	 * them. Preview keeps them for the running session, which is where a
+	 * history entry's search stands at all. */
+	it("keeps the answers given a query through Home, and reads none in a new session", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setPreviewing(true);
+		const given = () =>
+			searchInputsGivenIn(
+				store.getState().previewSearchInputs,
+				store.getState().previewSessionId,
+			);
+		store.getState().setPreviewSearchInputs("patients", { name: "Kofi" });
+		const held = store.getState().previewSearchInputs;
+		// The same answers change nothing.
+		store.getState().setPreviewSearchInputs("patients", { name: "Kofi" });
+		expect(store.getState().previewSearchInputs).toBe(held);
+		store.getState().clearPreviewNavigation();
+		expect(given()).toEqual({ patients: { name: "Kofi" } });
+		store.getState().setPreviewSearchInputs("patients", {});
+		expect(given()).toEqual({ patients: {} });
+		// Android's home screen starts the session over.
+		store.getState().setPreviewAtDeviceHome(true);
+		expect(given()).toEqual({});
+		store.getState().setPreviewSearchInputs("visits", { name: "Ama" });
+		expect(given()).toEqual({ visits: { name: "Ama" } });
+	});
+
 	it("1. initial state: not previewing, both sidebars open, no stash", () => {
 		const store = createBuilderSessionStore();
 		const s = store.getState();
@@ -259,6 +288,131 @@ describe("BuilderSession store", () => {
 		store.getState().setPreviewing(false);
 
 		expect(store.getState().previewPersonaUuid).toBeUndefined();
+	});
+
+	it("starts a new Preview session for another worker, platform or run, and keeps it through navigation", () => {
+		const store = createBuilderSessionStore();
+		const sessions = new Set<string>();
+		/** The session the store runs after `act`, which must be new. */
+		const startsOver = (act: () => void) => {
+			act();
+			const id = store.getState().previewSessionId;
+			expect(sessions.has(id)).toBe(false);
+			sessions.add(id);
+		};
+		sessions.add(store.getState().previewSessionId);
+		startsOver(() => store.getState().setPreviewing(true));
+		startsOver(() => store.getState().setPreviewPersonaUuid("persona-a"));
+		startsOver(() => store.getState().setPreviewPlatform("android"));
+		const running = store.getState().previewSessionId;
+		// The worker's own steps keep the session a held menu was taken in.
+		store.getState().setPreviewMenuCaseSelection("menu", {
+			caseType: "patient",
+			cases: [{ caseId: "ana" }],
+		});
+		store.getState().setPreviewCaseTarget({ formUuid: testUuid("form") });
+		store.getState().clearPreviewNavigation();
+		// Choosing the worker already running changes nothing.
+		store.getState().setPreviewPersonaUuid("persona-a");
+		expect(store.getState().previewSessionId).toBe(running);
+		startsOver(() => store.getState().setPreviewing(false));
+	});
+
+	it("starts the session over at Android's home screen, as Android's reset does, keeping the worker and the device", () => {
+		// `HomeScreenBaseActivity.processCanceledGetCommandOrCase` resets the
+		// session (`CommCareSession.clearAllState`): every step and frame
+		// goes; the logged-in worker and the install stay.
+		const store = createBuilderSessionStore();
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewPersonaUuid("persona-a");
+		store.getState().setPreviewPlatform("android");
+		store.getState().setPreviewAtDeviceHome(false);
+		store.getState().markPreviewDeviceSynced(1234);
+		store.getState().setPreviewMenuCaseSelection("menu", {
+			caseType: "patient",
+			cases: [{ caseId: "ana" }],
+		});
+		store.getState().setPreviewCaseTarget({
+			formUuid: testUuid("form"),
+			cases: [{ caseId: "ana" }],
+		});
+		store.getState().setPreviewSelectedCase({
+			caseId: "ana",
+			caseName: "Ana",
+		});
+		store.getState().setPreviewSearchState("menu", {
+			kind: "completed",
+			attempt: 1,
+			submission: "search-1",
+			answers: {},
+			matchCount: 1,
+		});
+		store.getState().setPreviewCaseListRegistrationEntry({
+			hostModuleUuid: testUuid("menu"),
+			moduleUuid: testUuid("menu"),
+			formUuid: testUuid("register"),
+		});
+		store.getState().setPreviewParentCaseRequest({
+			selectingModuleUuid: testUuid("parent-menu"),
+			returnModuleUuids: [testUuid("menu")],
+			resumeLocation: { kind: "module", moduleUuid: testUuid("menu") },
+			cancelLocation: { kind: "home" },
+		});
+		store.getState().setPreviewTaskContinuation({
+			moduleUuid: testUuid("menu"),
+			selectingModuleUuids: [],
+			caseDatabase: { rows: [], indices: [] },
+		});
+		const before = store.getState();
+
+		store.getState().setPreviewAtDeviceHome(true);
+
+		const after = store.getState();
+		expect(after).toMatchObject({
+			previewAtDeviceHome: true,
+			previewCaseTarget: undefined,
+			previewCaseListRegistrationEntry: undefined,
+			previewTaskContinuation: undefined,
+			previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+			previewEntryPointLaunch: undefined,
+			previewSelectedCase: undefined,
+			previewMenuCaseSelections: {},
+			previewParentCaseRequest: undefined,
+			previewSearchStates: {},
+			// The device's: who is logged in, the platform, its sync, its id.
+			previewing: true,
+			previewPersonaUuid: "persona-a",
+			previewPlatform: "android",
+			previewDeviceSyncedAt: 1234,
+			previewAndroidDeviceId: before.previewAndroidDeviceId,
+		});
+		// A step the browser's history kept from the old session (a list's
+		// held form menu) no longer stands.
+		expect(after.previewSessionId).not.toBe(before.previewSessionId);
+
+		// Start opens the app on that new session.
+		store.getState().setPreviewAtDeviceHome(false);
+		expect(store.getState().previewSessionId).toBe(after.previewSessionId);
+	});
+
+	it("makes its identities without crypto.randomUUID, which an insecure context lacks", () => {
+		// A page served over plain http on a LAN address has `crypto` with
+		// `getRandomValues` and no `randomUUID`.
+		const secure = globalThis.crypto;
+		vi.stubGlobal("crypto", {
+			getRandomValues: secure.getRandomValues.bind(secure),
+		});
+		try {
+			const store = createBuilderSessionStore();
+			expect(store.getState().previewAndroidDeviceId).toMatch(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			);
+			const first = store.getState().previewSessionId;
+			store.getState().setPreviewing(true);
+			expect(store.getState().previewSessionId).not.toBe(first);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
 	it("4. setPreviewing(true) with chat already closed: restores chat-closed state exactly", () => {
@@ -373,6 +527,60 @@ describe("BuilderSession store", () => {
 			formUuid,
 			cases: [{ caseId: "case-1" }],
 		});
+
+		/* So is every other fact of the same form and cases: where the form
+		 * was chosen, the list's search text, and a link's opening. */
+		const menuModuleUuid = testUuid("module-1");
+		const cases = [{ caseId: "case-1" }];
+		for (const target of [
+			{
+				formUuid,
+				cases,
+				formChosenAfterCase: {
+					caseListModuleUuid: menuModuleUuid,
+					fromCaseListMenu: true as const,
+				},
+			},
+			{
+				formUuid,
+				cases,
+				formChosenAfterCase: { caseListModuleUuid: menuModuleUuid },
+			},
+			{ formUuid, cases, caseListSearchText: "ana" },
+			{ formUuid, cases, openedByLink: true as const },
+		]) {
+			store.getState().setPreviewCaseTarget(target);
+			expect(store.getState().previewCaseTarget).toEqual(target);
+		}
+	});
+
+	it("holds a Register launch's form entry apart from the case target, until Home or a Preview flip ends it", () => {
+		const store = createBuilderSessionStore();
+		const entry = {
+			hostModuleUuid: testUuid("host-module"),
+			moduleUuid: testUuid("form-module"),
+			formUuid: testUuid("form-1"),
+		};
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewCaseListRegistrationEntry(entry);
+		expect(store.getState().previewCaseListRegistrationEntry).toEqual(entry);
+
+		/* The same launch again is no change. */
+		const prev = store.getState();
+		store.getState().setPreviewCaseListRegistrationEntry({ ...entry });
+		expect(store.getState()).toBe(prev);
+
+		/* Whatever next writes the case target, the launch is its own fact. */
+		store.getState().setPreviewCaseTarget(undefined);
+		store.getState().setPreviewCaseTarget({ formUuid: entry.formUuid });
+		expect(store.getState().previewCaseListRegistrationEntry).toBe(entry);
+
+		store.getState().clearPreviewNavigation();
+		expect(store.getState().previewCaseListRegistrationEntry).toBeUndefined();
+
+		store.getState().setPreviewCaseListRegistrationEntry(entry);
+		store.getState().setPreviewing(false);
+		expect(store.getState().previewCaseListRegistrationEntry).toBeUndefined();
 	});
 
 	it("setPreviewSelectedCase sets the open case and no-ops on a shallow-equal value", () => {
@@ -491,6 +699,27 @@ describe("BuilderSession store", () => {
 			},
 		});
 		expect(store.getState()).not.toBe(prev);
+
+		/* A request that differs only in the selector before it is another
+		 * step of the chain: Back from its list returns to that selector. */
+		const later = {
+			...request,
+			selectingModuleUuid: testUuid("later-selector"),
+		};
+		store.getState().setPreviewParentCaseRequest(later);
+		const withoutPrevious = store.getState();
+		store
+			.getState()
+			.setPreviewParentCaseRequest({ ...later, previous: request });
+		expect(store.getState()).not.toBe(withoutPrevious);
+		expect(store.getState().previewParentCaseRequest?.previous).toEqual(
+			request,
+		);
+		const withPrevious = store.getState();
+		store
+			.getState()
+			.setPreviewParentCaseRequest({ ...later, previous: { ...request } });
+		expect(store.getState()).toBe(withPrevious);
 	});
 
 	it("setPreviewing clears all case state on both transitions", () => {

@@ -43,9 +43,12 @@ export type SidebarState = { open: boolean; stashed: boolean | undefined };
  * user picked for it — the preview-mode equivalent of CommCare passing the
  * selected case datum down the navigation stack.
  *
- * `formUuid` is the destination form: seeded when the user taps a
- * case-loading form in the module menu, or defaulted by the case list to
- * the module's first case-loading form when previewing the list directly.
+ * `formUuid` is the destination form, set where a form is chosen: before
+ * its case (a forms-first menu's form, a link's, a retained command's),
+ * or from the menu the case opened (`formChosenAfterCase`). A list with no
+ * form requested holds no target and goes on to its form menu once a case
+ * is chosen (`menuProjection.ts::previewCaseListFormRequest`), which holds
+ * the case on a history entry of its own (`lib/routing/previewHeldMenu.ts`).
  * `cases` is filled once the worker continues from Results, or by a form link
  * carrying the case value the next form opens with. Absence means the
  * destination is still waiting for Results; an empty array is an explicit
@@ -85,6 +88,30 @@ export interface PreviewCaseTarget {
 	 * last search, as Web Apps rebuilds a linked form's query step
 	 * (`caseListRegistration.ts::formSearchAnswers`). */
 	openedByLink?: true;
+	/** The worker chose the form from a menu after its case: the session
+	 * holds the case beneath the form's command, so a step back off the form
+	 * lands on that menu with the case held and a second on a case list that
+	 * holds no form (`CommCareSession.stepBack`). A list reached with this
+	 * target opens no form once a case is chosen
+	 * (`menuProjection.ts::previewCaseListFormRequest`); the menu the form
+	 * was chosen on is the history entry the form was opened from
+	 * (`lib/routing/previewHeldMenu.ts`). */
+	formChosenAfterCase?: PreviewFormChosenAfterCase;
+}
+
+/** Where the case a form was chosen after came from: the module whose case
+ *  list chose it, the form's own or a parent's whose case the form's menu
+ *  goes on with (`menuProjection.ts::previewMenuCaseContext`'s
+ *  `selectedByModuleUuid`). A route back to a list returns there
+ *  (`menuProjection.ts::previewCaseListReturn`). */
+export interface PreviewFormChosenAfterCase {
+	readonly caseListModuleUuid: Uuid;
+	/** The form was chosen from that case list's own form menu (a menu with
+	 *  no submenus, `CaseListScreen`), which holds the case on a history entry
+	 *  of its own (`lib/routing/previewHeldMenu.ts`). Absent where a menu
+	 *  screen listed the form (`ModuleScreen`), which holds the case in
+	 *  `previewMenuCaseSelections`. */
+	readonly fromCaseListMenu?: true;
 }
 
 /** A command retained by after-submit navigation. Its exact task may finish
@@ -128,9 +155,42 @@ export interface PreviewSearchDeviceValues {
  * with a match count. Kept per module in the session store so the
  * no-matches registration form, a different screen, can ask whether the
  * search that offered it found nothing (`previewSearchState.ts`).
+ *
+ * Every list's search stands and lets go by one rule
+ * (`lib/preview/searchStanding.ts`), so the session holds two more kinds
+ * that only the list reads: the search a Search action ran on a menu whose
+ * forms do not read it (`action`), and the Search screen the worker asked
+ * for again (`manual`), Web Apps' `force_manual_search`.
  */
 export type PreviewSearchState =
 	| { readonly kind: "not-searched" }
+	| {
+			/** A Search action's search on a menu whose forms do not read it:
+			 * the list reads it itself, with its own device values; the
+			 * session holds its answers (hidden values included) so it stands
+			 * and lets go as every search does, and a list built afresh takes
+			 * it back. */
+			readonly kind: "action";
+			readonly submission: string;
+			readonly answers: PreviewSearchAnswers;
+			/** The menu's default search, which the list ran as it opened:
+			 *  no answer the worker gave, so history taking it back runs the
+			 *  default search again, whatever answers were given since
+			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
+			readonly automatic?: true;
+	  }
+	| {
+			/** The worker pressed Search again and has not searched since: the
+			 * list shows its Search screen where it would otherwise run its
+			 * default search, as Web Apps asks for the query screen with
+			 * `force_manual_search` in the address's query data
+			 * (`utils.js::CloudcareUrl.setQueryData`;
+			 * `MenuSessionRunnerService.java::handleQueryScreen`). It stands
+			 * and lets go as a search does: a crumb, Home, a submission and a
+			 * new session drop it, and Formplayer runs the default search. */
+			readonly kind: "manual";
+			readonly submission: string;
+	  }
 	| {
 			readonly kind: "running";
 			readonly attempt: number;
@@ -139,6 +199,11 @@ export type PreviewSearchState =
 			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly deviceValues?: PreviewSearchDeviceValues;
+			/** The menu's default search, which the list ran as it opened:
+			 *  no answer the worker gave, so history taking it back runs the
+			 *  default search again, whatever answers were given since
+			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
+			readonly automatic?: true;
 	  }
 	| {
 			readonly kind: "failed";
@@ -149,6 +214,11 @@ export type PreviewSearchState =
 			readonly answers: PreviewSearchAnswers;
 			readonly reason: PreviewSearchFailure;
 			readonly deviceValues?: PreviewSearchDeviceValues;
+			/** The menu's default search, which the list ran as it opened:
+			 *  no answer the worker gave, so history taking it back runs the
+			 *  default search again, whatever answers were given since
+			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
+			readonly automatic?: true;
 	  }
 	| {
 			readonly kind: "completed";
@@ -162,12 +232,47 @@ export type PreviewSearchState =
 			/** Set once the no-matches form registers a case: Results then
 			 * shows that one case, as the wire's return frame does. */
 			readonly registeredCaseId?: string;
+			/** The menu's default search, which the list ran as it opened:
+			 *  no answer the worker gave, so history taking it back runs the
+			 *  default search again, whatever answers were given since
+			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
+			readonly automatic?: true;
+			/** On Web Apps, history returned to a screen past the list and ran
+			 *  the list's query again there with these answers, the latest the
+			 *  worker gave it (`previewSearchState.ts::searchRunPastItsList`):
+			 *  the forms read what they find, and `matchCount` is still what
+			 *  the list counted for the answers it ran with before, which the
+			 *  list counts again as it comes on show. */
+			readonly rerunPastList?: true;
 	  };
 
 /** Which search offered a no-matches registration form. */
 export interface PreviewSearchLaunch {
 	readonly moduleUuid: Uuid;
 	readonly attempt: number;
+}
+
+/** Which case list's Register action opened a form it always offers. */
+export interface PreviewCaseListRegistrationLaunch {
+	readonly hostModuleUuid: Uuid;
+}
+
+/**
+ * The one entry of a form that a case list's Register action opened, which
+ * after submit returns where that list's choice says
+ * (`lib/preview/engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`).
+ * It names the form it opened, in its own menu, so a form screen reached any
+ * other way is by construction not this launch, and it lasts while the
+ * running app stays on that launch's own path
+ * (`lib/preview/caseListRegistrationEntry.ts::caseListRegistrationEntryContinues`):
+ * the form, and the parent case selection that admits it. Every other
+ * location ends it, and so does its submission. Ephemeral, never stored.
+ */
+export interface PreviewCaseListRegistrationEntry
+	extends PreviewCaseListRegistrationLaunch {
+	/** The form's own menu, where the action opens it. */
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
 }
 
 /**
@@ -212,6 +317,11 @@ export interface PreviewParentCaseRequest {
 	resumeLocation?: Location;
 	/** Safe running-menu destination when the worker cancels the selector. */
 	cancelLocation?: Location;
+	/** The request at the selector before this one, where this one follows a
+	 * case chosen there in the same request. Back from this selector's list
+	 * lets that case go and returns to it, as `CommCareSession.stepBack`
+	 * pops the last datum and stops where the session asks for it again. */
+	previous?: PreviewParentCaseRequest;
 }
 
 // ── Staged media uploads ─────────────────────────────────────────────────

@@ -98,22 +98,36 @@ import {
 	LOCALIZATION_SEED,
 } from "./localizationSeed";
 import {
+	buildMenuHeldCaseBlueprint,
+	MENU_HELD_CASE_SEED,
+	menuHeldCaseRoute,
+} from "./menuHeldCaseSeed";
+import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildPreviewAndroidMediaBlueprint,
+	buildRegisterFromListBlueprint,
 	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
+	buildSearchStartRefusedBlueprint,
+	buildSearchValueListBlueprint,
 	FORM_REFUSED_SEED,
 	formRefusedRoute,
 	HERE_COLUMN_SEED,
 	hereColumnRoute,
 	PREVIEW_ANDROID_MEDIA_SEED,
 	previewAndroidMediaRoute,
+	REGISTER_FROM_LIST_SEED,
+	registerFromListRoute,
 	SEARCH_CHOICE_SEED,
 	SEARCH_CLAIM_SEED,
 	SEARCH_RESULTS_SEED,
+	SEARCH_START_REFUSED_SEED,
+	SEARCH_VALUE_LIST_SEED,
 	searchChoiceRoute,
+	searchStartRefusedRoute,
+	searchValueListRoute,
 } from "./previewRuntimeSeeds";
 import {
 	buildPreviousTaskBlueprint,
@@ -125,6 +139,14 @@ import {
 	reactProfileInitialRoute,
 	reactProfileRoute,
 } from "./reactProfileSeed";
+import {
+	buildSearchChoicesRefusedBlueprint,
+	SEARCH_CHOICES_REFUSED_SEED,
+} from "./searchChoicesRefusedSeed";
+import {
+	buildSearchStandingBlueprint,
+	SEARCH_STANDING_SEED,
+} from "./searchStandingSeed";
 import { buildSessionStorageState } from "./session";
 
 import { SMOKE_TEXT } from "./smokeText";
@@ -1332,6 +1354,56 @@ export async function createSmokeBuilders(
 				},
 			};
 		},
+		"menu-held-case": async () => {
+			const seed = MENU_HELD_CASE_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildMenuHeldCaseBlueprint,
+			);
+			/* As the refused preload's: the imported row is written as an import
+			 * leaves it, since the case store's own writers refuse a date
+			 * property that is not a date. */
+			const db = await getCaseStoreDatabase();
+			const now = new Date();
+			const ada = await db
+				.insertInto("cases")
+				.values({
+					app_id: appId,
+					project_id: seedProjectId,
+					owner_id: SEED.userId,
+					case_type: seed.caseType,
+					case_name: seed.refused.caseName,
+					status: "open",
+					opened_on: now,
+					modified_on: now,
+					closed_on: null,
+					external_id: null,
+					parent_case_id: null,
+					properties: JSON.stringify({ [seed.property]: seed.refused.value }),
+				})
+				.returning("case_id")
+				.executeTakeFirstOrThrow();
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.pregnancies.caseType,
+					case_name: seed.pregnancies.caseName,
+					status: "open",
+					parent_case_id: ada.case_id,
+					properties: {},
+				},
+			});
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.opens.caseName,
+					status: "open",
+					properties: { [seed.property]: seed.opens.value },
+				},
+			});
+			return { menuHeldCase: { appId, route: menuHeldCaseRoute(appId) } };
+		},
 		"here-column": async () => {
 			const seed = HERE_COLUMN_SEED;
 			const appId = await seedRuntimeApp(
@@ -1434,6 +1506,127 @@ export async function createSmokeBuilders(
 				},
 			};
 		},
+		"search-standing": async () => {
+			const seed = SEARCH_STANDING_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchStandingBlueprint,
+			);
+			for (const patient of [seed.searched, seed.other])
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: seed.caseType,
+						case_name: patient.caseName,
+						status: "open",
+						properties: {},
+					},
+				});
+			return { searchStanding: { appId, route: `/build/${appId}` } };
+		},
+		"search-start-refused": async () => {
+			const seed = SEARCH_START_REFUSED_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchStartRefusedBlueprint,
+			);
+			// The seeded member's own record, so the deep link offers it.
+			const patient = await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.patient.caseName,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				searchStartRefused: {
+					appId,
+					route: searchStartRefusedRoute(appId),
+					caseId: patient.caseId,
+				},
+			};
+		},
+		"search-choices-refused": async () => {
+			const seed = SEARCH_CHOICES_REFUSED_SEED;
+			/* The Project table the Region field reads its choices from, with
+			 * no rows, written through the real service before the app that
+			 * reads it. */
+			const table = await createLookupTable(
+				{ projectId: seedProjectId, actorId: SEED.userId, role: "owner" },
+				{
+					name: seed.table.name,
+					tag: seed.table.tag,
+					columns: [
+						{ wireName: "code", label: "Code", dataType: "text" },
+						{ wireName: "name", label: "Name", dataType: "text" },
+					],
+				},
+			);
+			const [value, label] = table.columns;
+			if (value === undefined || label === undefined)
+				throw new Error("e2e/seed.ts: the regions table seeded no columns");
+			/* The districts Home visits' District field reads its choices
+			 * from, with rows, none of them the field's starting district. */
+			const lookupScope = {
+				projectId: seedProjectId,
+				actorId: SEED.userId,
+				role: "owner" as const,
+			};
+			const districts = await createLookupTable(lookupScope, {
+				name: seed.visits.table.name,
+				tag: seed.visits.table.tag,
+				columns: [
+					{ wireName: "code", label: "Code", dataType: "text" },
+					{ wireName: "name", label: "Name", dataType: "text" },
+				],
+			});
+			const [districtValue, districtLabel] = districts.columns;
+			if (districtValue === undefined || districtLabel === undefined)
+				throw new Error("e2e/seed.ts: the districts table seeded no columns");
+			let districtsRevision = districts.tableRevision;
+			for (const [index, row] of seed.visits.table.rows.entries()) {
+				const receipt = await createLookupRow(lookupScope, {
+					tableId: districts.id,
+					expectedTableRevision: districtsRevision,
+					toIndex: index,
+					values: {
+						[districtValue.id]: row.code,
+						[districtLabel.id]: row.name,
+					},
+				});
+				districtsRevision = receipt.tableRevision;
+			}
+			const appId = await seedRuntimeApp(seed.appName, (id) =>
+				buildSearchChoicesRefusedBlueprint(
+					id,
+					{
+						tableId: table.id,
+						valueColumnId: value.id,
+						labelColumnId: label.id,
+					},
+					{
+						tableId: districts.id,
+						valueColumnId: districtValue.id,
+						labelColumnId: districtLabel.id,
+					},
+				),
+			);
+			// A patient the default search would find, were it to run.
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.patient.caseName,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				searchChoicesRefused: { appId, route: `/build/${appId}` },
+			};
+		},
 		"search-choice": async () => {
 			const seed = SEARCH_CHOICE_SEED;
 			const appId = await seedRuntimeApp(
@@ -1452,6 +1645,45 @@ export async function createSmokeBuilders(
 				});
 			return {
 				searchChoice: { appId, route: searchChoiceRoute(appId) },
+			};
+		},
+		"register-from-list": async () => {
+			const seed = REGISTER_FROM_LIST_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildRegisterFromListBlueprint,
+			);
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.existing,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				registerFromList: { appId, route: registerFromListRoute(appId) },
+			};
+		},
+		"search-value-list": async () => {
+			const seed = SEARCH_VALUE_LIST_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchValueListBlueprint,
+			);
+			for (const client of seed.clients)
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: seed.caseType,
+						case_name: client.caseName,
+						status: "open",
+						properties: { region: client.region, age: client.age },
+					},
+				});
+			return {
+				searchValueList: { appId, route: searchValueListRoute(appId) },
 			};
 		},
 		localization: async () => {

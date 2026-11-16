@@ -21,8 +21,14 @@ import {
 	formLinkTargetDatumIds,
 	projectAfterSubmit,
 } from "@/lib/commcare/formLinkProjection";
+import { instanceScanRead } from "@/lib/commcare/hqInstanceScan";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
+	CONNECT_SOURCE_TEXT_WORDS,
+	formSourceTexts,
+} from "@/lib/commcare/xform/sourceTexts";
+import {
+	afterEmptySearchRegistrationFormOf,
 	appConnectIds,
 	type BlueprintDoc,
 	connectDeliverFormHoldsTask,
@@ -39,6 +45,7 @@ import {
 	isConnectLearnConfig,
 	type Module,
 	menuTargetOffered,
+	moduleShowsFormsInMenuAbove,
 	otherwiseDestinationsOffered,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
@@ -66,6 +73,10 @@ import { validateCaseOperations } from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
 import { validateCasePlacements } from "./casePlacement";
 import { formDisplayCondition } from "./displayConditions";
+import {
+	linksSharingFirstMenuCase,
+	menuAboveLinkTargets,
+} from "./formsInMenuAbove";
 import { hiddenMenuLinkTargets } from "./hiddenFromMenu";
 import { validateLookupOptionsSources } from "./lookupOptionsSource";
 import {
@@ -458,13 +469,14 @@ const DESTINATION_PHRASE: Readonly<
 	previous: "the previous screen",
 };
 
-/** Some module's case list registration slot names the form. */
+/** Some module's `after-empty-search` registration names the form. */
 function namedByCaseListRegistration(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): boolean {
-	return Object.values(doc.modules).some(
-		(mod) => mod.caseListRegistrationForm?.formUuid === formUuid,
+	return doc.moduleOrder.some(
+		(moduleUuid) =>
+			afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid,
 	);
 }
 
@@ -472,9 +484,16 @@ function namedByCaseListRegistration(
  *  `postSubmit`, or a built-in otherwise beside destinations. */
 type NotOfferedSlot = "post-submit" | "otherwise";
 
+/** The reason whose finding is the app rule
+ *  `formsInMenuAbove.ts::firstMenuSharedCaseFrames`'s, not these form rules':
+ *  whether the module opens with the first menu's chosen case reads every
+ *  menu that shows its forms above, so a form's own rule could miss an edit
+ *  to another menu. */
+const SHARED_CASE_REASON = "menu-opens-with-first-menu-case";
+
 /** The sentence each reason gives, before the offered list. */
 function notOfferedSentence(
-	reason: PostSubmitNotOfferedReason,
+	reason: Exclude<PostSubmitNotOfferedReason, typeof SHARED_CASE_REASON>,
 	formName: string,
 	moduleName: string,
 	parentName: string,
@@ -499,6 +518,12 @@ function notOfferedSentence(
 			return `"${formName}" goes to ${phrase} ${when}, but "${moduleName}" is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
 		case "parent-off-the-menu":
 			return `"${formName}" goes to the parent module ${when}, but "${parentName}" is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
+		case "menu-forms-in-menu-above":
+			return `"${formName}" goes to its module ${when}, but "${moduleName}" shows its forms in the menu above, so it has no screen of its own to land on.`;
+		case "parent-forms-in-menu-above":
+			return `"${formName}" goes to the parent module ${when}, but "${parentName}" shows its forms in the menu above, so it has no screen of its own to land on.`;
+		case "menu-forms-on-first-menu":
+			return `"${formName}" goes to the previous screen ${when}, but "${moduleName}" shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
 	}
 }
 
@@ -507,7 +532,8 @@ function notOfferedSentence(
  * stored destination outside the enum is a shape finding; a stored
  * destination the form's module does not offer
  * (`postSubmitDestinationsOffered`) is `POST_SUBMIT_NOT_OFFERED`, naming the
- * first reason that withholds it. An absent slot is never refused, since its
+ * first reason that withholds it, but for `menu-opens-with-first-menu-case`,
+ * whose finding is `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE` from the app rule. An absent slot is never refused, since its
  * default is always offered. A `postSubmit` beside destinations is
  * `POST_SUBMIT_BESIDE_FORM_LINKS`, which `formLinkValidation` reports. A case
  * list registration form's one explicit destination is
@@ -536,10 +562,11 @@ function postSubmitValidation(
 		];
 	}
 	if (form.formLinks !== undefined) return [];
-	if (mod.caseListRegistrationForm?.formUuid === ctx.formUuid) return [];
+	if (afterEmptySearchRegistrationFormOf(doc, ctx.moduleUuid) === ctx.formUuid)
+		return [];
 
 	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, dest);
-	if (reason === undefined) return [];
+	if (reason === undefined || reason === SHARED_CASE_REASON) return [];
 	const parentName = parentNameOf(doc, mod);
 	const offered = postSubmitDestinationsOffered(doc, ctx.formUuid);
 	return [
@@ -663,7 +690,10 @@ function formLinkLabel(
  *   - `FORM_LINK_MENU_DATUMS` — carried values on a menu target, which HQ's
  *     page edits only under its retiring advanced linking mode.
  *   - `FORM_OTHERWISE_NOT_OFFERED` — a built-in otherwise the form's menu
- *     does not offer (`postSubmit.ts::otherwiseDestinationsOffered`).
+ *     does not offer (`postSubmit.ts::otherwiseDestinationsOffered`), but for
+ *     `module` withheld first because the module opens with the first menu's
+ *     chosen case, which the app rule
+ *     `formsInMenuAbove.ts::firstMenuSharedCaseFrames` reports.
  *   - `FORM_OTHERWISE_UNREACHABLE` — an otherwise where no destination may
  *     not run (`afterSubmit.ts::formOtherwiseReachable`), or beside no
  *     destinations: HQ builds its fallback frame only over a non-blank link
@@ -750,7 +780,12 @@ function formLinkValidation(
 			continue;
 		}
 		if (target.type === "module") {
-			if (!menuTargetOffered(doc, ctx.moduleUuid, target.moduleUuid)) {
+			// A menu that shows its forms above is no target at all, which
+			// `FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION` says.
+			if (
+				!moduleShowsFormsInMenuAbove(targetMod) &&
+				!menuTargetOffered(doc, ctx.moduleUuid, target.moduleUuid)
+			) {
 				const parentName = parentNameOf(doc, targetMod) ?? "";
 				errors.push(
 					validationError(
@@ -871,11 +906,20 @@ function formLinkValidation(
 	) {
 		return errors;
 	}
+	// A link whose frame opens with the first menu's shared case is
+	// `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`'s; the datum rules judge only
+	// frames whose every selection follows a command.
+	const sharesFirstMenuCase = new Set(
+		linksSharingFirstMenuCase(doc, ctx.formUuid).map(
+			({ entry }) => entry.link.uuid,
+		),
+	);
 	const entryContext = entryPlanContext(doc);
 	let hasDatumCollision = false;
 	for (const { entry, target } of resolved) {
 		const datums = entry.link.datums;
-		if (datums === undefined) continue;
+		if (datums === undefined || sharesFirstMenuCase.has(entry.link.uuid))
+			continue;
 		const { label, details } = formLinkLabel(doc, ctx.formUuid, entry);
 		for (const targetDatum of formLinkTargetDatumIds(
 			doc,
@@ -929,7 +973,7 @@ function formLinkValidation(
 	);
 	for (const link of projected?.links ?? []) {
 		const entry = entryByUuid.get(link.uuid);
-		if (entry === undefined) continue;
+		if (entry === undefined || sharesFirstMenuCase.has(link.uuid)) continue;
 		const { label, details } = formLinkLabel(doc, ctx.formUuid, entry);
 		const refused = refusedNewCases.get(link.uuid);
 		const unsatisfied = [...link.unmatched, ...link.missing].filter(
@@ -1017,7 +1061,7 @@ function otherwiseValidation(
 	const offered = otherwiseDestinationsOffered(doc, ctx.formUuid);
 	if (offered.includes(destination)) return errors;
 	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, destination);
-	if (reason === undefined) return errors;
+	if (reason === undefined || reason === SHARED_CASE_REASON) return errors;
 	const parentName = parentNameOf(doc, mod);
 	errors.push(
 		validationError(
@@ -1263,6 +1307,54 @@ function duplicateFieldIds(
 	return errors;
 }
 
+/** The most characters of a matched text a finding carries. */
+const INSTANCE_TEXT_MATCH_MAX_LENGTH = 40;
+
+/**
+ * Plain text in the form's source that CommCare HQ's build reads as an
+ * instance read. HQ renders the whole form and matches its instance pattern
+ * over it (`xform.py::XForm.add_missing_instances`,
+ * `suite_xml/post_process/instances.py::get_instance_names`), so a name it
+ * has no source for stops the build and one it has a source for adds a
+ * declaration no formula reads. A label's text is written so the pattern
+ * cannot match it (`xform/builder.ts::literalLabelNodes`); a form's name and
+ * a Connect block's text are plain text that CommCare Connect and HQ's form
+ * builder read as the element's own, where no spelling keeps the pattern
+ * out, so the text is refused and a space before the bracket keeps it as
+ * text.
+ */
+function formTextReadAsInstance(
+	doc: BlueprintDoc,
+	ctx: FormContext,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const { site, text } of formSourceTexts(doc, ctx.formUuid)) {
+		const read = instanceScanRead(text);
+		if (read === undefined) continue;
+		const match = Array.from(read)
+			.slice(0, INSTANCE_TEXT_MATCH_MAX_LENGTH)
+			.join("");
+		const reading =
+			"CommCare HQ reads instance( followed by a quoted name and a closing bracket as a data source wherever it appears in a form";
+		const outcome =
+			"so CommCare HQ would add that data source to the form or stop its build. A space before the bracket keeps it as text: instance ('...').";
+		const message =
+			site === "form-name"
+				? `The name of the form "${ctx.formName}" in the app's default language holds ${match}. ${reading}, and a form's name is written there as plain text, ${outcome}`
+				: `The ${CONNECT_SOURCE_TEXT_WORDS[site]} in "${ctx.formName}" holds ${match}. ${reading}, and CommCare Connect reads this text exactly as the form holds it, ${outcome}`;
+		errors.push(
+			validationError(
+				"FORM_TEXT_READ_AS_INSTANCE",
+				"form",
+				message,
+				baseLocation(ctx),
+				{ site, match },
+			),
+		);
+	}
+	return errors;
+}
+
 // ── Rule runner ────────────────────────────────────────────────────
 
 export function runFormRules(
@@ -1299,7 +1391,9 @@ export function runFormRules(
 	errors.push(...formLinkSelectionCardinality(doc, form, mod, ctx));
 	errors.push(...formLinkValidation(doc, form, ctx, mod, lookupTables));
 	errors.push(...hiddenMenuLinkTargets(doc, form, baseLocation(ctx)));
+	errors.push(...menuAboveLinkTargets(doc, form, baseLocation(ctx)));
 	errors.push(...connectValidation(doc, form, ctx));
+	errors.push(...formTextReadAsInstance(doc, ctx));
 	errors.push(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
 	);

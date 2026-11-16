@@ -115,17 +115,25 @@ describe("the corpus's fixed and sampled documents", () => {
 		// Every family the native producers cover reaches the corpus.
 		expect(producers.length).toBeGreaterThan(150);
 		expect(workforce).toHaveLength(WORKFORCE_BASES.length);
-		// Each holds what the five removal kinds remove, beyond its base.
+		// Each holds what the five removal kinds remove, beyond its base, which
+		// may declare worker information of its own.
+		const removable = (doc: (typeof workforce)[number]["doc"]) => [
+			doc.userPropertyOrder?.length ?? 0,
+			doc.userTypeOrder?.length ?? 0,
+			doc.personaOrder?.length ?? 0,
+			doc.locationPropertyOrder?.length ?? 0,
+			doc.automationOrder?.length ?? 0,
+		];
+		const byId = new Map(producers.map((document) => [document.id, document]));
 		for (const document of workforce) {
-			const doc = document.doc;
+			const base =
+				document.source.kind === "workforce"
+					? byId.get(document.source.base)
+					: undefined;
+			if (base === undefined) throw new Error(`${document.id} has no base.`);
+			const held = removable(base.doc);
 			expect(
-				[
-					doc.userPropertyOrder?.length,
-					doc.userTypeOrder?.length,
-					doc.personaOrder?.length,
-					doc.locationPropertyOrder?.length,
-					doc.automationOrder?.length,
-				],
+				removable(document.doc).map((count, index) => count - held[index]),
 				document.id,
 			).toEqual([1, 2, 2, 1, 2]);
 		}

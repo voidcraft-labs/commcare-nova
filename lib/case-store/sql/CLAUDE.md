@@ -8,7 +8,7 @@ Every operand is one `Expression`; condition arms dispatch through the predicate
 
 Every type-dependent SQL decision uses `recordQueryContextFor`: a `RecordQueryContext` derived from the current row schemas, lookup-row scope, form field types, search input declarations, and resolved operation identities. This runtime context has no authored slot or device profile. It is rebuilt after lexical rebinding rather than cached beside mutable compiler metadata.
 
-The generic AST also carries contextual case-operation leaves: `field { uuid }`, `id-of { opUuid }`, `acting-user`, and `unowned`. SQL callers that genuinely evaluate an operation must supply `TermBindings.formFields`, `TermBindings.operationIds`, and a server-resolved `TermBindings.actingUserId` when referenced; each runtime identity is bound as data, never interpolated. `formFields` alone admits the real multi-select answer shape (`readonly string[]`); the term compiler serializes that array and casts it explicitly to JSONB, rather than letting node-postgres turn it into a Postgres text array. Other binding namespaces remain scalar. `here` binds `TermBindings.viewerLocation` as one text parameter: the text a CommCare location handler given a browser position returns, two Java `Double.toString` values (`lib/preview/engine/runtimeBindings.ts::viewerLocationText` builds it on the server from the client's checked `{ latitude, longitude }`); `null` or absent compiles to `''`, as both runtimes give before a fix. A `within-distance` center therefore accepts Java's E-notation (`5.0E-4`). `unowned` resolves only to Nova's fixed CommCare `-` sentinel. Case-list/search callers omit submission bindings and the compiler throws a missing-binding invariant if a contextual leaf escapes its admitted context. A worker-record `session-user` or `session-user-property` read is a correlated read of the worker's own case row (`commcare-user`, this app and Project, not held, `hq_user_id` the bound worker id). A `session-context` field binds from `TermBindings.sessionContext`, `''` when the identity does not supply it. There is no fallback to UUID text or client-provided identity.
+The generic AST also carries contextual case-operation leaves: `field { uuid }`, `id-of { opUuid }`, `acting-user`, and `unowned`. SQL callers that genuinely evaluate an operation must supply `TermBindings.formFields`, `TermBindings.operationIds`, and a server-resolved `TermBindings.actingUserId` when referenced; each runtime identity is bound as data, never interpolated. `formFields` alone admits the real multi-select answer shape (`readonly string[]`); the term compiler serializes that array and casts it explicitly to JSONB, rather than letting node-postgres turn it into a Postgres text array. Other binding namespaces remain scalar. `here` binds `TermBindings.viewerLocation` as one text parameter: the text a CommCare location handler given a browser position returns, two Java `Double.toString` values (`lib/preview/engine/runtimeBindings.ts::viewerLocationText` builds it on the server from the client's checked `{ latitude, longitude }`); `null` or absent compiles to `''`, as both runtimes give before a fix. A `within-distance` center therefore accepts Java's E-notation (`5.0E-4`). `unowned` resolves only to Nova's fixed CommCare `-` sentinel. Case-list/search callers omit submission bindings and the compiler throws a missing-binding invariant if a contextual leaf escapes its admitted context. A worker-record `session-user` or `session-user-property` read is a correlated read of the worker's own case row (`commcare-user`, this app and Project, not held, `hq_user_id` the bound worker id): the row answers when there is one, a property it lacks reading `''`, and with no row the read is the caller's derived record (`TermBindings.workerRecordWithoutRow`, which Preview binds so a viewer whose row was never made reads in a list what a form reads), else `''`. A `session-context` field binds from `TermBindings.sessionContext`, `''` when the identity does not supply it. A session read of worker data (`session-user`, `session-user-property` with no `worker-record` source) binds from `TermBindings.sessionUser`; where the caller states `sessionUserAbsent`, a key the map lacks reads `''` if it is in `readsBlank` (a key every device holds that the caller does not know yet) and otherwise throws `AbsentWorkerFieldError` as the read compiles, as Core refuses a read of a key the device lacks (`XPathNodeset.unpack`). Preview's reads and submissions state it (`lib/preview/CLAUDE.md`); a caller that does not keeps the missing-binding invariant. There is no fallback to UUID text or client-provided identity.
 
 ## Relation walks
 
@@ -66,7 +66,12 @@ the stored instants, and `closed_on` is readable only there
 (`compileTerm.ts::reservedColumnFor`); under any other reading it is an
 invariant, because the checker admits it only in an advanced search predicate. The reading follows self, parent and
 nested predicate reads, and it decides how a number becomes a date ("Day
-numbers").
+numbers") and how a date and time becomes one: under `casedb` and `results`,
+`date-coerce` of a date and time is the viewer's day of its instant
+(`compileExpression.ts::compileDeviceDay`), the day a device gives once it
+reads the text in its own date and clock
+(`lib/commcare/xpath/wire/instant.ts::deviceInstantText`), as `format-date`
+renders it; under `search` it is the written day, as HQ's search reads it.
 
 Temporal result inference (`resolveCaseListTemporalType`, which takes the
 reading) does not revalidate an admitted expression against different property
@@ -163,16 +168,33 @@ HQ's exact `terms` on the text a case holds (`compileTerm.ts::compileStoredText`
 choices joined by spaces), each item bound as the text the device sends and
 none dropped; a `''` item matches the property absent or empty, and `!=` is
 the two-valued negation (`compilePredicate.ts::compileValueListEquality`). A
-number property is the one respelling: Nova stores the number, not the text a
-device wrote (`submissionEnvelope.ts::storageValueFromEvaluation`), so its
-stored text is the canonical spelling (`formatNumeric`), and each item that
-reads as a number is compared as the text Nova would store for it (`'1.10'`
-as `'1.1'`, as HQ finds the case a device wrote `1.10` for). The divergence
-left: HQ matches only the exact spelling, so where the item or the device's
-text is not the canonical one (a case a device wrote `05`, an item `'5.0'`
-for a case written `5`), HQ finds nothing while Nova finds every spelling of
-the same number.
-Value lists are held for import only, so no authored search meets this. A
+number property and a time property are the two respellings, because Nova
+stores neither as the text a device wrote
+(`submissionEnvelope.ts::storageValueFromEvaluation`). A number's stored text
+is its canonical spelling (`formatNumeric`), and each item that reads as a
+number is compared as the text Nova would store for it (`'1.10'` as `'1.1'`,
+as HQ finds the case a device wrote `1.10` for). A time is stored as its wall
+clock with the `Z` storage tag (`10:00:00.000Z`; `10:00:00Z` from before the
+millisecond rule), where a device writes the bare `HH:MM:SS.mmm` that HQ
+holds, so each item that reads as a time is compared as the typed `time` a
+single value's equality compares (`'10:00:00.000'` finds that case, as HQ
+does), and an item that reads as no time matches no time. A date needs no
+respelling: a device writes `yyyy-MM-dd` and Nova stores that text. The
+divergence left: HQ matches only the exact spelling, so where the item or the
+device's text is not the canonical one (a case a device wrote `05`, an item
+`'5.0'` for a case written `5`, an item `'10:00'` for a time written
+`10:00:00.000`), HQ finds nothing while Nova finds every spelling of the
+same number or clock.
+A blank item is the other: HQ reads a list with a terms query and never as
+its missing-property check (`es/case_search.py::case_property_query` takes
+the `case_property_missing` branch only for a bare `''`), so it finds a case
+whose property a device wrote blank and not one that never held the property.
+Nova stores both as the key's absence, so a `''` item, fixed or a runtime
+value that is blank, finds both, the same blank `= ''` reads everywhere in
+Nova. A Search field's condition authors lists in the builder, the record
+dialect and MCP, so an authored search meets both divergences; a list item
+that is the field's own answer, read inside its `when-input-present`, is never
+blank. A
 `within-distance` whose radius or unit is a value (a browse list's filter can
 hold one; a CSQL slot's fold makes both literal) compiles as a `CASE` over the
 nine units' meter factors (`lib/domain/expression/distance.ts::METERS_PER_DISTANCE_UNIT`),
@@ -189,7 +211,11 @@ A Results read orders by the case list's order plan
 Most keys are an `Expression` this compiler already compiles (a property,
 a calculation, a select's label `switch`, a link's markdown `concat`), read as the text a device reads
 (`compileExpression.ts::compileDeviceTextExpression`): a multi select's stored
-JSON array is its tokens joined by one space, blank when none is selected. The
+JSON array is its tokens joined by one space, blank when none is selected. A
+custom date-and-time property reads as the text a device holds, CommCare HQ's
+text of its instant (`HQ_DATETIME_PATTERN` at UTC over `compileStoredInstant`),
+and its stored text where it names no instant, so rows saved in either
+spelling order by the moment, whatever the session's zone. The
 comparator is applied where a key becomes
 `ORDER BY`, in `lib/case-store/postgres/store.ts::query` and `queryGrouped`, as
 typed-builder expressions: text is the value lowercased with Unicode case
@@ -200,7 +226,8 @@ trimmed text is a plain decimal (`^-?[0-9]+(\.[0-9]+)?$`), truncated toward zero
 for integer, with anything else sorting after every number ascending. A leading
 blanks term puts a blank and a missing property first or last as the rule says,
 whatever its direction, because Postgres puts `NULL` last ascending and Core
-places blanks by the rule's `blanks`.
+places blanks by the rule's `blanks`, which is the rule's own and follows its
+direction only where the author says nothing.
 
 A mapping's position is a key of its own (`mapping-position`): the device
 orders an ID mapping or an image map by `selected()`, which finds an entry as

@@ -13,7 +13,10 @@ import type {
 } from "@/lib/lookup/types";
 import type { StoredLocation } from "@/lib/organization/types";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
-import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import type {
+	PreviewCaseListRegistrationLaunch,
+	PreviewMenuCaseSelection,
+} from "@/lib/session/types";
 import type { AfterSubmitStackState } from "../afterSubmitStack";
 import { formAnswerValueSchema } from "../engine/formAnswerValue";
 import type { FormEvaluationEntry } from "../engine/formEvaluationTypes";
@@ -166,7 +169,14 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 				),
 		}),
 		z.strictObject({ kind: z.literal("menu"), moduleUuid: reference }),
-		z.strictObject({ kind: z.literal("records") }),
+		z.strictObject({
+			kind: z.literal("records"),
+			moduleUuid: reference
+				.optional()
+				.describe(
+					"The menu whose case list to open, where the current screen lists the case lists of several menus. Omit on a menu to open its own records.",
+				),
+		}),
 		z.strictObject({
 			kind: z.literal("page"),
 			offset: z.number().int().min(0).max(2000),
@@ -320,6 +330,11 @@ export type AppTestScreen =
 				readonly moduleUuid: Uuid;
 				readonly formUuid: Uuid;
 			};
+			/** A step of a parent case selection a menu's case list asked for:
+			 *  once the last module of `returnModules` has its parent case, its
+			 *  list opens with this mark rather than its menu, as Preview's
+			 *  parent case request resumes the list it was asked from. */
+			resumesList?: { readonly openedFrom?: "case-list-menu-item" };
 			taskCases?: CaseDatabaseSnapshot;
 			searchEntry?: SearchEvaluationInput["entry"];
 			registeredCaseId?: string;
@@ -339,7 +354,19 @@ export type AppTestScreen =
 			 * of it, as a device's session keeps its query step. A new entry
 			 * takes its own. */
 			searchResults?: SearchResultsSnapshot;
+			/** The record list whose Register action opened this form, which
+			 * it always offers; set by that action alone. */
+			caseListRegistrationLaunch?: PreviewCaseListRegistrationLaunch;
 	  };
+/** A screen the worker left, with the case selections the session held
+ *  while it was shown. Back returns to the screen and to those selections
+ *  (`navigation.ts::appTestStepBack`), so a case chosen after it is let go,
+ *  as `CommCareSession.stepBack` pops each datum collected since (Android)
+ *  and Formplayer replays the popped address's `selections` (Web Apps). */
+export type AppTestHistoryEntry = AppTestScreen & {
+	readonly shownWith: Readonly<Record<string, PreviewMenuCaseSelection>>;
+};
+
 /** A frame a submission pushed, routed when it was pushed. */
 export type AppTestAfterSubmitRoute = PostSubmissionFrame;
 
@@ -352,7 +379,7 @@ export interface AppTestSessionState {
 	androidDeviceId: string;
 	personaUuid: Uuid | null;
 	screen: AppTestScreen;
-	history: readonly AppTestScreen[];
+	history: readonly AppTestHistoryEntry[];
 	selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 	/** The worker's device holds this snapshot until sync or identity switch;
 	 * submissions overlay their transaction-captured patch, including closed rows. */

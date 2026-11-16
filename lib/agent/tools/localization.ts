@@ -853,13 +853,13 @@ function integrityMessage(
 		case "blank-content":
 			return `Translation unit ${unit.id} (${unit.breadcrumb.join(" → ")}) cannot be blank.`;
 		case "protected-content":
-			return `Translation unit ${unit.id} must preserve every answer and record insertion exactly once. Read the current entry and keep its references.`;
+			return `Translation unit ${unit.id} must preserve every answer and record insertion and every {{= formula}} exactly once. Read the current entry and keep its references and calculated values.`;
 	}
 }
 
 export const updateTranslationsTool = {
 	description:
-		"Set, clear or review translations. Use fingerprints from the current read so edits cannot overwrite a changed source or translation. Keep answer and record insertions intact.",
+		"Set, clear or review translations. Use fingerprints from the current read so edits cannot overwrite a changed source or translation. Keep answer and record insertions and every {{= formula}} intact.",
 	inputSchema: updateTranslationsInputSchema,
 	async execute(
 		input: z.infer<typeof updateTranslationsInputSchema>,

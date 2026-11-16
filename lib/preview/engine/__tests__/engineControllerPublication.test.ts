@@ -17,11 +17,11 @@ import {
 	EngineController,
 	type EngineValidationCompletion,
 } from "../engineController";
-import { previewAsMe } from "../identity";
 import {
 	admittedControllerDoc,
 	applyControllerEdit,
 } from "./fixtures/controllerDoc";
+import { androidDevice } from "./fixtures/previewDevices";
 
 /** Hold one real transport request; every released expression still runs in
  * the production dispatcher. Retirement discards the old port's held work. */
@@ -147,9 +147,10 @@ function fixture(sectioned = false) {
 									}),
 									f({
 										kind: "text",
-										id: "worker",
-										label: proseText("Worker"),
-										default_value: "#user/username",
+										id: "device",
+										label: proseText("Device"),
+										default_value:
+											"instance('commcaresession')/session/context/deviceid",
 									}),
 									f({
 										kind: "hidden",
@@ -275,6 +276,15 @@ async function seed(subject: ReturnType<typeof fixture>) {
 		await ctrl.setValueAtAsync("/data/visit/visits[1]/note", "Second visit"),
 	).toBe(true);
 }
+
+/** The install id of the session's Android device, arriving after the entry
+ *  began on another: the same platform, so the same entry rebuilds with its
+ *  context healed (`EngineController.setPreviewDevice`). */
+const ARRIVING_DEVICE_ID = "5b7d0c1e-2f43-4a65-8b9c-0d1e2f3a4b5c";
+const arrivingAndroidDevice = () => ({
+	...androidDevice(),
+	androidDeviceId: ARRIVING_DEVICE_ID,
+});
 
 async function cleanup(subject: ReturnType<typeof fixture>) {
 	subject.ctrl.dispose();
@@ -1121,11 +1131,12 @@ describe("same-entry runtime publication", () => {
 		}
 	});
 
-	it("keeps settled answers through queued language changes and identity recovery", async () => {
+	it("keeps settled answers through queued language changes and the session's device arriving", async () => {
 		const subject = fixture();
 		const { ctrl, barrier, fields } = subject;
 		let unsubscribe = () => {};
 		try {
+			ctrl.setPreviewDevice(androidDevice());
 			await seed(subject);
 			const previous = ctrl.store.getState();
 			const entryKey = ctrl.entryKey;
@@ -1149,9 +1160,7 @@ describe("same-entry runtime publication", () => {
 			ctrl.setPresentationLanguage("spa");
 			expect(await request).toBeDefined();
 			ctrl.setPresentationLanguage("eng");
-			ctrl.setPreviewIdentity(
-				previewAsMe({ id: "worker-2", email: "second@example.org" }),
-			);
+			ctrl.setPreviewDevice(arrivingAndroidDevice());
 			expect(ctrl.store.getState()).toBe(previous);
 			expect(ctrl.entryStore.getState()).toMatchObject({
 				entryKey,
@@ -1164,8 +1173,8 @@ describe("same-entry runtime publication", () => {
 			expect(ctrl.store.getState()[fields.greeting.uuid]?.resolvedLabel).toBe(
 				"Hello Amina",
 			);
-			expect(ctrl.store.getState()[fields.worker.uuid]?.value).toBe(
-				"second@example.org",
+			expect(ctrl.store.getState()[fields.device.uuid]?.value).toBe(
+				`commcare_${ARRIVING_DEVICE_ID}`,
 			);
 			expect(ctrl.entryStore.getState()).toMatchObject({
 				entryKey,
@@ -1432,19 +1441,18 @@ describe("same-entry runtime publication", () => {
 		const subject = fixture();
 		const { ctrl, barrier, fields } = subject;
 		try {
+			ctrl.setPreviewDevice(androidDevice());
 			await seed(subject);
 			const entryKey = ctrl.entryKey;
 			const previous = ctrl.store.getState();
 			const request = barrier.holdNext();
-			ctrl.setPreviewIdentity(
-				previewAsMe({ id: "worker-1", email: "inspector@example.org" }),
-			);
+			ctrl.setPreviewDevice(arrivingAndroidDevice());
 			expect(await request).toBeDefined();
 			expect(ctrl.store.getState()).toBe(previous);
 			barrier.release();
 			expect(await ctrl.awaitSettled(entryKey)).toBe(true);
-			expect(ctrl.store.getState()[fields.worker.uuid]?.value).toBe(
-				"inspector@example.org",
+			expect(ctrl.store.getState()[fields.device.uuid]?.value).toBe(
+				`commcare_${ARRIVING_DEVICE_ID}`,
 			);
 			expect(ctrl.store.getState()[fields.name.uuid]?.value).toBe("Amina");
 			expect(ctrl.store.getState()[fields.point.uuid]?.value).toBe(

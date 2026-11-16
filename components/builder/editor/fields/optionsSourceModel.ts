@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from "uuid";
 import type { EditorLookupTableDecl } from "@/components/builder/shared/lookupTablePresentation";
 import {
 	asUuid,
@@ -29,7 +30,7 @@ export function freshInlineSource(): InlineOptionsSource {
 		kind: "inline",
 		options: DEFAULT_SELECT_OPTIONS.map((option) => ({
 			...option,
-			uuid: asUuid(crypto.randomUUID()),
+			uuid: asUuid(uuidv4()),
 		})),
 	};
 }

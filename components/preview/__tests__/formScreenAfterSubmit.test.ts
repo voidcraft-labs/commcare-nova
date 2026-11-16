@@ -689,6 +689,24 @@ describe("moduleLanding", () => {
 		);
 	});
 
+	it("lands a case-first parent on its case list until its case is chosen", () => {
+		expect(
+			moduleLanding({
+				isCaseFirst: true,
+				isBareCaseList: false,
+				hasChildren: true,
+			}),
+		).toBe("case-list");
+		expect(
+			moduleLanding({
+				isCaseFirst: true,
+				isBareCaseList: false,
+				hasChildren: true,
+				hasSelectedCase: true,
+			}),
+		).toBe("form-menu");
+	});
+
 	it("pushes the matching screen", () => {
 		const navigate = { openCaseList: vi.fn(), openModule: vi.fn() };
 		openModuleLanding(navigate, CARE, "case-list");
@@ -786,7 +804,7 @@ describe("afterSubmitRoute per platform", () => {
 			routeOn(
 				WEB_APPS_RULES,
 				{ type: "form", moduleUuid: MENU, formUuid: NOTE },
-				"form-hidden",
+				{ kind: "form-hidden", shownModuleUuid: MENU },
 			),
 		).toEqual({
 			kind: "module",
@@ -925,7 +943,7 @@ describe("afterSubmitRoute per platform", () => {
 		const route = routeOn(
 			ANDROID_RULES,
 			{ type: "form", moduleUuid: MENU, formUuid: NOTE },
-			"form-hidden",
+			{ kind: "form-hidden", shownModuleUuid: MENU },
 		);
 		expect(route).toMatchObject({
 			kind: "form",

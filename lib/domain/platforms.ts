@@ -155,13 +155,14 @@ export interface PlatformFeature {
 
 /**
  * What a worker meets in Web Apps after choosing a case from a case list
- * menu entry. Formplayer steps a view command back to the screen before the
- * choice (`session/MenuSession.java::getNextScreen`, `isViewCommand` then
- * `stepBack`), so the case list shows again, or the menu again where the
- * menu chose the case first.
+ * menu entry. Formplayer steps a view command back over the choice
+ * (`session/MenuSession.java::getNextScreen`, `isViewCommand` then
+ * `stepBack`), and the entry still needs it, so the case list shows again.
+ * A menu that chose its case first does not list its own entry, since that
+ * case is already chosen (`MenuLoader.addRelevantCommandEntries`).
  */
 const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
-	"choosing a case shows the case list again, or the menu again where the menu chose the case first";
+	"choosing a case shows the case list again";
 
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
@@ -180,6 +181,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"audio-question",
 	"video-question",
 	"question-pages",
+	"number-keypad",
 	"plain-text",
 	"choice-media",
 	"help-media",
@@ -197,6 +199,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"app-language",
 	"entry-points",
 	"case-list-menu-item",
+	"case-list-registration-media",
 	"tile-grouping",
 	"tile-alignment",
 	"tile-border-and-shading",
@@ -474,12 +477,28 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "ignored", note: "the whole form shows on one page" },
 		android: { reading: "runs", note: "each page shows on its own screen" },
 	},
+	"number-keypad": {
+		label: "Number keypad",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note:
+				"an answer must be digits, with an optional + or - in front and an optional decimal " +
+				"part, so a space or a dash inside it is refused",
+		},
+		android: {
+			reading: "runs",
+			note:
+				"the keypad offers digits, a period, a dash, a plus and a space; a + or - only " +
+				"starts the answer, and it takes one period",
+		},
+	},
 	"plain-text": {
 		label: "Text shown as typed",
 		channel: "structure",
 		webApps: {
 			reading: "different",
-			note: "a tag in the text shows as formatting, and a choice still shows its formatting",
+			note: "a tag in the text shows as formatting, and a choice or a help text still shows its formatting",
 		},
 		android: { reading: "runs" },
 	},
@@ -641,6 +660,12 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "runs",
 			note: "with no case details, choosing a case returns to the home screen, and with them, Done returns to the list",
 		},
+	},
+	"case-list-registration-media": {
+		label: "Icon and spoken label on Register",
+		channel: "structure",
+		webApps: { reading: "ignored", note: "the button shows its text only" },
+		android: { reading: "runs" },
 	},
 	"tile-grouping": {
 		label: "Grouped tiles",

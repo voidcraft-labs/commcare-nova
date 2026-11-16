@@ -1,7 +1,13 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
+	caseDatetimeValue,
+	caseInstantText,
+	hqInstantText,
 	instantDatetimeValue,
 	isReadableTemporalValue,
 	paddedTimeOfDay,
@@ -11,6 +17,7 @@ import {
 	wireTimeOfDay,
 	zoneDesignatorForWallTime,
 } from "../temporalValues";
+import { HQ_INSTANT_VECTORS } from "./hqInstantText.vectors";
 
 // Pure text normalization and finite timezone-policy examples. Native JavaRosa
 // and SQL schema suites own wire/storage acceptance; this does not execute them.
@@ -376,5 +383,177 @@ describe("instantDatetimeValue", () => {
 		expect(instantDatetimeValue(after, "Pacific/Kiritimati")).toBe(
 			"1899-12-31T13:31:01.000-10:29",
 		);
+	});
+});
+
+describe("hqInstantText", () => {
+	it("spells each vector as CommCare HQ stores it", () => {
+		for (const vector of HQ_INSTANT_VECTORS)
+			expect(hqInstantText(Date.parse(vector.instant)), vector.id).toBe(
+				vector.text,
+			);
+	});
+
+	it("orders two moments as their texts order, for every four-digit year", () => {
+		const firstMs = Date.parse("0000-01-01T00:00:00.000Z");
+		const lastMs = Date.parse("9999-12-31T23:59:59.999Z");
+		const instant = fc.integer({ min: firstMs, max: lastMs });
+		fc.assert(
+			fc.property(instant, instant, (a, b) => {
+				const left = hqInstantText(a);
+				const right = hqInstantText(b);
+				expect(Math.sign(left < right ? -1 : left > right ? 1 : 0)).toBe(
+					Math.sign(a - b),
+				);
+			}),
+		);
+	});
+
+	it("reads back as the same moment through the stored-instant grammar", () => {
+		for (const vector of HQ_INSTANT_VECTORS) {
+			const text = hqInstantText(Date.parse(vector.instant));
+			expect(isReadableTemporalValue("datetime", text), vector.id).toBe(true);
+			expect(Date.parse(text), vector.id).toBe(Date.parse(vector.instant));
+		}
+	});
+
+	it("refuses a moment whose UTC year has no four digits", () => {
+		expect(() => hqInstantText(Date.parse("+010000-01-01T00:00:00Z"))).toThrow(
+			RangeError,
+		);
+		expect(() => hqInstantText(Number.NaN)).toThrow(RangeError);
+	});
+});
+
+describe("caseDatetimeValue", () => {
+	it("writes an answer in the viewer's zone as the moment's stored text", () => {
+		// 12:30 in Nairobi (+03:00) is 09:30 UTC; a phone there saves the same.
+		expect(caseDatetimeValue("2026-01-02T12:30:00.000", "Africa/Nairobi")).toBe(
+			"2026-01-02T09:30:00.000000Z",
+		);
+		// 21:00 on 1 January in New York is 02:00 UTC on 2 January.
+		expect(
+			caseDatetimeValue("2026-01-01T21:00:00.000", "America/New_York"),
+		).toBe("2026-01-02T02:00:00.000000Z");
+	});
+
+	it("moves text that carries its own offset to UTC", () => {
+		expect(caseDatetimeValue("2026-01-02T12:30:00.000+03", "UTC")).toBe(
+			"2026-01-02T09:30:00.000000Z",
+		);
+		expect(
+			caseDatetimeValue("2026-01-02T01:00:00.000+05:30", "America/New_York"),
+		).toBe("2026-01-01T19:30:00.000000Z");
+	});
+
+	it("keeps text already in CommCare HQ's spelling exactly, microseconds too", () => {
+		expect(
+			caseDatetimeValue("2026-01-02T09:30:00.123456Z", "Asia/Kolkata"),
+		).toBe("2026-01-02T09:30:00.123456Z");
+		for (const vector of HQ_INSTANT_VECTORS)
+			expect(caseDatetimeValue(vector.text, "Pacific/Kiritimati")).toBe(
+				vector.text,
+			);
+	});
+
+	it("extends a bare date to midnight in the zone", () => {
+		expect(caseDatetimeValue("2026-01-02", "Asia/Kolkata")).toBe(
+			"2026-01-01T18:30:00.000000Z",
+		);
+	});
+
+	it("returns unreadable text trimmed, for the schema to refuse", () => {
+		expect(caseDatetimeValue("  sometime tuesday ", "UTC")).toBe(
+			"sometime tuesday",
+		);
+		expect(caseDatetimeValue("2026-01-02T99:00", "UTC")).toBe(
+			"2026-01-02T99:00",
+		);
+	});
+
+	it("keeps the offset spelling where the moment's UTC year has no four digits", () => {
+		expect(caseDatetimeValue("9999-12-31T23:30:00.000-05:00", "UTC")).toBe(
+			"9999-12-31T23:30:00.000-05:00",
+		);
+	});
+
+	it("never rolls a day the month lacks into the next month", () => {
+		// `Date.parse` reads 30 February as 2 March; the schema refuses the
+		// text as written, so a cast parks it rather than storing another day.
+		expect(caseDatetimeValue("2026-02-30T08:00:00Z", "UTC")).toBe(
+			"2026-02-30T08:00:00.000Z",
+		);
+		expect(caseDatetimeValue("2026-04-31", "UTC")).toBe(
+			"2026-04-31T00:00:00.000Z",
+		);
+		expect(caseDatetimeValue("2025-02-29T08:00:00.000+03:00", "UTC")).toBe(
+			"2025-02-29T08:00:00.000+03:00",
+		);
+		// A leap day of a leap year is a day.
+		expect(caseDatetimeValue("2024-02-29T08:00:00Z", "UTC")).toBe(
+			"2024-02-29T08:00:00.000000Z",
+		);
+	});
+});
+
+describe("caseInstantText", () => {
+	it("is CommCare HQ's text where the UTC year has four digits", () => {
+		for (const vector of HQ_INSTANT_VECTORS)
+			expect(caseInstantText(Date.parse(vector.instant)), vector.id).toBe(
+				vector.text,
+			);
+	});
+
+	it("spells a moment past 9999 in UTC at the offset that keeps its year, as a device keeps the literal", () => {
+		// '9999-12-31T23:59:59-05:00', whose UTC moment is in the year 10000.
+		expect(caseInstantText(Date.parse("+010000-01-01T04:59:59.000Z"))).toBe(
+			"9999-12-31T23:59:59.000-05:00",
+		);
+		expect(caseInstantText(Date.parse("-000001-12-31T22:00:00.000Z"))).toBe(
+			"0000-01-01T00:00:00.000+02:00",
+		);
+	});
+
+	it("never throws, spelling a moment no offset brings into four digits with its year whole", () => {
+		expect(caseInstantText(Date.parse("+010000-03-01T00:00:00.000Z"))).toBe(
+			"10000-03-01T00:00:00.000Z",
+		);
+	});
+});
+
+describe("the proof lane's copy of the stored-instant vectors", () => {
+	// `proof/hq/test_stored_datetime.py` hands each row to CommCare HQ's own
+	// `adjust_datetimes`; a lane shard holds no `lib/`, so the rows are copied
+	// there and held to the vectors here.
+	const fixture: {
+		readonly rows: readonly {
+			readonly id: string;
+			readonly instant: string;
+			readonly text: string;
+			readonly deviceTexts: Readonly<Record<string, string>>;
+		}[];
+	} = JSON.parse(
+		readFileSync(
+			join(process.cwd(), "proof/hq/fixtures/stored-instant-vectors.json"),
+			"utf8",
+		),
+	);
+
+	it("holds every vector and nothing else", () => {
+		expect(
+			fixture.rows.map(({ id, instant, text }) => ({ id, instant, text })),
+		).toEqual(HQ_INSTANT_VECTORS);
+	});
+
+	it("spells each device text as Core's %Z does, naming the same moment", () => {
+		for (const row of fixture.rows)
+			for (const [zone, text] of Object.entries(row.deviceTexts)) {
+				expect(caseDatetimeValue(text, "UTC"), `${row.id} in ${zone}`).toBe(
+					row.text,
+				);
+				expect(text, `${row.id} in ${zone}`).toMatch(
+					/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(Z|[+-]\d{2}(:\d{2})?)$/,
+				);
+			}
 	});
 });

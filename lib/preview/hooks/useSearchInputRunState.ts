@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SearchInputDef } from "@/lib/domain";
 import { PLATFORMS } from "@/lib/domain/platforms";
-import type { PreviewSearchSessionValues } from "../engine/identity";
+import {
+	type PreviewDataRefusal,
+	readPreviewScreen,
+} from "../engine/dataRefusal";
+import {
+	awaitsPreviewIdentity,
+	type PreviewSearchSessionValues,
+} from "../engine/identity";
 import type { SearchInputValues } from "../engine/runtimeBindings";
 import type { PreviewSearchEnvironment } from "../engine/searchExpressionEvaluation";
 import {
@@ -11,8 +18,10 @@ import {
 	changeSearchRunDraft,
 	clearSearchRun,
 	hasNonEmptyValue,
+	openSearchRunState,
 	reconcileSearchRunState,
 	restoreSearchRun,
+	searchScreenOpeningCovered,
 	withHiddenValues,
 } from "../engine/searchRunState";
 import {
@@ -48,6 +57,21 @@ export interface SearchInputRunState {
 	 *  ordinary field holding its starting value (manifest
 	 *  `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`). */
 	readonly drawnInputs: readonly SearchInputDef[];
+	/** Core's refusal of the Search screen: a starting value, a hidden
+	 *  value, a required condition or the check of a prompt its starting
+	 *  value answers reads data the worker's device lacks (a place key of a
+	 *  worker assigned nowhere), which Core's query manager reads as the
+	 *  screen opens and stops on, on both platforms. The state then holds no
+	 *  field, and the screen shows the refusal. */
+	readonly refusal?: PreviewDataRefusal;
+	/** The screen has not opened yet: the session is still waiting for its
+	 *  worker (`identity.ts::awaitsPreviewIdentity`), or the lookup data that
+	 *  covers what the screen reads as it opens has not arrived
+	 *  (`searchRunState.ts::searchScreenOpeningCovered`). The screen has read
+	 *  nothing, holds no field, refuses nothing and waits, so no automatic
+	 *  search runs before its choice lists are judged, and a search pressed
+	 *  now would carry no hidden value. Their arrival opens it as above. */
+	readonly pending?: true;
 }
 
 /** The inputs a Search screen draws on a platform: Web Apps hides a hidden
@@ -73,16 +97,48 @@ export function useSearchInputRunState(args: {
 	readonly environment: PreviewSearchEnvironment;
 	/** The platform Preview plays; defaults to an app's default platform. */
 	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">;
+	/** The lookup data failed to load, so the screen opens over what the
+	 *  data it holds covers rather than waiting for data that will not
+	 *  arrive. */
+	readonly lookupLoadFailed?: boolean;
 }): SearchInputRunState {
+	/* The screen reads what Core's query manager reads as it opens (its
+	 * starting values, hidden values, choice lists, required conditions and
+	 * the checks its starting values answer), so a read any of them makes of
+	 * data the device lacks is the screen's refusal on both platforms, held as state. A
+	 * session still waiting for its worker, or for the lookup data those
+	 * reads read, is read not at all. */
+	const pending =
+		awaitsPreviewIdentity(args.session) ||
+		(args.lookupLoadFailed !== true &&
+			!searchScreenOpeningCovered(args.searchInputs, args.environment));
+	const read = useMemo(
+		() =>
+			pending
+				? undefined
+				: readPreviewScreen(() =>
+						openSearchRunState(
+							args.scopeKey,
+							args.searchInputs,
+							args.session,
+							args.environment,
+						),
+					),
+		[pending, args.scopeKey, args.searchInputs, args.session, args.environment],
+	);
+	/* A screen that waits or refuses holds no field: the state of a screen
+	 * with no inputs, which the opened screen replaces as a new revision. */
 	const desired = useMemo(
 		() =>
-			buildSearchRunState(
-				args.scopeKey,
-				args.searchInputs,
-				args.session,
-				args.environment,
-			),
-		[args.scopeKey, args.searchInputs, args.session, args.environment],
+			read?.kind === "read"
+				? read.value
+				: buildSearchRunState(
+						args.scopeKey,
+						[],
+						args.session,
+						args.environment,
+					),
+		[read, args.scopeKey, args.session, args.environment],
 	);
 	const [stored, setStored] = useState(desired);
 	// Project the new scope before the synchronization effect can commit.
@@ -117,5 +173,7 @@ export function useSearchInputRunState(args: {
 			args.searchInputs,
 			args.rules ?? DEFAULT_RULES,
 		),
+		...(read?.kind === "refused" ? { refusal: read.refusal } : {}),
+		...(pending ? { pending: true as const } : {}),
 	};
 }

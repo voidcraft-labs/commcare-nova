@@ -24,6 +24,7 @@ import {
 import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import { getLookupFixtureData, getLookupManifest } from "@/lib/lookup/service";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
+import { previewDataRefusalSubject } from "@/lib/preview/engine/dataRefusal";
 import { FormEvaluationInputError } from "@/lib/preview/engine/evaluateForm";
 import {
 	type EvaluationScenario,
@@ -42,11 +43,13 @@ import {
 	serverPreviewDevice,
 } from "@/lib/preview/engine/previewDevice";
 import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
-import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
+import { serverPreviewDataRefusalOf } from "@/lib/preview/engine/serverDataRefusal";
 import {
 	serverRecordsRead,
 	serverSearchResults,
 } from "@/lib/preview/engine/serverSearchRead";
+import { SurfacedDataRefusal } from "@/lib/preview/engine/surfacedDataRefusal";
 import { workerLocationFixture } from "@/lib/preview/engine/workerLocationFixture";
 import {
 	type CaseDatabaseSnapshot,
@@ -57,6 +60,7 @@ import {
 	effectivePreviewPlatform,
 	platformUnavailableSentence,
 } from "@/lib/preview/platform";
+import { dataRefusalCopy } from "@/lib/preview/runtimeMessages";
 import type { ToolInvocationContext } from "../workspace/types";
 
 /** The form a check runs, which decides whether it needs a search's results. */
@@ -225,7 +229,7 @@ export async function loadFormEvaluationContext(
  * answers are the evaluated form's own (`FormEvaluationInput.searchAnswers`),
  * and a form of any other module reads none.
  */
-function formsReadSearchFormAnswers(
+export function formsReadSearchFormAnswers(
 	doc: BlueprintDoc,
 	form: EvaluatedForm,
 	world: Pick<
@@ -233,7 +237,6 @@ function formsReadSearchFormAnswers(
 		"identity" | "device" | "cases" | "lookup"
 	>,
 ): readonly { name: string; value: string }[] | undefined {
-	if (form.searchAnswers !== undefined) return undefined;
 	const moduleUuid = moduleUuidOfForm(doc, form.formUuid);
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	if (
@@ -242,18 +245,65 @@ function formsReadSearchFormAnswers(
 		!moduleFormsReadSearch(module)
 	)
 		return undefined;
-	const defaults = resolveSearchInputDefaults(
-		module.caseListConfig?.searchInputs ?? [],
-		previewSessionValues(world.identity, world.device),
-		{
-			doc,
+	/* The form is reached only through its menu's Search screen, which opens
+	 * as Preview opens it (`openSearchRunState`, which Preview's form screen
+	 * reaches through `caseListRegistration.ts::readFormSearchAnswers`): a
+	 * starting value, hidden value, required condition or check that reads
+	 * data the worker's device lacks stops the search before the form, with
+	 * answers supplied or not. None of those slots can read a session datum
+	 * (`lib/domain/expression/context.ts::slotContext` gives datum supplies
+	 * only to the case list filter and an advanced field's condition), so
+	 * the screen opens over no case list step's datums. */
+	let defaults: ReturnType<typeof openSearchRunState>["defaults"];
+	try {
+		defaults = openSearchRunState(
 			moduleUuid,
-			lookup: previewLookupData(world.lookup),
-			sessionData: {},
-			caseDatabase: world.cases,
-		},
-	);
+			module.caseListConfig?.searchInputs ?? [],
+			previewSessionValues(world.identity, world.device),
+			{
+				doc,
+				moduleUuid,
+				lookup: previewLookupData(world.lookup),
+				caseDatabase: world.cases,
+			},
+		).defaults;
+	} catch (error) {
+		throw searchRefusalInputError(
+			error,
+			resolveAppLanguage(doc.localization, form.language),
+			world.identity.personaUuid === undefined
+				? undefined
+				: doc.personas?.[world.identity.personaUuid]?.name,
+			world.lookup,
+		);
+	}
+	if (form.searchAnswers !== undefined) return undefined;
 	return [...defaults].map(([name, value]) => ({ name, value }));
+}
+
+/**
+ * A read of data the worker's device lacks (a place key of a worker assigned
+ * nowhere) stops the search on a phone, or the case list where the Search
+ * action's condition read it (`surfacedDataRefusal.ts`): the check says so in
+ * the words Preview shows it in. Every other error is returned as it is, to
+ * be thrown.
+ */
+function searchRefusalInputError(
+	error: unknown,
+	language: ReturnType<typeof resolveAppLanguage>,
+	worker: string | undefined,
+	lookup: FormEvaluationContext["lookup"],
+): unknown {
+	const surfaced = error instanceof SurfacedDataRefusal ? error : undefined;
+	const refused = surfaced?.refusal ?? serverPreviewDataRefusalOf(error);
+	if (refused === undefined) return error;
+	const copy = dataRefusalCopy(
+		language,
+		surfaced?.surface ?? "search",
+		previewDataRefusalSubject(refused.reason, previewLookupData(lookup)),
+		worker === undefined ? {} : { worker },
+	);
+	return new FormEvaluationInputError(`${copy.title}. ${copy.body}`);
 }
 
 /**
@@ -309,18 +359,34 @@ export async function formSearchResults(
 				? "This form's search reads the records of a parent chosen before it, which a form check cannot choose. Start an app test to choose the parent and run the search."
 				: "This form's menu has no record list to search.",
 		);
+	const refusing = async <T>(run: () => Promise<T>): Promise<T> => {
+		try {
+			return await run();
+		} catch (error) {
+			throw searchRefusalInputError(
+				error,
+				searchWorld.language,
+				world.identity.personaUuid === undefined
+					? undefined
+					: doc.personas?.[world.identity.personaUuid]?.name,
+				world.lookup,
+			);
+		}
+	};
 	/* The search screen first, as the worker reaches it: a Search action its
 	 * display condition hides is one the worker never runs, so there is no
 	 * search for the form to read, whatever answers are supplied. */
-	const opened = await serverRecordsRead(
-		searchWorld,
-		{
-			moduleUuid,
-			...(form.searchAnswers === undefined
-				? {}
-				: { submitted: form.searchAnswers }),
-		},
-		refuse,
+	const opened = await refusing(() =>
+		serverRecordsRead(
+			searchWorld,
+			{
+				moduleUuid,
+				...(form.searchAnswers === undefined
+					? {}
+					: { submitted: form.searchAnswers }),
+			},
+			refuse,
+		),
 	);
 	if (!opened.search.relevant)
 		throw new FormEvaluationInputError(
@@ -328,10 +394,8 @@ export async function formSearchResults(
 		);
 	const { search, read, refusal } =
 		form.searchAnswers === undefined
-			? await serverRecordsRead(
-					searchWorld,
-					{ moduleUuid, answers: [] },
-					refuse,
+			? await refusing(() =>
+					serverRecordsRead(searchWorld, { moduleUuid, answers: [] }, refuse),
 				)
 			: opened;
 	const [firstError] = Object.values(search.errors);
@@ -342,7 +406,8 @@ export async function formSearchResults(
 	if (refusal !== undefined) throw new FormEvaluationInputError(refusal);
 	/* An unpublished workspace has no records, so its search finds none. */
 	if (world.store === undefined) return { rows: [], totalMatches: 0 };
-	const found = await serverSearchResults(world.store, read);
+	const { store } = world;
+	const found = await refusing(() => serverSearchResults(store, read));
 	if (found === undefined)
 		throw new FormEvaluationInputError(
 			"The search before this form did not complete. Supply searchAnswers for each of its required inputs.",

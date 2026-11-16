@@ -97,13 +97,16 @@ import {
 	orderedColumns,
 	type TranslationUnitId,
 } from "@/lib/domain";
+import type { FormIconRef } from "@/lib/domain/builtinIcons";
 import { simplifyForEmission } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
 } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
+import { buildActionDisplay } from "../../multimedia/navMenuMedia";
 import { buildCarrierField, buildColumnField } from "./columns";
 import {
 	EMPTY_CASE_LIST_TEXT,
@@ -148,22 +151,26 @@ export interface SearchActionContext {
 }
 
 /**
- * The Register action CCHQ mounts on `m{N}_case_short` for a module's
+ * The Register action CCHQ mounts on a module's short details for its
  * `case_list_form` (`DetailContributor.get_case_list_form_action`): it
  * pushes the target form's command, the target entry's computed datums,
- * and `return_to`. Nova emits it only for a host whose forms read the search, where its
- * relevancy reads the inline results instance, so the `relevant`
- * attribute is always present (HQ emits it under
- * `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`, the capability the publish path
- * requires).
+ * and `return_to`. `relevant` is present only for a registration offered
+ * after a search finds nothing, where it reads the inline results instance
+ * (HQ writes it under `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`, the capability the
+ * publish path requires); a registration the list always offers has none.
  */
 export interface RegisterActionContext {
-	/** `m{H}-f0`, the no-matches form's command in its hidden module. */
+	/** The offered form's command: `m{H}-f0` in the hidden module of a form
+	 *  offered after an empty search, `m{M}-f{K}` in its own menu otherwise. */
 	readonly commandId: string;
 	/** The target entry's non-selection datums, in entry order. */
 	readonly datums: readonly { readonly id: string; readonly value: WireExpr }[];
 	/** The `<action relevant>` XPath. */
-	readonly relevant: WireExpr;
+	readonly relevant?: WireExpr;
+	/** `case_list_form.m{H}`, the label's locale and its media locales' base. */
+	readonly labelLocaleId: string;
+	readonly icon?: FormIconRef;
+	readonly audioLabel?: MediaAssetId;
 }
 
 /**
@@ -258,8 +265,9 @@ export function buildShortDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
-	/** The Register action of a host whose forms read the search with a no-matches form;
-	 *  case target only, like `searchAction`. */
+	/** The Register action of a host whose case list offers a registration
+	 *  form. HQ writes it on every short detail of the host
+	 *  (`DetailContributor.build_detail`), so on both targets. */
 	readonly registerAction?: RegisterActionContext;
 	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */
 	readonly caseSource?: "casedb" | "results:inline";
@@ -294,7 +302,15 @@ export function buildShortDetail(args: {
 	// (the search-target detail is the action's destination, not
 	// its host); the emitter ignores the arg defensively.
 	const searchAction = target === "case" ? args.searchAction : undefined;
-	const registerAction = target === "case" ? args.registerAction : undefined;
+	const register =
+		args.registerAction === undefined
+			? undefined
+			: buildRegisterActionBlock(
+					args.registerAction,
+					moduleIndex,
+					wire,
+					args.assets,
+				);
 	const texts = detailTexts(moduleIndex, args.emptyCaseListText === true);
 
 	// Early-exit shape: no caseListConfig OR no case type. The
@@ -308,7 +324,7 @@ export function buildShortDetail(args: {
 				detailId,
 				[],
 				searchAction,
-				registerAction,
+				register?.element,
 				undefined,
 				texts.elements,
 				moduleIndex,
@@ -316,7 +332,7 @@ export function buildShortDetail(args: {
 				wire,
 				args.lookupNaming,
 			),
-			strings: { ...texts.strings },
+			strings: { ...texts.strings, ...register?.strings },
 			translationUnits: {},
 			instances: instances.declarations(),
 		};
@@ -350,7 +366,10 @@ export function buildShortDetail(args: {
 	};
 
 	const fields: Element[] = [];
-	const strings: Record<string, string> = { ...texts.strings };
+	const strings: Record<string, string> = {
+		...texts.strings,
+		...register?.strings,
+	};
 	const translationUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk the plan's fields, which keep the config's exact Results UUID
@@ -384,7 +403,7 @@ export function buildShortDetail(args: {
 			detailId,
 			fields,
 			searchAction,
-			registerAction,
+			register?.element,
 			config.tile?.grouping,
 			texts.elements,
 			moduleIndex,
@@ -467,7 +486,7 @@ function buildDetailShell(
 	detailId: string,
 	fields: readonly Element[],
 	searchAction: SearchActionContext | undefined,
-	registerAction: RegisterActionContext | undefined,
+	registerAction: Element | undefined,
 	grouping: CaseTileGrouping | undefined,
 	texts: readonly Element[],
 	moduleIndex: number,
@@ -482,9 +501,7 @@ function buildDetailShell(
 	// HQ adds the register action before the search action
 	// (`DetailContributor.build_detail`: `add_register_action`, then
 	// `get_case_search_action`).
-	if (registerAction !== undefined) {
-		children.push(buildRegisterActionBlock(registerAction, moduleIndex, wire));
-	}
+	if (registerAction !== undefined) children.push(registerAction);
 	if (searchAction !== undefined) {
 		children.push(
 			buildSearchActionBlock(
@@ -506,39 +523,57 @@ function buildDetailShell(
  * The Register action's bytes, pinned to
  * `commcare-hq/corehq/apps/app_manager/tests/data/case_list_form/case-list-form-suite.xml`
  * plus the `relevant` partial of `tests/test_case_list_form.py`:
- * `<action relevant><display><text><locale id="case_list_form.m{N}"/></text></display>
- * <stack><push><command/><datum…/><datum id="return_to"/></push></stack></action>`.
+ * `<action relevant?><display><text><locale id="case_list_form.m{H}"/></text>
+ * <text form="image">…</text>?<text form="audio">…</text>?</display>
+ * <stack><push><command/><datum…/><datum id="return_to"/></push></stack></action>`,
+ * with the media locales it adds to the app strings. `return_to` is the
+ * host's menu id (`id_strings.py::menu_id`), `m{H}`: a host that shows its
+ * forms in the menu above offers no Register action.
  */
 function buildRegisterActionBlock(
 	action: RegisterActionContext,
 	moduleIndex: number,
 	wire: WireElementContext,
-): Element {
-	return xel("action", { xpath: { relevant: action.relevant } }, wire, [
-		el("display", {}, [
-			el("text", {}, [el("locale", { id: `case_list_form.m${moduleIndex}` })]),
-		]),
-		el("stack", {}, [
-			el("push", {}, [
-				xel("command", { xpath: { value: w.str(action.commandId) } }, wire),
-				...action.datums.map((datum) =>
+	assets: AssetManifest | undefined,
+): { readonly element: Element; readonly strings: Record<string, string> } {
+	const display = buildActionDisplay(
+		action.labelLocaleId,
+		action.icon,
+		action.audioLabel,
+		assets,
+		`register action ${action.labelLocaleId}`,
+	);
+	const element = xel(
+		"action",
+		{
+			xpath: action.relevant === undefined ? {} : { relevant: action.relevant },
+		},
+		wire,
+		[
+			display.node,
+			el("stack", {}, [
+				el("push", {}, [
+					xel("command", { xpath: { value: w.str(action.commandId) } }, wire),
+					...action.datums.map((datum) =>
+						xel(
+							"datum",
+							{ attributes: { id: datum.id }, xpath: { value: datum.value } },
+							wire,
+						),
+					),
 					xel(
 						"datum",
-						{ attributes: { id: datum.id }, xpath: { value: datum.value } },
+						{
+							attributes: { id: "return_to" },
+							xpath: { value: w.str(`m${moduleIndex}`) },
+						},
 						wire,
 					),
-				),
-				xel(
-					"datum",
-					{
-						attributes: { id: "return_to" },
-						xpath: { value: w.str(`m${moduleIndex}`) },
-					},
-					wire,
-				),
+				]),
 			]),
-		]),
-	]);
+		],
+	);
+	return { element, strings: display.strings };
 }
 
 /**

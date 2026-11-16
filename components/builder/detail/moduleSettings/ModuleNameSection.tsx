@@ -6,10 +6,12 @@ import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Input } from "@/components/shadcn/input";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useMenuScreenSource } from "@/lib/doc/hooks/useMenuScreenSource";
 import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 import { useRejectionShake } from "@/lib/ui/hooks/useShake";
+import { menuScreenKeptAppearanceNote } from "./menuScreenCopy";
 
 /**
  * A bare case-list module has no separate module screen, so its name belongs in
@@ -47,9 +49,11 @@ export function ModuleNameSection({
 		required: true,
 	});
 	const shakeProps = useRejectionShake(rejectionNonce);
+	const source = useMenuScreenSource();
 
 	if (!isBareCaseList) return null;
 	const rejectionId = `${fieldId}-rejection`;
+	const keptNote = menuScreenKeptAppearanceNote(source, moduleUuid);
 
 	return (
 		<section aria-labelledby={`${fieldId}-label`}>
@@ -82,6 +86,14 @@ export function ModuleNameSection({
 				className={`mt-2 h-11 text-[14px] ${shakeProps.className}`}
 			/>
 			<RejectionInline id={rejectionId} message={rejection} />
+			{keptNote !== undefined && (
+				<p
+					className="mt-2 text-[13px] leading-relaxed text-nova-text-muted"
+					data-menu-screen-kept-note
+				>
+					{keptNote}
+				</p>
+			)}
 		</section>
 	);
 }

@@ -1,11 +1,18 @@
 import { resolve } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { buildUrl } from "@/lib/routing/location";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-navigation-client";
 import type {} from "../../lib/preview-platforms-client";
 import type {} from "../../lib/preview-search-client";
-import { NAVIGATION_CASES } from "../../lib/previewNavigationFixture";
+import {
+	NAVIGATION_APP_ID,
+	NAVIGATION_CASES,
+	NAVIGATION_HOUSEHOLDS,
+	NAVIGATION_VILLAGES,
+	PARENT_CHAIN_HOUSEHOLDS_MODULE_UUID,
+} from "../../lib/previewNavigationFixture";
 import {
 	PREVIEW_PLATFORM_SCENARIOS,
 	type PreviewPlatformScenarioId,
@@ -170,8 +177,9 @@ async function helpOf(run: Run, platform: "web-apps" | "android") {
 	const { page } = run;
 	const showHelp = page.getByRole("button", { name: "Show help", exact: true });
 	/* Web Apps draws help only for help text; Android for help media alone
-	 * too. */
-	await expect(showHelp).toHaveCount(platform === "web-apps" ? 1 : 2);
+	 * too. Two questions hold help text, one of them written with formatting
+	 * off. */
+	await expect(showHelp).toHaveCount(platform === "web-apps" ? 2 : 3);
 	await showHelp.first().click();
 	const dialog = page.getByRole("dialog", { name: "Name" });
 	await expect(dialog).toBeVisible();
@@ -279,6 +287,28 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		);
 		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-7");
 	},
+	async "number-keypad-web-apps"(page) {
+		await openScenario(page, "number-keypad-web-apps");
+		const phone = page.getByRole("textbox", { name: /Phone/ });
+		await expect(phone).toHaveAttribute("inputmode", "tel");
+		const refusal =
+			"This answer takes digits, with an optional + or - in front and an optional decimal part.";
+		await phone.fill("0712");
+		await phone.blur();
+		await expect.poll(() => answer(page, PLATFORM_IDS.phoneHeld)).toBe("0712");
+		await phone.fill("+254712");
+		await phone.blur();
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.phoneHeld))
+			.toBe("+254712");
+		await expect(page.getByText(refusal)).toHaveCount(0);
+		await phone.fill("12 34");
+		await phone.blur();
+		await expect(page.getByText(refusal)).toBeVisible();
+		await expect(phone).toHaveValue("12 34");
+		await expect(phone).toHaveAttribute("aria-invalid", "true");
+		expect(await answer(page, PLATFORM_IDS.phoneHeld)).toBe("+254712");
+	},
 	async "image-attach-web-apps"(page) {
 		await attachOnly(
 			await openScenario(page, "image-attach-web-apps"),
@@ -323,6 +353,21 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 	},
 	async "help-web-apps"(page) {
 		await helpOf(await openScenario(page, "help-web-apps"), "web-apps");
+	},
+	async "help-plain-web-apps"(page) {
+		await openScenario(page, "help-plain-web-apps");
+		/* The question holds `plainHelp`, so its help writes no markdown form;
+		 * the Web Apps client formats its default text all the same. */
+		await page
+			.getByRole("button", { name: "Show help", exact: true })
+			.nth(1)
+			.click();
+		const dialog = page.getByRole("dialog", { name: "Plain help" });
+		await expect(dialog).toBeVisible();
+		await expect(dialog.locator("strong")).toHaveText("full");
+		await expect(dialog.getByText("Ask for the **full** name")).toHaveCount(0);
+		await dialog.getByRole("button", { name: "Close", exact: true }).click();
+		await expect(dialog).toHaveCount(0);
 	},
 	async "hint-markdown-web-apps"(page) {
 		await openScenario(page, "hint-markdown-web-apps");
@@ -715,6 +760,188 @@ async function closeNavigation(page: Page) {
 }
 
 const [FIRST_CASE] = NAVIGATION_CASES;
+const [RAO_HOUSEHOLD] = NAVIGATION_HOUSEHOLDS;
+
+/* A worker assigned nowhere has no place key in the session
+ * (`models.py::get_user_session_data`), and Core refuses a read of a key the
+ * device lacks, failing the menu that reads it (`MenuLoader`, shown by
+ * Formplayer's `MenuScreen.init` and Android's `MenuAdapter`). */
+for (const platform of ["web-apps", "android"] as const)
+	test(`${platform}: a first menu whose condition reads a place the worker lacks stops as a phone does, saying what to change`, async ({
+		page,
+	}) => {
+		try {
+			await page.setViewportSize({ width: 390, height: 800 });
+			await page.goto(
+				`${navigationPeer.origin}/?fixture=place-condition&platform=${platform}`,
+			);
+			const main = page.locator("main");
+			const refusal = main.locator(
+				'[data-preview-data-refusal="worker-information"]',
+			);
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toHaveAttribute(
+				"data-preview-data-refusal-surface",
+				"menu",
+			);
+			await expect(
+				refusal.getByRole("heading", {
+					name: "This menu doesn't open on a phone",
+				}),
+			).toBeVisible();
+			await expect(refusal).toContainText(
+				"This menu reads worker information you don't have",
+			);
+			await expect(refusal).toContainText(
+				"you can preview as a persona who has a place",
+			);
+			// No menu of the screen lists in its place.
+			await expect(
+				main.getByRole("button", { name: /^Patients\b/ }),
+			).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+/* Every other screen that reads the place of a worker assigned nowhere stops
+ * as a phone stops there, with the refusal held as the screen's state, so
+ * nothing reaches the console (the error guard). */
+async function openPlaceScreen(page: Page, platform: string, menu: RegExp) {
+	await page.setViewportSize({ width: 390, height: 800 });
+	await page.goto(
+		`${navigationPeer.origin}/?fixture=place-screens&platform=${platform}`,
+	);
+	const main = page.locator("main");
+	await main.getByRole("button", { name: menu }).click({ timeout: 20_000 });
+	return main;
+}
+
+function workerRefusal(main: Locator) {
+	return main.locator('[data-preview-data-refusal="worker-information"]');
+}
+
+for (const platform of ["web-apps", "android"] as const) {
+	test(`${platform}: a menu whose submenu's condition reads a place the worker lacks stops on its own screen`, async ({
+		page,
+	}) => {
+		try {
+			const main = await openPlaceScreen(page, platform, /^Districts\b/);
+			const refusal = workerRefusal(main);
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toHaveAttribute(
+				"data-preview-data-refusal-surface",
+				"menu",
+			);
+			await expect(
+				refusal.getByRole("heading", {
+					name: "This menu doesn't open on a phone",
+				}),
+			).toBeVisible();
+			await expect(
+				main.getByRole("button", { name: /^District survey\b/ }),
+			).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+	test(`${platform}: a case-first menu whose form's condition reads a place the worker lacks stops once the case is chosen`, async ({
+		page,
+	}) => {
+		try {
+			const main = await openPlaceScreen(page, platform, /^Patients\b/);
+			await main
+				.getByRole("button", { name: `Continue with ${FIRST_CASE}` })
+				.click({ timeout: 20_000 });
+			const refusal = workerRefusal(main);
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toHaveAttribute(
+				"data-preview-data-refusal-surface",
+				"menu",
+			);
+			// No form of the menu lists or opens in its place.
+			await expect(main.locator("[data-form-menu-choice-label]")).toHaveCount(
+				0,
+			);
+			await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+	test(`${platform}: a list whose filter reads a place the worker lacks stops in place of its cases`, async ({
+		page,
+	}) => {
+		try {
+			const main = await openPlaceScreen(page, platform, /^Placed patients\b/);
+			const refusal = workerRefusal(main);
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toHaveAttribute(
+				"data-preview-data-refusal-surface",
+				"list",
+			);
+			await expect(
+				refusal.getByRole("heading", {
+					name: "This case list doesn't open on a phone",
+				}),
+			).toBeVisible();
+			await expect(
+				main.getByRole("button", { name: `Continue with ${FIRST_CASE}` }),
+			).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+}
+
+/* A Search field that starts on the place: Web Apps opens the menu on its
+ * Search screen, which reads the value as it opens, so the screen stops;
+ * Android opens the list first and stops only the search. */
+test("web-apps: a Search screen that starts a field on a place the worker lacks stops as it opens", async ({
+	page,
+}) => {
+	try {
+		const main = await openPlaceScreen(page, "web-apps", /^Find patients\b/);
+		const refusal = workerRefusal(main);
+		await expect(refusal).toBeVisible({ timeout: 20_000 });
+		await expect(refusal).toHaveAttribute(
+			"data-preview-data-refusal-surface",
+			"search",
+		);
+		await expect(
+			refusal.getByRole("heading", {
+				name: "This search doesn't open on a phone",
+			}),
+		).toBeVisible();
+		await expect(refusal).toContainText(
+			"This search reads worker information you don't have",
+		);
+		await expect(main.getByLabel("Place")).toHaveCount(0);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("android: a list that opens first keeps its cases, and its Search stops on a place the worker lacks", async ({
+	page,
+}) => {
+	try {
+		const main = await openPlaceScreen(page, "android", /^Find patients\b/);
+		const refusal = workerRefusal(main);
+		await expect(refusal).toBeVisible({ timeout: 20_000 });
+		await expect(refusal).toHaveAttribute(
+			"data-preview-data-refusal-surface",
+			"search",
+		);
+		await expect(main.getByLabel("Place")).toHaveCount(0);
+		await expect(
+			main.getByRole("button", { name: `Continue with ${FIRST_CASE}` }),
+		).toBeVisible();
+	} finally {
+		await closeNavigation(page);
+	}
+});
 
 test("a menu that searches first opens on Search in Web Apps", async ({
 	page,
@@ -731,6 +958,14 @@ test("a menu that searches first opens on Search in Web Apps", async ({
 			main.getByRole("textbox", { name: "Patient name" }),
 		).toBeVisible();
 		await expect(main.getByRole("list", { name: "Cases" })).toHaveCount(0);
+		/* Web Apps' query screen draws Clear (`cloudcare/partials/query/list.html`,
+		 * `#query-clear-button`), which empties the fields. */
+		const answer = main.getByRole("textbox", { name: "Patient name" });
+		await answer.fill("Ko");
+		await main
+			.getByRole("button", { name: "Clear search", exact: true })
+			.click({ timeout: 20_000 });
+		await expect(answer).toHaveValue("");
 	} finally {
 		await closeNavigation(page);
 	}
@@ -752,6 +987,18 @@ test("a menu that searches first opens on its case list on Android", async ({
 		});
 		// The worker's own cases show before any search runs.
 		await expect(rows.first()).toContainText(FIRST_CASE);
+		/* Android's search screen holds its prompts, its search button and
+		 * its error line alone (`QueryRequestUiController`), so there is no
+		 * Clear to press, whatever the worker typed. */
+		const answer = main.getByRole("textbox", { name: "Patient name" });
+		await answer.fill("Ko");
+		await expect(answer).toHaveValue("Ko");
+		await expect(
+			main.getByRole("button", { name: "Search All Cases", exact: true }),
+		).toBeVisible();
+		await expect(
+			main.getByRole("button", { name: "Clear search", exact: true }),
+		).toHaveCount(0);
 	} finally {
 		await closeNavigation(page);
 	}
@@ -786,6 +1033,265 @@ test("in Web Apps a case chosen from the case list entry beside forms shows the 
 	}
 });
 
+test("a case-first menu lists only its forms once the case is chosen, without its own case list entry", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "case-first-entry",
+			platform: "web-apps",
+		});
+		await main
+			.getByRole("button", { name: `Continue with ${FIRST_CASE}` })
+			.click({ timeout: 20_000 });
+		// The entry chooses the case already chosen, so CommCare does not list
+		// it, and it lists the menu's one form rather than opening it.
+		await expect(main.locator("[data-form-menu-choice-label]")).toHaveText([
+			"Visit",
+		]);
+		await expect(main.locator("[data-case-list-menu-entry]")).toHaveCount(0);
+		await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+		await expect(page.getByLabel("Location")).toHaveText("cases");
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("a case-first menu showing another menu's forms opens on its case list, and lists its forms and its members' case list entry once a household is chosen", async ({
+	page,
+}) => {
+	try {
+		await page.setViewportSize({ width: 390, height: 800 });
+		await page.goto(
+			`${navigationPeer.origin}/?fixture=child-list-above&platform=web-apps`,
+		);
+		const main = page.locator("main");
+		const entry = main.locator("[data-case-list-menu-entry]");
+		await main
+			.getByRole("button", { name: /^Households\b/ })
+			.click({ timeout: 20_000 });
+		// CommCare asks for the household before it lists anything on the
+		// screen, the members' forms and case list entry included.
+		const chooseHousehold = main.getByRole("button", {
+			name: `Continue with ${RAO_HOUSEHOLD.name}`,
+		});
+		await expect(chooseHousehold).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByLabel("Location")).toHaveText("cases");
+		await expect(main.getByRole("button", { name: "Cases" })).toHaveCount(0);
+		await expect(entry).toHaveCount(0);
+		await chooseHousehold.click();
+		// The households' own entry would choose the household again, so
+		// only the members' entry is listed, after the forms.
+		await expect(entry).toHaveCount(1, { timeout: 20_000 });
+		await expect(entry).toHaveText("People");
+		await expect(
+			main.getByRole("button", { name: /^Visit household\b/ }),
+		).toBeVisible();
+		await entry.click();
+		// It opens the chosen household's members.
+		const [member] = RAO_HOUSEHOLD.members;
+		const choose = main.getByRole("button", {
+			name: `Continue with ${member}`,
+		});
+		await expect(choose).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: /^Continue with Kofi Mensah/ }),
+		).toHaveCount(0);
+		await choose.click();
+		// Nothing opens from the entry: the list shows again, nothing chosen.
+		await expect(page.getByLabel("Location")).toHaveText("cases");
+		await expect(choose).toBeVisible();
+		await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+/** Open `parent-chain` as `platform` and choose People, whose entry asks
+ *  for a household chosen under a village: CommCare asks for the village
+ *  first. */
+async function openParentChain(page: Page, platform: string) {
+	await page.setViewportSize({ width: 390, height: 800 });
+	await page.goto(
+		`${navigationPeer.origin}/?fixture=parent-chain&platform=${platform}`,
+	);
+	const main = page.locator("main");
+	await main
+		.getByRole("button", { name: /^People\b/ })
+		.click({ timeout: 20_000 });
+	return main;
+}
+
+const [NORTH_VILLAGE, SOUTH_VILLAGE] = NAVIGATION_VILLAGES;
+
+/* CommCare collects one datum per list: Back from the household's list pops
+ * the village just chosen and asks for it again (`CommCareSession.stepBack`,
+ * which Android's Back runs and Web Apps' address less its last selection
+ * replays), and Back from the village's list leaves to the screen People was
+ * chosen on. */
+for (const platform of ["web-apps", "android"] as const)
+	test(`${platform}: Back from a later parent's list returns to the earlier parent's list, and Back again leaves`, async ({
+		page,
+	}) => {
+		try {
+			const main = await openParentChain(page, platform);
+			const chooseNorth = main.getByRole("button", {
+				name: `Continue with ${NORTH_VILLAGE}`,
+			});
+			await expect(chooseNorth).toBeVisible({ timeout: 20_000 });
+			await chooseNorth.click();
+			const chooseRao = main.getByRole("button", {
+				name: `Continue with ${RAO_HOUSEHOLD.name}`,
+			});
+			await expect(chooseRao).toBeVisible({ timeout: 20_000 });
+			await expect(
+				main.getByRole("button", {
+					name: `Continue with ${NAVIGATION_HOUSEHOLDS[1].name}`,
+				}),
+			).toHaveCount(0);
+			await main.getByRole("button", { name: "Back", exact: true }).click();
+			// The village's list again, with no village chosen.
+			await expect(chooseNorth).toBeVisible({ timeout: 20_000 });
+			await expect(
+				main.getByRole("button", { name: `Continue with ${SOUTH_VILLAGE}` }),
+			).toBeVisible();
+			await expect(chooseRao).toHaveCount(0);
+			await main.getByRole("button", { name: "Back", exact: true }).click();
+			await expect(page.getByLabel("Location")).toHaveText("home", {
+				timeout: 20_000,
+			});
+			await expect(
+				main.getByRole("button", { name: /^People\b/ }),
+			).toBeVisible();
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+/* A household's datum in People's entry names no details screen, so its row
+ * goes on at once; an address naming a household on that list goes on the
+ * same way and never shows its details. */
+test("a parent's list whose datum names no details goes on with a case its address names", async ({
+	page,
+}) => {
+	try {
+		const main = await openParentChain(page, "web-apps");
+		await main
+			.getByRole("button", { name: `Continue with ${NORTH_VILLAGE}` })
+			.click({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: `Continue with ${RAO_HOUSEHOLD.name}` }),
+		).toBeVisible({ timeout: 20_000 });
+		await page.evaluate(
+			(path) => window.previewNavigation.go(path),
+			buildUrl(`/build/${NAVIGATION_APP_ID}`, {
+				kind: "cases",
+				moduleUuid: PARENT_CHAIN_HOUSEHOLDS_MODULE_UUID,
+				caseId: "navigation-household-1",
+			}),
+		);
+		// People's list of the household's members, never its details.
+		const [member, other] = RAO_HOUSEHOLD.members;
+		await expect(
+			main.getByRole("button", { name: `Continue with ${member}` }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: `Continue with ${other}` }),
+		).toBeVisible();
+		await expect(
+			main.getByRole("button", { name: "Continue", exact: true }),
+		).toHaveCount(0);
+		await expect(
+			main.getByRole("heading", { name: RAO_HOUSEHOLD.name }),
+		).toHaveCount(0);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+/* A submenu that keeps its own screen is a `<menu root>` of its own, no entry
+ * of its parent's command, so CommCare asks for the parent's case before it
+ * lists the submenu's tile (`CommCareSession.getNeededData` over
+ * `getEntriesForCommand`), whether the parent chooses its case for its forms
+ * or is only its case list. */
+for (const shape of [
+	{
+		menu: "Households",
+		submenu: "Household notes",
+		form: "Visit household",
+		describe: "a case-first menu",
+	},
+	{
+		menu: "Household list",
+		submenu: "Household checks",
+		form: undefined,
+		describe: "a menu that is only its case list",
+	},
+] as const)
+	test(`${shape.describe} with a submenu of its own opens on its case list, and lists the submenu once a household is chosen`, async ({
+		page,
+	}) => {
+		try {
+			await page.setViewportSize({ width: 390, height: 800 });
+			await page.goto(
+				`${navigationPeer.origin}/?fixture=submenus&platform=web-apps`,
+			);
+			const main = page.locator("main");
+			await main
+				.getByRole("button", { name: new RegExp(`^${shape.menu}\\b`) })
+				.click({ timeout: 20_000 });
+			const chooseHousehold = main.getByRole("button", {
+				name: `Continue with ${RAO_HOUSEHOLD.name}`,
+			});
+			await expect(chooseHousehold).toBeVisible({ timeout: 20_000 });
+			await expect(page.getByLabel("Location")).toHaveText("cases");
+			// Nothing of the menu's screen shows before the household: no
+			// submenu tile and no way past the list.
+			await expect(
+				main.getByRole("button", { name: new RegExp(`^${shape.submenu}\\b`) }),
+			).toHaveCount(0);
+			await expect(main.getByRole("button", { name: "Cases" })).toHaveCount(0);
+			await chooseHousehold.click();
+			const submenuTile = main.getByRole("button", {
+				name: new RegExp(`^${shape.submenu}\\b`),
+			});
+			await expect(submenuTile).toBeVisible({ timeout: 20_000 });
+			if (shape.form !== undefined)
+				await expect(
+					main.getByRole("button", { name: new RegExp(`^${shape.form}\\b`) }),
+				).toBeVisible();
+			await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+test("on Android a case-first menu of one form lists that form once the case is chosen", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "search-first",
+			platform: "android",
+		});
+		await main
+			.getByRole("button", { name: `Continue with ${FIRST_CASE}` })
+			.click({ timeout: 20_000 });
+		// A menu's command names no entry, so CommCare asks for a command
+		// (`CommCareSession.getNeededData`), and Android lists the menu.
+		await expect(main.locator("[data-form-menu-choice-label]")).toHaveText([
+			"Visit",
+		]);
+		await expect(main.getByRole("button", { name: "Finish" })).toHaveCount(0);
+		await main.getByRole("button", { name: "Visit", exact: true }).click();
+		await expect(main.getByRole("textbox", { name: /Note$/ })).toBeVisible({
+			timeout: 20_000,
+		});
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
 test("in Web Apps a case chosen from the entry shows its details, and Continue shows the list again", async ({
 	page,
 }) => {
@@ -811,7 +1317,7 @@ test("in Web Apps a case chosen from the entry shows its details, and Continue s
 	}
 });
 
-test("on Android a case chosen from the entry with no details returns to the phone's home screen", async ({
+test("on Android a case chosen from the entry with no details returns to the phone's home screen, on a new session", async ({
 	page,
 }) => {
 	try {
@@ -819,6 +1325,8 @@ test("on Android a case chosen from the entry with no details returns to the pho
 			fixture: "case-list-entry",
 			platform: "android",
 		});
+		const session = page.getByLabel("Preview session");
+		const running = await session.textContent();
 		await main.locator("[data-case-list-menu-entry]").click({
 			timeout: 20_000,
 		});
@@ -827,6 +1335,15 @@ test("on Android a case chosen from the entry with no details returns to the pho
 			.click({ timeout: 20_000 });
 		await expect(page.getByLabel("At the device home")).toHaveText("true");
 		await expect(page.getByLabel("Location")).toHaveText("home");
+		// The home screen resets Android's session
+		// (`HomeScreenBaseActivity.processCanceledGetCommandOrCase`): a step
+		// the browser's history kept from the old one no longer stands.
+		await expect(session).not.toHaveText(running ?? "");
+		const reset = await session.textContent();
+		// Start opens the app on that new session.
+		await main.getByRole("button", { name: "Start", exact: true }).click();
+		await expect(page.getByLabel("At the device home")).toHaveText("false");
+		await expect(session).toHaveText(reset ?? "");
 	} finally {
 		await closeNavigation(page);
 	}

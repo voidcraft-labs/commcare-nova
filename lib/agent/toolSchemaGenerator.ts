@@ -55,9 +55,10 @@ const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
 // mutation reducer — tool args flow straight through. The tool-owned
 // keys are `caseWrite`, which a field does not store: the tools plan it,
 // with its `via` and `onlyIfChanged`, into the form's case operations;
-// and the two display flags `field_list` and `plain_label` (on a field
-// and on a choice), booleans the pipeline turns into the stored
-// `fieldList: true` / `plainLabel: true` or their absence.
+// and the display flags `field_list`, `plain_label` (on a field and on a
+// choice) and `plain_help`, booleans the pipeline turns into the stored
+// `fieldList: true` / `plainLabel: true` / `plainHelp: true` or their
+// absence. `keypad` is the stored key under its own name.
 // CommCare wire terms live only at the emission boundary in
 // `lib/commcare/` (XForm output). The domain never round-trips
 // through a wire shape.
@@ -81,6 +82,7 @@ import {
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
 	selectOptionValueSchema,
+	TEXT_KEYPADS,
 	uuidSchema,
 } from "@/lib/domain";
 import { caseWriteViaInputSchema } from "./tools/case-operations/shared";
@@ -126,7 +128,11 @@ const FIELD_DOCS = {
 	field_list:
 		"Groups only. true shows the group's questions together on one screen on Android; false shows one per screen. Web Apps shows the whole form on one page either way. A new group with a label starts at true unless it holds a repeat whose rows the worker adds, which can't share a screen; leave it out to take that. On an edit, null is false.",
 	plain_label:
-		"true shows the label exactly as typed, so *, #, numbered lines and links stay as written instead of formatting. Labels are formatted as Markdown by default; false or null returns the label to Markdown. Hints, help and validation messages are always Markdown.",
+		"true shows the label exactly as typed, so *, #, numbered lines and links stay as written instead of formatting. Labels are formatted as Markdown by default; false or null returns the label to Markdown. A help text takes plain_help the same way; a hint and a validation message have no such setting.",
+	plain_help:
+		"true shows the help text exactly as typed on Android. Web Apps formats every help text either way. false or null returns it to Markdown.",
+	keypad:
+		'Text questions only. "numbers" gives the worker a number keypad and keeps the answer as text, for a phone number or an ID that may start with 0 or +. Use int or decimal for a quantity. null returns the full keyboard.',
 	repeat_mode:
 		"Worker-added rows, a number of rows from a whole-number question or expression, or one row per case a query finds. Counts grow live during entry; lowering a count keeps created rows, answers and case operations. A query's rows are set when the form opens where the repeat has no condition of its own, its query reads no answer, it sits in no other repeat and no group around it shows on a condition that can change during entry; otherwise its rows follow the query as answers change, each row keeping its place. Once published, a query repeat keeps that choice, and an edit that would change it says so in identityMoves.",
 	repeat_count:
@@ -198,6 +204,10 @@ const fieldListField = () =>
 	z.boolean().nullable().optional().describe(FIELD_DOCS.field_list);
 const plainLabelField = () =>
 	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_label);
+const plainHelpField = () =>
+	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_help);
+const keypadField = () =>
+	z.enum(TEXT_KEYPADS).nullable().optional().describe(FIELD_DOCS.keypad);
 /**
  * The exact machine-authored inline-option projection.
  *
@@ -308,15 +318,20 @@ function kindSavesAnswer(kind: FieldKind): boolean {
 }
 
 /**
- * Refuse `field_list` on a kind other than a group, and `plain_label` on a
- * kind whose label takes none (a hidden field has no label). `present` says
- * whether the call states the slot: on the add item null is no value, on the
- * edit patch null clears, so each caller tests presence its own way.
+ * Refuse `field_list` on a kind other than a group, `plain_label` on a kind
+ * whose label takes none (a hidden field has no label), and `plain_help` on a
+ * kind with no help text. `present` says whether the call states the slot: on
+ * the add item null is no value, on the edit patch null clears, so each
+ * caller tests presence its own way.
  */
 function gateDisplayFlags(
 	ctx: z.RefinementCtx,
 	kind: FieldKind,
-	present: { readonly fieldList: boolean; readonly plainLabel: boolean },
+	present: {
+		readonly fieldList: boolean;
+		readonly plainLabel: boolean;
+		readonly plainHelp: boolean;
+	},
 ): void {
 	if (present.fieldList && kind !== "group") {
 		ctx.addIssue({
@@ -330,6 +345,13 @@ function gateDisplayFlags(
 			code: "custom",
 			path: ["plain_label"],
 			message: `kind "${kind}" carries no label, so leave plain_label out.`,
+		});
+	}
+	if (present.plainHelp && !fieldKindDeclaresKey(kind, "plainHelp")) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["plain_help"],
+			message: `kind "${kind}" carries no help text, so leave plain_help out.`,
 		});
 	}
 }
@@ -393,6 +415,7 @@ const ADD_GATED_KEYS = [
 	"calculate",
 	"default_value",
 	"optionsSource",
+	"keypad",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -474,8 +497,10 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			parentUuid: parentUuidField(),
 			label: labelField(),
 			plain_label: plainLabelField(),
+			keypad: keypadField(),
 			hint: hintField(),
 			help: helpField(),
+			plain_help: plainHelpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
@@ -498,6 +523,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			gateDisplayFlags(ctx, item.kind, {
 				fieldList: item.field_list != null,
 				plainLabel: item.plain_label != null,
+				plainHelp: item.plain_help != null,
 			});
 			// A case-writing field (`caseWrite` set) INHERITS label /
 			// optionsSource / validation / required from its catalog record —
@@ -590,8 +616,10 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				.describe("New id to rename to; leave it out to keep the current id."),
 			label: labelField(),
 			plain_label: plainLabelField(),
+			keypad: keypadField(),
 			hint: hintField(),
 			help: helpField(),
+			plain_help: plainHelpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
@@ -622,6 +650,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			gateDisplayFlags(ctx, patch.kind, {
 				fieldList: patch.field_list !== undefined,
 				plainLabel: patch.plain_label !== undefined,
+				plainHelp: patch.plain_help !== undefined,
 			});
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
 			gateHiddenValueSources(

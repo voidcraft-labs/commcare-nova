@@ -1,3 +1,4 @@
+import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -5,6 +6,7 @@ import {
 	caseListConfig,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { menuScreenDocArbitrary } from "@/lib/commcare/__tests__/menuScreenDocArbitrary";
 import {
 	mutationCommitVerdict,
 	mutationCommitVerdictWithPrevalidation,
@@ -1576,5 +1578,183 @@ describe("edits that decide a menu's kind", () => {
 			],
 		};
 		expect(actualScope(linked, [removeOwn], linked)).toBeUndefined();
+	});
+});
+
+describe("menus that list forms on one screen", () => {
+	const CLINIC = testUuid("scope-screen-clinic");
+	const CLINIC_VISIT = testUuid("scope-screen-clinic-visit");
+	const EXTRAS = testUuid("scope-screen-extras");
+
+	/** A case-first menu whose form's display condition reads the chosen
+	 *  case, and a submenu that shows its forms on that menu's screen. */
+	function sharedScreenDoc(): ReturnType<typeof buildDoc> {
+		const doc = buildDoc({
+			appName: "Shared screen",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "status", label: proseText("Status") }],
+				},
+			],
+			modules: [
+				{
+					uuid: CLINIC,
+					name: "Clinic",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: CLINIC_VISIT,
+							name: "Clinic visit",
+							type: "followup",
+							displayCondition: eq(prop("patient", "status"), literal("open")),
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+					],
+				},
+				{
+					uuid: EXTRAS,
+					name: "Extras",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Extra visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "extra", label: "Extra" })],
+						},
+					],
+				},
+			],
+		});
+		doc.modules[EXTRAS].parentModuleUuid = CLINIC;
+		doc.modules[EXTRAS].formsInMenuAbove = true;
+		return doc;
+	}
+
+	it("takes the whole-document gate to show a menu's forms in the menu above or to clear it", () => {
+		const doc = sharedScreenDoc();
+		for (const on of [true, null])
+			expect(
+				incrementalValidationScope(doc, [
+					{
+						kind: "updateModule",
+						uuid: EXTRAS,
+						patch: { formsInMenuAbove: on },
+					} as Mutation,
+				]),
+			).toBeUndefined();
+	});
+
+	it("checks the forms of every menu on the touched menu's screen", () => {
+		const doc = sharedScreenDoc();
+		const scope = incrementalValidationScope(doc, [
+			{ kind: "setModuleMedia", uuid: EXTRAS, icon: null, audioLabel: null },
+		]);
+		expect(scope?.moduleUuids).toEqual(new Set([EXTRAS, CLINIC]));
+		expect(scope?.formUuids).toContain(CLINIC_VISIT);
+	});
+
+	it("sees a finding another menu on the screen takes from the touched menu's edit", () => {
+		const doc = sharedScreenDoc();
+		const batch: Mutation[] = [
+			{
+				kind: "setCaseListMeta",
+				uuid: EXTRAS,
+				patch: { selection: MULTIPLE_FIVE },
+			},
+		];
+		expect(incrementalValidationScope(doc, batch)).not.toBeUndefined();
+		const verdict = expectCommitParity(doc, batch);
+		expect(verdict.ok ? [] : verdict.findings.map((f) => f.code)).toContain(
+			"FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
+		);
+	});
+
+	it("takes the whole-document gate where a batch turns whether every form above opens one case", () => {
+		// Two top-level menus show their forms on the first menu and "Under
+		// A" keeps its screen beneath the first. Letting B's list choose
+		// several cases gives B's form another first selection than A's, so
+		// the forms above no longer open one case, which Under A's forms'
+		// after-submit reads.
+		const A = testUuid("scope-first-menu-a");
+		const B = testUuid("scope-first-menu-b");
+		const UNDER_A = testUuid("scope-first-menu-under-a");
+		const menu = (uuid: string, name: string) => ({
+			uuid,
+			name,
+			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					name: `${name} visit`,
+					type: "followup" as const,
+					fields: [f({ kind: "text", id: "note", label: "Note" })],
+				},
+			],
+		});
+		const doc = buildDoc(
+			{
+				appName: "First menu",
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [menu(A, "A"), menu(UNDER_A, "Under A"), menu(B, "B")],
+			},
+			(draft) => {
+				draft.modules[A].formsInMenuAbove = true;
+				draft.modules[B].formsInMenuAbove = true;
+				draft.modules[UNDER_A].parentModuleUuid = A;
+			},
+		);
+		const batch: Mutation[] = [
+			{ kind: "setCaseListMeta", uuid: B, patch: { selection: MULTIPLE_FIVE } },
+		];
+		expect(incrementalValidationScope(doc, batch)).toBeUndefined();
+		expectCommitParity(doc, batch);
+	});
+
+	it("agrees with the whole-document verdict over the menu-screens corpus", {
+		timeout: 60_000,
+	}, () => {
+		let scoped = 0;
+		for (const doc of fc.sample(menuScreenDocArbitrary, {
+			seed: 20261117,
+			numRuns: 30,
+		})) {
+			for (const moduleUuid of doc.moduleOrder) {
+				const mod = doc.modules[moduleUuid];
+				if (mod?.caseType === undefined) continue;
+				const batches: Mutation[][] = [
+					[
+						{
+							kind: "setCaseListMeta",
+							uuid: moduleUuid,
+							patch: {
+								selection:
+									mod.caseListConfig?.selection === undefined
+										? MULTIPLE_FIVE
+										: null,
+							},
+						},
+					],
+					[
+						{
+							kind: "setCaseListMenuItem",
+							uuid: moduleUuid,
+							item: mod.caseListMenuItem === undefined ? {} : null,
+						} as Mutation,
+					],
+				];
+				for (const batch of batches) {
+					if (incrementalValidationScope(doc, batch) !== undefined) scoped++;
+					expectCommitParity(doc, batch);
+				}
+			}
+		}
+		expect(scoped).toBeGreaterThan(20);
 	});
 });

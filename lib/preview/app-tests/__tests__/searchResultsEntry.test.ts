@@ -24,6 +24,7 @@ import { serverPreviewDevice } from "@/lib/preview/engine/previewDevice";
 import { previewAsMe } from "../../engine/identity";
 import { previewLookupData } from "../../engine/lookupEvaluation";
 import type { AppTestContext } from "../context";
+import { appTestHistoryEntry } from "../navigation";
 import { advanceAppTest } from "../run";
 import type { AppTestSessionState } from "../types";
 
@@ -101,7 +102,12 @@ function journey() {
 			caseIds: ["p1"],
 			entryCases,
 		},
-		history: [{ kind: "records", moduleUuid: reads.find, searchAnswers: [] }],
+		history: [
+			appTestHistoryEntry(
+				{ kind: "records", moduleUuid: reads.find, searchAnswers: [] },
+				{},
+			),
+		],
 		selections: {},
 		deviceCases: entryCases,
 	} as unknown as AppTestSessionState;
@@ -151,7 +157,10 @@ it("reads the search once for the whole entry, and again for a new one", async (
 		{
 			...observed.state,
 			screen: { kind: "home" },
-			history: [...observed.state.history, observed.state.screen],
+			history: [
+				...observed.state.history,
+				appTestHistoryEntry(observed.state.screen, observed.state.selections),
+			],
 		},
 		{ kind: "back" },
 	);

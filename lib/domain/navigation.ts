@@ -7,11 +7,12 @@ import {
 	type FormType,
 	type PostSubmitDestination,
 } from "./forms";
+import { afterEmptySearchRegistrationFormOf } from "./menuForms";
 import {
-	caseListRegistrationFormOf,
-	moduleIsBareCaseList,
-	moduleIsCaseFirst,
-} from "./menuForms";
+	moduleHasOwnScreen,
+	screenChoosesCaseFirst,
+	screenIsBareCaseList,
+} from "./menuScreens";
 import { moduleSearchWorkflow } from "./modules";
 import { effectivePostSubmit, moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
@@ -22,23 +23,31 @@ export type ModuleScreenLanding =
 	| { readonly kind: "form-menu" }
 	/** Bare case list: rewrite history so the empty module URL is not a stop. */
 	| { readonly kind: "replace-with-case-list" }
-	/** Case-first in the running app: push the case list over the menu. */
+	/** Case-first in the running app: the case list in place of the menu. */
 	| { readonly kind: "open-case-list" };
 
 /**
- * Two module shapes make the form menu the wrong landing:
+ * Two screen shapes make the form menu the wrong landing:
  *
- * - A bare case list (`menuForms.ts::moduleIsBareCaseList`: a case list menu
- *   entry and no menu forms) has no forms in any mode, so the menu is always
- *   empty. It REPLACES history, because `{kind:"module"}`
- *   must never become a back-button stop for a formless module.
- * - A case-first module (every form case-loading) lands on the case list in the
- *   running app, since the shared case selection hoists. Edit mode keeps the
- *   menu: it is the authoring surface, so this arm is preview-only, and it
- *   PUSHES, because the module is a real reachable screen while authoring.
- *
- * The bare-case-list arm wins when both apply: it holds in edit mode too, and
- * its history replacement is the stronger claim.
+ * - A bare case list (`menuScreens.ts::screenIsBareCaseList`: a case list
+ *   menu entry and no forms) lists no form, so its menu is its list. It
+ *   REPLACES history, because `{kind:"module"}` must never become a
+ *   back-button stop for a formless module. Its submenus list once its case
+ *   is chosen, so with submenus the menu is a screen again after the choice,
+ *   and edit mode keeps it so an author reaches them.
+ * - A case-first screen (every entry it lists needs the same case first,
+ *   `menuScreens.ts::screenChoosesCaseFirst`) lands on the case list in the
+ *   running app, submenus or not: CommCare asks for the case before it lists
+ *   anything on the screen (`CommCareSession.getNeededData` reaches
+ *   `getDataNeededByAllEntries` over the entries of every `<menu>` with the
+ *   screen's id, and a submenu is a `<menu root>` of its own, no entry of
+ *   them), and `MenuLoader` lists the forms and the submenus once it is
+ *   chosen. Edit mode keeps the menu: it is the authoring surface, so this
+ *   arm is preview-only. It REPLACES history too: the running app never
+ *   stops on that menu before its case is chosen, so a step back from the
+ *   list reaches the screen before it (a form a submission returned from, the
+ *   screen a crumb was pressed on), where a pushed list would leave the module
+ *   URL behind it to route the worker forward to the list again.
  */
 export function moduleScreenLanding(args: {
 	readonly hasModule: boolean;
@@ -51,10 +60,11 @@ export function moduleScreenLanding(args: {
 }): ModuleScreenLanding {
 	if (!args.hasModule || args.preserveEntryPointMenu)
 		return { kind: "form-menu" };
-	/* A parent module is a real menu even when its own case workflow would
-	 * normally hoist selection. It must remain available to show child tiles. */
-	if (args.hasChildren) return { kind: "form-menu" };
-	if (args.isBareCaseList) return { kind: "replace-with-case-list" };
+	if (
+		args.isBareCaseList &&
+		!(args.hasChildren && (args.mode === "edit" || args.hasSelectedCase))
+	)
+		return { kind: "replace-with-case-list" };
 	if (args.mode !== "edit" && args.isCaseFirst && !args.hasSelectedCase)
 		return { kind: "open-case-list" };
 	return { kind: "form-menu" };
@@ -88,10 +98,10 @@ export function formLaunch(args: {
 export type ModuleLanding = "case-list" | "form-menu";
 
 /**
- * A bare case list (`moduleIsBareCaseList`) has no form menu to show, and a
- * case-first module (every form case-loading) hoists the case selection in
- * the running app; both land on the case list. Everything else lands on the
- * form menu.
+ * A bare case list has no form menu to show, and a case-first screen asks for
+ * its case before it lists anything, submenus included; both land on the
+ * case list in the running app until their case is chosen
+ * (`moduleScreenLanding`). Everything else lands on the form menu.
  */
 export function moduleLanding(args: {
 	readonly isCaseFirst: boolean;
@@ -147,20 +157,27 @@ export type NavigationDestination =
 			readonly findings?: readonly NavigationReadFinding[];
 	  };
 
-type NavigationDoc = Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
+/** Whether a screen chooses a case first reads whether a menu is emitted
+ *  advanced, which reads the whole document. */
+type NavigationDoc = BlueprintDoc;
 
 /** An ordinary module entry, rather than an entry point that pins its menu.
- * Without a concrete session, preserve the selected-record alternative. */
+ * Without a concrete session, preserve the selected-record alternative. A
+ * module that shows its forms in the menu above has no screen to land on.
+ * Case first and the bare case list are facts of the module's own screen,
+ * which lists the forms of any submenu that shows its forms there. */
 export function moduleDestination(
 	doc: NavigationDoc,
 	moduleUuid: Uuid,
 	hasSelectedRecord?: boolean,
 ): NavigationDestination {
 	const mod = doc.modules[moduleUuid];
-	if (!mod) return { screen: "unavailable" };
+	if (!mod || !moduleHasOwnScreen(doc, moduleUuid))
+		return { screen: "unavailable" };
+	const screen = { kind: "menu", moduleUuid } as const;
 	const shape = {
-		isCaseFirst: moduleIsCaseFirst(doc, moduleUuid),
-		isBareCaseList: moduleIsBareCaseList(doc, moduleUuid),
+		isCaseFirst: screenChoosesCaseFirst(doc, screen),
+		isBareCaseList: screenIsBareCaseList(doc, screen),
 		hasChildren: Object.values(doc.modules).some(
 			(child) => child.parentModuleUuid === moduleUuid,
 		),
@@ -266,7 +283,7 @@ export function formNavigation(
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	if (!form || !moduleUuid || !doc.modules[moduleUuid]) return undefined;
 	const registersFromCaseList =
-		caseListRegistrationFormOf(doc, moduleUuid) === formUuid;
+		afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid;
 	const hasDestinations = form.formLinks !== undefined;
 	const postSubmit: NavigationDestination | undefined = hasDestinations
 		? undefined

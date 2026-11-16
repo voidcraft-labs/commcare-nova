@@ -27,6 +27,7 @@ import {
 } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Uuid } from "@/lib/domain";
+import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/expression";
 import { prepareExportBoundaryWithReads } from "@/lib/export/boundaryValidation";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
@@ -133,6 +134,59 @@ describe("a data table read in form logic, Connect or a link", () => {
 			["form", INSTANCE_READS.visitForm],
 			["form", INSTANCE_READS.visitForm],
 		]);
+	});
+
+	it("counts a calculated value in a choice's label as a read of the table", () => {
+		const { doc: base, table } = instanceReadFixture();
+		const [value, label] = table.columns;
+		const doc = produce(base, (draft) => {
+			const color = draft.fields[INSTANCE_READS.color];
+			if (
+				color.kind !== "single_select" ||
+				color.optionsSource.kind !== "inline"
+			)
+				throw new Error("The fixture's color question has inline choices.");
+			color.optionsSource.options[0].label = {
+				parts: [
+					{ kind: "text", text: "Red, from " },
+					{
+						kind: "value",
+						expression: tableLookup(
+							table.id,
+							label.id,
+							eq(tableColumn(table.id, value.id), literal("north")),
+						),
+					},
+				],
+			};
+		});
+		const occurrences = extractLookupReferenceOccurrences(
+			doc,
+			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		).filter((occurrence) => occurrence.registrySlot === "option_label");
+		expect(occurrences.map((occurrence) => occurrence.carrierUuid)).toEqual([
+			INSTANCE_READS.red,
+			INSTANCE_READS.red,
+		]);
+		// With the fixture's other reads removed, the label alone keeps the
+		// table and both columns.
+		const alone = produce(doc, (draft) => {
+			for (const id of ["region_label", "region_count", "region_labels"])
+				delete draft.fields[fieldUuid(draft, id)];
+			for (const form of Object.values(draft.forms)) delete form.connect;
+		});
+		expect(extractLookupReferenceTargets(alone).tableIds).toEqual([table.id]);
+		const gone = runValidation(doc, {
+			kind: "available",
+			projectId: PROJECT,
+			projectRevision: parseLookupRevision("2"),
+			definitions: [],
+		}).filter(
+			(finding) =>
+				finding.code === "LOOKUP_TABLE_NOT_AVAILABLE" &&
+				finding.location.fieldId === "color",
+		);
+		expect(gone).toHaveLength(1);
 	});
 
 	it.each(["ccz", "hq-json", "hq-upload"] as const)(

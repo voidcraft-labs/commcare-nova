@@ -190,6 +190,7 @@ function nodes(expression: WireExpr): WireExpr[] {
 			children = expression.args;
 			break;
 		case "expansion":
+		case "paren":
 			children = [expression.expr];
 			break;
 		case "path":

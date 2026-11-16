@@ -70,9 +70,11 @@ export type { AccessPhase } from "./store";
 import type {
 	GenerationError,
 	GenerationStage,
+	PreviewCaseListRegistrationEntry,
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
+	PreviewSearchAnswers,
 	PreviewSearchDeviceValues,
 	PreviewSearchState,
 	PreviewSelectedCase,
@@ -178,6 +180,22 @@ export function useSetPreviewCaseTarget(): (
 	return useBuilderSession((s) => s.setPreviewCaseTarget);
 }
 
+/** The form entry a case list's Register action opened, while the running
+ *  app stays on that launch's path; `undefined` otherwise. */
+export function usePreviewCaseListRegistrationEntry():
+	| PreviewCaseListRegistrationEntry
+	| undefined {
+	return useBuilderSession((s) => s.previewCaseListRegistrationEntry);
+}
+
+/** Setter for the Register launch's form entry: the case list's Register
+ *  action sets it, and its end clears it. */
+export function useSetPreviewCaseListRegistrationEntry(): (
+	entry: PreviewCaseListRegistrationEntry | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewCaseListRegistrationEntry);
+}
+
 /** The case currently open in the running-app case list (detail/confirm), or
  *  `undefined`. Drives the breadcrumb's case crumb while on the list. */
 export function usePreviewSelectedCase(): PreviewSelectedCase | undefined {
@@ -206,6 +224,14 @@ export function usePreviewMenuCaseSelections(): Readonly<
 	Record<string, PreviewMenuCaseSelection>
 > {
 	return useBuilderSession((s) => s.previewMenuCaseSelections);
+}
+
+/** The identity of the worker's running Preview session, new each time the
+ * session starts over (another worker, platform, Preview run, entry point
+ * launch or Project). A step the browser's history keeps stands only in the
+ * session that took it. */
+export function usePreviewSessionId(): string {
+	return useBuilderSession((s) => s.previewSessionId);
 }
 
 /** Set or clear the selected case owned by one module menu. */
@@ -260,6 +286,15 @@ export function useRecordPreviewSearchDeviceValues(): (
 		},
 		[store],
 	);
+}
+
+/** Record the answers the worker gave one module's query in the running
+ *  session. */
+export function useSetPreviewSearchInputs(): (
+	moduleUuid: string,
+	answers: PreviewSearchAnswers,
+) => void {
+	return useBuilderSession((s) => s.setPreviewSearchInputs);
 }
 
 /** Set or clear one module's search context. */

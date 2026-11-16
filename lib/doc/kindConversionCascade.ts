@@ -64,6 +64,7 @@
  */
 
 import { produce } from "immer";
+import { v4 as uuidv4 } from "uuid";
 import {
 	asUuid,
 	type CaseProperty,
@@ -74,23 +75,17 @@ import {
 	entityTargetKey,
 	type Field,
 	type FieldKind,
-	FORM_REFERENCE_SLOTS,
 	fieldCaseWriteViews,
-	fieldReferenceSlotsFor,
 	getConvertibleTypes,
 	isContainerKindName,
-	MODULE_REFERENCE_SLOTS,
-	rewriteSlotValues,
 	type SelectOptionsSource,
 } from "@/lib/domain";
-import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
-import { isExpression } from "@/lib/domain/expression/types";
-import { caseOperationChangesForUpdate } from "./caseOperationMutations";
-import { diffModuleConfigMutations } from "./diffDocsToMutations";
+import type { Term } from "@/lib/domain/expression/types";
 import { planFieldCaseWrite } from "./fieldCaseWriteMutations";
 import { applyMutations } from "./mutations";
 import { propertyWrites } from "./propertyWrites";
 import { referencingCarrierUuids } from "./referenceIndex";
+import { slotReadRewriteMutations } from "./slotReadRewrites";
 import type { BlueprintDoc, Mutation, Uuid } from "./types";
 
 /** A peer writer field the plan converts alongside the addressed one. */
@@ -186,7 +181,7 @@ export function planKindConversion(args: {
 			kind: "inline",
 			options: optionsSource.options.map((option) => ({
 				...structuredClone(option),
-				uuid: asUuid(crypto.randomUUID()),
+				uuid: asUuid(uuidv4()),
 			})),
 		};
 	};
@@ -462,137 +457,35 @@ export function planChoicePreservation(
 			carriers.add(carrier);
 	}
 	let preservedChoiceCount = 0;
-	const rewrite = (value: unknown): unknown => {
-		if (!isExpression(value)) return value;
-		return mapExpressionAst(value, {
-			mapTerm(term) {
-				if (term.kind !== "choice") return undefined;
-				const options = lostSources.get(term.field);
-				if (options === undefined) return undefined;
-				const values = term.options.map((uuid) => options.get(uuid));
-				// A missing identity is an admission error, never a guessed literal.
-				if (values.some((value) => value === undefined)) return undefined;
-				preservedChoiceCount++;
-				return { kind: "literal", value: values.join(" ") };
-			},
-		});
+	const literalize = (term: Term, tally: boolean): Term | undefined => {
+		if (term.kind !== "choice") return undefined;
+		const options = lostSources.get(term.field);
+		if (options === undefined) return undefined;
+		const values = term.options.map((uuid) => options.get(uuid));
+		// A missing identity is an admission error, never a guessed literal.
+		if (values.some((value) => value === undefined)) return undefined;
+		if (tally) preservedChoiceCount++;
+		return { kind: "literal", value: values.join(" ") };
 	};
-	const mutations: Mutation[] = [];
-	for (const carrier of carriers) {
-		const field = candidate.fields[carrier];
-		if (field !== undefined) {
-			const mapped = structuredClone(field);
-			const patch: Record<string, unknown> = {};
-			for (const slot of fieldReferenceSlotsFor(
-				field.kind,
-				field.kind === "repeat" ? field.repeat_mode : undefined,
-			)) {
-				if (slot.kind !== "expression" && slot.kind !== "options-source")
-					continue;
-				const path =
-					slot.kind === "options-source" ? `${slot.path}.filter` : slot.path;
-				if (rewriteSlotValues(mapped, path, rewrite) === 0) continue;
-				const top = slot.path.split(".")[0]?.replace(/\[\]$/u, "");
-				if (top !== undefined)
-					patch[top] = (mapped as unknown as Record<string, unknown>)[top];
-			}
-			if (Object.keys(patch).length > 0)
-				mutations.push({
-					kind: "updateField",
-					uuid: field.uuid,
-					targetKind: field.kind,
-					patch,
-				} as Mutation);
-			continue;
-		}
-		const form = candidate.forms[carrier];
-		if (form !== undefined) {
-			const mapped = structuredClone(form);
-			const changedKeys = new Set<string>();
-			for (const slot of FORM_REFERENCE_SLOTS) {
-				if (
-					slot.kind !== "expression" ||
-					rewriteSlotValues(mapped, slot.path, rewrite) === 0
-				)
-					continue;
-				const top = slot.path.split(".")[0]?.replace(/\[\]$/u, "");
-				if (top !== undefined) changedKeys.add(top);
-			}
-			const patch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
-			if (changedKeys.has("displayCondition"))
-				patch.displayCondition = mapped.displayCondition;
-			if (changedKeys.has("connect")) patch.connect = mapped.connect;
-			if (Object.keys(patch).length > 0)
-				mutations.push({ kind: "updateForm", uuid: form.uuid, patch });
-			if (changedKeys.has("formLinks")) {
-				for (const link of mapped.formLinks ?? []) {
-					const previous = form.formLinks?.find(
-						(value) => value.uuid === link.uuid,
-					);
-					if (previous === undefined) continue;
-					const linkPatch: Extract<
-						Mutation,
-						{ kind: "updateFormLink" }
-					>["patch"] = {};
-					if (
-						JSON.stringify(previous.condition) !==
-						JSON.stringify(link.condition)
-					)
-						linkPatch.condition = link.condition;
-					if (JSON.stringify(previous.datums) !== JSON.stringify(link.datums))
-						linkPatch.datums = link.datums;
-					if (Object.keys(linkPatch).length > 0)
-						mutations.push({
-							kind: "updateFormLink",
-							formUuid: form.uuid,
-							uuid: link.uuid,
-							patch: linkPatch,
-						});
-				}
-			}
-			if (changedKeys.has("caseOperations")) {
-				for (const operation of mapped.caseOperations ?? []) {
-					const previous = form.caseOperations?.find(
-						(value) => value.uuid === operation.uuid,
-					);
-					if (previous !== undefined)
-						mutations.push(
-							...caseOperationChangesForUpdate(form.uuid, previous, operation),
-						);
-				}
-			}
-			continue;
-		}
-		const module = candidate.modules[carrier];
-		if (module === undefined) continue;
-		const mapped = structuredClone(module);
-		let changed = false;
-		for (const slot of MODULE_REFERENCE_SLOTS) {
-			if (slot.kind !== "expression" && slot.kind !== "options-source")
-				continue;
-			const path =
-				slot.kind === "options-source" ? `${slot.path}.filter` : slot.path;
-			if (rewriteSlotValues(mapped, path, rewrite) > 0) changed = true;
-		}
-		if (!changed) continue;
-		if (
-			JSON.stringify(module.displayCondition) !==
-			JSON.stringify(mapped.displayCondition)
-		)
-			mutations.push({
-				kind: "updateModule",
-				uuid: module.uuid,
-				patch: { displayCondition: mapped.displayCondition },
-			});
-		mutations.push(...diffModuleConfigMutations(module, mapped));
-	}
+	const mutations = slotReadRewriteMutations(
+		candidate,
+		carriers,
+		{ mapTerm: (term) => literalize(term, true) },
+		{ mapTerm: (term) => literalize(term, false) },
+	);
 	return { mutations, preservedChoiceCount };
 }
 
-/** Complete field-edit convenience for single-batch surfaces. */
-export function withChoicePreservation(
+/**
+ * The rewrites alone that keep each choice read of `mutations`' candidate
+ * meaning what it meant, for a caller that commits them beside a batch it
+ * has already shaped (the Builder's worker-language lens moves the authored
+ * wording into a translation first, and these rewrites are identity, never
+ * wording, so they reach the source document as they are).
+ */
+export function choicePreservationFor(
 	before: BlueprintDoc,
-	mutations: Mutation[],
+	mutations: readonly Mutation[],
 ): ChoicePreservationPlan {
 	const changedFieldUuids = mutations.flatMap((mutation) =>
 		mutation.kind === "convertField" || mutation.kind === "updateField"
@@ -604,15 +497,19 @@ export function withChoicePreservation(
 			(uuid) => inlineChoices(before.fields[uuid]) !== undefined,
 		)
 	)
-		return { mutations, preservedChoiceCount: 0 };
+		return { mutations: [], preservedChoiceCount: 0 };
 	const candidate = produce(before, (draft) => {
-		applyMutations(draft, mutations);
+		applyMutations(draft, [...mutations]);
 	});
-	const preservation = planChoicePreservation(
-		before,
-		candidate,
-		changedFieldUuids,
-	);
+	return planChoicePreservation(before, candidate, changedFieldUuids);
+}
+
+/** Complete field-edit convenience for single-batch surfaces. */
+export function withChoicePreservation(
+	before: BlueprintDoc,
+	mutations: Mutation[],
+): ChoicePreservationPlan {
+	const preservation = choicePreservationFor(before, mutations);
 	return {
 		...preservation,
 		mutations: [...mutations, ...preservation.mutations],

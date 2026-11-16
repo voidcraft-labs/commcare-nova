@@ -1,4 +1,8 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	bindDeclaredWorkerReads,
+	declareWorkerProperties,
+} from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import {
@@ -159,6 +163,7 @@ export function csqlFunctionFixture() {
 		workflow: "skipToResults",
 	};
 	config.searchInputs = [];
+	declareWorkerProperties(doc, ["role"]);
 	config.filter = and(
 		eq(prop("patient", "visit_date"), dateCoerce(value("date_text"))),
 		eq(prop("patient", "last_seen"), datetimeCoerce(value("time_text"))),
@@ -182,6 +187,8 @@ export function csqlFunctionFixture() {
 			),
 		),
 	);
+	// The filter reads the declared role by its identity, as the gate asks.
+	bindDeclaredWorkerReads(doc);
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const findings = runValidation(doc, functionLookupContext);
 	if (findings.length) throw new Error(JSON.stringify(findings));

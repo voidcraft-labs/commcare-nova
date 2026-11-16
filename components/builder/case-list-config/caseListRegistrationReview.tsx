@@ -26,6 +26,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
+import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import {
 	caseListRegistrationFormMutations,
 	caseListRegistrationMutations,
@@ -36,7 +37,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
-	caseListRegistrationFormOf,
+	afterEmptySearchRegistrationFormOf,
 	caseSelectionCardinality,
 	menuFormUuidsOf,
 	moduleFormsReadSearch,
@@ -122,7 +123,7 @@ export function planCaseListRegistrationChoice(
 			};
 		}
 		case "clear": {
-			const formUuid = caseListRegistrationFormOf(doc, moduleUuid);
+			const formUuid = afterEmptySearchRegistrationFormOf(doc, moduleUuid);
 			const form = formUuid === undefined ? undefined : doc.forms[formUuid];
 			if (form === undefined) return null;
 			return {
@@ -137,6 +138,19 @@ export function planCaseListRegistrationChoice(
 			};
 		}
 	}
+}
+
+/** The builder's sentence where offering a form after an empty search would
+ *  replace the list's offer of another menu's form; undefined for a clear
+ *  and where the list offers none. */
+export function offerArmBlocked(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	choice: CaseListRegistrationChoice,
+): string | undefined {
+	return choice.kind === "clear"
+		? undefined
+		: afterEmptySearchOfferBlocked(doc, moduleUuid)?.userMessage;
 }
 
 /**
@@ -169,7 +183,7 @@ export function useCaseListRegistration(moduleUuid: Uuid | undefined) {
 			);
 			const clearing = choice.kind === "clear";
 			const current = clearing
-				? caseListRegistrationFormOf(doc, moduleUuid)
+				? afterEmptySearchRegistrationFormOf(doc, moduleUuid)
 				: undefined;
 			let firstMenuAfterSubmit =
 				doc.forms[planned.formUuid]?.postSubmit === "firstMenu";
@@ -212,6 +226,11 @@ export function useCaseListRegistration(moduleUuid: Uuid | undefined) {
 			const doc = docApi.getState();
 			const planned = planCaseListRegistrationChoice(doc, moduleUuid, choice);
 			if (planned === null) return;
+			const armBlocked = offerArmBlocked(doc, moduleUuid, choice);
+			if (armBlocked !== undefined) {
+				setReview(describe(doc, choice, planned, [armBlocked]));
+				return;
+			}
 			const reviewed = inline.reviewMany([...planned.mutations]);
 			setReview(
 				describe(
@@ -244,6 +263,12 @@ export function useCaseListRegistration(moduleUuid: Uuid | undefined) {
 			setRefusal(
 				"This form is no longer in the module. Choose again from the current forms.",
 			);
+			return;
+		}
+		const armBlocked = offerArmBlocked(doc, moduleUuid, review.choice);
+		if (armBlocked !== undefined) {
+			// The list began offering a form under the review.
+			setReview(describe(doc, review.choice, planned, [armBlocked]));
 			return;
 		}
 		/* Moves this review listed commit as stated. A move the review did not

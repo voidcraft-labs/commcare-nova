@@ -4,6 +4,11 @@ import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { advancedDocArbitrary } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
+	countMenuScreens,
+	emptyMenuScreensCensus,
+	menuScreenDocArbitrary,
+} from "./menuScreenDocArbitrary";
+import {
 	countNames,
 	emptyNamesCensus,
 	expectNamesCensus,
@@ -20,9 +25,14 @@ import {
 } from "./suiteDocArbitrary";
 
 it("compiles 400 workflow samples with valid schema, HQ import, bindings, and archived resources", {
-	// The complete synchronous corpus took 45s on a shared CI runner before
-	// native media-byte comparison. Keep all 400 samples and scheduling margin.
-	timeout: 60_000,
+	// The 400 seeded samples are the corpus this test holds the compiler to,
+	// so the budget follows their cost rather than the sample following the
+	// budget. The body is synchronous, so Vitest cannot stop it early: the
+	// timeout only fails a run that finished every sample and every check but
+	// took longer. It takes 16 s alone on a laptop and took 45 s on a shared
+	// CI runner, and it passed 60 s twice in a full parallel local run, where
+	// every worker draws on the same cores; 180 s holds that load.
+	timeout: 180_000,
 }, () => {
 	const census = {
 		total: 0,
@@ -105,4 +115,35 @@ it("compiles workflows whose case types and Search fields fill Nova's name gramm
 		{ seed: 20261113, numRuns: 80 },
 	);
 	expectNamesCensus(census, 80);
+});
+
+// The menu-screens corpus: menus that show their forms in the menu above,
+// top-level and nested, with links, entry points and a case list that always
+// offers a registration form into them. Every oracle checks the HQ import,
+// the local suite's shared menu ids, conjoined conditions, Register actions
+// and return frames, and every binding; the census fails by name if the generator
+// stops drawing a shape.
+it("compiles menu-screens samples whose menus show their forms in the menu above", {
+	timeout: 60_000,
+}, () => {
+	const census = emptyMenuScreensCensus();
+	assertGenerated(
+		fc.property(menuScreenDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			countMenuScreens(census, doc);
+		}),
+		{ seed: 20261115, numRuns: 200 },
+	);
+	expect(census.total).toBe(200);
+	expect(census.above / census.total).toBeGreaterThan(0.6);
+	expect(census.topLevelAbove / census.total).toBeGreaterThan(0.4);
+	expect(census.submenuAboveInParentWithScreen / census.total).toBeGreaterThan(
+		0.05,
+	);
+	expect(census.submenuUnderParentAbove / census.total).toBeGreaterThan(0.05);
+	expect(census.link / census.total).toBeGreaterThan(0.1);
+	expect(census.entryPoint / census.total).toBeGreaterThan(0.1);
+	expect(census.register / census.total).toBeGreaterThan(0.2);
+	expect(census.registerUnderParent / census.total).toBeGreaterThan(0.05);
+	expect(census.registerNewCase / census.total).toBeGreaterThan(0.1);
 });

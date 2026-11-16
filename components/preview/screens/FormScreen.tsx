@@ -14,6 +14,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
@@ -25,7 +26,10 @@ import {
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ChoiceAnswerCheck } from "@/components/preview/shared/ChoiceAnswerCheck";
-import { PersistentCaseTile } from "@/components/preview/shared/PersistentCaseTile";
+import {
+	PinnedCaseTile,
+	usePinnedCaseTile,
+} from "@/components/preview/shared/PinnedCaseTile";
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { useReconcilerContext } from "@/lib/collab/context";
@@ -52,12 +56,12 @@ import {
 	materializableCaseTypes as materializableCaseTypesFromDoc,
 	menuFormUuidsOf,
 	moduleFormsReadSearch,
-	moduleIsCaseFirst,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import type { LanguageTag } from "@/lib/domain/localization";
 import {
 	afterSubmitFrameLanding,
 	afterSubmitRoute,
@@ -68,6 +72,7 @@ import {
 	type PreviewAfterSubmitFrame,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
+	settleAfterSubmitRoute,
 } from "@/lib/preview/afterSubmitRouting";
 import {
 	afterSubmitPath,
@@ -77,12 +82,15 @@ import {
 	type PendingAfterSubmitFrame,
 } from "@/lib/preview/afterSubmitStack";
 import {
+	alwaysOfferedRegistrationReturn,
 	caseListRegistrationAdmission,
 	caseListRegistrationPostSubmit,
 	caseListRegistrationRefusalCopy,
-	formReadsCompletedSearch,
-	formSearchAnswers,
+	formOpensSearchScreen,
 	isCaseListRegistrationForm,
+	readFormSearchAnswers,
+	registeredCaseOnDevice,
+	selectionsAfterRegistrationReturn,
 } from "@/lib/preview/caseListRegistration";
 import { parentCaseConstraint } from "@/lib/preview/caseSelectionNavigation";
 import type { SetvalueRefusalDetails } from "@/lib/preview/engine/answerCast";
@@ -116,14 +124,16 @@ import {
 	projectTargetCaseSelectionsAsync,
 	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
-import { previewSessionValues } from "@/lib/preview/engine/identity";
+import {
+	previewSessionValues,
+	type ResolvedPreviewIdentity,
+} from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import {
 	resolvePreviousTask,
 	selectionsForModuleTask,
 } from "@/lib/preview/engine/previousTask";
 import { moduleSearchReadsCaseDatabase } from "@/lib/preview/engine/searchCsqlRuntime";
-import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import {
 	type PreviewLookupStatus,
@@ -150,6 +160,10 @@ import {
 	usePresentationHasFields,
 } from "@/lib/preview/hooks/usePresentationDocument";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
+import {
+	usePreviewStandingSearchState,
+	useSetPreviewStandingSearchState,
+} from "@/lib/preview/hooks/usePreviewStandingSearch";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import {
 	searchWorld,
@@ -157,35 +171,49 @@ import {
 } from "@/lib/preview/hooks/useSearchCsqlRuntime";
 import { useSearchResultsSnapshot } from "@/lib/preview/hooks/useSearchResultsSnapshot";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
-import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
+import {
+	previewCaseFirstModuleUuids,
+	previewCaseListReturn,
+	previewMenuCaseContext,
+	previewSelectionsBefore,
+} from "@/lib/preview/menuProjection";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
+import {
+	type PreviewSubmitOffer,
+	type PreviewSubmitState,
+	previewSubmitAccess,
+	previewSubmitOffer,
+} from "@/lib/preview/submitOffer";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import { endPreviewStandingSearches } from "@/lib/routing/useClientPath";
 import {
 	useAccessPhase,
 	useAppId,
 	useBuilderIsReady,
 	useCanEdit,
 	useEditMode,
+	usePreviewCaseListRegistrationEntry,
 	usePreviewCaseTarget,
 	usePreviewDevice,
 	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
 	usePreviewPersonaUuid,
 	usePreviewPlatformRules,
-	usePreviewSearchState,
 	useProjectId,
 	useProjectScopeEpoch,
 	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseTarget,
 	useSetPreviewing,
 	useSetPreviewMenuCaseSelection,
-	useSetPreviewSearchState,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import { recordRegisteredCase } from "@/lib/session/previewSearchState";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import type { PreviewCaseChoice } from "@/lib/session/types";
+import type {
+	PreviewCaseChoice,
+	PreviewCaseListRegistrationEntry,
+} from "@/lib/session/types";
 import { showToast } from "@/lib/ui/toastStore";
 import {
 	type FormLayoutHandle,
@@ -228,6 +256,50 @@ import { openModuleLanding } from "./moduleLanding";
 type SubmissionFailure = Exclude<SubmissionResult, { kind: FormType }>;
 /** The success arms: the submission landed and the app moves on. */
 type SubmissionSuccess = Extract<SubmissionResult, { kind: FormType }>;
+
+/**
+ * The line under the submit row that says why Submit is not offered. A form
+ * still opening says so in its own getting-ready state, and a fault replaces
+ * the screen, so neither has a line. Worker-facing waits speak the worker's
+ * language; the case-data failure and the member's access are Nova's own
+ * diagnostics and stay in English.
+ */
+function submitOfferLine(
+	offer: PreviewSubmitOffer,
+	language: LanguageTag,
+): string | undefined {
+	switch (offer.kind) {
+		case "offered":
+		case "fault":
+			return undefined;
+		case "busy":
+			return runtimeMessage(
+				language,
+				offer.reason === "submitting" ? "answersLocked" : "freshFormStarting",
+			);
+		case "waiting":
+			switch (offer.reason) {
+				case "form-initializing":
+					return undefined;
+				case "case-data-refreshing":
+					return runtimeMessage(language, "caseDataRefreshing");
+				case "record-loading":
+					return runtimeMessage(language, "selectedRecordLoading");
+				case "form-rebuilding":
+					return runtimeMessage(language, "formPreparing");
+				case "repeat-updating":
+					return runtimeMessage(language, "repeatUpdating");
+				case "access-checking":
+					return "Checking your access to this app. Your answers are still here.";
+			}
+			break;
+		case "unavailable":
+			return offer.reason === "case-data-failed"
+				? "Case data could not refresh. Your answers are still here. Return to Edit to try Preview again."
+				: "Submitting saves case data, which needs edit access to this app.";
+	}
+	return undefined;
+}
 
 /**
  * Shape a `SubmissionResult` failure arm into the inline error string
@@ -379,6 +451,10 @@ interface SubmissionContextSnapshot {
 	readonly moduleCaseType: string | undefined;
 	/** The form's after-submit links from the revision paired with the write. */
 	readonly links: readonly FormLink[] | undefined;
+	/** The Register launch that opened this entry of the form, when one did. */
+	readonly caseListRegistrationLaunch:
+		| PreviewCaseListRegistrationEntry
+		| undefined;
 }
 
 interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
@@ -389,6 +465,11 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 	readonly caseDatabase: CaseDatabaseSnapshot;
 	/** The entry's session map: what the form read as `session/data`. */
 	readonly entrySession: EntrySessionData | undefined;
+	/** The worker whose session the entry ran in when it was submitted. Every
+	 *  after-submit read (the links, where a target lands, whether it waits)
+	 *  reads this one session, as a device's does not change when the form
+	 *  closes. `null` where no worker had arrived. */
+	readonly identity: ResolvedPreviewIdentity | null;
 	/** The materializable catalog from the same submit-time revision. */
 	readonly caseTypes: readonly CaseType[];
 }
@@ -433,9 +514,6 @@ function stringArrayValuesEqual(
  * no primary case-data map and keeps the complete casedb snapshot separate.
  */
 /** The focusable control inside an invalid question, or the question itself. */
-/** No starting values: the form reads a completed search's answers, or none. */
-const NO_SEARCH_DEFAULTS: ReadonlyMap<string, string> = new Map();
-
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
@@ -488,6 +566,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 		loc.kind === "form-links";
 	const formUuid = screen.formUuid;
 	const moduleUuid = screen.moduleUuid;
+	/* Every route from this form back to a case list goes to the list that
+	 * chose its case, leaving the target that list continues with
+	 * (`menuProjection.ts::previewCaseListReturn`), read when it runs. */
+	const caseListReturn = () =>
+		previewCaseListReturn(session.getState().previewCaseTarget, {
+			moduleUuid,
+			formUuid,
+		});
 	const routeMatchesScreen =
 		atForm && loc.formUuid === formUuid && loc.moduleUuid === moduleUuid;
 	const selectedUuid =
@@ -509,11 +595,31 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * the case target names the search attempt that offered it, and the
 	 * module's search context says whether that search found nothing. The
 	 * admitted answers are what `#search/<name>` reads in the engine. */
-	const searchState = usePreviewSearchState(moduleUuid);
-	const setPreviewSearchState = useSetPreviewSearchState();
+	const searchState = usePreviewStandingSearchState(moduleUuid);
+	const setPreviewSearchState = useSetPreviewStandingSearchState();
+	/* A submission ends the searches the form was opened under on the screen
+	 * it lands on: Web Apps clears the query data of the address it pushes
+	 * after a submission (`app.js`'s submit handler, `CloudcareUrl.onSubmit`)
+	 * and Android's frame ends with the form, so a list the landing opens
+	 * runs its menu's default search, or asks again. The entries before the
+	 * landing keep theirs, so Back returns to them, as it returns to Web
+	 * Apps' earlier addresses. A landing that runs a menu's search again
+	 * keyed to a case writes that search afresh, and carries it on
+	 * (`lib/routing/previewSearchHistory.ts`). */
+	const letSubmittedSearchesGo = endPreviewStandingSearches;
 	const searchLaunch =
 		previewCaseTarget?.formUuid === formUuid
 			? previewCaseTarget.searchLaunch
+			: undefined;
+	/* The case list whose Register action opened this entry of this form,
+	 * which decides where it returns (`alwaysOfferedRegistrationReturn`). The
+	 * launch names the form it opened and ends at any location off its path,
+	 * so this form reached any other way reads none. */
+	const registrationEntry = usePreviewCaseListRegistrationEntry();
+	const caseListRegistrationLaunch =
+		registrationEntry?.moduleUuid === moduleUuid &&
+		registrationEntry.formUuid === formUuid
+			? registrationEntry
 			: undefined;
 	const noMatchesAdmission = useMemo(
 		() =>
@@ -543,15 +649,24 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * captures its search answers once, at activation. */
 	const readsSearchDefaults =
 		mode === "preview" &&
-		formsReadSearch &&
-		noMatchesAdmission.kind === "not-applicable" &&
-		!formReadsCompletedSearch(searchState, openedByLink);
+		formOpensSearchScreen({
+			admission: noMatchesAdmission,
+			formsReadSearch,
+			searchState,
+			openedByLink,
+		});
 	const searchDefaultsLookup = usePreviewLookupStatus();
 	const searchDefaultsCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const searchDefaultsCasesLoad = useDeviceCaseDatabaseLoad();
+	const searchDefaultsSession = useMemo(
+		() =>
+			previewSessionValues(previewIdentity, withNavigationWidth(previewDevice)),
+		[previewIdentity, previewDevice],
+	);
 	const searchDefaultsReady =
 		!readsSearchDefaults ||
 		searchWorld({
+			session: searchDefaultsSession,
 			readsCaseDatabase:
 				mod !== undefined && moduleSearchReadsCaseDatabase(mod),
 			deviceCases: searchDefaultsCases.snapshot,
@@ -562,52 +677,60 @@ export function FormScreen({ screen }: FormScreenProps) {
 		menuSource.doc,
 		formsReadSearch ? moduleUuid : undefined,
 	);
-	const searchAnswers = useMemo(() => {
+	/* The menu's Search screen opens once its world is there
+	 * (`searchDefaultsReady`): the worker, the lookups and the device's
+	 * cases. It opens as the Search screen itself does, reading every
+	 * starting value, hidden value, required condition and check a starting
+	 * value answers (`caseListRegistration.ts::readFormSearchAnswers`). A read
+	 * of data the device lacks (a place key of a worker assigned nowhere) is
+	 * the refusal a device meets building the search the form reads, held as
+	 * the screen's state and shown in place of the form, never an error
+	 * leaving the render. */
+	const searchAnswersRead = useMemo(() => {
 		if (mode !== "preview") return undefined;
-		const searchInputs = hostSearchInputs ?? [];
-		const defaults =
-			readsSearchDefaults && moduleUuid !== undefined
-				? resolveSearchInputDefaults(
-						searchInputs,
-						previewSessionValues(
-							previewIdentity,
-							withNavigationWidth(previewDevice),
-						),
-						{
-							doc: menuSource.doc,
-							moduleUuid,
-							...(searchDefaultsLookup.kind === "data" && {
-								lookup: searchDefaultsLookup.data,
-							}),
-							sessionData: searchDefaultsStep.data,
-							caseDatabase: searchDefaultsCases.snapshot,
-						},
-					)
-				: NO_SEARCH_DEFAULTS;
-		return formSearchAnswers({
-			searchInputs,
+		return readFormSearchAnswers({
+			searchInputs: hostSearchInputs ?? [],
 			admission: noMatchesAdmission,
 			formsReadSearch,
 			searchState,
 			openedByLink,
-			defaults,
+			world:
+				moduleUuid !== undefined && searchDefaultsReady
+					? {
+							session: searchDefaultsSession,
+							environment: {
+								doc: menuSource.doc,
+								moduleUuid,
+								...(searchDefaultsLookup.kind === "data" && {
+									lookup: searchDefaultsLookup.data,
+								}),
+								sessionData: searchDefaultsStep.data,
+								caseDatabase: searchDefaultsCases.snapshot,
+							},
+						}
+					: undefined,
 		});
 	}, [
 		mode,
 		noMatchesAdmission,
 		hostSearchInputs,
 		formsReadSearch,
-		readsSearchDefaults,
+		searchDefaultsReady,
 		openedByLink,
 		moduleUuid,
 		searchState,
-		previewIdentity,
-		previewDevice,
+		searchDefaultsSession,
 		menuSource.doc,
 		searchDefaultsLookup,
 		searchDefaultsStep.data,
 		searchDefaultsCases.snapshot,
 	]);
+	const searchAnswers =
+		searchAnswersRead?.kind === "read" ? searchAnswersRead.value : undefined;
+	const searchDefaultsRefusal =
+		searchAnswersRead?.kind === "refused"
+			? searchAnswersRead.refusal
+			: undefined;
 	const language = useBuilderLanguage();
 	/* A form of a menu whose forms read the search that reads what it found
 	 * opens with that search's results, as a device's session holds them on
@@ -725,6 +848,42 @@ export function FormScreen({ screen }: FormScreenProps) {
 		!severalCaseForm && effectiveCaseIds?.length === 1
 			? effectiveCaseIds[0]
 			: undefined;
+	/* The cases this form's session holds, in the order they were chosen:
+	 * those chosen before its own, then its own, chosen on the list a menu
+	 * after its case names, else the list that chose the menu's case, else
+	 * its own module's. They pin the case tile above the form
+	 * (`lib/preview/pinnedCaseTile.ts`), in Preview only: edit mode has no
+	 * bound case, and a band that appeared while authoring would claim a case
+	 * the author never chose. */
+	const heldCases = useMemo(() => {
+		if (mode !== "preview") return [];
+		const ownListModuleUuid =
+			(explicitCases !== undefined
+				? previewCaseTarget?.formUuid === formUuid
+					? previewCaseTarget.formChosenAfterCase?.caseListModuleUuid
+					: undefined
+				: menuCaseContext.selectedByModuleUuid) ?? moduleUuid;
+		const before = previewSelectionsBefore(
+			menuSource,
+			moduleUuid,
+			menuCaseSelections,
+		).filter((selection) => selection.moduleUuid !== ownListModuleUuid);
+		return effectiveCases === undefined || severalCaseForm
+			? before
+			: [...before, { moduleUuid: ownListModuleUuid, cases: effectiveCases }];
+	}, [
+		effectiveCases,
+		explicitCases,
+		formUuid,
+		menuCaseContext.selectedByModuleUuid,
+		menuCaseSelections,
+		menuSource,
+		mode,
+		moduleUuid,
+		previewCaseTarget,
+		severalCaseForm,
+	]);
+	const pinnedTile = usePinnedCaseTile(heldCases, "form");
 	const carriedTargetMatches =
 		previewCaseTarget?.formUuid === formUuid &&
 		previewCaseChoiceIdsEqual(previewCaseTarget.cases, effectiveCases);
@@ -888,7 +1047,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 		caseBindingReady &&
 			searchResultsReady &&
 			!searchResultsRefused &&
-			searchDefaultsReady,
+			searchDefaultsReady &&
+			searchDefaultsRefusal === undefined,
 		entrySession,
 	);
 	const engineEntry = useEngineEntry();
@@ -961,10 +1121,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 		};
 	}, []);
 	/* The live lookup status and worker, for the after-submit route: a link
-	 * target whose menu visibility is still pending (lookup data loading, the
-	 * worker hydrating) waits for the next of either, as the menus' own
-	 * visibility reads do. Unmounting releases a waiting route, which then
-	 * finds its attempt stale. */
+	 * target whose menu visibility is still pending (lookup data loading)
+	 * waits for the next change, as the menus' own visibility reads do. The
+	 * route reads the session of the entry it routes
+	 * (`SubmittedContextSnapshot.identity`), never the running worker's: a
+	 * running worker who is no longer that one makes the waiting route stale
+	 * (`afterSubmitRouting.ts::settleAfterSubmitRoute`). Unmounting releases a
+	 * waiting route, which then finds its attempt stale. */
 	const lookupStatus = usePreviewLookupStatus();
 	const visibilityInputsRef = useRef({ lookupStatus, previewIdentity });
 	const visibilityWaitersRef = useRef(new Set<() => void>());
@@ -999,6 +1162,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		destination: postSubmitDestination,
 		moduleCaseType: mod?.caseType,
 		links: form?.formLinks,
+		caseListRegistrationLaunch,
 	});
 	submissionContextRef.current = {
 		scopeEpoch,
@@ -1013,6 +1177,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		destination: postSubmitDestination,
 		moduleCaseType: mod?.caseType,
 		links: form?.formLinks,
+		caseListRegistrationLaunch,
 	};
 	useEffect(() => {
 		if (appId === undefined || entryKey === undefined) return;
@@ -1128,11 +1293,76 @@ export function FormScreen({ screen }: FormScreenProps) {
 		});
 	}, []);
 	const [clearRevision, setClearRevision] = useState(0);
-	const [clearTargetEntryKey, setClearTargetEntryKey] = useState<
-		string | undefined
-	>();
+	/* Clear form runs from the press until the fresh entry's key is the one
+	 * the screen shows: `starting` before the controller has handed the key
+	 * back, `awaiting-entry` once it has. Both are the busy state, so Submit
+	 * never looks ready while a press on it would land on the retired entry. */
+	const [clearState, setClearState] = useState<
+		| { readonly kind: "idle" }
+		| { readonly kind: "starting" }
+		| { readonly kind: "awaiting-entry"; readonly entryKey: string }
+	>({ kind: "idle" });
 	const clearInFlightRef = useRef(false);
-	const clearRunning = clearTargetEntryKey !== undefined;
+	const clearRunning = clearState.kind !== "idle";
+	const repeatTopologySettling =
+		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
+	/* What Submit offers (`lib/preview/submitOffer.ts`): rendered as Submit's
+	 * disabled state and its reason, and read again when a press lands. */
+	const submitState: PreviewSubmitState = {
+		afterSubmitKnown:
+			form === undefined ||
+			form.formLinks !== undefined ||
+			postSubmitDestination !== undefined,
+		submitting: submitStatus.kind === "running",
+		clearing: clearRunning,
+		entry: engineInitializing
+			? "initializing"
+			: engineRebuilding
+				? "rebuilding"
+				: "ready",
+		caseDatabase:
+			caseDatabaseWait === undefined
+				? "ready"
+				: caseDatabaseWait.status === "error"
+					? "failed"
+					: "refreshing",
+		repeatSettling: repeatTopologySettling,
+		caseBindingReady,
+		access: previewSubmitAccess({
+			accessPhase,
+			canEdit: mayWriteCaseData,
+			sameApp: true,
+			entryAuthorityCurrent: appId === undefined || attachmentEntryReady,
+		}),
+	};
+	const submitOffer = previewSubmitOffer(submitState);
+	/* A form that names nowhere to go after it is submitted breaches
+	 * `effectivePostSubmit`'s guarantee: the screen shows its fault state, and
+	 * the breach is reported once, never swallowed. */
+	const submitFault =
+		mode === "preview" && submitOffer.kind === "fault"
+			? submitOffer.reason
+			: undefined;
+	useEffect(() => {
+		if (submitFault === undefined) return;
+		const error = new Error(
+			"Preview found a form with nowhere to go after it is submitted.",
+		);
+		reportClientError(
+			{
+				message: error.message,
+				stack: error.stack,
+				source: "manual",
+				url: typeof window === "undefined" ? "" : window.location.origin,
+				diagnostics: {
+					component: "preview-form-screen",
+					operation: "submit-offer",
+					failureKind: submitFault,
+				},
+			},
+			error,
+		);
+	}, [submitFault]);
 	const submissionAttemptRef = useRef(0);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
@@ -1162,12 +1392,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 		setValidationAnnouncement(undefined);
 	}, [submissionIdentityKey]);
 	useEffect(() => {
-		if (clearTargetEntryKey === undefined || entryKey !== clearTargetEntryKey) {
+		if (
+			clearState.kind !== "awaiting-entry" ||
+			entryKey !== clearState.entryKey
+		) {
 			return;
 		}
 		clearInFlightRef.current = false;
-		setClearTargetEntryKey(undefined);
-	}, [clearTargetEntryKey, entryKey]);
+		setClearState({ kind: "idle" });
+	}, [clearState, entryKey]);
 
 	/* Replacing all rows destroys the identity this navigation frame carries.
 	 * Leave the stale form with `replace` (so browser Back cannot re-enter it),
@@ -1184,14 +1417,19 @@ export function FormScreen({ screen }: FormScreenProps) {
 			return;
 		setSubmitStatus({ kind: "idle" });
 		setPreviewSelectedCase(undefined);
-		setPreviewCaseTarget({ formUuid });
-		navigate.replace({ kind: "cases", moduleUuid });
+		const back = previewCaseListReturn(session.getState().previewCaseTarget, {
+			moduleUuid,
+			formUuid,
+		});
+		setPreviewCaseTarget(back.target);
+		navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
 	}, [
 		caseBindingReplaced,
 		explicitCases,
 		moduleUuid,
 		formUuid,
 		navigate,
+		session,
 		setPreviewCaseTarget,
 		setPreviewSelectedCase,
 	]);
@@ -1312,6 +1550,19 @@ export function FormScreen({ screen }: FormScreenProps) {
 		readonly announceWrite: () => void;
 	}): Promise<void> => {
 		const { submitted, result, isCurrent, settleAttempt } = args;
+		/* The searches as the submission found them, which a landing that
+		 * keys a menu's search to the registered case carries on. */
+		const searchesAtSubmit = session.getState().previewSearchStates;
+		/* The write has landed, so the Register launch that opened this
+		 * entry is spent: whatever opens next, this form again included, is
+		 * no longer that launch. The submitted snapshot keeps it for the
+		 * return decided below. */
+		if (
+			submitted.caseListRegistrationLaunch !== undefined &&
+			session.getState().previewCaseListRegistrationEntry ===
+				submitted.caseListRegistrationLaunch
+		)
+			session.getState().setPreviewCaseListRegistrationEntry(undefined);
 		/* Forget page memory only when this completed entry actually leaves.
 		 * The next engine resolves its first visible page from fresh answers;
 		 * choosing a page now would use the submitted entry's conditionality. */
@@ -1333,6 +1584,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			session.getState().setPreviewTaskContinuation(undefined);
 			session.getState().setPreviewParentCaseRequest(undefined);
 			setPreviewCaseTarget(undefined);
+			letSubmittedSearchesGo();
 		};
 		/* Unless it explicitly returns to First menu, a no-matches registration
 		 * form returns to its module as the wire's
@@ -1340,7 +1592,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		 * this is decided first. A host with menu forms lands on Results
 		 * showing the case it registered (the frame re-keys the search to
 		 * that case); a host without any has no frame beyond its command
-		 * (`caseListFormReturnFrame`), so the search context retires and the
+		 * (`caseListFormReturnFrames`), so the search context retires and the
 		 * module opens the way it first did: on Search, or on an automatic
 		 * Results when there is nothing to answer. */
 		const landOnResultsWithRegisteredCase = (
@@ -1351,10 +1603,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			setPreviewSearchState(
 				moduleUuid,
 				menuFormUuidsOf(submitted.doc, moduleUuid).length > 0
-					? recordRegisteredCase(
-							session.getState().previewSearchStates[moduleUuid],
-							caseId,
-						)
+					? recordRegisteredCase(searchesAtSubmit[moduleUuid], caseId)
 					: undefined,
 			);
 			setPreviewSelectedCase(undefined);
@@ -1432,6 +1681,103 @@ export function FormScreen({ screen }: FormScreenProps) {
 			);
 			return;
 		}
+		/* A form a case list always offers, opened from that list's Register
+		 * action, returns where the list's frame lands, as the wire's return
+		 * frames do; opened any other way, or with its own after-submit in
+		 * force, it routes as any form does. The host's selection is the
+		 * created case where the frame carries it. */
+		const createdCase =
+			result.kind === "registration" && submitted.caseListRegistrationLaunch
+				? registeredCaseOnDevice(
+						result.caseDatabasePatch,
+						result.caseId,
+						submitted.doc.modules[
+							submitted.caseListRegistrationLaunch.hostModuleUuid
+						]?.caseType,
+					)
+				: undefined;
+		const registrationLanding =
+			submitted.formUuid === undefined
+				? undefined
+				: alwaysOfferedRegistrationReturn(
+						submitted.doc,
+						submitted.formUuid,
+						submitted.caseListRegistrationLaunch,
+						createdCase?.caseId,
+					);
+		if (
+			registrationLanding !== undefined &&
+			submitted.caseListRegistrationLaunch !== undefined
+		) {
+			const hostModuleUuid =
+				submitted.caseListRegistrationLaunch.hostModuleUuid;
+			retireCompletedTask();
+			announceWrite();
+			const current = session.getState().previewMenuCaseSelections;
+			const next = selectionsAfterRegistrationReturn(
+				current,
+				registrationLanding,
+				hostModuleUuid,
+				submitted.doc.modules[hostModuleUuid]?.caseType ?? "",
+				createdCase,
+			);
+			for (const moduleUuid of Object.keys(current))
+				if (next[moduleUuid] === undefined)
+					setPreviewMenuCaseSelection(moduleUuid as Uuid, undefined);
+			for (const [moduleUuid, selection] of Object.entries(next))
+				setPreviewMenuCaseSelection(moduleUuid as Uuid, selection);
+			/* Where the frame runs a menu's search again keyed to the
+			 * registered case (a host whose forms read the search), that
+			 * search now holds that case alone: its Results list it, or
+			 * nothing where the form created no case, and its forms read it
+			 * as what the search found. */
+			if (result.kind === "registration")
+				for (const moduleUuid of registrationLanding.newCaseSearchModuleUuids)
+					setPreviewSearchState(
+						moduleUuid,
+						recordRegisteredCase(
+							searchesAtSubmit[moduleUuid],
+							result.caseId,
+							createdCase !== undefined,
+						),
+					);
+			setPreviewSelectedCase(undefined);
+			/* The return frame is pushed and opens like any other frame, so
+			 * what was pending stays only while the worker is on its path. */
+			const landingScreen = registrationLanding.screen;
+			if (
+				submitted.formUuid !== undefined &&
+				submitted.moduleUuid !== undefined
+			)
+				session.getState().setPreviewAfterSubmitStack(
+					completeAfterSubmitWithOwnFrame(
+						session.getState().previewAfterSubmitStack,
+						submittedEntryPath({
+							doc: submitted.doc,
+							moduleUuid: submitted.moduleUuid,
+							formUuid: submitted.formUuid,
+							caseIdsOf: (moduleUuid) =>
+								current[moduleUuid]?.cases.map((choice) => choice.caseId) ?? [],
+						}),
+						landingScreen.kind === "first-menu"
+							? []
+							: afterSubmitPath(
+									submitted.doc,
+									{ moduleUuid: landingScreen.moduleUuid },
+									Object.entries(next).map(([moduleUuid, selection]) => ({
+										moduleUuid: moduleUuid as Uuid,
+										caseIds: selection.cases.map((choice) => choice.caseId),
+									})),
+								),
+						platformRules.afterSubmitFrames,
+					),
+				);
+			settleAttempt({ kind: "idle" });
+			forgetCompletedPages();
+			if (landingScreen.kind === "first-menu") navigate.goHome();
+			else navigate.openModule(landingScreen.moduleUuid);
+			return;
+		}
 		/* A form without destinations, with nothing pending, goes straight to
 		 * its after-submit destination: its one frame is the stack. */
 		if (
@@ -1492,14 +1838,26 @@ export function FormScreen({ screen }: FormScreenProps) {
 			);
 			return;
 		}
+		/* The links, and every routing read after them, read the session the
+		 * entry ran in when it was submitted: the device's session does not
+		 * change when the form closes. An entry opens only once the worker has
+		 * arrived (`EngineController.setPreviewIdentityPending`), so an entry
+		 * submitted with no worker belongs to a controller no shell gave one,
+		 * and nothing is left to route. */
+		const entryIdentity = submitted.identity;
+		if (entryIdentity === null) {
+			announceWrite();
+			settleAttempt({ kind: "idle" });
+			return;
+		}
 		const refreshedCaseDatabase = overlayCaseDatabasePatch(
 			submitted.caseDatabase,
 			caseDatabasePatch,
 		);
 		const postSubmissionUsercase = submissionWorkerValues(
 			caseDatabasePatch,
-			previewIdentity?.ownerId,
-			previewIdentity?.usercase ?? {},
+			entryIdentity.ownerId,
+			entryIdentity.usercase,
 		);
 
 		let caseData: PostSubmissionCaseData = new Map();
@@ -1551,11 +1909,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				forms: doc.forms,
 				formOrder: doc.formOrder,
 			};
-			const caseFirstModules = new Set(
-				doc.moduleOrder.filter((moduleUuid) =>
-					moduleIsCaseFirst(doc, moduleUuid),
-				),
-			);
+			const caseFirstModules = previewCaseFirstModuleUuids(doc);
 			const submission: CarriedSubmission = {
 				...(resultCaseIds.length === 1 && { caseId: resultCaseIds[0] }),
 				...(boundCaseName !== undefined && { caseName: boundCaseName }),
@@ -1567,7 +1921,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
-				session: previewSessionValues(previewIdentity, previewDevice),
+				session: previewSessionValues(entryIdentity, previewDevice),
 				usercase: postSubmissionUsercase,
 				/* The entry's own session map: the device's session does not
 				 * change when the form closes, so a link reads the ids its form
@@ -1588,7 +1942,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				async (evaluateLink) => {
 					const world = createFormLinkWorkerWorld(
 						input,
-						`form-link-${crypto.randomUUID()}`,
+						`form-link-${uuidv4()}`,
 					);
 					/* Every frame and every carried value reads the one
 					 * post-submit world, as Core evaluates a form's stack
@@ -1687,10 +2041,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 							afterSubmitTargetVisibility({
 								doc,
 								target,
-								session: previewSessionValues(
-									visibilityInputsRef.current.previewIdentity,
-									previewDevice,
-								),
+								session: previewSessionValues(entryIdentity, previewDevice),
 								lookup: targetLookup(),
 								deviceCases: {
 									snapshot: refreshedCaseDatabase,
@@ -1699,32 +2050,27 @@ export function FormScreen({ screen }: FormScreenProps) {
 								caseSelections: projectedSelections,
 							}),
 					});
-				let frameRoute = routeOnce();
-				while (frameRoute.kind === "pending") {
-					/* With the worker known and the device's cases in hand, a
-					 * still pending target waits only on lookup data, and a failed
-					 * read brings no later change to wake on. */
-					if (
-						targetLookup().kind === "error" &&
-						previewSessionValues(
-							visibilityInputsRef.current.previewIdentity,
-							previewDevice,
-						).identityPending !== true
-					) {
-						failAfterSave(
-							"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
-							"target-lookup-unavailable",
-						);
-						return;
-					}
-					await nextVisibilityInputs();
-					if (!isCurrent()) {
-						announceWrite();
-						settleAttempt({ kind: "idle" });
-						return;
-					}
-					frameRoute = routeOnce();
+				const settled = await settleAfterSubmitRoute({
+					route: routeOnce,
+					lookup: targetLookup,
+					nextInputs: nextVisibilityInputs,
+					isCurrent,
+					runningIdentity: () => visibilityInputsRef.current.previewIdentity,
+					entryIdentity,
+				});
+				if (settled.kind === "lookup-unavailable") {
+					failAfterSave(
+						"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
+						"target-lookup-unavailable",
+					);
+					return;
 				}
+				if (settled.kind === "stale") {
+					announceWrite();
+					settleAttempt({ kind: "idle" });
+					return;
+				}
+				const frameRoute = settled.route;
 				if (frameRoute.kind === "unresolvable") {
 					failAfterSave(
 						"Your answers were saved, but the next screen could not be found. Reload the app and try again.",
@@ -1885,6 +2231,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			};
 			switch (route.kind) {
 				case "previous-task": {
+					letSubmittedSearchesGo();
 					for (const uuid of routeMenuSource.moduleOrder)
 						setPreviewMenuCaseSelection(uuid, route.task.selections[uuid]);
 					setPreviewSelectedCase(undefined);
@@ -2123,23 +2470,59 @@ export function FormScreen({ screen }: FormScreenProps) {
 	);
 
 	const handleSubmit = async (): Promise<void> => {
+		/* The press reads what Submit offers from the state at this moment: the
+		 * entry store and the session move ahead of the render this handler
+		 * belongs to, and a queued click can land after a synchronous reset but
+		 * before React commits it. Where the offer is anything but `offered`,
+		 * Submit's next render is disabled for that same reason (or busy), so
+		 * the press is not lost on a Submit that looks ready. */
 		const currentEntry = controller.entryStore.getState();
-		if (
-			clearInFlightRef.current ||
-			currentEntry.rebuilding ||
-			currentEntry.caseDatabaseWait !== undefined
-		)
-			return;
-
 		const start = session.getState();
-		/* Authority is read imperatively at the mutation boundary. A queued click
-		 * can run after the synchronous reset but before React commits fresh props. */
-		if (
-			start.accessPhase !== "authorized" ||
-			!start.canEdit ||
-			start.appId !== appId
-		)
-			return;
+		const pressOffer = previewSubmitOffer({
+			...submitState,
+			clearing: submitState.clearing || clearInFlightRef.current,
+			entry:
+				submitState.entry === "ready" && currentEntry.rebuilding
+					? "rebuilding"
+					: submitState.entry,
+			caseDatabase:
+				currentEntry.caseDatabaseWait === undefined
+					? submitState.caseDatabase
+					: currentEntry.caseDatabaseWait.status === "error"
+						? "failed"
+						: "refreshing",
+			repeatSettling:
+				submitState.repeatSettling || currentEntry.topologySettling,
+			access: previewSubmitAccess({
+				accessPhase: start.accessPhase,
+				canEdit: start.canEdit,
+				sameApp: start.appId === appId,
+				entryAuthorityCurrent:
+					appId === undefined ||
+					(entryKey !== undefined &&
+						hasAttachmentEntryWriteAuthority(entryKey)),
+			}),
+		});
+		if (pressOffer.kind !== "offered") return;
+
+		/* The press is taken: Submit is busy from here, through the save
+		 * barrier, until the attempt settles. */
+		const attempt = ++submissionAttemptRef.current;
+		const attemptIsCurrent = () => submissionAttemptRef.current === attempt;
+		const settleAttempt = (status: SubmitStatus): void => {
+			if (attemptIsCurrent()) setSubmitStatus(status);
+		};
+		/* Clear any prior error state up-front. Two reasons:
+		 *
+		 *   1. A stale server-error header from a previous submit would
+		 *      otherwise stay visible while the user is on a *different*
+		 *      failure path (validate-fail or appId-guard) whose actual
+		 *      remediation surfaces in a different UI element (per-field
+		 *      required indicators).
+		 *   2. A second submit after a server error must replace, not
+		 *      augment: the alert always reflects the latest attempt. */
+		settleAttempt({ kind: "running" });
+		setValidationAnnouncement(undefined);
 		// Mouse activation retains focus until this point so validation cannot
 		// move the button mid-click. Now let the field commit its local draft.
 		const active = document.activeElement;
@@ -2155,13 +2538,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 		 * or save race that lands between this snapshot and the server lock. */
 		const saveOutcome = await collab?.reconciler.waitForHumanSaveBarrier();
 		if (saveOutcome !== undefined && saveOutcome.kind !== "saved") {
-			setSubmitStatus({
+			settleAttempt({
 				kind: "error",
 				message:
 					"This app couldn't finish saving. Reload it before submitting the form.",
 			});
 			return;
 		}
+		/* From here a press can only go stale: the worker moved, the entry
+		 * changed, or access changed while the app saved. The screen already
+		 * shows the new state (a different entry, or Submit disabled with its
+		 * reason), so the attempt settles back to idle and writes nothing. */
 		const afterSave = session.getState();
 		if (
 			afterSave.accessPhase !== "authorized" ||
@@ -2169,6 +2556,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			afterSave.appId !== appId ||
 			afterSave.scopeEpoch !== start.scopeEpoch
 		) {
+			settleAttempt({ kind: "idle" });
 			return;
 		}
 		const afterSaveContext = submissionContextRef.current;
@@ -2181,6 +2569,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			afterSaveContext.personaUuid !== submittedBase.personaUuid ||
 			!stringArrayValuesEqual(afterSaveContext.caseIds, submittedBase.caseIds)
 		) {
+			settleAttempt({ kind: "idle" });
 			return;
 		}
 		const submittedSnapshot = (doc: BlueprintDoc): SubmittedContextSnapshot => {
@@ -2203,6 +2592,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				doc,
 				caseDatabase: controller.previewCaseDatabaseSnapshot,
 				entrySession: controller.entrySession,
+				identity: controller.previewIdentitySnapshot,
 				caseTypes: materializableCaseTypesFromDoc(doc),
 			};
 		};
@@ -2211,20 +2601,20 @@ export function FormScreen({ screen }: FormScreenProps) {
 		let submitted = submittedSnapshot(
 			structuredClone(pickBlueprintDoc(submittedDocState)),
 		);
+		/* The committed document no longer holds the form (a collaborator
+		 * removed it while the app saved, and location recovery is moving the
+		 * screen), or the entry is gone: stale, never a fault, since a form the
+		 * document holds always names where it goes (`submitOffer.ts`). */
 		if (
 			submitted.scopeEpoch !== start.scopeEpoch ||
 			submitted.formUuid === undefined ||
 			submitted.entryKey === undefined ||
 			(submitted.links === undefined && submitted.destination === undefined)
 		) {
+			settleAttempt({ kind: "idle" });
 			return;
 		}
 		const submittedEntryKey = submitted.entryKey;
-		const attempt = ++submissionAttemptRef.current;
-		const attemptIsCurrent = () => submissionAttemptRef.current === attempt;
-		const settleAttempt = (status: SubmitStatus): void => {
-			if (attemptIsCurrent()) setSubmitStatus(status);
-		};
 		const isCurrent = () => {
 			const current = session.getState();
 			const latest = submissionContextRef.current;
@@ -2251,30 +2641,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 				mountedRef.current
 			);
 		};
-		/* Clear any prior error state up-front. Two reasons:
-		 *
-		 *   1. A stale server-error header from a previous submit would
-		 *      otherwise stay visible while the user is on a *different*
-		 *      failure path (validate-fail or appId-guard) whose actual
-		 *      remediation surfaces in a different UI element (per-field
-		 *      required indicators).
-		 *   2. A second submit after a server error must replace, not
-		 *      augment: the alert always reflects the latest attempt. */
-		settleAttempt({ kind: "idle" });
-		setValidationAnnouncement(undefined);
-
-		/* This repeats the disabled-button condition at the mutation boundary.
-		 * A queued click or stale event handler must never submit after a case-data
-		 * replacement, while the row is reloading, or after it resolved missing. */
-		if (!caseBindingReady) {
-			settleAttempt({
-				kind: "error",
-				message:
-					"This case is no longer available. Return to Results and choose a case.",
-			});
-			return;
-		}
-
 		/* `appId` is provided by the builder route; the test-mode submit
 		 * button only mounts under a builder session, so a missing slot
 		 * is an upstream contract failure. Guard explicitly so a
@@ -2289,9 +2655,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 			});
 			return;
 		}
-		if (!hasAttachmentEntryWriteAuthority(submittedEntryKey)) return;
+		/* Access changed while the app saved: Submit's render now reads the
+		 * access check (or no edit access) as its reason. */
+		if (!hasAttachmentEntryWriteAuthority(submittedEntryKey)) {
+			settleAttempt({ kind: "idle" });
+			return;
+		}
 
-		settleAttempt({ kind: "running" });
 		/* The mutation that landed, kept beside the result: the after-submit
 		 * links need the case types of the children it created, which the
 		 * result reports only by id. */
@@ -2441,7 +2811,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				 * destination lands; with no write there is no earlier task to
 				 * return to, so `previous` lands on the form's module. A form
 				 * with destinations evaluates none of them with nothing saved,
-				 * and lands on the app home. */
+				 * and lands on the app home. Its session ends with the form, and
+				 * its searches with it. */
+				letSubmittedSearchesGo();
 				dispatchPostSubmit(
 					submitted.destination === undefined
 						? "app_home"
@@ -2573,30 +2945,40 @@ export function FormScreen({ screen }: FormScreenProps) {
 				return;
 			}
 			clearInFlightRef.current = true;
+			setClearState({ kind: "starting" });
 			setSubmitStatus({ kind: "idle" });
 			setValidationAnnouncement(undefined);
 			showFirstPage();
-			if (entryKey === undefined) {
-				await controller.resetAsync();
-				setClearRevision((revision) => revision + 1);
+			const settleClear = (): void => {
 				clearInFlightRef.current = false;
-				return;
+				setClearState({ kind: "idle" });
+			};
+			try {
+				if (entryKey === undefined) {
+					await controller.resetAsync();
+					setClearRevision((revision) => revision + 1);
+					settleClear();
+					return;
+				}
+				if (appId !== undefined) {
+					retireAttachmentEntry({ appId, entryKey });
+				}
+				const nextEntryKey = await controller.restartActiveEntryAsync();
+				if (nextEntryKey === undefined) {
+					settleClear();
+					return;
+				}
+				setClearState({ kind: "awaiting-entry", entryKey: nextEntryKey });
+			} catch (error) {
+				/* A restart that failed leaves no fresh entry to wait for; Submit
+				 * must not stay busy behind it. */
+				settleClear();
+				throw error;
 			}
-			if (appId !== undefined) {
-				retireAttachmentEntry({ appId, entryKey });
-			}
-			const nextEntryKey = await controller.restartActiveEntryAsync();
-			if (nextEntryKey === undefined) {
-				clearInFlightRef.current = false;
-				return;
-			}
-			setClearTargetEntryKey(nextEntryKey);
 		},
 		[appId, controller, entryKey, session, showFirstPage, submitStatus.kind],
 	);
 
-	const repeatTopologySettling =
-		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
 	// A fresh entry waits for its selected record and ancestor preloads before
 	// running one-time defaults and query snapshots. An existing entry can
 	// retain its settled inputs while an equivalent own-row read refreshes;
@@ -2734,11 +3116,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 		);
 	}
 
-	if (mode === "preview" && runtimeFault !== undefined) {
+	if (
+		mode === "preview" &&
+		(runtimeFault !== undefined || submitFault !== undefined)
+	) {
 		return (
 			<div className="flex h-full items-center justify-center px-6 py-10">
 				<div
 					role="alert"
+					data-form-fault={
+						runtimeFault !== undefined ? "runtime" : "no-after-submit"
+					}
 					className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
 				>
 					<div className="space-y-2">
@@ -2746,8 +3134,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 							This form couldn't open
 						</h2>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
-							Nova hit an internal problem while preparing this form. Return to
-							Edit to keep working.
+							{runtimeFault !== undefined
+								? "Nova hit an internal problem while preparing this form. Return to Edit to keep working."
+								: "Nova hit an internal problem: it couldn't tell where this form goes once it's submitted. Return to Edit to keep working."}
 						</p>
 					</div>
 					<button
@@ -2776,11 +3165,35 @@ export function FormScreen({ screen }: FormScreenProps) {
 				caseName={caseName}
 				onChooseAnotherRecord={() => {
 					setPreviewSelectedCase(undefined);
-					setPreviewCaseTarget({ formUuid });
-					navigate.replace({ kind: "cases", moduleUuid });
+					const back = caseListReturn();
+					setPreviewCaseTarget(back.target);
+					navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
 				}}
-				onBackToList={() => navigate.openCaseList(moduleUuid)}
+				onBackToList={() => {
+					setPreviewSelectedCase(undefined);
+					const back = caseListReturn();
+					setPreviewCaseTarget(back.target);
+					navigate.openCaseList(back.moduleUuid);
+				}}
 				onBack={() => navigate.openModule(moduleUuid)}
+			/>
+		);
+	}
+
+	/* Building the search this form reads, the device read a starting value
+	 * over data it holds none of (a place key of a worker assigned nowhere),
+	 * so a phone stops there and never opens the form. An edit or the worker
+	 * changing reads it again. */
+	if (mode === "preview" && searchDefaultsRefusal !== undefined) {
+		return (
+			<PreviewDataRefusalPanel
+				surface="search"
+				reason={searchDefaultsRefusal.reason}
+				{...(moduleUuid === undefined ? {} : { moduleUuid })}
+				action={{
+					label: runtimeMessage(language.language, "back"),
+					onClick: () => navigate.openModule(moduleUuid),
+				}}
 			/>
 		);
 	}
@@ -2914,8 +3327,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 					className={FORM_PRIMARY_ACTION_CLS}
 					onClick={() => {
 						setPreviewSelectedCase(undefined);
-						setPreviewCaseTarget({ formUuid });
-						navigate.replace({ kind: "cases", moduleUuid });
+						const back = caseListReturn();
+						setPreviewCaseTarget(back.target);
+						navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
 					}}
 				>
 					Choose another record
@@ -3267,14 +3681,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 												event.preventDefault();
 											}
 										}}
-										disabled={
-											submitStatus.kind === "running" ||
-											clearRunning ||
-											engineRebuilding ||
-											caseDatabaseWait !== undefined ||
-											!caseBindingReady ||
-											(appId !== undefined && !attachmentEntryReady) ||
-											!mayWriteCaseData
+										/* Submit is enabled exactly where a press submits
+										 * (`submitOffer.ts`); anywhere else it is disabled and
+										 * the line below says why, or it shows itself busy. */
+										disabled={submitOffer.kind !== "offered"}
+										data-submit-offer={
+											submitOffer.kind === "offered"
+												? "offered"
+												: `${submitOffer.kind}:${submitOffer.reason}`
 										}
 										className={FORM_PRIMARY_ACTION_CLS}
 									>
@@ -3346,21 +3760,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 								: validationAnnouncement.message}
 						</p>
 					) : null}
-					{formFrozen && !engineInitializing ? (
-						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
-							{clearRunning
-								? runtimeMessage(language.language, "freshFormReady")
-								: caseDatabaseWait !== undefined
-									? caseDatabaseWait.status === "error"
-										? "Case data could not refresh. Your answers are still here. Return to Edit to try Preview again."
-										: runtimeMessage(language.language, "caseDataRefreshing")
-									: selectedCaseLoading
-										? runtimeMessage(language.language, "selectedRecordLoading")
-										: engineRebuilding
-											? runtimeMessage(language.language, "formPreparing")
-											: repeatTopologySettling
-												? runtimeMessage(language.language, "repeatUpdating")
-												: runtimeMessage(language.language, "answersLocked")}
+					{submitOfferLine(submitOffer, language.language) !== undefined ? (
+						<p
+							role="status"
+							data-submit-offer-reason={
+								submitOffer.kind === "offered" ? undefined : submitOffer.reason
+							}
+							className="px-6 pb-3 text-xs text-nova-text-muted"
+						>
+							{submitOfferLine(submitOffer, language.language)}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's
@@ -3382,35 +3790,18 @@ export function FormScreen({ screen }: FormScreenProps) {
 		</>
 	);
 
-	/* The module's persistent case tile: the same tile Results draws, kept
-	 * on screen above every form in the module (`persistOnForms`). Preview
-	 * only: edit mode has no bound case, and a band that appeared while
-	 * authoring would claim a case the author never chose. It carries no
-	 * motion of its own, so a reduced-motion preference has nothing to
-	 * suppress; it adds a uniform offset above the field list, which the
-	 * flipbook's anchor-based scroll sync already corrects for on a mode
-	 * flip. */
+	/* The pinned case tile: the same tile Results draws, kept on screen
+	 * above the form while its session holds the case (`heldCases`). It
+	 * carries no motion of its own, so a reduced-motion preference has
+	 * nothing to suppress; it adds a uniform offset above the field list,
+	 * which the flipbook's anchor-based scroll sync already corrects for on a
+	 * mode flip. */
 	const persistentTile =
-		mode === "preview" &&
-		mod?.caseListConfig?.tile?.persistOnForms === true &&
-		effectiveCaseId !== undefined &&
+		pinnedTile !== undefined &&
 		/* A case the phone lacks has no tile there: Android's breadcrumb
 		 * builds no context tile for a case it does not hold. */
-		!(entryPointLaunch?.blankCaseIds ?? []).includes(effectiveCaseId) ? (
-			<PersistentCaseTile
-				blueprint={menuSource.doc}
-				moduleUuid={moduleUuid}
-				appId={appId}
-				caseType={mod.caseType}
-				caseId={effectiveCaseId}
-				config={mod.caseListConfig}
-				caseTypes={caseTypes}
-				fallbackProperties={
-					caseTypes.find((candidate) => candidate.name === mod.caseType)
-						?.properties ?? []
-				}
-				restoreScopeKey={restoreScopeKey}
-			/>
+		!(entryPointLaunch?.blankCaseIds ?? []).includes(pinnedTile.caseId) ? (
+			<PinnedCaseTile pinned={pinnedTile} />
 		) : null;
 
 	/* The band is the only reason this frame grows. A sticky element can
@@ -3455,8 +3846,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				? {
 						onChooseAnotherRecord: () => {
 							setPreviewSelectedCase(undefined);
-							setPreviewCaseTarget({ formUuid });
-							navigate.replace({ kind: "cases", moduleUuid });
+							const back = caseListReturn();
+							setPreviewCaseTarget(back.target);
+							navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
 						},
 					}
 				: {})}

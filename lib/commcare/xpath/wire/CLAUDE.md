@@ -6,7 +6,10 @@ requires the actual slot-derived `ExpressionContext`. A caller may supply
 wire identity bindings, but cannot reconstruct a partial type context. Names in a tree
 are current wire names, resolved from domain identity before construction.
 `serializeWire` is the only printer. There is no raw XPath arm, arbitrary call
-name, grouping node, raw path fragment, union, or authored variable arm.
+name, raw path fragment, union, or authored variable arm. The one grouping
+node, `w.paren`, prints its operand in parentheses in every mode and is a
+primary to its parent; generated scaffolding alone builds it, for a menu's
+conjoined condition, which HQ spells `(a) and (b)` (`XPath.paren(force=True)`).
 The explicit child-wildcard step serves generated parent-index selection,
 `index/*[not(@relationship = 'extension')]`; it is not a resolved field name.
 

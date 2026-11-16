@@ -29,17 +29,25 @@ A parent with only a case list can group child modules that use the same case
 type. To group a child with a different case type, make the parent form-bearing
 and give it a form so CommCare can keep both case selections distinct.
 
+A child's form that creates a case of the type its parent's first form opens
+can't sit under that parent: CommCare HQ would give the new case the place of
+the case chosen in the parent, and the form couldn't open. Nova names the form
+and invites you to move it to another menu, or to start the parent with a form
+that doesn't open a case of that type. A registration form for that type
+belongs in a top-level menu, which can show it in the first menu or offer it
+from a case list.
+
 Nova will not remove a parent while it still has children. Move or remove those
 children first, then remove the parent.
 
 ## What people see in Preview
 
-App home shows top-level modules only. Opening a parent shows its own forms or a
-**Cases** entry alongside its child menus. Opening a child keeps the complete
-menu path in the breadcrumb.
+App home shows top-level modules only. Opening a parent shows its own forms
+alongside its child menus. Opening a child keeps the complete menu path in the
+breadcrumb.
 
-If the parent starts by choosing cases, Preview returns to the parent menu after
-that choice so its child menus remain available. A child with the same case type
+If the parent starts by choosing cases, opening it shows its case list first,
+as a device does, and its forms and child menus appear once a case is chosen. A child with the same case type
 can keep the selection when both modules choose one case, or both choose several
 cases and the child's maximum fits the complete set. A child with a different
 case type uses every selected parent to find the combined set of related
@@ -62,8 +70,16 @@ case types are related and which case someone selects first. Changing one does
 not change the other.
 
 Selecting a parent first narrows existing child cases for followup and close
-forms. A basic registration form creates its primary case without storing that
-selected parent as a case relationship.
+forms. In Preview the breadcrumb names each case chosen along the way, the
+parent included, even when another menu's list chose it: the parent follows
+the menu that asked for it, and selecting it returns to the list of its
+children with the parent still chosen. Selecting any step keeps every case
+named before it and lets go the ones after it, so a form you chose before its
+cases asks for the parent again and then opens once you choose the case. Where
+a parent has a parent of its own, Preview asks for each in turn, and **Back**
+on a later parent's list returns to the list before it with that choice
+undone, as a phone does. A basic registration form creates its primary case
+without storing that selected parent as a case relationship.
 
 For example, **Households > Visits** can be a menu path even if both modules
 work with household cases. Or **Clients > Referrals** can be a menu path while
@@ -93,3 +109,20 @@ A form in a child menu can also go to **Parent module** after submit: the
 parent menu opens with the case it selected still selected, listing its own
 forms and its child menus. That destination isn't offered while the parent
 selects several cases, or while the parent is off the menu.
+
+## Show a menu's forms in the menu above
+
+A menu can show its forms in the menu above. You can turn on **Show its forms
+in the menu above** in the menu's settings, and its forms appear on the app's
+first menu, or in its parent menu for a submenu, with no entry for the menu
+itself. It suits one or two forms people should reach without opening a menu,
+such as a registration form on the first screen. The menu keeps its case type
+and case list, so each form still opens the right case. Such a menu has no
+screen of its own, so it can't have a search, a registration from its case list
+or a deep link, and a link or an after-submit destination can't open it; you can
+link and deep link to its forms. A form shown on the first menu returns to the
+first menu after it is sent, since **Previous screen** isn't offered there.
+Where every form shown on the first menu this way opens the same case, Nova asks
+you to give the menu its own screen before you link to one of those forms. On a
+screen that lists forms from more than one menu, people choose a case first only
+when every form there opens the same case; otherwise they choose a form first.

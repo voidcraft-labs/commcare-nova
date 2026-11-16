@@ -329,11 +329,16 @@ entry asks for a sync, so publish asks a person to confirm the setting is off
 (`form-entry-sync-off`).
 
 `planPrivileges.ts::commtrackReasons` names each advanced menu whose case list
-is its own menu item and each form whose source, decoded, holds the text
-`instance('commcaresession')/session/data/supply_point_id`: CommCare HQ adds a
-product step after a case is chosen from such a list and gates such a form to
-workers assigned a supply point while CommCare Supply is on, so publish asks a
-person to confirm it is off (`commtrack-off`).
+is its own menu item: CommCare HQ adds a product step after a case is chosen
+from such a list while CommCare Supply is on, so publish asks a person to
+confirm it is off (`commtrack-off`). It also names each form whose emitted
+source, decoded, holds the text
+`instance('commcaresession')/session/data/supply_point_id`, which HQ's build
+gates to workers assigned a supply point. That half is a guard over the
+emission: an itext text's `instance(` is written with its bracket as an
+output, a literal is split there, a form's name and Connect texts holding
+it are refused, and so is a choice's value by its own grammar, so no admitted
+document's source holds the text.
 
 A download checks no project space, so its compatibility is `not_checked`: the HQ import file has no target, and a `.ccz` is made for a project space the app is already published to, whose publish made the check.
 Upstream drift reaches the probe through the weekly pin pull request
@@ -450,7 +455,15 @@ if an identity has no binding — the commit
 validator should have caught the dangling reference, and silently emitting a
 UUID or stale name would corrupt behavior. The name-backed
 `session-user { field }` leaf is exclusively
-for CommCare-provided or external fields with no Nova entity. Worker-property
+for CommCare-provided fields with no Nova entity: read from the session, the
+checker admits it only for a built-in key (`undeclared-worker-field`), since
+Core refuses a read of a key the device lacks, a project space holds a custom
+field only where a person defined it, and the setup list a publish shows names
+only the worker information an app declares (`lib/deployment/setupArtifact.ts`),
+and it refuses a declared slug read by name from either source
+(`worker-property-read-by-name`), which is the identity leaf's; declaring
+worker information under a name a read already uses rebinds that read to the
+identity leaf in the same batch (`lib/doc/userMutations.ts`). Worker-property
 slugs begin with a letter or underscore and admit hyphens only after that first
 character: both session and usercase emit the slug as an XML element, so this
 XML-safe intersection is stricter than HQ's Django slug validator. The HQ JSON,
@@ -487,7 +500,7 @@ block's `close` and `create` as the block's own action at any depth inside
 be `close`. A property a basic action alone writes is not refused: HQ's build
 adds that block and the source never holds it.
 
-`xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`; `appearance="face"` and `jr:imageDimensionScaledMax` stay out because both are inert on every runtime Nova targets.
+`xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`, which `xform/appearance.ts::fieldAppearance` writes from `UPLOAD_APPEARANCE_BY_CAPTURE_KIND`; `appearance="face"` and `jr:imageDimensionScaledMax` stay out because both are inert on every runtime Nova targets.
 
 Nova writes no `build_spec`. Publish reads the target's `build_spec.version` from its source and stops below `versionFloor.ts`'s 2.57 (`compareToVersionFloor`), which the local profile's `requiredMajor` and `requiredMinor` also state.
 
@@ -512,11 +525,11 @@ Once a save in HQ's form builder has written its own `#case/x` shadow and `x` la
 
 ### Bare hashtags in prose
 
-Reference-capable label/hint text is a typed `ProseTemplate`; only explicit reference atoms lower to dynamic `<output>` values, while hashtag-looking text remains literal. Whitespace-only text runs use literal outputs as described below. `lib/domain/hashtagSegments.ts` owns the segment vocabulary of prose chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps it in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens. Expression chips come from parse spans.
+Reference-capable label/hint text is a typed `ProseTemplate`; only explicit atoms (a reference, or a calculated value, whose expression lowers in the text's prose slot) lower to dynamic `<output>` values, while hashtag-looking text remains literal. Whitespace-only text runs use literal outputs as described below. `lib/domain/hashtagSegments.ts` owns the segment vocabulary of prose chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps it in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens. Expression chips come from parse spans.
 
 ### Markdown itext
 
-A question's, group's, repeat's or section's label and an inline choice's label write `<value form="markdown">` in every language unless the field or choice holds `plainLabel`; a hint, a help text and a validation message always write it. No runtime reads a hint's or a validation message's; Android reads a help text's, so Android always renders help as markdown. CommCare holds markdown per text across every language, so the flag is never per language.
+A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`, and a help text unless its question holds `plainHelp`; a form holding `plainText` writes none and carries `vellum:ignore="markdown"`. A hint and a validation message never write one: no runtime reads it. CommCare holds markdown per text across every language, so no setting is per language.
 
 `xform/builder.ts::buildLabelNodes` protects authored whitespace-only runs with
 outputs that carry no Vellum shadow. Core's `XFormParser::getXMLDocument` removes
@@ -528,7 +541,7 @@ replaces literal NBSP throughout the XML, so NBSP inside ordinary prose uses
 that protected spelling too. Other prose retains its authored text nodes. Entity-looking spellings stay
 literal through admission, editing, Preview and emission; only the XML
 serializer escapes them. Platform Markdown rendering happens after XML is read.
-The character classifier mirrors these consumers, not JavaScript `trim()`.
+The character classifier mirrors these consumers, not JavaScript `trim()`. Literal text that CommCare HQ's build would read as an instance (`hqInstanceScan.ts`) is written with its bracket as a literal output, so no label can add an instance or fail a build. Plain text in a form's source has no such spelling and is refused ("CommCare Connect"); a choice's value, the text of an `<item>`'s `<value>`, is refused by its own grammar (`lib/domain/selectOptionValue.ts`, problem `instance-read`, over `lib/domain/hqInstanceRead.ts`).
 
 Plain literal validation messages emit the compatible bind `jr:constraintMsg`
 reference and a body `<alert>` pointing at the same itext entry. Empty messages
@@ -626,7 +639,8 @@ as HQ's `workflow.py::_get_static_stack_frame` builds them). Form-type defaults
 when absent: registration/survey → `app_home`; followup/close → the first the
 menu offers of `previous`, `module`, `firstMenu`
 (`lib/domain/forms.ts::defaultPostSubmit` takes the menu facts `formsReadSearch`,
-`multiSelect`, `parentMultiSelect` and `offTheMenu`;
+`multiSelect`, `parentMultiSelect`, `offTheMenu`, `formsInMenuAbove`,
+`formsOnFirstMenu` and `opensWithFirstMenuCase`;
 `lib/domain/postSubmit.ts::effectivePostSubmit` is the doc-level reader every
 consumer uses for a form without destinations; a form with destinations holds
 no `postSubmit`, `POST_SUBMIT_BESIDE_FORM_LINKS`). `postSubmitDestinationsOffered` is what HQ's form settings page
@@ -637,18 +651,39 @@ refuses an otherwise outside the same set less `app_home`
 (`otherwiseDestinationsOffered`). Everything HQ's build
 refuses is unoffered (`previous` where exactly one of the menu and its parent
 selects several cases, `previous` in a menu whose forms read the search, `parentMenu`
-with no parent), so the one rule covers the editor and the build. The SA only
+with no parent, `module` in a menu that shows its forms above, `parentMenu`
+under one, and `previous` for a form listed on the first menu, which is Nova's
+own narrowing, as is `module` in a submenu that keeps its screen under a
+top-level menu above while every form of every menu above opens one chosen
+case, `menu-opens-with-first-menu-case`, whose finding is the app rule
+`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`), so the one rule covers the editor
+and the build. The SA only
 sets `post_submit` when overriding the default.
 
 ### Ordinary nested menus
 
 Nova authors one tier: a root module and ordinary child modules. The domain
 stores the parent UUID; `projectedModulePreorder` is the only wire order. HQ
-JSON lowers a child to `root_module_id=<root unique_id>` while leaving
-`put_in_root=false`; local suite XML lowers the same edge to
-`<menu root="m{root}" id="m{child}">`. A child's own `module_filter` /
-`<menu relevant>` remains its own condition. Never conjoin the parent's filter,
-and never project this as `ShadowModule` or `put_in_root`.
+JSON lowers a child to `root_module_id=<root unique_id>`, with `put_in_root`
+true exactly where the module shows its forms in the menu above
+(`Module.formsInMenuAbove`). The local suite writes each `<menu>` from
+`formLinkProjection.ts::menuIdOf`: its id, its `root`, its parent's name and
+the conjoined condition of a submenu that shows above (`compiler.ts`), as
+`id_strings.py::menu_id` and `menus.py::_generate_menu` do. No other menu's
+condition is conjoined, and nothing is projected as `ShadowModule`.
+
+A menu that shows its forms in the menu above (`Module.formsInMenuAbove`) is
+HQ's `put_in_root: true`, which adds the `menu_mode` add-on; the HQ JSON keeps
+its own filter, name and media. The local suite writes its `<menu>` as HQ's
+build does (`suite_xml/sections/menus.py::_generate_menu`): the id is
+`formLinkProjection.ts::menuIdOf` (`m{parent}` under a parent that keeps its
+screen, `root` otherwise) with no `root` attribute; a submenu under a parent
+that shows its forms above writes `root="root"`; a submenu shown in a parent
+that keeps its screen shows the parent's name and keeps its own media locales
+(`buildNavMenuNode`'s two locale arguments), and its condition is
+`(own) and (parent's)`, built with `w.paren`, or the parent's alone where it
+has none. Several `<menu>` elements share an id; the suite oracle admits that
+and the root id `root`.
 
 HQ's `add_parent_datums` aligns a child entry against the root module's first
 form. A bare case list root (a case list menu item and no forms) therefore
@@ -667,6 +702,20 @@ child therefore commonly emits root
 `case_id` followed by child `case_id_<child-type>`, with the child nodeset's
 index predicate refreshed to reference the final root id. Case list menu
 item entries use the same projection.
+
+HQ's match is by case type and datum kind alone (`_same_case`), so it also
+takes a basic child form's new-case `uuid()` datum for a root selection of the
+same type once the child's own selections are matched: the entry then holds
+the root's selection id, CommCare asks for that case first and never mints
+the new id, and HQ's build still has the form's case block read
+`case_id_new_<type>_<i>`, so the form cannot open (a lane run showed Android's
+"Logic references … case_id_new_patient_0 which is not a valid question or
+value"). The projection reports that walk
+(`hqRootAlignmentTakenNewCase`, `onRootSelectionTakesNewCase`) and
+`validator/rules/parentSelection.ts::rootSelectionTakesNewCase` refuses the
+form (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`), so the local suite never
+writes the shape either. An advanced form's open-action datums follow the
+alignment and are never matched.
 
 Two native HQ limitations are target refusals in
 `hqNestedSelection.ts`, called only by the export boundary for HQ JSON/upload.
@@ -766,7 +815,15 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
 - **Frame children follow `WorkflowHelper.get_frame_children`** exactly:
   module command → longest common prefix (by datum id) of every FORM entry's
   datums in the target module → form command → the target form's remaining
-  datums. A single-form module's whole datum list is that prefix, so its
+  datums. The module command is the menu id (`menuIdOf`); where it is `root`
+  there is none, and the prefix runs over the form entries of every menu that
+  shows its forms above (`_root_module_datums`). The parent prepend drops
+  every child whose id, a command's or a datum's, the parent part holds. No
+  frame of an admitted document holds a selection ahead of its first command
+  (`frameLeadsWithSelection`): `previous` is not offered to a form listed on
+  the first menu, `module` is not offered in a submenu whose screen opens with
+  the first menu's shared case, and a link, an entry point or a Register return
+  whose frame would open with that case is refused (`firstMenuSharedCase`). A single-form module's whole datum list is that prefix, so its
   selection datum is hoisted AHEAD of the form command. For a child target HQ
   prepends the root module frame and its common user selections; a module target
   carries that root path plus the child command, while a form target carries the
@@ -874,7 +931,7 @@ Canonical field references carry identities rather than the synthetic `/item` se
 
 ### Sections are data groups that are always field-lists
 
-A `section` field (one page of a form) emits exactly like a group — a DATA group, `<group ref="/data/<id>">` in the body over an instance node of its own — with `appearance="field-list"` ALWAYS, titled or not; a group carries it exactly when it holds `fieldList`, labelled or not, and the validator refuses a repeat workers add entries to anywhere inside one (`FIELD_LIST_USER_REPEAT`) (`xform/builder.ts::buildContainer`, the one gate). The fixture is Vellum's `tests/static/all_question_types.xml` field-list group, and HQ's `xform.py::_infer_vellum_type` reads that attribute back as `FieldList`. A section has no `relevant` by schema, so it emits no `<bind>`; an untitled one emits no `<label>` and registers no itext. The data-group shape is the only safe one: a ref-less control group binds to its parent (`XFormParser::getAbsRef`), Vellum corrupts it on save, and HQ's App Summary collapses it. The section-level rules (root only, sections only once sectioned, no add-entries repeat below — Core's `getQuestionPrompts` skips `EVENT_PROMPT_NEW_REPEAT` when collecting a field-list page) are the validator's, so the emitter stays total; `__tests__/xformDocArbitrary.ts::sectionRoot` pages roughly one fuzz form in four so every oracle meets the shape.
+A `section` field (one page of a form) emits exactly like a group — a DATA group, `<group ref="/data/<id>">` in the body over an instance node of its own — with `appearance="field-list"` ALWAYS, titled or not; a group carries it exactly when it holds `fieldList`, labelled or not, and the validator refuses a repeat workers add entries to anywhere inside one (`FIELD_LIST_USER_REPEAT`) (`xform/builder.ts::buildContainer`, the one gate, whose token is `xform/appearance.ts::fieldAppearance`'s). The fixture is Vellum's `tests/static/all_question_types.xml` field-list group, and HQ's `xform.py::_infer_vellum_type` reads that attribute back as `FieldList`. A section has no `relevant` by schema, so it emits no `<bind>`; an untitled one emits no `<label>` and registers no itext. The data-group shape is the only safe one: a ref-less control group binds to its parent (`XFormParser::getAbsRef`), Vellum corrupts it on save, and HQ's App Summary collapses it. The section-level rules (root only, sections only once sectioned, no add-entries repeat below — Core's `getQuestionPrompts` skips `EVENT_PROMPT_NEW_REPEAT` when collecting a field-list page) are the validator's, so the emitter stays total; `__tests__/xformDocArbitrary.ts::sectionRoot` pages roughly one fuzz form in four so every oracle meets the shape.
 
 ### XForm parse-time oracle + fuzzer
 
@@ -956,25 +1013,44 @@ prints it. Never repair this by parsing or rewriting emitted text.
 
 A write to an effective datetime property, by the operation's destination type
 after retyping, is an untyped leaf whose calculate is
-`xform/datetimeCaseValue.ts::datetimeCaseValueExpression` of the value:
-`if(E = '', '', format-date(coalesce(E, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))`. HQ's
-form builder writes a row's bind with no `type`, and Core's
-`Recalculate.wrapData` would wrap an untyped calculated Date as the day alone;
-`coalesce` unpacks the Date and `format-date` leaves it unrounded, so the
-instant is kept. Every `@date_modified` bind stays `xsd:dateTime`, the
-builder's own spelling. A value that is already text is parsed and printed
-again: a saved date and time copied to another property is written in the
-device's zone with milliseconds, and lands a day off where the device's local
-date for that instant differs from the date written; text that is no date
-raises `XPathTypeMismatchException`. Both are accepted: wrapping only the
-expressions Nova can prove yield a Date would need a second spelling a reader
-must recognize. The case-operation native
-corpus checks create and update timestamps plus an explicit offset instant on
-both local CCZ and HQ-regenerated forms. Existing stored dates are not rewritten.
+`xform/datetimeCaseValue.ts::datetimeCaseValue` of the value: the moment as
+CommCare HQ stores it, UTC with six fraction digits and `Z`
+(`form_processor/utils/xform.py::adjust_datetimes` writes that text for every
+date and time it receives), so the phone, CommCare HQ and every other phone
+hold one text and a list ordered by the property orders by the moment. Each
+leaf prints by what Core holds, branch by branch: a typed Date through
+`instant.ts::storedInstantValue`, which moves `typedInstantText`'s text to UTC
+with whole-number arithmetic, working out the day before or after from the
+written year, month and day rather than through a day number (on Web Apps a
+day number counts from UTC's epoch while `date()` of text is the browser
+zone's midnight); text that is already a stored moment as itself, so a copy is
+exact and Core parses nothing; a literal folded to its stored text
+(`instantOperand.ts::literalStoredInstantText`); a date at its UTC midnight. A
+typed leaf that reads the clock is read once into a Hidden Value
+`nova_instant_<operation id>_<n>` of the operation's `nova_operations` group,
+with no control and no `type`, which the row reads through `current()`,
+because each print of a value evaluates it again. HQ's form builder writes a
+row's bind with no `type`, and Core's `Recalculate.wrapData` would wrap an
+untyped calculated Date as the day alone, which is why the value is text.
+Every `@date_modified` bind stays `xsd:dateTime`, the builder's own spelling.
+Values a phone saved before keep their text. A question's `nova_datetime_`
+sibling classifies its question as a field read
+(`datetimeCaseValue.ts::questionDatetimeCaseValue`), so a Hidden Value whose
+calculate copies stored text writes that text as it is. Core's parse of text
+keeps the written date and moves only the clock, so wherever a device parses
+stored text as a typed date and time (a starting value cast into a node bound
+`xsd:dateTime`, a preload among them, through
+`fromExpression.ts::startingDatetimeWire`; `format-date` and `date()` in every
+target) the text is read in the device's own date and clock first
+(`instant.ts::deviceInstantText`), and Preview evaluates the same print, so a
+form opened on a case's value and saved unchanged writes the same text back. The case-operation native corpus
+checks the stored text on both local CCZ and HQ-regenerated forms
+(`CaseOperationRuntimeTest`, and `StoredInstantRuntimeTest` in every device
+zone).
 
 Typed `Form.caseOperations` take the placement `planPlacements` gives them, emitted by `casePlacementPlan.ts`: a basic slot or an advanced action is HQ's form actions, and `xform/caseOps.ts` writes every Save to Case placement into the authored XForm source, so HQ upload and local `.ccz` compilation consume the same cx2 blocks; it is not another `FormActions` post-process. Nova reserves no question names. Each generated node is named `nova_`, then its purpose and its owner's id, by `lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`, which suffixes on a collision with an authored sibling; the containers are groups (`nova_operations`, `nova_condition_<operation>`), and guards are update-only Save to Case blocks. Each Save to Case block is a Vellum-recognizable `SaveToCase` wrapper carrying `vellum:case_type`. A leaf of a case block carries no `type` and no `constraint`. Singular operations live in the form root container, which is prepended before authored fields. Repeated operations are appended into the referenced repeat's exact iteration template after its authored children. Because CommCare Core executes case blocks in XML document order and a repeated effect cannot leave that template, the only representable cross-scope sequence is root followed by repeat scopes in post-order field traversal; `lib/doc/caseOperationOrder.ts` is the shared validator/planner proof of that constraint. On local compilation, the blocks of HQ's basic `FormActions` are spliced where HQ's build writes them ("Repeat-context subcase splice" below), and an advanced form's by `xform/advancedCaseBlocks.ts` ("Advanced modules" below): the form's own `case` (an advanced form's root `case_<tag>` blocks) after the authored field tree, so it executes after every Save to Case block. Where a form's own close cannot share the own arm's place, it takes a block of its own and `close_case.condition` is `never`: `nova_close` inside the group `nova_condition_close`, whose `relevant` is the close condition, or in a several-case form a close-only block of each selected case. The rolling type proof includes the basic blocks as final consumers: a write of the own arm and every basic child's parent index require the session case to retain the module type. A write-free close block needs only the case id and remains type-agnostic. The proof keeps every transition rather than only the latest nominal type, so a conditional restore cannot hide the branch where the case still has the prior transitioned type.
 
-`placement.ts::planPlacements(doc, formUuid)` gives every operation and a form's own close its placement: a hold first, then the simplest placement that can express it, by the closed eligibility conditions of `placement.ts`. Which of the own arm and the creates take a basic slot is the domain's one answer, `lib/domain/basicCaseSlots.ts::basicCaseSlots`, because the entry's session values read it too: HQ gives a registration's new case its `case_id_new_<type>_0` datum only where `open_case` is active, and a child its datum only as a basic subcase outside a repeat (`suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta`), so `entryDatumSupplies` and `planFormCaseWire`'s datums cannot disagree. HQ's build appends a basic slot's element by name beside whatever the parent holds (`subcase_<i>`, `commcare_usercase`; `xform.py::XForm._create_casexml`, `_add_usercase`), where a question of that name would share its bind and its path with the case block, so an unheld slot whose element an authored name takes is not eligible (`basicCaseSlots.ts::appendedNameTaken`, reason `appended-name-taken`) and its change takes Save to Case; a held slot keeps its name, and `HELD_BLOCK_PATH_TAKEN` refuses the question, offering the next free id. A registration whose own arm takes Save to Case opens no case and requires none in HQ's terms, so its `update_case` is `never` like a survey's (HQ's build raises `CaseError` for an active update there, `xform.py::XForm._create_casexml`, which the HQ JSON oracle's `HQJSON_UPDATE_WITHOUT_CASE` holds), and neither HQ's build nor the local archive writes its form-level `case` block. It therefore supplies no `new-case` datum: the checker refuses a read of that case or the cases above it (`SESSION_DATUM_NOT_SUPPLIED`, reason `own-case-save-to-case`), its own close block and its operations read its block's id, and it cannot be a menu's case list registration form (`CASE_LIST_REGISTRATION_NOT_REGISTRATION`, since HQ's build admits a case-list form only with `open_case` active, `FormBase.is_registration_form`). `casePlacementPlan.ts::planFormCaseWire` turns those placements into everything the wire needs (the basic or advanced form actions, the Save to Case blocks, their generated nodes, the entry's datums, the local blocks), so the action list, the datum list and the block paths cannot disagree. The own case's change is independent of every other operation's: no other operation writes, retypes or closes what the own arm writes (`validator/rules/caseOperations.ts`, `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case` and `CASE_OPERATION_CLOSES_OWN_CASE`), so the own arm means the same wherever its block runs.
+`placement.ts::planPlacements(doc, formUuid)` gives every operation and a form's own close its placement: a hold first, then the simplest placement that can express it, by the closed eligibility conditions of `placement.ts`. Which of the own arm and the creates take a basic slot is the domain's one answer, `lib/domain/basicCaseSlots.ts::basicCaseSlots`, because the entry's session values read it too: HQ gives a registration's new case its `case_id_new_<type>_0` datum only where `open_case` is active, and a child its datum only as a basic subcase outside a repeat (`suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta`), so `entryDatumSupplies` and `planFormCaseWire`'s datums cannot disagree. HQ's build appends a basic slot's element by name beside whatever the parent holds (`subcase_<i>`, `commcare_usercase`; `xform.py::XForm._create_casexml`, `_add_usercase`), where a question of that name would share its bind and its path with the case block, so an unheld slot whose element an authored name takes is not eligible (`basicCaseSlots.ts::appendedNameTaken`, reason `appended-name-taken`) and its change takes Save to Case; a held slot keeps its name, and `HELD_BLOCK_PATH_TAKEN` refuses the question, offering the next free id. A registration whose own arm takes Save to Case opens no case and requires none in HQ's terms, so its `update_case` is `never` like a survey's (HQ's build raises `CaseError` for an active update there, `xform.py::XForm._create_casexml`, which the HQ JSON oracle's `HQJSON_UPDATE_WITHOUT_CASE` holds), and neither HQ's build nor the local archive writes its form-level `case` block. It therefore supplies no `new-case` datum: the checker refuses a read of that case or the cases above it (`SESSION_DATUM_NOT_SUPPLIED`, reason `own-case-save-to-case`), its own close block and its operations read its block's id, and it cannot be a menu's case list registration form (`CASE_LIST_REGISTRATION_NOT_REGISTRATION`, since HQ's build admits a case-list form only with `open_case` active, `FormBase.is_registration_form`). HQ counts `open_case` and every root subcase of the list's type and admits exactly one (`Form.get_registration_actions`), so a form that also creates a same-type child at its root is refused too (reason `several-registrations`), for both arms. `casePlacementPlan.ts::planFormCaseWire` turns those placements into everything the wire needs (the basic or advanced form actions, the Save to Case blocks, their generated nodes, the entry's datums, the local blocks), so the action list, the datum list and the block paths cannot disagree. The own case's change is independent of every other operation's: no other operation writes, retypes or closes what the own arm writes (`validator/rules/caseOperations.ts`, `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case` and `CASE_OPERATION_CLOSES_OWN_CASE`), so the own arm means the same wherever its block runs.
 
 `xform/generatedNodes.ts::planGeneratedNodes(doc, formUuid)` names every node Nova adds to a form's source, by purpose and owner identity and never by path, and makes each form's plan once per document object (documents are replaced, never changed in place), so the XForm builder, `formActions.ts` and Preview share it. A base name is `nova_`, the purpose and the owner's id, or the container's fixed name; each parent element is one namespace, and the `nova_operations` groups of one authored scope (the form root, or one repeat), that is the scope's own group and the group in its selected-cases item, share one namespace with everything nested in them, so adding or removing a condition, or changing the menu's case selection, never renames a node; `nova_subcases` is its own namespace and holds no authored name; a base an authored sibling, a Connect block id or an earlier allocation holds takes `_<n>` for the smallest free `n` from 1. An owner's id is written as it stands, hyphens included. Nova refuses no authored name for being one of its own, because each is a name CommCare HQ's form builder takes for a question; the cost is that a generated node's HQ export column moves to the suffixed path when an author adds such a question. Two rules of the builder's parser shape the body. A parent's controls name its data children in the same relative order, and data-only children may sit anywhere between them: one control out of order makes the builder rebuild the parent with every data-only child last, which moves case blocks, and Core applies case blocks in document order. Each control sits inside its data parent's control. So the root `nova_operations` control is the first child of `<h:body>`, a repeat's follows its authored controls, each `nova_condition_` and `nova_keyed_` control sits inside its `nova_operations` control, no Save to Case block and no Hidden Value has a control, and setvalues are written in data-tree order. The groups carry no label, no appearance and no bind, and HQ's Web Apps client, Android and Core lay out no box and no screen for any of them (Vellum `parser.js::parseControlTree`, `parseControlElement`).
 
@@ -1056,15 +1132,17 @@ sub-terms, so the memoised print stays linear.
 day prints it, as `date(x)`. As a
 value (a case write, a calculated column, a `format-date` operand) it prints
 the moment as text: a date as its UTC midnight `…T00:00:00.000Z` under a blank
-guard, text as itself, a typed instant as `instant.ts::typedInstantValue`
-(the same spelling `xform/datetimeCaseValue.ts::datetimeCaseValueExpression`
-writes), a day number as its UTC midnight. A value with no moment to print, a
+guard, text as itself, a typed instant as `instant.ts::typedInstantValue`,
+the device's clock with its offset (a case write prints CommCare HQ's
+spelling instead, `xform/datetimeCaseValue.ts::datetimeCaseValue`), a day number as its UTC midnight. A value with no moment to print, a
 `casedb` system date, a clock-lost value or a value that names no moment
 (blank, a yes/no), keeps Core's `date()`, a day, the bytes it had before; a
 literal that names no moment is refused there by the checker
 (`unreadable-datetime`), in every slot whose expressions reach `toWire`.
-`date-coerce` is unchanged,
-`date(x)`. On a device `date_opened` and `last_modified` from `casedb` are
+`date-coerce` is `date(x)`, and
+it and `format-date` read an operand that can hold date-and-time text through
+`instant.ts::deviceInstantText`, so Core's parse gives the device's day of the
+moment. On a device `date_opened` and `last_modified` from `casedb` are
 days (`CaseChildElement` holds them as `DateData`): ordered against a
 day-aligned operand, or against each other, they compare by day with
 unchanged bytes (`date_opened >= date('2026-01-01')`), and the checker refuses
@@ -1101,13 +1179,13 @@ Nova never offers a menu's kind as a choice. A menu reaches CommCare HQ as an `A
 
 - **Loads.** No selection is stored. `lib/domain/advancedEntryDatums.ts::advancedLoadChain` (which `advancedSelections.ts::advancedFormLoads` reads) derives one load per module of the menu's parent selection, root first and ending at the menu; each after the first is indexed to the one before under `advancedChainIndex`, the one identifier the app's `child` links between the two case types use, or `parent` where none does. The last is the form's own load, HQ's `last_real_action`. Registrations and surveys load no case. The worker's load (`auto_select.mode: "usercase"`, `details_module: null`) follows the chain where the form's `worker-record` update takes it.
 - **HQ JSON.** `hqShells.ts::advancedModuleShell` writes the keys a basic module writes, in the same order, `product_details` after `case_details`, and neither `display_style` nor `parent_select`, which `AdvancedModule` does not read. `product_details` is HQ's `AdvancedModule.new_module` default: one `plain` `name` column over the product headed "Product" in the default language's wire code, and an empty long detail; only CommTrack reads it. `advancedFormShell` writes `AdvancedForm` with `actions`, `arbitrary_datums: []` and the keys a basic form takes, and no `requires` (HQ computes it) and no `schedule`. `__tests__/fixtures/hq-advanced-keys.json` holds HQ's key sets for both at the pin.
-- **Tags.** `advancedTags.ts::allocateAdvancedTags` names every action: a load `load_<case type><n>`, the worker's load `autoload_commcare_user<n>`, an open action `open_<case type>_<n>`, the spelling HQ's case configuration page writes (`static/app_manager/js/forms/advanced/case_config_ui.js::addFormAction`) with the action's own case type where the page uses the menu's. `n` starts at the action's position and steps past any tag taken and any tag whose `case_<tag>` element a root name holds, or, for an open action in a repeat, a name the repeat's rows hold, where HQ's build nests the block beside them (`xform.py::get_action_path`). A held tag is kept as held and taken first; a question named like its `case_<tag>` is `HELD_BLOCK_PATH_TAKEN`.
+- **Tags.** `advancedTags.ts::allocateAdvancedTags` (the domain's `lib/domain/advancedTags.ts`, re-exported here, because each load's tag names the datum its entry asks for, which `lib/domain/advancedEntryDatums.ts::advancedLoadTags` derives for the screen logic and `__tests__/entryDatumAgreement.ts` holds to this planner's tags) names every action: a load `load_<case type><n>`, the worker's load `autoload_commcare_user<n>`, an open action `open_<case type>_<n>`, the spelling HQ's case configuration page writes (`static/app_manager/js/forms/advanced/case_config_ui.js::addFormAction`) with the action's own case type where the page uses the menu's. `n` starts at the action's position and steps past any tag taken and any tag whose `case_<tag>` element a root name holds, or, for an open action in a repeat, a name the repeat's rows hold, where HQ's build nests the block beside them (`xform.py::get_action_path`). A held tag is kept as held and taken first; a question named like its `case_<tag>` is `HELD_BLOCK_PATH_TAKEN`.
 - **What an action can express.** `advancedPlacement.ts` holds the closed clauses that keep a change off a load or an open action, in order; a change for which one holds takes Save to Case, which is always eligible. A value is a bare question read, a condition one question compared with one value, a load takes the changes of one case the form loads, and an open action's link names a load or an earlier open action.
 - **Owners.** HQ sets an open action's owner from `meta/userID` unless `owner_id` is among its properties, its indices are all `extension`, or one is `question` (`xform.py::autoset_owner_id_for_advanced_action`); otherwise it writes `-`. Where that differs from the owner the operation states, the source holds a Hidden Value `nova_owner_<operation id>` (the worker, `instance('commcaresession')/session/context/userid`, or `'-'`) and the action names it as `owner_id` (`xform/generatedNodes.ts::advancedOwnerNodeValue`).
 - **Preloads.** Every `LoadUpdateAction.preload` is `{}`: a preload is the question's default, at the question's place, as in a basic form. HQ's build would append a load's preload after every setvalue the form holds, after a later default that reads the question.
 - **Source and local injection.** The source an advanced form uploads holds what a basic form's holds (questions, Nova's generated nodes, Save to Case blocks), and HQ's build writes the advanced case blocks into the form it serves. The local archive has no such build, so `xform/advancedCaseBlocks.ts::addAdvancedCaseBlocks` writes the same blocks in the same order before the meta block, as `xform.py::XForm._create_casexml_advanced` does: each load that writes or closes as `case_<tag>` at the data root, then each open action at `case_<tag>/`, or in its repeat as `get_action_path` places it.
 - **Datums, on both paths.** The local suite (`session.ts::deriveSessionDatums`, through `deriveAdvancedLoadDatums`) and HQ's entry as links read it (`formLinkProjection.ts::entrySessionDatums`) write `case_id_<tag>` per load, a chained load's nodeset narrowed by `[index/<identifier>=<the previous load's datum>]` (`get_parent_filter_by_ref_id`), the worker's load as a function datum with its `case_autoload.usercase.case_missing` assertion, then `case_id_new_<type>_<i>` with `function="uuid()"` per open action outside a repeat, then HQ's child-module alignment (`add_parent_datums`). An advanced entry writes no query datum and no grouped tile's companion. `entryDatumIds` maps the rows to the same `DatumRef`s a basic entry's do, so no stored expression changes when a menu's kind does; only the printed ids move.
-- **Case list menu item.** An advanced menu's item, beside its forms or alone, is HQ's one datum `case_id_case_<type>` over every open case of the type, with the menu's details and no filter, parent or alignment (`session.ts::deriveAdvancedCaseListDatum`, `EntriesHelper.entry_for_module`), and `case_list.show` with the item's label and media as on a basic menu. The `case-list-menu-item-narrowed` blocker admits the item on an advanced menu only where the basic list holds the same cases, so the item means one thing on both kinds. `moduleKind.ts::advancedModulesWithCaseListMenuItem` lists each advanced menu holding one, which `planPrivileges.ts::commtrackReasons` names, because HQ's build adds a `product_id` datum to its entry under CommCare Supply.
+- **Case list menu item.** An advanced menu's item, beside its forms or alone, is HQ's one datum `case_id_case_<type>` over every open case of the type, with the menu's details and no filter, parent or alignment (`session.ts::deriveAdvancedCaseListDatum`, `EntriesHelper.entry_for_module`), and `case_list.show` with the item's label and media as on a basic menu. It is the datum of a load tagged `case_<type>`: beside forms whose first load holds another tag such a menu lists forms first in Core (`getDataNeededByAllEntries` finds no one first datum), and beside forms kept under that tag it asks for the case first, which `lib/domain/menuScreens.ts::screenCaseFirstBlocker` reads from each entry's first datum (`case-list-entry-apart`, and `form-chooses-apart` for two forms whose first loads hold different tags). The `case-list-menu-item-narrowed` blocker admits the item on an advanced menu only where the basic list holds the same cases, so the item means one thing on both kinds. `moduleKind.ts::advancedModulesWithCaseListMenuItem` lists each advanced menu holding one, which `planPrivileges.ts::commtrackReasons` names, because HQ's build adds a `product_id` datum to its entry under CommCare Supply.
 - **Add-ons and plan privileges.** `addOns.ts` adds `subcases` and `conditional_form_actions` for every `AdvancedForm` (HQ's `used_in_form` predicates hold for every form that is not a `module_form`, `add_ons.py`), and reads an advanced menu's product list for `conditional_enum` and `enum_image`. An advanced menu asks no plan privilege of its own (`helpers/validators.py::ApplicationValidator._check_subscription` checks only the worker's record); `child_cases` counts basic subcases only.
 
 ### Typed FormPath
@@ -1143,13 +1221,13 @@ the delivery before it completes a task, so a form holding both has its own
 visit turned away while the task is assigned. A Connect app's forms reach
 Connect only through CommCare HQ's data forwarding, which needs the Data
 Forwarding plan feature and a forwarder set up in the project space. No API key
-reads either, so publish asks the person to confirm both (`lib/deployment`).
+reads either, so publish asks the person to confirm both (`lib/deployment`). A Connect block's name and description, and a form's name in the default language, are plain text in the form's source (`xform/sourceTexts.ts::formSourceTexts`). HQ's build reads `instance('…')` there as an instance read and no spelling keeps it out, so the gate refuses text `hqInstanceScan.ts::instanceScanRead` reads (`FORM_TEXT_READ_AS_INSTANCE`).
 
 ### Case-list emission
 
 Both detail surfaces (`<detail id="m{n}_case_short">` / `m{n}_case_long`) share one per-kind column emitter via a `DetailKind` discriminator — five precise branch sites cover the long-detail-only `template_form="phone"`, the short-detail-only sort wrap, the long-detail no-sort short-circuit, and the locale-id substring choice. Don't fork the emitters per surface.
 
-**A list's fields and order are one derived plan.** `lib/domain/caseListOrder.ts::caseListOrderPlan` states what HQ's build writes for the app Nova sends: the short detail's fields in stored order, each field's wire class (property or expression) and join text (its HQ `field`), the sort key each field keeps with no rule, each rule's element, and the carriers HQ appends for a rule no field's text equals. Its three readers are `hqJson/caseList.ts` (the stored columns and `sort_elements`), `suite/case-list/` (`shortDetail.ts` walks the plan's fields; `sortKeys.ts::planSortNodes` writes each field's `<sort>`, and a carrier as an appended width 0 field), and Preview through the case store. Every reader builds it through `suite/case-list/orderPlanOptions.ts::caseListOrderOptions`, so none can pass different options; the validator and Preview pass `mediaOn: true` and no lookup naming (join texts print under `lookup/naming.ts::identityLookupWireNaming`). A difference proof 3 reports between HQ's build and the local suite is a wrong rule in the plan or a wrong spelling in an emitter, never a register entry.
+**A list's fields and order are one derived plan.** `lib/domain/caseListOrder.ts::caseListOrderPlan` states what HQ's build writes for the app Nova sends: the short detail's fields in stored order, each field's wire class (property or expression) and join text (its HQ `field`), the sort key each field keeps with no rule, each rule's element, and the carriers HQ appends for a rule no field's text equals. Its three readers are `hqJson/caseList.ts` (the stored columns and `sort_elements`), `suite/case-list/` (`shortDetail.ts` walks the plan's fields; `sortKeys.ts::planSortNodes` writes each field's `<sort>`, and a carrier as an appended width 0 field), and Preview through the case store. Every reader builds it through `suite/case-list/orderPlanOptions.ts::caseListOrderOptions`, so none can pass different options; the validator and Preview pass `mediaOn: true` and no lookup naming (join texts print under `lookup/naming.ts::identityLookupWireNaming`). A difference proof 3 reports between HQ's build and the local suite is a wrong rule in the plan or a wrong spelling in an emitter, never a register entry. A column that is not on the list (`Column.notOnList`) is no field of the short detail in either layout, takes no order rule and has no carrier; the case detail alone holds it, so no device matches it when a worker filters the list (`validator/rules/case-list/columnNotOnList.ts`, `CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`, refuses it shown on Results or with an order rule).
 
 A column over an attribute-backed property (`lib/domain/standardCaseProperties.ts::ATTRIBUTE_BACKED_COLUMN_PROPERTIES`: `case_id`, `owner_id`, `status`) is an expression column on HQ's paths, shown or hidden: `field: "@<name>"` with `useXpathExpression: true`, because HQ reads a property column's `field` as a property name, which takes no `@`, and has no property element for `case_id`. Only a sort row with no stored column (a carrier) names `owner_id` or `status` bare; HQ's appended field reads the attribute. An image-map field written as images (`lib/domain/modules.ts::imageMapShowsImages`) writes `width="13%"` on its header and template on both details, as HQ's `EnumImage` does. HQ writes a date column's pattern unescaped between straight apostrophes, so a pattern holding `'` builds a suite Core refuses; the gate refuses it (`CASE_LIST_DATE_PATTERN_APOSTROPHE`).
 
@@ -1583,8 +1661,9 @@ that scalar `uuid()` as a selected-entities instance. Admission reports
 or locally scalarize a query that HQ regenerates as a collection.
 
 
-`Module.caseListRegistrationForm` (`lib/domain/menuForms.ts::caseListRegistrationFormOf`)
-is Nova's whole authoring of CommCare's `case_list_form`; the wire vocabulary
+`Module.caseListRegistrationForm` (`lib/domain/menuForms.ts::afterEmptySearchRegistrationFormOf`
+for the arm on no menu, `alwaysOfferedRegistrationOf` for the arm that stays
+on its menu) is Nova's whole authoring of CommCare's `case_list_form`; the wire vocabulary
 never enters a document (`validationRules.test.ts` keeps `case_list_form`
 rejected by the strict module schema). `emissionPlan.ts::emissionPlan(doc)` is
 the ONE derived module sequence both emitters walk: the authored preorder with
@@ -1595,7 +1674,20 @@ one form. `compiler.ts` and `expander.ts` consume the plan, so `m{N}` /
 `unique_id` / `owningModuleOf` agree on both paths. The lowering is emitted
 only when `hostLowersCaseListRegistration(host)` (the host's forms read the
 search and it has a case type); a slot whose module fails that is a validator
-finding, not a partial emission.
+finding, not a partial emission. The `always` arm writes the block for a form
+that stays on its own menu, with no synthetic module and no
+`relevancy_expression`, the Register action on both short details, and one
+return frame for `case-list` or two for `new-case`, only where the form's own
+after-submit is Home. `formLinkProjection.ts::caseListFormReturnFrames` builds
+them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
+a submenu host's parent's `get_frame_children`, then the host's, each pass
+matched on its own and each adding to the cut frame up to its first matched
+selection; in `new-case` the host pass drops every id the frame carrying the
+new case already holds (`ids_on_stack`), while `case-list` keeps them, as
+HQ's `case-list-form-suite-parent-child-submodule-basic.xml` shows
+(`registerFromListEmission.test.ts`). Each frame names the menus whose search
+its query keys to the new case (`newCaseSearchModuleUuids`), which Preview
+and App Tests record as that search.
 
 - **Host module.** HQ JSON `case_list_form: { form_id, label,
   post_form_workflow: "case_list", relevancy_expression:
@@ -1624,7 +1716,7 @@ finding, not a partial emission.
   and nowhere else. Its entry's `<stack>` is the return frame
   `<create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm{N}'">`
   with the host command plus the `case_fixture` query child
-  (`formLinkProjection.ts::caseListFormReturnFrame`), so the worker lands on
+  (`formLinkProjection.ts::caseListFormReturnFrames`), so the worker lands on
   Results showing exactly the case they registered; HQ regenerates the same
   frame from `post_form_workflow: case_list`
   (`test_form_linking_to_inline_search_module_from_registration_form`). A
@@ -1705,7 +1797,7 @@ Details; the translation units and the media reference walks read it. Hiding
 never creates deferred invalid state and revealing never repairs or rewrites a
 definition.
 
-Sort lives on each column. `lib/domain/caseListOrder.ts::caseListOrderPlan` is the one statement of a list's order: what HQ's build writes for the app Nova sends, each rule with its citation in the module. Its `fields` are the short detail's fields in stored order, each with its wire class (a property column or an expression column), the text HQ joins a sort element to it by, the sort key it keeps with no rule, and its rule if the list orders by it; its `carriers` are the hidden sort fields HQ appends for rules that join no field. Authored rules become elements in `priority` order, ties by Results position; each lands on the first field whose join text equals its own; a list with no authored rule orders by its first shown field's own key, ascending, compared as text; blanks come first ascending and last descending. HQ JSON, the local suite and Preview's case store all read the plan, so the three order alike. `CASE_LIST_DUPLICATE_SORT_PRIORITY` stays soundness, and `CASE_LIST_SORT_PROPERTY_AMBIGUOUS` refuses two rules over one value, and a rule that would land on a field with another key, so in an admitted document every rule orders as authored. The schema has no parallel `SortKey[]` array, so sort directives cannot refer to a non-existent column. HQ JSON writes each element in the Case List page's own spelling (`type` `plain`, `date`, `int` or `double`, `blanks` `first` or `last`, `display` keyed by the first language's wire code, `sort_calculation` empty), so a save there changes nothing.
+Sort lives on each column. `lib/domain/caseListOrder.ts::caseListOrderPlan` is the one statement of a list's order: what HQ's build writes for the app Nova sends, each rule with its citation in the module. Its `fields` are the short detail's fields in stored order, each with its wire class (a property column or an expression column), the text HQ joins a sort element to it by, the sort key it keeps with no rule, and its rule if the list orders by it; its `carriers` are the hidden sort fields HQ appends for rules that join no field. Authored rules become elements in `priority` order, ties by Results position; each lands on the first field whose join text equals its own; a list with no authored rule orders by its first shown field's own key, ascending, compared as text; blanks follow the rule's own blanks, first ascending and last descending where the author says nothing. HQ JSON, the local suite and Preview's case store all read the plan, so the three order alike. `CASE_LIST_DUPLICATE_SORT_PRIORITY` stays soundness, and `CASE_LIST_SORT_PROPERTY_AMBIGUOUS` refuses two rules over one value, and a rule that would land on a field with another key, so in an admitted document every rule orders as authored. The schema has no parallel `SortKey[]` array, so sort directives cannot refer to a non-existent column. HQ JSON writes each element in the Case List page's own spelling (`type` `plain`, `date`, `int` or `double`, `blanks` `first` or `last`, `display` keyed by the first language's wire code, `sort_calculation` empty), so a save there changes nothing.
 
 The comparator of each element is derived in the plan, not authored: integer or decimal only for a `property` or `calculated` key over an integer or decimal value (`caseListOrder.ts::comparatorForDataType`, and the plan's `calculatedType` option for a calculated column), and text for every key a field keeps on its own (a date's stored value, a mapping's position, a select's label, an interval's text).
 
@@ -1897,10 +1989,11 @@ A Hidden Value that writes nothing binds `xsd:dateTime` only where its calculati
 `nova_datetime_<question>` (`xform/datetimeCaseValue.ts`, named by the
 allocator), as their HQ action question path. HQ creates
 untyped case-update binds, where Core would otherwise wrap a Date as DateData
-and lose its clock. The sibling formats the unpacked typed value; Core's
-`format-date(node-set)` itself rounds typed dates, so `coalesce` unpacks first.
-An authored operation's write to a datetime property uses the same calculate on
-an untyped leaf (`datetimeCaseValueExpression`).
+and lose its clock. The sibling writes the question's moment as CommCare HQ
+stores it (`xform/datetimeCaseValue.ts::questionDatetimeCaseValue`), unpacking
+the typed value with `coalesce` first, because Core's `format-date(node-set)`
+rounds typed dates. An authored operation's write to a datetime property uses
+the same spelling on an untyped leaf (`datetimeCaseValue`).
 Blank answers remain blank, and sibling relevance follows the source question.
 The sibling stays inside the same group/repeat and is derived wire, never an
 authored field. Native CCZ and HQ-regenerated submission tests prove saved

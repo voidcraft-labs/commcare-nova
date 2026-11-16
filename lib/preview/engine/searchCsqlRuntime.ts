@@ -70,6 +70,7 @@ import {
 	type EvalContext,
 	type XPathValue,
 } from "../xpath/types";
+import { previewDataRefusalOf } from "./dataRefusal";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { PreviewSearchSessionValues } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -104,6 +105,11 @@ export interface SearchCsqlRuntimeWire {
 	readonly choices: Readonly<Record<string, boolean>>;
 	readonly refusal?: SearchRuntimeValidationKind;
 	readonly unevaluated?: true;
+	/** A piece read an instance holding nothing the device has (a worker-data
+	 *  key the worker lacks, the place of a worker assigned nowhere): Core
+	 *  refuses the read as it sends the request, so the search stops on a
+	 *  phone, and the Results read shows that refusal (`dataRefusal.ts`). */
+	readonly dataRefusal?: { readonly instanceId: string };
 }
 
 /** The Results read's answer to a search Preview could not work out. */
@@ -298,11 +304,19 @@ export async function evaluateSearchCsqlRuntime(
 	};
 	const instances = searchCsqlInstances(world);
 	const context = evalContext(instances, world.session);
+	let dataRefusal: { readonly instanceId: string } | undefined;
 	const piece = async (wire: WireExpr): Promise<XPathValue | undefined> => {
 		const source = serializeWire(wire, { target: "suite" }).text;
 		try {
 			return evaluate(source, context);
-		} catch {
+		} catch (error) {
+			/* Data the device lacks is Core's refusal of the request, never a
+			 * piece the worker could work out instead. */
+			const refused = previewDataRefusalOf(error);
+			if (refused?.reason.kind === "empty-instance") {
+				dataRefusal ??= { instanceId: refused.reason.instanceId };
+				return undefined;
+			}
 			if (onDevice === undefined || signal?.aborted === true) return undefined;
 			try {
 				return await onDevice({ source, instances });
@@ -351,6 +365,7 @@ export async function evaluateSearchCsqlRuntime(
 		choices,
 		...(refusal === undefined ? {} : { refusal }),
 		...(unevaluated ? { unevaluated: true as const } : {}),
+		...(dataRefusal === undefined ? {} : { dataRefusal }),
 	};
 }
 
@@ -661,15 +676,21 @@ export function parseSearchCsqlRuntimeWire(
 	if (value === undefined) return undefined;
 	if (typeof value !== "object" || value === null)
 		throw new SearchCsqlRuntimeError();
-	const { segments, choices, refusal, unevaluated } = value as Record<
-		string,
-		unknown
-	>;
+	const { segments, choices, refusal, unevaluated, dataRefusal } =
+		value as Record<string, unknown>;
+	const refusedIn =
+		typeof dataRefusal === "object" &&
+		dataRefusal !== null &&
+		Object.keys(dataRefusal).length === 1 &&
+		typeof (dataRefusal as { instanceId?: unknown }).instanceId === "string"
+			? (dataRefusal as { instanceId: string }).instanceId
+			: undefined;
 	if (
 		!plainRecord(segments, (entry) => typeof entry === "string") ||
 		!plainRecord(choices, (entry) => typeof entry === "boolean") ||
 		!(refusal === undefined || isSearchRuntimeValidationKind(refusal)) ||
-		!(unevaluated === undefined || unevaluated === true)
+		!(unevaluated === undefined || unevaluated === true) ||
+		!(dataRefusal === undefined || refusedIn !== undefined)
 	)
 		throw new SearchCsqlRuntimeError();
 	return {
@@ -677,6 +698,9 @@ export function parseSearchCsqlRuntimeWire(
 		choices: choices as Record<string, boolean>,
 		...(refusal === undefined ? {} : { refusal }),
 		...(unevaluated === true ? { unevaluated } : {}),
+		...(refusedIn === undefined
+			? {}
+			: { dataRefusal: { instanceId: refusedIn } }),
 	};
 }
 

@@ -48,7 +48,10 @@ import { runFieldRules } from "./rules/field";
 import { entryPlanContext, runFormRules } from "./rules/form";
 import { MEDIA_ASSET_RULES } from "./rules/media";
 import { MODULE_RULES } from "./rules/module";
-import { parentSelectionConflicts } from "./rules/parentSelection";
+import {
+	parentSelectionConflicts,
+	rootSelectionTakesNewCase,
+} from "./rules/parentSelection";
 
 /** Optional context for a validation run. */
 export interface RunValidationOptions {
@@ -107,6 +110,9 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"ENTRY_POINT_INVALID",
 	// APP_RULES products.
 	"CASE_PARENT_SELECTION_CONFLICT",
+	// A child form's entry reads its root menu's first form, so a batch in
+	// the root can strand a form of the child.
+	"NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE",
 	"NO_MODULES",
 	"EMPTY_APP_NAME",
 	"APP_TEXT_UNREPRESENTABLE",
@@ -117,6 +123,17 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// A move scoped to another module can strand a case list registration
 	// slot, so its backstop runs as an app rule.
 	"CASE_LIST_REGISTRATION_FORM_NOT_IN_MODULE",
+	// The case list registration app rule reads a form in another module for
+	// the `always` arm, and owns each of these codes whole, both arms alike.
+	"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+	"CASE_LIST_REGISTRATION_MULTIPLE_RETURN",
+	"CASE_LIST_REGISTRATION_FORM_NOT_FOUND",
+	"CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST",
+	"CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE",
+	"CASE_LIST_REGISTRATION_ADVANCED_MENU",
+	// The first menu's shared case reads every menu that shows its forms
+	// above, so a batch in one menu can strand a link in another.
+	"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
 	"FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 	"FIELD_KIND_WRITERS_DISAGREE",
 	"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
@@ -269,8 +286,10 @@ export function runValidation(
 			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 	);
 	errors.push(...lookupFindings);
-	if (lookupFindings.length === 0)
+	if (lookupFindings.length === 0) {
 		errors.push(...parentSelectionConflicts(doc, lookupContext));
+		errors.push(...rootSelectionTakesNewCase(doc, lookupContext));
+	}
 
 	errors.push(...runDeepValidation(doc, scope, lookupTables));
 

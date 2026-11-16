@@ -1,5 +1,5 @@
 import "server-only";
-import type { AppCapability } from "@/lib/auth/projectRoles";
+import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import {
 	type CaseStore,
@@ -10,7 +10,11 @@ import {
 	resolveAppScope,
 	resolveAuthorizedAppSnapshot,
 } from "@/lib/db/appAccess";
-import { syncUsercaseRow, workerFromPersona } from "@/lib/db/syncUsercaseRow";
+import {
+	storedUsercaseProperties,
+	syncUsercaseRow,
+	workerFromPersona,
+} from "@/lib/db/syncUsercaseRow";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import {
 	mergeOwnRecords,
@@ -231,12 +235,15 @@ export async function resolveAuthorizedPreviewContext(args: {
 	// Best-effort: previewing must not fail because a bookkeeping row could not
 	// be written. The projection on `identity` still answers `#user/` from the
 	// same derivation, so a failed create degrades to exactly today's behaviour
-	// rather than to a broken screen.
+	// rather than to a broken screen. A member whose role cannot write case
+	// data (a viewer) never attempts the create: they read the row where one
+	// exists and the derived record where none does.
 	const identityOnRecord = await withMaterializedUsercase({
 		appId: args.appId,
 		identity,
 		blueprint,
 		store,
+		mayCreate: roleAllowsApp(access.role, "edit"),
 	});
 
 	const restoreScope = await resolveRestoreScope({
@@ -324,14 +331,22 @@ export function admitPreviewDevice(
  * `projectSpace` is deliberately null. The CommCare domain is a deployment
  * fact rather than a document one, and an absent `commcare_project` reads
  * blank on a device, which is what an unpublished app has.
+ *
+ * Creating the row is a case write, which the case store authorizes against
+ * the member's `edit` capability. A member who cannot write (`mayCreate`
+ * false, a viewer) only reads: the row where an editor's preview or the
+ * commit path made one, else the derived record unchanged, the same answer a
+ * failed create leaves (`previewWorkerPropertyBinding` prints it where the
+ * device snapshot holds no row for the worker).
  */
 async function withMaterializedUsercase(args: {
 	readonly appId: string;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly blueprint: PersistableDoc | undefined;
 	readonly store: CaseStore;
+	readonly mayCreate: boolean;
 }): Promise<ResolvedPreviewIdentity> {
-	const { appId, identity, blueprint, store } = args;
+	const { appId, identity, blueprint, store, mayCreate } = args;
 	if (blueprint === undefined) return identity;
 	const persona =
 		identity.personaUuid === undefined
@@ -355,17 +370,27 @@ async function withMaterializedUsercase(args: {
 	const authored =
 		persona === undefined ? {} : personaUserData(persona, blueprint);
 	try {
-		const { stored } = await syncUsercaseRow(store, {
-			appId,
-			worker,
-			authored,
-			doc: blueprint,
-			projectSpace: null,
-			// Existence only. Keeping the row in step is the commit path's job,
-			// and a diff here would overwrite whatever a form last wrote onto
-			// the record with the persona's own blank for that property.
-			ensureOnly: true,
-		});
+		const stored = mayCreate
+			? (
+					await syncUsercaseRow(store, {
+						appId,
+						worker,
+						authored,
+						doc: blueprint,
+						projectSpace: null,
+						// Existence only. Keeping the row in step is the commit path's
+						// job, and a diff here would overwrite whatever a form last
+						// wrote onto the record with the persona's own blank for that
+						// property.
+						ensureOnly: true,
+					})
+				).stored
+			: await storedUsercaseProperties(store, {
+					appId,
+					workerId: worker.id,
+					doc: blueprint,
+				});
+		if (stored === undefined) return identity;
 		// `case_name` is a column rather than a property, so the row's
 		// properties never carry it and the derived record is the only place it
 		// lives. Layering the row OVER the record keeps it.
@@ -374,7 +399,7 @@ async function withMaterializedUsercase(args: {
 			usercase: mergeOwnRecords(identity.usercase, stored),
 		};
 	} catch (err) {
-		log.warn("[preview] usercase row ensure failed", {
+		log.warn("[preview] usercase row read failed", {
 			appId,
 			workerId: worker.id,
 			error: err instanceof Error ? err.message : String(err),
