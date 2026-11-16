@@ -131,7 +131,7 @@ export async function translateLanguage(
 		});
 		const parse = (text: string): TranslationBatchOutput => {
 			const output = translationBatchOutputSchema.parse(JSON.parse(text));
-			validateTranslationBatchOutput(batch, output);
+			validateTranslationBatchOutput(batch, output, doc);
 			return output;
 		};
 		const response = await runArchitectLoop({
@@ -184,7 +184,7 @@ export async function translateLanguage(
 				result: { error: outputError(error) },
 			};
 		}
-		const values = validateTranslationBatchOutput(batch, output);
+		const values = validateTranslationBatchOutput(batch, output, doc);
 		for (const { unit } of batch) {
 			const value = values.get(unit.id);
 			if (value === undefined)

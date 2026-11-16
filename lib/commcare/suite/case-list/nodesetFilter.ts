@@ -6,6 +6,10 @@
 // Absent and match-all filters return undefined, while match-none remains
 // false() so an authored empty list never widens to all cases.
 
+import {
+	type RewriteControl,
+	rewriteWithheld,
+} from "@/lib/commcare/emissionRewrites";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
@@ -22,12 +26,15 @@ import { normalizeSpace } from "../wire";
  * Build the predicate attached to a case-list session datum's case step.
  * An absent filter or match-all sentinel returns undefined. The caller owns
  * the surrounding case-type and status predicates and the complete nodeset.
+ * Where `rewrites` withholds `filter-identities-dropped`, the filter prints as
+ * stored, boolean identities included.
  */
 export function emitNodesetFilter(
 	filter: Expression | undefined,
 	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 	datumId?: (ref: DatumRef) => string | undefined,
+	rewrites?: RewriteControl,
 ): WireExpr | undefined {
 	// The ordinary case list evaluates before any Search runs, so every
 	// Search-input dependency substitutes to its unanswered reading first
@@ -46,9 +53,13 @@ export function emitNodesetFilter(
 	// at the canonical `[@case_type='X'][@status='open']` shape rather
 	// than a tautological `[true() and …]`. See
 	// `lib/domain/expression/simplify.ts`.
-	const effective = effectiveFilterForEmission(
-		filter === undefined ? undefined : substituteUnansweredSearchInputs(filter),
-	);
+	const substituted =
+		filter === undefined ? undefined : substituteUnansweredSearchInputs(filter);
+	const effective =
+		substituted !== undefined &&
+		rewriteWithheld(rewrites, "filter-identities-dropped")
+			? substituted
+			: effectiveFilterForEmission(substituted);
 	if (effective === undefined) return undefined;
 
 	// Every other predicate, including match-none, remains in the tree.
@@ -62,6 +73,7 @@ export function emitNodesetFilter(
 				? {}
 				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 		},
+		...(rewrites === undefined ? {} : { rewrites }),
 	});
 }
 
@@ -104,9 +116,12 @@ export function emitExcludedOwnerFilterExpression(
 	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 ): WireExpr | undefined {
-	if (excludedOwnerIds === undefined) return undefined;
+	if (
+		excludedOwnerIds === undefined ||
+		!excludedOwnerClauseWritten(excludedOwnerIds)
+	)
+		return undefined;
 	const unanswered = substituteUnansweredSearchInputs(excludedOwnerIds);
-	if (staticallyBlankExclusion(unanswered)) return undefined;
 	const expression = emitNormalizedExcludedOwnerIdsExpression(
 		unanswered,
 		relationContext,
@@ -115,6 +130,22 @@ export function emitExcludedOwnerFilterExpression(
 	return w.or(
 		w.eq(expression, w.str("")),
 		w.not(w.call("selected", [expression, w.context([w.attr("owner_id")])])),
+	);
+}
+
+/**
+ * Whether an ordinary case list carries a clause for `excludedOwnerIds`
+ * (`emitExcludedOwnerFilterExpression`): not where the exclusion is blank once
+ * every Search answer reads unanswered, which a list read before any Search
+ * runs sees. A search whose exclusion reads a Search answer alone excludes on
+ * its results and nowhere else, as HQ's `blacklisted_owner_ids_expression`
+ * does, which the reader of HQ's apps asks this to tell.
+ */
+export function excludedOwnerClauseWritten(
+	excludedOwnerIds: Expression,
+): boolean {
+	return !staticallyBlankExclusion(
+		substituteUnansweredSearchInputs(excludedOwnerIds),
 	);
 }
 
@@ -139,13 +170,15 @@ function staticallyBlankExclusion(expression: Expression): boolean {
  * literal space character and can retain empty tokens. Normalizing once in the
  * emitted XPath makes trailing, repeated, tab, and newline whitespace mean the
  * same token list on the ordinary case list, local remote request, HQ JSON
- * upload, and Preview.
+ * upload, and Preview. `rewrites` is the reader's control over the rewrites
+ * the list's print reaches (`emissionRewrites.ts`); an export passes none.
  */
 export function emitNormalizedExcludedOwnerIdsExpression(
 	excludedOwnerIds: Expression,
 	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 	searchInputInstanceId?: `search-input:${string}`,
+	rewrites?: RewriteControl,
 ): WireExpr {
 	return normalizeSpace(
 		toWire(excludedOwnerIds, {
@@ -157,6 +190,7 @@ export function emitNormalizedExcludedOwnerIdsExpression(
 					? {}
 					: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 			},
+			...(rewrites === undefined ? {} : { rewrites }),
 		}),
 	);
 }

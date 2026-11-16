@@ -48,7 +48,10 @@ On every corpus document the checks are structural:
     repeat the slot does not run in, a write under a condition, a link on the
     form's own case, an open, close or create condition Case Management
     cannot state, a change of a new case before its create, a child of the
-    menu's own type, and a held Save to Case block),
+    menu's own type, and a held Save to Case block; a form's own close under a
+    condition Case Management cannot state, or held there, takes a block of its
+    own, ``nova_close``, whose reference names the menu's case type with no
+    property, which replaces an earlier form's set for that type all the same),
     and an update of the selected cases in a multi-select menu (HQ builds a form there that opens
     no case without its case management, ``xform.py::XForm._create_casexml``:
     ``default_case_management = False`` for ``is_multi_select()``, while the
@@ -249,6 +252,10 @@ class FormIntent:
     # registration's own case): in a form HQ holds in an advanced menu, an open action's (``open_cases``) where
     # one can state it, which the data dictionary refresh never reads. Empty on a control retained without it.
     opened_writes: dict = field(default_factory=dict)
+    # The module kinds ("basic", "advanced") in which the form's own close is a Save to Case block of its own
+    # (``nova_close``), which names the module's case type in the form's save references (``_own_close_alone``).
+    # Empty on a control retained without it.
+    own_close_alone: set = field(default_factory=set)
 
 
 @dataclass
@@ -392,6 +399,7 @@ def intent_json(intent: Intent) -> dict:
             "fieldWrites": form.field_writes,
             "operationWrites": {case_type: sorted(props) for case_type, props in form.operation_writes.items()},
             "openedWrites": {case_type: sorted(props) for case_type, props in form.opened_writes.items()},
+            "ownCloseAlone": sorted(form.own_close_alone),
         }
 
     return {
@@ -417,6 +425,7 @@ def intent_from_json(value) -> Intent:
             field_writes=held["fieldWrites"],
             operation_writes={case_type: set(props) for case_type, props in held["operationWrites"].items()},
             opened_writes={case_type: set(props) for case_type, props in (held.get("openedWrites") or {}).items()},
+            own_close_alone=set(held.get("ownCloseAlone") or ()),
         )
 
     return Intent(
@@ -771,6 +780,11 @@ def _form_intent(doc, uuid, form, module_type, multiple=False):
         managed = _case_management_holds(facts, operation, own_case) and not (
             own and multiple and form.get("type") != "registration"
         )
+        if not managed:
+            # Every Save to Case block names its case type in the form's save references, a create's name and a
+            # close's alone included (``FormBase.get_save_to_case_updates`` gives the type a set either way), so the
+            # form's set for the type replaces an earlier form's in HQ's refresh even where it writes nothing custom.
+            intent.operation_writes.setdefault(case_type, set())
         for write in operation.get("writes") or ():
             prop = write.get("property")
             if write.get("via") or not _custom(prop):
@@ -784,7 +798,41 @@ def _form_intent(doc, uuid, form, module_type, multiple=False):
         alone = props - other.get(case_type, set())
         if alone:
             intent.opened_writes[case_type] = alone
+    intent.own_close_alone = _own_close_alone(facts, form, own_case, module_type, multiple)
     return intent
+
+
+def _own_close_alone(facts, form, own_case, module_type, multiple):
+    """The module kinds in which the form's own close is a Save to Case block of its own (``nova_close``), which
+    HQ's form builder lists in the form's save references under the module's case type with no property
+    (``FormBase.get_save_to_case_updates`` gives that type a set all the same), so the form's set for the type
+    replaces an earlier form's in HQ's refresh.
+
+    The own close is the form's where it is a close form, or a registration with a close condition, and holds an
+    own case (lib/commcare/placement.ts's own close, restated). It shares the own arm's place where Case
+    Management states the own arm and the close condition: a basic menu states it as Case Management states a
+    condition on the form's own case, an advanced menu as a load's ``close_condition``, which takes the
+    condition as any other action's (``_condition_stateable``, ``own``). Where the own arm takes Save to Case
+    the close shares its block or, on a several-case form, takes one beside it, and either names the case type
+    already; a held block of its own stays where it is."""
+    closes = form.get("type") == "close" or (
+        form.get("type") == "registration" and form.get("closeCondition") is not None
+    )
+    if not closes or own_case is None or not module_type:
+        return set()
+    managed = _case_management_holds(facts, own_case, own_case) and not (
+        multiple and form.get("type") != "registration"
+    )
+    if not managed:
+        return set()
+    if form.get("ownClosePlacement") is not None:
+        return {"basic", "advanced"}
+    condition = form.get("closeCondition")
+    return {
+        kind
+        for kind, own in (("basic", True), ("advanced", False))
+        if not _condition_stateable(facts, condition, own=own, repeat=None)
+    }
 
 
 def written_properties(intent: Intent):
@@ -808,6 +856,8 @@ def expected_dictionary(intent: Intent, privileges, advanced=frozenset()) -> dic
     form's ``{case type: properties}`` merged over the previous ones with
     ``dict.update`` (``case_type_to_prop.update(form.get_save_to_case_updates())``),
     then each case-named menu's updates of its case and the worker's, added.
+    A form whose own close is a block of its own in its module's kind
+    (``FormIntent.own_close_alone``) gives the module's case type a set too.
     ``advanced`` holds the positions of the modules HQ holds as advanced, whose
     forms' writes only an opening operation states are claimed nowhere
     (``FormIntent.opened_writes``).
@@ -828,6 +878,8 @@ def expected_dictionary(intent: Intent, privileges, advanced=frozenset()) -> dic
                         saved.setdefault(written_type, set()).update(props)
                     else:
                         updates.setdefault(written_type, set()).update(props)
+            if form.module_type and ("advanced" if position in advanced else "basic") in form.own_close_alone:
+                saved.setdefault(form.module_type, set())
             if SAVE_TO_CASE_PRIVILEGE in privileges:
                 save_to_case.update(saved)
     rows = {t: set(props) for t, props in save_to_case.items()}

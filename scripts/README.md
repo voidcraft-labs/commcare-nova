@@ -184,3 +184,22 @@ npx tsx scripts/scan-legacy-preplan-builds.ts --prod
 The Cloud Run Job is dry-run by default. Held rows remain untouched until the
 run finishes or the reaper releases them; empty rows require an explicit
 operator decision instead of automatic recovery.
+
+## Several-case own close repair
+
+A form whose menu selects several cases and closes each selected case under a
+close condition keeps that close in a condition group of each selected case's
+row. A document published before that shape held the close one segment short
+of it (`Form.ownClosePlacement`), which the validator refuses
+(`HELD_PLACEMENT_INEXPRESSIBLE`). Both scripts run with
+`npx tsx --conditions=react-server`; no maintenance image or Job carries them.
+
+```bash
+# Read-only census; --prod reads production. --plan-out writes the private
+# reviewed plan. Exits 0 when no app holds such a close.
+npx tsx --conditions=react-server scripts/scan-several-case-close-places.ts --prod --plan-out plan.json
+
+# The reviewed write against the database the environment names. Without
+# --execute it is the dry run.
+npx tsx --conditions=react-server scripts/migrate-several-case-close-places.ts --plan plan.json --execute
+```

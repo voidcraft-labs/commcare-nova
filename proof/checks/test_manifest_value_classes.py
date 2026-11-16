@@ -793,15 +793,25 @@ def test_search_settings_and_prompts(manifest):
         "properties": [
             {"name": "indices.parent"},
             {"name": "dob", "appearance": "address", "validations": [{"test": "true()"}]},
+            # A date range over an address appearance is no address field: HQ's build writes the ``input_`` over
+            # the appearance's ``input="address"``, and its Case List page shows the date range.
+            {
+                "name": "seen",
+                "appearance": "address",
+                "input_": "daterange",
+                "validations": [{"test": "true()"}, {"test": "false()"}],
+            },
         ],
         "default_properties": [{"property": "x_commcare_data_registry", "defaultValue": "'r'"}, {"property": "status"}],
         "search_button_label": {"en": "Search"},
     }
     app = _app([_module(search_config=search)], cloudcare_enabled=True)
     names = _app_uses(app, manifest, "schema:CaseSearchProperty.name")
-    assert [classes.reserved_request_key(use, manifest) for use in names] == [True, False]
+    assert [classes.reserved_request_key(use, manifest) for use in names] == [True, False, False]
     appearance = _app_uses(app, manifest, "schema:CaseSearchProperty.appearance")
-    assert [classes.address_with_required_or_validations(use, manifest) for use in appearance] == [True]
+    assert [classes.address_with_required_or_validations(use, manifest) for use in appearance] == [True, False]
+    validations = _app_uses(app, manifest, "schema:CaseSearchProperty.validations")
+    assert [classes.later_validations(use, manifest) for use in validations] == [False, True]
     [defaults] = _app_uses(app, manifest, "schema:CaseSearch.default_properties")
     assert classes.data_registry_key(defaults, manifest) is True
     assert classes.missing_default_value(defaults, manifest) is True
@@ -830,6 +840,17 @@ SEARCH_SUITE = b"""<suite version="1">
   <variables/><field><header><text><locale id="h"/></text></header>
   <template><text><xpath function="."/></text></template></field>
  </detail>
+</suite>"""
+
+
+# A search's prompts with an input type no runtime names (``slider``) and one Core names (``date``).
+INPUT_SUITE = b"""<suite version="1">
+ <entry><form>http://example.org/g</form><command id="m0-f0"><text><locale id="g"/></text></command>
+  <instance id="results:inline" src="jr://instance/remote/results:inline"/>
+  <session><query url="https://example.org/s" storage-instance="results:inline" template="case" default_search="false">
+   <prompt key="dob" input="slider"><display><text><locale id="p"/></text></display></prompt>
+   <prompt key="seen" input="date" exclude="true()"><display><text><locale id="q"/></text></display></prompt>
+  </query></session></entry>
 </suite>"""
 
 
@@ -923,6 +944,9 @@ class Shape:
     case_types: dict | None = None  # declared types, supplied beside the recorded export as a retained control's are
     # The configurations an app JSON was sent under (``App.configurations``), which a flag's class reads.
     configurations: tuple | None = None
+    # How many uses of the key sit there: one, but where the expression reads the key more than once (a guard and
+    # the read it guards), each read is a use and each takes the verdict.
+    uses: int = 1
 
 
 def refused(export, source, key, where, **kw):
@@ -1371,26 +1395,6 @@ def _settings_and_forms():
         return app
 
     form_name = "/modules/0/forms/0/name"
-    preloaded = _form(
-        data="<q/><r/>",
-        model='<setvalue event="xforms-ready" ref="/data/r" value="/data/q"/>',
-        body='<input ref="/data/q"/><input ref="/data/r"/>',
-    )
-    # The same read of the question, relative to the node the setvalue sets, as Nova prints a default.
-    preloaded_relatively = _form(
-        data="<q/><r/>",
-        model='<setvalue event="xforms-ready" ref="/data/r" value="concat(\'was \', current()/../q)"/>',
-        body='<input ref="/data/q"/><input ref="/data/r"/>',
-    )
-    unread = _form(
-        data="<q/><r/>",
-        model='<setvalue event="xforms-ready" ref="/data/r" value="today()"/>',
-        body='<input ref="/data/q"/><input ref="/data/r"/>',
-    )
-
-    def preload_app(xml):
-        form = _form_json("case", case_preload={"condition": ALWAYS, "preload": {"/data/q": "dob"}})
-        return _with_forms(_app([_module([form])]), f=xml)
 
     def links(**link):
         return {"doc_type": "FormLink", "form_id": "f2", **link}
@@ -1439,11 +1443,24 @@ def _settings_and_forms():
                 "schema:Application.logo_refs",
                 "/logo_refs",
             ),
-            accepted(
+            refused(
                 "app",
                 app(
                     logo_refs={
                         "hq_logo_android_home": {"path": "jr://file/commcare/logo/data/hq_logo_android_home.png"}
+                    }
+                ),
+                "schema:Application.logo_refs",
+                "/logo_refs",
+            ),
+            accepted(
+                "app",
+                app(
+                    logo_refs={
+                        "hq_logo_android_home": {
+                            "path": "jr://file/commcare/logo/data/hq_logo_android_home.png",
+                            "m_id": "6c4f0e1b2d3a",
+                        }
                     }
                 ),
                 "schema:Application.logo_refs",
@@ -1717,25 +1734,6 @@ def _settings_and_forms():
                 _question_app(_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/q": "dob"}})),
                 "schema:FormActions.case_preload",
                 f"{actions}/case_preload",
-            ),
-        ),
-        "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held": (
-            refused(
-                "app",
-                preload_app(preloaded),
-                "schema:FormActions.case_preload",
-                f"{actions}/case_preload",
-                readings=True,
-            ),
-            refused(
-                "app",
-                preload_app(preloaded_relatively),
-                "schema:FormActions.case_preload",
-                f"{actions}/case_preload",
-                readings=True,
-            ),
-            accepted(
-                "app", preload_app(unread), "schema:FormActions.case_preload", f"{actions}/case_preload", readings=True
             ),
         ),
         "forms-and-case-writes/case-references-data-save-differing-from-that-computation": (
@@ -2736,6 +2734,26 @@ def _search_and_menus():
                 f"{config}/default_properties/0/property",
             ),
         ),
+        "case-search/data-registry-data-registry-workflow-additional-registry-cases": (
+            refused(
+                "app",
+                search(_search_module(data_registry="r", data_registry_workflow="load_case")),
+                "schema:CaseSearch.data_registry_workflow",
+                f"{config}/data_registry_workflow",
+            ),
+            refused(
+                "app",
+                search(_search_module(data_registry="r")),
+                "schema:CaseSearch.data_registry",
+                f"{config}/data_registry",
+            ),
+            accepted(
+                "app",
+                search(_search_module(data_registry="", data_registry_workflow="load_case")),
+                "schema:CaseSearch.data_registry_workflow",
+                f"{config}/data_registry_workflow",
+            ),
+        ),
         "case-search/default-properties-entry-keyed-x-commcare-endpoint-id": (
             refused(
                 "app",
@@ -2900,6 +2918,22 @@ def _search_and_menus():
                 "schema:CaseSearchProperty.input_",
                 f"{prompts}/input_",
             ),
+        ),
+        "case-search/input-no-runtime-names": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("dob", input_="slider")])),
+                "schema:CaseSearchProperty.input_",
+                f"{prompts}/input_",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("dob", input_="daterange")])),
+                "schema:CaseSearchProperty.input_",
+                f"{prompts}/input_",
+            ),
+            refused("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[1]/@input"),
+            accepted("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[2]/@input"),
         ),
         "case-search/search-button-label-any-other-value": (
             refused(
@@ -3296,6 +3330,10 @@ def _search_and_menus():
             ),
             accepted("app", columns_app(_column("dob")), "detail-field-type:property", f"{short}/columns/0/field"),
         ),
+        "menus-and-case-lists/case-id-as-a-property-column-s-field": (
+            refused("app", columns_app(_column("case_id")), "detail-field-type:property", f"{short}/columns/0/field"),
+            accepted("app", columns_app(_column("dob")), "detail-field-type:property", f"{short}/columns/0/field"),
+        ),
         "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": (
             refused(
                 "app",
@@ -3615,6 +3653,62 @@ def _search_and_menus():
                 "/modules/0/put_in_root",
             ),
         ),
+        "menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module": (
+            refused(
+                "app",
+                _app([plain(put_in_root=True, case_list_session_endpoint_id="clients")]),
+                "schema:Module.case_list_session_endpoint_id",
+                "/modules/0/case_list_session_endpoint_id",
+            ),
+            accepted(
+                "app",
+                _app([plain(put_in_root=False, case_list_session_endpoint_id="clients")]),
+                "schema:Module.case_list_session_endpoint_id",
+                "/modules/0/case_list_session_endpoint_id",
+            ),
+            # The endpoint HQ builds through the first menu, one through its own menu, a form's, and one through a
+            # menu id a put_in_root module shares with its parent.
+            refused("suite", CASE_LIST_ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[1]/@id"),
+            accepted("suite", CASE_LIST_ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[2]/@id"),
+            accepted("suite", CASE_LIST_ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[3]/@id"),
+            unsettled("suite", CASE_LIST_ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[4]/@id"),
+            accepted("suite", CASE_LIST_ENDPOINTS, "parser:EntryParser/command@id", "entry[1]/command[1]/@id"),
+        ),
+        "menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first": (
+            # A put_in_root module's follow-up form lists on its parent's screen, beside a registration form there.
+            refused(
+                "app",
+                _app(
+                    [
+                        plain(forms=[_form_json("none")]),
+                        plain(
+                            unique_id="c",
+                            root_module_id="p",
+                            put_in_root=True,
+                            forms=[{**_form_json("case"), "form_filter": "#case/status = 'open'"}],
+                        ),
+                    ]
+                ),
+                "schema:Form.form_filter",
+                "/modules/1/forms/0/form_filter",
+            ),
+            accepted(
+                "app",
+                _app(
+                    [
+                        plain(forms=[_form_json("case")]),
+                        plain(
+                            unique_id="c",
+                            root_module_id="p",
+                            put_in_root=True,
+                            forms=[{**_form_json("case"), "form_filter": "#case/status = 'open'"}],
+                        ),
+                    ]
+                ),
+                "schema:Form.form_filter",
+                "/modules/1/forms/0/form_filter",
+            ),
+        ),
         "menus-and-case-lists/any-module-under-a-training-menu": (
             refused(
                 "app",
@@ -3906,6 +4000,20 @@ CSQL_SUITE = (
 ENDPOINTS = b"""<suite version="1"><endpoint id="visit"><command value="'m0'"/></endpoint>
  <endpoint id="visit"><command value="'m1'"/></endpoint>
  <endpoint id="close"><command value="'m2'"/></endpoint></suite>"""
+# Case list endpoints as HQ builds them (``EndpointsHelper._make_session_endpoint``): one through the first menu, the
+# frame of a put_in_root module's case list; one through its own menu; a form's; and one through a menu id a
+# put_in_root module shares with its parent, which the suite alone does not tell from the parent's own.
+CASE_LIST_ENDPOINTS = b"""<suite version="1">
+ <menu id="m0"><text><locale id="m0"/></text></menu>
+ <menu id="m1"><text><locale id="m1"/></text></menu>
+ <menu id="m1"><text><locale id="m2"/></text></menu>
+ <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="f"/></text></command></entry>
+ <endpoint id="first"><argument id="case_id"/>
+  <stack><push><datum id="case_id" value="$case_id"/></push></stack></endpoint>
+ <endpoint id="own"><stack><push><command value="'m0'"/></push></stack></endpoint>
+ <endpoint id="form"><stack><push><command value="'m0'"/><command value="'m0-f0'"/></push></stack></endpoint>
+ <endpoint id="shared"><stack><push><command value="'m1'"/></push></stack></endpoint>
+</suite>"""
 # Menus, one under another, and a multi-select datum whose limit is 0.
 MENUS = b"""<suite version="1"><menu id="m0"><text><locale id="m0"/></text></menu>
  <menu id="m1" root="m0"><text><locale id="m1"/></text></menu>
@@ -3947,6 +4055,80 @@ INPUTS_SUITE = b"""<suite version="1">
 # The attribute every model iteration's container and SaveToCase node carries (``modeliteration.js``,
 # ``saveToCase.js``).
 ROLE = "vellum-markup:model/instance//*@vellum:role"
+# An entry whose first datum's filter reads the session's case_id, which only the datum after it writes, and whose
+# second datum's filter reads parent_id, which the first wrote; the detail the second datum shows its list with reads
+# parent_id, written before the list shows, and case_id, which the choice made on that list writes.
+SESSION_DATUMS_SUITE = b"""<suite version="1">
+  <detail id="d"><title><text><locale id="t"/></text></title>
+    <field><header><text><locale id="h"/></text></header><template><text>
+      <xpath function="instance('commcaresession')/session/data/parent_id"/></text></template></field>
+    <field><header><text><locale id="h"/></text></header><template><text>
+      <xpath function="instance('commcaresession')/session/data/case_id"/></text></template></field></detail>
+  <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="c"/></text></command>
+    <instance id="casedb" src="jr://instance/casedb"/>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session>
+      <datum id="parent_id" value="./@case_id"
+        nodeset="instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]"/>
+      <datum id="case_id" value="./@case_id" detail-select="d"
+        nodeset="instance('casedb')/casedb/case[index/parent = instance('commcaresession')/session/data/parent_id]"/>
+    </session></entry></suite>"""
+# Session data a suite reads where its frame holds it: a search launched from a case list's action reads the
+# case the menu chose before the list (its query's ``data[2]``) and one nothing writes (``data[3]``); a claim an
+# endpoint launches reads the case the endpoint's push writes; a registration form the list's Register action opens
+# with ``return_to = 'm1'`` reads ``return_to`` under HQ's count guard (``create[1]``) and without one
+# (``create[2]``), and the chosen case where its operation's condition names the action's frame (``create[1]``'s
+# datum) and where no launch sets the value its condition names (``create[3]``'s).
+SESSION_LAUNCH_SUITE = b"""<suite version="1">
+  <detail id="d"><title><text><locale id="t"/></text></title>
+    <field><header><text><locale id="h"/></text></header><template><text>
+      <xpath function="./@case_id"/></text></template></field>
+    <action><display><text><locale id="a"/></text></display>
+      <stack><push><mark/><command value="'search_command.m0'"/></push></stack></action>
+    <action><display><text><locale id="r"/></text></display>
+      <stack><push><command value="'m1-f0'"/><datum id="case_id_new_visit_0" value="uuid()"/>
+        <datum id="return_to" value="'m1'"/></push></stack></action></detail>
+  <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="c"/></text></command>
+    <instance id="casedb" src="jr://instance/casedb"/>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session>
+      <datum id="parent_id" value="./@case_id" nodeset="instance('casedb')/casedb/case[@case_type = 'household']"/>
+      <datum id="case_id" value="./@case_id" detail-select="d"
+        nodeset="instance('casedb')/casedb/case[index/parent = instance('commcaresession')/session/data/parent_id]"/>
+    </session></entry>
+  <entry><form>http://example.org/r</form><command id="m1-f0"><text><locale id="c"/></text></command>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session><datum id="case_id_new_visit_0" function="uuid()"/></session>
+    <stack>
+      <create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm1'"><command value="'m1'"/>
+        <datum id="parent_id" value="instance('commcaresession')/session/data/parent_id"/></create>
+      <create if="instance('commcaresession')/session/data/return_to = 'm2'"><command value="'m2'"/></create>
+      <create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm9'"><command value="'m9'"/>
+        <datum id="parent_id" value="instance('commcaresession')/session/data/parent_id"/></create>
+    </stack></entry>
+  <remote-request>
+    <post url="https://example.org/claim/" relevant="true()">
+      <data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/></post>
+    <command id="search_command.m0"><display><text><locale id="s"/></text></display></command>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <instance id="results" src="jr://instance/remote/results"/>
+    <session>
+      <query url="https://example.org/search/" storage-instance="results" template="case" default_search="false">
+        <data key="case_type" ref="'visit'"/>
+        <data key="parent" ref="instance('commcaresession')/session/data/parent_id"/>
+        <data key="other" ref="instance('commcaresession')/session/data/other_id"/></query>
+      <datum id="search_case_id" nodeset="instance('results')/results/case" value="./@case_id"/>
+    </session><stack/></remote-request>
+  <remote-request>
+    <post url="https://example.org/claim/" relevant="true()">
+      <data key="case_id" ref="instance('commcaresession')/session/data/case_id"/></post>
+    <command id="claim_command.visit.case_id"><display><text/></display></command>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session><datum id="case_id" function="instance('commcaresession')/session/data/case_id"/></session>
+    <stack/></remote-request>
+  <endpoint id="visit"><argument id="case_id"/>
+    <stack><push><datum id="case_id" value="$case_id"/><command value="'claim_command.visit.case_id'"/></push></stack>
+  </endpoint></suite>"""
 # A suite expression reading a variable (a menu's display condition).
 VARIABLES_SUITE = b"""<suite version="1"><menu id="m0" relevant="$v = 1"><text><locale id="m"/></text></menu></suite>"""
 # A case's system date read by name, ordered against a date, which is never a time of day; and another property
@@ -4054,9 +4236,36 @@ def _data_binds_and_itext():
     )
     usercase = form(data="<commcare_usercase/><q/>", body='<input ref="/data/q"/>')
     usercase_update = {"condition": ALWAYS, "update": {"name": _update("/data/q")}}
+    # A SaveToCase block's own update rows (`status`, `size`), a hand-written case block's and a question's.
+    reserved = form(
+        data=f"""<op vellum:role="SaveToCase">{case}<update><status/><size/></update></case></op>
+          <hand>{case}<update><status/></update></case></hand><plain><status/></plain>"""
+    )
+    update_row = f"{data}op[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}"
+    hand_row = f"{data}hand[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}status[1]"
 
     def usercase_app(**actions):
         return _with_forms(_app([_module([_form_json("none", **actions)])]), f=usercase)
+
+    # A SaveToCase block of the worker's record, with rows no worker property takes (`external_id`, `case_type`)
+    # and one it takes (`team`), and another case's block writing `external_id`.
+    worker_block = form(
+        data=f"""<w vellum:role="SaveToCase" vellum:case_type="commcare-user">{case}<update><external_id/>
+          <case_type/><status/><team/></update></case></w>
+          <p vellum:role="SaveToCase" vellum:case_type="patient">{case}<update><external_id/></update></case></p>"""
+    )
+    worker_row = f"{data}w[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}"
+    patient_row = f"{data}p[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}external_id[1]"
+
+    def worker_update(key):
+        return usercase_app(usercase_update={"condition": ALWAYS, "update": {key: _update("/data/q")}})
+
+    def worker_load(key):
+        auto = {"doc_type": "AutoSelectCase", "mode": "usercase", "value_key": ""}
+        return _advanced_app([_load("usercase", auto_select=auto, case_properties={key: _update("/data/q")})])
+
+    usercase_map = "/modules/0/forms/0/actions/usercase_update/update"
+    load_map = "/modules/0/forms/0/actions/load_update_cases/0/case_properties"
 
     choices = form(
         data="<s/><m/>",
@@ -4173,6 +4382,41 @@ def _data_binds_and_itext():
             <text id="t3"><value/></text><text id="t4"><value/></text></translation>
           <translation lang="es"><text id="t4"><value>Hola</value></text></translation></itext>""",
     )
+    # A copy en (the default) holds and fr lacks: t1's fr text is en's copy, so fr shows one text; t2's copy is fr's
+    # alone, which the default lacks; t3's fr text is a blank the form builder fills from en's. A copy fr holds beside
+    # no text of its own, where fr shows en's text: t4's is en's text, one text; t5's is another, two.
+    copied = form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="t1"><value>A</value><value form="markdown">A</value></text>
+            <text id="t2"><value>A</value></text>
+            <text id="t3"><value>A</value><value form="markdown">A</value></text>
+            <text id="t4"><value>A</value><value form="markdown">A</value></text>
+            <text id="t5"><value>A</value><value form="markdown">A</value></text></translation>
+          <translation lang="fr"><text id="t1"><value>A</value></text>
+            <text id="t2"><value>A</value><value form="markdown">A</value></text>
+            <text id="t3"><value/></text>
+            <text id="t4"><value form="markdown">A</value></text>
+            <text id="t5"><value form="markdown">B</value></text></translation></itext>""",
+    )
+    # The translations the reader reads: es is no app language (HQ removed it, and its build drops the translation),
+    # so its stale t1 lacking the copy is not read; the app's first language, fr, is the default though the source
+    # marks en, so t2's copy only fr holds, beside en's text equal to it, shows one text, and t3's copy, which en holds
+    # and the default fr lacks, breaks en.
+    relanguaged = _with_forms(
+        _app([_module([_form_json("none")])], langs=["fr", "en"]),
+        f=form(
+            data="<q/>",
+            model="""<itext><translation lang="en" default="">
+                <text id="t1"><value>A</value><value form="markdown">A</value></text>
+                <text id="t2"><value>A</value></text>
+                <text id="t3"><value>A</value><value form="markdown">A</value></text></translation>
+              <translation lang="fr"><text id="t1"><value>A</value><value form="markdown">A</value></text>
+                <text id="t2"><value>A</value><value form="markdown">A</value></text>
+                <text id="t3"><value>B</value></text></translation>
+              <translation lang="es"><text id="t1"><value>Hola</value></text></translation></itext>""",
+        ),
+    )
     # A hint's and a label's copy that differs from its text: the hint's is no runtime's to read.
     hinted = form(
         data="<q/>",
@@ -4180,6 +4424,21 @@ def _data_binds_and_itext():
             <text id="q-hint"><value>A</value><value form="markdown">B</value></text>
             <text id="q-label"><value>A</value><value form="markdown">B</value></text></translation></itext>""",
         body="""<input ref="/data/q"><label ref="jr:itext('q-label')"/><hint ref="jr:itext('q-hint')"/></input>""",
+    )
+    # A form whose text formatting is off: the label's copy is dropped by the next save, the hint's is no runtime's.
+    formatting_off = form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q-label"><value>A</value><value form="markdown">A</value></text>
+            <text id="q-hint"><value>A</value><value form="markdown">A</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q-label')"/><hint ref="jr:itext('q-hint')"/></input>""",
+    ).replace(b"<h:html ", b'<h:html vellum:ignore="markdown" ', 1)
+    # b's default reads a, whose default stands after it, though a stands before b in the data tree; c's reads nothing.
+    reordered = form(
+        data="<a/><b/><c/>",
+        model="""<setvalue event="xforms-ready" ref="/data/b" value="/data/a"/>
+          <setvalue event="xforms-ready" ref="/data/a" value="'x'"/>
+          <setvalue event="xforms-ready" ref="/data/c" value="'y'"/>""",
     )
     # Vellum's default language is the app's first (fr here, though the form marks en), and it fills a blank value
     # from the default, else from any app language with content (t4: es).
@@ -4280,6 +4539,17 @@ def _data_binds_and_itext():
     detail_keys = _app([_detail_module([_column(foo=1, calc_xpath=".")], short={"foo": 1, "custom_variables": None})])
     form_keys = _app([_module([{**_form_json("none"), "bar": 1, "no_vellum": False}])])
     short = "/modules/0/case_details/short"
+    nested = form(
+        data="<asked><part/></asked><grp><inner/></grp><plain/>",
+        body="""<input ref="/data/asked"/><group ref="/data/grp"><input ref="/data/grp/inner"/></group>
+          <input ref="/data/plain"/>""",
+    )
+    rooted = form(
+        data="<q/>",
+        model="""<bind nodeset="/data" relevant="/data/q = 'yes'"/><bind nodeset="/data/q" relevant="true()"/>
+          <bind nodeset="/data/." relevant="true()"/>""",
+        body='<input ref="/data/q"/>',
+    )
     return {
         "questions/question-id-failing-the-grammar-or-meta-in-any-case": (
             refused("form", nodes, root_child, f"{data}_bad[1]"),
@@ -4294,6 +4564,12 @@ def _data_binds_and_itext():
             refused("form", nodes, root_child, f"{data}holder[1]"),
             accepted("form", nodes, root_child, f"{data}grp[1]"),  # a group's node
         ),
+        "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": (
+            refused("form", nested, root_child, f"{data}asked[1]"),
+            accepted("form", nested, root_child, f"{data}grp[1]"),  # a group's node
+            accepted("form", nested, root_child, f"{data}plain[1]"),  # a question with no child
+            accepted("form", nodes, root_child, f"{data}holder[1]"),  # no control: the Hidden Value's class
+        ),
         "questions/default-data-value-datavalue-instance-text": (
             refused("form", nodes, root_child, f"{data}filled[1]"),
             accepted("form", nodes, root_child, f"{data}empty[1]"),
@@ -4305,6 +4581,26 @@ def _data_binds_and_itext():
         "questions/attachment-inside-a-savetocase-block": (
             refused("form", nodes, node, f"{{{CASE_NS}}}case[1]/{{{CASE_NS}}}attachment[1]"),
             accepted("form", nodes, node, f"{data}other[1]/{data}attachment[1]"),
+        ),
+        "forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes": (
+            refused("form", worker_block, node, f"{worker_row}external_id[1]"),
+            refused("form", worker_block, node, f"{worker_row}case_type[1]"),  # the sync writes the case's type
+            refused("form", worker_block, node, f"{worker_row}status[1]"),
+            accepted("form", worker_block, node, f"{worker_row}team[1]"),  # a worker property's name
+            accepted("form", worker_block, node, patient_row),  # another case's block
+            refused("app", worker_update("first_name"), "schema:UpdateCaseAction.update", usercase_map),
+            refused("app", worker_update("Status"), "schema:UpdateCaseAction.update", usercase_map),
+            accepted("app", worker_update("team"), "schema:UpdateCaseAction.update", usercase_map),
+            accepted("app", worker_update("status"), "schema:UpdateCaseAction.update", usercase_map),  # the bar's
+            refused("app", worker_load("user_type"), "schema:LoadUpdateAction.case_properties", load_map),
+            accepted("app", worker_load("team"), "schema:LoadUpdateAction.case_properties", load_map),
+        ),
+        "questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts": (
+            refused("form", reserved, node, f"{update_row}status[1]"),
+            accepted("form", reserved, node, f"{update_row}size[1]"),  # a name Nova holds
+            accepted("form", reserved, node, hand_row),  # a hand-written case block's
+            accepted("form", worker_block, node, f"{worker_row}status[1]"),  # the worker's record's class
+            accepted("form", reserved, node, f"{data}plain[1]/{data}status[1]"),  # a question's node
         ),
         "questions/authored-data-meta-block": (
             refused("form", nodes, root_child, f"{data}meta[1]"),
@@ -4369,6 +4665,11 @@ def _data_binds_and_itext():
             refused("form", binds, "xform:model/bind@calculate", "bind[7]/@calculate"),
             accepted("form", binds, "xform:model/bind@calculate", "bind[8]/@calculate"),
         ),
+        "questions/bind-whose-path-names-the-data-root-itself-data-data-or-a": (
+            refused("form", rooted, "xform:model/bind@nodeset", "bind[1]/@nodeset"),
+            refused("form", rooted, "xform:model/bind@nodeset", "bind[3]/@nodeset"),
+            accepted("form", rooted, "xform:model/bind@nodeset", "bind[2]/@nodeset"),
+        ),
         "questions/bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model": (
             refused("form", binds, "xform:model/bind@nodeset", "bind[9]/@nodeset"),
             accepted("form", binds, "xform:model/bind@nodeset", "bind[5]/@nodeset"),  # SaveToCase's own
@@ -4384,6 +4685,11 @@ def _data_binds_and_itext():
         "questions/a-second-default-setvalue-on-one-question": (
             refused("form", defaults, "xform:setvalue", "model[1]/setvalue[2]"),
             accepted("form", defaults, "xform:setvalue", "model[1]/setvalue[1]"),
+        ),
+        "questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes": (
+            refused("form", reordered, "xform:setvalue", "model[1]/setvalue[1]", readings=True),
+            refused("form", reordered, "xform:setvalue", "model[1]/setvalue[2]", readings=True),
+            accepted("form", reordered, "xform:setvalue", "model[1]/setvalue[3]", readings=True),
         ),
         "questions/data-root-uiversion-other-than-1-or-absent": (
             refused("form", nodes, "xform:model/instance/*", f"instance[1]/{data}data[1]"),
@@ -4459,22 +4765,53 @@ def _data_binds_and_itext():
             refused("form", hinted, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form", readings=True),
         ),
         "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": (
+            # fr's text beside no copy is A, en's copy B: fr's hierarchy and its question show two texts
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
             accepted("form", translations, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
+            # fr's text is en's copy, or a blank filled from en's text: one text in every language
+            accepted("form", copied, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
+            accepted("form", copied, "itext-form:core/markdown", "translation[1]/text[3]/value[2]/@form"),
+            # a copy the default lacks
+            refused("form", copied, "itext-form:core/markdown", "translation[2]/text[2]/value[2]/@form"),
+            # a copy beside no text of its own: en's text, one text; another, two
+            accepted("form", copied, "itext-form:core/markdown", "translation[1]/text[4]/value[2]/@form"),
+            refused("form", copied, "itext-form:core/markdown", "translation[1]/text[5]/value[2]/@form"),
+            # a removed language's stale text is no language's; the app's first language is the default
+            accepted("app", relanguaged, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
+            accepted("app", relanguaged, "itext-form:core/markdown", "translation[2]/text[2]/value[2]/@form"),
+            refused("app", relanguaged, "itext-form:core/markdown", "translation[1]/text[3]/value[2]/@form"),
         ),
-        "questions/an-explicitly-blank-value-in-a-non-default-language-where-the": (
-            refused(
-                "app", in_two_languages, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"
+        "questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text": (
+            # fr is the app's first language: its blank t3 beside en's text is refused; en's blank t4 is no first's
+            refused("app", translated, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"),
+            accepted("app", translated, "xform:model/itext/translation/text/value", "translation[1]/text[4]/value[1]"),
+            # en is first: its blank t4 has no other app language's text (es is no app language here)
+            accepted(
+                "app", in_two_languages, "xform:model/itext/translation/text/value", "translation[1]/text[4]/value[1]"
             ),
             accepted(
-                "app", in_two_languages, "xform:model/itext/translation/text/value", "translation[2]/text[1]/value[1]"
+                "app", in_two_languages, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"
             ),
-            # fr is the app's default: its blank t3 is no other language's; en's blank t4 takes es's text
-            accepted("app", translated, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"),
-            refused("app", translated, "xform:model/itext/translation/text/value", "translation[1]/text[4]/value[1]"),
             unsettled(
                 "form", translations, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"
             ),
+        ),
+        "questions/a-markdown-form-in-a-form-whose-text-formatting-is-off": (
+            refused(
+                "form",
+                formatting_off,
+                "itext-form:core/markdown",
+                "translation[1]/text[1]/value[2]/@form",
+                readings=True,
+            ),
+            accepted(
+                "form",
+                formatting_off,
+                "itext-form:core/markdown",
+                "translation[1]/text[2]/value[2]/@form",
+                readings=True,
+            ),
+            accepted("form", hinted, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
         ),
         "questions/itext-entry-referenced-only-from-jr-itext-in-an-expression": (
             refused("form", messages, "xform:model/itext/translation/text@id", "text[6]/@id", readings=True),  # extra
@@ -4615,6 +4952,74 @@ def _data_binds_and_itext():
             refused("app", supplied, "session-path:session/data/*", "bind[1]/@calculate", readings=True),
             accepted("app", supplied, "session-path:session/data/*", "bind[2]/@calculate", readings=True),
         ),
+        "expressions-and-data/session-data-datum-the-entry-does-not-supply": (
+            refused("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[1]/@nodeset", readings=True),
+            accepted("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[2]/@nodeset", readings=True),
+            accepted(
+                "suite",
+                SESSION_DATUMS_SUITE,
+                "session-path:session/data/*",
+                "field[1]/template[1]/text[1]/xpath[1]/@function",
+                readings=True,
+            ),
+            refused(
+                "suite",
+                SESSION_DATUMS_SUITE,
+                "session-path:session/data/*",
+                "field[2]/template[1]/text[1]/xpath[1]/@function",
+                readings=True,
+            ),
+            accepted(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "remote-request[1]/session[1]/query[1]/data[2]/@ref",
+                readings=True,
+            ),
+            refused(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "remote-request[1]/session[1]/query[1]/data[3]/@ref",
+                readings=True,
+            ),
+            accepted(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "remote-request[2]/session[1]/datum[1]/@function",
+                readings=True,
+            ),
+            accepted(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "entry[2]/stack[1]/create[1]/@if",
+                readings=True,
+                uses=2,
+            ),
+            refused(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "entry[2]/stack[1]/create[2]/@if",
+                readings=True,
+            ),
+            accepted(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "entry[2]/stack[1]/create[1]/datum[1]/@value",
+                readings=True,
+            ),
+            refused(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "entry[2]/stack[1]/create[3]/datum[1]/@value",
+                readings=True,
+            ),
+        ),
         "expressions-and-data/var-in-a-form-expression": (
             refused("form", variables, "xpath-token:VAR", "bind[1]/@calculate", readings=True),
             accepted("suite", VARIABLES_SUITE, "xpath-token:VAR", "menu[1]/@relevant", readings=True),
@@ -4692,22 +5097,24 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
     for shape in SHAPES[entry_id]:
         found = _shape_uses(shape, manifest, readings if shape.readings else None)
         uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
-        assert len(uses) == 1, f"{entry_id}: {shape.key} at {shape.where} is {len(uses)} uses, not one"
-        (use,) = uses
+        assert len(uses) == shape.uses, (
+            f"{entry_id}: {shape.key} at {shape.where} is {len(uses)} uses, not {shape.uses}"
+        )
         named = entry in manifest.entries.get(shape.key, ())
         # A key the entry should name and does not is a gap listed in UNCONSULTED; one it names now moves its shape.
         assert named is shape.named, f"{entry_id} {'does not name' if shape.named else 'now names'} {shape.key}"
-        verdict = classes.VALUE_CLASSES[entry_id](use, manifest)
-        assert verdict is shape.verdict, f"{entry_id} reads {shape.key} at {shape.where} as {verdict}"
-        if not named:
-            continue
-        # The check consults the reader for that use: the use stands in the class where the reader takes it.
-        kind, held = manifest_usage.standing(manifest, use)
-        if shape.verdict:
-            refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
-            assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
-        elif shape.verdict is False:
-            assert entry not in held
+        for use in uses:
+            verdict = classes.VALUE_CLASSES[entry_id](use, manifest)
+            assert verdict is shape.verdict, f"{entry_id} reads {shape.key} at {shape.where} as {verdict}"
+            if not named:
+                continue
+            # The check consults the reader for that use: the use stands in the class where the reader takes it.
+            kind, held = manifest_usage.standing(manifest, use)
+            if shape.verdict:
+                refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
+                assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
+            elif shape.verdict is False:
+                assert entry not in held
 
 
 @pytest.mark.parametrize(
@@ -4742,6 +5149,83 @@ def observed(hq, core_runner):
 )
 def test_a_reader_places_each_shape_read_with_the_observations_readings(entry_id, manifest, observed):
     _holds_its_shapes(entry_id, manifest, observed)
+
+
+def _entry_suite(*datum_ids):
+    """A suite whose one entry opens the form ``FORM`` writes (namespace ``http://example.org/t``), writing
+    ``datum_ids`` into the session."""
+    datums = "".join(
+        f"<datum id={quoteattr(datum_id)} value='./@case_id'"
+        f" nodeset=\"instance('casedb')/casedb/case[@case_type='patient']\"/>"
+        for datum_id in datum_ids
+    )
+    return (
+        '<suite version="1"><entry><form>http://example.org/t</form><command id="m0-f0"><text><locale id="c"/>'
+        f'</text></command><instance id="casedb" src="jr://instance/casedb"/><session>{datums}</session></entry>'
+        "</suite>"
+    ).encode()
+
+
+def test_an_app_json_forms_session_reads_are_judged_by_the_entries_hq_built_of_its_upload(hq, core_runner, manifest):
+    """Contract: ``expressions-and-data/session-data-datum-the-entry-does-not-supply`` reads an app JSON form's
+    ``session/data/<id>`` against the entries that open the form in HQ's build of the upload that carried it
+    (``manifest_usage.export_uses``: A's state for a first publish), falls back to the local archive Nova built of
+    the same export only where HQ built nothing, and is undecided only where neither says. The plausible failures:
+    a document that declares no Android, so Nova hands it no local archive, whose every session read is undecided
+    (which no register entry may hold); and a judge that reads Nova's own suite where HQ's build, which is what
+    runs the app JSON, writes other datums."""
+    from types import SimpleNamespace
+
+    from proof.observe.record import ConfigurationRecords, DocumentRecords
+
+    form = _form(
+        data="<c/><p/>",
+        model="""<bind nodeset="/data/c" calculate="instance('commcaresession')/session/data/case_id"/>
+          <bind nodeset="/data/p" calculate="instance('commcaresession')/session/data/parent_id"/>""",
+    )
+    app = _with_forms(_app([_module([{**_form_json("none"), "unique_id": "f"}])]), f=form)
+    built_suite, local_suite = _entry_suite("case_id"), _entry_suite("parent_id", "case_id")
+    table = observed_manifest.readings(core_runner, forms=[form], runtimes=[local_suite], apps=[app])
+    document = SimpleNamespace(
+        id="datum-reads",
+        exports={"minimum": SimpleNamespace(two_imports=False, republish=None, configuration=PLAIN)},
+        edit=None,
+        migration_witness=False,
+        hq_side=None,
+    )
+    reader = classes.VALUE_CLASSES["expressions-and-data/session-data-datum-the-entry-does-not-supply"]
+    binds = {"bind[1]/@calculate": "case_id", "bind[2]/@calculate": "parent_id"}
+
+    def judged(built, local):
+        records = DocumentRecords(document.id, "corpus")
+        blobs = records.blobs
+        a = {"kind": "a"}
+        if built is not None:  # HQ built A: its files, each a blob, as ``outcome_record`` keeps them
+            a["state"] = {"build": {"files": {"suite.xml": blobs.put(built)}}}
+        records.configurations["minimum"] = ConfigurationRecords("minimum", {}, a=a)
+        observed = {
+            "uploads": {"minimum/create": blobs.put(json.dumps(app).encode())},
+            "archives": {} if local is None else {"local.ccz": {"suite.xml": blobs.put(local)}},
+            "readings": blobs.put_json(table),
+        }
+        records.local = {"kind": "local", "hooks": {"manifest": observed}}
+        found = manifest_usage.export_uses(document, records, manifest)
+        uses = [use for use in found.uses if use.key == "session-path:session/data/*" and use.artifact == "form:0.0"]
+        return {
+            datum_id: reader(use, manifest)
+            for use in uses
+            for where, datum_id in binds.items()
+            if use.where.endswith(where)
+        }
+
+    # No local archive (an app declared for Web Apps alone): HQ's build of the upload decides.
+    assert judged(built_suite, None) == {"case_id": False, "parent_id": True}
+    # HQ's build decides where Nova's local archive writes more.
+    assert judged(built_suite, local_suite) == {"case_id": False, "parent_id": True}
+    # HQ built nothing (it refused the publish, which the bar reports): the local archive of the same export.
+    assert judged(None, local_suite) == {"case_id": False, "parent_id": False}
+    # Neither says what opens the form: the reader cannot tell.
+    assert judged(None, None) == {"case_id": None, "parent_id": None}
 
 
 # REFUSED classes the inventory keys whose reader the registry does not hold, each a gap: every use of their keys
@@ -4793,8 +5277,17 @@ KNOWN_GAPS = frozenset(
         # Connect block is data with none, whose leaves ``get_questions`` lists as ``DataBindOnly``; no family reads
         # a ``vellum-plugin:`` key.
         "questions/connect-block-text-read-as-an-instance",
+        "questions/connect-deliver-unit-and-task-in-one-form",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
+        # Their one key is ``mug:SaveToCase``, of which the extraction makes no use: HQ's reader types a question
+        # from its body control (``xform.py::_infer_vellum_type``), a SaveToCase node has none, and ``get_questions``
+        # lists its leaves and its case's attributes as ``DataBindOnly``. Nova's gate refuses each class, so no export
+        # holds one.
+        "questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters",
+        "questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself",
+        "questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none",
+        "questions/a-savetocase-link-name-longer-than-commcare-hq-stores",
         "questions/bare-repeat-with-no-group-wrapper",
         "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes",
         "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form",

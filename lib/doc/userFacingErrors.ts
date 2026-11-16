@@ -857,7 +857,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	TRANSLATION_PROTECTED_CONTENT_CHANGED: () =>
 		"A translation changed one of the linked values inside its text. Open Languages, restore each protected value, and translate only the surrounding words.",
 	APP_STRING_VALUE_UNREPRESENTABLE: () =>
-		"One app string contains spacing Nova can't preserve on a device. Open Languages and remove typed \\n text, carriage returns, or spaces at the beginning or end.",
+		"One app string holds text a device would show differently. Open Languages and remove a typed \\n or \\#, a ${ in the name of a menu, form, button or Search field, carriage returns, or spaces at the beginning or end.",
 
 	// ── Worker information, roles, personas ──────────────────────────
 	// The rule's own message already carries the specific reason (an illegal
@@ -1579,6 +1579,22 @@ const USER_MESSAGE_BY_CODE: Record<
 			: `${formulaSubject(e)} reads what the search found by its order. CommCare's search returns its cases in no fixed order, so the first or last result can change from one search to the next. You can count the results, or read a value of the case the worker chose.`,
 	LOCATIONS_READ_NEEDS_ORGANIZATION: (e) =>
 		`${carrierSubject(e)} reads places, but this app has no organization yet. You can add your organization's levels in App setup first.`,
+	FORM_CASE_READ_ACROSS_SEVERAL_LINKS: (e) => {
+		const child = det(e, "childCaseType", "a");
+		const parent = det(e, "parentCaseType", "its parent");
+		const names = det(e, "identifiers", "")
+			.split(" ")
+			.filter((name) => name !== "");
+		const listed =
+			names.length < 2
+				? ""
+				: `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+		const named = listed === "" ? "several names" : `several names (${listed})`;
+		const childName = e.details?.childIdentifier;
+		if (typeof childName === "string" && childName !== "")
+			return `${formulaSubject(e)} reads ${q(det(e, "hashtag", "a case value"))}, but this app links a ${child} case to its ${parent} case as ${childName}, the one name a ${child} case is listed under its ${parent} case by, and not every ${child} case it links carries ${childName}${listed === "" ? "" : ` (it links them under ${listed})`}. A form reads through one name, so this read would be blank for the ${child} cases without ${childName}, or read a ${parent} case other than the one they are listed under. You can link every ${child} case to its ${parent} case as ${childName}, or remove this read.`;
+		return `${formulaSubject(e)} reads ${q(det(e, "hashtag", "a case value"))}, but this app links a ${child} case to its ${parent} case under ${named}, and no one name is on every ${child} case it links. A form reads through one name, so this read would be blank for the cases linked under another. You can link every ${child} case to its ${parent} case under one name, or remove this read.`;
+	},
 	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: (e) => {
 		const property = det(e, "property", "that property");
 		const operationId = e.details?.operationId;
@@ -1779,6 +1795,8 @@ const USER_MESSAGE_BY_CODE: Record<
 			return `A formula on ${q(fieldName(e))} in ${q(formName(e))} uses a choice that ${q(det(e, "choiceFieldName", "that question"))} no longer has. You can choose one of its current choices.`;
 		if (e.details?.identity === "wording")
 			return `${formulaSubject(e)} reads wording that its form no longer has. You can read a question's current wording, or remove that read.`;
+		if (e.details?.identity === "validation-message")
+			return `${formulaSubject(e)} reads the validation message of ${q(det(e, "questionId", "a question"))}, which its form holds only while that question has a validation condition. You can give it a validation condition, or read other wording.`;
 		if (e.details?.identity === "place")
 			return `${formulaSubject(e)} reads a place level or a piece of place information that no longer exists. You can choose a current one, or remove that read.`;
 		if (e.details?.identity === "worker-field")

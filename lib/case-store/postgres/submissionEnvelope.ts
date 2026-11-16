@@ -2464,13 +2464,11 @@ async function setOwner(
  * `case_indices.relationship`. One identifier is one slot per case: a
  * new target replaces the edge; a null target removes it, mirroring
  * the wire where an empty index value removes the link. A `parent`
- * identifier also maintains the denormalized first-parent column the
- * read paths walk.
+ * identifier also maintains the denormalized `parent_case_id`, which holds
+ * the case's `parent` index alone, as every other writer keeps it
+ * (`store.ts::parentColumn`). A search claim's `host` index is written here
+ * too (`PostgresCaseStore.claimCases`).
  */
-/** The identifier-keyed index writer: replaces `caseId`'s edge under
- *  `link.identifier` (a null target removes it), and keeps the denormalized
- *  `parent_case_id` in step for a `parent` index. A search claim's `host`
- *  index is written here too (`PostgresCaseStore.claimCases`). */
 export async function applyLinkEffect(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,

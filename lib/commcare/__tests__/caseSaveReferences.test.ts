@@ -2,14 +2,22 @@
  * (HQ's form builder, `logic.js::LogicManager.caseReferences`). Most trees are
  * Nova's own emission, parsed back from the stored form source; the trees for
  * the rules' other branches are hand-built, since Nova emits none of them.
- * What HQ and its form builder do with the map is the proof lane's. */
+ * `caseSaveReferencesOf`, the computation a source CommCare HQ serves is held
+ * to, is read over the shapes such a source may hold and Nova never writes (a
+ * bind's `ref`, a relative path, no path, a data root of another name), where
+ * a throw would stop a reading. Over Nova's own trees `caseSaveReferences`
+ * hands it the model and the data root, and the emitted cases below hold the
+ * map it gives to fixed values. What HQ and its form builder do with the map is the proof lane's. */
 import { Element, isTag } from "domhandler";
 import { describe, expect, it } from "vitest";
 import { el } from "@/lib/commcare/elementBuilders";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqCaseSaveReference } from "@/lib/commcare/types";
 import { checkCaseReferences } from "@/lib/commcare/validator/hqJsonOracle";
-import { caseSaveReferences } from "@/lib/commcare/xform/caseSaveReferences";
+import {
+	caseSaveReferences,
+	caseSaveReferencesOf,
+} from "@/lib/commcare/xform/caseSaveReferences";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
@@ -302,5 +310,76 @@ describe("caseSaveReferences over hand-built trees", () => {
 			"/data/visit/case/update/1st-name": "/data/note",
 		});
 		expect(() => caseSaveReferences(tree)).toThrow(/1st-name/);
+	});
+
+	it("throws on a bind with no nodeset, which the emitter never builds", () => {
+		const tree = handBuilt([el("update", {}, [el("bound", {})])], {});
+		const model = (tree.children[0] as Element).children[0] as Element;
+		model.children.push(
+			new Element("bind", { ref: "visit/case/update/bound" }),
+		);
+		expect(() => caseSaveReferences(tree)).toThrow(/no nodeset/);
+	});
+});
+
+/**
+ * A model and a data root as CommCare HQ may serve them: the data root named
+ * `root`, its one block `<root>/visit`, and `binds` given as attribute maps.
+ */
+function servedForm(
+	root: string,
+	binds: readonly Record<string, string>[],
+): { model: Element; dataRoot: Element } {
+	const dataRoot = el(root, {}, [
+		el("note", {}),
+		el("visit", { "vellum:role": "SaveToCase", "vellum:case_type": "visit" }, [
+			el("case", { case_id: "", xmlns: CASE_XMLNS }, [
+				el("update", {}, [
+					el("by_nodeset", {}),
+					el("by_ref", {}),
+					el("relative", {}),
+					el("pathless", {}),
+				]),
+			]),
+		]),
+	]);
+	const model = el("model", {}, [
+		el("instance", {}, [dataRoot]),
+		...binds.map((attributes) => new Element("bind", { ...attributes })),
+	]);
+	return { model, dataRoot };
+}
+
+describe("caseSaveReferencesOf over a source CommCare HQ serves", () => {
+	it("reads a bind's ref where it has no nodeset, a relative path from the data root, and lists nothing for a bind with no path", () => {
+		const { model, dataRoot } = servedForm("data", [
+			{
+				nodeset: "/data/visit/case/update/by_nodeset",
+				calculate: "/data/note",
+			},
+			{ ref: "/data/visit/case/update/by_ref", calculate: "/data/note" },
+			{ nodeset: "visit/case/update/relative", calculate: "/data/note" },
+			{ calculate: "/data/note" },
+		]);
+		expect(caseSaveReferencesOf(model, dataRoot)).toEqual({
+			"/data/visit": ref("visit", ["by_nodeset", "by_ref", "relative"]),
+		});
+	});
+
+	it("keys blocks under a data root named other than data, and lists no bind whose path is no block's leaf", () => {
+		const { model, dataRoot } = servedForm("form", [
+			{ nodeset: "/form/visit/case/update/by_nodeset" },
+			{ nodeset: "relative" },
+			// Under another root, outside any block, past a leaf, and a leaf
+			// name the editor's `[\w-]+` does not read: none is a leaf.
+			{ nodeset: "/data/visit/case/update/by_ref" },
+			{ nodeset: "/form/note/case/update/by_ref" },
+			{ nodeset: "/form/visit/case/update/by_ref/deeper" },
+			{ nodeset: "/form/visit/case/update/1st.name" },
+			{ nodeset: "/form/visit/case/@case_id" },
+		]);
+		expect(caseSaveReferencesOf(model, dataRoot)).toEqual({
+			"/form/visit": ref("visit", ["by_nodeset"]),
+		});
 	});
 });

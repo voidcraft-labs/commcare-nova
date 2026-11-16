@@ -1,5 +1,5 @@
 import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
-import { caseTypeDepthMap } from "../caseTypeDepths";
+import { caseTypeHopMap } from "../caseTypeDepths";
 /**
  * XForm XML emitter.
  *
@@ -134,7 +134,11 @@ import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
 import { fieldBindType } from "./bindType";
-import { protectConstraintMessage } from "./constraintMessage";
+import {
+	bindCarriesConstraint,
+	protectConstraintMessage,
+} from "./constraintMessage";
+import { isConsumerWhitespace } from "./consumerWhitespace";
 import { countPlacementRowPieces } from "./countPlacementRow";
 import {
 	datetimeCaseValuePath,
@@ -170,30 +174,10 @@ type AddItext = (
 	markdown?: boolean,
 ) => ItextRegistration;
 
-function isConsumerWhitespace(value: string): boolean {
-	for (let index = 0; index < value.length; index++) {
-		const unit = value.charCodeAt(index);
-		// Core removes Java String.trim()-empty text nodes; HQ's lxml indent
-		// additionally replaces whitespace-only tails using Python's isspace.
-		if (
-			unit > 0x20 &&
-			unit !== 0x85 &&
-			unit !== 0xa0 &&
-			unit !== 0x1680 &&
-			!(unit >= 0x2000 && unit <= 0x200a) &&
-			unit !== 0x2028 &&
-			unit !== 0x2029 &&
-			unit !== 0x202f &&
-			unit !== 0x205f &&
-			unit !== 0x3000
-		) {
-			return false;
-		}
-	}
-	return true;
-}
-
-function whitespaceOutput(value: string, context: WireElementContext): Element {
+export function whitespaceOutput(
+	value: string,
+	context: WireElementContext,
+): Element {
 	if (Array.from(value).every((unit) => unit.charCodeAt(0) <= 0x20)) {
 		return xel("output", { xpath: { value: w.str(value) } }, context);
 	}
@@ -293,7 +277,7 @@ function literalRunNodes(
  * sharing instances would re-parent and corrupt the first `<value>`), and
  * calling this builder once per `<value>` is how the caller gets them.
  */
-function buildLabelNodes(
+export function buildLabelNodes(
 	template: ProseTemplate,
 	lower: (part: ProseAtomPart) => WireExpr,
 	context: WireElementContext,
@@ -312,7 +296,69 @@ function buildLabelNodes(
 	return nodes;
 }
 
-const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
+/** The namespace each Connect block's own element is in. */
+export const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
+
+/**
+ * Each Connect block as `buildConnectBlocks` writes it: the wrapper's
+ * `vellum:role`, the block's own element, and its leaves in order, the
+ * layout HQ's form builder gives each Connect question
+ * (`commcareConnect.js`, each mug's `childNodes`). The reader of CommCare
+ * HQ's forms reads a block against this same layout.
+ */
+export const CONNECT_BLOCK_SHAPES = {
+	learn_module: {
+		role: "ConnectLearnModule",
+		element: "module",
+		leaves: ["name", "description", "time_estimate"],
+	},
+	assessment: {
+		role: "ConnectAssessment",
+		element: "assessment",
+		leaves: ["user_score"],
+	},
+	deliver_unit: {
+		role: "ConnectDeliverUnit",
+		element: "deliver",
+		leaves: ["name", "entity_id", "entity_name", "work_area_id"],
+	},
+	task: {
+		role: "ConnectTask",
+		element: "task",
+		leaves: ["name", "description"],
+	},
+} as const satisfies Readonly<
+	Record<
+		string,
+		{
+			readonly role: string;
+			readonly element: string;
+			readonly leaves: readonly string[];
+		}
+	>
+>;
+
+/** A Connect block's wrapper named `id`, its own element and its leaves in the order its
+ *  shape gives, each leaf holding the text `texts` gives it, or nothing. */
+function connectBlockData(
+	shape: (typeof CONNECT_BLOCK_SHAPES)[keyof typeof CONNECT_BLOCK_SHAPES],
+	id: string,
+	texts: Readonly<Record<string, string>>,
+): Element {
+	return el(id, { "vellum:role": shape.role }, [
+		el(
+			shape.element,
+			{ xmlns: CONNECT_XMLNS, id },
+			shape.leaves.map((leaf) =>
+				el(
+					leaf,
+					{},
+					Object.hasOwn(texts, leaf) ? [text(texts[leaf] as string)] : [],
+				),
+			),
+		),
+	]);
+}
 
 /**
  * Build the Connect data blocks + matching binds for a form.
@@ -323,7 +369,7 @@ const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
  * fail at runtime. Each wrapper gets its own `vellum:nodeset` bind plus
  * a bind per declared sub-node so CommCare has paths to write to.
  */
-function buildConnectBlocks(
+export function buildConnectBlocks(
 	connect: ResolvedConnectConfig | undefined,
 	context: WireElementContext,
 	expressions: FormExpressionEmission,
@@ -343,13 +389,11 @@ function buildConnectBlocks(
 		const lmId = lm.id;
 		const lmPath = FormPath.root().child(lmId);
 		dataElements.push(
-			el(lmId, { "vellum:role": "ConnectLearnModule" }, [
-				el("module", { xmlns: CONNECT_XMLNS, id: lmId }, [
-					el("name", {}, [text(lm.name)]),
-					el("description", {}, [text(lm.description)]),
-					el("time_estimate", {}, [text(String(lm.time_estimate))]),
-				]),
-			]),
+			connectBlockData(CONNECT_BLOCK_SHAPES.learn_module, lmId, {
+				name: lm.name,
+				description: lm.description,
+				time_estimate: String(lm.time_estimate),
+			}),
 		);
 		binds.push(
 			xel(
@@ -375,11 +419,7 @@ function buildConnectBlocks(
 		const userScore = effectiveAssessmentUserScore(connect.assessment);
 		const assessPath = FormPath.root().child(assessId);
 		dataElements.push(
-			el(assessId, { "vellum:role": "ConnectAssessment" }, [
-				el("assessment", { xmlns: CONNECT_XMLNS, id: assessId }, [
-					el("user_score", {}),
-				]),
-			]),
+			connectBlockData(CONNECT_BLOCK_SHAPES.assessment, assessId, {}),
 		);
 		binds.push(
 			xel(
@@ -422,20 +462,14 @@ function buildConnectBlocks(
 		// XPaths actually run at form-fill time.
 		const { entityId, entityName } = effectiveDeliverEntities(du);
 		const duPath = FormPath.root().child(duId);
+		// HQ's form builder lists `work_area_id` after `entity_name` and writes
+		// it with a bare bind (`commcareConnect.js`,
+		// `ConnectDeliverUnit.childNodes`); Connect reads the empty value as no
+		// work area (`form_receiver/processor.py::process_deliver_unit`).
 		dataElements.push(
-			el(duId, { "vellum:role": "ConnectDeliverUnit" }, [
-				// HQ's form builder lists `work_area_id` after `entity_name` and
-				// writes it with a bare bind (`commcareConnect.js`,
-				// `ConnectDeliverUnit.childNodes`); Connect reads the empty value
-				// as no work area (`form_receiver/processor.py::
-				// process_deliver_unit`).
-				el("deliver", { xmlns: CONNECT_XMLNS, id: duId }, [
-					el("name", {}, [text(du.name)]),
-					el("entity_id", {}),
-					el("entity_name", {}),
-					el("work_area_id", {}),
-				]),
-			]),
+			connectBlockData(CONNECT_BLOCK_SHAPES.deliver_unit, duId, {
+				name: du.name,
+			}),
 		);
 		binds.push(
 			xel(
@@ -493,12 +527,10 @@ function buildConnectBlocks(
 		const taskId = t.id;
 		const taskPath = FormPath.root().child(taskId);
 		dataElements.push(
-			el(taskId, { "vellum:role": "ConnectTask" }, [
-				el("task", { xmlns: CONNECT_XMLNS, id: taskId }, [
-					el("name", {}, [text(t.name)]),
-					el("description", {}, [text(t.description)]),
-				]),
-			]),
+			connectBlockData(CONNECT_BLOCK_SHAPES.task, taskId, {
+				name: t.name,
+				description: t.description,
+			}),
 		);
 		binds.push(
 			xel(
@@ -583,6 +615,33 @@ export interface BuildXFormOptions {
 	 * disagree about whether the property is written.
 	 */
 	attachmentTarget?: AttachmentUrlTarget;
+	/**
+	 * The id prefix a create keyed by an answer writes, by operation, where a
+	 * source already holds one that is not the document's derivation. Absent,
+	 * every keyed create writes `authoredCaseIdPrefix` of its own scope.
+	 */
+	keyedCaseIdPrefixes?: ReadonlyMap<Uuid, string>;
+}
+
+/**
+ * The relevance of a validation count lifted out of a question's constraint
+ * (`constraintCollections.ts`): the count is worked out only while the
+ * question it serves is present, `count(q) > 0`.
+ */
+export function constraintCountRelevant(question: FormPath): WireExpr {
+	return w.gt(w.call("count", [question.toWire()]), w.num(0));
+}
+
+/**
+ * The check a visible question carries on its own constraint where its answer
+ * is a case name or an external id: the trimmed answer within the length a
+ * case holds and, for a name (`reject`), not blank.
+ */
+export function questionScalarCheck(blank: "allow" | "reject"): WireExpr {
+	return caseScalarTextValueGuard(
+		caseScalarTextValueCalculation(w.context([w.self()])),
+		blank,
+	);
 }
 
 /**
@@ -594,7 +653,7 @@ export interface BuildXFormOptions {
  * control: the worker, `instance('commcaresession')/session/context/userid`,
  * or no owner, `'-'`.
  */
-function buildOwnerNodes(
+export function buildOwnerNodes(
 	nodes: readonly AdvancedGeneratedNode[],
 	context: WireElementContext,
 ): {
@@ -636,7 +695,7 @@ function buildOwnerNodes(
  * `setvalues` ordered by where each target stands in the primary instance,
  * an attribute at its element. Setvalues on one element keep their order.
  */
-function inDataTreeOrder(
+export function inDataTreeOrder(
 	setvalues: readonly Element[],
 	data: Element,
 ): Element[] {
@@ -764,18 +823,15 @@ export function buildXFormSource(
 ): XFormSource {
 	const localization = commCareLocalization(doc);
 
-	// The case types this form can READ, name → parent-index hop depth (own = 0,
-	// parent = 1, …). Built from the owning module's case type via the shared
-	// `caseTypeDepthMap` — the SAME construction `buildCaseReferencesLoad`
-	// translates its load entries through, and the same `reachableCaseTypes`
-	// source the deep validator's accept map reads — so a `#<type>/<prop>` ref
-	// the validator accepted resolves on the wire to the matching
-	// `…/index/parent × depth …/<prop>` walk and the load map names the same
-	// case as the binds. Empty when the module has no case type.
-	const caseTypeDepths = caseTypeDepthMap(
-		opts.moduleCaseType,
-		doc.caseTypes ?? [],
-	);
+	// The case types this form can READ, name → the index walk from its own
+	// case (own = no hop, parent = one, …). Built from the owning module's case
+	// type via the shared `caseTypeHopMap` — the SAME construction
+	// `buildCaseReferencesLoad` translates its load entries through, over the
+	// same `reachableCaseTypes` source the deep validator's accept map reads — so
+	// a `#<type>/<prop>` ref the validator accepted resolves on the wire to the
+	// matching `…/index/<identifier> …/<prop>` walk and the load map names the
+	// same case as the binds. Empty when the module has no case type.
+	const caseTypeHops = caseTypeHopMap(doc, opts.moduleCaseType);
 	const instances = new InstanceSink();
 	const context: WireElementContext = {
 		mode: { target: "xform", constraint: false },
@@ -785,7 +841,7 @@ export function buildXFormSource(
 		doc,
 		formUuid,
 		opts.lookupNaming,
-		caseTypeDepths,
+		caseTypeHops,
 		opts.selectedCaseIdRef,
 		opts.moduleCaseType,
 	);
@@ -1030,6 +1086,8 @@ export function buildXFormSource(
 		opts.selectedCaseIdRef,
 		opts.selectedCasesInstanceId,
 		opts.attachmentTarget ?? null,
+		undefined,
+		opts.keyedCaseIdPrefixes,
 	);
 	if (caseOperations !== null) {
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
@@ -1256,6 +1314,12 @@ function buildFieldParts(
 		: readFieldMedia(field, "label_media");
 	const helpMedia = readFieldMedia(field, "help_media");
 	const canValidate = fieldKindCarriesValidation(field.kind);
+	// A case name or an external id is checked at the question a worker
+	// answers, on the kinds `caseScalarTextGuardIsChecked` names; Preview's
+	// form engine checks the same ones.
+	const scalarGuard = caseScalarText.guards.get(fieldUuid);
+	const checksScalar =
+		scalarGuard !== undefined && caseScalarTextGuardIsChecked(field.kind);
 	// A label or a help text shown as typed writes no markdown form; a hint
 	// and a validation message never write one.
 	const labelMarkdown = !labelShowsAsTyped(
@@ -1284,7 +1348,12 @@ function buildFieldParts(
 		field.kind !== "hidden" &&
 		addItext(`${itextKey}-help`, help, helpMedia, false, false, helpMarkdown)
 			.registered;
-	const validationMessage = canValidate
+	// A message no constraint can fail is never shown, so none is written.
+	const validationMessage = bindCarriesConstraint(
+		field.kind,
+		validate,
+		scalarGuard,
+	)
 		? addItext(
 				`${itextKey}-constraintMsg`,
 				validateMsg,
@@ -1307,12 +1376,6 @@ function buildFieldParts(
 		slot: "required" | "relevant" | "calculate" | "default_value" | "validate",
 	) =>
 		expressions.lower(expression, { entity: "field", uuid: fieldUuid, slot });
-	// A case name or an external id is checked at the question a worker
-	// answers, on the kinds `caseScalarTextGuardIsChecked` names; Preview's
-	// form engine checks the same ones.
-	const scalarGuard = caseScalarText.guards.get(fieldUuid);
-	const checksScalar =
-		scalarGuard !== undefined && caseScalarTextGuardIsChecked(field.kind);
 	const bindAttributes: Record<string, string> = {};
 	const bindXPath: NonNullable<WireElementSpec<"bind">["xpath"]> = {
 		"vellum:nodeset": nodePath.toWire("hashtag"),
@@ -1359,10 +1422,7 @@ function buildFieldParts(
 	const scalarCheck =
 		scalarGuard === undefined
 			? w.call("true")
-			: caseScalarTextValueGuard(
-					caseScalarTextValueCalculation(w.context([w.self()])),
-					scalarGuard,
-				);
+			: questionScalarCheck(scalarGuard);
 	if (canValidate && validate) {
 		const plan = planConstraintCollections(
 			validate,
@@ -1388,7 +1448,7 @@ function buildFieldParts(
 						attributes: { type: "xsd:int" },
 						xpath: {
 							nodeset: calculation.path.toWire(),
-							relevant: w.gt(w.call("count", [nodePath.toWire()]), w.num(0)),
+							relevant: constraintCountRelevant(nodePath),
 							calculate: lower(calculation.expression, "validate"),
 						},
 					},
@@ -1778,7 +1838,7 @@ function deriveLookupSelectKit(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	naming: LookupWireNaming | undefined,
-	caseTypeDepths: ReadonlyMap<string, number>,
+	caseTypeHops: ReadonlyMap<string, readonly string[]>,
 	selectedCaseId: WireExpr | undefined,
 	moduleCaseType: string | undefined,
 ): LookupSelectEmissionKit {
@@ -1788,7 +1848,7 @@ function deriveLookupSelectKit(
 		userPropertySlugs: userPropertySlugsByUuid(doc),
 		formCaseProperty: formCasePropertyRead({
 			formType: doc.forms[formUuid].type,
-			caseTypeDepths,
+			caseTypeHops,
 			moduleCaseType,
 			...(selectedCaseId === undefined ? {} : { selectedCaseId }),
 		}),
@@ -2226,7 +2286,7 @@ function buildContainer(
 }
 
 /** What one query repeat writes besides its authored children. */
-interface QueryRepeatEmission {
+export interface QueryRepeatEmission {
 	/** The wrapper `r`, holding the `item` row with the children in it. */
 	readonly data: Element;
 	/** The repeat's own binds, in data-tree order, its condition's among them. */
@@ -2240,7 +2300,40 @@ interface QueryRepeatEmission {
 	readonly wrapperGroup: boolean;
 }
 
-type QueryBoundRepeat = Extract<Field, { repeat_mode: "query_bound" }>;
+export type QueryBoundRepeat = Extract<Field, { repeat_mode: "query_bound" }>;
+
+/** A query repeat's ids, `join(' ', query)`: the value of model iteration's
+ *  `@ids` setvalue and of the count placement's ids node. */
+export function queryIdsValue(query: WireExpr): WireExpr {
+	return w.call("join", [w.str(" "), query]);
+}
+
+/**
+ * The trees of a count-placement query repeat its node names alone decide:
+ * the count node's calculate `count-selected(../<ids>)`, the position node's
+ * `count(../item)`, and the row guard `position() < ../<count>`, each read
+ * from the node it is written on. The reader of CommCare HQ's forms rebuilds
+ * them to recognize the placement.
+ */
+export function countPlacementTrees(names: {
+	readonly ids: string;
+	readonly count: string;
+}): {
+	readonly count: WireExpr;
+	readonly position: WireExpr;
+	readonly guard: WireExpr;
+} {
+	return {
+		count: w.call("count-selected", [
+			w.context([w.parent(), w.step(names.ids)]),
+		]),
+		position: w.call("count", [w.context([w.parent(), w.step("item")])]),
+		guard: w.lt(
+			w.call("position"),
+			w.context([w.parent(), w.step(names.count)]),
+		),
+	};
+}
 
 /**
  * Build a query repeat's wrapper, binds and setvalues in its effective
@@ -2284,7 +2377,7 @@ type QueryBoundRepeat = Extract<Field, { repeat_mode: "query_bound" }>;
  * expression reads it. No generated bind carries `vellum:calculate`, and
  * each carries `vellum:nodeset`.
  */
-function buildQueryRepeat(
+export function buildQueryRepeat(
 	doc: BlueprintDoc,
 	field: QueryBoundRepeat,
 	nodePath: FormPath,
@@ -2299,14 +2392,13 @@ function buildQueryRepeat(
 	const idsQuery = field.data_source.ids_query;
 	if (idsQuery === undefined)
 		throw new Error(`Repeat ${field.id} has no row query.`);
-	const idsValue = w.call("join", [
-		w.str(" "),
+	const idsValue = queryIdsValue(
 		expressions.lower(idsQuery, {
 			entity: "field",
 			uuid: field.uuid,
 			slot: "ids_query",
 		}),
-	]);
+	);
 	// The repeat's condition evaluates at its row in both placements
 	// (`slotContext`), so it prints relative to the row.
 	const condition =
@@ -2368,25 +2460,14 @@ function buildQueryRepeat(
 		// (`XPathPositionFunc.java::evalBody`) and names no trigger; a new row's
 		// condition still runs when the row is made (`FormDef.java::
 		// createNewRepeat`, `initTriggerablesRootedBy`).
-		const guard = w.lt(
-			w.call("position"),
-			w.context([w.parent(), w.step(countName)]),
-		);
+		const trees = countPlacementTrees({ ids: idsName, count: countName });
+		const guard = trees.guard;
 		const binds: Element[] = [
 			generatedBind(nodePath.child(idsName), idsValue),
-			generatedBind(
-				nodePath.child(countName),
-				w.call("count-selected", [w.context([w.parent(), w.step(idsName)])]),
-				"xsd:int",
-			),
+			generatedBind(nodePath.child(countName), trees.count, "xsd:int"),
 		];
 		if (positionName !== undefined)
-			binds.push(
-				generatedBind(
-					nodePath.child(positionName),
-					w.call("count", [w.context([w.parent(), w.step("item")])]),
-				),
-			);
+			binds.push(generatedBind(nodePath.child(positionName), trees.position));
 		binds.push(
 			rowConditionBind(
 				condition === undefined ? guard : w.and(condition, guard),
@@ -2416,26 +2497,21 @@ function buildQueryRepeat(
 		};
 	}
 
-	const idsPath = nodePath.attr("ids");
-	const countPath = nodePath.attr("count");
-	const currentIndexPath = nodePath.attr("current_index");
+	const parts = modelIterationParts(nodePath, insideRepeat);
 	// `getBindList` writes this bind first, its count absolute.
 	const binds: Element[] = [
 		xel(
 			"bind",
 			{
 				xpath: {
-					nodeset: currentIndexPath.toWire(),
-					calculate: w.call("count", [rowPath.toWire()]),
+					nodeset: parts.currentIndex.path.toWire(),
+					calculate: parts.currentIndex.calculate,
 				},
 			},
 			context,
 		),
 	];
 	if (condition !== undefined) binds.push(rowConditionBind(condition));
-	// `setvalueData`'s order, which `inDataTreeOrder`'s stable sort keeps:
-	// the wrapper's attributes, then the row's.
-	const wrapperEvent = insideRepeat ? "jr-insert" : "xforms-ready";
 	const setvalue = (
 		event: "jr-insert" | "xforms-ready",
 		ref: FormPath,
@@ -2459,28 +2535,78 @@ function buildQueryRepeat(
 		),
 		binds,
 		setvalues: [
-			setvalue(wrapperEvent, idsPath, idsValue),
-			setvalue(
-				wrapperEvent,
-				countPath,
-				w.call("count-selected", [idsPath.toWire()]),
-			),
-			setvalue(
-				"jr-insert",
-				rowPath.attr("index"),
-				w.call("int", [currentIndexPath.toWire()]),
-			),
-			setvalue(
-				"jr-insert",
-				rowPath.attr("id"),
-				w.call("selected-at", [
+			setvalue(parts.ids.event, parts.ids.path, idsValue),
+			...parts.fixed.map((part) => setvalue(part.event, part.path, part.value)),
+		],
+		countPath: parts.countPath,
+		wrapperGroup: false,
+	};
+}
+
+/** One setvalue of a model-iteration repeat: its event, the node it sets and its value. */
+export interface ModelIterationSetvalue {
+	readonly event: "jr-insert" | "xforms-ready";
+	readonly path: FormPath;
+	readonly value: WireExpr;
+}
+
+/**
+ * The parts of a model-iteration repeat whose trees its wrapper's path alone
+ * decides, as Vellum writes them (`modeliteration.js::getSetValues`): the
+ * `@current_index` bind's calculate, the event and path of the `@ids`
+ * setvalue (whose value is the query's), and the three setvalues after it,
+ * `@count` at the wrapper's event and the row's `@index` and `@id` at
+ * `jr-insert`, in `setvalueData`'s order, which `inDataTreeOrder`'s stable
+ * sort keeps. The reader of a form made in CommCare HQ rebuilds them to
+ * recognize a model-iteration repeat.
+ */
+export function modelIterationParts(
+	nodePath: FormPath,
+	insideRepeat: boolean,
+): {
+	readonly currentIndex: {
+		readonly path: FormPath;
+		readonly calculate: WireExpr;
+	};
+	readonly ids: {
+		readonly event: "jr-insert" | "xforms-ready";
+		readonly path: FormPath;
+	};
+	readonly fixed: readonly ModelIterationSetvalue[];
+	readonly countPath: FormPath;
+} {
+	const rowPath = nodePath.queryBoundIteration();
+	const idsPath = nodePath.attr("ids");
+	const countPath = nodePath.attr("count");
+	const currentIndexPath = nodePath.attr("current_index");
+	const wrapperEvent = insideRepeat ? "jr-insert" : "xforms-ready";
+	return {
+		currentIndex: {
+			path: currentIndexPath,
+			calculate: w.call("count", [rowPath.toWire()]),
+		},
+		ids: { event: wrapperEvent, path: idsPath },
+		fixed: [
+			{
+				event: wrapperEvent,
+				path: countPath,
+				value: w.call("count-selected", [idsPath.toWire()]),
+			},
+			{
+				event: "jr-insert",
+				path: rowPath.attr("index"),
+				value: w.call("int", [currentIndexPath.toWire()]),
+			},
+			{
+				event: "jr-insert",
+				path: rowPath.attr("id"),
+				value: w.call("selected-at", [
 					idsPath.toWire(),
 					w.context([w.parent(), w.attr("index")]),
 				]),
-			),
+			},
 		],
 		countPath,
-		wrapperGroup: false,
 	};
 }
 
@@ -2509,7 +2635,7 @@ function buildQueryRepeat(
  *     Repeat `item` and no runtime draws. The wrapper data, binds and
  *     setvalues are `buildQueryRepeat`'s.
  */
-function buildRepeatBody(
+export function buildRepeatBody(
 	field: Field & { kind: "repeat" },
 	nodePath: FormPath,
 	labelEl: Element | undefined,

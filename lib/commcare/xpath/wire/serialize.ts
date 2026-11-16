@@ -94,15 +94,22 @@ function literalPieces(value: string, mode: WireMode): string[] {
 	return pieces;
 }
 
+/** One argument a literal is printed as: the token written, and the text it
+ *  holds (an odd trailing backslash's `substr` token holds one backslash). */
+export interface LiteralArgument {
+	readonly token: string;
+	readonly text: string;
+}
+
 /** Core has no quote escape. HQ alone gives backslashes lexical meaning.
  * A concat argument keeps empty quote-split pieces so its generated scaffold
  * has the same argument boundaries as the original constant segment. */
-function literalTokens(
+export function literalArguments(
 	value: string,
 	mode: WireMode,
 	keepEmptyQuotePieces: boolean,
-): string[] {
-	const tokens: string[] = [];
+): LiteralArgument[] {
+	const args: LiteralArgument[] = [];
 	const quote = (piece: string) => {
 		let trailing = 0;
 		for (
@@ -119,8 +126,12 @@ function literalTokens(
 			trailing % 2 === 1;
 		const safe = needsLastBackslash ? piece.slice(0, -1) : piece;
 		if (safe.length > 0 || !needsLastBackslash)
-			tokens.push(safe.includes("'") ? `"${safe}"` : `'${safe}'`);
-		if (needsLastBackslash) tokens.push("substr('\\\\', 0, 1)");
+			args.push({
+				token: safe.includes("'") ? `"${safe}"` : `'${safe}'`,
+				text: safe,
+			});
+		if (needsLastBackslash)
+			args.push({ token: "substr('\\\\', 0, 1)", text: "\\" });
 	};
 	for (const piece of literalPieces(value, mode)) {
 		if (!piece.includes("'") || !piece.includes('"')) {
@@ -133,7 +144,17 @@ function literalTokens(
 			if (index < parts.length - 1) quote("'");
 		}
 	}
-	return tokens;
+	return args;
+}
+
+function literalTokens(
+	value: string,
+	mode: WireMode,
+	keepEmptyQuotePieces: boolean,
+): string[] {
+	return literalArguments(value, mode, keepEmptyQuotePieces).map(
+		(arg) => arg.token,
+	);
 }
 
 function printLiteral(value: string, mode: WireMode): string {

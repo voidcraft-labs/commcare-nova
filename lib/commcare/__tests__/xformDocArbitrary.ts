@@ -430,7 +430,9 @@ export function buildField(
 	//   - validate (+ validate_msg) — only a kind that carries validation
 	//     (`fieldKindCarriesValidation`; the VALIDATION_ON_NON_INPUT_KIND rule
 	//     rejects it elsewhere); a boolean
-	//     constraint over the node value type-checks for every such kind.
+	//     constraint over the node value type-checks for every such kind. A
+	//     message drawn without a condition stays on the field alone, a message
+	//     the emitter writes nowhere because nothing can fail.
 	//   - default_value — every validatable kind, drawing the type-correct
 	//     literal from DEFAULT_VALUE_BY_KIND (the validator type-checks
 	//     `default_value` against the field type, so the value can't be shared
@@ -473,7 +475,9 @@ export function buildField(
 							? undefined
 							: proseText(spec.validateMsg),
 				}
-			: {}),
+			: validatable && spec.validateMsg !== undefined
+				? { validate_msg: proseText(spec.validateMsg) }
+				: {}),
 		// `default_value` is type-matched per kind (DEFAULT_VALUE_BY_KIND); a
 		// kind with no entry simply gets none.
 		...(typedDefault ? { default_value: typedDefault } : {}),
@@ -720,9 +724,9 @@ const leafSpecArb: fc.Arbitrary<FieldGenSpec> = fc.record(
 		}),
 		hint: fc.option(labelArb, { nil: undefined }),
 		// `validate` is a boolean constraint over the node value; `validateMsg`
-		// is the paired itext message. `buildField` only attaches them on a kind
-		// that carries validation, so generating them on every leaf is safe — they're
-		// dropped on the kinds that can't carry them.
+		// is the itext message, drawn with or without it. `buildField` only
+		// attaches them on a kind that carries validation, so generating them on
+		// every leaf is safe — they're dropped on the kinds that can't carry them.
 		validate: fc.option(fc.constantFrom(...SAFE_BOOLEAN_XPATH), {
 			nil: undefined,
 		}),

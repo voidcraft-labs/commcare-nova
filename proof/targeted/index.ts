@@ -17,6 +17,7 @@ import {
 	extensionCarried,
 	rootCaseBlockNames,
 } from "./documents/advancedModules";
+import { ancestorIndexNames } from "./documents/ancestorIndexNames";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
@@ -118,6 +119,7 @@ import {
 } from "./documents/repeats";
 import { sameTypeChild } from "./documents/sameTypeChild";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
+import { saveToCaseShapes } from "./documents/saveToCaseShapes";
 import {
 	listFirstPlaces,
 	listFirstWebApps,
@@ -136,6 +138,7 @@ import {
 } from "./documents/searchWorkflows";
 import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
+import { severalCaseClose } from "./documents/severalCaseClose";
 import { sortBlanks } from "./documents/sortBlanks";
 import { sharedPropertySort } from "./documents/sortKeys";
 import {
@@ -182,6 +185,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectDeliverRename,
 	connectLearnRename,
 	saveToCaseRead,
+	saveToCaseShapes,
 	mediaSlots,
 	captureWidgets,
 	noMatchesReturnIdentity,
@@ -266,6 +270,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	registerFromCaseListWebApps,
 	tileGroupFilter,
 	keptValues,
+	severalCaseClose,
+	ancestorIndexNames,
 ];
 
 /** Every targeted document, in a fixed order. */

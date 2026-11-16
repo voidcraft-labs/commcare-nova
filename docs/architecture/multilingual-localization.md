@@ -43,8 +43,9 @@ would duplicate a language's content and make three-language apps ambiguous.
 The existing worker-facing values in `BlueprintDoc` remain the canonical source
 content. Multilingual support is an app-level overlay, not CommCare-style
 language maps threaded through every field, form, and mutation. CommCare's
-localized maps and resources exist only at the one-way `lib/commcare` emission
-boundary.
+localized maps and resources exist only at the `lib/commcare` boundary, which
+writes them on emission and reads them when an app is brought in from CommCare
+HQ.
 
 ## Language identity
 
@@ -607,8 +608,16 @@ Output is structured and must cover the exact requested unit IDs. The server
 rejects missing, extra, duplicate, wrong-kind, blank-illegal, or
 protected-token-invalid results. Roles emitted through CommCare locale files
 also pass the shared locale-file representability check before a paid batch is
-accepted, so boundary whitespace, carriage returns, and literal backslash-`n`
-cannot become a durably replayed commit failure. Markdown delimiter preservation
+accepted, so boundary whitespace, carriage returns, a literal backslash
+followed by `n` or `#`, and in a menu's or form's name, a case list menu
+item's or Register button's label or a Search field's label a `${` some screen
+fills, cannot become a durably replayed commit failure. In those roles the
+codec first leaves out each backslash a model writes before `#`, the Markdown
+escape, and before a reference token, whose text starts with `#`: CommCare
+Core reads `\#` as `#` in the line HQ's build and Nova's archive write
+(`translator.ts::normalizeTranslatedFormatting`), so the kept text is what a
+device shows. A `${` is content and is never rewritten: the refusal tells the
+model what to write instead, as each refusal of the check does. Markdown delimiter preservation
 is measured by the acceptance harness and judged by the bilingual reviewer;
 Nova has no general markdown-validity oracle and does not claim one. Paid
 results and usage are stored durably before staging. Each batch has an independent
@@ -792,10 +801,17 @@ cloning `BlueprintDoc` into a second app model.
 - The direct CCZ writes the default table to `default/app_strings.txt` and each
   other table to its wire-code directory. Every table carries the language
   name rows and `lang.current` values CommCare's picker expects. Values
-  serialize through CommCare Core's locale-file grammar: comment hashes and
-  physical line breaks are escaped, while literal backslash-`n`, carriage
-  returns, and boundary ASCII whitespace fail closed because Core cannot
-  round-trip them.
+  are written as CommCare HQ's build writes them
+  (`localeFile.ts::hqLocaleFileValue`): a `#` no backslash precedes and a
+  physical line break are escaped. The commit gate refuses a literal
+  backslash followed by `n` or `#`, a carriage return, and boundary
+  whitespace (`APP_STRING_VALUE_UNREPRESENTABLE`), because Core's locale
+  reader shows each of them as other text. The same rule refuses a `${` in a
+  menu's or form's name, a case list menu item's or Register button's label
+  and a Search field's label (`localeFile.ts::appStringValueIssue`): Android's
+  screens and every screen title read those through Core's
+  `Localizer.processArguments`, which shows `Visits ${0}` as `Visits`, while
+  Web Apps' menu list shows the stored text.
 - HQ-upload and direct-CCZ paths consume the same projections and receive
   separate exact boundary tests.
 

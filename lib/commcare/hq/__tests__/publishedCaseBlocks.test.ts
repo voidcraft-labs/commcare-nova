@@ -16,7 +16,11 @@
  * The plausible failures: a block at the wrong path (the `nest` rule, the
  * advanced count that only indexed opens enter), a block HQ's build does not
  * write (a several-case menu's own case, a load with nothing to write), a
- * form keyed by position, and a guess where the source is malformed.
+ * form keyed by position, a condition, an index or a session value read
+ * otherwise than the build writes it, a form left out in silence, and a
+ * source that holds `update_mode: edit` read as one that holds none, which
+ * would skip the one probe of the source project space that decides what
+ * the word means.
  */
 import { readFileSync } from "node:fs";
 import { type Element, isTag } from "domhandler";
@@ -25,8 +29,10 @@ import { parseXml } from "@/lib/commcare/xmlParse";
 import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import {
 	type PublishedCaseBlock,
+	type PublishedCaseBlocks,
 	type PublishedForm,
 	publishedCaseBlocks,
+	sourceHoldsEditMode,
 } from "../publishedCaseBlocks";
 
 const FIXTURES = new URL("./fixtures/", import.meta.url);
@@ -47,11 +53,16 @@ function retainedRead(path: string): Record<string, unknown> {
 }
 
 /** The reader over `source` as a deployment's baseline stores it. */
-function read(source: unknown): ReadonlyMap<string, PublishedForm> {
+function readAll(source: unknown): PublishedCaseBlocks {
 	const baseline = normalizeHqAppSource(source);
 	if ("malformed" in baseline)
 		throw new Error(`The source is not an application: ${baseline.malformed}`);
 	return publishedCaseBlocks(baseline.normalized);
+}
+
+/** The forms the reader read from `source`. */
+function read(source: unknown): ReadonlyMap<string, PublishedForm> {
+	return readAll(source).forms;
 }
 
 function formOf(
@@ -63,12 +74,24 @@ function formOf(
 	return form;
 }
 
-/** A block as plain data, its properties as an object. */
+/** A block as plain data: its properties as an object, its edit-only keys as a list. */
 function plain(block: PublishedCaseBlock) {
-	return "properties" in block
-		? { ...block, properties: Object.fromEntries(block.properties) }
-		: block;
+	return block.kind === "save-to-case"
+		? block
+		: {
+				...block,
+				properties: Object.fromEntries(block.properties),
+				editOnly: [...block.editOnly],
+			};
 }
+
+const ALWAYS = { type: "always" } as const;
+const NEVER = { type: "never" } as const;
+const OWN_PARENT = {
+	identifier: "parent",
+	target: { kind: "own" },
+	relationship: "child",
+} as const;
 
 const tagChildren = (element: Element) => element.children.filter(isTag);
 
@@ -142,7 +165,12 @@ describe("HQ's own fixtures", () => {
 				caseType: "mother",
 				opens: true,
 				closes: false,
+				condition: ALWAYS,
+				closeCondition: NEVER,
+				sessionDatum: "case_id_new_mother_0",
+				ownerWritten: false,
 				properties: { name: "/data/mother_name" },
+				editOnly: [],
 			},
 			{
 				kind: "basic-subcase",
@@ -150,8 +178,12 @@ describe("HQ's own fixtures", () => {
 				path: "child",
 				repeatContext: "child",
 				caseType: "child",
-				relationship: "child",
+				condition: ALWAYS,
+				closeCondition: NEVER,
+				indices: [OWN_PARENT],
+				ownerWritten: false,
 				properties: { name: "/data/child/name" },
+				editOnly: [],
 			},
 		]);
 		expect(form.modelIterationRows).toEqual([]);
@@ -162,7 +194,7 @@ describe("HQ's own fixtures", () => {
 		);
 	});
 
-	it("reads two subcases of one repeat at `subcase_<i>` in it, and a follow-up's empty own block", () => {
+	it("reads two subcases of one repeat at `subcase_<i>` in it, each with its condition, and a follow-up's empty own block", () => {
 		const forms = read(
 			JSON.parse(fixture("form_preparation_v2/multiple_subcase_repeat.json")),
 		);
@@ -173,13 +205,41 @@ describe("HQ's own fixtures", () => {
 		expect(
 			form.blocks.map((block) =>
 				block.kind === "basic-subcase"
-					? [block.kind, block.path, block.repeatContext, block.caseType]
+					? [
+							block.kind,
+							block.path,
+							block.repeatContext,
+							block.caseType,
+							block.condition,
+						]
 					: [block.kind, block.path],
 			),
 		).toEqual([
 			["basic-own", "case"],
-			["basic-subcase", "children/subcase_0", "children", "child1"],
-			["basic-subcase", "children/subcase_1", "children", "child2"],
+			[
+				"basic-subcase",
+				"children/subcase_0",
+				"children",
+				"child1",
+				{
+					type: "if",
+					question: "children/which_child",
+					answer: "1",
+					operator: "=",
+				},
+			],
+			[
+				"basic-subcase",
+				"children/subcase_1",
+				"children",
+				"child2",
+				{
+					type: "if",
+					question: "children/which_child",
+					answer: "2",
+					operator: "=",
+				},
+			],
 		]);
 		const built = fixture("form_preparation_v2/multiple_subcase_repeat.xml");
 		expectBlocksInBuild(form, built);
@@ -187,7 +247,8 @@ describe("HQ's own fixtures", () => {
 			builtCasePaths(built),
 		);
 
-		// A follow-up whose update writes nothing still binds its case.
+		// A follow-up whose update writes nothing still binds its case, which
+		// it reads from `case_id` in a menu with no parent.
 		expect(
 			formOf(
 				forms,
@@ -200,14 +261,19 @@ describe("HQ's own fixtures", () => {
 				caseType: "child1",
 				opens: false,
 				closes: false,
+				condition: ALWAYS,
+				closeCondition: NEVER,
+				sessionDatum: "case_id",
+				ownerWritten: false,
 				properties: {},
+				editOnly: [],
 			},
 		]);
 	});
 
 	it("reads Save to Case blocks from the stored XForm, a block whose type is an expression as `null`", () => {
 		const source = fixture("save_to_case_in_groups.xml");
-		const forms = publishedCaseBlocks({
+		const { forms } = publishedCaseBlocks({
 			doc_type: "Application",
 			modules: [
 				{
@@ -231,18 +297,14 @@ describe("HQ's own fixtures", () => {
 			formOf(
 				forms,
 				"http://openrosa.org/formdesigner/DA1A9BA7-8EBD-4172-AABD-6185F1E2CEC9",
-			).blocks,
+			).blocks.map((block) => [
+				block.kind,
+				block.path,
+				block.kind === "save-to-case" ? block.caseType : undefined,
+			]),
 		).toEqual([
-			{
-				kind: "save-to-case",
-				path: "a_repeat/save_to_case_in_repeat",
-				caseType: null,
-			},
-			{
-				kind: "save-to-case",
-				path: "a_group/save_to_case_in_group",
-				caseType: null,
-			},
+			["save-to-case", "a_repeat/save_to_case_in_repeat", null],
+			["save-to-case", "a_group/save_to_case_in_group", null],
 		]);
 	});
 
@@ -251,7 +313,7 @@ describe("HQ's own fixtures", () => {
 		/** One advanced form over `stored` with HQ's test's `actions`. */
 		const advanced = (stored: string, actions: Record<string, unknown>) => {
 			const xmlns = "http://openrosa.org/formdesigner/advanced";
-			const forms = publishedCaseBlocks({
+			const { forms } = publishedCaseBlocks({
 				doc_type: "Application",
 				modules: [
 					{
@@ -312,7 +374,12 @@ describe("HQ's own fixtures", () => {
 					tag: "load_1",
 					path: "case_load_1",
 					caseType: "test_case_type",
+					condition: ALWAYS,
+					closeCondition: NEVER,
+					indices: [],
+					ownerWritten: false,
 					properties: { question1: "/data/question1" },
+					editOnly: [],
 				},
 			]);
 			const built = fixture("form_preparation_v2_advanced/update_case.xml");
@@ -338,10 +405,15 @@ describe("HQ's own fixtures", () => {
 					tag: "open_1",
 					path: "case_open_1",
 					caseType: "test_case_type",
+					condition: ALWAYS,
+					closeCondition: NEVER,
+					indices: [],
+					ownerWritten: false,
 					properties: {
 						name: "/data/question1",
 						question1: "/data/question1",
 					},
+					editOnly: [],
 				},
 			]);
 			const built = fixture(
@@ -351,7 +423,7 @@ describe("HQ's own fixtures", () => {
 			expect(builtCasePaths(built)).toEqual(["case_open_1"]);
 		});
 
-		it("reads a repeat's only indexed open at the repeat, and gives a load with nothing to write no block (test_subcase_repeat)", () => {
+		it("reads a repeat's only indexed open at the repeat, with its index to the load, and gives a load with nothing to write no block (test_subcase_repeat)", () => {
 			const form = advanced(
 				fixture("form_preparation_v2_advanced/subcase_original.xml"),
 				{
@@ -364,15 +436,31 @@ describe("HQ's own fixtures", () => {
 					],
 				},
 			);
-			expect(form.blocks.map((block) => [block.kind, block.path])).toEqual([
-				["advanced", "child"],
+			expect(
+				form.blocks.map((block) => [
+					block.kind,
+					block.path,
+					block.kind === "advanced" ? block.indices : undefined,
+				]),
+			).toEqual([
+				[
+					"advanced",
+					"child",
+					[
+						{
+							identifier: "parent",
+							target: { kind: "tag", tag: "load_1" },
+							relationship: "child",
+						},
+					],
+				],
 			]);
 			const built = fixture("form_preparation_v2_advanced/subcase-repeat.xml");
 			expectBlocksInBuild(form, built);
 			expect(builtCasePaths(built)).toEqual(["child"]);
 		});
 
-		it("reads two indexed opens of one repeat at `case_<tag>` in it (test_subcase_multiple_repeats)", () => {
+		it("reads two indexed opens of one repeat at `case_<tag>` in it, each with its open condition (test_subcase_multiple_repeats)", () => {
 			const form = advanced(
 				fixture("form_preparation_v2_advanced/subcase_original.xml"),
 				{
@@ -396,11 +484,21 @@ describe("HQ's own fixtures", () => {
 					block.kind,
 					block.path,
 					block.kind === "advanced" ? block.caseType : undefined,
+					block.kind === "advanced" ? block.condition : undefined,
 				]),
-			).toEqual([
-				["advanced", "child/case_open_1", "child1"],
-				["advanced", "child/case_open_2", "child2"],
-			]);
+			).toEqual(
+				[1, 2].map((n) => [
+					"advanced",
+					`child/case_open_${n}`,
+					`child${n}`,
+					{
+						type: "if",
+						question: "child/which_child",
+						answer: String(n),
+						operator: "=",
+					},
+				]),
+			);
 			const built = fixture(
 				"form_preparation_v2_advanced/subcase-repeat-multiple.xml",
 			);
@@ -408,6 +506,72 @@ describe("HQ's own fixtures", () => {
 			expect(builtCasePaths(built)).toEqual([
 				"child/case_open_1",
 				"child/case_open_2",
+			]);
+		});
+
+		it("reads an open's own index names, relationships and close, a load's close and owner, and `edit` on each", () => {
+			const form = advanced(fixture("original_form.xml"), {
+				load_update_cases: [
+					load("load_1", {
+						case_properties: {
+							owner_id: { question_path: "/data/question1" },
+							seen: { question_path: "/data/question1", update_mode: "edit" },
+						},
+						close_condition: {
+							type: "if",
+							question: "question1",
+							answer: "done",
+							operator: "selected",
+						},
+					}),
+				],
+				open_cases: [
+					open("open_1", {
+						case_properties: {
+							note: { question_path: "/data/question1", update_mode: "edit" },
+						},
+						case_indices: [
+							{
+								tag: "load_1",
+								reference_id: "host",
+								relationship: "extension",
+							},
+							{ tag: "load_1", reference_id: "", relationship: "question" },
+						],
+						close_condition: condition("always"),
+					}),
+				],
+			});
+			expect(form.blocks.map(plain)).toEqual([
+				expect.objectContaining({
+					tag: "load_1",
+					closeCondition: {
+						type: "if",
+						question: "question1",
+						answer: "done",
+						operator: "selected",
+					},
+					ownerWritten: true,
+					editOnly: ["seen"],
+				}),
+				expect.objectContaining({
+					tag: "open_1",
+					closeCondition: ALWAYS,
+					indices: [
+						{
+							identifier: "host",
+							target: { kind: "tag", tag: "load_1" },
+							relationship: "extension",
+						},
+						{
+							identifier: "parent",
+							target: { kind: "tag", tag: "load_1" },
+							relationship: "question",
+						},
+					],
+					ownerWritten: false,
+					editOnly: ["note"],
+				}),
 			]);
 		});
 	});
@@ -433,10 +597,15 @@ describe("retained HQ reads", () => {
 				caseType: "household",
 				opens: true,
 				closes: false,
+				condition: ALWAYS,
+				closeCondition: NEVER,
+				sessionDatum: "case_id_new_household_0",
+				ownerWritten: false,
 				properties: {
 					name: "/data/nova_trimmed_household_name",
 					village: "/data/village",
 				},
+				editOnly: [],
 			},
 			{
 				kind: "basic-subcase",
@@ -444,8 +613,12 @@ describe("retained HQ reads", () => {
 				path: "subcase_0",
 				repeatContext: null,
 				caseType: "head",
-				relationship: "child",
+				condition: ALWAYS,
+				closeCondition: NEVER,
+				indices: [OWN_PARENT],
+				ownerWritten: false,
 				properties: { name: "/data/nova_trimmed_head_name" },
+				editOnly: [],
 			},
 			{
 				kind: "basic-subcase",
@@ -453,17 +626,30 @@ describe("retained HQ reads", () => {
 				path: "members",
 				repeatContext: "members",
 				caseType: "member",
-				relationship: "child",
+				condition: ALWAYS,
+				closeCondition: NEVER,
+				indices: [OWN_PARENT],
+				ownerWritten: false,
 				properties: { name: "/data/members/nova_trimmed_member_name" },
+				editOnly: [],
 			},
 		]);
 	});
 
-	it("reads the worker's record and Save to Case blocks at the root and in a repeat", () => {
+	it("reads the worker's record and Save to Case blocks at the root and in a repeat, each with its actions, index and leaves", () => {
 		const form = formOf(
 			caseWrites,
 			xmlns("BE01648F-79F0-5EDB-A6E1-4EAD8A75885F"),
 		);
+		const guard = (path: string, caseType: string) => ({
+			kind: "save-to-case",
+			path,
+			caseType,
+			actions: ["update"],
+			indices: [],
+			properties: ["update/case_type"],
+		});
+		const create = ["create/case_name", "create/case_type", "create/owner_id"];
 		expect(form.blocks.map(plain)).toEqual([
 			{
 				kind: "basic-own",
@@ -471,47 +657,57 @@ describe("retained HQ reads", () => {
 				caseType: "household",
 				opens: false,
 				closes: false,
+				condition: ALWAYS,
+				closeCondition: NEVER,
+				sessionDatum: "case_id",
+				ownerWritten: false,
 				properties: { last_note: "/data/visit_note" },
+				editOnly: [],
 			},
 			{
 				kind: "basic-usercase",
 				path: "commcare_usercase",
 				properties: { visits_done: "/data/visits_done" },
+				editOnly: [],
 			},
 			{
 				kind: "save-to-case",
 				path: "nova_operations/nova_keyed_add_referral/add_referral",
 				caseType: "household",
+				actions: ["create"],
+				indices: [],
+				properties: create,
 			},
-			{
-				kind: "save-to-case",
-				path: "nova_operations/nova_guard_add_referral_text",
-				caseType: "household",
-			},
+			guard("nova_operations/nova_guard_add_referral_text", "household"),
 			{
 				kind: "save-to-case",
 				path: "nova_operations/mark_visited",
 				caseType: "household",
+				actions: ["update"],
+				indices: [],
+				properties: ["update/visited"],
 			},
 			{
 				kind: "save-to-case",
 				path: "nova_operations/nova_condition_flag_household/flag_household",
 				caseType: "household",
+				actions: ["update"],
+				indices: [],
+				properties: ["update/flagged"],
 			},
 			{
 				kind: "save-to-case",
 				path: "arrivals/nova_operations/add_arrival",
 				caseType: "member",
+				actions: ["create"],
+				indices: [{ identifier: "parent", relationship: "child" }],
+				properties: create,
 			},
-			{
-				kind: "save-to-case",
-				path: "arrivals/nova_operations/nova_guard_add_arrival_text",
-				caseType: "member",
-			},
+			guard("arrivals/nova_operations/nova_guard_add_arrival_text", "member"),
 		]);
 	});
 
-	it("reads a close in Case Management and an own close in a block of its own", () => {
+	it("reads a close in Case Management with its condition, and an own close in a block of its own", () => {
 		expect(
 			formOf(
 				caseWrites,
@@ -524,17 +720,35 @@ describe("retained HQ reads", () => {
 				caseType: "household",
 				opens: false,
 				closes: true,
+				condition: ALWAYS,
+				closeCondition: {
+					type: "if",
+					question: "outcome",
+					answer: "moved",
+					operator: "=",
+				},
+				sessionDatum: "case_id",
+				ownerWritten: false,
 				properties: {},
+				editOnly: [],
 			},
 		]);
 		expect(
 			formOf(
 				caseWrites,
 				xmlns("F6A05AB4-66FD-58D8-AC89-69067CAD3964"),
-			).blocks.map((block) => [block.kind, block.path]),
+			).blocks.map((block) => [
+				block.kind,
+				block.path,
+				block.kind === "save-to-case" ? block.actions : undefined,
+			]),
 		).toEqual([
-			["basic-own", "case"],
-			["save-to-case", "nova_operations/nova_condition_close/nova_close"],
+			["basic-own", "case", undefined],
+			[
+				"save-to-case",
+				"nova_operations/nova_condition_close/nova_close",
+				["close"],
+			],
 		]);
 	});
 
@@ -552,22 +766,32 @@ describe("retained HQ reads", () => {
 		expect(form.modelIterationRows).toEqual(["nova_selected_cases/item"]);
 	});
 
-	it("reads an extension subcase and the block that carries it in the source", () => {
+	it("reads an extension subcase as the basic build writes it, a child of the own case, and the block that carries the extension in the source", () => {
 		const forms = read(
 			retainedRead("targeted-migration-extension-children/app-source.json"),
 		);
 		expect(
 			formOf(forms, xmlns("145A1192-EB99-5116-A297-183476567D42")).blocks.map(
 				(block) =>
-					block.kind === "basic-subcase"
-						? [block.kind, block.path, block.relationship]
+					block.kind === "basic-subcase" || block.kind === "save-to-case"
+						? [block.kind, block.path, block.indices]
 						: [block.kind, block.path],
 			),
 		).toEqual([
 			["basic-own", "case"],
-			["basic-subcase", "subcase_0", "extension"],
-			["save-to-case", "nova_subcases/nova_subcase_0"],
+			["basic-subcase", "subcase_0", [OWN_PARENT]],
+			[
+				"save-to-case",
+				"nova_subcases/nova_subcase_0",
+				[{ identifier: "parent", relationship: "extension" }],
+			],
 		]);
+		// An inactive subcase keeps its block, with its `never`.
+		expect(
+			formOf(forms, xmlns("145A1192-EB99-5116-A297-183476567D42")).blocks.find(
+				(block) => block.kind === "basic-subcase",
+			),
+		).toMatchObject({ condition: NEVER });
 	});
 
 	it("reads every model-iteration row, nested in groups too", () => {
@@ -601,7 +825,7 @@ describe("retained HQ reads", () => {
 
 		// HQ-made forms keep HQ's xmlns, an override of the one Nova derives.
 		const hqBuiltSource = retainedRead("hq-built/app-source.json");
-		const hqBuilt = read(hqBuiltSource);
+		const hqBuilt = readAll(hqBuiltSource);
 		// The registration form, by where the read holds it: its xmlns derives
 		// from the fixture's ids, which move as the corpus grows.
 		const registration = (
@@ -609,28 +833,36 @@ describe("retained HQ reads", () => {
 		)[0]?.forms[1]?.xmlns;
 		if (registration === undefined)
 			throw new Error("The HQ-built read lost its registration form.");
-		expect(formOf(hqBuilt, registration).blocks.map(plain)).toEqual([
+		expect(formOf(hqBuilt.forms, registration).blocks.map(plain)).toEqual([
 			{
 				kind: "basic-own",
 				path: "case",
 				caseType: "patient",
 				opens: true,
 				closes: false,
+				condition: ALWAYS,
+				closeCondition: NEVER,
+				sessionDatum: "case_id_new_patient_0",
+				ownerWritten: false,
 				properties: {
 					name: "/data/nova_trimmed_name",
 					external_id: "/data/nova_trimmed_external",
 				},
+				editOnly: [],
 			},
 		]);
 		// An advanced form HQ made with no actions writes no block, and the
-		// shadow form, which has no xmlns of its own, is left out.
+		// shadow form, which has no xmlns of its own, is listed as left out.
 		expect(
 			formOf(
-				hqBuilt,
+				hqBuilt.forms,
 				"http://openrosa.org/formdesigner/61BCD95D-0A17-4E62-BFC9-E102629BCC19",
 			).blocks,
 		).toEqual([]);
-		expect(hqBuilt.size).toBe(4);
+		expect(hqBuilt.forms.size).toBe(4);
+		expect(hqBuilt.unread).toEqual([
+			{ menu: 1, form: 2, xmlns: null, reason: "shadow-form" },
+		]);
 
 		// A form given another xmlns is read under it, and not under its old one.
 		const renamed = structuredClone(source) as typeof source;
@@ -649,36 +881,300 @@ describe("retained HQ reads", () => {
 	});
 });
 
-describe("what the reader leaves out", () => {
-	it("reads nothing from a source that is not an application, or from an empty shell", () => {
-		expect(publishedCaseBlocks(null).size).toBe(0);
-		expect(publishedCaseBlocks({ doc_type: "LinkedApplication" }).size).toBe(0);
+/** The retained case-writes source, edited by `edit` before it is read. */
+function editedCaseWrites(
+	edit: (
+		modules: Record<string, unknown>[],
+		attachments: Record<string, string>,
+	) => void,
+): PublishedCaseBlocks {
+	const source = retainedRead("targeted-migration-case-writes/app-source.json");
+	edit(
+		source.modules as Record<string, unknown>[],
+		source._attachments as Record<string, string>,
+	);
+	return readAll(source);
+}
+
+type Json = Record<string, unknown>;
+const formsOf = (module: Json) => module.forms as Json[];
+const actionsOf = (form: Json) => form.actions as Json;
+
+describe("the session value an own block reads", () => {
+	const visit = (blocks: PublishedCaseBlocks) =>
+		formOf(
+			blocks.forms,
+			"http://openrosa.org/formdesigner/BE01648F-79F0-5EDB-A6E1-4EAD8A75885F",
+		).blocks.find((block) => block.kind === "basic-own");
+
+	it("is read from the entry, and so is null, in a menu under a parent menu or with a parent selection", () => {
 		expect(
-			publishedCaseBlocks({ doc_type: "Application", modules: {} }).size,
-		).toBe(0);
+			visit(
+				editedCaseWrites((modules) => {
+					modules[1].root_module_id = "a-parent-menu";
+				}),
+			),
+		).toMatchObject({ sessionDatum: null });
 		expect(
-			publishedCaseBlocks(retainedRead("publish/source-shell.json")).size,
-		).toBe(0);
+			visit(
+				editedCaseWrites((modules) => {
+					modules[1].parent_select = {
+						active: true,
+						relationship: "parent",
+						module_id: "a-parent-menu",
+					};
+				}),
+			),
+		).toMatchObject({ sessionDatum: null });
+		// An inactive selection is none.
+		expect(
+			visit(
+				editedCaseWrites((modules) => {
+					modules[1].parent_select = {
+						active: false,
+						relationship: "parent",
+						module_id: "a-parent-menu",
+					};
+				}),
+			),
+		).toMatchObject({ sessionDatum: "case_id" });
+	});
+});
+
+describe("owners and `update_mode: edit`", () => {
+	it("reads owner_id among a block's updates, and every `edit` key, on the own, worker and child blocks", () => {
+		const blocks = editedCaseWrites((modules) => {
+			const [registration] = formsOf(modules[0]);
+			const actions = actionsOf(registration);
+			const update = (actions.update_case as Json).update as Json;
+			update.owner_id = { question_path: "/data/village" };
+			update.village = { question_path: "/data/village", update_mode: "edit" };
+			const [head] = actions.subcases as Json[];
+			head.case_properties = {
+				owner_id: { question_path: "/data/village" },
+				age: { question_path: "/data/village", update_mode: "edit" },
+			};
+			const [visit] = formsOf(modules[1]);
+			const worker = actionsOf(visit).usercase_update as Json;
+			worker.update = {
+				visits_done: {
+					question_path: "/data/visits_done",
+					update_mode: "edit",
+				},
+			};
+		});
+		const registration = formOf(
+			blocks.forms,
+			"http://openrosa.org/formdesigner/195EBC95-CD9C-53F9-ACB3-96C77E70AE25",
+		);
+		expect(registration.blocks.map(plain)).toEqual([
+			expect.objectContaining({
+				kind: "basic-own",
+				ownerWritten: true,
+				editOnly: ["village"],
+			}),
+			expect.objectContaining({
+				kind: "basic-subcase",
+				index: 0,
+				ownerWritten: true,
+				editOnly: ["age"],
+			}),
+			expect.objectContaining({
+				kind: "basic-subcase",
+				index: 1,
+				ownerWritten: false,
+				editOnly: [],
+			}),
+		]);
+		expect(
+			formOf(
+				blocks.forms,
+				"http://openrosa.org/formdesigner/BE01648F-79F0-5EDB-A6E1-4EAD8A75885F",
+			)
+				.blocks.map(plain)
+				.find((block) => block.kind === "basic-usercase"),
+		).toMatchObject({ editOnly: ["visits_done"] });
 	});
 
-	it("leaves out a malformed form, an unparsed XForm, a shared xmlns and a form without one, and reads the others", () => {
-		const source = retainedRead(
-			"targeted-migration-case-writes/app-source.json",
+	it("says a source holds `edit` where any block of each kind holds it, and holds none where none does", () => {
+		const unedited = readAll(
+			retainedRead("targeted-migration-case-writes/app-source.json"),
 		);
-		const modules = source.modules as { forms: Record<string, unknown>[] }[];
-		const attachments = source._attachments as Record<string, string>;
-		const [registration] = modules[0].forms;
-		const [visit, discharge, close, ownClose] = modules[1].forms;
-		const [several] = modules[2].forms;
-		registration.actions = "not an object";
-		attachments[`${visit.unique_id as string}.xml`] = "<h:html";
-		close.xmlns = discharge.xmlns;
-		delete ownClose.xmlns;
-		const forms = read(source);
-		expect([...forms.keys()]).toEqual([several.xmlns]);
-		expect(formOf(forms, several.xmlns as string)).toEqual(
-			formOf(caseWritesRead(), several.xmlns as string),
+		expect(sourceHoldsEditMode(unedited)).toBe(false);
+		const edit = { question_path: "/data/village", update_mode: "edit" };
+		const sources = {
+			own: editedCaseWrites((modules) => {
+				const actions = actionsOf(formsOf(modules[0])[0]);
+				((actions.update_case as Json).update as Json).village = edit;
+			}),
+			child: editedCaseWrites((modules) => {
+				const actions = actionsOf(formsOf(modules[0])[0]);
+				(actions.subcases as Json[])[1].case_properties = { age: edit };
+			}),
+			worker: editedCaseWrites((modules) => {
+				const actions = actionsOf(formsOf(modules[1])[0]);
+				(actions.usercase_update as Json).update = { visits_done: edit };
+			}),
+		};
+		for (const [kind, blocks] of Object.entries(sources))
+			expect(sourceHoldsEditMode(blocks), kind).toBe(true);
+
+		const advanced = (property: "load" | "open") =>
+			publishedCaseBlocks({
+				doc_type: "Application",
+				modules: [
+					{
+						doc_type: "AdvancedModule",
+						case_type: "test_case_type",
+						forms: [
+							{
+								doc_type: "AdvancedForm",
+								unique_id: "f",
+								xmlns: "http://openrosa.org/formdesigner/advanced",
+								actions: {
+									load_update_cases: [
+										{
+											case_type: "test_case_type",
+											case_tag: "load_1",
+											case_properties:
+												property === "load" ? { note: edit } : {},
+										},
+									],
+									open_cases: [
+										{
+											case_type: "test_case_type",
+											case_tag: "open_1",
+											name_update: { question_path: "/data/question1" },
+											case_properties:
+												property === "open" ? { note: edit } : {},
+											open_condition: { type: "always" },
+										},
+									],
+								},
+							},
+						],
+					},
+				],
+				_attachments: { "f.xml": fixture("original_form.xml") },
+			});
+		expect(sourceHoldsEditMode(advanced("load"))).toBe(true);
+		expect(sourceHoldsEditMode(advanced("open"))).toBe(true);
+	});
+});
+
+describe("what the reader leaves out", () => {
+	it("reads nothing from a source that is not an application, or from an empty shell", () => {
+		const nothing = { forms: new Map(), unread: [] };
+		expect(publishedCaseBlocks(null)).toEqual(nothing);
+		expect(publishedCaseBlocks({ doc_type: "LinkedApplication" })).toEqual(
+			nothing,
 		);
+		expect(
+			publishedCaseBlocks({ doc_type: "Application", modules: {} }),
+		).toEqual(nothing);
+		expect(
+			publishedCaseBlocks(retainedRead("publish/source-shell.json")),
+		).toEqual(nothing);
+	});
+
+	it("lists every form it leaves out by its position and with why, and reads the others", () => {
+		const several =
+			"http://openrosa.org/formdesigner/7650B44A-8C1B-58CE-AE23-ED64DE40945A";
+		const blocks = editedCaseWrites((modules, attachments) => {
+			const [registration] = formsOf(modules[0]);
+			const [visit, discharge, close, ownClose] = formsOf(modules[1]);
+			registration.actions = "not an object";
+			attachments[`${visit.unique_id as string}.xml`] = "<h:html";
+			close.xmlns = discharge.xmlns;
+			delete ownClose.xmlns;
+		});
+		expect([...blocks.forms.keys()]).toEqual([several]);
+		expect(formOf(blocks.forms, several)).toEqual(
+			formOf(caseWritesRead(), several),
+		);
+		const discharge =
+			"http://openrosa.org/formdesigner/416EDBCC-2FE7-5AA0-AC91-C802BDBB34BC";
+		expect(blocks.unread).toEqual([
+			{
+				menu: 0,
+				form: 0,
+				xmlns:
+					"http://openrosa.org/formdesigner/195EBC95-CD9C-53F9-ACB3-96C77E70AE25",
+				reason: "actions-malformed",
+			},
+			{
+				menu: 1,
+				form: 0,
+				xmlns:
+					"http://openrosa.org/formdesigner/BE01648F-79F0-5EDB-A6E1-4EAD8A75885F",
+				reason: "xform-unparsed",
+			},
+			{ menu: 1, form: 1, xmlns: discharge, reason: "shared-xmlns" },
+			{ menu: 1, form: 2, xmlns: discharge, reason: "shared-xmlns" },
+			{ menu: 1, form: 3, xmlns: null, reason: "no-xmlns" },
+		]);
+	});
+
+	it("names a form of no kind it reads, an absent XForm, a condition HQ's build cannot state, a data registry's load and a visit schedule", () => {
+		const reasons = (blocks: PublishedCaseBlocks) =>
+			blocks.unread.map(({ menu, form, reason }) => [menu, form, reason]);
+		expect(
+			reasons(
+				editedCaseWrites((modules, attachments) => {
+					const [registration] = formsOf(modules[0]);
+					const [visit, discharge, close] = formsOf(modules[1]);
+					registration.doc_type = "SurveyForm";
+					delete attachments[`${visit.unique_id as string}.xml`];
+					(actionsOf(close).close_case as Json).condition = {
+						type: "if",
+						question: "/elsewhere/outcome",
+						answer: "moved",
+					};
+					(actionsOf(discharge).update_case as Json).update = {
+						note: { question_path: "/data/note", update_mode: "sometimes" },
+					};
+				}),
+			),
+		).toEqual([
+			[0, 0, "unknown-form-kind"],
+			[1, 0, "no-xform"],
+			[1, 1, "actions-malformed"],
+			[1, 2, "actions-malformed"],
+		]);
+		// A follow-up of a menu whose search loads a data registry's case: the
+		// build's block reads a project space setting the source does not say.
+		expect(
+			reasons(
+				editedCaseWrites((modules) => {
+					modules[1].search_config = {
+						properties: [{ name: "name" }],
+						data_registry: "a-registry",
+						data_registry_workflow: "load_case",
+					};
+				}),
+			),
+		).toEqual([0, 1, 2, 3].map((form) => [1, form, "registry-load"]));
+		const scheduled = publishedCaseBlocks({
+			doc_type: "Application",
+			modules: [
+				{
+					doc_type: "AdvancedModule",
+					case_type: "test_case_type",
+					has_schedule: true,
+					forms: [
+						{
+							doc_type: "AdvancedForm",
+							unique_id: "f",
+							xmlns: "http://openrosa.org/formdesigner/advanced",
+							schedule: { enabled: true },
+							actions: { load_update_cases: [], open_cases: [] },
+						},
+					],
+				},
+			],
+			_attachments: { "f.xml": fixture("original_form.xml") },
+		});
+		expect(reasons(scheduled)).toEqual([[0, 0, "visit-schedule"]]);
 	});
 });
 

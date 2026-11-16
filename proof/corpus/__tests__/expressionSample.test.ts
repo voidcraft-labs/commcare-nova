@@ -6,7 +6,7 @@ import {
 	expressionDocArbitrary,
 	landedExpressionShapes,
 } from "@/lib/commcare/__tests__/expressionDocArbitrary";
-import { caseTypeDepthMap } from "@/lib/commcare/caseTypeDepths";
+import { caseTypeHopMap } from "@/lib/commcare/caseTypeDepths";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
 import { formExpressionEmission } from "@/lib/commcare/xform/formExpressions";
@@ -119,7 +119,7 @@ function formSlotWire(
 	return formExpressionEmission(doc, formUuid, undefined, {
 		formCaseProperty: formCasePropertyRead({
 			formType: doc.forms[formUuid].type,
-			caseTypeDepths: caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []),
+			caseTypeHops: caseTypeHopMap(doc, moduleCaseType),
 			moduleCaseType,
 		}),
 	}).lower(expression, slot);

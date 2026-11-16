@@ -270,7 +270,7 @@ describe("CASE_WRITE_ONLY_IF_CHANGED_INVALID", () => {
 					own({
 						writes: [
 							changed(),
-							{ property: "status", value: concat(read("name")) },
+							{ property: "outcome", value: concat(read("name")) },
 						],
 					}),
 				],

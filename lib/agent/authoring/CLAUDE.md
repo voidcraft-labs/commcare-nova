@@ -208,6 +208,9 @@ Connect expressions resolve from their generated evaluation node through the sam
 with by `=` or `!=`. The parser adds no rule about where one stands: the
 checker admits the arm only in a slot CommCare's server search alone reads,
 and CSQL representability refuses it anywhere but opposite `=` or `!=`.
+`recordRoundTrip.ts::recordDialectRoundTrip` is the dialect's own law as a
+function, which the reader of CommCare HQ's apps is handed so it holds no
+record tree this dialect cannot print and read back.
 
 Preparation runs inside the authorized workspace invocation. Agent and MCP workspaces retain incomplete construction privately; saving
 passes the full canonical gate. Builder edits retain their immediate canonical

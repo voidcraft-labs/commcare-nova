@@ -95,6 +95,8 @@ export function guardNodeSetConsumer(
 	/** Holds when every value an enclosing `coalesce` reads before the set is
 	 * blank, so that `coalesce` hands the set on. */
 	handedOn?: WireExpr,
+	/** Called wherever a guard is built, so a caller knows the print holds one. */
+	onGuard?: () => void,
 ): WireExpr {
 	if (nodes.k === "call") {
 		const spec = FUNCTION_REGISTRY.get(nodes.fn);
@@ -105,7 +107,7 @@ export function guardNodeSetConsumer(
 					nodes.fn,
 					nodes.args.map((arg, index) =>
 						through.has(index)
-							? guardNodeSetConsumer(arg, consume, empty, handedOn)
+							? guardNodeSetConsumer(arg, consume, empty, handedOn, onGuard)
 							: arg,
 					),
 				);
@@ -130,12 +132,14 @@ export function guardNodeSetConsumer(
 								...(handedOn === undefined ? [] : [handedOn]),
 								allBlank(earlier),
 							),
+					onGuard,
 				);
 			}
 		}
 	}
 	const rows = emptiableRows(nodes);
 	if (rows === undefined) return consume(nodes);
+	onGuard?.();
 	if (handedOn === undefined) return guardRead(consume(nodes), rows, empty);
 	return w.call("if", [
 		w.and(w.eq(w.call("count", [rows]), w.num(0)), handedOn),
@@ -188,6 +192,8 @@ export function guardChecklistPair(
 	sets: readonly WireExpr[],
 	consume: (sets: readonly WireExpr[]) => WireExpr,
 	empty: WireExpr,
+	/** Called wherever a guard is built, so a caller knows the print holds one. */
+	onGuard?: () => void,
 ): WireExpr {
 	const lazy = sets.findIndex(
 		(set) =>
@@ -209,6 +215,7 @@ export function guardChecklistPair(
 							sets.map((set, at) => (at === lazy ? arg : set)),
 							consume,
 							empty,
+							onGuard,
 						)
 					: arg,
 			),
@@ -221,6 +228,7 @@ export function guardChecklistPair(
 	if (paths.every(Boolean)) {
 		const rows = sets.map(emptiableRows);
 		if (rows.every((list) => list === undefined)) return consume(sets);
+		onGuard?.();
 		const none = (nodes: WireExpr) => w.eq(w.call("count", [nodes]), w.num(0));
 		return w.call("if", [
 			w.and(
@@ -235,5 +243,6 @@ export function guardChecklistPair(
 	}
 	if (sets.some((set, index) => !paths[index] && mayBeNodeSet(set)))
 		return consume(sets);
+	if (sets.some((set) => emptiableRows(set) !== undefined)) onGuard?.();
 	return consume(sets.map(guardValue));
 }

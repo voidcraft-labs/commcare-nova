@@ -18,6 +18,12 @@ reads (and, for ``csql``, HQ's case search then runs over saved cases).
 from dataclasses import dataclass
 
 VITEST = "node_modules/.bin/vitest"
+# How every one of Nova's TypeScript commands here runs, as the corpus emitter
+# runs: Nova's server modules start with `import "server-only"`, which throws
+# at import under Node's default conditions and is an empty module under
+# `react-server`, so a producer that reaches one (the csql producer reads the
+# manifest's inventory) runs only with the condition.
+NODE = ("node", "--conditions=react-server", "--import", "tsx")
 
 
 @dataclass(frozen=True)
@@ -79,7 +85,7 @@ ZONED_CLASSES = {
 
 
 def _script(name, producer):
-    return Family(name, ("node", "--import", "tsx", f"proof/native/producers/{producer}"))
+    return Family(name, (*NODE, f"proof/native/producers/{producer}"))
 
 
 def _vitest(name, test_file, variable):
@@ -174,6 +180,8 @@ CORE_CLASSES = {
     "ProseValueRuntimeTest": "expression",
     # Registration from the case list: the Register action and its return frames, by host shape (run G3).
     "RegisterFromListRuntimeTest": "menu-screens",
+    # The reader's equivalence table (run E1): each row's two spellings, read by Core alike.
+    "ReaderSpellingRuntimeTest": "expression",
     "RelationInstanceRuntimeTest": "relation-instance",
     # The whole-number counts Nova admits, and the fractional carrier they replaced, on one local form.
     "RepeatCountRuntimeTest": "expression",

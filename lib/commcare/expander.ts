@@ -119,7 +119,7 @@ import { buildXFormSource } from "./xform/builder";
  * invariant violation and aborts projection — silently dropping authored
  * navigation would turn a bad Blueprint into a different app.
  */
-function toHqFormLink(
+export function toHqFormLink(
 	link: ProjectedFormLink,
 	moduleUniqueIdOf: ReadonlyMap<Uuid, string>,
 	formUniqueIdOf: ReadonlyMap<Uuid, string>,
@@ -200,6 +200,14 @@ export interface ExpandOptions {
 	 * drops a case write from a valid app with nothing to show for it.
 	 */
 	attachmentTarget?: AttachmentUrlTarget | null;
+	/**
+	 * The id prefix a create keyed by an answer writes, by operation, where a
+	 * source already holds one that is not the document's derivation: the
+	 * reader of an HQ app prints its comparison under the source's. Absent,
+	 * each keyed create writes the prefix its app, form, operation and case
+	 * type derive.
+	 */
+	readonly keyedCaseIdPrefixes?: ReadonlyMap<Uuid, string>;
 }
 
 export function expandDoc(
@@ -362,6 +370,9 @@ export function expandDoc(
 				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
 				...(opts.attachmentTarget && {
 					attachmentTarget: opts.attachmentTarget,
+				}),
+				...(opts.keyedCaseIdPrefixes && {
+					keyedCaseIdPrefixes: opts.keyedCaseIdPrefixes,
 				}),
 			});
 			attachments[`${formUniqueId}.xml`] = source.xml;

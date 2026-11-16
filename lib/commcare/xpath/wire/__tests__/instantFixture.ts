@@ -206,7 +206,7 @@ export function instantFixture(
 	// The follow-up form reads its own `visit` case as the XForm emitter does.
 	const formCaseProperty = formCasePropertyRead({
 		formType: "followup",
-		caseTypeDepths: new Map([["visit", 0]]),
+		caseTypeHops: new Map([["visit", []]]),
 		moduleCaseType: "visit",
 	});
 	return {

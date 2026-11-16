@@ -1,10 +1,11 @@
 // lib/commcare/index.ts
 //
-// The one-way bridge from our normalized domain to CommCare's wire
-// formats. This package owns every CommCare-specific vocabulary item
-// (HQ JSON shapes, XForm XML, doc_type strings, session datums,
-// identifier rules) — everything else in lib/ talks to CommCare only
-// through this barrel.
+// The client-safe emission primitives of the CommCare boundary. The
+// package owns every CommCare-specific vocabulary item (HQ JSON shapes,
+// XForm XML, doc_type strings, session datums, identifier rules): it
+// writes our normalized domain as CommCare's wire formats and, in
+// `reader/`, which sits outside this barrel, reads an HQ app back.
+// Everything else in lib/ reaches CommCare only through this package.
 //
 // The barrel re-exports only the primitives that are safe to pull
 // into any layer, including client components: constants, HQ JSON

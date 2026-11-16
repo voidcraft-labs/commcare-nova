@@ -376,8 +376,26 @@ because `entryDatumSupplies` reads them too, and each load's tag,
 first), and
 `Module.heldKind` holds the kind a publish carried; `advancedKindBlockers`
 names what keeps a menu basic, `heldKindExpresses` whether a held kind can
-still express its menu, and `advancedChainIndex` the index name of each load
-in the menu's parent chain. The three live in `advancedModule.ts`, because the
+still express its menu, `advancedChainIndex` the index name of each load
+in the menu's parent chain, and `ancestorWalk` the index a form's read of
+an ancestor (`#<type>/<property>`) walks from each type to its catalog
+parent: a name on every case the app links between the two, a child
+link's or an extension link's alike (a read walks an index by its name). A
+name is on every such case where no link removes it and every operation that
+links the two writes it, or, for one that does not create its case, every
+operation that creates the child type writes it; a create that links nothing
+writes no name. Where the app names one, it is that name; where it names
+several and its child links use one, it is that one, the name a parent
+selection lists a child under (an advanced chain's `index/<reference_id>`,
+a basic one's only child index), so a form reads the case a worker chose;
+otherwise `parent` first among the names on every case, then the first in
+document order; `parent` where no link joins them. It is `several` where no
+one name is on every such case (`no-name`) or the child links' one name is
+not (`child-name`), which the checker refuses at every read across that hop
+(`relation-ambiguous` reason `ancestor-link-names`, the gate's
+`FORM_CASE_READ_ACROSS_SEVERAL_LINKS`). `ancestorIndex` is its one name and
+`ancestorLink` that name with the relationship the app's links under it
+state, which Nova's own rows (sample data, `evaluate_form`'s records) carry. The four live in `advancedModule.ts`, because the
 builder and the commit gate read them: a blocker is a menu that lets a worker
 choose several cases, one whose forms read its search, one whose case list
 menu item is narrowed, or a parent chain whose pair of case types the app

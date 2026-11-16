@@ -77,7 +77,8 @@ import {
 	simplifyForEmission,
 	substituteUnansweredSearchInputs,
 } from "@/lib/domain/expression";
-import type { DatumRef } from "@/lib/domain/expression/types";
+import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import { type RewriteControl, rewriteWithheld } from "../emissionRewrites";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -99,6 +100,7 @@ import {
 	emitNormalizedExcludedOwnerIdsExpression,
 } from "../suite/case-list/nodesetFilter";
 import {
+	type ColumnRewrites,
 	caseListOrderOptions,
 	columnReadsCaseAttribute,
 	hqEnumPlaceholder,
@@ -109,6 +111,7 @@ import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
 import {
 	type RuntimeCsqlPromptValidation,
+	type SearchPromptSlot,
 	searchPromptWire,
 } from "../suite/case-search/searchPrompts";
 import { searchWireShape } from "../suite/case-search/searchWireShape";
@@ -149,6 +152,8 @@ interface ColumnProjectionContext {
 	readonly caseProperties: readonly CaseProperty[];
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
+	/** The reader's control over each calculated column's print (`CaseListRewrites.column`). */
+	readonly columnRewrites?: ColumnRewrites;
 }
 
 /**
@@ -202,6 +207,7 @@ function projectColumnToDetail(
 				screen,
 				ctx.lookupNaming,
 				ctx.expressions,
+				ctx.columnRewrites?.(column.uuid),
 			),
 		);
 
@@ -354,6 +360,7 @@ function projectColumnForShortDetail(
 									"results",
 									ctx.lookupNaming,
 									ctx.expressions,
+									ctx.columnRewrites?.(column.uuid),
 								),
 							)
 						: field.joinText,
@@ -486,13 +493,17 @@ function sortElementType(
  * suite-XML nodeset filters at `lib/commcare/suite/case-list/nodesetFilter.ts`;
  * the HQ JSON stores it bare (CCHQ's `EntriesHelper.get_filter_xpath`
  * wraps it in `[...]` at suite-emission time on the CCHQ side too).
+ *
+ * Where `rewrites` withholds `filter-identities-dropped`, the filter prints as
+ * stored, boolean identities included.
  */
-function projectCaseListFilter(
+export function projectCaseListFilter(
 	filter: CaseListConfig["filter"],
 	excludedOwnerIds: DomainCaseSearchConfig["excludedOwnerIds"],
 	expressions: ModuleExpressionContexts,
 	lookupNaming: LookupWireNaming | undefined,
 	datumId: (ref: DatumRef) => string | undefined,
+	rewrites?: RewriteControl,
 ): HqXPath | null {
 	// This slot lands in CCHQ's ordinary case-loading datum nodeset
 	// (`EntriesHelper.get_filter_xpath`), which evaluates before any
@@ -509,9 +520,13 @@ function projectCaseListFilter(
 	// string. Mirrors the suite-XML `nodesetFilter.ts` surface so both
 	// case-list-filter wire forms stay identity-clean. See
 	// `lib/domain/expression/simplify.ts`.
-	const effective = effectiveFilterForEmission(
-		filter === undefined ? undefined : substituteUnansweredSearchInputs(filter),
-	);
+	const substituted =
+		filter === undefined ? undefined : substituteUnansweredSearchInputs(filter);
+	const effective =
+		substituted !== undefined &&
+		rewriteWithheld(rewrites, "filter-identities-dropped")
+			? substituted
+			: effectiveFilterForEmission(substituted);
 	const authoredFilter =
 		effective === undefined
 			? undefined
@@ -524,6 +539,7 @@ function projectCaseListFilter(
 							lookup: { naming: lookupNaming, instanceScope: "suite" },
 						}),
 					},
+					...(rewrites === undefined ? {} : { rewrites }),
 				});
 	const ownerFilter =
 		excludedOwnerIds === undefined
@@ -540,9 +556,68 @@ function projectCaseListFilter(
 	return hqXPath(w.and(authoredFilter, ownerFilter), "case");
 }
 
+/**
+ * The search button's condition as CommCare HQ stores it
+ * (`search_config.search_button_display_condition`): a bare on-device XPath
+ * the runtime evaluates before it draws the button. `simplifyForEmission`
+ * strips any redundant boolean identity (a `match-all` left inside an
+ * authored `and`) so the condition carries no `true() and …` conjunct, the
+ * same normalization the filter surfaces apply; where `rewrites` withholds
+ * `filter-identities-dropped`, it prints as stored.
+ */
+export function projectSearchButtonCondition(
+	condition: Expression,
+	expressions: ModuleExpressionContexts,
+	lookupNaming: LookupWireNaming | undefined,
+	rewrites?: RewriteControl,
+): HqXPath {
+	return hqXPath(
+		toWire(
+			rewriteWithheld(rewrites, "filter-identities-dropped")
+				? condition
+				: simplifyForEmission(condition),
+			{
+				target: "hq-json",
+				types: expressions({ slot: "search_button_display_condition" }),
+				...(lookupNaming && {
+					bindings: {
+						lookup: { naming: lookupNaming, instanceScope: "suite" },
+					},
+				}),
+				...(rewrites === undefined ? {} : { rewrites }),
+			},
+		),
+	);
+}
+
+/**
+ * The reader's control over the rewrites the `caseDetails`' expression slots print
+ * (`emissionRewrites.ts`), each asked once per print of its slot; undefined where the slot
+ * prints as an export does. The search's owner exclusion, which the list's filter writes as a
+ * clause of its own (`nodesetFilter.ts::emitExcludedOwnerFilterExpression`), is no slot of the
+ * list and prints as an export prints it. An export passes none.
+ */
+export interface CaseListRewrites {
+	readonly column?: ColumnRewrites;
+	readonly filter?: () => RewriteControl | undefined;
+}
+
 // ============================================================
 // `search_config` projection
 // ============================================================
+
+/**
+ * The reader's control over the rewrites one expression slot of a search's settings prints
+ * (`emissionRewrites.ts`), by slot, asked once per print of the slot; undefined where the slot
+ * prints as an export does. An export passes none.
+ */
+export type SearchConfigRewrites = (
+	ref:
+		| {
+				readonly slot: "search_button_display_condition" | "excluded_owner_ids";
+		  }
+		| { readonly slot: SearchPromptSlot; readonly searchInputUuid: string },
+) => RewriteControl | undefined;
 
 /**
  * Translate one `SearchInputDef` to a CCHQ `CaseSearchProperty`. The
@@ -570,6 +645,7 @@ function projectSearchInput(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	inputInstanceId?: `search-input:${string}`,
+	rewrites?: SearchConfigRewrites,
 ): CaseSearchProperty<HqXPath> {
 	const wire = searchPromptWire(
 		input,
@@ -577,6 +653,9 @@ function projectSearchInput(
 		expressions,
 		lookupNaming,
 		inputInstanceId,
+		rewrites === undefined
+			? undefined
+			: (slot) => rewrites({ slot, searchInputUuid: input.uuid }),
 	);
 	const property: CaseSearchProperty<HqXPath> = {
 		name: wire.key,
@@ -635,6 +714,7 @@ function projectSearchProperties(
 	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
 	inputInstanceId?: `search-input:${string}`,
+	rewrites?: SearchConfigRewrites,
 ): CaseSearchProperty<HqXPath>[] {
 	const out: CaseSearchProperty<HqXPath>[] = [];
 
@@ -648,6 +728,7 @@ function projectSearchProperties(
 				expressions,
 				lookupNaming,
 				inputInstanceId,
+				rewrites,
 			),
 		);
 	}
@@ -742,6 +823,7 @@ function buildSearchConfigDocument(
 	lookupNaming: LookupWireNaming | undefined,
 	datumId: (ref: DatumRef) => string | undefined,
 	runsInWebApps: boolean,
+	rewrites?: SearchConfigRewrites,
 ): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
@@ -783,19 +865,11 @@ function buildSearchConfigDocument(
 			// boolean identity (e.g. a `match-all` left inside an authored
 			// `and`) so the condition doesn't emit a `true() and …`
 			// conjunct — same normalize the filter surfaces apply.
-			config.search_button_display_condition = hqXPath(
-				toWire(
-					simplifyForEmission(caseSearchConfig.searchButtonDisplayCondition),
-					{
-						target: "hq-json",
-						types: expressions({ slot: "search_button_display_condition" }),
-						...(lookupNaming && {
-							bindings: {
-								lookup: { naming: lookupNaming, instanceScope: "suite" },
-							},
-						}),
-					},
-				),
+			config.search_button_display_condition = projectSearchButtonCondition(
+				caseSearchConfig.searchButtonDisplayCondition,
+				expressions,
+				lookupNaming,
+				rewrites?.({ slot: "search_button_display_condition" }),
 			);
 		}
 		if (caseSearchConfig.excludedOwnerIds !== undefined) {
@@ -805,6 +879,7 @@ function buildSearchConfigDocument(
 					expressions({ slot: "excluded_owner_ids" }),
 					lookupNaming,
 					inputInstanceId,
+					rewrites?.({ slot: "excluded_owner_ids" }),
 				),
 			);
 		}
@@ -832,6 +907,7 @@ function buildSearchConfigDocument(
 			expressions,
 			lookupNaming,
 			inputInstanceId,
+			rewrites,
 		);
 		// A search with no input and no clause carries the zero-input
 		// sentinel, as the local suite's query does.
@@ -908,6 +984,9 @@ export function emptyShortListColumns(
  * caller. A null `caseListConfig` is treated as the empty-list arm
  * (no columns, no sort, no filter, no search inputs); a null
  * `caseSearchConfig` is treated as no-search-chrome (CCHQ defaults).
+ * `searchRewrites` is the reader's control over the `searchConfig`'s
+ * expression slots (`SearchConfigRewrites`), and `listRewrites` over the
+ * `caseDetails`' (`CaseListRewrites`); an export passes neither.
  */
 export interface CaseListHqProjection {
 	readonly caseDetails: DetailPair<HqXPath>;
@@ -919,6 +998,8 @@ export function projectCaseListForHq(
 	doc: BlueprintDoc,
 	assets?: AssetManifest,
 	lookupNaming?: LookupWireNaming,
+	searchRewrites?: SearchConfigRewrites,
+	listRewrites?: CaseListRewrites,
 ): CaseListHqProjection {
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
@@ -936,6 +1017,9 @@ export function projectCaseListForHq(
 		caseProperties,
 		expressions,
 		...(lookupNaming !== undefined && { lookupNaming }),
+		...(listRewrites?.column !== undefined && {
+			columnRewrites: listRewrites.column,
+		}),
 	};
 	// The short detail's fields and order are the order plan's
 	// (`lib/domain/caseListOrder.ts`); the long detail reads its own Details
@@ -947,7 +1031,13 @@ export function projectCaseListForHq(
 			: caseListOrderPlan(
 					caseListConfig,
 					caseProperties,
-					caseListOrderOptions(mod, doc, ctx.mediaOn, lookupNaming),
+					caseListOrderOptions(
+						mod,
+						doc,
+						ctx.mediaOn,
+						lookupNaming,
+						listRewrites?.column,
+					),
 				);
 	const longSourceColumns = (
 		caseListConfig === undefined ? [] : orderedColumns(caseListConfig, "detail")
@@ -971,6 +1061,7 @@ export function projectCaseListForHq(
 		expressions,
 		lookupNaming,
 		caseListStepDatumId(doc, mod.uuid, "chainId"),
+		listRewrites?.filter?.(),
 	);
 
 	// `detailPair` from `hqShells` seeds the `(short, long)` pair
@@ -1004,6 +1095,7 @@ export function projectCaseListForHq(
 		lookupNaming,
 		caseListStepDatumId(doc, mod.uuid, "id"),
 		declaresWebApps(doc),
+		searchRewrites,
 	);
 
 	return { caseDetails: pair, searchConfig };

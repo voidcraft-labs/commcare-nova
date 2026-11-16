@@ -1,6 +1,7 @@
 """HQ's suite contributors over Nova's navigation exports.
 
 Each step imports every export of its family (``Application.from_source``),
+as ``hq_support.app_sources`` selects them,
 names it as Nova's runtime target does (app id, version 1, Nova's server as
 the app's base URL and as HQ's own address), and writes what HQ's
 hand-assembled suite pipeline (``hq_support.hand_assembled_suite``) makes of
@@ -14,8 +15,8 @@ registration.
 - ``case_lists``: the case list scenarios, with their app strings
   (``<scenario>.hq.properties``).
 - ``endpoints``: session endpoints, with ``SESSION_ENDPOINTS`` on.
-- ``searches(family)``: the six search corpora (search, prompt, function,
-  quote, static-quote, form-link).
+- ``searches(family)``: the seven search corpora (search, prompt, function,
+  csql, quote, static-quote, form-link).
 - ``nested_menus`` / ``no_matches``: with endpoints, and the form Core
   opens regenerated (``<scenario>.hq.xml``: the second module's first form
   for nested menus, the last module's first form for no-matches).
@@ -38,6 +39,7 @@ family's fixture records.
 from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
 from proof.native.hq_support import (
     NOVA_SERVER_ORIGIN,
+    app_sources,
     hand_assembled_suite,
     import_source,
     known_app_strings,
@@ -66,7 +68,7 @@ def _check(session, domain, flags):
 
 def case_lists(session):
     exports = session.family("case-list")
-    sources = sorted(exports.glob("*.json"))
+    sources = app_sources(exports)
     records = []
     with _check(session, SEARCH_DOMAIN, {"CASE_SEARCH_ADVANCED"}):
         for source in sources:
@@ -90,7 +92,7 @@ def endpoints(session):
     exports = session.family("endpoint")
     records = []
     with _check(session, ENDPOINT_DOMAIN, {"CASE_SEARCH_ADVANCED", "SESSION_ENDPOINTS"}):
-        for source in sorted(exports.glob("endpoint-*.json")):
+        for source in app_sources(exports, "endpoint-*.json"):
             raw = source.read_bytes()
             app = _target(import_source(raw, ENDPOINT_DOMAIN), "endpoint-evidence")
             suite = hand_assembled_suite(app, endpoints=True)
@@ -109,7 +111,7 @@ def endpoints(session):
 def searches(family):
     def run(session):
         exports = session.family(family)
-        sources = sorted(exports.glob("*.json"))
+        sources = app_sources(exports)
         records = []
         with _check(session, SEARCH_DOMAIN, {"CASE_SEARCH_ADVANCED"}):
             for source in sources:
@@ -140,7 +142,7 @@ def _child_menu_step(family, pattern, app_id, form_module):
         records = []
         flags = {"CASE_SEARCH_ADVANCED", "FOLLOWUP_FORMS_AS_CASE_LIST_FORM"}
         with _check(session, ENDPOINT_DOMAIN, flags):
-            for source in sorted(exports.glob(pattern)):
+            for source in app_sources(exports, pattern):
                 raw = source.read_bytes()
                 app = _target(import_source(raw, ENDPOINT_DOMAIN), app_id)
                 form = app.get_module(form_module(app)).get_form(0)
@@ -181,7 +183,7 @@ def menu_screens(session):
     ):
         from corehq.apps.app_manager.helpers.validators import ModuleValidator
 
-        for source in sorted(exports.glob("*.json")):
+        for source in app_sources(exports):
             if source.name.endswith((".screens.json", ".offers.json", ".tiles.json")):
                 continue
             raw = source.read_bytes()
@@ -213,7 +215,7 @@ def localizations(family):
         pattern = "locale-*.json" if family == "localization" else "worker-*.json"
         records = []
         with _check(session, LOCALIZATION_DOMAIN, {"CASE_SEARCH_ADVANCED"}):
-            for source in sorted(exports.glob(pattern)):
+            for source in app_sources(exports, pattern):
                 raw = source.read_bytes()
                 app = _target(import_source(raw, LOCALIZATION_DOMAIN), "localization-evidence")
                 for lang in app.langs:

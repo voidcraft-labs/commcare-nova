@@ -13,6 +13,7 @@
  */
 
 import { CompletionContext } from "@codemirror/autocomplete";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -36,6 +37,23 @@ import {
 import { instanceSource } from "../xpath-autocomplete";
 import { xpath } from "../xpath-language";
 import { xpathDiagnostics } from "../xpath-lint";
+
+/**
+ * An editor state over `text` whose syntax tree is parsed to the end. A new
+ * state parses for at most 20 ms (`@codemirror/language`'s initial work
+ * budget), so on a loaded machine its tree can stop short of the cursor and a
+ * completion read over it finds nothing, where the editor itself goes on
+ * parsing. The state a transaction makes after `ensureSyntaxTree` holds the
+ * whole tree, which `syntaxTree` then reads.
+ */
+function parsedState(text: string): EditorState {
+	const created = EditorState.create({ doc: text, extensions: [xpath()] });
+	ensureSyntaxTree(created, created.doc.length, 10_000);
+	const state = created.update({}).state;
+	if (syntaxTree(state).length < state.doc.length)
+		throw new Error(`The editor did not finish parsing ${text}`);
+	return state;
+}
 
 const { doc, table } = instanceReadFixture();
 const VISIT_PROPERTY = testUuid("instance-completion-catchment");
@@ -84,7 +102,7 @@ function complete(slot: ExpressionSlotRef, written: string) {
 	const cursor = written.indexOf("|");
 	const text = cursor < 0 ? written : written.replace("|", "");
 	const pos = cursor < 0 ? text.length : cursor;
-	const state = EditorState.create({ doc: text, extensions: [xpath()] });
+	const state = parsedState(text);
 	const result = instanceSource(() => context(slot).reads)(
 		new CompletionContext(state, pos, false),
 	);
@@ -177,7 +195,7 @@ describe("instance ids", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		const at = (written: string) => {
-			const state = EditorState.create({ doc: written, extensions: [xpath()] });
+			const state = parsedState(written);
 			return (
 				instanceSource(() => lint?.reads)(
 					new CompletionContext(state, written.length, false),

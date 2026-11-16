@@ -35,6 +35,7 @@ from lxml import etree
 
 from proof.checks.compare.names import nova_name
 from proof.observe.manifest import CSQL_HOLES
+from proof.rules._xpath import tokens as xpath_tokens
 
 XFORMS = "http://www.w3.org/2002/xforms"
 XHTML = "http://www.w3.org/1999/xhtml"
@@ -120,6 +121,14 @@ class Form:
         self.readings = None  # proof.checks.manifest_usage.Readings, once the check reads the observation's
         self.app_form = None  # (App, its form object) where an app JSON carries the form
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
+        # The suites (their roots) whose entries open the form, where the check reads any: HQ's builds of an app
+        # JSON's upload, or a local archive's own suite (``manifest_usage.link_entry_suites``).
+        self.entry_suites = ()
+
+    @cached_property
+    def xmlns(self):
+        """The form's namespace: its data root's, which a suite entry's ``<form>`` names."""
+        return etree.QName(self.data_root).namespace if self.data_root is not None else None
 
     @cached_property
     def head(self):
@@ -1972,14 +1981,21 @@ def invalid_or_repeated_code(use, manifest):
 
 
 def path_not_from_uploader(use, manifest):
-    """``application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-…``: a logo slot whose path
-    is not the one HQ's uploader writes (``ProcessLogoFileUploadView.form_path``:
+    """``application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-…``: a logo slot HQ's uploader
+    did not write: an entry that is no object or holds no ``m_id``, which the uploader always stores
+    (``ProcessLogoFileUploadView.process_upload`` stores ``CommCareMultimedia.get_media_info``), or whose path
+    is not the one the uploader writes (``ProcessLogoFileUploadView.form_path``:
     ``jr://file/commcare/logo/data/<slot><ext>``)."""
     at = _json(use)
     if at is None:
         return None
     for slot, ref in (at.app.doc.get("logo_refs") or {}).items():
-        path = ref.get("path") if isinstance(ref, dict) else None
+        if not isinstance(ref, dict):
+            return True
+        media_id = ref.get("m_id")
+        if not isinstance(media_id, str) or not media_id:
+            return True
+        path = ref.get("path")
         prefix = f"jr://file/commcare/logo/data/{slot}"
         if not isinstance(path, str) or not path.startswith(prefix):
             return True
@@ -2901,114 +2917,6 @@ def multi_select_top_level(use, manifest):
     return any(not xform.in_repeat(path) for path in preload)
 
 
-def load_changes_values(use, manifest):
-    """``forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held``: a basic
-    ``case_preload`` into a question outside any repeat whose held spelling (a default value at the
-    question's place in data-tree order, which replaces the question's own default) would change a node's
-    value or relevance once the form has loaded, on some opening (README, "Load-time values"). HQ runs the
-    load after every other load-time setvalue (``XForm.add_case_preloads``); the held spelling runs it at the
-    question's place, as Vellum writes each default (``writer.js::createSetValues``). So only a load-time
-    setvalue after that place can see the difference: one that reads the question (or a node holding it) sees
-    the case's value there instead of blank, on every opening whose case holds one; one that reads only other
-    nodes sees what it saw unless such a node is calculated or conditioned, which this does not follow
-    (None); one before the place, or one reading no node of the form, sees the same in both."""
-    at, form = _form(use)
-    if form is None:
-        return None
-    if not _in_actions(at, form, "case_preload"):
-        return False
-    preload = (_actions(form).get("case_preload") or {}).get("preload") or {}
-    if not preload or _requires(form) == "none":
-        return False
-    xform = at.app.xform(form)
-    if xform is None or xform.model is None:
-        return None
-    order = {path: position for position, path in enumerate(xform.nodes)}
-    questions = [path for path in preload if not xform.in_repeat(path) and path in order]
-    if not questions:
-        return None if any(path not in order for path in preload) else False
-    unsure = False
-    for setvalue in xform.model.iterfind(f"{{{XFORMS}}}setvalue"):
-        if "xforms-ready" not in (setvalue.get("event") or "").split():
-            continue
-        target = (setvalue.get("ref") or "").strip()
-        tree = xform.readings.trees.get(setvalue.get("value")) if xform.readings is not None else None
-        if tree is None or target not in order:
-            return None
-        later = [question for question in questions if order[target] > order[question] and target != question]
-        if not later or not _reads_form(tree, "form"):
-            continue
-        reads = _form_reads(tree, target)
-        if reads is None:
-            unsure = True
-            continue
-        for question in later:
-            if any(question == read or question.startswith(f"{read}/") for read in reads):
-                return True
-        if any(_computed(xform, read) for read in reads):
-            unsure = True
-    return None if unsure else False
-
-
-def _form_reads(tree, target):
-    """Every path from the form's root an expression reads, or None where it reads the form's nodes another
-    way (from the context node, or from ``current()`` by a step this does not follow).
-
-    ``target`` is the node the setvalue sets, the absolute path its ``ref`` names: Core evaluates a setvalue's
-    value in its target's context, so ``current()`` there is the target (commcare-core
-    ``SetValueAction.processAction``), and a path from it is resolved from that node, each ``..`` up and each
-    named child down, as Nova prints a default (``current()/../zone``)."""
-    found = []
-
-    def walk(node, context):
-        kind = node[0]
-        if kind == "path":
-            root = node[1]
-            if root == "absolute":
-                found.append(node[2])
-            elif root == "call:current":
-                resolved = _from_current(target, node[4])
-                if resolved is None:
-                    return False
-                found.append(resolved)
-            elif root == "relative" and context == "form":
-                return False
-            inner = "instance" if root.startswith("instance:") else context
-            return all(walk(predicate, inner) for predicate in node[3])
-        if kind == "binary":
-            return walk(node[2], context) and walk(node[3], context)
-        if kind == "negative":
-            return walk(node[1], context)
-        if kind == "call":
-            if node[1] == "current":
-                found.append(target)
-                return True
-            return all(walk(argument, context) for argument in node[2])
-        return True
-
-    return found if walk(tree, "form") else None
-
-
-def _from_current(target, steps):
-    """The absolute path ``current()`` followed by ``steps`` names, ``current()`` being ``target``; None where a
-    step is not a plain ``..``, ``.`` or a named child without a predicate, or climbs above the form's root."""
-    path = target.split("/")[1:]
-    for axis, test, predicates in steps:
-        if predicates:
-            return None
-        if axis == "parent" and test == "node()":
-            if len(path) < 2:
-                return None
-            path = path[:-1]
-        elif axis == "self" and test == "node()":
-            continue
-        elif axis == "child" and test not in ("*", "node()", "text()") and ":" not in test:
-            path = [*path, test]
-        else:
-            return None
-    return "/" + "/".join(path)
-
-
 def _computed(xform, path):
     """Whether a node's value or relevance is computed: it, or a node above it, has a bind with a calculate or
     a relevance condition (a path whose text names no node is taken as computed)."""
@@ -3789,6 +3697,17 @@ def data_registry_key(use, manifest):
     return any(entry.get("property") == "x_commcare_data_registry" for entry in _default_entries(at, config))
 
 
+def registry_named(use, manifest):
+    """``case-search/data-registry-data-registry-workflow-additional-registry-cases``: a search whose
+    ``data_registry`` holds text, with whatever ``data_registry_workflow`` and ``additional_registry_cases`` stand
+    beside it. HQ reads the registry by truth (``util.py::module_offers_registry_search``), so a blank or absent
+    registry names none, and the workflow and extra cases beside it are the INERT ``no-registry`` class."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    return bool(config.get("data_registry"))
+
+
 def endpoint_id_key(use, manifest):
     """``case-search/default-properties-entry-keyed-x-commcare-endpoint-id``."""
     at, config = _search(use)
@@ -3851,10 +3770,22 @@ def _prompt_reader(test):
     return reader
 
 
+# The input types HQ's Case List page shows over an address appearance (``case_claim.js::_getAppearance`` tests them
+# last), which HQ's build also writes over the ``input="address"`` the appearance gives
+# (``remote_requests.py::build_query_prompts``): beside one, the prompt is no address field.
+INPUTS_OVER_ADDRESS = frozenset({"date", "daterange", "checkbox"})
+
+
+def _address_field(prompt):
+    return prompt.get("appearance") == "address" and prompt.get("input_") not in INPUTS_OVER_ADDRESS
+
+
 address_with_required_or_validations = _prompt_reader(
-    lambda prompt: prompt.get("appearance") == "address" and (_required(prompt) or bool(_validations(prompt)))
+    lambda prompt: _address_field(prompt) and (_required(prompt) or bool(_validations(prompt)))
 )
-address_with_required_or_validations.__doc__ = """``case-search/appearance-address-with-required-or-validations``."""
+address_with_required_or_validations.__doc__ = """``case-search/appearance-address-with-required-or-validations``: an
+address field (an address appearance with no ``input_`` HQ's build and Case List page put over it) with a requirement
+or a validation."""
 
 hidden_with_required_or_validations = _prompt_reader(
     lambda prompt: bool(prompt.get("hidden")) and (_required(prompt) or bool(_validations(prompt)))
@@ -3862,7 +3793,7 @@ hidden_with_required_or_validations = _prompt_reader(
 hidden_with_required_or_validations.__doc__ = """``case-search/hidden-together-with-required-or-validations``."""
 
 later_validations = _prompt_reader(
-    lambda prompt: len(_validations(prompt)) > 1 and not prompt.get("hidden") and prompt.get("appearance") != "address"
+    lambda prompt: len(_validations(prompt)) > 1 and not prompt.get("hidden") and not _address_field(prompt)
 )
 later_validations.__doc__ = """``case-search/validations-1``: ``validations[1:]`` on a prompt neither hidden nor an
 address (the editor edits only ``[0]``)."""
@@ -3877,6 +3808,27 @@ mobile_ucr_reports = _prompt_reader(
     lambda prompt: prompt.get("input_") in ("select1", "select") and _itemset_scheme(prompt) == "commcare-reports"
 )
 mobile_ucr_reports.__doc__ = """``case-search/input-select1-select-commcare-reports-itemset-mobile-ucr``."""
+
+# The input types a runtime names (commcare-core ``QueryPrompt.INPUT_TYPE_*``): the six Formplayer supports
+# (``QueryScreen.getSupportedPrompts``), of which Android supports three (``QueryRequestActivity``).
+RUNTIME_PROMPT_INPUTS = frozenset({"select1", "select", "date", "daterange", "checkbox", "address"})
+
+
+def input_no_runtime_names(use, manifest):
+    """``case-search/input-no-runtime-names``: a prompt's input type no runtime names, read on the stored
+    prompt's ``input_`` (an app JSON) or on the suite prompt's ``input`` (Core's ``QueryPromptParser``)."""
+    json_at = _json(use)
+    if json_at is not None:
+        prompt = json_at.nearest("CaseSearchProperty")
+        if prompt is None:
+            return None
+        value = prompt.get("input_")
+    else:
+        xml_at = _xml(use)
+        if xml_at is None or _local(xml_at.element) != "prompt":
+            return None
+        value = xml_at.element.get("input")
+    return value not in (None, "") and value not in RUNTIME_PROMPT_INPUTS
 
 
 SEARCH_BUTTON_LABEL = {"en": "Search All Cases"}
@@ -4281,6 +4233,16 @@ def explicit_property_prefix(use, manifest):
     return str(column.get("field") or "").startswith("property:")
 
 
+def case_id_element(use, manifest):
+    """``menus-and-case-lists/case-id-as-a-property-column-s-field``: a non-calculated column whose field is
+    ``case_id``, which HQ reads as a child element no case carries (``detail_screen.py::CASE_PROPERTY_MAP`` maps no
+    ``case_id``)."""
+    at, column, detail, kind, module = _column(use)
+    if column is None:
+        return None
+    return not column.get("useXpathExpression") and str(column.get("field") or "") == "case_id"
+
+
 def _custom_tile(detail):
     return detail.get("case_tile_template") == "custom"
 
@@ -4493,6 +4455,156 @@ def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
                 if isinstance(link, dict) and link.get("module_unique_id") == me and not link.get("form_id"):
                     return True
     return False
+
+
+def case_list_endpoint_on_a_put_in_root_module(use, manifest):
+    """``menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module``: a module's
+    ``case_list_session_endpoint_id`` beside its ``put_in_root``, whose endpoint HQ builds through the menu above
+    and never the list. In the app JSON, a module whose ``case_list_session_endpoint_id`` is not blank and whose
+    ``put_in_root`` is true. In a suite, the endpoint itself: HQ's navigation frame for a module's endpoint
+    (``post_process/endpoints.py::EndpointsHelper._make_session_endpoint``, the stack's last ``<push>``) starts with
+    the command ``id_strings.py::menu_id`` names (``workflow.py::WorkflowHelper.get_frame_children``), which for a
+    ``put_in_root`` module is no command at all (the first menu) or its parent's menu, and a form's endpoint names
+    the form's entry command after it. So a use outside an ``<endpoint>`` is no use of the class; a frame with no
+    command is in it, since only a ``put_in_root`` module's endpoint goes through the first menu; a frame whose
+    last command is an entry's is a form's endpoint, and one whose last command names a menu no other ``<menu>``
+    shares the id of is that menu's own; a menu id several ``<menu>`` elements share holds a ``put_in_root``
+    module beside its parent (``suite_xml/sections/menus.py::MenuContributor``), whose endpoints the suite alone
+    does not tell apart (None)."""
+    at = use.at
+    if isinstance(at, XmlAt):
+        endpoint = next(
+            (node for node in at.element.iterancestors() if isinstance(node.tag, str) and _local(node) == "endpoint"),
+            at.element if _local(at.element) == "endpoint" else None,
+        )
+        if endpoint is None:
+            return False
+        stacks = [child for child in _children(endpoint) if _local(child) == "stack"]
+        pushes = [push for stack in stacks for push in _children(stack) if _local(push) == "push"]
+        if not pushes:
+            return False
+        commands = [child for child in _children(pushes[-1]) if _local(child) == "command"]
+        if not commands:
+            return True
+        named = _literal_text(commands[-1].get("value"))
+        if named is None:
+            return None
+        root = at.document.root
+        entries = {
+            command.get("id")
+            for entry in root.iter()
+            if isinstance(entry.tag, str) and _local(entry) == "entry"
+            for command in _children(entry)
+            if _local(command) == "command"
+        }
+        if named in entries:
+            return False
+        menus = [menu for menu in root.iter() if isinstance(menu.tag, str) and _local(menu) == "menu"]
+        return None if sum(menu.get("id") == named for menu in menus) > 1 else False
+    at = _json(use)
+    if at is None:
+        return None
+    module = at.nearest(*MODULES)
+    if module is None:
+        return None
+    return bool(module.get("case_list_session_endpoint_id")) and bool(module.get("put_in_root"))
+
+
+def _literal_text(text):
+    """The text of an expression that is one string literal, read with Core's lexer (``proof/rules/_xpath.py``);
+    None for any other expression."""
+    found = xpath_tokens(text or "")
+    if not found or len(found) != 1 or found[0].kind != "STR":
+        return None
+    return found[0].text[1:-1]
+
+
+def _screen_of(app, module):
+    """The module whose screen lists a module's forms, or None for the app's first menu
+    (``lib/domain/menuScreens.ts::menuScreenOf``, over HQ's ``put_in_root``): a module that does not show its forms
+    above lists them on its own screen; one that does, on its parent's where the parent keeps its screen, and on
+    the first menu otherwise."""
+    if not module.get("put_in_root"):
+        return module
+    parent = app.root(module)
+    if parent is not None and not parent.get("put_in_root"):
+        return parent
+    return None
+
+
+def _form_needs_no_case(app, form, module):
+    """Whether a form's entry asks for no case (``models/forms.py``: a basic form's ``requires_case``, an advanced
+    form's load that is not auto-selected, a shadow form's source's); a module with no case type loads none."""
+    if not module.get("case_type"):
+        return True
+    if (form.get("doc_type") or "Form") == "ShadowForm":
+        source = app.forms_by_id.get(form.get("shadow_parent_form_id"))
+        return True if source is None else _form_needs_no_case(app, source, app.module_of(source) or module)
+    if form.get("doc_type") == "AdvancedForm":
+        loads = (form.get("actions") or {}).get("load_update_cases") or []
+        return not any(isinstance(load, dict) and not load.get("auto_select") for load in loads)
+    return _requires(form) not in ("case", "referral")
+
+
+def _first_chosen_type(app, module):
+    """The case type a module's entries choose first: its parent selection's, where one is active, else its own."""
+    parent = module.get("parent_select") or {}
+    if parent.get("active"):
+        selected = app.modules_by_id.get(parent.get("module_id"))
+        if selected is not None:
+            return selected.get("case_type")
+    return module.get("case_type")
+
+
+def _screen_chooses_no_case_first(app, module):
+    """Whether the screen that lists a module's forms lets a worker choose a form before any case, by the rule
+    Nova's gate holds (``lib/domain/menuScreens.ts::screenCaseFirstBlocker``): the first menu; a screen with a form
+    that needs no case; a screen whose menus choose different cases first. Core asks one question of every entry a
+    screen lists (``CommCareSession.getDataNeededByAllEntries``), so any of the three lists the forms first."""
+    screen = _screen_of(app, module)
+    if screen is None:
+        return True
+    contributors = [other for other in app.modules if _screen_of(app, other) is screen]
+    for contributor in contributors:
+        if any(_form_needs_no_case(app, form, contributor) for form in _forms(contributor)):
+            return True
+    return len({_first_chosen_type(app, contributor) for contributor in contributors}) > 1
+
+
+def _reads_chosen_case(app, text):
+    """Whether a display condition reads the case a menu chooses: a hashtag of it, by HQ's own test of the text
+    (``xpath.py::_ensure_no_case_references``: ``#case``, ``#parent``, ``#host``), or a read of a session datum
+    (Core's parse: a path from ``instance('commcaresession')`` through ``session/data``), which no screen supplies
+    before a case is chosen; None where neither is found and Core's parse of the text is not at hand."""
+    if any(hashtag in text for hashtag in ("#case", "#parent", "#host")):
+        return True
+    parsed = app.parsed(text)
+    if parsed is None or "error" in parsed:
+        return None
+    return any(
+        path["instance"] == "commcaresession" and path["steps"][:2] == ["session", "data"]
+        for path in parsed["instancePaths"]
+    )
+
+
+def form_filter_reads_case_off_a_case_first_screen(use, manifest):
+    """``menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first``: a
+    ``form_filter`` that reads the form's case (``_reads_chosen_case``) where the screen that lists the form lets a
+    worker choose the form before any case (``_screen_chooses_no_case_first``), so the condition reads a case that
+    is not chosen yet. Wider than HQ's own build error, which reads the form's module alone
+    (``helpers/validators.py``, ``CaseXPathValidationError``)."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    text = form.get("form_filter")
+    if not isinstance(text, str) or not text.strip():
+        return False
+    module = at.app.module_of(form)
+    if module is None:
+        return None
+    if not _screen_chooses_no_case_first(at.app, module):
+        return False
+    return _reads_chosen_case(at.app, text)
 
 
 def _root_reader(test):
@@ -5072,6 +5184,24 @@ def hidden_value_with_children(use, manifest):
     return not form.question_controls(_path_of(form, element))
 
 
+# The body controls that may name a node with element children: a group and a repeat, the only questions whose
+# mug takes child mugs with data nodes (Vellum ``mugs.js::isNestableGroup``).
+NESTING_CONTROLS = frozenset({"group", "repeat"})
+
+
+def question_with_children(use, manifest):
+    """``questions/a-question-other-than-a-group-or-repeat-whose-data-node-has``: a data node with element children
+    that a body question control other than a group or repeat names (an input, a select, a label, an upload),
+    whose mug takes no child (``mugs.js::isNestableGroup``; a select's Choice and Itemset children are
+    control-only)."""
+    form, element = _data_node(use)
+    if form is None:
+        return None
+    if element is None or not _children(element):
+        return False
+    return any(_local(control) not in NESTING_CONTROLS for control in form.question_controls(_path_of(form, element)))
+
+
 def default_data_value(use, manifest):
     """``questions/default-data-value-datavalue-instance-text``: a data node Vellum's parser makes a question of
     that holds text in the form's instance, which it reads as the question's ``dataValue`` (``parser.js``:
@@ -5107,6 +5237,215 @@ def attachment_in_save_to_case(use, manifest):
         return False
     held = form.holder(element)
     return held is not None and held[0] == "save-to-case" and held[1] is not element
+
+
+# The names a SaveToCase block's ``update`` row may hold that Nova reserves for a case's own facts or as a word in
+# ``case-reserved-words.json`` (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``,
+# less the block's own rows ``case_type``, ``case_name`` and ``owner_id`` and the two
+# ``update-keys-location-id-hq-user-id`` holds); ``proof/ci/__tests__/manifestReaders.test.ts`` holds it to that set.
+SAVE_TO_CASE_RESERVED_UPDATE_KEYS = frozenset(
+    {
+        "actions",
+        "case_id",
+        "case_type_id",
+        "closed",
+        "closed_by",
+        "closed_on",
+        "commtrack",
+        "computed_",
+        "computed_modified_on_",
+        "create",
+        "date",
+        "date_modified",
+        "date_opened",
+        "doc_type",
+        "domain",
+        "index",
+        "indices",
+        "initial_processing_complete",
+        "last_modified",
+        "modified_by",
+        "modified_on",
+        "name",
+        "opened_by",
+        "opened_on",
+        "parent",
+        "referrals",
+        "server_modified_on",
+        "server_opened_on",
+        "status",
+        "type",
+        "user_id",
+        "userid",
+        "version",
+        "xform_id",
+        "xform_ids",
+    }
+)
+
+
+def reserved_save_to_case_key(use, manifest):
+    """``questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts``: a row of a SaveToCase node's own
+    ``case/update`` whose name is one Nova reserves (``SAVE_TO_CASE_RESERVED_UPDATE_KEYS``), which HQ's form builder
+    writes (``saveToCase.js::validatePropertyNameChars`` checks no reserved word) and HQ's build checks no key of."""
+    form, element = _data_node(use)
+    if form is None:
+        return None
+    if element is None or _local(element) not in SAVE_TO_CASE_RESERVED_UPDATE_KEYS:
+        return False
+    update = element.getparent()
+    case = update.getparent() if update is not None else None
+    if update is None or update.tag != f"{{{CASE}}}update" or case is None or case.tag != f"{{{CASE}}}case":
+        return False
+    held = form.holder(element)
+    return (
+        held is not None
+        and held[0] == "save-to-case"
+        and case.getparent() is held[1]
+        and held[1].get(f"{{{VELLUM}}}case_type") != "commcare-user"  # the worker's record's class
+    )
+
+
+# The keys of the worker's own case CommCare HQ's user-case sync writes from the worker's profile
+# (``callcenter/sync_usercase.py::_get_user_case_fields``; ``lib/domain/usercase.ts::USERCASE_BUILT_IN_KEYS``).
+USERCASE_BUILT_IN_KEYS = frozenset(
+    {
+        "case_name",
+        "username",
+        "email",
+        "first_name",
+        "last_name",
+        "hq_user_id",
+        "language",
+        "phone_number",
+        "last_device_id_used",
+        "commcare_profile",
+        "commcare_location_id",
+        "commcare_location_ids",
+        "commcare_primary_case_sharing_id",
+        "commcare_project",
+    }
+)
+# The names HQ's user data refuses for a field (``custom_data_fields/models.py::SYSTEM_FIELDS``;
+# ``lib/domain/users.ts::USER_DATA_SYSTEM_FIELDS``) and the prefixes it refuses (``USER_DATA_RESERVED_PREFIXES``).
+USER_DATA_SYSTEM_FIELDS = frozenset(
+    {"commtrack-supply-point", "name", "type", "owner_id", "external_id", "hq_user_id", "user_type"}
+)
+USER_DATA_RESERVED_PREFIXES = frozenset({"commcare", "xml"})
+# ``case-reserved-words.json`` with ``owner_id`` (``lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES``), which HQ's
+# user data also refuses (``CustomDataFieldsForm.verify_no_reserved_words``).
+RESERVED_CASE_PROPERTIES = frozenset(
+    {
+        "actions",
+        "case_id",
+        "case_name",
+        "case_type",
+        "case_type_id",
+        "closed",
+        "closed_by",
+        "closed_on",
+        "commtrack",
+        "create",
+        "computed_",
+        "computed_modified_on_",
+        "date",
+        "date_modified",
+        "date_opened",
+        "doc_type",
+        "domain",
+        "index",
+        "indices",
+        "initial_processing_complete",
+        "last_modified",
+        "modified_by",
+        "modified_on",
+        "opened_by",
+        "opened_on",
+        "owner_id",
+        "parent",
+        "referrals",
+        "server_modified_on",
+        "server_opened_on",
+        "status",
+        "type",
+        "user_id",
+        "userid",
+        "version",
+        "xform_id",
+        "xform_ids",
+    }
+)
+# A worker property's slug (``lib/domain/users.ts::USER_PROPERTY_SLUG_PATTERN``, at most 127 characters), matched whole.
+WORKER_PROPERTY_SLUG = re.compile(r"[a-zA-Z_][-a-zA-Z0-9_]{0,126}")
+# HQ's property grammar on an action's key (``helpers/validators.py::validate_property``; ``basicActions.ts::HQ_PROPERTY``).
+HQ_PROPERTY = re.compile(r"[a-zA-Z][\w-]*\n?")
+
+
+def _no_worker_property(key):
+    """Whether the worker's record takes no write to ``key`` (``lib/commcare/reader/worldEntities.ts::
+    holdsWorkerRecordWrite``): a key HQ's user-case sync writes over, or a name no worker property takes. The two
+    keys HQ's server stores apart are ``update-keys-location-id-hq-user-id``'s."""
+    if key in ("location_id", "hq_user_id"):
+        return False
+    lowered = key.lower()
+    return (
+        key in USERCASE_BUILT_IN_KEYS
+        or WORKER_PROPERTY_SLUG.fullmatch(key) is None
+        or lowered in USER_DATA_SYSTEM_FIELDS
+        or lowered in RESERVED_CASE_PROPERTIES
+        or any(lowered.startswith(prefix) for prefix in USER_DATA_RESERVED_PREFIXES)
+    )
+
+
+def _hq_build_refuses_key(key):
+    """Whether HQ's build refuses an action's key: outside its grammar, or a word of ``case-reserved-words.json``
+    (``update-key-failing-hq-s-grammar-or-in-case-reserved-words-json``, the bar's). ``name`` and ``owner_id`` it
+    writes as the case's name and owner."""
+    if key in ("name", "owner_id"):
+        return False
+    reserved = key in RESERVED_CASE_PROPERTIES or key in ("date-opened", "external-id")
+    return reserved or HQ_PROPERTY.fullmatch(key) is None
+
+
+def worker_record_key(use, manifest):
+    """``forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes``: a key of an active
+    ``usercase_update``'s ``update``, or of a load auto-selected by ``usercase``'s ``case_properties``, that HQ's
+    build writes and no worker property takes (``_no_worker_property``), and a row of a ``commcare-user`` SaveToCase
+    node's own ``case/update`` whose name no worker property takes, its ``case_type`` row included (HQ's build
+    checks no block's keys)."""
+    at = _json(use)
+    if at is not None:
+        form = at.nearest(*FORMS)
+        if form is None:
+            return None
+        action = at.nearest("UpdateCaseAction", "LoadUpdateAction")
+        if action is None:
+            return False
+        if action is _actions(form).get("usercase_update"):
+            keys = action.get("update") if _active(action) else None
+        elif _auto_selected(action) and action["auto_select"].get("mode") == "usercase":
+            keys = action.get("case_properties")
+        else:
+            return False
+        return any(
+            "/" not in key and not _hq_build_refuses_key(key) and _no_worker_property(key) for key in (keys or {})
+        )
+    form, element = _data_node(use)
+    if form is None:
+        return None
+    if element is None:
+        return False
+    update = element.getparent()
+    case = update.getparent() if update is not None else None
+    if update is None or update.tag != f"{{{CASE}}}update" or case is None or case.tag != f"{{{CASE}}}case":
+        return False
+    held = form.holder(element)
+    if held is None or held[0] != "save-to-case" or case.getparent() is not held[1]:
+        return False
+    if held[1].get(f"{{{VELLUM}}}case_type") != "commcare-user":
+        return False
+    name = _local(element)
+    return name == "case_type" or _no_worker_property(name)
 
 
 def authored_meta_block(use, manifest):
@@ -5205,6 +5544,372 @@ def supply_point_datum(use, manifest):
         form_json.get("doc_type") == "AdvancedForm"
         and any(isinstance(datum, dict) and datum.get("datum_id") == "supply_point_id" for datum in datums)
     )
+
+
+# The session data paths with an item of their own, or a class of their own under ``session/data/*``.
+_OWN_SESSION_DATA = frozenset({"stringquery", "fingerprintquery", "supply_point_id"})
+
+
+def _session_ids(holder):
+    """The ids a ``<session>``'s children write into the session's data, in order: a datum's or an instance
+    datum's ``id``, a query's ``storage-instance`` (``SessionDatumParser``), each with its element."""
+    session = next((child for child in _children(holder) if _local(child) == "session"), None)
+    found = []
+    for child in _children(session) if session is not None else ():
+        datum_id = child.get("storage-instance") if _local(child) == "query" else child.get("id")
+        if datum_id:
+            found.append((datum_id, child))
+    return found
+
+
+def _entries_under(root, menu_id):
+    """Each ``<entry>`` or ``<remote-request>`` a command of a menu with ``menu_id`` names: the entries Core
+    asks the common datums of once that menu is chosen (``CommCareSession.getEntriesForCommand``)."""
+    commands = {
+        command.get("id")
+        for menu in _children(root)
+        if _local(menu) == "menu" and menu.get("id") == menu_id
+        for command in _children(menu)
+        if _local(command) == "command"
+    }
+    return [
+        holder
+        for holder in _children(root)
+        if _local(holder) in ("entry", "remote-request")
+        and any(_local(child) == "command" and child.get("id") in commands for child in _children(holder))
+    ]
+
+
+def _common_prefix(lists):
+    """The longest run of ids every list starts with: the datums Core collects before a menu's items show
+    (``CommCareSession.getDataNeededByAllEntries``, one datum at a time while every entry needs the same)."""
+    if not lists:
+        return []
+    prefix = []
+    for ids in zip(*lists, strict=False):
+        if any(datum_id != ids[0] for datum_id in ids):
+            break
+        prefix.append(ids[0])
+    return prefix
+
+
+def _suite_supplied(document, element, sessions=frozenset()):
+    """The session data ids set where a suite element's expressions run, or None where the suite does not say:
+    inside an entry or a remote request, the ids its session writes (in a datum, only those before it), and inside
+    a remote request also the ids the frame holds wherever its command is launched (``_launch_frames``); inside an
+    entry's stack operation whose ``if`` holds a session value equal to a literal (``return_to = 'm1'``), also the
+    ids every launch of the entry that sets that value holds (``_conditioned_supplied``); inside a menu, the ids
+    every entry of the menu it shows in shares first (a menu's own condition shows it in its ``root``'s list, a
+    command's in its own menu's); inside a detail, the ids written before each datum that shows it (through the
+    datum, for a detail that stays on screen while the form runs), every such datum agreeing."""
+    root = document.root
+    chain = [element, *element.iterancestors()]
+    holder = next((at for at in chain if _local(at) in ("entry", "remote-request")), None)
+    if holder is not None:
+        ids = _session_ids(holder)
+        if _local(holder) == "remote-request":
+            launched = _agreed(frame for frame, _ in _launch_frames(root, _command_id(holder))) or []
+        else:
+            launched = _conditioned_supplied(document, holder, chain, sessions)
+        datum = next((at for at in chain if at.getparent() is not None and _local(at.getparent()) == "session"), None)
+        if datum is None:
+            return [*launched, *(datum_id for datum_id, _ in ids)]
+        before = ids[: next(i for i, (_, at) in enumerate(ids) if at is datum)]
+        return [*launched, *(datum_id for datum_id, _ in before)]
+    menu = next((at for at in chain if _local(at) == "menu"), None)
+    if menu is not None:
+        shown_in = menu.get("id") if element is not menu else (menu.get("root") or "root")
+        return _menu_supplied(root, shown_in)
+    details = [at for at in chain if _local(at) == "detail"]
+    if not details:
+        return None
+    return _detail_supplied(root, details[-1].get("id"))
+
+
+def _menu_supplied(root, menu_id):
+    """The ids every entry of a menu shares first, which Core collects before the menu's items show; none for the
+    root menu, and None where no entry names a command of the menu."""
+    if menu_id == "root":
+        return []
+    lists = [[datum_id for datum_id, _ in _session_ids(holder)] for holder in _entries_under(root, menu_id)]
+    return _common_prefix(lists) if lists else None
+
+
+def _command_id(holder):
+    """The id of an entry's or a remote request's ``<command>``, or None."""
+    return next((child.get("id") for child in _children(holder) if _local(child) == "command"), None)
+
+
+def _literal_value(element, text):
+    """Whether an element's ``value`` is the string literal ``text`` (HQ's and Nova's builds write a command's id
+    and a fixed datum value as a quoted literal)."""
+    value = (element.get("value") or "").strip()
+    return value in (f"'{text}'", f'"{text}"')
+
+
+def _agreed(frames):
+    """The ids every frame holds, or None where there is none."""
+    supplied = None
+    for frame in frames:
+        if frame is not None:
+            supplied = set(frame) if supplied is None else supplied & set(frame)
+    return None if supplied is None else list(supplied)
+
+
+def _stack_frames(stack, command_id, start):
+    """Each frame a stack's operations hold where one names ``command_id``, with that operation: a ``<create>``
+    begins a frame of its own and a ``<push>`` adds to the current one (Core's ``StackOperation``), starting from
+    ``start``, the ids the frame holds where the stack runs; the operation that names the command adds every
+    datum it sets."""
+    frame = list(start)
+    for operation in _children(stack):
+        kind = _local(operation)
+        if kind == "create":
+            frame = []
+        elif kind != "push":
+            continue
+        steps = _children(operation)
+        datums = [step.get("id") for step in steps if _local(step) == "datum" and step.get("id")]
+        if any(_local(step) == "command" and _literal_value(step, command_id) for step in steps):
+            yield [*frame, *datums], operation
+        frame.extend(datums)
+
+
+def _launch_frames(root, command_id):
+    """Each frame the session holds where an entry's or a remote request's command is launched, with the stack
+    operation that launches it (None from a menu): from a menu, the ids its entries share first; from a detail's
+    action, the ids where the detail shows, then the action's stack; from an endpoint's or an entry's stack, the
+    stack's own frame (an entry's starting from the ids its session wrote)."""
+    if command_id is None:
+        return
+    for element in root.iter():
+        if not isinstance(element.tag, str):
+            continue
+        kind = _local(element)
+        if kind == "menu":
+            if any(_local(child) == "command" and child.get("id") == command_id for child in _children(element)):
+                yield _menu_supplied(root, element.get("id")), None
+        elif kind == "stack":
+            parent = element.getparent()
+            owner = next((at for at in element.iterancestors() if _local(at) in ("detail", "endpoint", "entry")), None)
+            if owner is None:
+                continue
+            if _local(owner) == "detail" and parent is not None and _local(parent) == "action":
+                start = _detail_supplied(root, owner.get("id"))
+                if start is None:
+                    continue
+            elif _local(owner) == "entry":
+                start = [datum_id for datum_id, _ in _session_ids(owner)]
+            else:
+                start = []
+            yield from _stack_frames(element, command_id, start)
+
+
+def _conditioned_supplied(document, holder, chain, sessions):
+    """The ids an entry's stack operation holds beyond the entry's own where its ``if`` holds session values equal
+    to literals (CommCare HQ's case list registration frames, ``return_to = 'm1'``, ``workflow.py``): the ids every
+    launch of the entry that sets each such value holds, Core evaluating the operation's children only where its
+    ``if`` holds. Empty where the operation has no such condition or no launch sets it."""
+    operation = next(
+        (at for at in chain if at.getparent() is not None and _local(at.getparent()) == "stack" and at.get("if")),
+        None,
+    )
+    if operation is None or not hasattr(document, "tree"):
+        return []
+    tree = document.tree(operation.get("if"))
+    if tree is None or _holds_other(tree):
+        return []
+    wanted = _literal_equalities(tree, sessions)
+    if not wanted:
+        return []
+    frames = []
+    for frame, launch in _launch_frames(document.root, _command_id(holder)):
+        sets = {}
+        for step in _children(launch) if launch is not None else ():
+            if _local(step) == "datum" and step.get("id") in wanted:
+                sets[step.get("id")] = step
+        if all(key in sets and _literal_value(sets[key], text) for key, text in wanted.items()):
+            frames.append(frame)
+    return _agreed(frames) or []
+
+
+def _literal_equalities(tree, sessions):
+    """The session data ids an ``and`` chain holds equal to a string literal, each with its text."""
+    if tree[0] != "binary":
+        return {}
+    if tree[1] == "and":
+        return {**_literal_equalities(tree[2], sessions), **_literal_equalities(tree[3], sessions)}
+    if tree[1] != "=":
+        return {}
+    for side, other in ((tree[2], tree[3]), (tree[3], tree[2])):
+        read = _session_data_id(side, sessions)
+        if read is not None and other[0] == "text":
+            return {read: other[1]}
+    return {}
+
+
+def _detail_supplied(root, detail_id):
+    """The ids written before each datum that shows a detail (through the datum, for a detail that stays on
+    screen while the form runs), every such datum agreeing; None where no datum shows it."""
+    supplied = None
+    for holder in _children(root):
+        if _local(holder) not in ("entry", "remote-request"):
+            continue
+        ids = _session_ids(holder)
+        for position, (_, datum) in enumerate(ids):
+            shows = (datum.get("detail-select"), datum.get("detail-confirm"), datum.get("detail-persistent"))
+            if detail_id not in shows:
+                continue
+            through = position + 1 if datum.get("detail-persistent") == detail_id else position
+            here = {datum_id for datum_id, _ in ids[:through]}
+            supplied = here if supplied is None else supplied & here
+    return None if supplied is None else list(supplied)
+
+
+def _form_supplied(form):
+    """The session data ids every entry that opens a form writes: the entries of the suites the check reads beside
+    it (``Form.entry_suites``) whose ``<form>`` names the form's namespace, or None where it reads none."""
+    if form.xmlns is None:
+        return None
+    lists = [
+        {datum_id for datum_id, _ in _session_ids(entry)}
+        for suite in form.entry_suites
+        for entry in _children(suite)
+        if _local(entry) == "entry"
+        and any(_local(child) == "form" and (child.text or "").strip() == form.xmlns for child in _children(entry))
+    ]
+    if not lists:
+        return None
+    return set.intersection(*lists)
+
+
+def datum_not_supplied(use, manifest):
+    """``expressions-and-data/session-data-datum-the-entry-does-not-supply``: an expression reading the session's
+    ``data/<id>`` where nothing writes that id when it runs, so a scalar read of the missing leaf can stop the form
+    (``lib/commcare/CLAUDE.md``, the binding-resolution oracle). Read from Core's parse of the expression (its
+    instance paths through the session's instance, ``instance-source:session``), less the ids with an item or a
+    class of their own (``stringquery``, ``fingerprintquery``, ``supply_point_id``). What is written there is the
+    suite's: in a suite, the session where the element runs (``_suite_supplied``); in a form, the ids every entry
+    that opens it writes, from the suites the check reads beside the form (a local archive's own, and for an app
+    JSON's form each build HQ made of its upload, or the local archive Nova built of the same export where HQ
+    built none), and None where it reads none. A read Core never unpacks is no read here: the path a ``count()``
+    counts (Core counts an absent leaf as none), and a read on the right of an ``and`` whose left holds
+    ``count(<the read>) = 1``, ``>= 1`` or ``> 0``, which Core does not evaluate where the leaf is absent (the
+    ``return_to`` guard of CommCare HQ's case list registration frames, ``workflow.py``), read over the
+    expression's structure as HQ's XPath grammar reads it where the records hold it."""
+    at = _xml(use)
+    if at is None or at.attribute is None:
+        return None
+    document = at.document
+    text = at.element.get(at.attribute)
+    parsed = document.parsed(text)
+    if parsed is None or "error" in parsed:
+        return None
+    sessions = {
+        instance_id
+        for instance_id, src in document.declared_instances
+        if instance_source(manifest, src) == "instance-source:session"
+    }
+    read = {
+        path["steps"][2]
+        for path in parsed["instancePaths"]
+        if path["instance"] in sessions
+        and len(path["steps"]) > 2
+        and path["steps"][:2] == ["session", "data"]
+        and path["steps"][2] not in _OWN_SESSION_DATA
+    }
+    tree = document.tree(text) if read and hasattr(document, "tree") else None
+    if tree is not None and not _holds_other(tree):
+        read &= _unpacked_session_data(tree, sessions, frozenset())
+    if not read:
+        return False
+    supplied = _form_supplied(document) if document.kind == "xform" else _suite_supplied(document, at.element, sessions)
+    if supplied is None:
+        return None
+    return not read <= set(supplied)
+
+
+def _holds_other(tree):
+    """Whether an expression's structure holds a part HQ's grammar gives no structure of (``["other", ...]``)."""
+    kind = tree[0]
+    if kind == "other":
+        return True
+    if kind == "path":
+        return any(_holds_other(predicate) for predicate in tree[3])
+    if kind == "call":
+        return any(_holds_other(argument) for argument in tree[2])
+    if kind == "binary":
+        return _holds_other(tree[2]) or _holds_other(tree[3])
+    if kind == "negative":
+        return _holds_other(tree[1])
+    return False
+
+
+def _session_data_id(path, sessions):
+    """The id a location path reads of the session's ``data/<id>`` with no predicate on it, or None."""
+    if path[0] != "path" or not path[1].startswith("instance:") or path[1][len("instance:") :] not in sessions:
+        return None
+    steps = path[4]
+    if len(steps) != 3 or [step[1] for step in steps[:2]] != ["session", "data"]:
+        return None
+    if any(step[0] != "child" or step[2] for step in steps):
+        return None
+    return steps[2][1]
+
+
+def _present_by_guard(tree, sessions):
+    """The session data ids a condition, where true, holds present: ``count(<the read>) = 1``, ``>= 1`` or
+    ``> 0``, and each conjunct's of an ``and``."""
+    if tree[0] != "binary":
+        return frozenset()
+    if tree[1] == "and":
+        return _present_by_guard(tree[2], sessions) | _present_by_guard(tree[3], sessions)
+    left, right = tree[2], tree[3]
+    counted = (
+        _session_data_id(left[2][0], sessions)
+        if left[0] == "call" and left[1] == "count" and len(left[2]) == 1
+        else None
+    )
+    if counted is None or right[0] != "number":
+        return frozenset()
+    holds = (tree[1] in ("=", ">=") and float(right[1]) == 1) or (tree[1] == ">" and float(right[1]) == 0)
+    return frozenset({counted}) if holds else frozenset()
+
+
+def _unpacked_session_data(tree, sessions, present):
+    """The session data ids an expression's structure reads by value, less those ``present`` holds: every
+    ``data/<id>`` path but the one a ``count()`` counts (its predicates are read), and on the right of an ``and``
+    less the ids its left holds present where true (``_present_by_guard``)."""
+    kind = tree[0]
+    if kind == "path":
+        found = set()
+        for predicate in tree[3]:
+            found |= _unpacked_session_data(predicate, sessions, present)
+        read = _session_data_id(tree, sessions)
+        if read is None and tree[1].startswith("instance:") and tree[1][len("instance:") :] in sessions:
+            steps = tree[4]
+            if len(steps) > 2 and [step[1] for step in steps[:2]] == ["session", "data"]:
+                read = steps[2][1]
+        if read is not None and read not in present:
+            found.add(read)
+        return found
+    if kind == "call":
+        found = set()
+        for argument in tree[2]:
+            if tree[1] == "count" and argument[0] == "path":
+                for predicate in argument[3]:
+                    found |= _unpacked_session_data(predicate, sessions, present)
+            else:
+                found |= _unpacked_session_data(argument, sessions, present)
+        return found
+    if kind == "binary":
+        left = _unpacked_session_data(tree[2], sessions, present)
+        if tree[1] == "and":
+            present = present | _present_by_guard(tree[2], sessions)
+        return left | _unpacked_session_data(tree[3], sessions, present)
+    if kind == "negative":
+        return _unpacked_session_data(tree[1], sessions, present)
+    return set()
 
 
 def var_in_form(use, manifest):
@@ -6247,6 +6952,20 @@ def attribute_bind_no_plugin_owns(use, manifest):
     return not (owner in form.model_repeats or (_local(owner) == "item" and parent in form.model_repeats))
 
 
+def bind_on_data_root(use, manifest):
+    """``questions/bind-whose-path-names-the-data-root-itself-data-data-or-a``: a bind whose nodeset names the data
+    root itself, which Core applies to the root (``XFormParser.getAbsRef`` resolves a relative path from it), so its
+    ``relevant`` hides the whole form: ``/data``, or the spellings ``/data/.``, ``.`` and ``./.``, which name the
+    root and no node here. Any other nodeset that names no node here is not settled by the export alone."""
+    form, bind, node = _bind(use)
+    if bind is None:
+        return None if form is None else False
+    if node is not None:
+        return node is form.data_root
+    root = form.paths.get(form.data_root)
+    return True if bind.get("nodeset").strip() in {f"{root}/.", ".", "./."} else None
+
+
 def second_default(use, manifest):
     """``questions/a-second-default-setvalue-on-one-question``: a setvalue Vellum reads as a question's Default
     Value after another one on the same question, of which its parser keeps only one (``parser.js::parseSetValue``,
@@ -6268,6 +6987,48 @@ def second_default(use, manifest):
         if held is not None and held == target and _default_value(form, other, held):
             return True
     return False
+
+
+def order_a_save_changes(use, manifest):
+    """``questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes``: a setvalue Vellum reads as a
+    question's Default Value that stands, among the defaults of its event, in another order than its question stands
+    in the data tree, beside a default it reads or that reads it: a save writes each question's default in data-tree
+    order (``writer.js::createSetValues``), which changes what the reading default finds when the form loads
+    (``ActionController.java::triggerActionsFromEvent`` runs one event's actions in the model's order). None where a
+    value of such a pair reads the form's nodes in a way ``_tree_reads`` does not place."""
+    form, setvalue = _setvalue(use)
+    if form is None:
+        return None
+    if setvalue is None:
+        return False  # an event on another element of the form, no setvalue
+    target = _target(form, setvalue)
+    if target is None:
+        return None if _model_level(form, setvalue) else False
+    if not _default_value(form, setvalue, target):
+        return False
+    tree_order = {element: index for index, element in enumerate(form.data_root.iter())}
+    model = list(form.model.iterfind(f"{{{XFORMS}}}setvalue"))
+    mine = _target_element(target)
+    my_path = form.paths.get(mine)
+    my_reads = _tree_reads(form, setvalue.get("value") or "", my_path)
+    unsure = False
+    for other in model:
+        if other is setvalue or other.get("event") != setvalue.get("event"):
+            continue
+        held = _target(form, other)
+        if held is None or not _default_value(form, other, held):
+            continue
+        theirs = _target_element(held)
+        if (model.index(other) < model.index(setvalue)) == (tree_order.get(theirs, 0) < tree_order.get(mine, 0)):
+            continue
+        their_path = form.paths.get(theirs)
+        their_reads = _tree_reads(form, other.get("value") or "", their_path)
+        if my_reads is None or their_reads is None:
+            unsure = True
+            continue
+        if their_path in my_reads or my_path in their_reads:
+            return True
+    return None if unsure else False
 
 
 def data_root_ui_version(use, manifest):
@@ -6474,33 +7235,82 @@ def markdown_differing(use, manifest):
 
 def markdown_in_some_languages(use, manifest):
     """``questions/a-label-with-a-markdown-form-in-some-languages-only-…``: a ``markdown`` value for a text whose
-    entry in another language holds no ``markdown`` value."""
+    entry in another language holds no ``markdown`` value or no value of its own, where the languages show two texts:
+    the default translation holds no ``markdown`` value of the text, an entry holds one beside no value of its own
+    and other than the default's value, or an entry without one holds a value other than the default's ``markdown``
+    value and not a blank the form builder fills from the default's text. Core lays the default language's keys under
+    each language's own (``Localizer.getLocaleData``, the form's ``new Localizer(true, true)``), so a language without
+    the copy shows the default's copy and its own value where a runtime reads the text without its form (Android's
+    hierarchy, ``getLongText``), and a language without the value the default's value; only where these differ do
+    the languages show two texts; the rest of the class is
+    ``questions/a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s``, HELD.
+
+    The translations read are the reader's (``lib/commcare/reader/xform/itext.ts``): where an app JSON carries the
+    form, those of its ``langs``, a removed language's left to ``translation-for-a-language-not-in-langs``, and the
+    default is the first language's where the form holds it, else the first held, as HQ's build marks it
+    (``xform.py::XForm.exclude_languages``, ``set_default_language(langs[0])``); a form outside an app JSON says only
+    its own translations, and its default is ``FormFile.default_translation``."""
     form, value = _itext_value(use)
     if form is None:
         return None
     if value is None or value.get("form") != "markdown":
         return False
-    text = value.getparent()
-    translation = text.getparent()
-    for other in form.translations:
-        if other is translation:
-            continue
-        for entry in _children(other):
-            if _local(entry) == "text" and entry.get("id") == text.get("id"):
-                if not any(_local(held) == "value" and held.get("form") == "markdown" for held in _children(entry)):
-                    return True
+    text_id = value.getparent().get("id")
+    translations = list(form.translations)
+    default_translation = form.default_translation
+    if form.app_form is not None:
+        app, _ = form.app_form
+        langs = [lang for lang in app.doc.get("langs") or [] if isinstance(lang, str)]
+        if langs:
+            if value.getparent().getparent().get("lang") not in langs:
+                return False
+            translations = [translation for translation in translations if translation.get("lang") in langs]
+            first = [translation for translation in translations if translation.get("lang") == langs[0]]
+            default_translation = (first or translations or [None])[0]
+
+    def values_of(translation):
+        """The text's default and ``markdown`` values in one translation, or None where it holds no entry."""
+        for entry in _children(translation) if translation is not None else ():
+            if _local(entry) == "text" and entry.get("id") == text_id:
+                values = [held for held in _children(entry) if _local(held) == "value"]
+                plain = next((held for held in values if held.get("form") is None), None)
+                copy = next((held for held in values if held.get("form") == "markdown"), None)
+                return plain, copy
+        return None
+
+    def blank(element):
+        return not (element.text or "").strip() and not _children(element)
+
+    entries = [
+        held for held in (values_of(other) for other in translations) if held is not None and held != (None, None)
+    ]
+    if all(plain is not None and copy is not None for plain, copy in entries):
+        return False
+    default = values_of(default_translation)
+    if default is None or default[0] is None or default[1] is None:
+        return True
+    default_plain, default_copy = default
+    for plain, copy in entries:
+        if plain is None and _inner(copy) != _inner(default_plain):
+            return True
+        if (
+            plain is not None
+            and copy is None
+            and _inner(plain) != _inner(default_copy)
+            and not (blank(plain) and not blank(default_plain))
+        ):
+            return True
     return False
 
 
-def blank_beside_default_text(use, manifest):
-    """``questions/an-explicitly-blank-value-in-a-non-default-language-where-the``: an empty ``<value>`` in a
-    language other than the default one where another language's value of the same text and form holds content, so
-    a Vellum save fills it: Vellum's default language is the first of the app's languages HQ hands it
-    (``views/formdesigner.py``: ``'langs': app.langs``; ``javaRosa/plugin.js``: ``Itext.setDefaultLanguage(langs[0])``),
-    it reads the translations of those languages alone, and a value it writes is the language's own only where that
-    is not empty, else the default language's, else the first other language's with content
-    (``javaRosa/itext.js::getValueOrDefault``). Read on a form the app JSON carries, whose ``langs`` say it; a form
-    outside an app JSON does not say: None."""
+def blank_in_the_first_language(use, manifest):
+    """``questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text``: an empty ``<value>``
+    in the app's first language, Vellum's default (``views/formdesigner.py``: ``'langs': app.langs``;
+    ``javaRosa/plugin.js``: ``Itext.setDefaultLanguage(langs[0])``), where another app language's value of the same
+    text and form holds content, so a Vellum save fills it from that language
+    (``javaRosa/itext.js::getValueOrDefault``). A blank value in any other language is the HELD entry's, read as no
+    translation. Read on a form the app JSON carries, whose ``langs`` say it; a form outside an app JSON does not
+    say: None."""
     form, value = _itext_value(use)
     if form is None:
         return None
@@ -6514,7 +7324,7 @@ def blank_beside_default_text(use, manifest):
         return None
     text = value.getparent()
     translation = text.getparent()
-    if translation.get("lang") not in langs or translation.get("lang") == langs[0]:
+    if translation.get("lang") != langs[0]:
         return False
     for other in form.translations:
         if other is translation or other.get("lang") not in langs:
@@ -6529,6 +7339,28 @@ def blank_beside_default_text(use, manifest):
                     ):
                         return True
     return False
+
+
+def markdown_with_formatting_off(use, manifest):
+    """``questions/a-markdown-form-in-a-form-whose-text-formatting-is-off``: a ``markdown`` value of a label, a
+    choice or a help text in a form whose ``vellum:ignore`` holds ``markdown`` (``parser.js``, split on spaces),
+    which the form builder's next save drops: it writes the copy only where the form's ``noMarkdown`` is off
+    (``javaRosa/plugin.js::contributeToModelXML``). A text every question reference names as a hint or a validation
+    message is the INERT entries' (``UNREAD_MARKDOWN_KINDS``)."""
+    form, value = _itext_value(use)
+    if form is None:
+        return None
+    if value is None or value.get("form") != "markdown":
+        return False
+    if "markdown" not in (form.root.get(f"{{{VELLUM}}}ignore") or "").split(" "):
+        return False
+    kinds, unplaced = form.itext_references
+    held = kinds.get(value.getparent().get("id"))
+    if held is not None and held <= UNREAD_MARKDOWN_KINDS:
+        return False
+    if held is None and unplaced:
+        return None
+    return True
 
 
 def _itext_text(use):
@@ -6753,6 +7585,9 @@ ROW_UNDECLARED_KEYS = {
         }
     ),
     "Form": frozenset({"no_vellum", "put_in_root"}),
+    "AdvancedForm": frozenset({"no_vellum", "put_in_root"}),
+    # No row names a key a basic form's actions do not declare: the catch-all refuses every one.
+    "FormActions": frozenset(),
     "UpdateCaseAction": frozenset({"update_multi", "name_update_multi"}),
     "OpenCaseAction": frozenset({"update_multi", "name_update_multi"}),
 }
@@ -6812,9 +7647,11 @@ VALUE_CLASSES = {
     "questions/question-id-failing-the-grammar-or-meta-in-any-case": invalid_question_id,
     "questions/two-sibling-data-nodes-with-one-name": sibling_with_one_name,
     "questions/hidden-value-with-children": hidden_value_with_children,
+    "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": question_with_children,
     "questions/default-data-value-datavalue-instance-text": default_data_value,
     "questions/hand-written-case-block-without-vellum-role-incl-a-root-data": hand_written_case_block,
     "questions/attachment-inside-a-savetocase-block": attachment_in_save_to_case,
+    "questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts": reserved_save_to_case_key,
     "questions/authored-data-meta-block": authored_meta_block,
     "questions/a-root-question-commcare-usercase-in-a-form-with-usercase": usercase_root_question,
     "questions/choice-value-with-whitespace-empty-or-duplicated": choice_value_refused_by_vellum,
@@ -6831,7 +7668,9 @@ VALUE_CLASSES = {
     "questions/savetocase-create-close-or-link-of-commcare-user-or-type-user": reserved_save_to_case_type,
     "questions/bind-calculate-on-a-visible-question": calculate_on_shown_question,
     "questions/bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model": attribute_bind_no_plugin_owns,
+    "questions/bind-whose-path-names-the-data-root-itself-data-data-or-a": bind_on_data_root,
     "questions/a-second-default-setvalue-on-one-question": second_default,
+    "questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes": order_a_save_changes,
     "questions/data-root-uiversion-other-than-1-or-absent": data_root_ui_version,
     "questions/requiredcondition-differing-from-a-present-non-false-required": required_condition_differing,
     "questions/validation-message-without-a-validation-condition": message_without_condition,
@@ -6840,7 +7679,8 @@ VALUE_CLASSES = {
     "questions/itemset-label-jr-itext-field": itemset_label_itext,
     "questions/markdown-form-differing-from-the-default-text": markdown_differing,
     "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": markdown_in_some_languages,
-    "questions/an-explicitly-blank-value-in-a-non-default-language-where-the": blank_beside_default_text,
+    "questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text": blank_in_the_first_language,
+    "questions/a-markdown-form-in-a-form-whose-text-formatting-is-off": markdown_with_formatting_off,
     "questions/itext-entry-referenced-only-from-jr-itext-in-an-expression": itext_read_only_in_expressions,
     "questions/itext-pragma-entries-pragma-form-descriptor-pragma-skip-full": unreferenced_pragma,
     "questions/an-appearance-holding-such-whitespace-that-some-runtime-reads": appearance_whitespace_read_otherwise,
@@ -6883,6 +7723,7 @@ VALUE_CLASSES = {
         tag_names_other_than_previous_load
     ),
     "forms-and-case-writes/advancedopencaseaction-case-properties-key-with-parent-p": open_action_slash_key,
+    "forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes": worker_record_key,
     "forms-and-case-writes/two-or-more-open-actions-whose-repeat-context-is-one-repeat": shared_block_in_repeat,
     "forms-and-case-writes/advancedopencaseaction-repeat-context-other-than-the-name": (
         open_action_not_name_question_repeat
@@ -6921,7 +7762,6 @@ VALUE_CLASSES = {
     "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module": (
         multi_select_top_level
     ),
-    "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held": load_changes_values,
     "forms-and-case-writes/case-references-data-save-differing-from-that-computation": save_differing_from_vellum,
     "forms-and-case-writes/a-basic-form-s-own-case-s-close-or-open-condition-on-another": (
         own_case_condition_not_offered_or_quoted
@@ -6955,6 +7795,7 @@ VALUE_CLASSES = {
     "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": request_config_key_runtime_value,
     "case-search/an-x-commcare-custom-related-case-property-entry-together-with": related_case_property_twice,
     "case-search/default-properties-entry-keyed-x-commcare-data-registry": data_registry_key,
+    "case-search/data-registry-data-registry-workflow-additional-registry-cases": registry_named,
     "case-search/default-properties-entry-keyed-x-commcare-endpoint-id": endpoint_id_key,
     "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": missing_default_value,
     "case-search/that-entry-together-with-blacklisted-owner-ids-expression": blacklisted_owner_ids_twice,
@@ -6963,6 +7804,7 @@ VALUE_CLASSES = {
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
+    "case-search/input-no-runtime-names": input_no_runtime_names,
     "case-search/search-button-label-any-other-value": other_search_button_label,
     "case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with": list_first_with_web_apps,
     "case-search/a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys": reserved_request_key,
@@ -7005,6 +7847,7 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/field-failing-details-utils-js-isvalidpropertyname-non": fails_property_name_check,
     "menus-and-case-lists/property-x-or-prefix-x-with-a-prefix-hq-registers-no-generator": explicit_property_prefix,
+    "menus-and-case-lists/case-id-as-a-property-column-s-field": case_id_element,
     "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": null_on_unplaced_tile,
     "menus-and-case-lists/custom-tile-font-size-null": null_font_size_on_tile,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,
@@ -7031,6 +7874,12 @@ VALUE_CLASSES = {
     "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of": (
         put_in_root_beside_an_endpoint_inline_search_or_form_return
     ),
+    "menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module": (
+        case_list_endpoint_on_a_put_in_root_module
+    ),
+    "menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first": (
+        form_filter_reads_case_off_a_case_first_screen
+    ),
     "menus-and-case-lists/any-module-under-a-training-menu": names_a_training_module,
     "menus-and-case-lists/any-other-module-under-a-shadow-menu": names_a_shadow_module,
     "menus-and-case-lists/child-menu-deeper-than-one-tier-grandchild": grandchild,
@@ -7045,6 +7894,7 @@ VALUE_CLASSES = {
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,
     "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": supply_point_datum,
+    "expressions-and-data/session-data-datum-the-entry-does-not-supply": datum_not_supplied,
     "expressions-and-data/var-in-a-form-expression": var_in_form,
     "expressions-and-data/here-in-a-form": here_in_form,
     "expressions-and-data/session-context-window-width-in-form-logic": window_width_in_form_logic,

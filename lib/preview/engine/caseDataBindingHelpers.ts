@@ -99,6 +99,7 @@ import {
 	TIME_SINCE_UNIT_DAYS,
 	type Uuid,
 } from "@/lib/domain";
+import { ancestorLink } from "@/lib/domain/advancedModule";
 import {
 	CAPTURE_EXTENSIONS_BY_KIND,
 	captureContentType,
@@ -1165,9 +1166,12 @@ function sortKeysForRule(
  * keeps the upstream flow structural.
  *
  * The `row` arm also carries the case's ANCESTOR chain
- * (nearest-first: parent, grandparent, …) so the form engine can
- * resolve `#<ancestor_type>/<prop>` references the same way the
- * wire's `…/index/parent × depth …` casedb walk does. The walk is
+ * (nearest-first: parent, grandparent, …), positionally, for the form
+ * engine's per-type case map (`caseRowsToFormPreloads`). A form's
+ * `#<ancestor_type>/<prop>` read over a device snapshot does not come
+ * from it: it evaluates the wire's own casedb walk, under the index
+ * the app links each type to its parent by
+ * (`lib/commcare/caseTypeDepths.ts::caseTypeHopMap`). The walk is
  * data-driven — one `traverse` per hop off the live `parent_case_id`
  * links — so no blueprint needs threading: the caller supplies just
  * `ancestorDepth`, the form's reachable-chain depth
@@ -1334,6 +1338,32 @@ async function walkAncestors(
 }
 
 /**
+ * The index a generated `caseType` case names its catalog parent by, with
+ * its relationship: the one a form's read of the parent walks, under the
+ * relationship the app's links under it state (`lib/domain/advancedModule.ts::
+ * ancestorLink`), so a form opened on a sample child reads its parent as it
+ * reads a submitted child's and a list lists it as it lists one. `parent`
+ * under the catalog's relationship where the type has no parent or no
+ * document is at hand.
+ */
+export function sampleParentLink(
+	doc: BlueprintDoc | undefined,
+	caseType: CaseType,
+): {
+	readonly parentIdentifier: string;
+	readonly parentRelationship: "child" | "extension";
+} {
+	const fallback = caseType.relationship ?? "child";
+	if (doc === undefined || caseType.parent_type === undefined)
+		return { parentIdentifier: "parent", parentRelationship: fallback };
+	const link = ancestorLink(doc, caseType.name, caseType.parent_type, fallback);
+	return {
+		parentIdentifier: link.identifier,
+		parentRelationship: link.relationship,
+	};
+}
+
+/**
  * Populate an empty case type with `SAMPLE_CASE_DEFAULT_COUNT`
  * rows. The seed composes from `Date.now()` so back-to-back
  * populates produce different rows; tests needing reproducibility
@@ -1350,13 +1380,23 @@ async function walkAncestors(
  */
 export async function seedSampleCases(
 	store: CaseStore,
-	args: { appId: string; caseType: CaseType },
+	args: {
+		appId: string;
+		caseType: CaseType;
+		parentIdentifier: string;
+		/** The catalog's relationship where omitted. */
+		parentRelationship?: "child" | "extension";
+	},
 ): Promise<PopulateSampleCasesResult> {
 	const result = await store.generateSampleData({
 		appId: args.appId,
 		caseType: args.caseType,
 		count: SAMPLE_CASE_DEFAULT_COUNT,
 		seed: `${Date.now()}`,
+		parentIdentifier: args.parentIdentifier,
+		...(args.parentRelationship === undefined
+			? {}
+			: { parentRelationship: args.parentRelationship }),
 	});
 	return { kind: "ok", inserted: result.inserted };
 }
@@ -1384,12 +1424,22 @@ export async function seedSampleCases(
  */
 export async function resetSampleCases(
 	store: CaseStore,
-	args: { appId: string; caseType: CaseType },
+	args: {
+		appId: string;
+		caseType: CaseType;
+		parentIdentifier: string;
+		/** The catalog's relationship where omitted. */
+		parentRelationship?: "child" | "extension";
+	},
 ): Promise<PopulateSampleCasesResult> {
 	const result = await store.resetSampleData({
 		appId: args.appId,
 		caseType: args.caseType,
 		count: SAMPLE_CASE_DEFAULT_COUNT,
+		parentIdentifier: args.parentIdentifier,
+		...(args.parentRelationship === undefined
+			? {}
+			: { parentRelationship: args.parentRelationship }),
 	});
 	return { kind: "ok", inserted: result.inserted };
 }

@@ -341,14 +341,18 @@ export function deriveLanguageRegistry(
 	}
 	const macrolanguages: MacrolanguageEntry[] = macroCodes.map((macro) => {
 		const macroCldrLang = cldrTagFor(macro).lang;
-		const members = (membersByMacro.get(macro) ?? []).sort((a, b) => {
-			// CLDR's predominant member (the one it canonicalizes onto the
-			// macro's own locale) leads the suggestion list.
-			const aPredominant = cldrTagFor(a).lang === macroCldrLang && a !== macro;
-			const bPredominant = cldrTagFor(b).lang === macroCldrLang && b !== macro;
-			if (aPredominant !== bPredominant) return aPredominant ? -1 : 1;
-			return a.localeCompare(b);
-		});
+		// CLDR's predominant member is the one it canonicalizes onto the
+		// macro's own locale (swh → sw). A member it canonicalizes onto that
+		// language in one region or script (swc → sw-CD, cnr → sr-ME) is a
+		// variety of it and follows the predominant member.
+		const rank = (member: string): number => {
+			const parts = cldrTagFor(member);
+			if (parts.lang !== macroCldrLang || member === macro) return 2;
+			return parts.region === undefined && parts.script === undefined ? 0 : 1;
+		};
+		const members = (membersByMacro.get(macro) ?? []).sort(
+			(a, b) => rank(a) - rank(b) || a.localeCompare(b),
+		);
 		return {
 			code: macro,
 			name: rowById.get(macro)?.refName ?? macro,

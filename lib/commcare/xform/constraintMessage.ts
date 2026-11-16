@@ -1,5 +1,13 @@
 import type { Element } from "domhandler";
-import type { ProseAtomPart, ProseTemplate } from "@/lib/domain";
+import {
+	type CaseScalarTextGuard,
+	caseScalarTextGuardIsChecked,
+	type Field,
+	fieldKindCarriesValidation,
+	type ProseAtomPart,
+	type ProseTemplate,
+} from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 import { el, text } from "../elementBuilders";
 import { w } from "../xpath/wire/builders";
 import type { WireExpr } from "../xpath/wire/tree";
@@ -23,6 +31,32 @@ type MessagePart =
 export interface ProtectedConstraintMessage {
 	readonly expression: WireExpr;
 	readonly forms: ReadonlyMap<string, Element[]>;
+}
+
+/**
+ * Whether a question's bind carries a `constraint`: its own validation
+ * condition, or the check of a case name or an external id it supplies
+ * (`scalarGuard`, the form's guard for it) on a kind a worker answers. A
+ * runtime shows a validation message only for an answer that fails a
+ * constraint: Core's `FormEntryController.answerQuestion` answers
+ * `ANSWER_CONSTRAINT_VIOLATED` only where `FormDef.evaluateConstraint` fails,
+ * which passes every answer of a node with no constraint, and Formplayer
+ * (`JsonActionUtils`) and Android (`FormEntryActivityUIController.
+ * showConstraintWarning`, which shows a widget's own message for an answer the
+ * widget marks invalid) read the message for that answer alone. So a question
+ * writes its validation message, and the sibling that carries a protected one,
+ * only where this holds.
+ */
+export function bindCarriesConstraint(
+	kind: Field["kind"],
+	validate: Expression | undefined,
+	scalarGuard: CaseScalarTextGuard | undefined,
+): boolean {
+	if (!fieldKindCarriesValidation(kind)) return false;
+	return (
+		validate !== undefined ||
+		(scalarGuard !== undefined && caseScalarTextGuardIsChecked(kind))
+	);
 }
 
 /** Core's alert filler treats literal and returned `${n}` as output slots.

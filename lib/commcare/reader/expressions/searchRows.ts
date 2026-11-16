@@ -1,0 +1,282 @@
+/**
+ * A search's `_xpath_query` rows as one conjunction. HQ joins every row's
+ * CSQL with `and` (`case_search/utils.py::_apply_filter`), and Nova writes
+ * one row per top-level conjunct of each of its sources: the case list
+ * filter, each advanced Search field's condition, and each simple field's
+ * derived match (`composeXPathQueryClauses`). The search reader proposes the
+ * sources and asks here which rows Nova's own emission writes back, as
+ * trees, and reads a row it must place on its own as its conjuncts.
+ */
+import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { and } from "@/lib/domain/expression/builders";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import type { Expression } from "@/lib/domain/expression/types";
+import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
+import type { Uuid } from "@/lib/domain/uuid";
+import type { LookupTableDefinition } from "@/lib/lookup/types";
+import type { EmissionRewriteId } from "../../emissionRewrites";
+import { moduleExpressionContexts } from "../../expressionContext";
+import { caseListStepDatumId } from "../../formLinkProjection";
+import { lookupWireNaming } from "../../lookup/naming";
+import { searchWireShape } from "../../suite/case-search/searchWireShape";
+import { searchInputInstanceId } from "../../suite/case-search/types";
+import {
+	composeXPathQueryClauses,
+	composeXPathQueryEmission,
+	type XPathQueryClause,
+	xpathQueryRequestValues,
+} from "../../suite/case-search/xpathQuery";
+import type { FormSyntax } from "../../xpath/formSyntax";
+import { serializeWire } from "../../xpath/wire/serialize";
+import type { WireExpr } from "../../xpath/wire/tree";
+import { sameSyntax } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
+import type { ComparedType } from "./comparedTypes";
+import {
+	readSearchFilterRow,
+	type SearchRowEnv,
+	type SearchRowReading,
+	searchRowLevel,
+} from "./csqlRead";
+import { expressionSurfaceUses, type SurfaceUse } from "./surfaceUses";
+
+function parsed(text: string): FormSyntax | undefined {
+	try {
+		const read = readFormSyntax(text);
+		return read.ok ? read.node : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** What Nova's emission of a module's search writes as `_xpath_query`: each value, and the clause
+ *  each comes from. Undefined for a module with no case list. */
+function moduleRows(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	lookup: SearchRowEnv["lookup"],
+):
+	| {
+			readonly clauses: readonly XPathQueryClause[];
+			readonly values: readonly WireExpr[];
+	  }
+	| undefined {
+	const mod = doc.modules[moduleUuid];
+	const config = mod?.caseListConfig;
+	if (mod === undefined || config === undefined) return undefined;
+	const naming = lookupWireNaming([
+		...lookup.values(),
+	] as unknown as readonly LookupTableDefinition[]);
+	const contexts = moduleExpressionContexts(doc, moduleUuid, naming);
+	const search = effectiveCaseSearchConfig(mod);
+	const wire = search === undefined ? undefined : searchWireShape(search);
+	const clauses =
+		composeXPathQueryClauses(config, mod.caseType, contexts) ?? [];
+	const emission = composeXPathQueryEmission(
+		config,
+		mod.caseType,
+		contexts,
+		naming,
+		wire === undefined ? undefined : searchInputInstanceId(wire),
+		caseListStepDatumId(doc, moduleUuid, "id"),
+	);
+	return { clauses, values: xpathQueryRequestValues(config, emission) };
+}
+
+/** The conjuncts Nova's emission of a module's search writes as `_xpath_query` rows, in order:
+ *  two documents with equal lists print the same rows. */
+export function emittedSearchConjuncts(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): readonly Expression[] {
+	const mod = doc.modules[moduleUuid];
+	const config = mod?.caseListConfig;
+	if (mod === undefined || config === undefined) return [];
+	const contexts = moduleExpressionContexts(doc, moduleUuid);
+	return (composeXPathQueryClauses(config, mod.caseType, contexts) ?? []).map(
+		(clause) => clause.expression,
+	);
+}
+
+/** The proposed case list's own rows against the source's, as trees: each emitted row takes the
+ *  first unmatched source row after the last one matched, then any earlier one, so `matched` says
+ *  in what order the source holds them. A source row whose own root is an `and` matches the run of
+ *  emitted rows Nova writes for its conjuncts, each listed in `matched` under that one row. */
+export function matchSearchRows(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	sourceRows: readonly string[],
+	env: SearchRowEnv,
+): {
+	/** Source row indexes Nova's emission of this module reproduces, exact or up to guards, each
+	 *  with the source of the emitted row: the list filter, a field's condition, a derived match. */
+	readonly matched: readonly {
+		readonly source: number;
+		readonly level: "exact" | "guards";
+		readonly from: "filter" | "field" | "derived";
+	}[];
+	/** Source rows no emitted row equals. */
+	readonly unmatched: readonly number[];
+	/** Emitted rows no source row equals. */
+	readonly extra: readonly number[];
+} {
+	const rows = moduleRows(doc, moduleUuid, env.lookup);
+	if (rows === undefined)
+		return {
+			matched: [],
+			unmatched: sourceRows.map((_, index) => index),
+			extra: [],
+		};
+	const { clauses, values } = rows;
+	const sources = sourceRows.map(parsed);
+	type Match = {
+		source: number;
+		level: "exact" | "guards";
+		from: "filter" | "field" | "derived";
+	};
+	/** Each emitted row's match, by its place in the emission. */
+	const byEmitted: (Match | undefined)[] = values.map(() => undefined);
+	const extra: number[] = [];
+	const taken = new Set<number>();
+	let next = 0;
+	values.forEach((value, emitted) => {
+		const print = parsed(
+			serializeWire(value, { target: "hq-json", interpolation: "none" }).text,
+		);
+		const clause = clauses[emitted];
+		const levelAt = (index: number): "exact" | "guards" | undefined => {
+			const source = sources[index];
+			if (source === undefined) return undefined;
+			if (print !== undefined && sameSyntax(source, print)) return "exact";
+			return clause === undefined
+				? undefined
+				: searchRowLevel(source, clause.expression, clause.context, env);
+		};
+		// The source row after the last one matched first, then any row not yet
+		// matched: rows in another order are the same rows, and the caller reads
+		// the order from `matched`.
+		const indexes = sourceRows.map((_, index) => index);
+		const order = [
+			...indexes.filter((index) => index >= next),
+			...indexes.filter((index) => index < next),
+		];
+		for (const index of order) {
+			if (taken.has(index)) continue;
+			const level = levelAt(index);
+			if (level === undefined) continue;
+			byEmitted[emitted] = {
+				source: index,
+				level,
+				from: clause?.source ?? "derived",
+			};
+			taken.add(index);
+			next = index + 1;
+			return;
+		}
+		extra.push(emitted);
+	});
+	// A source row whose own root is an `and` is written back as one row per
+	// conjunct: it matches a run of emitted rows no other source row took, in
+	// emission order and of one typing context, whose conjunction Nova prints
+	// as that row.
+	sourceRows.forEach((_, index) => {
+		const source = sources[index];
+		if (taken.has(index) || source === undefined) return;
+		const run = splitRun(source, extra, clauses, env);
+		if (run === undefined) return;
+		for (const emitted of run.emitted)
+			byEmitted[emitted] = {
+				source: index,
+				level: run.level,
+				from: clauses[emitted]?.source ?? "derived",
+			};
+		taken.add(index);
+		extra.splice(extra.indexOf(run.emitted[0] as number), run.emitted.length);
+	});
+	return {
+		matched: byEmitted.flatMap((one) => (one === undefined ? [] : [one])),
+		unmatched: sourceRows.flatMap((_, index) =>
+			taken.has(index) ? [] : [index],
+		),
+		extra,
+	};
+}
+
+/** The longest run of consecutive unmatched emitted rows, two or more, whose clauses share one
+ *  context and whose conjunction prints as `source`, with the level it matches at. */
+function splitRun(
+	source: FormSyntax,
+	extra: readonly number[],
+	clauses: readonly XPathQueryClause[],
+	env: SearchRowEnv,
+):
+	| { readonly emitted: readonly number[]; readonly level: "exact" | "guards" }
+	| undefined {
+	for (let start = 0; start + 2 <= extra.length; start++)
+		for (let end = extra.length; end >= start + 2; end--) {
+			const emitted = extra.slice(start, end);
+			const run = emitted.map((one) => clauses[one]);
+			const [first, second, ...rest] = run;
+			if (
+				first === undefined ||
+				second === undefined ||
+				run.some((one) => one === undefined || one.context !== first.context)
+			)
+				continue;
+			const level = searchRowLevel(
+				source,
+				and(
+					first.expression,
+					second.expression,
+					...rest.map((one) => (one as XPathQueryClause).expression),
+				),
+				first.context,
+				env,
+			);
+			if (level !== undefined) return { emitted, level };
+		}
+	return undefined;
+}
+
+/** A row read on its own, for the search reader to place: its top-level conjuncts, each a predicate,
+ *  and, held or not, the uses its CSQL makes (each operator, function, metadata name and unit, and
+ *  the presence gate), each with the entry whose value class takes it, for the caller to claim at
+ *  the row. A row the grammar cannot read makes no use. */
+export function readSearchRowConjuncts(
+	text: string,
+	context: ExpressionContext,
+	env: SearchRowEnv,
+): (
+	| {
+			readonly ok: true;
+			readonly conjuncts: readonly Expression[];
+			readonly rewrites: readonly EmissionRewriteId[];
+			/** The types the row's comparisons give properties the catalog
+			 *  holds untyped, under which the conjuncts read and print back. */
+			readonly types: readonly ComparedType[];
+	  }
+	| Extract<SearchRowReading, { ok: false }>
+) & { readonly uses: readonly SurfaceUse[] } {
+	const reading = readSearchFilterRow(text, context, env);
+	const source = parsed(text);
+	const uses =
+		source === undefined
+			? []
+			: expressionSurfaceUses(
+					source,
+					reading.ok ? reading.predicate : undefined,
+					context,
+					"csql",
+				);
+	if (!reading.ok) return { ...reading, uses };
+	return {
+		ok: true,
+		conjuncts:
+			reading.predicate.kind === "and"
+				? reading.predicate.clauses
+				: [reading.predicate],
+		rewrites: reading.rewrites,
+		types: reading.types ?? [],
+		uses,
+	};
+}

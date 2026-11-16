@@ -214,6 +214,65 @@ export function literalStoredInstantText(text: string): string | undefined {
 	)}Z`;
 }
 
+const MICROS_PER_SECOND = BigInt(1_000_000);
+const MICROS_PER_MILLI = BigInt(1000);
+const SECONDS_PER_DAY = BigInt(86_400);
+const ZERO = BigInt(0);
+const ONE = BigInt(1);
+
+/**
+ * The canonical literal text of a moment: UTC, `YYYY-MM-DDTHH:MM:SS.fffZ`,
+ * with three fraction digits where the microseconds are whole milliseconds and
+ * six otherwise. Where the UTC year is past 9999, the same moment in the
+ * smallest whole-hour offset behind UTC that keeps a four-digit year (`-01:00`
+ * to `-99:00`, the two digits `literalInstantMicros` reads). Undefined where
+ * neither spelling has a four-digit year, or for a count that is not an
+ * integer. It is the inverse of `literalInstantMicros`: a moment past 2^53
+ * microseconds is a double the fold computed, and the count is decomposed
+ * exactly, so the text reads back to the same double.
+ */
+export function instantTextOfMicros(micros: number): string | undefined {
+	if (!Number.isInteger(micros)) return undefined;
+	const total = BigInt(micros);
+	let seconds = total / MICROS_PER_SECOND;
+	let fraction = total % MICROS_PER_SECOND;
+	if (fraction < ZERO) {
+		fraction += MICROS_PER_SECOND;
+		seconds -= ONE;
+	}
+	const pad = (value: number | bigint, width: number) =>
+		String(value).padStart(width, "0");
+	const spell = (local: bigint, zone: string): string | undefined => {
+		let days = local / SECONDS_PER_DAY;
+		let ofDay = local % SECONDS_PER_DAY;
+		if (ofDay < ZERO) {
+			ofDay += SECONDS_PER_DAY;
+			days -= ONE;
+		}
+		const civil = civilFromDays(Number(days));
+		if (civil.year < 0 || civil.year > 9999) return undefined;
+		const clock = Number(ofDay);
+		const digits =
+			fraction % MICROS_PER_MILLI === ZERO
+				? pad(fraction / MICROS_PER_MILLI, 3)
+				: pad(fraction, 6);
+		return `${pad(civil.year, 4)}-${pad(civil.month, 2)}-${pad(civil.day, 2)}T${pad(
+			Math.floor(clock / 3600),
+			2,
+		)}:${pad(Math.floor((clock % 3600) / 60), 2)}:${pad(clock % 60, 2)}.${digits}${zone}`;
+	};
+	let text = spell(seconds, "Z");
+	if (
+		text === undefined &&
+		civilFromDays(Number(seconds / SECONDS_PER_DAY)).year > 9999
+	)
+		for (let hours = 1; hours <= 99 && text === undefined; hours++)
+			text = spell(seconds - BigInt(hours * 3600), `-${pad(hours, 2)}:00`);
+	return text !== undefined && literalInstantMicros(text) === micros
+		? text
+		: undefined;
+}
+
 /** The proleptic Gregorian date of a day count since 1970-01-01, the inverse
  * of `daysFromCivil`. */
 function civilFromDays(days: number): {

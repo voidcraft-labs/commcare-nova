@@ -98,8 +98,8 @@ changes a byte Nova emits or what an App Test journey replays, so nothing here m
     reports it.** Nine are. Every other place the emitter writes something a source would spell another
     way is decided in section 11.4: read exactly, refused, or declared by a register entry
     (section 10).
-16. **`FIRST_PUBLISH_CHANGES` holds 31 entries**, each with its predicate over the reading, the
-    stored-source paths it allows and whether it touches workers. Twenty-nine sentences say them
+16. **`FIRST_PUBLISH_CHANGES` holds 34 entries**, each with its predicate over the reading, the
+    stored-source paths it allows and whether it touches workers. Thirty sentences say them
     (section 11).
 17. **Per candidate change the decision is one of three**: read the original's behavior exactly, refuse,
     or declare. Section 11.4 gives the decision for every candidate the research, the manifest,
@@ -741,7 +741,7 @@ compiler error (`multimedia/assetWirePath.ts::AssetManifest`), so the map holds 
 | Member | Value |
 |---|---|
 | `assetId` | the reference's `assetId` |
-| `wirePath` | a path the source spells for that asset (`ReadMediaReference.path`), less `jr://file/`; where its references spell several, the first in code-unit order, which is the one `assignMediaPaths` keeps (part 10, section 4.2, step 5) |
+| `wirePath` | a path the source spells for that asset (`ReadMediaReference.path`), less `jr://file/`; where its references spell several, the first in code-unit order, the path `readProjectionInputs` keeps (part 07). It is the one `assignMediaPaths` keeps (part 10, section 4.2) only where its steps 2 to 4 drop none of the asset's paths; the re-read compares the source's paths, whatever path the first publish later keeps |
 | `kind` | the reference's `mediaKind` |
 | `contentHash`, `extension` | the file's own (`AdoptedMediaFile`) |
 | `mimeType` | `application/octet-stream` |
@@ -825,8 +825,16 @@ const again = readHqApp({
 	appStrings: input.reader.appStrings,
 	recordDialect: input.reader.recordDialect,
 	saveOnlyEditedApplied: input.reader.saveOnlyEditedApplied,
+	knownCaseTypes: knownCaseTypesOf(D),
 });
 ```
+
+`knownCaseTypes` is the case type each index of D's case types reaches as D holds it
+(`reader/caseManagement/knownCaseTypes.ts`): the catalog's parent for `parent`, and for any other
+index the type D's typed steps through it agree on. The emission of D holds `parent/<property>` or
+`host/<property>` with the ancestor's type nowhere where only D's catalog or its steps name it, so
+the re-read is told D's (part 07, section 7). For a reading of an app from CommCare HQ, D's parents are the ones its links gave, so the re-read
+learns nothing the reading did not.
 
 `saveOnlyEditedApplied` is what part 05's probe of the source project space answered (part 07,
 section 3.2). The re-read takes the reading's own answer, because Nova's emission holds
@@ -1345,8 +1353,11 @@ emission"). So, for a compared label:
 - where HQ sends text in a language, the two normalized strings are equal;
 - where HQ sends none in a language `L`, the document's text in `L` equals the document's text in the
   first language, in the app's language order, for which HQ did send text. That is the fill's own
-  rule, and for a reading the app's first language is both the default and the source language (part
-  06, section 6.3), so a missing translation and a blank one land on the same text;
+  rule: for a reading the app's first language is the default (part 06, section 6.3), the fill takes
+  the default language's text first, and a translation that is missing prints the source language's
+  text, which is the first language's unless the app's name or Nova's own sentences tell another
+  source (part 06, section 6.3, item 4), and HQ sends none in `L` only where that text is blank too, so a
+  missing translation and a blank one land on the same text;
 - where HQ sends text in no language, the document's label is absent in every language.
 
 Check 5 does not ask whether `blank-translations-filled` applies. Whether the first publish fills a
@@ -1506,38 +1517,77 @@ export function canonDocument(doc: BlueprintDoc): BlueprintDoc;
 
 `canon.ts` imports part 06's `assemble.ts::READER_CANONICAL_CHOICES`, each row of which is
 `{ id, kind, apply }`, and part 08's `canonicalExpression`, and wraps each as a row, so one id has one
-definition. Three rows are this file's own: `blank-translation-is-absent`,
-`blank-optional-text-is-absent` and `purpose-notes-are-absent`. Every other row is written by the
-reader module that makes the choice, and the last column names where. No row parses or prints: each
-is a rewrite over the typed document.
+definition. Every row is written by the reader module that makes the choice, a row no one module
+makes in `assemble.ts` itself, and the last column names where. No row parses or prints: each is a
+rewrite over the typed document.
 
 | Id | Kind | The pair | The reader returns | Why both print the same bytes | Defined in |
 |---|---|---|---|---|---|
 | `root-question-lists-are-sections` | one-wire | a root of sections; a root of `fieldList` groups with no condition and no worker-added repeat | sections | `builder.ts::buildContainer` writes `appearance="field-list"` for a section and for a group that holds `fieldList`, over the same `<group ref>` and optional label; a section has no `relevant`, media or hint by schema. A group's label holds text alone (`lib/domain/fields/base.ts::containerFieldBase`), so label media is no part of the pair | part 06, section 16.2 |
 | `translation-equal-to-source-is-absent` | one-wire | a translation equal to its source text; none | none | `localization.ts`'s projection gives a missing entry the current source | part 06, section 16.2 |
-| `blank-translation-is-absent` | one-wire | in a document whose source language is its default (first) language: a translation of an itext role (`translationFill.ts::TRANSLATION_FILL_ROLES`) whose value is blank where its source is not; none | none | `lib/domain/translationFill.ts::filledProse` gives a blank value the default language's text, and a missing entry prints the source language's (`lib/domain/CLAUDE.md`, "Localization"). The two are one text only where the two languages are one, which every reading is (part 06, section 6.3). In a document whose source language is not its default the two print different texts (the default language's and the source language's), so they are no pair there and `apply` leaves such a document as it is | this part; part 06 reads the blank so (its section 12.2) |
+| `blank-itext-takes-the-filled-text` | one-wire | a text of an itext role (`translationFill.ts::TRANSLATION_FILL_ROLES`) blank in some language where another holds text, its source or a translation; the same text with each blank value replaced by the filled text, a filled translation equal to the source dropped, and each other translation of a source that moved kept against the new source | the filled text | `lib/domain/translationFill.ts::filledProse` gives a blank value the default language's text, else the first language's in order that holds one, and the export writes that text in every language (`lib/commcare/CLAUDE.md`, "Multilingual emission"); the reader reads each language's text as written, so a blank source reads as the filled text and a blank translation as the filled text, no translation where that is the source's. This holds whatever the source language: where it is not the default, a blank translation fills from the default language's text, which reads back as that translation | part 06, section 16.2 (`prose.ts::blankItextFilled`) |
 | `out-of-date-translation-is-absent` | one-wire | a translation whose `sourceFingerprint` is not the current source's; none | none | a stale entry falls back to the current source | part 06, section 16.2 |
+| `source-language-is-as-read` | one-wire | a document whose source language is not the one a reading of its export takes; the same document sourced in that language, every unit's text in every language unchanged | sourced as read | the language a reading takes is the first, in the app's order, that a reading with it as the source prints back at every place Nova's emitter writes a source text apart from a translation: the app's name (`name` in the source language, `app.display.name` and `homescreen.title` only in a language whose name differs, `expander.ts::appLevelValues`) and Nova's own sentences (a system unit: a Search field's runtime guard, the required message of a Search field with none of its own, whose source-language text is always the sentence); the first language where nothing tells the languages apart, and the first again where none passes (part 06, section 6.3, item 4, `languages.ts::readingSourceCode`); the default stays the first. Every other text is one projection of each language's text, the same bytes whichever language is the source, so a language earlier than the document's source passes only where its text at both places is the source's, and the two members print one export by construction. `languages.ts::sourceLanguageAsRead` applies the rule to the name and strings `expander.ts::expandAppShell` and the search settings `hqJson/caseList.ts::projectCaseListForHq` write for the document, so the row and the reading read one set of values, and `languages.ts::resourcedDocument` re-sources it: each unit's slot takes the text that language read and each other language a reviewed translation where its text differs. A system unit's source stays Nova's sentence, so where no language holds every sentence and that language's text for the required message of a Search field with none of its own is a translation, each such field holds the texts it prints as a message of its own, as a reading of them does. A document whose export tells its own source (its first language translates the app's name or a sentence it prints, and no earlier language holds the source's text at both places) keeps it; one whose export tells nothing is sourced in its first language. The row once took the first language for every app whose first language translated none of Nova's sentences, which paired a document whose first language translates the app's name with a member printing another `name` and another `app.display.name`: two exports, so the rule moved to the reading's own test | part 06, section 6.3 |
 | `translation-provenance-is-read-as-reviewed` | not-carried | a current translation with any `origin`, `review` and `translatedFrom` | human, reviewed, from the source language | provenance is in no export | part 06, section 16.2 |
-| `plain-flag-on-blank-text-is-absent` | one-wire | `plainLabel` or `plainHelp` on a text blank in every language; no flag | no flag | `buildXFormSource`'s `addItext` registers no entry for a text blank everywhere, so no form of it is written | part 06, section 16.2; the flags are part 03's (its section 8) |
+| `plain-flag-on-blank-text-is-absent` | one-wire | `plainLabel` or `plainHelp` on a text blank in every language whose slot carries no media; no flag | no flag | `buildXFormSource`'s `addItext` registers no entry for a text blank everywhere with no media, so no form of it is written (a blank text with media is written, its markdown copy with it, so the flag prints there) | part 06, section 16.2; the flags are part 03's (its section 8) |
 | `plain-flag-under-plain-text-is-absent` | one-wire | `plainLabel` or `plainHelp` in a form that holds `plainText`; no flag | no flag | a form whose text formatting is off writes no markdown form for any text (part 03, section 8.3) | part 06, section 16.2 |
 | `blank-container-label-is-absent` | one-wire | a group, repeat or section whose `label` has no parts; one with no `label` | no `label` | `addItext` answers `registered: false` for both, so neither writes a `<label>` | part 06, section 16.2 |
-| `blank-optional-text-is-absent` | one-wire | a hint, a validation message, or a help text with no media, whose template is blank in every language; none | none | `addItext` answers `registered: false`, so `hasHint`, `hasHelp` and `hasValidationMessage` are false and no element or attribute is written | this part |
+| `validation-message-with-no-condition-is-absent` | not-carried | a validation message, with its translations, of a question whose bind carries no `constraint` (no `validate`, and no check of a case name or an external id it supplies) | absent | no runtime shows a message no constraint can fail, so `constraintMessage.ts::bindCarriesConstraint` writes none: no `jr:constraintMsg`, no `<alert>`, no itext entry and no protected carrier | part 06, section 16.2 |
+| `blank-optional-text-is-absent` | one-wire | a hint, a validation message or a help text whose template is blank in every language, with its translations; none | none | `addItext` takes an unset text as the template of no parts, so both answer `registered: false` (no element or attribute is written) or, for a help text with media, write the one entry of its media alone; a reading reads a text blank in every language as none (part 06, `prose.ts::readSlotText`) | part 06, section 12 (`prose.ts::blankOptionalTextAbsent`) |
+| `connect-defaults-are-unset` | one-wire | a Connect assessment's `user_score`, or a deliver unit's `entity_id` or `entity_name`, holding the default `connectDefaults.ts` gives an unset one; unset | unset | `effectiveAssessmentUserScore` and `effectiveDeliverEntities` give an unset slot that default, so `buildConnectBlocks` writes one calculate for both; a reading unsets a slot whose bound tree is the default (part 06, section 15) | part 06, section 15 (`afterBinding.ts::connectDefaultsUnset`) |
 | `create-name-required-is-absent` | one-wire | a `required` condition on a question in `caseCreateNameFields` that is no Hidden Value; none | none | `builder.ts::buildFieldParts` deletes `vellum:requiredCondition` and writes `required="true()"` there whatever the slot holds | part 07, section 3.2 |
+| `write-via-steps-are-typed` | one-wire | a save to the case above whose `parent` step names the type it reaches; one whose step names none | typed | `relationDestination.ts::resolveRelationDestination` resolves an untyped `parent` step to the catalog's `parent_type`, and the emitter prints the step as its identifier alone (`parent/<property>`) | part 07, section 3.2 |
+| `opened-case-owner-acting-user-is-absent` | one-wire | a case a form opens (a create, or a registration's own case) owned by `actingUser()`; one with no owner | no owner | `xform/caseOps.ts` writes `/data/meta/userID` for an opened case with no owner, `generatedNodes.ts::advancedOwnerNodeValue` prints the acting user's node for both, and HQ's build sets a basic action's owner so | part 07, section 4.4 |
+| `update-beside-a-bare-own-arm-is-the-own-arm` | one-wire | in a follow-up or close form of a menu that chooses one case, an update of the session's case beside an own arm that changes nothing, the update named with the id a reading gives that bare own arm (its menu's case type's), writing no answer as it is, unconditional, in no repeat, with the guards the own arm would take; the form's own arm in a block of that name | the own arm, under the UUID a re-read gives its block's key (`identityMap.ts::reReadUuidOf`, part 10, section 2.3) | both print the block `nova_operations/<id>` beside a basic block that writes nothing, and the reader reads that block as the own arm; the update's UUID cannot stay, because an operation's external key spells its action | part 07, section 5.2 (`caseManagement/saveToCase.ts::updateBesideBareOwnAsOwnArm`) |
+| `basic-slot-operation-ids-are-derived` | one-wire | a case operation a slot of Case Management keeps (the own arm, a child case and the close that shares its place, the worker's record) under any id; the same operation under `ownCaseOperationId` of its case type, minted in the order a reading meets the slots (the own arm, each child case in `subcases` order with its close, the worker's record) and free among the ids the form's other operations hold | the derived id | HQ's form actions name no operation, and the emitter names no node by such an operation's id, so both print one source | part 07, sections 3.2 and 3.4 (`assemble.ts::basicSlotOperationIdsAsRead`) |
+| `case-management-operations-in-reading-order` | one-wire | a form's case operations in any order that prints one source, and an operation an advanced action keeps under any id; the same operations with the own arm first, then those Case Management keeps (in a basic form each child case in `subcases` order with its close, then the worker's record; in an advanced form each load's update and close in `load_update_cases` order, each create in `open_cases` order with its close, then the worker's record), then Save to Case's in the order they hold, each advanced one named as a reading names it (its owner node's name where free, else `ownCaseOperationId` of its case type, free among the ids the form's Save to Case blocks carry and those named before it) | the reading's order and ids | HQ's form actions list a form's changes in their own order and name no operation, so both print one source | part 07, sections 4.4 and 5.2 (`caseManagement/operationOrder.ts::caseManagementOperationsAsRead`) |
 | `default-post-submit-is-absent` | one-wire | a form with no destinations whose `postSubmit` equals `defaultPostSubmit` for its type and menu; no `postSubmit` | none | every consumer reads `lib/domain/postSubmit.ts::effectivePostSubmit`, which answers the same destination for both | part 07, section 9.1 |
+| `search-link-guards-are-carried-values` | one-wire | a link into a menu whose forms read the search carrying by hand the values automatic matching gives; the link carrying none whose condition ends with those values' held-case guards | the link that carries them | `formLinkProjection.ts::projectManualSearchLink` writes the carried values as none where automatic matching gives the same frame, and `formLinkCarriedCaseGuards` writes their guards at the end of the `xpath`, which the other link's condition prints | part 07, section 9.4 |
 | `dormant-tile-cells` | one-wire | a tile cell `tileCellFor` gives no square for (the list's layout is not a tile, or the column is not shown in Results); none | none | `lib/domain/modules.ts::tileCellFor` gives a cell only under a tile layout and only for a column shown in Results, and every consumer calls it | part 07, section 11.5 |
+| `match-all-list-filter-is-absent` | one-wire | a case list filter that simplifies to `match-all`; none | none | `projectCaseListFilter` reads a filter through `effectiveFilterForEmission`, which gives none for such a filter | part 07, section 11.1 |
+| `order-rules-on-the-columns-they-land-on` | one-wire | an order rule whose element is a property element, which the validator admits on a column other than the one its element lands on; the same rule on the landing column | on the landing column | the two order by the same key (`sortPropertyOwnership.ts`) and print the element the landing column's own rule prints; a positional element (`_cc_calculated_<n>`) names the column its rule is on, so the row moves no such rule and the reader reads it on column `n`; the row runs before `unsorted-hidden-tile-columns-are-off-the-list` | part 07, section 11.4 (`caseList/order.ts::rulesOnTheColumnsTheyLandOn`) |
+| `implicit-order-rule-is-absent` | one-wire | an unsorted list whose first field is hidden from Results; the same list whose one rule is ascending, with blanks first, on the first field shown, compared as text | no rule | `lib/domain/caseListOrder.ts`, rule 7, writes the element that rule writes, `type` `plain` included, so a rule over the raw value of a property of the date class, whose element's `type` is `date`, is no such rule, nor is a whole-number or decimal comparison. The row runs after `order-rules-on-the-columns-they-land-on` | part 07, section 11.4 (`caseList/order.ts::implicitOrderRuleIsAbsent`) |
+| `tile-columns-shown-nowhere-are-as-read` | not-carried | in a tile list, a column hidden from Results and from Details as authored | one that holds an order rule written as an element over its property as a plain column, whatever its kind, with no header, after the list's other columns in the order of its rule, under the identity a re-read gives a plain column there (the document's own plain column under that key, else `identityMap.ts::reReadUuidOf(doc, …)` of the key, part 10, section 2.3); none for one whose rule no element carries (unsorted, calculated, over `case_id`) | such a column is no field of either detail (`caseListOrder.ts`, rule 2), so only its rule's element reaches an export, and the element's `type` is the property's, never the column's kind. The row runs after `order-rules-on-the-columns-they-land-on` | part 07, section 11.6 (`caseList/tile.ts::tileColumnsShownNowhereAsRead`) |
 | `unsorted-hidden-tile-columns-are-off-the-list` | one-wire | in a tile list, a column hidden from Results, shown on Details and holding no order rule, with `notOnList` and without it | the one that holds `notOnList` | in a tile list a column hidden from Results with no order rule is no field of the short detail either way (`lib/domain/caseListOrder.ts`, rule 1), so neither document writes one | part 07, section 11.6 |
 | `registration-form-last` | one-wire | a registration form a list offers after an empty search at any place in its menu; the same form last | last | the emission plan moves the form into its own hidden menu, so its place among the menu's forms reaches no wire | part 07, section 8.7 |
 | `unheld-placements-are-held` | one-wire | a document with a placement it does not hold (a case change, a form's own close in its own block, a query repeat, a menu emitted advanced); the same document holding every placement `lib/commcare/placementHolds.ts::placementsToHold` derives | holding | holding what the emission derives changes no byte (`lib/commcare/__tests__/heldPlacementEmission.test.ts`). `apply` is `holdPlacements` over `placementsToHold(doc)` | part 07, section 1 |
-| `expression-print-collisions` | one-wire | every row of part 08's `PRINT_COLLISIONS` | the canonical tree | `printCollisions.test.ts` (part 08) | part 08, section 5.5 |
-| `case-catalog-is-as-read` | one-wire | a document's `caseTypes` as authored; the catalog part 07 derives from the same document | the derived catalog | the emitter reads a property's type through `effectiveCaseTypes`, and part 07 declares a type exactly where a comparator or a search predicate reads one no writer gives; a label and an unread property reach no export | part 07, section 7 |
-| `purpose-notes-are-absent` | not-carried | `Module.purpose` and `Form.purpose` (`lib/domain/modules.ts`, `lib/domain/forms.ts`) | absent | purpose notes are outside the wire inventory (`lib/commcare/CLAUDE.md`, "`APP_TEXT_UNREPRESENTABLE`") | this part |
+| `expression-print-collisions` | one-wire | every row of part 08's `PRINT_COLLISIONS` | the canonical tree, and no case list filter where that tree is `match-all` (the emitter writes none for it) | `printCollisions.test.ts` (part 08) | part 08, section 5.5 |
+| `case-catalog-is-as-read` | one-wire | a document's `caseTypes` as authored; the catalog part 07 derives from the same document | the derived catalog | the emitter reads a property's type through `effectiveCaseTypes`, and part 07 declares a type exactly where a comparator, a search predicate or a Hidden Value bound `xsd:dateTime` reads one no writer gives; an unread property reaches no export, and a choice's label reaches one only through a plain column that shows the property's choices, which then are the document's own, labels and translations alike, whatever its select questions give; a property a plain column shows by its values, where no column shows its labels, holds no choices in either. A type's `parent_type` and `relationship` are the document's own where its links and parent selections give none: the export carries no such parent, and every re-read of a document Nova holds is told it (`ReaderInput.knownCaseTypes`, section 5.2) | part 07, section 7 |
+| `joined-search-guards-split-as-read` | one-wire | in a language other than the source where a Search field's runtime guard is joined after fields' own validation messages and no field holds it alone, a guard translation and messages split anywhere; the split `guardSplit.ts::readGuardText` makes of the joined texts | that split | the emitter writes each field's message, a space and the guard's text (`searchPrompts.ts::buildValidation`), so the stored bytes are the join alone | part 07, section 12.2 (`search/guardSplit.ts::joinedGuardsSplitAsRead`) |
+| `default-search-title-is-absent` | one-wire | a search whose `searchScreenTitle` is "Search"; one with no title of its own | no title | `searchScreenTitleText` gives an absent title "Search", so the title unit's source and every translation of it are the same in both | part 07, section 12.4 (`search/settings.ts::defaultSearchTitleIsAbsent`) |
+| `empty-search-settings-beside-fields-are-absent` | one-wire | a menu with Search fields whose `caseSearchConfig` sets nothing; one with no `caseSearchConfig` | none | `effectiveCaseSearchConfig` gives `{}` for both, which every projection reads; the row reads what `default-search-title-is-absent` leaves | part 07, section 12.4 (`search/settings.ts::emptySearchSettingsBesideFieldsAreAbsent`) |
+| `exact-search-mode-is-absent` | one-wire | a simple Search field of a text, date, barcode or choice widget whose `mode` is `{ kind: "exact" }`; the same field with no `mode` | no `mode` | every print reads the mode through `effectiveSimpleSearchModeKind`, whose default for each of those widgets is exact; a date range field's mode is required and is not touched | part 07, section 12.2 (`search/prompts.ts::exactSearchModeIsAbsent`) |
+| `required-messages-as-read` | one-wire | where a required Search field's own message is Nova's sentence (`SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`) in the source language, the required messages held anywhere that prints the same text in every language; the document where the first required field, in menu and field order, whose source text is that sentence holds no message, Nova's message takes that field's texts, every required field whose texts are those in every language holds none and every other holds its texts as its own | the second | each required field prints its own message or Nova's whole (`searchPrompts.ts::buildRequired`), so the stored bytes are each field's text in each language alone; the row reads the source language `source-language-is-as-read` settles | part 07, section 12.2 (`search/systemSentences.ts::requiredMessagesAsRead`) |
+| `derived-search-conditions-are-simple-fields` | one-wire | an advanced Search field whose condition is a simple field's derivation, where the rows come out in one order either way; that simple field | the simple field | `simpleArmDerivation.ts::deriveSimpleArmPredicate` writes the simple field's row as the advanced field's condition prints it | part 07, section 12.3 (`search/rows.ts::derivedConditionsAreSimpleFields`) |
+| `columns-of-a-menu-that-lists-no-cases-are-off-the-detail` | not-carried | a menu with a case type whose forms are all surveys and which offers no case list entry, whatever its list (columns, header translations, order rules, tile, filter, selection, Search fields) and its search settings hold | one plain `case_name` column headed "Name", off the detail, and nothing else: no search settings, no other column, no translation of what is gone | the expander writes such a menu the pair every new menu holds in CommCare HQ (`expander.ts`, `hasCases`, `emptyShortListColumns`), one `name` column headed "Name" in every language, and the search's shell defaults; the column keeps the identity of the menu's own first plain `case_name` column, else `identityMap.ts::reReadUuidOf(doc, …)` of the key a re-read claims (part 10, section 2.3); the row runs before `columns-off-a-screen-last-in-its-order` | part 07, section 11.3 (`caseList/details.ts::columnsOfAMenuThatListsNoCasesOffTheDetail`) |
+| `columns-off-a-screen-last-in-its-order` | one-wire | a case list holding a column the detail does not show (`visibleInDetail: false`) anywhere in `detailColumnOrder`, or a column not on the list (`notOnList`) anywhere in `listColumnOrder`; the same list with each such column after the screen's own columns, those off the detail in the list's order and those off the list in the detail's | the second | `projectCaseListForHq` writes the long detail from the detail's shown columns and the short one from the list's, so neither holds a place for a column off it | part 07, section 11.3, rule 5 (`caseList/details.ts::columnsOffAScreenLast`) |
+| `purpose-notes-are-absent` | not-carried | `Module.purpose` and `Form.purpose` (`lib/domain/modules.ts`, `lib/domain/forms.ts`) | absent | purpose notes are outside the wire inventory (`lib/commcare/CLAUDE.md`, "`APP_TEXT_UNREPRESENTABLE`") | part 06, section 16.2 (`assemble.ts`) |
+| `app-logo-is-absent` | not-carried | `logo` | absent | a publish writes no `logo_refs` (`importApplication.ts`), and a logo reaches an app on CommCare HQ only when a person adds it there (`expander.ts::ExpandOptions`) | part 06, section 16.2 (`assemble.ts`) |
+| `menu-and-form-ids-as-read` | not-carried | `Module.id` and `Form.id` as authored | the id a reading mints: a menu's the slug of its name in the source language, else in the first language that holds one, fallback `menu`; a form's the slug of its name in the source language, fallback `form`; each suffixed `_2`, `_3` past the ids of its kind before it in menu and form order | every HQ menu and form id is derived from the entity's UUID, so no export carries either | part 06, section 16.2 (`provisional.ts::menuAndFormIdsAsRead`, beside `menus/modules.ts::writeMenuIds`) |
+| `worker-fields-read-by-name-are-properties` | one-wire | a worker field the logic reads by name (`session-user`, a prose `user-ref`) that no worker property names; the read of a worker property of that slug, labelled with it, under the UUID a re-read gives `userProperty(slug)` (`freeEntityUuid` against the document's own properties, part 10, section 2.3) | the second | both print `#user/<slug>` or the session path of the slug, and a reading mints the property (part 08, section 2.5) under the UUID a re-read under the app's own id gives, and each read by name of its slug becomes the read of the property, keeping its source, as the parser binds a declared slug and the gate holds it (`worker-property-read-by-name`) | part 06, section 16.2 (`worldEntities.ts::namedWorkerReadsAreProperties`) |
+| `world-properties-as-read` | not-carried | the worker and location properties as authored | each one the logic reads, labelled with its slug, with no choices and no requirement, in the code-unit order of the slugs; none that nothing reads | no export carries a property, only the slug a read prints (`worldEntities.ts::worldEntitiesFromReads`, run over what the document's logic reads) | part 06, section 16.2 (`worldEntities.ts::worldPropertiesAsRead`) |
+| `organization-levels-as-read` | not-carried | the organization's levels as authored | each level as `levelsFromHq` reads it from the list a publish sets up (`levelsAsPublished`): holding workers, its descendant cases all or none, its own branch's address book, no description, parent before child | the export carries no level, and CommCare HQ's list says only a level's code, name, parent, whether it shares cases and whether it views descendants (part 11, O3) | part 06, section 16.2 (`worldEntities.ts::levelsAsRead`) |
 
-Eighteen rows. Part 07's check of a form-builder save of Nova's Save to Case shapes adds none: where
+Forty-four rows: forty-three entries of `READER_CANONICAL_CHOICES` and
+`expression-print-collisions`, which `canonicalExpression` applies slot by slot. Part 07's check of
+a form-builder save of Nova's Save to Case shapes adds none: where
 the builder changed a block's structure the block is refused, and a canonicalization rewrites to a
 member the reader returns, which a refused block is not.
 
 Part 15 applies the `one-wire` rows alone, to the menus and forms a change made in CommCare HQ
 touched, where that change does not fit Nova's own spelling of them (its section 2.5, step 9).
+
+**An operation's name and order lose nothing a person named.** An operation's id, the name a person
+gives a case change, is carried by no export where the operation is kept in a Case Management slot
+or an advanced action, and neither is the order of those operations: HQ's form actions name no
+operation and list a form's changes in their own order, and the emitter names no node by such an
+operation's id. So two documents that differ only there print the same bytes, and
+`basic-slot-operation-ids-are-derived` and `case-management-operations-in-reading-order` return the
+derived member. A first reading has no authored name to keep. A later review of changes made in
+CommCare HQ compares two readings of the app (part 15, section 5.2), whose ids and order agree
+wherever HQ changed nothing, so it takes the derived id or the reading's order over the document's
+own only in a form it respells because a change there does not fit Nova's spelling (part 15,
+section 2.5, step 9), which its `respelled` list names.
 
 **The proof of each row** is one case of `lib/commcare/reader/__tests__/canon.test.ts`, or the test
 the row names where one already prints both members: `unheld-placements-are-held` is held by
@@ -1688,7 +1738,7 @@ clause (b). The register is the closed list of what a first publish over an adop
 
 ```ts
 // lib/publish/firstPublishChangeIds.ts  (client-safe; lib/publish may not import lib/commcare)
-export const FIRST_PUBLISH_CHANGE_IDS = [ /* the 31 ids of 11.2, in its order */ ] as const;
+export const FIRST_PUBLISH_CHANGE_IDS = [ /* the 34 ids of 11.2, in its order */ ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 export interface FirstPublishView {
 	readonly ids: readonly FirstPublishChangeId[];
@@ -1703,6 +1753,8 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<Record<FirstPublishChangeId
 export const FIRST_PUBLISH_SAID_BY = {
 	"search-filter-rows-recut": "forms-and-settings-rewritten",
 	"list-settings-respelled": "forms-and-settings-rewritten",
+	"names-respelled": "forms-and-settings-rewritten",
+	"media-maps-respelled": "forms-and-settings-rewritten",
 } as const satisfies Partial<Record<FirstPublishChangeId, FirstPublishChangeId>>;
 /** The ids that have a sentence of their own. */
 export type FirstPublishSentenceId =
@@ -1833,7 +1885,7 @@ holds it to the slots part 11's `hqMediaReferencesOf` reads.
 
 ### 11.2 Every entry
 
-Thirty-one entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
+Thirty-four entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
 predicate is given: `f.source` is CommCare HQ's source, `f.doc` the document under the choice,
 `f.facts` the reader's `ReadFacts`, `f.generated` the generated difference, `f.media` the path
 assignment, `f.mediaLeftOut` and `f.choice` as typed above. The first column is the entry's place in
@@ -1855,14 +1907,14 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 12 | `case-settings-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/forms/*/actions`; `/_attachments/*` | no |
 | 13 | `search-filter-rows-recut` | the same test for its id | `/modules/*/search_config/default_properties` | no |
 | 14 | `sort-rule-kept-as-hidden-column` | the same | `/modules/*/case_details/short/columns`; `/modules/*/case_details/short/sort_elements/*/type`; `/modules/*/case_details/short/sort_elements/*/display` | no |
-| 15 | `list-settings-respelled` | the same | `/modules/*/case_details/short/max_select_value`; `/modules/*/case_details/short/sort_elements`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description` (the last two for a search text map that lacks a language where every language is blank, part 07, section 12.4); `/modules/*/case_list/label` (a case list menu item's label with no text, read as "Case List", part 07, section 8.6) | no |
+| 15 | `list-settings-respelled` | the same | `/modules/*/case_details/short/max_select_value`; `/modules/*/case_details/short/sort_elements`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description` (the last two for a search text map that lacks a language where every language is blank, or a title or description spelled other than as HQ's build shows it, part 07, section 12.4); `/modules/*/search_config/<key>` for a blank `""` in a key HQ reads only where it holds text, a `data_registry_workflow` or `additional_registry_cases` where no registry is named, or an `additional_case_types` naming only the menu's own type, and `/modules/*/search_config/properties/*/<key>` for a Search field's text map spelled other than as the build shows it, a blank `receiver_expression` or `default_value`, or a `required` whose test is blank (part 07, sections 12.2 and 12.4); `/modules/*/case_list/label` (a case list menu item's label with no text, read as "Case List", part 07, section 8.6, or a label held as every app string is, `heldText.ts::heldText`); `/modules/*/case_list_form/label` (a Register button's label with text that Nova prints another way: a language with no key, a `null`, a language the app no longer lists, spaces at a text's end, part 07, section 8.7); `/modules/*/case_details/*/columns/*/header` and `/modules/*/case_details/*/columns/*/enum/*/value` (a column's header or a mapping's label or image path spelled other than as the build shows it, part 07, section 11.2); `/modules/*/case_details/*/no_items_text`, `/modules/*/case_details/*/select_text`, `/modules/*/search_config/search_button_label` and `/modules/*/case_details/*/columns/*/enum/*/alt_text` (a text a device shows as HQ's default, or an image map's alt text it shows blank, in a map Nova writes another way, part 07, sections 11.2 and 12.4) | no |
 | 16 | `search-filter-joined-to-list` | the same | `/modules/*/case_details/short/filter` | no |
 | 17 | `search-restates-list-filter` | the same | `/modules/*/search_config/default_properties` | yes |
 | 18 | `link-held-case-guards-added` | the same | `/modules/*/forms/*/form_links/*/xpath` | yes |
 | 19 | `registration-label-fixed` | the same | `/modules/*/case_list_form/label/*` | yes |
 | 20 | `date-and-time-saved-as-hq-stores-it` | the same | `/_attachments/*` | yes |
 | 21 | `connect-app-captures-location` | `f.doc.connectType` is set and `f.source.raw.auto_gps_capture` is not `true` | `/auto_gps_capture` | yes |
-| 22 | `translation-overrides-folded` | `f.facts.foldedTranslationKeys` is above zero (part 06, section 17.3) | `/translations/*/*`; `/modules/*/name/*`; `/modules/*/forms/*/name/*`; `/modules/*/case_list/label/*`; `/modules/*/case_list_form/label/*` | no |
+| 22 | `translation-overrides-folded` | `f.facts.foldedTranslationKeys` is above zero (part 06, section 17.3) | `/translations/*/*`; `/name`; `/modules/*/name/*`; `/modules/*/forms/*/name/*`; `/modules/*/case_list/label/*`; `/modules/*/case_list_form/label/*` | no |
 | 23 | `location-list-setting-reset` | `f.source.raw.location_fixture_restore` is `both_fixtures` or `only_flat_fixture` | `/location_fixture_restore` | no |
 | 24 | `web-apps-turned-off` | `f.source.cloudcareEnabled` and `f.choice.runsOnlyOn` is `android` | `/cloudcare_enabled` | yes |
 | 25 | `web-apps-turned-on` | not `f.source.cloudcareEnabled` and `f.choice.runsOnlyOn` is not `android` | `/cloudcare_enabled` | yes |
@@ -1872,6 +1924,9 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 29 | `media-files-renamed` | `f.media.rederived` is not empty | `/multimedia_map/*`; `MEDIA_REFERENCE_PATHS` | yes |
 | 30 | `media-references-with-no-file-removed` | `f.mediaLeftOut` is above zero (part 11, section 3.2) | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | no |
 | 31 | `unused-media-entries-removed` | some path of `f.source.multimediaMap` is the `path` of no entry of `f.facts.mediaReferences` and of no entry of `f.source.logoRefs` | `/multimedia_map/*` | no |
+| 32 | `names-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/app.display.name` | no |
+| 33 | `media-maps-respelled` | the same | `/modules/*/media_image`; `/modules/*/media_audio`; `/modules/*/use_default_image_for_all`; `/modules/*/use_default_audio_for_all`; the same four under `/modules/*/forms/*`, `/modules/*/case_list` and `/modules/*/case_list_form` | no |
+| 34 | `text-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/*`; `/modules/*/case_list/label`; `/modules/*/case_list_form/label`; `/modules/*/case_details/*/columns/*/header`; `/modules/*/case_details/*/columns/*/enum/*/value`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description`; `/modules/*/search_config/properties/*/label`; `/modules/*/search_config/properties/*/hint`; `/modules/*/search_config/properties/*/required/text`; `/modules/*/search_config/properties/*/validations/*/text` | yes |
 
 `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`. Every other entry has
 `reading`. `date-and-time-questions-split` reads what the chosen declaration did to the document at
@@ -1903,6 +1958,61 @@ through `gettext` and a toggle of the project space
 (`app_strings.py::_create_case_list_form_app_strings`), so a build could show other words before.
 After the first publish every build shows the label Nova writes. A worker reads that text, so the
 entry touches workers.
+
+**`names-respelled`.** A menu's or a form's `name` map is read as the text CommCare HQ's build shows
+in each language (part 06, sections 7.3 and 7.4): `app_strings.py::_create_custom_app_strings` writes
+`clean_trans(name, [lang] + langs)` for each language, a blank falls back to the `default` locale, and
+`xforms_extras.py::_trans` takes the first of those languages the map holds with a value other than
+`None`, else the map's least key. Nova prints every language's text, so a map that lacks a language,
+holds `null`, holds a blank beside another language's text or holds a language the app no longer
+lists is written again by the first publish, each language showing the same text. The structure
+stage appends a record under this id at the map's pointer wherever Nova's print of the reading
+differs from the stored map, and never for a map Nova prints back exactly, which every map Nova
+writes is. The app's name is read the same way (`appShell.ts::holdAppName`): a `name` or a
+language's `app.display.name` with spaces at its end, which no device showed, is recorded under
+this id at its pointer. No worker meets the change, so `forms-and-settings-rewritten` says it.
+
+**`text-spaces-dropped`.** Nova holds no app string a worker reads as blank in one language while
+the source language's holds text where its role requires text
+(`translationUnits.ts::translationRoleRequiresNonblank`: a menu's, a form's and the app's name, a
+case list menu item's and a Register button's label, a Search field's label and messages, the
+search screen's title and subtitle), and no app string with a space at either end
+(`localeFile.ts::localeFileValueIssue`). HQ's build writes a text that is only spaces in a
+language as one non-breaking space (`commcare_translations.py::dumps`), which a device shows as a
+blank text, and writes a line break as the two characters `\n`; Core's locale reader trims the
+line and only then reads `\n` as a line break (`LocalizationUtils.parseAndAdd`, `parseValue`), so
+a text's end loses its spaces but keeps a line break, and its start keeps both. Every
+reader of an app string holds it through one function (`heldText.ts::heldText`, part 06, sections
+7.3 and 7.4, and part 07, sections 8.6, 11.2 and 12.4): the language takes the source language's
+text, and the spaces at the start and a line break at either end are dropped. A text holding the
+two characters `\n`, which Core reads as a line break whoever wrote them, is held with that line
+break, one holding a backslash before `#`, which Core reads as `#`, with the `#` alone, and one
+holding a carriage return as the text before it, which is all a device shows
+(`BufferedReader.readLine` ends the line there): only the stored map is new, so the surface's
+respelling id is recorded unless a line break is dropped at an end. A Search field's
+own message is held apart from the runtime guard's text joined after it (part 07, section 12.2,
+`prompts.ts::readValidation`), so a message whose end meets the guard's text with a space of its
+own loses it, and the joined text a worker reads has one space fewer there. A worker reads that text after the first publish, so
+the entry touches workers. The reader records this id at the map's pointer in place of the
+surface's respelling id (`names-respelled`, `list-settings-respelled`,
+`heldText.ts::recordTextRewrite`), and so does the fold of a generated key that leaves such a
+text (part 06, section 16.5), at a name's map or else at the key's pointer. A form's itext is not
+an app string: Core trims a translation's value at both ends as it parses the form
+(`XFormParser.getLabel`), whoever wrote it, so Nova writes it as stored and no worker meets a
+change.
+
+**`media-maps-respelled`.** A menu's, a form's, a case list item's or a Register button's
+`media_image` or `media_audio` map is read as the file CommCare HQ's build shows in each language
+(part 07, section 8.6, `navMedia.ts::shownNavMedia`): HQ's page stores an icon under the language
+being edited alone (`views/media_utils.py::handle_media_edits`), the build writes that path into the
+`default` app strings (`models/mixins.py::NavMenuItemMediaMixin.icon_app_string` with `for_default`),
+and Core shows a language with no path of its own the `default` table's. Nova writes the file under
+every app language with `use_default_image_for_all` and `use_default_audio_for_all` off
+(`multimedia/navMenuMedia.ts::buildNavMediaDicts`), so a map stored otherwise, or a switch on, is
+written again by the first publish, each language showing the same file. The menus reader appends a
+record under this id at the map's pointer, and at the switch's where it is on
+(`navMedia.ts::recordRespelling`). No worker meets the change, so `forms-and-settings-rewritten`
+says it.
 
 **`date-and-time-saved-as-hq-stores-it`.** Part 03 changes the text Nova writes for a date and time
 on a case: the moment as CommCare HQ stores it, where Nova wrote the device's own clock with its
@@ -1943,8 +2053,18 @@ document, check 4 reads no expression, and check 5 reads only whether a calculat
 - **By the reader's same-state rules.** `firstPublishChanges.test.ts` requires every record of
   `ReadFacts.sameStateRewrites`, over every retained read, to name an id of this table whose `paths`
   cover the record's `path`. Part 07's `rewrites.test.ts` requires every same-state rule in its code to
-  carry an id. The one id recorded outside part 07's rules, `date-and-time-saved-as-hq-stores-it`,
-  has its two recording sites held by two cases of `firstPublishChanges.test.ts` (Tests).
+  carry an id. Five ids are recorded outside part 07's rules, the ids of
+  `lib/commcare/reader/types.ts::FIRST_PUBLISH_READING_RECORDS`: `date-and-time-saved-as-hq-stores-it`,
+  whose two recording sites are held by two cases of `firstPublishChanges.test.ts` (Tests);
+  `registration-label-fixed`, recorded by part 07's `menus/registration.ts::readLabel` and held by
+  `lib/commcare/reader/menus/__tests__/registration.test.ts`;
+  `names-respelled`, recorded by part 06's structure stage, its fold of generated keys and the
+  app shell's reading of the app's name, and `text-spaces-dropped`, recorded by every reader of an
+  app string through `heldText.ts::recordTextRewrite`, held by
+  `lib/commcare/reader/__tests__/names.test.ts` and `lib/commcare/reader/__tests__/heldTexts.test.ts`; and
+  `media-maps-respelled`, recorded by part 07's
+  `menus/navMedia.ts::recordRespelling` and held by
+  `lib/commcare/reader/menus/__tests__/navMedia.test.ts`.
 - **By the lane.** Part 14's both-ways judge (14-proof.md, section 9.3) runs on every HQ-authored
   base, in the dispatches over the bases that the session starts before the merge and in every
   scheduled lane after it. Where it reports a difference no applying entry holds, the session
@@ -1978,6 +2098,7 @@ entry above). None is left undecided.
 | A help text with no markdown form | exact | part 03 (its section 8) holds `plainHelp`, and Nova writes no markdown form for it. Nothing is left to declare |
 | A hint or a validation message with or without a markdown form | exact | no runtime reads a hint's or a validation message's markdown form (part 03, section 8.1), so the copy is inert and Nova writes none (part 03, section 8.2). Nothing is left to declare |
 | A label or a choice with no markdown form | exact | `plainLabel`, read from the form's presence (part 06, section 12.2) |
+| A label, a choice or a help text whose markdown form some languages lack, each such language holding the default's markdown form as its text, or a blank beside the default's text, or whose markdown form a language holds beside no text of its own, equal to the default's text | exact | part 06, section 12.2 (`prose.ts::claimMarkdown`): Core shows such a language the default's markdown form where a runtime asks for it and its own text where one reads the text alone, or its own markdown form and the default's text, one text either way, which the reading holds with markdown on, a language holding no text of its own read as untranslated. Nova writes the text and its markdown form in that language too, a spelling of the text it already shows, covered by `forms-and-settings-rewritten`; a blank is `blank-translations-filled`'s, as anywhere. Any other markdown form some languages lack stays refused (`questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk`) |
 | A form whose text formatting is off | exact | `Form.plainText` (part 03, section 8.3) |
 | `update_case.condition` of `never` or `if` | exact on the shapes part 07 holds; refuse the two it does not | part 07, section 3.2; `forms-and-case-writes/update-case-condition-never-on-a-follow-up-with-no-other-active` (REFUSED, not HQ-editable) and `forms-and-case-writes/update-case-condition-if-whose-question-is-gone` (REFUSED, not HQ-buildable) are both `fix-in-hq` |
 | `update_mode: edit` on a form's own update of a case it requires | exact | part 07, section 3.2: the read probes the source project space's flag (part 05, section 10.5). Where the project space applies the word, the write reads as saved only if changed. Where it does not, the write reads as saved every time, which is what the source's build does, and the stored word differs as spelling under `case-settings-respelled` |
@@ -1985,6 +2106,8 @@ entry above). None is left undecided.
 | `location_fixture_restore` of `only_hierarchical_fixture` | refuse | manifest row `application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture`, `never` |
 | `created_from_template` | exact | CommCare HQ's import view sets it on every import and no body can prevent it. No page and no runtime reads it, so no line says it. The pointer is one of `forms-and-settings-rewritten`'s |
 | The pruned media map | declare, `unused-media-entries-removed` | HQ's import runs the prune and saves |
+| A menu's, form's, case list item's or Register button's icon or audio stored under some languages only, beside a blank or a language the app no longer lists, or under `use_default_*_for_all` | declare, `media-maps-respelled` | part 07, section 8.6: the map is read as the file HQ's build shows in each language (`navMedia.ts::shownNavMedia`), and Nova writes that file under every language with the switch off, which every language shows alike |
+| A form's text, or a media form of it, that a translation lacks, or a translation the form lacks | exact | part 06, sections 12.1, 12.4 and 12.5: a language with no value shows the form's default language's on Core, which the reading reads as its text, and Nova writes it in that language. So do the `__nova_` forms of a protected validation message that a translation lacks, or holds as the default's copy a save in HQ's form builder writes, and its `jr:constraintMsg`, which holds no branch for a language CommCare HQ added after the publish: Core reads the default's forms there and so shows the default's branch (part 06, section 13.2, `constraint-message`), and Nova writes the language's own forms and the composition over every language, a branch gained per such language, showing the same message. A language CommCare HQ removed after the publish leaves its branch in the `jr:constraintMsg` and its translation in the form until a save in HQ's form builder drops it; HQ's build drops the translation, and no language a device shows reads the branch, so the reading rebuilds that branch from the expression alone, whatever the source keeps of the translation (part 06, section 13.2), and Nova writes the composition over the languages left, the branch and the translation gone, no language showing another message. Covered, as spelling, by `forms-and-settings-rewritten` |
 | A generated translation key in `translations` | exact where it has no effect or is blank; declare where it folds (`translation-overrides-folded`); refuse otherwise | part 01, section 7.1; part 06, section 16.5 |
 | The translation keys Nova writes itself (`homescreen.title`, `app.display.name`, a language's name) | exact | the first two are the app's name where it differs by language, read into the name's translations; a language's name is kept at CommCare HQ's value on an adopted deployment (part 10) |
 | Preload order | exact where no later load-time value reads the question; refuse otherwise | part 07, section 3.7 (`laterLoadReaders`), `not-yet` |
@@ -2012,10 +2135,16 @@ entry above). None is left undecided.
 | A held media path after the bulk upload | exact | part 10, section 4.7, with its evidence in that part's "Executed during planning": the next build keeps a path's version where its `multimedia_id` is the same, and the base `hq-media` asserts it |
 | A media reference with no file | exact where no runtime draws it (left out, `media-references-with-no-file-removed`); refuse otherwise | part 11, section 3.2 |
 | A logo entry with no `m_id` | refuse | part 06, section 6.1, under `application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare`. No editor of CommCare HQ writes one, and Web Apps and the Android profile read its path whether or not it names a file |
-| The data node's `name` and `<h:title>` | exact | part 06 claims both as derived from the form's name; Nova writes the first language's name, which is what a save in the form builder writes |
+| The data node's `name` and `<h:title>` | exact | part 06 claims both as derived from the form's name; Nova writes the first language's name, which is what a save in the form builder writes. Where the name holds the two characters `\n`, which a device's app strings show as a line break and Nova holds as one (part 06, section 7.4), Nova writes the line break there and a save would write the two characters: HQ's build writes neither place, Web Apps shows neither, and Android keeps the title only as a saved form's record name, which none of its lists shows, so the entry holds either spelling, as it holds a title that names the form as it was named before |
+| An app string holding the two characters `\n`, a backslash before `#`, or a carriage return whose rest defines no app string | declare, the surface's respelling id (`names-respelled`, `list-settings-respelled`), or `text-spaces-dropped` where a line break at either end is dropped | part 06, section 7.4 (`heldText.ts::holdText`): `dumps` writes a line break as those two characters and Core reads them back as one, `dumps` leaves a `#` a backslash precedes and Core reads `\#` as `#`, and Core ends a line at a carriage return, so a device showed the line break, the `#` alone and nothing after the carriage return, which Nova holds and HQ's build writes again (`localeFile.ts::hqLocaleFileValue` writes the held `#` as `\#`, which a device shows as `#`). The app's `name`, which the profile also carries for Android's list of the apps on a phone and Web Apps' list of apps shows as stored, is refused instead, at the app under `application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return` (`appShell.ts::holdAppName`), while a text a device shows with a backslash before `#` (two backslashes then `#` stored), which no text the gate admits spells, is refused at its place under `application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash`, and one a device shows none of, nothing before a carriage return whose rest defines no app string, under `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing` (`heldText.ts::unheldRefusal`) |
+| A menu's or form's name, a case list menu item's or Register button's label, or a Search field's label holding a `${` some screen reads as a placeholder | refuse at its place under `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`, one finding (`heldText.ts::unheldRefusal`) | part 06, section 7.4 (`heldText.ts::heldText`, `localeFile.ts::argumentScreenIssue`): Android's menu list, action bar and Search screen and every screen title, Web Apps' included, read the text through Core's `Localizer.processArguments` and trim it (`Visits ${0}` shows as `Visits`, `a${b` as `aa${b`), while Web Apps' menu list shows it as stored, so no text Nova holds shows alike on every screen and the gate refuses each (`APP_STRING_VALUE_UNREPRESENTABLE`). A `${` that opens the text with no `}` after it shows as stored everywhere and is held exactly; every other app string, which no screen reads that way, is held with its `${` exactly |
+| An app string whose rest after a carriage return is a line that defines an app string | refuse | `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string` (`fix-in-hq`): the rest sets the wording of another text on every device, which no document holds |
 | A form's name, or a CommCare Connect block's name or description, holding `instance(` and a quoted id | refuse | part 03, section 5.1: no spelling of plain text keeps CommCare HQ's instance scan out, so the gate refuses the text (`FORM_TEXT_READ_AS_INSTANCE`), and the reader raises `forms-and-case-writes/form-name-read-as-an-instance` and `questions/connect-block-text-read-as-an-instance` for an app that holds it (part 06, sections 7.4 and 15). No register entry is added |
 | Label text holding `instance(` | exact | part 03, section 5: Nova splits the text with a literal output, and no runtime reads label text as a path |
 | A Register button's label with no text, in every language or in one | declare, `registration-label-fixed` | part 02, section 11.8: read as "Create a new Case" in each such language, the words HQ's build writes; a build could show other words before |
+| A menu's or a form's name map Nova would print another way: a language with no key, a `null`, a blank beside another language's text, a key of a language the app no longer lists, spaces at a name's end; the app's `name` or an `app.display.name` with spaces at its end | declare, `names-respelled` | part 06, sections 7.3 and 7.4: read as the text CommCare HQ's build shows in each language (`hqText.ts::shownText`), the source language's in the slot, so every language shows what it showed and only the stored map is new. A map Nova prints back exactly, every map Nova writes among them, reads exactly and records nothing |
+| An app string (a name, a label, a header, a Search field's text, the search screen's title and subtitle) that is only spaces, or for the title blank, in a language where the source language's text holds text and its role requires text, that begins with a space, that begins or ends with a line break, or a Search field's own message that meets the runtime guard's text joined after it with a space of its own | declare, `text-spaces-dropped` | part 06, section 7.4, and part 07, sections 8.6, 11.2 and 12.4 (`heldText.ts::heldText`): Nova holds no blank translation of such a text and no app string with a space or a line break at either end, so the language takes the source language's text and the space or line break is dropped. Refusing would keep out an app CommCare HQ builds over a blank-looking text; a deliberately blank text in one language is not a concept Nova holds, as a blank form text is not (`blank-translations-filled`). The search screen's title is held so where the source language shows text (a language with no title of its own shows the first language's, which may be blank, `app_strings.py::create_default_app_strings` over `CaseSearch.get_search_title_label`); a title the source language shows blank beside another's text stays the HELD-NEW entry `case-search/title-label-blank-in-some-languages` |
+| A Register button's label with text in every language that Nova prints another way: a language with no key, a `null`, a key of a language the app no longer lists, spaces at a text's end | declare, `list-settings-respelled` | part 07, section 8.7: read as the text HQ's build shows in each language (`menus/modules.ts::labelAsBuilt`, held as every app string is), so every language shows what it showed and only the stored map is new |
 | A case list menu item's label with no text | exact | part 07, section 8.6: HQ's build writes the literal "Case List" in every language, and Nova holds that label. The stored map's spelling is `list-settings-respelled`'s |
 | The expression rewrites | declare, `instant-comparison` to `search-today-device-day` | part 08, section 2.3 |
 
@@ -2309,7 +2438,7 @@ one comparison, which part 14 writes (its section 9.3):
   `forms-and-settings-rewritten`'s: Nova does not write back what no runtime reads. The judge matches
   it with no row (part 14, 9.3).
 
-With `source` an observed check, every one of the thirty-one ids is one some check can show.
+With `source` an observed check, every one of the thirty-four ids is one some check can show.
 
 ### 13.3 What the judge then holds
 
@@ -2473,11 +2602,11 @@ part splits it, and `readingAppStrings`, below, puts the gate in front:
   ```
 
   `compileCcz` calls it, writes each `<dir>/app_strings.txt` from `tables` through
-  `serializeLocaleFileValue`, and packages. Its bytes do not change, which `compilerEvidence.ts`'s
-  corpora hold. The serializer is the one step that fails closed on text the locale grammar cannot
-  carry (a literal backslash-`n`; `lib/commcare/CLAUDE.md`, "Multilingual emission"), and it stays in
-  `compileCcz`, so `compileCczParts` returns such a string as the value it is and
-  `localAppStringTable` never throws for it.
+  `localeFile.ts::hqLocaleFileValue`, and packages. Its bytes do not change, which
+  `compilerEvidence.ts`'s corpora hold. The writer is total, as HQ's build is
+  (`commcare_translations.py::dumps`), and the gate refuses every text a device would show
+  otherwise (`lib/commcare/CLAUDE.md`, "Multilingual emission"), so `compileCczParts` returns
+  every string as the value it is and `localAppStringTable` never throws for one.
 - **The options.** `CompileOptions.runtimeTarget` is required ("no archive is compiled without one"),
   and lookup naming reaches the compiler only inside `CompileOptions.lookup`, a `PreparedLookupWire`
   that also holds budget-checked fixture blocks. `compileCczParts` takes its own options type,
@@ -2578,7 +2707,8 @@ constants and writes no heading, lead, label, reassurance or note of its own (se
 | `FIRST_PUBLISH_FORM_BUILDER_NOTE` | If your team opens these forms in CommCare HQ's form builder, some hidden details will look different there. |
 
 **C2. The sentences** (`FIRST_PUBLISH_SENTENCES`), one for each id that has a line of its own:
-twenty-nine. `search-filter-rows-recut` and `list-settings-respelled` are said by the first. The
+thirty. `search-filter-rows-recut`, `list-settings-respelled`, `names-respelled` and
+`media-maps-respelled` are said by the first. The
 sentences of part 08's rewrites and of part 07's same-state readings are written here, because the
 register is their home.
 
@@ -2603,7 +2733,7 @@ register is their home.
 | `registration-label-fixed` | A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads "Create a new Case" there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova. |
 | `date-and-time-saved-as-hq-stores-it` | A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place. |
 | `connect-app-captures-location` | Every form of this CommCare Connect app will record where it was filled in. Nova turns on Auto Capture Location for the app in CommCare HQ. |
-| `translation-overrides-folded` | A wording set in CommCare HQ's app translations for a menu's or a form's name becomes that menu's or form's own name. Workers read the same words. |
+| `translation-overrides-folded` | A wording set in CommCare HQ's app translations for the app's, a menu's or a form's name becomes that name. Workers read the same words. |
 | `location-list-setting-reset` | This app's own setting for the location list goes back to the project space's default. The app reads places the same way. |
 | `web-apps-turned-off` | Web Apps is turned off for this app in CommCare HQ, because the app is set to run on Android only. |
 | `web-apps-turned-on` | Web Apps is turned on for this app in CommCare HQ, because the app is set to run in Web Apps. |
@@ -2613,6 +2743,7 @@ register is their home.
 | `media-files-renamed` | Some pictures, sounds and videos get new names in CommCare HQ, because Nova can't keep the names they had. Phones download them again with the next version of the app. |
 | `media-references-with-no-file-removed` | References to pictures, sounds and videos that have no file in CommCare HQ are removed. Workers saw nothing there. |
 | `unused-media-entries-removed` | CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ. |
+| `text-spaces-dropped` | A name, label or other app text that is only spaces in one language now shows its text in the source language there, and spaces or line breaks at the start or end of a text are dropped. Before, workers saw a blank text, the spaces or the line breaks. |
 
 **C3. `read-back-differs`.** The block is part 01's (01-the-bar-and-the-manifest.md, section 9.3).
 This part writes no title, body or next step for it (section 14.4).
@@ -2664,7 +2795,7 @@ list are functions of data, and part 13 owns the Playwright specs that show the 
 | `lib/deployment/reading/__tests__/firstPublishChanges.test.ts`: for every entry, a `FirstPublishFacts` on which it applies and one on which it does not, each built from a retained read or a production builder (`forms-and-settings-rewritten` applies on both, and is held to that); `GENERATED_NODE_CHANGE` total; every `sameStateRewrites` record of every retained read names an entry whose `paths` cover it; `FIRST_PUBLISH_TOUCHES_WORKERS` equals the register; every id of `EMISSION_REWRITES` whose `behavior` is `changes` is an id of this table whose entry touches workers; `MEDIA_REFERENCE_PATHS` equals part 11's slots; exactly `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`; for every choice of every retained reading, the choice's list equals `firstPublishViewFromStored` of what the birth stores for it under that choice's `runsOnlyOn`, and under the other declarations it gains or loses only the two Web Apps ids; a stored list of kind `next-publish` comes back as a view of that kind, with a Web App line only where the stored setting differs from the declaration; `unused-media-entries-removed` applies to a source with a map entry no reference and no logo entry names, and not to one whose only extra entry a logo names; `date-and-time-saved-as-hq-stores-it` applies to a reading of a source whose `nova_datetime_` sibling holds the earlier calculation, and to one whose Save to Case value holds the earlier spelling, and to neither source written in the current spelling; and for each of `connect-app-captures-location`, `location-list-setting-reset`, `web-apps-turned-off` and `web-apps-turned-on`, over the facts on which it applies, `lib/deployment/importApplication.ts::hqImportApplication`'s body (built over `adoptionExportBoundary`'s options, with the reading's source as the update's read) holds the entry's one top-level key (`auto_gps_capture`, `location_fixture_restore`, `cloudcare_enabled`) at a value other than the source's, and over the facts on which it does not, at the source's value or absent | the register over readings, and over the body a first publish sends | an entry that never applies; a same-state rule with no declaration; a rewrite the reader reports that no line says; a stored list that tells a person Web Apps is turned off after they turned it on; a shell edit and a predicate that part ways |
 | `lib/publish/__tests__/firstPublishCopy.test.ts`: every sentence is non-empty, ends in a full stop, holds no em dash and no ellipsis; `firstPublishLines` puts each line in the group `FIRST_PUBLISH_TOUCHES_WORKERS` gives it, in registry order, gives the reassurance exactly where `touchesWorkers` is false, the review's lead for `review` and the publish's for `publish`, and the note always; a view of kind `next-publish` takes part 15's heading and lead on the `publish` surface and every other member as any view does; two ids said by one sentence give one line; an id and the id that says it have the same `touchesWorkers`; every value of `FIRST_PUBLISH_SAID_BY` is a `FirstPublishSentenceId` | the copy | a line with no words; a list ordered by accident; a worker-touching first publish told workers see the same questions; one sentence shown twice |
 | `proof/ci/__tests__/firstPublishChanges.test.ts`: the file's ids are `FIRST_PUBLISH_CHANGE_IDS` in order; each object's `source` rows are exactly the entry's `paths` (entry 1's four written pointers; its inert allowance has no row); a `proof3` row stands only under an entry whose `touchesWorkers` is true | `proof/first-publish-changes.json` against the register (section 13.2) | the lane accepting a stored-app difference the register does not allow, or a behavior difference under an entry that declares none |
-| `lib/commcare/__tests__/appStrings.test.ts`: `localAppStringTable(doc)` equals, language by language, the tables `compileLocalArchive` serializes for the same document, over the corpus, a document that reads a lookup table among them; the tables are equal under two stand-in targets and under the identity and a real naming; a document whose app string holds a literal backslash-`n` gives its table and does not throw, where `compileCcz` throws; `compileCcz`'s bytes are those of `main` for every corpus document | the split of `compileCcz` | a classifier judging keys against strings no build makes; a reading that throws on a string the archive cannot carry; a changed archive |
+| `lib/commcare/__tests__/appStrings.test.ts`: `localAppStringTable(doc)` equals, language by language, the tables `compileLocalArchive` serializes for the same document, over the corpus, a document that reads a lookup table among them; the tables are equal under two stand-in targets and under the identity and a real naming; a document whose app string holds a literal backslash-`n` gives its table and does not throw; `compileCcz`'s bytes are those of `main` for every corpus document | the split of `compileCcz` | a classifier judging keys against strings no build makes; a reading that throws on a string the archive cannot carry; a changed archive |
 | `lib/deployment/reading/__tests__/readingAppStrings.test.ts`: for a corpus document and its own lookup context the function answers `localAppStringTable`'s table; for the same document with one question's id changed to its sibling's it answers null and does not throw; for a document that reads a table, a context that lacks the table answers null and one that holds it beside a table nothing reads answers the table | `readingAppStrings` over the production gate | a reading that throws inside Nova's build for a document a finding left provisional; a key classified against strings of a document Nova would never write |
 | `adoptionBoundary.test.ts`: over a retained reading with a table and two files, `expandDoc` under `adoptionExportBoundary`'s options is byte-equal to `expandDoc` under the options a publish to the adopted deployment builds after the birth | the boundary against `prepareExportBoundary` | a baseline descriptor computed over a body the first publish does not send |
 | `datetimeSplitReadBack.test.ts`: for every corpus document that holds a date and time question, the split document's emission reads back to the split document under `matchingResolver` | the reader over `lib/doc/datetimeSplit.ts`'s result | a split that no reading could ever offer |
@@ -2690,7 +2821,8 @@ whole over a source at the cap. It is that part's test, and this part adds no te
 | `docs/architecture/contracts.md`, "HQ deployment safety" | (no sentence on a first publish over an adopted app) | "The first publish over an app brought in from CommCare HQ changes only what `FIRST_PUBLISH_CHANGES` declares, each entry shown to the person at the review and again before that publish. The proof lane holds the declared set equal to the observed set on every HQ-authored base." |
 | `content/docs/publishing.mdx`, "On CommCare HQ", after part 13's sentence for a brought-in app | (none) | one paragraph: "The first time you publish an app you brought in, Nova lists what will differ in CommCare HQ: what workers will notice, and what changes only in how CommCare HQ stores the app. The same list is shown before you bring the app in." |
 
-The `lib/commcare/CLAUDE.md` subsection on rewrites is part 08's row, and `proof/README.md`'s section
+The `lib/commcare/CLAUDE.md` subsection on rewrites is part 08's row, which names the clause this part
+adds to it when `firstPublishChanges.ts` lands, and `proof/README.md`'s section
 on first-publish changes is part 14's.
 
 ---

@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { serializeLocaleFileValue } from "@/lib/commcare/localeFile";
+import { localeFileValueIssue } from "@/lib/commcare/localeFile";
 import {
 	deriveLanguageRegistry,
 	type GeneratedLanguageRegistry,
@@ -286,16 +286,12 @@ function assertRegistry(registry: GeneratedLanguageRegistry): void {
 	}
 
 	// Every derived label can become a CommCare locale-file value (device
-	// language-menu name rows), so a label the wire grammar cannot round-trip
-	// is a generation failure, never a runtime one.
+	// language-menu name rows), so a label a device would show otherwise is a
+	// generation failure, never a runtime one.
 	const wireCheck = (label: string, origin: string): void => {
-		try {
-			serializeLocaleFileValue("registry-label", label);
-		} catch (error) {
-			fail(
-				`${origin} ${JSON.stringify(label)} cannot serialize as a locale-file value: ${String(error)}`,
-			);
-		}
+		const issue = localeFileValueIssue(label);
+		if (issue !== undefined)
+			fail(`${origin} ${JSON.stringify(label)} ${issue}.`);
 	};
 	for (const [key, endonym] of Object.entries(registry.endonymByKey)) {
 		wireCheck(endonym, `endonym ${key}`);

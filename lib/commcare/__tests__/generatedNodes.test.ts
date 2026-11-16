@@ -249,6 +249,101 @@ describe("planGeneratedNodes", () => {
 		);
 	});
 
+	it("reserves no carrier for a protected message no constraint can fail, so a sibling's count keeps its base", () => {
+		const doc = buildDoc({
+			appName: "Unwritten message",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "other" }),
+								f({
+									kind: "text",
+									id: "x_1",
+									// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal `${` is what makes a message protected
+									validate_msg: proseText("Write ${1}"),
+								}),
+								f({
+									kind: "text",
+									id: "message_x",
+									validate:
+										"count(#form/other[. = 'yes']) > 0 and count(#form/other[. = 'no']) = 0",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const field = (id: string) => {
+			const found = Object.values(doc.fields).find((one) => one.id === id);
+			if (found === undefined) throw new Error(`Missing ${id}`);
+			return found.uuid;
+		};
+		const plan = planGeneratedNodes(doc, formUuid);
+		expect(
+			plan.nodes.filter((node) => node.purpose === "constraint-message"),
+		).toEqual([]);
+		expect(() => plan.constraintMessage(field("x_1"))).toThrow();
+		expect(
+			[0, 1].map((n) => plan.constraintCount(field("message_x"), n)),
+		).toEqual(["nova_constraint_message_x_0", "nova_constraint_message_x_1"]);
+		// The same question with a condition carries its message, and the count steps around it.
+		const conditioned = buildDoc({
+			appName: "Written message",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "other" }),
+								f({
+									kind: "text",
+									id: "x_1",
+									validate: ". != ''",
+									// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal `${` is what makes a message protected
+									validate_msg: proseText("Write ${1}"),
+								}),
+								f({
+									kind: "text",
+									id: "message_x",
+									validate:
+										"count(#form/other[. = 'yes']) > 0 and count(#form/other[. = 'no']) = 0",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const conditionedForm =
+			conditioned.formOrder[conditioned.moduleOrder[0]][0];
+		const conditionedField = (id: string) => {
+			const found = Object.values(conditioned.fields).find(
+				(one) => one.id === id,
+			);
+			if (found === undefined) throw new Error(`Missing ${id}`);
+			return found.uuid;
+		};
+		const written = planGeneratedNodes(conditioned, conditionedForm);
+		expect(written.constraintMessage(conditionedField("x_1"))).toBe(
+			"nova_constraint_message_x_1",
+		);
+		expect(
+			[0, 1].map((n) =>
+				written.constraintCount(conditionedField("message_x"), n),
+			),
+		).toEqual(["nova_constraint_message_x_0", "nova_constraint_message_x_1_1"]);
+	});
+
 	it("gives a copy of a document the plan the document has", () => {
 		const { doc, formUuid } = collisionDoc();
 		const copy = structuredClone(doc);

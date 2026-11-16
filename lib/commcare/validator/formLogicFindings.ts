@@ -65,6 +65,7 @@ export interface FormLogicFinding {
 		| "SEARCH_RESULTS_NOT_SUPPLIED"
 		| "SEARCH_RESULTS_READ_INVALID"
 		| "LOCATIONS_READ_NEEDS_ORGANIZATION"
+		| "FORM_CASE_READ_ACROSS_SEVERAL_LINKS"
 		| "REPEAT_COUNT_TYPE"
 	>;
 	readonly message: string;
@@ -279,6 +280,13 @@ function repeatCountFinding(
 	}
 }
 
+/** `home and guardian`, `a, b and c`. */
+function joinNames(names: readonly string[]): string {
+	return names.length <= 1
+		? (names[0] ?? "")
+		: `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 export function formLogicFinding(
 	error: CheckError,
 	ctx?: ExpressionContext,
@@ -349,6 +357,30 @@ export function formLogicFinding(
 				message = `The new ${term.caseType} record has no saved ${term.property} yet. Read the answer from its question instead.`;
 			}
 			break;
+		case "relation-ambiguous": {
+			if (error.reason !== "ancestor-link-names" || term?.kind !== "form-case")
+				break;
+			const hop = ctx?.form?.ancestorHopsUnresolved.get(term.caseType);
+			if (hop === undefined) break;
+			const owner = slotOwner(ctx);
+			const names = joinNames(hop.identifiers);
+			code = "FORM_CASE_READ_ACROSS_SEVERAL_LINKS";
+			details = {
+				hashtag: caseReferenceText(term.caseType, term.property),
+				readCaseType: term.caseType,
+				childCaseType: hop.childType,
+				parentCaseType: hop.parentType,
+				identifiers: hop.identifiers.join(" "),
+				...(hop.why.kind === "child-name" && {
+					childIdentifier: hop.why.identifier,
+				}),
+			};
+			message =
+				hop.why.kind === "child-name"
+					? `${owner.slotSubject} reads the ${term.caseType} case's "${term.property}", but this app links a ${hop.childType} case to its ${hop.parentType} case as ${hop.why.identifier}, the one name a ${hop.childType} case is listed under its ${hop.parentType} case by, and not every ${hop.childType} case it links carries ${hop.why.identifier} (it links them under ${names}). A form reads through one name, so this read would be blank for the ${hop.childType} cases without ${hop.why.identifier}, or read a ${hop.parentType} case other than the one they are listed under. You can link every ${hop.childType} case to its ${hop.parentType} case as ${hop.why.identifier}, or remove this read.`
+					: `${owner.slotSubject} reads the ${term.caseType} case's "${term.property}", but this app links a ${hop.childType} case to its ${hop.parentType} case under several names (${names}), and no one name is on every ${hop.childType} case it links. A form reads through one name, so this read would be blank for the cases linked under another. You can link every ${hop.childType} case to its ${hop.parentType} case under one name, or remove this read.`;
+			break;
+		}
 		case "unknown-search-input":
 		case "search-answer-unavailable":
 			code = "INVALID_SEARCH_REF";

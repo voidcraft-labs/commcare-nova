@@ -189,7 +189,10 @@ describe("localized emitted artifacts", () => {
 			)?.attribs["jr:constraintMsg"],
 		).toBe("jr:itext('section-name-constraintMsg')");
 	});
-	it("serializes comment and newline escapes and refuses the ambiguous literal backslash-n", () => {
+	// The gate refuses the sequences a device would show otherwise
+	// (`validator/__tests__/localization.test.ts`), so the archive writes an
+	// admitted text as HQ's build does and a device shows it as typed.
+	it("serializes comment and newline escapes", () => {
 		const doc = localizationWireFixture("escaped"),
 			hq = expandDoc(doc),
 			zip = new AdmZip(
@@ -203,17 +206,6 @@ describe("localized emitted artifacts", () => {
 				"homescreen.title",
 			),
 		).toBe("Aplicación \\#1\\nSegunda línea");
-		const entry =
-			doc.localization?.translations.spa?.[
-				makeTranslationUnitId("app", "name")
-			];
-		if (!entry) throw new Error("Missing app title translation");
-		entry.value = String.raw`Aplicación \n literal`;
-		expect(() =>
-			compileCcz(expandDoc(doc), doc.appName, doc, {
-				runtimeTarget: TEST_RUNTIME_TARGET,
-			}),
-		).toThrow(/literal sequence \\n/);
 	});
 	it("leaves a stale translated title to HQ's build, and the archive's strings at the app's name", () => {
 		const doc = localizationWireFixture("stale");

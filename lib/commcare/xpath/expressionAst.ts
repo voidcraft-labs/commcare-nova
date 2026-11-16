@@ -22,8 +22,12 @@ import {
 	FormParseRefusal,
 	refuse,
 } from "./formParseIssues";
-import type { FormParseScope } from "./formParseScope";
-import { bindFormPath, type FormPathBinder } from "./formPathBinding";
+import type { FoldApi, FormParseScope } from "./formParseScope";
+import {
+	bindFormPath,
+	type FormPathBinder,
+	refuseReadHashtag,
+} from "./formPathBinding";
 import { formPrintContext, formScopeContext } from "./formPrintContext";
 import {
 	type FormSyntax,
@@ -34,7 +38,12 @@ import {
 import { formUserProperty } from "./referenceBindings";
 
 export type { FormParseIssue, FormParseIssueCode } from "./formParseIssues";
-export type { FormParseScope, ResolveFieldPath } from "./formParseScope";
+export type {
+	FoldApi,
+	FormParseScope,
+	FormReadingHooks,
+	ResolveFieldPath,
+} from "./formParseScope";
 export type FormParseResult =
 	| {
 			readonly ok: true;
@@ -245,6 +254,7 @@ export function parseFormExpression(
 		node: Extract<FormSyntax, { kind: "hashtag" }>,
 		ctx: ExpressionContext,
 	): Expression {
+		if (scope.reading !== undefined) refuseReadHashtag(node);
 		if (node.namespace === "form") return bindFormPath(binder, node, ctx);
 		if (node.namespace === "row")
 			refuse(
@@ -309,6 +319,12 @@ export function parseFormExpression(
 							node.name === "capture-link"
 							? { minArgs: 1, maxArgs: 1, returnType: "string" as const }
 							: undefined;
+		if (scope.reading !== undefined && !scope.reading.functions.has(node.name))
+			refuse(
+				"unknown-function",
+				node,
+				`CommCare has no function called ${node.name}(), so this expression can't run on a device. You can use one of the functions CommCare runs.`,
+			);
 		const spec = special ?? FUNCTION_REGISTRY.get(node.name);
 		if (spec === undefined)
 			refuse(
@@ -348,7 +364,9 @@ export function parseFormExpression(
 			const unit =
 				id.kind !== "string" || ctx.form === undefined
 					? undefined
-					: itextUnitForId(scope.doc, ctx.form.formUuid, id.value, ctx.form);
+					: scope.reading !== undefined
+						? scope.reading.itextUnit(id.value)
+						: itextUnitForId(scope.doc, ctx.form.formUuid, id.value, ctx.form);
 			if (unit === undefined)
 				refuse(
 					"unknown-itext",
@@ -512,6 +530,8 @@ export function parseFormExpression(
 		}
 	}
 	function bind(node: FormSyntax, ctx: ExpressionContext): Expression {
+		const folded = scope.reading?.fold(node, ctx, foldApi);
+		if (folded !== undefined) return folded;
 		switch (node.kind) {
 			case "group":
 				return bind(node.value, ctx);
@@ -604,6 +624,7 @@ export function parseFormExpression(
 				return bindFormPath(binder, node, ctx);
 		}
 	}
+	const foldApi: FoldApi = { bind, term, remember };
 	const binder: FormPathBinder = {
 		scope,
 		projection:

@@ -1072,8 +1072,11 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	const before = effectiveAppLocalization(prev.localization);
 	const after = effectiveAppLocalization(next.localization);
 
+	// A one-language app takes another source by relabelling it, and then
+	// gains every other language the target holds, the old source's tag
+	// among them, through the additions below.
 	if (before.sourceLanguage !== after.sourceLanguage) {
-		if (before.languageOrder.length !== 1 || after.languageOrder.length !== 1) {
+		if (before.languageOrder.length !== 1) {
 			throw new LocalizationEndpointNotRepresentableError();
 		}
 		out.push({
@@ -1132,8 +1135,26 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		applyMutations(draft, out);
 	});
 	current = effectiveAppLocalization(working.localization);
-	if (current.defaultLanguage !== after.defaultLanguage) {
-		out.push({ kind: "setDefaultLanguage", code: after.defaultLanguage });
+	// The order comes from `setDefaultLanguage` alone, which moves a language
+	// to the front: the target's first `lead` languages are moved, last first,
+	// so the last move names the target's default, where `lead` is the fewest
+	// that leaves the others already in the target's order. Additions append,
+	// so a target whose source is not among its first two languages needs more
+	// than its default moved.
+	const kept = current.languageOrder.filter((tag) =>
+		after.languageOrder.includes(tag),
+	);
+	let lead = current.defaultLanguage === after.defaultLanguage ? 0 : 1;
+	while (
+		!deepEqual(
+			kept.filter((tag) => !after.languageOrder.slice(0, lead).includes(tag)),
+			after.languageOrder.slice(lead),
+		)
+	) {
+		lead += 1;
+	}
+	for (const tag of after.languageOrder.slice(0, lead).reverse()) {
+		out.push({ kind: "setDefaultLanguage", code: tag });
 	}
 	for (const tag of current.languageOrder) {
 		if (!after.languageOrder.includes(tag)) {

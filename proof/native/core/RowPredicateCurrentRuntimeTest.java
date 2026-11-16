@@ -57,6 +57,19 @@ import static org.junit.Assert.*;
  *
  * Plausible failure: a print that names every entry of the repeat in one of
  * the evaluations, so a form stops or counts another entry's rows.
+ *
+ * Two controls hold how a starting value's read is spelled, over the form
+ * /expression/row-predicates/starts.xml with its rows in
+ * /expression/row-defaults.json. Core runs a setvalue with its target as the
+ * context (SetValueAction.processAction), and an absolute path and a
+ * current() path are contextualized against that one target
+ * (XPathPathExpr.evalRaw, TreeReference.contextualize), so a direct read of
+ * another question answers the same spelled either way, when the form opens
+ * and when an entry is made, over one, two and three entries. Inside a row
+ * predicate the two differ: a starting value made with an entry that counts
+ * the places named by another question of its entry answers per entry
+ * through current(), and spelled absolute is refused or reads one entry's
+ * answer for every entry.
  */
 public class RowPredicateCurrentRuntimeTest {
     private static JSONObject rows() throws Exception {
@@ -190,6 +203,102 @@ public class RowPredicateCurrentRuntimeTest {
             assertEquals("The bare read scanned row by row answers entry " + (index + 1) + " with the first entry's"
                 + " count", first, held(scanned, repeat + "[" + (index + 1) + "]/scanned"));
         }
+    }
+
+    private static JSONObject defaults() throws Exception {
+        try (InputStream input = RowPredicateCurrentRuntimeTest.class.getResourceAsStream("/expression/row-defaults.json")) {
+            assertNotNull("The expression producer did not supply row-defaults.json", input);
+            JSONObject result = new JSONObject(new String(input.readAllBytes(), StandardCharsets.UTF_8));
+            assertEquals("Unknown row default rows version", 1, result.getInt("schemaVersion"));
+            return result;
+        }
+    }
+
+    /** The starting values form with each entry numbered by its position in the repeat. */
+    private static String startsSource(JSONObject rows) throws Exception {
+        JSONObject entryCount = rows.getJSONObject("entryCount");
+        String xml = source(rows);
+        String numbered = xml.replace(entryCount.getString("nova"), entryCount.getString("written"));
+        assertNotEquals("The starting values form numbers no entry", xml, numbered);
+        return numbered;
+    }
+
+    /** The form walked as a worker fills it, making `count` entries and answering nothing. */
+    private static FormDef withNewEntries(String xml, JSONObject rows, int count) throws Exception {
+        FormDef form = open(xml, rows);
+        FormEntryController controller = new FormEntryController(new FormEntryModel(form));
+        controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+        int added = 0;
+        int steps = 0;
+        int event;
+        while ((event = controller.stepToNextEvent()) != FormEntryController.EVENT_END_OF_FORM) {
+            if (++steps > 60) throw new AssertionError("The starting values form did not finish");
+            if (event == FormEntryController.EVENT_PROMPT_NEW_REPEAT && added < count) {
+                controller.newRepeat();
+                added++;
+            }
+        }
+        assertEquals("Every entry was made", count, added);
+        return form;
+    }
+
+    @Test public void aStartingValuesDirectReadAnswersAlikeSpelledEitherWay() throws Exception {
+        JSONObject rows = defaults();
+        String current = startsSource(rows);
+        String absolute = current;
+        JSONArray reads = rows.getJSONArray("seedReads");
+        for (int index = 0; index < reads.length(); index++) {
+            JSONObject read = reads.getJSONObject(index);
+            absolute = absolute.replace(read.getString("current"), read.getString("absolute"));
+        }
+        assertNotEquals("The control holds no absolute read", current, absolute);
+        JSONArray entries = rows.getJSONArray("entries");
+        String repeat = rows.getString("repeat");
+        for (int count = 1; count <= entries.length(); count++) {
+            for (String spelling : new String[]{"current()", "absolute"}) {
+                String xml = spelling.equals("absolute") ? absolute : current;
+                FormDef form = withNewEntries(xml, rows, count);
+                assertEquals("The form's opening value reads the seed spelled " + spelling,
+                    entries.getJSONObject(0).getString("copy"), held(form, "/data/early"));
+                for (int index = 0; index < count; index++) {
+                    assertEquals("Entry " + (index + 1) + " of " + count + " starts as the seed spelled " + spelling,
+                        entries.getJSONObject(index).getString("copy"),
+                        held(form, repeat + "[" + (index + 1) + "]/copy"));
+                }
+            }
+        }
+    }
+
+    @Test public void aStartingValueFilteringRowsByItsEntryAnswersPerEntryOnlyThroughCurrent() throws Exception {
+        JSONObject rows = defaults();
+        String current = startsSource(rows);
+        JSONObject named = rows.getJSONObject("named");
+        String absolute = current.replace(named.getString("current"), named.getString("absolute"));
+        assertNotEquals("The control holds no absolute read", current, absolute);
+        JSONArray entries = rows.getJSONArray("entries");
+        String repeat = rows.getString("repeat");
+        FormDef form = withNewEntries(current, rows, entries.length());
+        for (int index = 0; index < entries.length(); index++) {
+            JSONObject entry = entries.getJSONObject(index);
+            String at = repeat + "[" + (index + 1) + "]";
+            assertEquals("Entry " + (index + 1) + " is numbered", entry.getString("entry"), held(form, at + "/entry"));
+            assertEquals("Entry " + (index + 1) + " counts the places named for it through current()",
+                entry.getString("named"), held(form, at + "/named"));
+        }
+        // Spelled absolute, the read inside the row predicate names every entry of the repeat once a second
+        // entry exists: Core refuses it, or reads one entry's answer for every entry.
+        boolean perEntry;
+        try {
+            FormDef bare = withNewEntries(absolute, rows, entries.length());
+            perEntry = true;
+            for (int index = 0; index < entries.length(); index++) {
+                String at = repeat + "[" + (index + 1) + "]";
+                if (!entries.getJSONObject(index).getString("named").equals(held(bare, at + "/named"))) perEntry = false;
+            }
+        } catch (RuntimeException refused) {
+            perEntry = false;
+        }
+        assertFalse("The absolute read inside the row predicate answered every entry as its own", perEntry);
     }
 
     /** The form walked as a worker fills it: one entry per row of `entries`,

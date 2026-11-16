@@ -1,3 +1,4 @@
+import { ancestorWalk } from "../advancedModule";
 import { registrationMintsOwnCaseId } from "../basicCaseSlots";
 import type { BlueprintDoc, CaseType } from "../blueprint";
 import type { CasePropertyDataType } from "../casePropertyTypes";
@@ -136,6 +137,12 @@ export interface FormExpressionFacts extends FormStructure {
 		}
 	>;
 	readonly readableCaseTypes: ReadonlyMap<string, ReadonlySet<string>>;
+	/** Each ancestor type the form reads across a hop no one index name
+	 * walks for every case the app links (`advancedModule.ts::ancestorWalk`),
+	 * with the first such hop: a read of that type walks one name and reads
+	 * blank for the cases linked under another, or a case other than the one
+	 * a worker chose. */
+	readonly ancestorHopsUnresolved: ReadonlyMap<string, AncestorHopUnresolved>;
 	/** False on a registration whose entry gives the case it creates no
 	 * session value (its change is a Save to Case block,
 	 * `basicCaseSlots.ts::registrationMintsOwnCaseId`): no read of that case
@@ -156,6 +163,45 @@ export interface FormExpressionFacts extends FormStructure {
 	 * Asked only by a `jr:itext` or `jr:choice-name` read, so a form with none
 	 * never builds the document's translation-unit snapshot. */
 	readonly unitShowsAnswer: (unitId: TranslationUnitId) => boolean;
+}
+/** A hop from `childType` to its catalog parent `parentType` that the app
+ * links under `identifiers`, with no one of them on every case it links
+ * (`no-name`), or with `child-name`'s `identifier`, the one name its child
+ * links use and so the one a parent selection lists a case under, missing
+ * from some (`advancedModule.ts::ancestorWalk`). */
+export interface AncestorHopUnresolved {
+	readonly childType: string;
+	readonly parentType: string;
+	readonly identifiers: readonly string[];
+	readonly why:
+		| { readonly kind: "no-name" }
+		| { readonly kind: "child-name"; readonly identifier: string };
+}
+/** The ancestor types a form of `moduleCaseType` reads across a hop no one
+ * index name walks, each with the first such hop below it. */
+function ancestorHopsUnresolvedOf(
+	doc: BlueprintDoc,
+	moduleCaseType: string | undefined,
+	caseTypes: readonly CaseType[],
+): ReadonlyMap<string, AncestorHopUnresolved> {
+	const result = new Map<string, AncestorHopUnresolved>();
+	let below: string | undefined;
+	let unresolved: AncestorHopUnresolved | undefined;
+	for (const type of reachableCaseTypes(moduleCaseType, caseTypes)) {
+		if (below !== undefined && unresolved === undefined) {
+			const walk = ancestorWalk(doc, below, type.name);
+			if (walk.kind === "several")
+				unresolved = {
+					childType: below,
+					parentType: type.name,
+					identifiers: walk.identifiers,
+					why: walk.why,
+				};
+		}
+		if (unresolved !== undefined) result.set(type.name, unresolved);
+		below = type.name;
+	}
+	return result;
 }
 /** The actual slot stays fixed while rows and the lexical form node rebind. */
 export interface ExpressionContext {
@@ -521,6 +567,11 @@ function buildFormFacts(
 			facts.caseTypes,
 			module?.caseType,
 			structure.type,
+		),
+		ancestorHopsUnresolved: ancestorHopsUnresolvedOf(
+			doc,
+			module?.caseType,
+			facts.caseTypes,
 		),
 		ownCaseIdMinted:
 			structure.type !== "registration" ||

@@ -1379,7 +1379,8 @@ datum, also in a submenu, so its action carries computed datums alone: `entries.
 copies a parent's computed datums, and its match by case type alone (`_same_case`) would give the
 form's own `uuid()` datum a parent selection's id where the parent's first form opens a chosen case of
 the form's type, a form HQ's build cannot open, which the gate refuses
-(`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`).
+(`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`; the lane's readers and part 07's `entryFacts.corpus.test.ts`
+each found the shape).
 
 ### 10.3 The return frames
 
@@ -2304,7 +2305,7 @@ are part 07's (`07-the-reader-cases-menus-lists.md`, section 14).
 | `menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module` | REFUSED `broken-at-runtime`, subject `deep-links`, value class `on-a-put-in-root-module`: HQ builds the endpoint with no command for the menu, so it opens the menu above and never the list (effect 10) |
 | `menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first` | REFUSED `broken-at-runtime`, subject `display-conditions`, value class `case-read-off-a-case-first-screen`: a wider class than HQ's own build error (`CaseXPathValidationError`, effect 9; section 5.4) |
 | `forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu` | HELD-NEW, owner `menus`, subject `display-only-forms`, value class `previous-screen-on-a-form-listed-on-the-first-menu` (section 5.6) |
-| `forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case` | HELD-NEW, owner `menus`, subject `display-only-forms`, value class `through-a-first-menu-that-shares-one-case`: a `form_links` entry or a `session_endpoint_id` whose frame HQ builds through the first menu while every form of every `put_in_root` module opens one chosen case (section 5.6) |
+| `forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case` | HELD-NEW, owner `menus`, subject `display-only-forms`, value class `through-a-first-menu-that-shares-one-case`: a `form_links` entry, or a form's, menu's or case list's deep link (`session_endpoint_id`, `case_list_session_endpoint_id`), whose frame HQ builds through the first menu while every form of every `put_in_root` module opens one chosen case (section 5.6) |
 | `case-search/search-on-a-put-in-root-module` | HELD-NEW, owner `case-search`, subject `search-setup`, value class `on-a-put-in-root-module` (the search reader's row; part 07, sections 8.4 and 14). It is not inert: only the Search and Register actions test `put_in_root` (`details.py::DetailContributor.build_detail`). `entries.py::EntriesHelper.include_post_in_entry` still gives every form entry of a module that offers search its claim `<post>` while the project space syncs cases on form entry, and `remote_requests.py::RemoteRequestsHelper.update_suite` still writes the module's `<remote-request>`. Reading the search away and republishing would drop both. Nova's own gate refuses the shape (`FORMS_IN_MENU_ABOVE_WITH_SEARCH`), so the reader reports it and brings nothing in, and it adds no first-publish change (part 09, `09-acceptance-and-the-first-publish.md`, section 11) |
 
 The two HELD-NEW rows of `forms-and-case-writes` are carved out of the HELD entries

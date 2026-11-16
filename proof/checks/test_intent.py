@@ -284,6 +284,18 @@ def test_the_intent_is_read_from_the_document_alone():
         "visit": {"note"},
     }
 
+    # A Save to Case create that writes nothing custom still names its case type among the form's save
+    # references, so a later form's create of a type replaces an earlier form's writes of it in HQ's refresh.
+    named = _document()
+    named["doc"]["forms"]["form-survey"]["caseOperations"] = [
+        {"uuid": "op-named", "id": "named", "action": "create", "caseType": "household", "target": {"kind": "new"}}
+    ]
+    # Without the synthetic menu, whose copy of the registration would come last and write the type again.
+    named["wire"]["modules"] = named["wire"]["modules"][:3]
+    read = intent.document_intent(named)
+    assert read.modules[1][1][0].operation_writes == {"household": set()}
+    assert "household" not in intent.expected_dictionary(read, {intent.SAVE_TO_CASE_PRIVILEGE})
+
     broken = _document()
     broken["wire"]["modules"][0]["forms"].append("form-missing")
     with pytest.raises(CorpusLayoutError, match="form-missing"):
@@ -655,6 +667,112 @@ def test_a_registration_case_management_states_keeps_its_row_beside_a_later_save
     is Case Management's, whose update HQ's refresh adds whatever Save to Case holds."""
     stated = {"openCondition": _answer("f-flag")}
     assert _registration_then_save_to_case(form=stated) == {"patient": {"age", "weight"}}
+
+
+def _save_to_case_then_close(form=None, *, own=None):
+    """A Patients menu whose follow-up saves ``weight`` through Save to Case (a value no question gives as it is),
+    then a close form whose own arm saves ``age`` as it is (``own`` overrides the own arm, ``form`` adds to the
+    close form). The read of the document, in wire order."""
+    fields = dict(
+        [
+            _field("f-age", "int", "age"),
+            _field("f-flag", "hidden", "flag"),
+            _field("f-weight", "int", "weight"),
+        ]
+    )
+    doc = {
+        "appName": "Clinic",
+        "modules": {"m": {"uuid": "m", "id": "patients", "name": "Patients", "caseType": "patient"}},
+        "forms": {
+            "form-weigh": {
+                "uuid": "form-weigh",
+                "type": "followup",
+                "caseOperations": [
+                    {
+                        "uuid": "op-weigh",
+                        "id": "patient",
+                        "action": "own",
+                        "writes": [
+                            {
+                                "property": "weight",
+                                "value": {"kind": "concat", "parts": [_answer("f-weight"), _answer("f-weight")]},
+                            }
+                        ],
+                    }
+                ],
+            },
+            "form-discharge": {
+                "uuid": "form-discharge",
+                "type": "close",
+                **(form or {}),
+                "caseOperations": [
+                    {
+                        "uuid": "op-discharge",
+                        "id": "patient",
+                        "action": "own",
+                        "writes": [{"property": "age", "value": _answer("f-age")}],
+                        **(own or {}),
+                    }
+                ],
+            },
+        },
+        "fields": fields,
+        "formOrder": {"m": ["form-weigh", "form-discharge"]},
+        "fieldOrder": {"form-weigh": ["f-weight"], "form-discharge": ["f-age", "f-flag"]},
+    }
+    return intent.document_intent(
+        {"doc": doc, "wire": {"modules": [{"uuid": "m", "forms": list(doc["formOrder"]["m"])}]}}
+    )
+
+
+def _flag_is(value):
+    literal = {"kind": "term", "term": {"kind": "literal", "value": value}}
+    return {"kind": "eq", "left": _answer("f-flag"), "right": literal}
+
+
+def test_a_close_form_s_own_close_in_a_block_of_its_own_replaces_the_types_save_to_case_set():
+    """``FormBase.get_save_to_case_updates`` gives every Save to Case reference's case type a set, a close-only
+    block's too, and HQ's refresh merges each form's sets with ``dict.update``. A close form whose own arm Case
+    Management states, closing under a condition Case Management cannot state, closes in a block of its own
+    (``nova_close``, of the menu's case type), so its empty set for the type replaces the follow-up's
+    ``weight``. The plausible failure: expecting a row the last form's close block took away."""
+    unstated = _save_to_case_then_close({"closeCondition": {"kind": "not", "clause": _answer("f-flag")}})
+    assert unstated.modules[0][1][1].own_close_alone == {"basic", "advanced"}
+    assert intent.expected_dictionary(unstated, SAVE_TO_CASE) == {"patient": {"age"}}
+    assert intent.expected_dictionary(unstated, SAVE_TO_CASE, frozenset({0})) == {"patient": {"age"}}
+    # Without the privilege the refresh reads no Save to Case, so the close block replaces nothing.
+    assert intent.expected_dictionary(unstated, set()) == {"patient": {"age"}}
+    # A block a publish held stays where it is, whatever the condition.
+    held = _save_to_case_then_close({"ownClosePlacement": {"kind": "save-to-case", "path": ["nova_close"]}})
+    assert intent.expected_dictionary(held, SAVE_TO_CASE) == {"patient": {"age"}}
+    # A control keeps what it read.
+    assert held.modules[0][1][1].own_close_alone == {"basic", "advanced"}
+    assert intent.intent_from_json(json.loads(json.dumps(intent.intent_json(held)))) == held
+
+
+def test_a_close_form_s_own_close_beside_its_own_arm_keeps_the_types_save_to_case_set():
+    """The counterparts: with no condition, or one Case Management states, the own close shares the own arm's
+    slot (``close_case``, or the load's ``close_condition``), so the follow-up's ``weight`` stands. A text that
+    starts with a double quote is stated on a load and not on Case Management's own case, so only an advanced
+    menu shares there. An own arm that takes Save to Case names the type already, so the close adds nothing."""
+    for form in (None, {"closeCondition": _answer("f-flag")}):
+        read = _save_to_case_then_close(form)
+        assert read.modules[0][1][1].own_close_alone == set()
+        assert intent.expected_dictionary(read, SAVE_TO_CASE) == {"patient": {"age", "weight"}}
+    quoted = _save_to_case_then_close({"closeCondition": _flag_is('"yes"')})
+    assert quoted.modules[0][1][1].own_close_alone == {"basic"}
+    assert intent.expected_dictionary(quoted, SAVE_TO_CASE) == {"patient": {"age"}}
+    assert intent.expected_dictionary(quoted, SAVE_TO_CASE, frozenset({0})) == {"patient": {"age", "weight"}}
+    saved = _save_to_case_then_close(
+        {"closeCondition": {"kind": "not", "clause": _answer("f-flag")}},
+        own={"placement": {"kind": "save-to-case", "path": ["nova_operations", "patient"]}},
+    )
+    assert saved.modules[0][1][1].own_close_alone == set()
+    assert intent.expected_dictionary(saved, SAVE_TO_CASE) == {"patient": {"age"}}
+    # A control retained without the field reads as one whose own close shares its arm's place.
+    older = intent.intent_json(_save_to_case_then_close({"closeCondition": _flag_is('"yes"')}))
+    del older["modules"][0][1][1]["ownCloseAlone"]
+    assert intent.intent_from_json(older).modules[0][1][1].own_close_alone == set()
 
 
 SUITE_PRIVILEGES = frozenset({"CLOUDCARE", "USERCASE", "VELLUM_SAVE_TO_CASE"})

@@ -144,6 +144,29 @@ describe("constraint message emission", () => {
 		},
 	);
 
+	it.each(["plain", "references"] as const)(
+		"writes no %s message where no constraint can fail",
+		(scenario) => {
+			const fixture = constraintMessageFixture(scenario);
+			// A message with no validation condition, as the domain admits: no
+			// runtime shows it, so the export holds none of it.
+			delete (fixture.doc.fields[CONSTRAINT_CHECKED] as { validate?: unknown })
+				.validate;
+			admitConstraintMessageFixture(fixture.doc, fixture.assets);
+			for (const root of routes(fixture)) {
+				expect(bind(root).attributes.constraint).toBeUndefined();
+				expect(bind(root).attributes["jr:constraintMsg"]).toBeUndefined();
+				expect(descendants(root, "alert")).toEqual([]);
+				expect(carrierBinds(root)).toEqual([]);
+				expect(
+					descendants(root, "text").filter((node) =>
+						node.attributes.id?.startsWith("checked-constraintMsg"),
+					),
+				).toEqual([]);
+			}
+		},
+	);
+
 	it("writes no media on a validation message, even one a stored field still names", () => {
 		const fixture = constraintMessageFixture("plain");
 		// A field carrying the retired slot, as no schema admits: the emitter

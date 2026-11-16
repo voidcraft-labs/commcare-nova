@@ -13,6 +13,12 @@ conjoined condition, which HQ spells `(a) and (b)` (`XPath.paren(force=True)`).
 The explicit child-wildcard step serves generated parent-index selection,
 `index/*[not(@relationship = 'extension')]`; it is not a resolved field name.
 
+A caller may pass `rewrites`: the rewrites of `lib/commcare/emissionRewrites.ts`
+to leave out of the print, and a callback for each site the print reaches. Only
+the reader of CommCare HQ's apps passes it, to compare with text that never had
+them and to say what a first publish changes. Absent, every print is as
+described here.
+
 `WireFunction` derives from the one pinned native function table, plus
 `jr:itext`, `jr:choice-name` and the menu/detail handler `here`. Lowered Nova
 functions become native trees before printing. Core cannot execute XPath union;
@@ -30,6 +36,9 @@ tokens join that call's arguments, including empty boundary pieces from a
 mixed-quote split. This preserves the generated scaffold; actual nested
 `concat` nodes retain their structure. No emitter or constructor handles quote
 spelling, and the printer never parses rendered text to flatten a call.
+`serialize.ts` exports `literalArguments`, each argument a literal prints as
+with the text it holds, for one reader, the canonical form of a `concat` of
+literals (`lib/commcare/reader/expressions/canonical.ts`); no emitter calls it.
 
 The modes are `xform`, `vellum`, `suite`, `hq-json` and `preview`. `preview`
 prints as `suite` does, with the instance ids the wire declares: no `./.`
@@ -76,6 +85,21 @@ calculated detail values, enum labels, image alt labels, and endpoint argument
 datums are suite-only. An endpoint argument must be one grammar-valid local
 name and comes only from generated endpoint metadata. The HQ enum placeholder
 is HQ-JSON-only. None is reachable from an authored expression.
+
+## Rewrites a print can leave out
+
+`lib/commcare/emissionRewrites.ts::EMISSION_REWRITES` names each place the
+emitter spells an expression otherwise than its stored tree reads: the instant
+comparison, the empty-rows and absent-session guards, the two `current()`
+relocations of `formReads.ts`, the search value's guards and `today()`, the
+dropped boolean identities, and the validation count moved to a sibling.
+`WireBuildContext.rewrites` (and the optional last argument of each site that
+builds no context) carries a `RewriteControl`: each site calls `reached` where
+its rewrite applies to the print, and prints what it printed before the
+rewrite existed where the control withholds the id. With no control nothing
+is reported and every byte is the emitter's own
+(`lib/commcare/reader/expressions/__tests__/rewrites.test.ts` holds a control
+that withholds nothing to the same bytes over the emitter's own corpora).
 
 ## Reads of rows that may be empty
 

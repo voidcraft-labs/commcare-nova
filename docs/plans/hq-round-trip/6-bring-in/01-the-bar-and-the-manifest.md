@@ -63,10 +63,10 @@ and a grouped observation only gains one field (6.4). So nothing here moves
    app runs, either by case, or it is below the version floor), because the sentence a person reads
    differs by it.
 2. **`subject` is required on every HELD-NEW and REFUSED entry and forbidden elsewhere** (2.2). It is one
-   of 78 slugs in `lib/publish/hqFindings.ts::SUBJECTS`, each a noun a person would use. Appendix A
-   assigns the 586 entries the manifest holds today and every entry the step adds. Where every run
-   gives the outcome its part plans for, 645 entries hold one when the step is done: 285 HELD-NEW and
-   360 REFUSED.
+   of 83 slugs in `lib/publish/hqFindings.ts::SUBJECTS`, each a noun a person would use. Appendix A
+   assigns the 586 entries the manifest held when the step began and every entry the step adds. Where
+   every run gives the outcome its part plans for, 676 entries hold one when the step is done: 296
+   HELD-NEW and 380 REFUSED.
 3. **`owner` is required on every HELD-NEW entry and forbidden elsewhere** (2.3). It is one of the
    eight step 7 group ids, the groups of `7-rest-of-model.md`. An entry step 6 itself flips carries
    the group it would fall to until it flips.
@@ -92,7 +92,9 @@ and a grouped observation only gains one field (6.4). So nothing here moves
    slots, `mobile_ucr_restore_version` at `1.0` or `1.5`, `auto_gps_capture` on an app that is no Connect
    app, `persistent_menu` and `show_breadcrumbs`.
 10. **`persistent_menu` and `show_breadcrumbs` are kept, not not-yet** (4.3). Only Formplayer and the Web
-    Apps client read them; Preview draws neither, since its breadcrumb is the builder's own.
+    Apps client read them. Preview draws no persistent menu, and its one trail is the builder's own,
+    which follows the running app's steps as Web Apps' trail reads them whatever `show_breadcrumbs`
+    holds, and claims nothing of whether Web Apps draws its own.
 11. **`mobile_ucr_restore_version` is kept at `1.0` and `1.5`; `2.0` stays inert** (4.3). Its readers
     are report menus and mobile report choice lists, which their own entries refuse, Nova's publish never
     writes the key, and HQ's three starter apps hold `1.0`, as does the fourth directory of
@@ -157,8 +159,8 @@ and a grouped observation only gains one field (6.4). So nothing here moves
     the reader's index makes a manifest one. A media file over Nova's size limit and a table over Nova's
     caps are manifest entries, not circumstances. A `stop` is no standing of anything the app holds: it
     says the read ended.
-27. **Copy is one sentence per subject and standing for `not-yet` and `never` (54 and 29), one per
-    subject and cause for `fix-in-hq` (87 pairs, from 45 stems, three cause clauses and 13 whole
+27. **Copy is one sentence per subject and standing for `not-yet` and `never` (55 and 31), one per
+    subject and cause for `fix-in-hq` (92 pairs, from 45 stems, three cause clauses and 16 whole
     sentences), and one block per circumstance** (9), held complete both ways by tests. One function,
     `circumstanceBlock`, words every circumstance for the stop block, the account, the copied text and
     MCP alike, with every placeholder filled (8.4).
@@ -274,10 +276,14 @@ here rests on, and defects of today's Nova found while reading:
   no report menu. On a restore made for the whole project space
   `fixtures/mobile_ucr.py::_parse_apps` reads every app's value into `needed_versions`, so the value picks
   the fixture version other apps' reports get. It is kept: Nova's publish never writes the key (4.3).
-- **Verified at source, `persistent_menu` and `show_breadcrumbs`:** `lib/preview` draws neither a
-  persistent menu nor Web Apps' breadcrumbs: the one trail is
-  `components/builder/BreadcrumbStrip.tsx`, the builder's own. So clause 3 of the kept test has
-  nothing to answer at any value, and both are kept (4.3).
+- **Verified at source, `persistent_menu` and `show_breadcrumbs`:** `lib/preview` draws no
+  persistent menu, and no trail of the running app's own: the one trail is
+  `components/builder/BreadcrumbStrip.tsx`, the builder's wayfinding, above the canvas in edit and
+  Preview alike and on an Android run too. In Preview it names and orders the session's steps, and a
+  crumb cuts the session back, as Web Apps' trail reads them (`lib/routing/previewBreadcrumbs.ts`),
+  whatever `show_breadcrumbs` holds: nothing in Nova reads the setting, which decides only whether
+  Web Apps draws its own trail, and no Nova surface claims to show that. So clause 3 of the kept test
+  has nothing to answer at any value, and both are kept (4.3).
 - **Verified at source, `multimedia_map`:** a binding of a path to a file is identity, recorded per
   target, so its `KEPT_AT_HQ` row takes the identity cells and not a setting's (5).
 - **Claim corrected (`lib/commcare/runtimeTarget.ts::profileServerProperties`, its comment):** "every app
@@ -576,12 +582,12 @@ and nothing else:
 
 | The entry's `fix-in-hq` reason kinds | Cause | Entries today |
 |---|---|---|
-| only `not-hq-editable` or `not-hq-buildable` | `hq-refuses` | 179 |
-| only `broken-at-runtime` or `unavailable-on-declared-platform` | `breaks-when-run` | 63 |
-| at least one of each group above | `either` | 13 |
+| only `not-hq-editable` or `not-hq-buildable` | `hq-refuses` | 184 |
+| only `broken-at-runtime` or `unavailable-on-declared-platform` | `breaks-when-run` | 81 |
+| at least one of each group above | `either` | 17 |
 | `below-commcare-version-floor` | `below-floor` | 1 |
 
-The thirteen `either` entries each hold reasons of both groups, ten of them limited by a
+The seventeen `either` entries each hold reasons of both groups, fourteen of them limited by a
 `condition` ("in a bind" beside "in an output or setvalue", "in a basic or shadow module" beside "in
 an advanced one"). A finding names its entry and not the condition that applied, so the sentence for
 `either` says both and is true whichever applied. `unavailable-on-declared-platform` is used by no
@@ -611,7 +617,7 @@ export const subjectSchema = z.enum(SUBJECTS);
 arm. The other arms stay strict objects without it, so a HELD, TARGET-OWNED or INERT entry that names a
 subject fails to parse.
 
-The closed set is 78. Each row gives the subject's label (`SUBJECT_LABELS`, 8.4), what it names, and the
+The closed set is 83. Each row gives the subject's label (`SUBJECT_LABELS`, 8.4), what it names, and the
 count of entries that take it by standing (not-yet / never / fix-in-hq) when the step is done.
 Appendix A lists the entries of each.
 
@@ -623,23 +629,25 @@ Appendix A lists the entries of each.
 | `android-app-dependencies` | Android app dependencies | Android apps the phone must have | 1 / 0 / 1 |
 | `app-document` | The app as stored | how CommCare HQ stores the app | 0 / 1 / 9 |
 | `app-logos` | App logos | app logos | 0 / 0 / 1 |
+| `app-name` | The app's name | the app's name | 0 / 0 / 1 |
 | `app-settings` | App settings | an app setting | 0 / 2 / 3 |
 | `auto-select` | Choosing a case automatically | choosing a case for the worker | 2 / 0 / 3 |
 | `blank-form` | Forms with no questions | a form with no questions | 0 / 0 / 1 |
 | `build-profiles` | Build profiles | build profiles | 1 / 0 / 0 |
 | `call-center-indicators` | Call center indicators | call center indicators | 0 / 2 / 0 |
+| `carriage-returns` | Carriage returns in text | an app text holding a carriage return | 0 / 0 / 2 |
 | `case-attachments` | Files saved on a case | pictures or files saved on a case | 0 / 4 / 0 |
 | `case-detail-tabs` | Case detail tabs | tabs on the case detail screen | 5 / 0 / 1 |
 | `case-list-callout` | Case list lookups | a lookup from the case list into another Android app | 8 / 0 / 2 |
-| `case-list-columns` | Case list and detail columns | a case list or case detail column | 25 / 2 / 18 |
+| `case-list-columns` | Case list and detail columns | a case list or case detail column | 25 / 2 / 19 |
 | `case-list-filter` | Case list filters | the case list filter | 1 / 0 / 1 |
 | `case-list-optimizations` | Case list speed settings | a case list speed setting | 2 / 2 / 0 |
 | `case-list-registration` | Registration from the case list | a form offered from the case list | 7 / 0 / 3 |
 | `case-list-setup` | Case list setup | how a case list is set up | 1 / 0 / 4 |
-| `case-list-sorting` | Case list order | the order of a case list | 5 / 0 / 2 |
+| `case-list-sorting` | Case list order | the order of a case list | 6 / 0 / 2 |
 | `case-list-text` | Case list wording | a list's own wording | 2 / 0 / 0 |
 | `case-preloads` | Loading case values into questions | a question that loads a case value | 4 / 0 / 4 |
-| `case-property-names` | Case property names | a case property name | 2 / 0 / 5 |
+| `case-property-names` | Case property names | a case property name | 3 / 1 / 5 |
 | `case-sharing` | Case sharing | case sharing | 2 / 0 / 1 |
 | `case-tiles` | Case tiles | a case tile | 9 / 0 / 7 |
 | `case-types` | Case types | a case type | 0 / 0 / 1 |
@@ -653,13 +661,13 @@ Appendix A lists the entries of each.
 | `deep-links` | Deep links | a deep link | 1 / 1 / 4 |
 | `display-conditions` | Display conditions | a menu's or form's display condition | 3 / 0 / 6 |
 | `display-only-forms` | Forms shown in the menu above | forms shown in the menu above their own | 2 / 0 / 4 |
-| `expressions` | Expressions | an expression | 1 / 0 / 11 |
-| `form-case-management` | Case management | a form's case management | 3 / 0 / 11 |
+| `expressions` | Expressions | an expression | 1 / 2 / 11 |
+| `form-case-management` | Case management | a form's case management | 7 / 0 / 11 |
 | `form-settings` | Form settings | a form setting | 2 / 0 / 2 |
-| `form-source` | A form's source | a form's source | 1 / 0 / 8 |
+| `form-source` | A form's source | a form's source | 1 / 0 / 9 |
 | `hand-written-content` | Hand-written XML | hand-written XML or settings no HQ page edits | 0 / 22 / 0 |
 | `hierarchical-locations` | The older organization list | the older, nested list of places | 0 / 3 / 0 |
-| `instance-text` | Text read as a data source | a name or description CommCare HQ reads as a data source | 0 / 0 / 2 |
+| `instance-text` | Text read as a data source | a name or description CommCare HQ reads as a data source | 0 / 0 / 3 |
 | `language-codes` | Language codes | a language code | 1 / 0 / 2 |
 | `list-and-search-filters` | Case list and search filters | a case list filter its search doesn't share | 1 / 0 / 0 |
 | `lookup-selection` | Choosing from a lookup table first | choosing from a lookup table before the case list | 0 / 2 / 0 |
@@ -669,7 +677,7 @@ Appendix A lists the entries of each.
 | `menu-badges` | Menu badges | a badge on a menu or form | 2 / 0 / 0 |
 | `menu-display` | Grid menus | grid menus | 3 / 0 / 0 |
 | `menu-settings` | Menu settings | a menu setting | 0 / 0 / 1 |
-| `menu-structure` | How menus are nested | how menus are nested | 1 / 1 / 2 |
+| `menu-structure` | How menus are nested | how menus are nested | 1 / 1 / 3 |
 | `mirror-menus` | Mirror menus | a mirror menu | 4 / 1 / 3 |
 | `missing-media-files` | Missing media files | a media file the app points at that CommCare HQ doesn't have | 0 / 0 / 2 |
 | `mobile-reports` | Mobile reports | mobile reports | 0 / 4 / 0 |
@@ -681,20 +689,23 @@ Appendix A lists the entries of each.
 | `question-logic` | Question logic | a question's logic | 3 / 0 / 6 |
 | `question-media` | Media on questions | a picture, sound or label form on a question | 5 / 0 / 1 |
 | `question-text` | Question text | a question's text | 6 / 0 / 8 |
-| `question-types` | Kinds of question | a kind of question | 9 / 0 / 12 |
+| `question-types` | Kinds of question | a kind of question | 9 / 0 / 13 |
 | `repeats` | Repeat groups | a repeat group | 2 / 0 / 14 |
-| `save-to-case` | Save to Case questions | a Save to Case question | 8 / 0 / 5 |
+| `save-to-case` | Save to Case questions | a Save to Case question | 10 / 0 / 9 |
 | `search-default-filters` | Search filters | a search filter | 13 / 2 / 4 |
 | `search-expressions` | Search expressions | a search expression | 4 / 2 / 5 |
-| `search-fields` | Search fields | a search field | 13 / 0 / 6 |
+| `search-fields` | Search fields | a search field | 15 / 0 / 7 |
 | `search-setup` | Search setup | how the search is set up | 12 / 1 / 4 |
 | `shadow-forms` | Shadow forms | a shadow form | 4 / 0 / 3 |
 | `supply-features` | CommCare Supply | CommCare Supply features | 0 / 9 / 0 |
+| `text-backslashes` | Backslashes before # | an app text a device shows with a backslash before `#` | 0 / 0 / 1 |
+| `text-characters` | Characters in text | an app text holding a character Nova can't write, such as a control character | 0 / 0 / 1 |
+| `text-placeholders` | Placeholders in names and labels | a name or label holding `${`, which CommCare reads as a placeholder | 0 / 0 / 1 |
 | `training-menus` | Training menus | a training menu or release notes form | 0 / 3 / 0 |
 | `translation-overrides` | Changed wording in translations | changed wording for a menu, form or list held in the app's translations | 1 / 0 / 0 |
 | `visit-scheduler` | Visit schedules | a visit schedule | 0 / 5 / 0 |
-| `worker-record` | The worker's own record | the worker's own record | 4 / 1 / 4 |
-| `writer-types` | Answers of different kinds | answers of different kinds saved to one case property | 4 / 0 / 0 |
+| `worker-record` | The worker's own record | the worker's own record | 6 / 2 / 4 |
+| `writer-types` | Answers of different kinds | answers of different kinds saved to one case property | 3 / 0 / 0 |
 
 How Appendix A was cut, so a new entry takes its subject the same way: (1) a `retiring` reason whose
 flag is CommCare Supply, mobile reports, the visit scheduler, a data registry, case attachments, training
@@ -730,10 +741,38 @@ closed set; the words in quotation marks below say what the entry is about.
 Part 03's entries name slugs of the set too.
 `questions/a-markdown-form-in-a-form-whose-text-formatting-is-off` takes `question-text` (part 06,
 `06-the-reader-forms.md`, section 12.2), and `case-search/title-label-blank-in-some-languages` takes
-`search-setup` (part 07, `07-the-reader-cases-menus-lists.md`, section 14). Its two REFUSED entries for
-text CommCare HQ's build reads as a data source, `questions/connect-block-text-read-as-an-instance`
-and `forms-and-case-writes/form-name-read-as-an-instance` (part 03, `03-questions-and-text.md`,
-section 5.1), take `instance-text`, a subject this step adds for them.
+`search-setup` (part 07, `07-the-reader-cases-menus-lists.md`, section 14). Its three REFUSED entries
+for text CommCare HQ's build reads as a data source, `questions/connect-block-text-read-as-an-instance`,
+`forms-and-case-writes/form-name-read-as-an-instance` and `questions/choice-value-read-as-an-instance`
+(part 03, `03-questions-and-text.md`, section 5.1), take `instance-text`, a subject this step adds for
+them.
+
+An app string Nova's gate admits no spelling of is a shape Nova knows and knowingly cannot hold, so
+it is no `unrecognized` (Departures, item 4): each takes a REFUSED `application-and-settings`
+entry whose sentence says what is wrong with the text and what changes it in CommCare HQ, and the
+reader gives one finding at the text's place (`reader/heldText.ts::unheldRefusal`). Each shape's
+sentence differs, and a sentence is one per subject and cause, so each takes a subject this step adds:
+`carriage-returns` for `app-text-holding-a-carriage-return-whose-rest-defines-an-app-string` and
+`app-text-holding-a-carriage-return-before-which-a-device-shows-nothing` (the first moved from
+`translation-overrides`, whose label is untrue of a menu's name), `text-backslashes` for
+`app-text-a-device-shows-with-a-backslash-before-hash`, and `text-placeholders` for
+`name-or-label-holding-a-placeholder-a-screen-fills`. Each finding names the text as the language
+shows it, or, under the first, the key its rest defines. The same holds of an app text holding a
+character XML 1.0 cannot carry, which the gate admits in no app text (`APP_TEXT_UNREPRESENTABLE`):
+it takes `text-characters`, under `app-text-holding-a-character-xml-cannot-carry`, whose `hq-refuses`
+reasons are limited by `condition` to where CommCare HQ refuses it (a form's name, which its form
+settings write into the form's title through lxml; an unpaired surrogate, which its build cannot
+encode as UTF-8) and whose cell says that elsewhere HQ's build carries the character, the app's name
+into a profile no step of the build parses, and Core reads it as text, so the refusal is the gate's
+alone. And the app's `name` holding the two characters `\n`,
+a backslash before `#` or a carriage return takes `app-name`, under
+`app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`: HQ's build writes it
+as stored into the profile's `name` attribute, which Android's list of the apps on a phone shows,
+reading a carriage return or a line break there as a space (kxml2), and Web Apps' list of apps
+shows the app's `name` as stored, while the app's own screens read the app strings, so the lists
+show one text and the screens another, and no one name Nova prints into both gives both back. A
+line break inside the name is held: Nova prints the source's `name` and app strings again, so HQ's
+build shows what it showed.
 
 A part that adds an entry names a subject of this set. Every sentence is in 9.2, and every entry is
 in Appendix A with its subject and its owner or standing.
@@ -752,8 +791,8 @@ export type Step7Group = (typeof STEP_7_GROUPS)[number];
 
 `inventoryEntrySchema`'s HELD-NEW arm gains `owner: z.enum(STEP_7_GROUPS)`; no other arm admits it.
 Appendix A.1 assigns every one. Where every run gives the outcome its part plans for, the counts when
-the step is done are `question-display` 63, `case-list-and-detail` 62, `case-search` 42, `xform` 40,
-`forms-and-case-management` 33, `menus` 22, `project-data-at-hq-size` 13 and
+the step is done are `case-list-and-detail` 63, `question-display` 63, `case-search` 44,
+`forms-and-case-management` 41, `xform` 40, `menus` 22, `project-data-at-hq-size` 13 and
 `settings-nova-comes-to-own` 10 (the manifest test computes them). Updating a copy in a second
 project space is a thing Nova does, not content an app holds, so no entry can name it and the list
 does not hold it. A reading does not meet it: it reads one app in one project space once. Step 6
@@ -983,7 +1022,7 @@ This part words each; the reader named in the last column makes it true and flip
 |---|---|---|---|
 | `case-search/several-xpath-query-rows` | HELD-NEW: "each row a typed default filter kept as its own row" | HELD, `valueClass` kept: "several `_xpath_query` rows, read as one condition: their conjunction. HQ joins every row with `and`, so one row or several find the same cases, and Nova writes one row per top-level conjunct of what it holds". No `subject`, no `owner`. A row whose own text is an `and` reads as two conjuncts and is written back as two rows, which finds the same cases; the first-publish register holds the changed row count under the id `search-filter-rows-recut` (part 09, `09-acceptance-and-the-first-publish.md`, section 11.2). Part 07 adds the narrowing to this wording (`07-the-reader-cases-menus-lists.md`, section 14: which conjuncts the HELD class takes). | part 07's search reader |
 | `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time` | HELD-NEW | HELD: "a date question and a time question joined into one date and time for a case property, the shape step 4's split writes (`lib/doc/datetimeSplit.ts`); the reader recognizes the join by re-emitting it" | part 07's case reader |
-| the media rows of "a reference identical in every language" (`menus-and-case-lists/media-image-media-audio-differing-by-language`, `forms-and-case-writes/media-image-media-audio-differing-by-language`, `questions/label-or-option-media-differing-by-language`) | HELD-NEW, each beside a HELD row for the shared slot | The HELD-NEW rows keep their disposition and gain to their `item`: "a path present in one language and absent in another counts as differing". Their HELD siblings gain: "the same path in every language the app has reads as the one shared slot". | part 06's reader (questions and forms), part 07's (menus) |
+| the media rows of "a reference identical in every language" (`menus-and-case-lists/media-image-media-audio-differing-by-language`, `forms-and-case-writes/media-image-media-audio-differing-by-language`, `questions/label-or-option-media-differing-by-language`) | HELD-NEW, each beside a HELD row for the shared slot | The HELD-NEW rows keep their disposition and their `item` reads what differs as a runtime shows it: for menus and forms, "two files shown in two languages, each language read as HQ's build shows it (a language with no path of its own shows the `default` table's)"; for questions, "two files shown in two languages, or a media form only a language other than the form's default holds (a language whose text holds none shows the default's)". Their HELD siblings gain: "a map that shows one file in every language, read as HQ's build shows it (a language with no path of its own shows the `default` table's), reads as the one shared slot", and for questions "a file every language shows, a language whose text holds no media form showing the form's default language's, reads as the one shared slot". HQ's page stores an icon under the language being edited alone (`views/media_utils.py::handle_media_edits`), its build writes that path into the `default` app strings (`models/mixins.py::NavMenuItemMediaMixin.icon_app_string` with `for_default`, `app_strings.py::create_default_app_strings`), and Core loads the `default` locale under every locale (`Localizer.getLocaleData`), as it loads a form's default translation's keys under every translation, so a path held in one language is no difference. | part 06's reader (questions and forms), part 07's (menus) |
 | `expressions-and-data/media-path-jr-file` | HELD-NEW: a held media path | HELD: "the path CommCare HQ holds the file at, kept for the project space the app came from (`app_deployment_media_paths`); every other project space takes Nova's own path" | part 11's media reading |
 | `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` | HELD-NEW, `valueClass: "referenced-path-without-entry"` | Split, as part 11 writes it (`11-project-data.md`, section 13.1). The entry becomes INERT with `valueClass: "path-without-entry-nothing-draws"`: a reference with no `multimedia_map` entry on a slot no runtime the app runs on draws without its file, which the reader leaves out and the review lists. A new entry beside it, `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`, REFUSED (`broken-at-runtime`), `valueClass: "path-without-entry-a-runtime-draws"`, `subject: "missing-media-files"`, takes the slots a runtime draws; its standing is `fix-in-hq`. | part 11's media reading |
 | `application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare` | REFUSED: a `path` other than the uploader's | Its `item` becomes "`logo_refs[slot]` the uploader did not write: a `path` other than `jr://file/commcare/logo/data/<slot><ext>`, or an entry with no `m_id`", and its first reason's `named` gains "and always stores `m_id` (`hqmedia/models.py::CommCareMultimedia.get_media_info`)". The `valueClass` stays `path-not-from-uploader`. `proof/checks/manifest_value_classes.py::path_not_from_uploader` gains the `m_id` test (an entry that is no object, or whose `m_id` is no non-empty string), with its case in `proof/checks/test_manifest_value_classes.py`. The inventory row in `application-and-settings.md` takes the same words. | part 06's application walker, which refuses it (4.3 gives the evidence) |
@@ -1094,7 +1133,7 @@ removes both.
 | `application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s` | TARGET-OWNED | 7.2 |
 | `menus-and-case-lists/put-in-root-display-only-forms`, `case-list-form-pointing-at-a-registration-form-in-another-module`, `case-list-form-media-image-media-audio` | HELD | part 02's concepts (3.5) |
 | `questions/phone-number-xsd-string-appearance-numeric`, `questions/output-value-any-other-expression`, `questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable`, `case-search/title-label-or-blank-hq-s-default`, `menus-and-case-lists/blanks-first-last` | HELD | part 03's concepts (3.5) |
-| `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time`, `forms-and-case-writes/loadupdateaction-preload-question-property`, `case-search/several-xpath-query-rows` | HELD | part 07's readers (3.5; part 07, section 14) |
+| `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time`, `forms-and-case-writes/loadupdateaction-preload-question-property`, `forms-and-case-writes/writers-int-decimal`, `case-search/several-xpath-query-rows` | HELD | part 07's readers (3.5; part 07, sections 7 and 14) |
 | `expressions-and-data/media-path-jr-file` (HELD), `a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` (INERT) | | part 11's media reading (3.5) |
 
 Where the schema's rule lands before one of these flips (2.6), the entry carries the subject and owner
@@ -1287,10 +1326,14 @@ turn away every app made from one over a value none of its content reads. Kept a
 `FormplayerPropertyManager.isPersistentMenuEnabled` and `isBreadcrumbsEnabled`, and the Web Apps client
 (`cloudcare/static/cloudcare/js/formplayer/menus/utils.js::showBreadcrumbs`, and the persistent menu's
 views in `menus/views.js` beside it). No reader in commcare-core or
-commcare-android. Web Apps runs HQ's build, never Nova's archive. Preview draws neither: its one trail
-is `components/builder/BreadcrumbStrip.tsx`, the builder's own wayfinding, mounted above the canvas in
-edit and Preview alike and on an Android run too (`components/preview/PreviewShell.tsx`, "No header
-here"). Kept.
+commcare-android. Web Apps runs HQ's build, never Nova's archive. Preview draws no persistent menu, and
+its one trail is `components/builder/BreadcrumbStrip.tsx`, the builder's own wayfinding, mounted above
+the canvas in edit and Preview alike and on an Android run too (`components/preview/PreviewShell.tsx`,
+"No header here"). In Preview the trail follows the running app's steps as Web Apps' trail reads them
+(`lib/routing/previewBreadcrumbs.ts`: the session's order, and a crumb's cut back to its screen,
+`spliceSelections`), and it is drawn whatever `show_breadcrumbs` holds, which nothing in Nova reads:
+the setting decides only whether Web Apps draws its own trail, which no Nova surface claims to show.
+Kept.
 
 **`case_sharing: true`.** `xform.py::XFormCaseBlock.add_create_block` sets every new case's owner from
 the worker's case sharing group and adds the `groups` instance; `suite_xml/sections/fixtures.py` adds
@@ -1426,7 +1469,7 @@ alone is `why: "Nothing an archive holds derives from this value."`; `no-claim` 
 | `49p-hq-mobile-ucr-restore-version-1-0-1-5` | setting | Mobile report version | n-i-a: an archive holds no report | no-claim: Preview runs no report | default: `2.0` | `starter-health` |
 | `45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app` | setting | Location captured with every form | mirrors (`addMetaBlock`) | no-claim: Preview submits no `meta/location` | default: off | `hq-kept-settings` |
 | `51-hq-persistent-menu` | setting | Persistent menu in Web Apps | n-i-a: only Web Apps reads it, from HQ's build | no-claim: Preview draws no persistent menu | default: off | `hq-kept-settings` |
-| `52-hq-show-breadcrumbs` | setting | Breadcrumbs in Web Apps | n-i-a: the same | no-claim: the trail above Preview is the builder's | default: on | `hq-kept-settings` |
+| `52-hq-show-breadcrumbs` | setting | Breadcrumbs in Web Apps | n-i-a: the same | no-claim: the trail above Preview is the builder's wayfinding, drawn whatever the setting holds, on Android as in Web Apps; it follows the running app's steps as Web Apps' trail reads them, and claims nothing of whether Web Apps draws its own | default: on | `hq-kept-settings` |
 | `43-hq-secure-submissions` | setting | Secure submissions | mirrors (`profileServerProperties`) | no-claim: Preview posts to no receiver | default: off (the import that makes Nova's app copies no project space setting) | `starter-health` |
 | `36-hq-custom-base-url` | setting | Custom base URL | mirrors (`profileServerProperties`) | no-claim: the same | default: none | `hq-kept-settings`, which holds a second origin with a path |
 | `35-hq-practice-mobile-worker-id` | setting | Practice mobile worker | states (`kept_practice_worker_absent`) | no-claim: Preview has no practice mode | default: none | `hq-kept-settings` |
@@ -3431,6 +3474,7 @@ A `not-yet` or `never` finding reads its pair's sentence (`FINDING_COPY`), 54 an
 | `case-list-sorting` | `not-yet` | This uses a way of ordering the case list, which Nova can't hold yet. |
 | `case-list-text` | `not-yet` | This uses its own wording for an empty list or the Continue button, which Nova can't hold yet. |
 | `case-preloads` | `not-yet` | This uses a way of loading a case value into a question, which Nova can't hold yet. |
+| `case-property-names` | `never` | A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in. |
 | `case-property-names` | `not-yet` | A case property name here is one Nova can't hold yet. |
 | `case-sharing` | `not-yet` | This uses case sharing, which Nova can't hold yet. |
 | `case-tiles` | `not-yet` | This uses a case tile layout, which Nova can't hold yet. |
@@ -3444,6 +3488,7 @@ A `not-yet` or `never` finding reads its pair's sentence (`FINDING_COPY`), 54 an
 | `deep-links` | `not-yet` | This uses a deep link with its own arguments, which Nova can't hold yet. |
 | `display-conditions` | `not-yet` | A display condition here is more than Nova can read as a condition yet. |
 | `display-only-forms` | `not-yet` | A form here goes back to, or opens through, the menu above in a way Nova can't hold yet. |
+| `expressions` | `never` | An expression here reads a place's or the worker's information under a name Nova can't hold, such as one that differs from another only in capital letters. |
 | `expressions` | `not-yet` | An expression here is more than Nova can read yet. |
 | `form-case-management` | `not-yet` | This form's case management is set up in a way Nova can't hold yet. |
 | `form-settings` | `not-yet` | This uses a form setting, which Nova can't hold yet. |
@@ -3489,7 +3534,7 @@ A `not-yet` or `never` finding reads its pair's sentence (`FINDING_COPY`), 54 an
 | `training-menus` | `never` | This uses a training menu or release notes form, which Nova doesn't bring in. |
 | `translation-overrides` | `not-yet` | This uses its own wording for a menu, form or list, kept in the app's translations, which Nova can't hold yet. |
 | `visit-scheduler` | `never` | This uses a visit schedule, which Nova doesn't bring in. |
-| `worker-record` | `never` | A question here is named commcare_usercase, the name CommCare HQ gives the worker's own record. |
+| `worker-record` | `never` | This uses a name for the worker's own record, or for one of its details, that Nova can't hold. |
 | `worker-record` | `not-yet` | This reads or writes the worker's own record in a way Nova can't hold yet. |
 | `writer-types` | `not-yet` | A case property here takes answers of kinds that don't match, which Nova can't hold yet. |
 
@@ -3553,13 +3598,15 @@ The 45 stems:
 | `worker-record` | A use of the worker's own record is |
 
 Where a plainer thing can be said of a subject and cause than the clause says, the pair has a whole
-sentence (`FIX_IN_HQ_SENTENCES`) and the subject has no stem. Ten subjects are worded that way, in
-thirteen sentences:
+sentence (`FIX_IN_HQ_SENTENCES`) and the subject has no stem. Fifteen subjects are worded that way,
+in eighteen sentences:
 
 | Subject | Cause | Sentence |
 |---|---|---|
 | `app-document` | `hq-refuses` | Part of how this app is stored is something CommCare HQ can't save or build. |
+| `app-name` | `breaks-when-run` | The app's name holds \n, a backslash before # or a carriage return. CommCare's lists of apps, on a phone and in Web Apps, show the name one way, while the app's own screens show a line break, # alone or only the text before the carriage return. Writing the name without them fixes it. |
 | `blank-form` | `hq-refuses` | A form here has no questions, which CommCare HQ won't build. |
+| `carriage-returns` | `breaks-when-run` | A text here holds a carriage return, where devices end the text's line. Devices don't show the text as written, and they read the part after the carriage return as a line of its own, which can set the wording of another text. Without the carriage return, devices show the whole text. |
 | `case-types` | `hq-refuses` | A case type here holds a character CommCare HQ's menu settings can't save. |
 | `commcare-version` | `below-floor` | This app is built for a CommCare version below 2.57, the earliest Nova publishes to. |
 | `expressions` | `breaks-when-run` | An expression here is one CommCare can't run, though CommCare HQ builds it. |
@@ -3571,8 +3618,11 @@ thirteen sentences:
 | `media-files` | `hq-refuses` | A media file here is kept at a path CommCare HQ can't build into the app. |
 | `missing-media-files` | `breaks-when-run` | The app points at a media file here that CommCare HQ doesn't have. Workers meet a missing file there, and Android may not start the app at all. |
 | `question-ids` | `hq-refuses` | A question ID here is one CommCare HQ's form builder can't keep. |
+| `text-backslashes` | `breaks-when-run` | A text here shows on devices with a backslash right before #, which Nova can't hold. Taking out the backslashes before # fixes it. |
+| `text-characters` | `hq-refuses` | A text here holds a character Nova can't write into an app, such as a control character. Taking it out in CommCare HQ fixes it. |
+| `text-placeholders` | `breaks-when-run` | A name or label here holds a ${ that CommCare reads as a placeholder on some screens, such as Android's menus and every screen title, while other screens show it as typed. Taking out the ${ and what follows it up to its closing brace, where it has one, fixes it. |
 
-The stems and whole sentences compose 87 pairs of subject and cause. Under the `instance-text`
+The stems and whole sentences compose 94 pairs of subject and cause. Under the `instance-text`
 sentence the account shows the text that was found, as "In CommCare HQ: instance('casedb')"
 (`findingLine`'s `named`, from the finding's `detail.name`). A missing file has its own subject and
 sentence, apart from a file in a format that does not play, because the person's step differs: upload
@@ -3956,8 +4006,10 @@ numbers are cited from other files, so none moves.
 
 1. **`persistent_menu` and `show_breadcrumbs` are kept at every value.** Not done: holding either
    not-yet at a non-default value. That would be right only if `lib/preview` drew a persistent menu
-   or Web Apps' breadcrumbs, since clause 3 of the kept test would then need Preview to read the
-   value or say it does not. Preview draws neither, so both are kept. Evidence: 4.3.
+   or Web Apps' own trail, since clause 3 of the kept test would then need Preview to read the
+   value or say it does not. Preview draws no persistent menu, and its one trail is the builder's
+   wayfinding, which follows the running app's steps as Web Apps' trail reads them, on Android as in
+   Web Apps, whatever `show_breadcrumbs` holds, so both are kept. Evidence: 4.3.
 2. **The Android logo slots are kept, though the `.ccz` cannot carry them.** The archive states it
    (`kept_android_logos_absent`, 9.5). Not done: holding them not-yet because the archive holds no
    bytes for them.
@@ -3977,7 +4029,9 @@ numbers are cited from other files, so none moves.
    documents' entries without giving anything two standings, and `media-file-unreadable` names a file
    HQ's map holds and cannot serve, which no entry names (8.3).
 4. **An item no entry names is `not-yet`, under the circumstance `unrecognized`.** Nothing in
-   CommCare HQ needs changing, and telling a person otherwise would be false. Not done: the standing
+   CommCare HQ needs changing, and telling a person otherwise would be false. A shape Nova knows and
+   knowingly cannot hold is not such an item: it takes a REFUSED entry whose finding says what to
+   change, as an app string the gate admits no spelling of does (2.2). Not done: the standing
    `fix-in-hq`, which would send a person to change something no change in CommCare HQ lifts. It is
    Nova's to classify: its copy takes the blame and the reader logs it at error (8.3).
 5. **"Refresh from CommCare HQ" updates the kept values only where nothing Nova writes has changed in
@@ -4167,8 +4221,9 @@ changes it. No file is moved or removed.
 ## Appendix A: `subject` and `owner`, entry by entry
 
 Slugs are entry ids without their area, which each block's heading gives. The area blocks of A.1 and
-A.2 hold the entries the manifest holds today: they were produced by one script over the manifest and
-cover every HELD-NEW entry (237) and every REFUSED entry (349). Four `questions/` entries about Hidden
+A.2 hold the entries the manifest held when the step began (its state on `main` before step 6's first
+layer): they were produced by one script over that manifest and cover every HELD-NEW entry (237) and
+every REFUSED entry (349). Four `questions/` entries about Hidden
 Values that the script had filed under a search subject are filed by the manifest's own section
 (Question types) and 2.3, and thirteen entries are filed under the subject whose sentence is true
 of them (2.2). An entry marked † leaves its list in this step (3.8): it holds the fields shown only
@@ -4303,7 +4358,7 @@ A.1's area blocks leave them out.
 - `worker-record` → `forms-and-case-management`:
   `update-key-whose-index-segments-include-user-each-parent-host-or`
 - `writer-types` → `forms-and-case-management`:
-  `update-through-the-date-and-time-join-of-a-date-and-a-time` †, `writers-int-decimal`,
+  `update-through-the-date-and-time-join-of-a-date-and-a-time` †, `writers-int-decimal` †,
   `writers-single-select-multi-select`, `any-other-mixed-writer-pair`,
   `a-datetime-question-saved-straight-to-a-case`
 
@@ -4381,7 +4436,7 @@ Counts by owner over these 237: `case-list-and-detail` 56, `case-search` 30,
 
 Each entry below becomes HELD-NEW in this step and holds both fields from then on. The part and
 section beside it write the entry's other fields. An entry marked "re-cut" exists today under another
-disposition. There are 68.
+disposition. There are 80.
 
 - `advanced-forms` → `forms-and-case-management` (part 07, `07-the-reader-cases-menus-lists.md`,
   section 14): `forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain`,
@@ -4407,6 +4462,8 @@ disposition. There are 68.
   `menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case`
 - `case-list-setup` → `case-list-and-detail` (part 04, section 11.2):
   `menus-and-case-lists/detail-max-select-value-above-100`
+- `case-list-sorting` → `case-list-and-detail` (part 07, section 14):
+  `menus-and-case-lists/type-plain-date-or-string-or-none-where-nova-derives-int-or-double`
 - `case-preloads` → `forms-and-case-management` (part 07, section 14):
   `forms-and-case-writes/loadupdateaction-preload-read-later-in-the-load`,
   `forms-and-case-writes/case-preload-into-a-question-that-holds-no-default`,
@@ -4415,6 +4472,8 @@ disposition. There are 68.
 - `case-property-names` → `forms-and-case-management` (part 04, section 11.2):
   `forms-and-case-writes/update-keys-location-id-hq-user-id`,
   `forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character`
+- `case-property-names` → `forms-and-case-management` (part 07, section 14):
+  `forms-and-case-writes/update-key-name-or-owner-id-through-an-index-segment`
 - `case-tiles` → `case-list-and-detail` (part 07, section 14):
   `menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name`
 - `connect-blocks` → `xform` (part 04, section 11.2): `questions/connect-blocks-beyond-one-of-each-kind`,
@@ -4430,7 +4489,11 @@ disposition. There are 68.
   `expressions-and-data/a-form-expression-outside-what-nova-types`
 - `form-case-management` → `forms-and-case-management` (part 07, section 14):
   `forms-and-case-writes/update-mode-edit-off-a-follow-up-form-s-own-update`,
-  `forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix`
+  `forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix`,
+  `forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`,
+  `questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes`,
+  `questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type`,
+  `questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it`
 - `form-source` → `xform` (part 06, section 8.8): `questions/data-root-element-named-other-than-data`
 - `language-codes` → `settings-nova-comes-to-own` (part 06, section 6.3):
   `application-and-settings/langs-code-nova-s-language-registry-cannot-name`
@@ -4462,6 +4525,9 @@ disposition. There are 68.
   `questions/hidden-value-bound-a-type-nova-would-not-write`
 - `repeats` → `xform` (part 06, section 10.4):
   `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule`
+- `save-to-case` → `forms-and-case-management` (part 07, section 14):
+  `questions/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches`,
+  `questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type`
 - `save-to-case` → `xform` (part 07, section 14):
   `questions/savetocase-block-outside-nova-s-own-block-shape`,
   `questions/savetocase-link-name-outside-nova-s-identifier-grammar`
@@ -4479,11 +4545,17 @@ disposition. There are 68.
   `case-search/date-prompt-matched-by-hq-s-own-rule`,
   `case-search/prompt-named-for-a-case-attribute-hq-matches-itself`,
   `case-search/search-field-over-a-property-of-another-type`
+- `search-fields` → `case-search` (part 07, section 12.2):
+  `case-search/a-required-or-validation-test-with-no-message-in-any-language`,
+  `case-search/itemset-without-the-item-list-its-instance-id-names`
 - `search-setup` → `case-search` (part 07, section 14):
   `case-search/list-first-with-a-search-that-skips-to-results`,
   `case-search/search-on-a-put-in-root-module`, `case-search/title-label-blank-in-some-languages`
 - `translation-overrides` → `settings-nova-comes-to-own` (7.1):
   `application-and-settings/translations-generated-key-anything-else`
+- `worker-record` → `forms-and-case-management` (part 07, section 14):
+  `questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record`,
+  `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
 
 Two labels with no text in any language are no rows here, because each is read as the text CommCare
 HQ writes for it and so is held. A registration label:
@@ -4816,27 +4888,43 @@ run G3 under its outcome C. It takes its subject by 2.2's rule and the owner its
 
 **Entries this step adds**
 
-Each entry below becomes REFUSED in this step and holds `subject` from then on. Every one is
-`fix-in-hq`; the cause beside it is what `fixCauseOf` gives its reasons, which chooses its sentence
-(8.4). There are 14.
+Each entry below becomes REFUSED in this step and holds `subject` from then on. Its standing is
+beside it, and beside a `fix-in-hq` entry the cause `fixCauseOf` gives its reasons, which chooses its
+sentence (8.4). There are 34: 30 `fix-in-hq` and 4 `never`.
 
+- `app-name`, `fix-in-hq` (`breaks-when-run`; section 2.2):
+  `application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`
+- `case-list-columns`, `fix-in-hq` (`breaks-when-run`; part 07, `07-the-reader-cases-menus-lists.md`,
+  section 14): `menus-and-case-lists/case-id-as-a-property-column-s-field`
 - `case-list-registration`, `fix-in-hq` (`breaks-when-run`; part 02, `02-menus.md`, section 14):
   `menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host` (not added
   under part 02's run G3, outcome B)
+- `carriage-returns`, `fix-in-hq` (`breaks-when-run`; section 2.2):
+  `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`,
+  `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing`
+- `case-property-names`, `never` (part 07, section 14):
+  `questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts`
 - `case-types`, `fix-in-hq` (`hq-refuses`; part 04, `04-names.md`, section 11.2):
   `menus-and-case-lists/case-type-outside-the-menu-page-s-grammar`
 - `connect-blocks`, `fix-in-hq` (`breaks-when-run`; part 06, `06-the-reader-forms.md`, section 15):
   `questions/connect-deliver-unit-and-task-in-one-form`
-- `deep-links`, `fix-in-hq` (`breaks-when-run`; part 07, `07-the-reader-cases-menus-lists.md`,
-  section 14): `menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module`
+- `deep-links`, `fix-in-hq` (`breaks-when-run`; part 07, section 14):
+  `menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module`
 - `display-conditions`, `fix-in-hq` (`breaks-when-run`; part 07, section 14):
   `menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first`
 - `expressions`, `fix-in-hq` (`breaks-when-run`; part 08, `08-the-reader-expressions.md`, section
   11): `expressions-and-data/session-data-datum-the-entry-does-not-supply`,
   `expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant`
+- `expressions`, `never` (part 08, section 2.5):
+  `expressions-and-data/a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes`,
+  `expressions-and-data/a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes`
+- `form-source`, `fix-in-hq` (`hq-refuses`; part 06, section 8.3):
+  `questions/bind-whose-path-names-the-data-root-itself-data-data-or-a`
 - `instance-text`, `fix-in-hq` (`either`; part 03, `03-questions-and-text.md`, section 5.1):
   `questions/connect-block-text-read-as-an-instance`,
-  `forms-and-case-writes/form-name-read-as-an-instance`
+  `forms-and-case-writes/form-name-read-as-an-instance`, `questions/choice-value-read-as-an-instance`
+- `menu-structure`, `fix-in-hq` (`breaks-when-run`; part 07, section 8.2):
+  `menus-and-case-lists/child-menu-form-creating-a-case-of-the-type-its-root-s-first-form-chooses`
 - `missing-media-files`, `fix-in-hq` (`breaks-when-run`; part 11, `11-project-data.md`, section
   13.1): `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`
 - `question-logic`, `fix-in-hq` (`hq-refuses`; part 06, section 11.3):
@@ -4844,5 +4932,23 @@ Each entry below becomes REFUSED in this step and holds `subject` from then on. 
 - `question-text`, `fix-in-hq` (`hq-refuses`; part 06, section 12.2):
   `questions/a-markdown-form-in-a-form-whose-text-formatting-is-off`,
   `questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text`
+- `question-types`, `fix-in-hq` (`hq-refuses`; part 06, section 8.5):
+  `questions/a-question-other-than-a-group-or-repeat-whose-data-node-has`
+- `save-to-case`, `fix-in-hq` (`breaks-when-run`; part 07, section 14):
+  `questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself`,
+  `questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none`,
+  `questions/a-savetocase-link-name-longer-than-commcare-hq-stores`
+- `save-to-case`, `fix-in-hq` (`either`; part 07, section 14):
+  `questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters`
+- `search-fields`, `fix-in-hq` (`breaks-when-run`; part 07, section 12.2):
+  `case-search/input-no-runtime-names`
 - `search-expressions`, `fix-in-hq` (`hq-refuses`; part 08, section 11):
   `case-search/required-or-validation-test-reading-the-case`
+- `text-backslashes`, `fix-in-hq` (`breaks-when-run`; section 2.2):
+  `application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash`
+- `text-characters`, `fix-in-hq` (`hq-refuses`; section 2.2):
+  `application-and-settings/app-text-holding-a-character-xml-cannot-carry`
+- `text-placeholders`, `fix-in-hq` (`breaks-when-run`; section 2.2):
+  `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`
+- `worker-record`, `never` (part 07, section 14):
+  `forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`

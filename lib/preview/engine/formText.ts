@@ -16,12 +16,12 @@ import {
 	itextIdFor,
 	itextTranslationUnitId,
 } from "@/lib/commcare/xform/itextIds";
+import { constraintCarryingQuestions } from "@/lib/commcare/xform/validationMessage";
 import { formExpressionSlotValues } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
 	type Field,
-	fieldKindCarriesValidation,
 	filledProse,
 	isContainer,
 	type LanguageTag,
@@ -53,13 +53,16 @@ function mediaHoldsAsset(media: Media | undefined): boolean {
 
 /** Whether the XForm writes an itext entry for this unit at all: an option
  * label always, a question's label, hint and help only on a visible
- * question, a validation message only where the question validates, and
- * any of these only when some language holds text or the slot carries
- * media (`lib/commcare/xform/builder.ts`, `addItext`). */
+ * question, a validation message only where the question's bind carries a
+ * constraint (`lib/commcare/xform/validationMessage.ts::constraintCarryingQuestions`,
+ * which `carriesConstraint` reads), and any of these only when some language
+ * holds text or the slot carries media (`lib/commcare/xform/builder.ts`,
+ * `addItext`). */
 function itextEntryWritten(
 	field: Field,
 	unit: ItextUnit,
 	anyText: boolean,
+	carriesConstraint: boolean,
 ): boolean {
 	switch (unit.role) {
 		case "select-option-label":
@@ -79,7 +82,7 @@ function itextEntryWritten(
 				(anyText || mediaHoldsAsset(slotMedia(field, "help_media")))
 			);
 		case "field-validation-message":
-			return fieldKindCarriesValidation(field.kind) && anyText;
+			return carriesConstraint && anyText;
 	}
 }
 
@@ -132,7 +135,15 @@ export function previewFormText(
 		const anyText = localization.languageOrder.some(
 			(tag) => !proseTemplateIsEmpty(textOf(unit, tag)),
 		);
-		if (!itextEntryWritten(field, unit, anyText)) continue;
+		if (
+			!itextEntryWritten(
+				field,
+				unit,
+				anyText,
+				constraintCarryingQuestions(doc, formUuid).has(unit.field),
+			)
+		)
+			continue;
 		const template = textOf(unit, current);
 		/* A text that shows a reference or a calculated value is one Core
 		 * reads with a placeholder, so the checker refuses every `jr:itext`

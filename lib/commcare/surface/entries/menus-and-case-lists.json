@@ -151,6 +151,39 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "`AdvancedModule` whose forms read the search, whose case list menu item is narrowed, or whose chain no one index name follows",
+		"surfaceKeys": [
+			"parser:MenuParser/command",
+			"parser:MenuParser/command@id",
+			"parser:MenuParser/display",
+			"parser:MenuParser/menu",
+			"parser:MenuParser/menu@id",
+			"parser:MenuParser/text",
+			"parser:SuiteParser/menu",
+			"parser:TextParser/locale",
+			"parser:TextParser/locale@id",
+			"parser:TextParser/text",
+			"schema:AdvancedModule"
+		],
+		"valueClass": "advanced-with-a-kind-blocker",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: an advanced module `lib/domain/advancedModule.ts::advancedKindBlockers` keeps Nova from writing advanced",
+		"subject": "advanced-menus",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
 		"area": "menus-and-case-lists",
 		"section": "Module types",
@@ -558,6 +591,32 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/child-menu-form-creating-a-case-of-the-type-its-root-s-first-form-chooses",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "a form of a child menu that creates a case of the type its root menu's first form opens a chosen case of",
+		"surfaceKeys": [],
+		"noSurfaceKey": "a relation between a child menu's form and the first form of its root menu, which no surface item states",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build gives the new case the root's selection id (`entries.py::EntriesHelper.add_parent_datums`, `_same_case` matches by case type), so CommCare asks for a case, never makes the new one, and the form's case block reads a session value it never holds",
+		"subject": "menu-structure",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's build gives the new case the root's selection id (`entries.py::EntriesHelper.add_parent_datums`, `_same_case` matches by case type), so CommCare asks for a case, never makes the new one, and the form's case block reads a session value it never holds"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/menu-order-that-separates-a-child-from-its-parent",
 		"area": "menus-and-case-lists",
 		"section": "Module types",
@@ -868,6 +927,36 @@
 		},
 		"emission": {
 			"cell": "`false()` or `false() and (<rest>)`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`form_filter` that reads the form's case where the screen that lists the form chooses no case first",
+		"surfaceKeys": [
+			"schema:Form.form_filter",
+			"schema:AdvancedForm.form_filter",
+			"schema:ShadowForm.form_filter"
+		],
+		"valueClass": "case-read-off-a-case-first-screen",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: a wider class than HQ's own build error (`CaseXPathValidationError`)",
+		"subject": "display-conditions",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "a wider class than HQ's own build error (`CaseXPathValidationError`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -1318,6 +1407,72 @@
 		"gates": ["toggle/SESSION_ENDPOINTS"]
 	},
 	{
+		"id": "menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`case_list_session_endpoint_id` on a module whose `put_in_root` is true",
+		"surfaceKeys": [
+			"parser:EndpointParser/argument",
+			"parser:EndpointParser/argument@id",
+			"parser:EndpointParser/argument@instance-id",
+			"parser:EndpointParser/argument@instance-src",
+			"parser:EndpointParser/endpoint",
+			"parser:EndpointParser/endpoint@id",
+			"parser:EndpointParser/stack",
+			"parser:EntryParser/command",
+			"parser:EntryParser/command@id",
+			"parser:EntryParser/display",
+			"parser:EntryParser/post",
+			"parser:EntryParser/post@relevant",
+			"parser:EntryParser/post@url",
+			"parser:EntryParser/session",
+			"parser:EntryParser/stack",
+			"parser:EntryParser/text",
+			"parser:QueryDataParser/data",
+			"parser:QueryDataParser/data@exclude",
+			"parser:QueryDataParser/data@key",
+			"parser:QueryDataParser/data@nodeset",
+			"parser:QueryDataParser/data@ref",
+			"parser:SessionDatumParser/datum",
+			"parser:SessionDatumParser/datum@function",
+			"parser:SessionDatumParser/datum@id",
+			"parser:StackFrameStepParser/command",
+			"parser:StackFrameStepParser/command@value",
+			"parser:StackFrameStepParser/datum",
+			"parser:StackFrameStepParser/datum@id",
+			"parser:StackFrameStepParser/datum@value",
+			"parser:StackFrameStepParser/instance-datum",
+			"parser:StackFrameStepParser/instance-datum@id",
+			"parser:StackFrameStepParser/instance-datum@value",
+			"parser:StackOpParser/push",
+			"parser:SuiteParser/endpoint",
+			"parser:SuiteParser/remote-request",
+			"parser:TextParser/text",
+			"schema:AdvancedModule.case_list_session_endpoint_id",
+			"schema:Module.case_list_session_endpoint_id",
+			"schema:ShadowModule.case_list_session_endpoint_id"
+		],
+		"valueClass": "on-a-put-in-root-module",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ builds the endpoint with no command for the menu, so it opens the menu above and never the list",
+		"subject": "deep-links",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ builds the endpoint with no command for the menu, so it opens the menu above and never the list"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/module-or-mirror-form-endpoint-id-that-is-not-a-slugify-fixed",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
@@ -1472,7 +1627,7 @@
 		"id": "menus-and-case-lists/media-image-media-audio-same-asset-in-every-language",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "`media_image`, `media_audio` (same asset in every language)",
+		"item": "`media_image`, `media_audio` (same asset in every language); a map that shows one file in every language, read as HQ's build shows it (a language with no path of its own shows the `default` table's), reads as the one shared slot",
 		"surfaceKeys": [
 			"parser:MenuParser/text@form",
 			"schema:AdvancedModule.media_audio",
@@ -1507,11 +1662,15 @@
 		"id": "menus-and-case-lists/media-image-media-audio-differing-by-language",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "`media_image`, `media_audio` differing by language",
+		"item": "`media_image`, `media_audio` (a menu's, its case list menu item's, its Register button's) differing by language: two files shown in two languages, each language read as HQ's build shows it (a language with no path of its own shows the `default` table's)",
 		"surfaceKeys": [
 			"parser:MenuParser/text@form",
 			"schema:AdvancedModule.media_audio",
 			"schema:AdvancedModule.media_image",
+			"schema:CaseList.media_audio",
+			"schema:CaseList.media_image",
+			"schema:CaseListForm.media_audio",
+			"schema:CaseListForm.media_image",
 			"schema:Module.media_audio",
 			"schema:Module.media_image",
 			"schema:ShadowModule.media_audio",
@@ -1542,10 +1701,14 @@
 		"id": "menus-and-case-lists/use-default-image-for-all-use-default-audio-for-all",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "`use_default_image_for_all`, `use_default_audio_for_all`",
+		"item": "`use_default_image_for_all`, `use_default_audio_for_all` (a menu's, its case list menu item's, its Register button's)",
 		"surfaceKeys": [
 			"schema:AdvancedModule.use_default_audio_for_all",
 			"schema:AdvancedModule.use_default_image_for_all",
+			"schema:CaseList.use_default_audio_for_all",
+			"schema:CaseList.use_default_image_for_all",
+			"schema:CaseListForm.use_default_audio_for_all",
+			"schema:CaseListForm.use_default_image_for_all",
 			"schema:Module.use_default_audio_for_all",
 			"schema:Module.use_default_image_for_all",
 			"schema:ShadowModule.use_default_audio_for_all",
@@ -1874,6 +2037,29 @@
 		"emission": {
 			"cell": "`case_list.label`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/module-case-list-label-or-media-beside-show-false",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`case_list.label` or media on a basic module whose `case_list.show` is false",
+		"surfaceKeys": [
+			"schema:CaseList.label",
+			"schema:CaseList.media_image",
+			"schema:CaseList.media_audio"
+		],
+		"valueClass": "beside-show-false",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: each reader of the label and the media tests `show` first (`app_strings.py::_create_case_list_app_strings`, `suite_xml/sections/entries.py::EntriesHelper.entry_for_module`, `suite_xml/sections/menus.py::MenuContributor._get_commands`, `corehq/apps/hqmedia/models.py::ModuleMediaMixin.all_media`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -3321,6 +3507,7 @@
 			"schema:CaseTileGroupConfig.index_identifier",
 			"schema:Detail.case_tile_group"
 		],
+		"valueClass": "identifier-an-xml-element-name",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `tile.grouping {identifier, headerRows}`",
 		"slotChanges": [],
@@ -3340,6 +3527,37 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_LIST_TILE"]
+	},
+	{
+		"id": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`case_tile_group.index_identifier` outside `[a-zA-Z_][a-zA-Z0-9_]*`",
+		"surfaceKeys": [
+			"parser:DetailGroupParser/group",
+			"parser:DetailGroupParser/group@function",
+			"parser:DetailGroupParser/group@header-rows",
+			"parser:DetailParser/group",
+			"schema:CaseTileGroupConfig",
+			"schema:CaseTileGroupConfig.header_rows",
+			"schema:CaseTileGroupConfig.index_identifier",
+			"schema:Detail.case_tile_group"
+		],
+		"valueClass": "identifier-outside-xml-name",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a grouping index name Nova's `tile.grouping.identifier` cannot spell",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/detail-persist-case-context-persistent-case-context-xml",
@@ -3540,7 +3758,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.no_items_text` equal to HQ's default text (`List is empty.`), in any of the app's languages",
+		"item": "`Detail.no_items_text` a device shows as HQ's default text (`List is empty.`) in every app language, however the map spells it",
 		"surfaceKeys": [
 			"parser:DetailParser/no_items_text",
 			"schema:Detail.no_items_text"
@@ -3563,7 +3781,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.select_text` = default `{en: Continue}`",
+		"item": "`Detail.select_text` a device shows as HQ's default `Continue` in every app language, however the map spells it",
 		"surfaceKeys": [
 			"parser:DetailParser/select_text",
 			"schema:Detail.select_text"
@@ -3736,6 +3954,28 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/column-field-outside-nova-s-property-grammar",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "a column `field` that `details/utils.js::isValidPropertyName` accepts and Nova's case property grammar does not (a name longer than 255 characters, or one word after a `#` other than `#owner_name`)",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"valueClass": "property-name-outside-nova-s-grammar",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a column over a property name outside `casePropertyName.ts::authoredCasePropertyNameSchema`",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/field-failing-details-utils-js-isvalidpropertyname-non",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -3893,7 +4133,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`enum[]` `MappingItem.alt_text{lang}`, blank",
+		"item": "`enum[]` `MappingItem.alt_text{lang}`, blank as a device shows it in every language",
 		"surfaceKeys": [
 			"parser:DetailFieldParser/alt_text",
 			"schema:MappingItem.alt_text"
@@ -3923,7 +4163,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`MappingItem.alt_text{lang}` holding text",
+		"item": "`MappingItem.alt_text{lang}` holding text, on an image map or a clickable icon",
 		"surfaceKeys": [
 			"parser:DetailFieldParser/alt_text",
 			"schema:MappingItem.alt_text"
@@ -3946,6 +4186,26 @@
 		"emission": {
 			"cell": "`alt_text`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/mappingitem-alt-text-on-a-format-that-builds-no-image",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "`MappingItem.alt_text{lang}` holding text, on a column whose format builds no image (`enum`, `translatable-enum`)",
+		"surfaceKeys": ["schema:MappingItem.alt_text"],
+		"valueClass": "non-blank-where-no-image-is-built",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build gives an alt text on `enum-image` and `clickable-icon` alone (`detail_screen.py::EnumImage.alt_text`, `app_strings.py`), and its column editor saves none",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -4400,6 +4660,31 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/format-extras-the-column-editor-saves-on-every-column",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "the format extras the column editor saves on every column: `date_format` on a column that is no date, `late_flag` and `time_ago_interval` on a column of another format, and `enum` on a column whose format reads no mapping (any but `enum`, `conditional-enum`, `enum-image`, `clickable-icon` and `translatable-enum`)",
+		"surfaceKeys": [
+			"schema:DetailColumn.date_format",
+			"schema:DetailColumn.enum",
+			"schema:DetailColumn.late_flag",
+			"schema:DetailColumn.time_ago_interval"
+		],
+		"valueClass": "format-extras-elsewhere",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's column editor saves each format's extra on every column whatever its format (`details/bootstrap5/column.js`, `serialize`), and HQ's build reads each only on its own format (`detail_screen.py`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "the shell's values on every column (`hqShells.ts::detailColumn`: `date_format` `%d/%m/%y`, `late_flag` 30, `time_ago_interval` 365.25, `enum` `[]`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/1-plain-over-a-property-that-is-not-a-select-with-options",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -4842,9 +5127,10 @@
 			"schema:DetailColumn.late_flag"
 		],
 		"valueClass": "late-flag-of-one-or-more",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `interval` display `flag`, unit days, text `*`, header empty on the case list and the stored header on the case detail (`detail_screen.py::LateFlag` extends `HideShortHeaderColumn`, which blanks a list header, and a detail header only in a nodeset tab of a detail that sorts its nodeset columns, `has_sort_node_for_nodeset_column`)",
-		"slotChanges": [],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a flag column with no list header: HQ's `LateFlag` writes an empty header on the case list (`detail_screen.py::HideShortHeaderColumn`), and Nova's interval column shows its own",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4856,8 +5142,8 @@
 			}
 		},
 		"emission": {
-			"cell": "`late-flag` + `late_flag`",
-			"markers": []
+			"cell": "nothing: Nova writes an interval column as a calculated `translatable-enum`",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -6412,6 +6698,33 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/case-id-as-a-property-column-s-field",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column field paths",
+		"item": "`case_id` as a property column's `field` (or a sort element's, whose appended column reads it so)",
+		"surfaceKeys": ["detail-field-type:property"],
+		"valueClass": "case-id-element",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: `PropertyXpathGenerator.xpath` maps the field through `CASE_PROPERTY_MAP`, which has no entry for `case_id`, so the column reads the child element `case_id`, which no case carries (Core holds the id as the attribute alone, `CaseChildElement`), and is blank for every case",
+		"subject": "case-list-columns",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "`PropertyXpathGenerator.xpath` maps the field through `CASE_PROPERTY_MAP`, which has no entry for `case_id`, so the column reads the child element `case_id`, which no case carries (Core holds the id as the attribute alone, `CaseChildElement`), and is blank for every case"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/owner-name",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -6655,8 +6968,35 @@
 			}
 		},
 		"emission": {
-			"cell": "`field`",
+			"cell": "a stored `invisible` column, last, and its sort element",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/sort-elements-sharing-a-join-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "a sort element whose `field` a later element of the same detail repeats",
+		"surfaceKeys": [
+			"schema:SortElement.field",
+			"schema:SortElement.type",
+			"schema:SortElement.direction",
+			"schema:SortElement.blanks",
+			"schema:SortElement.display",
+			"schema:SortElement.sort_calculation"
+		],
+		"valueClass": "earlier-of-two-with-one-field",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: `util.py::get_sort_and_sort_only_columns` keys the elements by `field`, a later one replacing an earlier, and HQ's build and its app strings both take the elements through it",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -6837,6 +7177,37 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/type-plain-date-or-string-or-none-where-nova-derives-int-or-double",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "`type` `plain`, `date`, none (HQ's default element is `string`), or any word but `int`, `double`, `distance` and `index`, where Nova derives `int` or `double`, on a column without its own sort",
+		"surfaceKeys": [
+			"parser:DetailFieldParser/sort@type",
+			"schema:SortElement.type"
+		],
+		"valueClass": "authored-text-comparator",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `sort.comparator` (authored): HQ writes `string` for `plain`, `date` and none, and any other word as it is (`FormattedDetailColumn.sort_node`, `details.py::get_default_sort_elements`), and Core compares every word but `int` and `double` as text (`DetailFieldParser`), so the list orders numbers as text, where the comparator Nova derives from the property's type orders them as numbers",
+		"subject": "case-list-sorting",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`type`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/type-distance",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -6905,14 +7276,14 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Sorting",
-		"item": "`type: string` (not a menu value)",
+		"item": "`type` any word the Case List page does not offer but `distance` and `index` (`string`, or another: not a menu value)",
 		"surfaceKeys": [
 			"parser:DetailFieldParser/sort@type",
 			"schema:SortElement.type"
 		],
-		"valueClass": "string",
+		"valueClass": "another-word",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: read as `plain` (build-identical, `FormattedDetailColumn.sort_node`)",
+		"dispositionCell": "**HELD**: read as `plain` (build-identical: HQ writes the word as it is, `FormattedDetailColumn.sort_node`, and Core compares every word but `int` and `double` as text, `DetailFieldParser`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -7814,8 +8185,19 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "`lookup_enabled` on an `icon_text_grid` case list",
-		"surfaceKeys": ["schema:Detail.lookup_enabled"],
+		"item": "`lookup_enabled` and its keys on an `icon_text_grid` case list",
+		"surfaceKeys": [
+			"schema:Detail.lookup_action",
+			"schema:Detail.lookup_autolaunch",
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_enabled",
+			"schema:Detail.lookup_extras",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template",
+			"schema:Detail.lookup_image",
+			"schema:Detail.lookup_name",
+			"schema:Detail.lookup_responses"
+		],
 		"valueClass": "enabled-on-an-icon-text-grid-case-list",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: HQ builds no `<lookup>` there (`case_tiles.py::build_case_tile_detail`; executed), so no runtime shows a callout",

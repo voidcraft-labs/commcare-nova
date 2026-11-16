@@ -203,7 +203,7 @@ const ROWS: readonly ConditionRow[] = [
 				action: "update",
 				caseType: "patient",
 				target: { kind: "op", opUuid: OWN },
-				writes: [write("status", read("status"))],
+				writes: [write("outcome", read("status"))],
 			} as CaseOperation,
 		]),
 		reason: "case-changed-before-create",
@@ -422,7 +422,7 @@ describe("Save to Case conditions", () => {
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
-			writes: [write("status", read("status"))],
+			writes: [write("outcome", read("status"))],
 			...extra,
 		}) as CaseOperation;
 	const subject: PlacementSubject = {
@@ -479,7 +479,7 @@ describe("Save to Case conditions", () => {
 				own({
 					writes: [
 						write("age", read("age"), { onlyIfChanged: true }),
-						write("status", read("status"), {
+						write("outcome", read("status"), {
 							via: [{ identifier: "parent" }],
 						}),
 					],
@@ -722,7 +722,7 @@ describe("the procedure", () => {
 					caseType: "patient",
 					target: { kind: "session" },
 					condition: read("flag"),
-					writes: [write("status", read("name"))],
+					writes: [write("outcome", read("name"))],
 				} as CaseOperation,
 			],
 		});
@@ -901,6 +901,26 @@ describe("the procedure", () => {
 				"nova_operations",
 				"nova_close_selected_cases",
 			],
+		});
+		// Under a close condition, each row's block stands in the row's
+		// condition group, whose relevance the condition is.
+		const severalUnderCondition = planned("close", {
+			operations: () => [own()],
+			severalCases: true,
+			form: { closeCondition: read("flag") },
+		});
+		expect(severalUnderCondition.placements.get("own-close")).toEqual({
+			placement: {
+				kind: "save-to-case",
+				path: [
+					"nova_selected_cases",
+					"item",
+					"nova_operations",
+					"nova_condition_close",
+					"nova_close_selected_cases",
+				],
+			},
+			held: false,
 		});
 	});
 
@@ -1101,6 +1121,34 @@ describe("holds the document no longer expresses", () => {
 			},
 		]);
 		expect(plan.placements.has("own-close")).toBe(false);
+	});
+
+	it("lists a several-case own close held outside the condition group its close condition takes", () => {
+		const row = ["nova_selected_cases", "item", "nova_operations"] as const;
+		const held: NonNullable<Form["ownClosePlacement"]> = {
+			kind: "save-to-case",
+			path: [...row, "nova_close_selected_cases"],
+		};
+		const { doc, formUuid } = placementFixture("close", {
+			operations: () => [own()],
+			severalCases: true,
+			form: { closeCondition: read("flag"), ownClosePlacement: held },
+		});
+		const plan = planPlacements(doc, formUuid);
+		expect(plan.inexpressible).toEqual([
+			{
+				subject: { kind: "own-close" },
+				held,
+				reasons: [{ reason: "block-shape" }],
+			},
+		]);
+		expect(plan.placements.get("own-close")).toEqual({
+			placement: {
+				kind: "save-to-case",
+				path: [...row, "nova_condition_close", "nova_close_selected_cases"],
+			},
+			held: false,
+		});
 	});
 
 	it("lists nothing for holds that still express their subjects", () => {

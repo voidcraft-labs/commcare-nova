@@ -677,7 +677,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`auto_launch: false` in an app with `cloudcare_enabled: false`",
+		"item": "`auto_launch: false` and `default_search: false` in an app with `cloudcare_enabled: false`",
 		"surfaceKeys": [
 			"schema:CaseSearch.auto_launch",
 			"schema:CaseSearch.default_search",
@@ -702,6 +702,33 @@
 		"emission": {
 			"cell": "`auto_launch: false`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/list-first-with-a-search-that-skips-to-results",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`auto_launch: false` with `default_search: true` in an app with `cloudcare_enabled: false`",
+		"surfaceKeys": [
+			"schema:CaseSearch.auto_launch",
+			"schema:CaseSearch.default_search",
+			"parser:ActionParser/action@auto_launch",
+			"parser:SessionDatumParser/query@default_search"
+		],
+		"valueClass": "list-first-default-search",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a case list first whose Search action goes straight to its results: HQ writes `default_search` into the query whatever `auto_launch` says (`remote_requests.py::RemoteRequestsHelper.build_remote_request_queries`), and Nova's `listFirst` writes it false",
+		"subject": "search-setup",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -960,14 +987,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`blacklisted_owner_ids_expression` lifting into ValueExpression, with the case-list filter carrying the matching owner-exclusion clause",
+		"item": "`blacklisted_owner_ids_expression` lifting into ValueExpression, with the case-list filter carrying the matching owner-exclusion clause, or none where the list reads a Search answer alone",
 		"surfaceKeys": [
 			"schema:CaseSearch.blacklisted_owner_ids_expression",
 			"csql-key:commcare_blacklisted_owner_ids"
 		],
 		"valueClass": "value-expression-with-list-clause-alone",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.excludedOwnerIds`, which Nova applies to the device list as well (`nodesetFilter.ts::emitExcludedOwnerFilterExpression` writes that clause)",
+		"dispositionCell": "**HELD**: `caseSearchConfig.excludedOwnerIds`, which Nova applies to the device list as well (`nodesetFilter.ts::emitExcludedOwnerFilterExpression` writes that clause), but for a list that reads a Search answer alone, which a list read before any search sees blank, so Nova writes no clause (`excludedOwnerClauseWritten`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -990,7 +1017,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`blacklisted_owner_ids_expression` without that clause",
+		"item": "`blacklisted_owner_ids_expression` without that clause, where Nova's list would write one",
 		"surfaceKeys": ["schema:CaseSearch.blacklisted_owner_ids_expression"],
 		"valueClass": "without-list-clause-alone",
 		"disposition": "HELD-NEW",
@@ -1047,14 +1074,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`title_label{lang}` non-empty",
+		"item": "`title_label` showing text in the language a reading takes as its source: text there, and in each other language text of its own, none (blank or absent), which shows the first language's, or only whitespace, a blank title there",
 		"surfaceKeys": [
 			"schema:CaseSearch.title_label",
 			"parser:SessionDatumParser/title"
 		],
 		"valueClass": "non-empty",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchScreenTitle`, a text; absent is \"Search\"",
+		"dispositionCell": "**HELD**: `searchScreenTitle`, a text; absent is \"Search\". Read as HQ's build shows it in each language: a language's own file holds `title_label.get(lang) or ''` and drops a blank (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`), and the `default` table it falls back to holds the first language's (`create_default_app_strings`, `CaseSearch.get_search_title_label` with `for_default`); a language that shows a blank title takes the source language's, as every app string blank in one language does (`text-spaces-dropped`); a map spelled otherwise is written as shown by the first publish",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1106,6 +1133,31 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/title-label-blank-in-some-languages",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`title_label` showing a blank title in the language a reading takes as its source and text in another: blank, absent or only whitespace there while another language shows text",
+		"surfaceKeys": [
+			"schema:CaseSearch.title_label",
+			"parser:SessionDatumParser/title"
+		],
+		"valueClass": "blank-in-some-languages",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a search title shown blank in the source language where another language shows text: a language with no title of its own shows the first language's (`app_strings.py::_create_case_search_app_strings`, `non_empty_only`, `create_default_app_strings`), so the title shows blank there only where the first language's is blank too, or where a language holds only whitespace. Nova holds the source language's title as the search's own, text or no title in every language, so no document shows it blank in the source alone; a title blank in another language is held as the source's there, as every app string is (`text-spaces-dropped`)",
+		"subject": "search-setup",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/description-lang-markdown",
 		"area": "case-search",
 		"section": "Case search",
@@ -1139,7 +1191,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`search_button_label` = HQ default `{en: Search All Cases}`",
+		"item": "`search_button_label` a device shows as HQ's default `Search All Cases` in every app language, however the map spells it (`{en: Search All Cases}`, a space at its end, the default in a second language)",
 		"surfaceKeys": ["schema:CaseSearch.search_button_label"],
 		"valueClass": "hq-default",
 		"disposition": "HELD",
@@ -1302,8 +1354,9 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`additional_case_types[]`",
+		"item": "`additional_case_types[]` naming a type other than the menu's own",
 		"surfaceKeys": ["schema:CaseSearch.additional_case_types"],
+		"valueClass": "another-type",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.additionalCaseTypes`",
 		"subject": "search-setup",
@@ -1325,16 +1378,37 @@
 		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
+		"id": "case-search/additional-case-types-naming-only-the-menu-s-own-type",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`additional_case_types[]` naming only the menu's own `case_type`, once or more",
+		"surfaceKeys": ["schema:CaseSearch.additional_case_types"],
+		"valueClass": "own-type-only",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: every reader widens the menu's list by `set(additional_case_types) - {case_type}` (`suite_xml/utils.py::get_ordered_case_types`, `remote_requests.py::RemoteRequestFactory._build_datum_nodeset`), so the menu's own type widens nothing; the module settings page saves whatever is posted (`views/modules.py`, `additional_case_types`). The key absent",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/data-registry-data-registry-workflow-additional-registry-cases",
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`data_registry`, `data_registry_workflow`, `additional_registry_cases`",
+		"item": "`data_registry` holding text, with whatever `data_registry_workflow` and `additional_registry_cases` stand beside it",
 		"surfaceKeys": [
 			"schema:CaseSearch.data_registry",
 			"schema:CaseSearch.data_registry_workflow",
 			"schema:CaseSearch.additional_registry_cases"
 		],
+		"valueClass": "registry-named",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (DATA_REGISTRY)",
 		"subject": "data-registry",
@@ -1354,6 +1428,60 @@
 			"markers": []
 		},
 		"gates": ["toggle/DATA_REGISTRY"]
+	},
+	{
+		"id": "case-search/the-registry-workflow-and-cases-where-no-registry-is-named",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`data_registry_workflow` or `additional_registry_cases` at any value where `data_registry` is absent or blank",
+		"surfaceKeys": [
+			"schema:CaseSearch.data_registry_workflow",
+			"schema:CaseSearch.additional_registry_cases"
+		],
+		"valueClass": "no-registry",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ reads both only behind `util.py::module_offers_registry_search`, which tests `data_registry` by truth (`module_loads_registry_case`, `module_uses_smart_links`, `entries.py::EntriesHelper.get_data_registry_case_datums`). On a project space with the data registry, HQ's Case List page binds the workflow's `<select>` even while its row is hidden, and Knockout sets the model to its first option, so every save there stores `data_registry: \"\"` beside `data_registry_workflow: \"load_case\"` (`case_search_properties.html`, `case_claim.js::searchConfigModel`, `views/modules.py::_gather_and_update_search_properties`). The keys absent",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-blank-text-in-a-search-key-hq-reads-only-where-it-holds-text",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "a blank `\"\"` in `search_button_display_condition`, `blacklisted_owner_ids_expression`, `data_registry`, `custom_related_case_property`, `instance_name`, or a prompt's `receiver_expression`, `default_value`, `input_` or `appearance`; a prompt's `required` whose `test` is blank or `null`, whatever its `text`",
+		"surfaceKeys": [
+			"schema:CaseSearch.search_button_display_condition",
+			"schema:CaseSearch.blacklisted_owner_ids_expression",
+			"schema:CaseSearch.data_registry",
+			"schema:CaseSearch.custom_related_case_property",
+			"schema:CaseSearch.instance_name",
+			"schema:CaseSearchProperty.receiver_expression",
+			"schema:CaseSearchProperty.default_value",
+			"schema:CaseSearchProperty.input_",
+			"schema:CaseSearchProperty.appearance",
+			"schema:CaseSearchProperty.required"
+		],
+		"valueClass": "blank",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's Case List page writes `\"\"` into these five search keys on every save, `receiver_expression` for every plain or lookup prompt and `default_value` for every multi-select prompt (`views/modules.py::_gather_and_update_search_properties`, `_update_search_properties`), and every reader tests each by truth: `details.py` (the button condition), `remote_requests.py` (the owner list, the related-case property, a prompt's default, its `input` and `appearance`, `if prop.input_`, `if prop.appearance`, and its `<required>` and required text, `if prop.required.test`), `util.py::module_offers_registry_search` (the registry), `CaseSearch.get_instance_name`, HQ's Case List page (`case_claim.js::_getAppearance`, which reads a blank `input_` and `appearance` as a plain text field), and Web Apps' `query.js` (`receive`). A blank is the key absent",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "case-search/custom-related-case-property",
@@ -1740,7 +1868,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`name` (prompt key) matching `^[A-Za-z_][A-Za-z0-9_-]*$`",
+		"item": "`name` (prompt key) matching `^[A-Za-z_][A-Za-z0-9_-]*$`, which, on a prompt without `exclude`, is a case property Nova can name",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.name",
 			"parser:QueryPromptParser/prompt@key",
@@ -1767,11 +1895,38 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/prompt-named-for-a-case-attribute-hq-matches-itself",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a prompt named `case_id`, `owner_id`, `status` or `name` without `exclude`",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.name",
+			"parser:QueryPromptParser/prompt@key",
+			"parser:SessionDatumParser/prompt@key",
+			"csql-key:owner_id"
+		],
+		"valueClass": "attribute-name-not-excluded",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Search field over a case attribute, or over the case's name, that HQ's search reads by its own rule (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`; `case_search/const.py::INDEXED_METADATA_BY_KEY` indexes the case's name under `name`); Nova writes such a field excluded, with its own clause, `@<name>` or `case_name` (`simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/prompt-key-outside-nova-s-name-grammar",
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`name` (prompt key) holding `/` (an ancestor path) or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`",
+		"item": "`name` (prompt key) holding `/` (an ancestor path) or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`, or, on a prompt without `exclude`, a case property Nova cannot name (`_x`, `date-opened`, `external-id`)",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.name",
 			"parser:QueryPromptParser/prompt@key",
@@ -1889,6 +2044,26 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/hint-on-a-hidden-prompt",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`hint{lang}` on a `hidden` prompt",
+		"surfaceKeys": ["schema:CaseSearchProperty.hint"],
+		"valueClass": "on-a-hidden-prompt",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: shown nowhere: Web Apps hides a hidden prompt (`query.js`, `d-none`) and Android shows a prompt's label and never its hint (`QueryRequestUiController.getLabel`); Nova's hidden Search value holds no hint (`hiddenSearchInputSchema`). A hint holding a carriage return is read by its own rows, since HQ's build writes it into the app strings",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/text-prompt-no-input",
 		"area": "case-search",
 		"section": "Case search",
@@ -1984,7 +2159,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`appearance: address` with `required` or `validations`",
+		"item": "`appearance: address` with `required` or `validations`, and no `input_` of `date`, `daterange` or `checkbox`",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.appearance",
 			"schema:CaseSearchProperty.required",
@@ -2159,9 +2334,9 @@
 			"parser:QueryPromptParser/prompt@input",
 			"prompt-input:date"
 		],
-		"valueClass": "date",
+		"valueClass": "date-excluded-with-a-whole-day-clause",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: scalar `date`",
+		"dispositionCell": "**HELD**: scalar `date`, excluded from HQ's matcher, beside its whole-day `_xpath_query` clause",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -2178,6 +2353,32 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
+		"id": "case-search/date-prompt-matched-by-hq-s-own-rule",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`input_: date` on a prompt without `exclude`",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.input_",
+			"parser:QueryPromptParser/prompt@input",
+			"prompt-input:date"
+		],
+		"valueClass": "date-not-excluded",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a date Search field HQ compares by its own exact rule, with the project space's fuzzy and ignore-pattern settings; Nova's date field is always excluded and carries a whole-day clause (`simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "case-search/input-daterange",
@@ -2207,6 +2408,65 @@
 		"emission": {
 			"cell": "`input_: daterange`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/input-no-runtime-names",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`input_` other than `select1`, `select`, `date`, `daterange`, `checkbox` and `address`, the input types a runtime names (`QueryPrompt.INPUT_TYPE_*`)",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.input_",
+			"parser:QueryPromptParser/prompt@input"
+		],
+		"valueClass": "input-no-runtime-names",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build writes it as the prompt's `input` (`remote_requests.py::build_query_prompts`), Android leaves the field off its search screen (`QueryRequestUiController.buildPromptEntry`, `isPromptSupported` over `QueryRequestActivity.getSupportedPrompts`), and Web Apps shows a plain text box (`query/item.html`) whose answer Formplayer leaves out of the search's own expressions and to which it gives no starting value (`RemoteQuerySessionManager.getUserQueryValues`, `initUserAnswers`, over `QueryScreen.getSupportedPrompts`); HQ's Case List page reads such a field as a plain text field and its save writes no `input_` (`case_claim.js::_getAppearance`, `views/modules.py::_update_search_properties`)",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android leaves the field off its search screen, and Web Apps shows a plain text box whose answer the search's own expressions do not read and that takes no starting value (`RemoteQuerySessionManager.isPromptSupported`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/search-field-over-a-property-of-another-type",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a date or date range prompt named for a property the app's forms save as something other than a date",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.input_",
+			"parser:QueryPromptParser/prompt@input",
+			"prompt-input:daterange",
+			"schema:CaseSearchProperty.name",
+			"parser:QueryPromptParser/prompt@key",
+			"parser:SessionDatumParser/prompt@key"
+		],
+		"valueClass": "field-type-the-property-s-writers-do-not-fit",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Search field whose type its property's writers do not fit; Nova's gate asks a date type of a date field (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -2400,6 +2660,28 @@
 		"emission": {
 			"cell": "—",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/itemset-without-the-item-list-its-instance-id-names",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a lookup `itemset` with no `instance_id`, or an `item-list:<tag>` one whose `nodeset` is not `instance('item-list:<tag>')/<tag>_list/<tag>` with at most a filter",
+		"surfaceKeys": ["schema:Itemset.instance_id", "schema:Itemset.nodeset"],
+		"valueClass": "nodeset-other-than-the-named-item-list",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: lookup choices read from another place than the table's item list, or with no instance named. HQ's build writes the itemset where it holds a nodeset (`remote_requests.py::build_query_prompts`) and refuses only an `instance_id` of another scheme (`helpers/validators.py::validate_search_config`); Nova's lookup options carrier is the table's item list (`lookupOptionsSourceSchema`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -2759,6 +3041,93 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/required-or-validation-test-reading-the-case",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a Search field's required or validation test holding `#case`, `#parent`, `#host`, or (required) a bare dot",
+		"surfaceKeys": ["schema:Assertion.test"],
+		"valueClass": "references-the-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `xpath.py::_ensure_no_case_references` raises `CaseXPathValidationError`",
+		"subject": "search-expressions",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`xpath.py::_ensure_no_case_references` raises `CaseXPathValidationError`"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/required-or-validation-test-outside-what-nova-types",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a Search field's required or validation test CommCare HQ builds and Nova's checker refuses in that slot",
+		"surfaceKeys": ["schema:Assertion.test"],
+		"valueClass": "outside-the-screen-rule-set",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a test over more than the field, its siblings, the session and the worker",
+		"subject": "search-expressions",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-required-or-validation-test-with-no-message-in-any-language",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`required` with a `test` and `validations[0]` with a `test`, whose `text` is blank in every app language (`{}` included)",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.required",
+			"schema:CaseSearchProperty.validations",
+			"schema:Assertion.text"
+		],
+		"valueClass": "check-without-a-message",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Search field check with no message of its own. HQ's Case List page keeps a blank message (`views/modules.py::_update_search_properties`); its build writes a requirement's text blank, and no text for such a validation, whose worker then reads the runtime's own sentence (`remote_requests.py`, `validation.has_text`; `QueryPrompt.getValidationMessage`). Nova's required field with no message shows Nova's sentence, and a validation always carries a message",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "`required.text`, `validations[0].text`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/validations-1",
 		"area": "case-search",
 		"section": "Case search",
@@ -2959,6 +3328,26 @@
 		"valueClass": "other-value",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: no reader on either runtime (with a `receiver_expression` the row above refuses it, and HQ's build drops `receive` for any prompt with an appearance and no itemset)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/appearance-address-beside-an-input-hq-s-build-writes-over-it",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`appearance: address` beside an `input_` of `date`, `daterange` or `checkbox`",
+		"surfaceKeys": ["schema:CaseSearchProperty.appearance"],
+		"valueClass": "address-beside-a-date-daterange-or-checkbox-input",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build gives the address appearance's prompt `input=\"address\"`, then writes the stored `input_` over it and writes no `appearance` (`remote_requests.py::build_query_prompts`), so both runtimes show the `input_`'s field; HQ's Case List page shows the `input_`'s type too (`case_claim.js::_getAppearance` tests `date`, `daterange` and `checkbox` last), and its save writes no `appearance` (`views/modules.py::_update_search_properties`). The field is read by its `input_`'s row (with a `receiver_expression` the row refusing one on an editor appearance other than text or a lookup refuses it, and HQ's build drops `receive` for any prompt with an appearance and no itemset)",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -3300,7 +3689,7 @@
 		],
 		"valueClass": "project-timezone-date",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: project-timezone date comparison",
+		"dispositionCell": "**HELD-NEW**: HQ reads the date as the project space's day (`comparison.py::_create_system_datetime_query`); no read gives Nova that time zone, so neither Preview nor Postgres can evaluate it. Held once a project space's time zone is a fact Nova has",
 		"subject": "search-expressions",
 		"owner": "case-search",
 		"platforms": {
@@ -3381,7 +3770,7 @@
 		"item": "`double(v)`, `today()`, `now()`",
 		"surfaceKeys": ["csql-fn:double", "csql-fn:today", "csql-fn:now"],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `double`, `today`, `now`",
+		"dispositionCell": "**HELD**: `double`, `today`, `now`. HQ's `today()` is the project space's day and Nova's is the worker's: a first publish sends the worker's day and says so (`search-today-device-day`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3433,7 +3822,7 @@
 		"item": "`unwrap-list('[…]')`",
 		"surfaceKeys": ["csql-fn:unwrap-list"],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: list-literal value (runtime-assembled lists included)",
+		"dispositionCell": "**HELD**: `value-list`, with literal and runtime items; written as `list(…)` in the record dialect and edited as a list of values in the builder",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3764,11 +4153,11 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
-		"item": "runtime values read from casedb or session datums",
+		"item": "runtime values read from session datums, the session, the worker, a Search answer, or a property of the case chosen in a menu",
 		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
 		"valueClass": "case-or-datum-terms",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: case and datum terms in CSQL values",
+		"dispositionCell": "**HELD**: session, worker, answer and chosen-case terms in CSQL values",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3783,6 +4172,34 @@
 		"emission": {
 			"cell": "printed",
 			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-search-value-that-queries-cases-a-table-or-places",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "a runtime value read from a `casedb`, lookup table or place query, other than a property of the case chosen in a menu",
+		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
+		"valueClass": "device-data-query",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the union and the checker hold the read; no editor has a spelling or a card for a query inside a search value",
+		"subject": "search-expressions",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3937,10 +4354,9 @@
 			"csql-key:_xpath_query"
 		],
 		"valueClass": "xpath-query-rows",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: each row a typed default filter kept as its own row; Nova emits one row per top-level conjunct of its composed condition (`xpathQuery.ts::composeXPathQueryEmission`), and HQ joins every row with `and` (`case_search/utils.py::_apply_filter`); no reader reads rows back yet",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: several `_xpath_query` rows, read as one condition: their conjunction. HQ joins every row with `and` (`case_search/utils.py::_apply_filter`), so one row or several find the same cases, and Nova writes one row per top-level conjunct of what it holds (`xpathQuery.ts::composeXPathQueryEmission`): each top-level conjunct a restated clause of the case list filter, a Search field's derivation, a condition on an excluded Search field, a list filter clause that waits for a Search field, or, where the module's forms read the search, a clause the list filter gains",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3953,6 +4369,112 @@
 		},
 		"emission": {
 			"cell": "one row per filter",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/xpath-query-row-reading-a-field-hq-also-matches",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "an `_xpath_query` conjunct that reads a prompt with no `exclude` outside that prompt's presence guard",
+		"surfaceKeys": [
+			"schema:CaseSearch.default_properties",
+			"schema:DefaultCaseSearchProperty",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"csql-key:_xpath_query"
+		],
+		"valueClass": "conjunct-over-a-matched-field-unguarded",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a condition on a Search field HQ's matcher also compares, applied whether or not the field is answered; Nova holds such a condition only as a list filter clause that waits for the field, or on an excluded field (`searchPrompts.ts::searchInputSuppressesAutoMatch`)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "an `_xpath_query` conjunct that reads no prompt and restates no clause of `Detail.filter`, on a module whose forms do not read the search, or one an advanced form's load names as `details_module`",
+		"surfaceKeys": [
+			"schema:CaseSearch.default_properties",
+			"schema:DefaultCaseSearchProperty",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"csql-key:_xpath_query"
+		],
+		"valueClass": "conjunct-with-no-slot",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a filter the search applies and the case list does not: there HQ's results list reads the case type alone (`remote_requests.py::_build_datum_nodeset`), and Nova's one filter narrows both",
+		"subject": "search-default-filters",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/case-list-filter-clause-the-search-does-not-restate",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "a top-level clause of `Detail.filter` no `_xpath_query` conjunct restates, on a module that offers search and whose forms do not read it",
+		"surfaceKeys": ["schema:Detail.filter"],
+		"valueClass": "unrestated-on-a-module-whose-forms-do-not-read-the-search",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a filter the case list applies and the search does not: there HQ's results list reads the case type alone (`remote_requests.py::_build_datum_nodeset`), and Nova's one filter narrows both",
+		"subject": "list-and-search-filters",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/xpath-query-condition-outside-what-nova-types",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "a search filter CommCare HQ builds and Nova's checker or its CSQL representability rule refuses, by its reason: text ordered, a time ordered, a date-and-time property against text",
+		"surfaceKeys": ["csql-key:_xpath_query"],
+		"valueClass": "outside-the-record-rule-set",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the record rule set's wider vocabulary in a search filter",
+		"subject": "search-expressions",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

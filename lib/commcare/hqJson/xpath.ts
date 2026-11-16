@@ -62,6 +62,11 @@ function serializeValue(value: unknown): unknown {
 	return value;
 }
 
+/** One menu's tree as HQ JSON, every expression printed as the application's are. */
+export function serializeHqModule(value: HqModuleTree): HqModule {
+	return serializeValue(value) as HqModule;
+}
+
 export function serializeHqApplication(
 	value: HqApplicationTree,
 ): HqApplication {

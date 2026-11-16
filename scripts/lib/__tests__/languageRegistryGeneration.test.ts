@@ -347,6 +347,39 @@ describe("deriveLanguageRegistry", () => {
 		).toEqual(["arb", "aao"]);
 	});
 
+	it("puts the member CLDR spells as the macro's own locale ahead of one it spells with a region", () => {
+		const extended = deriveLanguageRegistry({
+			...SOURCE,
+			iso6393Tab: [
+				ISO_6393_TAB,
+				tabRow(["swa", "", "", "sw", "M", "L", "Swahili (macrolanguage)", ""]),
+				tabRow(["swc", "", "", "", "I", "L", "Congo Swahili", ""]),
+				tabRow([
+					"swh",
+					"",
+					"",
+					"",
+					"I",
+					"L",
+					"Swahili (individual language)",
+					"",
+				]),
+			].join("\n"),
+			macrolanguagesTab: `${MACROLANGUAGES_TAB}\nswa\tswc\tA\nswa\tswh\tA`,
+			languageAliases: {
+				...SOURCE.languageAliases,
+				swa: { _reason: "overlong", _replacement: "sw" },
+				swc: { _reason: "macrolanguage", _replacement: "sw_CD" },
+				swh: { _reason: "macrolanguage", _replacement: "sw" },
+			},
+		});
+		expect(
+			extended.macrolanguages
+				.find(({ code }) => code === "swa")
+				?.members.map(({ code }) => code),
+		).toEqual(["swh", "swc"]);
+	});
+
 	it("derives the same catalogs from reordered source rows and CRLF downloads", () => {
 		const reordered = (tab: string) => {
 			const [header, ...rows] = tab.split("\n");

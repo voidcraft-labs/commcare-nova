@@ -52,15 +52,18 @@ export const ACCOUNT_CHECK_AGAIN_LINE =
 
 export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"advanced-forms": "Advanced forms",
+	"advanced-menus": "Advanced menus",
 	"after-submit": "After a form is sent",
 	"android-app-dependencies": "Android app dependencies",
 	"app-document": "The app as stored",
 	"app-logos": "App logos",
+	"app-name": "The app's name",
 	"app-settings": "App settings",
 	"auto-select": "Choosing a case automatically",
 	"blank-form": "Forms with no questions",
 	"build-profiles": "Build profiles",
 	"call-center-indicators": "Call center indicators",
+	"carriage-returns": "Carriage returns in text",
 	"case-attachments": "Files saved on a case",
 	"case-detail-tabs": "Case detail tabs",
 	"case-list-callout": "Case list lookups",
@@ -94,6 +97,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"hierarchical-locations": "The older organization list",
 	"instance-text": "Text read as a data source",
 	"language-codes": "Language codes",
+	"list-and-search-filters": "Case list and search filters",
 	"lookup-selection": "Choosing from a lookup table first",
 	"lookup-tables": "Lookup tables",
 	"media-by-language": "Media by language",
@@ -122,7 +126,11 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"search-setup": "Search setup",
 	"shadow-forms": "Shadow forms",
 	"supply-features": "CommCare Supply",
+	"text-backslashes": "Backslashes before #",
+	"text-characters": "Characters in text",
+	"text-placeholders": "Placeholders in names and labels",
 	"training-menus": "Training menus",
+	"translation-overrides": "Changed wording in translations",
 	"visit-scheduler": "Visit schedules",
 	"worker-record": "The worker's own record",
 	"writer-types": "Answers of different kinds",
@@ -146,6 +154,10 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"This uses a way of loading or opening cases in an advanced form, which Nova can't hold yet.",
 	},
+	"advanced-menus": {
+		"not-yet":
+			"This advanced menu is set up in a way Nova would change when it publishes, so Nova can't hold it yet.",
+	},
 	"after-submit": {
 		never:
 			"This uses a destination after the form is sent, which Nova doesn't bring in.",
@@ -159,6 +171,7 @@ export const FINDING_COPY: Readonly<
 			"A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by.",
 	},
 	"app-logos": {},
+	"app-name": {},
 	"app-settings": {
 		never: "This uses an app setting, which Nova doesn't bring in.",
 		"not-yet": "This uses an app setting, which Nova can't hold yet.",
@@ -174,6 +187,7 @@ export const FINDING_COPY: Readonly<
 	"call-center-indicators": {
 		never: "This uses call center indicators, which Nova doesn't bring in.",
 	},
+	"carriage-returns": {},
 	"case-attachments": {
 		never:
 			"This uses pictures or files saved on a case itself, which Nova doesn't bring in.",
@@ -219,6 +233,8 @@ export const FINDING_COPY: Readonly<
 			"This uses a way of loading a case value into a question, which Nova can't hold yet.",
 	},
 	"case-property-names": {
+		never:
+			"A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in.",
 		"not-yet": "A case property name here is one Nova can't hold yet.",
 	},
 	"case-sharing": {
@@ -264,7 +280,11 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"A form here goes back to, or opens through, the menu above in a way Nova can't hold yet.",
 	},
-	expressions: {},
+	expressions: {
+		never:
+			"An expression here reads a place's or the worker's information under a name Nova can't hold, such as one that differs from another only in capital letters.",
+		"not-yet": "An expression here is more than Nova can read yet.",
+	},
 	"form-case-management": {
 		"not-yet":
 			"This form's case management is set up in a way Nova can't hold yet.",
@@ -272,7 +292,9 @@ export const FINDING_COPY: Readonly<
 	"form-settings": {
 		"not-yet": "This uses a form setting, which Nova can't hold yet.",
 	},
-	"form-source": {},
+	"form-source": {
+		"not-yet": "A form's source here is built in a way Nova can't hold yet.",
+	},
 	"hand-written-content": {
 		never:
 			"This uses hand-written XML or settings that no CommCare HQ page edits, which Nova doesn't bring in.",
@@ -282,7 +304,13 @@ export const FINDING_COPY: Readonly<
 			"This uses the older, nested list of places, which Nova doesn't bring in.",
 	},
 	"instance-text": {},
-	"language-codes": {},
+	"language-codes": {
+		"not-yet": "A language code here is one Nova can't hold yet.",
+	},
+	"list-and-search-filters": {
+		"not-yet":
+			"The case list here filters cases its search doesn't, which Nova can't hold yet.",
+	},
 	"lookup-selection": {
 		never:
 			"This uses choosing from a lookup table before the case list, which Nova doesn't bring in.",
@@ -340,6 +368,7 @@ export const FINDING_COPY: Readonly<
 	"question-ids": {
 		never:
 			"Two questions here share one place in the form's data, so Nova can't tell them apart.",
+		"not-yet": "A question ID here is one Nova can't hold yet.",
 	},
 	"question-logic": {
 		"not-yet": "A question's logic here is something Nova can't hold yet.",
@@ -383,16 +412,23 @@ export const FINDING_COPY: Readonly<
 	"supply-features": {
 		never: "This uses CommCare Supply features, which Nova doesn't bring in.",
 	},
+	"text-backslashes": {},
+	"text-characters": {},
+	"text-placeholders": {},
 	"training-menus": {
 		never:
 			"This uses a training menu or release notes form, which Nova doesn't bring in.",
+	},
+	"translation-overrides": {
+		"not-yet":
+			"This uses its own wording for a menu, form or list, kept in the app's translations, which Nova can't hold yet.",
 	},
 	"visit-scheduler": {
 		never: "This uses a visit schedule, which Nova doesn't bring in.",
 	},
 	"worker-record": {
 		never:
-			"A question here is named commcare_usercase, the name CommCare HQ gives the worker's own record.",
+			"This uses a name for the worker's own record, or for one of its details, that Nova can't hold.",
 		"not-yet":
 			"This reads or writes the worker's own record in a way Nova can't hold yet.",
 	},
@@ -470,9 +506,17 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",
 	},
+	"app-name": {
+		"breaks-when-run":
+			"The app's name holds \\n, a backslash before # or a carriage return. CommCare's lists of apps, on a phone and in Web Apps, show the name one way, while the app's own screens show a line break, # alone or only the text before the carriage return. Writing the name without them fixes it.",
+	},
 	"blank-form": {
 		"hq-refuses":
 			"A form here has no questions, which CommCare HQ won't build.",
+	},
+	"carriage-returns": {
+		"breaks-when-run":
+			"A text here holds a carriage return, where devices end the text's line. Devices don't show the text as written, and they read the part after the carriage return as a line of its own, which can set the wording of another text. Without the carriage return, devices show the whole text.",
 	},
 	"case-types": {
 		"hq-refuses":
@@ -510,6 +554,18 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 	"question-ids": {
 		"hq-refuses":
 			"A question ID here is one CommCare HQ's form builder can't keep.",
+	},
+	"text-backslashes": {
+		"breaks-when-run":
+			"A text here shows on devices with a backslash right before #, which Nova can't hold. Taking out the backslashes before # fixes it.",
+	},
+	"text-characters": {
+		"hq-refuses":
+			"A text here holds a character Nova can't write into an app, such as a control character. Taking it out in CommCare HQ fixes it.",
+	},
+	"text-placeholders": {
+		"breaks-when-run":
+			"A name or label here holds a ${ that CommCare reads as a placeholder on some screens, such as Android's menus and every screen title, while other screens show it as typed. Taking out the ${ and what follows it up to its closing brace, where it has one, fixes it.",
 	},
 };
 

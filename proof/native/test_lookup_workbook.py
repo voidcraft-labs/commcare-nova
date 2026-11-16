@@ -17,7 +17,7 @@ import json
 
 from lxml import etree
 
-from proof.native.hq_support import hq_commit, hq_source_hashes, sha256, write_evidence
+from proof.native.hq_support import EVIDENCE_SUFFIX, hq_commit, hq_source_hashes, sha256, write_evidence
 
 FAMILIES = ("lookup",)
 HQ_SOURCES = [
@@ -74,7 +74,7 @@ def test_hq_reads_novas_workbooks_as_nova_wrote_them(native):
             "artifactHashes": {
                 path.name: sha256(path.read_bytes())
                 for path in exports.iterdir()
-                if path.is_file() and not path.name.endswith(".evidence.json")
+                if path.is_file() and not path.name.endswith(EVIDENCE_SUFFIX)
             },
             "tables": actual,
             "paddingInput": expected["padding"],

@@ -36,6 +36,7 @@ DOCUMENTS = (
     "targeted-save-to-case-read",
     "targeted-search-hq-compile",
     "targeted-search-workflow",
+    "targeted-several-case-close",
     "targeted-validated-barcode-secret",
     "xpath-context",
 )

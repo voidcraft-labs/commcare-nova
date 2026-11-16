@@ -78,7 +78,7 @@ slot while lexical row and form-node context can change.
 
 `printFormExpression` is a pure projection with occurrence spans and explicit
 unresolved identities. `formStructure` and `formNodeGraph` supply domain topology.
-CommCare names and wire function spelling are provided at the one-way emission
+CommCare names and wire function spelling are provided at the `lib/commcare`
 boundary. Text parsing belongs to the authoring grammar and always creates this
 same tree; it never installs a second stored expression representation.
 
@@ -201,7 +201,10 @@ with `instant.field`), a date (`date-datetime`), a literal no spelling reads
 (`unreadable-datetime`, by `literalInstantMicros`, the fold's own grammar,
 which reads a four-digit year, a day that exists, a clock to 23:59:59 and an
 offset's two-digit hours and minutes, and whose `literalInstantText` prints
-any literal it reads in the literal's own date and offset), and a literal or a
+any literal it reads in the literal's own date and offset; `instantTextOfMicros`
+is its inverse for a count of microseconds: the canonical UTC text, or an
+offset behind UTC where the UTC year is past 9999, and the reader of CommCare
+HQ's apps writes a folded literal back with it), and a literal or a
 branch of another known kind, or a branch of unknown type holding neither
 text nor a typed date (`datetime-ordering`, or `datetime-equality` under `=` /
 `!=`); a blank literal names no moment and is admitted. A `datetime-coerce` of

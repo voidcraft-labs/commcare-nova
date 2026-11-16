@@ -1371,7 +1371,15 @@ A `LaneReadInput` with `identity: "mint"` and no `projectData`, or with `identit
    media by the path each asset was published at (`assetWirePath.ts::wirePathFor`, or
    `HqAuthoredFacts.mediaPaths` where the document holds one); and `appStrings` from part 09's
    `lib/deployment/reading/appStrings.ts::readingAppStrings` over the gate's context for that
-   lookup catalog (its section 15.1). Nova's publish of the document
+   lookup catalog (its section 15.1); and `knownCaseTypes`, for a Nova-born document, the case
+   type each index of the document's case types reaches (`knownCaseTypesOf(doc)`,
+   `reader/caseManagement/knownCaseTypes.ts`; part 07, section 7), since its export holds
+   `parent/<property>` or `host/<property>` with the ancestor's type nowhere where only its catalog
+   or its typed steps name it, and none for a base authored in HQ, whose reading is a first reading;
+   and `knownLanguageCodes`, for a Nova-born document, its own codes (`knownLanguageCodesOf(doc)`,
+   `reader/languages.ts`), so a code stored under a spelling the minter has since changed reads back
+   to the language the document holds, and none for a base authored in HQ. Nova's
+   publish of the document
    created those in HQ from the same data, or, for a base, left HQ's as they were. No acceptance
    runs: the read back is itself the fixed point, and `offered` comes from the draft's
    `declaration.choices`.
@@ -1960,14 +1968,13 @@ answers whether the value can exist (7.3). A class HQ's form builder cannot writ
 `not-hq-editable` class is one) is made with `set_form_source`, which is how such a form exists in
 HQ at all.
 
-Eight refusals name no surface key and are raised from an app's source, so each has a row:
+Eight refusals name no surface key and are raised from an app's source, and seven of them keep a row; the eighth, `forms-and-case-writes/writers-int-decimal`, becomes HELD in this step (part 07, sections 7 and 14), so it is none:
 
 | Entry | Disposition | Raised by | Base |
 |---|---|---|---|
 | `case-search/a-function-call-written-unparenthesized-as-the-2nd-or-later` | REFUSED | part 08, section 7 | `hq-search` |
 | `expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-does` | REFUSED | parts 06 and 11 | `hq-lookups` |
 | `expressions-and-data/any-other-function-name` | REFUSED | part 08, section 9 | `hq-expressions` |
-| `forms-and-case-writes/writers-int-decimal` | HELD-NEW | part 07, section 7 | `hq-case-management` |
 | `forms-and-case-writes/writers-single-select-multi-select` | HELD-NEW | part 07, section 7 | `hq-case-management` |
 | `forms-and-case-writes/any-other-mixed-writer-pair` | HELD-NEW | part 07, section 7 | `hq-case-management` |
 | `forms-and-case-writes/a-datetime-question-saved-straight-to-a-case` | HELD-NEW | part 07, section 3.2; part 09, section 11.4 | `hq-case-management` |

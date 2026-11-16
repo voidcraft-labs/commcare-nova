@@ -7,6 +7,7 @@
 
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
+import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
 import type { Field } from "./fields";
 import { isContainer } from "./fields";
@@ -161,6 +162,14 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"search-runtime-validation-message",
 ]);
 
+/** Whether a unit of `role` holds `contentPolicy: "require-nonblank"`: no translation of it may be
+ *  blank. */
+export function translationRoleRequiresNonblank(
+	role: TranslationUnitRole,
+): boolean {
+	return NONBLANK_TRANSLATION_ROLES.has(role);
+}
+
 export interface LocalizedTranslationUnit extends TranslationUnit {
 	readonly language: LanguageTag;
 	readonly explicit?: TranslationEntry;
@@ -269,7 +278,7 @@ export function collectTranslationCoverageDiagnostics(
 function unit(
 	input: Omit<TranslationUnit, "sourceFingerprint" | "contentPolicy">,
 ): TranslationUnit {
-	const contentPolicy = NONBLANK_TRANSLATION_ROLES.has(input.role)
+	const contentPolicy = translationRoleRequiresNonblank(input.role)
 		? "require-nonblank"
 		: "allow-blank";
 	return {
@@ -403,13 +412,15 @@ function fieldUnits(
 	}
 }
 
+/** A case property with its effective type: declared, else its writers' (`effectiveCaseTypes`),
+ *  the type the case list's projection reads when it writes a select property's labels. */
 function caseProperty(
 	doc: BlueprintDoc,
 	caseType: string | undefined,
 	property: string,
 ): CaseProperty | undefined {
-	return doc.caseTypes
-		?.find((candidate) => candidate.name === caseType)
+	return effectiveCaseTypes(doc)
+		.find((candidate) => candidate.name === caseType)
 		?.properties.find((candidate) => candidate.name === property);
 }
 
@@ -960,7 +971,26 @@ export function formTranslationUnits(
 			Uuid,
 			Map<TranslationUnitId, { readonly showsAnswer: boolean }>
 		>();
-		for (const unitValue of snapshotTranslationUnits(doc).values()) {
+		// The questions' units are walked here form by form, never through the whole inventory:
+		// expression inference reads these, and the inventory's case-list units read the case
+		// types inference derives (`caseProperty`).
+		const formUnits: TranslationUnit[] = [];
+		for (const moduleUuid of doc.moduleOrder) {
+			const module = doc.modules[moduleUuid];
+			if (module === undefined) continue;
+			for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+				const form = doc.forms[formUuid];
+				if (form === undefined) continue;
+				fieldUnits(
+					doc,
+					{ module, formUuid, formName: form.name },
+					formUuid,
+					[],
+					formUnits,
+				);
+			}
+		}
+		for (const unitValue of formUnits) {
 			const owner = unitValue.owner;
 			if (owner.kind !== "field" && owner.kind !== "select-option") continue;
 			let units = built.get(owner.formUuid);

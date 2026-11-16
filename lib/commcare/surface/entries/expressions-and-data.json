@@ -12,7 +12,7 @@
 		],
 		"valueClass": "casedb",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: casedb reads (typed `#<type>/prop` leaves today; queries become typed case-database references)",
+		"dispositionCell": "**HELD**: casedb reads: `form-case` for the form's own case and the cases above it, `cases` queries with `project`, and relation reads in record slots",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -68,12 +68,13 @@
 		"section": "Secondary instances",
 		"item": "session `data/<datum>`",
 		"surfaceKeys": ["session-path:session/data/*"],
+		"valueClass": "supplied",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the `session-datum` term over `DatumRef` identity (the case chosen in a menu, the case the form registers, a new child case, the worker's record, a tile group's parents), printed as the id the entry derives; narrow: to the datums the form's entry supplies where the slot runs (`SESSION_DATUM_NOT_SUPPLIED`); a placeholder, and a several-case datum read as one value, are refused when the text is read",
+		"dispositionCell": "**HELD**: the `session-datum` term over `DatumRef` identity (the case chosen in a menu, the case the form registers, a new child case, the worker's record, a tile group's parents), printed as the id the entry derives; narrow: to the datums the form's entry supplies where the slot runs (`SESSION_DATUM_NOT_SUPPLIED`)",
 		"slotChanges": [
 			{
 				"direction": "narrow",
-				"text": "to the datums the form's entry supplies where the slot runs (`SESSION_DATUM_NOT_SUPPLIED`); a placeholder, and a several-case datum read as one value, are refused when the text is read"
+				"text": "to the datums the form's entry supplies where the slot runs (`SESSION_DATUM_NOT_SUPPLIED`)"
 			}
 		],
 		"platforms": {
@@ -88,6 +89,32 @@
 		},
 		"emission": {
 			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-data-datum-the-entry-does-not-supply",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `data/<datum>` naming a value the form's entry does not supply, a placeholder, or several chosen cases read as one value",
+		"surfaceKeys": ["session-path:session/data/*"],
+		"valueClass": "not-supplied",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: the entry writes no such node, and a scalar read of a missing session leaf can stop the form (`lib/commcare/CLAUDE.md`, the binding-resolution oracle)",
+		"subject": "expressions",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "the entry writes no such node, and a scalar read of a missing session leaf can stop the form (`lib/commcare/CLAUDE.md`, the binding-resolution oracle)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -884,11 +911,11 @@
 		],
 		"valueClass": "inline-search-form",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `input` reads of the module's Search fields from `search-input:results:inline`; narrow: to the forms of a search-first module and its no-matches form; a form link's slots and a child module of a search-first parent stay refused (`INVALID_SEARCH_REF`)",
+		"dispositionCell": "**HELD**: `input` reads of the module's Search fields from `search-input:results:inline`; narrow: to the forms of a search-first module and its no-matches form; a form link's slots stay refused (`INVALID_SEARCH_REF`), and a child menu of such a parent whose parent selection chooses a case from its list is `expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu`'s",
 		"slotChanges": [
 			{
 				"direction": "narrow",
-				"text": "to the forms of a search-first module and its no-matches form; a form link's slots and a child module of a search-first parent stay refused (`INVALID_SEARCH_REF`)"
+				"text": "to the forms of a search-first module and its no-matches form; a form link's slots stay refused (`INVALID_SEARCH_REF`), and a child menu of such a parent whose parent selection chooses a case from its list is `expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu`'s"
 			}
 		],
 		"platforms": {
@@ -903,6 +930,33 @@
 		},
 		"emission": {
 			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`search-input:*` read in the forms of a child menu of a menu whose forms read the search, where the child menu's parent selection chooses a case from that menu's list",
+		"surfaceKeys": ["instance-scheme:search-input"],
+		"valueClass": "child-menu-of-inline-search-form",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: where the child menu's parent selection chooses a case from the parent menu's list, CommCare HQ's build writes the parent menu's query into the child form's entry (`suite_xml/sections/entries.py::EntriesHelper.add_remote_query_datums`), so nothing in CommCare HQ needs changing; Nova gives a child menu's form no read of its parent's Search fields",
+		"subject": "data-sources",
+		"owner": "menus",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -3206,11 +3260,11 @@
 		"surfaceKeys": ["xpath-expr:XPathPathExpr"],
 		"valueClass": "instance-or-current-root",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: typed path roots (path initializers, `XPathPathExpr.getReference`): `casedb`, `commcaresession`, a table's tag, `locations`, a several-case form's selected cases, `results:inline` and `current()`; narrow: to the instance ids Nova types; `groups` and search inputs wait for later steps, and any other id is refused when the text is read",
+		"dispositionCell": "**HELD**: typed path roots (path initializers, `XPathPathExpr.getReference`): `casedb`, `commcaresession`, a table's tag, `locations`, a several-case form's selected cases, `results:inline` and `current()`; narrow: to the instance ids Nova types; `groups` waits for a later step; an id is read by the source its form declares, and any other is refused when the text is read",
 		"slotChanges": [
 			{
 				"direction": "narrow",
-				"text": "to the instance ids Nova types; `groups` and search inputs wait for later steps, and any other id is refused when the text is read"
+				"text": "to the instance ids Nova types; `groups` waits for a later step; an id is read by the source its form declares, and any other is refused when the text is read"
 			}
 		],
 		"platforms": {
@@ -3226,6 +3280,111 @@
 		"emission": {
 			"cell": "printed",
 			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "an expression that reads a question, table, column, level or place property that is not there, reads the form's answers or a case where there is none to read, reads several answers where one is needed, or calls a function with a count of arguments it does not take",
+		"surfaceKeys": [],
+		"noSurfaceKey": "a relation between a read and what the form, the catalog and the project space hold, which no surface item states",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: the read stops the form or is blank on a device, and Core refuses the call when it parses the expression",
+		"subject": "expressions",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "the read stops the form or is blank on a device, and Core refuses the call when it parses the expression"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "a read of a place's `location_data/<name>` under a name no location property takes: one CommCare HQ's location fields or Nova refuse for a field (`name`, `external_id`, a `commcare` or `xml` prefix, a case-reserved word in any capitalization, past 127 characters), or one another `location_data` read of the app spells in other letters only (`Zone` beside `zone`)",
+		"surfaceKeys": [],
+		"noSurfaceKey": "a relation between a read's name and the location fields a project space can define, which no surface item states",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: unrepresentable identity: not a location property Nova can hold: Nova reads a place's data only through a location property the app declares, and no location property takes this name: CommCare HQ's location fields refuse a name it reserves for the system (`name`, `type`, `external_id` and the rest of `SYSTEM_FIELDS`) and a `commcare` or `xml` prefix as written, a case-reserved word in any capitalization, and hold slugs unique whatever their capitalization (`custom_data_fields/models.py::validate_reserved_words`, `custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_reserved_words`, `::verify_no_duplicates`); Nova holds the same uniqueness (`LOCATION_PROPERTY_SLUG_DUPLICATE`) and is stricter about reserved names, refusing the system names and the two prefixes in any capitalization (`validator/userPropertySlug.ts::userPropertySlugVerdict`, deliberately lowercased), so a name such as `Commcare_zone` or `XML_zone`, which HQ's location fields can hold, takes no location property either; Core reads each name as its own element (`location_data/Zone` and `location_data/zone` are two reads), so of two names that differ only in capitalization Nova holds the first in code-unit order (`worldEntities.ts::worldEntitiesFromReads`) and refuses the read of the other",
+		"subject": "expressions",
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "not a location property Nova can hold: Nova reads a place's data only through a location property the app declares, and no location property takes this name: CommCare HQ's location fields refuse a name it reserves for the system (`name`, `type`, `external_id` and the rest of `SYSTEM_FIELDS`) and a `commcare` or `xml` prefix as written, a case-reserved word in any capitalization, and hold slugs unique whatever their capitalization (`custom_data_fields/models.py::validate_reserved_words`, `custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_reserved_words`, `::verify_no_duplicates`); Nova holds the same uniqueness (`LOCATION_PROPERTY_SLUG_DUPLICATE`) and is stricter about reserved names, refusing the system names and the two prefixes in any capitalization (`validator/userPropertySlug.ts::userPropertySlugVerdict`, deliberately lowercased), so a name such as `Commcare_zone` or `XML_zone`, which HQ's location fields can hold, takes no location property either; Core reads each name as its own element (`location_data/Zone` and `location_data/zone` are two reads), so of two names that differ only in capitalization Nova holds the first in code-unit order (`worldEntities.ts::worldEntitiesFromReads`) and refuses the read of the other"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "a session read of the worker's `user/data/<name>` under a name no worker property takes: one CommCare HQ's user fields or Nova refuse for a field (`name`, `external_id`, a `commcare` or `xml` prefix, a case-reserved word in any capitalization, past 127 characters), or one another session read of the app spells in other letters only (`Region` beside `region`)",
+		"surfaceKeys": [],
+		"noSurfaceKey": "a relation between a read's name and the user fields a project space can define, which no surface item states",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: unrepresentable identity: not a worker property Nova can hold: Nova reads the worker's information from the session only through a worker property the app declares (the gate refuses a session read of any other name that is not CommCare's own, `undeclared-worker-field`), and no worker property takes this name: CommCare HQ's user fields refuse a name it reserves for the system (`name`, `type`, `external_id` and the rest of `SYSTEM_FIELDS`) and a `commcare` or `xml` prefix as written, a name of digits alone, a case-reserved word in any capitalization, and hold slugs unique whatever their capitalization (`custom_data_fields/edit_model.py::XmlSlugField`, `custom_data_fields/models.py::validate_reserved_words`, `custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_reserved_words`, `::verify_no_duplicates`); Nova holds the same uniqueness (`USER_PROPERTY_SLUG_DUPLICATE`) and is stricter about reserved names, refusing the system names and the two prefixes in any capitalization (`validator/userPropertySlug.ts::userPropertySlugVerdict`, deliberately lowercased), so a name such as `Commcare_zone` or `XML_zone`, which HQ's user fields can hold, takes no worker property either; Core reads each name as its own element (`SessionInstanceBuilder.addUserProperties`, so `user/data/Region` and `user/data/region` are two reads), so of two names that differ only in capitalization Nova holds the first in code-unit order (`worldEntities.ts::heldWorkerSlugs`) and refuses the session read of the other; a read of the worker's own case (`#user/`) holds every name and stands by name",
+		"subject": "expressions",
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "not a worker property Nova can hold: Nova reads the worker's information from the session only through a worker property the app declares (the gate refuses a session read of any other name that is not CommCare's own, `undeclared-worker-field`), and no worker property takes this name: CommCare HQ's user fields refuse a name it reserves for the system (`name`, `type`, `external_id` and the rest of `SYSTEM_FIELDS`) and a `commcare` or `xml` prefix as written, a name of digits alone, a case-reserved word in any capitalization, and hold slugs unique whatever their capitalization (`custom_data_fields/edit_model.py::XmlSlugField`, `custom_data_fields/models.py::validate_reserved_words`, `custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_reserved_words`, `::verify_no_duplicates`); Nova holds the same uniqueness (`USER_PROPERTY_SLUG_DUPLICATE`) and is stricter about reserved names, refusing the system names and the two prefixes in any capitalization (`validator/userPropertySlug.ts::userPropertySlugVerdict`, deliberately lowercased), so a name such as `Commcare_zone` or `XML_zone`, which HQ's user fields can hold, takes no worker property either; Core reads each name as its own element (`SessionInstanceBuilder.addUserProperties`, so `user/data/Region` and `user/data/region` are two reads), so of two names that differ only in capitalization Nova holds the first in code-unit order (`worldEntities.ts::heldWorkerSlugs`) and refuses the session read of the other; a read of the worker's own case (`#user/`) holds every name and stands by name"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/a-form-expression-outside-what-nova-types",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "a form expression CommCare runs and Nova's checker refuses for a reason of its own: a comparison CommCare answers by turning one side into a number or a yes or no (a date with a date and time, a yes or no with text, text ordered), a `*` step, a read of a block CommCare HQ's build adds (`meta`, `case`), a default outside a question's choices, a date and time finer than a millisecond",
+		"surfaceKeys": [],
+		"noSurfaceKey": "the checker's own narrowing of the form rule set, which no surface item states",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the form rule set's wider vocabulary. Nothing in CommCare HQ needs changing: Core runs the expression today (`XPathEqExpr`, `FunctionUtils.toNumeric`, `::toBoolean`)",
+		"subject": "expressions",
+		"owner": "xform",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},

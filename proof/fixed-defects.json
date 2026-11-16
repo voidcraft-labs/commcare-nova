@@ -1519,15 +1519,6 @@
 		"control": "targeted-load-time-values"
 	},
 	{
-		"id": "d13-blank-translations-form-translation-blank-beside-default-text",
-		"defect": 13,
-		"part": "blank translations",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1itext~1translation~1text~1value/refused/blank-beside-default-text",
-		"control": "localization-optional"
-	},
-	{
 		"id": "d13-blank-translations-form-itext-translation",
 		"defect": 13,
 		"part": "blank translations",
@@ -8953,33 +8944,6 @@
 		"path": "/runs/*/screens/*/form/questions/*/label",
 		"kind": "changed",
 		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d28-load-time-values-app-form-actions",
-		"defect": 28,
-		"part": "load-time values",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:Form.actions/refused/load-changes-values",
-		"control": "targeted-load-time-values"
-	},
-	{
-		"id": "d28-load-time-values-app-formactions-case-preload",
-		"defect": 28,
-		"part": "load-time values",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:FormActions.case_preload/refused/load-changes-values",
-		"control": "targeted-load-time-values"
-	},
-	{
-		"id": "d28-load-time-values-app-preloadaction-preload",
-		"defect": 28,
-		"part": "load-time values",
-		"check": "manifest",
-		"artifact": "*app.json",
-		"path": "/schema:PreloadAction.preload/refused/load-changes-values",
-		"control": "targeted-load-time-values"
 	},
 	{
 		"id": "d24-inert-subcase-app-schema-form-actions-extension",

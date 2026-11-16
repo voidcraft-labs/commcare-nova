@@ -79,6 +79,10 @@ import {
 	type WireElementContext,
 	xel,
 } from "@/lib/commcare/elementBuilders";
+import {
+	type RewriteControl,
+	rewriteWithheld,
+} from "@/lib/commcare/emissionRewrites";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { w } from "@/lib/commcare/xpath/wire/builders";
@@ -624,21 +628,10 @@ function buildSearchActionBlock(
 		auto_launch: autoLaunchExpr,
 	};
 	if (searchAction.displayCondition !== undefined) {
-		// `simplifyForEmission` strips any redundant boolean identity (a
-		// `match-all` left inside an authored `and`) so the `relevant`
-		// expression doesn't carry a `true() and …` conjunct — the same
-		// normalize the filter surfaces + the HQ-JSON
-		// `search_button_display_condition` apply.
-		actionExpressions.relevant = toWire(
-			simplifyForEmission(searchAction.displayCondition),
-			{
-				target: "suite",
-				types: expressions({ slot: "search_button_display_condition" }),
-				bindings:
-					lookupNaming === undefined
-						? {}
-						: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
-			},
+		actionExpressions.relevant = searchActionRelevant(
+			searchAction.displayCondition,
+			expressions,
+			lookupNaming,
 		);
 	}
 
@@ -661,5 +654,35 @@ function buildSearchActionBlock(
 				]),
 			]),
 		],
+	);
+}
+
+/**
+ * The search action's `relevant`, the search button's condition.
+ * `simplifyForEmission` strips any redundant boolean identity (a `match-all`
+ * left inside an authored `and`) so the expression carries no `true() and …`
+ * conjunct, the same normalization the filter surfaces and the HQ JSON
+ * `search_button_display_condition` apply; where `rewrites` withholds
+ * `filter-identities-dropped`, it prints as stored.
+ */
+export function searchActionRelevant(
+	condition: Expression,
+	expressions: ModuleExpressionContexts,
+	lookupNaming?: LookupWireNaming,
+	rewrites?: RewriteControl,
+): WireExpr {
+	return toWire(
+		rewriteWithheld(rewrites, "filter-identities-dropped")
+			? condition
+			: simplifyForEmission(condition),
+		{
+			target: "suite",
+			types: expressions({ slot: "search_button_display_condition" }),
+			bindings:
+				lookupNaming === undefined
+					? {}
+					: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+			...(rewrites === undefined ? {} : { rewrites }),
+		},
 	);
 }

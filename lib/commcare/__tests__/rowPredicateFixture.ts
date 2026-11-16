@@ -33,6 +33,14 @@ export const ROW_PREDICATE_FORM = testUuid("row-predicate-rounds");
 export const ROW_PREDICATE_VISITS = testUuid("row-predicate-visits");
 export const ROW_PREDICATE_KIND = testUuid("row-predicate-kind");
 const CLINIC_LEVEL = testUuid("row-predicate-clinic-level");
+export const ROW_DEFAULT_FORM = testUuid("row-default-starts");
+const ROW_DEFAULT_SEED = testUuid("row-default-seed");
+const ROW_DEFAULT_ROUNDS = testUuid("row-default-rounds");
+const ROW_DEFAULT_ENTRY = testUuid("row-default-entry");
+const seed: Expression = {
+	kind: "term",
+	term: { kind: "field", uuid: ROW_DEFAULT_SEED },
+};
 
 const kind: Expression = {
 	kind: "term",
@@ -159,6 +167,127 @@ export function rowPredicateDoc(): BlueprintDoc {
 												},
 											],
 										}),
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.organizationLevels = { [CLINIC_LEVEL]: level };
+	doc.organizationLevelOrder = [CLINIC_LEVEL];
+	return doc;
+}
+
+/** The rows the Core class gives the starting values' form: no case, and one
+ *  place, named for the second entry. */
+export const ROW_DEFAULT_ROWS = {
+	cases: [],
+	places: [{ id: "second", type: "clinic", name: "2" }],
+	/** What each entry's starting values hold, by how many entries the form
+	 *  makes: `copy` the seed, `entry` its own place in the repeat, and
+	 *  `named` the places named for that place. */
+	entries: [
+		{ copy: "s", entry: "1", named: "0" },
+		{ copy: "s", entry: "2", named: "1" },
+		{ copy: "s", entry: "3", named: "0" },
+	],
+} as const;
+
+/**
+ * The survey "Starts": `seed` starts as `s` and `early` starts as `seed`'s
+ * answer, both when the form opens; in the repeat `rounds`, each new entry's
+ * `copy` starts as `seed`, its `entry` as a count of the repeat (one, since
+ * Core counts the entry it is made in; the Core class writes the entry's
+ * position there), and `named` as the number of places named that number, a read
+ * of the places filtered by another question of the entry. Nova prints every
+ * starting value's read of a question through `current()` (`xpath/wire/formReads.ts`),
+ * and the Core class makes the absolute spelling from the same bytes.
+ */
+export function rowDefaultDoc(): BlueprintDoc {
+	const level: OrganizationLevel = {
+		uuid: CLINIC_LEVEL,
+		code: "clinic",
+		name: "Clinic",
+		caseFlow: { workers: "none", ownsCases: false },
+		addressBook: { reach: "own-branch" },
+	};
+	const doc = buildDoc({
+		appName: "Starts",
+		appSettings: { ...NEW_APP_SETTINGS },
+		modules: [
+			{
+				name: "Starts",
+				forms: [
+					{
+						uuid: ROW_DEFAULT_FORM,
+						name: "Starts",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								uuid: ROW_DEFAULT_SEED,
+								id: "seed",
+								label: proseText("Seed"),
+								default_value: {
+									kind: "term",
+									term: { kind: "literal", value: "s" },
+								},
+							}),
+							f({
+								kind: "text",
+								id: "early",
+								label: proseText("Early"),
+								default_value: seed,
+							}),
+							f({
+								kind: "repeat",
+								uuid: ROW_DEFAULT_ROUNDS,
+								id: "rounds",
+								label: proseText("Rounds"),
+								children: [
+									f({
+										kind: "text",
+										id: "copy",
+										label: proseText("Copy"),
+										default_value: seed,
+									}),
+									f({
+										kind: "hidden",
+										uuid: ROW_DEFAULT_ENTRY,
+										id: "entry",
+										default_value: {
+											kind: "count",
+											via: {
+												kind: "term",
+												term: { kind: "field", uuid: ROW_DEFAULT_ROUNDS },
+											},
+										},
+									}),
+									f({
+										kind: "hidden",
+										id: "named",
+										default_value: {
+											kind: "count",
+											via: {
+												kind: "locations",
+												where: [
+													{
+														kind: "eq",
+														left: {
+															kind: "term",
+															term: { kind: "location-field", field: "name" },
+														},
+														right: {
+															kind: "term",
+															term: { kind: "field", uuid: ROW_DEFAULT_ENTRY },
+														},
+													},
+												],
+											},
+										},
 									}),
 								],
 							}),

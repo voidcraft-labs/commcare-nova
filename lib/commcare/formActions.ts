@@ -25,7 +25,7 @@ import {
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { planFormCaseWire } from "./casePlacementPlan";
-import { caseTypeDepthMap } from "./caseTypeDepths";
+import { caseTypeHopMap } from "./caseTypeDepths";
 import {
 	effectiveAssessmentUserScore,
 	effectiveDeliverEntities,
@@ -80,7 +80,7 @@ export function buildFormActions(
  *
  * Every typed case read is projected through `hqLoadReference` into the
  * `#case/`-generation vocabulary HQ's metadata layer parses — `moduleCaseType`
- * feeds the same `caseTypeDepthMap` the XForm builder resolves per-type
+ * feeds the same `caseTypeHopMap` the XForm builder resolves per-type
  * namespaces with, so the load map and the binds name the same case.
  */
 export function buildCaseReferencesLoad(
@@ -90,7 +90,7 @@ export function buildCaseReferencesLoad(
 	moduleCaseType?: string,
 ): Record<string, string[]> {
 	const load: Record<string, string[]> = {};
-	const caseTypeDepths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
+	const caseTypeHops = caseTypeHopMap(doc, moduleCaseType);
 	// The one legal authored case ref on a registration form is
 	// `#<own_type>/case_id`. Its private HQ metadata projection is
 	// `#case/case_id`, while the XForm side reads the session datum the entry
@@ -112,7 +112,7 @@ export function buildCaseReferencesLoad(
 					const reference = hqLoadReference(
 						term.caseType,
 						term.property,
-						caseTypeDepths,
+						caseTypeHops,
 					);
 					if (
 						reference !== undefined &&

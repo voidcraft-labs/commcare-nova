@@ -7,11 +7,11 @@ import { buildCaseReferencesLoad } from "../formActions";
 import { hqLoadReference } from "../hashtags";
 
 describe("hqLoadReference", () => {
-	const depths = new Map([
-		["pregnancy", 0],
-		["mother", 1],
-		["household", 2],
-		["village", 3],
+	const depths = new Map<string, readonly string[]>([
+		["pregnancy", []],
+		["mother", ["parent"]],
+		["household", ["parent", "parent"]],
+		["village", ["parent", "parent", "parent"]],
 	]);
 
 	it("projects a typed read into the #case/ generation vocabulary", () => {
@@ -25,6 +25,21 @@ describe("hqLoadReference", () => {
 	it("falls back to a parent chain past the named generations", () => {
 		expect(hqLoadReference("village", "name", depths)).toBe(
 			"#case/parent/parent/parent/name",
+		);
+	});
+
+	// HQ's summary resolves each step by the relationship name the app's
+	// forms write (`AppCaseMetadata.get_property_list`), so `parent/` names
+	// no case a walk through `home` reaches.
+	it("names every index of a walk that is not all parent", () => {
+		const named = new Map<string, readonly string[]>([
+			["member", []],
+			["household", ["home"]],
+			["village", ["home", "parent"]],
+		]);
+		expect(hqLoadReference("household", "head", named)).toBe("#case/home/head");
+		expect(hqLoadReference("village", "name", named)).toBe(
+			"#case/home/parent/name",
 		);
 	});
 

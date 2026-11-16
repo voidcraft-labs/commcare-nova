@@ -47,8 +47,32 @@ retains its target identity across a move, so its parent steps are derived when
 printed. During edits, only a structurally matching source occurrence can reuse
 an existing identity hint, and that identity must remain available in the new
 declarations. Grouping and whitespace are presentation, never storage.
-`sourceProjection` exists only for the raw-snapshot lift's old physical names;
-normal authoring always uses the current declared structure.
+`sourceProjection` is passed by the raw-snapshot lift, for its old physical
+names, and by the reader of CommCare HQ's apps, which passes the names the
+form's own source gave each node and prints through the same projection, so a
+path binds to the node it names whatever Nova would call it; normal authoring
+always uses the current declared structure.
+
+`FormParseScope.reading` (`FormReadingHooks`) is present only while reading an
+app made in CommCare HQ. Without the hook the parser is as described here. With
+it, the parser asks the hook's folds before it binds a node (the folds come
+from `lib/commcare/reader/expressions/folds.ts`), admits only the
+functions Core answers (`normalize-space`, `is-blank` and `capture-link` are
+unknown there), refuses every hashtag (Core's lexer has none), resolves an
+itext id through the form's own units and an instance id through the source the
+form declares for it (`jr://fixture/user-groups` reads as `groups`), binds an
+absolute path through the projection's node names, a model-iteration repeat's
+`item` step included, where authoring binds it by the fields' ids, binds an
+absolute read of a generated sibling the form reader set aside as that
+sibling's calculate, keeps the `name` to `case_name` alias unless the hook
+turns it off, binds `current()/…` in a slot with no form whose own row is a
+case as that row's steps at any depth of its predicates, the case HQ writes
+`current()` for in a case list and Core keeps as `current()` inside every
+nested predicate, binds a Search answer read in a menu's own slot, and
+binds a session value read in a menu's own slot to the case a menu above it
+chose, among the datums the menu's case list entry holds, by its id or by its
+id before HQ aligns a child entry with its root menu
+(`formLinkProjection.ts::caseListStepDatumId`).
 
 ## Emission and capabilities
 
@@ -89,6 +113,10 @@ opens), each with its sentence. Wording reads, `jr:itext` of a question's text
 or a written choice and `jr:choice-name` of a select's choice, bind to the
 form's translation units and print the id `lib/commcare/xform/itextIds.ts`
 gives the itext block.
+A Search answer read, `instance('search-input:…')/input/field[@name = '…']`,
+binds to a field of the form's menu's search, and, only under
+`FormParseScope.reading`, in a menu's own slot (its case list filter, a Search
+field's condition) to a field the slot's profile holds.
 
 Native or lowered functions need proof against the pinned owning runtime before
 admission. `normalize-space` and `is-blank` lower through the wire tree.
@@ -137,7 +165,8 @@ whatever year its UTC moment falls in. It never
 applies inside CSQL text: CSQL comparisons print through the CSQL emitter, and
 only a runtime segment reaches `toWire`. The tests' `instantParse.ts`
 recognises the parse structurally, so they read the tree rather than its
-text.
+text. The reader recognizes the lowering another way, by printing its
+proposal and comparing syntax trees (`lib/commcare/reader/expressions/`).
 `lib/commcare/CLAUDE.md`, "Dates and times compare as moments on a device",
 holds the operand rows and the day rule.
 

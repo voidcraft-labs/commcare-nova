@@ -85,7 +85,7 @@ import type {
 	PropertyRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
-import { caseTypeDepthMap } from "../caseTypeDepths";
+import { caseTypeHopMap } from "../caseTypeDepths";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
 import {
@@ -129,11 +129,13 @@ const CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN =
  * On-device half of the shared authored-key identity contract. Invalid keys
  * calculate to the empty id, which Core and HQ both reject atomically; the
  * Preview executor uses `deriveAuthoredCaseId` to surface the same failure
- * before submission.
+ * before submission. `prefix` is the scope's own unless a caller names the
+ * one a source already holds.
  */
 export function authoredCaseIdCalculation(
 	scope: Parameters<typeof authoredCaseIdPrefix>[0],
 	keyExpression: WireExpr,
+	prefix: string = authoredCaseIdPrefix(scope),
 ): WireExpr {
 	const length = w.call("string-length", [keyExpression]);
 	return w.call("if", [
@@ -141,7 +143,7 @@ export function authoredCaseIdCalculation(
 			w.gt(length, w.num(0)),
 			w.lte(length, w.num(MAX_AUTHORED_CASE_KEY_LENGTH)),
 		),
-		w.call("concat", [w.str(authoredCaseIdPrefix(scope)), keyExpression]),
+		w.call("concat", [w.str(prefix), keyExpression]),
 		w.str(""),
 	]);
 }
@@ -375,9 +377,11 @@ export type { SaveToCaseBlockSegment } from "@/lib/domain/basicCaseSlots";
  * carries its condition on a group, because the builder writes no bind for
  * a block's own node, and a create carries it on its `case`. The own case of
  * a several-case form is one shared update, in a group present only while
- * some answer is. The own close of a several-case form closes every
- * selected case; any other own close that takes a block of its own is a
- * close-only block in a condition group.
+ * some answer is. An own close that takes a block of its own is a
+ * close-only block in a condition group, whose relevance is the close
+ * condition. In a several-case form that block stands in each selected
+ * case's row, so it closes every selected case, and it stands outside a
+ * condition group only where the form closes them with no condition.
  */
 export function saveToCaseBlockShape(
 	doc: BlueprintDoc,
@@ -388,7 +392,15 @@ export function saveToCaseBlockShape(
 	const severalCases = formSelectsSeveralCases(doc, formUuid);
 	if (subject.kind === "own-close")
 		return severalCases
-			? ["selected-cases", "selected-case", "operations", "block"]
+			? closesUnderCondition(form)
+				? [
+						"selected-cases",
+						"selected-case",
+						"operations",
+						"condition",
+						"block",
+					]
+				: ["selected-cases", "selected-case", "operations", "block"]
 			: ["operations", "condition", "block"];
 	const operations = orderedCaseOperations(form);
 	const operation = operations.find(
@@ -420,6 +432,18 @@ export function saveToCaseBlockShape(
 		...(conditional ? (["condition"] as const) : []),
 		"block",
 	];
+}
+
+/** The condition `form` closes its own case under, or `undefined` where it
+ *  closes it every time it closes it: no condition, or one that matches
+ *  every submission. */
+function closesUnderCondition(
+	form: { readonly closeCondition?: Expression } | undefined,
+): Expression | undefined {
+	const condition = form?.closeCondition;
+	return condition === undefined || condition.kind === "match-all"
+		? undefined
+		: condition;
 }
 
 /** Whether `formUuid` is a follow-up or close form whose menu selects
@@ -664,7 +688,11 @@ function selectedCountPlacementNames(name: string): SelectedCountPlacement {
  * Save to Case block's (`saveToCase.js::getBindList`): a create's id when it
  * stands in a repeat, the Open Case Condition, the create rows, the update
  * rows, the index rows, `@date_modified`, `@user_id`, and the id of a block
- * that does not create. */
+ * that does not create.
+ *
+ * A create keyed by an answer writes its id under the prefix
+ * `keyedCaseIdPrefixes` holds for its operation, where it holds one, and
+ * under the prefix the document derives otherwise. */
 export function buildCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -676,6 +704,8 @@ export function buildCaseOperations(
 	selectedCaseIdRef: WireExpr = SESSION_CASE_ID,
 	selectedCasesInstanceId?: string,
 	attachmentTarget: AttachmentUrlTarget | null = null,
+	places?: CaseOperationPlaces,
+	keyedCaseIdPrefixes?: ReadonlyMap<Uuid, string>,
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
 	const context: WireElementContext = {
@@ -895,17 +925,28 @@ export function buildCaseOperations(
 			lookup: { naming: lookupNaming, instanceScope: "xform" },
 		}),
 	});
+	/** Records where a slot's expression is printed: the first place the
+	 *  emitter prints it whole, the node its text stands in. */
+	const notePlace = (
+		slot: FormExpressionSlotRef,
+		bindings: WireTermBindings,
+	): void => {
+		const key = caseOperationPlaceKey(slot);
+		if (places !== undefined && !places.has(key)) places.set(key, bindings);
+	};
 	const printAt = (
 		expression: Expression,
 		slot: FormExpressionSlotRef,
 		bindings: WireTermBindings,
-	): WireExpr =>
-		toWire(expression, {
+	): WireExpr => {
+		notePlace(slot, bindings);
+		return toWire(expression, {
 			target: "xform",
 			types: expressions.context(slot),
 			form: expressions.projection,
 			bindings,
 		});
+	};
 	/** A capture's link, read where the row stands. */
 	const captureLinkAt = (
 		fieldUuid: Uuid,
@@ -930,7 +971,7 @@ export function buildCaseOperations(
 	 * the form's own binds do. No operation slot reads a row through it. */
 	const ownCaseRead = formCasePropertyRead({
 		formType: form.type,
-		caseTypeDepths: caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []),
+		caseTypeHops: caseTypeHopMap(doc, moduleCaseType),
 		moduleCaseType,
 		selectedCaseId: selectedCaseIdRef,
 	});
@@ -945,12 +986,8 @@ export function buildCaseOperations(
 			formCaseProperty: ownCaseRead,
 		});
 	/** The own close's condition, or `undefined` where it closes every time. */
-	const ownCloseCondition = (): Expression | undefined => {
-		const condition = form.closeCondition;
-		return condition === undefined || condition.kind === "match-all"
-			? undefined
-			: condition;
-	};
+	const ownCloseCondition = (): Expression | undefined =>
+		closesUnderCondition(form);
 
 	// The children a field writes in a several-case form that keep the bytes
 	// beside HQ's subcase (`nova_operations/nova_subcase_<n>` in the
@@ -1262,6 +1299,7 @@ export function buildCaseOperations(
 								caseType,
 							},
 							boundFieldPath(fields, target.idFrom, repeat, caseIdPath),
+							keyedCaseIdPrefixes?.get(operation.uuid),
 						)
 					: w.call("uuid");
 			// HQ's form builder keeps a create's id as a bind inside a repeat and
@@ -1488,6 +1526,8 @@ export function buildCaseOperations(
 					// datetime leaf stays untyped, and the value is the text CommCare
 					// HQ stores for its moment. A typed leaf that reads the clock is
 					// read once into a node of its own, which the row reads.
+					if (destination?.data_type === "datetime")
+						notePlace(valueSlot, operationBindings(writePath));
 					value =
 						destination?.data_type === "datetime"
 							? datetimeCaseValue(
@@ -2144,9 +2184,12 @@ export function buildCaseOperations(
 		);
 	}
 
-	// The own close in a block of its own: a close-only block of each
-	// selected case in a several-case form, or of the form's own case inside
-	// a group whose relevance is the close condition. A close-only block
+	// The own close in a block of its own: a close-only block of the form's
+	// own case, or in a several-case form of each selected case in its row,
+	// inside a group whose relevance is the close condition, so a case the
+	// condition leaves open is sent no block at all. A several-case form that
+	// closes every selected case unconditionally writes its block in the
+	// row's operations group, with no group around it. A close-only block
 	// writes no case type, which would undo a retype that ran before it
 	// (`XFormCaseBlock.add_close_block` writes none either).
 	const ownCloseBlock = blockOf.get("own-close");
@@ -2156,18 +2199,29 @@ export function buildCaseOperations(
 		const condition = ownCloseCondition();
 		if (site.selected !== undefined) {
 			const selected = site.selected;
-			const casePath = group.path.child(site.name).child("case");
-			group.children.push(
-				saveToCaseBlock(site.name, moduleCaseType, [el("close", {})]),
-			);
-			if (condition !== undefined) {
-				const closePath = casePath.child("close");
+			const block = saveToCaseBlock(site.name, moduleCaseType, [
+				el("close", {}),
+			]);
+			let blockParentPath = group.path;
+			if (site.condition === undefined) {
+				if (condition !== undefined)
+					throw new Error(
+						`The own close of form ${formUuid} closes the selected cases under a condition, and its Save to Case path holds no condition group to carry it.`,
+					);
+				group.children.push(block);
+			} else {
+				if (condition === undefined)
+					throw new Error(
+						`The own close of form ${formUuid} closes every selected case, and its Save to Case path holds a condition group with no condition to carry.`,
+					);
+				const conditionPath = group.path.child(site.condition);
+				appendGroup(group, site.condition, [block]);
 				binds.push(
 					xel(
 						"bind",
 						{
 							xpath: {
-								nodeset: closePath.toWire(),
+								nodeset: conditionPath.toWire(),
 								// A form over several cases reads none of them as its
 								// own (`MULTI_SELECT_SHARED_CASE_EXPRESSION`), so the
 								// condition holds no form read to bind.
@@ -2175,9 +2229,9 @@ export function buildCaseOperations(
 									condition,
 									closeConditionSlot,
 									bindingsAt(
-										closePath,
+										conditionPath,
 										undefined,
-										originalContextWirePath(closePath, selected.idPath),
+										originalContextWirePath(conditionPath, selected.idPath),
 									),
 								),
 							},
@@ -2185,7 +2239,9 @@ export function buildCaseOperations(
 						context,
 					),
 				);
+				blockParentPath = conditionPath;
 			}
+			const casePath = blockParentPath.child(site.name).child("case");
 			binds.push(
 				...caseMetaBinds(casePath, context),
 				xel(
@@ -2620,6 +2676,26 @@ export function attachCaseOperationBody(
 		if (child.placement === "prepend") prependChildren(parent, [child.element]);
 		else appendChildren(parent, [child.element]);
 	}
+}
+
+/** Where each case operation expression of a form is printed: the
+ *  bindings of the node its text stands in, by `caseOperationPlaceKey`. A
+ *  slot is printed with these bindings exactly where a Save to Case block
+ *  holds it; a slot Case Management holds has none. */
+export type CaseOperationPlaces = Map<string, WireTermBindings>;
+
+/** The key of a case operation slot among a form's places. */
+export function caseOperationPlaceKey(slot: FormExpressionSlotRef): string {
+	const member =
+		"member" in slot ? (slot.member as Readonly<Record<string, unknown>>) : {};
+	return JSON.stringify([
+		slot.slot,
+		slot.uuid,
+		member.operationUuid ?? null,
+		member.property ?? null,
+		member.via ?? null,
+		member.identifier ?? null,
+	]);
 }
 
 export function collectFieldLocations(

@@ -5,9 +5,8 @@
  * earlier Vellum shadow can be read as executable XPath and fail to parse.
  */
 import { type ChildNode, isTag } from "domhandler";
+import { VELLUM_NS } from "../xmlNamespaces";
 import { parseXForm, serializeXForm } from "./domSplice";
-
-const VELLUM_NAMESPACE = "http://commcarehq.org/xforms/vellum";
 
 export function stripVellumAttributes(xform: string): string {
 	const doc = parseXForm(xform);
@@ -28,10 +27,7 @@ export function stripVellumAttributes(xform: string): string {
 				: inherited;
 			for (const name of Object.keys(node.attribs)) {
 				const colon = name.indexOf(":");
-				if (
-					colon > 0 &&
-					namespaces.get(name.slice(0, colon)) === VELLUM_NAMESPACE
-				)
+				if (colon > 0 && namespaces.get(name.slice(0, colon)) === VELLUM_NS)
 					delete node.attribs[name];
 			}
 			walk(node.children, namespaces);

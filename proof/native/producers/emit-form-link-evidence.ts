@@ -15,7 +15,7 @@ import { blueprintDocSchema } from "../../../lib/domain";
 const output = process.argv[2];
 if (!output)
 	throw new Error(
-		"Usage: node --import tsx proof/native/producers/emit-form-link-evidence.ts OUTPUT_DIRECTORY",
+		"Usage: node --conditions=react-server --import tsx proof/native/producers/emit-form-link-evidence.ts OUTPUT_DIRECTORY",
 	);
 mkdirSync(output, { recursive: true });
 for (const scenario of formLinkWireScenarios) {

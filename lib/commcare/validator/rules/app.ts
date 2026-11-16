@@ -17,7 +17,7 @@ import { entryPointProjectionIssue } from "../../entryPointProjection";
  */
 
 import {
-	localeFileValueIssue,
+	appStringValueIssue,
 	translationUnitUsesLocaleFile,
 } from "@/lib/commcare/localeFile";
 import {
@@ -34,6 +34,7 @@ import {
 	repairSelectOptionValue,
 	SELECT_OPTION_VALUE_BOTH_QUOTES,
 	selectOptionValueProblem,
+	type TranslationUnitRole,
 	translationValueIntegrityIssue,
 	type Uuid,
 } from "@/lib/domain";
@@ -246,11 +247,11 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 	const flagLocaleValue = (
 		language: string,
 		unitId: string,
-		role: string,
+		role: TranslationUnitRole,
 		breadcrumb: readonly string[],
 		value: string,
 	): void => {
-		const issue = localeFileValueIssue(value);
+		const issue = appStringValueIssue(value, role);
 		if (issue === undefined) return;
 		errors.push(
 			validationError(
@@ -475,7 +476,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
  * the link can open. An ID HQ won't save is offered a replacement free
  * among the app's other deep link IDs.
  */
-function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
+export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 	const inventory = entryPointInventory(doc);
 	const ids = new Set<string>();
 	return inventory.flatMap(({ target, entryPoint }) => {

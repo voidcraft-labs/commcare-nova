@@ -8,6 +8,7 @@
 // both for every reader (HQ JSON, the local suite, the validator and
 // Preview), so no two readers can build the plan differently.
 
+import type { RewriteControl } from "@/lib/commcare/emissionRewrites";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
@@ -71,6 +72,9 @@ export function columnReadsCaseAttribute(column: Column): boolean {
  * `lookupNaming` is the run's naming where the caller has one; a caller with
  * no definitions snapshot prints through `identityLookupWireNaming()`, under
  * which two expressions print alike exactly when they do under any naming.
+ *
+ * `rewrites` is the reader's control over the rewrites a calculated column's
+ * print reaches (`emissionRewrites.ts`); an export passes none.
  */
 export function hqExpressionField(
 	column: Column,
@@ -83,6 +87,7 @@ export function hqExpressionField(
 		mod.uuid,
 		lookupNaming,
 	),
+	rewrites?: RewriteControl,
 ): WireExpr {
 	if (column.kind === "calculated") {
 		if (effectiveCaseSearchConfig(mod) !== undefined) {
@@ -110,6 +115,7 @@ export function hqExpressionField(
 					? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
 					: {}),
 			},
+			...(rewrites === undefined ? {} : { rewrites }),
 		});
 	}
 	const path = casePropertyPath(column.field);
@@ -147,10 +153,19 @@ export function hqExpressionFieldText(
 		mod.uuid,
 		lookupNaming,
 	),
+	rewrites?: RewriteControl,
 ): string {
 	try {
 		return serializeWire(
-			hqExpressionField(column, mod, doc, screen, lookupNaming, expressions),
+			hqExpressionField(
+				column,
+				mod,
+				doc,
+				screen,
+				lookupNaming,
+				expressions,
+				rewrites,
+			),
 			{ target: "hq-json", interpolation: "none" },
 		).text;
 	} catch (error) {
@@ -189,13 +204,16 @@ function canonicalJson(value: unknown): string {
  * The options of a module's order plan. `mediaOn` is whether the export
  * carries a media manifest; the validator and Preview pass `true`, the plan of every production export. Readers 1 and 2 pass their
  * run's lookup naming, so every stored short column's `field` is the plan's
- * join text itself.
+ * join text itself. `columnRewrites` is the reader's control over each
+ * calculated column's print, by column, asked once per print (`hqExpressionField`);
+ * an export passes none.
  */
 export function caseListOrderOptions(
 	mod: Module,
 	doc: BlueprintDoc,
 	mediaOn: boolean,
 	lookupNaming?: LookupWireNaming,
+	columnRewrites?: ColumnRewrites,
 ): CaseListOrderOptions {
 	const expressions = moduleExpressionContexts(doc, mod.uuid, lookupNaming);
 	return {
@@ -221,9 +239,14 @@ export function caseListOrderOptions(
 				"results",
 				lookupNaming,
 				expressions,
+				columnRewrites?.(column.uuid),
 			),
 	};
 }
+
+/** The reader's control over one calculated column's print, by the column's UUID, asked once
+ *  per print; undefined where the column prints as an export prints it. */
+export type ColumnRewrites = (columnUuid: string) => RewriteControl | undefined;
 
 /**
  * The plan of one module's list, over the module's effective case type

@@ -21,6 +21,7 @@ import {
 	type RepeatCountCarrierPlan,
 } from "@/lib/domain/repeatCount";
 import type { Uuid } from "@/lib/domain/uuid";
+import type { RewriteControl } from "../emissionRewrites";
 import {
 	type LookupWireNaming,
 	lookupTypeIndexFromNaming,
@@ -59,6 +60,15 @@ export interface FormExpressionEmission {
 	startingDatetime(expression: Expression, slot: SlotContextRef): WireExpr;
 }
 
+/** How a print other than the emitter's own departs from it: the form-node
+ *  projection a path prints through (a form read from CommCare HQ prints
+ *  under the names its own source gave), and the rewrites the print leaves
+ *  out or reports. Absent, every slot prints as the emitter writes it. */
+export interface FormExpressionPrint {
+	readonly projection?: FormNodeProjection;
+	readonly rewrites?: RewriteControl;
+}
+
 /** Every authored form expression enters wire lowering with its actual slot
  * and the same finite form projection used while binding its identities. */
 export function formExpressionEmission(
@@ -67,6 +77,7 @@ export function formExpressionEmission(
 	naming: LookupWireNaming | undefined,
 	bindings: WireTermBindings,
 	expressionDoc: BlueprintDoc = doc,
+	print: FormExpressionPrint = {},
 ): FormExpressionEmission {
 	// Wire-only menu placement can move a form to a synthetic module. Its
 	// expressions still belong to the authored host, including Search inputs.
@@ -84,7 +95,10 @@ export function formExpressionEmission(
 	const form = formStructure(expressionDoc, formUuid);
 	if (form === undefined)
 		throw new Error(`Form ${formUuid} has no complete expression structure.`);
-	const projection = formNodeProjection(doc, form, { surface: "wire" });
+	const projection =
+		print.projection ?? formNodeProjection(doc, form, { surface: "wire" });
+	const rewrites =
+		print.rewrites === undefined ? {} : { rewrites: print.rewrites };
 	const lookup = lookupTypeIndexFromNaming(naming) ?? new Map();
 	const contexts = new Map<string, ExpressionContext>();
 	const context = (slot: SlotContextRef): ExpressionContext => {
@@ -114,6 +128,7 @@ export function formExpressionEmission(
 			form: projection,
 			bindings: slotBindings,
 			...(overrides === undefined ? {} : { overrides }),
+			...rewrites,
 		});
 	return {
 		form,
@@ -133,6 +148,7 @@ export function formExpressionEmission(
 				types: context(slot),
 				form: projection,
 				bindings: slotBindings,
+				...rewrites,
 			}),
 	};
 }

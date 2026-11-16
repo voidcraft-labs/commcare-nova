@@ -1,5 +1,6 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
+import type { RewriteControl } from "./emissionRewrites";
 import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
@@ -94,7 +95,7 @@ import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { FormExpressionSlotRef } from "@/lib/domain/expression/types";
 import type { PlannedNewCaseDatum } from "./casePlacementPlan";
-import { caseTypeDepthMap } from "./caseTypeDepths";
+import { caseTypeHopMap } from "./caseTypeDepths";
 import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
 import { moduleExpressionContexts } from "./expressionContext";
 import {
@@ -122,11 +123,12 @@ import {
 } from "./suite/case-search/inlineSearch";
 import { USERCASE_DATUM_ID } from "./usercaseWire";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
+import { formCaseWalk } from "./xform/formCaseRead";
 import { formNodeProjection } from "./xpath/formNodeProjection";
 import { w } from "./xpath/wire/builders";
 import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
 import { selectedCasesInstance, sessionInstance } from "./xpath/wire/instances";
-import { caseById, casePropertyStep } from "./xpath/wire/rowScope";
+import { caseById } from "./xpath/wire/rowScope";
 import { serializeWire } from "./xpath/wire/serialize";
 import type { WireExpr } from "./xpath/wire/tree";
 
@@ -2416,13 +2418,15 @@ export function ownCaseSessionRef(
 
 type FormLinkSourceType = BlueprintDoc["forms"][string]["type"];
 
-/** Project a stored condition or value in its actual after-submit slot. */
+/** Project a stored condition or value in its actual after-submit slot,
+ *  with `rewrites` withheld or reported (the reader of CommCare HQ's apps). */
 export function projectFormLinkSessionExpression(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	formUuid: Uuid,
 	expression: Expression,
 	slot: FormExpressionSlotRef,
+	rewrites?: RewriteControl,
 ): WireExpr {
 	const moduleUuid = owningModuleOf(ctx, formUuid);
 	const expressionDoc = ctx.expressionDoc;
@@ -2455,7 +2459,8 @@ export function projectFormLinkSessionExpression(
 	}
 	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
 	const ownCaseId = ownCaseSessionRef(doc, moduleUuid, form.type, sourceDatums);
-	const depths = caseTypeDepthMap(
+	const hops = caseTypeHopMap(
+		expressionDoc,
 		expressionDoc.modules[structure.moduleUuid]?.caseType,
 		types.facts.caseTypes,
 	);
@@ -2463,6 +2468,7 @@ export function projectFormLinkSessionExpression(
 		target: "suite",
 		types,
 		form: formNodeProjection(doc, structure, { surface: "wire" }),
+		...(rewrites === undefined ? {} : { rewrites }),
 		bindings: {
 			workerProperty: ctx.workerProperty,
 			datumId: entryDatumIdResolver(
@@ -2478,17 +2484,11 @@ export function projectFormLinkSessionExpression(
 						},
 					}),
 			formCaseProperty: (caseType, property) => {
-				const depth = depths.get(caseType);
-				if (depth === undefined || ownCaseId === undefined)
+				const walk = hops.get(caseType);
+				if (walk === undefined || ownCaseId === undefined)
 					throw new Error("The submitted form does not supply this record.");
-				if (depth === 0 && property === "case_id") return ownCaseId;
-				let id = ownCaseId;
-				for (let hop = 0; hop < depth; hop++)
-					id = w.append(caseById(id, "casedb"), [
-						w.step("index"),
-						w.step("parent"),
-					]);
-				return w.append(caseById(id, "casedb"), [casePropertyStep(property)]);
+				if (walk.length === 0 && property === "case_id") return ownCaseId;
+				return formCaseWalk(ownCaseId, walk, property);
 			},
 		},
 	});
