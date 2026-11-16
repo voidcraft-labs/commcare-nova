@@ -110,7 +110,6 @@ import {
 import {
 	type AdmittedMutationBatch,
 	admitMutationBatch,
-	concatAdmittedMutationBatches,
 } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { sequenceMovesTo, spliceAfter } from "@/lib/doc/mutations/sequence";
@@ -1033,23 +1032,22 @@ export function* diffDocsToMutationsSteps(
 	 * diff: the residual is a tail of `updateForm` patches, so the
 	 * localization base is that replay with the tail applied on top. Where
 	 * the catalog adds nothing, the batch is the one just replayed, and so is
-	 * its replay. */
+	 * its replay; where it adds a tail, the tail is applied on top of that
+	 * replay as the residual is, since a catalog mutation writes no form, menu,
+	 * field or language and no batch-level step of the reducer reads it
+	 * (`__tests__/diffReplay.property.test.ts`). */
 	const replayed =
 		structural.length === 0
 			? prev
 			: structuralReplay !== undefined && catalogDelta.length === 0
 				? structuralReplay
-				: produce(prev, (draft) => {
-						applyMutations(
-							draft,
-							admittedStructural === undefined
-								? admitMutationBatch(structural)
-								: concatAdmittedMutationBatches(
-										admittedStructural,
-										admitMutationBatch(catalogDelta),
-									),
-						);
-					});
+				: structuralReplay !== undefined
+					? produce(structuralReplay, (draft) => {
+							applyMutations(draft, admitMutationBatch(catalogDelta));
+						})
+					: produce(prev, (draft) => {
+							applyMutations(draft, admitMutationBatch(structural));
+						});
 	yield;
 	const residual = postSubmitResidual(replayed, next);
 	structural.push(...residual);

@@ -54,6 +54,9 @@ export function claimPermits(use: ClaimUse, standing: ReadStanding): boolean {
 
 const REGISTRY = new Map<string, Claim>();
 const NAMES = new WeakMap<Claim, string>();
+/** Each entry's first registered name: a name is added to `REGISTRY` once, at
+ *  its end, so the first added for an entry is the first in its order. */
+const FIRST_NAME_OF_ENTRY = new Map<string, string>();
 
 function sameClaim(a: Claim, b: Claim): boolean {
 	return a.entry === b.entry && a.key === b.key && a.use === b.use;
@@ -76,6 +79,8 @@ export function defineClaims<const T extends Record<string, Claim>>(
 			throw new Error(
 				`The reader's claim ${full} is declared twice with different entries. Give one of the two another name.`,
 			);
+		if (known === undefined && !FIRST_NAME_OF_ENTRY.has(one.entry))
+			FIRST_NAME_OF_ENTRY.set(one.entry, full);
 		REGISTRY.set(full, one);
 		NAMES.set(one, full);
 	}
@@ -94,6 +99,5 @@ export function claimName(one: Claim): string | undefined {
 
 /** The name of a registered claim on `entry`, the first registered; undefined where none is. */
 export function claimNameForEntry(entry: string): string | undefined {
-	for (const [name, one] of REGISTRY) if (one.entry === entry) return name;
-	return undefined;
+	return FIRST_NAME_OF_ENTRY.get(entry);
 }

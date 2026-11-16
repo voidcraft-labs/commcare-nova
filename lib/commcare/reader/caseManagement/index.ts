@@ -19,7 +19,6 @@ import {
 } from "@/lib/domain/caseScalarTextGuard";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { planFormCaseWire } from "../../casePlacementPlan";
-import { expandDocSteps } from "../../expander";
 import {
 	entryFactsDifference,
 	hqEntryFacts,
@@ -56,7 +55,7 @@ import { readerDefect } from "../defects";
 import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace, whereText } from "../place";
-import { readProjectionInputs } from "../projectionInputs";
+import { readExpansionSteps, readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import { heldWorkerSlugs, holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
@@ -978,7 +977,7 @@ export function* compareEntryFactsSteps(
 	yield;
 	let emitted: ReturnType<typeof hqEntryFacts>;
 	try {
-		const expansion = yield* expandDocSteps(doc, readProjectionInputs(ctx));
+		const expansion = yield* readExpansionSteps(ctx, doc);
 		yield;
 		emitted = hqEntryFacts(expansion);
 	} catch {

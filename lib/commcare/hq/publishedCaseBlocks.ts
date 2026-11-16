@@ -45,7 +45,7 @@ import {
 	XFORMS_NS,
 	XHTML_NS,
 } from "../xmlNamespaces";
-import { tryParseXml } from "../xmlParse";
+import { heldXmlParse } from "../xmlParse";
 
 /** A condition as Case Management states it, the question's path relative to the data root. */
 export type PublishedCondition =
@@ -693,7 +693,7 @@ function advancedBlocks(
 /** The data root of the XForm's primary instance: `h:html/h:head/model`'s
  *  first `instance` without an `id`, its one element child. */
 function dataRoot(xml: string): { element: Element; scope: NamespaceScope } {
-	const parsed = tryParseXml(xml);
+	const parsed = heldXmlParse(xml);
 	if ("issue" in parsed) unread("xform-unparsed");
 	const [html] = elementChildren(parsed.doc.children, new Map());
 	if (

@@ -10,7 +10,6 @@
 import type { HqApplication } from "@/lib/commcare";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { caseListMenuItemLabelUnit } from "../../emissionPlan";
-import { expandDocSteps } from "../../expander";
 import { firstMenuSharedCaseFrames } from "../../validator/rules/formsInMenuAbove";
 import { rootSelectionTakesNewCase } from "../../validator/rules/parentSelection";
 import { type Claim, defineClaims, refuse } from "../claims";
@@ -20,7 +19,7 @@ import { levelControl } from "../expressions/printLevel";
 import { printSlot } from "../expressions/readExpression";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace } from "../place";
-import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
+import { keptMediaPaths, readExpansionSteps } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
 import { expressionEnvOf } from "../xform";
@@ -200,7 +199,7 @@ export function* settleMenusSteps(
 	const doc = ctx.doc as BlueprintDoc;
 	let expansion: HqApplication;
 	try {
-		expansion = yield* expandDocSteps(doc, readProjectionInputs(ctx));
+		expansion = yield* readExpansionSteps(ctx, doc);
 	} catch {
 		ctx.accounting.defect(
 			appPlace(),

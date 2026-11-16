@@ -7,7 +7,14 @@ menus' settle and the assembly), which a request drives a piece at a time so the
 between them, and a stage therefore keeps nothing outside the reading's own context across a
 stop. `STAGES` stays each stage whole, for a test that runs stages one by one. A grammar read
 (`syntaxRead.ts::readFormSyntax`) is answered from the tree an earlier read of the same text gave
-(`heldByText.ts`), copied, so each read still has its own nodes. `lib/commcare/CLAUDE.md` ("The reader",
+(`heldByText.ts`), copied, so each read still has its own nodes. A form's XForm text is parsed once
+(`xmlParse.ts::heldXmlParse`, a frozen document shared with `hq/publishedCaseBlocks.ts` and
+`hq/sourceIdentity.ts`); the ledger tells forms apart by their document, so a second form of the
+same text in one reading reads a copy. The emissions a reading compares with (the entry facts'
+and the menus' settle) go through `projectionInputs.ts::readExpansionSteps`, which answers from
+`ReaderOptions.heldExpansions` (`heldExpansions.ts`) where another reading of the same request
+emitted the same settled document under the same projection inputs, compared in full; a bring-in's
+first reading and its fixed point's re-read share one. `lib/commcare/CLAUDE.md` ("The reader",
 "Reading expressions", "Reading case management back") states the accounting, the stage order
 and the expression contract; this file is the method a change here keeps, the canonical rows,
 and what the reader is told.

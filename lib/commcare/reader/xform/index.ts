@@ -7,7 +7,7 @@
  */
 
 import type { Element } from "domhandler";
-import { isTag } from "domhandler";
+import { cloneNode, isTag } from "domhandler";
 import type { FieldKind, Uuid } from "@/lib/domain";
 import type { FormStructureConnect } from "@/lib/domain/expression/formStructure";
 import type {
@@ -22,7 +22,7 @@ import {
 	generatedBaseName,
 } from "../../xform/generatedNodes";
 import { splitName } from "../../xmlNamespaces";
-import { tryParseXml } from "../../xmlParse";
+import { heldXmlParse } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
 import { applicationReading } from "../appShell";
 import type { Claim } from "../claims";
@@ -320,7 +320,7 @@ function readForm(
 		accounting.finding(X.blankSource, formPlace);
 		return null;
 	}
-	const parsedXml = tryParseXml(source);
+	const parsedXml = heldXmlParse(source);
 	if ("issue" in parsedXml) {
 		if (parsedXml.kind === "doctype") accounting.finding(X.doctype, formPlace);
 		else
@@ -331,7 +331,12 @@ function readForm(
 			);
 		return null;
 	}
-	const document = parsedXml.doc;
+	/* The parse is shared and never written (`xmlParse.ts::heldXmlParse`);
+	 * the ledger tells forms apart by their document, so a second form of the
+	 * same text reads a copy. */
+	const document = accounting.readsXml(parsedXml.doc)
+		? cloneNode(parsedXml.doc, true)
+		: parsedXml.doc;
 	const cursor = accounting.xml(document, form.menu, form.index, formPlace);
 	const root = document.children.find(isTag);
 	const parsed = parseXFormSource({

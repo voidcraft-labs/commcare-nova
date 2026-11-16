@@ -30,7 +30,7 @@ import {
 	XFORMS_NS,
 	XHTML_NS,
 } from "../xmlNamespaces";
-import { tryParseXml } from "../xmlParse";
+import { heldXmlParse } from "../xmlParse";
 
 /** Core's data type for a bind's `type`, by `XFormParser.java::typeMappings`. */
 export type CoreTypeClass =
@@ -389,7 +389,7 @@ function heldFormIdentity(xml: string): FormRecord {
 
 /** One form's record from its XML; throws `Unparsed` where the XML breaks a step. */
 function formIdentity(xml: string): FormRecord {
-	const parsed = tryParseXml(xml);
+	const parsed = heldXmlParse(xml);
 	if ("issue" in parsed) unparsed("the XML does not parse");
 	const [html, ...others] = elementChildren(parsed.doc.children, new Map());
 	if (

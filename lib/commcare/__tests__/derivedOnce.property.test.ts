@@ -27,7 +27,12 @@
  * - whether a document is settled all the way down, remembered for a frozen
  *   part found open beneath (`settled.ts::isDeeplySettled`);
  * - the commit gate's verdict and the export readiness of its candidate from
- *   one validator run (`commitVerdicts.ts::mutationCommitVerdictSteps`).
+ *   one validator run (`commitVerdicts.ts::mutationCommitVerdictSteps`);
+ * - a form text's parse (`xmlParse.ts::heldXmlParse`), held by the text and
+ *   shared frozen by every reader of it;
+ * - an emission a reading compares with, held for the request's other
+ *   readings (`reader/heldExpansions.ts`), answered only for the same settled
+ *   document under the same facts.
  *
  * A settled copy is a deep-frozen `structuredClone` of the draw and an open
  * copy another, so freezing is the one difference between them; a draft
@@ -40,7 +45,7 @@ import * as fc from "fast-check";
 import { current, freeze, isDraft, produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { addOnsNeededBy } from "@/lib/commcare/addOns";
-import { expandDoc } from "@/lib/commcare/expander";
+import { expandDoc, expandDocSteps } from "@/lib/commcare/expander";
 import {
 	formLinkProjectionContext,
 	owningModuleOf,
@@ -52,8 +57,9 @@ import {
 import { publishedCaseBlocks } from "@/lib/commcare/hq/publishedCaseBlocks";
 import { sourceIdentity } from "@/lib/commcare/hq/sourceIdentity";
 import { cloned } from "@/lib/commcare/reader/expressions";
+import { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { readFormSyntax } from "@/lib/commcare/reader/syntaxRead";
-import { parseXml } from "@/lib/commcare/xmlParse";
+import { heldXmlParse, parseXml } from "@/lib/commcare/xmlParse";
 import { readFormSyntax as plainFormSyntax } from "@/lib/commcare/xpath/formSyntax";
 import {
 	exportReadinessFindings,
@@ -529,6 +535,120 @@ describe("the gate's verdict and its candidate's export readiness from one run",
 					);
 				}),
 				{ numRuns: Math.min(numRuns, 15), seed: 20261116 },
+			);
+		},
+		60_000,
+	);
+});
+
+/** A parsed node as plain data: its kind, name, attributes, text and children in order. */
+function treeOf(node: AnyNode): unknown {
+	if (isTag(node))
+		return {
+			name: node.name,
+			attribs: { ...node.attribs },
+			children: node.children.map(treeOf),
+		};
+	if ("children" in node)
+		return { type: node.type, children: node.children.map(treeOf) };
+	return { type: node.type, data: "data" in node ? node.data : null };
+}
+
+/** Every node of a tree frozen, its attributes and its child list. */
+function frozenThroughout(node: AnyNode): boolean {
+	return (
+		Object.isFrozen(node) &&
+		(!isTag(node) || Object.isFrozen(node.attribs)) &&
+		(!("children" in node) ||
+			(Object.isFrozen(node.children) && node.children.every(frozenThroughout)))
+	);
+}
+
+/** `held.expansionSteps` driven whole. */
+function heldExpansion(
+	held: HeldExpansions,
+	doc: BlueprintDoc,
+	facts: unknown,
+): ReturnType<typeof expandDoc> {
+	const steps = held.expansionSteps(doc, facts, () => expandDocSteps(doc));
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+describe("a request's parses and emissions, held", () => {
+	it.each(corpora)(
+		"parses each %s form text as a fresh parse does, once, frozen throughout",
+		async (_name, arbitrary, numRuns) => {
+			await fc.assert(
+				fc.property(arbitrary, (draw) => {
+					rebuildFieldParent(draw);
+					const app = outcome(() => expandDoc(draw));
+					if (!("value" in app)) return;
+					const texts = Object.values(app.value._attachments).filter(
+						(text): text is string => typeof text === "string",
+					);
+					for (const text of [...texts, "<h:html", "<a/>"]) {
+						const held = heldXmlParse(text);
+						const fresh = outcome(() => parseXml(text));
+						if ("issue" in held) {
+							expect("threw" in fresh).toBe(true);
+							continue;
+						}
+						if (!("value" in fresh))
+							throw new Error("A parse the held one gave.");
+						expect(treeOf(held.doc)).toEqual(treeOf(fresh.value));
+						expect(frozenThroughout(held.doc)).toBe(true);
+						/* A text met again, as another string, is the same parse. */
+						expect(heldXmlParse(text.slice(0))).toBe(held);
+					}
+				}),
+				{ numRuns: Math.min(numRuns, 15), seed: 20261116 },
+			);
+		},
+		60_000,
+	);
+
+	it.each(corpora)(
+		"answers a %s document's emission only for the same settled document under the same facts",
+		async (_name, arbitrary, numRuns) => {
+			await fc.assert(
+				fc.property(arbitrary, (draw) => {
+					rebuildFieldParent(draw);
+					const fresh = outcome(() => expandDoc(draw));
+					if (!("value" in fresh)) return;
+					const held = new HeldExpansions();
+					const facts = { overrides: [{ uuid: "a" }], naming: [] };
+					const settled = freeze(structuredClone(draw), true);
+					const first = heldExpansion(held, settled, facts);
+					expect(first).toEqual(fresh.value);
+					/* Another settled copy, equal throughout, under equal facts: held. */
+					const again = freeze(structuredClone(draw), true);
+					expect(heldExpansion(held, again, structuredClone(facts))).toBe(
+						first,
+					);
+					/* Other facts, or a document that differs anywhere: emitted afresh. */
+					expect(
+						heldExpansion(held, again, { ...facts, naming: [{ id: "t" }] }),
+					).not.toBe(first);
+					const renamed = freeze(
+						{ ...structuredClone(draw), appName: `${draw.appName} again` },
+						true,
+					);
+					const renamedEmission = heldExpansion(held, renamed, facts);
+					expect(renamedEmission).not.toBe(first);
+					expect(renamedEmission).toEqual(expandDoc(renamed));
+					/* An open document's emission is never held. */
+					const open = structuredClone(draw);
+					const openHeld = new HeldExpansions();
+					const openFirst = heldExpansion(openHeld, open, facts);
+					expect(heldExpansion(openHeld, open, facts)).not.toBe(openFirst);
+					/* A held emission is frozen: no reader can write what the next one reads. */
+					expect(Object.isFrozen(first)).toBe(true);
+					expect(Object.isFrozen(first.modules)).toBe(true);
+				}),
+				{ numRuns: Math.min(numRuns, 10), seed: 20261116 },
 			);
 		},
 		60_000,

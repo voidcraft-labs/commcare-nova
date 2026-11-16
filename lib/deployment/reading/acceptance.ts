@@ -40,6 +40,7 @@ import {
 	type ReadOutcome,
 	readHqAppSteps,
 } from "@/lib/commcare/reader";
+import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import {
 	matchingResolver,
 	mintingResolver,
@@ -51,8 +52,15 @@ import type {
 	ValidationLocation,
 } from "@/lib/commcare/validator/errors";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
-import type { exportReadinessFindings } from "@/lib/doc/commitVerdicts";
-import { mutationCommitVerdictSteps } from "@/lib/doc/commitVerdicts";
+import {
+	evaluatePreparedMutationCandidateSteps,
+	type exportReadinessFindings,
+	mutationCommitVerdictSteps,
+	type PreparedMutationCandidate,
+	preparedCandidateHasAdmissionIssue,
+	prepareMutationCandidate,
+	prepareMutationCandidateSteps,
+} from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutationsSteps } from "@/lib/doc/diffDocsToMutations";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import {
@@ -78,11 +86,10 @@ import {
 import type { AdoptedMediaFile } from "../adoption";
 import type { DeploymentTargetKey } from "../store";
 import {
-	alignedFromEmission,
+	readerSourceOfEmission,
 	type readingEmission,
 	readingEmissionOptions,
 	readingEmissionSteps,
-	sourceFromEmission,
 } from "./emission";
 import {
 	firstPublishChangesFor,
@@ -161,6 +168,12 @@ export interface AcceptReadingInput {
 		readonly files: readonly AdoptedMediaFile[];
 		readonly rows: Parameters<typeof exportReadinessFindings>[2];
 	};
+	/**
+	 * Nova's emissions this request's readings share: the fixed point's
+	 * re-read is answered with an emission the reading already made of the
+	 * same document under the same inputs (`ReaderOptions.heldExpansions`).
+	 */
+	readonly heldExpansions?: HeldExpansions;
 }
 
 export interface AcceptedDeclaration {
@@ -302,6 +315,42 @@ function admittedOrNot(
 	}
 }
 
+/**
+ * The candidate of `[...batch, ...next]` from the empty document, made from
+ * `built`, the batch's own candidate from it: `next` applied to the batch's
+ * document, so the construction batch is reduced once for every choice. The
+ * two are one candidate where the batch takes no entity out (a construction
+ * batch from the empty document only gives birth), so the identities,
+ * sequences and targets the joined batch's admission simulates up to `next`
+ * are the batch's document's own, and where neither batch is a lone
+ * case-property rename, whose plan only a batch of one mutation makes.
+ * Undefined where that is not so, or where either part stops at an
+ * admission issue: the caller prepares the joined batch whole, and a refusal
+ * is that preparation's own.
+ * `__tests__/joinedCandidate.property.test.ts` holds the two equal.
+ */
+export function joinedConstructionCandidate(
+	built: PreparedMutationCandidate,
+	next: AdmittedMutationBatch,
+): PreparedMutationCandidate | undefined {
+	const batch = built.mutations;
+	if (
+		preparedCandidateHasAdmissionIssue(built) ||
+		batch.length + next.length <= 1 ||
+		batch.some((mutation) => mutation.kind.startsWith("remove")) ||
+		next.some((mutation) => mutation.kind === "renameCaseProperties")
+	)
+		return undefined;
+	if (next.length === 0) return built;
+	const choice = prepareMutationCandidate(built.nextDoc, next);
+	if (preparedCandidateHasAdmissionIssue(choice)) return undefined;
+	return {
+		...choice,
+		mutations: concatAdmittedMutationBatches(batch, next),
+		results: [...built.results, ...choice.results],
+	};
+}
+
 /** One choice that passed the gate, with the document it gives. */
 interface Gated {
 	readonly choice: AcceptReadingInput["choices"]["choices"][number];
@@ -385,25 +434,54 @@ export function* acceptReadingSteps(
 	} catch (error) {
 		return failed("gate", threw("gate", error));
 	}
-	const choiceBatch = (mutations: readonly Mutation[]): unknown => {
+	/* The construction batch's own candidate, reduced once: each choice's
+	 * candidate is its mutations applied to that document
+	 * (`joinedConstructionCandidate`), and the joined batch is prepared whole
+	 * only where that is not the same candidate. */
+	let built: PreparedMutationCandidate | undefined;
+	if (admittedBatch !== undefined) {
+		yield;
+		try {
+			built = yield* callingSteps(
+				"mutationCommitVerdict",
+				prepareMutationCandidateSteps(
+					emptyBlueprintDoc(input.appId),
+					admittedBatch,
+				),
+			);
+		} catch (error) {
+			return failed("gate", threw("gate", error));
+		}
+	}
+	function* choiceVerdict(
+		mutations: readonly Mutation[],
+	): ReturnType<typeof mutationCommitVerdictSteps> {
 		const choiceMutations = admittedOrNot(mutations);
-		return admittedBatch === undefined || choiceMutations === undefined
-			? [...batch, ...mutations]
-			: concatAdmittedMutationBatches(admittedBatch, choiceMutations);
-	};
+		const joined =
+			built === undefined || choiceMutations === undefined
+				? undefined
+				: joinedConstructionCandidate(built, choiceMutations);
+		if (joined !== undefined) {
+			yield;
+			return yield* evaluatePreparedMutationCandidateSteps(
+				joined,
+				lookupContext,
+			);
+		}
+		return yield* mutationCommitVerdictSteps(
+			emptyBlueprintDoc(input.appId),
+			admittedBatch === undefined || choiceMutations === undefined
+				? [...batch, ...mutations]
+				: concatAdmittedMutationBatches(admittedBatch, choiceMutations),
+			lookupContext,
+		);
+	}
 	for (const [index, choice] of input.choices.choices.entries()) {
 		yield;
 		try {
-			const mutations = calling("mutationCommitVerdict", () =>
-				choiceBatch(choice.mutations),
-			);
 			const judged = yield* callingSteps(
 				"mutationCommitVerdict",
-				mutationCommitVerdictSteps(
-					emptyBlueprintDoc(input.appId),
-					mutations,
-					lookupContext,
-				),
+				choiceVerdict(choice.mutations),
 			);
 			if (!("readiness" in judged)) {
 				for (const finding of judged.verdict.findings)
@@ -705,27 +783,34 @@ function* fixedPointCheck(
 		doc: BlueprintDoc,
 		emission: ReturnType<typeof readingEmission>,
 		resolver: ReaderInput["resolver"],
-	) =>
-		callingSteps(
+	) => {
+		const read = readerSourceOfEmission(emission, source);
+		return callingSteps(
 			"readHqApp",
-			readHqAppSteps({
-				appId: input.appId,
-				target: input.reader.target,
-				source: sourceFromEmission(emission, source),
-				modules: alignedFromEmission(emission),
-				resolver,
-				lookup: input.reader.lookup,
-				organization: input.reader.organization,
-				media: input.reader.media,
-				appStrings: input.reader.appStrings,
-				recordDialect: input.reader.recordDialect,
-				...(input.reader.saveOnlyEditedApplied !== undefined && {
-					saveOnlyEditedApplied: input.reader.saveOnlyEditedApplied,
-				}),
-				knownCaseTypes: knownCaseTypesOf(doc),
-				knownLanguageCodes: knownLanguageCodesOf(doc),
-			}),
+			readHqAppSteps(
+				{
+					appId: input.appId,
+					target: input.reader.target,
+					source: read.source,
+					modules: read.modules,
+					resolver,
+					lookup: input.reader.lookup,
+					organization: input.reader.organization,
+					media: input.reader.media,
+					appStrings: input.reader.appStrings,
+					recordDialect: input.reader.recordDialect,
+					...(input.reader.saveOnlyEditedApplied !== undefined && {
+						saveOnlyEditedApplied: input.reader.saveOnlyEditedApplied,
+					}),
+					knownCaseTypes: knownCaseTypesOf(doc),
+					knownLanguageCodes: knownLanguageCodesOf(doc),
+				},
+				input.heldExpansions === undefined
+					? {}
+					: { heldExpansions: input.heldExpansions },
+			),
 		);
+	};
 	const naming = {
 		placeOf,
 		signature: (segments: readonly string[]) =>
