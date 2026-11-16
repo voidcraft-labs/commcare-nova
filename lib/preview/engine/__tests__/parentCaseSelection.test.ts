@@ -21,6 +21,15 @@ import { findAll, getChildren } from "domutils";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	HOUSEHOLDS as ADVANCED_HOUSEHOLDS,
+	MEMBERS as ADVANCED_MEMBERS,
+	advancedFixture,
+	chosen,
+	OP,
+	read,
+	UNDER_TEST,
+} from "@/lib/commcare/__tests__/advancedPlacementFixture";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -31,11 +40,13 @@ import {
 	formLinkProjectionContext,
 	menuIdOf,
 } from "@/lib/commcare/formLinkProjection";
+import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc, FormType, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, CaseOperation, FormType, Uuid } from "@/lib/domain";
+import { previewMenuCaseContext } from "../../menuProjection";
 import {
 	previewLeafAsksParentCase,
 	previewParentCaseBeforeMenu,
@@ -89,6 +100,15 @@ function entryDatums(suite: Suite): Map<string, readonly Element[]> {
 /** Whether Core collects a case on the menu's own screen before it asks
  *  for a command, reached through the menus its `root` names. */
 function coreAsksCaseBeforeListing(suite: Suite, menuId: string): boolean {
+	return coreCollectsOnScreen(suite, menuId).some(
+		(datum) => datum.attribs.nodeset !== undefined,
+	);
+}
+
+/** The datums Core collects on the menu's own screen before it asks for a
+ *  command, having collected on each screen on the way what all of that
+ *  screen's entries need first (`getDataNeededByAllEntries`). */
+function coreCollectsOnScreen(suite: Suite, menuId: string): Element[] {
 	const datums = entryDatums(suite);
 	const menus = (id: string) =>
 		findAll(
@@ -132,12 +152,17 @@ function coreAsksCaseBeforeListing(suite: Suite, menuId: string): boolean {
 	};
 	let own: Element[] = [];
 	for (const id of path) own = collect(id);
-	return own.some((datum) => datum.attribs.nodeset !== undefined);
+	return own;
 }
 
 /** Households, whose own list shows details, and Members, a child case
- *  chosen under a household Households' list chooses, holding `forms`. */
-function members(forms: readonly FormType[], caseListMenuItem = false) {
+ *  chosen under a household Households' list chooses, holding `forms`, a
+ *  submenu of Households where `nested`. */
+function members(
+	forms: readonly FormType[],
+	caseListMenuItem = false,
+	nested = false,
+) {
 	const list = () => caseListConfig([{ field: "case_name", header: "Name" }]);
 	const doc = buildDoc({
 		appName: "Parent asked",
@@ -183,6 +208,13 @@ function members(forms: readonly FormType[], caseListMenuItem = false) {
 			},
 		],
 	});
+	// Set before anything reads the document: the projections memoize per
+	// document.
+	if (nested)
+		doc.modules[MEMBERS] = {
+			...doc.modules[MEMBERS],
+			parentModuleUuid: HOUSEHOLDS,
+		};
 	rebuildFieldParent(doc);
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	return doc;
@@ -279,4 +311,173 @@ it("asks for the parent case on a leaf whose entry chooses it, and opens a surve
 				[]
 			).some((datum) => datum.attribs.nodeset !== undefined),
 		).toBe(false);
+});
+
+/** A follow-up of Members held advanced, chosen under its household
+ *  (`advancedPlacementFixture.ts`), with `operations` as its case changes. */
+function advancedMembers(operations: () => CaseOperation[]): BlueprintDoc {
+	const { doc } = advancedFixture({
+		formType: "followup",
+		menu: "members",
+		operations,
+	});
+	rebuildFieldParent(doc);
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	expect(emittedModuleKind(doc, ADVANCED_MEMBERS)).toBe("advanced");
+	return doc;
+}
+
+const ownCase = (): CaseOperation =>
+	({ uuid: OP("own"), id: "own_case", action: "own" }) as CaseOperation;
+
+/** A visit the follow-up creates under the household chosen first. */
+const visitUnderHousehold = (): CaseOperation =>
+	({
+		uuid: OP("visit"),
+		id: "visit",
+		action: "create",
+		caseType: "visit",
+		target: { kind: "new" },
+		name: read("name"),
+		links: [
+			{
+				identifier: "parent",
+				targetType: "household",
+				target: { kind: "expression", expr: chosen(ADVANCED_HOUSEHOLDS) },
+				relationship: "child",
+			},
+		],
+	}) as CaseOperation;
+
+it.each<[string, () => CaseOperation[], boolean]>([
+	[
+		"an open action indexes the household",
+		() => [ownCase(), visitUnderHousehold()],
+		true,
+	],
+	["no open action indexes the household", () => [ownCase()], false],
+])(
+	"opens a parent's details on an advanced menu exactly where its load keeps the confirmation: %s",
+	(_, operations, confirms) => {
+		const doc = advancedMembers(operations);
+		const emitted = emissionPlan(doc).doc;
+		const ctx = formLinkProjectionContext(emitted);
+		const [household, member] =
+			entryDatums(suiteOf(doc)).get(
+				formCommandId(ctx, ADVANCED_MEMBERS, UNDER_TEST),
+			) ?? [];
+		// Core reads the household load's datum, the entry's first, and HQ's
+		// advanced entry keeps its list's confirmation only where an open
+		// action indexes the load (`get_manual_datum`).
+		expect(household?.attribs.id).toBe("case_id_load_household0");
+		expect(household?.attribs["detail-confirm"] !== undefined).toBe(confirms);
+		expect(member?.attribs["detail-confirm"]).toBeDefined();
+		// The menu lists one follow-up, so it asks for the household first
+		// and reads that entry's datum with or without the form named.
+		expect(previewParentCaseBeforeMenu(doc, ADVANCED_MEMBERS)).toBe(true);
+		for (const formUuid of [UNDER_TEST, undefined])
+			expect(
+				previewParentCaseListHasDetails(doc, {
+					selectorModuleUuid: ADVANCED_HOUSEHOLDS,
+					requestingModuleUuid: ADVANCED_MEMBERS,
+					...(formUuid !== undefined && { formUuid }),
+				}),
+			).toBe(confirms);
+	},
+);
+
+it("asks for no parent case on a submenu of its parent's own case-first menu, as Core collects it there, and refuses a submenu of another menu of the parent's type", () => {
+	const doc = members(["followup", "close"], false, true);
+	const emitted = emissionPlan(doc).doc;
+	const onMembers = coreCollectsOnScreen(
+		suiteOf(doc),
+		menuIdOf(emitted, formLinkProjectionContext(emitted), MEMBERS),
+	);
+	expect(onMembers.map((datum) => datum.attribs.nodeset)).toEqual([
+		expect.stringContaining("@case_type = 'member'"),
+	]);
+	expect(previewParentCaseBeforeMenu(doc, MEMBERS)).toBe(false);
+	const household = {
+		caseType: "household",
+		cases: [{ caseId: "household-1", caseName: "Rao household" }],
+	};
+	expect(
+		previewMenuCaseContext(
+			{ ...doc, caseTypes: doc.caseTypes ?? [] },
+			MEMBERS,
+			{ [HOUSEHOLDS]: household },
+		).requiredParentCase,
+	).toBeUndefined();
+
+	// Under a menu of households that is not its parent case's menu, the
+	// root alignment would hand Members that menu's household in place of
+	// the one Households' list chooses, and the document is refused, so
+	// Preview never meets a parent case the wire collects elsewhere.
+	const other = testUuid("parent-asked-household-list");
+	const nested = buildDoc({
+		appName: "Parent asked",
+		caseTypes: [
+			{ name: "household", properties: [] },
+			{ name: "member", parent_type: "household", properties: [] },
+		],
+		modules: [
+			{
+				uuid: HOUSEHOLDS,
+				name: "Households",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit household",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			},
+			{
+				uuid: other,
+				name: "Household list",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Check household",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "check" })],
+					},
+				],
+			},
+			{
+				uuid: MEMBERS,
+				name: "Members",
+				caseType: "member",
+				parentCaseModuleUuid: HOUSEHOLDS,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: VISIT,
+						name: "Visit member",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			},
+		],
+	});
+	nested.modules[MEMBERS] = {
+		...nested.modules[MEMBERS],
+		parentModuleUuid: other,
+	};
+	rebuildFieldParent(nested);
+	expect(
+		runValidation(nested, LOOKUP_CONTEXT_UNAVAILABLE).map(
+			(error) => error.code,
+		),
+	).toContain("CASE_PARENT_SELECTION_CONFLICT");
 });

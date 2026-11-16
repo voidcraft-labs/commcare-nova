@@ -48,6 +48,7 @@ import {
 } from "@/lib/routing/previewSearchHistory";
 import type { Location } from "@/lib/routing/types";
 import {
+	searchRunPastItsList,
 	searchWithLatestInputs,
 	submittedSearchKey,
 	submittedSearchOf,
@@ -239,19 +240,22 @@ export type PreviewSearchReplay = "latest-answers" | "own-answers";
  * search the session holds from now on where it differs from the one it
  * holds: a search the session has since replaced stands again with the
  * context the entry recorded (`previewSearchHistory.ts::previewSearchesOnEntry`),
- * and on Web Apps the search of the list the screen shows runs with the
- * answers the worker last gave its query (`replay`).
+ * and on Web Apps every search that stands there runs with the answers the
+ * worker last gave its query (`replay`), as Formplayer replays the whole
+ * address on every request (`MenuSessionRunnerService.advanceSessionWithSelections`)
+ * and runs each query step on it with them.
  *
- * Only that list's: the list is the screen that runs its query and settles
- * it (`CaseListScreen`), so a search given other answers on a menu, a form
- * or another list would run with nothing to finish it, and a form that reads
- * the search would wait on it for good. Every other search that stands keeps
- * the answers it ran with until its list is on show again, where it takes the
- * latest. Web Apps replays the whole address, so a step back onto a menu or
- * a form past a list runs that list's query with the latest answers there too
- * (`MenuSessionRunnerService.advanceSessionWithSelections`), and a case the
- * new results lack fails the step (`EntityScreen.setSelectedEntity`); Preview
- * runs the query only where it shows the list.
+ * The list the screen shows runs its own again (`searchWithLatestInputs`):
+ * it is the screen that runs the query and settles it (`CaseListScreen`). A
+ * search standing on a menu, a form or another list past its list is run
+ * there with them (`searchRunPastItsList`): it stays completed, so a form that
+ * reads it reads the new run's results rather than waiting on a list that is
+ * not on show, and the list counts it again as it comes on show. The case the
+ * list chose stands, as Formplayer holds the selections confirmed
+ * (`RestoreFactory.isConfirmedSelection`) until a submission's commit
+ * (`RestoreFactory.commit`); past that commit Formplayer looks the case up in
+ * the new results and fails the step where they lack it
+ * (`EntityScreen.setSelectedEntity`), which Preview does not play.
  *
  * And only as the worker arrives (`moved`): the entry's own record rewritten
  * in place (the list settling its search writes its context there) runs the
@@ -300,18 +304,15 @@ export function previewSearchArrival(args: {
 	for (const [moduleUuid, search] of Object.entries(held)) {
 		if (search.kind === "not-searched" || !kept.has(search.submission))
 			continue;
+		const promptKeys = searchPromptKeys(
+			doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [],
+		);
 		const replayed =
-			args.replay === "latest-answers" &&
-			args.moved &&
-			args.screen.listShown === moduleUuid
-				? searchWithLatestInputs(
-						search,
-						args.latest[moduleUuid],
-						searchPromptKeys(
-							doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [],
-						),
-					)
-				: search;
+			args.replay !== "latest-answers" || !args.moved
+				? search
+				: args.screen.listShown === moduleUuid
+					? searchWithLatestInputs(search, args.latest[moduleUuid], promptKeys)
+					: searchRunPastItsList(search, args.latest[moduleUuid], promptKeys);
 		if (replayed !== args.states[moduleUuid]) searches[moduleUuid] = replayed;
 	}
 	return {
@@ -379,4 +380,41 @@ export function previewSearchReopened(
 	hasSubmitted: boolean,
 ): boolean {
 	return standing?.kind === "manual" && !hasSubmitted;
+}
+
+/**
+ * The module's search once the worker presses Clear on its Search pane: the
+ * answers typed go, and with them a search the pane's list holds, so a later
+ * Results is a new attempt; a Search screen asked for again stays asked for.
+ * Web Apps' Clear empties each field and changes nothing else
+ * (`menus/views/query.js::QueryListView.clearAction` calls each
+ * `QueryView.clear`, which sets the field's value and re-renders, firing no
+ * field change, so no validation round trip writes the page's query inputs and
+ * the address keeps its `force_manual_search`): the query screen stays on
+ * show rather than the menu running its default search. Nova writes no
+ * `search_on_clear`, the one setting under which Clear searches at once.
+ */
+export function previewSearchAfterClear(
+	standing: PreviewSearchState | undefined,
+): PreviewSearchState | undefined {
+	return standing?.kind === "manual" ? standing : undefined;
+}
+
+/**
+ * Whether the Search pane offers Clear: where the platform's search screen
+ * has one (`platform.ts::PreviewPlatformRules.searchClear`, Web Apps' query
+ * screen and never Android's) and there is something to clear, answers typed
+ * or a search the pane's list holds. Android's screen holds no control that
+ * empties its fields, so a search that found nothing stays on its Search
+ * screen there (`zeroSearchResults`) with no way to leave it but a new
+ * search or Back.
+ */
+export function previewSearchClearOffered(args: {
+	readonly platformClears: boolean;
+	/** The pane's list holds a search the worker submitted. */
+	readonly searched: boolean;
+	/** The worker has typed into a field. */
+	readonly typed: boolean;
+}): boolean {
+	return args.platformClears && (args.searched || args.typed);
 }

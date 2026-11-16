@@ -176,12 +176,15 @@ import type { PreviewCaseTarget } from "@/lib/session/types";
 import {
 	choosePreviewMenuTile,
 	previewModuleAsksParentCase,
+	previewParentCaseRequestAfterChoice,
 	previewParentCaseRequestFor,
 	previewParentCaseResumeLocation,
+	previewParentCaseStepBack,
 	previewTargetKeptForParentCase,
 } from "../moduleScreenNavigation";
 
 const MODULE_UUID = testUuid("parent-case-resume-module");
+const GRANDPARENT_FOR_STEP_BACK = testUuid("step-back-regions");
 const FORM_UUID = testUuid("parent-case-resume-form");
 const FIELD_UUID = testUuid("parent-case-resume-field");
 
@@ -291,6 +294,79 @@ describe("previewParentCaseRequestFor", () => {
 				},
 			}).resumeLocation,
 		).toBeUndefined();
+	});
+});
+
+/* A chain of selectors (village, then household, for a member's menu):
+ * CommCare collects one datum per list, so Back from the household's list
+ * pops the village just chosen and asks for it again
+ * (`CommCareSession.stepBack`), and Back from the village's list, where the
+ * request collected nothing yet, leaves to the screen it was asked from. */
+describe("a selector chain's Back", () => {
+	const VILLAGES = testUuid("step-back-villages");
+	const HOUSEHOLDS = testUuid("step-back-households");
+	const MEMBERS = testUuid("step-back-members");
+	const leaf: Location = {
+		kind: "form",
+		moduleUuid: MEMBERS,
+		formUuid: FORM_UUID,
+	};
+	const atVillages = {
+		selectingModuleUuid: VILLAGES,
+		returnModuleUuids: [HOUSEHOLDS, MEMBERS],
+		resumeLocation: leaf,
+		cancelLocation: { kind: "module", moduleUuid: MEMBERS },
+	} as const;
+
+	it("goes on to the next selector remembering the one before it, and ends at the module that asked", () => {
+		const atHouseholds = previewParentCaseRequestAfterChoice(atVillages);
+		expect(atHouseholds).toEqual({
+			selectingModuleUuid: HOUSEHOLDS,
+			returnModuleUuids: [MEMBERS],
+			resumeLocation: leaf,
+			cancelLocation: { kind: "module", moduleUuid: MEMBERS },
+			previous: atVillages,
+		});
+		if (atHouseholds === undefined) throw new Error("A next selector.");
+		expect(previewParentCaseRequestAfterChoice(atHouseholds)).toBeUndefined();
+	});
+
+	it("returns from a later selector's list to the earlier one's, letting its case go", () => {
+		const atHouseholds = previewParentCaseRequestAfterChoice(atVillages);
+		if (atHouseholds === undefined) throw new Error("A next selector.");
+		expect(previewParentCaseStepBack(atHouseholds)).toEqual({
+			kind: "earlier-selector",
+			request: atVillages,
+			letGo: VILLAGES,
+			location: { kind: "cases", moduleUuid: VILLAGES },
+		});
+	});
+
+	it("cancels from the first selector's list to where the request was asked", () => {
+		expect(previewParentCaseStepBack(atVillages)).toEqual({
+			kind: "cancel",
+			location: { kind: "module", moduleUuid: MEMBERS },
+		});
+		expect(
+			previewParentCaseStepBack({
+				selectingModuleUuid: VILLAGES,
+				returnModuleUuids: [MEMBERS],
+			}),
+		).toEqual({ kind: "cancel", location: { kind: "home" } });
+	});
+
+	it("keeps the earlier selector where a selector that needs its own parent continues the request", () => {
+		const atHouseholds = previewParentCaseRequestAfterChoice(atVillages);
+		if (atHouseholds === undefined) throw new Error("A next selector.");
+		expect(
+			previewParentCaseRequestFor({
+				loc: { kind: "cases", moduleUuid: HOUSEHOLDS },
+				moduleUuid: HOUSEHOLDS,
+				selectorModuleUuid: GRANDPARENT_FOR_STEP_BACK,
+				structuralParentUuid: null,
+				pending: atHouseholds,
+			}).previous,
+		).toBe(atVillages);
 	});
 });
 

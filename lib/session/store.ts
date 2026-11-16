@@ -60,6 +60,7 @@ import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
+import { previewSelectionsTargetOf } from "@/lib/routing/previewSelectionsHistory";
 import {
 	NO_SEARCH_INPUTS_GIVEN,
 	type PreviewSearchInputsGiven,
@@ -763,6 +764,19 @@ export interface BuilderSessionState {
 	 *  (`lib/routing/previewSelectionsHistory.ts`). */
 	restorePreviewSelections: (recorded: {
 		readonly task: string;
+		readonly menu: Readonly<Record<string, PreviewMenuCaseSelection>>;
+		readonly target: PreviewCaseTarget | undefined;
+		readonly selected: PreviewSelectedCase | undefined;
+	}) => void;
+
+	/** Back or Forward onto a history entry of this task whose selections
+	 *  differ from the session's, on Web Apps: the entry's case selections
+	 *  become the session's, as Formplayer replays a popped address's
+	 *  selections, and the task's other facts stand. A form target whose
+	 *  form and cases are the entry's keeps what it carries beyond them (a
+	 *  Register launch, a link's device world), which no address holds
+	 *  (`lib/routing/previewSelectionsHistory.ts`). */
+	replayPreviewSelections: (recorded: {
 		readonly menu: Readonly<Record<string, PreviewMenuCaseSelection>>;
 		readonly target: PreviewCaseTarget | undefined;
 		readonly selected: PreviewSelectedCase | undefined;
@@ -1712,6 +1726,18 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				replayPreviewSelections(recorded) {
+					const current = get().previewCaseTarget;
+					const sameTarget =
+						JSON.stringify(previewSelectionsTargetOf(current)) ===
+						JSON.stringify(previewSelectionsTargetOf(recorded.target));
+					set({
+						previewMenuCaseSelections: recorded.menu,
+						previewCaseTarget: sameTarget ? current : recorded.target,
+						previewSelectedCase: recorded.selected,
+					});
+				},
+
 				setPreviewMenuCaseSelection(
 					moduleUuid: string,
 					selected: PreviewMenuCaseSelection | undefined,
@@ -1741,15 +1767,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setPreviewParentCaseRequest(
 					request: PreviewParentCaseRequest | undefined,
 				) {
-					const current = get().previewParentCaseRequest;
 					if (
-						current?.selectingModuleUuid === request?.selectingModuleUuid &&
-						stringArraysEqual(
-							current?.returnModuleUuids,
-							request?.returnModuleUuids,
-						) &&
-						locationsEqual(current?.resumeLocation, request?.resumeLocation) &&
-						locationsEqual(current?.cancelLocation, request?.cancelLocation)
+						parentCaseRequestsEqual(get().previewParentCaseRequest, request)
 					) {
 						return;
 					}
@@ -2180,6 +2199,22 @@ function stringArraysEqual(
 			right !== undefined &&
 			left.length === right.length &&
 			left.every((value, index) => value === right[index]))
+	);
+}
+
+function parentCaseRequestsEqual(
+	left: PreviewParentCaseRequest | undefined,
+	right: PreviewParentCaseRequest | undefined,
+): boolean {
+	return (
+		left === right ||
+		(left !== undefined &&
+			right !== undefined &&
+			left.selectingModuleUuid === right.selectingModuleUuid &&
+			stringArraysEqual(left.returnModuleUuids, right.returnModuleUuids) &&
+			locationsEqual(left.resumeLocation, right.resumeLocation) &&
+			locationsEqual(left.cancelLocation, right.cancelLocation) &&
+			parentCaseRequestsEqual(left.previous, right.previous))
 	);
 }
 

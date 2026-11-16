@@ -161,6 +161,16 @@ export interface TermBindings {
 	 */
 	sessionContext?: ReadonlyMap<string, TermBindingValue>;
 
+	/**
+	 * The worker's record as the caller derives it, which a worker-record read
+	 * answers from only where the store holds no row for the worker (a viewer
+	 * previewing as themselves, whose role cannot create it). A row that exists
+	 * always answers, a property it lacks reading `''`. Preview binds its
+	 * identity's record here, so a list reads what a form of the same app reads
+	 * (`previewWorkerPropertyBinding`). Absent, a missing row reads `''`.
+	 */
+	workerRecordWithoutRow?: Readonly<Record<string, string>>;
+
 	/** Form-local values keyed by stable field UUID (submission contexts only). */
 	formFields?: ReadonlyMap<string, FormFieldBindingValue>;
 
@@ -675,7 +685,10 @@ export function compileChosenCaseProperty(
  *  can share one alias. */
 const CHOSEN_CASE_ALIAS = "chosen_case";
 
-/** Worker-record reads use the same tenant and held-row boundary as case reads. */
+/** Worker-record reads use the same tenant and held-row boundary as case reads.
+ * The row answers when there is one, a property it lacks reading `''`; with no
+ * row, the read is the bound derived record's value (`workerRecordWithoutRow`),
+ * else `''`. */
 function compileWorkerProperty(
 	field: string,
 	ctx: TermCompileContext,
@@ -715,12 +728,19 @@ function compileWorkerProperty(
 				scalar === undefined
 					? builder.ref("worker_case.properties", "->>").key(field)
 					: eb.cast(scalarColumnRef("worker_case", scalar.column), "text");
-			return value.as("value");
+			// Inside the row's select, so only a missing row reaches the outer
+			// fallback.
+			return eb.fn("coalesce", [value, eb.val("")]).as("value");
 		})
 		.limit(1);
 	if (ctx.restrictToRestoreScope !== undefined)
 		query = ctx.restrictToRestoreScope(query, "worker_case");
-	return eb.fn("coalesce", [query, eb.val("")]);
+	const derived = ctx.bindings.workerRecordWithoutRow;
+	const withoutRow =
+		derived !== undefined && Object.hasOwn(derived, field)
+			? (derived[field] ?? "")
+			: "";
+	return eb.fn("coalesce", [query, eb.val(withoutRow)]);
 }
 
 /**

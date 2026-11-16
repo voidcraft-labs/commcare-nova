@@ -20,6 +20,23 @@ export function caseSelectionRowAction(args: {
 }
 
 /**
+ * What a case named in a list's address (`/cases/{caseId}`) does, by the
+ * rule its row follows: on a parent's list another menu asked for, whose
+ * datum names no details screen (the row goes on, `"form"`), it goes on with
+ * the case as the row does, since a session holding that selection asks for
+ * no confirmation (`EntityScreen.getLongDetail` over the needed datum);
+ * anywhere else it opens the case's details.
+ */
+export function caseSelectionRouteCaseAction(args: {
+	readonly rowAction: "detail" | "form" | "none";
+	readonly selectsForParentRequest: boolean;
+}): "detail" | "continue" {
+	return args.selectsForParentRequest && args.rowAction === "form"
+		? "continue"
+		: "detail";
+}
+
+/**
  * The index name `moduleUuid`'s list follows from the case chosen in its
  * parent selection, where the menu is emitted advanced: the one identifier
  * the app's child links from the menu's case type to the parent's use

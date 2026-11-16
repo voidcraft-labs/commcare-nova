@@ -25,6 +25,7 @@ describe("Preview navigation fixtures", () => {
 		["case-first-entry", false],
 		["child-list-above", false],
 		["submenus", false],
+		["parent-chain", false],
 		["place-condition", false],
 		["place-screens", false],
 	] as const)(

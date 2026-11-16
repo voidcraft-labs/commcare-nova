@@ -79,7 +79,10 @@ function restoreSession({
 		...state,
 		deviceCases: restore(state.deviceCases),
 		screen: screen(state.screen),
-		history: state.history.map(screen),
+		history: state.history.map((entry) => ({
+			...screen(entry),
+			shownWith: entry.shownWith,
+		})),
 		// A session retained before after-submit stacks existed has none pending.
 		afterSubmitStack:
 			afterSubmitStack === undefined

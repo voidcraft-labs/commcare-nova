@@ -28,6 +28,7 @@ import { usePreviewDevice } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 import {
+	armFreshEntryWorker,
 	armValidationWorker,
 	releaseValidationWorker,
 	validationWorkerHeld,
@@ -212,6 +213,12 @@ window.previewFormLifecycleAudit = {
 		if (entryKey === undefined) throw new Error("Expected a form entry");
 		armValidationWorker(entryKey);
 	},
+	async armFreshEntry() {
+		await controller?.awaitSettled();
+		const entryKey = controller?.entryKey;
+		if (entryKey === undefined) throw new Error("Expected a form entry");
+		armFreshEntryWorker(entryKey);
+	},
 	validationHeld: validationWorkerHeld,
 	releaseValidation: releaseValidationWorker,
 	refreshCaseData() {
@@ -241,6 +248,7 @@ declare global {
 			entry(): string | undefined;
 			answers(): { name?: string; photo?: string };
 			armValidation(): Promise<void>;
+			armFreshEntry(): Promise<void>;
 			validationHeld(): boolean;
 			releaseValidation(): void;
 			refreshCaseData(): void;

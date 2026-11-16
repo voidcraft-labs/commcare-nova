@@ -136,6 +136,14 @@ export function caseListRegistrationAdmission(args: {
 	if (searchState.registeredCaseId !== undefined) {
 		return { kind: "refused", reason: "stale-launch" };
 	}
+	/* Nor is a search history ran again past its list with other answers
+	 * (`previewSearchState.ts::searchRunPastItsList`): what offered the form
+	 * was an empty result for the answers it ran with before, and Web Apps
+	 * shows the list again over the new run rather than reopening the form
+	 * (`MenuSessionRunnerService.advanceSessionWithSelections`, `nonAppNav`). */
+	if (searchState.rerunPastList) {
+		return { kind: "refused", reason: "stale-launch" };
+	}
 	return { kind: "admitted", answers: searchState.answers };
 }
 

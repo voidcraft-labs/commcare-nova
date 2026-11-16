@@ -658,7 +658,7 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 	}
 });
 
-// Seventeen persisted worker actions include two submissions and linked-form
+// Nineteen persisted worker actions include two submissions and linked-form
 // entry. Give the complete integration journey the same budget as page journeys.
 it("requires a saved role and parent selection, then executes additional operations before opening the next form", {
 	timeout: 15_000,
@@ -941,9 +941,17 @@ it("requires a saved role and parent selection, then executes additional operati
 			expect.objectContaining({ name: "Equipment", visibility: "shown" }),
 		]),
 	);
+	// Equipment lists a survey beside its follow-up, so CommCare lists its
+	// forms first and asks for the household after Inspect's command
+	// (`parentCaseSelection.ts::previewParentCaseBeforeMenu`).
 	expect(
 		await step({ kind: "menu", moduleUuid: equipment.uuid }),
-	).toMatchObject({
+	).toMatchObject({ screen: "menu", name: "Equipment" });
+	const inspect = Object.values(doc.forms).find(
+		(form) => form.name === "Inspect",
+	);
+	if (!inspect) throw new Error("Inspection form missing.");
+	expect(await step({ kind: "form", formUuid: inspect.uuid })).toMatchObject({
 		name: "Households",
 		results: {
 			kind: "rows",
@@ -953,14 +961,33 @@ it("requires a saved role and parent selection, then executes additional operati
 			],
 		},
 	});
-	await step({ kind: "select", caseIds: ["home-a"] });
-	await step({ kind: "continue" });
-	const inspect = Object.values(doc.forms).find(
-		(form) => form.name === "Inspect",
-	);
-	if (!inspect) throw new Error("Inspection form missing.");
-	const children = await step({ kind: "form", formUuid: inspect.uuid });
+	// The household's datum in Inspect's entry names no details screen, so
+	// the household goes on at its row, though Households' own list shows
+	// details (`previewParentCaseListHasDetails`).
+	const children = await step({ kind: "select", caseIds: ["home-a"] });
 	expect(children).toMatchObject({
+		name: "Equipment",
+		results: {
+			kind: "rows",
+			rows: [expect.objectContaining({ case_id: "pump-a" })],
+		},
+	});
+	// Back lets the household go and shows its list again, and Back once
+	// more reaches the menu holding none, so Inspect asks for the household
+	// again (`CommCareSession.stepBack`; `navigation.ts::appTestStepBack`).
+	expect(await step({ kind: "back" })).toMatchObject({
+		name: "Households",
+		screen: "browse",
+	});
+	expect(await step({ kind: "back" })).toMatchObject({
+		screen: "menu",
+		name: "Equipment",
+	});
+	expect(await step({ kind: "form", formUuid: inspect.uuid })).toMatchObject({
+		name: "Households",
+		screen: "browse",
+	});
+	expect(await step({ kind: "select", caseIds: ["home-a"] })).toMatchObject({
 		name: "Equipment",
 		results: {
 			kind: "rows",
@@ -1035,7 +1062,6 @@ it("requires a saved role and parent selection, then executes additional operati
 				actions: [
 					{ action: { kind: "form", formUuid: inspect.uuid } },
 					{ action: { kind: "select", caseIds: ["home-a"] } },
-					{ action: { kind: "continue" } },
 					{ action: { kind: "select", caseIds: ["pump-a"] } },
 					{ action: { kind: "continue" } },
 				],
@@ -1043,11 +1069,11 @@ it("requires a saved role and parent selection, then executes additional operati
 		);
 	expect(reopened.testId).toBe(current.testId);
 	expect(reopened.stopped).toBeUndefined();
-	expect(reopened.step).toBe(previousStep + 5);
+	expect(reopened.step).toBe(previousStep + 4);
 	expect(
 		reopened.results.map(({ testId, step }) => ({ testId, step })),
 	).toEqual(
-		[1, 2, 3, 4, 5].map((offset) => ({
+		[1, 2, 3, 4].map((offset) => ({
 			testId: current.testId,
 			step: previousStep + offset,
 		})),
@@ -1056,7 +1082,7 @@ it("requires a saved role and parent selection, then executes additional operati
 		name: "Households",
 		screen: "browse",
 	});
-	expect(reopened.results[4].observation).toMatchObject({
+	expect(reopened.results[3].observation).toMatchObject({
 		screen: "form",
 		name: "Inspect",
 		questions: expect.arrayContaining([

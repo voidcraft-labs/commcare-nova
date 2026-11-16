@@ -1,10 +1,11 @@
 /**
- * Back past Home (`previewSelectionsHistory.ts`): each history entry records
- * the case selections it was shown with, and Back or Forward onto an entry of
- * a task Home ended puts them back on Web Apps, as Formplayer replays a
- * popped address's selections (`utils.js::CloudcareUrl`,
- * `router.js::listMenus`, `MenuSessionRunnerService.advanceSessionWithSelections`).
- * Android keeps the session as it stands.
+ * Back and Forward (`previewSelectionsHistory.ts`): each history entry
+ * records the case selections it was shown with, and Back or Forward onto an
+ * entry puts them back on Web Apps wherever the session holds others (past
+ * Home, taking up the task Home ended), as Formplayer replays a popped
+ * address's selections (`utils.js::CloudcareUrl`, `router.js::listMenus`,
+ * `MenuSessionRunnerService.advanceSessionWithSelections`). Android keeps the
+ * session as it stands.
  *
  * The history is the browser's own model here: each entry's state written
  * through `builderEntryState`, the record written as the screen shows it,
@@ -112,7 +113,7 @@ function arrive(
 	history: ReturnType<typeof browserHistory>,
 	store: Store,
 	replay: "address" | "session",
-): "restore" | "keep" {
+): "restore" | "replay" | "keep" {
 	const state = store.getState();
 	const arrival = previewSelectionsArrival({
 		replay,
@@ -120,15 +121,22 @@ function arrive(
 		onEntry: readPreviewSelections(history.current.state),
 		session: state.previewSessionId,
 		task: state.previewTaskId,
+		current: {
+			menu: state.previewMenuCaseSelections,
+			target: previewSelectionsTargetOf(state.previewCaseTarget),
+			selected: state.previewSelectedCase,
+		},
 	});
-	if (arrival.kind === "restore") {
-		state.restorePreviewSelections(
-			previewSelectionsInDocument(arrival.recorded, {
-				modules: { [HOUSEHOLDS]: {}, [MEMBERS]: {} },
-				forms: { [VISIT]: {} },
-			}),
-		);
+	if (arrival.kind !== "keep") {
+		const recorded = previewSelectionsInDocument(arrival.recorded, {
+			modules: { [HOUSEHOLDS]: {}, [MEMBERS]: {} },
+			forms: { [VISIT]: {} },
+		});
+		if (arrival.kind === "restore") state.restorePreviewSelections(recorded);
+		else state.replayPreviewSelections(recorded);
 	}
+	/* The screen the entry shows records what the session now holds. */
+	if (history.current.pathname !== APP) record(history, store);
 	return arrival.kind;
 }
 
@@ -183,14 +191,16 @@ describe("Back past Home", () => {
 			caseListSearchText: "ad",
 		});
 
-		/* Within the task taken up again the session is what the entries
-		 * show: a further Back changes nothing (the list's own screen rules
-		 * decide what it holds), and its record follows the session. */
+		/* Within the task taken up again a further Back onto the Members
+		 * list, shown before its member was chosen for the visit, shows it
+		 * with the household alone, as its address holds. */
 		history.back();
-		expect(arrive(history, store, WEB_APPS)).toBe("keep");
+		expect(arrive(history, store, WEB_APPS)).toBe("replay");
+		expect(store.getState().previewTaskId).toBe(task);
 		expect(store.getState().previewMenuCaseSelections).toEqual({
 			[HOUSEHOLDS]: HOUSEHOLD,
 		});
+		expect(store.getState().previewCaseTarget).toBeUndefined();
 	});
 
 	it("on Web Apps, each address past Home holds its own selections, and Forward past Home returns the later task's", () => {
@@ -207,8 +217,9 @@ describe("Back past Home", () => {
 		record(history, store);
 		const secondTask = store.getState().previewTaskId;
 
-		history.back(); // Households, same task
-		expect(arrive(history, store, WEB_APPS)).toBe("keep");
+		history.back(); // Households, same task, shown before its household
+		expect(arrive(history, store, WEB_APPS)).toBe("replay");
+		expect(store.getState().previewMenuCaseSelections).toEqual({});
 		history.back(); // Home
 		expect(arrive(history, store, WEB_APPS)).toBe("keep");
 		store.getState().clearPreviewNavigation();
@@ -288,6 +299,96 @@ describe("Back past Home", () => {
 			target: undefined,
 			selected: { caseId: "h-1", caseName: "Smith household" },
 		});
+	});
+});
+
+describe("Back and Forward within one task", () => {
+	/* A crumb cuts the session back to Households: the household stays, the
+	 * visit's member goes, on an entry of its own. */
+	function cutToHouseholds(
+		history: ReturnType<typeof browserHistory>,
+		store: Store,
+	) {
+		store.getState().setPreviewCaseTarget(undefined);
+		history.push(`${APP}/${HOUSEHOLDS}`);
+		record(history, store);
+	}
+
+	it("on Web Apps, shows a popped entry with the cases it was shown with, after a crumb let them go", () => {
+		const history = browserHistory();
+		const store = previewStore();
+		chooseAVisit(history, store);
+		cutToHouseholds(history, store);
+		expect(store.getState().previewCaseTarget).toBeUndefined();
+
+		history.back(); // the visit form, shown with its member
+		expect(arrive(history, store, WEB_APPS)).toBe("replay");
+		expect(store.getState().previewCaseTarget).toEqual({
+			formUuid: VISIT,
+			cases: [{ caseId: "m-1", caseName: "Ada" }],
+			caseListSearchText: "ad",
+		});
+		expect(store.getState().previewMenuCaseSelections).toEqual({
+			[HOUSEHOLDS]: HOUSEHOLD,
+		});
+
+		history.forward(); // the crumb's entry, without the member
+		expect(arrive(history, store, WEB_APPS)).toBe("replay");
+		expect(store.getState().previewCaseTarget).toBeUndefined();
+	});
+
+	it("on Web Apps, keeps what a form's target carries beyond its form and cases where the entry holds the same", () => {
+		const history = browserHistory();
+		const store = previewStore();
+		chooseAVisit(history, store);
+		history.back();
+		history.forward(); // the visit form again: the session already shows it
+		expect(arrive(history, store, WEB_APPS)).toBe("keep");
+		expect(store.getState().previewCaseTarget?.caseDatabase).toEqual({
+			rows: [],
+			indices: [],
+		});
+		/* The member chosen again on a later list, the same form: the
+		 * selections differ in the menu only, so the target keeps its world. */
+		store.getState().setPreviewMenuCaseSelection(HOUSEHOLDS, undefined);
+		record(history, store);
+		store.getState().setPreviewMenuCaseSelection(HOUSEHOLDS, HOUSEHOLD);
+		history.push(`${APP}/${MEMBERS}/results`);
+		record(history, store);
+		history.back();
+		expect(arrive(history, store, WEB_APPS)).toBe("replay");
+		expect(store.getState().previewMenuCaseSelections).toEqual({});
+		expect(store.getState().previewCaseTarget?.caseDatabase).toEqual({
+			rows: [],
+			indices: [],
+		});
+	});
+
+	it("on Web Apps, leaves the task's other facts standing", () => {
+		const history = browserHistory();
+		const store = previewStore();
+		chooseAVisit(history, store);
+		const task = store.getState().previewTaskId;
+		cutToHouseholds(history, store);
+		const request = {
+			selectingModuleUuid: HOUSEHOLDS,
+			returnModuleUuids: [MEMBERS],
+		};
+		store.getState().setPreviewParentCaseRequest(request);
+		history.back();
+		expect(arrive(history, store, WEB_APPS)).toBe("replay");
+		expect(store.getState().previewTaskId).toBe(task);
+		expect(store.getState().previewParentCaseRequest).toEqual(request);
+	});
+
+	it("on Android, keeps the session as it stands", () => {
+		const history = browserHistory();
+		const store = previewStore();
+		chooseAVisit(history, store);
+		cutToHouseholds(history, store);
+		history.back();
+		expect(arrive(history, store, ANDROID)).toBe("keep");
+		expect(store.getState().previewCaseTarget).toBeUndefined();
 	});
 });
 

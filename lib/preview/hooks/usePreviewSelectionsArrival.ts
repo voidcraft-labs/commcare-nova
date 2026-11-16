@@ -45,7 +45,8 @@ function sessionSelections(state: {
 
 /**
  * Each Preview history entry records the case selections it was shown with,
- * and Back or Forward past Home puts them back on Web Apps, as Formplayer
+ * and Back or Forward puts them back on Web Apps wherever the session holds
+ * others (past Home, taking up the entry's task again), as Formplayer
  * replays a popped address's selections
  * (`lib/routing/previewSelectionsHistory.ts`).
  *
@@ -79,11 +80,16 @@ export function usePreviewSelectionsArrival(
 					onEntry: readCurrentPreviewSelections(),
 					session: state.previewSessionId,
 					task: state.previewTaskId,
+					current: sessionSelections(state),
 				});
-				if (arrival.kind !== "restore") return;
-				state.restorePreviewSelections(
-					previewSelectionsInDocument(arrival.recorded, doc.getState()),
+				if (arrival.kind === "keep") return;
+				const recorded = previewSelectionsInDocument(
+					arrival.recorded,
+					doc.getState(),
 				);
+				if (arrival.kind === "restore")
+					state.restorePreviewSelections(recorded);
+				else state.replayPreviewSelections(recorded);
 			}),
 		[doc, session],
 	);
@@ -99,7 +105,7 @@ export function usePreviewSelectionsArrival(
 		void menu;
 		void target;
 		void selected;
-		/* A return to another task's selections happens on the popstate,
+		/* A return to the entry's selections happens on the popstate,
 		 * before this; whatever the session holds now is what the entry
 		 * shows, so the entry records it. */
 		const state = session.getState();

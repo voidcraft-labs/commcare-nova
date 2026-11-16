@@ -57,9 +57,12 @@ render it (`restorePreviewSelections`, from a popstate listener in
 up that entry's task again; the rest of the ended task (a Register launch,
 a task continuation, the after-submit stack, a parent case request) stays
 cleared, as Home cleared it. That is Web Apps' popped address: its
-`selections` are replayed by `navigate_menu`. Within one task the store is
-what every entry shows and the record only follows it. On Android
-(`rules.poppedEntrySelections: "session"`) nothing is returned.
+`selections` are replayed by `navigate_menu`. Within one task an entry whose
+record differs from the session's selections (a crumb let a case go since,
+or a later list chose another) puts its selections back the same way
+(`replayPreviewSelections`), and the task's other facts stand; a form target
+whose form and cases are the entry's keeps what it carries beyond them. On
+Android (`rules.poppedEntrySelections: "session"`) nothing is returned.
 
 `previewParentCaseRequest` is a separate selector plus ordered return chain, so
 multi-level case ancestry can visit each required selector before the original
@@ -72,10 +75,16 @@ module is derived from case-type `parent_type`, not from structural
 `parentModuleUuid`; this keeps menu ancestry and case ancestry independent when
 a nested child belongs under one menu but its case parent is selected through
 another module. Explicit cancel, browser Back, and navigation away clear the
-request so an abandoned selector cannot redirect a later visit. The list's
-own Back reaches `cancelLocation` by a step back where that screen is the
-entry behind the list (`navigate.stepBackTo`), so history never holds it
-twice and the browser's next Back goes on past it. All navigation
+request so an abandoned selector cannot redirect a later visit. A selector
+reached after a case chosen on an earlier selector of the same request
+holds that earlier request as `previous`
+(`moduleScreenNavigation.ts::previewParentCaseRequestAfterChoice`), and the
+list's own Back there returns to the earlier selector's list with its case
+let go, in place, as `CommCareSession.stepBack` pops the last datum it
+collected (`previewParentCaseStepBack`). On a selector with nothing before it
+the list's own Back reaches `cancelLocation` by a step back where that screen
+is the entry behind the list (`navigate.stepBackTo`), so history never holds
+it twice and the browser's next Back goes on past it. All navigation
 facts clear on Preview mode or persona changes and on a confirmed Project
 boundary.
 They are session-only and never enter the document, undo history, or persisted
@@ -115,7 +124,9 @@ standing, which gives none, hidden values included. Home and a submission
 keep them, as Web Apps' page keeps `Utils.queryInputs`, and a new session
 reads none without a write. On Web Apps an arrival on a list runs that
 list's standing search with them, every prompt answered by them alone
-(`previewSearchState.ts::searchWithLatestInputs`); the menu's default search
+(`previewSearchState.ts::searchWithLatestInputs`), and an arrival on a menu
+or a form past the list holds a completed search with them, marked
+`rerunPastList` until its list counts it again (`searchRunPastItsList`); the menu's default search
 is marked `automatic` on its state, since it gave no answers and runs as the
 default search again.
 

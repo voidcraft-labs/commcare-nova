@@ -426,3 +426,60 @@ test("worker-record reads use the current worker's visible record in the bound t
 		session: "Session value",
 	});
 });
+
+test("a worker-record read answers from the derived record only where the worker has no row", async ({
+	db,
+}) => {
+	const derived = {
+		hq_user_id: "current-worker",
+		region: "Derived",
+		case_name: "Derived name",
+	};
+	const ctx = makeCtx(db, {
+		bindings: {
+			sessionContext: new Map([["userid", "current-worker"]]),
+			workerRecordWithoutRow: derived,
+		},
+	});
+	const read = () =>
+		db
+			.selectNoFrom([
+				compileTerm(
+					{ kind: "session-user", field: "region", source: "worker-record" },
+					ctx,
+				).as("region"),
+				compileTerm(
+					{ kind: "session-user", field: "case_name", source: "worker-record" },
+					ctx,
+				).as("name"),
+				compileTerm(
+					{ kind: "session-user", field: "phone", source: "worker-record" },
+					ctx,
+				).as("undeclared"),
+			])
+			.executeTakeFirstOrThrow();
+	expect(await read()).toEqual({
+		region: "Derived",
+		name: "Derived name",
+		undeclared: "",
+	});
+	// Once the row exists it answers alone, a property it lacks reading blank.
+	await db
+		.insertInto("cases")
+		.values(
+			makeCaseRow({
+				case_id: "worker",
+				app_id: APP_ID,
+				project_id: PROJECT_ID,
+				case_type: "commcare-user",
+				case_name: "Stored name",
+				properties: JSON.stringify({ hq_user_id: "current-worker" }),
+			}),
+		)
+		.execute();
+	expect(await read()).toEqual({
+		region: "",
+		name: "Stored name",
+		undeclared: "",
+	});
+});

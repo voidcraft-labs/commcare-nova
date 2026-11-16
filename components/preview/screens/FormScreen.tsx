@@ -275,7 +275,7 @@ function submitOfferLine(
 		case "busy":
 			return runtimeMessage(
 				language,
-				offer.reason === "submitting" ? "answersLocked" : "freshFormReady",
+				offer.reason === "submitting" ? "answersLocked" : "freshFormStarting",
 			);
 		case "waiting":
 			switch (offer.reason) {

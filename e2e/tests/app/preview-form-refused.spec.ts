@@ -182,6 +182,19 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 		await expect(trail).not.toContainText(opens.caseName);
 	});
 
+	await test.step("Back onto the form's entry shows it with the record the crumb let go", async () => {
+		/* Web Apps replays a popped address's selections
+		 * (`MenuSessionRunnerService.advanceSessionWithSelections`), so the
+		 * entry shows the record it was shown with, and Forward onto the
+		 * crumb's entry lets it go again. The form's entry opens the form, the
+		 * screen the builder's address names
+		 * (`lib/routing/previewSelectionsHistory.ts`). */
+		await page.goBack();
+		await expectForm();
+		await page.goForward();
+		await expectList();
+	});
+
 	await test.step("a menu another session held holds nothing: after Runs on changes, Back shows the list", async () => {
 		/* A case the previous worker or platform chose has no standing in the
 		 * next one's session, so stepping back onto the menu's entry after the

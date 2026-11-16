@@ -137,8 +137,9 @@ session has since replaced stands again when history returns to the entry
 says only that the search stands: what answers it runs with when it stands
 again is the platform's (`lib/preview/searchStanding.ts::previewSearchArrival`),
 on Web Apps the answers the worker last gave the module's query in the
-session, taken where the arrival shows that module's list, as Web Apps'
-address carries no answers.
+session, taken on every screen the search stands on (run again where the
+arrival shows that module's list, held completed with them on a menu or a
+form past it), as Web Apps' address carries no answers.
 Submissions are unique across every search, so an entry an earlier session or
 Project wrote names none the session holds.
 
@@ -151,12 +152,19 @@ screen but Home and on every change of the selections
 (`recordPreviewSelections`, a record in place like the standing searches,
 never a move); `builderEntryState` drops it from a written entry
 (`withoutPreviewHistorySteps`), so no entry inherits another's, and a stale
-Project generation loses it with the held menu. Back or Forward past Home
-(an entry of this session's earlier or later task) returns the entry's
-selections on Web Apps before any screen renders it: `onPopState` runs the
-listeners `subscribeBuilderHistoryPop` registers after the reconcile and
-before the path subscribers, since a screen reads the selections as it
-mounts (`previewSelectionsHistory.ts::previewSelectionsArrival`).
+Project generation loses it with the held menu. Back or Forward onto an
+entry of this session returns the entry's selections on Web Apps wherever
+the session holds others (past Home, an entry of an earlier or later task,
+which the session takes up again; within the task, an entry shown before a
+crumb let a case go or a later list chose another) before any screen renders
+it: `onPopState` runs the listeners `subscribeBuilderHistoryPop` registers
+after the reconcile and before the path subscribers, since a screen reads the
+selections as it mounts (`previewSelectionsHistory.ts::previewSelectionsArrival`).
+A screen's own step back (`stepBackTo`) runs its `leave` after that return,
+so what the screen lets go stays let go. The entry's address is the
+builder's: Back onto a form's entry opens that form, with the entry's
+selections, though Web Apps shows the screen before the form there
+(`lib/preview/CLAUDE.md` § Platforms).
 
 The `lang` query parameter is the independent worker-content lens. Path
 serialization changes only the location path and preserves the current query;

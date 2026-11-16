@@ -1,7 +1,8 @@
 // Remote transport is controlled. PreviewShell, HomeScreen, ModuleScreen,
 // CaseListScreen, the session, the platform rules and the controller stay
 // real; the worker's cases are fixed rows the device holds: two patients,
-// and the households of `child-list-above` with their members.
+// and the households of `child-list-above` with their members, each
+// household under a village of `parent-chain`.
 export {
 	getAllLookupDefinitionsAction,
 	launchEntryPointAction,
@@ -29,6 +30,7 @@ import {
 	NAVIGATION_APP_ID,
 	NAVIGATION_CASES,
 	NAVIGATION_HOUSEHOLDS,
+	NAVIGATION_VILLAGES,
 	PLACED_PATIENTS_MODULE_UUID,
 } from "./previewNavigationFixture";
 
@@ -57,10 +59,18 @@ const rows: CaseRowWithCalculated[] = [
 	...NAVIGATION_CASES.map((name, index) =>
 		caseRow(`navigation-case-${index + 1}`, "patient", name),
 	),
+	...NAVIGATION_VILLAGES.map((name, index) =>
+		caseRow(`navigation-village-${index + 1}`, "village", name),
+	),
 	...NAVIGATION_HOUSEHOLDS.flatMap((household, index) => {
 		const householdId = `navigation-household-${index + 1}`;
 		return [
-			caseRow(householdId, "household", household.name),
+			caseRow(
+				householdId,
+				"household",
+				household.name,
+				`navigation-village-${index + 1}`,
+			),
 			...household.members.map((member, at) =>
 				caseRow(
 					`${householdId}-member-${at + 1}`,

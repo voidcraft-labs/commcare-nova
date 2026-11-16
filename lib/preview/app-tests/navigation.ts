@@ -26,6 +26,11 @@ import {
 } from "../engine/displayConditionEvaluation";
 import { caseListStepSession } from "../engine/entrySessionData";
 import { previewSessionValues } from "../engine/identity";
+import {
+	previewLeafAsksParentCase,
+	previewParentCaseBeforeMenu,
+	previewParentCaseListHasDetails,
+} from "../engine/parentCaseSelection";
 import { previousTaskFormSelectors } from "../engine/previousTask";
 import {
 	combineNavigationVisibility,
@@ -43,7 +48,11 @@ import { previewPlatformRules } from "../platform";
 import { previewCaseChoiceOf } from "../searchClaims";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
-import type { AppTestScreen, AppTestSessionState } from "./types";
+import type {
+	AppTestHistoryEntry,
+	AppTestScreen,
+	AppTestSessionState,
+} from "./types";
 
 /** Where a session of this platform enters the app: Android's home screen,
  *  or the module list on Web Apps, which has no home inside an app. */
@@ -71,6 +80,41 @@ export function appTestBackScreen(
 		...screen
 	} = prior;
 	return { ...screen, entryCases: deviceCases };
+}
+
+/** A screen the session leaves, kept with the case selections the session
+ *  held while it was shown, for Back to return to (`appTestStepBack`). */
+export function appTestHistoryEntry(
+	screen: AppTestScreen,
+	shownWith: AppTestSessionState["selections"],
+): AppTestHistoryEntry {
+	return { ...screen, shownWith };
+}
+
+/**
+ * Back: the previous screen (`appTestBackScreen`), with the case selections
+ * the session held while it was shown, so every case chosen after it is let
+ * go, a parent case asked for after a form's command included, and the next
+ * walk past that screen asks for it again. One rule on both platforms:
+ * Android's Back is `CommCareSession.stepBack`, which pops each datum
+ * collected since until the session waits for the worker again, and Web
+ * Apps' Back is the previous address, whose `selections` Formplayer replays
+ * (`MenuSessionRunnerService.advanceSessionWithSelections`), as Preview's
+ * Back restores the selections its entry was shown with
+ * (`lib/routing/previewSelectionsHistory.ts`).
+ */
+export function appTestStepBack(
+	state: AppTestSessionState,
+): AppTestSessionState {
+	const prior = state.history.at(-1);
+	if (!prior) throw new AppTestActionError("There is no previous screen.");
+	const { shownWith, ...screen } = prior;
+	return {
+		...state,
+		screen: appTestBackScreen(screen, state.deviceCases),
+		selections: shownWith,
+		history: state.history.slice(0, -1),
+	};
 }
 
 /** The session's device cases, as a navigation condition reads them. */
@@ -278,25 +322,28 @@ export function appTestForms(
 	});
 }
 
-/** Follow the same case-parent chain and module landing as Preview. A parent
- * selector must itself be eligible; a requested child never bypasses its gate. */
-export function enterAppTestMenu(
+type AppTestRecordsScreen = Extract<AppTestScreen, { kind: "records" }>;
+
+/**
+ * The menus whose cases the session still needs before a leaf of the module
+ * runs, root first: its parent case's menu where the session holds no such
+ * case, that one's where it holds none either, and so on, the selector chain
+ * Preview walks (`previewMenuCaseContext`'s `requiredParentCase`). The
+ * module and each of them must be shown to the worker.
+ */
+function appTestParentSelectors(
 	context: AppTestContext,
 	state: AppTestSessionState,
 	moduleUuid: Uuid,
-	returnModules: readonly Uuid[] = [],
-): AppTestScreen {
+): Uuid[] {
 	const { doc } = context;
-	const visibility = previewModuleVisibility(doc, {
-		authoring: false,
-		session: previewSessionValues(context.identity, context.device),
-		lookup: { kind: "data", data: context.lookup },
-		deviceCases: appTestDeviceCases(context, state),
-	});
+	const visibility = previewModuleVisibility(
+		doc,
+		appTestVisibilityArgs(context, state),
+	);
+	const selectors: Uuid[] = [];
 	const visited = new Set<Uuid>();
-	let current = moduleUuid;
-	let onward = returnModules;
-	while (true) {
+	for (let current: Uuid | undefined = moduleUuid; current !== undefined; ) {
 		if (visited.has(current))
 			throw new AppTestActionError(
 				"The record-selection path contains a cycle.",
@@ -306,23 +353,143 @@ export function enterAppTestMenu(
 			throw new AppTestActionError(
 				"This worker cannot open the required menu.",
 			);
-		const caseContext = previewMenuCaseContext(doc, current, state.selections);
-		if (caseContext.requiredParentCase) {
-			onward = [current, ...onward];
-			current = caseContext.requiredParentCase.moduleUuid;
-			continue;
-		}
-		if (onward.length > 0)
-			return { kind: "records", moduleUuid: current, returnModules: onward };
-		const destination = moduleDestination(
-			doc,
-			current,
-			caseContext.selectedCase !== undefined,
-		);
-		return destination.screen === "menu"
-			? { kind: "menu", moduleUuid: current }
-			: { kind: "records", moduleUuid: current };
+		if (current !== moduleUuid) selectors.unshift(current);
+		current = previewMenuCaseContext(doc, current, state.selections)
+			.requiredParentCase?.moduleUuid;
 	}
+	return selectors;
+}
+
+/**
+ * The records screen that asks for the first of `selectors`, going on
+ * through the rest to `onward`, as Preview's parent case request does
+ * (`moduleScreenNavigation.ts::previewParentCaseRequestFor`).
+ */
+function appTestSelectorScreen(
+	selectors: readonly Uuid[],
+	onward: readonly Uuid[],
+	extra: Pick<AppTestRecordsScreen, "retainedFormTarget" | "resumesList"> = {},
+): AppTestRecordsScreen | undefined {
+	const [first, ...rest] = selectors;
+	return first === undefined
+		? undefined
+		: {
+				kind: "records",
+				moduleUuid: first,
+				returnModules: [...rest, ...onward],
+				...extra,
+			};
+}
+
+/**
+ * Follow the same case-parent chain and module landing as Preview. A menu
+ * asks for its parent case before it lists its screen only where Core does
+ * (`parentCaseSelection.ts::previewParentCaseBeforeMenu`); a menu that lists
+ * an entry asking for no case beside one asking for its parent lists its
+ * forms first, and the parent is asked for after the command of the form or
+ * case list that needs it (`enterAppTestForm`, `appTestCaseListScreen`). A
+ * selector entered on the way (`returnModules`) asks for its own parent case
+ * first, as it is entered at its case list. A parent selector must itself be
+ * eligible; a requested child never bypasses its gate.
+ */
+export function enterAppTestMenu(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	moduleUuid: Uuid,
+	returnModules: readonly Uuid[] = [],
+	resumesList?: AppTestRecordsScreen["resumesList"],
+): AppTestScreen {
+	const { doc } = context;
+	const selectors = appTestParentSelectors(context, state, moduleUuid);
+	const extra = resumesList === undefined ? {} : { resumesList };
+	if (
+		returnModules.length > 0 ||
+		previewParentCaseBeforeMenu(doc, moduleUuid)
+	) {
+		const selector = appTestSelectorScreen(
+			selectors,
+			[moduleUuid, ...returnModules],
+			extra,
+		);
+		if (selector !== undefined) return selector;
+	}
+	if (returnModules.length > 0)
+		return { kind: "records", moduleUuid, returnModules, ...extra };
+	const destination = moduleDestination(
+		doc,
+		moduleUuid,
+		previewMenuCaseContext(doc, moduleUuid, state.selections).selectedCase !==
+			undefined,
+	);
+	return destination.screen === "menu"
+		? { kind: "menu", moduleUuid }
+		: { kind: "records", moduleUuid };
+}
+
+/**
+ * The screen a menu's case list opens on: `list`, or, where the list asks
+ * for its parent case and the session holds none, the parent's list, after
+ * which `list` opens with its mark (`resumesList`), as Preview's parent case
+ * request resumes the list it was asked from.
+ */
+export function appTestCaseListScreen(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	list: AppTestRecordsScreen,
+): AppTestRecordsScreen {
+	if (!previewLeafAsksParentCase(context.doc, list.moduleUuid)) return list;
+	return (
+		appTestSelectorScreen(
+			appTestParentSelectors(context, state, list.moduleUuid),
+			[list.moduleUuid],
+			{
+				resumesList:
+					list.openedFrom === undefined ? {} : { openedFrom: list.openedFrom },
+			},
+		) ?? list
+	);
+}
+
+/**
+ * The parent case a records screen chooses for another menu, where it is a
+ * step of a selector chain: the menu whose entry asks for it (the one the
+ * chain ends at), and the form chosen before the case where one was.
+ */
+export function appTestParentRequestOf(
+	screen: AppTestRecordsScreen,
+): { requestingModuleUuid: Uuid; formUuid?: Uuid } | undefined {
+	const requesting =
+		screen.retainedFormTarget?.moduleUuid ?? screen.returnModules?.at(-1);
+	if (requesting === undefined || requesting === screen.moduleUuid)
+		return undefined;
+	return {
+		requestingModuleUuid: requesting,
+		...(screen.retainedFormTarget !== undefined && {
+			formUuid: screen.retainedFormTarget.formUuid,
+		}),
+	};
+}
+
+/**
+ * Whether a case chosen on a records screen opens its details first: where
+ * the list has a details screen and, on a parent's list another menu asked
+ * for, the datum it chooses for names one
+ * (`parentCaseSelection.ts::previewParentCaseListHasDetails`), as
+ * `CaseListScreen` decides it for the browser's row.
+ */
+export function appTestRecordsHaveDetails(
+	context: AppTestContext,
+	screen: AppTestRecordsScreen,
+	listHasDetails: boolean,
+): boolean {
+	const request = appTestParentRequestOf(screen);
+	return request === undefined
+		? listHasDetails
+		: listHasDetails &&
+				previewParentCaseListHasDetails(context.doc, {
+					selectorModuleUuid: screen.moduleUuid,
+					...request,
+				});
 }
 
 export function enterAppTestForm(
@@ -363,6 +530,22 @@ export function enterAppTestForm(
 				retainedFormTarget: { moduleUuid, formUuid },
 				taskCases: state.screen.taskCases,
 			};
+	}
+	/* A form whose entry chooses the module's parent case asks for it after
+	 * its command where the session holds none, and opens once its own case
+	 * is chosen, as Preview's parent case request resumes the form
+	 * (`previewLeafAsksParentCase`); a registration or a survey asks for
+	 * none. */
+	if (
+		!retainedCommand &&
+		previewLeafAsksParentCase(context.doc, moduleUuid, formUuid)
+	) {
+		const selector = appTestSelectorScreen(
+			appTestParentSelectors(context, state, moduleUuid),
+			[moduleUuid],
+			{ retainedFormTarget: { moduleUuid, formUuid } },
+		);
+		if (selector !== undefined) return selector;
 	}
 	const needsCase =
 		formLaunch({
@@ -458,6 +641,17 @@ export function selectAppTestRecords(
 							true,
 						),
 			};
+		/* A chain a case list asked for opens that list once its last
+		 * parent case is chosen. */
+		if (
+			screen.resumesList !== undefined &&
+			target !== undefined &&
+			remaining.length === 0
+		)
+			return {
+				...next,
+				screen: { kind: "records", moduleUuid: target, ...screen.resumesList },
+			};
 		return {
 			...next,
 			screen: enterAppTestMenu(
@@ -465,6 +659,7 @@ export function selectAppTestRecords(
 				next,
 				target ?? screen.moduleUuid,
 				remaining,
+				screen.resumesList,
 			),
 		};
 	}

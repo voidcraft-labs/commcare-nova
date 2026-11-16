@@ -10,6 +10,8 @@ import {
 	recordSearchDeviceValues,
 	searchAttemptOf,
 	searchesAwaitingDeviceValues,
+	searchRunPastItsList,
+	searchWithLatestInputs,
 	settleSearch,
 	submittedSearchOf,
 } from "../previewSearchState";
@@ -288,6 +290,98 @@ describe("the searches awaiting the device's values", () => {
 				) as PreviewSearchState,
 			}).map((search) => search.moduleUuid),
 		).toEqual(["m1"]);
+	});
+});
+
+/*
+ * Web Apps replays the whole address on every request, so history returning
+ * to a menu or a form past a list runs that list's query again with the
+ * latest answers there (`MenuSessionRunnerService.advanceSessionWithSelections`
+ * over `CloudcareUrl.fromJson`'s `Utils.getCurrentQueryInputs`), and a form of
+ * a menu whose forms read the search reads what that run finds.
+ */
+describe("a search history runs again past its list", () => {
+	const prompts = new Set(["patient_name", "region"]);
+	const value = { segments: { '0:["right"]': "North" }, choices: {} };
+	const found: Extract<PreviewSearchState, { kind: "completed" }> = {
+		kind: "completed",
+		attempt: 2,
+		submission: "s",
+		answers: { patient_name: "Kofi", region: "n" },
+		matchCount: 3,
+		deviceValues: { value },
+	};
+	const latest = { patient_name: "Ama", region: "n" };
+
+	it("stays completed with the latest answers, its device values to work out again", () => {
+		const rerun = searchRunPastItsList(found, latest, prompts);
+		expect(rerun).toEqual({
+			kind: "completed",
+			attempt: 2,
+			submission: "s",
+			answers: latest,
+			matchCount: 3,
+			rerunPastList: true,
+		});
+		// The form reads the new run's results, which wait for the values the
+		// device works out for these answers.
+		expect(searchesAwaitingDeviceValues({ m1: rerun })).toEqual([
+			{ moduleUuid: "m1", submission: "s", answers: latest },
+		]);
+		const recorded = recordSearchDeviceValues(rerun, "s", value);
+		expect(recorded).toMatchObject({
+			rerunPastList: true,
+			deviceValues: { value },
+		});
+		if (recorded === undefined) throw new Error("Not recorded.");
+		expect(searchesAwaitingDeviceValues({ m1: recorded })).toEqual([]);
+	});
+
+	it("offers no registration on a count no list made for its answers, and its list runs it again", () => {
+		const rerun = searchRunPastItsList(
+			{ ...found, matchCount: 0 },
+			latest,
+			prompts,
+		);
+		expect(noMatchesActionAvailable(rerun)).toBe(false);
+		if (rerun.kind === "not-searched") throw new Error("A search.");
+		// On show again, the list counts it, whatever the answers given since.
+		expect(searchWithLatestInputs(rerun, latest, prompts)).toEqual({
+			kind: "running",
+			attempt: 2,
+			submission: "s",
+			answers: latest,
+		});
+		expect(searchWithLatestInputs(rerun, undefined, prompts)).toEqual({
+			kind: "running",
+			attempt: 2,
+			submission: "s",
+			answers: latest,
+		});
+	});
+
+	it("is the same search where the answers agree, and where only its list reads it", () => {
+		expect(
+			searchRunPastItsList(
+				found,
+				{ patient_name: "Kofi", region: "n" },
+				prompts,
+			),
+		).toBe(found);
+		expect(searchRunPastItsList(found, undefined, prompts)).toBe(found);
+		// The default search and a registration's return run as they are.
+		const automatic = { ...found, automatic: true as const };
+		expect(searchRunPastItsList(automatic, latest, prompts)).toBe(automatic);
+		const registered = { ...found, registeredCaseId: "case-1" };
+		expect(searchRunPastItsList(registered, latest, prompts)).toBe(registered);
+		// A Search action's search is read by its list alone, and a search
+		// still running or failed has no screen past its list.
+		const action = actionSearch(answers, "a1");
+		if (action.kind === "not-searched") throw new Error("A search.");
+		expect(searchRunPastItsList(action, latest, prompts)).toBe(action);
+		const running = beginSearch(undefined, answers, "r1");
+		if (running.kind === "not-searched") throw new Error("A search.");
+		expect(searchRunPastItsList(running, latest, prompts)).toBe(running);
 	});
 });
 
