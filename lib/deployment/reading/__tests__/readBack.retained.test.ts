@@ -91,4 +91,6 @@ it("reads CommCare HQ's served source of navigation-base back to the document's 
 			choices: declaration.kind === "choices" ? declaration.choices : [],
 		}),
 	).toEqual([]);
-});
+	// One whole app is emitted, read back and compared here, which passes the
+	// default on a shared runner (5 s there, about 1 s alone).
+}, 30_000);
