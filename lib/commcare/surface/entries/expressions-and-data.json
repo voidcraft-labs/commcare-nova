@@ -4646,11 +4646,11 @@
 		"id": "expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map",
 		"area": "expressions-and-data",
 		"section": "Media",
-		"item": "a media reference with no `multimedia_map` entry on a slot no runtime the app runs on draws without its file: on Android a menu's, a form's, a case list menu item's or the Register action's icon or audio label; in Web Apps every picture, and every sound or video that is not a question's label or help",
+		"item": "a media reference with no `multimedia_map` entry on a slot no runtime the app runs on draws without its file: on Android a menu's, a form's, a case list menu item's or the Register action's icon or audio label; in Web Apps every picture but a case list image column's, and every sound or video that is not a question's label or help",
 		"surfaceKeys": ["schema:Application.multimedia_map"],
 		"valueClass": "path-without-entry-nothing-draws",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: Web Apps resolves a picture's path through the map and shows nothing without an entry (`formplayer/app.js`, the `resourceMap` reply; `multimedia.html`, the `<img>`'s `visible: mediaSrc`); Android's menu list draws no bitmap and hides the audio button (`MenuAdapter.setupImageView`, `setupAudioButton`), and so does the Register action (`EntityActionViewUtils.setupActionImage`, `setupActionAudio`); the reader leaves the reference out and the review lists it",
+		"dispositionCell": "**INERT**: Web Apps resolves a picture's path through the map and shows nothing without an entry (`formplayer/app.js`, the `resourceMap` reply; `multimedia.html`, the `<img>`'s `visible: mediaSrc`; `menus/views.js`, a menu's and a form's `imageUrl`), and offers the Register action by its label alone (`case_list/list.html`); Android's menu list draws no bitmap and hides the audio button (`MenuAdapter.setupImageView`, `setupAudioButton`), and so does the Register action (`EntityActionViewUtils.setupActionImage`, `setupActionAudio`); the reader leaves the reference out and the review lists it",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4665,16 +4665,16 @@
 		"id": "expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws",
 		"area": "expressions-and-data",
 		"section": "Media",
-		"item": "a media reference with no file on a slot a runtime draws: with no `multimedia_map` entry, a question's label or help, a choice or a case list image column in an app that runs on Android, and a question's label or help audio or video in an app that runs in Web Apps",
+		"item": "a media reference with no file on a slot a runtime draws: with no `multimedia_map` entry, a question's label or help, a choice or a case list image column in an app that runs on Android, and a question's label or help audio or video or a case list image column in an app that runs in Web Apps",
 		"surfaceKeys": ["schema:Application.multimedia_map"],
 		"valueClass": "path-without-entry-a-runtime-draws",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime: Android shows its missing-file prompt, an audio button with nothing to play, or the archive icon (`MediaLayout.showMissingMediaView`, `setupStandardAudio`, `EntityView.setupImageLayout`); Web Apps shows a player with nothing to play (`form_entry/multimedia.html` and `help_multimedia.html`: `visible: caption_audio`, `caption_video`, `help_audio`, `help_video`)",
+		"dispositionCell": "**REFUSED**: broken at runtime: Android shows its missing-file prompt, an audio button with nothing to play, or the archive icon (`MediaLayout.showMissingMediaView`, `setupStandardAudio`, `EntityView.setupImageLayout`); Web Apps shows a player with nothing to play (`form_entry/multimedia.html` and `help_multimedia.html`: `visible: caption_audio`, `caption_video`, `help_audio`, `help_video`), and a broken picture in a case list image column, whose `<img>` it lays out with no address and the value's alternative text, which CommCare HQ's build writes as a no-break space where the app gives none (`case_list/item.html`, `commcare_translations.py::dumps`)",
 		"subject": "missing-media-files",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
-				"named": "Android shows its missing-file prompt, an audio button with nothing to play, or the archive icon (`MediaLayout.showMissingMediaView`, `setupStandardAudio`, `EntityView.setupImageLayout`); Web Apps shows a player with nothing to play (`form_entry/multimedia.html` and `help_multimedia.html`: `visible: caption_audio`, `caption_video`, `help_audio`, `help_video`)"
+				"named": "Android shows its missing-file prompt, an audio button with nothing to play, or the archive icon (`MediaLayout.showMissingMediaView`, `setupStandardAudio`, `EntityView.setupImageLayout`); Web Apps shows a player with nothing to play (`form_entry/multimedia.html` and `help_multimedia.html`: `visible: caption_audio`, `caption_video`, `help_audio`, `help_video`), and a broken picture in a case list image column, whose `<img>` it lays out with no address and the value's alternative text, which CommCare HQ's build writes as a no-break space where the app gives none (`case_list/item.html`, `commcare_translations.py::dumps`)"
 			}
 		],
 		"platforms": {

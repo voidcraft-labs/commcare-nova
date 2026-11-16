@@ -12,8 +12,11 @@ device refuses to install (``proof/android/predicates.py``), which would leave n
 reference is Web Apps' alone (``proof/webapps/test_missing_media.py``), and here it is the counterpart, a question
 whose image the device holds.
 
-The device walks the survey "Visit" from home and the case list "Patients" before its form "Review", with each
-screen's views as Android laid them out:
+The device opens the survey "Visit" and the form "Review" from their commands, as the ``app`` request's
+``commands`` set them on a session (the case list "Patients" before "Review"), with each screen's views as
+Android laid them out; a command's session starts past every menu, so the menus are read apart, by the ``nav``
+request's paths (``proof.android.navigation.nav``): the app's first menu as a worker opens it, and the menu
+"Visits" chosen from it as a worker taps it. Then:
 
 - the question ``remarks``'s screen shows Android's missing-image prompt (``MediaLayout.setupImage``, which calls
   ``showMissingMediaView`` with ``image_download_prompt``) and an audio button (``MediaLayout.setupStandardAudio``
@@ -23,7 +26,8 @@ screen's views as Android laid them out:
   (``EntityView.setupImageLayout`` draws ``ic_menu_archive`` where no bitmap is found), and the transparent fill
   for a case whose status maps to no picture (its counterpart, the same cell with nothing to draw); the case
   database holds both (``proof/observe/casedata.py`` gives ``care_status`` text values and the two it maps);
-- the menus name the menu's icon and the form's sound, and the device holds no file for either.
+- the first menu's item "Visits" names the menu's icon and the menu "Visits"'s item "Visit" the form's sound,
+  and the device holds no file for either.
 
 Plausible failures: a missing file Android draws nothing for where Nova refuses the reference (no prompt, no
 button, no archive icon, which a cell holding the transparent fill would be), and a prompt shown where the device
@@ -44,8 +48,12 @@ from proof.formplayer import apps
 pytestmark = pytest.mark.reader("android")
 
 DOCUMENT = "targeted-missing-media"
+VISITS = "m0"
 VISIT = "m0-f0"
 REVIEW = "m2-f0"
+# The ``nav`` request's paths: the app's first menu, and the menu "Visits" chosen from it.
+FIRST_MENU = "path:"
+VISITS_MENU = f"path:{VISITS}"
 FORM_ENTRY = "FormEntryActivity"
 # ``image_download_prompt`` (commcare-android ``app/res/values/strings.xml``), the text
 # ``MediaLayout.showMissingMediaView`` shows for a question's image the device holds no file for.
@@ -83,6 +91,24 @@ def _app(served, archive, label, **steer):
     blobs = Blobs()
     found = observe.app(served, blobs, label=label, archive=archive, **steer)
     return blobs.get_json(found["answer"])
+
+
+def _menus(served, archive, label):
+    """Each menu the ``nav`` request's paths reach, by path: its step's ``menu``, the items it lists."""
+    from proof.android.navigation import nav
+    from proof.observe.record import Blobs
+
+    blobs = Blobs()
+    found = nav(served, blobs, label=label, archive=archive, paths=[[], [VISITS]])
+    answer = blobs.get_json(found["answer"])
+    assert answer["install"] == "Installed", answer
+    menus = {}
+    for name, record in answer["navs"].items():
+        assert "raised" not in record, (name, record)
+        steps = record["steps"]
+        assert steps and steps[-1]["screen"] == "MenuActivity" and steps[-1]["menu"]["items"], (name, steps)
+        menus[name] = steps[-1]["menu"]
+    return menus
 
 
 def _shown(view):
@@ -125,6 +151,7 @@ def test_android_prompts_for_a_questions_missing_image_and_offers_the_missing_so
             questions={"/data/remarks": ["proof"], "/data/answer": ["yes"], "/data/photo": ["proof"]},
             views=True,
         )
+        menus = _menus(served, archive, "missing-media-menus")
 
     visit = answer["walks"][VISIT]
     for shown in _screen(visit, "/data/remarks[1]"):
@@ -148,13 +175,21 @@ def test_android_prompts_for_a_questions_missing_image_and_offers_the_missing_so
     assert ARCHIVE_ICON in drawn and NO_PICTURE in drawn, drawn
     assert set(drawn) == {ARCHIVE_ICON, NO_PICTURE}, drawn
 
+    # The first menu lists "Visits" under its icon, and "Visits" lists "Visit" with its sound; the device holds
+    # neither file.
+    assert menus[FIRST_MENU]["id"] is None and menus[VISITS_MENU]["id"] == VISITS, menus
+    first = {item["id"]: item for item in menus[FIRST_MENU]["items"]}
+    assert VISITS in first and _named(first[VISITS]["image"], icon), first
+    visits = {item["id"]: item for item in menus[VISITS_MENU]["items"]}
+    assert VISIT in visits and _named(visits[VISIT]["audio"], sound), visits
     items = [
-        item
-        for walk in answer["walks"].values()
-        for step in walk.get("steps", [])
-        if step.get("menu") and step["menu"].get("items")
-        for item in step["menu"]["items"]
+        *(item for menu in menus.values() for item in menu["items"]),
+        *(
+            item
+            for walk in answer["walks"].values()
+            for step in walk.get("steps", [])
+            if step.get("menu") and step["menu"].get("items")
+            for item in step["menu"]["items"]
+        ),
     ]
-    assert any(item["id"] == "m0" and _named(item["image"], icon) for item in items), items
-    assert any(item["id"] == VISIT and _named(item["audio"], sound) for item in items), items
     assert image not in str([item for item in items if item["image"] is not None]), items

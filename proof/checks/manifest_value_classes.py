@@ -4990,8 +4990,13 @@ def media_reference_drawn_without_entry(use, manifest):
     with no ``multimedia_map`` entry on a slot a runtime draws. Web Apps draws a question's label or help
     audio or video (``form_entry/multimedia.html`` and ``help_multimedia.html``: ``visible: caption_audio``,
     ``caption_video``, ``help_audio``, ``help_video``), so such a reference in an app with Web Apps
-    (``cloudcare_enabled``) is in the class. Android draws every medium of a question's label or help, of a
-    choice, and a case list image column's picture (``MediaLayout.showMissingMediaView``,
+    (``cloudcare_enabled``) is in the class. Web Apps also draws a broken picture for a case list image
+    column's picture with no entry: the cell's ``<img>`` has no address and, for its alternative text, what
+    HQ's build writes for the value (``case_list/item.html``), a no-break space where the app gives none
+    (``commcare_translations.py::dumps``), from CommCare 2.54 (``feature_support.py::supports_alt_text``), so
+    such a column in an app with Web Apps at a version that writes it is in the class, and one whose
+    ``build_spec`` names no version this reads is not said. Android draws every medium of a question's label or
+    help, of a choice, and a case list image column's picture (``MediaLayout.showMissingMediaView``,
     ``setupStandardAudio``, ``EntityView.setupImageLayout``), and whether an app declares Android is no part of
     its export, so such a reference on Android's slots alone is not said. A reference every slot of which no
     runtime draws (a hint, a validation message, a menu's or a form's icon) stands with the INERT row, and an
@@ -5024,6 +5029,8 @@ def media_reference_drawn_without_entry(use, manifest):
                         return True
                     if held & {"label", "help", "choice"}:
                         unsaid = True
+    spec = at.app.doc.get("build_spec")
+    version = _version(spec.get("version")) if isinstance(spec, dict) and spec.get("version") else None
     for module in at.app.modules:
         details = module.get("case_details") or {}
         for screen in ("short", "long"):
@@ -5031,8 +5038,15 @@ def media_reference_drawn_without_entry(use, manifest):
                 if not isinstance(column, dict) or column.get("format") != "enum-image":
                     continue
                 if any(path not in mapped for path in _media_paths(column.get("enum"))):
+                    if web_apps and version is not None and version >= ALT_TEXT_FROM:
+                        return True
                     unsaid = True
     return None if unsaid else False
+
+
+# The CommCare version from which HQ's build writes an image column's alternative text
+# (feature_support.py::supports_alt_text).
+ALT_TEXT_FROM = (2, 54)
 
 
 def _media_paths(value):

@@ -389,7 +389,8 @@ describe("the first-match rule over every slot, declaration and install setting"
 	) =>
 		missing === "no-file"
 			? slot !== "choice" && slot !== "unheld-itext"
-			: slot === "form" && (kind === "audio" || kind === "video");
+			: slot === "list-image" ||
+				(slot === "form" && (kind === "audio" || kind === "video"));
 	const KINDS: Readonly<
 		Record<HqMediaReference["slot"], readonly HqMediaReference["kind"][]>
 	> = {
@@ -486,7 +487,7 @@ describe("mediaSlotDrawnOn", () => {
 		}
 	});
 
-	it("draws in Web Apps every slot but a choice and an unheld form where the entry names no file, and only a question's sound or video where there is no entry", () => {
+	it("draws in Web Apps every slot but a choice and an unheld form where the entry names no file, and only a question's sound or video and a list's image cell where there is no entry", () => {
 		for (const slot of [
 			"form",
 			"list-image",
@@ -512,6 +513,15 @@ describe("mediaSlotDrawnOn", () => {
 		expect(mediaSlotDrawnOn("tile", "image", "web-apps", "no-entry")).toBe(
 			false,
 		);
+		// The cell's `<img>` has no address and a no-break space for its text,
+		// which the browser draws as a broken picture.
+		expect(
+			mediaSlotDrawnOn("list-image", "image", "web-apps", "no-entry"),
+		).toBe(true);
+		for (const slot of ["register-action", "logo"] as const)
+			expect(mediaSlotDrawnOn(slot, "image", "web-apps", "no-entry")).toBe(
+				false,
+			);
 	});
 });
 
