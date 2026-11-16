@@ -340,6 +340,62 @@ describe("translation protocol", () => {
 		);
 	});
 
+	// The gate checks a prose translation as printed (`validator/rules/app.ts::validTranslationOverlays`
+	// over `projectProseTemplate`), where a reference is its hashtag. Two backslashes a model writes
+	// before a chip leave one once the Markdown escape is dropped, and that one stands before the
+	// chip's `#` only in the printed text: the batch is refused when it comes back, not at save.
+	it("refuses a backslash left before a chip by the text the gate reads, the chip printed", () => {
+		const source: ProseTemplate = {
+			parts: [
+				{ kind: "text", text: "Stage " },
+				{ kind: "case-ref", caseType: "patient", property: "case_name" },
+			],
+		};
+		const option = encodeTranslationUnit({
+			...textUnit("option-chip-twice", "unused", {
+				role: "case-property-option-label",
+				owner: {
+					kind: "case-property-option",
+					caseType: "patient",
+					property: "stage",
+					value: "a",
+					occurrence: 0,
+				},
+			}),
+			valueKind: "prose",
+			source,
+			sourceFingerprint: translationSourceFingerprint("prose", source),
+		});
+		const token = option.protectedTokens[0];
+		if (token === undefined) throw new Error("protected token missing");
+		const doc = { fields: {}, forms: {}, fieldOrder: {} };
+		const batch = (translatedText: string) => ({
+			translations: [{ unitId: option.unitId, translatedText }],
+		});
+		// The encoded text holds no backslash before `#`; the printed one does.
+		const twice = `Etapa \\\\${token}`;
+		expect(twice.includes("\\#")).toBe(false);
+		expect(() =>
+			validateTranslationBatchOutput([option], batch(twice), doc),
+		).toThrow("Write # with no backslash before it.");
+		// The same chip with no backslash before it is accepted, under the same document.
+		expect(
+			validateTranslationBatchOutput([option], batch(`Etapa ${token}`), doc),
+		).toEqual(
+			new Map([
+				[
+					option.unitId,
+					{
+						parts: [
+							{ kind: "text", text: "Etapa " },
+							{ kind: "case-ref", caseType: "patient", property: "case_name" },
+						],
+					},
+				],
+			]),
+		);
+	});
+
 	// `${` is content, so it is never rewritten: in a role some screen reads through Core's
 	// argument filler the batch is refused and the model is told what to write instead.
 	it("refuses ${ in a name some screen fills placeholders in, telling the model what to write", () => {

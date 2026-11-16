@@ -57,6 +57,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"android-app-dependencies": "Android app dependencies",
 	"app-document": "The app as stored",
 	"app-logos": "App logos",
+	"app-name": "The app's name",
 	"app-settings": "App settings",
 	"auto-select": "Choosing a case automatically",
 	"blank-form": "Forms with no questions",
@@ -126,6 +127,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"shadow-forms": "Shadow forms",
 	"supply-features": "CommCare Supply",
 	"text-backslashes": "Backslashes before #",
+	"text-characters": "Characters in text",
 	"text-placeholders": "Placeholders in names and labels",
 	"training-menus": "Training menus",
 	"translation-overrides": "Changed wording in translations",
@@ -169,6 +171,7 @@ export const FINDING_COPY: Readonly<
 			"A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by.",
 	},
 	"app-logos": {},
+	"app-name": {},
 	"app-settings": {
 		never: "This uses an app setting, which Nova doesn't bring in.",
 		"not-yet": "This uses an app setting, which Nova can't hold yet.",
@@ -279,7 +282,7 @@ export const FINDING_COPY: Readonly<
 	},
 	expressions: {
 		never:
-			"An expression here reads a place's information under a name Nova can't hold, such as one that differs from another only in capital letters.",
+			"An expression here reads a place's or the worker's information under a name Nova can't hold, such as one that differs from another only in capital letters.",
 		"not-yet": "An expression here is more than Nova can read yet.",
 	},
 	"form-case-management": {
@@ -410,6 +413,7 @@ export const FINDING_COPY: Readonly<
 		never: "This uses CommCare Supply features, which Nova doesn't bring in.",
 	},
 	"text-backslashes": {},
+	"text-characters": {},
 	"text-placeholders": {},
 	"training-menus": {
 		never:
@@ -502,6 +506,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",
 	},
+	"app-name": {
+		"breaks-when-run":
+			"The app's name holds \\n, a backslash before # or a carriage return. CommCare's lists of apps, on a phone and in Web Apps, show the name one way, while the app's own screens show a line break, # alone or only the text before the carriage return. Writing the name without them fixes it.",
+	},
 	"blank-form": {
 		"hq-refuses":
 			"A form here has no questions, which CommCare HQ won't build.",
@@ -550,6 +558,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 	"text-backslashes": {
 		"breaks-when-run":
 			"A text here shows on devices with a backslash right before #, which Nova can't hold. Taking out the backslashes before # fixes it.",
+	},
+	"text-characters": {
+		"hq-refuses":
+			"A text here holds a character Nova can't write into an app, such as a control character. Taking it out in CommCare HQ fixes it.",
 	},
 	"text-placeholders": {
 		"breaks-when-run":

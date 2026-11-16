@@ -1679,7 +1679,7 @@ one. Part 07 claims no key of the other rows: it reads their result from `ctx.dr
 |---|---|
 | `doc_type`, `module_type` | 7.1; `module_type` is at its class's default or is covered by the document-type finding |
 | `unique_id` | 7.2 |
-| `name` | `take(modulebase-name)`, read by `structure.ts::nameAsRead` (below): the text CommCare HQ's build shows in the source language, held as `heldName` holds it, into `module.name`, each other language's where it differs through `ctx.translations`; a map the reader cannot know (no JSON object, or a chosen value that is a number, an object or an array), is left unclaimed for the close, and one whose text Nova's gate admits no spelling of is one finding at the menu (`heldText.ts::unheldRefusal`, below): refused at the key under the entry that names why, or left unclaimed where it holds a character XML cannot hold; a text whose rest after a carriage return defines an app string is refused at the menu (`heldText.ts::keyDefinedAfterLineEnd`) |
+| `name` | `take(modulebase-name)`, read by `structure.ts::nameAsRead` (below): the text CommCare HQ's build shows in the source language, held as `heldName` holds it, into `module.name`, each other language's where it differs through `ctx.translations`; a map the reader cannot know (no JSON object, or a chosen value that is a number, an object or an array), is left unclaimed for the close, and one whose text Nova's gate admits no spelling of is one finding at the menu (`heldText.ts::unheldRefusal`, below): refused at the key under the entry that names why, a character XML 1.0 cannot carry under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`; a text whose rest after a carriage return defines an app string is refused at the menu (`heldText.ts::keyDefinedAfterLineEnd`) |
 | `forms` | `list(…, take(module-forms))`, each child's class from its `doc_type` |
 | `comment` | `account(comment-module)` |
 | `ref_details`, `referral_list` | `account(module-ref-details)`, `account(module-referral-list)` |
@@ -1749,7 +1749,10 @@ for a name), whose rules for a name are:
   a device shows none of the name, by `heldText.ts::unheldRefusal`; a name a device shows none of
   (nothing after the key before a carriage return) whose rest defines no app string is refused under
   `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing`,
-  a name holding a character XML cannot hold leaves the map unclaimed for the close, and a name a
+  a name holding a character XML 1.0 cannot carry is refused under
+  `application-and-settings/app-text-holding-a-character-xml-cannot-carry` (HQ's form settings
+  refuse it in a form's name, `XForm.set_name`; elsewhere the gate's `APP_TEXT_UNREPRESENTABLE`
+  admits it in no app text, though HQ's build writes it into the app strings), and a name a
   device shows holding a `${` that some screen reads as a placeholder
   (`localeFile.ts::argumentScreenIssue`) is refused under
   `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`, each one finding at
@@ -1773,7 +1776,19 @@ again by the first publish: under `names-respelled` where every language shows w
 under `text-spaces-dropped`, which touches workers, where a language shows another name, a blank one
 or one with a space at its start (part 09, section 11.2), both held by `__tests__/names.test.ts`.
 The app's name is held the same way (`appShell.ts::holdAppName`, over `name` and each language's
-`app.display.name`), and so is every app string part 07 reads (`__tests__/heldTexts.test.ts`). A
+`app.display.name`), and so is every app string part 07 reads (`__tests__/heldTexts.test.ts`). The
+app's `name` is also the profile's `name`, which HQ's build writes as stored and Android's list of
+the apps on a phone shows (a carriage return or a line break read there as a space), and the
+`name` Web Apps' list of apps shows as stored, so a `name` holding the two characters `\n`, a
+backslash before `#` or a carriage return is refused at the app under
+`application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`
+(the app's own screens show a line break, `#` alone or the text before the carriage return, and no
+one name Nova prints into both gives both back; a line break inside the name is held, since Nova
+prints the source's `name` and app strings again), and one holding a character XML 1.0 cannot carry under
+`application-and-settings/app-text-holding-a-character-xml-cannot-carry` (HQ's build writes it
+into a profile no step of the build parses, and Core's `ProfileParser` reads it as stored, so the
+refusal is the gate's alone, but for an unpaired surrogate, which the build cannot encode as UTF-8,
+`Application.create_profile`). A
 form's itext is no app string: Core trims a value at both ends as it parses the form
 (`XFormParser.getLabel`), so a value read as stored prints back to the same text on every device,
 and the domain allows a blank translation of every itext role.
@@ -3752,7 +3767,7 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[];
 | `purpose-notes-are-absent` | `not-carried` | a menu's or a form's `purpose`, and none | none: purpose notes are outside the wire inventory |
 | `app-logo-is-absent` | `not-carried` | the app's `logo`, and none | none: a publish writes no `logo_refs`, so a logo reaches CommCare HQ only when a person adds it there (6.1) |
 | `menu-and-form-ids-as-read` | `not-carried` | a menu's and a form's `id` as authored, and the id a reading mints | the slug of the source language's name (a menu's, where blank, the first language's that holds one), suffixed past the ids of its kind before it in reading order (`provisional.ts::menuAndFormIdsAsRead`) |
-| `worker-fields-read-by-name-are-properties` | `one-wire` | a worker field read by name that no worker property names, and the same read beside a property of that slug | the property, labelled with its slug, under the UUID a re-read mints under the app's own id (`worldEntities.ts::namedWorkerReadsAreProperties`) |
+| `worker-fields-read-by-name-are-properties` | `one-wire` | a worker field read by name that no worker property names, and the read of a property of that slug | the property, labelled with its slug, each read by name of its slug read as the property, under the UUID a re-read mints under the app's own id (`worldEntities.ts::namedWorkerReadsAreProperties`) |
 | `world-properties-as-read` | `not-carried` | the worker and location properties as authored, and as `worldEntitiesFromReads` gives them from what the logic reads | each one read, labelled with its slug, in the order of the slugs, and none that nothing reads; of a property and a field read by name whose slugs differ only in capitalization, the one a reading declares (`worldEntities.ts::heldWorkerSlugs`), each read of the other the name-backed read of its slug (`worldEntities.ts::worldPropertiesAsRead`) |
 | `organization-levels-as-read` | `not-carried` | the levels as authored, and as `levelsFromHq` reads the list a publish sets up | the read levels: holding workers, descendant cases all or none, their own branch's address book, no description, parent before child (`worldEntities.ts::levelsAsRead`) |
 

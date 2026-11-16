@@ -21,6 +21,7 @@ import {
 import {
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
+	materializableCaseTypes,
 } from "@/lib/domain/effectiveCaseTypes";
 import { slotContext } from "@/lib/domain/expression/context";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
@@ -38,7 +39,10 @@ import {
 	type ExpressionSlotValue,
 	expressionSlotValues,
 } from "@/lib/domain/referenceSlots";
-import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
+import {
+	CASE_SCALAR_PROPERTY_NAMES,
+	isStandardCaseListProperty,
+} from "@/lib/domain/standardCaseProperties";
 import { caseListOrderOptions } from "../../suite/case-list/orderPlanOptions";
 import { fieldBindType } from "../../xform/bindType";
 import { withCandidate } from "../candidate";
@@ -328,6 +332,90 @@ export function takeBackWriterTypedDateTimes(
 			if (declared?.data_type === "datetime") delete declared.data_type;
 		}
 	});
+}
+
+/**
+ * `doc` with each property a case type holds carried onto each type a change
+ * of the document gives such a case (an update's `retype`), where that type
+ * holds no property of the name, or holds it untyped (only a read names it
+ * there: no writer of that type types it and no declaration the reading
+ * derives, such as a sort's or a date Search field's, does): as the earlier
+ * type holds it, typed as the earlier type's writers and declaration type it. A device and CommCare HQ's
+ * server change only a case's type and keep every property as it is (Core's
+ * `CaseXmlParser.updateCase`; HQ's `update_strategy.py::SqlCaseUpdateStrategy.
+ * _apply_update_action`), so the later type holds what the earlier one does,
+ * and Nova changes a case's type only where it does
+ * (`lib/domain/caseRetype.ts::planCaseRetype`, which this answers over the
+ * same effective catalog). A property both types type, as two types, stays
+ * as it is, the gate's refusal. Chains of changes are carried until nothing
+ * moves; `doc` itself where nothing does. A carried property is in no export:
+ * no change of the later type writes it and nothing reads it there.
+ */
+export function carryRetypedProperties(doc: BlueprintDoc): BlueprintDoc {
+	const changes: { readonly from: string; readonly to: string }[] = [];
+	for (const form of Object.values(doc.forms))
+		for (const one of form?.caseOperations ?? [])
+			if (
+				one.action === "update" &&
+				one.retype !== undefined &&
+				one.retype !== one.caseType &&
+				one.target.kind !== "worker-record"
+			)
+				changes.push({ from: one.caseType, to: one.retype });
+	let current = doc;
+	// Each round carries at least one property, and a chain of n changes
+	// carries in at most n rounds.
+	for (let round = 0; round <= changes.length; round++) {
+		const effective = materializableCaseTypes(current);
+		const carried: {
+			readonly caseType: string;
+			readonly property: string;
+			readonly dataType: CasePropertyDataType | undefined;
+		}[] = [];
+		for (const { from, to } of changes) {
+			const source = effective.find((type) => type.name === from);
+			const destination = effective.find((type) => type.name === to);
+			if (source === undefined || destination === undefined) continue;
+			for (const property of source.properties) {
+				if (CASE_SCALAR_PROPERTY_NAMES.has(property.name)) continue;
+				if (
+					carried.some(
+						(one) => one.caseType === to && one.property === property.name,
+					)
+				)
+					continue;
+				const held = destination.properties.find(
+					(one) => one.name === property.name,
+				);
+				// A property the later type holds and types (a writer of its own, or
+				// a declaration the reading derives) stays as it is; one it holds
+				// only through a read takes the earlier type's type.
+				if (
+					held !== undefined &&
+					(held.data_type !== undefined || property.data_type === undefined)
+				)
+					continue;
+				carried.push({
+					caseType: to,
+					property: property.name,
+					dataType: property.data_type,
+				});
+			}
+		}
+		if (carried.length === 0) return current;
+		current = withCandidate(current, (draft) => {
+			const catalog = (draft.caseTypes ?? []) as Draft<Catalog>;
+			for (const one of carried) {
+				noteProperty(catalog, one.caseType, one.property);
+				const declared = catalog
+					.find((type) => type.name === one.caseType)
+					?.properties.find((entry) => entry.name === one.property);
+				if (declared !== undefined && one.dataType !== undefined)
+					declared.data_type = one.dataType;
+			}
+		});
+	}
+	return current;
 }
 
 /**
@@ -913,7 +1001,9 @@ function recordComparedTypes(
  *  `ReaderInput.knownCaseTypes`); properties by `noteProperty`; `data_type` only where a
  *  sort or a date Search field needs it and no writer types the property,
  *  or where every writer is a select question of one kind; choices where
- *  select questions write a property, and as each plain column states them. */
+ *  select questions write a property, and as each plain column states them;
+ *  and each property a type holds carried onto each type a change of the
+ *  document gives such a case (`carryRetypedProperties`). */
 export function catalogAsRead(
 	doc: BlueprintDoc,
 ): NonNullable<BlueprintDoc["caseTypes"]> {
@@ -992,7 +1082,7 @@ export function catalogAsRead(
 	expressionReads(doc.modules, reads, effectiveTypes);
 	const readers = typedReaders(doc);
 	const selects = selectTypes(writes);
-	return produce(caseTypes, (draft) => {
+	const readCatalog = produce(caseTypes, (draft) => {
 		for (const write of writes) {
 			noteProperty(draft, write.caseType, write.property);
 			if (write.options === undefined) continue;
@@ -1133,4 +1223,10 @@ export function catalogAsRead(
 				property.data_type = one.dataType;
 		}
 	}) as Catalog;
+	// A changed case keeps its properties under its later type, as the
+	// reading holds them (`settleCaseManagement`).
+	return (carryRetypedProperties({
+		...doc,
+		caseTypes: readCatalog,
+	} as BlueprintDoc).caseTypes ?? readCatalog) as Catalog;
 }

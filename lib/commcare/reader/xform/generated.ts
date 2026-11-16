@@ -1357,14 +1357,17 @@ export function readCaseRegion(
 		if (region.has(node) || input.taken(node)) continue;
 		if (node.role === "SaveToCase") {
 			for (const at of subtree(node))
-				region.set(at, at === node ? containerOf(node) : undefined);
+				if (!input.taken(at))
+					region.set(at, at === node ? containerOf(node) : undefined);
 			continue;
 		}
 		// A leaf is scaffolding only inside a container; a node another plugin owns is not.
 		if (node.children.length === 0) continue;
 		if (node.role !== undefined && node.role !== "Repeat") continue;
 		if (!scaffolding(node)) continue;
-		for (const at of subtree(node)) region.set(at, containerOf(at));
+		// A node another role holds, a refused block among them, takes none from the region.
+		for (const at of subtree(node))
+			if (!input.taken(at)) region.set(at, containerOf(at));
 	}
 	return region;
 }

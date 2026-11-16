@@ -575,6 +575,8 @@ interface AdvancedReading {
 	/** Whether the first pass refused part of the stored actions (a key, a load, an open
 	 *  action), each refusal standing as its own finding. */
 	readonly refused?: true;
+	/** Each open action's name question, which carries the scalar check of the case's name. */
+	readonly createNames: readonly DraftField[];
 }
 
 /** One id the reading gave an operation: its case type's, or the name its owner node carries. */
@@ -1881,6 +1883,7 @@ export function readAdvancedActions(
 		...(chainOk && chain.length === chosen.length && { chain: [...chain] }),
 		mints,
 		...(!r.ok && { refused: true as const }),
+		createNames,
 	});
 }
 
@@ -2016,8 +2019,10 @@ function readAutoSelectLoad(
 	// The index: none on an auto-selected load. HQ's page stores one with a blank tag, which
 	// indexes nothing (`advanced/actions.js`, `case_index.tag('')`).
 	const index = isJsonObject(load.case_index) ? load.case_index : {};
+	// Each refusal below reads the load no further, so the load stands under
+	// it whole: one cause, one finding, no key of it left unclaimed.
 	if (typeof index.tag === "string" && index.tag !== "") {
-		L.refuse("case_index", C.caseIndexOnFirst);
+		L.refuseWhole(C.caseIndexOnFirst);
 		r.ok = false;
 		return undefined;
 	}
@@ -2027,8 +2032,7 @@ function readAutoSelectLoad(
 		load.show_product_stock === true ||
 		(typeof load.product_program === "string" && load.product_program !== "")
 	) {
-		L.refuse("show_product_stock", C.productStock);
-		if (L.used("product_program")) L.refuse("product_program", C.productStock);
+		L.refuseWhole(C.productStock);
 		r.ok = false;
 		return undefined;
 	}
@@ -2692,8 +2696,16 @@ export function settleAdvancedForm(
 		)
 	) {
 		// What the first pass refused is missing from the reading, so the actions differ by it;
-		// its finding at the form already says so, and the difference is no second cause.
-		if (!(reading.refused === true && ctx.accounting.hasFindingAt(form.place)))
+		// its finding at the form already says so, and the difference is no second cause. So
+		// does the finding of loads whose entry differs from the one Nova's emission gives
+		// (`index.ts::compareEntryFacts`), which the stored actions carry.
+		if (
+			!(
+				(reading.refused === true ||
+					ctx.facts.entryFactsRefused.includes(form.uuid)) &&
+				ctx.accounting.hasFindingAt(form.place)
+			)
+		)
 			ctx.accounting.circumstance("unrecognized", form.place, {
 				name: "schema:AdvancedForm.actions",
 			});

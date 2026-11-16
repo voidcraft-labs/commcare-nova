@@ -92,8 +92,10 @@ export const SPELLING_VECTORS: readonly SpellingVector[] = [
 	{
 		row: "L5",
 		name: "the parent axis",
-		a: "/data/x[1]/parent::node()/a",
-		b: "/data/x[1]/../a",
+		// Core takes a parent step only before any other step of a path
+		// (`XPathPathExpr.getReference`), so the pair stands in a predicate.
+		a: "count(/data/x[parent::node()/a = '1'])",
+		b: "count(/data/x[../a = '1'])",
 	},
 	{
 		row: "L5",

@@ -284,6 +284,18 @@ def test_the_intent_is_read_from_the_document_alone():
         "visit": {"note"},
     }
 
+    # A Save to Case create that writes nothing custom still names its case type among the form's save
+    # references, so a later form's create of a type replaces an earlier form's writes of it in HQ's refresh.
+    named = _document()
+    named["doc"]["forms"]["form-survey"]["caseOperations"] = [
+        {"uuid": "op-named", "id": "named", "action": "create", "caseType": "household", "target": {"kind": "new"}}
+    ]
+    # Without the synthetic menu, whose copy of the registration would come last and write the type again.
+    named["wire"]["modules"] = named["wire"]["modules"][:3]
+    read = intent.document_intent(named)
+    assert read.modules[1][1][0].operation_writes == {"household": set()}
+    assert "household" not in intent.expected_dictionary(read, {intent.SAVE_TO_CASE_PRIVILEGE})
+
     broken = _document()
     broken["wire"]["modules"][0]["forms"].append("form-missing")
     with pytest.raises(CorpusLayoutError, match="form-missing"):

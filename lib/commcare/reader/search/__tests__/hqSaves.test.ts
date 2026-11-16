@@ -536,7 +536,15 @@ describe("a check with no message in any language", () => {
 		expect(codes(reading)).toContain(
 			"case-search/a-required-or-validation-test-with-no-message-in-any-language",
 		);
-		expect(listOf(reading).searchInputs).toEqual([]);
+		// The field stays in the provisional document, with no requirement and no property, so an
+		// expression that reads it binds (`prompts.ts::readPrompt`).
+		expect(
+			listOf(reading).searchInputs.map((one) => ({
+				name: one.name,
+				kind: one.kind,
+				required: "required" in one ? one.required : undefined,
+			})),
+		).toEqual([{ name: "notes", kind: "advanced", required: undefined }]);
 	});
 
 	it("is a finding at the search for a validation", async () => {

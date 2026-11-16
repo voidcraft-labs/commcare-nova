@@ -142,11 +142,15 @@ def test_hq_preserves_literals_through_interpolation_and_instance_discovery(nati
 
 
 def _hq_tree(text):
-    """The tree HQ's own XPath parser reads ``text`` as, printed canonically by the same parser."""
-    from eulxml.xpath import ast
-    from eulxml.xpath import parse as parse_xpath
+    """The tree HQ's own XPath grammar reads ``text`` as (``proof.observe.manifest.expression_tree``: eulxml's rules
+    with XPath's lexical rule for a name after a comma, which eulxml's lexer leaves out, so a call after a comma,
+    ``selected(join(' ', instance('casedb')/...), ...)``, reads as Core reads it). A text the grammar refuses fails
+    the comparison by name."""
+    from proof.observe.manifest import expression_tree
 
-    return ast.serialize(parse_xpath(text))
+    tree = expression_tree(text)
+    assert tree is not None, f"HQ's XPath grammar refuses {text!r}"
+    return tree
 
 
 def _reader_payload(native):

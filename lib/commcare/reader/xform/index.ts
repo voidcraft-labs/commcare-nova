@@ -53,7 +53,9 @@ import { readMediaForms } from "./media";
 import {
 	type BindFacts,
 	type DataNode,
+	type DataTree,
 	formPathOf,
+	type NodeRefusal,
 	readBinds,
 	readDataTree,
 	readInstances,
@@ -119,6 +121,10 @@ export interface ReadSaveToCaseBlock {
 	readonly setvalues: readonly SetvalueFacts[];
 	/** Its ancestors between its scope and itself, outermost first, each a `case-region` node. */
 	readonly wrappers: readonly DataNode[];
+	/** The refusal of the data tree that covers the block (two siblings of one name in it or
+	 *  at it), which has claimed it with its binds and setvalues: the case management stage
+	 *  reads nothing of it and refuses what stands around it for it alone under that refusal. */
+	readonly refusal?: NodeRefusal;
 }
 
 /** One Connect element, read here and listed for the case management stage's `connectType`. */
@@ -253,18 +259,25 @@ export interface ReadXForm {
 
 type FormPlace = Extract<HqPlace, { kind: "form" }>;
 
-/** The Save to Case blocks of a form, by the role the join gave their nodes. */
+/** The Save to Case blocks of a form, by the role the join gave their nodes: each block of the
+ *  case region, and each the data tree refused, which no other role holds. */
 function saveToCaseBlocks(
-	order: readonly DataNode[],
+	tree: DataTree,
 	roles: ReadonlyMap<DataNode, NodeRole>,
 	binds: ReadonlyMap<DataNode, BindFacts>,
 	setvalues: readonly SetvalueFacts[],
 ): ReadSaveToCaseBlock[] {
 	const under = (path: readonly string[], target: readonly string[]) =>
 		target.length >= path.length && path.every((step, i) => target[i] === step);
-	return order
-		.filter((node) => node.role === "SaveToCase")
+	return tree.order
+		.filter(
+			(node) =>
+				node.role === "SaveToCase" &&
+				(roles.get(node)?.kind === "case-region" ||
+					(tree.refused.has(node) && !roles.has(node))),
+		)
 		.map((node) => {
+			const refusal = tree.refused.get(node);
 			let repeat: DraftField | null = null;
 			const wrappers: DataNode[] = [];
 			for (let at = node.parent; at !== null; at = at.parent) {
@@ -289,6 +302,7 @@ function saveToCaseBlocks(
 					(one) => one.target !== undefined && under(node.path, one.target),
 				),
 				wrappers,
+				...(refusal === undefined ? {} : { refusal }),
 			};
 		});
 }
@@ -563,7 +577,6 @@ function readForm(
 				setvalues: [],
 				nodes: tree.nodes,
 				roles: joined.roles,
-				refused: tree.refused,
 				formPlace,
 			});
 			return;
@@ -606,7 +619,6 @@ function readForm(
 		setvalues,
 		nodes: tree.nodes,
 		roles: joined.roles,
-		refused: tree.refused,
 		formPlace,
 	});
 	const carriers = new Map<DataNode, ControlNode>();
@@ -660,7 +672,7 @@ function readForm(
 		caseRegionPaths,
 		caseRegion,
 		saveToCaseBlocks: saveToCaseBlocks(
-			tree.order,
+			tree,
 			joined.roles,
 			binds.byNode,
 			setvalues,

@@ -483,14 +483,10 @@ describe("Save to Case blocks the gate refuses on their own", () => {
 			expect(outcome.defects).toEqual([]);
 			if (outcome.kind !== "account")
 				throw new Error(`${name}, which the gate refuses, was read.`);
-			const found = outcome.findings.filter((one) => one.code === entry);
-			expect(found).toHaveLength(1);
-			expect(found[0]?.place).toMatchObject({ kind: "question" });
-			expect(
-				outcome.findings
-					.map((one) => one.code)
-					.filter((one) => one.startsWith("questions/")),
-			).toEqual([entry]);
+			// The one finding, with no other beside it (an `unrecognized` one
+			// for a node around the block among them).
+			expect(outcome.findings.map((one) => one.code)).toEqual([entry]);
+			expect(outcome.findings[0]?.place).toMatchObject({ kind: "question" });
 		});
 
 	it("reads an unlink of a type no other change names into a document that declares it", async () => {
@@ -585,11 +581,7 @@ describe("Save to Case blocks a device refuses, as a person writes them in HQ", 
 			expect(outcome.defects).toEqual([]);
 			if (outcome.kind !== "account")
 				throw new Error(`${name}, which a device refuses, was read.`);
-			expect(
-				outcome.findings
-					.map((one) => one.code)
-					.filter((one) => one.startsWith("questions/")),
-			).toEqual([DEVICE]);
+			expect(outcome.findings.map((one) => one.code)).toEqual([DEVICE]);
 			expect(
 				outcome.findings.find((one) => one.code === DEVICE)?.place,
 			).toMatchObject({ kind: "question" });

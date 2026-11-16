@@ -771,6 +771,11 @@ def _form_intent(doc, uuid, form, module_type, multiple=False):
         managed = _case_management_holds(facts, operation, own_case) and not (
             own and multiple and form.get("type") != "registration"
         )
+        if not managed:
+            # Every Save to Case block names its case type in the form's save references, a create's name and a
+            # close's alone included (``FormBase.get_save_to_case_updates`` gives the type a set either way), so the
+            # form's set for the type replaces an earlier form's in HQ's refresh even where it writes nothing custom.
+            intent.operation_writes.setdefault(case_type, set())
         for write in operation.get("writes") or ():
             prop = write.get("property")
             if write.get("via") or not _custom(prop):

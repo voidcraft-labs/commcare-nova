@@ -54,8 +54,9 @@
  * through Core's argument filler whose `${` that screen shows otherwise
  * (`localeFile.ts::argumentScreenIssue`: a menu's name shows as stored in Web
  * Apps' menu list and otherwise in the screen's title, and Nova holds one text
- * for both), each under its own entry. A text holding a character XML cannot
- * hold is `unrecognized`.
+ * for both), each under its own entry; and a text holding, where a device
+ * shows it, a character XML 1.0 cannot carry (`xmlText.ts::xmlTextIssue`),
+ * which Nova's gate admits in no app text, under its own entry too.
  */
 
 import {
@@ -100,6 +101,12 @@ const CLAIMS = defineClaims("heldText", {
 	 *  screen shows otherwise (`refuseUnheldText`). */
 	placeholder: refuse(
 		"application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills",
+		null,
+	),
+	/** A text holding, where a device shows it, a character XML 1.0 cannot carry, which Nova's
+	 *  gate admits in no app text (`xmlText.ts::xmlTextIssue`, `refuseUnheldText`). */
+	unrepresentableCharacter: refuse(
+		"application-and-settings/app-text-holding-a-character-xml-cannot-carry",
 		null,
 	),
 });
@@ -501,13 +508,12 @@ export function refuseLineEndKey(ctx: ReadContext, path: string): void {
 	});
 }
 
-/** The claim each cause of an unheld text is refused under where the manifest names it. */
-const UNHELD_CLAIMS: Readonly<
-	Record<Exclude<UnheldCause, "unrepresentable-character">, Claim<"refuse">>
-> = {
+/** The claim each cause of an unheld text is refused under. */
+const UNHELD_CLAIMS: Readonly<Record<UnheldCause, Claim<"refuse">>> = {
 	"nothing-before-carriage-return": CLAIMS.lineEndShowsNothing,
 	"backslash-before-hash": CLAIMS.backslashBeforeHash,
 	placeholder: CLAIMS.placeholder,
+	"unrepresentable-character": CLAIMS.unrepresentableCharacter,
 };
 
 /**
@@ -516,12 +522,12 @@ const UNHELD_CLAIMS: Readonly<
  * none of before a carriage return is refused under the line-end entry where
  * its rest defines another app string (`keyDefinedAfterLineEnd`, naming that
  * string's key) and under its own entry otherwise; a text a device shows with
- * a backslash before `#`, and one holding a `${` a screen of its role fills,
- * each under its own entry, naming the text as the language shows it. A text
- * holding a character XML cannot hold, and a map whose text the reader cannot
- * know (`unheld` undefined), are `unrecognized` under `key`. A caller that
- * gives this finding reads the rest of what holds the text, so the one text
- * is one finding.
+ * a backslash before `#`, one holding a `${` a screen of its role fills, and
+ * one holding a character XML 1.0 cannot carry, each under its own entry,
+ * naming the text as the language shows it. A map whose text the reader cannot
+ * know (`unheld` undefined) is `unrecognized` under `key`. A caller that gives
+ * this finding reads the rest of what holds the text, so the one text is one
+ * finding.
  */
 export function refuseUnheldText(
 	ctx: ReadContext,
@@ -537,14 +543,14 @@ export function refuseUnheldText(
 
 /**
  * The claim an unheld text is refused under and the name its finding gives
- * (`refuseUnheldText`), or undefined where it is `unrecognized`: for a site
- * that refuses the key holding the text, which the close then leaves.
+ * (`refuseUnheldText`), or undefined where the reader cannot know the text
+ * (`unheld` undefined), which is `unrecognized`: for a site that refuses the
+ * key holding the text, which the close then leaves.
  */
 export function unheldRefusal(
 	unheld: UnheldText | undefined,
 ): { readonly claim: Claim<"refuse">; readonly name: string } | undefined {
-	if (unheld === undefined || unheld.cause === "unrepresentable-character")
-		return undefined;
+	if (unheld === undefined) return undefined;
 	const defined =
 		unheld.cause === "nothing-before-carriage-return"
 			? keyDefinedAfterLineEnd(unheld.text)

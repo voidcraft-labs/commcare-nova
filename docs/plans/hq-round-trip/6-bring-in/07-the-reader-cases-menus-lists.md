@@ -226,7 +226,7 @@ Read in full or by enclosing function, at the pins:
   `corehq/apps/case_search/const.py::CASE_SEARCH_MAX_RESULTS`.
 - **Nova, the emitter's wrappers and its caches**: `xform/caseOps.ts::buildCaseOperations` (the name,
   owner and write arms, `caseScalarTextValueCalculation`, `META_USER_ID`),
-  `xform/datetimeCaseValue.ts::datetimeCaseValueExpression`; `placement.ts` (the shared close's `held`);
+  `xform/datetimeCaseValue.ts::datetimeCaseValue`; `placement.ts` (the shared close's `held`);
   `casePlacementPlan.ts::PlanFormCaseWireOptions`; `wireIdentity.ts::targetWireIdentity`;
   `validator/rules/caseOperations.ts::validateOnlyIfChanged`;
   `lib/domain/standardCaseProperties.ts::CASE_NODE_ATTRIBUTE_PROPERTIES`; the `WeakMap` caches of
@@ -1735,7 +1735,7 @@ A wrapper an author wrote in CommCare HQ reads by the same rule, as the table sa
 | `create/case_name`; `create/owner_id` and `update/owner_id`; `update/case_name` (a rename); `update/external_id` | `replace(V, P, '')` with `P` the literal of `caseScalarTextValueCalculation` (`CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN`) | `V` |
 | `update/<prop>` where the catalog types the property `datetime` after the operation's retype | `xform/datetimeCaseValue.ts::datetimeCaseValue` of `V`'s classification, leaf by leaf: the moment as CommCare HQ stores it (part 03, 03-questions-and-text.md, section 7.1) | `V`, where the row's tree is `datetimeCaseValue` of `V`'s classification: a typed leaf read through `xpath/wire/instant.ts::storedInstantSource`, a text leaf as itself, a literal in HQ's spelling as that literal, and a read of a `nova_instant_<operation id>_<n>` node as that node's leaf (below). The spelling Nova wrote before this step, `instant.ts::typedInstantValue(V)`, reads as `V` too, and records the rewrite (below) |
 | the `relevant` of `update/<prop>` on an update whose target is the form's own case or the worker's record, where the value is one question's answer as it is | `count(A) > 0`, alone or as the first operand of an `and`, `A` the same path the row's value reads | no condition for the first, the rest of the `and` for the second; a `relevant` that does not lead with that conjunct is the authored condition whole |
-| `update/<prop>` whose value is a capture's link | `if(C = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/', C))` over the capture `C` where the row reads it (`captureLinkAt`), with the origin and domain of 2.4's `attachmentTarget` | `{ kind: "term", term: { kind: "capture-link", field: C } }` |
+| `update/<prop>` whose value is a capture's link | `if(C = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/', C))` over the capture `C` where the row reads it (`captureLinkAt`), with the origin and domain of 2.4's `attachmentTarget` | `{ kind: "term", term: { kind: "capture-link", field: C } }`; on `update/external_id`, `update/case_name` or `create/case_name`, which the gate refuses a link in (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`: CommCare keeps a name and an external id as the case's own value), one finding at the block, `savetocase-expressions-outside-nova-s-typed-vocabularies-case-id` (`saveToCase.ts::readBlock`) |
 | `create/owner_id`, `update/owner_id`, inside its `replace` | `/data/meta/userID` (`META_USER_ID`), which the emitter writes for an absent owner and for `actingUser()` alike | absent, then `actingUser()` (R3); `'-'` reads `unowned()` |
 | `@case_id` of an update or a close, and `index/<name>`, whose target is a runtime expression | `instance('casedb')/casedb/case[@case_id = X and @case_type = 'T']/@case_id` (`caseOps.ts::typedRuntimeCaseId`, `rowScope.ts::caseById`) | `X`, registered under `case_operation_target_expression` or `case_operation_link_target_expression`; a raw read (no selector) is `{ kind: "session" }`, an earlier create's `@case_id` path `{ kind: "op" }`, `USERCASE_ID_FUNCTION` `{ kind: "worker-record" }` |
 | a date-and-time leaf that reads the clock | `if(N = '', '', storedInstantOfText(N))` over the read of its `nova_instant_` node (`instant.ts::storedClockValue`) | the leaf the node's calculate holds inside `typedInstantValue` |
@@ -1912,6 +1912,23 @@ own case that an earlier Nova wrote as an operation, in a block of the operation
 writes the case's type (`targeted-migration-case-writes`, the Discharge form), is that finding:
 Nova's own close writes no type.
 
+**One cause, one finding.** A block the reading refuses holds everything that stands only for it:
+a block any of whose slots the expression stage refused is that slot's finding alone, with no
+`savetocase-block-outside-nova-s-own-block-shape` beside it (the emitter prints the block without the
+slot, so test 4 differs for that one cause); a bind under the block after the first on its node, which
+the form stage reads as no bind, stands under the block's finding (`saveToCase.ts::laterBindsUnder`); a
+wrapper only refused blocks stand in (an operations, children's or condition group, a keyed create's
+`nova_keyed_<id>` repeat with its count, the selected cases' repeat with its row and iteration) stands
+under the first such block's finding (`claimAccepted`); two sibling data nodes of one name in or at a
+block refuse the block with them under the data tree's one finding (`xform/model.ts::readDataTree`),
+every bind, setvalue and control that reaches them standing under it; and the case name and external
+id check a refused block's question carries, or a refused advanced form's open action's, is left to
+that finding (`index.ts::settleScalarChecks`). A finding the gate gives at the form that names only
+changes a finding at their own block refuses is that block's alone (`index.ts::settleCaseChanges`). An
+advanced form's stored actions pass 1 refused part of differ from Nova's print by what was refused, and
+so do the loads of its entry (`index.ts::compareEntryFacts`), so neither difference is a second
+finding; an auto-selected load whose reading stops at a refusal stands under it whole.
+
 **Operation order.** A form's operations are the own arm, then the basic child cases or advanced
 actions in HQ's list order, then the worker's record, then the Save to Case operations in document
 order of their blocks, except that (R2) is run with the Save to Case operations interleaved at the
@@ -1990,7 +2007,22 @@ is not the menu's case type, an update of a case a create of the form makes as a
 finding at the block,
 `questions/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches` (new, HELD-NEW,
 section 14), never the type change's: neither runtime reads `vellum:case_type`, and both keep a link's
-`case_type` as written (Core's `CaseIndex`, HQ's `CommCareCaseIndex.referenced_type`). A link name longer
+`case_type` as written (Core's `CaseIndex`, HQ's `CommCareCaseIndex.referenced_type`). A `case_type` row
+changes only the case's type on a device and on HQ's server, which keep every property as it is (Core's
+`CaseXmlParser.updateCase`, `setTypeId`; HQ's `update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`,
+`_update_known_properties`), so the reading carries each property the earlier type holds onto the later type
+where that type holds none of the name, or holds it only through a read (a case list column of a menu of
+its type) that no writer of its own and no declaration the reading derives types, as the earlier type types
+it (`caseManagement/catalog.ts::carryRetypedProperties`, in the settle and in the canonical row
+`case-catalog-is-as-read`, so a document of Nova's whose later type declares the earlier type's properties
+reads back as written); a later type whose own writers type one of them as another type is the gate's
+`CASE_OPERATION_RETYPE_UNSAFE`, which the settle tells apart through the gate's own
+`lib/domain/caseRetype.ts::planCaseRetype`: one finding at the block,
+`questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type`
+(new, HELD-NEW, section 14), and a change of the type of a case a create keyed by an answer makes, whose
+next submission's create gives the case its earlier type again, the type change's finding at the form. A
+change the gate refuses that names only changes a finding at their own block refuses is that block's finding
+alone (a keyed create a several-case form refuses beside the type change it would make). A link name longer
 than 255 characters is `questions/a-savetocase-link-name-longer-than-commcare-hq-stores` (new, REFUSED,
 section 14) at the block (`readBlock`): HQ keeps a link's name in `CommCareCaseIndex.identifier`,
 `CharField(max_length=255)`. A block's, a `case_type` row's or a link's case type outside the case type
@@ -3190,7 +3222,8 @@ that no expression reading it and no other key of it is a finding too): a text a
 of under `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing`,
 or the line-end entry where its rest defines an app string, one a device shows with a backslash
 before `#` under `application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash`, and
-one holding a character XML cannot hold left unclaimed (a header, a mapping's label and an interval's
+one holding a character XML 1.0 cannot carry under
+`application-and-settings/app-text-holding-a-character-xml-cannot-carry` (a header, a mapping's label and an interval's
 text keep a `${` as typed: no screen reads them through Core's argument filler, which a case list
 menu item's and a Register button's label and a Search field's label meet, so a `${` there a screen
 shows otherwise is refused under
@@ -3607,6 +3640,25 @@ on an advanced menu is 4.1's blocker.
 | `hidden: true`, `exclude: true`, a `default_value`, no itemset, input type or appearance | `{ kind: "hidden", name, value }` (slot `search_input_hidden_value`) | `hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset` |
 | the three other hidden shapes | finding | `hidden-exclude-without-a-default-value-on-a-prompt-with-no`, `hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`, `hidden-on-a-prompt-that-carries-an-itemset-input-type-or` |
 | `allow_blank_value: true`, `receiver_expression`, `is_group`, `group_key` | finding | `allow-blank-value`, `receiver-expression`, `receiver-expression-on-a-prompt-whose-editor-appearance-is`, `is-group-group-key`, `groups-present-and-an-input-without-group-key` |
+
+**A prompt a finding stands for** (`prompts.ts::readPrompt`). Each refusal above is the one finding
+for its cause, at the key that holds it, and the reading goes on past it: two causes in one prompt
+are two findings. Every other key of the prompt is read as its row says, or, where the refusal
+leaves nothing to read it into, covered by that finding (`Accounting.cover`): a refused hidden
+prompt's `exclude`, widget and checks, a refused itemset's other keys and `input_`, a checkbox's or
+a report's `itemset`. The field stays in the provisional document as an advanced field of the type
+its widget gives (a Hidden Value where it is hidden), with no property, so the other fields'
+required and validation tests that read it bind; the search is kept out of the settle
+(`PromptReading.refused`), and its filter rows stand under the first finding at the search
+(`index.ts::coverUnsettledRows`). A group's own entry (`is_group`) is no field: HQ's build makes it a
+group of the search screen (`remote_requests.py::build_query_prompt_groups`); its whole entry is one
+finding naming the group's key, which each member's `group_key` names too (one finding for the
+group), and a member with no `group_key` beside groups is its own finding. A field over a lookup
+table the reading was not told of hands the table read to project data's rules, and the search's
+filter rows wait on the same read (`lookup-table-read`), so no finding of the reader's stands beside
+the hand-off. A default filter keyed by a plain property, refused at its `property`, covers its
+`defaultValue` by that finding (`index.ts::readDefaultFilters`). Held by
+`search/__tests__/promptRefusals.test.ts`, one case per refusal, each holding the whole account.
 
 **Which arm a visible field takes** is decided with the conjuncts of 12.3, in `settleSearches`:
 
@@ -4106,6 +4158,7 @@ or INERT row needs no reader: the lane asks one of a refusing entry alone (part 
 | `questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it` | HELD-NEW | `own-case-change-beside-the-own-change` | `mug:SaveToCase` | `form-case-management`, `forms-and-case-management` | "a SaveToCase block that changes the form's own case (the case its menu chose on a follow-up or close form, the case a registration's own change creates) beside the form's own change of that case: a row of a property the own change also writes, its name and owner among them, or a close of that case" | "**HELD-NEW**: two changes of the form's own case that write one property or that both close it: Nova keeps one write of each property of the own case and lets no other change close it (`ownCaseIndependenceFindings`, `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case`, `CASE_OPERATION_CLOSES_OWN_CASE`), and no one change prints both blocks; a device and HQ's server apply both in the form's order, Case Management's block after every authored one"; platforms RUNS / RUNS, emission omit (as 5.2's row) |
 | `questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself` | REFUSED, `broken-at-runtime` | `savetocase-change-a-device-refuses` | `mug:SaveToCase` | `save-to-case`, none | "a SaveToCase update, close or link a device refuses on every submission: a case id that reads the case a menu chooses on a form that chooses none (a survey or a registration, whose entry holds no `case_id`), a case id that is a blank literal, or a link of the block's case to itself" | "**REFUSED**: broken at runtime: a device refuses the whole submission: a case id that is blank on every submission names no case, which Core refuses for an update or a close (`CaseXmlParser.loadCase`, "Unable to update or close case") and HQ's server refuses for any block (`form_processor/casedb_base.py::get`, `IllegalCaseId`), and Core refuses a case's link to itself (`CaseXmlParser.indexCase`, "cannot index itself"), on Android and in Web Apps (`FormplayerCaseXmlParser`); the gate refuses each (`validator/rules/caseOperations.ts`: `CASE_OPERATION_SESSION_UNAVAILABLE`, `CASE_OPERATION_TARGET_INVALID`, `CASE_OPERATION_LINK_INVALID`)"; platforms none, emission — |
 | `questions/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches` | HELD-NEW | `case-type-not-the-type-of-the-case-it-reaches` | `mug:SaveToCase` | `save-to-case`, `forms-and-case-management` | "a SaveToCase update, close or link whose case type is not the type of the case it reaches, with no change of that case's type before it: a block's `vellum:case_type` or a link's `case_type` other than the menu's case type for the case a menu chose, the type a create of the form gives the case it creates, or the type another change of the form names that case by" | "**HELD-NEW**: a change that names its case by a type the case does not hold: neither a device nor CommCare HQ's server reads a block's `vellum:case_type`, so an update or close changes the case it reaches whatever its type (a `case_type` row it carries gives the case the type the row names), and both keep a link's `case_type` as written (Core's `CaseXmlParser.indexCase`, HQ's `update_strategy.py::_apply_index_action` into `CommCareCaseIndex.referenced_type`), so the link records a type its case does not hold; Nova types a change and a link by the type of the case it reaches (`lib/doc/caseOperationOrder.ts::caseOperationTargetTypeOrderViolations`, `CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `declared-type`)"; platforms RUNS / RUNS, emission omit |
+| `questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type` | HELD-NEW | `type-change-to-a-type-holding-a-property-as-another-type` | `mug:SaveToCase` | `save-to-case`, `forms-and-case-management` | "a SaveToCase `case_type` row that gives a case a type whose property of a name the case's earlier type holds is of another type (a date the earlier type's writers save beside text the later type's writers save under one name)" | "**HELD-NEW**: a change of a case's type that keeps a value the later type holds as another type: a device and CommCare HQ's server change only the case's type and keep every property as it is (Core's `CaseXmlParser.updateCase`, `setTypeId`; HQ's `update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`, `_update_known_properties`), while Nova changes a case's type only where every property the earlier type holds is held by the later one as the same type (`lib/domain/caseRetype.ts::planCaseRetype`, `CASE_OPERATION_RETYPE_UNSAFE`); a property the later type holds nowhere, or holds only through a read that no writer of its own and no declaration types, is carried onto it as the earlier type types it (`caseManagement/catalog.ts::carryRetypedProperties`)"; platforms RUNS / RUNS, emission omit |
 | `questions/a-savetocase-change-that-reads-the-case-a-menu-chooses-on-a-form-whose-menu-chooses-none` | REFUSED, `broken-at-runtime` | `reads-the-case-a-menu-chooses-on-a-form-with-none` | `mug:SaveToCase` | `save-to-case`, none | "a SaveToCase change that reads the case a menu chooses on a form whose menu chooses none (a survey, or a registration, whose entry holds no `case_id`): a link to that case, or a case id expression, value or condition that reads its properties" | "**REFUSED**: broken at runtime: the read names no case: the form's entry holds no `case_id`, since a survey or a registration requires no case chosen before it opens, so a link to it is blank, which a device and CommCare HQ's server take as no link and the case is saved with none (Core's `CaseXmlParser.indexCase` removes an index whose value is blank, HQ's `update_strategy.py::_apply_index_action` makes none without a `referenced_id`), and a case id, value or condition that reads its properties reads nothing; the gate refuses each (`validator/rules/caseOperations.ts`: `CASE_OPERATION_SESSION_UNAVAILABLE` reasons `link-target` and `case-read`)"; platforms none, emission — |
 | `questions/a-savetocase-link-name-longer-than-commcare-hq-stores` | REFUSED, `broken-at-runtime` | `link-name-longer-than-hq-stores` | `mug:SaveToCase` | `save-to-case`, none | "a SaveToCase `index/<name>` whose name is longer than 255 characters" | "**REFUSED**: broken at runtime: CommCare HQ's server keeps a link's name in a column of 255 characters (`form_processor/models/cases.py::CommCareCaseIndex.identifier`, `CharField(max_length=255)`), so it cannot save a submission's longer name; the gate refuses it (`validator/rules/caseOperations.ts::validateLinks`, `CASE_OPERATION_LINK_INVALID` reason `too-long`)"; platforms none, emission — |
 | `questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters` | REFUSED, `not-hq-editable`, `broken-at-runtime` | `case-type-outside-grammar-or-longer-than-255` | `mug:SaveToCase` | `save-to-case`, none | "a SaveToCase case type (a block's `vellum:case_type`, a `case_type` row's value or a link's `case_type`) holding a character other than `A-Z`, `a-z`, `0-9`, `_` and `-`, or longer than 255 characters" | "**REFUSED**: not HQ-editable where a case type outside the grammar: the form builder's Save to Case marks a block's case type outside the grammar an error (`Vellum/src/saveToCase.js`, `CASE_TYPE_REGEX`), as CommCare HQ's menu settings page marks a menu's (`app_manager.js::valueIncludeInvalidCharacters`), so no editor of HQ's makes a case of such a type; broken at runtime where a case type longer than 255 characters: Core refuses a case whose type is longer than 255 characters (`CaseXmlParserUtil.checkForMaxLength`), and CommCare HQ's server keeps a case's type and a link's in 255 (`form_processor/models/cases.py`: `CommCareCase.type`, `CommCareCaseIndex.referenced_type`, `CharField(max_length=255)`); the gate refuses both (`validator/rules/caseOperations.ts::caseOperationCaseTypeNameProblem`, `CASE_OPERATION_INVALID_CASE_TYPE`)"; platforms none, emission — |

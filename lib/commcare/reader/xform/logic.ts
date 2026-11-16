@@ -76,8 +76,6 @@ export interface PendingLogicInput {
 	readonly setvalues: readonly SetvalueFacts[];
 	readonly nodes: ReadonlyMap<string, DataNode>;
 	readonly roles: ReadonlyMap<DataNode, NodeRole>;
-	/** The data nodes a refusal of the data tree covers, with its claim. */
-	readonly refused: ReadonlyMap<DataNode, Claim<"refuse">>;
 	readonly formPlace: HqPlace;
 }
 
@@ -263,6 +261,12 @@ function readDefaults(input: PendingLogicInput): void {
 	for (const setvalue of input.setvalues) {
 		const element = setvalue.element;
 		const target = setvalue.target;
+		// A setvalue on a node the data tree refused, or past one, stands under that refusal.
+		const refusal = setvalue.refusal;
+		if (refusal !== undefined) {
+			cursor.refuseSubtree(element, refusal.claim, formPlace, refusal.detail);
+			continue;
+		}
 		if (target === undefined) {
 			cursor.refuseSubtree(element, X.formLevelSetvalue, formPlace);
 			continue;
@@ -272,12 +276,6 @@ function readDefaults(input: PendingLogicInput): void {
 		const node = input.nodes.get(
 			(attribute ? target.slice(0, -1) : target).join("/"),
 		);
-		// A setvalue on a node the data tree refused stands under that refusal.
-		const refusedAs = node === undefined ? undefined : input.refused.get(node);
-		if (refusedAs !== undefined) {
-			cursor.refuseSubtree(element, refusedAs, formPlace);
-			continue;
-		}
 		const role = node === undefined ? undefined : input.roles.get(node);
 		// A setvalue on no node a reader holds is no default and no plugin's own.
 		if (role === undefined) {

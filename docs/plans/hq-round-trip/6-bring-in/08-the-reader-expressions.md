@@ -973,7 +973,12 @@ else the first excluded advanced field's that admits it (`search/rows.ts::rowEar
 reading that gives the rows' compared types), and lists the `field` of each name-backed
 `session-user` leaf of the bound conjuncts, from session data or the worker's record alike, less a
 field CommCare HQ writes on every worker's own case, as step 7 lists a slot's
-(`search/index.ts::searchRowUserFields(ctx)`). The frame adds them to the first run's `userFields`
+(`search/index.ts::searchRowUserFields(ctx)`). The checker refuses a session read of a name no
+worker property declares (`undeclared-worker-field`), which is every such read before the frame
+mints, so a row refused for that is read again over the document holding a worker property for
+each name its syntax reads under `instance('commcaresession')/session/user/data/`
+(`search/rows.ts::withSessionUserFields`), and lists the slug of each of those its bound conjuncts
+read. The frame adds them to the first run's `userFields`
 before it mints (`provisional.ts::bindExpressions`), so the row binds to the minted property at the
 settle. The names the writes of the worker's record save to
 (`caseManagement/index.ts::workerRecordWriteSlugs`) go apart, as `writtenUserFields`. Of names
@@ -982,8 +987,14 @@ CommCare HQ's user-data and location-data schemas and the gate hold as one
 (`custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_duplicates`,
 `USER_PROPERTY_SLUG_DUPLICATE`, `LOCATION_PROPERTY_SLUG_DUPLICATE`), the frame mints one
 (`worldEntities.ts::heldWorkerSlugs`): the first written in code-unit order where a write names one,
-else the first read. A worker read of another binds to the name-backed `session-user` leaf, as
-`formUserProperty` binds a slug a held property spells in other letters only; a write of another
+else the first read from the session, else the first read, since the gate holds a session read of
+worker information only by identity (`undeclared-worker-field`). A read of another from the
+worker's own case binds to the name-backed `session-user` leaf, as `formUserProperty` binds a slug
+a held property spells in other letters only; a session read of another, or of a name the gate
+refuses for a worker property, is `undeclared-worker-field`, which `findings.ts::checkErrorEntry`
+places under
+`expressions-and-data/a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes`
+(`worldEntities.ts::workerDataNameRefused`); a write of another
 is refused at its form (`caseManagement/index.ts::refuseWritesOfFoldedWorkerNames`, under
 `a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`); and a `location_data` read
 of another, or of a slug the gate refuses for a location property (`userPropertySlugVerdict`), is
@@ -1259,7 +1270,7 @@ Every row is a rule of `comparable`. Run E1 holds each against Core with the vec
 | L2 | parentheses that group an operand | a `group` node is replaced by its `value` | `parser/Parser.java::parseParens` folds a grouping into the operand it holds | `(1 + 2) * 3` against its tree; `((a))` and `a`; `(a = b)` and `a = b` |
 | L3 | `"x"` and `'x'` | `string` nodes compare by `value` | `Lexer.java::lex`, the `STR` token takes the text between matching marks | `'a'` and `"a"`; `"it's"`; a value holding the other mark |
 | L4 | `1`, `1.0` and `01`; `.5` and `0.5` | `number` nodes compare by value | `Lexer.java::matchNumeric`, `Double.valueOf` | each pair, and `1.` |
-| L5 | `child::a` and `a`; `self::node()` and `.`; `parent::node()` and `..` | an `axis` node named `child` is replaced by its value; `self` and `parent` over the call `node()` become `self` and `parent`. `attribute::a` and `@a` need no rule: `formSyntax.ts` reads both as one `axis` node (`AttrSpecified`, `AxisSpecified`) | `expr/XPathStep.java` holds one axis and test for either spelling | each of the three pairs, and `attribute::a` with `@a` as a control, in a path over a small instance |
+| L5 | `child::a` and `a`; `self::node()` and `.`; `parent::node()` and `..` | an `axis` node named `child` is replaced by its value; `self` and `parent` over the call `node()` become `self` and `parent`. `attribute::a` and `@a` need no rule: `formSyntax.ts` reads both as one `axis` node (`AttrSpecified`, `AxisSpecified`) | `expr/XPathStep.java` holds one axis and test for either spelling | each of the three pairs, and `attribute::a` with `@a` as a control, over a small instance; the parent pair inside a predicate, since Core takes a parent step only before any other step of a path (`XPathPathExpr.getReference`) |
 | L6 | `./.` and `.` as the whole of a path inside a predicate | a `child` node whose left and step are both `self` becomes `self` | Core contextualizes `./.` to the same node | `x[. = 'a']` and `x[./. = 'a']` over three nodes |
 | S1 | in a record slot, `cond(c1, v1, …, cn, vn, d)` and `if(c1, v1, if(…, if(cn, vn, d)))` | with `ruleSet: "record"`, a `call` named `cond` with an odd count of three or more arguments is rewritten to nested `if` calls before the comparison, on the source tree | `expr/XPathCondFunc.java::evalBody` evaluates the pairs in order and stops at the first true one | three and five arguments, a true first, a true second, none true, a branch that would throw when evaluated |
 | ~~S2~~ | no row: E1's outcome D, read from Core's source. Core's `casedb` holds a case's name as `case_name` and answers any other step with a blank node it creates (`org/commcare/cases/instance/CaseChildElement.java::getChildrenWithName`), so `name` and `case_name` are two reads. `syntaxCompare.ts` compares them as two trees, the reading hook passes `caseNameAlias: false` (a `name` step binds the property called `name`), and `spellingVectors.ts` keeps the pair as a negative control (`name` reads blank, `case_name` reads `Asha`) | | `CaseChildElement.getChildrenWithName` | a case named `Asha` read as `name` and as `case_name` from `casedb`, apart |

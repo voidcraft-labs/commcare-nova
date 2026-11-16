@@ -87,6 +87,7 @@ import type { ClaimSite } from "../accounting";
 import { withCandidate } from "../candidate";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
+import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { printSlot } from "../expressions/readExpression";
 import { externalKey } from "../identity";
 import { externalIdentityMap, reReadUuidOf } from "../identityMap";
@@ -128,6 +129,13 @@ import {
 const Q = "questions";
 const F = "forms-and-case-writes";
 const MUG = "mug:SaveToCase";
+
+/** A Save to Case expression outside the typed vocabulary of its slot, the
+ *  expression stage's entry. */
+const OUTSIDE_VOCABULARY =
+	EXPRESSION_CLAIMS[
+		"savetocase-expressions-outside-nova-s-typed-vocabularies-case-id"
+	];
 
 export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	outsideShape: refuse(
@@ -226,6 +234,12 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	 *  type change behind it (`index.ts::settleCaseChanges`). */
 	declaredType: refuse(
 		`${Q}/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches`,
+		MUG,
+	),
+	/** A `case_type` row that gives a case a type holding one of the earlier
+	 *  type's properties as another type (`index.ts::settleCaseChanges`). */
+	retypeConverts: refuse(
+		`${Q}/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type`,
 		MUG,
 	),
 	/** A block that links to the case a menu chooses, or whose case id, value or
@@ -665,6 +679,31 @@ function bindsUnder(
 	return out;
 }
 
+/** Each bind under `prefix` after the first on its node (`bindsUnder` holds
+ *  the first), which the xform stage reads as no bind of its node
+ *  (`xform/model.ts::readBinds`): a block that holds one is no block Nova
+ *  writes, and it stands under the block's finding. */
+function laterBindsUnder(
+	xform: ReadXForm,
+	prefix: readonly string[],
+): Element[] {
+	const first = new Set(bindsUnder(xform, prefix).values());
+	const root = xform.parsed.dataRoot.name;
+	return xform.parsed.binds.filter((element) => {
+		if (first.has(element)) return false;
+		const steps = pathSteps(
+			element.attribs.nodeset ?? element.attribs.ref ?? "",
+		);
+		if (steps === undefined || steps[0] !== "/" || steps[1] !== root)
+			return false;
+		const path = steps.slice(2);
+		return (
+			path.length >= prefix.length &&
+			prefix.every((step, i) => path[i] === step)
+		);
+	});
+}
+
 function setvaluesUnder(
 	xform: ReadXForm,
 	prefix: readonly string[],
@@ -770,6 +809,19 @@ function settleSibling(
 		ctx.writeDraft(() => xform.settle(sibling.node, "generated"));
 }
 
+/** The capture `text` builds HQ's form-attachment address over, as Nova's
+ *  emitter writes it (`xform/captureUrlNode.ts::captureUrlCalculate`), where it
+ *  builds one. */
+function captureAddressOf(ctx: ReadContext, text: string): string | undefined {
+	return inside(
+		text,
+		captureUrlCalculate(holeWire(), {
+			origin: ctx.input.target.origin,
+			domain: ctx.input.target.domain,
+		}),
+	);
+}
+
 /**
  * The value of a row, its wrappers taken off: a capture's link over the
  * capture it reads; else the text inside the date-and-time spelling of each
@@ -788,13 +840,7 @@ function rowValue(
 	readonly earlier: boolean;
 } {
 	const root = xform.parsed.dataRoot.name;
-	const capture = inside(
-		text,
-		captureUrlCalculate(holeWire(), {
-			origin: ctx.input.target.origin,
-			domain: ctx.input.target.domain,
-		}),
-	);
+	const capture = captureAddressOf(ctx, text);
 	if (capture !== undefined) {
 		const node = parse(capture);
 		const path =
@@ -1267,6 +1313,11 @@ function readBlock(
 		const nameText = calc("case/create/case_name");
 		if (nameText === undefined) return { ok: false };
 		const unwrapped = untrimmed(nameText);
+		// A case's name is its own value, and Nova holds a link to a captured
+		// file only in a property of its own (the gate's
+		// `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
+		if (captureAddressOf(ctx, unwrapped.text) !== undefined)
+			return fail(OUTSIDE_VOCABULARY);
 		const trimmed = unwrapped.trimmed
 			? undefined
 			: trimmedValueOf(ctx, xform, nameText, [
@@ -1368,6 +1419,8 @@ function readBlock(
 				}
 			}
 			if (property === "case_name") {
+				if (captureAddressOf(ctx, untrimmed(text).text) !== undefined)
+					return fail(OUTSIDE_VOCABULARY);
 				rename = {
 					text: untrimmed(text).text,
 					site: { element: bind, attribute: "calculate" },
@@ -1385,6 +1438,9 @@ function readBlock(
 				});
 				continue;
 			}
+			// An external id is the case's own value, never a link to a captured
+			// file (the gate's `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`), so its text
+			// is read as the text it builds, as a case's name is.
 			const value = rowValue(
 				ctx,
 				xform,
@@ -1392,6 +1448,12 @@ function readBlock(
 				rowPath,
 				block.path[block.path.length - 1] as string,
 			);
+			// An external id is the case's own value, and Nova holds a link to a
+			// captured file only in a property of its own (the gate's
+			// `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`): outside the vocabulary of
+			// an external id's value, as a name's capture address is (above).
+			if (property === "external_id" && value.value?.kind === "capture")
+				return fail(OUTSIDE_VOCABULARY);
 			if (value.earlier) {
 				const readId =
 					ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
@@ -1962,7 +2024,27 @@ export function readSaveToCaseBlocks(
 	const earlierCreates = new Map<string, true>();
 	const proposed: { read: NonNullable<BlockRead["proposal"]> }[] = [];
 	const guards: ReadSaveToCaseBlock[] = [];
+	// A block's name is its operation's id, which no two changes of a form
+	// share (the gate's `CASE_OPERATION_DUPLICATE_ID`): no document prints two
+	// blocks of one name, so a later block of an earlier one's name, in another
+	// group (two in one group are siblings of one name, above), is outside the
+	// shape Nova writes, one finding at it, and the earlier is read.
+	const names = new Set<string>();
 	for (const block of xform.saveToCaseBlocks) {
+		// A block the data tree refused (two siblings of one name in it or at it)
+		// is that one finding, at the form; the form stage claimed the block, its
+		// binds and its setvalues, and what stands around it stands under it.
+		if (block.refusal !== undefined) {
+			reading.failed.push({
+				block,
+				place: form.place,
+				claim: block.refusal.claim,
+				...(block.refusal.detail === undefined
+					? {}
+					: { detail: block.refusal.detail }),
+			});
+			continue;
+		}
 		const role = xform.roles.get(
 			xform.nodes.get(block.path.join("/")) as DataNode,
 		);
@@ -1971,6 +2053,16 @@ export function readSaveToCaseBlocks(
 			guards.push(block);
 			continue;
 		}
+		const name = block.path[block.path.length - 1] as string;
+		if (names.has(name)) {
+			reading.failed.push({
+				block,
+				place,
+				claim: SAVE_TO_CASE_CLAIMS.outsideShape,
+			});
+			continue;
+		}
+		names.add(name);
 		if (!scopeOk(xform, block)) {
 			reading.failed.push({
 				block,
@@ -2014,13 +2106,28 @@ export function readSaveToCaseBlocks(
 		}),
 	);
 	const failedBlocks = [...reading.failed];
+	const blockName = (block: ReadSaveToCaseBlock) =>
+		block.path[block.path.length - 1] as string;
+	// A guard follows its operation's block: where a proposed block and a
+	// refused one share a name, the guard is the nearest such block's before it.
+	const nearestOwner = (guard: ReadSaveToCaseBlock, name: string) => {
+		const order = xform.saveToCaseBlocks;
+		for (let at = order.indexOf(guard) - 1; at >= 0; at--) {
+			const block = order[at] as ReadSaveToCaseBlock;
+			if (!guards.includes(block) && guardOf(name, new Set([blockName(block)])))
+				return block;
+		}
+		return undefined;
+	};
 	for (const guard of guards) {
 		const name = guard.path[guard.path.length - 1] as string;
-		const owner = failedBlocks.find((one) =>
-			guardOf(
-				name,
-				new Set([one.block.path[one.block.path.length - 1] as string]),
-			),
+		const nearest = nearestOwner(guard, name);
+		const owner = failedBlocks.find(
+			(one) =>
+				guardOf(name, new Set([blockName(one.block)])) &&
+				(nearest === undefined ||
+					!ids.has(blockName(one.block)) ||
+					one.block === nearest),
 		);
 		if (owner !== undefined) reading.failed.push({ ...owner, block: guard });
 		else if (!scopeOk(xform, guard) || !guardOf(name, ids))
@@ -2364,12 +2471,15 @@ function fieldIdsOf(field: DraftField): string[] {
 	return ids;
 }
 
-/** One finding at the block's place, covering the block, its binds and its setvalues. */
+/** One finding at the block's place, covering the block, its binds and its
+ *  setvalues; nothing for a block the data tree refused, whose refusal the form
+ *  stage made over all three. */
 function refuseBlock(
 	xform: ReadXForm,
 	failed: FormBlocks["failed"][number],
 ): void {
 	const { block, place, claim, detail } = failed;
+	if (block.refusal !== undefined) return;
 	xform.cursor.refuseSubtree(block.element, claim, place, detail);
 	for (const [key, bind] of bindsUnder(xform, block.path)) {
 		if (key.includes("@"))
@@ -2393,6 +2503,8 @@ function refuseBlock(
 						detail,
 					);
 	}
+	for (const bind of laterBindsUnder(xform, block.path))
+		xform.cursor.refuseSubtree(bind, claim, place, detail);
 	for (const setvalue of setvaluesUnder(xform, block.path))
 		xform.cursor.refuseSubtree(setvalue, claim, place, detail);
 }
@@ -2498,21 +2610,26 @@ function claimAccepted(
 		if (node.role === "SaveToCase" || isInsideBlock(node)) continue;
 		const role = xform.roles.get(node);
 		const container = role?.kind === "case-region" ? role.container : undefined;
-		// A group no read block stands in (an operations, children's or
-		// condition group, which carries no iteration of its own) is part of
-		// the finding of the first block that does, as that block's guards are:
-		// the reading holds none of what it wraps. A repeat of Nova's (a keyed
-		// create's, the selected cases') no read block stands in stays
-		// unclaimed with the iteration it carries.
+		// A wrapper no read block stands in (an operations, children's or
+		// condition group, a keyed create's one-row repeat, the selected cases'
+		// repeat and its row) is part of the finding of the first block that
+		// does, as that block's guards are: the reading holds none of what it
+		// wraps, so the source's one cause is one finding. A repeat's iteration
+		// (the binds and setvalues on its attributes and its row's) stands under
+		// that finding with it.
 		const failedIn =
-			wrappers.has(node) ||
-			(container !== "operations" &&
-				container !== "subcases" &&
-				container !== "condition")
+			wrappers.has(node) || container === undefined
 				? undefined
 				: reading.failed.find((one) => one.block.wrappers.includes(node));
 		if (failedIn !== undefined) {
 			const { claim, place, detail } = failedIn;
+			if (container === "selected-cases" || container === "selected-case") {
+				for (const [key, attributeBind] of bindsUnder(xform, node.path))
+					if (key.startsWith("@") && !key.includes("/"))
+						xform.cursor.refuseSubtree(attributeBind, claim, place, detail);
+				for (const one of iterationSetvalues(xform, node))
+					xform.cursor.refuseSubtree(one.element, claim, place, detail);
+			}
 			xform.cursor.refuse({ element: node.element }, claim, place, detail);
 			for (const attribute of Object.keys(node.element.attribs))
 				if (!attribute.startsWith("xmlns"))
@@ -2555,14 +2672,8 @@ function claimAccepted(
 				for (const [key, attributeBind] of bindsUnder(xform, node.path))
 					if (key.startsWith("@") && !key.includes("/"))
 						xform.cursor.derivedSubtree(attributeBind, claim);
-				for (const one of xform.setvalues)
-					if (
-						one.target !== undefined &&
-						one.target.length === node.path.length + 1 &&
-						node.path.every((step, i) => one.target?.[i] === step) &&
-						(one.target[node.path.length] as string).startsWith("@")
-					)
-						xform.cursor.derivedSubtree(one.element, claim);
+				for (const one of iterationSetvalues(xform, node))
+					xform.cursor.derivedSubtree(one.element, claim);
 			}
 			continue;
 		}
@@ -2585,6 +2696,20 @@ function claimAccepted(
 			xform.cursor.derivedSubtree(setvalue, SAVE_TO_CASE_CLAIMS.rows);
 	}
 	claimControls(ctx, xform);
+}
+
+/** The setvalues on an attribute of `node` itself: a repeat's iteration. */
+function iterationSetvalues(
+	xform: ReadXForm,
+	node: DataNode,
+): ReadXForm["setvalues"] {
+	return xform.setvalues.filter(
+		(one) =>
+			one.target !== undefined &&
+			one.target.length === node.path.length + 1 &&
+			node.path.every((step, i) => one.target?.[i] === step) &&
+			(one.target[node.path.length] as string).startsWith("@"),
+	);
 }
 
 function isInsideBlock(node: DataNode): boolean {
@@ -3176,6 +3301,32 @@ function judgedApart(reading: FormBlocks): Set<string> {
 	);
 }
 
+/** The paths of the stored blocks the reading refuses, with each wrapper no
+ *  judged block stands in and a refused keyed create's count beside its
+ *  repeat: what no document the reading proposes prints, which the
+ *  comparison of the blocks beside them leaves out. */
+function leftOutPaths(
+	reading: FormBlocks,
+	apart: ReadonlySet<string>,
+): Set<string> {
+	const out = new Set<string>();
+	for (const { block } of reading.failed) {
+		out.add(block.path.join("/"));
+		for (const wrapper of block.wrappers) {
+			const path = wrapper.path.join("/");
+			if (apart.has(path)) continue;
+			out.add(path);
+			if (wrapper.template)
+				out.add(
+					[...wrapper.path.slice(0, -1), `nova_count_${wrapper.name}`].join(
+						"/",
+					),
+				);
+		}
+	}
+	return out;
+}
+
 /** Whether the own close read from a block of its own holds tests 2 and 4
  *  over `doc`: the place the plan gives it is the block's shape, and the
  *  emitter's block, with the close condition `doc` binds, is the stored one. */
@@ -3195,6 +3346,7 @@ function ownCloseHolds(
 		shape = undefined;
 	}
 	const emitted = emittedForm(ctx, doc, form);
+	const apart = judgedApart(reading);
 	return (
 		shape !== undefined &&
 		shape.join("/") === ownClose.segments.join("/") &&
@@ -3202,8 +3354,9 @@ function ownCloseHolds(
 		blockTreesEqual(
 			{ block: ownClose.block, form: storedFormSource(xform.parsed) },
 			emitted,
-			judgedApart(reading),
+			apart,
 			heldSlotPrints(ctx, doc, reading),
+			leftOutPaths(reading, apart),
 		)
 	);
 }
@@ -3262,6 +3415,7 @@ function blocksHold(
 	const stored = storedFormSource(xform.parsed);
 	const apart = judgedApart(reading);
 	const held = heldSlotPrints(ctx, doc, reading);
+	const leftOut = leftOutPaths(reading, apart);
 	const failing: ProposedBlock[] = [];
 	for (const one of reading.proposals) {
 		let shape: readonly SaveToCaseBlockSegment[] | undefined;
@@ -3277,7 +3431,13 @@ function blocksHold(
 			shape === undefined ||
 			shape.join("/") !== one.segments.join("/") ||
 			emitted === undefined ||
-			!blockTreesEqual({ block: one.block, form: stored }, emitted, apart, held)
+			!blockTreesEqual(
+				{ block: one.block, form: stored },
+				emitted,
+				apart,
+				held,
+				leftOut,
+			)
 		)
 			failing.push(one);
 	}
@@ -3579,8 +3739,21 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 		reading.proposals.length === 0
 			? []
 			: settleProposals(ctx, doc, form, reading);
-	for (const one of failing)
+	// A block a finding already stands at (a slot of it the expression stage
+	// could not hold, which the emitter then prints otherwise) is that one
+	// finding: the source's one cause.
+	for (const one of failing) {
+		if (ctx.accounting.hasFindingAt(one.place)) continue;
 		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.outsideShape, one.place);
+		const xform = form.xform;
+		if (xform !== null)
+			for (const bind of laterBindsUnder(xform, one.block.path))
+				xform.cursor.refuseSubtree(
+					bind,
+					SAVE_TO_CASE_CLAIMS.outsideShape,
+					one.place,
+				);
+	}
 	const failed = [
 		...reading.failed,
 		...failing.map((one) => ({
@@ -3607,9 +3780,62 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 			claim: SAVE_TO_CASE_CLAIMS.outsideShape,
 		});
 	}
+	REFUSED_BLOCKS.set(
+		form,
+		failed.map((one) => one.block),
+	);
 	// The stored `save` map is judged once every block is: a form whose block
 	// is outside Nova's shape has that finding alone.
 	judgeSaveReferences(ctx, form, failed);
+}
+
+/** The blocks of each form the reading refuses, once `settleSaveToCase` has
+ *  judged them. */
+const REFUSED_BLOCKS = new WeakMap<DraftForm, readonly ReadSaveToCaseBlock[]>();
+
+/** The case name and external id rows of a block, by their key under it. */
+const SCALAR_ROW_KEYS = [
+	"case/create/case_name",
+	"case/update/case_name",
+	"case/update/external_id",
+] as const;
+
+/**
+ * The questions whose answer a block of `form` the reading refuses saves as a
+ * case's name or external id. Each such question carries that block's scalar
+ * check in its constraint where Nova printed the block
+ * (`caseScalarTextGuard.ts::caseScalarTextGuards`), which the document the
+ * reading proposes leaves out with the block: the check stands under the
+ * block's finding (`index.ts::settleScalarChecks`).
+ */
+export function scalarFieldsOfRefusedBlocks(
+	form: DraftForm,
+): ReadonlySet<DraftField> {
+	const xform = form.xform;
+	const out = new Set<DraftField>();
+	if (xform === null) return out;
+	const root = xform.parsed.dataRoot.name;
+	for (const block of REFUSED_BLOCKS.get(form) ?? []) {
+		const binds = bindsUnder(xform, block.path);
+		for (const key of SCALAR_ROW_KEYS) {
+			const text = binds.get(key)?.attribs.calculate;
+			if (text === undefined) continue;
+			const context = [...block.path, ...key.split("/")];
+			// The question itself, or the one whose trimmed value it reads.
+			const sibling = generatedSiblingOf(xform, text, context);
+			const node = parse(untrimmed(text).text);
+			const path =
+				node === undefined ? undefined : resolvePath(node, context, root);
+			const field =
+				sibling?.purpose === "trimmed"
+					? sibling.field
+					: path === undefined
+						? undefined
+						: fieldAt(xform, path);
+			if (field !== undefined) out.add(field);
+		}
+	}
+	return out;
 }
 
 /**

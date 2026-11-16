@@ -199,8 +199,9 @@ export const ROW_DEFAULT_ROWS = {
 /**
  * The survey "Starts": `seed` starts as `s` and `early` starts as `seed`'s
  * answer, both when the form opens; in the repeat `rounds`, each new entry's
- * `copy` starts as `seed`, its `entry` as the number of entries the repeat
- * then holds, and `named` as the number of places named that number, a read
+ * `copy` starts as `seed`, its `entry` as a count of the repeat (one, since
+ * Core counts the entry it is made in; the Core class writes the entry's
+ * position there), and `named` as the number of places named that number, a read
  * of the places filtered by another question of the entry. Nova prints every
  * starting value's read of a question through `current()` (`xpath/wire/formReads.ts`),
  * and the Core class makes the absolute spelling from the same bytes.

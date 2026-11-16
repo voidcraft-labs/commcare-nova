@@ -35,6 +35,7 @@ import {
 	searchRowRelations,
 } from "../expressions/scanReads";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { manifestFindingOf } from "../languages";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
@@ -294,10 +295,18 @@ function readDefaultFilters(
 			return;
 		}
 		if (property !== "_xpath_query") {
-			row.refuse(
-				"property",
-				keyFinding(property, value, ownersExpression, relatedPropertySet),
-				{ name: property.slice(0, 200) },
+			// The row's value is the filter the refusal names, and stands under its finding.
+			const claim = keyFinding(
+				property,
+				value,
+				ownersExpression,
+				relatedPropertySet,
+			);
+			const detail = { name: property.slice(0, 200) };
+			row.refuse("property", claim, detail);
+			accounting.cover(
+				{ json: row, key: "defaultValue" },
+				manifestFindingOf(claim, row.place, detail),
 			);
 			names.add(property);
 			ok = false;
@@ -401,7 +410,9 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const properties = [
 			...filters.rows.flatMap((row) => searchRowProperties(row.text)),
 			...prompts.flatMap((prompt) =>
-				prompt.input.kind === "simple" && prompt.input.via === undefined
+				!prompt.refused &&
+				prompt.input.kind === "simple" &&
+				prompt.input.via === undefined
 					? [prompt.input.property]
 					: [],
 			),
@@ -468,7 +479,8 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				settings.ok &&
 				ownersHeld &&
 				workflow !== undefined &&
-				prompts.length === declared,
+				prompts.length === declared &&
+				prompts.every((prompt) => !prompt.refused),
 		});
 	}
 	declareDateFieldsBeforeBinding(ctx, app, readings);
@@ -566,6 +578,7 @@ function declareDateFieldsBeforeBinding(
 		dataType: CasePropertyDataType;
 	}[] = [];
 	const userFields: string[] = [];
+	const sessionUserFields: string[] = [];
 	const declare = (
 		caseType: string,
 		property: string,
@@ -606,10 +619,12 @@ function declareDateFieldsBeforeBinding(
 			declare(one.caseType, one.property, one.dataType);
 		for (const field of early.userFields)
 			if (!userFields.includes(field)) userFields.push(field);
+		for (const field of early.sessionUserFields)
+			if (!sessionUserFields.includes(field)) sessionUserFields.push(field);
 	}
 	declareDateSorts(ctx, app, doc, declare);
 	EARLY_DECLARATIONS.set(ctx, declarations);
-	ROW_USER_FIELDS.set(ctx, userFields);
+	ROW_USER_FIELDS.set(ctx, { userFields, sessionUserFields });
 	const catalog = app.caseTypes;
 	if (declarations.length === 0 || catalog === undefined || catalog === null)
 		return;
@@ -663,16 +678,26 @@ function declareDateSorts(
 }
 
 /** The names of the worker's own data each reading's search rows read, per reading. */
-const ROW_USER_FIELDS = new WeakMap<ReadContext, readonly string[]>();
+const ROW_USER_FIELDS = new WeakMap<
+	ReadContext,
+	{
+		readonly userFields: readonly string[];
+		readonly sessionUserFields: readonly string[];
+	}
+>();
 
 /**
  * The names of the worker's own data the reading's search filter rows read, in the order first
  * read (`rows.ts::rowEarlyReads`), known once the searches' first pass has run. A row binds at the
  * settle, outside the expression stage's slots, so the worker properties minted from that stage's
  * reads must take these too, or the row would read the name back as no property of the app.
+ * `sessionUserFields` are those a row reads from the session and not the worker's own case.
  */
-export function searchRowUserFields(ctx: ReadContext): readonly string[] {
-	return ROW_USER_FIELDS.get(ctx) ?? [];
+export function searchRowUserFields(ctx: ReadContext): {
+	readonly userFields: readonly string[];
+	readonly sessionUserFields: readonly string[];
+} {
+	return ROW_USER_FIELDS.get(ctx) ?? { userFields: [], sessionUserFields: [] };
 }
 
 /** `doc` without each early declaration a writer of the bound document types: the writer's type
@@ -734,7 +759,10 @@ function fieldOverAnotherType(ctx: ReadContext, reading: SearchReading): void {
 /**
  * A menu whose search a finding keeps from the settle places none of its rows: each row's value
  * stands under that finding, the first at the search or at its menu, so the close names no row
- * the reading never reached as unrecognized beside the finding that kept it out.
+ * the reading never reached as unrecognized beside the finding that kept it out. Where no finding
+ * stands there and a Search field's choices come from a lookup table the reading was not told of
+ * (`prompts.ts::PromptReading.unreadTable`), each row waits on project data's read of that table,
+ * as the field does, and is handed to it.
  */
 function coverUnsettledRows(ctx: ReadContext, reading: SearchReading): void {
 	const search = searchPlace(reading.module);
@@ -748,7 +776,19 @@ function coverUnsettledRows(ctx: ReadContext, reading: SearchReading): void {
 	const finding =
 		findings.find((one) => whereText(one.place) === whereText(search)) ??
 		findings.find((one) => whereText(one.place) === menu);
-	if (finding === undefined) return;
+	if (finding === undefined) {
+		const table = reading.prompts.find(
+			(prompt) => prompt.unreadTable !== undefined,
+		)?.unreadTable;
+		if (table !== undefined)
+			for (const row of reading.rows)
+				ctx.accounting.handOffAt(
+					{ json: row.cursor, key: "defaultValue" },
+					"lookup-table-read",
+					table,
+				);
+		return;
+	}
 	for (const row of reading.rows)
 		ctx.accounting.cover({ json: row.cursor, key: "defaultValue" }, finding);
 }

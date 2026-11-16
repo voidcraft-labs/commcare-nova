@@ -189,10 +189,12 @@ export interface ExpressionReading {
 	}[];
 	/** What the expressions read of the worker and of places that the document
 	 *  does not hold yet: the `field` of every name-backed `session-user` leaf
-	 *  a bound tree holds, and the slug of every `location_data/<slug>` step the
-	 *  texts name, each distinct, in code-unit order. */
+	 *  a bound tree holds (`sessionUserFields`: those read from the session and
+	 *  not the worker's own case), and the slug of every `location_data/<slug>`
+	 *  step the texts name, each distinct, in code-unit order. */
 	readonly worldReads: {
 		readonly userFields: readonly string[];
+		readonly sessionUserFields: readonly string[];
 		readonly locationDataSlugs: readonly string[];
 	};
 	/** Tags an expression reads that the catalog does not hold. */
@@ -1041,6 +1043,7 @@ export function readExpressions(
 	});
 	claims.push(...declarationClaims(checked, pending, env, held));
 	const userFields = new Set<string>();
+	const sessionUserFields = new Set<string>();
 	for (const binding of bindings.values())
 		walkExpressionTerms(binding.candidate, (term) => {
 			// A field CommCare HQ writes on every worker's own case
@@ -1052,8 +1055,10 @@ export function readExpressions(
 					term.source === "worker-record" &&
 					USERCASE_BUILT_IN_KEYS.includes(term.field)
 				)
-			)
+			) {
 				userFields.add(term.field);
+				if (term.source !== "worker-record") sessionUserFields.add(term.field);
+			}
 		});
 	// A relation read names the type it walks from; the property it reads is
 	// the type's the relation reaches.
@@ -1093,6 +1098,9 @@ export function readExpressions(
 		declaredProperties: kept,
 		worldReads: {
 			userFields: [...userFields].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+			sessionUserFields: [...sessionUserFields].sort((a, b) =>
+				a < b ? -1 : a > b ? 1 : 0,
+			),
 			locationDataSlugs: scanned.locationDataSlugs,
 		},
 		unreadTables: scanned.lookupTags.filter(

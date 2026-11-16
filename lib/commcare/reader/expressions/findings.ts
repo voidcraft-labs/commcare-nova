@@ -38,7 +38,10 @@ import { defineClaims, drop, refuse, take } from "../claims";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
-import { locationDataNameRefused } from "../worldEntities";
+import {
+	locationDataNameRefused,
+	workerDataNameRefused,
+} from "../worldEntities";
 
 /** The name of every expression slot a registration can stand in. */
 export type SlotName = SlotContextRef["slot"];
@@ -810,6 +813,11 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes":
 		refuse(
 			"expressions-and-data/a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes",
+			null,
+		),
+	"a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes":
+		refuse(
+			"expressions-and-data/a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes",
 			null,
 		),
 	"jr-itext-id": take(
@@ -2136,6 +2144,23 @@ function nodeAt(
 	return found;
 }
 
+/** The field a session read of the worker's own data names, where `node` is
+ *  one: the name-backed leaf, read from the session and not the worker's own
+ *  case. */
+function sessionUserDataName(
+	node: Expression | Term | undefined,
+): string | undefined {
+	const term =
+		node === undefined
+			? undefined
+			: "term" in node && node.kind === "term"
+				? node.term
+				: (node as Term);
+	return term?.kind === "session-user" && term.source !== "worker-record"
+		? term.field
+		: undefined;
+}
+
 /** The worker-record leaf a node is or ends at. */
 function workerRecordLeaf(node: Expression | Term | undefined): boolean {
 	const term =
@@ -2269,6 +2294,19 @@ export function checkErrorEntry(
 		candidate ??
 		(isProseSlotRef(ref) ? undefined : expressionSlotValue(doc, ref));
 	const node = nodeAt(tree, error.path);
+	// A session read of a name a reading declares no worker property for
+	// (`worldEntities.ts::heldWorkerSlugs`), in every slot alike.
+	const workerName = sessionUserDataName(node);
+	if (
+		error.code === "undeclared-worker-field" &&
+		workerName !== undefined &&
+		workerDataNameRefused(workerName, doc)
+	)
+		return answer(
+			C[
+				"a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes"
+			].entry,
+		);
 	if (error.code === "time-ordering")
 		return answer(
 			C[
@@ -2419,6 +2457,12 @@ export function formRefusalEntry(code: CheckErrorCode): string {
 		case "runtime-selected-value-on-device":
 		case "distance-not-numeric":
 		case "distance-unit-type":
+		// A read of worker information by a name the document does not declare
+		// yet, as on the expression stage's first pass, which the reading
+		// declares and reads again; a name no worker property takes is
+		// `checkErrorEntry`'s own entry.
+		case "undeclared-worker-field":
+		case "worker-property-read-by-name":
 			return M3;
 		default: {
 			const exhaustive: never = code;

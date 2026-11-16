@@ -17,7 +17,7 @@ import type { Accounting } from "../accounting";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { BindFacts, DataNode, DataTree } from "./model";
-import { readNodePath } from "./model";
+import { readNodePath, refusalOf } from "./model";
 import type { ParsedXForm } from "./parse";
 
 export interface ControlNode {
@@ -160,6 +160,12 @@ export function readControls(input: ReadControlsInput): ReadControls {
 					: undefined;
 		if (ref !== undefined) {
 			const read = readNodePath(ref, tree, base);
+			// A control on a node the data tree refused, or past one, stands under that refusal.
+			const refusal = refusalOf(read, tree);
+			if (refusal !== undefined) {
+				cursor.refuseSubtree(element, refusal.claim, formPlace, refusal.detail);
+				return "refused";
+			}
 			if (read.kind !== "node" || read.attribute !== undefined) {
 				cursor.refuseSubtree(element, X.controlNoNode, formPlace, {
 					name: ref,
@@ -273,7 +279,7 @@ export function readControls(input: ReadControlsInput): ReadControls {
 			let node = resolved.node;
 			const refused = node === undefined ? undefined : tree.refused.get(node);
 			if (refused !== undefined) {
-				cursor.refuseSubtree(element, refused, formPlace);
+				cursor.refuseSubtree(element, refused.claim, formPlace, refused.detail);
 				continue;
 			}
 			if (node !== undefined && byNode.has(node)) node = undefined;

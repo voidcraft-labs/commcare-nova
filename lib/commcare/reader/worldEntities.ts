@@ -222,23 +222,29 @@ function onePerKey(names: readonly string[]): readonly string[] {
  * writes each key as it stands, `callcenter/sync_usercase.py::_get_user_case_fields`), but one
  * to CommCare HQ's user-data schema and the gate (`foldKey`), so a reading declares one of them:
  * the first written in code-unit order where a write names one, since the gate holds a write of
- * the worker's record to a declared property (`validateWorkerRecordProperty`), else the first
- * read. A read of another stays the name-backed read the parser binds where a held property
- * spells its slug in other letters only (`xpath/referenceBindings.ts::formUserProperty`), and a
- * write of another is refused (`caseManagement/index.ts::refuseWritesOfFoldedWorkerNames`).
+ * the worker's record to a declared property (`validateWorkerRecordProperty`); else the first
+ * read from the session (`session`, a subset of `read`), since the gate holds a session read of
+ * worker information only by identity (`undeclared-worker-field`); else the first read. A read
+ * of another from the worker's own case stays the name-backed read the parser binds where a
+ * held property spells its slug in other letters only
+ * (`xpath/referenceBindings.ts::formUserProperty`), a session read of another is refused at its
+ * slot (`workerDataNameRefused`), and a write of another is refused
+ * (`caseManagement/index.ts::refuseWritesOfFoldedWorkerNames`).
  */
 export function heldWorkerSlugs(
 	read: readonly string[],
 	written: readonly string[],
+	session: readonly string[] = [],
 ): readonly string[] {
-	const writes = onePerKey(written.filter(holdsWorkerProperty));
-	const keys = new Set(writes.map(foldKey));
-	return distinct([
-		...writes,
-		...onePerKey(read.filter(holdsWorkerProperty)).filter(
+	const keys = new Set<string>();
+	const take = (names: readonly string[]) => {
+		const taken = onePerKey(names.filter(holdsWorkerProperty)).filter(
 			(slug) => !keys.has(foldKey(slug)),
-		),
-	]);
+		);
+		for (const slug of taken) keys.add(foldKey(slug));
+		return taken;
+	};
+	return distinct([...take(written), ...take(session), ...take(read)]);
 }
 
 /** Whether a location property can take `slug` as the gate holds one: its schema's slug and
@@ -272,6 +278,25 @@ export function locationDataNameRefused(
 }
 
 /**
+ * Whether a session read of the worker's `user/data/<slug>` that binds to no worker property of
+ * `doc` names one no worker property of a reading takes: one `holdsWorkerProperty` refuses, or
+ * one a property of `doc` spells in other letters only, since a reading declares one of each
+ * `foldKey` (`heldWorkerSlugs`). A built-in field is CommCare's own and no read this asks of,
+ * and a read of the worker's own case (`worker-record`) stands by name.
+ */
+export function workerDataNameRefused(
+	slug: string,
+	doc: BlueprintDoc,
+): boolean {
+	return (
+		!holdsWorkerProperty(slug) ||
+		Object.values(doc.userProperties ?? {}).some(
+			(one) => one.slug !== slug && foldKey(one.slug) === foldKey(slug),
+		)
+	);
+}
+
+/**
  * The worker properties and the location properties an app's logic reads,
  * from what the first pass over its expressions met: a worker property for
  * each name read of the worker's own data, or written to the worker's
@@ -290,6 +315,7 @@ export function locationDataNameRefused(
 export function worldEntitiesFromReads(
 	worldReads: {
 		readonly userFields: readonly string[];
+		readonly sessionUserFields?: readonly string[];
 		readonly writtenUserFields?: readonly string[];
 		readonly locationDataSlugs: readonly string[];
 	},
@@ -302,6 +328,7 @@ export function worldEntitiesFromReads(
 	for (const slug of heldWorkerSlugs(
 		worldReads.userFields,
 		worldReads.writtenUserFields ?? [],
+		worldReads.sessionUserFields ?? [],
 	)) {
 		const claim = resolver.claim(
 			externalKey.userProperty(slug),
@@ -420,17 +447,20 @@ function isWorkerRecordOperation(node: Record<string, unknown>): boolean {
 function worldReadsOf(doc: BlueprintDoc): {
 	readonly byName: readonly string[];
 	readonly userFields: readonly string[];
+	readonly sessionUserFields: readonly string[];
 	readonly writtenUserFields: readonly string[];
 	readonly locationDataSlugs: readonly string[];
 } {
 	const byName: string[] = [];
 	const userFields: string[] = [];
+	const sessionUserFields: string[] = [];
 	const writtenUserFields: string[] = [];
 	const locationDataSlugs: string[] = [];
 	const worker = (slug: string, source: unknown, named: boolean) => {
 		if (source === "worker-record" && USERCASE_BUILT_IN_KEYS.includes(slug))
 			return;
 		userFields.push(slug);
+		if (source !== "worker-record") sessionUserFields.push(slug);
 		if (named) byName.push(slug);
 	};
 	const walk = (value: unknown): void => {
@@ -477,7 +507,13 @@ function worldReadsOf(doc: BlueprintDoc): {
 		for (const item of Object.values(node)) walk(item);
 	};
 	walk([doc.modules, doc.forms, doc.fields]);
-	return { byName, userFields, writtenUserFields, locationDataSlugs };
+	return {
+		byName,
+		userFields,
+		sessionUserFields,
+		writtenUserFields,
+		locationDataSlugs,
+	};
 }
 
 /**
@@ -488,8 +524,9 @@ function worldReadsOf(doc: BlueprintDoc): {
  * (`identity.ts::freeEntityUuid`: a property renamed from that slug keeps the UUID the slug
  * mints). Of names read that differ only in their capitalization it mints the first in
  * code-unit order, as a reading declares one (`heldWorkerSlugs`), and none where a property
- * holds one of them: which one a reading holds is `worldPropertiesAsRead`'s. The reads
- * themselves are judged slot by slot, as every expression is.
+ * holds one of them: which one a reading holds is `worldPropertiesAsRead`'s. Each read by name
+ * of a slug it mints becomes the read of that property, keeping its source, as the parser binds
+ * a read of a declared slug and the gate holds it (`worker-property-read-by-name`).
  */
 export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
 	const held = new Set(
@@ -500,6 +537,7 @@ export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
 	).filter((slug) => !held.has(foldKey(slug)));
 	if (minted.length === 0) return doc;
 	const resolver = heldResolver(doc);
+	const bound = new Map<string, Uuid>();
 	return withCandidate(doc, (draft) => {
 		const properties = { ...(draft.userProperties ?? {}) };
 		const order = [...(draft.userPropertyOrder ?? [])];
@@ -512,9 +550,11 @@ export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
 			const uuid = claim.uuid;
 			properties[uuid] = { uuid, slug, label: slug };
 			order.push(uuid);
+			bound.set(slug, uuid);
 		}
 		draft.userProperties = properties as typeof draft.userProperties;
 		draft.userPropertyOrder = order;
+		readsByIdentity([draft.modules, draft.forms, draft.fields], bound);
 	});
 }
 
@@ -526,13 +566,18 @@ export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
  * slugs. Where its logic reads a property and, by name, a field whose slug differs from it only
  * in capitalization, the reading holds the one `heldWorkerSlugs` gives, so a property that is not
  * it is absent and each read of it is the name-backed read of its slug, which prints the same
- * source (`toWire` prints a property by its slug).
+ * source (`toWire` prints a property by its slug), and each read by name of the slug of a
+ * property it holds is the read of that property.
  */
 export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
-	const { userFields, writtenUserFields, locationDataSlugs } =
-		worldReadsOf(doc);
+	const {
+		userFields,
+		sessionUserFields,
+		writtenUserFields,
+		locationDataSlugs,
+	} = worldReadsOf(doc);
 	const { userProperties, locationProperties } = worldEntitiesFromReads(
-		{ userFields, writtenUserFields, locationDataSlugs },
+		{ userFields, sessionUserFields, writtenUserFields, locationDataSlugs },
 		heldResolver(doc),
 	);
 	const same = <T extends { readonly uuid: Uuid }>(
@@ -555,9 +600,11 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 			kept.has(one.uuid) ? [] : [[one.uuid, one.slug] as const],
 		),
 	);
+	const bound = new Map(userProperties.map((one) => [one.slug, one.uuid]));
 	return withCandidate(doc, (draft) => {
 		if (named.size > 0)
 			readsByName([draft.modules, draft.forms, draft.fields], named);
+		readsByIdentity([draft.modules, draft.forms, draft.fields], bound);
 		delete draft.userProperties;
 		delete draft.userPropertyOrder;
 		delete draft.locationProperties;
@@ -575,6 +622,37 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 			draft.locationPropertyOrder = locationProperties.map((one) => one.uuid);
 		}
 	});
+}
+
+/** Each read by name of a slug `bound` holds, under `value`, rewritten in place as the read of
+ *  the worker property of that slug, as the parser binds a read of a declared slug and the gate
+ *  holds it (`worker-property-read-by-name`): an expression's `session-user` as
+ *  `session-user-property`, keeping its source, and a text's `user-ref` as `user-property-ref`. */
+function readsByIdentity(
+	value: unknown,
+	bound: ReadonlyMap<string, Uuid>,
+): void {
+	if (bound.size === 0 || value === null || typeof value !== "object") return;
+	const node = value as Record<string, unknown>;
+	for (const [key, child] of Object.entries(node)) {
+		if (child === null || typeof child !== "object") continue;
+		const leaf = child as Record<string, unknown>;
+		const uuid =
+			leaf.kind === "session-user" && typeof leaf.field === "string"
+				? bound.get(leaf.field)
+				: leaf.kind === "user-ref" && typeof leaf.property === "string"
+					? bound.get(leaf.property)
+					: undefined;
+		if (uuid !== undefined && leaf.kind === "session-user")
+			node[key] = {
+				kind: "session-user-property",
+				userPropertyUuid: uuid,
+				...(leaf.source === undefined ? {} : { source: leaf.source }),
+			};
+		else if (uuid !== undefined)
+			node[key] = { kind: "user-property-ref", userPropertyUuid: uuid };
+		else readsByIdentity(child, bound);
+	}
 }
 
 /** Each read of a worker property `named` holds, under `value`, rewritten in place as the
