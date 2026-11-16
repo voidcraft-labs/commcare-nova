@@ -87,14 +87,20 @@ def _tags(unit):
     return sorted(table.tag for table in LookupTable.objects.filter(domain=unit.domain))
 
 
-def _push(unit, captured, body=None, label="push"):
-    """Nova's captured lookup push, sent to HQ as Nova's client sends it, with an API key of the web user."""
+def _push(unit, captured, body=None, label="push", authorization=None):
+    """Nova's captured lookup push, sent to HQ as Nova's client sends it, with an API key of the web user.
+
+    A test that pushes more than once mints its key once and hands it in as ``authorization``: HQ holds one key of a
+    name for a user (``users_hqapikey``'s unique ``(user, name)``), so a second ``api_key`` in one unit is refused."""
     return ask(
         unit,
         captured.meta["method"],
         captured.meta["path"],
         body=captured.body_path.read_bytes() if body is None else body,
-        headers=(("Content-Type", captured.content_type), ("Authorization", api_key(unit))),
+        headers=(
+            ("Content-Type", captured.content_type),
+            ("Authorization", api_key(unit) if authorization is None else authorization),
+        ),
         label=label,
     )
 
@@ -229,8 +235,10 @@ def test_a_replacing_upload_leaves_an_unnamed_table_alone(hq, core_runner, view_
         (named,) = _sheet_tags(workbook)
         unnamed = "unnamed_table"
 
+        authorization = api_key(unit)
+
         def push(book, label):
-            answer = _push(unit, captured, _multipart(captured, book), label)
+            answer = _push(unit, captured, _multipart(captured, book), label, authorization)
             assert (answer.status, answer.content_type) == (200, "application/json"), answer
             assert json.loads(answer.body)["code"] == 200, answer
 
