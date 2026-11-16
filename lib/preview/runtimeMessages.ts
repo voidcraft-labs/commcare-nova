@@ -260,6 +260,8 @@ const english = {
 		"Search field “{input}” gets its choices from “{table}”, which has no rows, so a phone won't open this search. You can add rows to “{table}” in Project data.",
 	dataRefusalSearchAnswers:
 		"{subject} a search answer that was left blank, so a phone stops here. You can search again with that answer filled in.",
+	dataRefusalStartingChoice:
+		"Search field “{input}” starts on a choice its list doesn't offer. CommCare sets such a choice aside only on a search with more than one field, so a phone won't open this search. You can give “{input}” a starting value its list offers.",
 	dataRefusalWorkerPersona:
 		"{subject} worker information {worker} doesn't have, so a phone stops here. If it reads {worker}'s place, you can give {worker} a place under Users and personas in App setup.",
 	dataRefusalWorkerMe:
@@ -588,6 +590,8 @@ const spanish: Record<RuntimeMessage, string> = {
 		"El campo de búsqueda «{input}» toma sus opciones de «{table}», que no tiene filas, así que un teléfono no abrirá esta búsqueda. Puede añadir filas a «{table}» en los datos del proyecto.",
 	dataRefusalSearchAnswers:
 		"{subject} una respuesta de búsqueda que quedó en blanco, así que un teléfono se detiene aquí. Puede buscar de nuevo con esa respuesta.",
+	dataRefusalStartingChoice:
+		"El campo de búsqueda «{input}» empieza con una opción que su lista no ofrece. CommCare deja de lado esa opción solo en una búsqueda de más de un campo, así que un teléfono no abrirá esta búsqueda. Puede darle a «{input}» un valor inicial que su lista ofrezca.",
 	dataRefusalWorkerPersona:
 		"{subject} información del trabajador que {worker} no tiene, así que un teléfono se detiene aquí. Si lee el lugar de {worker}, puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalWorkerMe:
@@ -817,6 +821,11 @@ export function dataRefusalCopy(
 			};
 		case "search-answers":
 			return { title, body: body("dataRefusalSearchAnswers") };
+		case "starting-choice":
+			return {
+				title,
+				body: body("dataRefusalStartingChoice", { input: subject.input }),
+			};
 		case "worker-information":
 			return {
 				title,

@@ -30,6 +30,7 @@
 import type { Uuid } from "@/lib/doc/types";
 import type { PreviewHeldCaseListMenu } from "@/lib/preview/menuProjection";
 import type { PreviewCaseChoice } from "@/lib/session/types";
+import { withoutPreviewSelections } from "./previewSelectionsHistory";
 
 const HELD_MENU_STATE_KEY = "__novaPreviewHeldMenu";
 const PREVIOUS_ENTRY_STATE_KEY = "__novaPreviousEntry";
@@ -131,8 +132,10 @@ function storedHeldMenu(held: PreviewHeldCaseListMenu) {
 	};
 }
 
-/** The state without the held menu or the entry before it: a state another
- *  generation of the Project wrote names its cases. */
+/** The state without the held menu, the entry before it or the case
+ *  selections it was shown with (`previewSelectionsHistory.ts`): a state
+ *  another generation of the Project wrote names its cases, and a write's new
+ *  entry records the selections it is shown with itself. */
 export function withoutPreviewHistorySteps(
 	state: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -142,7 +145,7 @@ export function withoutPreviewHistorySteps(
 		[PREVIOUS_GAP_STATE_KEY]: _gap,
 		...rest
 	} = state;
-	return rest;
+	return withoutPreviewSelections(rest);
 }
 
 const RESULTS_SEGMENT = "/results";
@@ -255,6 +258,30 @@ export function previewHeldMenuBack(state: unknown): PreviewHeldMenuBack {
 	return afterListOf(state)
 		? { kind: "step-back", steps: stepsOfPreviewHeldMenu(state) }
 		: { kind: "show-list" };
+}
+
+/** How many history entries a step back from this entry passes to reach
+ *  the entry its screen was pushed after, where that entry is the plain
+ *  screen at `pathname` (it holds no form menu): its own, and one for each
+ *  entry between them (`gapOf`, a language change's copies of the screen).
+ *  None where the entry before is any other screen, or is not recorded. A
+ *  screen whose own Back reaches the screen it was opened from (a parent
+ *  case's list going back over the command that asked for it,
+ *  `CommCareSession.stepBack`) steps back by this count rather than writing
+ *  a copy of that screen after itself, which would leave the screen twice
+ *  in history and make the browser's next Back land on it again. The entry
+ *  behind can have changed since it was recorded, so the step is checked
+ *  where it lands (`useClientPath.ts::stepBackToBuilderEntry`). */
+export function stepsBackToPrevious(
+	state: unknown,
+	pathname: string,
+): number | undefined {
+	const previous = previousEntryOf(state);
+	return previous !== undefined &&
+		previous.held === undefined &&
+		previous.path === pathname
+		? gapOf(state) + 1
+		: undefined;
 }
 
 /** Whether an entry shows its list in a Preview session: it holds no menu,

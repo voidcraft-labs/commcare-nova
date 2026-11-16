@@ -173,6 +173,11 @@ export type PreviewSearchState =
 			readonly kind: "action";
 			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
+			/** The menu's default search, which the list ran as it opened:
+			 *  no answer the worker gave, so history taking it back runs the
+			 *  default search again, whatever answers were given since
+			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
+			readonly automatic?: true;
 	  }
 	| {
 			/** The worker pressed Search again and has not searched since: the
@@ -194,6 +199,11 @@ export type PreviewSearchState =
 			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly deviceValues?: PreviewSearchDeviceValues;
+			/** The menu's default search, which the list ran as it opened:
+			 *  no answer the worker gave, so history taking it back runs the
+			 *  default search again, whatever answers were given since
+			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
+			readonly automatic?: true;
 	  }
 	| {
 			readonly kind: "failed";
@@ -204,6 +214,11 @@ export type PreviewSearchState =
 			readonly answers: PreviewSearchAnswers;
 			readonly reason: PreviewSearchFailure;
 			readonly deviceValues?: PreviewSearchDeviceValues;
+			/** The menu's default search, which the list ran as it opened:
+			 *  no answer the worker gave, so history taking it back runs the
+			 *  default search again, whatever answers were given since
+			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
+			readonly automatic?: true;
 	  }
 	| {
 			readonly kind: "completed";
@@ -217,6 +232,11 @@ export type PreviewSearchState =
 			/** Set once the no-matches form registers a case: Results then
 			 * shows that one case, as the wire's return frame does. */
 			readonly registeredCaseId?: string;
+			/** The menu's default search, which the list ran as it opened:
+			 *  no answer the worker gave, so history taking it back runs the
+			 *  default search again, whatever answers were given since
+			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
+			readonly automatic?: true;
 	  };
 
 /** Which search offered a no-matches registration form. */

@@ -106,9 +106,11 @@ writeFileSync(
  * (`searchRunState.ts::openSearchRunState`, which `useSearchInputRunState`,
  * App Tests and the form check read), each choice list among its reads, on
  * either platform. `SearchPromptRuntimeTest` holds Core's query manager to
- * it: built for each menu's search, it fails exactly where Preview stops and
- * otherwise holds the answers Preview opens with, a starting choice the list
- * does not offer let go.
+ * it: built for each menu's search, it fails exactly where Preview stops, for
+ * the reason Preview gives (`refusal`: the worker's place, or a one-field
+ * screen's starting choice its list does not offer), and otherwise holds the
+ * answers Preview opens with, a starting choice the list does not offer let
+ * go on a screen of several fields.
  */
 const PLACE_WORKERS: readonly Readonly<Record<string, string>>[] = [
 	{},
@@ -150,6 +152,9 @@ const openings = PLACE_WORKERS.map((user) => {
 				menu: WORKER_PLACE_SEARCH_MENUS[index],
 				command: `search_command.m${index}`,
 				refused: read.kind === "refused",
+				/* Why: a worker field the device lacks, or a one-field screen's
+				 * starting choice its list does not offer. */
+				refusal: read.kind === "refused" ? read.refusal.reason.kind : null,
 				fields: inputs
 					.filter((input) => input.kind !== "hidden")
 					.map((input) => input.name),

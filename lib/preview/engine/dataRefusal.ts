@@ -51,6 +51,16 @@ export type PreviewDataRefusalReason =
 			readonly kind: "empty-choice-table";
 			readonly tableId: LookupTableId;
 			readonly fieldUuid?: Uuid;
+	  }
+	/** A Search screen of one field whose starting value is a choice the
+	 * field's list does not offer: Core lets such a choice go only in a pass
+	 * it gives a second field, so the screen fails ("Invalid itemset state",
+	 * `RemoteQuerySessionManager.refreshItemSetChoices`). `input` is the
+	 * field's label, or its name where it has none. */
+	| {
+			readonly kind: "unoffered-starting-choice";
+			readonly inputUuid: Uuid;
+			readonly input: string;
 	  };
 
 /** A read of a worker-data key the worker's device lacks: the session is the
@@ -77,7 +87,9 @@ export class PreviewDataRefusal extends Error {
 				? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
 				: reason.kind === "owner-without-place"
 					? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
-					: "CommCare refuses this choice list: its table has no rows.",
+					: reason.kind === "unoffered-starting-choice"
+						? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
+						: "CommCare refuses this choice list: its table has no rows.",
 		);
 		this.name = "PreviewDataRefusal";
 		this.reason = reason;
@@ -147,6 +159,9 @@ export type PreviewDataRefusalSubject =
 			readonly fieldUuid?: Uuid;
 	  }
 	| { readonly kind: "search-answers" }
+	/** A Search field of a one-field screen that starts on a choice its list
+	 *  does not offer, by its label. */
+	| { readonly kind: "starting-choice"; readonly input: string }
 	/** A key of the worker's data the device holds none of: a place key of
 	 *  a worker assigned nowhere, or a field no one defined. */
 	| { readonly kind: "worker-information" }
@@ -177,6 +192,8 @@ export function previewDataRefusalSubject(
 		};
 	}
 	if (reason.kind === "owner-without-place") return { kind: "owner-place" };
+	if (reason.kind === "unoffered-starting-choice")
+		return { kind: "starting-choice", input: reason.input };
 	const { instanceId } = reason;
 	if (instanceId === LOCATIONS_INSTANCE_ID) return { kind: "places" };
 	if (instanceId === SESSION_INSTANCE_ID) return { kind: "worker-information" };

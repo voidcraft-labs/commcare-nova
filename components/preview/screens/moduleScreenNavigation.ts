@@ -1,13 +1,24 @@
-import { CASE_LOADING_FORM_TYPES, type Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
+	type ModuleLanding,
+	type Uuid,
+} from "@/lib/domain";
+import { previewParentCaseBeforeMenu } from "@/lib/preview/engine/parentCaseSelection";
 import {
 	type PreviewMenuSource,
 	previewCaseListFormRequest,
+	previewMenuCaseContext,
 } from "@/lib/preview/menuProjection";
+import { parentCaseSelectorLocation } from "@/lib/preview/screenProjection";
+import type { NavigateActions } from "@/lib/routing/navigation";
 import type { Location } from "@/lib/routing/types";
 import type {
 	PreviewCaseTarget,
+	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
 } from "@/lib/session/types";
+import { openModuleLanding } from "./moduleLanding";
 
 /** A configuration URL runs its owning Form/Results surface in Preview, so
  * it is as resumable as the canonical running URL. Module and module-condition
@@ -29,13 +40,38 @@ export function previewParentCaseResumeLocation(
 	return loc;
 }
 
+/**
+ * Whether the module's screen, shown in Preview at `loc`, starts its parent
+ * case selection: where Core asks for the parent case before it lists the
+ * screen (`parentCaseBeforeMenu`, `parentCaseSelection.ts::
+ * previewParentCaseBeforeMenu`), and wherever the screen stands in for a
+ * leaf of the module a worker reached past its command (a form, a case
+ * list: `previewParentCaseResumeLocation`), whose entry asks for it next.
+ * At the module's own URL a screen that lists its entries first lists them,
+ * as `CommCareSession.getNeededData` asks for a command there.
+ */
+export function previewModuleAsksParentCase(args: {
+	readonly loc: Location;
+	readonly moduleUuid: Uuid;
+	readonly parentCaseBeforeMenu: boolean;
+}): boolean {
+	return (
+		args.parentCaseBeforeMenu ||
+		previewParentCaseResumeLocation(args.loc, args.moduleUuid) !== undefined
+	);
+}
+
 /** The parent case selection a module's screen starts when it needs a
  * parent case: its selector, then this module, then whatever the request it
  * continues still returns to. A module entered as the selector of a pending
  * request continues that request, so the leaf and the cancel destination
  * stay the ones the request already carries: the selector's own URL is the
  * selection in progress, never a leaf to resume. A module entered any other
- * way resumes the leaf its URL names and cancels to its structural parent's
+ * way resumes the leaf its URL names and cancels to the screen a device's
+ * Back reaches from the parent's list: the module's own screen where it
+ * lists its entries before the parent case (`listsBeforeParentCase`), as
+ * `CommCareSession.stepBack` pops the command of the entry that asked and
+ * stops where the session asks for a command, else its structural parent's
  * menu, or Home. */
 export function previewParentCaseRequestFor(args: {
 	readonly loc: Location;
@@ -43,6 +79,7 @@ export function previewParentCaseRequestFor(args: {
 	readonly selectorModuleUuid: Uuid;
 	readonly structuralParentUuid: Uuid | null | undefined;
 	readonly pending: PreviewParentCaseRequest | undefined;
+	readonly listsBeforeParentCase?: boolean;
 }): PreviewParentCaseRequest {
 	const continuing =
 		args.pending?.selectingModuleUuid === args.moduleUuid
@@ -60,10 +97,68 @@ export function previewParentCaseRequestFor(args: {
 		...(resumeLocation !== undefined && { resumeLocation }),
 		cancelLocation:
 			continuing?.cancelLocation ??
-			(args.structuralParentUuid
-				? { kind: "module", moduleUuid: args.structuralParentUuid }
-				: { kind: "home" }),
+			(args.listsBeforeParentCase === true && resumeLocation !== undefined
+				? { kind: "module", moduleUuid: args.moduleUuid }
+				: args.structuralParentUuid
+					? { kind: "module", moduleUuid: args.structuralParentUuid }
+					: { kind: "home" }),
 	};
+}
+
+/** What choosing a menu's tile reads and writes. */
+export interface PreviewMenuTileActions {
+	readonly setPreviewCaseTarget: (
+		target: PreviewCaseTarget | undefined,
+	) => void;
+	readonly setPreviewParentCaseRequest: (
+		request: PreviewParentCaseRequest | undefined,
+	) => void;
+	readonly navigate: Pick<
+		NavigateActions,
+		"push" | "openCaseList" | "openModule"
+	>;
+}
+
+/**
+ * Choose a menu's tile, on the first menu or on a menu's screen. The tile is
+ * a menu's command, which names no form, so a case target an earlier screen
+ * left (a form held for a list) is let go first, on every route. Where the
+ * menu asks for its parent case before it lists its screen
+ * (`parentCaseSelection.ts::previewParentCaseBeforeMenu`) the parent's list
+ * opens, asking for it, and Back from it cancels to `cancelLocation`, the
+ * screen the tile was on; otherwise the menu opens where its landing says,
+ * its forms listed first even where one of them asks for a parent case after
+ * its command.
+ */
+export function choosePreviewMenuTile(
+	actions: PreviewMenuTileActions,
+	args: {
+		readonly source: PreviewMenuSource & { readonly doc: BlueprintDoc };
+		readonly moduleUuid: Uuid;
+		readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+		readonly cancelLocation: Location;
+		readonly landing: ModuleLanding;
+	},
+): void {
+	actions.setPreviewCaseTarget(undefined);
+	const required = previewMenuCaseContext(
+		args.source,
+		args.moduleUuid,
+		args.selections,
+	).requiredParentCase;
+	if (
+		required !== undefined &&
+		previewParentCaseBeforeMenu(args.source.doc, args.moduleUuid)
+	) {
+		actions.setPreviewParentCaseRequest({
+			selectingModuleUuid: required.moduleUuid,
+			returnModuleUuids: [args.moduleUuid],
+			cancelLocation: args.cancelLocation,
+		});
+		actions.navigate.push(parentCaseSelectorLocation(required.moduleUuid));
+		return;
+	}
+	openModuleLanding(actions.navigate, args.moduleUuid, args.landing);
 }
 
 /** The locations Preview runs a module's case list at. */

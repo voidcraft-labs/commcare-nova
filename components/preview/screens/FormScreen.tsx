@@ -61,6 +61,7 @@ import {
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import type { LanguageTag } from "@/lib/domain/localization";
 import {
 	afterSubmitFrameLanding,
 	afterSubmitRoute,
@@ -177,6 +178,12 @@ import {
 	previewSelectionsBefore,
 } from "@/lib/preview/menuProjection";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
+import {
+	type PreviewSubmitOffer,
+	type PreviewSubmitState,
+	previewSubmitAccess,
+	previewSubmitOffer,
+} from "@/lib/preview/submitOffer";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { endPreviewStandingSearches } from "@/lib/routing/useClientPath";
@@ -249,6 +256,50 @@ import { openModuleLanding } from "./moduleLanding";
 type SubmissionFailure = Exclude<SubmissionResult, { kind: FormType }>;
 /** The success arms: the submission landed and the app moves on. */
 type SubmissionSuccess = Extract<SubmissionResult, { kind: FormType }>;
+
+/**
+ * The line under the submit row that says why Submit is not offered. A form
+ * still opening says so in its own getting-ready state, and a fault replaces
+ * the screen, so neither has a line. Worker-facing waits speak the worker's
+ * language; the case-data failure and the member's access are Nova's own
+ * diagnostics and stay in English.
+ */
+function submitOfferLine(
+	offer: PreviewSubmitOffer,
+	language: LanguageTag,
+): string | undefined {
+	switch (offer.kind) {
+		case "offered":
+		case "fault":
+			return undefined;
+		case "busy":
+			return runtimeMessage(
+				language,
+				offer.reason === "submitting" ? "answersLocked" : "freshFormReady",
+			);
+		case "waiting":
+			switch (offer.reason) {
+				case "form-initializing":
+					return undefined;
+				case "case-data-refreshing":
+					return runtimeMessage(language, "caseDataRefreshing");
+				case "record-loading":
+					return runtimeMessage(language, "selectedRecordLoading");
+				case "form-rebuilding":
+					return runtimeMessage(language, "formPreparing");
+				case "repeat-updating":
+					return runtimeMessage(language, "repeatUpdating");
+				case "access-checking":
+					return "Checking your access to this app. Your answers are still here.";
+			}
+			break;
+		case "unavailable":
+			return offer.reason === "case-data-failed"
+				? "Case data could not refresh. Your answers are still here. Return to Edit to try Preview again."
+				: "Submitting saves case data, which needs edit access to this app.";
+	}
+	return undefined;
+}
 
 /**
  * Shape a `SubmissionResult` failure arm into the inline error string
@@ -1242,11 +1293,76 @@ export function FormScreen({ screen }: FormScreenProps) {
 		});
 	}, []);
 	const [clearRevision, setClearRevision] = useState(0);
-	const [clearTargetEntryKey, setClearTargetEntryKey] = useState<
-		string | undefined
-	>();
+	/* Clear form runs from the press until the fresh entry's key is the one
+	 * the screen shows: `starting` before the controller has handed the key
+	 * back, `awaiting-entry` once it has. Both are the busy state, so Submit
+	 * never looks ready while a press on it would land on the retired entry. */
+	const [clearState, setClearState] = useState<
+		| { readonly kind: "idle" }
+		| { readonly kind: "starting" }
+		| { readonly kind: "awaiting-entry"; readonly entryKey: string }
+	>({ kind: "idle" });
 	const clearInFlightRef = useRef(false);
-	const clearRunning = clearTargetEntryKey !== undefined;
+	const clearRunning = clearState.kind !== "idle";
+	const repeatTopologySettling =
+		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
+	/* What Submit offers (`lib/preview/submitOffer.ts`): rendered as Submit's
+	 * disabled state and its reason, and read again when a press lands. */
+	const submitState: PreviewSubmitState = {
+		afterSubmitKnown:
+			form === undefined ||
+			form.formLinks !== undefined ||
+			postSubmitDestination !== undefined,
+		submitting: submitStatus.kind === "running",
+		clearing: clearRunning,
+		entry: engineInitializing
+			? "initializing"
+			: engineRebuilding
+				? "rebuilding"
+				: "ready",
+		caseDatabase:
+			caseDatabaseWait === undefined
+				? "ready"
+				: caseDatabaseWait.status === "error"
+					? "failed"
+					: "refreshing",
+		repeatSettling: repeatTopologySettling,
+		caseBindingReady,
+		access: previewSubmitAccess({
+			accessPhase,
+			canEdit: mayWriteCaseData,
+			sameApp: true,
+			entryAuthorityCurrent: appId === undefined || attachmentEntryReady,
+		}),
+	};
+	const submitOffer = previewSubmitOffer(submitState);
+	/* A form that names nowhere to go after it is submitted breaches
+	 * `effectivePostSubmit`'s guarantee: the screen shows its fault state, and
+	 * the breach is reported once, never swallowed. */
+	const submitFault =
+		mode === "preview" && submitOffer.kind === "fault"
+			? submitOffer.reason
+			: undefined;
+	useEffect(() => {
+		if (submitFault === undefined) return;
+		const error = new Error(
+			"Preview found a form with nowhere to go after it is submitted.",
+		);
+		reportClientError(
+			{
+				message: error.message,
+				stack: error.stack,
+				source: "manual",
+				url: typeof window === "undefined" ? "" : window.location.origin,
+				diagnostics: {
+					component: "preview-form-screen",
+					operation: "submit-offer",
+					failureKind: submitFault,
+				},
+			},
+			error,
+		);
+	}, [submitFault]);
 	const submissionAttemptRef = useRef(0);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
@@ -1276,12 +1392,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 		setValidationAnnouncement(undefined);
 	}, [submissionIdentityKey]);
 	useEffect(() => {
-		if (clearTargetEntryKey === undefined || entryKey !== clearTargetEntryKey) {
+		if (
+			clearState.kind !== "awaiting-entry" ||
+			entryKey !== clearState.entryKey
+		) {
 			return;
 		}
 		clearInFlightRef.current = false;
-		setClearTargetEntryKey(undefined);
-	}, [clearTargetEntryKey, entryKey]);
+		setClearState({ kind: "idle" });
+	}, [clearState, entryKey]);
 
 	/* Replacing all rows destroys the identity this navigation frame carries.
 	 * Leave the stale form with `replace` (so browser Back cannot re-enter it),
@@ -2351,23 +2470,59 @@ export function FormScreen({ screen }: FormScreenProps) {
 	);
 
 	const handleSubmit = async (): Promise<void> => {
+		/* The press reads what Submit offers from the state at this moment: the
+		 * entry store and the session move ahead of the render this handler
+		 * belongs to, and a queued click can land after a synchronous reset but
+		 * before React commits it. Where the offer is anything but `offered`,
+		 * Submit's next render is disabled for that same reason (or busy), so
+		 * the press is not lost on a Submit that looks ready. */
 		const currentEntry = controller.entryStore.getState();
-		if (
-			clearInFlightRef.current ||
-			currentEntry.rebuilding ||
-			currentEntry.caseDatabaseWait !== undefined
-		)
-			return;
-
 		const start = session.getState();
-		/* Authority is read imperatively at the mutation boundary. A queued click
-		 * can run after the synchronous reset but before React commits fresh props. */
-		if (
-			start.accessPhase !== "authorized" ||
-			!start.canEdit ||
-			start.appId !== appId
-		)
-			return;
+		const pressOffer = previewSubmitOffer({
+			...submitState,
+			clearing: submitState.clearing || clearInFlightRef.current,
+			entry:
+				submitState.entry === "ready" && currentEntry.rebuilding
+					? "rebuilding"
+					: submitState.entry,
+			caseDatabase:
+				currentEntry.caseDatabaseWait === undefined
+					? submitState.caseDatabase
+					: currentEntry.caseDatabaseWait.status === "error"
+						? "failed"
+						: "refreshing",
+			repeatSettling:
+				submitState.repeatSettling || currentEntry.topologySettling,
+			access: previewSubmitAccess({
+				accessPhase: start.accessPhase,
+				canEdit: start.canEdit,
+				sameApp: start.appId === appId,
+				entryAuthorityCurrent:
+					appId === undefined ||
+					(entryKey !== undefined &&
+						hasAttachmentEntryWriteAuthority(entryKey)),
+			}),
+		});
+		if (pressOffer.kind !== "offered") return;
+
+		/* The press is taken: Submit is busy from here, through the save
+		 * barrier, until the attempt settles. */
+		const attempt = ++submissionAttemptRef.current;
+		const attemptIsCurrent = () => submissionAttemptRef.current === attempt;
+		const settleAttempt = (status: SubmitStatus): void => {
+			if (attemptIsCurrent()) setSubmitStatus(status);
+		};
+		/* Clear any prior error state up-front. Two reasons:
+		 *
+		 *   1. A stale server-error header from a previous submit would
+		 *      otherwise stay visible while the user is on a *different*
+		 *      failure path (validate-fail or appId-guard) whose actual
+		 *      remediation surfaces in a different UI element (per-field
+		 *      required indicators).
+		 *   2. A second submit after a server error must replace, not
+		 *      augment: the alert always reflects the latest attempt. */
+		settleAttempt({ kind: "running" });
+		setValidationAnnouncement(undefined);
 		// Mouse activation retains focus until this point so validation cannot
 		// move the button mid-click. Now let the field commit its local draft.
 		const active = document.activeElement;
@@ -2383,13 +2538,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 		 * or save race that lands between this snapshot and the server lock. */
 		const saveOutcome = await collab?.reconciler.waitForHumanSaveBarrier();
 		if (saveOutcome !== undefined && saveOutcome.kind !== "saved") {
-			setSubmitStatus({
+			settleAttempt({
 				kind: "error",
 				message:
 					"This app couldn't finish saving. Reload it before submitting the form.",
 			});
 			return;
 		}
+		/* From here a press can only go stale: the worker moved, the entry
+		 * changed, or access changed while the app saved. The screen already
+		 * shows the new state (a different entry, or Submit disabled with its
+		 * reason), so the attempt settles back to idle and writes nothing. */
 		const afterSave = session.getState();
 		if (
 			afterSave.accessPhase !== "authorized" ||
@@ -2397,6 +2556,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			afterSave.appId !== appId ||
 			afterSave.scopeEpoch !== start.scopeEpoch
 		) {
+			settleAttempt({ kind: "idle" });
 			return;
 		}
 		const afterSaveContext = submissionContextRef.current;
@@ -2409,6 +2569,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			afterSaveContext.personaUuid !== submittedBase.personaUuid ||
 			!stringArrayValuesEqual(afterSaveContext.caseIds, submittedBase.caseIds)
 		) {
+			settleAttempt({ kind: "idle" });
 			return;
 		}
 		const submittedSnapshot = (doc: BlueprintDoc): SubmittedContextSnapshot => {
@@ -2440,20 +2601,20 @@ export function FormScreen({ screen }: FormScreenProps) {
 		let submitted = submittedSnapshot(
 			structuredClone(pickBlueprintDoc(submittedDocState)),
 		);
+		/* The committed document no longer holds the form (a collaborator
+		 * removed it while the app saved, and location recovery is moving the
+		 * screen), or the entry is gone: stale, never a fault, since a form the
+		 * document holds always names where it goes (`submitOffer.ts`). */
 		if (
 			submitted.scopeEpoch !== start.scopeEpoch ||
 			submitted.formUuid === undefined ||
 			submitted.entryKey === undefined ||
 			(submitted.links === undefined && submitted.destination === undefined)
 		) {
+			settleAttempt({ kind: "idle" });
 			return;
 		}
 		const submittedEntryKey = submitted.entryKey;
-		const attempt = ++submissionAttemptRef.current;
-		const attemptIsCurrent = () => submissionAttemptRef.current === attempt;
-		const settleAttempt = (status: SubmitStatus): void => {
-			if (attemptIsCurrent()) setSubmitStatus(status);
-		};
 		const isCurrent = () => {
 			const current = session.getState();
 			const latest = submissionContextRef.current;
@@ -2480,30 +2641,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 				mountedRef.current
 			);
 		};
-		/* Clear any prior error state up-front. Two reasons:
-		 *
-		 *   1. A stale server-error header from a previous submit would
-		 *      otherwise stay visible while the user is on a *different*
-		 *      failure path (validate-fail or appId-guard) whose actual
-		 *      remediation surfaces in a different UI element (per-field
-		 *      required indicators).
-		 *   2. A second submit after a server error must replace, not
-		 *      augment: the alert always reflects the latest attempt. */
-		settleAttempt({ kind: "idle" });
-		setValidationAnnouncement(undefined);
-
-		/* This repeats the disabled-button condition at the mutation boundary.
-		 * A queued click or stale event handler must never submit after a case-data
-		 * replacement, while the row is reloading, or after it resolved missing. */
-		if (!caseBindingReady) {
-			settleAttempt({
-				kind: "error",
-				message:
-					"This case is no longer available. Return to Results and choose a case.",
-			});
-			return;
-		}
-
 		/* `appId` is provided by the builder route; the test-mode submit
 		 * button only mounts under a builder session, so a missing slot
 		 * is an upstream contract failure. Guard explicitly so a
@@ -2518,9 +2655,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 			});
 			return;
 		}
-		if (!hasAttachmentEntryWriteAuthority(submittedEntryKey)) return;
+		/* Access changed while the app saved: Submit's render now reads the
+		 * access check (or no edit access) as its reason. */
+		if (!hasAttachmentEntryWriteAuthority(submittedEntryKey)) {
+			settleAttempt({ kind: "idle" });
+			return;
+		}
 
-		settleAttempt({ kind: "running" });
 		/* The mutation that landed, kept beside the result: the after-submit
 		 * links need the case types of the children it created, which the
 		 * result reports only by id. */
@@ -2804,30 +2945,40 @@ export function FormScreen({ screen }: FormScreenProps) {
 				return;
 			}
 			clearInFlightRef.current = true;
+			setClearState({ kind: "starting" });
 			setSubmitStatus({ kind: "idle" });
 			setValidationAnnouncement(undefined);
 			showFirstPage();
-			if (entryKey === undefined) {
-				await controller.resetAsync();
-				setClearRevision((revision) => revision + 1);
+			const settleClear = (): void => {
 				clearInFlightRef.current = false;
-				return;
+				setClearState({ kind: "idle" });
+			};
+			try {
+				if (entryKey === undefined) {
+					await controller.resetAsync();
+					setClearRevision((revision) => revision + 1);
+					settleClear();
+					return;
+				}
+				if (appId !== undefined) {
+					retireAttachmentEntry({ appId, entryKey });
+				}
+				const nextEntryKey = await controller.restartActiveEntryAsync();
+				if (nextEntryKey === undefined) {
+					settleClear();
+					return;
+				}
+				setClearState({ kind: "awaiting-entry", entryKey: nextEntryKey });
+			} catch (error) {
+				/* A restart that failed leaves no fresh entry to wait for; Submit
+				 * must not stay busy behind it. */
+				settleClear();
+				throw error;
 			}
-			if (appId !== undefined) {
-				retireAttachmentEntry({ appId, entryKey });
-			}
-			const nextEntryKey = await controller.restartActiveEntryAsync();
-			if (nextEntryKey === undefined) {
-				clearInFlightRef.current = false;
-				return;
-			}
-			setClearTargetEntryKey(nextEntryKey);
 		},
 		[appId, controller, entryKey, session, showFirstPage, submitStatus.kind],
 	);
 
-	const repeatTopologySettling =
-		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
 	// A fresh entry waits for its selected record and ancestor preloads before
 	// running one-time defaults and query snapshots. An existing entry can
 	// retain its settled inputs while an equivalent own-row read refreshes;
@@ -2965,11 +3116,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 		);
 	}
 
-	if (mode === "preview" && runtimeFault !== undefined) {
+	if (
+		mode === "preview" &&
+		(runtimeFault !== undefined || submitFault !== undefined)
+	) {
 		return (
 			<div className="flex h-full items-center justify-center px-6 py-10">
 				<div
 					role="alert"
+					data-form-fault={
+						runtimeFault !== undefined ? "runtime" : "no-after-submit"
+					}
 					className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
 				>
 					<div className="space-y-2">
@@ -2977,8 +3134,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 							This form couldn't open
 						</h2>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
-							Nova hit an internal problem while preparing this form. Return to
-							Edit to keep working.
+							{runtimeFault !== undefined
+								? "Nova hit an internal problem while preparing this form. Return to Edit to keep working."
+								: "Nova hit an internal problem: it couldn't tell where this form goes once it's submitted. Return to Edit to keep working."}
 						</p>
 					</div>
 					<button
@@ -3523,17 +3681,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 												event.preventDefault();
 											}
 										}}
-										/* A form still getting ready has no entry to submit, so
-										 * a press then would land nowhere and say nothing. */
-										disabled={
-											submitStatus.kind === "running" ||
-											clearRunning ||
-											engineInitializing ||
-											engineRebuilding ||
-											caseDatabaseWait !== undefined ||
-											!caseBindingReady ||
-											(appId !== undefined && !attachmentEntryReady) ||
-											!mayWriteCaseData
+										/* Submit is enabled exactly where a press submits
+										 * (`submitOffer.ts`); anywhere else it is disabled and
+										 * the line below says why, or it shows itself busy. */
+										disabled={submitOffer.kind !== "offered"}
+										data-submit-offer={
+											submitOffer.kind === "offered"
+												? "offered"
+												: `${submitOffer.kind}:${submitOffer.reason}`
 										}
 										className={FORM_PRIMARY_ACTION_CLS}
 									>
@@ -3605,21 +3760,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 								: validationAnnouncement.message}
 						</p>
 					) : null}
-					{formFrozen && !engineInitializing ? (
-						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
-							{clearRunning
-								? runtimeMessage(language.language, "freshFormReady")
-								: caseDatabaseWait !== undefined
-									? caseDatabaseWait.status === "error"
-										? "Case data could not refresh. Your answers are still here. Return to Edit to try Preview again."
-										: runtimeMessage(language.language, "caseDataRefreshing")
-									: selectedCaseLoading
-										? runtimeMessage(language.language, "selectedRecordLoading")
-										: engineRebuilding
-											? runtimeMessage(language.language, "formPreparing")
-											: repeatTopologySettling
-												? runtimeMessage(language.language, "repeatUpdating")
-												: runtimeMessage(language.language, "answersLocked")}
+					{submitOfferLine(submitOffer, language.language) !== undefined ? (
+						<p
+							role="status"
+							data-submit-offer-reason={
+								submitOffer.kind === "offered" ? undefined : submitOffer.reason
+							}
+							className="px-6 pb-3 text-xs text-nova-text-muted"
+						>
+							{submitOfferLine(submitOffer, language.language)}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

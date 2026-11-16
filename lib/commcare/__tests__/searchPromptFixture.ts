@@ -376,7 +376,11 @@ export function searchPromptFixture(scenario: PromptScenario) {
  * - `unoffered-choice`: a check reads it, on a choice field whose starting
  *   value the list does not offer, which Core lets go before it checks
  *   (`RemoteQuerySessionManager.refreshItemSetChoices`), so nothing reads it;
- * - `anyone`: nothing reads it.
+ * - `anyone`: nothing reads it;
+ * - `unoffered-choice-alone`: nothing reads it, and the screen's one field
+ *   starts on a choice its list does not offer, which fails the screen for
+ *   every worker: Core gives its choice pass one round per field, and a
+ *   choice it lets go asks for a second ("Invalid itemset state").
  *
  * The app runs on both platforms, so `SearchPromptRuntimeTest` builds each
  * menu's query manager as Formplayer and as Android do.
@@ -390,6 +394,7 @@ export const WORKER_PLACE_SEARCH_MENUS = [
 	"choices",
 	"unoffered-choice",
 	"anyone",
+	"unoffered-choice-alone",
 ] as const;
 export function searchPromptWorkerPlaceFixture(): BlueprintDoc {
 	const place = () => sessionUser("commcare_location_id");
@@ -474,6 +479,24 @@ export function searchPromptWorkerPlaceFixture(): BlueprintDoc {
 			),
 		],
 		anyone: [name("anyone")],
+		"unoffered-choice-alone": [
+			simpleSearchInputDef(
+				testUuid("worker-place-unoffered-choice-alone-region"),
+				"region",
+				"Region",
+				"select",
+				"region",
+				{
+					default: term(literal("west")),
+					options: {
+						kind: "lookup",
+						tableId,
+						valueColumnId: valueId,
+						labelColumnId: labelId,
+					},
+				},
+			),
+		],
 	};
 	const doc = buildDoc({
 		appName: "Worker place search",

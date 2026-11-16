@@ -15,22 +15,19 @@
 // first the entry is listed only where its own datums go past what was
 // collected, and choosing it then opens the list of the first one it still
 // needs. The datums are the ones the suite prints
-// (`formLinkProjection.ts::entrySessionDatums`, `::caseListSessionDatums`).
+// (`formLinkProjection.ts::entrySessionDatums`, `::caseListSessionDatums`),
+// replayed by `menuDatumReplay.ts`.
 
 import {
 	caseListSessionDatums,
-	entrySessionDatums,
-	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 } from "@/lib/commcare/formLinkProjection";
+import { type BlueprintDoc, menuScreenOf, type Uuid } from "@/lib/domain";
 import {
-	type BlueprintDoc,
-	type MenuScreen,
-	menuScreenEntries,
-	menuScreenOf,
-	menuTileScreenOf,
-	type Uuid,
-} from "@/lib/domain";
+	collectSharedDatums,
+	screenEntryDatums,
+	screensOnTheWay,
+} from "./menuDatumReplay";
 
 const listedByDoc = new WeakMap<BlueprintDoc, Map<Uuid, boolean>>();
 
@@ -69,53 +66,4 @@ export function caseListEntryStillNeedsDatum(
 	);
 	byModule.set(moduleUuid, needs);
 	return needs;
-}
-
-/** The modules whose screens a worker opens to reach `screen`, top first,
- *  `screen`'s own last. The first menu collects nothing: Core asks for a
- *  command there before any entry is chosen. */
-function screensOnTheWay(doc: BlueprintDoc, screen: MenuScreen): Uuid[] {
-	const path: Uuid[] = [];
-	let current: MenuScreen | undefined = screen;
-	while (current?.kind === "menu" && !path.includes(current.moduleUuid)) {
-		path.unshift(current.moduleUuid);
-		current = menuTileScreenOf(doc, current.moduleUuid);
-	}
-	return path;
-}
-
-/** The datum list of every entry the screen's command holds, relevant or
- *  not, as `CommCareSession.getEntriesForCommand` gathers them: each form
- *  and case list entry the screen lists (`menuScreens.ts::menuScreenEntries`). */
-function screenEntryDatums(
-	doc: BlueprintDoc,
-	ctx: FormLinkProjectionContext,
-	screen: MenuScreen,
-): (readonly { readonly id: string }[])[] {
-	return menuScreenEntries(doc, screen).flatMap((entry) => {
-		if (entry.kind === "form")
-			return [entrySessionDatums(doc, ctx, entry.moduleUuid, entry.formUuid)];
-		if (entry.kind === "case-list")
-			return [caseListSessionDatums(doc, ctx, entry.moduleUuid)];
-		return [];
-	});
-}
-
-/** Core's `getDataNeededByAllEntries`, asked until it has no answer: while
- *  every entry's first missing datum is one datum, the session collects it. */
-function collectSharedDatums(
-	lists: readonly (readonly { readonly id: string }[])[],
-	collected: Set<string>,
-): void {
-	for (;;) {
-		let shared: string | undefined;
-		for (const list of lists) {
-			const missing = list.find((datum) => !collected.has(datum.id));
-			if (missing === undefined) return;
-			if (shared === undefined) shared = missing.id;
-			else if (missing.id !== shared) return;
-		}
-		if (shared === undefined) return;
-		collected.add(shared);
-	}
 }

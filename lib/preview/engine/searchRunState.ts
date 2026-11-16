@@ -6,6 +6,7 @@ import {
 	searchInputDefault,
 	searchInputLookupSortColumnId,
 } from "@/lib/domain";
+import { PreviewDataRefusal } from "@/lib/preview/engine/dataRefusal";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import {
 	expressionLookupsCovered,
@@ -109,7 +110,7 @@ export function buildSearchRunState(
 	 *  read them (`openSearchRunState`); otherwise each is read here. */
 	startingValues?: SearchInputValues,
 ): SearchRunState {
-	const allowedKeys = new Set<string>();
+	const allowedKeys = searchInputAnswerKeys(searchInputs);
 	const keyShapes = new Map<string, string>();
 	for (const input of searchInputs) {
 		// A hidden input has no draft key: the worker never answers it. Its
@@ -118,14 +119,9 @@ export function buildSearchRunState(
 		if (input.kind === "hidden") continue;
 		const shape = `${input.uuid}:${input.type}`;
 		if (input.type === "date-range") {
-			const fromKey = `${input.name}:from`;
-			const toKey = `${input.name}:to`;
-			allowedKeys.add(fromKey);
-			allowedKeys.add(toKey);
-			keyShapes.set(fromKey, shape);
-			keyShapes.set(toKey, shape);
+			keyShapes.set(`${input.name}:from`, shape);
+			keyShapes.set(`${input.name}:to`, shape);
 		} else {
-			allowedKeys.add(input.name);
 			keyShapes.set(input.name, shape);
 		}
 	}
@@ -160,6 +156,37 @@ export function buildSearchRunState(
 		hasSubmitted: false,
 		touched: new Set(),
 	};
+}
+
+/** The answers a worker gives on a Search screen, by key: each field's
+ *  name, a date range's two ends apart. A hidden field has none: the worker
+ *  never answers it, and its value is resolved at submit. */
+export function searchInputAnswerKeys(
+	searchInputs: readonly SearchInputDef[],
+): Set<string> {
+	const keys = new Set<string>();
+	for (const input of searchInputs) {
+		if (input.kind === "hidden") continue;
+		if (input.type === "date-range") {
+			keys.add(`${input.name}:from`);
+			keys.add(`${input.name}:to`);
+		} else keys.add(input.name);
+	}
+	return keys;
+}
+
+/** Every key a query's prompts answer by: the answers the worker gives
+ *  (`searchInputAnswerKeys`) and each hidden field's name, since Nova emits a
+ *  hidden field as a prompt of its own (`<prompt hidden="true">`), which Core
+ *  answers as it answers any prompt (`QueryScreen.answerPrompts` walks every
+ *  prompt). */
+export function searchPromptKeys(
+	searchInputs: readonly SearchInputDef[],
+): Set<string> {
+	const keys = searchInputAnswerKeys(searchInputs);
+	for (const input of searchInputs)
+		if (input.kind === "hidden") keys.add(input.name);
+	return keys;
 }
 
 /**
@@ -198,6 +225,13 @@ export function openSearchRunState(
 		const offered = resolveSearchInputChoices(input, session, environment);
 		if (offered !== undefined) choices.set(input.name, offered);
 	}
+	const failed = searchStartingChoicesFail(searchInputs, read, choices);
+	if (failed !== undefined)
+		throw new PreviewDataRefusal({
+			kind: "unoffered-starting-choice",
+			inputUuid: failed.uuid,
+			input: failed.label || failed.name,
+		});
 	const opened = buildSearchRunState(
 		scopeKey,
 		searchInputs,
@@ -225,7 +259,7 @@ export function openSearchRunState(
  * the pass until no value changes; a choice list here reads no answer, so
  * one pass settles it. Core gives that repeat as many passes as the screen
  * has prompts, so on a screen of one prompt a value it lets go fails the
- * screen instead ("Invalid itemset state"), which Preview does not show.
+ * screen instead (`searchStartingChoicesFail`).
  */
 export function searchStartingValuesOffered(
 	startingValues: SearchInputValues,
@@ -249,6 +283,39 @@ export function searchStartingValuesOffered(
 		else offered.set(name, kept);
 	}
 	return offered ?? startingValues;
+}
+
+/**
+ * The field whose starting choice fails the Search screen, if one does.
+ * Core's `RemoteQuerySessionManager.refreshItemSetChoices` repeats its choice
+ * pass while a pass lets a value go, and gives it one pass for each prompt
+ * the query holds (every Search field, a hidden one included: each is a
+ * `<prompt>`, `suite/case-search/searchPrompts.ts::buildSearchPrompts`),
+ * throwing "Invalid itemset state" when it is still letting values go after
+ * that many. A choice list here reads no answer, so the pass after the one
+ * that lets the starting choices go lets nothing go: two passes settle any
+ * screen, and only a screen of one prompt fails, as soon as its one field
+ * starts on a choice its list does not offer. Formplayer then answers the
+ * screen with that error, and Android's `QueryRequestActivity`, which
+ * catches only an `XPathException` as it builds the manager, stops the app.
+ */
+export function searchStartingChoicesFail(
+	searchInputs: readonly SearchInputDef[],
+	startingValues: SearchInputValues,
+	choices: ReadonlyMap<string, readonly LookupChoice[]>,
+): SearchInputDef | undefined {
+	/* The pass that lets a value go is dirty, and the next one is clean. */
+	const passesGiven = searchInputs.length;
+	if (passesGiven >= 2) return undefined;
+	return searchInputs.find((input) => {
+		const rows = choices.get(input.name);
+		const value = startingValues.get(input.name);
+		if (rows === undefined || value === undefined) return false;
+		/* `checkForValidSelectValue`: a blank choice is always valid. */
+		return javaSplit(value, MULTI_SELECT_SEARCH_ANSWER_DELIMITER).some(
+			(token) => token !== "" && !rows.some((row) => row.value === token),
+		);
+	});
 }
 
 /** Java's `String.split` over a literal separator: trailing empty parts are

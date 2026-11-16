@@ -470,8 +470,17 @@ export function deriveCaseSelectionDatum(args: {
 			maxSelectValue: args.maxSelectValue,
 		}),
 	};
+	/* Whether the datum names a details screen is entry metadata too: it is
+	 * whether a runtime confirms a case chosen for it
+	 * (`lib/preview/engine/parentCaseSelection.ts`). */
 	if (args.entryMetadataOnly)
-		return { ...selection, projectionOnlySelection: true };
+		return {
+			...selection,
+			...(args.detailConfirm === true && {
+				detailConfirm: `m${args.moduleIndex}_case_long`,
+			}),
+			projectionOnlySelection: true,
+		};
 	const inline = args.caseSource === "results:inline";
 	const build = (datumId: typeof args.datumId): WireExpr =>
 		inline

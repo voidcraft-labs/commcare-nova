@@ -232,7 +232,10 @@ public class SearchPromptRuntimeTest {
      * choice lists the form draws), on both paths and with both platforms' prompt types, naming the place it read,
      * and is built for a placed worker; a check no starting value answers is not read, nor the check of a choice field
      * whose starting value the list does not offer, which {@code refreshItemSetChoices} lets go before
-     * {@code validateUserAnswers} runs ({@code checkForValidSelectValue}). Each reading parses the suite
+     * {@code validateUserAnswers} runs ({@code checkForValidSelectValue}) on a screen of two fields. On a screen of
+     * one field that choice fails the manager instead, whoever the worker is: {@code refreshItemSetChoices} gives its
+     * pass one round per prompt, and the round that lets a choice go is dirty ("Invalid itemset state"), exactly where
+     * Preview refuses the screen ({@code searchRunState.ts::searchStartingChoicesFail}). Each reading parses the suite
      * again, since Core checks a parsed path only until the check first passes
      * ({@code XPathPathExpr.templatePathChecked}).
      */
@@ -250,13 +253,26 @@ public class SearchPromptRuntimeTest {
             String command = opening.getString("command");
             for (boolean hq : new boolean[]{false, true}) for (List<String> prompts : Arrays.asList(FORMPLAYER_PROMPTS, ANDROID_PROMPTS)) {
                 String label = opening.getString("menu") + " user=" + user + " hq=" + hq + " prompts=" + prompts;
-                XPathException failure = null;
+                RuntimeException failure = null;
                 RemoteQuerySessionManager manager = null;
                 try { manager = manager("prompt-worker-place", hq, new Data(user), command, prompts); }
                 catch (XPathException e) { failure = e; }
+                catch (RuntimeException e) {
+                    // Only the choice pass's own failure; any other is a fault of the witness.
+                    if (!"Invalid itemset state encountered while trying to refresh itemset choices".equals(e.getMessage())) throw e;
+                    failure = e;
+                }
                 assertEquals(label, opening.getBoolean("refused"), failure != null);
                 if (failure != null) {
-                    assertTrue(label + ": " + failure.getMessage(), failure.getMessage().contains("commcare_location_id"));
+                    if (opening.getString("refusal").equals("unoffered-starting-choice")) {
+                        // A one-field screen whose starting choice its list does not offer: the choice pass
+                        // is given one round, and the round that lets the choice go is dirty.
+                        assertFalse(label + ": " + failure.getMessage(), failure instanceof XPathException);
+                        assertEquals(label, 1, opening.getJSONArray("fields").length());
+                    } else {
+                        assertTrue(label + ": " + failure, failure instanceof XPathException);
+                        assertTrue(label + ": " + failure.getMessage(), failure.getMessage().contains("commcare_location_id"));
+                    }
                     refused++;
                 } else {
                     JSONObject answers = opening.getJSONObject("answers");
@@ -266,10 +282,12 @@ public class SearchPromptRuntimeTest {
                 }
             }
         }
-        // Five of the eight menus refuse the worker assigned nowhere, four readings each (two paths, two platforms'
-        // prompt types); the other three build for that worker, the one whose check reads the place among them, since
-        // its field's starting choice is let go before any check is read, and all eight build for the placed one.
-        assertEquals(20, refused);
+        // Five of the first eight menus refuse the worker assigned nowhere, four readings each (two paths, two
+        // platforms' prompt types); the other three build for that worker, the one whose check reads the place among
+        // them, since its field's starting choice is let go before any check is read on a screen of two fields, and all
+        // eight build for the placed one. The ninth, one field starting on a choice its list does not offer, fails for
+        // both workers on every reading.
+        assertEquals(28, refused);
         assertEquals(44, built);
     }
 }

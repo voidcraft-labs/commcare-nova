@@ -29,6 +29,11 @@ parent record type. People select that parent, then see its linked records.
 **No parent selection** opens a flat list that can include records with or
 without a parent. Other Results filters still apply.
 
+If the module also has a registration or survey form, its forms show first,
+and people choose the parent once they pick a form that opens an existing
+record. Picking the parent moves straight on, without the parent list's
+details, in Web Apps and on Android alike.
+
 This choice is separate from placing a module in a submenu. It changes how
 people find existing records; it does not link new registrations to a parent.
 A form on the selected parent can create a child by saving answers to the
@@ -334,7 +339,10 @@ multiple-choice field finds cases whose value is any of the chosen answers.
 A phone reads every choice field's table as the Search screen opens, before a
 menu that opens on its results runs its search. If the table has no rows, the
 search doesn't open, and Preview shows why in its place. A starting value the
-table doesn't offer is left blank, as a phone leaves it.
+table doesn't offer is left blank, as a phone leaves it, on a search with more
+than one field. On a search whose only field is that choice field, a phone
+can't set the choice aside, so the search doesn't open either, and Preview
+names the field so you can give it a starting value its table offers.
 
 A search field's rule can also compare a case value with a list of values. A
 case matches when its value is any one of them, and a value in the list can be
@@ -391,7 +399,12 @@ Each choice says what workers see:
 - **Results first**: workers see the cases the search finds with its starting
   values, and can search again to narrow them. Coming back to the list from a
   form without submitting it, or with the browser's Back, keeps the search the
-  worker ran, with their answers. Leaving it behind starts the search over, as
+  worker ran. In Web Apps the browser's Back to the list runs it with the
+  answers the worker last gave that search, as Web Apps keeps only the latest
+  answers, so after a second search an earlier page shows the second search's
+  answers, and after the search fields were shown empty it runs with none,
+  hidden fields included;
+  on Android a search kept on the way back keeps its own. Leaving it behind starts the search over, as
   Web Apps does: after a breadcrumb to the menu or above it, a submitted form,
   or Home, the list opens on the menu's starting search again. The same goes
   for **Search again**: the search fields stay until the worker searches or

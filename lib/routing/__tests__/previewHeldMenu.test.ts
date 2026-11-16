@@ -8,6 +8,7 @@ import {
 	previewHeldMenuIsPrevious,
 	previewHeldMenuStands,
 	readPreviewHeldMenu,
+	stepsBackToPrevious,
 	stepsOfPreviewHeldMenu,
 } from "../previewHeldMenu";
 
@@ -325,5 +326,58 @@ describe("a case list's held form menu on its history entry", () => {
 			expect(readPreviewHeldMenu(state)).toBeUndefined();
 			expect(previewHeldMenuIsPrevious(state, held)).toBe(false);
 		}
+	});
+});
+
+describe("a screen's own Back to the screen it was opened from", () => {
+	const home = "/build/app";
+	const followUps = `/build/app/${testUuid("follow-ups")}`;
+	const followUpsList = `${followUps}/results`;
+	const patientsList = `/build/app/${testUuid("patients")}/results`;
+
+	it("steps back onto the menu a form's parent case was asked from, so the next Back reaches Home", () => {
+		/* Home, the menu that lists its forms first, the form's command
+		 * (its list's URL), which the parent's list replaces as it asks for
+		 * the patient: the list's Back is the menu's entry behind it. */
+		const h = history({ pathname: home });
+		h.push(followUps);
+		h.push(followUpsList);
+		h.replace(patientsList);
+		const steps = stepsBackToPrevious(h.current.state, followUps);
+		expect(steps).toBe(1);
+		h.back(steps);
+		expect(h.current.pathname).toBe(followUps);
+		// The menu's own entry is the step back from Home: none is written
+		// after the list, so the browser's next Back lands on Home.
+		expect(stepsBackToPrevious(h.current.state, home)).toBe(1);
+		h.back();
+		expect(h.current.pathname).toBe(home);
+	});
+
+	it("steps back past the list's copies under another language", () => {
+		const h = history({ pathname: home });
+		h.push(patientsList);
+		h.lens();
+		h.lens();
+		const steps = stepsBackToPrevious(h.current.state, home);
+		expect(steps).toBe(3);
+		h.back(steps);
+		expect(h.current.pathname).toBe(home);
+	});
+
+	it("names no step where the entry behind is another screen, a held menu, or unrecorded", () => {
+		const h = history({ pathname: home });
+		h.push(followUps);
+		h.push(patientsList);
+		// The screen asked from is not the one behind the list.
+		expect(stepsBackToPrevious(h.current.state, home)).toBeUndefined();
+		// A held form menu at the same URL is another screen than the list.
+		const g = history({ pathname: list });
+		g.push(list, held);
+		g.push(patientsList);
+		expect(stepsBackToPrevious(g.current.state, list)).toBeUndefined();
+		// A deep link's first entry records nothing before it.
+		expect(stepsBackToPrevious({}, home)).toBeUndefined();
+		expect(stepsBackToPrevious(undefined, home)).toBeUndefined();
 	});
 });

@@ -162,6 +162,23 @@ export interface PreviewPlatformRules {
 	 *  Formplayer runs; commcare-android holds no reader of `auto_launch`, so it
 	 *  opens the worker's list first, with the Search action. */
 	readonly searchActionAutoLaunch: boolean;
+	/** The answers a search history gives back runs with
+	 *  (`searchStanding.ts::PreviewSearchReplay`). Web Apps answers the query
+	 *  an address records with the answers the worker last gave that query
+	 *  (`formplayer/utils/utils.js::CloudcareUrl.fromJson` over
+	 *  `Utils.getCurrentQueryInputs`); Android's session keeps the query a
+	 *  step ran (`CommCareSession.setQueryDatum`). */
+	readonly searchReplay: "latest-answers" | "own-answers";
+	/** What a history entry Back or Forward returns to past Home shows its
+	 *  screen with (`lib/routing/previewSelectionsHistory.ts`). Web Apps'
+	 *  address holds the session's selections
+	 *  (`formplayer/utils/utils.js::CloudcareUrl`), and a popped address is
+	 *  routed again (`formplayer/router.js::listMenus`) to Formplayer, which
+	 *  replays them (`MenuSessionRunnerService.advanceSessionWithSelections`):
+	 *  `address`. Android has no address; its Back is the device's step back
+	 *  (`CommCareSession.stepBack`), so an entry shows the session as it
+	 *  stands: `session`. */
+	readonly poppedEntrySelections: "address" | "session";
 	/** `here()`'s value. Formplayer `util/FormplayerHereFunctionHandler.java::eval`
 	 *  gives two numbers; Android `utils/AndroidHereFunctionHandler.java::toGeoPointData`
 	 *  four, Core `GeoPointData.java::fillArray` flooring altitude and accuracy
@@ -284,6 +301,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
 		searchActionAutoLaunch: true,
+		searchReplay: "latest-answers",
+		poppedEntrySelections: "address",
 		hereValue: "lat-lon",
 		formScreens: "one-screen",
 		recalculation: "every-request",
@@ -334,6 +353,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
 		searchActionAutoLaunch: false,
+		searchReplay: "own-answers",
+		poppedEntrySelections: "session",
 		hereValue: "lat-lon-alt-acc",
 		formScreens: "field-list-or-question",
 		recalculation: "on-change",

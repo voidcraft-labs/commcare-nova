@@ -33,8 +33,12 @@
  * with the Preview session that ran it (`__novaPreviewSearchContexts`), and
  * an entry's search stands where the session no longer holds it
  * (`previewSearchesOnEntry`), as Web Apps answers a query its address still
- * holds from the inputs the page keeps for it (`CloudcareUrl.fromJson`,
- * `Utils.getCurrentQueryInputs`, which no submission, crumb or Home clears).
+ * holds. The recorded context says what search stands and how it ran; the
+ * answers it runs with again are the platform's
+ * (`lib/preview/searchStanding.ts::previewSearchArrival`): on Web Apps the
+ * ones the page keeps for the query (`CloudcareUrl.fromJson`,
+ * `Utils.getCurrentQueryInputs`, which no submission, crumb or Home clears),
+ * not the context's own.
  */
 
 import type { PreviewSearchState } from "@/lib/session/types";

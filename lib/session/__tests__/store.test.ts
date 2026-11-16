@@ -39,6 +39,7 @@ import {
 	EMPTY_AFTER_SUBMIT_STACK,
 } from "@/lib/preview/afterSubmitStack";
 import { toastStore } from "@/lib/ui/toastStore";
+import { searchInputsGivenIn } from "../previewSearchState";
 import { type ConnectSwitchRequest, createBuilderSessionStore } from "../store";
 
 /** The fixture docs carry no lookup reference, so an unavailable context is
@@ -178,6 +179,34 @@ describe("BuilderSession store", () => {
 			store.getState().setPreviewAtDeviceHome(false);
 			expect(store.getState().previewAfterSubmitStack).toBe(stack);
 		});
+	});
+
+	/* Web Apps keeps the answers the worker last gave each query in the page
+	 * (`utils.js::Utils.queryInputs`): no submission, crumb or Home clears
+	 * them. Preview keeps them for the running session, which is where a
+	 * history entry's search stands at all. */
+	it("keeps the answers given a query through Home, and reads none in a new session", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setPreviewing(true);
+		const given = () =>
+			searchInputsGivenIn(
+				store.getState().previewSearchInputs,
+				store.getState().previewSessionId,
+			);
+		store.getState().setPreviewSearchInputs("patients", { name: "Kofi" });
+		const held = store.getState().previewSearchInputs;
+		// The same answers change nothing.
+		store.getState().setPreviewSearchInputs("patients", { name: "Kofi" });
+		expect(store.getState().previewSearchInputs).toBe(held);
+		store.getState().clearPreviewNavigation();
+		expect(given()).toEqual({ patients: { name: "Kofi" } });
+		store.getState().setPreviewSearchInputs("patients", {});
+		expect(given()).toEqual({ patients: {} });
+		// Android's home screen starts the session over.
+		store.getState().setPreviewAtDeviceHome(true);
+		expect(given()).toEqual({});
+		store.getState().setPreviewSearchInputs("visits", { name: "Ama" });
+		expect(given()).toEqual({ visits: { name: "Ama" } });
 	});
 
 	it("1. initial state: not previewing, both sidebars open, no stash", () => {

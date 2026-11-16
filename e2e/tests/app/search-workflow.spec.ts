@@ -121,7 +121,10 @@ test("an app on Web Apps alone offers Forms read the search and withholds Case l
  * Formplayer answers the query prompts from it before it runs the query
  * again (`MenuSessionRunnerService.java::handleQueryScreen`), so the
  * worker sees their own search, never the menu's default search over every
- * case. Opening the other list in between makes Preview build the Patients
+ * case. The address keeps only that the query ran: its answers are the ones
+ * the worker last gave the query (`Utils.getCurrentQueryInputs`), so after a
+ * second search the first one's entry shows the second's answers. Opening
+ * the other list in between makes Preview build the Patients
  * screen afresh, where taking the standing search back and launching the
  * default search are two effects of one mount
  * (`caseListPhase.ts::caseListLaunchesDefaultSearch`).
@@ -178,6 +181,34 @@ test("a list that opens on Results keeps the worker's search when history return
 		await expect(menuItem(browsing.name)).toBeVisible({ timeout: 20_000 });
 		await page.goBack();
 		await expectRows([searched.caseName]);
+		await expect(
+			main.getByRole("button", { name: "Search again" }),
+		).toBeVisible();
+	});
+
+	await test.step("after a second search, history runs the earlier search with the answers the worker last gave", async () => {
+		// Web Apps keeps the answers the worker last gave each query in the
+		// page (`utils.js::Utils.setCurrentQueryInputs`), and an address
+		// records only that its query ran: Back answers it with those
+		// (`CloudcareUrl.fromJson` over `Utils.getCurrentQueryInputs`).
+		await pressTrailCrumb(page, clinic.name);
+		await menuItem(searching.name).click({ timeout: 20_000 });
+		await expectRows([searched.caseName, other.caseName]);
+		await main.getByRole("button", { name: "Search again" }).click();
+		await expect(searchScreen).toBeVisible({ timeout: 20_000 });
+		await searchScreen
+			.getByRole("textbox", { name: prompt.label })
+			.fill(other.answer);
+		await searchScreen
+			.getByRole("button", { name: "Search All Cases", exact: true })
+			.click();
+		await expectRows([other.caseName]);
+		await page.goBack();
+		await expect(menuItem(searching.name)).toBeVisible({ timeout: 20_000 });
+		// The entry of the first search: its query runs again, with the
+		// second search's answers.
+		await page.goBack();
+		await expectRows([other.caseName]);
 		await expect(
 			main.getByRole("button", { name: "Search again" }),
 		).toBeVisible();

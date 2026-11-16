@@ -45,16 +45,37 @@ records the session that took it and stands only in that session, so Back
 onto it after a change of worker shows the list rather than the previous
 worker's case.
 
+`previewTaskId` names the running task of that session: every arrival at
+Home (`clearPreviewNavigation`) mints a new one, whatever the task held.
+Each history entry records the case selections it was shown with (the menu
+selections, the selections part of the case target, the selected case) and
+the session and task it was shown in (`lib/routing/previewSelectionsHistory.ts`).
+Back or Forward onto an entry of the same session and another task (past
+Home) puts that entry's selections back on Web Apps, before the screens
+render it (`restorePreviewSelections`, from a popstate listener in
+`lib/preview/hooks/usePreviewSelectionsArrival.ts`), and the session takes
+up that entry's task again; the rest of the ended task (a Register launch,
+a task continuation, the after-submit stack, a parent case request) stays
+cleared, as Home cleared it. That is Web Apps' popped address: its
+`selections` are replayed by `navigate_menu`. Within one task the store is
+what every entry shows and the record only follows it. On Android
+(`rules.poppedEntrySelections: "session"`) nothing is returned.
+
 `previewParentCaseRequest` is a separate selector plus ordered return chain, so
 multi-level case ancestry can visit each required selector before the original
 module. A direct running leaf also records its exact `resumeLocation` (including
 the Form UUID, selected field, or Results case UUID) and a safe
-`cancelLocation`; every intermediate selector preserves both. Its selecting
+`cancelLocation` (the module's own menu where it listed its forms before the
+parent was asked for, as a device's Back steps over the form's command);
+every intermediate selector preserves both. Its selecting
 module is derived from case-type `parent_type`, not from structural
 `parentModuleUuid`; this keeps menu ancestry and case ancestry independent when
 a nested child belongs under one menu but its case parent is selected through
 another module. Explicit cancel, browser Back, and navigation away clear the
-request so an abandoned selector cannot redirect a later visit. All navigation
+request so an abandoned selector cannot redirect a later visit. The list's
+own Back reaches `cancelLocation` by a step back where that screen is the
+entry behind the list (`navigate.stepBackTo`), so history never holds it
+twice and the browser's next Back goes on past it. All navigation
 facts clear on Preview mode or persona changes and on a confirmed Project
 boundary.
 They are session-only and never enter the document, undo history, or persisted
@@ -85,6 +106,18 @@ alone), Home and Android's home screen let it go
 the module's current search only: where history returns to an entry whose
 search the store has since replaced, the arrival puts the entry's context
 back (`lib/preview/hooks/usePreviewSearchArrival.ts`).
+`previewSearchInputs` is the answers the worker last gave each module's
+query, kept with the `previewSessionId` that gave them
+(`previewSearchState.ts::PreviewSearchInputsGiven`): a Search press and a
+field changed on the Search screen, each with every hidden field's value
+beside the worker's answers, and the Search screen shown with no search
+standing, which gives none, hidden values included. Home and a submission
+keep them, as Web Apps' page keeps `Utils.queryInputs`, and a new session
+reads none without a write. On Web Apps an arrival on a list runs that
+list's standing search with them, every prompt answered by them alone
+(`previewSearchState.ts::searchWithLatestInputs`); the menu's default search
+is marked `automatic` on its state, since it gave no answers and runs as the
+default search again.
 
 `previewCaseListRegistrationEntry` is the launch a case list's Register action
 made of a form the list always offers: the host, and the form and menu it

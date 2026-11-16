@@ -90,6 +90,20 @@ entry is behind it, and otherwise shows the list in the menu's own entry
 and the entry it was pushed after, with its case link
 (`reconcileBuilderHistoryEntry`), since the held cases are Project data.
 
+A screen's own Back to the screen it was opened from goes through
+`navigate.stepBackTo` (`useClientPath.ts::stepBackToBuilderEntry`): where the
+entry the current one was pushed after is that screen, holding no form menu
+(`previewHeldMenu.ts::stepsBackToPrevious`, past a language change's copies
+too), it steps back onto it rather than writing a copy after itself, which
+would leave the screen twice in history and make the browser's next Back land
+on it again. Otherwise the destination replaces the current entry. Its `leave`
+callback lets go of what the screen held as the move happens: before the
+replace, or on the step's popstate ahead of the path subscribers. Where the
+step lands on an entry that is no longer that screen, the destination opens
+after it; where it lands under an earlier language, the entry takes the
+current one. A parent case's list cancelling its request is the user
+(`CaseListScreen::cancelParentCaseSelection`).
+
 `readBuilderHistoryMove` counts every move to another entry or screen (a
 builder write, Back and Forward, a Project generation's reconcile; a language
 change and a record of standing searches are none). Work that navigates after
@@ -119,9 +133,30 @@ each search standing on it and the Preview session that ran it
 (`__novaPreviewSearchContexts`, written with the search by
 `beginPreviewStandingSearch` and pruned with the record), so a search the
 session has since replaced stands again when history returns to the entry
-(`previewSearchesOnEntry`); `usePreviewSearchContexts` reads it.
+(`previewSearchesOnEntry`); `usePreviewSearchContexts` reads it. The record
+says only that the search stands: what answers it runs with when it stands
+again is the platform's (`lib/preview/searchStanding.ts::previewSearchArrival`),
+on Web Apps the answers the worker last gave the module's query in the
+session, taken where the arrival shows that module's list, as Web Apps'
+address carries no answers.
 Submissions are unique across every search, so an entry an earlier session or
 Project wrote names none the session holds.
+
+An entry's state also records the case selections it was shown with
+(`previewSelectionsHistory.ts`, `__novaPreviewSelections`: the menu
+selections, the selections part of the case target, the selected case, and
+the Preview session and task they were held in), as Web Apps' address holds
+the session's `selections`. `usePreviewSelectionsArrival` writes it on every
+screen but Home and on every change of the selections
+(`recordPreviewSelections`, a record in place like the standing searches,
+never a move); `builderEntryState` drops it from a written entry
+(`withoutPreviewHistorySteps`), so no entry inherits another's, and a stale
+Project generation loses it with the held menu. Back or Forward past Home
+(an entry of this session's earlier or later task) returns the entry's
+selections on Web Apps before any screen renders it: `onPopState` runs the
+listeners `subscribeBuilderHistoryPop` registers after the reconcile and
+before the path subscribers, since a screen reads the selections as it
+mounts (`previewSelectionsHistory.ts::previewSelectionsArrival`).
 
 The `lang` query parameter is the independent worker-content lens. Path
 serialization changes only the location path and preserves the current query;

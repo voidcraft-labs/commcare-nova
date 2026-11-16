@@ -28,6 +28,7 @@ import {
 	previewHeldMenuOf,
 	previewHeldMenuStands,
 	readPreviewHeldMenu,
+	stepsBackToPrevious,
 } from "./previewHeldMenu";
 import {
 	previewSearchesCarriedOn,
@@ -40,6 +41,12 @@ import {
 	withPreviewSearchesEnded,
 	withPreviewStandingSearches,
 } from "./previewSearchHistory";
+import {
+	type RecordedPreviewSelections,
+	readPreviewSelections,
+	samePreviewSelections,
+	withPreviewSelections,
+} from "./previewSelectionsHistory";
 
 /** Module-level listener set for notifying subscribers of programmatic
  *  `pushState`/`replaceState` calls (which don't fire `popstate`). */
@@ -77,10 +84,26 @@ function reconcileHistory(event: "activate" | "pop"): boolean {
 	return replacement.url !== `${pathname}${search}`;
 }
 
+/** Work that must see a popped entry before any screen renders it. */
+const popListeners = new Set<() => void>();
+
 function onPopState(): void {
 	builderHistoryMoves += 1;
 	reconcileHistory("pop");
+	for (const listener of popListeners) listener();
 	notifyPathChange();
+}
+
+/** Run `listener` on every Back and Forward, once the entry is reconciled
+ * to the active Project and before the path subscribers render it: a
+ * session fact the entry carries (`previewSelectionsHistory.ts`) is then in
+ * place for the screen's first render on that entry, as Web Apps sends a
+ * popped address's selections with the request that draws its screen. */
+export function subscribeBuilderHistoryPop(listener: () => void): () => void {
+	popListeners.add(listener);
+	return () => {
+		popListeners.delete(listener);
+	};
 }
 
 function subscribe(callback: () => void): () => void {
@@ -269,6 +292,46 @@ export function reopenPreviewHeldMenu(
 	pushBuilderHistory(url, false, held);
 }
 
+/** A screen's own Back to the screen it was opened from, at `url`: where
+ * the entry this screen was pushed after is that screen
+ * (`previewHeldMenu.ts::stepsBackToPrevious`), a step back onto it, so
+ * history holds the screen once and the browser's next Back goes on past it,
+ * as a device's next step back does; otherwise `url` in place of this entry.
+ * `leave` lets go of what the screen held as the move happens: before the
+ * replace, or on the step's popstate before any screen renders the entry it
+ * lands on. Where that entry is no longer the screen at `url` (it was
+ * replaced since), `url` opens after it; where it shows the screen under an
+ * earlier language, it takes the language the worker reads now, as a
+ * device's Back keeps it. */
+export function stepBackToBuilderEntry(url: string, leave: () => void): void {
+	const relative = builderNavigationUrl(url, window.location.href);
+	const target = new URL(relative, window.location.href);
+	const steps = stepsBackToPrevious(window.history.state, target.pathname);
+	if (steps === undefined) {
+		leave();
+		pushBuilderHistory(relative, true);
+		return;
+	}
+	/* The entry stepped back to exists, so the step fires one popstate,
+	 * whose listeners run this once. */
+	const land = () => {
+		popListeners.delete(land);
+		leave();
+		if (window.location.pathname !== target.pathname) {
+			pushBuilderHistory(relative);
+			return;
+		}
+		if (window.location.search !== target.search)
+			window.history.replaceState(
+				window.history.state,
+				"",
+				`${target.pathname}${target.search}${window.location.hash}`,
+			);
+	};
+	popListeners.add(land);
+	window.history.go(-steps);
+}
+
 function heldMenuSnapshot(): string {
 	const held = readPreviewHeldMenu(window.history.state);
 	return held === undefined ? "" : JSON.stringify(held);
@@ -392,6 +455,42 @@ export function usePreviewStandingSearches(): ReadonlySet<string> {
 		() => new Set(snapshot === "" ? [] : snapshot.split(" ")),
 		[snapshot],
 	);
+}
+
+/** Record the case selections the current history entry is shown with
+ * (`previewSelectionsHistory.ts`). Like a record of standing searches it
+ * rewrites only that record, so it is no screen write and no move. */
+export function recordPreviewSelections(
+	recorded: RecordedPreviewSelections,
+): void {
+	if (
+		samePreviewSelections(readPreviewSelections(window.history.state), recorded)
+	)
+		return;
+	window.history.replaceState(
+		withPreviewSelections(window.history.state, recorded),
+		"",
+		window.location.href,
+	);
+	notifyPathChange();
+}
+
+/** The case selections the current history entry records, imperatively. */
+export function readCurrentPreviewSelections():
+	| RecordedPreviewSelections
+	| undefined {
+	return readPreviewSelections(window.history.state);
+}
+
+function selectionsSnapshot(): string {
+	return JSON.stringify(readPreviewSelections(window.history.state) ?? null);
+}
+
+/** The current history entry's record of its case selections, as a string
+ *  that changes with the entry (a write, Back and Forward) and with the
+ *  record, for an effect that runs on each arrival. */
+export function usePreviewSelectionsSnapshot(): string {
+	return useSyncExternalStore(subscribe, selectionsSnapshot, () => "null");
 }
 
 /** URL-owned builder query state. Uses the same history notification channel

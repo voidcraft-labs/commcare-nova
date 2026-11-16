@@ -176,6 +176,7 @@ import {
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
+import { previewParentCaseListHasDetails } from "@/lib/preview/engine/parentCaseSelection";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import {
@@ -271,6 +272,7 @@ import {
 	useSetPreviewCaseTarget,
 	useSetPreviewMenuCaseSelection,
 	useSetPreviewParentCaseRequest,
+	useSetPreviewSearchInputs,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import {
@@ -279,8 +281,10 @@ import {
 	manualSearch,
 	newSearchSubmission,
 	noMatchesActionAvailable,
+	type PreviewSubmittedSearch,
 	searchAttemptOf,
 	settleSearch,
+	submittedSearchKey,
 	submittedSearchOf,
 } from "@/lib/session/previewSearchState";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -417,6 +421,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * to run again (`searchStanding.ts`). */
 	const searchState = usePreviewStandingSearchState(moduleUuid);
 	const setPreviewSearchState = useSetPreviewStandingSearchState();
+	/* The answers the worker gives the module's query, which Web Apps keeps
+	 * for it and runs a search history gives back with
+	 * (`previewSearchState.ts::searchWithLatestInputs`). */
+	const setPreviewSearchInputs = useSetPreviewSearchInputs();
 	/** The form chosen before the case that brought the worker here, when
 	 *  it's a real case-loading form in this module: otherwise undefined (a
 	 *  case-first landing, or a list stepped back to past a form chosen after
@@ -500,12 +508,19 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				: undefined,
 		[menuCaseSelections, menuSource, moduleUuid],
 	);
+	/* The parent's list's own Back: the screen the request was asked from
+	 * (`cancelLocation`), reached by a step back where it is the entry behind
+	 * the list (the menu that listed the form before asking for its parent,
+	 * a tile's menu, Home), so history holds that screen once and the next
+	 * Back goes on past it as a device's does (`CommCareSession.stepBack`). */
 	const cancelParentCaseSelection = useCallback(() => {
 		if (!selectsForParentRequest || !previewParentCaseRequest) return;
-		setPreviewParentCaseRequest(undefined);
-		setPreviewCaseTarget(undefined);
-		navigate.replace(
+		navigate.stepBackTo(
 			previewParentCaseRequest.cancelLocation ?? { kind: "home" },
+			() => {
+				setPreviewParentCaseRequest(undefined);
+				setPreviewCaseTarget(undefined);
+			},
 		);
 	}, [
 		navigate,
@@ -766,9 +781,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * start and end; read by the settlement effect below. */
 	const awaitingSearchFetchRef = useRef(false);
 	const sawSearchFetchRef = useRef(false);
-	/* The submission the run last took (its own Search press, or a search
-	 * it took back), none once it is cleared: what tells a search the run
-	 * dropped on its own from one that stands again
+	/* What the run last took (its own Search press, or a search it took
+	 * back), as `submittedSearchKey` names it, none once it is cleared: what
+	 * tells a search the run dropped on its own from one that stands again,
+	 * or stands again with other answers
 	 * (`searchStanding.ts::previewSearchRunFollows`). */
 	const heldSearchRef = useRef<string | undefined>(undefined);
 	/* The worker pressed Search (or the menu ran its default search as it
@@ -778,26 +794,29 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * form, which only such a menu can carry. A Search action's search is
 	 * held too, with its answers, so it stands and lets go as every search
 	 * does (`searchStanding.ts`). Either replaces a Search screen asked for
-	 * again. */
+	 * again. The answers a Search press sends, the hidden values among them,
+	 * are the ones Web Apps keeps for the query (`query.js::getAnswers` into
+	 * `utils.js::CloudcareUrl.setQueryData`); the menu's default search
+	 * (`automatic`) gives none. */
 	const submitSearch = useCallback(
-		(next: ReadonlyMap<string, string>) => {
+		(next: ReadonlyMap<string, string>, automatic = false) => {
 			searchRun.submit(next);
 			if (moduleUuid === undefined) return;
+			const given = Object.fromEntries(next);
 			const answers = {
-				...Object.fromEntries(next),
+				...given,
 				...Object.fromEntries(searchRun.resolveHidden()),
 			};
 			const submission = newSearchSubmission();
-			heldSearchRef.current = submission;
-			if (!formsReadSearch) {
-				setPreviewSearchState(moduleUuid, actionSearch(answers, submission));
-				return;
-			}
-			awaitingSearchFetchRef.current = true;
-			setPreviewSearchState(
-				moduleUuid,
-				beginSearch(searchState, answers, submission),
-			);
+			if (!automatic) setPreviewSearchInputs(moduleUuid, answers);
+			const search = (
+				formsReadSearch
+					? beginSearch(searchState, answers, submission, automatic)
+					: actionSearch(answers, submission, automatic)
+			) as PreviewSubmittedSearch;
+			heldSearchRef.current = submittedSearchKey(search);
+			if (formsReadSearch) awaitingSearchFetchRef.current = true;
+			setPreviewSearchState(moduleUuid, search);
 		},
 		[
 			searchRun,
@@ -805,7 +824,23 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			formsReadSearch,
 			searchState,
 			setPreviewSearchState,
+			setPreviewSearchInputs,
 		],
+	);
+	/* A field the worker changes on the Search screen gives Web Apps' query
+	 * every prompt view's answer, each hidden field's value among them, as
+	 * the client checks it (`query.js::_updateModelsForValidation` over
+	 * `getAnswers`), Search pressed or not. */
+	const changeSearchDraft = useCallback(
+		(next: ReadonlyMap<string, string>) => {
+			searchRun.changeDraft(next);
+			if (moduleUuid !== undefined)
+				setPreviewSearchInputs(moduleUuid, {
+					...Object.fromEntries(next),
+					...Object.fromEntries(searchRun.resolveHidden()),
+				});
+		},
+		[searchRun, moduleUuid, setPreviewSearchInputs],
 	);
 	/* The clear button retires the completed search so a later Results is a
 	 * new attempt and the registration form closes its door; Search again
@@ -2004,7 +2039,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			heldSearchRef.current = undefined;
 			setPreviewSearchState(moduleUuid, undefined);
 		} else if (follows === "restore" && submitted !== undefined) {
-			heldSearchRef.current = submitted.submission;
+			heldSearchRef.current = submittedSearchKey(submitted);
 			if (submitted.kind === "running") awaitingSearchFetchRef.current = true;
 			searchRun.restore(new Map(Object.entries(submitted.answers)));
 		} else if (follows === "clear") {
@@ -2012,6 +2047,23 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			searchRun.clear();
 		}
 	}, [current, moduleUuid, searchState, searchRun, setPreviewSearchState]);
+	/* The Search screen shown with no search standing (a menu that asks
+	 * first, Search again) gives its query no answers: Web Apps writes empty
+	 * answers for the query as it draws the screen
+	 * (`menus/utils.js::getMenuView`), so history then runs a search of that
+	 * query with every prompt unanswered, a hidden one included, until the
+	 * worker answers one (`previewSearchState.ts::searchWithLatestInputs`). A search that stands
+	 * shows its results, never this screen. */
+	const searchScreenShown =
+		current &&
+		step === "search" &&
+		submittedSearchOf(searchState) === undefined &&
+		searchRun.pending !== true &&
+		searchRun.refusal === undefined;
+	useEffect(() => {
+		if (searchScreenShown && moduleUuid !== undefined)
+			setPreviewSearchInputs(moduleUuid, {});
+	}, [searchScreenShown, moduleUuid, setPreviewSearchInputs]);
 	const launchedAutomaticSearchRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
 		/* While the list holds a search, the next time it holds none (the
@@ -2028,7 +2080,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			automaticSearchToken,
 		);
 		launchedAutomaticSearchRef.current = pass.launched;
-		if (pass.launch) submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+		if (pass.launch) submitSearch(EMPTY_SEARCH_INPUT_VALUES, true);
 	}, [automaticSearchToken, current, submitSearch]);
 	if (mod === undefined) {
 		return (
@@ -2492,9 +2544,34 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	/* The running app's row click: a configured detail opens the confirm
 	 * step in place; no detail fields means the row proceeds straight on;
 	 * a module with no case-loading form has nowhere to go (the list is
-	 * informational). */
+	 * informational). A list another menu asked for its parent case chooses
+	 * for that menu's entry, whose parent datum names no details screen on a
+	 * basic menu, so the row goes on at once on both platforms
+	 * (`parentCaseSelection.ts::previewParentCaseListHasDetails`). */
+	const parentResume = previewParentCaseRequest?.resumeLocation;
+	/* The form whose entry asks for the parent: the leaf the request
+	 * resumes, a retained command's, or the form the resumed list holds. */
+	const parentRequestFormUuid =
+		parentResume !== undefined && "formUuid" in parentResume
+			? parentResume.formUuid
+			: (taskContinuation?.formUuid ?? previewCaseTarget?.formUuid);
+	const parentListHasDetails =
+		selectsForParentRequest && previewParentCaseRequest !== undefined
+			? previewParentCaseListHasDetails(menuSource.doc, {
+					selectorModuleUuid: previewParentCaseRequest.selectingModuleUuid,
+					requestingModuleUuid:
+						previewParentCaseRequest.returnModuleUuids.at(-1) ??
+						previewParentCaseRequest.selectingModuleUuid,
+					...(parentRequestFormUuid !== undefined && {
+						formUuid: parentRequestFormUuid,
+					}),
+				})
+			: undefined;
 	const rowAction = caseSelectionRowAction({
-		hasDetails: detailColumns.length > 0,
+		hasDetails:
+			parentListHasDetails !== undefined
+				? parentListHasDetails && detailColumns.length > 0
+				: detailColumns.length > 0,
 		multiple: multipleSelection !== undefined,
 		canContinue,
 	});
@@ -2622,7 +2699,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							evaluateOnDevice={evaluateSearchScreenXPath}
 							environment={searchEnvironment}
 							value={searchRun.draft}
-							onChange={searchRun.changeDraft}
+							onChange={changeSearchDraft}
 							onSubmit={submitSearch}
 							submitLabel={CASE_SEARCH_BUTTON_LABEL}
 							localizeValidationMessage={localizeSearchValidationMessage}

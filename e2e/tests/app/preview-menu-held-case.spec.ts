@@ -93,6 +93,17 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		await expectPatientsMenu(refused.caseName);
 	});
 
+	await test.step("Back past Home shows the menu holding the patient again, as Web Apps replays a popped address's selections", async () => {
+		/* Home ends the task and lets the patient go; the address before it
+		 * still holds the selection (`CloudcareUrl.selections`), and Web Apps
+		 * routes a popped address to Formplayer, which replays it
+		 * (`lib/routing/previewSelectionsHistory.ts`). */
+		await pressTrailCrumb(page, "Home");
+		await expect(visitsTile).toHaveCount(0, { timeout: 20_000 });
+		await page.goBack();
+		await expectPatientsMenu(refused.caseName);
+	});
+
 	await test.step("the submenu goes on with the patient, and its follow-up refuses the imported value", async () => {
 		await visitsTile.click();
 		await expectVisitsMenu(refused.caseName);
@@ -194,6 +205,13 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 			),
 		);
 		await expect(trail).not.toContainText(patients.name);
+		/* Both lists keep their tile on screen. The tile is the earliest
+		 * held case's whose list keeps one, the patient Patients' list chose
+		 * (`getStepToFrame`, `loadTile`), never the form's own module's,
+		 * which would name the pregnancy. */
+		await expect(tile).toHaveCount(1);
+		await expect(tile).toContainText(refused.caseName, { timeout: 20_000 });
+		await expect(tile).not.toContainText(pregnancies.caseName);
 		// The pregnancy's crumb keeps the patient chosen before it: it steps
 		// back onto the pregnancy's form menu, the patient still held.
 		await pressTrailCrumb(page, pregnancies.caseName);
@@ -223,21 +241,70 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 		await expect(trail).not.toContainText(pregnancies.caseName);
 	});
 
-	await test.step("the crumb of a form chosen before its cases lets go the patient asked for after it, and the list asks again holding the form", async () => {
-		/* Pregnancy follow-ups lists its forms before its pregnancy, so Web
-		 * Apps asks Patients' list for the patient after the form's command:
-		 * the form's crumb cuts the patient away with the pregnancy. */
+	await test.step("a menu that lists its forms first asks for the patient after the form's command, on a list whose row goes on at once", async () => {
+		/* Pregnancy follow-ups holds a survey beside its follow-up, so Core
+		 * lists the menu before any case (`CommCareSession.getNeededData`) and
+		 * asks Clinic patients' list for the patient after the follow-up's
+		 * command. Clinic patients' own list opens each patient's details,
+		 * but the patient's datum in the follow-up's entry names none, so the
+		 * row goes on at once (`parentCaseSelection.ts`). */
 		const { pregnancyFollowUps } = MENU_HELD_CASE_SEED;
+		const followUp = main.getByRole("button", {
+			name: pregnancyFollowUps.formName,
+			exact: true,
+		});
 		await pressTrailCrumb(page, "Home");
 		await main
 			.getByRole("button", {
 				name: new RegExp(`^${pregnancyFollowUps.name}`),
 			})
 			.click({ timeout: 20_000 });
+		await expect(followUp).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", {
+				name: pregnancyFollowUps.surveyName,
+				exact: true,
+			}),
+		).toBeVisible();
+		await expect(results).toBeHidden();
+		await followUp.click();
+		await expect(results).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", {
+				name: new RegExp(`^Continue with ${refused.caseName}`),
+			}),
+		).toBeVisible();
+		await expect(
+			main.getByRole("button", { name: /^View details for / }),
+		).toHaveCount(0);
+		// Back from the patient's list steps back over the form's command to
+		// the menu, which lists its forms again.
+		const followUpsTile = main.getByRole("button", {
+			name: new RegExp(`^${pregnancyFollowUps.name}`),
+		});
+		await main.getByRole("button", { name: "Back", exact: true }).click();
+		await expect(followUp).toBeVisible({ timeout: 20_000 });
+		await expect(results).toBeHidden();
+		// The list's Back stepped back onto the menu's own entry rather than
+		// writing the menu again, so the browser's next Back reaches Home, as
+		// a device's next step back does (`CommCareSession.stepBack`).
+		await page.goBack();
+		await expect(followUp).toBeHidden({ timeout: 20_000 });
+		await expect(followUpsTile).toBeVisible();
+		await followUpsTile.click();
+		await followUp.click({ timeout: 20_000 });
 		await choose(refused.caseName);
-		await main
-			.getByRole("button", { name: pregnancyFollowUps.formName, exact: true })
-			.click({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", {
+				name: new RegExp(`^Continue with ${pregnancies.caseName}`),
+			}),
+		).toBeVisible({ timeout: 20_000 });
+	});
+
+	await test.step("the crumb of a form chosen before its cases lets go the patient asked for after it, and the list asks again holding the form", async () => {
+		/* The form's crumb cuts the patient away with the pregnancy, as Web
+		 * Apps asks for the patient after the form's command. */
+		const { pregnancyFollowUps } = MENU_HELD_CASE_SEED;
 		await choose(pregnancies.caseName);
 		await expect(submit).toBeVisible({ timeout: 20_000 });
 		await expect(trail).toContainText(
@@ -246,7 +313,7 @@ test("a menu holding a case names it, pins its tile, and a submenu's form return
 			),
 		);
 		await pressTrailCrumb(page, pregnancyFollowUps.formName);
-		// Patients' list asks for the patient again.
+		// Clinic patients' list asks for the patient again.
 		await expect(
 			main.getByRole("button", {
 				name: new RegExp(`^Continue with ${opens.caseName}`),
@@ -370,5 +437,42 @@ test("Android's case details draw the case they show as its tile, except a searc
 		).toBeVisible({ timeout: 20_000 });
 		await expect(tile).toHaveCount(1);
 		await expect(tile).toContainText(opens.caseName, { timeout: 20_000 });
+	});
+
+	await test.step("Android lists a menu's forms before it asks for the patient, whose row then goes on at once", async () => {
+		/* The same session on Android: `MenuActivity` lists the menu where
+		 * Core asks for a command, and `EntitySelectActivity` returns the row
+		 * where the datum names no details (`mNoDetailMode`). */
+		const { pregnancyFollowUps, pregnancies, refused } = MENU_HELD_CASE_SEED;
+		const followUp = main.getByRole("button", {
+			name: pregnancyFollowUps.formName,
+			exact: true,
+		});
+		await page
+			.getByRole("navigation", { name: "Page navigation" })
+			.getByRole("button", { name: "Home", exact: true })
+			.click();
+		await main
+			.getByRole("button", {
+				name: new RegExp(`^${pregnancyFollowUps.name}`),
+			})
+			.click({ timeout: 20_000 });
+		await expect(followUp).toBeVisible({ timeout: 20_000 });
+		await expect(results).toBeHidden();
+		await followUp.click();
+		await expect(results).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: /^View details for / }),
+		).toHaveCount(0);
+		await main
+			.getByRole("button", {
+				name: new RegExp(`^Continue with ${refused.caseName}`),
+			})
+			.click();
+		await expect(
+			main.getByRole("button", {
+				name: new RegExp(`^Continue with ${pregnancies.caseName}`),
+			}),
+		).toBeVisible({ timeout: 20_000 });
 	});
 });

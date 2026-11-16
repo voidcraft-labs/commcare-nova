@@ -35,17 +35,29 @@
 
 import type { Uuid } from "@/lib/doc/types";
 import { moduleFormsReadSearch } from "@/lib/domain";
+import type { ModuleHierarchySource } from "@/lib/domain/moduleHierarchy";
+import { searchPromptKeys } from "@/lib/preview/engine/searchRunState";
 import {
-	type ModuleHierarchySource,
-	moduleParent,
-} from "@/lib/domain/moduleHierarchy";
+	type PreviewSessionSource,
+	previewMenuHeldSelections,
+	previewSelectionsBeforeCommand,
+} from "@/lib/preview/menuProjection";
+import {
+	previewSearchesOnEntry,
+	type RecordedPreviewSearch,
+} from "@/lib/routing/previewSearchHistory";
 import type { Location } from "@/lib/routing/types";
-import { submittedSearchOf } from "@/lib/session/previewSearchState";
+import {
+	searchWithLatestInputs,
+	submittedSearchKey,
+	submittedSearchOf,
+} from "@/lib/session/previewSearchState";
 import type {
 	PreviewCaseListRegistrationEntry,
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
+	PreviewSearchAnswers,
 	PreviewSearchState,
 } from "@/lib/session/types";
 
@@ -60,27 +72,44 @@ export interface PreviewSearchScreen {
 	readonly moduleUuid: Uuid | undefined;
 	readonly through?: boolean;
 	readonly alsoPast?: readonly Uuid[];
+	/** The module whose case list the screen shows, which runs that
+	 *  module's query and settles it (`previewSearchArrival`). */
+	readonly listShown?: Uuid;
 }
 
-/** The menus whose lists lie on the path to a screen: every menu above its
- *  menu, its menu where the screen is past its list, and each list it was
- *  reached past, with the menus above that. */
+/**
+ * The menus whose lists lie on the path to a screen: the lists whose cases
+ * the session held as the screen's menu's command was chosen
+ * (`menuProjection.ts::previewSelectionsBeforeCommand`), its menu's own list
+ * and every case its menu holds where the screen is past that list
+ * (`previewMenuHeldSelections`), and each list it was reached past, with the
+ * cases its menu holds. A structural menu above is on the path only where it
+ * chose its case before the command: a forms-first menu's list that chose a
+ * submenu's parent case did so after the submenu's command, so the
+ * submenu's own menu screen is above that search, as Web Apps' crumb keeps
+ * only the queries recorded strictly before the step it cuts to
+ * (`utils.js::CloudcareUrl.spliceSelections`).
+ */
 export function previewSearchPathModules(
-	doc: ModuleHierarchySource,
+	source: PreviewSessionSource,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
 	screen: PreviewSearchScreen,
 ): ReadonlySet<string> {
 	const onPath = new Set<string>();
-	const withAncestors = (start: Uuid, self: boolean) => {
-		if (self) onPath.add(start);
-		let current: Uuid | null | undefined = start;
-		while (current !== undefined && current !== null) {
-			current = moduleParent(doc, current);
-			if (current !== undefined && current !== null) onPath.add(current);
-		}
-	};
-	if (screen.moduleUuid !== undefined)
-		withAncestors(screen.moduleUuid, screen.through === true);
-	for (const past of screen.alsoPast ?? []) withAncestors(past, true);
+	const menu = screen.moduleUuid;
+	if (menu !== undefined) {
+		if (screen.through === true) onPath.add(menu);
+		const held =
+			screen.through === true
+				? previewMenuHeldSelections(source, menu, selections)
+				: previewSelectionsBeforeCommand(source, menu, selections);
+		for (const selection of held) onPath.add(selection.moduleUuid);
+	}
+	for (const past of screen.alsoPast ?? []) {
+		onPath.add(past);
+		for (const selection of previewMenuHeldSelections(source, past, selections))
+			onPath.add(selection.moduleUuid);
+	}
 	return onPath;
 }
 
@@ -90,6 +119,11 @@ export interface PreviewSearchScreenFacts {
 	readonly caseTarget: PreviewCaseTarget | undefined;
 	readonly registrationEntry: PreviewCaseListRegistrationEntry | undefined;
 	readonly parentCaseRequest: PreviewParentCaseRequest | undefined;
+	/** The module whose case list the running screen shows, as the shell
+	 *  projects the location (`usePreviewScreenForLocation`): none where it
+	 *  shows a menu, a form or Home, a list location that lands elsewhere
+	 *  included. */
+	readonly listShown: Uuid | undefined;
 }
 
 /**
@@ -139,7 +173,13 @@ export function previewSearchScreenOf(
 		if (target.formChosenAfterCase !== undefined)
 			alsoPast.push(target.formChosenAfterCase.caseListModuleUuid);
 	}
-	return { moduleUuid: loc.moduleUuid, through: true, alsoPast };
+	return {
+		moduleUuid: loc.moduleUuid,
+		through: true,
+		alsoPast,
+		...(loc.kind !== "form" &&
+			facts.listShown === loc.moduleUuid && { listShown: loc.moduleUuid }),
+	};
 }
 
 /** The search a module's list holds on the current history entry: its
@@ -157,15 +197,19 @@ export function previewStandingSearch(
 
 /**
  * The searches that still stand once the worker is on `screen`: of those
- * standing on the entry, each whose list lies on the path to the screen.
+ * standing on the entry, each whose list lies on the path to the screen
+ * (`previewSearchPathModules`).
  */
 export function previewSearchesStandingAt(
-	doc: ModuleHierarchySource,
+	source: PreviewSessionSource,
 	states: Readonly<Record<string, PreviewSearchState>>,
 	standing: ReadonlySet<string>,
 	screen: PreviewSearchScreen,
+	/** The cases the session holds once the worker is on the screen (after
+	 *  a crumb's cut, the cases it keeps). */
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
 ): string[] {
-	const onPath = previewSearchPathModules(doc, screen);
+	const onPath = previewSearchPathModules(source, selections, screen);
 	const kept: string[] = [];
 	for (const [moduleUuid, state] of Object.entries(states)) {
 		const stands = previewStandingSearch(state, standing);
@@ -173,6 +217,107 @@ export function previewSearchesStandingAt(
 			kept.push(stands.submission);
 	}
 	return kept;
+}
+
+/**
+ * What answers a search history gives back runs with. Web Apps answers the
+ * query an address records with the answers the worker last gave that query,
+ * whichever search they were given for (`latest-answers`,
+ * `previewSearchState.ts::searchWithLatestInputs`). Android has no addresses:
+ * a search is a step of the session's frame, which keeps the very query it
+ * ran (`CommCareSession.setQueryDatum` pushes a query step holding its
+ * results' source, the request as sent), and a step back off a later screen
+ * reaches that step as it was (`own-answers`). The platform's rule is
+ * `platform.ts::PreviewPlatformRules.searchReplay`.
+ */
+export type PreviewSearchReplay = "latest-answers" | "own-answers";
+
+/**
+ * Arriving on a running screen, by a step forward or by Back and Forward:
+ * which of the searches recorded on the entry still stand there (those on
+ * the path to the screen, `previewSearchesStandingAt`), and each module's
+ * search the session holds from now on where it differs from the one it
+ * holds: a search the session has since replaced stands again with the
+ * context the entry recorded (`previewSearchHistory.ts::previewSearchesOnEntry`),
+ * and on Web Apps the search of the list the screen shows runs with the
+ * answers the worker last gave its query (`replay`).
+ *
+ * Only that list's: the list is the screen that runs its query and settles
+ * it (`CaseListScreen`), so a search given other answers on a menu, a form
+ * or another list would run with nothing to finish it, and a form that reads
+ * the search would wait on it for good. Every other search that stands keeps
+ * the answers it ran with until its list is on show again, where it takes the
+ * latest. Web Apps replays the whole address, so a step back onto a menu or
+ * a form past a list runs that list's query with the latest answers there too
+ * (`MenuSessionRunnerService.advanceSessionWithSelections`), and a case the
+ * new results lack fails the step (`EntityScreen.setSelectedEntity`); Preview
+ * runs the query only where it shows the list.
+ *
+ * And only as the worker arrives (`moved`): the entry's own record rewritten
+ * in place (the list settling its search writes its context there) runs the
+ * hook again on the same screen, which is no step, and a field the worker
+ * changed since without pressing Search runs nothing on Web Apps.
+ */
+export function previewSearchArrival(args: {
+	readonly source: PreviewSessionSource;
+	readonly screen: PreviewSearchScreen;
+	readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+	/** The session's searches, by module. */
+	readonly states: Readonly<Record<string, PreviewSearchState>>;
+	/** The searches the entry records as standing on it. */
+	readonly standing: readonly string[];
+	readonly contexts: Readonly<Record<string, RecordedPreviewSearch>>;
+	/** The running Preview session. */
+	readonly session: string;
+	readonly replay: PreviewSearchReplay;
+	/** The worker moved here (a step, Back or Forward), rather than the
+	 *  entry's record being rewritten on the screen they are on. */
+	readonly moved: boolean;
+	/** The answers the worker last gave each module's query in this session. */
+	readonly latest: Readonly<Record<string, PreviewSearchAnswers>>;
+}): {
+	readonly standing: string[];
+	readonly searches: Readonly<Record<string, PreviewSearchState>>;
+} {
+	const recorded = new Set(args.standing);
+	const held = previewSearchesOnEntry(
+		args.states,
+		recorded,
+		args.contexts,
+		args.session,
+	);
+	const kept = new Set(
+		previewSearchesStandingAt(
+			args.source,
+			held,
+			recorded,
+			args.screen,
+			args.selections,
+		),
+	);
+	const doc = "doc" in args.source ? args.source.doc : args.source;
+	const searches: Record<string, PreviewSearchState> = {};
+	for (const [moduleUuid, search] of Object.entries(held)) {
+		if (search.kind === "not-searched" || !kept.has(search.submission))
+			continue;
+		const replayed =
+			args.replay === "latest-answers" &&
+			args.moved &&
+			args.screen.listShown === moduleUuid
+				? searchWithLatestInputs(
+						search,
+						args.latest[moduleUuid],
+						searchPromptKeys(
+							doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [],
+						),
+					)
+				: search;
+		if (replayed !== args.states[moduleUuid]) searches[moduleUuid] = replayed;
+	}
+	return {
+		standing: args.standing.filter((submission) => kept.has(submission)),
+		searches,
+	};
 }
 
 /**
@@ -198,21 +343,24 @@ export function previewSearchesStandingAt(
  *   menu opens on its default search, or on its list, again;
  * - `keep`: the two agree.
  *
- * `held` is the submission the run last took (its own Search press or a
- * restore), and none once it was cleared. A Search screen asked for again
- * (`manual`) holds no answers, so it is no submitted search here.
+ * `held` is what the run last took (its own Search press or a restore),
+ * `previewSearchState.ts::submittedSearchKey` of it: the search and the
+ * answers it ran with, so a search history gives back with other answers
+ * (`searchWithLatestInputs`) is taken again. None once the run was cleared.
+ * A Search screen asked for again (`manual`) holds no answers, so it is no
+ * submitted search here.
  */
 export function previewSearchRunFollows(args: {
 	/** The module's search where it stands on the screen on show. */
 	readonly standing: PreviewSearchState | undefined;
 	/** The screen's run holds a submitted search. */
 	readonly hasSubmitted: boolean;
-	/** The submission the run last took, none once it was cleared. */
+	/** What the run last took, none once it was cleared. */
 	readonly held: string | undefined;
 }): "restore" | "retire" | "clear" | "keep" {
 	const submitted = submittedSearchOf(args.standing);
 	if (submitted === undefined) return args.hasSubmitted ? "clear" : "keep";
-	if (args.held !== submitted.submission) return "restore";
+	if (args.held !== submittedSearchKey(submitted)) return "restore";
 	return args.hasSubmitted ? "keep" : "retire";
 }
 

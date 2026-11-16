@@ -27,7 +27,17 @@
  * patient Patients' list chooses, a list off its trail, so Web Apps' trail
  * names that patient after the menu, before the pregnancy, one crumb per
  * selection (`MenuSession.handleInput`), and the patient's crumb reaches
- * the list of the patient's pregnancies (`previewBreadcrumbs.ts`).
+ * the list of the patient's pregnancies (`previewBreadcrumbs.ts`). Its list
+ * keeps its tile on screen as Patients' does, so its form pins the
+ * patient's tile, the earliest held case whose list keeps one, and not the
+ * pregnancy's, the form's own module's (`pinnedCaseTile.ts`).
+ * Pregnancy follow-ups is a menu of its own that lists its forms first, a
+ * survey beside a follow-up, whose pregnancies are chosen under a patient
+ * Clinic patients' list chooses: the running app lists its forms, asks for
+ * the patient after the follow-up's command, and goes on at the patient's
+ * row though Clinic patients' own list opens each patient's details, as the
+ * parent's datum names no details screen
+ * (`lib/preview/engine/parentCaseSelection.ts`).
  */
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -78,8 +88,8 @@ export const MENU_HELD_CASE_SEED = {
 		formUuid: testUuid("menu-held-pregnancy-check"),
 		formName: "Pregnancy check",
 	},
-	/** A menu of its own whose pregnancies a patient chosen on Patients'
-	 *  list holds, listing its forms before the pregnancy is chosen. */
+	/** A menu of its own whose pregnancies a patient chosen on Clinic
+	 *  patients' list holds, listing its forms before the patient is chosen. */
 	pregnancyFollowUps: {
 		moduleUuid: testUuid("menu-held-pregnancy-follow-ups"),
 		name: "Pregnancy follow-ups",
@@ -275,12 +285,20 @@ export function buildMenuHeldCaseBlueprint(appId: string): BlueprintDoc {
 				caseType: seed.pregnancies.caseType,
 				parentCaseModuleUuid: seed.patients.moduleUuid,
 				caseListConfig: {
+					/* Its own list keeps its tile too, so on its form the
+					 * earliest held case whose list keeps one (the patient,
+					 * Patients') differs from the form's own module's (the
+					 * pregnancy). */
+					tile: { persistOnForms: true },
 					columns: [
 						plainColumn(
 							seed.pregnancyVisits.columnUuid,
 							"case_name",
 							"Pregnancy",
-							{ visibleInDetail: false },
+							{
+								visibleInDetail: false,
+								tile: tileCell(0, 0, 6, 1, { fontSize: "large" }),
+							},
 						),
 					],
 					searchInputs: [],
@@ -298,7 +316,7 @@ export function buildMenuHeldCaseBlueprint(appId: string): BlueprintDoc {
 				uuid: seed.pregnancyFollowUps.moduleUuid,
 				name: seed.pregnancyFollowUps.name,
 				caseType: seed.pregnancies.caseType,
-				parentCaseModuleUuid: seed.patients.moduleUuid,
+				parentCaseModuleUuid: seed.clinic.moduleUuid,
 				caseListConfig: {
 					columns: [
 						plainColumn(

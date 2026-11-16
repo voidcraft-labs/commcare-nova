@@ -4187,21 +4187,21 @@ test.describe("authenticated builder", () => {
 				// Archived referrals explicitly select through Patients. Opening that
 				// module runs the parent-first selector before showing its
 				// direct children. Pick the patient this submission linked, then continue
-				// into the originally requested Results screen.
+				// into the originally requested Results screen. Patients' own list
+				// opens details, but the patient's datum in the referrals' entry
+				// names none, so the row goes on at once
+				// (`lib/preview/engine/parentCaseSelection.ts`).
 				await expect(
 					page.getByRole("heading", {
 						name: CASE_CHANGES_SEED.moduleName,
 						level: 1,
 					}),
 				).toBeVisible();
-				await page
-					.getByRole("button", { name: /^View details for Smoke patient/ })
-					.click();
 				await expect(
-					page.getByRole("heading", { name: "Smoke patient", level: 1 }),
-				).toBeVisible();
+					page.getByRole("button", { name: /^View details for / }),
+				).toHaveCount(0);
 				await page
-					.getByRole("button", { name: "Continue", exact: true })
+					.getByRole("button", { name: /^Continue with Smoke patient/ })
 					.click();
 				await expect(
 					page.getByRole("heading", {
@@ -4270,6 +4270,47 @@ test.describe("authenticated builder", () => {
 						await expect(
 							viewerPage.getByText(
 								"Work out the id of the case at the other end.",
+							),
+						).toBeVisible();
+
+						/* A viewer may run the form in Preview but not save its
+						 * case data: Submit is disabled and says why, rather
+						 * than looking ready and doing nothing when pressed
+						 * (`lib/preview/submitOffer.ts`). */
+						await viewerPage
+							.getByRole("button", { name: "Preview", exact: true })
+							.click();
+						/* The viewer's device holds none of the editor's cases, so
+						 * the referral registration, which loads none, is the
+						 * form to run. */
+						const viewerMain = viewerPage.locator("main");
+						await viewerPage
+							.getByRole("navigation", { name: "Page navigation" })
+							.getByRole("button", { name: "Home", exact: true })
+							.click({ timeout: 20_000 });
+						await viewerMain
+							.getByRole("button", {
+								name: new RegExp(`^${CASE_CHANGES_SEED.caseWrites.moduleName}`),
+							})
+							.click({ timeout: 20_000 });
+						await viewerMain
+							.getByRole("button", {
+								name: CASE_CHANGES_SEED.caseWrites.registration.formName,
+								exact: true,
+							})
+							.click({ timeout: 20_000 });
+						await expect(
+							viewerPage.getByRole("textbox", { name: "Referral name" }),
+						).toBeVisible({ timeout: 20_000 });
+						await expect(
+							viewerPage
+								.locator("main")
+								.getByRole("button", { name: "Submit", exact: true }),
+						).toBeDisabled();
+						await expect(
+							viewerPage.getByText(
+								"Submitting saves case data, which needs edit access to this app.",
+								{ exact: true },
 							),
 						).toBeVisible();
 					} finally {

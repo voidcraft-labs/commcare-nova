@@ -72,7 +72,10 @@ describe("runCaseStoreMigrations on a fresh database", () => {
 		// migrations ran, in order.
 		expect(await columnExists(db, "cases", "case_name")).toBe(true);
 		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
-	});
+		// The one test here that applies the whole migration chain to an empty
+		// database, so its cost grows with every migration: about 8 s alone,
+		// past the default 5 s on a loaded machine. Sized to the chain.
+	}, 60_000);
 });
 
 describe("runCaseStoreMigrations after the schema is applied", () => {
