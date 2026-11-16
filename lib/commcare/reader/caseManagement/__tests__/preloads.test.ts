@@ -3,13 +3,57 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Expression, Uuid } from "@/lib/domain";
-import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
+import {
+	codesOf,
+	readMenusOf as readMenusOfUnheld,
+} from "../../menus/__tests__/menuReading";
+import type { ReadOutcome } from "../../types";
 import {
 	hqBuildRefusesProperty,
 	laterLoadReaders,
 	preloadReadOf,
 } from "../preloads";
-import { type CaseReading, readCases, readFields } from "./caseReading";
+import {
+	type CaseReading,
+	readCases as readCasesUnheld,
+	readFields,
+} from "./caseReading";
+
+/**
+ * Each source here is also read whole, and every use of it is accounted:
+ * no reader defect and no `unrecognized` finding. A preload replaces a
+ * question's authored default, whose setvalue the form stage holds as the
+ * default and whose value the preload reads past (`preloads.ts::writeDefault`).
+ * The plausible failure: the setvalue claimed a second time, a reader defect
+ * with an `unrecognized` setvalue and value beside it, where a stage reading,
+ * which binds no expression, shows nothing.
+ */
+function accountedWhole(outcome: ReadOutcome | undefined): void {
+	if (outcome === undefined)
+		throw new Error("Every source here is read whole: none is told tables.");
+	expect(outcome.defects).toEqual([]);
+	expect(
+		(outcome.kind === "account" ? outcome.findings : []).filter(
+			(one) => one.code === "unrecognized",
+		),
+	).toEqual([]);
+}
+
+async function readCases(
+	...args: Parameters<typeof readCasesUnheld>
+): ReturnType<typeof readCasesUnheld> {
+	const reading = await readCasesUnheld(...args);
+	accountedWhole(reading.whole);
+	return reading;
+}
+
+async function readMenusOf(
+	...args: Parameters<typeof readMenusOfUnheld>
+): ReturnType<typeof readMenusOfUnheld> {
+	const reading = await readMenusOfUnheld(...args);
+	accountedWhole(reading.outcome);
+	return reading;
+}
 
 /** Every entry a reading claimed something under. */
 function entriesOf(reading: CaseReading): string[] {
@@ -251,12 +295,15 @@ describe("a case preload, read as the question's default", () => {
 			form?.xform === null || form === undefined
 				? undefined
 				: readFields(form.xform).find((one) => one.id === "q");
-		expect(field?.field.default_value).toEqual({
+		const preload: Expression = {
 			kind: "term",
 			term: { kind: "form-case", caseType: "patient", property: "dob" },
-		});
+		};
+		expect(field?.field.default_value).toEqual(preload);
+		// The authored default stays registered, for the expression stage to
+		// judge and claim its value as it does any default's.
 		expect(field?.expressions.some((one) => one.slot === "default_value")).toBe(
-			false,
+			true,
 		);
 		expect(
 			reading.findings.filter((one) => one.code.includes("case-preload")),
@@ -264,6 +311,83 @@ describe("a case preload, read as the question's default", () => {
 		expect(
 			reading.ctx.facts.sameStateRewrites.map((one) => one.register),
 		).toContain("case-settings-respelled");
+		// Read whole, the question's default is the preload's.
+		const whole = reading.whole;
+		expect(whole?.kind).toBe("read");
+		const doc = whole?.kind === "read" ? whole.draft.doc : undefined;
+		const q = Object.values(doc?.fields ?? {}).find((one) => one.id === "q");
+		expect(
+			(q as { default_value?: Expression } | undefined)?.default_value,
+		).toEqual(preload);
+	});
+
+	it("keeps a form out under its default's own finding where the default a preload replaces is one the form cannot load with", async () => {
+		// HQ's load runs after the authored default (`xform.py::XForm.add_case_preloads`
+		// appends it), so a default HQ's build refuses, or one Core fails on as the
+		// form loads, means the form never loads to run the preload. The failure this
+		// catches: the default read past unjudged, so a form that cannot load reads
+		// as a clean document. The account is the one the same source gives with no
+		// preload: an undeclared instance under its own entry, and a text the
+		// grammar cannot read as the expression stage gives it wherever it stands.
+		const fields = [
+			f({
+				kind: "text",
+				id: "q",
+				uuid: Q,
+				default_value: {
+					kind: "term",
+					term: { kind: "literal", value: "authored" },
+				},
+			}),
+		];
+		const shape = (outcome: ReadOutcome | undefined) =>
+			outcome?.kind === "account"
+				? outcome.findings.map((one) => [
+						one.code,
+						(one.detail as { name?: string } | undefined)?.name ?? null,
+						one.place.kind,
+					])
+				: [];
+		for (const value of ["instance('nope')/x/y", "(((("]) {
+			const editSource = (xml: string) => {
+				const at = `value="&apos;authored&apos;"`;
+				if (!xml.includes(at))
+					throw new Error("The export writes the authored default.");
+				return xml.replace(at, `value="${value.replaceAll("'", "&apos;")}"`);
+			};
+			const alone = await readCasesUnheld(followup(fields), { editSource });
+			const withPreload = await readCasesUnheld(followup(fields), {
+				editSource,
+				edit: (app) => {
+					const actions = app.modules[0]?.forms[0]?.actions as Record<
+						string,
+						unknown
+					>;
+					actions.case_preload = {
+						doc_type: "PreloadAction",
+						preload: { "/data/q": "dob" },
+						condition: { type: "always", doc_type: "FormActionCondition" },
+					};
+				},
+			});
+			expect(shape(alone.whole).length, value).toBeGreaterThan(0);
+			expect(shape(withPreload.whole), value).toEqual(shape(alone.whole));
+			const defects = (outcome: ReadOutcome | undefined) =>
+				(outcome?.defects ?? []).map((one) => [
+					one.name,
+					one.place.kind,
+					one.why,
+				]);
+			expect(defects(withPreload.whole), value).toEqual(defects(alone.whole));
+			if (value.startsWith("instance("))
+				expect(shape(withPreload.whole)).toEqual([
+					[
+						"expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one",
+						"value",
+						"question",
+					],
+				]);
+		}
 	});
 
 	it("reads the case's name for `name`", async () => {
@@ -405,8 +529,10 @@ describe("a case preload, read as the question's default", () => {
 				? undefined
 				: readFields(form.xform).find((one) => one.id === "q");
 		expect(field?.field.default_value).toBeUndefined();
+		// The authored default stays registered, for the expression stage to
+		// judge and claim its value.
 		expect(field?.expressions.some((one) => one.slot === "default_value")).toBe(
-			false,
+			true,
 		);
 		expect(entriesOf(reading)).toContain(
 			"forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-child",

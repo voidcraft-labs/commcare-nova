@@ -7,6 +7,16 @@
  * reading's own function run over what a document's export gives it.
  */
 
+import type { Draft } from "immer";
+import { applyMutations } from "@/lib/doc/mutations";
+import {
+	ensureReferenceIndex,
+	referencingCarrierUuids,
+} from "@/lib/doc/referenceIndex";
+import {
+	type SlotReadRewrite,
+	slotReadRewriteMutations,
+} from "@/lib/doc/slotReadRewrites";
 import {
 	type BlueprintDoc,
 	BUILT_IN_USER_PROPERTY_SLUGS,
@@ -19,7 +29,10 @@ import {
 	type UserProperty,
 	type Uuid,
 	userPropertySchema,
+	userPropertyTargetKey,
+	workerFieldNameTargetKey,
 } from "@/lib/domain";
+import type { Term } from "@/lib/domain/expression/types";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import type { HqLocationType } from "../hq/locations";
@@ -554,7 +567,7 @@ export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
 		}
 		draft.userProperties = properties as typeof draft.userProperties;
 		draft.userPropertyOrder = order;
-		readsByIdentity([draft.modules, draft.forms, draft.fields], bound);
+		rebindWorkerReads(doc, draft, new Map(), bound);
 	});
 }
 
@@ -602,9 +615,7 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 	);
 	const bound = new Map(userProperties.map((one) => [one.slug, one.uuid]));
 	return withCandidate(doc, (draft) => {
-		if (named.size > 0)
-			readsByName([draft.modules, draft.forms, draft.fields], named);
-		readsByIdentity([draft.modules, draft.forms, draft.fields], bound);
+		rebindWorkerReads(doc, draft, named, bound);
 		delete draft.userProperties;
 		delete draft.userPropertyOrder;
 		delete draft.locationProperties;
@@ -624,55 +635,73 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 	});
 }
 
-/** Each read by name of a slug `bound` holds, under `value`, rewritten in place as the read of
- *  the worker property of that slug, as the parser binds a read of a declared slug and the gate
- *  holds it (`worker-property-read-by-name`): an expression's `session-user` as
- *  `session-user-property`, keeping its source, and a text's `user-ref` as `user-property-ref`. */
-function readsByIdentity(
-	value: unknown,
+/**
+ * `draft`, a candidate of `doc`, with each worker read `doc` holds rebound:
+ * a read of a worker property `named` holds becomes the name-backed read of
+ * its slug, keeping its source, and then a read by name of a slug `bound`
+ * holds becomes the read of that property, as the parser binds a read of a
+ * declared slug and the gate holds it (`worker-property-read-by-name`): an
+ * expression's `session-user-property` and `session-user`, a text's
+ * `user-property-ref` and `user-ref`. Every place a document holds such a
+ * read is rewritten through the doc layer's one rewrite
+ * (`lib/doc/slotReadRewrites.ts::slotReadRewriteMutations`, over the carriers
+ * the reference index names), each translation of a text that was current
+ * rewritten alike and kept current, as declaring the property does in an
+ * editor (`lib/doc/userMutations.ts::rebindWorkerReadsByName`).
+ */
+function rebindWorkerReads(
+	doc: BlueprintDoc,
+	draft: Draft<BlueprintDoc>,
+	named: ReadonlyMap<Uuid, string>,
 	bound: ReadonlyMap<string, Uuid>,
 ): void {
-	if (bound.size === 0 || value === null || typeof value !== "object") return;
-	const node = value as Record<string, unknown>;
-	for (const [key, child] of Object.entries(node)) {
-		if (child === null || typeof child !== "object") continue;
-		const leaf = child as Record<string, unknown>;
-		const uuid =
-			leaf.kind === "session-user" && typeof leaf.field === "string"
-				? bound.get(leaf.field)
-				: leaf.kind === "user-ref" && typeof leaf.property === "string"
-					? bound.get(leaf.property)
-					: undefined;
-		if (uuid !== undefined && leaf.kind === "session-user")
-			node[key] = {
-				kind: "session-user-property",
-				userPropertyUuid: uuid,
-				...(leaf.source === undefined ? {} : { source: leaf.source }),
-			};
-		else if (uuid !== undefined)
-			node[key] = { kind: "user-property-ref", userPropertyUuid: uuid };
-		else readsByIdentity(child, bound);
-	}
-}
-
-/** Each read of a worker property `named` holds, under `value`, rewritten in place as the
- *  name-backed read of its slug: an expression's `session-user-property` as `session-user`,
- *  keeping its source, and a text's `user-property-ref` as `user-ref`. */
-function readsByName(value: unknown, named: ReadonlyMap<Uuid, string>): void {
-	if (value === null || typeof value !== "object") return;
-	const node = value as Record<string, unknown>;
-	for (const [key, child] of Object.entries(node)) {
-		if (child === null || typeof child !== "object") continue;
-		const leaf = child as Record<string, unknown>;
-		const slug = named.get(leaf.userPropertyUuid as Uuid);
-		if (slug !== undefined && leaf.kind === "session-user-property")
-			node[key] = {
-				kind: "session-user",
-				field: slug,
-				...(leaf.source === undefined ? {} : { source: leaf.source }),
-			};
-		else if (slug !== undefined && leaf.kind === "user-property-ref")
-			node[key] = { kind: "user-ref", property: slug };
-		else readsByName(child, named);
-	}
+	if (named.size === 0 && bound.size === 0) return;
+	const indexed = { ...doc } as BlueprintDoc;
+	ensureReferenceIndex(indexed);
+	const carriers = new Set<string>();
+	for (const key of [
+		...[...named.keys()].map(userPropertyTargetKey),
+		...[...bound.keys()].map(workerFieldNameTargetKey),
+	])
+		for (const carrier of referencingCarrierUuids(indexed, key))
+			carriers.add(carrier);
+	if (carriers.size === 0) return;
+	const byName = (slug: string, source: unknown): Term => {
+		const uuid = bound.get(slug);
+		const kept = source === undefined ? {} : { source };
+		return (
+			uuid === undefined
+				? { kind: "session-user", field: slug, ...kept }
+				: { kind: "session-user-property", userPropertyUuid: uuid, ...kept }
+		) as Term;
+	};
+	const rewrite: SlotReadRewrite = {
+		mapTerm(term) {
+			if (term.kind === "session-user-property") {
+				const slug = named.get(term.userPropertyUuid);
+				return slug === undefined ? undefined : byName(slug, term.source);
+			}
+			if (term.kind === "session-user" && bound.has(term.field))
+				return byName(term.field, term.source);
+			return undefined;
+		},
+		mapProsePart(part) {
+			const slug =
+				part.kind === "user-property-ref"
+					? named.get(part.userPropertyUuid)
+					: part.kind === "user-ref" && bound.has(part.property)
+						? part.property
+						: undefined;
+			if (slug === undefined) return undefined;
+			const uuid = bound.get(slug);
+			return uuid === undefined
+				? { kind: "user-ref", property: slug }
+				: { kind: "user-property-ref", userPropertyUuid: uuid };
+		},
+	};
+	const mutations = slotReadRewriteMutations(indexed, carriers, rewrite);
+	if (mutations.length === 0) return;
+	applyMutations(draft, mutations);
+	// The index is derived state the reader's documents never hold.
+	delete draft.refIndex;
 }

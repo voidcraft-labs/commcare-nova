@@ -46,6 +46,10 @@ import {
 	validateCaseOperations,
 } from "../../validator/rules/caseOperations";
 import { multiSelectFormSemantics } from "../../validator/rules/multiSelect";
+import {
+	type GeneratedNodePurpose,
+	planGeneratedNodes,
+} from "../../xform/generatedNodes";
 import type { Claim } from "../claims";
 import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
@@ -86,7 +90,11 @@ import {
 	statedBack,
 } from "./conditions";
 import { inWireScopeOrder, ORDER_CLAIMS } from "./operationOrder";
-import { readPreloads, settlePreloads } from "./preloads";
+import {
+	readPreloads,
+	settlePreloadDefaults,
+	settlePreloads,
+} from "./preloads";
 import {
 	readSaveToCaseBlocks,
 	SAVE_TO_CASE_CLAIMS,
@@ -236,12 +244,62 @@ function object(value: unknown): JsonObject {
 	return isJsonObject(value) ? value : {};
 }
 
-function condition(form: DraftForm, stored: unknown): unknown {
+/** A question path of a form's actions mapped to the question it reads: the
+ *  path itself, or a generated sibling's owner. */
+type OwnerPath = (path: unknown) => string | null;
+
+/** The purposes of a sibling a basic action names in place of its question. */
+const ACTION_SIBLINGS: ReadonlySet<GeneratedNodePurpose> = new Set([
+	"trimmed",
+	"url",
+	"datetime",
+]);
+
+/**
+ * The question each question path of a form's actions reads, the same map
+ * for the stored actions and for Nova's print of them: first through the
+ * source's own node graph (`basicActions.ts::ownerQuestionPath`), then each
+ * sibling Nova's print names in place of its question (a case name's or
+ * external id's `nova_trimmed_`, a capture's `nova_url_`, a date and time's
+ * `nova_datetime_`) through Nova's own plan of the form's generated nodes
+ * (`xform/generatedNodes.ts::planGeneratedNodes`) to the question that owns
+ * it. The source's graph holds no such sibling where CommCare HQ's Case
+ * Management names the question itself, or holds Nova's earlier one beside
+ * it as the person's own Hidden Value, so the print names another; and it
+ * holds a sibling the reading settles only once its join is bound under the
+ * sibling's own name. The plan never gives a sibling an authored question's
+ * name (the allocator suffixes past one), so the second step moves no path
+ * that reads a question of the person's own.
+ */
+function actionOwners(doc: BlueprintDoc, form: DraftForm): OwnerPath {
+	const xform = form.xform;
+	const siblings = new Map<string, string>();
+	if (xform !== null && xform !== undefined) {
+		const pathOf = new Map<string, readonly string[]>();
+		for (const field of readFields(xform))
+			if (field.uuid !== undefined) pathOf.set(field.uuid, field.node.path);
+		for (const node of planGeneratedNodes(doc, form.uuid).nodes) {
+			if (!ACTION_SIBLINGS.has(node.purpose)) continue;
+			const owner = pathOf.get(node.owner);
+			if (owner === undefined) continue;
+			siblings.set(
+				[...owner.slice(0, -1), node.name].join("/"),
+				owner.join("/"),
+			);
+		}
+	}
+	return (path) => {
+		const read = ownerQuestionPath(form, path);
+		return read === null ? null : (siblings.get(read) ?? read);
+	};
+}
+
+function condition(owner: OwnerPath, stored: unknown): unknown {
 	const value = object(stored);
 	const type = value.type ?? "never";
 	if (type !== "if") return type;
 	return {
-		question: ownerQuestionPath(form, value.question),
+		question: owner(value.question),
 		answer: value.answer ?? null,
 		operator: value.operator ?? "=",
 	};
@@ -249,7 +307,7 @@ function condition(form: DraftForm, stored: unknown): unknown {
 
 /** An update map as `[key, question, mode]`, the key's order left out. */
 function updates(
-	form: DraftForm,
+	owner: OwnerPath,
 	stored: unknown,
 	applied: boolean,
 ): readonly unknown[] {
@@ -257,7 +315,7 @@ function updates(
 		.map(([key, update]) => {
 			const one = object(update);
 			const mode = one.update_mode === "edit" && applied ? "edit" : "always";
-			return [key, ownerQuestionPath(form, one.question_path), mode] as const;
+			return [key, owner(one.question_path), mode] as const;
 		})
 		.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
@@ -285,7 +343,7 @@ interface BuildReads {
  * question path mapped to its question.
  */
 function comparable(
-	form: DraftForm,
+	owner: OwnerPath,
 	actions: unknown,
 	reads: BuildReads,
 	applied: boolean,
@@ -317,30 +375,27 @@ function comparable(
 	return {
 		open_case: opens
 			? {
-					condition: condition(form, open.condition),
-					name: ownerQuestionPath(form, object(open.name_update).question_path),
+					condition: condition(owner, open.condition),
+					name: owner(object(open.name_update).question_path),
 				}
 			: null,
-		update_case: updates(form, updateMap, applied),
+		update_case: updates(owner, updateMap, applied),
 		close_case: closes
-			? condition(form, object(stored.close_case).condition)
+			? condition(owner, object(stored.close_case).condition)
 			: "never",
 		subcases: subcases.map((one) => {
 			const subcase = object(one);
 			return {
 				case_type: subcase.case_type ?? null,
-				name: ownerQuestionPath(
-					form,
-					object(subcase.name_update).question_path,
-				),
-				case_properties: updates(form, subcase.case_properties, applied),
-				repeat_context: ownerQuestionPath(form, subcase.repeat_context),
-				condition: condition(form, subcase.condition),
-				close_condition: condition(form, subcase.close_condition),
+				name: owner(object(subcase.name_update).question_path),
+				case_properties: updates(owner, subcase.case_properties, applied),
+				repeat_context: owner(subcase.repeat_context),
+				condition: condition(owner, subcase.condition),
+				close_condition: condition(owner, subcase.close_condition),
 			};
 		}),
 		usercase_update: live.has("usercase_update")
-			? updates(form, usercase.update, applied)
+			? updates(owner, usercase.update, applied)
 			: [],
 	};
 }
@@ -520,6 +575,7 @@ function settleScalarChecks(
 	const refused = new Set([
 		...scalarFieldsOfRefusedBlocks(form),
 		...(advanced?.refused === true ? advanced.createNames : []),
+		...(basicCaseReading(form)?.refusedScalarFields ?? []),
 	]);
 	for (const field of readFields(xform)) {
 		if (field.scalarCheck === undefined || field.uuid === undefined) continue;
@@ -575,9 +631,10 @@ function settleBasicForm(
 		multi: isMultiSelectMenu(menuJson),
 		registry: menuMayLoadRegistryCase(menuJson),
 	};
+	const owners = actionOwners(doc, form);
 	const difference = firstDifference(
-		comparable(form, form.json.peek("actions"), reads, applied),
-		comparable(form, planned.actions, reads, true),
+		comparable(owners, form.json.peek("actions"), reads, applied),
+		comparable(owners, planned.actions, reads, true),
 	);
 	if (difference !== undefined) {
 		unrecognized(ctx, form, difference);
@@ -853,10 +910,15 @@ function settleCaseChanges(
 }
 
 /**
- * Step 6, pass 2: every basic form's reading accepted over the bound
- * document, its scalar checks held to the emitter's, and its preloads judged.
+ * Step 6, pass 2: each preload's default written over the authored default it
+ * replaces, every basic form's reading accepted over the bound document, its
+ * scalar checks held to the emitter's, and its preloads judged.
  */
 export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
+	settlePreloadDefaults(
+		ctx,
+		app.modules.flatMap((module) => module.forms),
+	);
 	for (const module of app.modules)
 		for (const form of module.forms) settleDatetimeJoins(ctx, form);
 	if (ctx.doc !== undefined)

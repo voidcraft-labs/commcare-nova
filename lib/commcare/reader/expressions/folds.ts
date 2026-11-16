@@ -97,6 +97,11 @@ export interface FoldEnv {
 	 *  several runs of one node, each its own site): false where that site is
 	 *  withdrawn. A fold that claims none takes the node's own span. */
 	use(span: { readonly from: number; readonly to: number }): boolean;
+	/** Marks the proposal the node's own reading, as a plain binding is one:
+	 *  it claims no fold site, so no difference of the print withdraws it.
+	 *  For a node the parser binds to nothing, whose only reading is the
+	 *  fold's, and whose print the level search compares. */
+	ownReading(): void;
 	/** Binds `node` with no fold offered at that node: the plain binding a
 	 *  proposal starts from. */
 	bindPlain(node: FormSyntax, context: ExpressionContext): Expression;
@@ -771,22 +776,60 @@ function absoluteText(path: FlatPath): string | undefined {
 	return `/${names.join("/")}`;
 }
 
+/** The text `node` spells where it is an absolute path of plain steps, the
+ *  spelling a key of `FoldEnv.operationIdPaths` takes; read structurally. */
+export function absolutePathText(node: FormSyntax): string | undefined {
+	const path = flat(node);
+	return path === undefined ? undefined : absoluteText(path);
+}
+
+/** The absolute text a relative or `current()` path of plain steps names from
+ *  the node at `context` (the names from the form's root down), the spelling a
+ *  key of `FoldEnv.operationIdPaths` takes, or undefined where a step climbs
+ *  past the root or carries a predicate; read structurally. */
+export function contextPathText(
+	node: FormSyntax,
+	context: readonly string[],
+): string | undefined {
+	const path = flat(node, true);
+	if (path === undefined || (path.root !== undefined && !isCurrent(path)))
+		return undefined;
+	const names = [...context];
+	for (const step of path.steps) {
+		if (step.where.length > 0) return undefined;
+		if (!step.attribute && step.name === PARENT_STEP) {
+			if (names.length <= 1) return undefined;
+			names.pop();
+			continue;
+		}
+		names.push(step.attribute ? `@${step.name}` : step.name);
+	}
+	return `/${names.join("/")}`;
+}
+
 const operationId: Fold = {
 	id: "operation-id",
 	ruleSets: ["record"],
 	propose(node, context, api, env) {
 		if (!isCaseOperationSlot(context)) return undefined;
 		// Nova reads an earlier create's id from the node the block's
-		// expression stands in, through `current()`; a source may name it by
-		// its absolute path.
-		const path = flat(node);
-		const text = path === undefined ? undefined : absoluteText(path);
+		// expression stands in, through `current()`.
+		const placed = env.place?.operationIds.get(formSyntaxKey(core(node)));
+		if (placed !== undefined)
+			return api.remember({ kind: "id-of", opUuid: placed }, node);
+		// A source may name it by its absolute path, which the parser binds to
+		// nothing, so this reading is the node's own and no difference of the
+		// print withdraws it: the print that leaves the relocation to
+		// `current()` out spells the absolute path
+		// (`readExpression.ts::relocatedOperationIds`), and where no level
+		// prints the source, or the checker refuses the read, the finding is
+		// the slot's.
+		const text = absolutePathText(node);
 		const opUuid =
-			env.place?.operationIds.get(formSyntaxKey(core(node))) ??
-			(text === undefined ? undefined : env.operationIdPaths.get(text));
-		return opUuid === undefined
-			? undefined
-			: api.remember({ kind: "id-of", opUuid }, node);
+			text === undefined ? undefined : env.operationIdPaths.get(text);
+		if (opUuid === undefined) return undefined;
+		env.ownReading();
+		return api.remember({ kind: "id-of", opUuid }, node);
 	},
 };
 

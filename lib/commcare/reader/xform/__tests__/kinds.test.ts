@@ -22,6 +22,7 @@ import {
 	proseText,
 } from "@/lib/domain";
 import { type FieldKind, fieldKinds } from "@/lib/domain/fields";
+import { lookupWireNaming } from "../../../lookup/naming";
 import { buildXForm } from "../../../xform/builder";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "../../index";
@@ -31,7 +32,6 @@ import {
 	formFindings,
 	readFields,
 	readForm,
-	unrecognizedAt,
 	XMLNS,
 	xformSource,
 } from "./formReading";
@@ -497,33 +497,165 @@ describe("a select's choices", () => {
 		]);
 	});
 
-	it("names only the ref whose column a lookup table lacks, once", async () => {
-		const reading = await readForm(
-			xformSource({
-				data: "<city/>",
-				model:
-					'<instance id="cities" src="jr://fixture/item-list:cities"/><bind nodeset="/data/city" type="xsd:string"/>',
-				body: `<select1 ref="/data/city"><itemset nodeset="instance('cities')/cities_list/cities"><label ref="name"/><value ref="code"/></itemset></select1>`,
-			}),
-			{
-				lookup: {
-					table: (tag) =>
-						tag === "cities"
-							? {
-									tableId: "table-cities" as LookupTableId,
-									column: (name) =>
-										name === "name"
-											? ("column-name" as LookupColumnId)
-											: undefined,
-								}
-							: undefined,
-					definitions: new Map(),
+	it.each([
+		["value", "name", "code"],
+		["label", "title", "name"],
+		["label and value", "title", "code"],
+	])(
+		"refuses an itemset whose %s ref names a column the lookup table lacks, once and with no defect",
+		async (_case, labelRef, valueRef) => {
+			const reading = await readForm(
+				xformSource({
+					data: "<city/>",
+					model:
+						'<instance id="cities" src="jr://fixture/item-list:cities"/><bind nodeset="/data/city" type="xsd:string"/>',
+					body: `<select1 ref="/data/city"><itemset nodeset="instance('cities')/cities_list/cities[name != '']"><label ref="${labelRef}"/><value ref="${valueRef}"/></itemset></select1>`,
+				}),
+				{
+					lookup: {
+						table: (tag) =>
+							tag === "cities"
+								? {
+										tableId: "table-cities" as LookupTableId,
+										column: (name) =>
+											name === "name"
+												? ("column-name" as LookupColumnId)
+												: undefined,
+									}
+								: undefined,
+						definitions: new Map(),
+					},
 				},
+			);
+			// A device reads a blank label or value for every choice: the read of what is not there,
+			// one finding at the question, the whole itemset (its filter included) behind it. The
+			// declaration is the expression stage's to claim, which the whole reading below holds.
+			expect(codesAt(reading, "city")).toEqual([
+				"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
+			]);
+			expect(reading.closed.defects).toEqual([]);
+		},
+	);
+
+	describe("a lookup select read whole, its table told", () => {
+		const table = "01890000-0000-7000-8000-000000000301" as LookupTableId;
+		const name = "01890000-0000-7000-8000-000000000302" as LookupColumnId;
+		const column = {
+			id: name,
+			wireName: "district_name",
+			label: "Name",
+			dataType: "text" as const,
+		};
+		const naming = lookupWireNaming([
+			{ id: table, tag: "hq_districts", columns: [column] },
+		]);
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Ask",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "district",
+									label: "District",
+									optionsSource: {
+										kind: "lookup",
+										tableId: table,
+										valueColumnId: name,
+										labelColumnId: name,
+									},
+								} as FieldSpec),
+							],
+						},
+					],
+				},
+			],
+		});
+		async function read(xml?: (xml: string) => string) {
+			const body = exportedBody(doc, {
+				expand: { lookupNaming: naming },
+				...(xml === undefined ? {} : { xml }),
+			});
+			return readHqApp(
+				await inputFor(body, {
+					lookup: {
+						table: (tag) =>
+							tag === "hq_districts"
+								? {
+										tableId: table,
+										column: (wire) =>
+											wire === "district_name" ? name : undefined,
+									}
+								: undefined,
+						definitions: new Map([
+							[
+								table,
+								{
+									id: table,
+									name: "Districts",
+									tag: "hq_districts",
+									columns: [column],
+								},
+							],
+						]),
+					},
+				}),
+			);
+		}
+
+		it("reads Nova's own export with no finding", async () => {
+			const outcome = await read();
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			expect(outcome.defects).toEqual([]);
+		});
+
+		it.each([
+			['<value ref="district_name"/>', '<value ref="district_code"/>'],
+			['<label ref="district_name"/>', '<label ref="district_title"/>'],
+		])(
+			"refuses %s named as a column the table lacks, one finding and no defect",
+			async (from, to) => {
+				const outcome = await read((xml) => {
+					expect(xml).toContain(from);
+					return xml.replace(from, to);
+				});
+				expect(outcome.kind).toBe("account");
+				expect(
+					(outcome.kind === "account" ? outcome.findings : []).map(
+						(finding) => [finding.code, finding.place.kind],
+					),
+				).toEqual([
+					[
+						"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
+						"question",
+					],
+				]);
+				expect(outcome.defects).toEqual([]);
 			},
 		);
-		expect(unrecognizedAt(reading, "city")).toEqual([
-			"xform:itemset/value@ref",
-		]);
+
+		// The select whose choices are refused keeps its kind in the document the
+		// later stages print, holding no choice, so the whole reading gives the
+		// choices' one finding and Nova's writer writes the rest back.
+		it("refuses a sorted itemset once, the select read whole with no defect", async () => {
+			const from = '<value ref="district_name"/>';
+			const outcome = await read((xml) => {
+				expect(xml).toContain(from);
+				return xml.replace(from, `${from}<sort ref="district_name"/>`);
+			});
+			expect(outcome.kind).toBe("account");
+			expect(
+				(outcome.kind === "account" ? outcome.findings : []).map((finding) => [
+					finding.code,
+					finding.place.kind,
+				]),
+			).toEqual([["questions/itemset-sort-ref", "question"]]);
+			expect(outcome.defects).toEqual([]);
+		});
 	});
 });
 

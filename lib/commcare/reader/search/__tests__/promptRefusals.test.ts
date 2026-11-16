@@ -311,13 +311,148 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
+		title: "a field whose choices name no instance",
+		edit: (body) => {
+			const prompt = first(body);
+			prompt.input_ = "select1";
+			const unnamed: JsonObject = { ...TABLE };
+			delete unnamed.instance_id;
+			prompt.itemset = unnamed;
+		},
+		findings: [
+			[
+				`${S}itemset-without-the-item-list-its-instance-id-names`,
+				"search",
+				"case_name",
+			],
+		],
+	},
+	{
+		title:
+			"a field whose choices read another table than the one its instance names",
+		edit: (body) => {
+			const prompt = first(body);
+			prompt.input_ = "select1";
+			prompt.itemset = itemset(
+				"item-list:t",
+				"instance('item-list:u')/u_list/u",
+			);
+		},
+		findings: [
+			[
+				`${S}itemset-without-the-item-list-its-instance-id-names`,
+				"search",
+				"case_name",
+			],
+		],
+	},
+	{
 		title: "an input type no runtime names",
 		edit: (body) => {
 			first(body).input_ = "slider";
 		},
-		findings: [["unrecognized", "search", "schema:CaseSearchProperty.input_"]],
+		findings: [[`${S}input-no-runtime-names`, "search", "case_name"]],
+	},
+	{
+		title: "an input type no runtime names, beside choices",
+		edit: (body) => {
+			const prompt = first(body);
+			prompt.input_ = "slider";
+			prompt.itemset = TABLE;
+		},
+		findings: [[`${S}input-no-runtime-names`, "search", "case_name"]],
+	},
+	{
+		title: "an address input type",
+		edit: (body) => {
+			first(body).input_ = "address";
+		},
+		findings: [
+			[
+				`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
+				"search",
+				"case_name",
+			],
+		],
+	},
+	{
+		// HQ's build writes the stored `input_` over the address appearance's `input="address"`,
+		// and its Case List page shows the checkbox: the checkbox's finding alone, the requirement
+		// beside it no address field's.
+		title: "an address appearance beside a checkbox",
+		edit: (body) => {
+			const prompt = first(body);
+			prompt.appearance = "address";
+			prompt.input_ = "checkbox";
+			prompt.itemset = TABLE;
+		},
+		findings: [[`${S}input-checkbox-itemset`, "search", "case_name"]],
+	},
+	{
+		title: "an address appearance beside a date matched by HQ's own rule",
+		edit: (body) => {
+			const prompt = first(body);
+			prompt.appearance = "address";
+			prompt.input_ = "date";
+		},
+		findings: [
+			[`${S}date-prompt-matched-by-hq-s-own-rule`, "search", "case_name"],
+		],
+	},
+	{
+		// HQ's Case List page blanks every check of an address field on a save, so the second
+		// validation is the address field's finding, not one of its own beside it.
+		title: "an address field with a second validation",
+		edit: (body) => {
+			const prompt = third(body);
+			prompt.appearance = "address";
+			const validations = prompt.validations as JsonObject[];
+			validations.push({ test: "true()", text: { es: "Otra", en: "Another" } });
+		},
+		findings: [
+			[
+				`${S}appearance-address-with-required-or-validations`,
+				"search",
+				"status",
+			],
+		],
+	},
+	{
+		title: "an address input type beside an address appearance",
+		edit: (body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.appearance = "address";
+			prompt.input_ = "address";
+		},
+		findings: [
+			[
+				`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
+				"search",
+				"case_name",
+			],
+		],
 	},
 ];
+
+/** The document a reading of the edited export gives, with no finding and no defect, and the
+ *  paths the reading records as respelled. */
+async function documentOf(edit: (body: JsonObject) => void) {
+	const body = exportedBody(PROMPTS);
+	edit(body);
+	const outcome = readHqApp(await inputFor(body));
+	expect(outcome.defects).toEqual([]);
+	if (outcome.kind !== "read")
+		throw new Error(
+			`The edited app read to an account: ${outcome.findings.map((one) => `${one.code} ${one.detail.name ?? ""}`).join(", ")}.`,
+		);
+	return {
+		doc: outcome.draft.doc,
+		respelled: outcome.draft.facts.sameStateRewrites.map(
+			(one) => [one.entry, one.path, one.register] as const,
+		),
+	};
+}
 
 async function account(edit: (body: JsonObject) => void) {
 	const body = exportedBody(PROMPTS);
@@ -446,20 +581,31 @@ describe("a Search field Nova cannot hold", () => {
 			prompt.itemset = TABLE;
 		};
 
-		it("a label column the table lacks is one finding", async () => {
-			const body = exportedBody(PROMPTS);
-			overTable(body);
-			const outcome = readHqApp(withTable(await inputFor(body)));
-			expect(outcome.defects).toEqual([]);
-			if (outcome.kind !== "account") throw new Error("read with no finding");
-			expect(
-				outcome.findings.map((one) => [
-					one.code,
-					one.place.kind,
-					one.detail.name,
-				]),
-			).toEqual([["unrecognized", "search", "schema:Itemset.value"]]);
-		});
+		// A ref to a column the table lacks reads blank for every choice on a device: a read of what
+		// is not there, the expression entry's own finding, once for the field.
+		const MISSING =
+			"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant";
+		for (const [title, refs] of [
+			["a label column", { label: "name" }],
+			["a value column", { label: "code", value: "name" }],
+			["a sort column", { label: "code", sort: "rank" }],
+			["a label and a value column", { label: "name", value: "kind" }],
+		] as const)
+			it(`${title} the table lacks is one finding`, async () => {
+				const body = exportedBody(PROMPTS);
+				overTable(body);
+				first(body).itemset = { ...TABLE, ...refs };
+				const outcome = readHqApp(withTable(await inputFor(body)));
+				expect(outcome.defects).toEqual([]);
+				if (outcome.kind !== "account") throw new Error("read with no finding");
+				expect(
+					outcome.findings.map((one) => [
+						one.code,
+						one.place.kind,
+						one.detail.name,
+					]),
+				).toEqual([[MISSING, "search", "case_name"]]);
+			});
 
 		it("a table the reading was not told of is handed off, and nothing else is a finding", async () => {
 			const body = exportedBody(PROMPTS);
@@ -494,6 +640,109 @@ describe("a Search field Nova cannot hold", () => {
 			]),
 		);
 		expect(found).toHaveLength(2);
+	});
+
+	// A widget HQ's build writes no part of is no widget: a blank `input_` or `appearance` (which
+	// HQ's build reads only where it holds text, `if prop.input_`, `if prop.appearance`), and an
+	// address appearance beside a date range (whose `input_` HQ's build writes over the address
+	// field's `input`). Each reads to the document of the field without it, the key recorded as
+	// respelled, since the first publish writes it no more.
+	describe("beside a widget HQ's build writes no part of", () => {
+		const BLANK = `${S}a-blank-text-in-a-search-key-hq-reads-only-where-it-holds-text`;
+		const UNDER = `${S}appearance-address-beside-an-input-hq-s-build-writes-over-it`;
+		const AT = "/modules/0/search_config/properties/0";
+
+		it("a blank input type and appearance read as the plain text field", async () => {
+			const plain = await documentOf(() => {});
+			const blank = await documentOf((body) => {
+				const prompt = first(body);
+				prompt.input_ = "";
+				prompt.appearance = "";
+			});
+			expect(blank.doc).toEqual(plain.doc);
+			expect(blank.respelled).toEqual(
+				expect.arrayContaining([
+					[BLANK, `${AT}/input_`, "list-settings-respelled"],
+					[BLANK, `${AT}/appearance`, "list-settings-respelled"],
+				]),
+			);
+		});
+
+		// The first prompt holds a hint, which a hidden prompt shows nowhere: Web Apps hides the
+		// prompt and Android shows its label alone, so the Hidden Value holds none.
+		const hide = (prompt: JsonObject) => {
+			delete prompt.required;
+			prompt.hidden = true;
+			prompt.exclude = true;
+			prompt.default_value = "'north'";
+		};
+
+		it("a hidden value's hint is shown nowhere and read as nothing", async () => {
+			const unhinted = await documentOf((body) => {
+				const prompt = first(body);
+				hide(prompt);
+				delete prompt.hint;
+			});
+			const hinted = await documentOf((body) => hide(first(body)));
+			expect(hinted.doc).toEqual(unhinted.doc);
+			expect(hinted.respelled).toContainEqual([
+				`${S}hint-on-a-hidden-prompt`,
+				`${AT}/hint`,
+				"list-settings-respelled",
+			]);
+		});
+
+		it("a hidden value's blank input type and appearance are no widget", async () => {
+			const hidden = await documentOf((body) => hide(first(body)));
+			const blank = await documentOf((body) => {
+				const prompt = first(body);
+				hide(prompt);
+				prompt.input_ = "";
+				prompt.appearance = "";
+			});
+			expect(blank.doc).toEqual(hidden.doc);
+		});
+
+		it("an address appearance beside a date range is the date range, its requirement no address field's", async () => {
+			// `case_name` is text in the catalog, so the date range is its own finding; with the
+			// address appearance beside it, that finding stands alone.
+			const range = await account((body) => {
+				first(body).input_ = "daterange";
+			});
+			expect(range).toEqual([
+				[
+					`${S}search-field-over-a-property-of-another-type`,
+					"search",
+					"case_name",
+				],
+			]);
+			expect(
+				await account((body) => {
+					const prompt = first(body);
+					prompt.input_ = "daterange";
+					prompt.appearance = "address";
+				}),
+			).toEqual(range);
+		});
+
+		it("an address appearance beside an excluded date range reads as that date range", async () => {
+			const exclude = (prompt: JsonObject) => {
+				prompt.input_ = "daterange";
+				prompt.exclude = true;
+			};
+			const range = await documentOf((body) => exclude(first(body)));
+			const under = await documentOf((body) => {
+				const prompt = first(body);
+				exclude(prompt);
+				prompt.appearance = "address";
+			});
+			expect(under.doc).toEqual(range.doc);
+			expect(under.respelled).toContainEqual([
+				UNDER,
+				`${AT}/appearance`,
+				"list-settings-respelled",
+			]);
+		});
 	});
 
 	// A value received beside an appearance HQ's editor sets is its own entry, and the address

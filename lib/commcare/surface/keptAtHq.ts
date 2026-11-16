@@ -317,7 +317,9 @@ export const KEPT_AT_HQ: Readonly<Record<string, KeptRow>> = {
 			does: "no-reader",
 			why: "Only Web Apps reads it, from HQ's build.",
 		},
-		preview: noClaim("The trail above Preview is the builder's."),
+		preview: noClaim(
+			"The trail above Preview is the builder's wayfinding, drawn whatever this setting holds, on Android as in Web Apps; it follows the running app's steps as Web Apps' trail reads them, and claims nothing of whether Web Apps draws its own.",
+		),
 		elsewhere: defaultsTo("on"),
 		base: "hq-kept-settings",
 	},

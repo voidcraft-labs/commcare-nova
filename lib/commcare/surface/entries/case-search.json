@@ -1457,7 +1457,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "a blank `\"\"` in `search_button_display_condition`, `blacklisted_owner_ids_expression`, `data_registry`, `custom_related_case_property`, `instance_name`, or a prompt's `receiver_expression` or `default_value`; a prompt's `required` whose `test` is blank or `null`, whatever its `text`",
+		"item": "a blank `\"\"` in `search_button_display_condition`, `blacklisted_owner_ids_expression`, `data_registry`, `custom_related_case_property`, `instance_name`, or a prompt's `receiver_expression`, `default_value`, `input_` or `appearance`; a prompt's `required` whose `test` is blank or `null`, whatever its `text`",
 		"surfaceKeys": [
 			"schema:CaseSearch.search_button_display_condition",
 			"schema:CaseSearch.blacklisted_owner_ids_expression",
@@ -1466,11 +1466,13 @@
 			"schema:CaseSearch.instance_name",
 			"schema:CaseSearchProperty.receiver_expression",
 			"schema:CaseSearchProperty.default_value",
+			"schema:CaseSearchProperty.input_",
+			"schema:CaseSearchProperty.appearance",
 			"schema:CaseSearchProperty.required"
 		],
 		"valueClass": "blank",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: HQ's Case List page writes `\"\"` into these five search keys on every save, `receiver_expression` for every plain or lookup prompt and `default_value` for every multi-select prompt (`views/modules.py::_gather_and_update_search_properties`, `_update_search_properties`), and every reader tests each by truth: `details.py` (the button condition), `remote_requests.py` (the owner list, the related-case property, a prompt's default, and its `<required>` and required text, `if prop.required.test`), `util.py::module_offers_registry_search` (the registry), `CaseSearch.get_instance_name`, and Web Apps' `query.js` (`receive`). A blank is the key absent",
+		"dispositionCell": "**INERT**: HQ's Case List page writes `\"\"` into these five search keys on every save, `receiver_expression` for every plain or lookup prompt and `default_value` for every multi-select prompt (`views/modules.py::_gather_and_update_search_properties`, `_update_search_properties`), and every reader tests each by truth: `details.py` (the button condition), `remote_requests.py` (the owner list, the related-case property, a prompt's default, its `input` and `appearance`, `if prop.input_`, `if prop.appearance`, and its `<required>` and required text, `if prop.required.test`), `util.py::module_offers_registry_search` (the registry), `CaseSearch.get_instance_name`, HQ's Case List page (`case_claim.js::_getAppearance`, which reads a blank `input_` and `appearance` as a plain text field), and Web Apps' `query.js` (`receive`). A blank is the key absent",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -2042,6 +2044,26 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/hint-on-a-hidden-prompt",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`hint{lang}` on a `hidden` prompt",
+		"surfaceKeys": ["schema:CaseSearchProperty.hint"],
+		"valueClass": "on-a-hidden-prompt",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: shown nowhere: Web Apps hides a hidden prompt (`query.js`, `d-none`) and Android shows a prompt's label and never its hint (`QueryRequestUiController.getLabel`); Nova's hidden Search value holds no hint (`hiddenSearchInputSchema`). A hint holding a carriage return is read by its own rows, since HQ's build writes it into the app strings",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/text-prompt-no-input",
 		"area": "case-search",
 		"section": "Case search",
@@ -2137,7 +2159,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`appearance: address` with `required` or `validations`",
+		"item": "`appearance: address` with `required` or `validations`, and no `input_` of `date`, `daterange` or `checkbox`",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.appearance",
 			"schema:CaseSearchProperty.required",
@@ -2390,6 +2412,36 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/input-no-runtime-names",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`input_` other than `select1`, `select`, `date`, `daterange`, `checkbox` and `address`, the input types a runtime names (`QueryPrompt.INPUT_TYPE_*`)",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.input_",
+			"parser:QueryPromptParser/prompt@input"
+		],
+		"valueClass": "input-no-runtime-names",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build writes it as the prompt's `input` (`remote_requests.py::build_query_prompts`), Android leaves the field off its search screen (`QueryRequestUiController.buildPromptEntry`, `isPromptSupported` over `QueryRequestActivity.getSupportedPrompts`), and Web Apps shows a plain text box (`query/item.html`) whose answer Formplayer leaves out of the search's own expressions and to which it gives no starting value (`RemoteQuerySessionManager.getUserQueryValues`, `initUserAnswers`, over `QueryScreen.getSupportedPrompts`); HQ's Case List page reads such a field as a plain text field and its save writes no `input_` (`case_claim.js::_getAppearance`, `views/modules.py::_update_search_properties`)",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android leaves the field off its search screen, and Web Apps shows a plain text box whose answer the search's own expressions do not read and that takes no starting value (`RemoteQuerySessionManager.isPromptSupported`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/search-field-over-a-property-of-another-type",
 		"area": "case-search",
 		"section": "Case search",
@@ -2608,6 +2660,28 @@
 		"emission": {
 			"cell": "—",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/itemset-without-the-item-list-its-instance-id-names",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a lookup `itemset` with no `instance_id`, or an `item-list:<tag>` one whose `nodeset` is not `instance('item-list:<tag>')/<tag>_list/<tag>` with at most a filter",
+		"surfaceKeys": ["schema:Itemset.instance_id", "schema:Itemset.nodeset"],
+		"valueClass": "nodeset-other-than-the-named-item-list",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: lookup choices read from another place than the table's item list, or with no instance named. HQ's build writes the itemset where it holds a nodeset (`remote_requests.py::build_query_prompts`) and refuses only an `instance_id` of another scheme (`helpers/validators.py::validate_search_config`); Nova's lookup options carrier is the table's item list (`lookupOptionsSourceSchema`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -3254,6 +3328,26 @@
 		"valueClass": "other-value",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: no reader on either runtime (with a `receiver_expression` the row above refuses it, and HQ's build drops `receive` for any prompt with an appearance and no itemset)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/appearance-address-beside-an-input-hq-s-build-writes-over-it",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`appearance: address` beside an `input_` of `date`, `daterange` or `checkbox`",
+		"surfaceKeys": ["schema:CaseSearchProperty.appearance"],
+		"valueClass": "address-beside-a-date-daterange-or-checkbox-input",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build gives the address appearance's prompt `input=\"address\"`, then writes the stored `input_` over it and writes no `appearance` (`remote_requests.py::build_query_prompts`), so both runtimes show the `input_`'s field; HQ's Case List page shows the `input_`'s type too (`case_claim.js::_getAppearance` tests `date`, `daterange` and `checkbox` last), and its save writes no `appearance` (`views/modules.py::_update_search_properties`). The field is read by its `input_`'s row (with a `receiver_expression` the row refusing one on an editor appearance other than text or a lookup refuses it, and HQ's build drops `receive` for any prompt with an appearance and no itemset)",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"

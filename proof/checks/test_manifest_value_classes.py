@@ -793,15 +793,25 @@ def test_search_settings_and_prompts(manifest):
         "properties": [
             {"name": "indices.parent"},
             {"name": "dob", "appearance": "address", "validations": [{"test": "true()"}]},
+            # A date range over an address appearance is no address field: HQ's build writes the ``input_`` over
+            # the appearance's ``input="address"``, and its Case List page shows the date range.
+            {
+                "name": "seen",
+                "appearance": "address",
+                "input_": "daterange",
+                "validations": [{"test": "true()"}, {"test": "false()"}],
+            },
         ],
         "default_properties": [{"property": "x_commcare_data_registry", "defaultValue": "'r'"}, {"property": "status"}],
         "search_button_label": {"en": "Search"},
     }
     app = _app([_module(search_config=search)], cloudcare_enabled=True)
     names = _app_uses(app, manifest, "schema:CaseSearchProperty.name")
-    assert [classes.reserved_request_key(use, manifest) for use in names] == [True, False]
+    assert [classes.reserved_request_key(use, manifest) for use in names] == [True, False, False]
     appearance = _app_uses(app, manifest, "schema:CaseSearchProperty.appearance")
-    assert [classes.address_with_required_or_validations(use, manifest) for use in appearance] == [True]
+    assert [classes.address_with_required_or_validations(use, manifest) for use in appearance] == [True, False]
+    validations = _app_uses(app, manifest, "schema:CaseSearchProperty.validations")
+    assert [classes.later_validations(use, manifest) for use in validations] == [False, True]
     [defaults] = _app_uses(app, manifest, "schema:CaseSearch.default_properties")
     assert classes.data_registry_key(defaults, manifest) is True
     assert classes.missing_default_value(defaults, manifest) is True
@@ -830,6 +840,17 @@ SEARCH_SUITE = b"""<suite version="1">
   <variables/><field><header><text><locale id="h"/></text></header>
   <template><text><xpath function="."/></text></template></field>
  </detail>
+</suite>"""
+
+
+# A search's prompts with an input type no runtime names (``slider``) and one Core names (``date``).
+INPUT_SUITE = b"""<suite version="1">
+ <entry><form>http://example.org/g</form><command id="m0-f0"><text><locale id="g"/></text></command>
+  <instance id="results:inline" src="jr://instance/remote/results:inline"/>
+  <session><query url="https://example.org/s" storage-instance="results:inline" template="case" default_search="false">
+   <prompt key="dob" input="slider"><display><text><locale id="p"/></text></display></prompt>
+   <prompt key="seen" input="date" exclude="true()"><display><text><locale id="q"/></text></display></prompt>
+  </query></session></entry>
 </suite>"""
 
 
@@ -2897,6 +2918,22 @@ def _search_and_menus():
                 "schema:CaseSearchProperty.input_",
                 f"{prompts}/input_",
             ),
+        ),
+        "case-search/input-no-runtime-names": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("dob", input_="slider")])),
+                "schema:CaseSearchProperty.input_",
+                f"{prompts}/input_",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("dob", input_="daterange")])),
+                "schema:CaseSearchProperty.input_",
+                f"{prompts}/input_",
+            ),
+            refused("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[1]/@input"),
+            accepted("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[2]/@input"),
         ),
         "case-search/search-button-label-any-other-value": (
             refused(

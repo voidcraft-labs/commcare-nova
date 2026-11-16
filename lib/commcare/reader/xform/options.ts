@@ -9,13 +9,12 @@ import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
-import { circumstanceFinding, type HqPlace } from "@/lib/publish/hqFindings";
+import type { HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { casePropertyStep } from "../../xpath/wire/rowScope";
 import type { Accounting } from "../accounting";
-import { readerDefect } from "../defects";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReaderLookupCatalog, UnreadTable } from "../types";
 import { ownText, type XmlCursor } from "../xmlCursor";
@@ -215,7 +214,7 @@ function readItemset(
 	select: "select1" | "select",
 	itemset: Element,
 ): CaseChoicesProposal | undefined {
-	const { parsed, cursor, place, field, accounting } = input;
+	const { parsed, cursor, place, field } = input;
 	const label = xformsChildren(itemset, parsed, "label")[0];
 	const value = xformsChildren(itemset, parsed, "value")[0];
 	const copy = xformsChildren(itemset, parsed, "copy")[0];
@@ -282,6 +281,14 @@ function readItemset(
 			cursor.refuseSubtree(itemset, X.itemsetRefShape, place);
 			return undefined;
 		}
+		const labelColumn = table.column(labelName);
+		const valueColumn = table.column(valueName);
+		// A ref to a column the table lacks reads blank for every choice on a device: one finding,
+		// which the whole itemset stands behind.
+		if (labelColumn === undefined || valueColumn === undefined) {
+			cursor.refuseSubtree(itemset, X.itemsetColumn, place);
+			return undefined;
+		}
 		const sites = X.lookupItemset;
 		const refs = X.lookupRefs;
 		const one = select === "select1";
@@ -302,43 +309,27 @@ function readItemset(
 					: "xform:select/itemset@nodeset",
 				mode: { target: "xform", constraint: false },
 			});
-		const labelColumn = table.column(labelName);
-		const valueColumn = table.column(valueName);
-		for (const [element, column, ref, siteElement, siteRef] of [
+		for (const [element, siteElement, siteRef] of [
 			[
 				label,
-				labelColumn,
-				"label" as const,
 				one ? refs.select1Label : refs.selectLabel,
 				one ? refs.select1LabelRef : refs.selectLabelRef,
 			],
 			[
 				value,
-				valueColumn,
-				"value" as const,
 				one ? refs.select1Value : refs.selectValue,
 				one ? refs.select1ValueRef : refs.selectValueRef,
 			],
 		] as const) {
-			if (column === undefined) {
-				// The one finding names the ref; the element and its `ref` stand behind it.
-				const name = `xform:itemset/${ref}@ref`;
-				accounting.defect(place, name, readerDefect.itemsetColumn(place, ref));
-				const raised = circumstanceFinding("unrecognized", place, { name });
-				accounting.cover({ element }, raised);
-				accounting.cover({ element, attribute: "ref" }, raised);
-				continue;
-			}
 			cursor.take({ element }, siteElement).value;
 			cursor.take({ element, attribute: "ref" }, siteRef).value;
 		}
-		if (labelColumn !== undefined && valueColumn !== undefined)
-			field.field.optionsSource = {
-				kind: "lookup",
-				tableId: table.tableId,
-				labelColumnId: labelColumn,
-				valueColumnId: valueColumn,
-			};
+		field.field.optionsSource = {
+			kind: "lookup",
+			tableId: table.tableId,
+			labelColumnId: labelColumn,
+			valueColumnId: valueColumn,
+		};
 		return undefined;
 	}
 

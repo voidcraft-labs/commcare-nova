@@ -124,7 +124,12 @@ it("compiles workflows whose case types and Search fields fill Nova's name gramm
 // and return frames, and every binding; the census fails by name if the generator
 // stops drawing a shape.
 it("compiles menu-screens samples whose menus show their forms in the menu above", {
-	timeout: 60_000,
+	// Its 200 seeded samples are the corpus, so the budget follows their cost,
+	// as the 400-sample test's does: it takes about 12 s alone on a laptop, the
+	// same share of 60 s the 400-sample test took before a full parallel run
+	// passed 60 s with it. That test's 180 s is about eleven times its time
+	// alone, and this one gets the same margin.
+	timeout: 135_000,
 }, () => {
 	const census = emptyMenuScreensCensus();
 	assertGenerated(

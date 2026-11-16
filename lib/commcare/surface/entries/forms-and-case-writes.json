@@ -4438,12 +4438,12 @@
 		],
 		"valueClass": "subcase-never",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-editable: no UI path to `never` for a child case",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare HQ's build writes the child case with a create whose condition is `false()`, so it never opens; removing the child case on the form's Case Management page removes it",
 		"subject": "child-cases",
 		"reasons": [
 			{
-				"kind": "not-hq-editable",
-				"named": "no UI path to `never` for a child case"
+				"kind": "broken-at-runtime",
+				"named": "CommCare HQ's build writes the child case with a create whose condition is `false()`, so it never opens; removing the child case on the form's Case Management page removes it"
 			}
 		],
 		"platforms": {

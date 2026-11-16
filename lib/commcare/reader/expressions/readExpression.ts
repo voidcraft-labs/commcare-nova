@@ -10,18 +10,21 @@ import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
+	activeRowScope,
 	type ExpressionContext,
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { RuleSet } from "@/lib/domain/expression/profiles";
+import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import {
 	type Expression,
 	type FormNodeRef,
 	isProseSlotRef,
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
+import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
 import type { SelectOptionsSource } from "@/lib/domain/fields/selectOptionsSource";
 import { CASE_LOADING_FORM_TYPES, operationCaseType } from "@/lib/domain/forms";
@@ -34,7 +37,7 @@ import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { caseOptionsNodeset } from "../../caseOptions";
 import { caseTypeHopMap } from "../../caseTypeDepths";
 import { searchAnswersOf } from "../../emissionPlan";
-import type { RewriteControl } from "../../emissionRewrites";
+import { type RewriteControl, rewriteWithheld } from "../../emissionRewrites";
 import { moduleExpressionContexts } from "../../expressionContext";
 import {
 	caseListStepDatumId,
@@ -101,6 +104,7 @@ import type {
 import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { JAVAROSA_NATIVE_FUNCTIONS } from "../../xpath/functionCapabilities";
+import { w } from "../../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../../xpath/wire/fromExpression";
 import { InstanceSink } from "../../xpath/wire/instances";
 import { serializeWire } from "../../xpath/wire/serialize";
@@ -421,6 +425,7 @@ function proposeFold(
 		const own = foldSite(fold.id, node);
 		if (options.withdrawn.has(own)) continue;
 		const reported: string[] = [];
+		let ownReading = false;
 		const env: FoldEnv = {
 			doc: options.doc,
 			operationIdPaths: options.operationIdPaths,
@@ -442,6 +447,9 @@ function proposeFold(
 				options.sites.spans.set(site, span);
 				return true;
 			},
+			ownReading() {
+				ownReading = true;
+			},
 		};
 		let proposal: Expression | undefined;
 		try {
@@ -455,6 +463,8 @@ function proposeFold(
 			throw new Error(
 				`The fold ${fold.id} proposed a tree in a ${context.ruleSet} slot it isn't offered to. Check \`EXPRESSION_FOLDS\`: a fold names the rule sets whose slots can hold its arm.`,
 			);
+		// The node's own reading claims no site, as a plain binding claims none.
+		if (ownReading) return proposal;
 		if (reported.length === 0) {
 			options.sites.used.add(own);
 			options.sites.spans.set(own, node);
@@ -826,6 +836,99 @@ function normalizedList(wire: WireExpr): WireExpr {
 	return inner;
 }
 
+/**
+ * The ids of a form's earlier creates as a Save to Case block's expression
+ * prints them under a print control. The emitter prints each from the node
+ * the expression stands in, through `current()`
+ * (`xform/caseOps.ts::bindOperationPaths`), where an author in CommCare HQ
+ * may write the create block's absolute path (`paths`, the form's
+ * `DraftForm.operationIdPaths`). Core resolves the two to one node wherever
+ * the absolute path names one: a create outside every repeat, or a create in
+ * the block's own repeat read outside a row predicate, which Core
+ * contextualizes to the block's entry (`TreeReference.contextualize`), so
+ * there the relocation is `default-reads-current`, as it is for an answer's
+ * read (`xpath/wire/formReads.ts::placeBindingWithheld`). Inside a row
+ * predicate (a runtime target's selector, or a row read's filter) the
+ * absolute path of a create in a repeat names every entry, and the
+ * relocation is `row-predicate-current`. Where the control withholds the
+ * relocation at a site, the read prints the absolute path; a create of
+ * Case Management, which no block holds, has none. The emitter asks the map
+ * once per read, in print order, the order a site level counts.
+ */
+function relocatedOperationIds(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	ref: SlotContextRef,
+	expression: Expression,
+	types: ExpressionContext,
+	ids: ReadonlyMap<Uuid, WireExpr> | undefined,
+	paths: ReadonlyMap<string, Uuid> | undefined,
+	rewrites: RewriteControl,
+): ReadonlyMap<Uuid, WireExpr> | undefined {
+	if (ids === undefined || paths === undefined || paths.size === 0) return ids;
+	const absolute = new Map<Uuid, WireExpr>();
+	for (const [text, uuid] of paths) {
+		// The path the case reader built from the block's node names
+		// (`saveToCase.ts::createPaths`), `/<root>/<name>/…/@case_id`.
+		const [, , ...names] = text.split("/");
+		if (names.length === 0) continue;
+		absolute.set(
+			uuid,
+			w.form(
+				names.map((name) =>
+					name.startsWith("@") ? w.attr(name.slice(1)) : w.step(name),
+				),
+			),
+		);
+	}
+	const repeated = new Set(
+		(doc.forms[formUuid]?.caseOperations ?? []).flatMap((operation) =>
+			operation.forEach?.repeat === undefined ? [] : [operation.uuid],
+		),
+	);
+	const selector =
+		ref.slot === "case_operation_target_expression" ||
+		ref.slot === "case_operation_link_target_expression";
+	const root = activeRowScope(types);
+	const inRowPredicate = new Set<Uuid>();
+	walkExpression(expression, {
+		visitExpression(node, path) {
+			if (node.kind !== "id-of") return;
+			if (
+				selector ||
+				activeRowScope(expressionContextAtPath(expression, types, path)) !==
+					root
+			)
+				inRowPredicate.add(node.opUuid);
+		},
+	});
+	const relocated: ReadonlyMap<Uuid, WireExpr> = {
+		get size() {
+			return ids.size;
+		},
+		has: (uuid) => ids.has(uuid),
+		get(uuid) {
+			const printed = ids.get(uuid);
+			const spelled = absolute.get(uuid);
+			if (printed === undefined || spelled === undefined) return printed;
+			return rewriteWithheld(
+				rewrites,
+				repeated.has(uuid) && inRowPredicate.has(uuid)
+					? "row-predicate-current"
+					: "default-reads-current",
+			)
+				? spelled
+				: printed;
+		},
+		forEach: (visit, self) => ids.forEach(visit, self),
+		entries: () => ids.entries(),
+		keys: () => ids.keys(),
+		values: () => ids.values(),
+		[Symbol.iterator]: () => ids[Symbol.iterator](),
+	};
+	return relocated;
+}
+
 /** The text the production emitter writes for `expression` in `ref`'s
  *  slot, in `slotReadMode(doc, ref)`, with `rewrites` withheld or reported.
  *  Throws where the emitter refuses the tree, which the checker refuses. */
@@ -1008,11 +1111,27 @@ export function printSlot(
 			if (place !== undefined) {
 				// The control reaches this print as it reaches every other, so a
 				// guard or a lowering the block's value holds is withheld here too.
+				const types = emission.context(ref);
 				const build = {
 					target: "xform",
-					types: emission.context(ref),
+					types,
 					form: emission.projection,
-					bindings: place,
+					bindings:
+						print.rewrites === undefined
+							? place
+							: {
+									...place,
+									operationIds: relocatedOperationIds(
+										doc,
+										formUuid,
+										ref,
+										expression,
+										types,
+										place.operationIds,
+										env.operationIdPaths.get(formUuid),
+										print.rewrites,
+									),
+								},
 					...(print.rewrites === undefined ? {} : { rewrites: print.rewrites }),
 				} as const;
 				return text(

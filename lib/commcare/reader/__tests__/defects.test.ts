@@ -11,9 +11,8 @@
  * whose path holds the marker), and holds each line to its literal template:
  * a line holding the marker, an unknown claim or entry printed as given, or a
  * template that drifted fails by its text. The defects a stage raises from
- * what it reads (a source Nova's parser refuses, an `xmlns` that differs, an
- * itemset column the catalog lacks) are provoked through the forms stage, each
- * with its one finding, and the text stage's translation that Nova's own rule
+ * what it reads (a source Nova's parser refuses, an `xmlns` that differs) are
+ * provoked through the forms stage, each with its one finding, and the text stage's translation that Nova's own rule
  * refuses after the pairing passed it through every stage; the expression
  * stage's two are provoked in `provisional.test.ts`, the assembly's in
  * `assemble.test.ts`. A relation finding the manifest no longer permits names
@@ -22,7 +21,6 @@
 
 import { current, produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
 import { translationUnitRoles } from "@/lib/domain/translationUnits";
 import { type HqPlace, READ_STANDINGS } from "@/lib/publish/hqFindings";
@@ -110,10 +108,6 @@ describe("each line is its template, from closed slots", () => {
 				`xmlns differs between the form and its source at ${key}`,
 			],
 			[
-				readerDefect.itemsetColumn(place, MARKER as "value"),
-				`itemset column at ${key}: the unknown-ref ref names a column the catalog lacks`,
-			],
-			[
 				readerDefect.assembly(place, {
 					path: ["modules", MARKER, 3],
 					code: "invalid_type",
@@ -176,10 +170,6 @@ describe("each line is its template, from closed slots", () => {
 			expect(readerDefect.formSource(place, kind)).toBe(
 				`form source at app: Nova's parser answered ${kind}`,
 			);
-		for (const ref of ["value", "label"] as const)
-			expect(readerDefect.itemsetColumn(place, ref)).toBe(
-				`itemset column at app: the ${ref} ref names a column the catalog lacks`,
-			);
 		for (const role of translationUnitRoles)
 			for (const issue of [
 				"value-kind",
@@ -208,8 +198,8 @@ describe("each line is its template, from closed slots", () => {
 		);
 	});
 
-	it("names thirteen codes", () => {
-		expect(READER_DEFECT_CODES).toHaveLength(13);
+	it("names twelve codes", () => {
+		expect(READER_DEFECT_CODES).toHaveLength(12);
 	});
 });
 
@@ -359,46 +349,6 @@ describe("a defect the forms stage raises", () => {
 			place,
 			"schema:Form.xmlns",
 		]);
-	});
-
-	it("stands behind an itemset column the catalog lacks", async () => {
-		const source = xformSource({
-			data: "<pick/>",
-			model: [
-				'<instance id="clinics" src="jr://fixture/item-list:clinics"/>',
-				'<bind nodeset="/data/pick" type="xsd:string"/>',
-			].join(""),
-			body: [
-				'<select1 ref="/data/pick"><label>Pick</label>',
-				"<itemset nodeset=\"instance('clinics')/clinics_list/clinics\">",
-				'<label ref="name"/><value ref="id"/></itemset></select1>',
-			].join(""),
-		});
-		const reading = await readForm(source, {
-			lookup: {
-				table: (tag) =>
-					tag === "clinics"
-						? {
-								tableId: testUuid("defects-clinics") as never,
-								column: (name) =>
-									name === "id" ? (testUuid("defects-id") as never) : undefined,
-							}
-						: undefined,
-				definitions: new Map(),
-			},
-		});
-		const question = reading.closed.findings.find(
-			(finding) => finding.place.kind === "question",
-		)?.place;
-		if (question === undefined) throw new Error("No finding at the question.");
-		expect(reading.closed.defects.map((defect) => defect.why)).toEqual([
-			readerDefect.itemsetColumn(question, "label"),
-		]);
-		expect(
-			reading.closed.findings
-				.filter((finding) => finding.code === "unrecognized")
-				.map((finding) => finding.detail.name),
-		).toContain("xform:itemset/label@ref");
 	});
 });
 

@@ -690,6 +690,13 @@ export const X = {
 		Q("itemset-refs-to-attr-or-property-qualified-fields"),
 		"xform:select1/itemset/value@ref",
 	),
+	/** A label or value ref naming a column the told table lacks: a read of what is not there,
+	 *  which a device reads blank for every choice (`options.ts::readItemset`). */
+	itemsetColumn: one(
+		"refuse",
+		"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
+		null,
+	),
 	itemsetItextLabel: one(
 		"refuse",
 		Q("itemset-label-jr-itext-field"),

@@ -393,6 +393,7 @@ describe("a parse issue's entry, by what the text and the form hold", () => {
 			{
 				instanceSources: new Map(Object.entries(sources)),
 				computedDatums: new Set(),
+				operationIdPaths: new Map(),
 			},
 		).entryId;
 
@@ -428,6 +429,7 @@ describe("a parse issue's entry, by what the text and the form hold", () => {
 			parseIssueEntry(issue, doc, reading, {
 				instanceSources: new Map(),
 				computedDatums: new Set(["supply_point_id"]),
+				operationIdPaths: new Map(),
 			}).entryId,
 		).toBe(
 			"expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed",

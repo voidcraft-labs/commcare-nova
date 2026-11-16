@@ -705,6 +705,11 @@ admits nothing it cannot read. The frame needs no stub and no flag while its sta
   covered by its finding (claimed under the same entry) and are not registered. It is there so a path
   another expression writes to it still binds: without it one refused question would make every
   expression that reads it a second, false finding.
+- a select whose choices got a finding (`xform/options.ts::readChoices`: a refused item or itemset,
+  an itemset the reader holds no shape of) as the select it is, holding no choice
+  (`provisional.ts::documentField`): its finding stands for the choices, every read of its answer
+  binds as the select's, and Nova's writer writes the rest of the app, where a select with no
+  choices source would stop it and leave every later comparison a reader defect.
 
 A provisional document is never returned: `ReadDraft.doc` exists only where no finding stands, and
 then no stand-in exists. Every draft form has its type by stage 7 (part 07 sets it, 7.4), so no
@@ -1278,10 +1283,10 @@ What `detail.name` holds, by what the finding is about (part 01, 8.3 and 9.2):
 
 **Defects.** Where the reader itself is at fault it raises `unrecognized` at the place, with the
 surface key as above, and calls `Accounting.defect(place, name, why)`. `why` is one of a closed set of
-twelve developer lines ("Copy", the defect table, D1 to D12): a second claim, a claim the
+developer lines ("Copy", the defect table, D1 to D12, of which D7 is retired): a second claim, a claim the
 manifest no longer permits, a held value nothing read, an identity key met twice, a form source only
-Nova's parser refuses, a form's `xmlns` that differs from its source's, an itemset column the catalog
-lacks, a document that does not assemble, an entry id `claimEntry` was handed that no claim
+Nova's parser refuses, a form's `xmlns` that differs from its source's, a document that does not
+assemble, an entry id `claimEntry` was handed that no claim
 registers, a translation Nova's own rule refuses after the pairing passed it (12.5), and part
 08's two lines for an expression Nova could not write back (2.3). A person reads only "In
 CommCare HQ: `xform:model/bind@relevant`" under part 01's sentence for `unrecognized`; the developer
@@ -1295,7 +1300,7 @@ constructor of `reader/defects.ts::readerDefect`, one per code:
 // lib/commcare/reader/defects.ts
 export const READER_DEFECT_CODES = [
 	"claimed-twice", "claim-not-permitted", "claimed-not-read", "identity-met-twice",
-	"form-source", "xmlns-differs", "itemset-column", "assembly",
+	"form-source", "xmlns-differs", "assembly",
 	"unregistered-expression-claim", "translation",
 	"expression-not-written-back", "no-case-datum",
 ] as const;
@@ -1311,7 +1316,6 @@ export const readerDefect: {
 	identityMetTwice(place: HqPlace, kind: ExternalEntityKind): ReaderDefectWhy;
 	formSource(place: HqPlace, kind: "xml-version" | "malformed"): ReaderDefectWhy;
 	xmlnsDiffers(place: HqPlace): ReaderDefectWhy;
-	itemsetColumn(place: HqPlace, ref: "value" | "label"): ReaderDefectWhy;
 	/** `issue` is the first issue of the document schema's parse. */
 	assembly(
 		place: HqPlace, issue: { readonly path: readonly PropertyKey[]; readonly code: string },
@@ -3768,7 +3772,7 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[];
 | `app-logo-is-absent` | `not-carried` | the app's `logo`, and none | none: a publish writes no `logo_refs`, so a logo reaches CommCare HQ only when a person adds it there (6.1) |
 | `menu-and-form-ids-as-read` | `not-carried` | a menu's and a form's `id` as authored, and the id a reading mints | the slug of the source language's name (a menu's, where blank, the first language's that holds one), suffixed past the ids of its kind before it in reading order (`provisional.ts::menuAndFormIdsAsRead`) |
 | `worker-fields-read-by-name-are-properties` | `one-wire` | a worker field read by name that no worker property names, and the read of a property of that slug | the property, labelled with its slug, each read by name of its slug read as the property, under the UUID a re-read mints under the app's own id (`worldEntities.ts::namedWorkerReadsAreProperties`) |
-| `world-properties-as-read` | `not-carried` | the worker and location properties as authored, and as `worldEntitiesFromReads` gives them from what the logic reads | each one read, labelled with its slug, in the order of the slugs, and none that nothing reads; of a property and a field read by name whose slugs differ only in capitalization, the one a reading declares (`worldEntities.ts::heldWorkerSlugs`), each read of the other the name-backed read of its slug (`worldEntities.ts::worldPropertiesAsRead`) |
+| `world-properties-as-read` | `not-carried` | the worker and location properties as authored, and as `worldEntitiesFromReads` gives them from what the logic reads | each one read, labelled with its slug, in the order of the slugs, and none that nothing reads; of a property and a field read by name whose slugs differ only in capitalization, the one a reading declares (`worldEntities.ts::heldWorkerSlugs`), each read of the other the name-backed read of its slug (`worldEntities.ts::worldPropertiesAsRead`); each row rebinds a read in every slot and every text that holds one, a translation that was current rewritten alike and kept current (`worldEntities.ts::rebindWorkerReads`, through `lib/doc/slotReadRewrites.ts::slotReadRewriteMutations`) |
 | `organization-levels-as-read` | `not-carried` | the levels as authored, and as `levelsFromHq` reads the list a publish sets up | the read levels: holding workers, descendant cases all or none, their own branch's address book, no description, parent before child (`worldEntities.ts::levelsAsRead`) |
 
 The provenance and out-of-date rows are why a Nova-born document in several languages reads back to
@@ -4332,7 +4336,7 @@ every slot is one of 5.1's closed slots, so no line holds a word of an app:
 | D4 | an identity key met twice | `identity-met-twice`, `identityMetTwice` | "identity met twice at <place>: a <kind> key" |
 | D5 | a source Nova's parser refuses | `form-source`, `formSource` | "form source at <place>: Nova's parser answered <kind>" |
 | D6 | an `xmlns` that differs | `xmlns-differs`, `xmlnsDiffers` | "xmlns differs between the form and its source at <place>" |
-| D7 | an itemset column the catalog lacks | `itemset-column`, `itemsetColumn` | "itemset column at <place>: the <ref> ref names a column the catalog lacks" |
+| D7 | none: a form itemset's label or value ref naming a column the told table lacks is no reader defect. A device reads it blank for every choice, so it is one finding at the question under `expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant`, the whole itemset behind it (`xform/options.ts::readItemset`, `X.itemsetColumn`), as a Search field's is (`search/prompts.ts`) | none | none |
 | D8 | a document that does not assemble | `assembly`, `assembly` | "assembly at <place>: <top-level key>: <issue code>" |
 | D9 | an entry id `claimEntry` was handed that no claim registers | `unregistered-expression-claim`, `unregisteredExpressionClaim` | "expression claim at <place> names <entry>, which no registered claim holds" |
 | D10 | a translation Nova's own rule refuses after the pairing passed it (12.5) | `translation`, `translation` | "translation at <place>: <role>, language <n>: <issue>" |

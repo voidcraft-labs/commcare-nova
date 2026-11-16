@@ -65,8 +65,8 @@ and a grouped observation only gains one field (6.4). So nothing here moves
 2. **`subject` is required on every HELD-NEW and REFUSED entry and forbidden elsewhere** (2.2). It is one
    of 83 slugs in `lib/publish/hqFindings.ts::SUBJECTS`, each a noun a person would use. Appendix A
    assigns the 586 entries the manifest held when the step began and every entry the step adds. Where
-   every run gives the outcome its part plans for, 673 entries hold one when the step is done: 294
-   HELD-NEW and 379 REFUSED.
+   every run gives the outcome its part plans for, 676 entries hold one when the step is done: 296
+   HELD-NEW and 380 REFUSED.
 3. **`owner` is required on every HELD-NEW entry and forbidden elsewhere** (2.3). It is one of the
    eight step 7 group ids, the groups of `7-rest-of-model.md`. An entry step 6 itself flips carries
    the group it would fall to until it flips.
@@ -92,7 +92,9 @@ and a grouped observation only gains one field (6.4). So nothing here moves
    slots, `mobile_ucr_restore_version` at `1.0` or `1.5`, `auto_gps_capture` on an app that is no Connect
    app, `persistent_menu` and `show_breadcrumbs`.
 10. **`persistent_menu` and `show_breadcrumbs` are kept, not not-yet** (4.3). Only Formplayer and the Web
-    Apps client read them; Preview draws neither, since its breadcrumb is the builder's own.
+    Apps client read them. Preview draws no persistent menu, and its one trail is the builder's own,
+    which follows the running app's steps as Web Apps' trail reads them whatever `show_breadcrumbs`
+    holds, and claims nothing of whether Web Apps draws its own.
 11. **`mobile_ucr_restore_version` is kept at `1.0` and `1.5`; `2.0` stays inert** (4.3). Its readers
     are report menus and mobile report choice lists, which their own entries refuse, Nova's publish never
     writes the key, and HQ's three starter apps hold `1.0`, as does the fourth directory of
@@ -274,10 +276,14 @@ here rests on, and defects of today's Nova found while reading:
   no report menu. On a restore made for the whole project space
   `fixtures/mobile_ucr.py::_parse_apps` reads every app's value into `needed_versions`, so the value picks
   the fixture version other apps' reports get. It is kept: Nova's publish never writes the key (4.3).
-- **Verified at source, `persistent_menu` and `show_breadcrumbs`:** `lib/preview` draws neither a
-  persistent menu nor Web Apps' breadcrumbs: the one trail is
-  `components/builder/BreadcrumbStrip.tsx`, the builder's own. So clause 3 of the kept test has
-  nothing to answer at any value, and both are kept (4.3).
+- **Verified at source, `persistent_menu` and `show_breadcrumbs`:** `lib/preview` draws no
+  persistent menu, and no trail of the running app's own: the one trail is
+  `components/builder/BreadcrumbStrip.tsx`, the builder's wayfinding, above the canvas in edit and
+  Preview alike and on an Android run too. In Preview it names and orders the session's steps, and a
+  crumb cuts the session back, as Web Apps' trail reads them (`lib/routing/previewBreadcrumbs.ts`),
+  whatever `show_breadcrumbs` holds: nothing in Nova reads the setting, which decides only whether
+  Web Apps draws its own trail, and no Nova surface claims to show that. So clause 3 of the kept test
+  has nothing to answer at any value, and both are kept (4.3).
 - **Verified at source, `multimedia_map`:** a binding of a path to a file is identity, recorded per
   target, so its `KEPT_AT_HQ` row takes the identity cells and not a setting's (5).
 - **Claim corrected (`lib/commcare/runtimeTarget.ts::profileServerProperties`, its comment):** "every app
@@ -576,8 +582,8 @@ and nothing else:
 
 | The entry's `fix-in-hq` reason kinds | Cause | Entries today |
 |---|---|---|
-| only `not-hq-editable` or `not-hq-buildable` | `hq-refuses` | 185 |
-| only `broken-at-runtime` or `unavailable-on-declared-platform` | `breaks-when-run` | 79 |
+| only `not-hq-editable` or `not-hq-buildable` | `hq-refuses` | 184 |
+| only `broken-at-runtime` or `unavailable-on-declared-platform` | `breaks-when-run` | 81 |
 | at least one of each group above | `either` | 17 |
 | `below-commcare-version-floor` | `below-floor` | 1 |
 
@@ -685,10 +691,10 @@ Appendix A lists the entries of each.
 | `question-text` | Question text | a question's text | 6 / 0 / 8 |
 | `question-types` | Kinds of question | a kind of question | 9 / 0 / 13 |
 | `repeats` | Repeat groups | a repeat group | 2 / 0 / 14 |
-| `save-to-case` | Save to Case questions | a Save to Case question | 9 / 0 / 9 |
+| `save-to-case` | Save to Case questions | a Save to Case question | 10 / 0 / 9 |
 | `search-default-filters` | Search filters | a search filter | 13 / 2 / 4 |
 | `search-expressions` | Search expressions | a search expression | 4 / 2 / 5 |
-| `search-fields` | Search fields | a search field | 14 / 0 / 6 |
+| `search-fields` | Search fields | a search field | 15 / 0 / 7 |
 | `search-setup` | Search setup | how the search is set up | 12 / 1 / 4 |
 | `shadow-forms` | Shadow forms | a shadow form | 4 / 0 / 3 |
 | `supply-features` | CommCare Supply | CommCare Supply features | 0 / 9 / 0 |
@@ -785,8 +791,8 @@ export type Step7Group = (typeof STEP_7_GROUPS)[number];
 
 `inventoryEntrySchema`'s HELD-NEW arm gains `owner: z.enum(STEP_7_GROUPS)`; no other arm admits it.
 Appendix A.1 assigns every one. Where every run gives the outcome its part plans for, the counts when
-the step is done are `case-list-and-detail` 63, `question-display` 63, `case-search` 43,
-`forms-and-case-management` 40, `xform` 40, `menus` 22, `project-data-at-hq-size` 13 and
+the step is done are `case-list-and-detail` 63, `question-display` 63, `case-search` 44,
+`forms-and-case-management` 41, `xform` 40, `menus` 22, `project-data-at-hq-size` 13 and
 `settings-nova-comes-to-own` 10 (the manifest test computes them). Updating a copy in a second
 project space is a thing Nova does, not content an app holds, so no entry can name it and the list
 does not hold it. A reading does not meet it: it reads one app in one project space once. Step 6
@@ -1320,10 +1326,14 @@ turn away every app made from one over a value none of its content reads. Kept a
 `FormplayerPropertyManager.isPersistentMenuEnabled` and `isBreadcrumbsEnabled`, and the Web Apps client
 (`cloudcare/static/cloudcare/js/formplayer/menus/utils.js::showBreadcrumbs`, and the persistent menu's
 views in `menus/views.js` beside it). No reader in commcare-core or
-commcare-android. Web Apps runs HQ's build, never Nova's archive. Preview draws neither: its one trail
-is `components/builder/BreadcrumbStrip.tsx`, the builder's own wayfinding, mounted above the canvas in
-edit and Preview alike and on an Android run too (`components/preview/PreviewShell.tsx`, "No header
-here"). Kept.
+commcare-android. Web Apps runs HQ's build, never Nova's archive. Preview draws no persistent menu, and
+its one trail is `components/builder/BreadcrumbStrip.tsx`, the builder's own wayfinding, mounted above
+the canvas in edit and Preview alike and on an Android run too (`components/preview/PreviewShell.tsx`,
+"No header here"). In Preview the trail follows the running app's steps as Web Apps' trail reads them
+(`lib/routing/previewBreadcrumbs.ts`: the session's order, and a crumb's cut back to its screen,
+`spliceSelections`), and it is drawn whatever `show_breadcrumbs` holds, which nothing in Nova reads:
+the setting decides only whether Web Apps draws its own trail, which no Nova surface claims to show.
+Kept.
 
 **`case_sharing: true`.** `xform.py::XFormCaseBlock.add_create_block` sets every new case's owner from
 the worker's case sharing group and adds the `groups` instance; `suite_xml/sections/fixtures.py` adds
@@ -1459,7 +1469,7 @@ alone is `why: "Nothing an archive holds derives from this value."`; `no-claim` 
 | `49p-hq-mobile-ucr-restore-version-1-0-1-5` | setting | Mobile report version | n-i-a: an archive holds no report | no-claim: Preview runs no report | default: `2.0` | `starter-health` |
 | `45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app` | setting | Location captured with every form | mirrors (`addMetaBlock`) | no-claim: Preview submits no `meta/location` | default: off | `hq-kept-settings` |
 | `51-hq-persistent-menu` | setting | Persistent menu in Web Apps | n-i-a: only Web Apps reads it, from HQ's build | no-claim: Preview draws no persistent menu | default: off | `hq-kept-settings` |
-| `52-hq-show-breadcrumbs` | setting | Breadcrumbs in Web Apps | n-i-a: the same | no-claim: the trail above Preview is the builder's | default: on | `hq-kept-settings` |
+| `52-hq-show-breadcrumbs` | setting | Breadcrumbs in Web Apps | n-i-a: the same | no-claim: the trail above Preview is the builder's wayfinding, drawn whatever the setting holds, on Android as in Web Apps; it follows the running app's steps as Web Apps' trail reads them, and claims nothing of whether Web Apps draws its own | default: on | `hq-kept-settings` |
 | `43-hq-secure-submissions` | setting | Secure submissions | mirrors (`profileServerProperties`) | no-claim: Preview posts to no receiver | default: off (the import that makes Nova's app copies no project space setting) | `starter-health` |
 | `36-hq-custom-base-url` | setting | Custom base URL | mirrors (`profileServerProperties`) | no-claim: the same | default: none | `hq-kept-settings`, which holds a second origin with a path |
 | `35-hq-practice-mobile-worker-id` | setting | Practice mobile worker | states (`kept_practice_worker_absent`) | no-claim: Preview has no practice mode | default: none | `hq-kept-settings` |
@@ -3996,8 +4006,10 @@ numbers are cited from other files, so none moves.
 
 1. **`persistent_menu` and `show_breadcrumbs` are kept at every value.** Not done: holding either
    not-yet at a non-default value. That would be right only if `lib/preview` drew a persistent menu
-   or Web Apps' breadcrumbs, since clause 3 of the kept test would then need Preview to read the
-   value or say it does not. Preview draws neither, so both are kept. Evidence: 4.3.
+   or Web Apps' own trail, since clause 3 of the kept test would then need Preview to read the
+   value or say it does not. Preview draws no persistent menu, and its one trail is the builder's
+   wayfinding, which follows the running app's steps as Web Apps' trail reads them, on Android as in
+   Web Apps, whatever `show_breadcrumbs` holds, so both are kept. Evidence: 4.3.
 2. **The Android logo slots are kept, though the `.ccz` cannot carry them.** The archive states it
    (`kept_android_logos_absent`, 9.5). Not done: holding them not-yet because the archive holds no
    bytes for them.
@@ -4424,7 +4436,7 @@ Counts by owner over these 237: `case-list-and-detail` 56, `case-search` 30,
 
 Each entry below becomes HELD-NEW in this step and holds both fields from then on. The part and
 section beside it write the entry's other fields. An entry marked "re-cut" exists today under another
-disposition. There are 78.
+disposition. There are 80.
 
 - `advanced-forms` → `forms-and-case-management` (part 07, `07-the-reader-cases-menus-lists.md`,
   section 14): `forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain`,
@@ -4534,7 +4546,8 @@ disposition. There are 78.
   `case-search/prompt-named-for-a-case-attribute-hq-matches-itself`,
   `case-search/search-field-over-a-property-of-another-type`
 - `search-fields` → `case-search` (part 07, section 12.2):
-  `case-search/a-required-or-validation-test-with-no-message-in-any-language`
+  `case-search/a-required-or-validation-test-with-no-message-in-any-language`,
+  `case-search/itemset-without-the-item-list-its-instance-id-names`
 - `search-setup` → `case-search` (part 07, section 14):
   `case-search/list-first-with-a-search-that-skips-to-results`,
   `case-search/search-on-a-put-in-root-module`, `case-search/title-label-blank-in-some-languages`
@@ -4877,7 +4890,7 @@ run G3 under its outcome C. It takes its subject by 2.2's rule and the owner its
 
 Each entry below becomes REFUSED in this step and holds `subject` from then on. Its standing is
 beside it, and beside a `fix-in-hq` entry the cause `fixCauseOf` gives its reasons, which chooses its
-sentence (8.4). There are 33: 29 `fix-in-hq` and 4 `never`.
+sentence (8.4). There are 34: 30 `fix-in-hq` and 4 `never`.
 
 - `app-name`, `fix-in-hq` (`breaks-when-run`; section 2.2):
   `application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`
@@ -4927,6 +4940,8 @@ sentence (8.4). There are 33: 29 `fix-in-hq` and 4 `never`.
   `questions/a-savetocase-link-name-longer-than-commcare-hq-stores`
 - `save-to-case`, `fix-in-hq` (`either`; part 07, section 14):
   `questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters`
+- `search-fields`, `fix-in-hq` (`breaks-when-run`; part 07, section 12.2):
+  `case-search/input-no-runtime-names`
 - `search-expressions`, `fix-in-hq` (`hq-refuses`; part 08, section 11):
   `case-search/required-or-validation-test-reading-the-case`
 - `text-backslashes`, `fix-in-hq` (`breaks-when-run`; section 2.2):

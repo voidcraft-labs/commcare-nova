@@ -68,7 +68,7 @@ import {
 	appStringValueIssue,
 	hqLocaleFileValue,
 	isPythonSpace,
-	localeFileValueIssue,
+	localeFileIssue,
 } from "../localeFile";
 import { xmlTextIssue } from "../xmlText";
 import { type Claim, defineClaims, refuse } from "./claims";
@@ -292,13 +292,21 @@ function holdOrCause(
 	}
 	if (xmlTextIssue(held) !== undefined)
 		return { cause: "unrepresentable-character" };
-	if (localeFileValueIssue(held) !== undefined)
-		return {
-			cause: held.includes("\\#")
-				? "backslash-before-hash"
-				: "unrepresentable-character",
-		};
-	return { held };
+	const issue = localeFileIssue(held);
+	switch (issue) {
+		case undefined:
+			return { held };
+		case "backslash-hash":
+			return { cause: "backslash-before-hash" };
+		case "backslash-n":
+		case "carriage-return":
+		case "edge-space":
+			// What a device shows holds none of these (above), so a held text that does is the
+			// reader's own reading gone wrong, never a cause to report of the app.
+			throw new Error(
+				`A text held as a device shows it still holds what the locale file shows otherwise (${issue}). holdOrCause in lib/commcare/reader/heldText.ts reads a device's text without the two characters \\n, a carriage return or a space at either end, so its reading of the stored text has gone wrong.`,
+			);
+	}
 }
 
 /**
