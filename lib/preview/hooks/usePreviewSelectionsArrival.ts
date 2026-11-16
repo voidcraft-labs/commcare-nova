@@ -22,7 +22,10 @@ import {
 	usePreviewPlatformRules,
 	usePreviewSelectedCase,
 } from "@/lib/session/hooks";
-import { useBuilderSessionApi } from "@/lib/session/provider";
+import {
+	type BuilderSessionStoreApi,
+	useBuilderSessionApi,
+} from "@/lib/session/provider";
 import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
@@ -41,6 +44,57 @@ function sessionSelections(state: {
 		target: previewSelectionsTargetOf(state.previewCaseTarget),
 		selected: state.previewSelectedCase,
 	};
+}
+
+/** The menus and forms the document holds, which a returned record keeps. */
+interface PreviewSelectionsDocument {
+	getState(): {
+		readonly modules: Readonly<Record<string, unknown>>;
+		readonly forms: Readonly<Record<string, unknown>>;
+	};
+}
+
+/**
+ * Back or Forward onto the current history entry: on Web Apps, its recorded
+ * selections become the session's wherever the session holds others
+ * (`previewSelectionsHistory.ts::previewSelectionsArrival`). It runs on the
+ * popstate itself, before any screen renders the entry
+ * (`useClientPath.ts::subscribeBuilderHistoryPop`).
+ */
+export function returnPreviewSelectionsOnArrival(
+	session: BuilderSessionStoreApi,
+	doc: PreviewSelectionsDocument,
+	replay: "address" | "session",
+): void {
+	const state = session.getState();
+	const arrival = previewSelectionsArrival({
+		replay,
+		atHome: getBuilderPathSegmentsSnapshot().length === 0,
+		onEntry: readCurrentPreviewSelections(),
+		session: state.previewSessionId,
+		task: state.previewTaskId,
+		current: sessionSelections(state),
+	});
+	if (arrival.kind === "keep") return;
+	const recorded = previewSelectionsInDocument(
+		arrival.recorded,
+		doc.getState(),
+	);
+	if (arrival.kind === "restore") state.restorePreviewSelections(recorded);
+	else state.replayPreviewSelections(recorded);
+}
+
+/** The current history entry records the selections the session holds: a
+ *  screen shown with them, once its entry's arrival has returned its own. */
+export function recordSessionSelections(session: BuilderSessionStoreApi): void {
+	recordPreviewSelections(() => {
+		const state = session.getState();
+		return {
+			session: state.previewSessionId,
+			task: state.previewTaskId,
+			...sessionSelections(state),
+		};
+	});
 }
 
 /**
@@ -73,23 +127,7 @@ export function usePreviewSelectionsArrival(
 		() =>
 			subscribeBuilderHistoryPop(() => {
 				if (modeRef.current !== "preview") return;
-				const state = session.getState();
-				const arrival = previewSelectionsArrival({
-					replay: replayRef.current,
-					atHome: getBuilderPathSegmentsSnapshot().length === 0,
-					onEntry: readCurrentPreviewSelections(),
-					session: state.previewSessionId,
-					task: state.previewTaskId,
-					current: sessionSelections(state),
-				});
-				if (arrival.kind === "keep") return;
-				const recorded = previewSelectionsInDocument(
-					arrival.recorded,
-					doc.getState(),
-				);
-				if (arrival.kind === "restore")
-					state.restorePreviewSelections(recorded);
-				else state.replayPreviewSelections(recorded);
+				returnPreviewSelectionsOnArrival(session, doc, replayRef.current);
 			}),
 		[doc, session],
 	);
@@ -108,11 +146,6 @@ export function usePreviewSelectionsArrival(
 		/* A return to the entry's selections happens on the popstate,
 		 * before this; whatever the session holds now is what the entry
 		 * shows, so the entry records it. */
-		const state = session.getState();
-		recordPreviewSelections({
-			session: state.previewSessionId,
-			task: state.previewTaskId,
-			...sessionSelections(state),
-		});
+		recordSessionSelections(session);
 	}, [loc, menu, mode, selected, session, snapshot, target]);
 }
