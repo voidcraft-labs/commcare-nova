@@ -3,9 +3,9 @@ title: Commands
 description: Every Nova command in Claude Code, what it does, and an example.
 ---
 
-The plugin adds seven `/nova:*` commands. The two `/plugin` commands and `/mcp` are Claude Code's own, they appear here because you use them during setup.
+The plugin adds eight `/nova:*` commands. The two `/plugin` commands and `/mcp` are Claude Code's own, they appear here because you use them during setup.
 
-The intended flow is: build an app with `/nova:build` (or `/nova:autobuild`), change it with `/nova:edit` until it's right, then push it to CommCare HQ with `/nova:upload_to_hq`. Apps live in your Nova account, uploading to HQ is a separate, optional step.
+The intended flow is: build an app with `/nova:build` (or `/nova:autobuild`), change it with `/nova:edit` until it's right, then push it to CommCare HQ with `/nova:upload_to_hq`. Apps live in your Nova account, uploading to HQ is a separate, optional step. If your app already lives in CommCare HQ, `/nova:bring_in` brings it in to Nova first.
 
 ## Setup
 
@@ -86,6 +86,21 @@ Your saved app stays usable while the next changes take shape. If work stops
 before a save, ask Claude to resume it; the last saved app remains unchanged.
 Saving an app, testing its workflow and uploading it to HQ are separate steps.
 
+## Bringing in an app from CommCare HQ
+
+### `/nova:bring_in [project space] [app name]`
+
+Brings an app you already have in CommCare HQ in to Nova, so you can keep working on it here and publish back to the same HQ app. Nova reads the app first with your API key (saved in [Nova settings](https://commcare.app/settings)) and creates nothing until you've seen what comes in. Name a project space and an app to go straight to them; leave them off and Claude asks.
+
+Claude asks you for each thing that is yours to decide: the Nova Project where you can edit more than one, the app's name, where the app runs, and what to do about a lookup table your Project already has. If Nova can't hold every part of the app yet, Claude shows you the whole list of what and where, and nothing is created.
+
+```text
+/nova:bring_in
+/nova:bring_in my-project-space "vaccine tracking"
+```
+
+See [Bringing in an app from CommCare HQ](../bringing-in-from-commcare-hq.mdx) for what Nova checks and what happens when you publish back.
+
 ## Uploading to CommCare HQ
 
 ### `/nova:upload_to_hq <app_id or name> [project space]`
@@ -99,14 +114,14 @@ Before anything is sent, Claude checks in with you about what Nova can't see for
 - **Plan features and project-space settings.** No API key can read a project space's plan or two of its settings, so when your app needs a plan feature that nobody has confirmed there yet, Claude names it, what happens without it and the plans that include it. The same goes for the two settings an app can need: the flat location list and a CommCare Connect forwarder, which the project space turns on whatever its plan. Nova sends the upload once you say the project space has them, and keeps what you confirmed for the next upload there.
 - **The CommCare version.** If the app in CommCare HQ is set to a CommCare version older than 2.57, Nova sends none of its content, and Claude gives you the link to the app's settings in CommCare HQ, where you can raise it before uploading again.
 - **Application profiles.** If an application profile of the app in CommCare HQ includes a language you removed, Nova sends none of the app's content, and Claude gives you the link to the app in CommCare HQ, where you can change the profile before uploading again.
-- **Changes made in CommCare HQ.** If the app, a lookup table or a place changed in CommCare HQ since Nova last published it, Claude shows you what changed, and Nova writes over a change only once you choose to replace it. A change you'd rather keep stays as it is in CommCare HQ, and you can bring it into your app in Nova before you upload again.
+- **Changes made in CommCare HQ.** If the app, a lookup table or a place changed in CommCare HQ since Nova last published it, or since you brought the app in, Claude shows you what changed, and Nova writes over a change only once you choose to replace it. A change you'd rather keep stays as it is in CommCare HQ, and you can bring it into your app in Nova before you upload again. An admin or owner of the Project can also stop publishing there, which leaves CommCare HQ's version as it is.
 
 ```text
 /nova:upload_to_hq vaccine tracking
 /nova:upload_to_hq "vaccine tracking" my-project-space
 ```
 
-On success, the response includes the HQ app's URL and any warnings HQ returned. The first upload to a project space creates the app there; uploading again updates that same HQ app in place. Your Nova copy is unaffected either way.
+On success, the response includes the HQ app's URL and any warnings HQ returned. The first upload to a project space creates the app there, or updates the app it was brought in from; uploading again updates that same HQ app in place. Before the first upload of an app you brought in, Claude shows you what that upload changes in CommCare HQ. Your Nova copy is unaffected either way.
 
 ## Updating the plugin
 

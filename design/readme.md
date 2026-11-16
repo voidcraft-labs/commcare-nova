@@ -184,6 +184,7 @@ password works.
 | `Badge.prompt.md` | `components/shadcn/badge.tsx` |
 | `Input.prompt.md` | `components/shadcn/input.tsx` |
 | `Toggle.prompt.md` | `components/shadcn/switch.tsx` |
+| `RadioGroup.prompt.md` | `components/shadcn/radio-group.tsx` |
 | `Card.prompt.md` | `components/ui/AppCard.tsx` |
 | `Logo.prompt.md` | `components/ui/Logo.tsx` (plus the logo CSS in `app/globals.css`) |
 | `SectionPager.prompt.md` | `components/preview/form/sections/` (`SectionHeading.tsx`, `SectionPage.tsx`, `SectionPagerControls.tsx`, the `useSectionPaging.ts` hook) and the submit row in `components/preview/screens/FormScreen.tsx` |
@@ -263,3 +264,15 @@ body and visible footer. Required confirmations and their consequences stay
 visible. Plans, affected forms and further guidance expand under Details;
 published destinations have their own disclosure. Back preserves the destination
 draft, and step navigation hands focus to the new heading as it appears. Nothing is uploaded by Continue.
+
+## Bringing in
+
+Bringing an app in from CommCare HQ is a state of the new-app page, not a
+dialog. One card takes the composer's place, with a heading that takes focus as
+each step appears, a scrolling middle and a footer that stays. The address names
+the app, so a reload reads it again and the address can be kept or sent. A read
+that cannot bring the app in is a full account and never an error: amber, never
+rose, grouped by where each thing lives in the app, with three plain labels
+explained once. A review asks nothing by tick: where the app runs is chosen for
+the person and theirs to change, and only a real choice between two outcomes is
+left open. Nothing is created until the review's one button.

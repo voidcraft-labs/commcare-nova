@@ -24,6 +24,7 @@ import {
 	MANAGED_TABLE_REFRESHED_ROWS,
 	MANAGED_TABLE_REFRESHED_SINCE,
 	managedColumnKept,
+	managedTableOutcomeLines,
 } from "@/lib/publish/managedData";
 import {
 	captureRowEditBaseline,
@@ -43,7 +44,6 @@ import {
 	hasRetainedRowWorkForProject,
 	keepRevisionedTextDraft,
 	managedTableBannerModel,
-	managedTableOutcomeLines,
 	manifestProvesTableUnavailable,
 	mergeUnavailableRowDraft,
 	readAgainAfterRefusal,
@@ -1289,17 +1289,13 @@ describe("tables that came from CommCare HQ", () => {
 		it("says nothing of a change with no receipt, and a refusal's own sentence", () => {
 			expect(
 				managedTableOutcomeLines(
-					{ ok: true, receipt: null, table: entry(tableId, origin("nova")) },
+					{ ok: true, receipt: null },
 					"district-health",
 				),
 			).toEqual({ tone: "status", lines: [] });
 			expect(
 				managedTableOutcomeLines(
-					{
-						ok: false,
-						reason: "unavailable",
-						message: "CommCare HQ didn't answer just now.",
-					},
+					{ ok: false, message: "CommCare HQ didn't answer just now." },
 					"district-health",
 				),
 			).toEqual({

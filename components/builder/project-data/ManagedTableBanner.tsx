@@ -43,6 +43,7 @@ import {
 	managedInNovaBanner,
 	managedTableBanner,
 	managedTableBannerRefreshed,
+	managedTableOutcomeLines,
 	OPEN_IN_HQ,
 	REFRESH_FROM_HQ,
 	REFRESH_NEEDS_EDITOR,
@@ -51,10 +52,7 @@ import { useCanDelete, useProjectCanEdit } from "@/lib/session/hooks";
 import { KEPT_REFRESH_BUTTON_PENDING, keptDateText } from "../keptListModel";
 import { LetHqManageDialog, ManageInNovaDialog } from "./ManagedTableDialogs";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
-import {
-	managedTableBannerModel,
-	managedTableOutcomeLines,
-} from "./projectDataModel";
+import { managedTableBannerModel } from "./projectDataModel";
 import { useManagedLookupTableView, useManifestEntry } from "./useProjectData";
 
 const TRANSPORT_FAILURE =

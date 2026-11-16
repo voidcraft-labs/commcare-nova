@@ -362,12 +362,14 @@ export interface InitMcpCallResult {
  * Narrow shape the adapter consumes from the SDK's per-request handler
  * context (`ServerContext`).
  *
- * `mcpReq._meta.progressToken` (the client's `string | number` opt-in) and `mcpReq.notify` (the request-scoped
- * notification sender the progress emitter dispatches through) are the
- * only fields we read. Declaring the shape locally — every field
- * optional, matching requests without progress opt-in — keeps the import
- * surface small without forcing a
- * deep import of the SDK's context types.
+ * `mcpReq._meta.progressToken` (the client's `string | number` opt-in),
+ * `mcpReq.notify` (the request-scoped notification sender the progress
+ * emitter dispatches through) and `mcpReq.signal` (the SDK's abort signal
+ * for a request its sender cancelled, which a tool that reads CommCare HQ
+ * hands its read as `cancel`) are the only fields we read. Declaring the
+ * shape locally — every field optional, matching requests without progress
+ * opt-in — keeps the import surface small without forcing a deep import of
+ * the SDK's context types.
  */
 interface McpCallExtra {
 	mcpReq?: {
@@ -375,6 +377,7 @@ interface McpCallExtra {
 			progressToken?: string | number;
 		};
 		notify?: ProgressNotifyFn;
+		signal?: AbortSignal;
 	};
 }
 

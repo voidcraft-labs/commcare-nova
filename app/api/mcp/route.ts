@@ -45,8 +45,10 @@ import { mcpUnavailableResponse } from "./unavailable";
  * literal: Next's static analysis rejects imported / computed values.
  * `dispatch.ts`'s `MCP_MAX_DURATION_SECONDS` documents this same
  * number for MCP-layer readers (the v2 SDK has no protocol-level
- * duration knob, so the platform cap here is the only enforcement).
- * Keep these two values in sync.
+ * duration knob). Advisory only: on the Next `standalone` server
+ * nothing enforces this export, and the real per-request ceiling is
+ * the Cloud Run service's `timeoutSeconds`. Keep these two values in
+ * sync.
  */
 export const maxDuration = 300;
 

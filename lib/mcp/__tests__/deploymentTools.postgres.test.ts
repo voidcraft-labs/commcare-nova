@@ -10,9 +10,14 @@ import {
 	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import {
+	BIRTH_AT,
+	birthAdoptedApp,
+} from "@/lib/deployment/__tests__/adoptedBirth";
 import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import {
 	applyDeploymentObservation,
@@ -25,11 +30,14 @@ import {
 import { keptListFor } from "@/lib/deployment/targetFacts";
 import type { AppOwnership } from "@/lib/deployment/types";
 import { log } from "@/lib/logger";
+import { driftDate } from "@/lib/publish/driftReference";
 import { KEPT_LABELS, keptListUnreadSentence } from "@/lib/publish/keptValues";
+import { endedLine } from "@/lib/publish/stopPublishing";
 import {
 	registerGetDeployment,
 	registerRefreshDeployment,
 } from "../tools/deploymentTools";
+import { registerStopPublishing } from "../tools/stopPublishing";
 import { registerWithdrawDeploymentConfirmation } from "../tools/withdrawDeploymentConfirmation";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
@@ -61,7 +69,8 @@ const PROFILE_PATH = "/a/clinic/apps/download/released-build/profile.ccpr";
 const PROFILE = `<profile><suite><resource id="suite"><location authority="remote">${HOST}/a/clinic/apps/download/released-build/suite.xml</location></resource></suite></profile>`;
 const GET = "get_deployment",
 	REFRESH = "refresh_deployment",
-	WITHDRAW = "withdraw_deployment_confirmation";
+	WITHDRAW = "withdraw_deployment_confirmation",
+	STOP = "stop_publishing";
 function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
@@ -72,6 +81,7 @@ function asUser<T>(
 		registerGetDeployment(server, ctx);
 		registerRefreshDeployment(server, ctx);
 		registerWithdrawDeploymentConfirmation(server, ctx);
+		registerStopPublishing(server, ctx);
 	}, run);
 }
 function call(
@@ -262,6 +272,8 @@ it("reports every stored target to a viewer with its current resource identity a
 					/* The publish's read-back failed and recorded an unread
 					 * baseline, so Nova holds no read of the kept settings. */
 					kept: null,
+					brought_in: null,
+					ending: null,
 					setup_artifact: expect.any(Object),
 				});
 				for (const deployment of body.deployments) {
@@ -1200,4 +1212,78 @@ it("answers a kept refresh whose write landed as landed when its list cannot be 
 		},
 	);
 	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(words);
+});
+
+it("says where an app came from and where Nova stopped publishing, and lets only an admin or owner stop", async () => {
+	const BROUGHT_IN_APP = testUuid("brought-in-app");
+	const HQ_APP = "c".repeat(32);
+	await h.seedProjectMember("owner-person", PROJECT, "owner");
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	await birthAdoptedApp(h, {
+		appId: BROUGHT_IN_APP,
+		projectId: PROJECT,
+		actorUserId: "owner-person",
+		target: TARGET,
+		remoteAppId: HQ_APP,
+	});
+	const args = { app_id: BROUGHT_IN_APP, ...TARGET };
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const before = JSON.parse(
+				resultText(await call(client, GET, { app_id: BROUGHT_IN_APP })),
+			);
+			expect(before.deployments).toHaveLength(1);
+			expect(before.deployments[0]).toMatchObject({
+				domain: "clinic",
+				hq_app_id: HQ_APP,
+				ownership: "adopted",
+				brought_in: { at: BIRTH_AT.toISOString(), by: "owner-person" },
+				ending: null,
+			});
+
+			/* An editor sees the deployment and may publish to it, so the
+			 * answer names who can stop rather than finding nothing. */
+			expect(errorBody(await call(client, STOP, args))).toEqual({
+				error_type: "permission_denied",
+				message:
+					"Only an admin or owner of this Project can stop publishing here. You can ask one of them to.",
+				app_id: BROUGHT_IN_APP,
+			});
+		});
+		const unchanged = await readDeployment(
+			{ ...SCOPE, appId: BROUGHT_IN_APP },
+			TARGET,
+		);
+		expect(unchanged?.deployment.state).not.toBe("ended");
+
+		await asUser(async (client) => {
+			const stopped = JSON.parse(resultText(await call(client, STOP, args)));
+			expect(stopped).toMatchObject({
+				app_id: BROUGHT_IN_APP,
+				server: "india",
+				domain: "clinic",
+				state: "ended",
+				hq_app_id: null,
+				brought_in: null,
+				ending: {
+					by: "owner-person",
+					reason: "stopped",
+					hq_app_id: HQ_APP,
+				},
+				setup_artifact: expect.any(Object),
+			});
+			expect(stopped.ending.message).toBe(
+				endedLine(
+					{ byName: "owner-person", reason: "stopped" },
+					driftDate(stopped.ending.at),
+				),
+			);
+			const after = JSON.parse(
+				resultText(await call(client, GET, { app_id: BROUGHT_IN_APP })),
+			);
+			expect(after.deployments[0].ending).toEqual(stopped.ending);
+		}, "owner-person");
+		/* Stopping asks CommCare HQ nothing. */
+		expect(urls(peer)).toEqual([]);
+	});
 });

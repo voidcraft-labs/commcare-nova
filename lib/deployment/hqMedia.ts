@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import type { HqMediaMapItem } from "@/lib/commcare/hq/appSource";
 
 /** The most code points a held path has, the width of HQ's own path columns. */
 const MAX_WIRE_PATH_CODE_POINTS = 255;
@@ -54,3 +55,30 @@ export const hqMediaRecordSchema: z.ZodType<HqMediaRecord> = z
 		z.string().regex(/^[\w-]+$/),
 	)
 	.readonly();
+
+const JR_FILE = "jr://file/";
+
+/**
+ * Each kept path's id in the source a bring-in read its files from: the
+ * `multimedia_map` entry at that path names the file the bring-in fetched
+ * and kept there. A kept path is always one of the map's own, so a path the
+ * map holds no readable entry for is a defect of the caller's, and throws.
+ */
+export function hqMediaRecordFromSource(
+	wirePaths: readonly string[],
+	map: readonly HqMediaMapItem[],
+): HqMediaRecord {
+	const byPath = new Map(map.map((item) => [item.path, item]));
+	const record: Record<string, string> = {};
+	for (const wirePath of wirePaths) {
+		const id = byPath.get(`${JR_FILE}${wirePath}`)?.multimediaId ?? null;
+		if (id === null) {
+			throw new Error(
+				"Nova kept a media path for an app it brought in, and CommCare HQ's media map names no file there. " +
+					"A kept path is one the bring-in fetched a file by, so look at what built the media path rows the birth writes.",
+			);
+		}
+		record[wirePath] = id;
+	}
+	return record;
+}

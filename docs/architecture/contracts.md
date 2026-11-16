@@ -60,8 +60,9 @@ remain opaque audit history. A horizon expected to support later replay owns an
 immutable, complete Project-bearing persisted baseline keyed to its exact app
 sequence; a reload boundary by itself is never treated as reconstructable
 state. App birth comes from the Builder's explicit blank action, a reviewed
-architect checkpoint, or an ordinary authoring session's first valid checkpoint.
-All three use one genesis writer with identical admission: the construction batch reduces from the canonical empty Blueprint,
+architect checkpoint, an ordinary authoring session's first valid checkpoint,
+or bringing an app in from CommCare HQ.
+All four use one genesis writer with identical admission: the construction batch reduces from the canonical empty Blueprint,
 passes the absolute gate and full export readiness, and its complete
 immutable result is recorded atomically as the sequence-`1` genesis baseline
 beside the app root, entities, exact lookup/media edges, runtime case-schema
@@ -77,12 +78,18 @@ workflow, with the run's holder and credit reservation transferred from the
 design session onto the app row in the same transaction. An ordinary session
 materializes its complete candidate without fabricating a design plan or build
 run; its session-to-app mapping and exact checkpoint receipt commit with the
-app. Every birth hands
+app. `hq-adoption` is an app brought in from CommCare HQ: it is born
+`complete` from the reader's construction batch, with no holder, reservation,
+credit or design session. Its lookup tables, places, media edges and the
+adopted deployment with its claim on the HQ app commit in that one
+transaction; its media files are published before it, as ordinary ready files,
+and are all that can outlive a birth that fails. Every birth hands
 its surface the one strict activation receipt (identity, Project capability,
 the exact sequence-`1` blueprint, its canonical digest, and — on the blank
-path only — the starter UUIDs); a persisted empty app, optional seed path,
-independently reconstructed starter, or pre-app placeholder row is
-forbidden.
+path only — the starter UUIDs, and on a brought-in app only, where it came
+from); a persisted empty app, optional seed path, independently reconstructed
+starter, or placeholder `apps` row is forbidden. A design session is a record
+of work toward an app and is never an app.
 
 The gate consumes the exact parsed JSON value persistence can replay. Before
 reduction, one shared admission boundary safely detaches a proposed live batch
@@ -371,11 +378,12 @@ These decisions are closed unless the project owner explicitly reopens them.
 - A case change's placement (a Case Management action, an advanced menu's case
   action and its tag, or a Save to Case block path), a query repeat's placement
   and a menu's advanced kind are held from the publish that first carries them,
-  because they are where CommCare HQ keeps published answers. Only a publish or
-  a migration records or replaces a hold that can still express what it holds;
+  or from the birth that brought the app in, because they are where CommCare HQ keeps published answers. Only a publish, a
+  migration or bringing the app in records a hold, and only a publish or a
+  migration replaces one that can still express what it holds;
   an edit the hold cannot express moves it, as an identity edit every editor
-  states before it saves, and undoing that edit puts it back where the publish
-  recorded it. A menu CommCare HQ holds as advanced stays advanced while it can
+  states before it saves, and undoing that edit puts it back where it was last
+  recorded. A menu CommCare HQ holds as advanced stays advanced while it can
   be one.
 - Phases are idempotent and independently retryable. Retrying a table or location
   push must not require importing a duplicate app.

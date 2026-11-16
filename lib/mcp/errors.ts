@@ -27,6 +27,9 @@
  *   `lib/projects/manage`) — Project-write policy rejections and
  *   member-but-under-privileged denials; both pass their
  *   person-readable message through verbatim.
+ * - `BringInToolError` (declared below): an expected refusal of a
+ *   bring-in tool, carrying a circumstance's block or a refusal beside its
+ *   message.
  *
  * **IDOR hardening.** `McpAccessError.reason` carries two distinct
  * internal reasons (`"not_found"`, `"not_owner"`) so admins can
@@ -64,6 +67,7 @@ import {
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
 import { DeploymentError } from "@/lib/deployment/errors";
+import type { ReadingRefusal } from "@/lib/deployment/reading/types";
 import { log } from "@/lib/logger";
 import {
 	ProjectManagementError,
@@ -223,8 +227,27 @@ export type UploadErrorType =
 	| "publishing_stopped";
 
 /**
+ * What a bring-in tool (`list_hq_apps`, `read_hq_app`, `bring_in_hq_app`)
+ * can refuse with beyond the shared buckets. A stop, an account, a review
+ * and a create that did not create are results, never errors.
+ *
+ *   - `hq_read_stopped`: a read of CommCare HQ ended before there was an
+ *     app's read to answer. The payload carries the circumstance's code,
+ *     title and next step beside its body.
+ *   - `bring_in_refused`: a create Nova refused for a reason that is neither
+ *     bad input nor access (a file left the Project while the app was being
+ *     created, or the app was brought in already and the caller can't open
+ *     it). The payload carries the refusal.
+ */
+export type BringInErrorType =
+	/** A read of CommCare HQ ended before there was an app's read to answer. */
+	| "hq_read_stopped"
+	/** A create Nova refused for a reason that is neither bad input nor access. */
+	| "bring_in_refused";
+
+/**
  * Closed union of every `error_type` string an MCP tool response can
- * emit. Spans five independent failure sources:
+ * emit. Spans seven independent failure sources:
  *
  *   - `"not_found"` — the single access-failure bucket the wire
  *     exposes. The internal `AccessErrorReason` union (`"not_found"`
@@ -255,6 +278,11 @@ export type UploadErrorType =
  *     publishing, which an admin or owner may do).
  *   - `UploadErrorType` — HQ connection, compatibility, target-state, and
  *     upload rejections.
+ *   - `BringInErrorType`: a read of CommCare HQ that stopped before there
+ *     was an app's read to answer (`hq_read_stopped`, with the
+ *     circumstance's code, title and next step), and a create Nova refused
+ *     for a reason that is neither input nor access (`bring_in_refused`,
+ *     with the refusal). Surfaces via `BringInToolError`.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
  *     every generic throw (network, provider, internal).
  *
@@ -267,6 +295,7 @@ export type McpErrorType =
 	| "scope_missing"
 	| "permission_denied"
 	| UploadErrorType
+	| BringInErrorType
 	| AgentErrorType;
 
 /**
@@ -288,6 +317,9 @@ export type McpErrorType =
  * already names the friendly label and the right remediation surface
  * for the caller's auth path. Absent on every other error type — the
  * field is meaningless outside the scope-gate path.
+ *
+ * `circumstance`, `title`, `next` and `refusal` ride through on a refusal
+ * of a bring-in tool (`BringInToolError`), each only where it holds one.
  */
 export interface McpErrorPayload {
 	error_type: McpErrorType;
@@ -295,6 +327,47 @@ export interface McpErrorPayload {
 	app_id?: string;
 	project_id?: string;
 	required_scope?: string;
+	/** The READ_CIRCUMSTANCES code, on hq_read_stopped and on a domain_not_authorized that is a stop. */
+	circumstance?: string;
+	/** The circumstance's title and next step from circumstanceBlock, beside message (its body). */
+	title?: string;
+	next?: string;
+	/** The ReadingRefusal, wherever a read or a create refused. */
+	refusal?: string;
+}
+
+/**
+ * An expected refusal of a bring-in tool, already worded: a stop of the
+ * app list, a read or create the person may not make, a create Nova turned
+ * back, or a handler's own check. The handlers of `list_hq_apps`,
+ * `read_hq_app` and `bring_in_hq_app` throw it, and `toMcpErrorResult`
+ * spreads its fields onto the payload.
+ */
+export class BringInToolError extends Error {
+	readonly errorType:
+		| BringInErrorType
+		| "permission_denied"
+		| "invalid_input"
+		| "hq_not_configured"
+		| "domain_not_authorized";
+	readonly fields: {
+		readonly circumstance?: string;
+		readonly title?: string;
+		readonly next?: string;
+		readonly refusal?: ReadingRefusal;
+		readonly projectId?: string;
+	};
+
+	constructor(
+		errorType: BringInToolError["errorType"],
+		message: string,
+		fields: BringInToolError["fields"] = {},
+	) {
+		super(message);
+		this.name = "BringInToolError";
+		this.errorType = errorType;
+		this.fields = fields;
+	}
 }
 
 /**
@@ -373,6 +446,35 @@ export function toMcpErrorResult(
 		...(ctx?.appId !== undefined && { app_id: ctx.appId }),
 		...(ctx?.projectId !== undefined && { project_id: ctx.projectId }),
 	});
+
+	if (err instanceof BringInToolError) {
+		/* An expected refusal of a bring-in tool, worded where it was thrown.
+		 * The shared payload stamps only the four common fields, so the
+		 * circumstance's block and the refusal are spread on here, each only
+		 * where the error holds it. `warn`, as every expected outcome of its
+		 * kind: a stop or a refusal is something the person can act on, not a
+		 * fault of Nova's. */
+		const { circumstance, title, next, refusal, projectId } = err.fields;
+		log.warn("[mcp] bring-in refused", {
+			userId: ctx?.userId ?? null,
+			errorType: err.errorType,
+			circumstance: circumstance ?? null,
+			refusal: refusal ?? null,
+		});
+		const bringInPayload: McpErrorPayload = {
+			...payload(err.errorType, err.message),
+			...(ctx?.projectId === undefined &&
+				projectId !== undefined && { project_id: projectId }),
+			...(circumstance !== undefined && { circumstance }),
+			...(title !== undefined && { title }),
+			...(next !== undefined && { next }),
+			...(refusal !== undefined && { refusal }),
+		};
+		return {
+			isError: true,
+			content: [{ type: "text", text: JSON.stringify(bringInPayload) }],
+		};
+	}
 
 	if (
 		err instanceof McpInvalidInputError ||

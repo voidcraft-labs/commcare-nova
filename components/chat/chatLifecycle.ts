@@ -524,7 +524,30 @@ export interface AppMaterializationActivation {
 		readonly formUuid: string;
 		readonly fieldUuid: string;
 	} | null;
+	/** Where a brought-in app came from; null for every other birth. */
+	readonly adoption: AppAdoption | null;
 }
+
+/** What a brought-in app's receipt says of where it came from. Declared
+ * here again for the client: `server` is a CommCare HQ environment's name as
+ * text, and this module imports nothing of `lib/commcare`. */
+export interface AppAdoption {
+	readonly server: string;
+	readonly domain: string;
+	readonly remoteAppId: string;
+}
+
+/** The twelve keys every birth's receipt holds. */
+const RECEIPT_KEYS =
+	"appId,batchId,blueprint,canEdit,changeSetId,designSessionId,eventVersion,projectId,role,seq,snapshotDigest,starter";
+/** A brought-in app's receipt: the twelve keys and `adoption`. */
+const ADOPTED_RECEIPT_KEYS = `adoption,${RECEIPT_KEYS}`;
+/** The CommCare HQ environments an app can be brought in from, by name. */
+const ADOPTION_SERVERS: ReadonlySet<string> = new Set([
+	"production",
+	"india",
+	"eu",
+]);
 
 /** Strict boundary for the server's one-shot app-birth handoff — the
  * `data-app-materialized` frame (design-slice genesis) and the blank-app
@@ -536,16 +559,60 @@ export interface AppMaterializationActivation {
  * non-null only on the explicit-blank path, where the blueprint must be
  * exactly the canonical Survey/Form/Question starter; a design-slice
  * blueprint is the first meaningful workflow and only its validity and
- * identity are asserted here (the digest pins the exact bytes). */
+ * identity are asserted here (the digest pins the exact bytes).
+ *
+ * Two key sets are admitted, each exactly. Every birth sends the twelve keys,
+ * which parse with `adoption: null`. An app brought in from CommCare HQ sends
+ * those twelve and `adoption`, with no design lineage, no change set and no
+ * starter; a tab running an earlier client refuses that set, and no other
+ * birth sends it. */
 export function parseAppMaterializationReceipt(
 	data: Record<string, unknown>,
 ): AppMaterializationActivation | null {
+	const keys = Object.keys(data).sort().join(",");
+	if (keys === RECEIPT_KEYS) return parseReceiptKeys(data, null);
+	if (keys !== ADOPTED_RECEIPT_KEYS) return null;
 	if (
-		Object.keys(data).sort().join(",") !==
-		"appId,batchId,blueprint,canEdit,changeSetId,designSessionId,eventVersion,projectId,role,seq,snapshotDigest,starter"
+		data.designSessionId !== null ||
+		data.changeSetId !== null ||
+		data.starter !== null
 	) {
 		return null;
 	}
+	const adoption = parseAppAdoption(data.adoption);
+	return adoption === null ? null : parseReceiptKeys(data, adoption);
+}
+
+/** `adoption` is a plain object of exactly three non-blank strings, and its
+ * server is one an app can be brought in from. */
+function parseAppAdoption(value: unknown): AppAdoption | null {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return null;
+	}
+	const prototype = Object.getPrototypeOf(value);
+	if (prototype !== Object.prototype && prototype !== null) return null;
+	if (Object.keys(value).sort().join(",") !== "domain,remoteAppId,server") {
+		return null;
+	}
+	const { server, domain, remoteAppId } = value as Record<string, unknown>;
+	if (
+		typeof server !== "string" ||
+		!ADOPTION_SERVERS.has(server) ||
+		typeof domain !== "string" ||
+		domain.trim().length === 0 ||
+		typeof remoteAppId !== "string" ||
+		remoteAppId.trim().length === 0
+	) {
+		return null;
+	}
+	return { server, domain, remoteAppId };
+}
+
+/** The rules every receipt holds, over a key set already admitted. */
+function parseReceiptKeys(
+	data: Record<string, unknown>,
+	adoption: AppAdoption | null,
+): AppMaterializationActivation | null {
 	const {
 		eventVersion,
 		designSessionId,
@@ -610,6 +677,7 @@ export function parseAppMaterializationReceipt(
 			snapshotDigest,
 			blueprint,
 			starter: null,
+			adoption,
 		};
 	}
 	if (
@@ -662,5 +730,6 @@ export function parseAppMaterializationReceipt(
 			formUuid: formUuid.data,
 			fieldUuid: fieldUuid.data,
 		},
+		adoption,
 	};
 }

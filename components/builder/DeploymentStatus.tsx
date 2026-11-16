@@ -12,6 +12,14 @@
  * a version or release one, because CommCare HQ allows both only from a
  * signed-in browser session. So the last three rungs are things this
  * screen WATCHES, and the setup notes are how somebody makes them happen.
+ *
+ * A record of an app brought in from CommCare HQ says where it came from,
+ * and until Nova's first publish there the "On CommCare HQ" rung says Nova
+ * read the app and has not published to it. A deployment that stopped
+ * (`deploymentEnding`, never the state) draws its ending in place of the
+ * ladder, Check status, the kept list and the Workers panel. A member who
+ * may delete the Project's apps is offered Stop publishing here while the
+ * deployment has a live app mapping.
  */
 "use client";
 
@@ -30,9 +38,19 @@ import {
 	useTransition,
 } from "react";
 import {
+	broughtInOf,
+	cardKind,
+	checkStatusOffered,
 	DEPLOYMENT_STATE_LABELS,
 	liveConfirmationRows,
+	previewAnswerAfterStop,
+	readNotPublishedSince,
+	stopPublishingOffered,
 } from "@/components/builder/app-setup/publishingSectionModel";
+import {
+	useDeploymentProjectSpace,
+	useDeploymentTargetFacts,
+} from "@/components/builder/DeploymentTargetProvider";
 import {
 	KEPT_REFRESH_BUTTON,
 	KEPT_REFRESH_BUTTON_PENDING,
@@ -44,15 +62,20 @@ import {
 	refreshedViewToShow,
 	type ShownRefreshedView,
 } from "@/components/builder/keptListModel";
+import { StopPublishingDialog } from "@/components/builder/StopPublishingDialog";
 import { Button } from "@/components/shadcn/button";
-import type { SetupArtifactSection } from "@/lib/deployment";
+import type {
+	DeploymentProgressState,
+	SetupArtifactSection,
+} from "@/lib/deployment";
 import {
 	DEPLOYMENT_PROGRESS_STATES,
 	DEPLOYMENT_STATE_PRODUCING_PHASE,
 	type DeploymentPhase,
 	type DeploymentResource,
 	deploymentDisplaysAsReached,
-	deploymentIsObservable,
+	deploymentEnding,
+	hqPlaceUrl,
 } from "@/lib/deployment";
 import {
 	type DeploymentView,
@@ -60,20 +83,28 @@ import {
 	refreshKeptValuesAction,
 	withdrawDeploymentConfirmationAction,
 } from "@/lib/deployment/actions";
-import {
-	activeRemoteApp,
-	remoteAppReportedGone,
-} from "@/lib/deployment/resources";
+import { remoteAppReportedGone } from "@/lib/deployment/resources";
 import type {
 	DeploymentConfirmationKey,
 	DeploymentKept,
 } from "@/lib/deployment/types";
 import {
+	broughtInFromLine,
+	notPublishedYetLine,
+} from "@/lib/publish/bringInCopy";
+import {
 	KEPT_FOLLOWS_LINE,
 	KEPT_LABELS,
 	keptLead,
 } from "@/lib/publish/keptValues";
-import { GONE_APP_NEXT_PUBLISH } from "@/lib/publish/stopPublishing";
+import {
+	ENDED_HQ_APP_LINK,
+	endedLine,
+	GONE_APP_NEXT_PUBLISH,
+	STOP_PUBLISHING_ACTION,
+	STOP_PUBLISHING_HELPER,
+} from "@/lib/publish/stopPublishing";
+import { useNoteDeploymentRecordsChanged } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /**
@@ -96,10 +127,24 @@ const RESUME_SENTENCE: Readonly<Record<DeploymentPhase, string>> = {
 		"Nothing before this needs doing again. Choose Check status to try again.",
 };
 
+/**
+ * A day as the card writes every date it shows, in the reader's own locale:
+ * when a confirmation was given, when an app was brought in, when
+ * publishing stopped.
+ */
+function cardDate(iso: string): string {
+	return new Date(iso).toLocaleDateString(undefined, {
+		day: "numeric",
+		month: "long",
+		year: "numeric",
+	});
+}
+
 export function DeploymentStatus({
 	appId,
 	view,
 	canRefresh = true,
+	canStop = false,
 	onUpdated,
 	onWithdrawn,
 	workers,
@@ -112,6 +157,12 @@ export function DeploymentStatus({
 	 * refused is worse than not offering it.
 	 */
 	canRefresh?: boolean;
+	/**
+	 * Whether this viewer may stop publishing here: a member whose role
+	 * allows `delete`. The App setup section passes it; the card the Publish
+	 * dialog draws passes none, so that card offers no stop.
+	 */
+	canStop?: boolean;
 	/** Lets the surrounding surface keep the record it is holding current. */
 	onUpdated: (next: ShownRefreshedView) => void;
 	/**
@@ -152,6 +203,7 @@ export function DeploymentStatus({
 	const [keptPending, startKeptTransition] = useTransition();
 	const [keptNotice, setKeptNotice] = useState<KeptRefreshNotice | null>(null);
 	const headingId = useId();
+	const stopHelperId = useId();
 
 	const handleRefresh = useCallback(() => {
 		/* Checking WRITES what it saw, so it is a Project write and re-reads
@@ -240,6 +292,38 @@ export function DeploymentStatus({
 			? keptNotice
 			: null;
 
+	const ended =
+		cardKind(view) === "ended" ? deploymentEnding(view.deployment) : null;
+	const broughtIn = broughtInOf(view);
+	const readNotPublished = readNotPublishedSince(view);
+	const [stopOpen, setStopOpen] = useState(false);
+	const noteDeploymentRecordsChanged = useNoteDeploymentRecordsChanged();
+	const previewProjectSpace = useDeploymentProjectSpace();
+	const previewTargetFacts = useDeploymentTargetFacts();
+	/* The stop answers with the record and the project space Preview names
+	 * now, which the surface takes as it takes a Check status's answer. */
+	const handleStopped = useCallback(
+		(
+			next: DeploymentView & { readonly previewProjectSpace: string | null },
+		) => {
+			const { previewProjectSpace: stoppedSpace, ...stoppedView } = next;
+			onUpdated({
+				...stoppedView,
+				preview: previewAnswerAfterStop(stoppedSpace, {
+					projectSpace: previewProjectSpace,
+					targetFacts: previewTargetFacts,
+				}),
+			});
+			noteDeploymentRecordsChanged();
+		},
+		[
+			onUpdated,
+			noteDeploymentRecordsChanged,
+			previewProjectSpace,
+			previewTargetFacts,
+		],
+	);
+
 	const refused = record.state === "incomplete";
 	/* The record carries a failure exactly when the deployment is refused:
 	 * the phase a retry resumes at holds it. A refused ATTEMPT against a
@@ -252,19 +336,11 @@ export function DeploymentStatus({
 		record.phases[record.resumePhase]?.status === "failed"
 			? record.phases[record.resumePhase]
 			: null;
-	/* Check status only where checking can answer. A record refused before
-	 * its app's content reached CommCare HQ has nothing there to ask about,
-	 * and a record with no active mapping has nothing to name: offering the
-	 * one button whose every press errors is worse than not offering it. An
-	 * app HQ reported gone is always asked about again, since HQ's own undo
-	 * is how it comes back (`service.ts::refreshDeployment`). A mapping whose
-	 * HQ app another Nova app took (`releasedAt`) is never asked about: what
-	 * HQ says of that app is about the other app's publishes. */
-	const remoteApp = activeRemoteApp(view.deployment);
-	const observable =
-		remoteApp !== null &&
-		remoteApp.releasedAt === null &&
-		(deploymentIsObservable(record) || remoteAppReportedGone(view.deployment));
+	/* Check status only where checking can answer (`checkStatusOffered`):
+	 * offering the one button whose every press errors is worse than not
+	 * offering it. An ended deployment has no live mapping, so it is never
+	 * offered there. */
+	const observable = checkStatusOffered(view);
 
 	return (
 		<section aria-labelledby={headingId} className="mt-5">
@@ -294,54 +370,37 @@ export function DeploymentStatus({
 				) : null}
 			</div>
 
-			{/* The ladder. Each rung states its own condition, so nothing is
-			    conveyed by fill alone. */}
-			<ol className="mt-3 flex flex-col gap-1.5">
-				{rungs.map((state) => {
-					const reached = deploymentDisplaysAsReached(record, state);
-					const outcome =
-						record.phases[DEPLOYMENT_STATE_PRODUCING_PHASE[state]];
-					const note = outcome?.status === "pending" ? outcome.reason : null;
-					return (
-						<li
-							key={state}
-							className="flex items-start gap-2.5 text-[13px] leading-relaxed"
-						>
-							<span
-								aria-hidden="true"
-								className={`mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border ${
-									reached
-										? "border-transparent bg-nova-emerald/20 text-nova-emerald"
-										: "border-nova-border text-nova-text-muted"
-								}`}
-							>
-								{reached ? (
-									<Icon icon={tablerCheck} width="12" height="12" />
-								) : null}
-							</span>
-							<span className="min-w-0">
-								<span
-									className={
-										reached ? "text-nova-text" : "text-nova-text-muted"
-									}
-								>
-									{DEPLOYMENT_STATE_LABELS[state]}
-								</span>
-								<span className="sr-only">
-									{reached ? ", done" : ", not yet"}
-								</span>
-								{note !== null && !reached ? (
-									<span className="mt-0.5 block text-nova-text-secondary">
-										{note}
-									</span>
-								) : null}
-							</span>
-						</li>
-					);
-				})}
-			</ol>
+			{broughtIn !== null ? (
+				<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-secondary">
+					{broughtInFromLine(
+						record.domain,
+						cardDate(broughtIn.at),
+						broughtIn.byName,
+					)}
+				</p>
+			) : null}
 
-			{view.kept !== null ? (
+			{ended !== null ? (
+				<div className="mt-3 text-[13px] leading-relaxed" data-deployment-ended>
+					<p className="text-nova-text">
+						{endedLine(ended, cardDate(ended.at))}
+					</p>
+					<EndedHqAppLink
+						url={hqPlaceUrl(
+							{
+								server: record.server,
+								domain: record.domain,
+								remoteAppId: ended.hqAppId,
+							},
+							{ kind: "app" },
+						)}
+					/>
+				</div>
+			) : (
+				<Ladder rungs={rungs} view={view} readNotPublished={readNotPublished} />
+			)}
+
+			{ended === null && view.kept !== null ? (
 				<KeptValues
 					kept={view.kept}
 					canRefresh={canRefresh}
@@ -349,7 +408,7 @@ export function DeploymentStatus({
 					onRefresh={handleKeptRefresh}
 					notice={shownKeptNotice}
 				/>
-			) : shownKeptNotice !== null ? (
+			) : ended === null && shownKeptNotice !== null ? (
 				/* A refresh whose answer left a record with no list, such as
 				 * a publish that landed during the read and could not read the
 				 * app back, still says what happened. */
@@ -410,10 +469,122 @@ export function DeploymentStatus({
 				onWithdrawn={canRefresh ? onWithdrawn : undefined}
 			/>
 
-			{workers}
+			{ended === null ? workers : null}
 
 			<SetupNotes sections={view.artifact.sections} />
+
+			{stopPublishingOffered(view, canStop) ? (
+				<div className="mt-4 border-t border-nova-border pt-2">
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={() => setStopOpen(true)}
+						aria-describedby={stopHelperId}
+					>
+						{STOP_PUBLISHING_ACTION}
+					</Button>
+					<p
+						id={stopHelperId}
+						className="mt-0.5 text-[13px] leading-relaxed text-nova-text-secondary"
+					>
+						{STOP_PUBLISHING_HELPER}
+					</p>
+					<StopPublishingDialog
+						open={stopOpen}
+						onOpenChange={setStopOpen}
+						target={{ appId, server: record.server, domain: record.domain }}
+						onStopped={handleStopped}
+					/>
+				</div>
+			) : null}
 		</section>
+	);
+}
+
+/** The ended card's link to the HQ app the deployment stopped at. */
+function EndedHqAppLink({ url }: { url: string | null }) {
+	if (url === null) return null;
+	return (
+		<a
+			href={url}
+			target="_blank"
+			rel="noopener noreferrer"
+			className="nova-focusable mt-1 inline-flex min-h-11 items-center gap-1.5 font-medium text-nova-violet-bright hover:underline"
+		>
+			{ENDED_HQ_APP_LINK}
+			<Icon
+				icon={tablerExternalLink}
+				width="14"
+				height="14"
+				aria-hidden="true"
+			/>
+			<span className="sr-only">, opens in a new tab</span>
+		</a>
+	);
+}
+
+/**
+ * The ladder. Each rung states its own condition, so nothing is conveyed by
+ * fill alone. The "On CommCare HQ" rung of an app brought in and not yet
+ * published to says so, with the day Nova read it (`readNotPublished`).
+ */
+function Ladder({
+	rungs,
+	view,
+	readNotPublished,
+}: {
+	rungs: readonly DeploymentProgressState[];
+	view: DeploymentView;
+	readNotPublished: string | null;
+}) {
+	const record = view.deployment.deployment;
+	return (
+		<ol className="mt-3 flex flex-col gap-1.5">
+			{rungs.map((state) => {
+				const reached = deploymentDisplaysAsReached(record, state);
+				const outcome = record.phases[DEPLOYMENT_STATE_PRODUCING_PHASE[state]];
+				const note = outcome?.status === "pending" ? outcome.reason : null;
+				return (
+					<li
+						key={state}
+						className="flex items-start gap-2.5 text-[13px] leading-relaxed"
+					>
+						<span
+							aria-hidden="true"
+							className={`mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border ${
+								reached
+									? "border-transparent bg-nova-emerald/20 text-nova-emerald"
+									: "border-nova-border text-nova-text-muted"
+							}`}
+						>
+							{reached ? (
+								<Icon icon={tablerCheck} width="12" height="12" />
+							) : null}
+						</span>
+						<span className="min-w-0">
+							<span
+								className={reached ? "text-nova-text" : "text-nova-text-muted"}
+							>
+								{DEPLOYMENT_STATE_LABELS[state]}
+							</span>
+							<span className="sr-only">
+								{reached ? ", done" : ", not yet"}
+							</span>
+							{note !== null && !reached ? (
+								<span className="mt-0.5 block text-nova-text-secondary">
+									{note}
+								</span>
+							) : null}
+							{state === "uploaded" && readNotPublished !== null ? (
+								<span className="mt-0.5 block text-nova-text-secondary">
+									{notPublishedYetLine(cardDate(readNotPublished))}
+								</span>
+							) : null}
+						</span>
+					</li>
+				);
+			})}
+		</ol>
 	);
 }
 
@@ -619,12 +790,7 @@ function ConfirmationsOnRecord({
 						<span className="min-w-0">
 							<span className="block text-nova-text">{row.label}</span>
 							<span className="block text-[12px] text-nova-text-muted">
-								Confirmed by {row.confirmedBy} on{" "}
-								{new Date(row.confirmedAt).toLocaleDateString(undefined, {
-									day: "numeric",
-									month: "long",
-									year: "numeric",
-								})}
+								Confirmed by {row.confirmedBy} on {cardDate(row.confirmedAt)}
 							</span>
 						</span>
 						{onWithdrawn !== undefined ? (

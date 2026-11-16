@@ -19,7 +19,6 @@ import {
 	useEffect,
 	useRef,
 	useState,
-	useTransition,
 } from "react";
 import { useCommCareConnection } from "@/components/builder/CommCareConnectionContext";
 import {
@@ -47,7 +46,6 @@ import {
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	type ProjectSpaceCompatibilityReport,
 } from "@/lib/publish/projectSpaceCompatibility";
-import { useExternalNavigate } from "@/lib/routing/hooks";
 import { buildUrl } from "@/lib/routing/location";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import {
@@ -182,16 +180,21 @@ async function downloadArtifact(opts: {
 /**
  * Memoized to prevent parent-cascade re-renders from BuilderSubheader.
  * BuilderSubheader re-renders on breadcrumb/navigation changes (correct),
- * but PublishPanel's inputs (the connection context, stable per page load)
- * are unchanged across navigations: the cascade is pure waste (profiler:
- * 16ms wasted).
+ * but PublishPanel's inputs (the connection context, which changes only
+ * around a connection check) are unchanged across navigations: the cascade
+ * is pure waste (profiler: 16ms wasted).
  */
 export const PublishPanel = memo(function PublishPanel() {
-	const router = useExternalNavigate();
 	const docStore = useContext(BlueprintDocContext);
 	const session = useBuilderSessionApi();
 	const canEdit = useCanEdit();
-	const { server, availableDomains } = useCommCareConnection();
+	const {
+		server,
+		availableDomains,
+		refresh: refreshHqConnection,
+		isRefreshing: isRefreshingHqConnection,
+		refreshFailed: hqConnectionRefreshFailed,
+	} = useCommCareConnection();
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
 	const [publishDialogOpen, setPublishDialogOpen] = useState(false);
@@ -204,7 +207,6 @@ export const PublishPanel = memo(function PublishPanel() {
 	);
 	const publishDialogRequest = usePublishDialogRequest();
 	const clearPublishDialogRequest = useClearPublishDialogRequest();
-	const [isRefreshingHqConnection, startHqConnectionRefresh] = useTransition();
 	const downloadControllersRef = useRef(new Set<AbortController>());
 	useEffect(
 		() =>
@@ -459,11 +461,12 @@ export const PublishPanel = memo(function PublishPanel() {
 		setRequestedDomain(request.domain);
 		setPublishDialogOpen(true);
 	}, [publishDialogRequest, clearPublishDialogRequest, session]);
+	/* Check connection reads the connection through the context, never the
+	 * Next router: a router refresh would put back Next's own address over
+	 * one the History API wrote, such as an app created in this tab. */
 	const handleRefreshHqConnection = useCallback(() => {
-		startHqConnectionRefresh(() => {
-			router.refresh();
-		});
-	}, [router]);
+		void refreshHqConnection();
+	}, [refreshHqConnection]);
 
 	/* A plain History-API push rather than `useNavigate`: that hook carries
 	 * a `useLocation` subscription, which would re-render this memo-isolated
@@ -505,6 +508,7 @@ export const PublishPanel = memo(function PublishPanel() {
 					requestedDomain={requestedDomain}
 					onOpenPublishing={handleOpenPublishing}
 					isRefreshingHqConnection={isRefreshingHqConnection}
+					hqConnectionRefreshFailed={hqConnectionRefreshFailed}
 					onRefreshHqConnection={handleRefreshHqConnection}
 					onLoadProjectSpaceCompatibility={loadProjectSpaceCompatibility}
 					onDownloadJson={handleDownloadJson}

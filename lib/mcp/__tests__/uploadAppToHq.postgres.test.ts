@@ -2324,6 +2324,8 @@ it("asks before recreating a table deleted in CommCare HQ, then records it as No
 						note: null,
 						observed_digest: expect.stringMatching(/^[0-9a-f]{64}$/),
 						baseline_known: true,
+						/* Nova made this deployment, so a change is measured against its last publish. */
+						since: { kind: "published" },
 					},
 				],
 				...NOTHING_RECORDED,

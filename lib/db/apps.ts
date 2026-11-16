@@ -377,11 +377,12 @@ export async function projectHasApps(projectId: string): Promise<boolean> {
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /*
- * App CREATION lives in `lib/db/appGenesis.ts` — the closed
- * `explicit-blank | design-slice` genesis owner. No generic `createApp`
- * remains: every persisted app is born through `createExplicitBlankApp` or
- * the design-slice materialization, and no caller inserts an app row and
- * seeds it later.
+ * App CREATION lives in `lib/db/appGenesis.ts`, the closed
+ * `explicit-blank | design-slice | hq-adoption` genesis owner. No generic
+ * `createApp` remains: every persisted app is born through
+ * `createExplicitBlankApp`, the design-slice materialization, or
+ * `lib/deployment/reading/birth.ts::adoptHqAppInTransaction`, and no caller
+ * inserts an app row and seeds it later.
  */
 
 // ── Committed-batch writer ──────────────────────────────────────────

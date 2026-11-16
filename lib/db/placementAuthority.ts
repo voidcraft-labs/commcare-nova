@@ -37,7 +37,8 @@ export const PLACEMENT_CHANGE_REFUSAL =
 /**
  * The app change kinds that record placements. A row of one of these kinds
  * may change any hold, and its `holdPlacements` entries are the recordings an
- * editor's restore is held to.
+ * editor's restore is held to. A brought-in app's first recordings are the
+ * holds of its genesis baseline's snapshot, which no row of these kinds wrote.
  */
 export const PLACEMENT_RECORDING_KINDS = [
 	"publish-placement",

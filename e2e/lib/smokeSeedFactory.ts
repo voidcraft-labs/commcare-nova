@@ -77,6 +77,7 @@ import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
 import { APP_NOTICES_SEED, appNoticesEntries } from "./appNoticesSeed";
+import { seedBringIn } from "./bringInSeed";
 import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
@@ -2314,6 +2315,23 @@ export async function createSmokeBuilders(
 					tableId: binding.tableId,
 					routes: managedDataRoutes(appId, binding.tableId),
 				},
+			};
+		},
+		"bring-in": async () => {
+			const projectA = await (await getAuthDb())
+				.selectFrom("auth_organization")
+				.select(["id", "name"])
+				.where("id", "=", seedProjectId)
+				.executeTakeFirstOrThrow();
+			return {
+				bringIn: await seedBringIn({
+					adapter: ctx.adapter,
+					secret,
+					baseUrl,
+					owner: { id: SEED.userId, name: SEED.userName },
+					projectA,
+					editorId: SEED.viewerUserId,
+				}),
 			};
 		},
 		"connect-learn": async () => {

@@ -1,0 +1,670 @@
+/**
+ * `list_hq_apps`, `read_hq_app` and `bring_in_hq_app` through the real SDK
+ * client and server, over real Postgres, with CommCare HQ answering from its
+ * own retained answers at a controlled peer, the stored key's decryption
+ * controlled at the KMS boundary and the bucket at its own. The birth is
+ * wrapped where a test needs one of Nova's own checks to refuse, and the read
+ * is observed (never replaced) where a test needs to wait for it to end.
+ *
+ * It would catch: a retry that makes a second app; a client that times out
+ * on an app with many files because no progress reaches it; a cancelled call
+ * that keeps reading CommCare HQ; a refusal with no bucket; and a stop of the
+ * list that reaches a client as a bare message with no next step.
+ */
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Client } from "@modelcontextprotocol/client";
+import type { MockAgent } from "undici";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import {
+	retainedBodyJson,
+	retainedBodyText,
+	retainedReadingRead,
+} from "@/__tests__/helpers/retainedHqReads";
+import { decrypt } from "@/lib/commcare/encryption";
+import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
+import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { GenesisGateRejectedError } from "@/lib/db/appGenesis";
+import { softDeleteApp } from "@/lib/db/apps";
+import {
+	counterOf,
+	FIXTURE_DOMAIN,
+	FIXTURE_HOST,
+	FIXTURE_PATHS,
+	FIXTURE_REMOTE_APP_ID,
+	FIXTURE_SERVER,
+	fixtureResource,
+	fixtureSource,
+	fixtureSourceWithXml,
+	seedFixtureConnection,
+	serveAnswer,
+	serveFixtureApp,
+	serveFixtureTables,
+	withIcons,
+} from "@/lib/deployment/reading/__tests__/adoptionFixture";
+import type { ReadingAnswer } from "@/lib/deployment/reading/types";
+import { AS_ORIGIN } from "@/lib/hostnames";
+import { createLookupTable } from "@/lib/lookup/service";
+import { circumstanceBlock } from "@/lib/publish/hqFindingCopy";
+import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import {
+	CREATE_ANSWER_LEADS,
+	READING_REFUSAL_COPY,
+} from "@/lib/publish/hqReadingCopy";
+import { uploadAssetBytes } from "@/lib/storage/media";
+import { registerBringInHqApp } from "../tools/bringInHqApp";
+import { registerListHqApps } from "../tools/listHqApps";
+import { registerReadHqApp } from "../tools/readHqApp";
+import { withMcpClient } from "./client";
+import { resultContentText } from "./resultText";
+
+const observed = vi.hoisted(() => ({
+	/** Each read the tool started, to wait on once its call is cancelled. */
+	reads: [] as Promise<ReadingAnswer>[],
+	/** Each stage the reads and creates named, in order. */
+	stages: [] as string[],
+	/** Run inside the birth's transaction before it, where a test needs one. */
+	beforeBirth: null as null | (() => Promise<void>),
+}));
+
+vi.mock("@/lib/deployment/reading", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@/lib/deployment/reading")>();
+	return {
+		...actual,
+		readHqAppForReview: (
+			...[actor, key, options]: Parameters<typeof actual.readHqAppForReview>
+		) => {
+			const read = actual.readHqAppForReview(actor, key, {
+				...options,
+				onEvent: (event) => {
+					if (event.type === "stage") observed.stages.push(event.stage);
+					options.onEvent(event);
+				},
+			});
+			observed.reads.push(read);
+			return read;
+		},
+	};
+});
+vi.mock("@/lib/deployment/reading/birth", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@/lib/deployment/reading/birth")>();
+	return {
+		...actual,
+		adoptHqAppInTransaction: async (
+			...[tx, birth]: Parameters<typeof actual.adoptHqAppInTransaction>
+		) => {
+			await observed.beforeBirth?.();
+			return actual.adoptHqAppInTransaction(tx, birth);
+		},
+	};
+});
+vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	uploadAssetBytes: vi.fn(),
+	deleteAsset: vi.fn(),
+	downloadAssetBytes: vi.fn(),
+}));
+
+const h = setupAppStateTestDb("mcp_bring_in_", {
+	authSchema: "migrated",
+	poolMax: 4,
+});
+
+const PROJECT = "bring-in-project";
+const ACTOR = "bring-in-editor";
+const STRANGER = "bring-in-stranger";
+const SCOPES = ["nova.read", "nova.write", "nova.hq.read", "nova.hq.write"];
+const LIST = `/a/${FIXTURE_DOMAIN}/apps/api/list_apps/`;
+const PROBE = `/a/${FIXTURE_DOMAIN}/api/lookup_table/v1/?limit=1`;
+const PNG = readFileSync(
+	join(import.meta.dirname, "../../media/__tests__/fixtures/pattern.png"),
+);
+
+beforeEach(async () => {
+	observed.reads.length = 0;
+	observed.stages.length = 0;
+	observed.beforeBirth = null;
+	vi.mocked(decrypt).mockReset();
+	vi.mocked(decrypt).mockResolvedValue("fixture-key");
+	vi.mocked(uploadAssetBytes).mockReset();
+	vi.mocked(uploadAssetBytes).mockResolvedValue(undefined);
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	await seedFixtureConnection(ACTOR);
+});
+
+type Json = Record<string, unknown>;
+
+/** The three tools, called as `userId`. */
+function withTools<T>(
+	run: (client: Client) => Promise<T>,
+	userId = ACTOR,
+): Promise<T> {
+	return withMcpClient((server) => {
+		const ctx = { userId, scopes: SCOPES, authKind: "api-key" as const };
+		registerListHqApps(server, ctx);
+		registerReadHqApp(server, ctx);
+		registerBringInHqApp(server, ctx);
+	}, run);
+}
+
+/** A tool's answer, parsed, and whether it was an error. */
+async function call(
+	client: Client,
+	name: string,
+	args: Json,
+): Promise<{ readonly isError: boolean; readonly body: Json }> {
+	const result = await client.callTool({ name, arguments: args });
+	return {
+		isError: result.isError === true,
+		body: JSON.parse(resultContentText(result)) as Json,
+	};
+}
+
+const READ_ARGS = {
+	project_id: PROJECT,
+	domain: FIXTURE_DOMAIN,
+	hq_app_id: FIXTURE_REMOTE_APP_ID,
+};
+
+/** `read_hq_app`'s review, and the arguments that bring it in as offered. */
+async function readReview(client: Client) {
+	const { isError, body } = await call(client, "read_hq_app", READ_ARGS);
+	expect(isError).toBe(false);
+	if (body.state !== "review")
+		throw new Error(`The fixture app read to ${JSON.stringify(body)}`);
+	const review = body.review as Json & {
+		runs_on: {
+			runs_only_on: string | null;
+			split_datetime: boolean;
+			preselected: boolean;
+		}[];
+	};
+	const preselected = review.runs_on.find((entry) => entry.preselected);
+	if (preselected === undefined) throw new Error("none preselected");
+	return {
+		body,
+		args: {
+			...READ_ARGS,
+			reading_id: body.reading_id as string,
+			review_digest: review.review_digest as string,
+			app_name: review.app_name as string,
+			runs_only_on: preselected.runs_only_on,
+			split_datetime: preselected.split_datetime,
+			table_choices: {},
+		},
+	};
+}
+
+/** The Project's own `district`, made after or before a read as a test needs. */
+async function seedProjectDistrict(): Promise<void> {
+	await createLookupTable(
+		{ projectId: PROJECT, actorId: ACTOR, role: "owner" },
+		{
+			name: "Districts",
+			tag: "district",
+			columns: [
+				{ wireName: "code", label: "Code", dataType: "text" },
+				{ wireName: "name", label: "Name", dataType: "text" },
+			],
+		},
+	);
+}
+
+function servePng(peer: MockAgent, times: number): void {
+	peer
+		.get(FIXTURE_HOST)
+		.intercept({ path: FIXTURE_PATHS.media("menuicon"), method: "GET" })
+		.reply(200, PNG, { headers: { "content-type": "image/png" } })
+		.times(times);
+}
+
+/** Every path the peer was asked for, in order. */
+function requested(peer: MockAgent): readonly string[] {
+	return (peer.getCallHistory()?.calls() ?? []).map((one) =>
+		one.fullUrl.slice(FIXTURE_HOST.length),
+	);
+}
+
+/** Answer the source read from the retained answer once `release` resolves. */
+function serveSourceHeld(
+	peer: MockAgent,
+	reached: PromiseWithResolvers<void>,
+	release: PromiseWithResolvers<void>,
+): void {
+	const source = fixtureSource();
+	peer
+		.get(FIXTURE_HOST)
+		.intercept({ path: FIXTURE_PATHS.source, method: "GET" })
+		.reply(async () => {
+			reached.resolve();
+			await release.promise;
+			return {
+				statusCode: source.status,
+				data: retainedBodyText(source),
+				responseOptions: { headers: { ...source.headers } },
+			};
+		});
+}
+
+describe("read_hq_app", () => {
+	it("answers a review with its reading_id in one call", async () => {
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer);
+			await withTools(async (client) => {
+				const { body } = await readReview(client);
+				expect(body).toMatchObject({
+					project_id: PROJECT,
+					server: FIXTURE_SERVER,
+					domain: FIXTURE_DOMAIN,
+					hq_app_id: READ_ARGS.hq_app_id,
+					state: "review",
+					restarted: false,
+					message: null,
+				});
+				expect(body.reading_id).toMatch(
+					/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+				);
+			});
+		});
+	});
+
+	it("sends a notification for each stage while CommCare HQ is still answering, and none to a call with no progress token", async () => {
+		await withHttpPeer(async (peer) => {
+			const reached = Promise.withResolvers<void>();
+			const release = Promise.withResolvers<void>();
+			const resource = fixtureResource();
+			serveAnswer(peer, FIXTURE_PATHS.application, resource);
+			serveSourceHeld(peer, reached, release);
+			serveAnswer(peer, FIXTURE_PATHS.version, counterOf(resource));
+			serveFixtureTables(peer);
+			await withTools(async (client) => {
+				const messages: string[] = [];
+				const firstNotice = Promise.withResolvers<void>();
+				const pending = client.callTool(
+					{ name: "read_hq_app", arguments: READ_ARGS },
+					{
+						onprogress: (update) => {
+							messages.push(update.message ?? "");
+							firstNotice.resolve();
+						},
+					},
+				);
+				try {
+					await Promise.all([reached.promise, firstNotice.promise]);
+					/* Progress reached the client while CommCare HQ held its answer. */
+					expect(messages.length).toBeGreaterThan(0);
+				} finally {
+					release.resolve();
+				}
+				const result = await pending;
+				expect(result.isError).not.toBe(true);
+				expect(messages.map((message) => message.split("]")[0])).toEqual(
+					observed.stages.map((stage) => `[hq_${stage.replaceAll("-", "_")}`),
+				);
+				expect(observed.stages.length).toBeGreaterThan(2);
+			});
+		});
+
+		observed.stages.length = 0;
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer);
+			await withTools(async (client) => {
+				const notices: unknown[] = [];
+				client.setNotificationHandler("notifications/progress", (notice) => {
+					notices.push(notice);
+				});
+				const { isError } = await call(client, "read_hq_app", READ_ARGS);
+				expect(isError).toBe(false);
+				expect(observed.stages.length).toBeGreaterThan(2);
+				expect(notices).toEqual([]);
+			});
+		});
+	});
+
+	it("stops reading CommCare HQ when the client cancels the call", async () => {
+		await withHttpPeer(async (peer) => {
+			const reached = Promise.withResolvers<void>();
+			const release = Promise.withResolvers<void>();
+			serveAnswer(peer, FIXTURE_PATHS.application, fixtureResource());
+			serveSourceHeld(peer, reached, release);
+			await withTools(async (client) => {
+				const cancel = new AbortController();
+				const pending = client.callTool(
+					{ name: "read_hq_app", arguments: READ_ARGS },
+					{ signal: cancel.signal },
+				);
+				try {
+					await reached.promise;
+					cancel.abort();
+					await expect(pending).rejects.toThrow();
+				} finally {
+					release.resolve();
+				}
+				const [read] = observed.reads;
+				if (read === undefined) throw new Error("the tool started no read");
+				expect((await read).kind).toBe("stop");
+				expect(requested(peer)).toEqual([
+					FIXTURE_PATHS.application,
+					FIXTURE_PATHS.source,
+				]);
+			});
+		});
+	});
+});
+
+describe("bring_in_hq_app", () => {
+	it("answers created, and the same app again for the same arguments, at its builder address", async () => {
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { times: 2 });
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				const first = await call(client, "bring_in_hq_app", args);
+				expect(first.isError).toBe(false);
+				const appId = first.body.app_id as string;
+				expect(first.body).toEqual({
+					status: "created",
+					app_id: appId,
+					project_id: PROJECT,
+					app_name: args.app_name,
+					url: `${AS_ORIGIN}/build/${appId}`,
+					brought_in_from: {
+						server: FIXTURE_SERVER,
+						domain: FIXTURE_DOMAIN,
+						hq_app_id: READ_ARGS.hq_app_id,
+					},
+					message: `${args.app_name} is in Nova. Nothing changed in CommCare HQ. Publishing from Nova updates the app it came from in ${FIXTURE_DOMAIN}.`,
+				});
+				const second = await call(client, "bring_in_hq_app", args);
+				expect(second.body).toEqual(first.body);
+			});
+		});
+	});
+
+	it("answers changed with what stands now where the Project changed since the review", async () => {
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { times: 2 });
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				await seedProjectDistrict();
+				const { isError, body } = await call(client, "bring_in_hq_app", args);
+				expect(isError).toBe(false);
+				expect(body.status).toBe("changed");
+				const reading = body.reading as Json;
+				expect(reading).toMatchObject({
+					project_id: PROJECT,
+					restarted: false,
+					message: null,
+				});
+				const state = reading.state as "review" | "account" | "stop";
+				expect(body.message).toBe(CREATE_ANSWER_LEADS.changed[state]);
+			});
+		});
+	});
+
+	it("answers changed with the fresh reading where the app changed in CommCare HQ since the review", async () => {
+		const relabelled = fixtureSourceWithXml((xml) =>
+			xml.replaceAll(">Note<", ">Comment<"),
+		);
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer);
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				serveFixtureApp(peer, {
+					source: relabelled,
+					resource: fixtureResource(relabelled, { noteLabel: "Comment" }),
+				});
+				const { isError, body } = await call(client, "bring_in_hq_app", args);
+				expect(isError).toBe(false);
+				expect(body.status).toBe("changed");
+				expect(body.message).toBe(CREATE_ANSWER_LEADS.changed.review);
+				const reading = body.reading as Json & { review: Json };
+				expect(reading).toMatchObject({
+					state: "review",
+					reading_id: args.reading_id,
+					restarted: false,
+				});
+				/* The fresh review is of the changed app: bringing it in needs its own digest. */
+				expect(reading.review.review_digest).not.toBe(args.review_digest);
+			});
+		});
+		expect(await h.db().selectFrom("apps").select("id").execute()).toEqual([]);
+	});
+
+	it("answers check_failed with the one finding where Nova's own check refuses the birth", async () => {
+		observed.beforeBirth = async () => {
+			throw new GenesisGateRejectedError("The gate refused the birth.", {
+				check: "gate",
+				findingCodes: ["form-has-no-questions"],
+			});
+		};
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { times: 2 });
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				const { isError, body } = await call(client, "bring_in_hq_app", args);
+				expect(isError).toBe(false);
+				expect(body.status).toBe("check_failed");
+				expect(body.message).toBe(CREATE_ANSWER_LEADS["check-failed"]);
+				const reading = body.reading as Json & {
+					account: { findings: Json[]; total: number };
+				};
+				expect(reading.state).toBe("account");
+				expect(reading.account.total).toBe(1);
+				expect(reading.account.findings).toEqual([
+					expect.objectContaining({ code: "read-back-differs" }),
+				]);
+			});
+		});
+		expect(await h.db().selectFrom("apps").select("id").execute()).toEqual([]);
+	});
+});
+
+describe("each refusal a call can make arrives with its tag and refusal", () => {
+	it("no_project_access, at read_hq_app, asking CommCare HQ nothing", async () => {
+		await seedFixtureConnection(STRANGER);
+		await withHttpPeer(async (peer) => {
+			await withTools(async (client) => {
+				const { isError, body } = await call(client, "read_hq_app", READ_ARGS);
+				expect(isError).toBe(true);
+				expect(body).toEqual({
+					error_type: "permission_denied",
+					message: READING_REFUSAL_COPY.no_project_access,
+					project_id: PROJECT,
+					refusal: "no_project_access",
+				});
+			}, STRANGER);
+			expect(requested(peer)).toEqual([]);
+		});
+	});
+
+	it("invalid_input, for a project space that is no slug", async () => {
+		await withTools(async (client) => {
+			const { isError, body } = await call(client, "read_hq_app", {
+				...READ_ARGS,
+				domain: "not a project space",
+			});
+			expect(isError).toBe(true);
+			expect(body).toEqual({
+				error_type: "invalid_input",
+				message: READING_REFUSAL_COPY.invalid_input,
+				refusal: "invalid_input",
+			});
+		});
+	});
+
+	it("choice_missing and choice_not_offered, at bring_in_hq_app", async () => {
+		await seedProjectDistrict();
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { times: 3 });
+			await withTools(async (client) => {
+				const { body, args } = await readReview(client);
+				const tables = (body.review as { tables: Json[] }).tables;
+				expect(tables).toEqual([
+					expect.objectContaining({ tag: "district", standing: "choice" }),
+				]);
+				const missing = await call(client, "bring_in_hq_app", args);
+				expect(missing).toEqual({
+					isError: true,
+					body: {
+						error_type: "invalid_input",
+						message: READING_REFUSAL_COPY.choice_missing,
+						refusal: "choice_missing",
+					},
+				});
+				const notOffered = await call(client, "bring_in_hq_app", {
+					...args,
+					split_datetime: !args.split_datetime,
+					table_choices: { district: "use-project" },
+				});
+				expect(notOffered.body).toMatchObject({
+					error_type: "invalid_input",
+					refusal: "choice_not_offered",
+				});
+			});
+		});
+	});
+
+	it("project_changed, where a published file left the Project before the birth", async () => {
+		observed.beforeBirth = async () => {
+			await h.db().deleteFrom("media_assets").execute();
+		};
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, {
+				source: withIcons(fixtureSource(), ["menuicon"]),
+				times: 2,
+			});
+			servePng(peer, 2);
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				const { isError, body } = await call(client, "bring_in_hq_app", args);
+				expect(isError).toBe(true);
+				expect(body).toEqual({
+					error_type: "bring_in_refused",
+					message: READING_REFUSAL_COPY.project_changed,
+					refusal: "project_changed",
+				});
+			});
+		});
+	});
+
+	it("app_unavailable, for the same arguments once the app is in recently deleted", async () => {
+		/* Deleting an app is an owner's. */
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { times: 2 });
+			await withTools(async (client) => {
+				const { args } = await readReview(client);
+				const created = await call(client, "bring_in_hq_app", args);
+				await softDeleteApp(created.body.app_id as string, ACTOR);
+				const { isError, body } = await call(client, "bring_in_hq_app", args);
+				expect(isError).toBe(true);
+				expect(body).toEqual({
+					error_type: "bring_in_refused",
+					message: READING_REFUSAL_COPY.app_unavailable,
+					refusal: "app_unavailable",
+				});
+			});
+		});
+	});
+});
+
+describe("list_hq_apps", () => {
+	const block = (
+		code: "plan-lacks-api-access" | "not-a-member" | "key-cannot-reach-space",
+	) =>
+		circumstanceBlock(circumstanceFinding(code, { kind: "app" }, {}), {
+			server: COMMCARE_SERVERS[FIXTURE_SERVER].label,
+			space: code === "key-cannot-reach-space" ? "training" : FIXTURE_DOMAIN,
+			app: null,
+			formatDate: (iso) => iso.slice(0, 10),
+		});
+
+	it("lists the project space's apps, each free to bring in", async () => {
+		await withHttpPeer(async (peer) => {
+			serveAnswer(peer, LIST, retainedReadingRead("list-apps"));
+			serveAnswer(peer, PROBE, retainedReadingRead("api-access"));
+			await withTools(async (client) => {
+				const { isError, body } = await call(client, "list_hq_apps", {
+					domain: FIXTURE_DOMAIN,
+				});
+				expect(isError).toBe(false);
+				const listed = retainedBodyJson(retainedReadingRead("list-apps"))
+					.applications as { app_id: string; name: string }[];
+				expect(body).toEqual({
+					server: FIXTURE_SERVER,
+					server_url: COMMCARE_SERVERS[FIXTURE_SERVER].baseUrl,
+					domain: FIXTURE_DOMAIN,
+					apps: listed.map((row) => ({
+						hq_app_id: row.app_id,
+						name: row.name,
+						in_nova: null,
+					})),
+				});
+			});
+		});
+	});
+
+	it("answers a stop as hq_read_stopped with the circumstance's code, title and next step", async () => {
+		await withHttpPeer(async (peer) => {
+			serveAnswer(peer, LIST, retainedReadingRead("list-apps"));
+			serveAnswer(peer, PROBE, retainedReadingRead("api-access-no-plan"));
+			await withTools(async (client) => {
+				const { isError, body } = await call(client, "list_hq_apps", {
+					domain: FIXTURE_DOMAIN,
+				});
+				expect(isError).toBe(true);
+				const expected = block("plan-lacks-api-access");
+				expect(body).toEqual({
+					error_type: "hq_read_stopped",
+					message: expected.body,
+					circumstance: "plan-lacks-api-access",
+					title: expected.title,
+					next: expected.next,
+				});
+			});
+		});
+	});
+
+	it("answers a key that does not list the project space and an account HQ turned away both as domain_not_authorized, each in its own words", async () => {
+		const unreachable = await withHttpPeer(async (peer) => {
+			const answer = await withTools((client) =>
+				call(client, "list_hq_apps", { domain: "training" }),
+			);
+			expect(requested(peer)).toEqual([]);
+			return answer;
+		});
+		const turnedAway = await withHttpPeer(async (peer) => {
+			serveAnswer(peer, LIST, retainedReadingRead("api-access-no-permission"));
+			return withTools((client) =>
+				call(client, "list_hq_apps", { domain: FIXTURE_DOMAIN }),
+			);
+		});
+		const reach = block("key-cannot-reach-space");
+		expect(unreachable).toEqual({
+			isError: true,
+			body: {
+				error_type: "domain_not_authorized",
+				message: `Your stored CommCare HQ API key can't reach the “training” project space. It reaches: ${FIXTURE_DOMAIN}. Pass one of those as \`domain\`, or update your key in Settings.`,
+				circumstance: "key-cannot-reach-space",
+				title: reach.title,
+				next: reach.next,
+			},
+		});
+		const member = block("not-a-member");
+		expect(turnedAway).toEqual({
+			isError: true,
+			body: {
+				error_type: "domain_not_authorized",
+				message: member.body,
+				circumstance: "not-a-member",
+				title: member.title,
+				next: member.next,
+			},
+		});
+		expect(unreachable.body.message).not.toBe(turnedAway.body.message);
+	});
+});

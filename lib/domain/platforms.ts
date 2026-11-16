@@ -38,6 +38,15 @@ export const PLATFORM_DECLARATION_LABELS = {
 	android: "Android only",
 } as const satisfies Readonly<Record<"both" | Platform, string>>;
 
+/** Where each declaration puts the app's workers, the line under its label
+ * wherever a person chooses one: App settings and the review of an app
+ * brought in from CommCare HQ. */
+export const PLATFORM_DECLARATION_LINES = {
+	both: "In a browser on CommCare HQ, and in the CommCare app on phones and tablets",
+	"web-apps": "In a browser on CommCare HQ",
+	android: "In the CommCare app on phones and tablets",
+} as const satisfies Readonly<Record<"both" | Platform, string>>;
+
 const BOTH: readonly Platform[] = Object.freeze(["web-apps", "android"]);
 const WEB_APPS_ONLY: readonly Platform[] = Object.freeze(["web-apps"]);
 const ANDROID_ONLY: readonly Platform[] = Object.freeze(["android"]);

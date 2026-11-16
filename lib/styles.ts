@@ -150,13 +150,35 @@ export const DISCLOSURE_ROW_CLS =
  * under the cursor is the only unresponsive thing on the screen, and the
  * shortcut of letting a neutral hover paint over the tint instead makes
  * pointing at the tab you are already on look like dimming it. */
-const SELECTED_SKIN = `bg-nova-violet/15 font-medium text-nova-violet-bright shadow-[inset_0_0_0_1px_var(--nova-violet-hairline)] not-disabled:hover:bg-nova-violet/25`;
-const IDLE_SKIN = `text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text`;
+const SELECTED_STILL = `bg-nova-violet/15 font-medium text-nova-violet-bright shadow-[inset_0_0_0_1px_var(--nova-violet-hairline)]`;
+const IDLE_STILL = `text-nova-text-secondary`;
+const SELECTED_SKIN = `${SELECTED_STILL} not-disabled:hover:bg-nova-violet/25`;
+const IDLE_SKIN = `${IDLE_STILL} not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text`;
 const skin = (selected: boolean) => (selected ? SELECTED_SKIN : IDLE_SKIN);
 
+/** How a selectable row takes focus, and whether it can be chosen. */
+export interface SelectableRowOptions {
+	/** `inset` draws the ring inward, for a row inside a clipping or scrolling parent. */
+	readonly focus?: "ring" | "inset";
+	/**
+	 * A row that cannot be chosen but stays focusable (`aria-disabled`, not
+	 * `disabled`): it keeps its skin and its pointer events, shows
+	 * `cursor-not-allowed`, and answers no hover, since a press does nothing.
+	 */
+	readonly unavailable?: boolean;
+}
+
 /** Full-width row in a vertical list. Content aligns to the start and wraps. */
-export function selectableRowCls(selected: boolean): string {
-	return `${MENU_ITEM_BASE} nova-focusable cursor-pointer ${skin(selected)}`;
+export function selectableRowCls(
+	selected: boolean,
+	options: SelectableRowOptions = {},
+): string {
+	const focus =
+		options.focus === "inset" ? "nova-focusable-inset" : "nova-focusable";
+	if (options.unavailable) {
+		return `${MENU_ITEM_BASE} ${focus} cursor-not-allowed ${selected ? SELECTED_STILL : IDLE_STILL}`;
+	}
+	return `${MENU_ITEM_BASE} ${focus} cursor-pointer ${skin(selected)}`;
 }
 
 /** One segment of a horizontal strip. Shares the strip's width, never wraps. */

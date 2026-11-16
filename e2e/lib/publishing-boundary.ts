@@ -27,6 +27,9 @@ export function withdrawDeploymentConfirmationAction(args: unknown) {
 export function stopPublishingAction(args: unknown) {
 	return post("/publishing/stop", args);
 }
+export function provisionWorkersAction(args: unknown) {
+	return post("/publishing/provision", args);
+}
 export function getEntryPointLinkAction(args: unknown) {
 	return post("/publishing/link", args);
 }

@@ -15,6 +15,7 @@ import {
 	managedOrganizationCommitRefusal,
 	managedPlacesKeptInUse,
 	managedPlacesKeptLeftOut,
+	managedPlacesOutcomeLines,
 	managedPlacesRefreshed,
 } from "@/lib/publish/managedData";
 import {
@@ -22,7 +23,6 @@ import {
 	levelOccupancy,
 	levelRemovalRefusal,
 	managedPlacesContext,
-	managedPlacesOutcomeLines,
 	managedPlacesRefreshControl,
 	personaLocationPage,
 	placeInformationChangeRefusal,
@@ -324,7 +324,6 @@ describe("a refresh of places CommCare HQ manages", () => {
 		expect(
 			managedPlacesOutcomeLines({
 				ok: false,
-				reason: "unavailable",
 				message: "CommCare HQ didn't answer just now.",
 			}),
 		).toEqual({

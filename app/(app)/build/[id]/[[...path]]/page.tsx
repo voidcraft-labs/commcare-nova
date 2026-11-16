@@ -35,6 +35,7 @@
  */
 
 import { notFound, redirect } from "next/navigation";
+import type { BringInSeed } from "@/components/bring-in/useBringIn";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import {
 	BuilderProvider,
@@ -82,6 +83,8 @@ import {
 	readAppDeploymentNoticeEntriesInTransaction,
 	readAppNoticesInTransaction,
 } from "@/lib/notices/store";
+import { listUserProjects } from "@/lib/projects/membership";
+import { bringInHref, bringInLocation } from "@/lib/routing/bringInLocation";
 
 export default async function BuilderPage({
 	params,
@@ -95,13 +98,14 @@ export default async function BuilderPage({
 	const commcareSettingsPromise = getCommCareSettings(session.user.id);
 
 	if (id === "new") {
-		const [{ design }, commcareSettings] = await Promise.all([
+		const [query, commcareSettings] = await Promise.all([
 			searchParams,
 			commcareSettingsPromise,
 		]);
+		const { design } = query;
 		return typeof design === "string" && design.trim().length > 0
 			? await resumedDesignPage(design, session.user.id, commcareSettings)
-			: await freshBuildPage(session, commcareSettings);
+			: await freshBuildPage(session, commcareSettings, query);
 	}
 
 	/* Project-membership gate (view): any member may open the builder; edit
@@ -313,13 +317,35 @@ async function loadBuilderNotices(
  * viewer's first client frame is truthfully read-only rather than editor until
  * the write route refuses them. The reconciler stays dormant until
  * `data-app-materialized`.
+ *
+ * It also seeds bringing an app in from CommCare HQ: the `hq` query values,
+ * kept only where `bringInLocation` admits them and handed down as the query
+ * `bringInHref` writes, so the first render agrees with the server; and the
+ * Projects the person may add an app to, which no client call gives.
  */
 async function freshBuildPage(
 	session: NonNullable<Awaited<ReturnType<typeof getSession>>>,
 	commcareSettings: CommCareSettingsPublic,
+	query: Record<string, string | string[] | undefined>,
 ) {
 	const projectId = await resolveActiveProjectId(session);
-	const access = await resolveProjectAccess(session.user.id, projectId, "view");
+	const [access, projects] = await Promise.all([
+		resolveProjectAccess(session.user.id, projectId, "view"),
+		listUserProjects(session.user.id),
+	]);
+	const bringInSeed: BringInSeed = {
+		initialSearch: bringInInitialSearch(query),
+		projects: projects
+			.filter((project) => roleAllowsApp(project.role, "edit"))
+			.sort((a, b) =>
+				a.id === projectId
+					? -1
+					: b.id === projectId
+						? 1
+						: a.name.localeCompare(b.name),
+			)
+			.map(({ id, name, personal }) => ({ id, name, personal })),
+	};
 	return (
 		<BuilderProvider
 			buildId="new"
@@ -331,9 +357,31 @@ async function freshBuildPage(
 				baseSeq: 0,
 			}}
 		>
-			<BuilderLayout commcareSettings={commcareSettings} />
+			<BuilderLayout
+				commcareSettings={commcareSettings}
+				bringInSeed={bringInSeed}
+			/>
 		</BuilderProvider>
 	);
+}
+
+/**
+ * The bring-in query of the first paint: the five `hq` values, each the first
+ * where the address repeats it, as `bringInHref` writes the location they
+ * make; `""` where they make none.
+ */
+function bringInInitialSearch(
+	query: Record<string, string | string[] | undefined>,
+): string {
+	const params = new URLSearchParams();
+	for (const name of ["hq", "project", "server", "space", "app"]) {
+		const raw = query[name];
+		const value = Array.isArray(raw) ? raw[0] : raw;
+		if (value !== undefined) params.set(name, value);
+	}
+	const location = bringInLocation(params.toString());
+	if (location.kind === "none") return "";
+	return new URL(bringInHref(location), "http://nova.invalid").search;
 }
 
 /**

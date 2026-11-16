@@ -74,9 +74,9 @@ serving code never writes one.
 
 ## Creation never navigates
 
-Both ways an app is born — the design build's `data-app-materialized` frame
-and the blank-app Server Action's return value — hand the client the SAME
-receipt (identity, the server-resolved Project capability, the exact
+Every way a receipt reaches the client (the design build's
+`data-app-materialized` frame, the blank-app Server Action's return value, and
+the bring-in's create route) hands it the SAME receipt (identity, the server-resolved Project capability, the exact
 sequence-1 blueprint and its canonical digest, the cursor) and land it
 through ONE installer, `ChatContainer.installCreatedApp`, behind the same
 strict `parseAppMaterializationReceipt` boundary (the digest verifies in the
@@ -85,12 +85,25 @@ background over the shared canonical JSON text). It promotes `/build/new` to
 never the Next router: a route change swaps `BuilderProvider`'s `key={buildId}`
 and rebuilds every store under it, severing a live run and discarding the
 document just installed to fetch state the client already holds.
+A brought-in app's receipt holds one more key, `adoption`, and is admitted as a
+second exact key set; `ChatContainer`'s `landCreatedAppReceipt` is the one
+function both the blank path and the bring-in flow call. One creation does load
+a page: an app brought in to a Project this tab is not scoped to. The receipt
+is parsed as always, and then the tab loads `/build/{id}`, because there is no
+run to sever and the tab's stores belong to another Project, so nothing of this
+tab is worth keeping. A receipt for another Project is still never installed in
+place. The flow that brings an app in is a state of `/build/new`
+(`components/bring-in`), inside `ChatContainer`'s tree, so its app lands
+through the same installer.
 
 That is also why `createStarterApp` does NOT `revalidatePath("/")` the way the
 app-list actions do. Those run FROM the app list and revalidating it IS their
 refresh; this one runs from `/build/new`, and the router re-render carrying the
 revalidation restores Next's own canonical URL, undoing the promotion. The app
 list is dynamic (it reads the session), so it is fresh on arrival regardless.
+The same holds for `router.refresh()`, which is why Check connection reads
+`GET /api/commcare/connection` through `CommCareConnectionContext`'s
+`refresh` and not through the router.
 
 ## Builder state — three sources of truth
 
@@ -298,7 +311,12 @@ dialog reopen, destination or connected-server change, and on a landed publish, 
 decision from then on. `RemoteChangeChoice` stands beside `ResourceConflictChoice` in
 `PublishDialog.tsx`: where a publish stops on `hq_changed` it lists every
 change made in CommCare HQ since Nova's last push and offers to discard them,
-bound to the digest of the list the person saw. Where a refusal carries
+bound to the digest of the list the person saw. Where the app itself changed
+and its list of changes is drawn, an admin or owner is also offered Stop
+publishing here (`StopPublishingDialog`), and an editor is told who can. For
+an app brought in and not yet published, the review step states what the
+first publish changes (`FirstPublishLines`), from `DeploymentView.firstPublish`.
+Where a refusal carries
 `refusal.placementMoves`, `PlacementMoveChoice` offers to move those Save to
 Case changes to CommCare HQ's Case Management settings with one unticked
 **Move them and publish**, bound to the offer's digest; it and the Save to
@@ -707,7 +725,10 @@ while the section is mounted reaches it — and renders one full `DeploymentStat
 per project space the app has reached, with the list of what stays as it is in
 CommCare HQ with its date and Refresh from CommCare HQ (`keptListModel.ts`),
 composing `DeploymentWorkers` into the
-card's `workers` slot — the panel's one mount in the product. Every state is
+card's `workers` slot — the panel's one mount in the product. A card says
+where a brought-in app came from, offers Stop publishing here to a member who
+may delete, and draws an ended deployment from `deploymentEnding`, never from
+the state: no ladder, no Check status, no Workers panel. Every state is
 explicit: loading, a `role="alert"` load failure with Try again, a
 `role="status"` refreshing line and a stale warning when a reload is pending
 or has failed while held records still
@@ -723,13 +744,15 @@ CommCare HQ installation); it never mounts a
 second publish form — it writes the session store's one-shot
 `publishDialogRequest`, which `PublishPanel` consumes to open the one dialog
 preseeded to that domain. Check status is gated exactly as in the dialog
-(`canEdit`, observable record, active mapping); a refresh or provisioning
+(`canEdit` and `checkStatusOffered`: an observable record with a live mapping
+another Nova app has not taken); a refresh, a stop or a provisioning
 result upserts the store under a fresh generation — superseding any load in
-flight, whose stale answer is then ignored — and a refresh also applies its
+flight, whose stale answer is then ignored — and a refresh or a stop also applies its
 `preview` answer through `useApplyPreviewDeploymentAnswer` (the dialog
 applies a publish's too; an answer the server could not read changes
 nothing). All derivations — the record fold,
-the generation guard, compact rows, retry eligibility, preseeding — live in
+the generation guard, compact rows, retry eligibility, preseeding, where an
+app came from, the ended card, what a stop offers and answers — live in
 the pure `publishingSectionModel.ts` and are unit-tested there, never in the
 component.
 

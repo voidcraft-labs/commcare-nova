@@ -5,9 +5,12 @@
  * The Publish dialog PUBLISHES; this section MANAGES. Each target the app
  * has reached gets its full record here: the progress ladder, a refusal
  * and the phase a retry resumes at, what an earlier publish left behind,
- * the Workers panel, and the set-up-by-hand notes. "Publish again" opens
- * the one Publish dialog preseeded to that target (through the session
- * store's one-shot request), so there is exactly one publish flow.
+ * the Workers panel, the set-up-by-hand notes, where an app brought in from
+ * CommCare HQ came from, the ending of a deployment that stopped, and Stop
+ * publishing here for a member who may delete the Project's apps.
+ * "Publish again" opens the one Publish dialog preseeded to that target
+ * (through the session store's one-shot request), so there is exactly one
+ * publish flow.
  *
  * A migration notice's lines about one project space stay on that space's
  * card after the notice's dialog is dismissed, because this is where a
@@ -43,6 +46,7 @@ import {
 } from "@/lib/notices/migrationNoticeCopy";
 import {
 	useAppId,
+	useCanDelete,
 	useCanEdit,
 	useRequestPublishDialog,
 } from "@/lib/session/hooks";
@@ -60,6 +64,9 @@ export function PublishingSection() {
 	const appId = useAppId();
 	const connection = useCommCareConnection();
 	const canEdit = useCanEdit();
+	/* Stopping publishing is the Project's `delete`: an editor sees the card
+	 * and publishes to it, and is offered no stop. */
+	const canStop = useCanDelete();
 	const requestPublishDialog = useRequestPublishDialog();
 	const applyPreviewAnswer = useApplyPreviewDeploymentAnswer();
 	const { deploymentEntries: noticeEntries } = useAppNotices();
@@ -184,6 +191,7 @@ export function PublishingSection() {
 										appId={appId ?? ""}
 										view={view}
 										canRefresh={canEdit}
+										canStop={canStop}
 										onUpdated={handleRefreshed}
 										onWithdrawn={handleRecordChanged}
 										workers={
