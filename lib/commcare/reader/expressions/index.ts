@@ -69,6 +69,7 @@ import { noteProperty } from "../caseManagement/catalog";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
+import type { ReaderKnownCaseTypes } from "../types";
 import type { ReadSourceNames } from "../xform";
 import {
 	agreedComparedTypes,
@@ -135,6 +136,9 @@ export interface ExpressionReadEnv {
 	/** Per advanced form: the ids its computed datums give
 	 *  (`arbitrary_datums`), which a session read may name. */
 	readonly computedDatums: ReadonlyMap<Uuid, ReadonlySet<string>>;
+	/** `ReaderInput.knownCaseTypes`: the type the document Nova holds declares for each
+	 *  property step 1 declares (`noteProperty`). */
+	readonly knownCaseTypes?: ReaderKnownCaseTypes;
 }
 export interface GeneratedValue {
 	readonly purpose: "constraint-count";
@@ -605,7 +609,7 @@ export function readExpressions(
 			child.relationship = "child";
 		}
 		for (const read of missing)
-			noteProperty(catalog, read.caseType, read.property);
+			noteProperty(catalog, read.caseType, read.property, env.knownCaseTypes);
 	});
 	// 1b. Type: a property the catalog holds untyped that a record slot
 	// compares with a value of a known type is of that type.

@@ -5,19 +5,17 @@
  * lets the writers speak: case types in menu order, each child type's
  * parent where every link out of it agrees, one property per name the app
  * writes, loads or reads, choices where select questions write a property,
- * and a type only where a reader needs it to write the same wire.
+ * and a type only where a reader needs it to write the same wire, or, for an
+ * app Nova holds, where its document declares one (`ReaderInput.knownCaseTypes`).
  */
 import { type Draft, produce } from "immer";
-import type { CasePropertyDataType, Uuid } from "@/lib/domain";
+import {
+	type CasePropertyDataType,
+	caseDataTypeForFieldKind,
+	type Uuid,
+} from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import {
-	caseListOrderPlan,
-	casePropertyShowsOptionLabels,
-} from "@/lib/domain/caseListOrder";
-import {
-	fieldCaseWriteViews,
-	formCaseWriteViews,
-} from "@/lib/domain/caseWriteViews";
+import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
 import {
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
@@ -43,10 +41,8 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	isStandardCaseListProperty,
 } from "@/lib/domain/standardCaseProperties";
-import { caseListOrderOptions } from "../../suite/case-list/orderPlanOptions";
-import { fieldBindType } from "../../xform/bindType";
+import { declaredTypeHolds } from "../../validator/rules/fieldKindMatchesPropertyType";
 import { withCandidate } from "../candidate";
-import { DATE_SORT_DECLARED_TYPE } from "../caseList/order";
 import { defineClaims, refuse } from "../claims";
 import type { DraftApp, DraftForm, ReadContext } from "../context";
 import {
@@ -65,11 +61,6 @@ import { saveToCaseReading } from "./saveToCase";
 type Catalog = NonNullable<BlueprintDoc["caseTypes"]>;
 type CatalogType = Catalog[number];
 
-/** The types a sort element names one `date` comparison for
- *  (`hqJson/caseList.ts::sortElementType`). */
-const DATE_SORT_CLASS: ReadonlySet<CasePropertyDataType> =
-	new Set<CasePropertyDataType>(["date", "datetime", "time"]);
-
 /** The two case types no menu of a reading may hold: the worker's record
  *  and HQ's owner mapping. */
 const NOT_CATALOGUED: ReadonlySet<string> = new Set([
@@ -78,23 +69,30 @@ const NOT_CATALOGUED: ReadonlySet<string> = new Set([
 ]);
 
 /** Adds `(caseType, name)` to `caseTypes` where the type holds no such
- *  property and the name is no standard property: label the name, no
- *  `data_type`, placed in name order by code unit. A no-op otherwise, and
- *  where the catalog holds no case type of that name: a property is declared
- *  on a type the app has, never on one an expression names alone. It reads
- *  and writes the catalog it is given and nothing else. */
+ *  property and the name is no standard property: label the name, placed in
+ *  name order by code unit, with the `data_type` `told` says the document Nova
+ *  holds declares for it (`ReaderInput.knownCaseTypes`) and none otherwise. A
+ *  no-op otherwise, and where the catalog holds no case type of that name: a
+ *  property is declared on a type the app has, never on one an expression
+ *  names alone. It reads and writes the catalog it is given and nothing else. */
 export function noteProperty(
 	caseTypes: Draft<NonNullable<BlueprintDoc["caseTypes"]>>,
 	caseType: string,
 	name: string,
+	told?: ReaderKnownCaseTypes,
 ): void {
 	if (isStandardCaseListProperty(name)) return;
 	const type = caseTypes.find((candidate) => candidate.name === caseType);
 	if (type === undefined) return;
 	if (type.properties.some((property) => property.name === name)) return;
 	const at = type.properties.findIndex((property) => property.name > name);
-	// No `data_type`: unknown is honest until a writer types the property.
-	const declared = { name, label: proseText(name) };
+	// Untold, no `data_type`: unknown is honest until a writer types the property.
+	const dataType = told?.declaredTypeOf(caseType, name);
+	const declared = {
+		name,
+		label: proseText(name),
+		...(dataType !== undefined && { data_type: dataType }),
+	};
 	if (at === -1) type.properties.push(declared);
 	else type.properties.splice(at, 0, declared);
 }
@@ -232,6 +230,44 @@ function declareSelectTypes(
 		for (const property of type.properties) {
 			const select = selects.get(`${type.name}\u0000${property.name}`);
 			if (select !== undefined) property.data_type = select;
+		}
+}
+
+/**
+ * Declares on each property of the catalog the type `told` says the document Nova holds declares
+ * for it, over what the reading's own rules declared, unless a question that writes it gives values
+ * that type cannot hold (the gate's `FIELD_KIND_PROPERTY_TYPE_MISMATCH`, which a change made in
+ * CommCare HQ since can make): no print tells a reading a declared type, while every print of a read
+ * of the property lowers by it (a sort's comparator, `datetime-coerce`, `format-date`, a comparison
+ * of dates and times), so the reading prints the logic as the document it was published from did.
+ */
+function declareToldTypes(
+	draft: Draft<Catalog>,
+	told: ReaderKnownCaseTypes | undefined,
+	writes: readonly {
+		readonly caseType: string;
+		readonly property: string;
+		readonly field?: DraftField;
+		readonly read?: true;
+	}[],
+): void {
+	if (told === undefined) return;
+	for (const type of draft)
+		for (const property of type.properties) {
+			const declared = told.declaredTypeOf(type.name, property.name);
+			if (declared === undefined) continue;
+			const contradicted = writes.some((one) => {
+				if (
+					one.read === true ||
+					one.caseType !== type.name ||
+					one.property !== property.name ||
+					one.field === undefined
+				)
+					return false;
+				const given = caseDataTypeForFieldKind(one.field.kind);
+				return given !== undefined && !declaredTypeHolds(given, declared);
+			});
+			if (!contradicted) property.data_type = declared;
 		}
 }
 
@@ -577,6 +613,7 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 			noteChoices(property, inlineOptions(field.field));
 		}
 		declareSelectTypes(draft, selects);
+		declareToldTypes(draft, ctx.input.knownCaseTypes, writes);
 		DATETIME_DECLARATIONS.set(ctx, declareHiddenDateTimes(draft, writes));
 	});
 	/* An app with no case type holds no catalog, as a new app does
@@ -719,158 +756,6 @@ function expressionReads(
 	for (const one of Object.values(record)) expressionReads(one, out, caseTypes);
 }
 
-/** The properties that a sorted column, a date Search field or a date range
- *  Search field reads, each with the types its reader keeps declared where
- *  no writer types the property: `exact`, the types a reader prints apart,
- *  and `dateClass`, the properties whose sort element names a `date`
- *  comparison for every type of the date class alike. */
-function typedReaders(doc: BlueprintDoc): {
-	readonly exact: Map<string, ReadonlySet<CasePropertyDataType>>;
-	readonly dateClass: ReadonlySet<string>;
-	/** The properties a date-range Search field reads on its own case: the field rides the
-	 *  bare prompt, which prints no type, so a date and a date and time print it alike and a
-	 *  reading declares the date (`search/rows.ts`, which tries `date` first). */
-	readonly dateRange: ReadonlySet<string>;
-} {
-	const out = new Map<string, Set<CasePropertyDataType>>();
-	const dateClass = new Set<string>();
-	const dateRange = new Set<string>();
-	const add = (
-		caseType: string,
-		property: string,
-		types: readonly CasePropertyDataType[],
-	) => {
-		const key = `${caseType}\u0000${property}`;
-		const set = out.get(key) ?? new Set<CasePropertyDataType>();
-		for (const type of types) set.add(type);
-		out.set(key, set);
-	};
-	for (const uuid of doc.moduleOrder) {
-		const module = doc.modules[uuid];
-		const caseType = module?.caseType;
-		if (module === undefined || caseType === undefined) continue;
-		for (const property of rawValueSortKeys(doc, uuid))
-			dateClass.add(`${caseType}\u0000${property}`);
-		for (const column of module.caseListConfig?.columns ?? []) {
-			if (column.sort === undefined) continue;
-			const field = (column as { field?: unknown }).field;
-			if (typeof field === "string") add(caseType, field, ["int", "decimal"]);
-			// A sorted calculated column that is one property's read alone, on
-			// the menu's case or a case a relation reaches, orders by it.
-			if (
-				column.kind === "calculated" &&
-				column.expression.kind === "term" &&
-				column.expression.term.kind === "prop"
-			) {
-				const { property, via } = column.expression.term;
-				const destination = resolveRelationDestination(
-					via,
-					caseType,
-					effectiveCaseTypes(doc),
-				);
-				if (destination.ok)
-					add(destination.caseType, property, ["int", "decimal"]);
-			}
-		}
-		for (const input of module.caseListConfig?.searchInputs ?? []) {
-			const record = input as {
-				kind?: string;
-				property?: unknown;
-				type?: unknown;
-				via?: unknown;
-			};
-			if (record.kind !== "simple" || typeof record.property !== "string")
-				continue;
-			// A field with a `via` reads the property of the case its relation
-			// reaches, whose type its derivation prints
-			// (`dateSearch.ts::exactDateSearchPredicate`).
-			const destination = resolveRelationDestination(
-				record.via as Parameters<typeof resolveRelationDestination>[0],
-				caseType,
-				effectiveCaseTypes(doc),
-			);
-			if (!destination.ok) continue;
-			if (record.type === "date")
-				add(destination.caseType, record.property, ["date", "datetime"]);
-			if (record.type === "date-range") {
-				add(destination.caseType, record.property, ["date"]);
-				dateRange.add(`${destination.caseType}\u0000${record.property}`);
-			}
-		}
-	}
-	for (const [caseType, property] of hiddenDateTimeWrites(doc))
-		add(caseType, property, ["datetime"]);
-	return { exact: out, dateClass, dateRange };
-}
-
-/**
- * The properties a written rule of `moduleUuid`'s list orders by raw value,
- * by the list's order plan: the keys whose sort element
- * `hqJson/caseList.ts::sortElementType` writes as a `date` comparison where
- * the property's type is of the date class, and as another where it is not.
- */
-function rawValueSortKeys(doc: BlueprintDoc, moduleUuid: Uuid): string[] {
-	const module = doc.modules[moduleUuid];
-	const config = module?.caseListConfig;
-	if (module === undefined || config === undefined) return [];
-	const properties =
-		effectiveCaseTypes(doc).find((type) => type.name === module.caseType)
-			?.properties ?? [];
-	let plan: ReturnType<typeof caseListOrderPlan>;
-	try {
-		plan = caseListOrderPlan(
-			config,
-			properties,
-			caseListOrderOptions(module, doc, true),
-		);
-	} catch {
-		return [];
-	}
-	return [
-		...plan.fields.flatMap((field) =>
-			field.rule?.written === true &&
-			!field.rule.implicit &&
-			field.key?.kind === "property"
-				? [field.key.property]
-				: [],
-		),
-		...plan.carriers.flatMap((carrier) =>
-			carrier.rule.written && !carrier.rule.implicit ? [carrier.property] : [],
-		),
-	];
-}
-
-/** Each `(case type, property)` a Hidden Value saves its answer to straight, where Nova binds
- *  the Hidden Value `xsd:dateTime` (`xform/bindType.ts::fieldBindType`): the type its export
- *  carries on the question that writes the property. */
-function hiddenDateTimeWrites(
-	doc: BlueprintDoc,
-): (readonly [string, string])[] {
-	const out: (readonly [string, string])[] = [];
-	let caseTypes: ReturnType<typeof effectiveCaseTypes> | undefined;
-	for (const moduleUuid of doc.moduleOrder)
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			if (doc.forms[formUuid] === undefined) continue;
-			for (const [fieldUuid, views] of formCaseWriteViews(doc, formUuid)) {
-				const field = doc.fields[fieldUuid];
-				if (field?.kind !== "hidden") continue;
-				caseTypes ??= effectiveCaseTypes(doc);
-				if (
-					fieldBindType(
-						field,
-						caseTypes,
-						fieldCaseWriteViews(doc, fieldUuid),
-					) !== "xsd:dateTime"
-				)
-					continue;
-				for (const view of views)
-					if (view.slot === "write" && view.via === undefined)
-						out.push([view.caseType, view.property]);
-			}
-		}
-	return out;
-}
-
 /** Each expression slot of `doc`, with the case type its menu lists: the
  *  type a relation the slot walks starts from. */
 function slotsWithOrigin(
@@ -1008,9 +893,10 @@ function recordComparedTypes(
  *  in menu order; `parent_type` and `relationship` where the document's
  *  links agree, and the document's own where no link and no parent selection
  *  gives a type one (a reading of its export is told them,
- *  `ReaderInput.knownCaseTypes`); properties by `noteProperty`; `data_type` only where a
- *  sort or a date Search field needs it and no writer types the property,
- *  or where every writer is a select question of one kind; choices where
+ *  `ReaderInput.knownCaseTypes`); properties by `noteProperty`; `data_type`
+ *  the document's own on each property it keeps (a reading of its export is
+ *  told that too), else where every writer is a select question of one kind
+ *  or a record slot's comparison gives one; choices where
  *  select questions write a property, and as each plain column states them;
  *  and each property a type holds carried onto each type a change of the
  *  document gives such a case (`carryRetypedProperties`). */
@@ -1090,7 +976,6 @@ export function catalogAsRead(
 	expressionReads(doc.fields, reads, effectiveTypes);
 	expressionReads(doc.forms, reads, effectiveTypes);
 	expressionReads(doc.modules, reads, effectiveTypes);
-	const readers = typedReaders(doc);
 	const selects = selectTypes(writes);
 	const readCatalog = produce(caseTypes, (draft) => {
 		for (const write of writes) {
@@ -1133,6 +1018,21 @@ export function catalogAsRead(
 			child.relationship = "child";
 		}
 		declareSelectTypes(draft, selects);
+		// Every property kept keeps the type the document declares for it, as a
+		// reading of its export is told it (`ReaderInput.knownCaseTypes`) and
+		// declares it (`noteProperty`, `declareToldTypes`): no print tells a
+		// reading a declared type, and every print of a read of the property
+		// lowers by it. The gate holds a declaration to the questions writing the
+		// property (`FIELD_KIND_PROPERTY_TYPE_MISMATCH`), so none contradicts one.
+		for (const type of doc.caseTypes ?? []) {
+			const kept = draft.find((one) => one.name === type.name);
+			if (kept === undefined) continue;
+			for (const property of type.properties) {
+				const entry = kept.properties.find((one) => one.name === property.name);
+				if (entry !== undefined && property.data_type !== undefined)
+					entry.data_type = property.data_type;
+			}
+		}
 		// A plain column states its property's choices, as the list reader reads
 		// them (`caseList/details.ts::declareShownChoices`,
 		// `withholdRawShownChoices`): where the column shows the choices' labels,
@@ -1172,43 +1072,6 @@ export function catalogAsRead(
 				}));
 			}
 		}
-		// A type declared only where a reader keeps it and no writer types the
-		// property: the type itself where a reader prints it apart, and the
-		// date class's one print where only a sort element names it, which
-		// writes every type of the class as one `date` comparison and is the
-		// declaration a reading of the element makes
-		// (`caseList/order.ts::dateSortDeclarations`).
-		const declared = new Map<string, CasePropertyDataType>();
-		for (const type of doc.caseTypes ?? [])
-			for (const property of type.properties)
-				if (property.data_type !== undefined)
-					declared.set(
-						`${type.name}\u0000${property.name}`,
-						property.data_type,
-					);
-		const untyped = effectiveCaseTypes({
-			...doc,
-			caseTypes: draft as Catalog,
-		} as BlueprintDoc);
-		for (const type of draft)
-			for (const property of type.properties) {
-				const key = `${type.name}\u0000${property.name}`;
-				const keep = declared.get(key);
-				if (keep === undefined) continue;
-				const kept =
-					readers.exact.get(key)?.has(keep) === true
-						? keep
-						: readers.dateClass.has(key) && DATE_SORT_CLASS.has(keep)
-							? DATE_SORT_DECLARED_TYPE
-							: readers.dateRange.has(key) && keep === "datetime"
-								? "date"
-								: undefined;
-				if (kept === undefined) continue;
-				const derived = untyped
-					.find((one) => one.name === type.name)
-					?.properties.find((one) => one.name === property.name)?.data_type;
-				if (derived === undefined) property.data_type = kept;
-			}
 		// A property the record slots compare, still untyped, takes the type
 		// the comparison gives it.
 		const asRead = effectiveCaseTypes({

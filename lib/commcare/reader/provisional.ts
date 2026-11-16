@@ -47,7 +47,10 @@ import {
 	instanceIdsRead,
 	unreadDeclarationUse,
 } from "./expressions/surfaceUses";
-import { pendingPlaceholder } from "./pendingExpressions";
+import {
+	type PendingExpression,
+	pendingPlaceholder,
+} from "./pendingExpressions";
 import { appPlace, whereText } from "./place";
 import { searchRowUserFields } from "./search";
 import { worldEntitiesFromReads } from "./worldEntities";
@@ -320,7 +323,37 @@ export function provisionalDocument(ctx: ReadContext): BlueprintDoc {
 
 // ── Binding ──────────────────────────────────────────────────────────────
 
-/** The leaves that read places: what makes a reading's `readsLocations`. */
+/** The fixtures CommCare HQ's build gives the places of a project space: the flat list, and the
+ *  hierarchical one under `HIERARCHICAL_LOCATION_FIXTURE` (`suite_xml/post_process/instances.py::
+ *  location_fixture_instances`). */
+const PLACE_FIXTURES: ReadonlySet<string> = new Set([
+	"jr://fixture/locations",
+	"jr://fixture/commtrack:locations",
+]);
+
+/**
+ * Whether a registration's own text reads places, whatever the expression stage made of it: it
+ * calls `instance('<id>')` for an id that names a list of places where the text is evaluated. A
+ * form's attribute is evaluated over the instances the form declares, so the id is one the form
+ * declares over a place fixture (`sources`); every other slot (a menu's or form's display
+ * condition, a case list's, a Search's) is evaluated in the suite, where HQ's build declares the
+ * id `locations` over the places (`location_fixture_instances`). A refused read of a place is
+ * still a read the app makes, which a reading that never read the project space's places cannot
+ * tell from the app's own error.
+ */
+function textReadsPlaces(
+	registration: PendingExpression,
+	sources: ReadonlyMap<string, string> | undefined,
+): boolean {
+	return instanceIdsRead(registration.text).some((id) =>
+		registration.mode.target === "xform"
+			? PLACE_FIXTURES.has(sources?.get(id) ?? "")
+			: id === "locations",
+	);
+}
+
+/** The leaves that read places: with the texts that read them, what makes a reading's
+ *  `readsLocations`. */
 function readsPlaces(expression: Expression): boolean {
 	let found = false;
 	walkExpression(expression, {
@@ -645,9 +678,21 @@ export function applyExpressionReading(
 			});
 	ctx.facts.rewrites.push(...reading.rewrites);
 	ctx.facts.expressionRounds = reading.rounds;
+	const sources = new Map<Uuid, ReadonlyMap<string, string>>();
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms)
+			if (form.xform !== null)
+				sources.set(form.uuid, form.xform.instanceSources);
 	ctx.readsLocations =
 		reading.worldReads.locationDataSlugs.length > 0 ||
-		reading.bound.some((tree) => tree !== undefined && readsPlaces(tree));
+		reading.bound.some((tree) => tree !== undefined && readsPlaces(tree)) ||
+		pending.some((registration) => {
+			const form = slotForm(reading.doc, registration.ref);
+			return textReadsPlaces(
+				registration,
+				form === undefined ? undefined : sources.get(form),
+			);
+		});
 }
 
 /**

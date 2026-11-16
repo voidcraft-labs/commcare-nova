@@ -19,6 +19,7 @@
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
@@ -50,6 +51,7 @@ import { emitCsql } from "../../../csql/emitter";
 import { moduleExpressionContexts } from "../../../expressionContext";
 import { deriveSimpleArmPredicate } from "../../../suite/case-search/simpleArmDerivation";
 import { serializeWire } from "../../../xpath/wire/serialize";
+import { readerInput, sourceFromBody } from "../../__tests__/readerInput";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	type AppJson,
@@ -58,6 +60,7 @@ import {
 	listOf,
 	readLists,
 } from "../../caseList/__tests__/listReading";
+import { knownCaseTypesOf, readHqApp } from "../../index";
 import {
 	type ConjunctPlacement,
 	derivedConditionsAreSimpleFields,
@@ -660,6 +663,37 @@ describe("the kinds of the conjuncts of `_xpath_query`", () => {
 				entry: "case-search/xpath-query-row-reading-a-field-hq-also-matches",
 			},
 		]);
+	});
+
+	it("raises a conjunct that reads an excluded field outside its guard, with no defect", async () => {
+		// Nova never writes it (`composeXPathQueryEmission` refuses a read outside its guard), and
+		// no candidate proposes it: the field's condition would print a read the gate refuses. A
+		// device builds the search's input list from the answered fields alone, so the row
+		// compares a blank while the field is unanswered.
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [number],
+			search: {},
+		});
+		const app = await emittedApp(doc);
+		rowsOf(app).push({
+			property: "_xpath_query",
+			defaultValue: oneRow(doc, neq(prop("patient", "notes"), input(NUMBER))),
+		});
+		const outcome = readHqApp({
+			...readerInput(await sourceFromBody(app)),
+			recordDialect: recordDialectRoundTrip,
+			knownCaseTypes: knownCaseTypesOf(doc),
+		});
+		const entry =
+			"case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard";
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		expect(
+			outcome.kind === "account"
+				? outcome.findings.map((finding) => finding.code)
+				: [],
+		).toEqual([entry]);
+		expect(placements()).toContainEqual({ kind: "E", entry });
 	});
 
 	it("reads rows in another order as the same rows, and records the reorder", async () => {

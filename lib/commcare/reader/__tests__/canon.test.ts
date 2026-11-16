@@ -57,6 +57,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	type CasePropertyDataType,
 	type Column,
 	type Expression,
 	makeTranslationUnitId,
@@ -71,18 +72,24 @@ import {
 } from "@/lib/domain";
 import {
 	and,
+	arith,
 	concat,
+	datetimeCoerce,
 	eq,
+	formatDate,
 	formField,
+	gt,
 	input,
 	literal,
 	matchAll,
+	now,
 	prop,
 	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
 import {
 	type CaseSearchConfig,
+	calculatedColumn,
 	columnSort,
 	phoneColumn,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -209,6 +216,29 @@ function survey(fields: ReturnType<typeof f>[]): BlueprintDoc {
 		modules: [
 			{ name: "Survey", forms: [{ name: "Visit", type: "survey", fields }] },
 		],
+	});
+}
+
+/** `doc` whose patient catalog declares `property` of `dataType` under a label no export holds,
+ *  where nothing writes the property and only its logic reads it. */
+function declaredUnwritten(
+	doc: BlueprintDoc,
+	property: string,
+	dataType: CasePropertyDataType,
+): BlueprintDoc {
+	return produce(doc, (draft) => {
+		draft.caseTypes = [
+			{
+				name: "patient",
+				properties: [
+					{
+						name: property,
+						label: proseText("A label no export holds"),
+						data_type: dataType,
+					},
+				],
+			},
+		];
 	});
 }
 
@@ -1209,6 +1239,130 @@ const PAIRS: readonly Pair[] = [
 			),
 	},
 	{
+		id: "case-catalog-is-as-read",
+		name: "a sort on a calculated column adding to a whole-number property nothing writes",
+		other: () =>
+			declaredUnwritten(
+				patients([
+					plainColumn(uuid(1), "case_name", "Name"),
+					calculatedColumn(
+						uuid(2),
+						"Next visit",
+						arith("+", term(prop("patient", "visits")), term(literal(1))),
+						{ sort: columnSort("asc", 0) },
+					),
+				]),
+				"visits",
+				"int",
+			),
+	},
+	{
+		id: "case-catalog-is-as-read",
+		name: "a date property nothing writes read as a date and time",
+		other: () =>
+			declaredUnwritten(
+				patients([
+					plainColumn(uuid(1), "case_name", "Name"),
+					calculatedColumn(
+						uuid(2),
+						"Seen",
+						datetimeCoerce(term(prop("patient", "seen"))),
+					),
+				]),
+				"seen",
+				"date",
+			),
+	},
+	{
+		id: "case-catalog-is-as-read",
+		name: "a date and time property nothing writes read as a date and time",
+		other: () =>
+			declaredUnwritten(
+				patients([
+					plainColumn(uuid(1), "case_name", "Name"),
+					calculatedColumn(
+						uuid(2),
+						"Seen",
+						datetimeCoerce(term(prop("patient", "seen"))),
+					),
+				]),
+				"seen",
+				"datetime",
+			),
+	},
+	{
+		id: "case-catalog-is-as-read",
+		name: "a date and time property nothing writes, formatted as its time",
+		other: () =>
+			declaredUnwritten(
+				patients([
+					plainColumn(uuid(1), "case_name", "Name"),
+					calculatedColumn(
+						uuid(2),
+						"Seen",
+						formatDate(term(prop("patient", "seen")), "%H:%M"),
+					),
+				]),
+				"seen",
+				"datetime",
+			),
+	},
+	{
+		id: "case-catalog-is-as-read",
+		name: "a date and time property nothing writes, compared with the clock in a question's display condition",
+		other: () =>
+			declaredUnwritten(
+				buildDoc({
+					modules: [
+						{
+							name: "Patients",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									name: "Register",
+									type: "registration",
+									fields: [
+										f({
+											kind: "text",
+											id: "name",
+											caseWrite: {
+												caseType: "patient",
+												property: "case_name",
+											},
+										}),
+									],
+								},
+								{
+									name: "Visit",
+									type: "followup",
+									fields: [
+										f({
+											kind: "text",
+											id: "note",
+											label: "Note",
+											relevant: gt(
+												term({
+													kind: "form-case",
+													caseType: "patient",
+													property: "seen",
+												}),
+												now(),
+											),
+										}),
+									],
+								},
+							],
+						},
+					],
+				}),
+				"seen",
+				"datetime",
+			),
+	},
+	{
 		id: "write-via-steps-are-typed",
 		name: "a save to the case above through an untyped step",
 		other: () => {
@@ -1656,6 +1810,15 @@ async function readBack(doc: BlueprintDoc, lookup?: CorpusDocument["lookup"]) {
 	return outcome.draft;
 }
 
+/** The pairs of `case-catalog-is-as-read` whose print lowers by a type the catalog declares and
+ *  nothing writes, which a read back is told (`ReaderInput.knownCaseTypes`). */
+const TOLD_TYPES: readonly string[] = [
+	"a sort on a calculated column adding to a whole-number property nothing writes",
+	"a date property nothing writes read as a date and time",
+	"a date and time property nothing writes, formatted as its time",
+	"a date and time property nothing writes, compared with the clock in a question's display condition",
+];
+
 describe("a read back of Nova's export", () => {
 	const cases: readonly (readonly [string, () => BlueprintDoc])[] = [
 		[
@@ -1739,6 +1902,10 @@ describe("a read back of Nova's export", () => {
 			"a sorted column hidden from Results and from Details under its own header, over a property another column shows",
 			() => hiddenColumnHeadedApart(true),
 		],
+		// A declared type no export carries, which the reading is told.
+		...PAIRS.filter((pair) => TOLD_TYPES.includes(pair.name)).map(
+			(pair) => [pair.name, pair.other] as const,
+		),
 	];
 	for (const [name, build] of cases)
 		it(`gives the canonical form of ${name}`, async () => {
