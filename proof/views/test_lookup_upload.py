@@ -226,8 +226,12 @@ def _first_values(held):
 
 
 def test_a_replacing_upload_leaves_an_unnamed_table_alone(hq, core_runner, view_documents, published):
+    from proof.hq.seams import api_rate_limits
+
     document = view_documents[DOCUMENT]
-    with published(document, "minimum", core_runner, create=False) as (unit, _, export):
+    # Three pushes in one second pass HQ's API rate limiter's floor (it answers the second 429): the limiter's
+    # counts are held within their limits for the block, as every lane test that asks HQ's API more than once does.
+    with published(document, "minimum", core_runner, create=False) as (unit, _, export), api_rate_limits(unit):
         captured = export.content.lookups
         # Nova's push asks HQ to replace the tables its workbook names.
         assert upload_field_value(captured, "replace") == b"true"
