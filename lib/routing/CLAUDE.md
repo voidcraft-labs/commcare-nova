@@ -160,6 +160,18 @@ crumb let a case go or a later list chose another) before any screen renders
 it: `onPopState` runs the listeners `subscribeBuilderHistoryPop` registers
 after the reconcile and before the path subscribers, since a screen reads the
 selections as it mounts (`previewSelectionsHistory.ts::previewSelectionsArrival`).
+The window runs its popstate listeners in the order they were added, and
+Next's App Router adds its own at hydration, before the builder's; react-dom
+renders the transition that listener starts in the microtask right after it
+returns, while the popstate is still `window.event`. So until the builder
+takes a pop in, every builder read of history (`viewedEntry`: the path, the
+query, the held menu, the standing searches, the recorded selections) stays
+on the entry it last took in, and every builder write first takes in the
+pending pop (`takeInPendingPop`). A render that reached the screens first
+would otherwise show the popped entry with the previous entry's session, and
+record that session over the entry's own selections
+(`lib/preview/hooks/__tests__/previewSelectionsArrival.test.ts`).
+`recordPreviewSelections` takes a reader of the session for that reason.
 A screen's own step back (`stepBackTo`) runs its `leave` after that return,
 so what the screen lets go stays let go. The entry's address is the
 builder's: Back onto a form's entry opens that form, with the entry's
