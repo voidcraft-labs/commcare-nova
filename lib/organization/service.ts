@@ -1363,6 +1363,32 @@ async function countCasesOwnedBy(
 	return Number(result.rows[0]?.count ?? "0");
 }
 
+/**
+ * The places among `locationIds` that some case of the app names as its
+ * owner, open or closed.
+ *
+ * The other read of case rows here, beside {@link countCasesOwnedBy}, and the
+ * one that decides something: a managed copy's refresh past
+ * `MAX_LOCATIONS_PER_APP` deletes archived rows (`managed.ts`), and a row
+ * whose id is a case's `owner_id` must stay, or that case would name no place
+ * in Preview, in a worker's footprint or in an export of its owner. A closed
+ * case counts: its `owner_id` names the place as much as an open one's does.
+ */
+export async function locationsOwningCases(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	locationIds: readonly string[],
+): Promise<ReadonlySet<string>> {
+	if (locationIds.length === 0) return new Set();
+	const result = await sql<{ owner_id: string }>`
+		SELECT DISTINCT owner_id
+		FROM cases
+		WHERE app_id = ${appId}
+			AND owner_id = ANY(${sql.val(locationIds)}::text[])
+	`.execute(tx);
+	return new Set(result.rows.map((row) => row.owner_id));
+}
+
 /** Forms whose owner expression would become invalid after this archive. */
 function archiveBlockingOwnerRuleForms(
 	doc: BlueprintDoc,

@@ -1109,7 +1109,7 @@ of the table. Each finding is at `{ kind: "lookup-table", tag }`:
 | the tag `types`, any case | the tag | `expressions-and-data/tag-types` | `"types"` |
 | a tag holding `casedb` or `ledgerdb` | `reservedInstanceTagCause` | `expressions-and-data/tag-containing-casedb-or-ledgerdb` (REFUSED) | the tag |
 | a tag or a field name outside part 04's grammar | `lookupTagSchema`, `lookupWireNameSchema` | part 04's section 11.2: N4 (a non-ASCII letter), N24 (a period), N5 (a tag equal to an instance name CommCare owns); any other failure is `unrecognized` | the name |
-| two fields whose names are equal | the definition | `unrecognized` | the name |
+| two fields whose names are equal (CommCare HQ holds them: nothing in `corehq/apps/fixtures` checks a field list for repeats. Manage Tables renames a field onto another's name, `fixtures/views.py::_update_types` keeping the untouched field beside the renamed one; the lookup table API saves the list it is sent, `resources/v0_1.py::LookupTableResource.obj_create` and `obj_update`; a workbook upload takes its `field N` headers as they stand, `upload/workbook.py::_FixtureTableDefinition.from_row`) | the definition | the circumstance `table-field-repeated` (13.2), `fix-in-hq`: a row holds one value per name (`LookupTableRow.fields` is a dict) and Nova's table one column per name, so a field renamed or removed in CommCare HQ settles it. It is no gap of Nova's, so it is no `unrecognized` | `"<tag> (the field <field name>)"`, one finding per repeated name |
 | a table with no field (CommCare HQ's Manage Tables page saves one, `fixtures/views.py::update_tables` checking only the tag and the field names; its workbook upload refuses one) | `table.fields.length === 0` | the circumstance `table-has-no-fields` (13.2), `fix-in-hq`: Nova's table holds one column at least (`lookup_tables.column_count`'s CHECK, and the managed create's refusal), so without this row a table an app counts the rows of would come in clean and fail the birth. It is a lasting rule a field added in CommCare HQ settles, not a gap of Nova's, so it is no `unrecognized`; the publish says the same of a managed table that loses its last field (`MANAGED_TABLE_NO_COLUMNS`) | the tag |
 | a cell holding a character XML 1.0 cannot carry | `lib/commcare/xmlText.ts::xmlTextIssue` over every cell of a field the definition names | the circumstance `table-cell-unrepresentable` (13.2), `fix-in-hq` | `"<tag> (the field <field name>)"`, one finding per field |
 | rows CommCare HQ could not send | `rows-unreadable` | the circumstance `table-rows-unreadable` | the tag |
@@ -1120,8 +1120,8 @@ over what one `.ccz` carries (`lookupFixtureBudgetFinding`, below: the caps entr
 `{ kind: "app" }`, `not-yet`), and a table whose rows cannot be a question's choices
 (`table-choices-unusable`, 13.2, `fix-in-hq`).
 
-Every entry of the table is `not-yet` under `project-data-at-hq-size`, but for three rows: the
-`casedb` tag (REFUSED) and the two circumstances (`fix-in-hq`). A field name is judged whether or
+Every entry of the table is `not-yet` under `project-data-at-hq-size`, but for the `casedb` tag
+(REFUSED) and the circumstances (`fix-in-hq`). A field name is judged whether or
 not the app reads it: a column Nova cannot name cannot be stored, and a copy without it would be
 pushed short to another project space.
 
@@ -2867,8 +2867,11 @@ export interface ManagedPlacesRefresh {
 	readonly added: number; readonly changed: number; readonly archived: number;
 	/** Places gone from CommCare HQ that a persona, an owner rule or an automation still names
 	 * (an `app_location_references` edge): kept, with `hq_gone_at` set. A kept place the plan
-	 * leaves out at a level the app lacks is not gone, and is not named. */
+	 * leaves out at a level the app lacks is not gone, and is named in `keptLeftOut`. */
 	readonly keptInUse: readonly string[]; // names
+	/** Places CommCare HQ now holds at a level the app lacks that such an edge names: kept live
+	 * as the copy held them, with their CommCare HQ id and no `hq_gone_at`. */
+	readonly keptLeftOut: readonly string[]; // names
 	readonly leftOut: Readonly<Record<string, number>>;
 }
 export function refreshManagedPlacesInTransaction(
@@ -2902,7 +2905,12 @@ kept place keeps its `hq_location_id`: the plan's `leftOutHqLocationIds` (CommCa
 places `leftOut` counts, which `planManagedPlaces` lists in `refresh` mode) tells a place left out
 at a level the app lacks, which CommCare HQ still has, from one CommCare HQ no longer has, and only
 the second takes `hq_gone_at` (provisioning reads it, below) and, where it is the place named, a
-line in `keptInUse`. A kept place the plan leaves out loses an `hq_gone_at` an earlier refresh set.
+line in `keptInUse`. A kept place the plan leaves out loses an `hq_gone_at` an earlier refresh set,
+and is otherwise left as the copy held it (its level, parent, name, coordinates and values, since
+the app has no level to hold CommCare HQ's at); where it is the place named, it takes a line in
+`keptLeftOut`, so the person reads that it stays while the app uses it (Copy O27). A left-out place
+nothing names is archived like any place the plan does not list, which is what Copy O8 says of the
+rest.
 Keeping the id is what lets a later refresh match the place by it when CommCare HQ lists it again
 under another code (unarchived and renamed through the v0.6 API, which makes a new code); a
 refresh that let the id go would insert it as a new place under a new Nova id beside the kept row.
@@ -2921,17 +2929,22 @@ CommCare HQ then gave a place at another level) refuse every later refresh.
 
 `MAX_LOCATIONS_PER_APP` counts every row (`location_count`), archived ones too, because every
 whole-tree read reads them. A managed copy can never shed an archived row by an author's hand, so
-where a refresh would take the count past the bound it deletes archived rows that nothing names,
-as many as the excess: the longest archived first (one this refresh archives counts as archived
+where a refresh would take the count past the bound it deletes archived rows that nothing names
+and that no case is owned by, as many as the excess: the longest archived first (one this refresh archives counts as archived
 now), then by id, and each in a statement after every row standing under it once the refresh is
 done, after the inserts and updates, so the parent key never refuses. A deleted row's Nova id goes
 with it, and were CommCare HQ to list that place again the copy would take it as a new place; that
-is the price of the bound, paid only past it. Only where the rows that must stay (CommCare HQ's
-places and the places kept because the app uses them) pass the bound does the refresh refuse, with
-`OrganizationError("limit", "Refreshing would take this app past 10,000 places, which is as many as
-Nova stores for one app: CommCare HQ's places and the ones Nova keeps because this app still uses
-them come to more than that. You can move or change what uses the places CommCare HQ no longer has,
-then refresh again. Nova kept its copy as it was.")`. The count moves by the inserts less the
+is the price of the bound, paid only past it. An archived row whose id is the `owner_id` of a case
+of the app, open or closed (`lib/organization/service.ts::locationsOwningCases`, asked of the rows
+that could go), is never deleted: the case would then name no place, which
+`lib/organization/CLAUDE.md` forbids of every delete; it stays archived, as an archive in Nova
+leaves it, and so does every row above it. Only where the rows that must stay (CommCare HQ's
+places, the places kept because the app uses them and the archived places a case is owned by) pass
+the bound does the refresh refuse, with `OrganizationError("limit", "Refreshing would take this app
+past 10,000 places, which is as many as Nova stores for one app: CommCare HQ's places, the ones Nova
+keeps because this app still uses them and the ones saved cases belong to come to more than that.
+You can move or change what uses the places CommCare HQ no longer has, then refresh again. Nova
+kept its copy as it was.")`. The count moves by the inserts less the
 deletes. The refresh never writes the
 document, so it never unassigns a persona: the person moves the persona and refreshes again (Copy
 O6). For that second refresh to look at the rows when CommCare HQ has not changed, a refresh that
@@ -2964,8 +2977,8 @@ second sentence; `not-connected` Copy O17; `cannot-read` Copy O12; `unavailable`
 the first such finding's name, and the transaction's `OrganizationError("rejected")` (a place that
 no longer fits the document, a persona or an owner rule) its own sentence (Copy O18 to O23, or a
 persona's or a fixed owner's sentence with the suffix). A success shows Copy O9, or O10
-where `added`, `changed` and `archived` are all zero, then O6 where `keptInUse` is not empty and O8
-where `leftOut` is not.
+where `added`, `changed` and `archived` are all zero, then O6 where `keptInUse` is not empty and O27
+where `keptLeftOut` is not; the banner shows O8 where the stored `leftOut` is not (12.2).
 
 **At a publish.**
 
@@ -3143,7 +3156,8 @@ files reads the member that was its capability before.
   (`.../a/<domain>/settings/locations/list/`, the address `setupArtifact.ts` gives). Copy O5
   follows, then Copy O8 where the snapshot's `hq.leftOut` is not empty. Copy O6 (`keptInUse`) is no
   stored fact: the banner shows it from the answer of a refresh pressed in this tab
-  (`ManagedPlacesOutcome.refresh`, 11.4) until the tab's next refresh or reload. Without a
+  (`ManagedPlacesOutcome.refresh`, 11.4) until the tab's next refresh or reload, and so is Copy O27
+  (`keptLeftOut`), which follows it. Without a
   connection on that server, Refresh is replaced by Copy O17, a link to the CommCare HQ settings.
 - `PlacesSubsection.tsx`: no add, edit, move or archive control while places are managed.
 - `LevelsSubsection.tsx`: Copy O3 above the levels, while places are managed.
@@ -3293,10 +3307,10 @@ flag, and a field with no value fails the row read (5.1). Part 14 exempts both f
 
 ### 13.2 The circumstances this part raises
 
-Nine facts are about a project space's data, not the app's source, so no manifest entry can name
+Ten facts are about a project space's data, not the app's source, so no manifest entry can name
 them (part 01, section 8.3, makes that the test). Part 01 holds each code's row (standing, owner,
 when, and what `detail.name` is; its section 8.3) and its block of title, body and next step (its
-section 9.3), and neither is written again here. This part is the producer of all nine:
+section 9.3), and neither is written again here. This part is the producer of all ten:
 
 | Code | Raised by | `detail.name` as this part sets it |
 |---|---|---|
@@ -3306,6 +3320,7 @@ section 9.3), and neither is written again here. This part is the producer of al
 | `table-cell-unrepresentable` | 5.3 | `"<tag> (the field <field name>)"` |
 | `table-choices-unusable` | 5.3, by `readingProjectDataFindingsFor` (14.1) | `"<tag> (the field <field name>)"` |
 | `table-has-no-fields` | 5.3 | the tag |
+| `table-field-repeated` | 5.3 | `"<tag> (the field <field name>)"` |
 | `places-over-nova-limit` | 11.1 at a bring-in's read; 11.4 at a refresh | the total CommCare HQ reports, `"12,400 places"`, or `"more than 10,000 places"` where the read stopped with no total |
 | `place-not-holdable` | 11.2, 11.4 | the level's or the place's name; `"<place>: <slug>"` for a value |
 | `owner-rule-needs-one-place` | 11.4 | the level's name |
@@ -3941,7 +3956,7 @@ authenticates with `RequirePermissionAuthentication(HqPermissions.edit_apps)`, w
 | O5 | banner, small | CommCare HQ doesn't send external IDs for places, so Nova's copy has none. |
 | O6 | after a refresh, places in use | {count} places are gone from CommCare HQ, and a persona, an owner rule or an automation still uses them: {names}. Nova kept them. You can move or change what uses them, then refresh again. |
 | O7 | every refused write (`organizationManagedRefusal`) | This app's places are managed in CommCare HQ ({domain}), so Nova can't change them here. You can change them in CommCare HQ, then refresh Nova's copy in Organization. |
-| O8 | after a refresh, left out | {count} places in CommCare HQ sit at a level this app doesn't have ({codes}), so Nova's copy leaves them out. You can add a level with that code, then refresh. |
+| O8 | banner, left out | {count} places in CommCare HQ sit at a level this app doesn't have ({codes}), so Nova's copy leaves them out. Where this app uses one of them, Nova keeps that place as it stood before. You can add a level with that code, then refresh. One place: "...leaves it out. Where this app uses it, Nova keeps it as it stood before." |
 | O9 | refresh, changed | Nova's copy now matches CommCare HQ: {added} added, {changed} changed, {archived} archived. |
 | O10 | refresh, nothing changed | Nova's copy already matches CommCare HQ. |
 | O11 | refresh, over the limit | {domain} now has {count} places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was. `{count}` is "more than 10,000" where CommCare HQ's list named no total and the read stopped once it passed the limit. |
@@ -3958,6 +3973,7 @@ authenticates with `RequirePermissionAuthentication(HqPermissions.edit_apps)`, w
 | O22 | refresh, an owner rule's source with two places at its level below | The owner rule for {level} needs exactly one live {level, lower case} below "{source}", and CommCare HQ ({domain}) now has two there: "{first}" and "{second}". You can archive one of them there or change the rule in Nova, then refresh. Nova kept its copy as it was. Where one of the two is kept: ...below "{source}", and after this refresh "{first}" and "{second}" would both stand there. "{kept}" is gone from CommCare HQ ({domain}) and kept only while something in this app uses it or a place below it. You can move or change what uses it, or change the rule in Nova, then refresh. Nova kept its copy as it was. |
 | O23 | refresh, an owner rule resolving outside a persona's address book | The {level} owner rule can resolve to "{place}", but after this refresh that place is outside {persona}'s address book. You can widen the address book or change the rule in Nova, then refresh. Nova kept its copy as it was. |
 | O24 | a commit or a builder check, managed: an owner rule's source with no place at its level below (`reverseLocationOwnerRefusal`) | The owner rule for {level} needs exactly one live {level, lower case} below "{source}", and this app's places are managed in CommCare HQ ({domain}), which has none there. You can add one there and refresh, or change the rule. Where the source holds `hq_gone_at`: ...below "{source}", which CommCare HQ ({domain}) no longer has. Nova keeps it only while something in this app uses it or a place below it. You can move or change what uses it and refresh, or change the rule. |
+| O27 | after a refresh, places at a level the app lacks that are in use (`keptLeftOut`) | {count} places in CommCare HQ sit at a level this app doesn't have, and a persona, an owner rule or an automation still uses them: {names}. Nova kept them as they stood before. You can add the levels they sit at, or move or change what uses them, then refresh again. One place: "...still uses it: {name}. Nova kept it as it stood before. You can add that level, or move or change what uses it, then refresh again." |
 | O26 | refresh, a newer refresh landed while this one read CommCare HQ (`superseded`, 10.3) | Nova's copy was refreshed again while this one was reading CommCare HQ, so it already holds the newer read. |
 | O25 | a commit or a builder check, managed: an owner rule's source with two places at its level below (`reverseLocationOwnerRefusal`) | The owner rule for {level} needs exactly one live {level, lower case} below "{source}", and both "{first}" and "{second}" stand there. This app's places are managed in CommCare HQ ({domain}), so you can archive one of them there and refresh, or change the rule. Where one of the two holds `hq_gone_at`: ...stand there. CommCare HQ ({domain}) no longer has "{kept}", and Nova keeps it only while something in this app uses it or a place below it. You can move or change what uses it and refresh, or change the rule. |
 
@@ -4437,8 +4453,8 @@ weighed and not taken, as "Not done", so that an implementer who reaches for it 
     is drawn: `PromptToJson.parseSelect` sends no media), and a question's sound or video in Web
     Apps with no map entry (a player is drawn: `multimedia.html`). No cell is held to one side for
     want of a read.
-11. **Nine circumstances are this part's to raise** (13.2), each a fact of a project space's data
-    that no manifest entry can name. Part 01 holds all nine (its sections 8.3 and 9.3). One of
+11. **Ten circumstances are this part's to raise** (13.2), each a fact of a project space's data
+    that no manifest entry can name. Part 01 holds all ten (its sections 8.3 and 9.3). One of
     them, `table-choices-unusable`, is there for acceptance: without it check 2 would word a
     table's rows as Nova's mistake (part 09, section 4).
 12. **From the research (worker and location properties "typed from how it reads them").** Nothing
@@ -4577,7 +4593,7 @@ browser call of this part is a Server Action.
 (renamed `recoverFailedPublication`, its log tag `[media:publish-ready]`), from
 `lib/mcp/tools/uploadMediaAsset.ts` to `lib/media/publishReadyMedia.ts` (4.1).
 
-Other parts' files hold four things this part states and does not write: the eight circumstance
+Other parts' files hold four things this part states and does not write: the ten circumstance
 rows and their blocks (part 01, sections 8.3 and 9.3), the reader's structure stage that calls
 `levelsFromHq` (part 06, section 2.3), the register entry `media-references-with-no-file-removed`
 (part 09, section 11.2), and the two MCP tools' registration (part 13, sections 14.1 and 14.6).

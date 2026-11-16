@@ -90,16 +90,28 @@ function retainedBody(relative: string): {
 	return JSON.parse(readFileSync(path.join(READS, relative), "utf8"));
 }
 
-async function retainedTables(): Promise<readonly HqLookupTable[]> {
+/** One table of the retained list's answer, as its JSON holds it. */
+type AnsweredTable = { tag: string; fields: unknown[] };
+
+/** The retained list, read by the production reader, its answer's tables changed by `edit` first. */
+async function retainedTables(
+	edit?: (objects: AnsweredTable[]) => void,
+): Promise<readonly HqLookupTable[]> {
 	return withHttpPeer(async (peer) => {
 		const answer = retainedBody("lookups/lookup-tables.json");
+		let body = answer.body;
+		if (edit !== undefined) {
+			const parsed = JSON.parse(body) as { objects: AnsweredTable[] };
+			edit(parsed.objects);
+			body = JSON.stringify(parsed);
+		}
 		peer
 			.get(HOST)
 			.intercept({
 				path: "/a/clinic/api/lookup_table/v1/?limit=100",
 				method: "GET",
 			})
-			.reply(answer.status, answer.body, { headers: answer.headers });
+			.reply(answer.status, body, { headers: answer.headers });
 		const tables = await listHqLookupTables(CREDS, "clinic");
 		if ("success" in tables) throw new Error("the retained list did not read");
 		return tables;
@@ -552,9 +564,28 @@ describe("lookupTableFindings", () => {
 		]);
 		// A field may take an instance name CommCare owns: only a tag is its instance's id.
 		expect(fielded(["code", "locations"])).toEqual([]);
-		expect(fielded(["code", "name", "code"])).toEqual([
-			["unrecognized", "code"],
+	});
+
+	it("finds a field CommCare HQ's answer names twice, once, as something to change there", async () => {
+		// The retained list with `plain`'s fields as the lookup table API
+		// saves a list it is sent (`resources/v0_1.py::obj_create`): `code`
+		// twice and `name` three times, read by the production reader.
+		const crafted = await retainedTables((objects) => {
+			const table = objects.find((one) => one.tag === "plain");
+			if (table === undefined) throw new Error("no retained table plain");
+			table.fields = ["code", "name", "code", "name", "name"].map(
+				(field_name) => ({ field_name, properties: [] }),
+			);
+		});
+		const table = crafted.find((one) => one.tag === "plain");
+		if (table === undefined) throw new Error("the crafted list lost plain");
+		expect(table.fields).toEqual(["code", "name", "code", "name", "name"]);
+		const findings = lookupTableFindings(readOf(table, plainRows), within);
+		expect(names(findings)).toEqual([
+			["table-field-repeated", "plain (the field code)"],
+			["table-field-repeated", "plain (the field name)"],
 		]);
+		expect(findings[0]).toMatchObject({ standing: "fix-in-hq", subject: null });
 	});
 
 	it("names each field holding a character XML cannot carry, beside the other findings", () => {

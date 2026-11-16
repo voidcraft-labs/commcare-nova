@@ -104,6 +104,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ.",
 	"text-spaces-dropped":
 		"A name, label or other app text that is only spaces in one language now shows its text in the source language there, and spaces or line breaks at the start or end of a text are dropped. Before, workers saw a blank text, the spaces or the line breaks.",
+	"form-text-characters-written-as-outputs":
+		"Where a question's text holds a no-break space, or words CommCare HQ would take as a request for data, Nova writes those characters as fixed values. CommCare HQ's form builder shows each one as a small reference inside the text. Workers read the same words.",
 };
 
 /** One line of a list: the id whose sentence it shows, and that sentence. */

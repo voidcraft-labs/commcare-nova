@@ -57,9 +57,9 @@ import {
 import { InstanceSink } from "../../xpath/wire/instances";
 import type { Accounting } from "../accounting";
 import { withCandidate } from "../candidate";
-import type { ReadContext } from "../context";
+import type { DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
-import { sameJson } from "../jsonCursor";
+import { pointerToken, sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
@@ -1607,6 +1607,45 @@ function registrations(ctx: ReadContext): Map<Element, number> {
 	return byElement;
 }
 
+/** The entry a form's texts are read under, which a text-outputs record names. */
+const TEXT_ENTRY = "questions/label-default-text-itext-value";
+
+/**
+ * Records, once per form, a form text whose source spells in a text node a
+ * character Nova's print writes as a literal output: a no-break space, or the
+ * bracket of an `instance(` CommCare HQ's build would read as a data source
+ * (`builder.ts::literalLabelNodes`). Every runtime shows the output as the
+ * same character, so the text is held as it stands, and the first publish
+ * writes the form's source again with the output, which CommCare HQ's form
+ * builder draws as one. Nova's own print of a text records nothing: each of
+ * its literal outputs is read as the text it spells.
+ */
+function recordTextOutputs(
+	ctx: ReadContext,
+	form: DraftForm,
+	slots: readonly SlotText[],
+): void {
+	const spelled = slots.some((slot) =>
+		[...slot.values.values()].some((value) =>
+			value.parts.some(
+				(part) =>
+					part.kind === "text" &&
+					// Only these two print an output from a text node; the print decides.
+					(part.text.includes("\u00a0") || part.text.includes("instance")) &&
+					printedNodes(part.text).some(isTag),
+			),
+		),
+	);
+	if (!spelled) return;
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	ctx.facts.sameStateRewrites.push({
+		entry: TEXT_ENTRY,
+		path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
+		register: "form-text-characters-written-as-outputs",
+	});
+}
+
 /**
  * Stage 9: each text's translations, from the bound outputs. An output of another language is
  * never bound on its own: it takes the bound part of the source output it equals, each source
@@ -1637,6 +1676,7 @@ export function finishText(ctx: ReadContext): void {
 			if (xform === null) continue;
 			const text = formText(xform);
 			if (text === undefined) continue;
+			recordTextOutputs(ctx, form, text.slots);
 			const firstOf = new Map<string, { slot: SlotText; unit: ItextUnit }>();
 			for (const slot of text.slots) {
 				const unit = unitOf(slot.owner);

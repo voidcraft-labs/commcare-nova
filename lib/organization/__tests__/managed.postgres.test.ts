@@ -28,6 +28,7 @@ import { ownerLocationAtLevel, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import {
 	managedOrganizationCommitRefusal,
+	managedPlacesLeftOut,
 	managedPlacesRefreshRefusal,
 	organizationManagedRefusal,
 } from "@/lib/publish/managedData";
@@ -667,6 +668,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: {},
 		});
 		const after = await readOrganization(scope());
@@ -714,6 +716,7 @@ describe("a refresh of the copy", () => {
 			changed: 2,
 			archived: 1,
 			keptInUse: ["Old Post"],
+			keptLeftOut: [],
 			leftOut: { ward: 2 },
 		});
 		const afterFirst = await readOrganization(scope());
@@ -741,6 +744,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 0,
 			keptInUse: ["Old Post"],
+			keptLeftOut: [],
 			leftOut: { ward: 2 },
 		});
 		expect((await readOrganization(scope())).revision).toBe(
@@ -771,6 +775,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 1,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: { ward: 2 },
 		});
 		expect(
@@ -821,6 +826,7 @@ describe("a refresh of the copy", () => {
 			changed: 3,
 			archived: 0,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: {},
 		});
 		const after = await readOrganization(scope());
@@ -869,6 +875,7 @@ describe("a refresh of the copy", () => {
 			changed: 1,
 			archived: 1,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: {},
 		});
 		const after = bySiteCode((await readOrganization(scope())).locations);
@@ -919,6 +926,7 @@ describe("a refresh of the copy", () => {
 			changed: 1,
 			archived: 0,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: {},
 		});
 		const places = bySiteCode((await readOrganization(scope())).locations);
@@ -938,6 +946,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 0,
 			keptInUse: ["Mercy Clinic"],
+			keptLeftOut: [],
 			leftOut: {},
 		});
 		const after = await readOrganization(scope());
@@ -975,6 +984,7 @@ describe("a refresh of the copy", () => {
 		expect(await refresh([north, riverside], {}, undefined)).toMatchObject({
 			archived: 0,
 			keptInUse: ["Mercy Clinic"],
+			keptLeftOut: [],
 		});
 		expect(await goneSiteCodes()).toEqual(["mercy"]);
 
@@ -993,6 +1003,7 @@ describe("a refresh of the copy", () => {
 			changed: 1,
 			archived: 0,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: {},
 		});
 		const after = await readOrganization(scope());
@@ -1005,14 +1016,17 @@ describe("a refresh of the copy", () => {
 		expect((await readOrganization(scope())).revision).toBe(after.revision);
 	});
 
-	it("keeps a place in use that CommCare HQ holds at a level the app lacks without calling it gone", async () => {
+	it("keeps a place in use that CommCare HQ holds at a level the app lacks as it stood, naming it, without calling it gone, and leaves out one nothing uses", async () => {
 		await seedApp();
-		await bringIn();
+		await bringIn([
+			...BIRTH_PLACES,
+			place("hilltop", "Hilltop", FACILITY, "riverside"),
+		]);
 		const born = bySiteCode((await readOrganization(scope())).locations);
 		await standAsha("asha-at-mercy", born.get("mercy")?.id ?? "");
 
-		// CommCare HQ retypes Mercy Clinic to a level the app doesn't have, so
-		// the plan leaves it out and counts it.
+		// CommCare HQ retypes Mercy Clinic and Hilltop to a level the app
+		// doesn't have, so the plan leaves both out and counts them.
 		const result = await refresh(
 			[
 				place("north", "North", REGION, null),
@@ -1021,21 +1035,35 @@ describe("a refresh of the copy", () => {
 					longitude: "-3.25",
 				}),
 			],
-			{ post: 1 },
+			{ post: 2 },
 			undefined,
-			["hq-mercy"],
+			["hq-mercy", "hq-hilltop"],
 		);
 		expect(result).toEqual({
 			added: 0,
 			changed: 0,
-			archived: 0,
+			archived: 1,
 			keptInUse: [],
-			leftOut: { post: 1 },
+			keptLeftOut: ["Mercy Clinic"],
+			leftOut: { post: 2 },
 		});
-		const after = bySiteCode((await readOrganization(scope())).locations);
-		expect(after.get("mercy")?.archivedAt).toBeNull();
+		const snapshot = await readOrganization(scope());
+		const after = bySiteCode(snapshot.locations);
+		// Mercy Clinic stands as the copy held it, at the level CommCare HQ
+		// moved it from; Hilltop, which nothing uses, is left out.
+		expect(after.get("mercy")).toMatchObject({
+			archivedAt: null,
+			levelUuid: FACILITY,
+			name: "Mercy Clinic",
+			values: { [PROP_BEDS]: "40" },
+		});
+		expect(after.get("hilltop")?.archivedAt).not.toBeNull();
 		expect(await goneSiteCodes()).toEqual([]);
 		expect((await hqLocationIds()).mercy).toBe("hq-mercy");
+		// The standing line over the stored count says a place in use stays.
+		expect(managedPlacesLeftOut(snapshot.hq?.leftOut ?? {})).toContain(
+			"Where this app uses one of them, Nova keeps that place as it stood before.",
+		);
 	});
 
 	it("refuses a place CommCare HQ lists where the app's levels or place information don't allow it, leaving the copy as it was", async () => {
@@ -1137,6 +1165,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: {},
 		});
 		const after = bySiteCode((await readOrganization(scope())).locations);
@@ -1148,6 +1177,86 @@ describe("a refresh of the copy", () => {
 			"north",
 		]);
 		expect(await locationCount()).toBe(MAX_LOCATIONS_PER_APP);
+	});
+
+	it("keeps an archived place nothing names where a saved case is owned by it, letting go of others in its place", async () => {
+		await seedApp();
+		await bringIn([
+			...BIRTH_PLACES,
+			place("hilltop", "Hilltop", FACILITY, "north"),
+			place("lake", "Lake District", DISTRICT, "north"),
+		]);
+		const north = place("north", "North", REGION, null);
+		const lake = place("lake", "Lake District", DISTRICT, "north");
+		const riverside = place("riverside", "Riverside", DISTRICT, "north", {
+			latitude: "12.5",
+			longitude: "-3.25",
+		});
+		// Hilltop is archived first, so it is the first a refresh past the
+		// limit would let go of; then Riverside with Mercy Clinic below it.
+		await refresh([north, riverside, BIRTH_PLACES[2], lake]);
+		await refresh([north, lake], {}, new Date("2026-11-03T10:00:00.000Z"));
+		const hilltopId = bySiteCode(
+			(await readOrganization(scope())).locations,
+		).get("hilltop")?.id;
+		if (hilltopId === undefined) throw new Error("Hilltop is in the copy.");
+		// A case a worker closed while Hilltop owned it: nothing in the app
+		// names Hilltop, and the case still does.
+		await h.pool().query(
+			`INSERT INTO cases (case_id, app_id, project_id, case_type, case_name, owner_id, status, closed_on, properties)
+			VALUES ('hilltop-visit', $1, $2, 'patient', 'Hilltop visit', $3, 'closed', now(), '{}')`,
+			[APP_ID, PROJECT, hilltopId],
+		);
+		await h
+			.db()
+			.updateTable("app_organization_state")
+			.set({ location_count: MAX_LOCATIONS_PER_APP })
+			.where("app_id", "=", APP_ID)
+			.execute();
+
+		// Two new places: Riverside and Mercy Clinic go, Hilltop stays.
+		expect(
+			await refresh(
+				[
+					north,
+					lake,
+					place("east", "East", DISTRICT, "north"),
+					place("lake_clinic", "Lake Clinic", FACILITY, "lake"),
+				],
+				{},
+				new Date("2026-11-04T10:00:00.000Z"),
+			),
+		).toMatchObject({ added: 2, archived: 0 });
+		const after = bySiteCode((await readOrganization(scope())).locations);
+		expect([...after.keys()].sort()).toEqual([
+			"east",
+			"hilltop",
+			"lake",
+			"lake_clinic",
+			"north",
+		]);
+		expect(after.get("hilltop")?.id).toBe(hilltopId);
+		expect(after.get("hilltop")?.archivedAt).not.toBeNull();
+		expect(await locationCount()).toBe(MAX_LOCATIONS_PER_APP);
+
+		// With only the case's place left to let go of, the refresh refuses
+		// rather than leave the case owned by no place.
+		const before = await copyState();
+		const error = await refusalOf(
+			refresh(
+				[
+					north,
+					lake,
+					place("east", "East", DISTRICT, "north"),
+					place("lake_clinic", "Lake Clinic", FACILITY, "lake"),
+					place("west", "West", DISTRICT, "north"),
+				],
+				{},
+				new Date("2026-11-05T10:00:00.000Z"),
+			),
+		);
+		expect((error as OrganizationError).code).toBe("limit");
+		expect(await copyState()).toEqual(before);
 	});
 
 	it("refuses a refresh past the places Nova holds where only places in use stand beyond it, leaving the copy as it was", async () => {
@@ -1188,7 +1297,7 @@ describe("a refresh of the copy", () => {
 		expect(error).toBeInstanceOf(OrganizationError);
 		expect((error as OrganizationError).code).toBe("limit");
 		expect((error as OrganizationError).message).toBe(
-			"Refreshing would take this app past 10,000 places, which is as many as Nova stores for one app: CommCare HQ's places and the ones Nova keeps because this app still uses them come to more than that. You can move or change what uses the places CommCare HQ no longer has, then refresh again. Nova kept its copy as it was.",
+			"Refreshing would take this app past 10,000 places, which is as many as Nova stores for one app: CommCare HQ's places, the ones Nova keeps because this app still uses them and the ones saved cases belong to come to more than that. You can move or change what uses the places CommCare HQ no longer has, then refresh again. Nova kept its copy as it was.",
 		);
 		expect(await copyState()).toEqual(before);
 	});
@@ -1294,6 +1403,7 @@ describe("a refresh whose read of CommCare HQ began before the copy's last refre
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: {},
 			superseded: true,
 		});

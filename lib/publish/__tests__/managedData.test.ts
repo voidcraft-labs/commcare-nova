@@ -17,6 +17,7 @@ import {
 	managedLookupTableRefusal,
 	managedOrganizationCommitRefusal,
 	managedPlacesKeptInUse,
+	managedPlacesKeptLeftOut,
 	managedPlacesLeftOut,
 	type NamedApp,
 	organizationManagedRefusal,
@@ -210,6 +211,13 @@ const READINGS: Record<
 		texts: [
 			managedPlacesKeptInUse(["Kisumu"]),
 			managedPlacesKeptInUse(["Kisumu", "Nakuru"]),
+		],
+	},
+	managedPlacesKeptLeftOut: {
+		kind: "sentence",
+		texts: [
+			managedPlacesKeptLeftOut(["Mercy Clinic"]),
+			managedPlacesKeptLeftOut(["Mercy Clinic", "Old Post"]),
 		],
 	},
 	organizationManagedRefusal: {
@@ -784,15 +792,21 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("counts the places of O6 and O8 and spells a count with its separator", () => {
+	it("counts the places of O6, O8 and O27 and spells a count with its separator", () => {
 		expect(managedPlacesKeptInUse(["Kisumu"])).toBe(
 			"1 place is gone from CommCare HQ, and a persona, an owner rule or an automation still uses it: Kisumu. Nova kept it. You can move or change what uses it, then refresh again.",
 		);
 		expect(managedPlacesLeftOut({ ward: 1 })).toBe(
-			"1 place in CommCare HQ sits at a level this app doesn't have (ward), so Nova's copy leaves it out. You can add a level with that code, then refresh.",
+			"1 place in CommCare HQ sits at a level this app doesn't have (ward), so Nova's copy leaves it out. Where this app uses it, Nova keeps it as it stood before. You can add a level with that code, then refresh.",
 		);
 		expect(managedPlacesLeftOut({ ward: 3, village: 1200 })).toBe(
-			"1,203 places in CommCare HQ sit at a level this app doesn't have (ward and village), so Nova's copy leaves them out. You can add a level for each of those codes, then refresh.",
+			"1,203 places in CommCare HQ sit at a level this app doesn't have (ward and village), so Nova's copy leaves them out. Where this app uses one of them, Nova keeps that place as it stood before. You can add a level for each of those codes, then refresh.",
+		);
+		expect(managedPlacesKeptLeftOut(["Mercy Clinic"])).toBe(
+			"1 place in CommCare HQ sits at a level this app doesn't have, and a persona, an owner rule or an automation still uses it: Mercy Clinic. Nova kept it as it stood before. You can add that level, or move or change what uses it, then refresh again.",
+		);
+		expect(managedPlacesKeptLeftOut(["Mercy Clinic", "Old Post"])).toBe(
+			"2 places in CommCare HQ sit at a level this app doesn't have, and a persona, an owner rule or an automation still uses them: Mercy Clinic and Old Post. Nova kept them as they stood before. You can add the levels they sit at, or move or change what uses them, then refresh again.",
 		);
 		expect(copy.managedPlacesOverLimit("acme-health", 12400)).toBe(
 			"acme-health now has 12,400 places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.",

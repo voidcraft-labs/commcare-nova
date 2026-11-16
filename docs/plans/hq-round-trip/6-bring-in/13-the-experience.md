@@ -1270,7 +1270,7 @@ nothing else of this part. The title, the body and the next step of every code a
 | `menu-unreadable-in-hq`, `shadow-disagrees`, `media-file-unreadable`, `app-unreadable-in-hq`, `table-rows-unreadable` | `fix-in-hq` | the same block, under the amber label |
 | `no-platform-runs-everything` | `fix-in-hq` | the same block; its next step is the sentence about the date and time question where `detail.reason` is `split-refused`, which `circumstanceBlock` chooses |
 | `places-over-nova-limit`, `place-not-holdable`, `owner-rule-needs-one-place` | `not-yet` | the same block, under the violet label; the heading is A1 |
-| `media-not-played-where-app-runs`, `table-cell-unrepresentable`, `table-choices-unusable`, `table-has-no-fields` | `fix-in-hq` | the same block; a finding at a `media` place sits in the "Pictures and sounds" group, its line beginning with the path (7.2) |
+| `media-not-played-where-app-runs`, `table-cell-unrepresentable`, `table-choices-unusable`, `table-has-no-fields`, `table-field-repeated` | `fix-in-hq` | the same block; a finding at a `media` place sits in the "Pictures and sounds" group, its line beginning with the path (7.2) |
 
 An account never holds a `stop` code and a stop never holds one of the other fifteen: a stop is
 answered only as a `stop` answer or a `held` answer (part 12, 3.8), which is what keeps a stop out

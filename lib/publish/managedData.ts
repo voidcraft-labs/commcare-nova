@@ -280,7 +280,10 @@ export function organizationManagedRefusal(domain: string): string {
 /**
  * O8: places Nova's copy leaves out because they sit at a level code the app
  * doesn't have. `leftOut` is the count of places by code, as the state row
- * holds it; null where it is empty, and the line is left out.
+ * holds it; null where it is empty, and the line is left out. A place the
+ * copy already held that a persona, an owner rule or an automation names is
+ * kept as it stood before (`refreshManagedPlacesInTransaction`), which the
+ * line says, since the state row does not tell which places those are.
  */
 export function managedPlacesLeftOut(
 	leftOut: Readonly<Record<string, number>>,
@@ -289,7 +292,18 @@ export function managedPlacesLeftOut(
 	if (codes.length === 0) return null;
 	const total = codes.reduce((sum, code) => sum + leftOut[code], 0);
 	const one = total === 1;
-	return `${count(total)} ${one ? "place" : "places"} in CommCare HQ ${one ? "sits" : "sit"} at a level this app doesn't have (${namesInWords(codes)}), so Nova's copy leaves ${one ? "it" : "them"} out. You can add ${codes.length === 1 ? "a level with that code" : "a level for each of those codes"}, then refresh.`;
+	return `${count(total)} ${one ? "place" : "places"} in CommCare HQ ${one ? "sits" : "sit"} at a level this app doesn't have (${namesInWords(codes)}), so Nova's copy leaves ${one ? "it" : "them"} out. Where this app uses ${one ? "it, Nova keeps it" : "one of them, Nova keeps that place"} as it stood before. You can add ${codes.length === 1 ? "a level with that code" : "a level for each of those codes"}, then refresh.`;
+}
+
+/**
+ * O27: after a refresh, the places CommCare HQ now holds at a level the app
+ * doesn't have that a persona, an owner rule or an automation still uses
+ * (an `app_location_references` edge). The copy keeps each as it stood before
+ * the refresh, at its old level.
+ */
+export function managedPlacesKeptLeftOut(names: readonly string[]): string {
+	const one = names.length === 1;
+	return `${count(names.length)} ${one ? "place" : "places"} in CommCare HQ ${one ? "sits" : "sit"} at a level this app doesn't have, and a persona, an owner rule or an automation still uses ${one ? "it" : "them"}: ${namesInWords(names)}. Nova kept ${one ? "it as it stood" : "them as they stood"} before. You can add ${one ? "that level" : "the levels they sit at"}, or move or change what uses ${one ? "it" : "them"}, then refresh again.`;
 }
 
 /** O9: a refresh that changed the copy. */

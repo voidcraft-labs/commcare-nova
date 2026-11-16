@@ -98,8 +98,8 @@ changes a byte Nova emits or what an App Test journey replays, so nothing here m
     reports it.** Nine are. Every other place the emitter writes something a source would spell another
     way is decided in section 11.4: read exactly, refused, or declared by a register entry
     (section 10).
-16. **`FIRST_PUBLISH_CHANGES` holds 34 entries**, each with its predicate over the reading, the
-    stored-source paths it allows and whether it touches workers. Thirty sentences say them
+16. **`FIRST_PUBLISH_CHANGES` holds 35 entries**, each with its predicate over the reading, the
+    stored-source paths it allows and whether it touches workers. Thirty-one sentences say them
     (section 11).
 17. **Per candidate change the decision is one of three**: read the original's behavior exactly, refuse,
     or declare. Section 11.4 gives the decision for every candidate the research, the manifest,
@@ -1839,7 +1839,7 @@ clause (b). The register is the closed list of what a first publish over an adop
 
 ```ts
 // lib/publish/firstPublishChangeIds.ts  (client-safe; lib/publish may not import lib/commcare)
-export const FIRST_PUBLISH_CHANGE_IDS = [ /* the 34 ids of 11.2, in its order */ ] as const;
+export const FIRST_PUBLISH_CHANGE_IDS = [ /* the 35 ids of 11.2, in its order */ ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 export interface FirstPublishView {
 	readonly ids: readonly FirstPublishChangeId[];
@@ -1995,7 +1995,7 @@ holds it to the slots part 11's `hqMediaReferencesOf` reads.
 
 ### 11.2 Every entry
 
-Thirty-four entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
+Thirty-five entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
 predicate is given: `f.source` is CommCare HQ's source, `f.doc` the document under the choice,
 `f.facts` the reader's `ReadFacts`, `f.generated` the generated difference, `f.media` the path
 assignment, `f.mediaLeftOut` and `f.choice` as typed above. The first column is the entry's place in
@@ -2037,6 +2037,7 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 32 | `names-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/app.display.name` | no |
 | 33 | `media-maps-respelled` | the same | `/modules/*/media_image`; `/modules/*/media_audio`; `/modules/*/use_default_image_for_all`; `/modules/*/use_default_audio_for_all`; the same four under `/modules/*/forms/*`, `/modules/*/case_list` and `/modules/*/case_list_form` | no |
 | 34 | `text-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/*`; `/modules/*/case_list/label`; `/modules/*/case_list_form/label`; `/modules/*/case_details/*/columns/*/header`; `/modules/*/case_details/*/columns/*/enum/*/value`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description`; `/modules/*/search_config/properties/*/label`; `/modules/*/search_config/properties/*/hint`; `/modules/*/search_config/properties/*/required/text`; `/modules/*/search_config/properties/*/validations/*/text` | yes |
+| 35 | `form-text-characters-written-as-outputs` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/_attachments/*` | no |
 
 `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`. Every other entry has
 `reading`. `date-and-time-questions-split` reads what the chosen declaration did to the document at
@@ -2111,6 +2112,21 @@ an app string: Core trims a translation's value at both ends as it parses the fo
 (`XFormParser.getLabel`), whoever wrote it, so Nova writes it as stored and no worker meets a
 change.
 
+**`form-text-characters-written-as-outputs`.** A form's text whose source holds, in a text node, a no-break space or an
+`instance(` followed by a quote mark (`hqInstanceScan.ts::instanceScanCuts`, the text CommCare HQ's
+build reads as a data source) is held as it stands: every runtime shows the same characters, and a
+text admits both (part 03, section 5). Nova's print writes each such character as a literal output
+(`xform/builder.ts::literalLabelNodes`: the no-break space through `json-property`, which a save in
+the form builder keeps where it would replace a literal one with a space, `Vellum/src/xml.js`; the
+bracket as `'('`, so the build's scan finds no `instance(`), and Nova's own print is read back with
+each literal output as the text it spells. So only a source that spells the character in a text
+node changes: the first publish writes it as an output, which CommCare HQ's form builder shows as a
+reference in the text where it showed the character. The form stage records the form's source under
+this id once per form (`xform/prose.ts::recordTextOutputs`, from `finishText`), confirming each
+candidate by printing the text node through the emitter's own builder. No worker meets the change,
+so the entry does not touch workers, and its sentence says what a person editing the form in CommCare
+HQ meets.
+
 **`media-maps-respelled`.** A menu's, a form's, a case list item's or a Register button's
 `media_image` or `media_audio` map is read as the file CommCare HQ's build shows in each language
 (part 07, section 8.6, `navMedia.ts::shownNavMedia`): HQ's page stores an icon under the language
@@ -2163,7 +2179,7 @@ document, check 4 reads no expression, and check 5 reads only whether a calculat
 - **By the reader's same-state rules.** `firstPublishChanges.test.ts` requires every record of
   `ReadFacts.sameStateRewrites`, over every retained read, to name an id of this table whose `paths`
   cover the record's `path`. Part 07's `rewrites.test.ts` requires every same-state rule in its code to
-  carry an id. Five ids are recorded outside part 07's rules, the ids of
+  carry an id. Six ids are recorded outside part 07's rules, the ids of
   `lib/commcare/reader/types.ts::FIRST_PUBLISH_READING_RECORDS`: `date-and-time-saved-as-hq-stores-it`,
   whose two recording sites are held by two cases of `firstPublishChanges.test.ts` (Tests);
   `registration-label-fixed`, recorded by part 07's `menus/registration.ts::readLabel` and held by
@@ -2174,7 +2190,10 @@ document, check 4 reads no expression, and check 5 reads only whether a calculat
   `lib/commcare/reader/__tests__/names.test.ts` and `lib/commcare/reader/__tests__/heldTexts.test.ts`; and
   `media-maps-respelled`, recorded by part 07's
   `menus/navMedia.ts::recordRespelling` and held by
-  `lib/commcare/reader/menus/__tests__/navMedia.test.ts`.
+  `lib/commcare/reader/menus/__tests__/navMedia.test.ts`; and `form-text-characters-written-as-outputs`, recorded by part 06's
+  `xform/prose.ts::recordTextOutputs` and held by two cases of `firstPublishChanges.test.ts` (a
+  no-break space and an `instance(`, each in a source made from Nova's export with its literal
+  outputs written as text).
 - **By the lane.** Part 14's both-ways judge (14-proof.md, section 9.3) runs on every HQ-authored
   base, in the dispatches over the bases that the session starts before the merge and in every
   scheduled lane after it. Where it reports a difference no applying entry holds, the session
@@ -2250,7 +2269,7 @@ entry above). None is left undecided.
 | A menu's or form's name, a case list menu item's or Register button's label, or a Search field's label holding a `${` some screen reads as a placeholder | refuse at its place under `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`, one finding (`heldText.ts::unheldRefusal`) | part 06, section 7.4 (`heldText.ts::heldText`, `localeFile.ts::argumentScreenIssue`): Android's menu list, action bar and Search screen and every screen title, Web Apps' included, read the text through Core's `Localizer.processArguments` and trim it (`Visits ${0}` shows as `Visits`, `a${b` as `aa${b`), while Web Apps' menu list shows it as stored, so no text Nova holds shows alike on every screen and the gate refuses each (`APP_STRING_VALUE_UNREPRESENTABLE`). A `${` that opens the text with no `}` after it shows as stored everywhere and is held exactly; every other app string, which no screen reads that way, is held with its `${` exactly |
 | An app string whose rest after a carriage return is a line that defines an app string | refuse | `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string` (`fix-in-hq`): the rest sets the wording of another text on every device, which no document holds |
 | A form's name, or a CommCare Connect block's name or description, holding `instance(` and a quoted id | refuse | part 03, section 5.1: no spelling of plain text keeps CommCare HQ's instance scan out, so the gate refuses the text (`FORM_TEXT_READ_AS_INSTANCE`), and the reader raises `forms-and-case-writes/form-name-read-as-an-instance` and `questions/connect-block-text-read-as-an-instance` for an app that holds it (part 06, sections 7.4 and 15). No register entry is added |
-| Label text holding `instance(` | exact | part 03, section 5: Nova splits the text with a literal output, and no runtime reads label text as a path |
+| Label text holding `instance(`, or a no-break space, in a text node | declare, `form-text-characters-written-as-outputs` | part 03, section 5: Nova splits the text with a literal output, and no runtime reads label text as a path, so every worker reads the same text; CommCare HQ's form builder shows the output as a reference. A source that already spells them as Nova's literal outputs is read exactly and records nothing |
 | A Register button's label with no text, in every language or in one | declare, `registration-label-fixed` | part 02, section 11.8: read as "Create a new Case" in each such language, the words HQ's build writes; a build could show other words before |
 | A menu's or a form's name map Nova would print another way: a language with no key, a `null`, a blank beside another language's text, a key of a language the app no longer lists, spaces at a name's end; the app's `name` or an `app.display.name` with spaces at its end | declare, `names-respelled` | part 06, sections 7.3 and 7.4: read as the text CommCare HQ's build shows in each language (`hqText.ts::shownText`), the source language's in the slot, so every language shows what it showed and only the stored map is new. A map Nova prints back exactly, every map Nova writes among them, reads exactly and records nothing |
 | An app string (a name, a label, a header, a Search field's text, the search screen's title and subtitle) that is only spaces, or for the title blank, in a language where the source language's text holds text and its role requires text, that begins with a space, that begins or ends with a line break, or a Search field's own message that meets the runtime guard's text joined after it with a space of its own | declare, `text-spaces-dropped` | part 06, section 7.4, and part 07, sections 8.6, 11.2 and 12.4 (`heldText.ts::heldText`): Nova holds no blank translation of such a text and no app string with a space or a line break at either end, so the language takes the source language's text and the space or line break is dropped. Refusing would keep out an app CommCare HQ builds over a blank-looking text; a deliberately blank text in one language is not a concept Nova holds, as a blank form text is not (`blank-translations-filled`). The search screen's title is held so where the source language shows text (a language with no title of its own shows the first language's, which may be blank, `app_strings.py::create_default_app_strings` over `CaseSearch.get_search_title_label`); a title the source language shows blank beside another's text stays the HELD-NEW entry `case-search/title-label-blank-in-some-languages` |
@@ -2567,7 +2586,7 @@ one comparison, which part 14 writes (its section 9.3):
   `forms-and-settings-rewritten`'s: Nova does not write back what no runtime reads. The judge matches
   it with no row (part 14, 9.3).
 
-With `source` an observed check, every one of the thirty-four ids is one some check can show.
+With `source` an observed check, every one of the thirty-five ids is one some check can show.
 
 ### 13.3 What the judge then holds
 
@@ -2898,6 +2917,7 @@ register is their home.
 | `media-references-with-no-file-removed` | References to pictures, sounds and videos that have no file in CommCare HQ are removed. Workers saw nothing there. |
 | `unused-media-entries-removed` | CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ. |
 | `text-spaces-dropped` | A name, label or other app text that is only spaces in one language now shows its text in the source language there, and spaces or line breaks at the start or end of a text are dropped. Before, workers saw a blank text, the spaces or the line breaks. |
+| `form-text-characters-written-as-outputs` | Where a question's text holds a no-break space, or words CommCare HQ would take as a request for data, Nova writes those characters as fixed values. CommCare HQ's form builder shows each one as a small reference inside the text. Workers read the same words. |
 
 **C3. `read-back-differs`.** The block is part 01's (01-the-bar-and-the-manifest.md, section 9.3).
 This part writes no title, body or next step for it (section 14.4).

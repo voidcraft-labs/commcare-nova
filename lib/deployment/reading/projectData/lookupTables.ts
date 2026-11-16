@@ -373,6 +373,15 @@ export function lookupTableFindings(
 			circumstanceFinding("table-has-no-fields", place, { name: tag }),
 		);
 	}
+	// CommCare HQ holds two fields of one name: nothing in `fixtures` checks a
+	// field list for repeats. Manage Tables renames a field onto another's name
+	// (`fixtures/views.py::_update_types` keeps the untouched field beside the
+	// renamed one), the lookup table API saves the list it is sent
+	// (`resources/v0_1.py::LookupTableResource.obj_create`, `obj_update`), and
+	// a workbook upload takes its `field N` headers as they stand
+	// (`upload/workbook.py::_FixtureTableDefinition.from_row`). A row holds one
+	// value per name (`LookupTableRow.fields` is a dict), and Nova's table one
+	// column per name, so a field renamed there settles it.
 	const seenFields = new Set<string>();
 	const repeated = new Set<string>();
 	for (const field of table.fields) {
@@ -380,7 +389,9 @@ export function lookupTableFindings(
 			if (!repeated.has(field)) {
 				repeated.add(field);
 				findings.push(
-					circumstanceFinding("unrecognized", place, { name: field }),
+					circumstanceFinding("table-field-repeated", place, {
+						name: `${tag} (the field ${field})`,
+					}),
 				);
 			}
 			continue;

@@ -1032,7 +1032,7 @@ account is answered `changed` with the account (5.3, step 5).
 | `media-not-played-where-app-runs` | part 11's `readingMediaFindings` | an account | `changed`, with the account |
 | `places-over-nova-limit`, `place-not-holdable` | part 11's `readingProjectDataFindingsFor` | an account | `changed`, with the account |
 | `table-rows-unreadable` | part 11's `readingProjectDataFindingsFor`, from a rows read | an account | `changed`, with the account |
-| `table-cell-unrepresentable`, `table-choices-unusable`, `table-has-no-fields` | part 11's `readingProjectDataFindingsFor` | an account | `changed`, with the account |
+| `table-cell-unrepresentable`, `table-choices-unusable`, `table-has-no-fields`, `table-field-repeated` | part 11's `readingProjectDataFindingsFor` | an account | `changed`, with the account |
 | `owner-rule-needs-one-place` | part 11's `readingProjectDataFindingsFor` | an account | `changed`, with the account |
 
 Together the rows hold every code of part 01's `READ_CIRCUMSTANCES` (35), each answered by the

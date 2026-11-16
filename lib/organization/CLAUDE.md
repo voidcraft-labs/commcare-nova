@@ -80,12 +80,17 @@ nothing live stands under an archived place. A kept place KEEPS its
 `hq_location_id`, so a refresh that finds it listed again under any code
 matches it by that id; one CommCare HQ no longer has (not one the plan leaves
 out at a level the app lacks, `leftOutHqLocationIds`) takes `hq_gone_at`,
-which worker provisioning reads as gone and the next match clears. A gone row
+which worker provisioning reads as gone and the next match clears. A kept place
+the plan leaves out stays as the copy held it, at its old level, and the
+refresh names it (`keptLeftOut`, Copy O27), as the standing left-out line
+(O8) says such places stay. A gone row
 whose code CommCare HQ now gives another place takes a numbered code, and
 re-coded rows pass through a `~<id>` placeholder so a swap never meets the
 unique site code midway. Past `MAX_LOCATIONS_PER_APP` (archived rows count,
 since every whole-tree read reads them) it deletes archived rows nothing
-names, longest archived first and each after the rows under it, and refuses
+names and no case is owned by (`service.ts::locationsOwningCases`, open and
+closed cases alike, since a case's `owner_id` is the row's id), longest
+archived first and each after the rows under it, and refuses
 `limit` only where the rows that must stay pass the bound: no author can shed
 an archived row of a managed copy, so without this a project space that keeps
 replacing places would refuse every refresh. It proves the LIVE result
@@ -198,7 +203,8 @@ only, and its v0.6 location API has no `delete` method at all. Deleting a row
 whose id is a live `owner_id` would strand cases irreversibly. The one delete
 is a managed copy's refresh past `MAX_LOCATIONS_PER_APP` (above): only rows
 already archived because CommCare HQ no longer lists them, which no author can
-bring back, and only as many as the bound needs.
+bring back, that nothing names and that own no case, and only as many as the
+bound needs.
 
 Archiving is also where a published place parts company with Nova. The push
 sends live places only, so archiving stops Nova naming that place and the
@@ -395,9 +401,11 @@ Rows still come only from complete server reads, never an optimistic reducer.
   Custom values are omitted unless explicitly requested. Every SA/MCP row
   write, including an atomic branch create, requires the exact revision it
   read, and callers chain the revision each write returns.
-- `countCasesOwnedBy` in `service.ts` is the one place this package reads case
-  rows, and it is raw SQL because `cases` belongs to the case store's schema
-  rather than `AppDatabase`. It is advisory only — never a gate.
+- `countCasesOwnedBy` and `locationsOwningCases` in `service.ts` are the two
+  places this package reads case rows, raw SQL because `cases` belongs to the
+  case store's schema rather than `AppDatabase`. The count is advisory only,
+  never a gate; the set keeps a managed refresh from deleting a row a case
+  names as its owner.
 - Do not import `lib/commcare` here. The compile boundary owns the fixture's
   meaning and its budget; it may refuse to emit a footprint but cannot
   reinterpret these rows.

@@ -18,12 +18,10 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { lookupAppFixture } from "@/lib/commcare/__tests__/lookupAppFixtures";
 import { expandDoc } from "@/lib/commcare/expander";
 import { readHqApp } from "@/lib/commcare/reader";
-import {
-	hydrated,
-	publishedCorpus,
-} from "@/lib/commcare/reader/__tests__/publishedDocuments";
+import { hydrated } from "@/lib/commcare/reader/__tests__/publishedDocuments";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
@@ -31,7 +29,9 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { type BlueprintDoc, isContainer } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { prepareExportBoundaryWithReads } from "@/lib/export/boundaryValidation";
+import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import { storedDocument } from "@/proof/corpus/documents";
 import {
 	type AdoptedMediaFile,
 	adoptedIdentityRows,
@@ -54,16 +54,28 @@ const PICTURES = [
 	testMediaAssetId("boundary-b"),
 ];
 
-/** The corpus app that reads a table, with a picture on each of its first two questions. */
+/**
+ * The corpus's `lookup-app` (`proof/corpus/producers.ts`), made as the corpus
+ * makes it from its one fixture rather than by building the whole corpus to
+ * take one document, with a picture on each of its first two questions.
+ */
 function tableAndPictures(): {
 	readonly doc: BlueprintDoc;
-	readonly lookup: NonNullable<
-		ReturnType<typeof publishedCorpus>[number]["lookup"]
-	>;
+	readonly lookup: LookupFixtureDataSnapshot;
 } {
-	const document = publishedCorpus().find((one) => one.id === "lookup-app");
-	if (document?.lookup === undefined)
-		throw new Error("The corpus holds lookup-app with its table.");
+	const fixture = lookupAppFixture();
+	const lookup: LookupFixtureDataSnapshot = {
+		projectId: fixture.context.projectId,
+		projectRevision: fixture.context.projectRevision,
+		definitions: fixture.context.definitions,
+		rowsByTable: new Map([[fixture.table.id, fixture.rows]]),
+	};
+	const document = {
+		id: "lookup-app",
+		source: { kind: "producer", family: "lookup", scenario: "lookup-app" },
+		doc: storedDocument(fixture.doc),
+		lookup,
+	} as const;
 	const doc = hydrated(document);
 	const questions = Object.values(doc.fields).filter(
 		(field) => field.kind !== "hidden" && !isContainer(field),
@@ -75,7 +87,7 @@ function tableAndPictures(): {
 		(pictured.fields[question.uuid] as { label_media?: unknown }).label_media =
 			{ image: assetId };
 	}
-	return { doc: pictured, lookup: document.lookup };
+	return { doc: pictured, lookup };
 }
 
 describe("adoptionExportBoundary", () => {
