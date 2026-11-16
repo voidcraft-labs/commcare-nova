@@ -74,8 +74,14 @@ export function submittedSearchOf(
 export function actionSearch(
 	answers: PreviewSearchAnswers,
 	submission: string = newSearchSubmission(),
+	automatic = false,
 ): PreviewSearchState {
-	return { kind: "action", submission, answers };
+	return {
+		kind: "action",
+		submission,
+		answers,
+		...(automatic && { automatic: true as const }),
+	};
 }
 
 /** The worker asked for the Search screen again: Web Apps'
@@ -98,17 +104,20 @@ export function newSearchSubmission(): string {
 	return uuidv7();
 }
 
-/** The worker pressed Search with these answers. */
+/** The worker pressed Search with these answers, or the menu ran its
+ *  default search as it opened (`automatic`). */
 export function beginSearch(
 	state: PreviewSearchState | undefined,
 	answers: PreviewSearchAnswers,
 	submission: string = newSearchSubmission(),
+	automatic = false,
 ): PreviewSearchState {
 	return {
 		kind: "running",
 		attempt: attemptOf(state) + 1,
 		submission,
 		answers,
+		...(automatic && { automatic: true as const }),
 	};
 }
 
@@ -124,10 +133,12 @@ export function settleSearch(
 ): PreviewSearchState | undefined {
 	if (state === undefined || state.kind !== "running") return state;
 	if (state.attempt !== attempt) return state;
-	const deviceValues =
-		state.deviceValues === undefined
-			? {}
-			: { deviceValues: state.deviceValues };
+	const kept = {
+		...(state.deviceValues !== undefined && {
+			deviceValues: state.deviceValues,
+		}),
+		...(state.automatic && { automatic: true as const }),
+	};
 	return outcome.kind === "completed"
 		? {
 				kind: "completed",
@@ -135,7 +146,7 @@ export function settleSearch(
 				submission: state.submission,
 				answers: state.answers,
 				matchCount: outcome.matchCount,
-				...deviceValues,
+				...kept,
 			}
 		: {
 				kind: "failed",
@@ -143,7 +154,7 @@ export function settleSearch(
 				submission: state.submission,
 				answers: state.answers,
 				reason: outcome.reason,
-				...deviceValues,
+				...kept,
 			};
 }
 
@@ -235,4 +246,127 @@ export function noMatchesActionAvailable(
 		state.matchCount === 0 &&
 		state.registeredCaseId === undefined
 	);
+}
+
+/** The identity of what a list's run took from a submitted search: the
+ *  search, and the answers it ran with. History can give a search back with
+ *  other answers than it last ran with (`searchWithLatestInputs`), which the
+ *  run must take again (`lib/preview/searchStanding.ts::previewSearchRunFollows`). */
+export function submittedSearchKey(search: PreviewSubmittedSearch): string {
+	const answers = Object.entries(search.answers).sort(([left], [right]) =>
+		left < right ? -1 : left > right ? 1 : 0,
+	);
+	return JSON.stringify([search.submission, answers]);
+}
+
+/**
+ * A search history gives back, as Web Apps runs it. Web Apps keeps, for each
+ * query, the answers the worker last gave it, in the page and never on an
+ * address (`utils.js::Utils.setCurrentQueryInputs`, written by every
+ * `CloudcareUrl.setQueryData`: a Search press, every field the worker
+ * changes as the client checks it, `query.js::_updateModelsForValidation`,
+ * and the Search screen as it is shown, `menus/utils.js::getMenuView`, with
+ * no answers; no submission, crumb or Home clears them). An address records
+ * only that the query ran, and Back and Forward answer it with those latest
+ * answers (`CloudcareUrl.fromJson` over `Utils.getCurrentQueryInputs`), which
+ * Formplayer gives the prompts before it runs the query again
+ * (`MenuSessionRunnerService.java::answerQueryPrompts`: an answer the inputs
+ * leave out is no answer, `QueryScreen.answerPrompts`).
+ *
+ * So the latest answers are the search's answers, each prompt's
+ * (`promptKeys`: every field the worker answers and every hidden field, which
+ * Nova emits as a prompt of its own) answered by them and no other: a prompt
+ * they leave out has no answer, a hidden one included (`answerUserPrompt`
+ * with no value removes it). The answers a Search press and a field change
+ * write are every prompt view's, the hidden ones among them
+ * (`query.js::getAnswers`), so they carry the hidden values; the Search
+ * screen drawn writes none, so a search history gives back after it runs with
+ * no answer at all, its hidden values gone too. It runs again where the
+ * answers differ from those it ran with. A Search screen asked for again
+ * holds no answers; the menu's default search (`automatic`) writes no query
+ * data, and Formplayer runs it again with no answers; a search a
+ * registration keyed to its case is read by that case; and where the worker
+ * has given no answers in this session, the search keeps its own.
+ */
+export function searchWithLatestInputs<
+	S extends Exclude<PreviewSearchState, { kind: "not-searched" }>,
+>(
+	search: S,
+	latest: PreviewSearchAnswers | undefined,
+	promptKeys: ReadonlySet<string>,
+): PreviewSearchState {
+	if (latest === undefined || search.kind === "manual" || search.automatic)
+		return search;
+	if (search.kind === "completed" && search.registeredCaseId !== undefined)
+		return search;
+	const answers: Record<string, string> = {};
+	for (const [key, value] of Object.entries(latest))
+		if (promptKeys.has(key)) answers[key] = value;
+	const before = Object.keys(search.answers);
+	if (
+		before.length === Object.keys(answers).length &&
+		before.every(
+			(key) =>
+				Object.hasOwn(answers, key) && answers[key] === search.answers[key],
+		)
+	)
+		return search;
+	if (search.kind === "action") return { ...search, answers };
+	return {
+		kind: "running",
+		attempt: search.attempt,
+		submission: search.submission,
+		answers,
+	};
+}
+
+/**
+ * The answers the worker last gave each module's query, kept for the Preview
+ * session that ran them: Web Apps keeps them in the page
+ * (`utils.js::Utils.queryInputs`), which only a reload clears, and Preview's
+ * running session is the scope a history entry's search stands in, so a new
+ * session (another worker, another platform, another Preview run) starts
+ * with none.
+ */
+export interface PreviewSearchInputsGiven {
+	readonly session: string;
+	readonly byModule: Readonly<Record<string, PreviewSearchAnswers>>;
+}
+
+export const NO_SEARCH_INPUTS_GIVEN: PreviewSearchInputsGiven = {
+	session: "",
+	byModule: {},
+};
+
+/** The answers given in the running session, by module. */
+export function searchInputsGivenIn(
+	given: PreviewSearchInputsGiven,
+	session: string,
+): Readonly<Record<string, PreviewSearchAnswers>> {
+	return given.session === session ? given.byModule : {};
+}
+
+/** The worker gave a module's query these answers in the running session:
+ *  a Search press or a field changed on its Search screen, with every hidden
+ *  field's value beside the worker's answers, as Web Apps' prompt views give
+ *  them (`query.js::getAnswers`), or none at all as the Search screen is
+ *  shown (`menus/utils.js::getMenuView`). The same answers change nothing. */
+export function withSearchInputsGiven(
+	given: PreviewSearchInputsGiven,
+	session: string,
+	moduleUuid: string,
+	answers: PreviewSearchAnswers,
+): PreviewSearchInputsGiven {
+	const byModule = searchInputsGivenIn(given, session);
+	const current = byModule[moduleUuid];
+	if (
+		given.session === session &&
+		current !== undefined &&
+		Object.keys(current).length === Object.keys(answers).length &&
+		Object.entries(answers).every(
+			([key, value]) => Object.hasOwn(current, key) && current[key] === value,
+		)
+	)
+		return given;
+	return { session, byModule: { ...byModule, [moduleUuid]: answers } };
 }

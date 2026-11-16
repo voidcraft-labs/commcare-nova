@@ -78,6 +78,13 @@ export interface NavigateActions {
 	 * menu on an entry of its own (`previewHeldMenu.ts`).
 	 */
 	reopenPreviewHeldMenu: (held: PreviewHeldCaseListMenu) => void;
+	/**
+	 * A screen's own Back to the screen it was opened from: a step back onto
+	 * that screen's entry where it is the one behind this, otherwise `next`
+	 * in place of this entry (`useClientPath.ts::stepBackToBuilderEntry`).
+	 * `leave` lets go of what the screen held, as the move happens.
+	 */
+	stepBackTo: (next: Location, leave: () => void) => void;
 	back: () => void;
 	up: () => void;
 }
@@ -101,6 +108,7 @@ export interface NavigationPort {
 		heldMenu?: PreviewHeldCaseListMenu,
 	): void;
 	reopenHeldMenu(url: string, heldMenu: PreviewHeldCaseListMenu): void;
+	stepBackTo(url: string, leave: () => void): void;
 	back(): void;
 }
 
@@ -196,6 +204,8 @@ export function createNavigateActions(port: NavigationPort): NavigateActions {
 				}),
 				held,
 			),
+		stepBackTo: (next, leave) =>
+			port.stepBackTo(buildUrl(getBasePath(), next), leave),
 		back: () => port.back(),
 		up: () => {
 			const current = parsePathToLocation(port.getSegments(), port.getDoc());

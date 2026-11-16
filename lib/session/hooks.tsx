@@ -74,6 +74,7 @@ import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
+	PreviewSearchAnswers,
 	PreviewSearchDeviceValues,
 	PreviewSearchState,
 	PreviewSelectedCase,
@@ -285,6 +286,15 @@ export function useRecordPreviewSearchDeviceValues(): (
 		},
 		[store],
 	);
+}
+
+/** Record the answers the worker gave one module's query in the running
+ *  session. */
+export function useSetPreviewSearchInputs(): (
+	moduleUuid: string,
+	answers: PreviewSearchAnswers,
+) => void {
+	return useBuilderSession((s) => s.setPreviewSearchInputs);
 }
 
 /** Set or clear one module's search context. */

@@ -4406,10 +4406,13 @@ decoded text and child order.
   (`regions-order.fixture.xml`) whose labels order differently by UTF-16
   code unit and by any locale, with a three-way tie kept in row order
   (commcare-core `ItemsetBinding.sortChoices`). Over `prompt-worker-place`
-  (`searchPromptFixture.ts::searchPromptWorkerPlaceFixture`: seven menus,
+  (`searchPromptFixture.ts::searchPromptWorkerPlaceFixture`: nine menus,
   each searching with the worker's primary place read in one slot, a
   starting value, a hidden value, a required condition, a check a starting
-  value answers, a check nothing answers, a choice list's filter, or none),
+  value answers, a check nothing answers, a choice list's filter, a check on
+  a choice field whose starting choice the list does not offer beside a
+  second field, or none, and one more whose one field starts on a choice the
+  list does not offer),
   the query manager is built for each menu's search, on both paths and with
   Formplayer's and Android's supported prompt types, for a worker assigned
   nowhere and one placed: it is refused, naming the place, exactly where
@@ -4417,9 +4420,14 @@ decoded text and child order.
   (`prompt-worker-place.openings.jsonl`, from
   `searchRunState.ts::openSearchRunState` and
   `searchExpressionEvaluation.ts::resolveSearchInputChoices`), which is
-  every menu but the unanswered check's and the one that reads nothing, for
-  the worker assigned nowhere alone (`RemoteQuerySessionManager`'s
-  constructor reads each of those). The evidence is the prompt family's `search-emission.evidence.json`
+  every menu but the unanswered check's, the let-go choice's and the one
+  that reads nothing, for the worker assigned nowhere alone
+  (`RemoteQuerySessionManager`'s constructor reads each of those); and the
+  one-field menu fails for both workers on every reading with Core's own
+  "Invalid itemset state", since `refreshItemSetChoices` gives its choice
+  pass one round per prompt and the round that lets the choice go is dirty,
+  exactly where Preview refuses it for that reason
+  (`searchRunState.ts::searchStartingChoicesFail`, the openings' `refusal`). The evidence is the prompt family's `search-emission.evidence.json`
   and Core's JUnit report for the class.
 - `function`: two admitted apps. `CsqlFunctionRuntimeTest` feeds emitted
   lookup rows to date, datetime, numeric and date-arithmetic arguments, and

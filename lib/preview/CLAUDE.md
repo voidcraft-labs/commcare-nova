@@ -462,7 +462,33 @@ Home ends the current running task. It clears selected parent records, the curre
 Form/Details target, and transient search context while retaining the chosen worker,
 actor authorization, and a claim stays, because it is a case row that outlives the task as HQ's does. Reopening a related-record history therefore offers its
 parent selection again, matching isolated app-test Home. Moving within a parent
-menu still retains the parent needed by its children.
+menu still retains the parent needed by its children. Home also starts a new
+task of the session, and every history entry records the selections it was
+shown with, so on Web Apps the browser's Back (or Forward) past Home shows the
+popped entry with them, as Web Apps' address carries `selections` that
+Formplayer replays (`CloudcareUrl`, `router.js::listMenus`,
+`MenuSessionRunnerService.advanceSessionWithSelections`); Android has no
+address, and shows the session as it stands
+(`lib/routing/previewSelectionsHistory.ts`, `rules.poppedEntrySelections`).
+
+What Submit offers is one pure decision, `submitOffer.ts::previewSubmitOffer`
+over the form's state: `offered`; `busy` (its own submission, or Clear form
+from the press until the fresh entry's key arrives); `waiting` (the entry
+opening or rebuilding, device case data refreshing, the selected record
+binding, a repeat settling, an access check); `unavailable` (case data that
+failed to refresh, no edit access); or `fault` (a form the document holds
+that names nowhere to go after submit, which `effectivePostSubmit` never
+gives: the screen shows its fault state and reports it once). `FormScreen`
+disables Submit exactly where the offer is not `offered` and says why under
+it, and `handleSubmit` reads the same offer from the entry store and the
+session at the press, so a press that does nothing only ever meets a Submit
+that already shows it cannot. A taken press is busy from the press, through
+the save barrier, until it settles; a press that goes stale on the way (the
+worker moved, the entry or access changed) settles back to idle and writes
+nothing. So a change to the form under a running press (its entry rebuilding,
+its case data refreshing or failing, its record binding, a repeat settling)
+outranks the press in the offer, and the line under Submit names that change
+rather than a submission that will not finish.
 
 A required device-case database refresh pauses an existing entry without retiring
 its answers, query membership or attachment entry key. New input, validation and
@@ -500,6 +526,33 @@ child Form binds the exact inherited menu case; a different-type child lookup
 is constrained by the selected parent and must never fall back to an
 unfiltered first row. Direct Results records are checked against that same
 parent before their detail is shown.
+
+A menu asks for its parent case before it lists its screen only where Core
+does: `engine/parentCaseSelection.ts::previewParentCaseBeforeMenu` replays
+`CommCareSession.getNeededData` over the datums the suite prints
+(`engine/menuDatumReplay.ts`, which `caseListEntryListing.ts` shares), and a
+menu that also lists an entry asking for no case (a registration or a survey
+beside a follow-up) lists its forms first and asks for the parent after a
+form's command, as `MenuActivity` and Formplayer's menu screen both do. Home's
+module tile and a menu's submenu tile choose through one rule,
+`components/preview/screens/moduleScreenNavigation.ts::choosePreviewMenuTile`,
+which lets the case target go before it routes. The module screen starts the
+selection at its own URL only where the menu asks first, and at every leaf of
+it whose entry chooses the parent (`previewModuleAsksParentCase`, and
+`previewLeafAsksParentCase`, which `usePreviewScreenForLocation`'s admission
+reads, so a survey of such a menu opens with no case); cancelling a parent
+asked for after a form's command returns to that menu, as
+`CommCareSession.stepBack` pops the form's command and stops where the session
+asks for one. A parent's list goes on at the row unless the datum it chooses
+for names a details screen (`previewParentCaseListHasDetails`, read by
+`CaseListScreen` for a parent request): Formplayer's `hasDetails` reads the
+needed datum's long detail (`EntityListResponse`, `EntityScreen.getLongDetail`),
+the Web Apps client's row selects at once without one
+(`menus/views.js::CaseView.rowClick`), and Android's `EntitySelectActivity`
+returns the row in `mNoDetailMode`, one rule on both platforms. A basic
+entry's parent datum names none, whatever the parent's own list shows.
+`MenuScreensRuntimeTest`'s pinned-tile walks hold both to Core (a step's
+`confirms`, and a menu's command reaching its menu).
 
 ## First-class date type in the XPath evaluator
 
@@ -1194,7 +1247,7 @@ Blueprint mutations in edit mode recreate the engine. The engine hook snapshots 
 
 **The usercase reading is the ROW, not a second computation.** `commcare-user` is materialized per app and worker, and `#user/<prop>` on the wire resolves against `casedb` — so once a form can write through `usercase_update` a computed projection and the row diverge the moment a worker answers. They diverge without that too: the sync's never-remove diff keeps a key on the row after the catalog drops the property, while the projection forgets it. The derivation survives as the materializer's INPUT (`lib/domain/usercase.ts`), and `resolveAuthorizedPreviewContext` reads back what the row holds. Never compute the usercase independently here: only the row stays equal to what the device holds. Its case id is distinct from the worker's identity: materialization, submission writes and durable device patches resolve the app-scoped `hq_user_id` join, preserving historical row ids. Previewing as the same signed-in member in different apps therefore keeps independent stored answers.
 
-**Two readings, because the wire has two.** `session` is `instance('commcaresession')/session/…` (`SessionInstanceBuilder.addMetadata` + `addUserProperties`); `usercase` is the `commcare-user` case `#user/<prop>` reads (`sync_usercase.py::_get_user_case_fields`). Same authored data, different built-in keys — `first_name` in the usercase, `commcare_first_name` in the session block — so collapsing them would make one of the two lie. The serializable session projection also carries `userPropertySlugs` (custom UUID→CURRENT slug), which is binding metadata rather than worker data; `previewUserPropertySlugMap` turns it into the typed emitter/compiler map. Thus `session-user-property`, in record slots and form logic alike, evaluates against the same property after a rename without rewriting the stored tree, while name-backed built-in/external arms remain literal. Every session/usercase read uses an own-key lookup, so authored `__proto__` and `constructor` values cannot inherit from the object prototype. **The three location keys diverge, and it is easy to get backwards**: `get_user_session_data` writes all three or none, so the session block omits them while nobody is assigned anywhere, but `_get_user_case_fields` takes an `else` branch to `''` for all three, so the usercase always carries them. Values are otherwise honest: `commcare_project` is ABSENT in BOTH projections until a deployment names one (the domain is never empty on a device, so an empty value would be one no worker can hold), and the worker's name rides as `case_name` rather than `name` (HQ pops `name` into the case's name and never writes it as a property), while the session's first/last/phone keys and the usercase's first/last/phone/email keys are PRESENT, derived when possible and empty otherwise, because HQ writes those slots unconditionally. `user_type` IS present and reads `"standard"` — HQ sends the key only for a practice user, but every `commcare-core .../User.java` constructor calls `setUserType(STANDARD)` before `UserXmlParser::parse` applies any `<data key>`, so the device always has it and a condition on it must behave the same here. A DECLARED property with no value is present-and-empty, matching HQ's `UserData.to_dict` seed, while an undeclared key is genuinely absent. The session instance (`xpathInstances.ts::commcareSessionXPathInstance`) holds `user/data` with no wildcard template, so a read of an absent key is Core's refusal (`DataInstance.hasTemplatePath`, then `XPathNodeset.unpack`), never a blank: a menu or Search screen that reads one shows the data refusal in place of the screen (`engine/dataRefusal.ts`, subject `worker-information`; `HomeScreen` and `ModuleScreen` hold it as state through `readPreviewScreen`, so no error leaves the render for Next's `onCaughtError` to log) and a form stops at entry, as Formplayer and Android fail the screen (`MenuLoader`'s load exception, `MenuScreen.init`, `MenuAdapter.showAnyLoadErrors`; `MenuScreensRuntimeTest` reads both on `worker-place-read`, each worker over its own parse of the suite, because Core checks a parsed expression's path only until the check first passes, `XPathPathExpr.templatePathChecked`, so an install that once read the key for another worker reads it blank afterwards; Preview reads as the worker's own install does). The one exception is `commcare_project`, which every device holds and Preview leaves out until the app is published to one project space: it stays a template and reads blank. After the gate refuses a session read by name of a key that is not built in (`undeclared-worker-field`) and a read by name of a declared slug (`worker-property-read-by-name`, so every declared read is its identity, which a declared property's present-and-empty seed always answers), the absent keys a Nova app can meet are the place keys of a worker assigned nowhere. A screen reads only the menus' conditions Core reads on it: `menuProjection.ts::previewModuleOwnVisibility` and `inheritedModuleVisibility` read each module's condition when a screen first asks (`LazyModuleVisibility`), so one menu's refusal stops the screens that list it or are its own and no other, and routing reads a refused menu as not shown (`previewRoutingModuleVisibility`) so the location lands on the screen that shows the refusal; Web Apps' after-submit walk reads a refusing condition as hidden too (`afterSubmitRouting.ts::refusedAsHidden`), so it stops on the screen that lists the item, which shows the refusal as Formplayer's rebuilt session fails there, and an entry point that keeps display conditions refuses with `entryPointLaunch.ts::ENTRY_POINT_DATA_REFUSAL`. A case-first menu reads its forms' conditions once the case is chosen (`MenuLoader.addRelevantCommandEntries`), and `CaseListScreen` holds a refusal there as the form menu's state (`readPreviewScreen`), never as an error out of a click or a render. Every read compiled to SQL binds the worker's session with `TermBindings.sessionUserAbsent` (`runtimeBindings.ts::previewCaseStoreBindings`, and the submission program): an absent key throws `AbsentWorkerFieldError` as the read compiles, except `commcare_project` (`workerSessionKeys.ts`), which reads blank. The case read actions map it (`serverDataRefusal.ts::serverPreviewDataRefusalOf`, as App Tests do) to the `data-refused` arm, so a case list whose filter, column, order or search reads the key, a case's Details and the persistent tile show the refusal in their place (surface `list`) and nothing reaches telemetry; a Search runtime value that reads it comes back as `SearchCsqlRuntimeWire.dataRefusal`. The Search screen holds its refusal as state too. As it opens it reads what Core's query manager reads as it is built, on Web Apps and Android alike (`RemoteQuerySessionManager`'s constructor, which Formplayer's `QueryScreen.init` and Android's `QueryRequestActivity` both run): each starting value and hidden value, each choice list's rows (`refreshItemSetChoices`: a table with no rows, or a row filter over a key the worker lacks), letting go each chosen value of a starting value those rows do not offer (`checkForValidSelectValue`, `searchRunState.ts::searchStartingValuesOffered`), each required condition, and the check of each field a starting value still answers (`searchRunState.ts::openSearchRunState`, `useSearchInputRunState`'s `refusal`), though Android then marks nothing required and checks no answer. Core repeats its choice pass once per prompt, so on a screen of one prompt a starting choice it lets go fails the screen instead ("Invalid itemset state"), which Preview does not show. The screen opens only over lookup data that covers those reads (`searchScreenOpeningCovered`): until it arrives the run state is `pending`, holds no field, refuses nothing and launches no automatic search, and Results that open on the default search say the search is getting ready; a lookup load that failed opens it over what the data covers. Formplayer builds that manager before it runs an automatic search (`QueryScreen.init`), so a menu that opens on its results refuses there too, Search pane or not. The Search action's condition refuses the whole list (`CaseListScreen`'s `searchActionRead`), and a check of an answer the worker typed refuses when Web Apps judges it (`SearchInputForm`). `SearchPromptRuntimeTest` holds Core's manager to each of these on `prompt-worker-place`, and to the starting answers each opened screen holds, a starting choice the list does not offer let go (`unoffered-choice`). A list that opens first keeps its cases and shows the refusal in its Search pane (or, with no field to fill in, in place of its Search button), holding no search; a menu that opens on its search or its results shows it in place of the screen. App Tests and the form check open the Search screen through the same `openSearchRunState` (`searchEvaluation.ts::evaluateSearchSnapshot`, `evaluationContext.ts::formsReadSearchFormAnswers`), so they refuse at the same step: a menu that opens on its search or its results refuses as it opens, and a list that opens first keeps its cases and refuses a Search press. The assigned-case exclusion is a rule of the Results read, which Preview evaluates as it reads Results and words as the list's; App Tests and the form check hold its refusal as data (`searchEvaluation.ts`'s `exclusionRefusal`) and throw it, named the list's, only where their records read reads Results (`serverSearchRead.ts::serverRecordsRead`), so a menu on its Search screen refuses nothing for it. A form of a menu whose forms read the search opened with no completed search behind it (a form link, an entry point), which Web Apps rebuilds through the menu's query step, opens that Search screen too, in Preview's form screen (`caseListRegistration.ts::readFormSearchAnswers`) as in the form check, so it reads every hidden value, required condition and check there and refuses in place of the form. A form whose case blocks read the key (an operation's owner, values, name or conditions, the open and close conditions) is refused when it opens, or when a row of the repeat that carries the operation exists (`dataRefusal.ts::caseBlocksReadAbsentWorkerKey`), since Core calculates those binds as their nodes exist (`WorkerIdentityRuntimeTest` holds Core's form entry to it on `worker-place-owner`, an owner read from the worker's case-sharing group). These SQL and case-block checks are static, so they refuse a read inside a branch the device never takes, and a list with no cases, which a device never evaluates a filter or a column over.
+**Two readings, because the wire has two.** `session` is `instance('commcaresession')/session/…` (`SessionInstanceBuilder.addMetadata` + `addUserProperties`); `usercase` is the `commcare-user` case `#user/<prop>` reads (`sync_usercase.py::_get_user_case_fields`). Same authored data, different built-in keys — `first_name` in the usercase, `commcare_first_name` in the session block — so collapsing them would make one of the two lie. The serializable session projection also carries `userPropertySlugs` (custom UUID→CURRENT slug), which is binding metadata rather than worker data; `previewUserPropertySlugMap` turns it into the typed emitter/compiler map. Thus `session-user-property`, in record slots and form logic alike, evaluates against the same property after a rename without rewriting the stored tree, while name-backed built-in/external arms remain literal. Every session/usercase read uses an own-key lookup, so authored `__proto__` and `constructor` values cannot inherit from the object prototype. **The three location keys diverge, and it is easy to get backwards**: `get_user_session_data` writes all three or none, so the session block omits them while nobody is assigned anywhere, but `_get_user_case_fields` takes an `else` branch to `''` for all three, so the usercase always carries them. Values are otherwise honest: `commcare_project` is ABSENT in BOTH projections until a deployment names one (the domain is never empty on a device, so an empty value would be one no worker can hold), and the worker's name rides as `case_name` rather than `name` (HQ pops `name` into the case's name and never writes it as a property), while the session's first/last/phone keys and the usercase's first/last/phone/email keys are PRESENT, derived when possible and empty otherwise, because HQ writes those slots unconditionally. `user_type` IS present and reads `"standard"` — HQ sends the key only for a practice user, but every `commcare-core .../User.java` constructor calls `setUserType(STANDARD)` before `UserXmlParser::parse` applies any `<data key>`, so the device always has it and a condition on it must behave the same here. A DECLARED property with no value is present-and-empty, matching HQ's `UserData.to_dict` seed, while an undeclared key is genuinely absent. The session instance (`xpathInstances.ts::commcareSessionXPathInstance`) holds `user/data` with no wildcard template, so a read of an absent key is Core's refusal (`DataInstance.hasTemplatePath`, then `XPathNodeset.unpack`), never a blank: a menu or Search screen that reads one shows the data refusal in place of the screen (`engine/dataRefusal.ts`, subject `worker-information`; `HomeScreen` and `ModuleScreen` hold it as state through `readPreviewScreen`, so no error leaves the render for Next's `onCaughtError` to log) and a form stops at entry, as Formplayer and Android fail the screen (`MenuLoader`'s load exception, `MenuScreen.init`, `MenuAdapter.showAnyLoadErrors`; `MenuScreensRuntimeTest` reads both on `worker-place-read`, each worker over its own parse of the suite, because Core checks a parsed expression's path only until the check first passes, `XPathPathExpr.templatePathChecked`, so an install that once read the key for another worker reads it blank afterwards; Preview reads as the worker's own install does). The one exception is `commcare_project`, which every device holds and Preview leaves out until the app is published to one project space: it stays a template and reads blank. After the gate refuses a session read by name of a key that is not built in (`undeclared-worker-field`) and a read by name of a declared slug (`worker-property-read-by-name`, so every declared read is its identity, which a declared property's present-and-empty seed always answers), the absent keys a Nova app can meet are the place keys of a worker assigned nowhere. A screen reads only the menus' conditions Core reads on it: `menuProjection.ts::previewModuleOwnVisibility` and `inheritedModuleVisibility` read each module's condition when a screen first asks (`LazyModuleVisibility`), so one menu's refusal stops the screens that list it or are its own and no other, and routing reads a refused menu as not shown (`previewRoutingModuleVisibility`) so the location lands on the screen that shows the refusal; Web Apps' after-submit walk reads a refusing condition as hidden too (`afterSubmitRouting.ts::refusedAsHidden`), so it stops on the screen that lists the item, which shows the refusal as Formplayer's rebuilt session fails there, and an entry point that keeps display conditions refuses with `entryPointLaunch.ts::ENTRY_POINT_DATA_REFUSAL`. A case-first menu reads its forms' conditions once the case is chosen (`MenuLoader.addRelevantCommandEntries`), and `CaseListScreen` holds a refusal there as the form menu's state (`readPreviewScreen`), never as an error out of a click or a render. Every read compiled to SQL binds the worker's session with `TermBindings.sessionUserAbsent` (`runtimeBindings.ts::previewCaseStoreBindings`, and the submission program): an absent key throws `AbsentWorkerFieldError` as the read compiles, except `commcare_project` (`workerSessionKeys.ts`), which reads blank. The case read actions map it (`serverDataRefusal.ts::serverPreviewDataRefusalOf`, as App Tests do) to the `data-refused` arm, so a case list whose filter, column, order or search reads the key, a case's Details and the persistent tile show the refusal in their place (surface `list`) and nothing reaches telemetry; a Search runtime value that reads it comes back as `SearchCsqlRuntimeWire.dataRefusal`. The Search screen holds its refusal as state too. As it opens it reads what Core's query manager reads as it is built, on Web Apps and Android alike (`RemoteQuerySessionManager`'s constructor, which Formplayer's `QueryScreen.init` and Android's `QueryRequestActivity` both run): each starting value and hidden value, each choice list's rows (`refreshItemSetChoices`: a table with no rows, or a row filter over a key the worker lacks), letting go each chosen value of a starting value those rows do not offer (`checkForValidSelectValue`, `searchRunState.ts::searchStartingValuesOffered`), each required condition, and the check of each field a starting value still answers (`searchRunState.ts::openSearchRunState`, `useSearchInputRunState`'s `refusal`), though Android then marks nothing required and checks no answer. Core gives that choice pass one round per prompt (every Search field, a hidden one included), and the round that lets a value go is still dirty, so on a screen of one prompt a starting choice its list does not offer fails the screen instead ("Invalid itemset state"): Formplayer answers with that error and Android's `QueryRequestActivity`, which catches only an `XPathException` there, stops. Preview refuses the screen there (`searchRunState.ts::searchStartingChoicesFail`, reason `unoffered-starting-choice`, subject `starting-choice`), naming the field and asking for a starting value its list offers; a screen of two or more prompts lets the choice go. The screen opens only over lookup data that covers those reads (`searchScreenOpeningCovered`): until it arrives the run state is `pending`, holds no field, refuses nothing and launches no automatic search, and Results that open on the default search say the search is getting ready; a lookup load that failed opens it over what the data covers. Formplayer builds that manager before it runs an automatic search (`QueryScreen.init`), so a menu that opens on its results refuses there too, Search pane or not. The Search action's condition refuses the whole list (`CaseListScreen`'s `searchActionRead`), and a check of an answer the worker typed refuses when Web Apps judges it (`SearchInputForm`). `SearchPromptRuntimeTest` holds Core's manager to each of these on `prompt-worker-place`, and to the starting answers each opened screen holds, a starting choice the list does not offer let go (`unoffered-choice`) or failing a screen of one field for every worker (`unoffered-choice-alone`). A list that opens first keeps its cases and shows the refusal in its Search pane (or, with no field to fill in, in place of its Search button), holding no search; a menu that opens on its search or its results shows it in place of the screen. App Tests and the form check open the Search screen through the same `openSearchRunState` (`searchEvaluation.ts::evaluateSearchSnapshot`, `evaluationContext.ts::formsReadSearchFormAnswers`), so they refuse at the same step: a menu that opens on its search or its results refuses as it opens, and a list that opens first keeps its cases and refuses a Search press. The assigned-case exclusion is a rule of the Results read, which Preview evaluates as it reads Results and words as the list's; App Tests and the form check hold its refusal as data (`searchEvaluation.ts`'s `exclusionRefusal`) and throw it, named the list's, only where their records read reads Results (`serverSearchRead.ts::serverRecordsRead`), so a menu on its Search screen refuses nothing for it. A form of a menu whose forms read the search opened with no completed search behind it (a form link, an entry point), which Web Apps rebuilds through the menu's query step, opens that Search screen too, in Preview's form screen (`caseListRegistration.ts::readFormSearchAnswers`) as in the form check, so it reads every hidden value, required condition and check there and refuses in place of the form. A form whose case blocks read the key (an operation's owner, values, name or conditions, the open and close conditions) is refused when it opens, or when a row of the repeat that carries the operation exists (`dataRefusal.ts::caseBlocksReadAbsentWorkerKey`), since Core calculates those binds as their nodes exist (`WorkerIdentityRuntimeTest` holds Core's form entry to it on `worker-place-owner`, an owner read from the worker's case-sharing group). These SQL and case-block checks are static, so they refuse a read inside a branch the device never takes, and a list with no cases, which a device never evaluates a filter or a column over.
 
 **The running app reads what the worker's device would hold, and it is a
 SEPARATE axis from identity.** CommCare does not filter a restore by
@@ -1782,8 +1835,11 @@ run does not hold is taken back (`restore`, on a list built afresh, a form of
 the module that returned to its list, or history returning to an entry the
 search stands on, as the device re-runs the query it kept); a search let go
 clears the run state; and a run state the screen dropped on its own while
-holding the standing search retires the context. The screen remembers which
-submission its run last took, which is what tells the last two apart.
+holding the standing search retires the context. The screen remembers what
+its run last took, the search and the answers it ran with
+(`previewSearchState.ts::submittedSearchKey`), which is what tells the last
+two apart and what makes a search history gives back with other answers run
+again.
 The screen reads its module's context only where that search stands on the
 current history entry (`hooks/usePreviewStandingSearch.ts`), and both effects
 act only while the location on show is a list's (`current`): PreviewShell
@@ -1802,10 +1858,18 @@ stands on the entry it was begun on (`useSetPreviewStandingSearchState`
 records it before the session holds it) and on every entry a step forward
 pushes from one it stands on, as `addSelection` keeps the address's query
 data; arriving on a screen, by a step or by Back and Forward, keeps only the
-searches whose list is on the path to it (`hooks/usePreviewSearchArrival.ts`,
-`previewSearchScreenOf`: the menus above it, its own menu's list where it is
-past it, and a list it was reached past, the host of a Register action, a
+searches whose list is on the path to it (`hooks/usePreviewSearchArrival.ts`
+over `searchStanding.ts::previewSearchArrival`; `previewSearchScreenOf` and
+`previewSearchPathModules`: the lists whose cases the session held as the
+screen's menu's command was chosen, `menuProjection.ts::previewSelectionsBeforeCommand`,
+its own menu's list and every case its menu holds where the screen is past
+that list, and a list it was reached past, the host of a Register action, a
 Results launch, the list that chose a form's case, a parent case request).
+A structural menu above is on the path only where it chose its case before
+the command: a forms-first menu's list that chose a submenu's parent case did
+so after the submenu's command, so the submenu's own menu, and its crumb,
+are above that search, as `spliceSelections` drops the query recorded after
+the cut.
 A crumb keeps only the searches recorded strictly before the screen it names
 (`spliceSelections`; `BreadcrumbStrip`'s `cutSearches`), so a crumb to a
 list's menu, or to a form chosen before the list's case, lets that list's
@@ -1828,14 +1892,41 @@ to (the menu's default search run again after a submission or a crumb, or a
 later search), the entry's context is the module's search again
 (`previewSearchHistory.ts::previewSearchesOnEntry`, which the screens read
 through `usePreviewStandingSearchState` and the arrival hands back to the
-session), and the list takes it back. One difference stays: the list takes
-back the answers the entry's own search was run with, where Web Apps runs the
-query with the answers last given to that query, since an address records
-only that the query stands (`execute`, `force_manual_search`) and
-`CloudcareUrl.fromJson` takes the answers from the inputs the page keeps per
-query key (`Utils.getCurrentQueryInputs`, which no submission, crumb or Home
-clears). They differ only on an entry whose list has been searched again
-since.
+session), and the list takes it back. What answers it runs with is the
+platform's (`platform.ts::searchReplay`, `searchStanding.ts::PreviewSearchReplay`).
+On Web Apps an address records only that its query ran (`execute`,
+`force_manual_search`), and `CloudcareUrl.fromJson` takes the answers from
+the ones the page keeps per query key (`Utils.getCurrentQueryInputs`), which
+every `setQueryData` writes and no submission, crumb or Home clears: a Search
+press, every field the worker changes as the client checks it
+(`query.js::_updateModelsForValidation`, Search pressed or not), and the
+Search screen as it is shown, with no answers (`menus/utils.js::getMenuView`).
+The session keeps those per module for the running Preview session
+(`previewSearchInputs`, written by `CaseListScreen`'s Search press and its
+draft changes, each with every hidden field's value beside the worker's
+answers, as `query.js::getAnswers` gives every prompt view's, and by its
+Search screen shown with no search standing, which gives none). Formplayer
+answers every prompt from them, a hidden one included, and a prompt they
+leave out has none (`QueryScreen.answerPrompts`), so a search history gives
+back after the Search screen was drawn runs with no answer at all
+(`previewSearchState.ts::searchWithLatestInputs` over
+`searchRunState.ts::searchPromptKeys`), an attempt running again where the
+answers differ. That replay runs only where the arrival shows the module's
+own list (`PreviewSearchScreen.listShown`, from the shell's projected screen),
+the one screen that runs the query and settles it, and only on a move to the
+screen (`readBuilderHistoryMove`), not when the list's own settle rewrites the
+entry's record: a search standing on a menu, a form or another list keeps the
+answers it ran with until its list is on show, so a form that reads the
+search opens over the search it was opened under rather than waiting on one
+nothing runs. Web Apps replays the whole address, so a step back onto a menu
+or form past the list runs its query with the latest answers there too and
+fails the step where the new results lack the chosen case
+(`EntityScreen.setSelectedEntity`); Preview runs it at the list. The
+menu's default search (`automatic`) writes no query data and runs as the
+default search again; a Search screen asked for again and a search
+keyed to a registered case keep theirs. On Android a search is a step of the
+session frame, which holds the query it ran (`CommCareSession.setQueryDatum`),
+so a search that stands again keeps its own answers.
 The context keeps the screen's answers (a date range as its two bounds);
 `runtimeBindings.ts::searchInputInstanceValues` folds them to the instance's
 one field per prompt where `FormScreen` hands them to the engine.

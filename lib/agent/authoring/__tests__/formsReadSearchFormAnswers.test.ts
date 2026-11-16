@@ -9,6 +9,12 @@ import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
+	promptLookupContext,
+	promptLookupRows,
+	searchPromptWorkerPlaceFixture,
+	WORKER_PLACE_SEARCH_MENUS,
+} from "@/lib/commcare/__tests__/searchPromptFixture";
+import {
 	hiddenSearchInputDef,
 	plainColumn,
 	type SearchInputDef,
@@ -23,6 +29,7 @@ import {
 	previewAsMe,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
+import { previewLookupData } from "@/lib/preview/engine/lookupEvaluation";
 import { formsReadSearchFormAnswers } from "../evaluationContext";
 
 const MODULE = testUuid("forms-read-search-answers-module");
@@ -256,4 +263,77 @@ it("reads a completed search's answers on Preview's form screen, opening no Sear
 		kind: "read",
 		value: new Map([["patient_name", "Ada"]]),
 	});
+});
+
+/* A Search screen of one field that starts on a choice its list does not
+ * offer fails as Core's query manager is built
+ * (`RemoteQuerySessionManager.refreshItemSetChoices`: one round per field,
+ * and the round that lets the choice go is still dirty, "Invalid itemset
+ * state"), so the form check and Preview's form screen, which both open the
+ * Search screen through `openSearchRunState`, refuse there alike.
+ * `SearchPromptRuntimeTest` holds Core to the same menu. */
+it("refuses a one-field Search screen whose starting choice its list doesn't offer, in Preview's form screen and in the form check alike", () => {
+	if (promptLookupContext.kind !== "available")
+		throw new Error("The prompt fixture holds its lookup tables.");
+	const base = searchPromptWorkerPlaceFixture();
+	const moduleUuid =
+		base.moduleOrder[
+			WORKER_PLACE_SEARCH_MENUS.indexOf("unoffered-choice-alone")
+		];
+	const module = base.modules[moduleUuid];
+	if (module === undefined) throw new Error("The fixture has the menu.");
+	const doc = {
+		...base,
+		modules: {
+			...base.modules,
+			[moduleUuid]: {
+				...module,
+				caseSearchConfig: { formsReadSearch: true as const },
+			},
+		},
+	};
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	if (formUuid === undefined) throw new Error("The menu has a form.");
+	const snapshot = {
+		projectRevision: "1",
+		definitions: promptLookupContext.definitions,
+		rowsByTable: promptLookupRows,
+	};
+	const read = readFormSearchAnswers({
+		searchInputs: module.caseListConfig?.searchInputs ?? [],
+		admission: { kind: "not-applicable" },
+		formsReadSearch: true,
+		searchState: undefined,
+		openedByLink: true,
+		world: {
+			session: previewSessionValues(workerOf(doc), webAppsDevice()),
+			environment: {
+				doc,
+				moduleUuid,
+				sessionData: {},
+				lookup: previewLookupData(snapshot),
+				caseDatabase: { rows: [], indices: [] },
+			},
+		},
+	});
+	expect(read.kind).toBe("refused");
+	if (read.kind === "refused")
+		expect(read.refusal.reason).toMatchObject({
+			kind: "unoffered-starting-choice",
+			input: "Region",
+		});
+	expect(() =>
+		formsReadSearchFormAnswers(
+			doc,
+			{ formUuid },
+			{
+				identity: workerOf(doc),
+				device: webAppsDevice(),
+				cases: { rows: [], indices: [] },
+				lookup: snapshot,
+			},
+		),
+	).toThrow(
+		/This search doesn't open on a phone\. Search field “Region” starts on a choice its list doesn't offer\./,
+	);
 });

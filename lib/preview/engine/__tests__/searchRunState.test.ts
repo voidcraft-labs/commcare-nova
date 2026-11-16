@@ -34,6 +34,7 @@ import {
 	reconcileSearchRunState,
 	restoreSearchRun,
 	searchScreenOpeningCovered,
+	searchStartingChoicesFail,
 	searchStartingValuesOffered,
 	withHiddenValues,
 } from "../searchRunState";
@@ -435,6 +436,62 @@ describe("the Search screen as it opens", () => {
 					expect(read.value.draft.has("region")).toBe(false);
 				}
 			}
+		});
+
+		/* Core gives the choice pass one round per prompt and fails the
+		 * screen when a round is still letting values go
+		 * (`RemoteQuerySessionManager.refreshItemSetChoices`, "Invalid
+		 * itemset state"). `SearchPromptRuntimeTest` holds Core to the
+		 * `unoffered-choice-alone` menu: refused for every worker. */
+		it("fails a Search screen of one field instead, for every worker", () => {
+			const alone =
+				doc.moduleOrder[
+					WORKER_PLACE_SEARCH_MENUS.indexOf("unoffered-choice-alone")
+				];
+			const aloneInputs =
+				doc.modules[alone]?.caseListConfig?.searchInputs ?? [];
+			for (const session of [SESSION, PLACED]) {
+				const read = readPreviewScreen(() =>
+					openSearchRunState(alone, aloneInputs, session, {
+						...environment,
+						moduleUuid: alone,
+					}),
+				);
+				expect(read.kind).toBe("refused");
+				if (read.kind === "refused")
+					expect(read.refusal.reason).toEqual({
+						kind: "unoffered-starting-choice",
+						inputUuid: aloneInputs[0]?.uuid,
+						input: "Region",
+					});
+			}
+		});
+
+		it("fails only where the one round Core gives a one-prompt screen lets a choice go", () => {
+			const rows = [
+				{ key: "1", value: "north", label: "North" },
+				{ key: "2", value: "east", label: "East" },
+			];
+			const region = inputs.find((input) => input.name === "region");
+			if (region === undefined) throw new Error("The menu has a Region.");
+			const fails = (
+				fields: readonly SearchInputDef[],
+				value: string,
+			): string | undefined =>
+				searchStartingChoicesFail(
+					fields,
+					new Map([["region", value]]),
+					new Map([["region", rows]]),
+				)?.name;
+			expect(fails([region], "west")).toBe("region");
+			expect(fails([region], "north#,#west")).toBe("region");
+			// Every value offered, a blank choice, and the trailing empty
+			// choice Java's split drops are valid.
+			expect(fails([region], "north#,#east")).toBeUndefined();
+			expect(fails([region], "")).toBeUndefined();
+			expect(fails([region], "north#,#")).toBeUndefined();
+			// A second prompt, hidden or not, gives the pass its clean round.
+			expect(fails(inputs, "west")).toBeUndefined();
 		});
 
 		it("keeps the chosen values the list offers, in their order", () => {

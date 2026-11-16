@@ -2993,7 +2993,11 @@ case, such as a menu above whose list chooses a child of the chosen case; the en
 that chooses exactly that case is not listed, and the menu shows its forms alone. A forms-first
 screen collects nothing of its own, yet it does not list an entry whose case a screen on the
 way already chose: a forms-first submenu under a case-first parent of the same case type is
-one. Core never opens a lone form from a menu by itself: where the menu's command holds one
+one. A forms-first menu whose cases are chosen under a parent case (`parentCaseModuleUuid`)
+lists its forms the same way, and asks for the parent after the command of a form whose entry
+needs it; a parent's list goes on at the row, since the parent's datum names no `detail-confirm`
+(`lib/preview/engine/parentCaseSelection.ts`, held by `MenuScreensRuntimeTest`'s pinned-tile
+walks). Core never opens a lone form from a menu by itself: where the menu's command holds one
 entry, `getNeededData` asks `getEntryForCommand` for the menu's id, finds no entry and returns
 `STATE_COMMAND_ID`; Android opens `MenuActivity` on it (`HomeScreenBaseActivity.handleGetCommand`)
 and Formplayer advances past a menu only under `cc-auto-advance-menu`
@@ -3023,11 +3027,31 @@ whose command asked for it and reaches the screen after it (`lib/routing/preview
 a menu's crumb keeps only the cases held as its command was chosen, those a case-first menu above
 chose (`lib/preview/menuProjection.ts::previewSelectionsBeforeCommand`); and a crumb keeps only the searches recorded before the
 screen it names, as `utils.js::CloudcareUrl.spliceSelections` keeps only the query data before its
-cut, while a submission lets every search go on the screen it lands on and leaves the earlier
+cut, so a search that chose a submenu's parent case on a forms-first menu's list, after the
+submenu's command, goes on the submenu's own crumb, the same selections deciding where a search
+stands as where a case does (`lib/preview/searchStanding.ts::previewSearchPathModules`), while a submission lets every search go on the screen it lands on and leaves the earlier
 history entries theirs, as Web Apps clears the query data only of the address it pushes after one
 (`app.js`'s submit handler, `onSubmit`), and Home lets them go (`clearExceptApp`;
 `lib/preview/searchStanding.ts`, each history entry recording the searches standing on it,
-`lib/routing/previewSearchHistory.ts`). Android's home screen starts the session over
+`lib/routing/previewSearchHistory.ts`). A history entry records only that its search stands: Web
+Apps runs it with the answers the worker last gave its query, which the page keeps per query key
+and no submission, crumb or Home clears (`CloudcareUrl.fromJson` over `Utils.getCurrentQueryInputs`,
+written by every `setQueryData`: a Search press and a field changed as the client checks it, each
+with every prompt view's answer, hidden ones included, `query.js::getAnswers`, and the Search screen
+shown with none, after which Formplayer answers every prompt, a hidden one too, with nothing,
+`QueryScreen.answerPrompts`), and Preview does the same on Web Apps where the arrival shows that
+list, the screen that runs and settles its query (`lib/session/previewSearchState.ts::searchWithLatestInputs`,
+`lib/preview/searchStanding.ts::previewSearchArrival`; Web Apps also runs it on a step back onto a
+menu or form past the list, which Preview does not), while Android's frame keeps the query
+its step ran (`CommCareSession.setQueryDatum`), so a search that stands again there keeps its own
+answers (`lib/preview/platform.ts::searchReplay`). Home also leaves every earlier address its
+`selections`, and Web Apps routes a popped address to Formplayer's `navigate_menu`, which replays
+them (`router.js::listMenus` → `menus/controller.js::selectMenu`,
+`MenuSessionRunnerService.advanceSessionWithSelections`), so Back past Home shows that screen with
+its cases: each Preview history entry records the selections it was shown with and the task of the
+session it was shown in, and a popstate onto an entry of another task returns them on Web Apps
+before the screen renders (`lib/routing/previewSelectionsHistory.ts`,
+`lib/preview/platform.ts::poppedEntrySelections`); Android has no address. Android's home screen starts the session over
 (`HomeScreenBaseActivity.processCanceledGetCommandOrCase` → `CommCareSession.clearAllState`), so
 Preview's clears every navigation fact and mints a new session there. A route back to a list goes to the one that chose the case holding no
 form (`previewCaseListReturn`), the list ignores a form so chosen

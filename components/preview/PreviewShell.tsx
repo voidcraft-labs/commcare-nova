@@ -57,6 +57,7 @@ import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useEntryPointLaunchLifecycle } from "@/lib/preview/hooks/useEntryPointLaunch";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import { usePreviewSearchArrival } from "@/lib/preview/hooks/usePreviewSearchArrival";
+import { usePreviewSelectionsArrival } from "@/lib/preview/hooks/usePreviewSelectionsArrival";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { continuesPreviewTask } from "@/lib/preview/taskContinuation";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -255,8 +256,22 @@ export function PreviewShell() {
 	useLayoutEffect(() => {
 		if (mode === "preview" && loc.kind === "home") clearPreviewNavigation();
 	}, [mode, loc.kind, clearPreviewNavigation]);
-	/* The searches the worker left behind on the way here no longer stand. */
-	usePreviewSearchArrival(mode, loc);
+	/* Each entry records the cases it was shown with; Back or Forward past
+	 * Home puts them back on Web Apps, as a popped address's selections are
+	 * replayed. Before the search arrival, which reads them. */
+	usePreviewSelectionsArrival(mode, loc);
+	/* The searches the worker left behind on the way here no longer stand,
+	 * and the list on show runs its own as its platform replays it. */
+	usePreviewSearchArrival(
+		mode,
+		loc,
+		projectedScreen.type === "caseList" ||
+			projectedScreen.type === "searchConfig" ||
+			projectedScreen.type === "detailConfig" ||
+			projectedScreen.type === "dataReview"
+			? projectedScreen.moduleUuid
+			: undefined,
+	);
 
 	/* The case the running-app case list passed into a case-loading form.
 	 * The URL tracks which form; this ephemeral target carries the selected

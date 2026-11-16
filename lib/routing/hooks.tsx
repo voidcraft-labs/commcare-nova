@@ -47,6 +47,7 @@ import {
 	getBuilderPathSegmentsSnapshot,
 	pushBuilderHistory,
 	reopenPreviewHeldMenu,
+	stepBackToBuilderEntry,
 	subscribeBuilderPathChange,
 	useIsBuilderFieldPathSelected,
 } from "@/lib/routing/useClientPath";
@@ -358,6 +359,7 @@ function navigationPort(docApi: BlueprintDocStore): NavigationPort {
 		getDoc: docApi.getState,
 		write: pushBuilderHistory,
 		reopenHeldMenu: reopenPreviewHeldMenu,
+		stepBackTo: stepBackToBuilderEntry,
 		back: () => window.history.back(),
 	};
 }

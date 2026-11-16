@@ -28,7 +28,6 @@ import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 export { BuilderPageNavigation } from "@/components/builder/BuilderPageNavigation";
 
 import { useAppName } from "@/lib/doc/hooks/useAppName";
-import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	useEffectiveCaseTypes,
 	useMaterializableCaseTypes,
@@ -232,7 +231,6 @@ export function BreadcrumbStrip() {
 	 * (`holdsCaseOn`) reaches the menu that holds it, and a menu's crumb
 	 * reaches the menu. Each reads the session when it runs. */
 	const sessionApi = useBuilderSessionApi();
-	const docApi = useBlueprintDocApi();
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const breadcrumbHandlers = useMemo(() => {
 		const letGo = (crumb: PreviewBreadcrumbItem) => {
@@ -250,12 +248,14 @@ export function BreadcrumbStrip() {
 		 * Each runs after the crumb's own push, on the entry it pushed. */
 		const cutSearches = (screen: PreviewSearchScreen) => {
 			const current = readCurrentPreviewStandingSearches();
+			const state = sessionApi.getState();
 			const kept = new Set(
 				previewSearchesStandingAt(
-					docApi.getState(),
-					sessionApi.getState().previewSearchStates,
+					menuSource,
+					state.previewSearchStates,
 					new Set(current),
 					screen,
+					state.previewMenuCaseSelections,
 				),
 			);
 			recordPreviewStandingSearches(
@@ -363,7 +363,6 @@ export function BreadcrumbStrip() {
 			return () => navigate.push(item.location);
 		});
 	}, [
-		docApi,
 		effectiveBreadcrumbs,
 		menuSource,
 		navigate,

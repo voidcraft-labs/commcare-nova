@@ -13,6 +13,8 @@ import {
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import {
+	choosePreviewMenuTile,
+	previewModuleAsksParentCase,
 	previewParentCaseRequestFor,
 	previewTargetKeptForParentCase,
 } from "@/components/preview/screens/moduleScreenNavigation";
@@ -48,6 +50,7 @@ import {
 	navigationSelectedCase,
 } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { previewParentCaseBeforeMenu } from "@/lib/preview/engine/parentCaseSelection";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { previousTaskFormSelectors } from "@/lib/preview/engine/previousTask";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -94,7 +97,6 @@ import {
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { showToast } from "@/lib/ui/toastStore";
 import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
-import { openModuleLanding } from "./moduleLanding";
 
 /** No entry's place, while the screen shows a refusal in place of its list. */
 const NO_ENTRY_VISIBILITY: ReadonlyMap<string, NavigationItemVisibility> =
@@ -171,7 +173,23 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		[menuSource, moduleUuid, menuCaseSelections],
 	);
 	const selectedMenuCase = menuCaseContext.selectedCase;
-	const requiredParentCase = menuCaseContext.requiredParentCase;
+	/* Core asks for the menu's parent case before it lists the screen only
+	 * where every entry the screen lists asks for it first; a menu that lists
+	 * its forms first asks for it after the command of a form that needs it
+	 * (`parentCaseSelection.ts::previewParentCaseBeforeMenu`). */
+	const parentCaseBeforeMenu = useMemo(
+		() => previewParentCaseBeforeMenu(menuSource.doc, moduleUuid),
+		[menuSource.doc, moduleUuid],
+	);
+	const requiredParentCase =
+		menuCaseContext.requiredParentCase !== undefined &&
+		previewModuleAsksParentCase({
+			loc,
+			moduleUuid,
+			parentCaseBeforeMenu,
+		})
+			? menuCaseContext.requiredParentCase
+			: undefined;
 	/* The cases this menu's session holds pin the tile of the first whose
 	 * list keeps its tile on screen (`lib/preview/pinnedCaseTile.ts`). */
 	const heldCases = useMemo(
@@ -314,6 +332,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 				selectorModuleUuid: requiredParentCase.moduleUuid,
 				structuralParentUuid: moduleParent(menuSource, moduleUuid),
 				pending: previewParentCaseRequest,
+				listsBeforeParentCase: !parentCaseBeforeMenu,
 			});
 			setPreviewCaseTarget(
 				previewTargetKeptForParentCase(
@@ -346,6 +365,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		mode,
 		moduleUuid,
 		navigate,
+		parentCaseBeforeMenu,
 		previewParentCaseRequest,
 		requiredParentCase,
 		sessionApi,
@@ -467,35 +487,26 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 				initial={{ opacity: 0, y: 12 }}
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ delay: index * 0.06, duration: 0.3 }}
-				onClick={() => {
-					setPreviewCaseTarget(undefined);
-					if (childCase.requiredParentCase) {
-						setPreviewParentCaseRequest({
-							selectingModuleUuid: childCase.requiredParentCase.moduleUuid,
-							returnModuleUuids: [child.uuid],
+				onClick={() =>
+					choosePreviewMenuTile(
+						{ setPreviewCaseTarget, setPreviewParentCaseRequest, navigate },
+						{
+							source: menuSource,
+							moduleUuid: child.uuid,
+							selections: menuCaseSelections,
 							cancelLocation: { kind: "module", moduleUuid },
-						});
-						navigate.push(
-							parentCaseSelectorLocation(
-								childCase.requiredParentCase.moduleUuid,
-							),
-						);
-						return;
-					}
-					openModuleLanding(
-						navigate,
-						child.uuid,
-						moduleLanding({
-							isCaseFirst: caseFirstModules.has(child.uuid),
-							isBareCaseList: previewModuleScreenIsBareCaseList(
-								menuSource.doc,
-								child.uuid,
-							),
-							hasChildren: moduleHasChildren(menuSource, child.uuid),
-							hasSelectedCase: childCase.selectedCase !== undefined,
-						}),
-					);
-				}}
+							landing: moduleLanding({
+								isCaseFirst: caseFirstModules.has(child.uuid),
+								isBareCaseList: previewModuleScreenIsBareCaseList(
+									menuSource.doc,
+									child.uuid,
+								),
+								hasChildren: moduleHasChildren(menuSource, child.uuid),
+								hasSelectedCase: childCase.selectedCase !== undefined,
+							}),
+						},
+					)
+				}
 				className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
 			>
 				<Icon

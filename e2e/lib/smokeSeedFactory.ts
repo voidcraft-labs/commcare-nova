@@ -1567,12 +1567,51 @@ export async function createSmokeBuilders(
 			const [value, label] = table.columns;
 			if (value === undefined || label === undefined)
 				throw new Error("e2e/seed.ts: the regions table seeded no columns");
+			/* The districts Home visits' District field reads its choices
+			 * from, with rows, none of them the field's starting district. */
+			const lookupScope = {
+				projectId: seedProjectId,
+				actorId: SEED.userId,
+				role: "owner" as const,
+			};
+			const districts = await createLookupTable(lookupScope, {
+				name: seed.visits.table.name,
+				tag: seed.visits.table.tag,
+				columns: [
+					{ wireName: "code", label: "Code", dataType: "text" },
+					{ wireName: "name", label: "Name", dataType: "text" },
+				],
+			});
+			const [districtValue, districtLabel] = districts.columns;
+			if (districtValue === undefined || districtLabel === undefined)
+				throw new Error("e2e/seed.ts: the districts table seeded no columns");
+			let districtsRevision = districts.tableRevision;
+			for (const [index, row] of seed.visits.table.rows.entries()) {
+				const receipt = await createLookupRow(lookupScope, {
+					tableId: districts.id,
+					expectedTableRevision: districtsRevision,
+					toIndex: index,
+					values: {
+						[districtValue.id]: row.code,
+						[districtLabel.id]: row.name,
+					},
+				});
+				districtsRevision = receipt.tableRevision;
+			}
 			const appId = await seedRuntimeApp(seed.appName, (id) =>
-				buildSearchChoicesRefusedBlueprint(id, {
-					tableId: table.id,
-					valueColumnId: value.id,
-					labelColumnId: label.id,
-				}),
+				buildSearchChoicesRefusedBlueprint(
+					id,
+					{
+						tableId: table.id,
+						valueColumnId: value.id,
+						labelColumnId: label.id,
+					},
+					{
+						tableId: districts.id,
+						valueColumnId: districtValue.id,
+						labelColumnId: districtLabel.id,
+					},
+				),
 			);
 			// A patient the default search would find, were it to run.
 			await caseStore.insert({

@@ -68,8 +68,9 @@ export const SEARCH_STANDING_SEED = {
 	noteLabel: "Visit note",
 	/** The patient the worker searches for. */
 	searched: { caseName: "Kofi Mensah", answer: "Kofi" },
-	/** The patient only the menu's default search finds. */
-	other: { caseName: "Ama Owusu" },
+	/** The patient only the menu's default search finds, and a second
+	 *  search for her. */
+	other: { caseName: "Ama Owusu", answer: "Ama" },
 } as const;
 
 export function buildSearchStandingBlueprint(appId: string): BlueprintDoc {

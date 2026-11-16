@@ -55,7 +55,6 @@ import {
 	previewScreenEntryVisibility,
 } from "@/lib/preview/menuProjection";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import { parentCaseSelectorLocation } from "@/lib/preview/screenProjection";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useBuilderIsReady,
@@ -69,7 +68,7 @@ import {
 } from "@/lib/session/hooks";
 import { DeviceHomeScreen } from "./DeviceHomeScreen";
 import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
-import { openModuleLanding } from "./moduleLanding";
+import { choosePreviewMenuTile } from "./moduleScreenNavigation";
 
 const FIRST_MENU: MenuScreen = { kind: "first-menu" };
 /** No entry's place, while the screen shows a refusal in place of its list. */
@@ -373,41 +372,41 @@ function ModuleListHome() {
 								duration: 0.3,
 								ease: [0.16, 1, 0.3, 1],
 							}}
-							onClick={() => {
-								if (menuCaseContext.requiredParentCase) {
-									setPreviewParentCaseRequest({
-										selectingModuleUuid:
-											menuCaseContext.requiredParentCase.moduleUuid,
-										returnModuleUuids: [mod.uuid],
+							onClick={() =>
+								/* A menu that asks for its parent case before it lists
+								 * its screen opens the parent's list; otherwise
+								 * case-first modules land on the case list (the running
+								 * app hoists the shared case selection), and a bare case
+								 * list (its case list menu entry and no forms) has no
+								 * form menu at all, so it too opens straight to its case
+								 * list. `moduleLanding` is the one rule, shared with a
+								 * form's after-submit link to a module, and
+								 * `choosePreviewMenuTile` the one tile, shared with a
+								 * menu's submenus. */
+								choosePreviewMenuTile(
+									{
+										setPreviewCaseTarget,
+										setPreviewParentCaseRequest,
+										navigate,
+									},
+									{
+										source: menuSource,
+										moduleUuid: mod.uuid,
+										selections: menuCaseSelections,
 										cancelLocation: { kind: "home" },
-									});
-									navigate.push(
-										parentCaseSelectorLocation(
-											menuCaseContext.requiredParentCase.moduleUuid,
-										),
-									);
-									return;
-								}
-								/* Case-first modules land on the case list (the running
-								 * app hoists the shared case selection); a bare case list
-								 * (its case list menu entry and no forms) has no form menu
-								 * at all, so it too opens straight to its case list.
-								 * `moduleLanding` is the one rule, shared with a form's
-								 * after-submit link to a module. */
-								openModuleLanding(
-									navigate,
-									mod.uuid,
-									moduleLanding({
-										isCaseFirst: caseFirstModules.has(mod.uuid),
-										isBareCaseList: previewModuleScreenIsBareCaseList(
-											menuSource.doc,
-											mod.uuid,
-										),
-										hasChildren,
-										hasSelectedCase: menuCaseContext.selectedCase !== undefined,
-									}),
-								);
-							}}
+										landing: moduleLanding({
+											isCaseFirst: caseFirstModules.has(mod.uuid),
+											isBareCaseList: previewModuleScreenIsBareCaseList(
+												menuSource.doc,
+												mod.uuid,
+											),
+											hasChildren,
+											hasSelectedCase:
+												menuCaseContext.selectedCase !== undefined,
+										}),
+									},
+								)
+							}
 							className="nova-focusable w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>
 							{mod.icon ? (

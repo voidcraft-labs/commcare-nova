@@ -343,9 +343,12 @@ public class MenuScreensRuntimeTest {
   * Android draws the frame's tile, or where the frame names none the case on show with the persistent detail of the
   * datum being chosen (`BreadcrumbBarHelper.loadTile` falling back to `EntityDetailActivity.requestEntityContext`,
   * `EntityDetailUtils.populateDetailIntent`, which passes it only where the datum has a details screen), which is
-  * what Preview draws there (`details`). */
+  * what Preview draws there (`details`). On a parent's list, whether the datum Core asks it for names a details screen
+  * is whether Preview opens the case's details before the choice goes on (`confirms`,
+  * `parentCaseSelection.ts::previewParentCaseListHasDetails`); a menu whose forms list before it asks for its parent
+  * case reaches its menu, and asks for the parent after a form's command, where Preview opens it. */
  @Test public void eachScreenFramesTheTileOfTheCasePreviewPins()throws Exception{
-  int pinned=0,none=0,details=0;
+  int pinned=0,none=0,details=0,confirmed=0;
   for(String document:TILE_DOCUMENTS)for(boolean hq:new boolean[]{false,true}){
    Suite suite=suite(document,hq);
    JSONObject evidence=json("/menu-screens/"+document+".tiles.json");
@@ -367,6 +370,9 @@ public class MenuScreensRuntimeTest {
       assertEquals(label+" chooses a case where Core asks for one",SessionFrame.STATE_DATUM_VAL,needed);
       EntityDatum datum=(EntityDatum)session.getNeededDatum();
       String caseId=step.getString("case");
+      // A parent's list goes on at the row where the datum Core asks it for names no details screen, as Formplayer's
+      // `hasDetails` and Android's `mNoDetailMode` read it, and opens details where it names one, as Preview decides.
+      if(step.has("confirms")){assertEquals(label+" confirms the parent case where its datum names details",step.getBoolean("confirms"),datum.getLongDetail()!=null);confirmed++;}
       if(step.has("details")){
        assertNotNull(label+" opens details on a datum with no details screen",datum.getLongDetail());
        StackFrameStep framed=stepToFrame(session);
@@ -388,6 +394,7 @@ public class MenuScreensRuntimeTest {
   assertTrue("screens with a tile: "+pinned,pinned>=10);
   assertTrue("screens with none: "+none,none>=6);
   assertTrue("details read: "+details,details>=8);
+  assertTrue("parents' lists read: "+confirmed,confirmed>=6);
  }
  /** Run the Search action of the list the session asks a case of, as a worker presses it: the action of the list's
   * short detail whose stack pushes `command` (`Detail.getCustomActions`, `CommCareSession.executeStackOperations`,

@@ -137,6 +137,11 @@ import {
 } from "../../../lib/preview/engine/frameLanding";
 import type { PreviewSearchSessionValues } from "../../../lib/preview/engine/identity";
 import {
+	previewLeafAsksParentCase,
+	previewParentCaseBeforeMenu,
+	previewParentCaseListHasDetails,
+} from "../../../lib/preview/engine/parentCaseSelection";
+import {
 	menuScreenEntryKey,
 	moduleHasChildren,
 	type PreviewHeldCaseSelection,
@@ -716,10 +721,13 @@ function listingOf(
 
 /**
  * Whether Preview opens a menu's screen on a case list when a worker chooses
- * the menu: the parent's list where the menu needs a parent case chosen
- * first, else the landing the home screen's tile takes
- * (`navigation.ts::moduleLanding`, over the menu's own screen, its submenus
- * included). The first menu is reached with no command.
+ * the menu: the parent's list where the menu asks for its parent case before
+ * it lists its screen (`parentCaseSelection.ts::previewParentCaseBeforeMenu`,
+ * which `moduleScreenNavigation.ts::choosePreviewMenuTile` reads), else the
+ * landing the home screen's tile takes (`navigation.ts::moduleLanding`, over
+ * the menu's own screen, its submenus included), a menu that lists its forms
+ * first listing them though one asks for a parent case after its command.
+ * The first menu is reached with no command.
  */
 function landsOnCaseList(doc: BlueprintDoc, screen: MenuScreen): boolean {
 	if (screen.kind !== "menu") return false;
@@ -729,7 +737,8 @@ function landsOnCaseList(doc: BlueprintDoc, screen: MenuScreen): boolean {
 			{ ...doc, caseTypes: doc.caseTypes ?? [] },
 			moduleUuid,
 			{},
-		).requiredParentCase !== undefined
+		).requiredParentCase !== undefined &&
+		previewParentCaseBeforeMenu(doc, moduleUuid)
 	)
 		return true;
 	return (
@@ -1722,6 +1731,13 @@ write("menu-landings", landings, ROLES);
  * - "Residents" chooses its village household first on Villages' list, then
  *   its member on its own list, which keeps its tile: the member's tile once
  *   the member is chosen, and none before.
+ * - "Member visits" chooses its member under a household Households' list
+ *   chooses, and lists its forms first, a survey beside a follow-up: Core
+ *   lists the menu, asks for the household after the follow-up's command
+ *   (`CommCareSession.getNeededData`, `getDataNeededByAllEntries`), and the
+ *   survey opens with no case. The household's datum names no details screen
+ *   though Households' own list shows details, so the row goes on at once:
+ *   the household's tile from the member list on.
  * - "Household clinics" is a submenu of Households whose case type, clinic,
  *   is not related to the household: the household chosen on Households'
  *   list stays a step of the session (`[m, household, m-clinics, clinic]`),
@@ -1810,6 +1826,21 @@ function pinnedTileDocument(): BlueprintDoc {
 				forms: [followUp("tiles-resident-check", "Check resident")],
 			},
 			{
+				uuid: "tiles-member-visits",
+				name: "Member visits",
+				caseType: "member",
+				caseListConfig: list("tiles-member-visits", false),
+				forms: [
+					{
+						uuid: "tiles-member-notes",
+						name: "Member notes",
+						type: "survey" as const,
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+					followUp("tiles-member-visit", "Visit member"),
+				],
+			},
+			{
 				uuid: "tiles-patients",
 				name: "Patients",
 				caseType: "patient",
@@ -1839,6 +1870,8 @@ function pinnedTileDocument(): BlueprintDoc {
 		testUuid("tiles-households");
 	doc.modules[testUuid("tiles-residents")].parentCaseModuleUuid =
 		testUuid("tiles-villages");
+	doc.modules[testUuid("tiles-member-visits")].parentCaseModuleUuid =
+		testUuid("tiles-households");
 	return admitted("pinned-tile", doc);
 }
 
@@ -1868,6 +1901,13 @@ type TileWalkStep =
 			 *  only at the chain's index 0), or a search action's result, its
 			 *  remote request's; absent on a parent's list, which shows none. */
 			readonly details?: Exclude<PreviewViewedCase["datum"], "parent">;
+			/** On a parent's list, the menu whose entry asked for its case and
+			 *  the form chosen before it, if any: the entry whose datum Core
+			 *  asks the list for. */
+			readonly parentFor?: {
+				readonly moduleUuid: Uuid;
+				readonly formUuid?: Uuid;
+			};
 			readonly reaches: TileScreen;
 	  };
 
@@ -1942,6 +1982,18 @@ function tileWalksOf(
 		let selections: Record<string, PreviewMenuCaseSelection> = {};
 		const steps = walk.steps.map((step) => {
 			let details: ReturnType<typeof pinnedTileOf> | undefined;
+			/* Whether the parent's list opens a case's details before the choice
+			 * goes on, as `CaseListScreen` decides it for a parent request. */
+			const confirms =
+				"listModuleUuid" in step && step.parentFor !== undefined
+					? previewParentCaseListHasDetails(doc, {
+							selectorModuleUuid: step.listModuleUuid,
+							requestingModuleUuid: step.parentFor.moduleUuid,
+							...(step.parentFor.formUuid !== undefined && {
+								formUuid: step.parentFor.formUuid,
+							}),
+						})
+					: undefined;
 			if ("listModuleUuid" in step) {
 				if (step.details !== undefined)
 					details = pinnedTileOf(
@@ -1985,6 +2037,7 @@ function tileWalksOf(
 								...(step.details === "search-results" && { claims: true }),
 							}),
 				...(details !== undefined && { details }),
+				...(confirms !== undefined && { confirms }),
 				asks: surface,
 				tile: pinnedTileOf(doc, ctx, heldOn(step.reaches, selections), surface),
 			};
@@ -2017,12 +2070,34 @@ const tiles = pinnedTileDocument();
 		caseId: string,
 		ownCase: boolean,
 		reaches: TileScreen,
+		parentFor?: { readonly moduleKey: string; readonly formKey?: string },
 	) => ({
 		listModuleUuid: uuid(listKey),
 		caseId,
 		...(ownCase && { details: "list" as const }),
+		...(parentFor !== undefined && {
+			parentFor: {
+				moduleUuid: uuid(parentFor.moduleKey),
+				...(parentFor.formKey !== undefined && {
+					formUuid: uuid(parentFor.formKey),
+				}),
+			},
+		}),
 		reaches,
 	});
+	/* Where Preview opens a menu that needs its parent case: the parent's
+	 * list where it asks for it before listing its screen, else its screen
+	 * (`choosePreviewMenuTile`); and where a form of it opens: the parent's
+	 * list where its entry asks for it (`previewLeafAsksParentCase`, the
+	 * admission `usePreviewScreenForLocation` makes), else the form. */
+	const onMenuNeeding = (key: string, selectorKey: string) =>
+		previewParentCaseBeforeMenu(tiles, uuid(key))
+			? onList(selectorKey)
+			: onMenu(key);
+	const onFormNeeding = (key: string, formKey: string, selectorKey: string) =>
+		previewLeafAsksParentCase(tiles, uuid(key), uuid(formKey))
+			? onList(selectorKey)
+			: onForm(key);
 	write("pinned-tile", tiles, NONE);
 	const walks = tileWalksOf(tiles, [
 		{
@@ -2054,8 +2129,13 @@ const tiles = pinnedTileDocument();
 		{
 			name: "a parent-select chain whose two lists keep their tile pins the parent",
 			steps: [
-				{ command: menu("members"), reaches: onList("households") },
-				choose("households", "household-case-1", false, onList("members")),
+				{
+					command: menu("members"),
+					reaches: onMenuNeeding("members", "households"),
+				},
+				choose("households", "household-case-1", false, onList("members"), {
+					moduleKey: "members",
+				}),
 				choose("members", "member-case-1", true, onMenu("members")),
 				{
 					command: form("members", "member-check"),
@@ -2123,12 +2203,51 @@ const tiles = pinnedTileDocument();
 		{
 			name: "a parent-select chain whose parent's list does not keep its tile pins the child",
 			steps: [
-				{ command: menu("residents"), reaches: onList("villages") },
-				choose("villages", "household-case-1", false, onList("residents")),
+				{
+					command: menu("residents"),
+					reaches: onMenuNeeding("residents", "villages"),
+				},
+				choose("villages", "household-case-1", false, onList("residents"), {
+					moduleKey: "residents",
+				}),
 				choose("residents", "member-case-2", true, onMenu("residents")),
 				{
 					command: form("residents", "resident-check"),
 					reaches: onForm("residents"),
+				},
+			],
+		},
+		{
+			name: "a menu that lists its forms first asks for its parent case after a form's command, on a list that goes on at the row",
+			steps: [
+				{
+					command: menu("member-visits"),
+					reaches: onMenuNeeding("member-visits", "households"),
+				},
+				{
+					command: form("member-visits", "member-visit"),
+					reaches: onFormNeeding("member-visits", "member-visit", "households"),
+				},
+				choose(
+					"households",
+					"household-case-2",
+					false,
+					onList("member-visits"),
+					{ moduleKey: "member-visits", formKey: "member-visit" },
+				),
+				choose("member-visits", "member-case-1", true, onForm("member-visits")),
+			],
+		},
+		{
+			name: "a survey of a menu that asks for its parent case after a form's command opens with no case",
+			steps: [
+				{
+					command: menu("member-visits"),
+					reaches: onMenuNeeding("member-visits", "households"),
+				},
+				{
+					command: form("member-visits", "member-notes"),
+					reaches: onFormNeeding("member-visits", "member-notes", "households"),
 				},
 			],
 		},
@@ -2162,6 +2281,22 @@ const tiles = pinnedTileDocument();
 	)
 		throw new Error(
 			"The pinned-tile walks no longer read every branch of the rule: the earlier of two lists that keep their tile, the later where the earlier keeps none, a screen with none, Android's details drawing the case they show, and a search action's result whose details draw none.",
+		);
+	/* A parent's list whose own list shows details must be read going on at
+	 * the row, and a menu that lists its forms first must be read listing
+	 * them, or the walks hold Core to nothing about either. */
+	const steps = walks.flatMap((walk) => walk.steps);
+	if (
+		!steps.some((step) => "confirms" in step && step.confirms === false) ||
+		!steps.some(
+			(step) =>
+				"command" in step &&
+				step.command === menu("member-visits") &&
+				step.asks === "menu",
+		)
+	)
+		throw new Error(
+			"The pinned-tile walks no longer read a parent's list going on at the row, or a menu that lists its forms before it asks for its parent case.",
 		);
 	writeFileSync(
 		resolve(output, "pinned-tile.tiles.json"),

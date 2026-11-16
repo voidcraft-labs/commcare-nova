@@ -1,21 +1,21 @@
 "use client";
 
-import { useLayoutEffect } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
-import { previewSearchesOnEntry } from "@/lib/routing/previewSearchHistory";
+import type { Uuid } from "@/lib/doc/types";
 import type { Location } from "@/lib/routing/types";
 import {
+	readBuilderHistoryMove,
 	readCurrentPreviewSearchContexts,
 	readCurrentPreviewStandingSearches,
 	recordPreviewStandingSearches,
 	usePreviewSearchContexts,
 	usePreviewStandingSearches,
 } from "@/lib/routing/useClientPath";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
+import { searchInputsGivenIn } from "@/lib/session/previewSearchState";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import {
-	previewSearchesStandingAt,
-	previewSearchScreenOf,
-} from "../searchStanding";
+import { previewSearchArrival, previewSearchScreenOf } from "../searchStanding";
 
 /**
  * Arriving on a running screen, by a step forward or by Back and Forward,
@@ -26,52 +26,74 @@ import {
  * still stands there and that the session has since replaced (the menu's
  * default search run again after a submission or a crumb) is the module's
  * search again (`previewSearchHistory.ts::previewSearchesOnEntry`), as Web
- * Apps answers the query the address it returns to still holds.
+ * Apps answers the query the address it returns to still holds, and on Web
+ * Apps the search of the list on show runs with the answers the worker last
+ * gave its query (`searchStanding.ts::previewSearchArrival`). `listShown` is
+ * the module whose case list the shell shows for the location
+ * (`usePreviewScreenForLocation`), the one screen that runs that query.
  */
 export function usePreviewSearchArrival(
 	mode: "edit" | "preview",
 	loc: Location,
+	listShown: Uuid | undefined,
 ): void {
 	const doc = useBlueprintDocApi();
 	const session = useBuilderSessionApi();
+	const replay = usePreviewPlatformRules().searchReplay;
 	/* History can return to another entry on the same screen (Back off a
 	 * list's held form menu onto the list), so the entry's record is an
 	 * arrival as well as the location. */
 	const standingOnEntry = usePreviewStandingSearches();
 	const contextsOnEntry = usePreviewSearchContexts();
+	/* The history move the last arrival ran at, with the list it showed: a
+	 * run at the same move on the same screen is the entry's record rewritten
+	 * in place, no arrival, while the list coming on show at that move (its
+	 * menu's condition read only now) is the arrival on it. */
+	const arrivedAtRef = useRef<string | undefined>(undefined);
 	useLayoutEffect(() => {
 		if (mode !== "preview") return;
+		const arrivedAt = `${readBuilderHistoryMove()} ${listShown ?? ""}`;
+		const moved = arrivedAtRef.current !== arrivedAt;
+		arrivedAtRef.current = arrivedAt;
 		void standingOnEntry;
 		void contextsOnEntry;
 		const state = session.getState();
 		const docState = doc.getState();
+		const selections = state.previewMenuCaseSelections;
 		const screen = previewSearchScreenOf(docState, loc, {
-			menuSelections: state.previewMenuCaseSelections,
+			menuSelections: selections,
 			caseTarget: state.previewCaseTarget,
 			registrationEntry: state.previewCaseListRegistrationEntry,
 			parentCaseRequest: state.previewParentCaseRequest,
+			listShown,
 		});
 		if (screen === undefined) return;
-		const current = readCurrentPreviewStandingSearches();
-		const standing = new Set(current);
-		const held = previewSearchesOnEntry(
-			state.previewSearchStates,
-			standing,
-			readCurrentPreviewSearchContexts(),
-			state.previewSessionId,
-		);
-		const kept = new Set(
-			previewSearchesStandingAt(docState, held, standing, screen),
-		);
-		recordPreviewStandingSearches(
-			current.filter((submission) => kept.has(submission)),
-		);
-		for (const [moduleUuid, search] of Object.entries(held))
-			if (
-				search !== state.previewSearchStates[moduleUuid] &&
-				search.kind !== "not-searched" &&
-				kept.has(search.submission)
-			)
-				state.setPreviewSearchState(moduleUuid, search);
-	}, [contextsOnEntry, doc, loc, mode, session, standingOnEntry]);
+		const arrival = previewSearchArrival({
+			source: docState,
+			screen,
+			selections,
+			states: state.previewSearchStates,
+			standing: readCurrentPreviewStandingSearches(),
+			contexts: readCurrentPreviewSearchContexts(),
+			session: state.previewSessionId,
+			replay,
+			moved,
+			latest: searchInputsGivenIn(
+				state.previewSearchInputs,
+				state.previewSessionId,
+			),
+		});
+		recordPreviewStandingSearches(arrival.standing);
+		for (const [moduleUuid, search] of Object.entries(arrival.searches))
+			state.setPreviewSearchState(moduleUuid, search);
+	}, [
+		contextsOnEntry,
+		doc,
+		listShown,
+		loc,
+		mode,
+		replay,
+		session,
+		standingOnEntry,
+	]);
 }

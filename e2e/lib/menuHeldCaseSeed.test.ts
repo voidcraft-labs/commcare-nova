@@ -9,6 +9,10 @@ import {
 } from "@/lib/domain";
 import { caseSelectionRowAction } from "@/lib/preview/caseSelectionNavigation";
 import {
+	previewParentCaseBeforeMenu,
+	previewParentCaseListHasDetails,
+} from "@/lib/preview/engine/parentCaseSelection";
+import {
 	previewCaseListContinuation,
 	previewCaseListReturn,
 	previewMenuScreenChoice,
@@ -84,17 +88,29 @@ describe("the menu-holding-a-case smoke seed", () => {
 		).toBe(patients.moduleUuid);
 	});
 
-	it("gives Pregnancy follow-ups a menu of its own that lists its forms first and asks Patients' list for the patient", () => {
-		const { pregnancyFollowUps } = MENU_HELD_CASE_SEED;
+	it("gives Pregnancy follow-ups a menu of its own that lists its forms first and asks Clinic patients' list for the patient, going on at the row", () => {
+		const { pregnancyFollowUps, clinic } = MENU_HELD_CASE_SEED;
 		expect(
 			screenChoosesCaseFirst(doc, {
 				kind: "menu",
 				moduleUuid: pregnancyFollowUps.moduleUuid,
 			}),
 		).toBe(false);
+		expect(
+			previewParentCaseBeforeMenu(doc, pregnancyFollowUps.moduleUuid),
+		).toBe(false);
 		const mod = doc.modules[pregnancyFollowUps.moduleUuid];
 		expect(mod?.parentModuleUuid).toBeUndefined();
-		expect(mod?.parentCaseModuleUuid).toBe(patients.moduleUuid);
+		expect(mod?.parentCaseModuleUuid).toBe(clinic.moduleUuid);
+		// Clinic patients' own list opens details; as the follow-up's parent
+		// list, its row goes on at once.
+		expect(
+			previewParentCaseListHasDetails(doc, {
+				selectorModuleUuid: clinic.moduleUuid,
+				requestingModuleUuid: pregnancyFollowUps.moduleUuid,
+				formUuid: pregnancyFollowUps.formUuid,
+			}),
+		).toBe(false);
 	});
 
 	it("gives Clinic patients a list that keeps its tile and opens each patient's details", () => {
@@ -132,6 +148,34 @@ describe("the menu-holding-a-case smoke seed", () => {
 				viewing,
 			),
 		).toBe(undefined);
+	});
+
+	it("gives Pregnancy visits a list that keeps its tile under a patient whose list keeps one too, so its form pins the patient's", () => {
+		const { pregnancyVisits } = MENU_HELD_CASE_SEED;
+		const mod = doc.modules[pregnancyVisits.moduleUuid];
+		expect(mod?.caseListConfig?.tile?.persistOnForms).toBe(true);
+		expect(mod?.parentCaseModuleUuid).toBe(patients.moduleUuid);
+		/* The form's session: the patient Patients' list chose, then the
+		 * pregnancy Pregnancy visits' list chose. The form's own module keeps
+		 * its tile, so a rule reading the form's own module would pin the
+		 * pregnancy; CommCare pins the earliest. */
+		expect(
+			previewPinnedCaseTile(
+				doc.modules,
+				[
+					{
+						moduleUuid: patients.moduleUuid,
+						cases: [{ caseId: "ada" }],
+					},
+					{
+						moduleUuid: pregnancyVisits.moduleUuid,
+						cases: [{ caseId: "first-pregnancy" }],
+					},
+				],
+				"form",
+				previewPlatformRules("web-apps"),
+			),
+		).toEqual({ moduleUuid: patients.moduleUuid, caseId: "ada" });
 	});
 
 	it("gives Clinic search a list that keeps its tile and a Search action its forms do not read", () => {

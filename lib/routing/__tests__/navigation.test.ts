@@ -48,6 +48,9 @@ function fixture() {
 		reopenHeldMenu: (url, heldMenu) => {
 			reopened.push({ url, heldMenu });
 		},
+		stepBackTo: () => {
+			throw new Error("No navigation action under test steps back");
+		},
 		back: () => {
 			back += 1;
 		},
