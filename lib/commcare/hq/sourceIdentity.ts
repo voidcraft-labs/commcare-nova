@@ -18,6 +18,7 @@
  */
 
 import { type Element, isText } from "domhandler";
+import { FORM_TEXTS_HELD_CHARACTERS, HeldByText } from "../heldByText";
 import {
 	elementChildren,
 	elementNamespace,
@@ -323,7 +324,7 @@ function readForm(
 			xmlns,
 			uniqueId,
 			docType: isObject(form) ? stringOr(form.doc_type, "") : "",
-			...formIdentity(xml),
+			...heldFormIdentity(xml),
 		});
 		return undefined;
 	} catch (error) {
@@ -367,6 +368,24 @@ function resolvePath(path: string, context: string): string {
 }
 
 type FormRecord = Omit<FormIdentity, "xmlns" | "uniqueId" | "docType">;
+
+/** Each form text's record, or why it does not parse (`heldByText.ts`). */
+const heldRecords = new HeldByText<FormRecord | Unparsed>(
+	FORM_TEXTS_HELD_CHARACTERS,
+);
+
+function heldFormIdentity(xml: string): FormRecord {
+	const held = heldRecords.of(xml, (text) => {
+		try {
+			return Object.freeze(formIdentity(text));
+		} catch (error) {
+			if (error instanceof Unparsed) return error;
+			throw error;
+		}
+	});
+	if (held instanceof Unparsed) throw held;
+	return held;
+}
 
 /** One form's record from its XML; throws `Unparsed` where the XML breaks a step. */
 function formIdentity(xml: string): FormRecord {

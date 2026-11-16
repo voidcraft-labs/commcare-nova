@@ -27,7 +27,15 @@ import type {
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 import type { ValidationScope } from "./index";
-import { type RunValidationOptions, runValidation } from "./runner";
+import {
+	findingsOfRun,
+	findingsOfRunWithMedia,
+	type RunValidationOptions,
+	runValidation,
+	type StructuralValidation,
+	structuralValidation,
+	structuralValidationSteps,
+} from "./runner";
 
 // ── Classification ─────────────────────────────────────────────────
 
@@ -689,13 +697,44 @@ function evaluateCommitValidation({
 					}),
 					...(scope !== undefined && { scope }),
 				};
-	const gating = runValidation(nextDoc, lookupContext, options).filter(
-		(err) => {
-			const cls = classifyError(err.code);
-			return cls === "shape" || cls === "soundness" || cls === "completeness";
-		},
+	return commitVerdictOfRun(
+		structuralValidation(nextDoc, lookupContext, options),
 	);
+}
 
+/**
+ * `evaluateCommit` of a candidate together with its export boundary
+ * (`evaluateBoundary` under `manifest`), from one run of the document's
+ * rules: the boundary is that run with the manifest's media rules in their
+ * place. `boundary` reads it, and a caller that never reads it runs no media
+ * rule. The run stops between its parts (`structuralValidationSteps`).
+ */
+export function* evaluateCommitAndBoundarySteps({
+	nextDoc,
+	lookupContext,
+}: Omit<EvaluateCommitArgs, "lookupReferenceExtractors">): Generator<
+	void,
+	{
+		readonly verdict: CommitVerdict;
+		readonly boundary: (
+			manifest: ReadonlyMap<string, MediaAssetRecord>,
+		) => ValidationError[];
+	},
+	void
+> {
+	const run = yield* structuralValidationSteps(nextDoc, lookupContext);
+	return {
+		verdict: commitVerdictOfRun(run),
+		boundary: (manifest) => findingsOfRunWithMedia(run, manifest),
+	};
+}
+
+/** The commit gate's verdict over one run: every shape, soundness or completeness finding. */
+function commitVerdictOfRun(run: StructuralValidation): CommitVerdict {
+	const gating = findingsOfRun(run).filter((err) => {
+		const cls = classifyError(err.code);
+		return cls === "shape" || cls === "soundness" || cls === "completeness";
+	});
 	return gating.length === 0 ? { ok: true } : { ok: false, findings: gating };
 }
 

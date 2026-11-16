@@ -578,14 +578,18 @@ input.lookup.definitions }` (`lib/doc/lookupReferences.ts::LookupValidationConte
 `LookupDefinitionIndex`, a map of a projection the expression checker reads, and the gate takes the
 tables' own definitions.
 
-For each choice `c` of `input.choices.choices` (part 06, section 16.3, as the caller narrowed it), at
-index `i`, in order:
+The construction batch is `batch = diffDocsToMutations(emptyBlueprintDoc(appId),
+outcome.draft.doc)`, derived once, admitted once, and returned as `AcceptedReading.batch`; the birth
+reduces it. For each choice `c` of `input.choices.choices` (part 06, section 16.3, as the caller
+narrowed it), at index `i`, in order:
 
-1. `verdict = mutationCommitVerdict(emptyBlueprintDoc(appId), [...outcome.draft.batch, ...c.mutations],
-   lookupContext)`. `ok: false` is one difference per finding: signature `gate/<code>`, place from the
-   finding's location (below).
-2. `exportReadinessFindings(verdict.nextDoc, lookupContext, input.media.rows)`. Each finding is a
-   difference: signature `gate/export/<code>`.
+1. `verdict = mutationCommitVerdict(emptyBlueprintDoc(appId), [...batch, ...c.mutations],
+   lookupContext)`, the batch's admission joined to the choice's
+   (`mutationAdmission.ts::concatAdmittedMutationBatches`). `ok: false` is one difference per
+   finding: signature `gate/<code>`, place from the finding's location (below).
+2. `exportReadinessFindings(verdict.nextDoc, lookupContext, input.media.rows)`, read from the
+   validator run the verdict made (`commitVerdicts.ts::mutationCommitVerdictSteps`' `readiness`).
+   Each finding is a difference: signature `gate/export/<code>`.
 3. `exportCarrierFindings({ doc: verdict.nextDoc, mode: "hq-upload", fixtureData: input.lookup,
    lookupTarget: input.target })` (below). Each finding is a difference: signature
    `gate/export/<code>`.

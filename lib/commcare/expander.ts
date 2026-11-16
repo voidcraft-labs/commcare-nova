@@ -214,6 +214,27 @@ export function expandDoc(
 	authoredDoc: BlueprintDoc,
 	opts: ExpandOptions = {},
 ): HqApplication {
+	const steps = expandDocSteps(authoredDoc, opts);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/** How many forms `expandDocSteps` emits between two stops. */
+const FORMS_PER_EXPANSION_STEP = 250;
+
+/**
+ * `expandDoc` a part at a time: it stops after every
+ * `FORMS_PER_EXPANSION_STEP` forms it emits, at the end of a menu, and before
+ * the application is serialized, until it is resumed, so a caller on a
+ * request can let the event loop turn while an app at the bring-in byte cap
+ * is emitted. The application is `expandDoc`'s, which drives this.
+ */
+export function* expandDocSteps(
+	authoredDoc: BlueprintDoc,
+	opts: ExpandOptions = {},
+): Generator<void, HqApplication, void> {
 	// The wire's module sequence: authored modules with their menu forms,
 	// then one hidden module per no-matches registration form
 	// (`emissionPlan.ts`). Translation units are read off the authored
@@ -282,7 +303,7 @@ export function expandDoc(
 	// config so their data paths agree. Empty for non-Connect apps.
 	const connectSlugs = buildConnectSlugMap(doc);
 
-	const modules = sortedModuleUuids.map((moduleUuid, mIdx) => {
+	const moduleShellOf = (moduleUuid: Uuid, mIdx: number) => {
 		const mod = doc.modules[moduleUuid];
 		const expressions = moduleExpressionContexts(
 			doc,
@@ -704,7 +725,18 @@ export function expandDoc(
 		}
 
 		return shell;
-	});
+	};
+	const modules: ReturnType<typeof moduleShellOf>[] = [];
+	let formsSinceStop = 0;
+	for (const [mIdx, moduleUuid] of sortedModuleUuids.entries()) {
+		modules.push(moduleShellOf(moduleUuid, mIdx));
+		formsSinceStop += sortedFormOrder[moduleUuid]?.length ?? 0;
+		if (formsSinceStop >= FORMS_PER_EXPANSION_STEP) {
+			formsSinceStop = 0;
+			yield;
+		}
+	}
+	yield;
 
 	const derivedProfile = derivedProfileProperties(doc);
 	const serialized = serializeHqApplication(

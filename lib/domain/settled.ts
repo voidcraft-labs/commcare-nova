@@ -40,16 +40,51 @@ export function isSettled(value: object): boolean {
 const deeplySettled = new WeakSet<object>();
 
 /**
+ * Each frozen object found to hold something open, with the open object the
+ * walk met: a `Map` or `Set`, or an object that is not frozen. The way down to
+ * it runs through frozen objects only, so it stays where it was; while it is
+ * still open the answer is still no, and once it is frozen the object is
+ * walked afresh. A document frozen at its root around parts still open (a
+ * reader's candidate of an open document) is then asked in one look, not
+ * walked again at every question.
+ */
+const openBeneath = new WeakMap<object, object>();
+
+/** Whether `value`, found open beneath a frozen object, is open still. */
+function stillOpen(value: object): boolean {
+	return (
+		!Object.isFrozen(value) || value instanceof Map || value instanceof Set
+	);
+}
+
+/** The first object `value` holds, itself included, that is not settled,
+ *  as a walk in key order meets it; nothing where all of it is settled. */
+function firstOpen(value: unknown): object | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	if (deeplySettled.has(value)) return undefined;
+	const remembered = openBeneath.get(value);
+	if (remembered !== undefined) {
+		if (stillOpen(remembered)) return remembered;
+		openBeneath.delete(value);
+	}
+	if (!isSettled(value) || value instanceof Map || value instanceof Set)
+		return value;
+	for (const child of Object.values(value)) {
+		const open = firstOpen(child);
+		if (open !== undefined) {
+			/* A draft is never remembered: it is no object to look at again. */
+			if (!isDraft(open)) openBeneath.set(value, open);
+			return open;
+		}
+	}
+	deeplySettled.add(value);
+	return undefined;
+}
+
+/**
  * Whether `value` and every object it holds are settled. A `Map` or `Set` is
  * never settled: freezing one leaves its entries writable.
  */
 export function isDeeplySettled(value: unknown): boolean {
-	if (typeof value !== "object" || value === null) return true;
-	if (deeplySettled.has(value)) return true;
-	if (!isSettled(value) || value instanceof Map || value instanceof Set)
-		return false;
-	for (const child of Object.values(value))
-		if (!isDeeplySettled(child)) return false;
-	deeplySettled.add(value);
-	return true;
+	return firstOpen(value) === undefined;
 }

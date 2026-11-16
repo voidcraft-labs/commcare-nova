@@ -5,7 +5,6 @@
  */
 
 import type { DeclarationChoices } from "@/lib/doc/platformDeclaration";
-import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
@@ -196,8 +195,6 @@ export interface ReadMenuAndFormIdentities {
 export interface ReadDraft {
 	/** The document, before the gate. Acceptance runs the gate and export readiness over it. */
 	readonly doc: BlueprintDoc;
-	/** `diffDocsToMutations(emptyBlueprintDoc(appId), doc)`: the birth's construction batch. */
-	readonly batch: readonly Mutation[];
 	readonly identities: ReadMenuAndFormIdentities & {
 		readonly entries: readonly IdentityMapEntry[];
 	};

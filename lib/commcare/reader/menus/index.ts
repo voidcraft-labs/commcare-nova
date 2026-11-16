@@ -10,7 +10,7 @@
 import type { HqApplication } from "@/lib/commcare";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { caseListMenuItemLabelUnit } from "../../emissionPlan";
-import { expandDoc } from "../../expander";
+import { expandDocSteps } from "../../expander";
 import { firstMenuSharedCaseFrames } from "../../validator/rules/formsInMenuAbove";
 import { rootSelectionTakesNewCase } from "../../validator/rules/parentSelection";
 import { type Claim, defineClaims, refuse } from "../claims";
@@ -182,14 +182,25 @@ function heldAtLevel(
  * deep links.
  */
 export function settleMenus(ctx: ReadContext, app: DraftApp): void {
+	const steps = settleMenusSteps(ctx, app);
+	while (!steps.next().done);
+}
+
+/** `settleMenus`, stopping before and after Nova's emission of the document
+ *  until it is resumed. */
+export function* settleMenusSteps(
+	ctx: ReadContext,
+	app: DraftApp,
+): Generator<void, void, void> {
 	if (ctx.doc === undefined) return;
 	settleModules(ctx);
 	for (const module of app.modules)
 		for (const form of module.forms) settleAfterSubmit(ctx, form);
+	yield;
 	const doc = ctx.doc as BlueprintDoc;
 	let expansion: HqApplication;
 	try {
-		expansion = expandDoc(doc, readProjectionInputs(ctx));
+		expansion = yield* expandDocSteps(doc, readProjectionInputs(ctx));
 	} catch {
 		ctx.accounting.defect(
 			appPlace(),
@@ -198,17 +209,22 @@ export function settleMenus(ctx: ReadContext, app: DraftApp): void {
 		);
 		return;
 	}
+	yield;
 	const modules = expansion.modules as unknown as readonly JsonObject[];
+	/* The first menu of each id and the first form of each `xmlns`, in the
+	 * expansion's order, as a search of the menus, or of all their forms, finds
+	 * it; the expansion is read and never written. */
+	const menusById = new Map<unknown, JsonObject>();
+	const formsByXmlns = new Map<unknown, JsonObject>();
+	for (const one of modules) {
+		if (!menusById.has(one.unique_id)) menusById.set(one.unique_id, one);
+		if (Array.isArray(one.forms))
+			for (const form of one.forms.filter(isJsonObject))
+				if (!formsByXmlns.has(form.xmlns)) formsByXmlns.set(form.xmlns, form);
+	}
 	const moduleOf = (uniqueId: string) =>
-		modules.find((one) => one.unique_id === uniqueId) as
-			| HqApplication["modules"][number]
-			| undefined;
-	const formOf = (xmlns: string) =>
-		modules
-			.flatMap((one) =>
-				Array.isArray(one.forms) ? one.forms.filter(isJsonObject) : [],
-			)
-			.find((one) => one.xmlns === xmlns);
+		menusById.get(uniqueId) as HqApplication["modules"][number] | undefined;
+	const formOf = (xmlns: string) => formsByXmlns.get(xmlns);
 	settleRegistrations(ctx, moduleOf);
 	acceptMenus(
 		ctx,

@@ -28,8 +28,11 @@ import type {
 } from "@/lib/publish/firstPublishChangeIds";
 import { attachmentUrlTarget } from "./attachmentTarget";
 import { type HqMediaRecord, isHoldableWirePath } from "./hqMedia";
-import { normalizeHqAppSource } from "./hqSourceBaseline";
-import { hqImportApplication } from "./importApplication";
+import {
+	normalizedHqAppSource,
+	normalizeHqAppSource,
+} from "./hqSourceBaseline";
+import { hqImportApplicationSteps } from "./importApplication";
 import type { DeploymentTargetKey } from "./store";
 import type {
 	AppBaselineWrite,
@@ -49,6 +52,37 @@ export type AdoptedIdentityRows =
 	/** A form of the document has no real id in the aligned read. */
 	| { readonly ok: false; readonly at: string };
 
+/** HQ's summarized menus by their id, the first of each id. */
+export function alignedMenusById(
+	aligned: readonly HqAlignedModule[],
+): ReadonlyMap<string, HqAlignedModule> {
+	const byUniqueId = new Map<string, HqAlignedModule>();
+	for (const module of aligned) {
+		if (module.uniqueId !== null && !byUniqueId.has(module.uniqueId)) {
+			byUniqueId.set(module.uniqueId, module);
+		}
+	}
+	return byUniqueId;
+}
+
+/** The real id HQ's application resource gives one read form, or where none
+ *  is (`adoptedIdentityRows`' `at`). */
+export function realFormId(
+	form: Pick<
+		ReadMenuAndFormIdentities["forms"][number],
+		"moduleUniqueId" | "xmlns"
+	>,
+	byUniqueId: ReadonlyMap<string, HqAlignedModule>,
+): { readonly uniqueId: string } | { readonly at: string } {
+	const module = byUniqueId.get(form.moduleUniqueId);
+	if (module === undefined || module.kind === "not-summarized")
+		return { at: `menu ${form.moduleUniqueId}` };
+	const real = module.forms.find((one) => one.xmlns === form.xmlns);
+	if (real === undefined)
+		return { at: `form ${form.xmlns} in menu ${form.moduleUniqueId}` };
+	return { uniqueId: real.uniqueId };
+}
+
 /**
  * One identity row per menu and per form the reading holds: a menu's
  * `unique_id` as the source holds it, a folded hidden menu under the
@@ -61,12 +95,7 @@ export function adoptedIdentityRows(
 	read: Pick<ReadMenuAndFormIdentities, "modules" | "forms">,
 	aligned: readonly HqAlignedModule[],
 ): AdoptedIdentityRows {
-	const byUniqueId = new Map<string, HqAlignedModule>();
-	for (const module of aligned) {
-		if (module.uniqueId !== null && !byUniqueId.has(module.uniqueId)) {
-			byUniqueId.set(module.uniqueId, module);
-		}
-	}
+	const byUniqueId = alignedMenusById(aligned);
 	const rows: DeploymentIdentityOverride[] = read.modules.map((module) => ({
 		entityKind: "module",
 		novaEntityUuid: module.uuid,
@@ -74,17 +103,8 @@ export function adoptedIdentityRows(
 		xmlns: null,
 	}));
 	for (const form of read.forms) {
-		const module = byUniqueId.get(form.moduleUniqueId);
-		if (module === undefined || module.kind === "not-summarized") {
-			return { ok: false, at: `menu ${form.moduleUniqueId}` };
-		}
-		const real = module.forms.find((one) => one.xmlns === form.xmlns);
-		if (real === undefined) {
-			return {
-				ok: false,
-				at: `form ${form.xmlns} in menu ${form.moduleUniqueId}`,
-			};
-		}
+		const real = realFormId(form, byUniqueId);
+		if ("at" in real) return { ok: false, at: real.at };
 		rows.push({
 			entityKind: "form",
 			novaEntityUuid: form.uuid,
@@ -320,6 +340,82 @@ const DECLARATION_IDS: ReadonlySet<FirstPublishChangeId> = new Set([
 	"web-apps-turned-on",
 ]);
 
+/** CommCare HQ's source of an app Nova brings in, as the adopted baseline
+ *  stores it; it throws where that source is no application Nova can read,
+ *  which the create's own read has already refused. */
+export function adoptedSourceNormalized(
+	remoteAppId: string,
+	source: HqAppSource,
+): Extract<ReturnType<typeof normalizeHqAppSource>, { readonly text: string }> {
+	const normalized = normalizeHqAppSource(source.raw);
+	if ("malformed" in normalized)
+		throw unreadableAdoptedSource(remoteAppId, normalized.malformed);
+	return normalized;
+}
+
+/** `adoptedSourceNormalized`'s normalized source alone, with no text or
+ *  digest made of it: what a review reads of the baseline's source. */
+export function adoptedSourceTree(
+	remoteAppId: string,
+	source: HqAppSource,
+): unknown {
+	const read = normalizedHqAppSource(source.raw);
+	if ("malformed" in read)
+		throw unreadableAdoptedSource(remoteAppId, read.malformed);
+	return read.normalized;
+}
+
+function unreadableAdoptedSource(remoteAppId: string, at: string): Error {
+	return new Error(
+		`Nova was asked to record CommCare HQ's source of app ${remoteAppId} as the app it brought in, ` +
+			`and that source isn't an application Nova can read (at ${at}). ` +
+			"The create reads that same source before it gets here, so check what reached the birth.",
+	);
+}
+
+/** What the adopted baseline records Nova owns: the descriptor of the first
+ *  import the app's document gives over its source (`adoptedAppBaselineWrite`). */
+export function adoptedBaselineOwnership(
+	input: AdoptedBaselineOwnershipInput,
+): AppBaselineWrite["ownership"] {
+	const steps = adoptedBaselineOwnershipSteps(input);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+interface AdoptedBaselineOwnershipInput {
+	readonly remoteAppId: string;
+	readonly source: HqAppSource;
+	readonly prepared: Pick<
+		PreparedExportBoundary,
+		"doc" | "assets" | "attachmentTarget" | "lookupNaming"
+	>;
+	readonly target: DeploymentTargetKey;
+	readonly identity: WireIdentity;
+}
+
+/** `adoptedBaselineOwnership` a part at a time, its import's emission
+ *  stopping between its parts (`importApplication.ts::hqImportApplicationSteps`). */
+export function* adoptedBaselineOwnershipSteps(
+	input: AdoptedBaselineOwnershipInput,
+): Generator<void, AppBaselineWrite["ownership"], void> {
+	const imported = yield* hqImportApplicationSteps({
+		prepared: input.prepared,
+		target: input.target,
+		compatibility: { advisories: [] },
+		update: { appId: input.remoteAppId, source: input.source },
+		identity: input.identity,
+		languageNames: "target",
+		seeds: "target",
+		/* The descriptor reads what the overlays set, and no case id prefix
+		 * reaches one. */
+		keyedCaseIdPrefixes: new Map(),
+	});
+	return imported.ownership;
+}
+
 /**
  * The baseline an adopted deployment is born with: CommCare HQ's source as
  * the create accepted it, under the ownership the first publish's body over
@@ -346,26 +442,8 @@ export function adoptedAppBaselineWrite(input: {
 	/** The chosen declaration's list, from the create's own acceptance. */
 	readonly firstPublish: FirstPublishView;
 }): AppBaselineWrite & { readonly origin: "read" } {
-	const normalized = normalizeHqAppSource(input.source.raw);
-	if ("malformed" in normalized) {
-		throw new Error(
-			`Nova was asked to record CommCare HQ's source of app ${input.remoteAppId} as the app it brought in, ` +
-				`and that source isn't an application Nova can read (at ${normalized.malformed}). ` +
-				"The create reads that same source before it gets here, so check what reached the birth.",
-		);
-	}
-	const { ownership } = hqImportApplication({
-		prepared: input.prepared,
-		target: input.target,
-		compatibility: { advisories: [] },
-		update: { appId: input.remoteAppId, source: input.source },
-		identity: input.identity,
-		languageNames: "target",
-		seeds: "target",
-		/* The descriptor reads what the overlays set, and no case id prefix
-		 * reaches one. */
-		keyedCaseIdPrefixes: new Map(),
-	});
+	const normalized = adoptedSourceNormalized(input.remoteAppId, input.source);
+	const ownership = adoptedBaselineOwnership(input);
 	const list: StoredFirstPublish = {
 		ids: input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id)),
 		webAppsOnInHq: input.source.cloudcareEnabled,

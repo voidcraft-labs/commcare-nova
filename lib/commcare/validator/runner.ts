@@ -226,7 +226,77 @@ export function runValidation(
 	lookupContext: LookupValidationContext,
 	options?: RunValidationOptions,
 ): ValidationError[] {
+	const run = structuralValidation(doc, lookupContext, options);
+	return options?.mediaAssets === undefined
+		? findingsOfRun(run)
+		: findingsOfRunWithMedia(run, options.mediaAssets);
+}
+
+/**
+ * Every rule of `runValidation` but the asset-context media rules, run once:
+ * the commit gate reads it as it stands (`findingsOfRun`) and an export's
+ * boundary with its manifest's media rules in their place
+ * (`findingsOfRunWithMedia`), so a caller that needs both runs the document's
+ * rules once. Each finding is the one `runValidation` gives, in its order.
+ */
+export interface StructuralValidation {
+	readonly doc: BlueprintDoc;
+	/** The app, module, form and field rules, in walk order. */
+	readonly entities: readonly ValidationError[];
+	/** The lookup, parent-selection and deep rules, which follow the media rules. */
+	readonly whole: readonly ValidationError[];
+}
+
+/** `runValidation(doc, lookupContext, options)` of a structural run, which no manifest gave. */
+export function findingsOfRun(run: StructuralValidation): ValidationError[] {
+	return [...run.entities, ...run.whole].map((error) =>
+		sharedRecordFinding(run.doc, error),
+	);
+}
+
+/** `runValidation` of the run's document with `mediaAssets` as its manifest. */
+export function findingsOfRunWithMedia(
+	run: StructuralValidation,
+	mediaAssets: ReadonlyMap<string, MediaAssetRecord>,
+): ValidationError[] {
+	const media: ValidationError[] = [];
+	for (const rule of MEDIA_ASSET_RULES)
+		media.push(...rule(run.doc, mediaAssets));
+	return [...run.entities, ...media, ...run.whole].map((error) =>
+		sharedRecordFinding(run.doc, error),
+	);
+}
+
+/** The run `runValidation` makes, its manifest's media rules left for the reading. */
+export function structuralValidation(
+	doc: BlueprintDoc,
+	lookupContext: LookupValidationContext,
+	options?: Omit<RunValidationOptions, "mediaAssets">,
+): StructuralValidation {
+	const steps = structuralValidationSteps(doc, lookupContext, options);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/** How many forms `structuralValidationSteps` walks between two stops. */
+const FORMS_PER_VALIDATION_STEP = 250;
+
+/**
+ * `structuralValidation` a part at a time: it stops after every
+ * `FORMS_PER_VALIDATION_STEP` forms it walks and before the whole-document
+ * rules, until it is resumed, so a caller on a request can let the event loop
+ * turn while an app at the bring-in byte cap is validated. The run is
+ * `structuralValidation`'s, which drives this.
+ */
+export function* structuralValidationSteps(
+	doc: BlueprintDoc,
+	lookupContext: LookupValidationContext,
+	options?: Omit<RunValidationOptions, "mediaAssets">,
+): Generator<void, StructuralValidation, void> {
 	const errors: ValidationError[] = [];
+	let walked = 0;
 	const scope = options?.scope;
 	const lookupTables = lookupTypeIndex(lookupContext);
 
@@ -252,6 +322,8 @@ export function runValidation(
 			if (!scopeHasForm(scope, moduleUuid, formUuid)) {
 				continue;
 			}
+			if (walked > 0 && walked % FORMS_PER_VALIDATION_STEP === 0) yield;
+			walked += 1;
 			errors.push(
 				...runFormRules(doc, formUuid, moduleUuid, entryPlan, lookupTables),
 			);
@@ -269,15 +341,14 @@ export function runValidation(
 		}
 	}
 
-	// Media asset-context rules — single-arm gate on the options
-	// payload. The manifest is the only thing the rules need; its
-	// presence both gates the group and provides the data. Deliberately
-	// scope-exempt (see SCOPE_EXEMPT_CODES).
-	if (options?.mediaAssets) {
-		for (const rule of MEDIA_ASSET_RULES) {
-			errors.push(...rule(doc, options.mediaAssets));
-		}
-	}
+	// Media asset-context rules run here, between the entity walks and the
+	// whole-document rules, where a manifest is given
+	// (`findingsOfRunWithMedia`). The manifest is the only thing the rules
+	// need; its presence both gates the group and provides the data.
+	// Deliberately scope-exempt (see SCOPE_EXEMPT_CODES).
+	const entities = errors;
+	const whole: ValidationError[] = [];
+	yield;
 
 	const lookupFindings = validateLookupReferences(
 		doc,
@@ -285,15 +356,16 @@ export function runValidation(
 		options?.lookupReferenceExtractors ??
 			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 	);
-	errors.push(...lookupFindings);
+	whole.push(...lookupFindings);
 	if (lookupFindings.length === 0) {
-		errors.push(...parentSelectionConflicts(doc, lookupContext));
-		errors.push(...rootSelectionTakesNewCase(doc, lookupContext));
+		whole.push(...parentSelectionConflicts(doc, lookupContext));
+		whole.push(...rootSelectionTakesNewCase(doc, lookupContext));
 	}
 
-	errors.push(...runDeepValidation(doc, scope, lookupTables));
+	yield;
+	whole.push(...runDeepValidation(doc, scope, lookupTables));
 
-	return errors.map((error) => sharedRecordFinding(doc, error));
+	return { doc, entities, whole };
 }
 
 /**

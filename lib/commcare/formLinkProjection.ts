@@ -85,6 +85,7 @@ import {
 	moduleShowsFormsInMenuAbove,
 	type OtherwiseDestination,
 	projectedModulePreorder,
+	projectedModuleSet,
 	type ResolvedFormLinkTarget,
 	resolveFormLinkTarget,
 	rootSelectionAlignment,
@@ -94,6 +95,7 @@ import { carriedCreates } from "@/lib/domain/advancedEntryDatums";
 import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { FormExpressionSlotRef } from "@/lib/domain/expression/types";
+import { firstOrderedModuleListingForm } from "@/lib/domain/formMembership";
 import type { PlannedNewCaseDatum } from "./casePlacementPlan";
 import { caseTypeHopMap } from "./caseTypeDepths";
 import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
@@ -243,6 +245,9 @@ export interface FormLinkProjectionContext {
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleOrder: readonly Uuid[];
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
+	/** Each form's first module in `moduleOrder` whose `formOrder` lists it
+	 *  (`owningModuleOf`), read once from the two. */
+	readonly owningModules: ReadonlyMap<Uuid, Uuid>;
 	/**
 	 * `emitted`: each module's entries are projected as the emitter writes
 	 * that module. `basic`: every module's entries are projected as a basic
@@ -334,12 +339,14 @@ export function formLinkProjectionContext(
 ): FormLinkProjectionContext {
 	const moduleOrder = projectedModulePreorder(doc);
 	const formOrder: Record<string, readonly Uuid[]> = {};
-	const moduleOf = new Map<Uuid, Uuid>();
+	const owningModules = new Map<Uuid, Uuid>();
 	for (const moduleUuid of moduleOrder) {
 		const formUuids = orderedFormUuids(doc, moduleUuid);
 		formOrder[moduleUuid] = formUuids;
-		for (const formUuid of formUuids) moduleOf.set(formUuid, moduleUuid);
 	}
+	for (const moduleUuid of moduleOrder)
+		for (const formUuid of formOrder[moduleUuid] ?? [])
+			if (!owningModules.has(formUuid)) owningModules.set(formUuid, moduleUuid);
 	const newCaseDatums =
 		opts.newCaseDatums ??
 		((formUuid: Uuid) =>
@@ -364,6 +371,7 @@ export function formLinkProjectionContext(
 		runtimeTarget: opts.runtimeTarget,
 		moduleOrder,
 		formOrder,
+		owningModules,
 		moduleKinds: opts.moduleKinds ?? "emitted",
 		writesWorker: opts.writesWorker,
 		newCaseDatums,
@@ -495,10 +503,7 @@ export function owningModuleOf(
 	ctx: FormLinkProjectionContext,
 	formUuid: Uuid,
 ): Uuid | undefined {
-	for (const moduleUuid of ctx.moduleOrder) {
-		if ((ctx.formOrder[moduleUuid] ?? []).includes(formUuid)) return moduleUuid;
-	}
-	return undefined;
+	return ctx.owningModules.get(formUuid);
 }
 
 // ── Frame datums and children ────────────────────────────────────────────
@@ -2281,11 +2286,9 @@ export function moduleFrameActionsBuildable(
 	doc: BlueprintDoc,
 	roots: readonly Uuid[],
 ): boolean {
-	const projectedModules = new Set(projectedModulePreorder(doc));
+	const projectedModules = projectedModuleSet(doc);
 	const moduleOf = (uuid: Uuid): Uuid | undefined =>
-		doc.moduleOrder.find((moduleUuid) =>
-			(doc.formOrder[moduleUuid] ?? []).includes(uuid),
-		);
+		firstOrderedModuleListingForm(doc, uuid) as Uuid | undefined;
 	const modules = new Set<Uuid>();
 	const forms = new Set<Uuid>();
 	const pending = [...roots];

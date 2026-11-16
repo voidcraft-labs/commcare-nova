@@ -25,7 +25,7 @@ import type { HqApplication } from "@/lib/commcare";
 import { hasEffectiveSearch } from "@/lib/commcare/derivedProfile";
 import {
 	expandAppShell,
-	expandDoc,
+	expandDocSteps,
 	type HqAppShell,
 } from "@/lib/commcare/expander";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
@@ -130,17 +130,37 @@ export function hqImportApplication(
 export function hqImportApplication(
 	input: HqImportApplicationInput,
 ): HqImportApplicationResult<HqApplication | HqAppShell> {
-	const { prepared, target, update } = input;
+	const { prepared, update } = input;
 	/* The shell meets no source read and no overlay, and holds nothing that
 	 * names the target, an asset or a lookup table. */
 	if (update === null) {
 		const shell = expandAppShell(prepared.doc);
 		return { application: shell, ownership: shellOwnership(shell) };
 	}
+	const steps = hqImportApplicationSteps({ ...input, update });
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * `hqImportApplication` of an update a part at a time: its emission stops
+ * between its parts (`expander.ts::expandDocSteps`) until it is resumed, so a
+ * caller on a request can let the event loop turn while an app at the
+ * bring-in byte cap is emitted. The application is `hqImportApplication`'s,
+ * which drives this.
+ */
+export function* hqImportApplicationSteps(
+	input: HqImportApplicationInput & {
+		readonly update: HqImportApplicationUpdate;
+	},
+): Generator<void, HqImportApplicationResult<HqApplication>, void> {
+	const { prepared, target, update } = input;
 	/* The naming has to travel with the app, not just with the data. A
 	 * lookup-backed select compiles to an `instance(...)` reference whichever
 	 * mode is emitting, and `buildXForm` refuses without it. */
-	const generated = expandDoc(prepared.doc, {
+	const generated = yield* expandDocSteps(prepared.doc, {
 		runtimeTarget: {
 			server: target.server,
 			domain: target.domain,
@@ -152,6 +172,7 @@ export function hqImportApplication(
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
 		keyedCaseIdPrefixes: input.keyedCaseIdPrefixes,
 	});
+	yield;
 	const projected = projectApplicationForTarget(
 		generated,
 		update.source,

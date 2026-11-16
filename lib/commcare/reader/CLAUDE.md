@@ -1,9 +1,13 @@
 # lib/commcare/reader
 
 `readHqApp` (`index.ts`) reads a CommCare HQ app into a Nova document, or into an account of why
-it cannot be held; `readHqAppSteps` is the same reading stopping after each stage, which a
-request drives a stage at a time so the event loop turns between them, and a stage therefore
-keeps nothing outside the reading's own context. `lib/commcare/CLAUDE.md` ("The reader",
+it cannot be held; `readHqAppSteps` is the same reading stopping after each stage, and inside a stage long at the
+byte cap between its parts (`index.ts::STAGE_PARTS`: the forms, the entry facts, the binding, the
+menus' settle and the assembly), which a request drives a piece at a time so the event loop turns
+between them, and a stage therefore keeps nothing outside the reading's own context across a
+stop. `STAGES` stays each stage whole, for a test that runs stages one by one. A grammar read
+(`syntaxRead.ts::readFormSyntax`) is answered from the tree an earlier read of the same text gave
+(`heldByText.ts`), copied, so each read still has its own nodes. `lib/commcare/CLAUDE.md` ("The reader",
 "Reading expressions", "Reading case management back") states the accounting, the stage order
 and the expression contract; this file is the method a change here keeps, the canonical rows,
 and what the reader is told.

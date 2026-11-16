@@ -28,7 +28,10 @@ export { canonicalJsonText };
 
 /** SHA-256 hex over the canonical JSON bytes of `value`. */
 export function canonicalJsonDigest(value: unknown): string {
-	return createHash("sha256")
-		.update(canonicalJsonText(value), "utf8")
-		.digest("hex");
+	return canonicalTextDigest(canonicalJsonText(value));
+}
+
+/** `canonicalJsonDigest` of the value whose canonical JSON text is `text`. */
+export function canonicalTextDigest(text: string): string {
+	return createHash("sha256").update(text, "utf8").digest("hex");
 }

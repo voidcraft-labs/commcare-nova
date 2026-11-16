@@ -35,6 +35,7 @@ import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	type ExpressionCarrierRef,
+	type ExpressionSlotValue,
 	expressionSlotValues,
 	FIELD_REFERENCE_SLOTS,
 	FORM_REFERENCE_SLOTS,
@@ -462,6 +463,86 @@ function extractLookupOptionsSources(
 	return references;
 }
 
+/** One walk of every owner of a kind: each owner's expression values grouped
+ *  by slot, owners in uuid order and each owner's values in its own order. */
+interface RegisteredWalk {
+	readonly parents: ReadonlyMap<Uuid, Uuid>;
+	readonly bySlot: ReadonlyMap<
+		SlotContextRef["slot"],
+		readonly {
+			readonly owner: { readonly uuid: Uuid };
+			readonly values: readonly ExpressionSlotValue[];
+		}[]
+	>;
+}
+
+function walkRegistered(
+	doc: BlueprintDoc,
+	ownerKind: ExpressionCarrierRef["entity"],
+	parents: ReadonlyMap<Uuid, Uuid>,
+): RegisteredWalk {
+	const owners =
+		ownerKind === "field"
+			? sortedFields(doc)
+			: ownerKind === "form"
+				? sortedForms(doc)
+				: sortedModules(doc);
+	const bySlot = new Map<
+		SlotContextRef["slot"],
+		{ owner: { readonly uuid: Uuid }; values: ExpressionSlotValue[] }[]
+	>();
+	for (const owner of owners) {
+		const held = new Map<SlotContextRef["slot"], ExpressionSlotValue[]>();
+		for (const value of expressionSlotValues(doc, {
+			entity: ownerKind,
+			uuid: owner.uuid,
+		})) {
+			let values = held.get(value.ref.slot);
+			if (values === undefined) {
+				values = [];
+				held.set(value.ref.slot, values);
+				let rows = bySlot.get(value.ref.slot);
+				if (rows === undefined) {
+					rows = [];
+					bySlot.set(value.ref.slot, rows);
+				}
+				rows.push({ owner, values });
+			}
+			values.push(value);
+		}
+	}
+	return { parents, bySlot };
+}
+
+/**
+ * The walks of the extraction in progress (`extractLookupReferenceOccurrences`),
+ * by document: every registry entry of one kind reads the same walk, so an
+ * extraction walks each owner once rather than once per slot. Set and
+ * cleared around one synchronous extraction, which writes nothing, so no
+ * walk outlives the document it was made of.
+ */
+let activeWalks:
+	| {
+			readonly doc: BlueprintDoc;
+			parents?: ReadonlyMap<Uuid, Uuid>;
+			readonly byKind: Map<ExpressionCarrierRef["entity"], RegisteredWalk>;
+	  }
+	| undefined;
+
+function registeredWalk(
+	doc: BlueprintDoc,
+	ownerKind: ExpressionCarrierRef["entity"],
+): RegisteredWalk {
+	if (activeWalks === undefined || activeWalks.doc !== doc)
+		return walkRegistered(doc, ownerKind, parentByField(doc));
+	const known = activeWalks.byKind.get(ownerKind);
+	if (known !== undefined) return known;
+	activeWalks.parents ??= parentByField(doc);
+	const walk = walkRegistered(doc, ownerKind, activeWalks.parents);
+	activeWalks.byKind.set(ownerKind, walk);
+	return walk;
+}
+
 /** Registered expressions keep one path/address vocabulary across all carriers. */
 function extractRegisteredExpressions(
 	doc: BlueprintDoc,
@@ -469,19 +550,10 @@ function extractRegisteredExpressions(
 	registrySlot: SlotContextRef["slot"],
 ): ExtractedLookupReference[] {
 	const references: ExtractedLookupReference[] = [];
-	const parents = parentByField(doc);
-	const owners =
-		ownerKind === "field"
-			? sortedFields(doc)
-			: ownerKind === "form"
-				? sortedForms(doc)
-				: sortedModules(doc);
-	for (const owner of owners) {
-		for (const { ref, expression, path } of expressionSlotValues(doc, {
-			entity: ownerKind,
-			uuid: owner.uuid,
-		})) {
-			if (ref.slot !== registrySlot) continue;
+	const walk = registeredWalk(doc, ownerKind);
+	const parents = walk.parents;
+	for (const { owner, values } of walk.bySlot.get(registrySlot) ?? []) {
+		for (const { ref, expression, path } of values) {
 			let carrierUuid = owner.uuid;
 			let subpath: readonly LookupReferencePathSegment[] = [];
 			// A calculated value in prose: one of any number in its text, so
@@ -625,6 +697,19 @@ function compareOccurrences(
 
 /** Extract deterministic occurrences through an explicit immutable registry. */
 export function extractLookupReferenceOccurrences(
+	doc: BlueprintDoc,
+	registry: LookupReferenceExtractorRegistry,
+): readonly LookupReferenceOccurrence[] {
+	const outer = activeWalks;
+	activeWalks = { doc, byKind: new Map() };
+	try {
+		return extractOccurrences(doc, registry);
+	} finally {
+		activeWalks = outer;
+	}
+}
+
+function extractOccurrences(
 	doc: BlueprintDoc,
 	registry: LookupReferenceExtractorRegistry,
 ): readonly LookupReferenceOccurrence[] {

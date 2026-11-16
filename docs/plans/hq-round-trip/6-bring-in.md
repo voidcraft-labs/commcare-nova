@@ -235,9 +235,10 @@ Each part's "Executed during planning" gives what it read. The findings that dec
   per MiB over the three. The reader and acceptance do more than parse, so ten times that is
   allowed: about 0.35 seconds per MiB. That is why bringing an app in is two plain requests, and why
   the cap is 16 MiB: more than thirty-two times the largest starter app (part 05, section 3.3).
-  Measured, a source of 16.7 MB at the cap is about 28 seconds of processing on a laptop, in 65
-  pieces with the event loop turning between them: the reader runs a stage per piece and acceptance
-  a check per piece, and the five-second bound holds each piece, never the request (part 12,
+  Measured on a laptop's efficiency cores, a source of 16.7 MB at the cap is about 49 to 54 seconds
+  of processing, in 222 pieces with the event loop turning between them, the longest about 1.9
+  seconds: the reader runs a stage, or a long stage's part, per piece and acceptance a check, or a
+  long check's part, per piece, and the five-second bound holds each piece, never the request (part 12,
   section 3.6).
 - **Three read-only production scans were run, and each found nothing**: the three of "What needs
   your yes before this starts". So no part plans a repair or the handling of a duplicate, and that

@@ -52,7 +52,7 @@ import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
-import { adoptedIdentityRows } from "../adoption";
+import { alignedMenusById, realFormId } from "../adoption";
 import type { AcceptanceDifference } from "./acceptance";
 import { differenceSignature } from "./signature";
 import { sourcePlaces } from "./sourcePlaces";
@@ -420,16 +420,13 @@ export function summaryDifferences(
 				: [],
 		),
 	);
-	const menus = draft.identities.modules.filter(
-		(module) => !notSummarized.has(module.uniqueId),
-	);
+	/* `adoptedIdentityRows` of the summarized menus and one form at a time, whose
+	 * verdict is the form's own real id: the menus are asked once. */
+	const byUniqueId = alignedMenusById(input.modules);
 	for (const form of draft.identities.forms) {
 		if (notSummarized.has(form.moduleUniqueId)) continue;
-		const verdict = adoptedIdentityRows(
-			{ modules: menus, forms: [form] },
-			input.modules,
-		);
-		if (verdict.ok) continue;
+		const verdict = realFormId(form, byUniqueId);
+		if (!("at" in verdict)) continue;
 		const menuKnown = summarizedMenus.has(form.moduleUniqueId);
 		differ(
 			["ids", menuKnown ? "form" : "menu"],
@@ -440,14 +437,19 @@ export function summaryDifferences(
 		);
 	}
 
+	/* The first form of each `xmlns`, as a search of each list in order finds it. */
+	const formUuidOf = new Map<string, Uuid>();
+	for (const one of draft.identities.forms)
+		if (!formUuidOf.has(one.xmlns)) formUuidOf.set(one.xmlns, one.uuid);
+	const factsOf = new Map<string, (typeof draft.facts.forms)[number]>();
+	for (const one of draft.facts.forms)
+		if (!factsOf.has(one.xmlns)) factsOf.set(one.xmlns, one);
 	for (const module of input.modules) {
 		if (module.kind !== "aligned") continue;
 		for (const aligned of module.forms) {
 			if (aligned.xmlns === null) continue;
 			const xmlns = aligned.xmlns;
-			const formUuid = draft.identities.forms.find(
-				(one) => one.xmlns === xmlns,
-			)?.uuid;
+			const formUuid = formUuidOf.get(xmlns);
 			if (formUuid === undefined) {
 				differ(
 					["ids", "form"],
@@ -462,7 +464,7 @@ export function summaryDifferences(
 				xmlns,
 				languages,
 				questions: aligned.questions,
-				facts: draft.facts.forms.find((one) => one.xmlns === xmlns),
+				facts: factsOf.get(xmlns),
 				written: input.sourceIdentity.forms.get(xmlns)?.written ?? new Map(),
 				at: (path) => places.questionOf(xmlns, path),
 				differ,
