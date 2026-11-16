@@ -390,7 +390,8 @@ export type ManagedPlacesAnswer =
 				readonly archived: number;
 				readonly keptInUse: readonly string[];
 				readonly keptLeftOut: readonly string[];
-				readonly superseded: boolean;
+				/** True where a later refresh had already landed, so this one changed nothing. */
+				readonly superseded?: boolean;
 			};
 	  }
 	| { readonly ok: false; readonly message: string };

@@ -265,6 +265,8 @@ export function serveFixtureApp(
 		readonly source?: RetainedHqAnswer;
 		readonly resource?: RetainedHqAnswer;
 		readonly rows?: RetainedHqAnswer;
+		/** CommCare HQ's list of lookup tables, where not the retained one. */
+		readonly tables?: RetainedHqAnswer;
 		/** How many reads to answer. */
 		readonly times?: number;
 	} = {},
@@ -288,7 +290,7 @@ export function serveFixtureApp(
 		);
 		return;
 	}
-	serveFixtureTables(peer, times, options.rows);
+	serveFixtureTables(peer, times, options.rows, options.tables);
 }
 
 /** CommCare HQ's table list and the rows of `district`, `times` times. */
@@ -298,13 +300,11 @@ export function serveFixtureTables(
 	rows: RetainedHqAnswer = retainedGroupRead(
 		"targeted-hq-side-lookup/fixture-rows-district",
 	),
+	tables: RetainedHqAnswer = retainedGroupRead(
+		"targeted-hq-side-lookup/lookup-tables",
+	),
 ): void {
-	serveAnswer(
-		peer,
-		FIXTURE_PATHS.tables,
-		retainedGroupRead("targeted-hq-side-lookup/lookup-tables"),
-		times,
-	);
+	serveAnswer(peer, FIXTURE_PATHS.tables, tables, times);
 	serveAnswer(peer, FIXTURE_PATHS.rows, rows, times);
 }
 

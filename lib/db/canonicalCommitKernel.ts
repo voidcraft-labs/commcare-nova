@@ -92,7 +92,7 @@ import {
 	describeUnplayableReferences,
 	unplayableReferences,
 } from "../media/platformPlayback";
-import { diffBlueprints } from "./blueprintRows";
+import { diffBlueprints, entityRowStatements } from "./blueprintRows";
 import {
 	type CanonicalCommitSidecar,
 	executeCanonicalCommitSidecars,
@@ -651,18 +651,18 @@ export async function writeBlueprintEntityDiff(
 		args.prevDoc,
 		args.committedDoc,
 	);
-	if (deletedUuids.length > 0) {
+	for (const statement of entityRowStatements(deletedUuids)) {
 		await tx
 			.deleteFrom("blueprint_entities")
 			.where("app_id", "=", args.appId)
-			.where("uuid", "in", deletedUuids)
+			.where("uuid", "in", statement)
 			.execute();
 	}
-	if (upserts.length > 0) {
+	for (const statement of entityRowStatements(upserts)) {
 		await tx
 			.insertInto("blueprint_entities")
 			.values(
-				upserts.map((r) => ({
+				statement.map((r) => ({
 					app_id: args.appId,
 					uuid: r.uuid,
 					kind: r.kind,

@@ -1153,6 +1153,7 @@ function gather(
 	return assembleReadingProjectData({
 		origin: ORIGIN,
 		...IDS,
+		tablesReadAt: new Date("2026-11-10T09:00:00.000Z"),
 		tables: reads,
 		hqTags: reads.map((read) => read.table.tag),
 		project: {

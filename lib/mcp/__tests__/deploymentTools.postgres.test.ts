@@ -1290,6 +1290,7 @@ it("says where an app came from and where Nova stopped publishing, and lets only
 				ending: {
 					by: "owner-person",
 					reason: "stopped",
+					held_by_another_app: false,
 					hq_app_id: HQ_APP,
 				},
 				setup_artifact: expect.any(Object),
@@ -1308,6 +1309,40 @@ it("says where an app came from and where Nova stopped publishing, and lets only
 				resultText(await call(client, GET, { app_id: BROUGHT_IN_APP })),
 			);
 			expect(after.deployments[0].ending).toEqual(stopped.ending);
+		}, "owner-person");
+
+		/* Another Nova app brings that HQ app in. The ending says so and
+		 * names the HQ app nowhere, so no client offers a way back to an app
+		 * that is no longer this one's. */
+		await birthAdoptedApp(h, {
+			appId: testUuid("taker-app"),
+			projectId: PROJECT,
+			actorUserId: "owner-person",
+			target: TARGET,
+			remoteAppId: HQ_APP,
+		});
+		await asUser(async (client) => {
+			const taken = JSON.parse(
+				resultText(await call(client, GET, { app_id: BROUGHT_IN_APP })),
+			);
+			const { ending } = taken.deployments[0];
+			expect(ending).toMatchObject({
+				by: "owner-person",
+				reason: "stopped",
+				held_by_another_app: true,
+			});
+			expect(ending).not.toHaveProperty("hq_app_id");
+			expect(ending.message).toBe(
+				endedLine(
+					{
+						byName: "owner-person",
+						reason: "stopped",
+						heldByAnotherApp: true,
+					},
+					driftDate(ending.at),
+				),
+			);
+			expect(JSON.stringify(taken)).not.toContain(HQ_APP);
 		}, "owner-person");
 		/* Stopping asks CommCare HQ nothing. */
 		expect(urls(peer)).toEqual([]);

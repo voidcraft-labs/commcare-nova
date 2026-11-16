@@ -127,12 +127,16 @@ export interface DeploymentProjection {
 	 * Nova stopped publishing this app here: when, who (a display name), why,
 	 * the HQ app that stays there, and the sentence the Publishing card shows,
 	 * with the day in UTC. Null while the deployment stands at no ending.
+	 * Where another Nova app publishes to that HQ app now,
+	 * `held_by_another_app` is true and `hq_app_id` is left out: that app is
+	 * no longer this one's to offer a way back to, and the card offers none.
 	 */
 	readonly ending: {
 		readonly at: string;
 		readonly by: string;
 		readonly reason: "stopped" | "claimed-elsewhere";
-		readonly hq_app_id: string;
+		readonly held_by_another_app: boolean;
+		readonly hq_app_id?: string;
 		readonly message: string;
 	} | null;
 }
@@ -235,7 +239,8 @@ export function describeDeployment(
 						at: ending.at,
 						by: ending.byName,
 						reason: ending.reason,
-						hq_app_id: ending.hqAppId,
+						held_by_another_app: ending.heldByAnotherApp,
+						...(!ending.heldByAnotherApp && { hq_app_id: ending.hqAppId }),
 						message: endedLine(ending, driftDate(ending.at)),
 					},
 		...(kept !== "unread" && {

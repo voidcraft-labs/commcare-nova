@@ -188,6 +188,18 @@ export const READING_SLOW_LINE =
 export const READING_LEAVE_LINE =
 	"You can leave this page. Nothing is created until you choose Bring it in, and Nova reads the app afresh when you come back.";
 
+/**
+ * The reading screen of an app chosen while a create the person left is still
+ * running: the read waits for that create's end, and a create that brings its
+ * app in opens that app.
+ */
+export function readingWaitsForCreateLine(firstAppName: string | null): string {
+	const first = namedApp(firstAppName);
+	return first === null
+		? "Nova is still bringing in the app you asked for before. When that's done, Nova opens it if it came in, or reads this app if it didn't."
+		: `Nova is still bringing in ${first}, the app you asked for before. When that's done, Nova opens ${first} if it came in, or reads this app if it didn't.`;
+}
+
 /** A first lost request, of a read or a create. */
 export const TRYING_AGAIN = "Trying again";
 

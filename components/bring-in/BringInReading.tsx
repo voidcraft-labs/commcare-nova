@@ -2,7 +2,8 @@
  * The wait while a read or a create of one app is in flight: one spinner, the
  * stage the request's own stream names, a count of files that moves, patient
  * company after twenty seconds, and what leaving does. One component, two
- * sets of words, each with its form for a request lost twice.
+ * sets of words, each with its form for a request lost twice. A read that
+ * waits for a create the person left says which app it waits for.
  *
  * The count moves several times a second on an app with many files, so the
  * visible line is hidden from assistive technology and a visually hidden copy
@@ -29,6 +30,7 @@ import {
 	READING_LOST_LINE,
 	READING_SLOW_LINE,
 	readingStatusLine,
+	readingWaitsForCreateLine,
 	TRYING_AGAIN,
 } from "@/lib/publish/bringInCopy";
 import { READING_STAGE_LABELS } from "@/lib/publish/hqReadingCopy";
@@ -92,6 +94,8 @@ export function BringInReading({
 	/* On `creating` the heading already says what the stage would. */
 	const showsStage = stage !== null && !lost && stage !== "creating";
 	const title = reading ? readingStatusLine(appName) : CREATING_STATUS;
+	/* A create the person left is still running, and this read waits for it. */
+	const waitsFor = reading ? model.leftCreate : null;
 	return (
 		<BringInScreenLayout
 			title={
@@ -112,6 +116,11 @@ export function BringInReading({
 			lead={model.lead}
 			status={
 				<>
+					{waitsFor !== null ? (
+						<p className="mb-2 text-sm text-nova-text-secondary">
+							{readingWaitsForCreateLine(waitsFor.appName)}
+						</p>
+					) : null}
 					{showsStage ? (
 						<p className="mb-2 text-sm text-nova-text-secondary">
 							<span aria-hidden="true">{stageLabel(stage, files)}</span>

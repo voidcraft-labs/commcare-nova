@@ -27,6 +27,24 @@ import {
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 
+/**
+ * Entity rows per statement that writes or deletes them. An entity row binds
+ * six parameters in an insert, and one statement may bind at most 65,535 (the
+ * protocol counts them in 16 bits), so one statement holds at most 10,922
+ * rows. An app brought in from CommCare HQ at its byte cap can hold several
+ * times that many fields, so every writer of these rows (a birth, a commit's
+ * diff) writes them in statements of this size inside its one transaction.
+ */
+export const ENTITY_ROWS_PER_STATEMENT = 1000;
+
+/** `rows` in slices of `ENTITY_ROWS_PER_STATEMENT`, in order. */
+export function entityRowStatements<T>(rows: readonly T[]): T[][] {
+	const statements: T[][] = [];
+	for (let start = 0; start < rows.length; start += ENTITY_ROWS_PER_STATEMENT)
+		statements.push(rows.slice(start, start + ENTITY_ROWS_PER_STATEMENT));
+	return statements;
+}
+
 export interface EntityRow {
 	uuid: Uuid;
 	kind: EntityRowKind;

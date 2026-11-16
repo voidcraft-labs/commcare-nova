@@ -36,7 +36,10 @@ import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
 import * as caseStoreConnection from "@/lib/case-store/postgres/connection";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import { decomposeBlueprint } from "@/lib/db/blueprintRows";
+import {
+	decomposeBlueprint,
+	entityRowStatements,
+} from "@/lib/db/blueprintRows";
 import {
 	__setAppDbForTests,
 	__setAppPoolForTests,
@@ -422,12 +425,13 @@ export function setupAppStateTestDb(
 					})
 					.execute();
 				if (persistable !== null) {
-					const rows = decomposeBlueprint(persistable);
-					if (rows.length > 0) {
+					for (const statement of entityRowStatements(
+						decomposeBlueprint(persistable),
+					)) {
 						await tx
 							.insertInto("blueprint_entities")
 							.values(
-								rows.map((row) => ({
+								statement.map((row) => ({
 									app_id: id,
 									uuid: row.uuid,
 									kind: row.kind,

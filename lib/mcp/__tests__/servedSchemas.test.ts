@@ -511,6 +511,11 @@ it("names each key where a client reads it", () => {
 	const deployment = served("get_deployment").description;
 	expect(deployment).toContain("`brought_in`");
 	expect(deployment).toContain("`ending`");
+	/* An ended deployment whose HQ app another Nova app holds now names no
+	 * HQ app, and the client is told why, so it offers no way back. */
+	expect(deployment).toContain(
+		"where `ending.held_by_another_app` is true, another Nova app publishes to that CommCare HQ app now, so `ending.hq_app_id` is left out and there is no way back to it to offer",
+	);
 	expect(deployment).toContain(
 		"`state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, `incomplete` or `ended`",
 	);

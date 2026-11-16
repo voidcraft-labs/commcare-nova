@@ -198,6 +198,7 @@ describe("the reducer", () => {
 		const leftCreate = run(creating(), { type: "location", location: CHOOSE });
 		expect(leftCreate.call).toBe("create");
 		expect(leftCreate.pendingCreate).toBeNull();
+		expect(leftCreate.leftCreate).toEqual(inputFor());
 	});
 
 	it("resume with an input sets the create as create-asked does; with null, the next act is the read", () => {
@@ -805,11 +806,78 @@ describe("a create, as a sequence of events", () => {
 			answer: { kind: "held", finding: HELD },
 			at: 5,
 		});
-		expect(held).toEqual({ ...left, call: null });
+		expect(held).toEqual({ ...left, call: null, leftCreate: null });
 		const failed = run(left, { type: "failed", call: "create" });
-		expect(failed).toEqual({ ...left, call: null });
+		expect(failed).toEqual({ ...left, call: null, leftCreate: null });
 		const created = run(left, CREATED);
 		expect(created).toBe(left);
+	});
+
+	it("holds the read of another app until a create the person left ends, and that app's reading screen names the create's app", () => {
+		const elsewhere = run(
+			creating(),
+			{ type: "location", location: CHOOSE },
+			{ type: "location", location: OTHER_APP },
+			{ type: "resume", input: null },
+		);
+		expect(elsewhere.leftCreate).toEqual(inputFor());
+		expect(screenOf(elsewhere)).toEqual({ kind: "reading", lost: false });
+		expect(nextAct(elsewhere)).toEqual(NO_ACT);
+
+		// Any end but created ends the wait, and the other app is read.
+		for (const end of [
+			{
+				type: "create-done",
+				answer: { kind: "held", finding: HELD },
+				at: 5,
+			},
+			{ type: "failed", call: "create" },
+			{ type: "lost", call: "create" },
+			{ type: "refused", call: "create", refusal: "name_missing" },
+		] satisfies BringInEvent[]) {
+			const ended = run(elsewhere, end);
+			expect(ended.leftCreate, end.type).toBeNull();
+			expect(ended.lost, end.type).toBe(0);
+			expect(nextAct(ended), end.type).toEqual({ ...READ, key: OTHER_KEY });
+		}
+
+		// A create that created lands, and nothing is read.
+		const landed = run(elsewhere, CREATED, {
+			type: "landed",
+			answer: "landed",
+			appId: "app-1",
+		});
+		expect(landed.leftCreate).toBeNull();
+		expect(nextAct(landed)).toEqual(NO_ACT);
+
+		// A session that ended ends the wait too.
+		expect(run(elsewhere, { type: "signed-out" }).leftCreate).toBeNull();
+	});
+
+	it("going back to the app of a create still running shows its creating screen and takes its end", () => {
+		const back = run(
+			creating(),
+			{ type: "location", location: CHOOSE },
+			{ type: "location", location: OTHER_APP },
+			{ type: "resume", input: null },
+			{ type: "location", location: APP },
+			{ type: "resume", input: null },
+		);
+		expect(back.pendingCreate).toEqual(inputFor());
+		expect(back.leftCreate).toBeNull();
+		expect(back.call).toBe("create");
+		expect(screenOf(back)).toEqual({ kind: "creating", lost: false });
+		expect(nextAct(back)).toEqual(NO_ACT);
+		expect(run(back, { type: "stage", stage: "bringing-in-media" }).stage).toBe(
+			"bringing-in-media",
+		);
+		const held = run(back, {
+			type: "create-done",
+			answer: { kind: "held", finding: HELD },
+			at: 5,
+		});
+		expect(held.held).toEqual(HELD);
+		expect(held.call).toBeNull();
 	});
 });
 

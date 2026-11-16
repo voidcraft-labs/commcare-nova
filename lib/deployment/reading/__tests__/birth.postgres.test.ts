@@ -48,6 +48,7 @@ import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
+import { LOOKUP_MAX_CELL_BYTES } from "@/lib/lookup/constants";
 import { LookupError } from "@/lib/lookup/errors";
 import { createLookupTable } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
@@ -578,6 +579,7 @@ describe("adoptHqAppInTransaction", () => {
 							],
 							digest: "0".repeat(64),
 							leftOut: {},
+							leftOutHqLocationIds: [],
 							findings: [],
 						},
 					},
@@ -744,7 +746,9 @@ describe("adoptHqAppInTransaction", () => {
 	});
 
 	it("answers a lookup write the store refuses check-failed, birth-integrity, and logs its code with no word of the app", async () => {
-		const withNulCells = (birth: AdoptionBirth): AdoptionBirth => ({
+		/* Every cell one byte over what Nova holds in a cell: the store refuses the write
+		 * `storage_limit`, in a sentence that names the table by its tag. */
+		const withOverlongCells = (birth: AdoptionBirth): AdoptionBirth => ({
 			...birth,
 			projectData: {
 				...birth.projectData,
@@ -755,7 +759,10 @@ describe("adoptHqAppInTransaction", () => {
 						rows: table.read.rows.map((row) => ({
 							...row,
 							fields: Object.fromEntries(
-								Object.keys(row.fields).map((field) => [field, "a\0b"]),
+								Object.keys(row.fields).map((field) => [
+									field,
+									"x".repeat(LOOKUP_MAX_CELL_BYTES + 1),
+								]),
 							),
 						})),
 					},
@@ -766,13 +773,13 @@ describe("adoptHqAppInTransaction", () => {
 		 * would spell it. */
 		const { birth } = await preparedBirth();
 		const thrown = await withAppTx((tx) =>
-			adoptHqAppInTransaction(tx, withNulCells(birth)),
+			adoptHqAppInTransaction(tx, withOverlongCells(birth)),
 		).catch((error: unknown) => error);
 		expect(thrown).toBeInstanceOf(LookupError);
-		expect((thrown as LookupError).code).toBe("invalid_input");
+		expect((thrown as LookupError).code).toBe("storage_limit");
 		expect((thrown as LookupError).message).toContain("district");
 
-		seam.beforeBirth = async (created) => withNulCells(created);
+		seam.beforeBirth = async (created) => withOverlongCells(created);
 		vi.mocked(log.error).mockClear();
 		const answer = await bringIn((key, review) => createInputFor(key, review));
 		expect(answer).toMatchObject({
@@ -792,7 +799,7 @@ describe("adoptHqAppInTransaction", () => {
 		expect(line?.[1]).toBeUndefined();
 		expect(line?.[2]).toMatchObject({
 			findingCodes: [],
-			why: expect.stringContaining("invalid_input"),
+			why: expect.stringContaining("storage_limit"),
 		});
 		expect(loggedText(vi.mocked(log.error).mock.calls)).not.toContain(
 			"district",
