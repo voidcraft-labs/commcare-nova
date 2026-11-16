@@ -728,7 +728,13 @@ composing `DeploymentWorkers` into the
 card's `workers` slot — the panel's one mount in the product. A card says
 where a brought-in app came from, offers Stop publishing here to a member who
 may delete, and draws an ended deployment from `deploymentEnding`, never from
-the state: no ladder, no Check status, no Workers panel. Every state is
+the state: no ladder, no Check status, a link to the HQ app it stopped at
+unless another Nova app publishes to that app now (`endedCardOf`), and a
+Workers panel only for the passwords the page still holds there, with no way
+to make a worker. A stop's answer is read after the ending landed, Preview's
+whole answer with it, so it never reports a stop that landed as one that
+failed; a stop that answers anything else, or whose answer is lost, reads the
+records again (`StopPublishingDialog`'s `onRecordsStale`). Every state is
 explicit: loading, a `role="alert"` load failure with Try again, a
 `role="status"` refreshing line and a stale warning when a reload is pending
 or has failed while held records still

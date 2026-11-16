@@ -13,6 +13,7 @@ import {
 	relationStepSchema,
 	valueSchema,
 } from "./expression/types";
+import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
@@ -623,10 +624,10 @@ export function operationCaseType(
 	operation: CaseOperation,
 ): string | undefined {
 	if (operation.action !== "own") return operation.caseType;
-	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
-		if (formUuids.includes(formUuid)) return doc.modules[moduleUuid]?.caseType;
-	}
-	return undefined;
+	const moduleUuid = firstModuleListingForm(doc.formOrder, formUuid);
+	return moduleUuid === undefined
+		? undefined
+		: doc.modules[moduleUuid]?.caseType;
 }
 
 /**

@@ -42,7 +42,12 @@ export const CREATE_ANSWER_LEADS: {
 	readonly "read-again": string;
 	readonly "check-failed": string;
 	readonly held: string;
-	/** Added after a `changed` or `read-again` lead where an answer could not be kept. */
+	/**
+	 * Added after a `changed` or `read-again` lead where an answer could not be
+	 * kept: a dropped declaration goes back to the review's preselected one, a
+	 * dropped table answer goes back to no answer, so the sentence says neither
+	 * that Nova chose nor that nothing is chosen.
+	 */
 	readonly choicesDropped: string;
 } = {
 	changed: {
@@ -60,7 +65,7 @@ export const CREATE_ANSWER_LEADS: {
 		"Nova stopped before creating this app. Any pictures and sounds Nova already added to your Project stay in its files.",
 	held: "Nova stopped before creating anything. Your review is still here.",
 	choicesDropped:
-		"Some of your choices no longer apply, so Nova chose for those again.",
+		"Some of your choices no longer apply, so those are back to how the review offers them.",
 };
 
 /** Of the files a media stage plans, how many have a verdict or are published. */

@@ -12,6 +12,7 @@ import type { AppDeploymentNoticeEntry } from "@/lib/notices/migrationNotice";
 import {
 	PUBLISHING_STOPPED_ROW,
 	STOP_PUBLISHING_FAILED,
+	STOP_PUBLISHING_UNANSWERED,
 } from "@/lib/publish/bringInCopy";
 import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
 import {
@@ -22,7 +23,10 @@ import {
 	PLAN_FEATURES,
 	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
-import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
+import {
+	endedLine,
+	PUBLISH_PLAN_CREATES_BESIDE,
+} from "@/lib/publish/stopPublishing";
 import {
 	applyRecordUpsert,
 	beginRecordsLoad,
@@ -33,12 +37,12 @@ import {
 	compactTargetRows,
 	confirmationRequests,
 	deploymentViewKey,
+	endedCardOf,
 	everyConfirmationGiven,
 	INITIAL_PUBLISHING_RECORDS,
 	liveConfirmationRows,
 	mayBePublished,
 	preseededDomainSelection,
-	previewAnswerAfterStop,
 	publishAgainDomain,
 	publishedAnywhere,
 	publishingCardNoticeEntries,
@@ -1068,20 +1072,72 @@ describe("a stop's answer", () => {
 				STOP_PUBLISHING_FAILED,
 			);
 		}
-		expect(stopFailureSentence(null)).toBe(STOP_PUBLISHING_FAILED);
 	});
 
-	it("keeps Preview's settings only where it still names the same project space", () => {
-		const facts = { fuzzyListSearch: true, markRequiredQuestions: false };
-		const current = { projectSpace: "alpha", targetFacts: facts };
-		expect(previewAnswerAfterStop("alpha", current)).toStrictEqual(current);
-		expect(previewAnswerAfterStop(null, current)).toStrictEqual({
-			projectSpace: null,
-			targetFacts: null,
-		});
+	/* A request whose answer never came may follow a stop that landed, so it
+	 * cannot say nothing changed. */
+	it("says Nova is checking, not that nothing changed, where no answer arrived", () => {
+		expect(stopFailureSentence(null)).toBe(STOP_PUBLISHING_UNANSWERED);
+		expect(STOP_PUBLISHING_UNANSWERED).not.toContain("Nothing was changed");
+	});
+});
+
+describe("endedCardOf", () => {
+	it("is null for a card that is not ended", () => {
+		expect(endedCardOf(view({ active: [appResource()] }))).toBeNull();
+	});
+
+	it("links to the HQ app the deployment stopped at", () => {
 		expect(
-			previewAnswerAfterStop("beta", { projectSpace: null, targetFacts: null }),
-		).toStrictEqual({ projectSpace: "beta", targetFacts: null });
+			endedCardOf(view({ superseded: [endedApp()], state: "ended" })),
+		).toMatchObject({
+			ending: { reason: "stopped", heldByAnotherApp: false },
+			linksToHqApp: true,
+		});
+	});
+
+	/* A teammate brought the stopped HQ app in as another Nova app: the way to
+	 * it is that app's now, so the ended card offers none. */
+	it("offers no link where another Nova app publishes to that HQ app now", () => {
+		for (const reason of ["stopped", "claimed-elsewhere"] as const) {
+			expect(
+				endedCardOf(
+					view({
+						superseded: [{ ...endedApp(reason), heldByAnotherApp: true }],
+						state: "ended",
+					}),
+				),
+			).toMatchObject({
+				ending: { reason, heldByAnotherApp: true },
+				linksToHqApp: false,
+			});
+		}
+	});
+
+	/* The app that took the HQ app in a restore has since stopped there or
+	 * been deleted, so nobody holds it: the card links back to it again, and
+	 * its line says what happened on that day and nothing of now, which would
+	 * contradict the link beside it. */
+	it("links back where the app that took it holds it no longer, and its line names no holder now", () => {
+		const card = endedCardOf(
+			view({ superseded: [endedApp("claimed-elsewhere")], state: "ended" }),
+		);
+		expect(card).toMatchObject({
+			ending: { reason: "claimed-elsewhere", heldByAnotherApp: false },
+			linksToHqApp: true,
+		});
+		if (card === null) throw new Error("Expected an ended card");
+		const line = endedLine(card.ending, "20 September 2026");
+		expect(line).toBe(
+			"Nova stopped publishing here on 20 September 2026, because another Nova app had taken over that CommCare HQ app. Publishing here again makes a new app beside it.",
+		);
+		expect(line).not.toContain("now");
+		expect(
+			endedLine(
+				{ ...card.ending, heldByAnotherApp: true },
+				"20 September 2026",
+			),
+		).toContain("publishes to that CommCare HQ app now");
 	});
 });
 

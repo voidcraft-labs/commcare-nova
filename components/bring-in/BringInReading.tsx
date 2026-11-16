@@ -25,6 +25,7 @@ import {
 	CREATING_SLOW_LINE,
 	CREATING_STATUS,
 	READING_LEAVE_LINE,
+	READING_LOST_AFTER_CREATE_LINE,
 	READING_LOST_LINE,
 	READING_SLOW_LINE,
 	readingStatusLine,
@@ -147,7 +148,13 @@ export function BringInReading({
 			<div className="flex flex-col gap-3 text-sm leading-relaxed text-nova-text-secondary">
 				{lost ? (
 					<p role="alert" className="text-nova-text">
-						{reading ? READING_LOST_LINE : CREATING_LOST_LINE}
+						{!reading
+							? CREATING_LOST_LINE
+							: model.lead === null
+								? READING_LOST_LINE
+								: /* The read a create's `read-again` asked for: that
+									 * create may have added files to the Project. */
+									READING_LOST_AFTER_CREATE_LINE}
 					</p>
 				) : null}
 				{/* A read keeps its reassurance above what leaving does; a create

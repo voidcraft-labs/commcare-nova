@@ -6,7 +6,15 @@
  */
 
 import { gzipSync } from "node:zlib";
-import { sql } from "kysely";
+import {
+	type KyselyPlugin,
+	type PluginTransformQueryArgs,
+	type PluginTransformResultArgs,
+	type QueryResult,
+	type RootOperationNode,
+	sql,
+	type UnknownRow,
+} from "kysely";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { getSession } from "@/lib/auth-utils";
@@ -14,12 +22,16 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { changeUnderEachTry } from "@/lib/db/__tests__/heldAppRow";
 import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { claimHqAppInTransaction } from "@/lib/db/hqAppClaims";
-import { withAppTx } from "@/lib/db/pg";
+import { __setAppDbForTests, withAppTx } from "@/lib/db/pg";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import { PUBLISH_CLAIMS_CHANGED } from "@/lib/publish/stopPublishing";
 import { stopPublishingAction } from "../actions";
 import { DeploymentEndedError } from "../errors";
-import { previewProjectSpaceFor } from "../previewSpace";
+import { normalizeHqAppSource } from "../hqSourceBaseline";
+import {
+	previewProjectSpaceFor,
+	readPreviewDeploymentAnswer,
+} from "../previewSpace";
 import {
 	deploymentEnding,
 	leftBehindResources,
@@ -176,6 +188,7 @@ describe("endDeployment", () => {
 			byName: `a-${role}`,
 			reason: "stopped",
 			hqAppId: HQ_APP,
+			heldByAnotherApp: false,
 		});
 		expect(nextPublishAction(view)).toBe("creates-beside");
 		expect(view.confirmations).toEqual([
@@ -613,13 +626,17 @@ describe("stopPublishingAction", () => {
 		const stopped = await stopPublishingAction(input);
 		if (!stopped.success) throw new Error(stopped.message);
 		expect(stopped.data).toMatchObject({
-			deployment: { deployment: { state: "ended", endings: 1 } },
-			artifact: { server: "production", domain: "clinic", hqAppId: null },
-			leftBehind: [],
-			kept: null,
-			previewProjectSpace: null,
+			view: {
+				deployment: { deployment: { state: "ended", endings: 1 } },
+				artifact: { server: "production", domain: "clinic", hqAppId: null },
+				leftBehind: [],
+				kept: null,
+				firstPublish: null,
+			},
+			preview: { projectSpace: null, targetFacts: null },
 		});
-		expect(deploymentEnding(stopped.data.deployment)).toMatchObject({
+		if (stopped.data.view === null) throw new Error("Expected the record");
+		expect(deploymentEnding(stopped.data.view.deployment)).toMatchObject({
 			byName: "an-admin",
 			reason: "stopped",
 			hqAppId: HQ_APP,
@@ -630,6 +647,120 @@ describe("stopPublishingAction", () => {
 			code: "invalid_input",
 			message:
 				"Nova isn't publishing this app to “clinic”, so there's nothing to stop.",
+		});
+	});
+
+	/* With the app live on two project spaces Preview names neither. Stopping
+	 * one leaves the other to name, with its settings: the answer carries both,
+	 * read after the ending as the stream's deployment lane reads them, so the
+	 * tab ends on the same values whichever of the two arrives last. An answer
+	 * that named the space and left the settings out would wipe the settings
+	 * the stream had just delivered, and the stream sends them only once. */
+	it("answers what Preview names and plays now, the remaining project space's settings with it", async () => {
+		const birth = await born();
+		const beta = { server: "production" as const, domain: "beta" };
+		const read = normalizeHqAppSource({
+			doc_type: "Application",
+			name: "Clinic visits",
+			langs: ["en"],
+			translations: { en: { en: "English" } },
+			profile: { properties: { "cc-fuzzy-search-enabled": "yes" } },
+			modules: [],
+			_attachments: {},
+		});
+		if ("malformed" in read) throw new Error(read.malformed);
+		await foldDeploymentAttempt(
+			birth.scope,
+			beta,
+			"preflight",
+			{ status: "succeeded", at: "2026-11-11T00:00:00.000Z" },
+			{ ensure: true, expectedEndings: 0 },
+		);
+		await recordRemoteResource(birth.scope, beta, {
+			expectedEndings: 0,
+			kind: "app",
+			novaResourceId: APP,
+			remoteId: "b".repeat(32),
+			ownership: "nova-created",
+			adoptedBy: null,
+			pushedRevision: 1,
+			uploadedAt: "2026-11-11T00:00:00.000Z",
+			remoteRevision: null,
+			baseline: {
+				origin: "push",
+				remoteAppId: "b".repeat(32),
+				sourceGzip: gzipSync(Buffer.from(read.text, "utf8")),
+				sourceBytes: read.bytes,
+				sourceDigest: read.digest,
+				ownership: {
+					addOns: [],
+					profileProperties: [],
+					profileCustomProperties: [],
+					autoGpsCapture: false,
+				},
+				observedAt: "2026-11-11T00:00:00.000Z",
+				discard: null,
+				novaRevision: null,
+				mediaFiles: { kind: "set", files: null },
+				firstPublish: { kind: "set", list: null },
+			},
+		});
+		expect(await readPreviewDeploymentAnswer(birth.scope)).toEqual({
+			projectSpace: null,
+			targetFacts: null,
+		});
+
+		signedInAs(OWNER);
+		const stopped = await stopPublishingAction(input);
+		if (!stopped.success) throw new Error(stopped.message);
+
+		const now = {
+			projectSpace: "beta",
+			targetFacts: { fuzzyListSearch: true, markRequiredQuestions: false },
+		};
+		expect(stopped.data.preview).toEqual(now);
+		expect(await readPreviewDeploymentAnswer(birth.scope)).toEqual(now);
+	});
+
+	/* The ending commits before anything the answer shows is read. A fault
+	 * reading it then must not answer "nothing was changed": the person would
+	 * stop again and be told there is nothing to stop. */
+	it("answers a stop whose reads after the ending fault as stopped, with no record", async () => {
+		const birth = await born();
+		const faulting: KyselyPlugin = {
+			transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
+				if (JSON.stringify(args.node).includes('"app_deployment_baselines"')) {
+					throw Object.assign(new Error("terminating connection"), {
+						code: "57P01",
+					});
+				}
+				return args.node;
+			},
+			async transformResult(
+				args: PluginTransformResultArgs,
+			): Promise<QueryResult<UnknownRow>> {
+				return args.result;
+			},
+		};
+		signedInAs(OWNER);
+		__setAppDbForTests(h.db().withPlugin(faulting));
+		let stopped: Awaited<ReturnType<typeof stopPublishingAction>>;
+		try {
+			stopped = await stopPublishingAction(input);
+		} finally {
+			__setAppDbForTests(h.db());
+		}
+
+		expect(stopped).toEqual({
+			success: true,
+			data: { view: null, preview: { projectSpace: null, targetFacts: null } },
+		});
+		const read = await readDeployment(birth.scope, TARGET);
+		if (read === null) throw new Error("Expected the deployment");
+		expect(read.deployment.state).toBe("ended");
+		expect(await stopPublishingAction(input)).toMatchObject({
+			success: false,
+			code: "invalid_input",
 		});
 	});
 });
@@ -661,6 +792,15 @@ describe("readers of an ended deployment", () => {
 			actorUserId: OWNER,
 			target: TARGET,
 			remoteAppId: HQ_APP,
+		});
+		/* The card of the stopped deployment learns the HQ app is another's
+		 * now, so it names no way back to it. */
+		const stoppedThere = await readDeployment(birth.scope, TARGET);
+		if (stoppedThere === null) throw new Error("Expected the deployment");
+		expect(deploymentEnding(stoppedThere)).toMatchObject({
+			hqAppId: HQ_APP,
+			reason: "stopped",
+			heldByAnotherApp: true,
 		});
 		await foldDeploymentAttempt(
 			birth.scope,

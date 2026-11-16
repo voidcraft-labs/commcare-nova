@@ -14,6 +14,10 @@
  * 5. summary: the document says what CommCare HQ's own question summary of
  *    the source says.
  *
+ * `acceptReadingSteps` is the same judge one piece at a time: it stops
+ * between pieces (each choice's gate, each document's emission, each stage of
+ * a re-read) until it is resumed, so a request can let the event loop turn.
+ *
  * Pure: it reads its argument and module constants, logs nothing, reads no
  * store and no clock, and never throws for content: a production function
  * that throws over the document is a difference of the check that called it,
@@ -34,7 +38,7 @@ import {
 	type ReadDraft,
 	type ReaderInput,
 	type ReadOutcome,
-	readHqApp,
+	readHqAppSteps,
 } from "@/lib/commcare/reader";
 import {
 	matchingResolver,
@@ -245,6 +249,19 @@ function calling<T>(fn: string, run: () => T): T {
 	}
 }
 
+/** `steps` run to their end, or a `Threw` that names `fn` where they throw. */
+function* callingSteps<T>(fn: string, steps: Steps<T>): Steps<T> {
+	try {
+		return yield* steps;
+	} catch (error) {
+		if (error instanceof Threw) throw error;
+		throw new Threw(fn, error);
+	}
+}
+
+/** The pieces of acceptance: each `yield` is a place it may stop. */
+type Steps<T> = Generator<void, T, void>;
+
 function thrownDetail(error: Threw): string {
 	return error.cause instanceof Error
 		? error.cause.message
@@ -259,6 +276,16 @@ interface Gated {
 }
 
 export function acceptReading(input: AcceptReadingInput): AcceptedReading {
+	const steps = acceptReadingSteps(input);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+export function* acceptReadingSteps(
+	input: AcceptReadingInput,
+): Steps<AcceptedReading> {
 	const { outcome, source } = input;
 	const draft = outcome.draft;
 	const places = sourcePlaces(source);
@@ -305,7 +332,8 @@ export function acceptReading(input: AcceptReadingInput): AcceptedReading {
 	};
 	const gated: Gated[] = [];
 	const gate: AcceptanceDifference[] = [];
-	input.choices.choices.forEach((choice, index) => {
+	for (const [index, choice] of input.choices.choices.entries()) {
+		yield;
 		try {
 			const verdict = calling("mutationCommitVerdict", () =>
 				mutationCommitVerdict(
@@ -319,9 +347,10 @@ export function acceptReading(input: AcceptReadingInput): AcceptedReading {
 					gate.push(
 						gateDifference(difference, [finding.code], finding, placeOf),
 					);
-				return;
+				continue;
 			}
 			const doc = verdict.nextDoc;
+			yield;
 			const readiness = calling("exportReadinessFindings", () =>
 				exportReadinessFindings(doc, lookupContext, input.media.rows),
 			);
@@ -348,16 +377,17 @@ export function acceptReading(input: AcceptReadingInput): AcceptedReading {
 		} catch (error) {
 			gate.push(...threw("gate", error));
 		}
-	});
+	}
 	if (gate.length > 0) return failed("gate", gate);
 
 	// 3. The fixed point: D, then the split document where a choice offers it.
-	const fixedPoint = fixedPointCheck(input, gated, placeOf, threw);
+	const fixedPoint = yield* fixedPointCheck(input, gated, placeOf, threw);
 	if (!("emission" in fixedPoint))
 		return failed("fixed-point", fixedPoint.differences);
 	const emission = fixedPoint.emission;
 
 	// 4. Identity agreement between CommCare HQ's source and that emission.
+	yield;
 	let identity: ReturnType<typeof identityDifferences>;
 	try {
 		identity = calling("identityDifferences", () =>
@@ -375,6 +405,7 @@ export function acceptReading(input: AcceptReadingInput): AcceptedReading {
 		return failed("identity", identity.differences);
 
 	// 5. CommCare HQ's own question summary against the document.
+	yield;
 	let summary: readonly AcceptanceDifference[];
 	try {
 		summary = calling("summaryDifferences", () =>
@@ -397,9 +428,10 @@ export function acceptReading(input: AcceptReadingInput): AcceptedReading {
 		);
 		return found === undefined ? [] : [{ uuid: found.uuid }];
 	});
-	let declarations: AcceptedDeclaration[];
-	try {
-		declarations = gated.map(({ choice, index, doc }) => {
+	const declarations: AcceptedDeclaration[] = [];
+	for (const { choice, index, doc } of gated) {
+		yield;
+		try {
 			const runsOnlyOn = choice.runsOnlyOn ?? null;
 			const firstPublish = calling("firstPublishChangesFor", () =>
 				firstPublishChangesFor(
@@ -415,16 +447,16 @@ export function acceptReading(input: AcceptReadingInput): AcceptedReading {
 					}),
 				),
 			);
-			return {
+			declarations.push({
 				runsOnlyOn,
 				splitDatetime: choice.split,
 				preselected: index === input.choices.proposed,
 				mutations: choice.mutations,
 				firstPublish,
-			};
-		});
-	} catch (error) {
-		return failed("gate", threw("gate", error));
+			});
+		} catch (error) {
+			return failed("gate", threw("gate", error));
+		}
 	}
 	const preselected =
 		declarations.find((one) => one.preselected) ?? declarations[0];
@@ -573,7 +605,7 @@ function accountingDifferences(
  * identities, so the questions the split made keep their uuids. D first: a
  * difference there ends the check.
  */
-function fixedPointCheck(
+function* fixedPointCheck(
 	input: AcceptReadingInput,
 	gated: readonly Gated[],
 	placeOf: (location: ValidationLocation) => HqPlace,
@@ -582,12 +614,13 @@ function fixedPointCheck(
 		error: unknown,
 		lead?: readonly string[],
 	) => AcceptanceDifference[],
-):
+): Steps<
 	| {
 			readonly differences: readonly [];
 			readonly emission: ReturnType<typeof readingEmission>;
 	  }
-	| { readonly differences: readonly AcceptanceDifference[] } {
+	| { readonly differences: readonly AcceptanceDifference[] }
+> {
 	const { outcome, source } = input;
 	const draft = outcome.draft;
 	const emitted = (doc: BlueprintDoc) => ({
@@ -603,8 +636,9 @@ function fixedPointCheck(
 		emission: ReturnType<typeof readingEmission>,
 		resolver: ReaderInput["resolver"],
 	) =>
-		calling("readHqApp", () =>
-			readHqApp({
+		callingSteps(
+			"readHqApp",
+			readHqAppSteps({
 				appId: input.appId,
 				target: input.reader.target,
 				source: sourceFromEmission(emission, source),
@@ -634,7 +668,12 @@ function fixedPointCheck(
 		emission = calling("readingEmission", () =>
 			readingEmission(emitted(draft.doc)),
 		);
-		const again = reRead(draft.doc, emission, mintingResolver(input.appId));
+		yield;
+		const again = yield* reRead(
+			draft.doc,
+			emission,
+			mintingResolver(input.appId),
+		);
 		const found = fixedPointDifferences(draft.doc, again, { outcome }, naming);
 		if (found.length > 0) return { differences: found };
 	} catch (error) {
@@ -643,6 +682,7 @@ function fixedPointCheck(
 
 	const split = gated.find((one) => one.choice.split);
 	if (split !== undefined) {
+		yield;
 		try {
 			const under = calling("applyMutations", () =>
 				UNFROZEN.produce(draft.doc, (working) => {
@@ -658,7 +698,8 @@ function fixedPointCheck(
 			const splitEmission = calling("readingEmission", () =>
 				readingEmission(emitted(expected)),
 			);
-			const again = reRead(
+			yield;
+			const again = yield* reRead(
 				expected,
 				splitEmission,
 				matchingResolver(

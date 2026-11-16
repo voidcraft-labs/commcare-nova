@@ -732,8 +732,9 @@ export function mediaFindings(input: {
 	 *  the rest of the app can run on. Not `plan.runsOn`, which is the one proposed choice's. */
 	readonly runsOn: readonly Platform[];
 }): { readonly findings: readonly Finding[];
-      /** Platforms every held file plays on, of `runsOn`
-       *  (`lib/domain/multimedia.ts::mediaFormatPlaysOn`). */
+      /** Every platform each held file plays on, of `PLATFORMS`, whether or not `runsOn` offers
+       *  it (`lib/domain/multimedia.ts::mediaFormatPlaysOn`), so a caller tells "a held file does
+       *  not play there" from "no choice runs there". */
       readonly playsOn: readonly Platform[];
       /** True when every file of the plan has a verdict. */
       readonly complete: boolean;
@@ -760,7 +761,7 @@ missing files and their claims beside its findings, and `readingMediaFindings` p
 | `refused`, no entry | `unrecognized` | not-yet | name the path; logged at error with the reason and the sniffed type |
 | `wrong-kind` | `unrecognized` | not-yet | name the path; logged at error |
 | `missing` | section 3, "no file", for each of the file's references, over `plan.references`, `plan.runsOn` and `plan.contentValid` | | |
-| `held`, where `playsOn` is empty and the file's `mediaFormat` does not play on every platform of `runsOn` | `media-not-played-where-app-runs` (13.2) | fix-in-hq | name the path |
+| `held`, where `playsOn` holds no platform of `runsOn` and the file's `mediaFormat` does not play on every platform of `runsOn` | `media-not-played-where-app-runs` (13.2) | fix-in-hq | name the path |
 
 The `over-limit` row's sentence is part 01's `media-files` one for `not-yet` (its section 9.2), "A
 media file here is larger than Nova takes, or this app has more media than Nova takes.", which is
@@ -792,9 +793,10 @@ verdict, because 2.1 finds it from the source.
 
 A held file that plays on only some platforms narrows the declarations the review offers:
 `narrowDeclarationsByMedia` (14.2) drops each choice that declares a platform outside `playsOn`.
-`media-not-played-where-app-runs` is raised exactly where `playsOn` is empty, so that no choice
-would be left: on each held file that does not play on every platform of `runsOn`, since each such
-file is part of why. Where `playsOn` holds a platform, no held file raises it.
+`media-not-played-where-app-runs` is raised exactly where `playsOn` holds no platform of `runsOn`,
+so that no choice would be left: on each held file that does not play on every platform of
+`runsOn`, since each such file is part of why. Where `playsOn` holds a platform of `runsOn`, no
+held file raises it.
 
 ---
 
@@ -3855,7 +3857,7 @@ input, a choice that declares a platform outside `playsOn` leaves; the proposal 
 choice remains and otherwise moves to the first choice left in the same order; where a choice is
 left the result is `kind: "choices"`, with `proposed` the index of that choice among those left and
 `narrowedByHq` and `keepsWebApps` as they were. Where none is left the result is `{ kind: "none",
-blocking: [] }`, which no caller meets: `playsOn` is then empty, `readingMediaFindings` has raised
+blocking: [] }`, which no caller meets: `playsOn` then holds no platform of `runsOn`, `readingMediaFindings` has raised
 `media-not-played-where-app-runs` (2.4), the read is an account, and acceptance, which takes the
 `choices` arm alone (part 09, section 2.2), is not called. This is why a review is never answered
 before every file is judged: where the app can run depends on where its files play.

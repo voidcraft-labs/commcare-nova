@@ -352,8 +352,11 @@ export async function writeBroughtInLookupTablesInTransaction(
 				break;
 			case "choice": {
 				if (table.choice === null) {
+					/* Named by its place in the write, never its tag: this reaches the route's
+					 * failed line and Sentry (layer 7's small edit, kept for the
+					 * rebase). */
 					throw new Error(
-						`The lookup table ${tag} reached the birth with no answer to its choice.`,
+						`A lookup table reached the birth with no answer to its choice (table ${write.tables.indexOf(table) + 1} of the ${write.tables.length} the birth writes).`,
 					);
 				}
 				if (!standing.options[table.choice].offered) {

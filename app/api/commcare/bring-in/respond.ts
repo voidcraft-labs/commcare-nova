@@ -15,7 +15,10 @@
  * statuses. A line written after the client has gone is dropped and never
  * fails the work: a read then stops by its `cancel`, and a create runs on.
  *
- * No line holds a word of an app, and neither do the logs: a refused body is
+ * A stage line names a stage and a files line holds two counts, but the `done`
+ * line carries the service's answer, which holds the app's own words (its
+ * name, its case types, a created app's whole blueprint), so no stream line
+ * is ever logged. No log line holds a word of an app: a refused body is
  * logged by its first issue's top-level key and code, never a deeper path or
  * a value, and a failure by the stage that was running.
  */

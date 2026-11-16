@@ -17,7 +17,8 @@
  * and until Nova's first publish there the "On CommCare HQ" rung says Nova
  * read the app and has not published to it. A deployment that stopped
  * (`deploymentEnding`, never the state) draws its ending in place of the
- * ladder, Check status, the kept list and the Workers panel. A member who
+ * ladder, Check status and the kept list, with a link to the HQ app it
+ * stopped at unless another Nova app publishes to that app now. A member who
  * may delete the Project's apps is offered Stop publishing here while the
  * deployment has a live app mapping.
  */
@@ -39,18 +40,14 @@ import {
 } from "react";
 import {
 	broughtInOf,
-	cardKind,
 	checkStatusOffered,
 	DEPLOYMENT_STATE_LABELS,
+	endedCardOf,
 	liveConfirmationRows,
-	previewAnswerAfterStop,
 	readNotPublishedSince,
 	stopPublishingOffered,
 } from "@/components/builder/app-setup/publishingSectionModel";
-import {
-	useDeploymentProjectSpace,
-	useDeploymentTargetFacts,
-} from "@/components/builder/DeploymentTargetProvider";
+import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
 import {
 	KEPT_REFRESH_BUTTON,
 	KEPT_REFRESH_BUTTON_PENDING,
@@ -74,13 +71,13 @@ import {
 	type DeploymentPhase,
 	type DeploymentResource,
 	deploymentDisplaysAsReached,
-	deploymentEnding,
 	hqPlaceUrl,
 } from "@/lib/deployment";
 import {
 	type DeploymentView,
 	refreshDeploymentAction,
 	refreshKeptValuesAction,
+	type StoppedPublishingView,
 	withdrawDeploymentConfirmationAction,
 } from "@/lib/deployment/actions";
 import { remoteAppReportedGone } from "@/lib/deployment/resources";
@@ -292,36 +289,25 @@ export function DeploymentStatus({
 			? keptNotice
 			: null;
 
-	const ended =
-		cardKind(view) === "ended" ? deploymentEnding(view.deployment) : null;
+	const endedCard = endedCardOf(view);
+	const ended = endedCard?.ending ?? null;
 	const broughtIn = broughtInOf(view);
 	const readNotPublished = readNotPublishedSince(view);
 	const [stopOpen, setStopOpen] = useState(false);
 	const noteDeploymentRecordsChanged = useNoteDeploymentRecordsChanged();
-	const previewProjectSpace = useDeploymentProjectSpace();
-	const previewTargetFacts = useDeploymentTargetFacts();
-	/* The stop answers with the record and the project space Preview names
-	 * now, which the surface takes as it takes a Check status's answer. */
+	const applyPreviewAnswer = useApplyPreviewDeploymentAnswer();
+	/* The stop answers with the ended record and what Preview names and plays
+	 * now, both read on the server after the ending landed, so whichever of
+	 * this answer and the stream's frames arrives last, Preview ends on the
+	 * same values. The record goes to the surface as a Check status's does;
+	 * one Nova could not read back is read again with the rest. */
 	const handleStopped = useCallback(
-		(
-			next: DeploymentView & { readonly previewProjectSpace: string | null },
-		) => {
-			const { previewProjectSpace: stoppedSpace, ...stoppedView } = next;
-			onUpdated({
-				...stoppedView,
-				preview: previewAnswerAfterStop(stoppedSpace, {
-					projectSpace: previewProjectSpace,
-					targetFacts: previewTargetFacts,
-				}),
-			});
+		(next: StoppedPublishingView) => {
+			if (next.view !== null) onUpdated({ ...next.view, preview: null });
+			applyPreviewAnswer(next.preview);
 			noteDeploymentRecordsChanged();
 		},
-		[
-			onUpdated,
-			noteDeploymentRecordsChanged,
-			previewProjectSpace,
-			previewTargetFacts,
-		],
+		[onUpdated, applyPreviewAnswer, noteDeploymentRecordsChanged],
 	);
 
 	const refused = record.state === "incomplete";
@@ -385,16 +371,18 @@ export function DeploymentStatus({
 					<p className="text-nova-text">
 						{endedLine(ended, cardDate(ended.at))}
 					</p>
-					<EndedHqAppLink
-						url={hqPlaceUrl(
-							{
-								server: record.server,
-								domain: record.domain,
-								remoteAppId: ended.hqAppId,
-							},
-							{ kind: "app" },
-						)}
-					/>
+					{endedCard?.linksToHqApp === true ? (
+						<EndedHqAppLink
+							url={hqPlaceUrl(
+								{
+									server: record.server,
+									domain: record.domain,
+									remoteAppId: ended.hqAppId,
+								},
+								{ kind: "app" },
+							)}
+						/>
+					) : null}
 				</div>
 			) : (
 				<Ladder rungs={rungs} view={view} readNotPublished={readNotPublished} />
@@ -469,7 +457,10 @@ export function DeploymentStatus({
 				onWithdrawn={canRefresh ? onWithdrawn : undefined}
 			/>
 
-			{ended === null ? workers : null}
+			{/* Drawn on an ended card too: there the panel makes no workers and
+			    shows only the passwords this page still holds for the project
+			    space, which the person was told stay until they leave it. */}
+			{workers}
 
 			<SetupNotes sections={view.artifact.sections} />
 
@@ -494,6 +485,7 @@ export function DeploymentStatus({
 						onOpenChange={setStopOpen}
 						target={{ appId, server: record.server, domain: record.domain }}
 						onStopped={handleStopped}
+						onRecordsStale={noteDeploymentRecordsChanged}
 					/>
 				</div>
 			) : null}

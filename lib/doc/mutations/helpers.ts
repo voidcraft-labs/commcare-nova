@@ -102,6 +102,25 @@ export function findFieldParent(
 }
 
 /**
+ * Point `fieldParent`'s hint for `uuid` at `parentUuid`, where that parent
+ * lists it. `applyMutations` calls it for a field a batch adds or moves, so a
+ * later lookup in the same batch finds the parent through the hint rather
+ * than by scanning every membership array; the batch's end rebuilds
+ * `fieldParent` whole. Where a field is listed under one parent, as every
+ * document the topology check admits has it, the hint and the scan name the
+ * same parent.
+ */
+export function noteFieldParent(
+	draft: Draft<BlueprintDoc>,
+	uuid: Uuid,
+	parentUuid: Uuid,
+): void {
+	if (draft.fieldParent === undefined) return;
+	if (!ownRecordValue(draft.fieldOrder, parentUuid)?.includes(uuid)) return;
+	draft.fieldParent[uuid] = parentUuid;
+}
+
+/**
  * Find the form uuid that contains a given field (direct child or any
  * nested descendant). Returns `undefined` if the field isn't reachable
  * from any form.

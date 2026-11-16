@@ -3,7 +3,8 @@
  * can give, with `fetch` answering as the route would.
  *
  * It would catch: a route's JSON refusal read as a lost request, or a page a
- * proxy or the sign-in redirect served read as a refusal; a JSON body that is
+ * proxy served read as a refusal; an ended session read as a lost request,
+ * which the page would send again into the same 401; a JSON body that is
  * no stream read as an answer; a `done` line carrying the other route's answer
  * kind taken as this route's answer; a picker answer of a kind the page cannot
  * draw handed to it; and a network failure that throws into the page.
@@ -97,9 +98,18 @@ describe("postRead and postCreate", () => {
 		});
 	});
 
+	it("answer signed-out for a 401, whatever its body", async () => {
+		answering(() => json(401, { error: "Authentication required" }));
+		expect(await postRead(KEY, () => {}, new AbortController().signal)).toEqual(
+			{ kind: "signed-out" },
+		);
+		answering(() => new Response("<html>Sign in</html>", { status: 401 }));
+		expect(await postCreate(INPUT, () => {})).toEqual({ kind: "signed-out" });
+	});
+
 	it("answer lost for a page that is no stream and names no refusal of theirs", async () => {
 		for (const response of [
-			() => new Response("<html>Sign in</html>", { status: 401 }),
+			() => new Response("<html>Bad gateway</html>", { status: 502 }),
 			() => json(500, { error: "Something broke", code: "not_a_refusal" }),
 			() => json(200, { kind: "review" }),
 		]) {
@@ -149,6 +159,13 @@ describe("fetchHqApps", () => {
 		expect(
 			await fetchHqApps({ domain: "clinic" }, new AbortController().signal),
 		).toEqual({ ok: false, refusal: null });
+	});
+
+	it("answers a 401 as the person signed out", async () => {
+		answering(() => json(401, { error: "Authentication required" }));
+		expect(
+			await fetchHqApps({ domain: "clinic" }, new AbortController().signal),
+		).toEqual({ ok: false, signedOut: true });
 	});
 
 	it("answers the route's refusal by its code, and a failed request as none", async () => {

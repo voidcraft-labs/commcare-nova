@@ -30,6 +30,7 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { firstSortedModuleListingForm } from "@/lib/domain/formMembership";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
@@ -222,11 +223,8 @@ function moduleLocation(module: Module): LookupReferenceValidationLocation {
 }
 
 function owningModule(doc: BlueprintDoc, formUuid: Uuid): Module | undefined {
-	for (const moduleUuid of Object.keys(doc.formOrder).sort()) {
-		if (!doc.formOrder[moduleUuid]?.includes(formUuid)) continue;
-		return doc.modules[moduleUuid];
-	}
-	return undefined;
+	const moduleUuid = firstSortedModuleListingForm(doc.formOrder, formUuid);
+	return moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 }
 
 function formLocation(

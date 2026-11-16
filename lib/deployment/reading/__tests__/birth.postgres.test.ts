@@ -8,7 +8,8 @@
  * never reads them; a brought-in document that names a place; a birth whose
  * holds are no recordings; a birth that charges or holds; a partial birth;
  * Nova's defect shown as the app's, or an app's words reaching Sentry through
- * an error's message; a removed file answered as Nova's defect, or a retry
+ * an error's message, a lookup store refusal's tag among them; a removed
+ * file answered as Nova's defect, or a retry
  * that fails forever on a dead asset id; a table that changed under the birth
  * answered with a stale review; a claim that does not serialize births; the
  * cycle a Project-state-before-gate order closes; and a deleted app holding
@@ -47,6 +48,7 @@ import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
+import { LookupError } from "@/lib/lookup/errors";
 import { createLookupTable } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
 import { lockLookupProjectState } from "@/lib/lookup/writerTransaction";
@@ -387,6 +389,25 @@ async function untilSomeoneWaits(waiting: number): Promise<void> {
 	}
 }
 
+/** What the one backend waiting on a lock asks for, and whether it holds a transaction id. */
+async function waiterLocks(): Promise<{
+	readonly waitingFor: readonly string[];
+	readonly holdsTransactionId: boolean;
+}> {
+	const { rows } = await sql<{ locktype: string; granted: boolean }>`
+		SELECT l.locktype, l.granted
+		FROM pg_locks l
+		JOIN pg_stat_activity a ON a.pid = l.pid
+		WHERE a.datname = current_database() AND a.wait_event_type = 'Lock'
+	`.execute(h.db());
+	return {
+		waitingFor: rows.filter((row) => !row.granted).map((row) => row.locktype),
+		holdsTransactionId: rows.some(
+			(row) => row.granted && row.locktype === "transactionid",
+		),
+	};
+}
+
 describe("adoptHqAppInTransaction", () => {
 	beforeEach(async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
@@ -658,9 +679,7 @@ describe("adoptHqAppInTransaction", () => {
 			);
 		expect(line?.[1]).toBeUndefined();
 		expect(line?.[2]).toMatchObject({ findingCodes: refusal.findingCodes });
-		expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
-			SENTINEL,
-		);
+		expect(loggedText(vi.mocked(log.error).mock.calls)).not.toContain(SENTINEL);
 	});
 
 	it("answers project_changed where a published file left the Project before the birth, and the next create publishes it again", async () => {
@@ -724,6 +743,62 @@ describe("adoptHqAppInTransaction", () => {
 		).not.toBeNull();
 	});
 
+	it("answers a lookup write the store refuses check-failed, birth-integrity, and logs its code with no word of the app", async () => {
+		const withNulCells = (birth: AdoptionBirth): AdoptionBirth => ({
+			...birth,
+			projectData: {
+				...birth.projectData,
+				tables: birth.projectData.tables.map((table) => ({
+					...table,
+					read: {
+						...table.read,
+						rows: table.read.rows.map((row) => ({
+							...row,
+							fields: Object.fromEntries(
+								Object.keys(row.fields).map((field) => [field, "a\0b"]),
+							),
+						})),
+					},
+				})),
+			},
+		});
+		/* The store's refusal names the table by its tag, so a log that carried the error
+		 * would spell it. */
+		const { birth } = await preparedBirth();
+		const thrown = await withAppTx((tx) =>
+			adoptHqAppInTransaction(tx, withNulCells(birth)),
+		).catch((error: unknown) => error);
+		expect(thrown).toBeInstanceOf(LookupError);
+		expect((thrown as LookupError).code).toBe("invalid_input");
+		expect((thrown as LookupError).message).toContain("district");
+
+		seam.beforeBirth = async (created) => withNulCells(created);
+		vi.mocked(log.error).mockClear();
+		const answer = await bringIn((key, review) => createInputFor(key, review));
+		expect(answer).toMatchObject({
+			kind: "check-failed",
+			finding: {
+				code: "read-back-differs",
+				detail: { name: "birth-integrity" },
+			},
+		});
+		expect(await count(sql`SELECT count(*)::text AS count FROM apps`)).toBe(0);
+		const line = vi
+			.mocked(log.error)
+			.mock.calls.find(
+				([message]) => message === "[reading] could not create: integrity",
+			);
+		expect(line).toBeDefined();
+		expect(line?.[1]).toBeUndefined();
+		expect(line?.[2]).toMatchObject({
+			findingCodes: [],
+			why: expect.stringContaining("invalid_input"),
+		});
+		expect(loggedText(vi.mocked(log.error).mock.calls)).not.toContain(
+			"district",
+		);
+	});
+
 	it("waits for another transaction holding the HQ app's claim lock, and commits once it lets go", async () => {
 		const { birth } = await preparedBirth();
 		const held = Promise.withResolvers<void>();
@@ -738,11 +813,13 @@ describe("adoptHqAppInTransaction", () => {
 			await held.promise;
 			born = withAppTx((tx) => adoptHqAppInTransaction(tx, birth));
 			await untilSomeoneWaits(1);
-			expect(
-				await count(
-					sql`SELECT count(*)::text AS count FROM apps WHERE id = ${birth.candidate.appId}`,
-				),
-			).toBe(0);
+			/* The waiting birth asks for an advisory lock, the claim's, and holds no transaction
+			 * id: a backend that had written a row would hold its own. Another connection's count
+			 * of `apps` cannot tell, since an uncommitted insert is invisible to it. */
+			expect(await waiterLocks()).toEqual({
+				waitingFor: ["advisory"],
+				holdsTransactionId: false,
+			});
 		} finally {
 			release.resolve();
 			await holder;
@@ -750,22 +827,29 @@ describe("adoptHqAppInTransaction", () => {
 		await expect(born).resolves.toEqual({ kind: "born", role: "owner" });
 	});
 
-	it("finishes beside a lookup writer holding Project state and a membership write queued behind it", async () => {
+	it("holds no Project state while it waits for the membership gate behind a membership write, so a lookup writer holding the gate finishes beside it", async () => {
 		const { birth } = await preparedBirth();
 		const OTHER = "bring-in-other-member";
 		await h.seedProjectMember(OTHER, PROJECT, "viewer");
-		const held = Promise.withResolvers<void>();
-		const release = Promise.withResolvers<void>();
+		/* The Project's state row exists before anyone waits, so a birth that had taken it
+		 * would hold a lock another connection's NOWAIT meets. */
+		await withAppTx((tx) => lockLookupProjectState(tx, PROJECT));
+		const gated = Promise.withResolvers<void>();
+		const birthWaits = Promise.withResolvers<void>();
+		/* The lookup writer of the cycle: it holds the shared membership gate, and asks for
+		 * Project state only once the birth is waiting. A birth that took Project state
+		 * before the gate would close the cycle, and Postgres would end one transaction as
+		 * deadlocked. */
 		const writer = withAppTx(async (tx: Transaction<AppDatabase>) => {
 			await projectRoleForInTransaction(tx, ACTOR, PROJECT);
+			gated.resolve();
+			await birthWaits.promise;
 			await lockLookupProjectState(tx, PROJECT);
-			held.resolve();
-			await release.promise;
 		});
 		let membership: Promise<unknown> | null = null;
 		let born: Promise<unknown> | null = null;
 		try {
-			await held.promise;
+			await gated.promise;
 			membership =
 				sql`UPDATE auth_member SET role = 'editor' WHERE "userId" = ${OTHER}`.execute(
 					h.db(),
@@ -773,8 +857,15 @@ describe("adoptHqAppInTransaction", () => {
 			await untilSomeoneWaits(1);
 			born = withAppTx((tx) => adoptHqAppInTransaction(tx, birth));
 			await untilSomeoneWaits(2);
+			await expect(
+				withAppTx(async (tx) => {
+					await sql`SELECT 1 FROM lookup_project_state WHERE project_id = ${PROJECT} FOR UPDATE NOWAIT`.execute(
+						tx,
+					);
+				}),
+			).resolves.toBeUndefined();
 		} finally {
-			release.resolve();
+			birthWaits.resolve();
 			await writer;
 		}
 		await expect(membership).resolves.toBeDefined();
@@ -803,3 +894,13 @@ describe("adoptHqAppInTransaction", () => {
 		expect(released.released_at).not.toBeNull();
 	});
 });
+
+/** Every log call's arguments as text, an Error spelled by its message and stack, which
+ *  JSON leaves out. */
+function loggedText(calls: readonly unknown[]): string {
+	return JSON.stringify(calls, (_key, value: unknown) =>
+		value instanceof Error
+			? { name: value.name, message: value.message, stack: value.stack }
+			: value,
+	);
+}

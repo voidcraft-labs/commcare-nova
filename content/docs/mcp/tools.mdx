@@ -493,7 +493,7 @@ progress while they work.
 |---|---|
 | `list_hq_apps` | List the apps of one CommCare HQ project space by name and `hq_app_id`. `in_nova` says a Nova app already manages one, with the app to open or who to ask. Requires `nova.hq.read`. |
 | `read_hq_app` | Read one HQ app for a Nova Project the user chose. Returns `state`, and with it a `review` (with the `reading_id` to create from), an `account` of findings (each with its place, sentence, standing and next step) or a `stop`. A long account is paged with `page` and `next_page`. Calling it again reads afresh. Requires `nova.hq.read`. |
-| `bring_in_hq_app` | Create the Nova app from a review, given the `project_id`, `domain` and `hq_app_id` that were read, the `reading_id`, `review_digest`, `app_name`, `runs_only_on`, `split_datetime` and `table_choices`. `status` is `created`, `changed`, `read_again`, `check_failed` or `held`. Sending it again with the same arguments answers the same app. Nothing is sent to CommCare HQ. Requires `nova.hq.write`. |
+| `bring_in_hq_app` | Create the Nova app from a review, given the `project_id`, `domain` and `hq_app_id` that were read, the `reading_id`, `review_digest`, `app_name`, `runs_only_on`, `split_datetime` and `table_choices`. `status` is `created`, `changed`, `read_again`, `check_failed` or `held`. Sending it again with the same arguments answers the same app. It reads the app again with the user's CommCare HQ key and changes nothing in CommCare HQ. Requires `nova.hq.write`. |
 
 <Callout type="info">
 An agent never chooses the Project, the name, where the app runs, the date-and-time split or a lookup table's answer for the user. `bring_in_hq_app` has no defaults for that reason.

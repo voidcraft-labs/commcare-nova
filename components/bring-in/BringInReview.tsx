@@ -37,6 +37,7 @@ import {
 	REVIEW_CASE_TYPES_LEAD,
 	REVIEW_LEAD,
 	REVIEW_MEDIA_SECTION,
+	REVIEW_NAME_NONE_IN_HQ,
 	REVIEW_PLACES_SECTION,
 	REVIEW_STAYS_SECTION,
 	REVIEW_TABLES_SECTION,
@@ -186,7 +187,9 @@ export function BringInReview({
 	const refusalAt = reviewRefusalAt(model.refusal);
 	const nameError =
 		namePressed || refusalAt === "name"
-			? READING_REFUSAL_COPY.name_missing
+			? review.appName.trim() === ""
+				? REVIEW_NAME_NONE_IN_HQ
+				: READING_REFUSAL_COPY.name_missing
 			: null;
 	const footerRefusal =
 		refusalAt === "footer" && model.refusal !== null

@@ -74,14 +74,36 @@ export function readHqApp(
 	input: ReaderInput,
 	options: ReaderOptions = {},
 ): ReadOutcome {
+	const steps = readHqAppSteps(input, options);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * `readHqApp` one stage at a time: the reading stops after each stage until
+ * it is resumed, so a caller on a request can let the event loop turn between
+ * stages (added by the bring-in layer: an app at the byte cap is seconds of
+ * reading). Nothing outside the reading's own context is held across a stop.
+ */
+export function* readHqAppSteps(
+	input: ReaderInput,
+	options: ReaderOptions = {},
+): Generator<void, ReadOutcome, void> {
 	if (input.modules.length !== input.source.modules.length)
 		throw new Error(
 			`The reader was given ${input.modules.length} aligned menus for a source that holds ${input.source.modules.length}. Pass the menus of the same reading the source came from.`,
 		);
 	const ctx = createReadContext(input, options, inventoryIndex());
-	countingSyntaxReads(ctx.accounting, () => {
-		for (const stage of STAGES) stage(ctx);
-	});
+	// `onStage` (added by the bring-in layer) names the part a throw came from.
+	for (const [index, stage] of STAGES.entries()) {
+		options.onStage?.(index);
+		/* Counted per stage, since another reading may run between two. */
+		countingSyntaxReads(ctx.accounting, () => stage(ctx));
+		yield;
+	}
+	options.onStage?.("close");
 	const { findings, work, claims, defects } = ctx.close();
 	if (findings.length > 0)
 		return {

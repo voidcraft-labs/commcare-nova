@@ -518,6 +518,19 @@ it("names each key where a client reads it", () => {
 		"`publishing_stopped`",
 	);
 	expect(served("upload_app_to_hq").description).toContain("`since`");
+	expect(served("get_hq_connection").description).toContain("`list_hq_apps`");
+	expect(served("stop_publishing").description).toContain(
+		"`setup_artifact` is then null, and `get_deployment` reads it again",
+	);
+	/* CommCare HQ can hold no name for an app, so the client is told the review's
+	 * name can be empty and asks the user for one there. */
+	const bringInInput = (served("bring_in_hq_app").inputSchema as Json)
+		.properties;
+	if (!object(bringInInput) || !object(bringInInput.app_name))
+		throw new Error("bring_in_hq_app serves no app_name");
+	expect(bringInInput.app_name.description).toContain(
+		"empty where CommCare HQ holds none",
+	);
 
 	const read = served("read_hq_app").description ?? "";
 	for (const key of [

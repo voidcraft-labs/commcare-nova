@@ -12,6 +12,7 @@
 // the reducers and the builder's pickers all read it.
 
 import type { BlueprintDoc } from "./blueprint";
+import { firstModuleListingForm } from "./formMembership";
 import {
 	defaultPostSubmit,
 	OTHERWISE_DESTINATIONS,
@@ -35,10 +36,7 @@ export function moduleUuidOfForm(
 	doc: Pick<BlueprintDoc, "formOrder">,
 	formUuid: Uuid,
 ): Uuid | undefined {
-	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
-		if (formUuids.includes(formUuid)) return moduleUuid as Uuid;
-	}
-	return undefined;
+	return firstModuleListingForm(doc.formOrder, formUuid) as Uuid | undefined;
 }
 
 /**

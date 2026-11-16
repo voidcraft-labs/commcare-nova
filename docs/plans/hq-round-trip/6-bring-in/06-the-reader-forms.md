@@ -342,7 +342,9 @@ are held by the form fixed point over the fuzz corpus ("Tests").
 
 The reader's time is no run of this part. An app's source is refused above part 12's byte bound
 before it is parsed, and the test at that bound, which holds each synchronous piece of a read
-under five seconds, is part 12's (its "Tests"); `readHqApp` is one such piece. What this part
+under five seconds, is part 12's (its "Tests"). A request never runs `readHqApp` as one piece: it
+drives `readHqAppSteps`, one piece per stage, and acceptance a check per piece; measured, a source
+of 16.7 MB at the cap is about 28 seconds over 65 pieces (part 12, section 3.6). What this part
 holds is deterministic: `readerWork.test.ts` ("Tests") reads a form of 200 questions and one of
 400 and requires each counter of `ReadWork` (2.2) to at most double, so a stage that goes
 quadratic fails there with no clock in the test.

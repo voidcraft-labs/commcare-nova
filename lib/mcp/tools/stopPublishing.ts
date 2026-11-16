@@ -18,13 +18,17 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
 	currentResourceIdentities,
-	deploymentKept,
+	faultCode,
+	landedDeploymentKept,
 	stopPublishing,
 } from "@/lib/deployment/service";
+import type { DeploymentScope } from "@/lib/deployment/store";
 import {
 	deploymentServerSchema,
 	deploymentTargetSchema,
 } from "@/lib/deployment/types";
+import type { BlueprintDoc } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -44,7 +48,7 @@ export function registerStopPublishing(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Stop publishing an app to one CommCare HQ project space. The app in CommCare HQ stays exactly as it is, this Nova app stops publishing to it, and it can be brought in to Nova again as a new app. A later upload to that project space makes a new app there, beside the one that stays. Nothing is sent to CommCare HQ. Only an admin or owner of the app's Project can do this; anyone else gets `permission_denied` with who can. This cannot be undone from Nova, so call it only when the user asked for exactly this, after telling them what it does.",
+				"Stop publishing an app to one CommCare HQ project space. The app in CommCare HQ stays exactly as it is, this Nova app stops publishing to it, and it can be brought in to Nova again as a new app. A later upload to that project space makes a new app there, beside the one that stays. Nothing is sent to CommCare HQ. Only an admin or owner of the app's Project can do this: an editor gets `permission_denied` with who can, and someone who cannot edit the app gets `not_found`, as every tool that changes an app answers them. This cannot be undone from Nova, so call it only when the user asked for exactly this, after telling them what it does. Once publishing has stopped, the answer says so even where Nova could not read everything back: `setup_artifact` is then null, and `get_deployment` reads it again.",
 			/* Strict, so the served schema is closed: the SDK converts an input
 			 * schema on its input side, where a plain object stays open. The
 			 * shapes are the browser boundary's, field by field. */
@@ -79,9 +83,13 @@ export function registerStopPublishing(
 					{ server: args.server, domain: args.domain },
 					doc,
 				);
+				/* The ending has committed: from here on, a fault reading what the
+				 * answer shows answers less, never an error, since an agent told
+				 * the stop failed would stop again and be told there is nothing
+				 * to stop. */
 				const [identities, kept] = await Promise.all([
-					currentResourceIdentities(scope, doc),
-					deploymentKept(scope, stopped.deployment),
+					landedIdentities(scope, doc, args.domain),
+					landedDeploymentKept(scope, stopped.deployment, "stop"),
 				]);
 				return {
 					content: [
@@ -103,4 +111,32 @@ export function registerStopPublishing(
 			}
 		},
 	);
+}
+
+/**
+ * The app's resource names for the left-behind list of a stop that landed,
+ * or null where they could not be read, which reports only superseded apps
+ * (`deploymentProjection.ts::describeDeployment`). Logged by the fault's
+ * class and code alone, as `service.ts::landedDeploymentKept` logs one.
+ */
+async function landedIdentities(
+	scope: DeploymentScope,
+	doc: BlueprintDoc,
+	domain: string,
+): Promise<ReadonlyMap<string, string> | null> {
+	try {
+		return await currentResourceIdentities(scope, doc);
+	} catch (error) {
+		log.error(
+			"[deployment] resource names unavailable after a stop landed",
+			undefined,
+			{
+				appId: scope.appId,
+				domain,
+				errorName: error instanceof Error ? error.name : typeof error,
+				errorCode: faultCode(error),
+			},
+		);
+		return null;
+	}
 }

@@ -31,6 +31,7 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { isDeeplySettled, isSettled } from "@/lib/domain/settled";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "./suite/case-search/noMatches";
 
 /** Namespace for synthetic module uuids; changing it re-ids every export. */
@@ -91,7 +92,45 @@ export function hostLowersCaseListRegistration(
 	);
 }
 
+/**
+ * The plan of each settled document (`lib/domain/settled.ts`): a whole-document
+ * pass asks for it once per form, and every projection keyed by the plan's
+ * document (`planGeneratedNodes`, `planFormCaseWire`) answers from one plan
+ * only while the plan's document is the same object.
+ */
+const plans = new WeakMap<BlueprintDoc, EmissionPlan>();
+
+/** Whether no write can reach the parts of `doc` a plan is made from. */
+function planInputsSettled(doc: BlueprintDoc): boolean {
+	return (
+		isSettled(doc) &&
+		isDeeplySettled(doc.modules) &&
+		isDeeplySettled(doc.moduleOrder) &&
+		isDeeplySettled(doc.formOrder) &&
+		isDeeplySettled(doc.forms)
+	);
+}
+
 export function emissionPlan(doc: BlueprintDoc): EmissionPlan {
+	const known = plans.get(doc);
+	if (known !== undefined) return known;
+	const plan = derivePlan(doc);
+	if (!planInputsSettled(doc)) return plan;
+	/* A remembered plan is shared by every caller, so nothing of it may
+	 * change: the parts it made are frozen (the rest are `doc`'s, settled). */
+	if (plan.doc !== doc) {
+		for (const mod of Object.values(plan.doc.modules)) Object.freeze(mod);
+		for (const order of Object.values(plan.doc.formOrder)) Object.freeze(order);
+		Object.freeze(plan.doc.modules);
+		Object.freeze(plan.doc.formOrder);
+		Object.freeze(plan.doc.moduleOrder);
+		Object.freeze(plan.doc);
+	}
+	plans.set(doc, plan);
+	return plan;
+}
+
+function derivePlan(doc: BlueprintDoc): EmissionPlan {
 	const synthetic = new Map<Uuid, SyntheticModule>();
 	const caseListRegistrationOf = new Map<Uuid, SyntheticModule>();
 	const modules: Record<string, Module> = { ...doc.modules };

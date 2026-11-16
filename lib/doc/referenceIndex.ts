@@ -54,6 +54,7 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type Automation,
 	assignedLocationUuids,
+	asUuid,
 	automationsOf,
 	type BlueprintDoc,
 	type CaseOperation,
@@ -126,18 +127,31 @@ function addToBucket(bucket: SetBucket, key: string, member: string): void {
 	bucket[key] = members;
 }
 
-/** Remove `member` from `bucket[key]`, dropping the now-empty inner
- *  record — empty sub-records must not linger, or the incremental index
- *  stops deep-equaling a from-scratch rebuild. */
+/** Remove `member` from `bucket[key]`, and note the key: an inner record
+ *  left empty must not linger, or the incremental index stops
+ *  deep-equaling a from-scratch rebuild, so the batch drops it at its end
+ *  (`ReferenceIndexBatch.finish`). */
 function removeFromBucket(
 	bucket: SetBucket,
 	key: string,
 	member: string,
+	emptied: Set<string>,
 ): void {
 	const inner = ownRecordValue(bucket, key);
 	if (!inner) return;
 	delete inner[member];
-	if (isEmptyRecord(inner)) delete bucket[key];
+	emptied.add(key);
+}
+
+/** Drop each named inner record of `bucket` that holds no member. */
+function dropEmpty(
+	bucket: Record<string, object>,
+	keys: ReadonlySet<string>,
+): void {
+	for (const key of keys) {
+		const inner = ownRecordValue(bucket, key);
+		if (inner !== undefined && isEmptyRecord(inner)) delete bucket[key];
+	}
 }
 
 /**
@@ -150,23 +164,159 @@ interface CarrierContext {
 }
 
 /**
- * Resolve a carrier's context from current doc structure. Always
- * structural (never a cached mirror) so the incremental path and the
- * rebuild resolve identically — including in degenerate docs where a
- * mirror could have gone stale.
- *
- * Cost shape: `findContainingForm` walks parents via order-array scans,
- * so maintenance brackets at O(touched carriers × doc structure) per
- * mutation. Caching a per-carrier form mirror on the index entry would
- * make this O(1) but is rejected deliberately: total reducers can
- * replay degenerate states (an addField whose uuid already sits under
- * another parent leaves one uuid in two order arrays), and there a
- * stale mirror and a structural walk resolve differently — breaking
- * the incremental ≡ rebuild oracle, which is worth more than the
- * bracket. Reference LOOKUPS are unaffected either way: they read the
- * maintained buckets in O(1).
+ * Where a carrier sits, as one pass reads it: the form holding a field
+ * (`findContainingForm`'s answer) and the module holding a form (the first
+ * module in `formOrder`'s entry order that lists it under a UUID key). A
+ * rebuild derives both once from the document it was handed
+ * (`documentPlacement`); a batch's maintenance reads a field's form through
+ * the `fieldParent` hints the batch keeps current (`noteFieldParent`) and a
+ * form's module through its `ReferenceIndexBatch`. Either way the
+ * answer is the structural one, so the incremental path and the rebuild
+ * resolve identically.
  */
-function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
+export interface CarrierPlacement {
+	containingForm(fieldUuid: Uuid): Uuid | undefined;
+	moduleOfForm(formUuid: Uuid): Uuid | undefined;
+}
+
+/** Each form's first module in `formOrder`'s entry order whose key is a UUID. */
+function firstUuidModules(
+	formOrder: BlueprintDoc["formOrder"],
+): Map<string, Uuid> {
+	const modules = new Map<string, Uuid>();
+	for (const [moduleUuid, formUuids] of Object.entries(formOrder)) {
+		const parsed = uuidSchema.safeParse(moduleUuid);
+		if (!parsed.success) continue;
+		for (const formUuid of formUuids)
+			if (!modules.has(formUuid)) modules.set(formUuid, parsed.data);
+	}
+	return modules;
+}
+
+/**
+ * The placement of every carrier of `doc`, derived once. A field's parent is
+ * `findFieldParent`'s: its `fieldParent` hint where the hinted parent still
+ * lists it, else the first parent in `fieldOrder`'s entry order that does.
+ */
+function documentPlacement(doc: BlueprintDoc): CarrierPlacement {
+	const firstParent = new Map<string, string>();
+	for (const [parentUuid, order] of Object.entries(doc.fieldOrder))
+		for (const child of order)
+			if (!firstParent.has(child)) firstParent.set(child, parentUuid);
+	const modules = firstUuidModules(doc.formOrder);
+	const parentOf = (uuid: Uuid): Uuid | undefined => {
+		const hinted = doc.fieldParent?.[uuid];
+		if (
+			hinted !== undefined &&
+			(doc.fieldOrder[hinted]?.indexOf(uuid) ?? -1) !== -1
+		)
+			return hinted;
+		const first = firstParent.get(uuid);
+		return first === undefined ? undefined : asUuid(first);
+	};
+	return {
+		containingForm(fieldUuid) {
+			let cursor: Uuid | undefined = fieldUuid;
+			const visited = new Set<Uuid>();
+			while (cursor !== undefined) {
+				if (visited.has(cursor)) return undefined;
+				visited.add(cursor);
+				const parent = parentOf(cursor);
+				if (parent === undefined) return undefined;
+				if (ownRecordValue(doc.forms, parent) !== undefined) return parent;
+				cursor = parent;
+			}
+			return undefined;
+		},
+		moduleOfForm: (formUuid) => modules.get(formUuid),
+	};
+}
+
+/**
+ * What one batch of mutations keeps while it maintains the reference index.
+ *
+ * The module each form resolves to: derived on first use from the draft's
+ * `formOrder` and kept while the batch runs. An `addForm` that lists a form
+ * no module listed before extends it, and every other write of `formOrder`
+ * (a module born over a key that still lists forms, a removed module, a
+ * removed or moved form, a form added again) drops it, so the next read
+ * derives it afresh from the draft. The reducers that write `formOrder` are
+ * `addModule`, `removeModule`, `addForm`, `removeForm` and `moveForm`.
+ *
+ * The keys whose inner records lost a member: whether such a record is now
+ * empty is a count of its keys, so asking after every removal would cost a
+ * batch the size of the record for every carrier it re-indexes. The batch
+ * asks once per key at its end (`finish`). Until then an emptied record may
+ * stand where a rebuild has none, which every query reads as no reference.
+ */
+export class ReferenceIndexBatch {
+	private modules: Map<string, Uuid> | undefined;
+	readonly emptied = {
+		in: new Set<string>(),
+		decl: new Set<string>(),
+		ctx: new Set<string>(),
+	};
+
+	/** Drops every inner record the batch left empty; called once, at its end. */
+	finish(doc: BlueprintDoc): void {
+		const index = doc.refIndex;
+		if (index === undefined) return;
+		dropEmpty(index.in, this.emptied.in);
+		dropEmpty(index.decl, this.emptied.decl);
+		dropEmpty(index.ctx, this.emptied.ctx);
+	}
+
+	moduleOf(doc: BlueprintDoc, formUuid: Uuid): Uuid | undefined {
+		this.modules ??= firstUuidModules(doc.formOrder);
+		return this.modules.get(formUuid);
+	}
+
+	/** Called with the document before `mut`'s reducer runs. */
+	before(doc: BlueprintDoc, mut: Mutation): void {
+		if (this.modules === undefined) return;
+		switch (mut.kind) {
+			case "removeModule":
+			case "removeForm":
+			case "moveForm":
+				this.modules = undefined;
+				return;
+			case "addModule":
+				if ((ownRecordValue(doc.formOrder, mut.module.uuid)?.length ?? 0) > 0)
+					this.modules = undefined;
+				return;
+			case "addForm":
+				if (this.modules.has(mut.form.uuid)) this.modules = undefined;
+				return;
+			default:
+				return;
+		}
+	}
+
+	/** Called with the document after `mut`'s reducer ran. */
+	after(doc: BlueprintDoc, mut: Mutation): void {
+		if (mut.kind !== "addForm" || this.modules === undefined) return;
+		const formUuid = mut.form.uuid;
+		if (this.modules.has(formUuid)) return;
+		if (!ownRecordValue(doc.formOrder, mut.moduleUuid)?.includes(formUuid))
+			return;
+		const parsed = uuidSchema.safeParse(mut.moduleUuid);
+		if (parsed.success) this.modules.set(formUuid, parsed.data);
+	}
+
+	placement(doc: BlueprintDoc): CarrierPlacement {
+		return {
+			containingForm: (fieldUuid) => findContainingForm(doc, fieldUuid),
+			moduleOfForm: (formUuid) => this.moduleOf(doc, formUuid),
+		};
+	}
+}
+
+/** A carrier's context from current doc structure, never a cached mirror. */
+function carrierContext(
+	doc: BlueprintDoc,
+	carrier: string,
+	placement: CarrierPlacement,
+): CarrierContext {
 	const identity = uuidSchema.safeParse(carrier);
 	if (!identity.success) return {};
 	const mod = ownRecordValue(doc.modules, carrier);
@@ -179,17 +329,10 @@ function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 	let formUuid: Uuid | undefined;
 	if (ownRecordValue(doc.forms, carrier)) formUuid = identity.data;
 	else if (ownRecordValue(doc.fields, carrier)) {
-		formUuid = findContainingForm(doc, identity.data);
-	} else if (
-		ownRecordValue(organizationLevelsOf(doc), carrier) ||
-		ownRecordValue(locationPropertiesOf(doc), carrier) ||
-		ownRecordValue(personasOf(doc), carrier) ||
-		ownRecordValue(automationsOf(doc), carrier)
-	) {
-		return {};
+		formUuid = placement.containingForm(identity.data);
 	} else return {};
 	if (formUuid === undefined) return {};
-	const moduleUuid = resolveFormModule(doc, formUuid);
+	const moduleUuid = placement.moduleOfForm(formUuid);
 	const moduleCaseType =
 		moduleUuid !== undefined
 			? ownRecordValue(doc.modules, moduleUuid)?.caseType
@@ -201,38 +344,28 @@ function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 	};
 }
 
-/** The module whose `formOrder` lists this form — first match in
- *  insertion order, the same rule on every resolution path. */
-function resolveFormModule(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): Uuid | undefined {
-	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
-		if (formUuids.includes(formUuid)) {
-			const parsedModuleUuid = uuidSchema.safeParse(moduleUuid);
-			if (parsedModuleUuid.success) return parsedModuleUuid.data;
-		}
-	}
-	return undefined;
-}
-
 /**
  * Drop every trace of `carrier` from the index in O(its own edges),
  * via its `out` mirror entry.
  */
-function unindexCarrier(index: ReferenceIndex, carrier: string): void {
+function unindexCarrier(
+	index: ReferenceIndex,
+	carrier: string,
+	emptied: ReferenceIndexBatch["emptied"],
+): void {
 	const entry = ownRecordValue(index.out, carrier);
 	if (!entry) return;
 	for (const target of Object.keys(entry.edges)) {
 		const byCarrier = ownRecordValue(index.in, target);
 		if (!byCarrier) continue;
 		delete byCarrier[carrier];
-		if (isEmptyRecord(byCarrier)) delete index.in[target];
+		emptied.in.add(target);
 	}
 	for (const declaration of entry.decls ?? []) {
-		removeFromBucket(index.decl, declaration, carrier);
+		removeFromBucket(index.decl, declaration, carrier, emptied.decl);
 	}
-	if (entry.ctx !== undefined) removeFromBucket(index.ctx, entry.ctx, carrier);
+	if (entry.ctx !== undefined)
+		removeFromBucket(index.ctx, entry.ctx, carrier, emptied.ctx);
 	delete index.out[carrier];
 }
 
@@ -271,10 +404,11 @@ function registerFormDeclarations(
 	index: ReferenceIndex,
 	doc: BlueprintDoc,
 	carrier: string,
+	placement: CarrierPlacement,
 ): void {
 	const form = ownRecordValue(doc.forms, carrier);
 	if (!form) return;
-	const moduleCaseType = carrierContext(doc, carrier).moduleCaseType;
+	const moduleCaseType = carrierContext(doc, carrier, placement).moduleCaseType;
 	const declarations = new Set<string>();
 	for (const operation of form.caseOperations ?? []) {
 		for (const write of operation.writes ?? []) {
@@ -1085,6 +1219,7 @@ function extractProseRefs(
  */
 export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 	const index = emptyReferenceIndex();
+	const placement = documentPlacement(doc);
 	const contexts = new Map<string, CarrierContext>();
 	const carriers = [
 		...Object.keys(doc.modules),
@@ -1096,10 +1231,10 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 		...Object.keys(automationsOf(doc)),
 	];
 	for (const carrier of carriers) {
-		contexts.set(carrier, carrierContext(doc, carrier));
+		contexts.set(carrier, carrierContext(doc, carrier, placement));
 	}
 	for (const carrier of Object.keys(doc.forms)) {
-		registerFormDeclarations(index, doc, carrier);
+		registerFormDeclarations(index, doc, carrier, placement);
 	}
 	for (const carrier of carriers) {
 		extractCarrierEdges(index, doc, carrier, contexts.get(carrier) ?? {});
@@ -1208,8 +1343,14 @@ export function referencingSlotsOf(
 
 /** Every custom worker-information UUID referenced by any indexed AST slot. */
 export function referencedUserPropertyUuids(doc: BlueprintDoc): string[] {
-	return Object.keys(getReferenceIndex(doc).in)
-		.filter((key) => key.startsWith(USER_PROPERTY_TARGET_PREFIX))
+	const incoming = getReferenceIndex(doc).in;
+	/* A batch drops the records it emptied only at its end. */
+	return Object.keys(incoming)
+		.filter(
+			(key) =>
+				key.startsWith(USER_PROPERTY_TARGET_PREFIX) &&
+				!isEmptyRecord(incoming[key] ?? {}),
+		)
 		.map((key) => key.slice(USER_PROPERTY_TARGET_PREFIX.length));
 }
 
@@ -1245,9 +1386,12 @@ export interface ReferenceIndexMaintenance {
 
 const NO_MAINTENANCE: ReferenceIndexMaintenance = { carriers: new Set() };
 
+/** `batch` is the batch `mut` is applied in; a caller that plans one mutation
+ *  outside a batch passes none, and its forms' menus are read from `doc`. */
 export function planReferenceIndexMaintenance(
 	doc: BlueprintDoc,
 	mut: Mutation,
+	batch: ReferenceIndexBatch = new ReferenceIndexBatch(),
 ): ReferenceIndexMaintenance {
 	const index = doc.refIndex;
 	if (!index) return NO_MAINTENANCE;
@@ -1386,13 +1530,13 @@ export function planReferenceIndexMaintenance(
 			carriers.add(mut.uuid);
 			// A move out of its module deletes that module's case list
 			// registration slot when it names this form.
-			const sourceModule = resolveFormModule(doc, mut.uuid);
+			const sourceModule = batch.moduleOf(doc, mut.uuid);
 			if (sourceModule !== undefined && sourceModule !== mut.toModuleUuid) {
 				carriers.add(sourceModule);
 			}
 			// Crossing modules changes the case-type context the form's
 			// subtree extracted under.
-			const oldModule = resolveFormModule(doc, mut.uuid);
+			const oldModule = batch.moduleOf(doc, mut.uuid);
 			if (oldModule !== undefined && oldModule !== mut.toModuleUuid) {
 				const subtree = new Set<string>([
 					mut.uuid,
@@ -1544,18 +1688,20 @@ function _findParentOf(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 export function applyReferenceIndexMaintenance(
 	doc: BlueprintDoc,
 	plan: ReferenceIndexMaintenance,
+	batch: ReferenceIndexBatch,
 ): void {
 	const index = doc.refIndex;
 	if (!index) return;
 	const carriers = new Set(plan.carriers);
 	if (carriers.size === 0) return;
+	const placement = batch.placement(doc);
 	const contexts = new Map<string, CarrierContext>();
 	for (const carrier of carriers) {
-		contexts.set(carrier, carrierContext(doc, carrier));
+		contexts.set(carrier, carrierContext(doc, carrier, placement));
 	}
-	for (const carrier of carriers) unindexCarrier(index, carrier);
+	for (const carrier of carriers) unindexCarrier(index, carrier, batch.emptied);
 	for (const carrier of carriers) {
-		registerFormDeclarations(index, doc, carrier);
+		registerFormDeclarations(index, doc, carrier, placement);
 	}
 	for (const carrier of carriers) {
 		extractCarrierEdges(index, doc, carrier, contexts.get(carrier) ?? {});

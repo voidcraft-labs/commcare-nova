@@ -243,7 +243,7 @@ describe("a bring-in's read at the byte cap", () => {
 		);
 	}, 60_000);
 
-	it("answers an account of one too-large for a source one byte over, and cancels the peer's stream at the bound", async () => {
+	it("answers an account of one too-large for a source one byte over, with no app name though the resource named it, and cancels the peer's stream at the bound", async () => {
 		let stream: Promise<{ ended: boolean }> | undefined;
 		const requested: string[] = [];
 		await withSocketHttpPeer(
@@ -266,11 +266,25 @@ describe("a bring-in's read at the byte cap", () => {
 			},
 			async () => {
 				const { result } = await gather();
-				if (result.kind !== "account") throw new Error(result.kind);
-				expect(result.account.findings.map((finding) => finding.code)).toEqual([
-					"too-large",
-				]);
-				expect(result.account.mediaChecked).toBe(false);
+				expect(result).toEqual({
+					kind: "account",
+					account: {
+						kind: "account",
+						appName: null,
+						findings: [
+							{
+								code: "too-large",
+								standing: "not-yet",
+								place: { kind: "app" },
+								subject: null,
+								detail: {},
+							},
+						],
+						more: 0,
+						counts: { notYet: 1, never: 0, fixInHq: 0 },
+						mediaChecked: false,
+					},
+				});
 				expect(await stream).toEqual({ ended: false });
 				/* No body past the bound is parsed: the counter is never asked. */
 				expect(requested).toEqual([PATHS.application, PATHS.source]);

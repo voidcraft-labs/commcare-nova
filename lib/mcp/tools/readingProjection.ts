@@ -223,7 +223,11 @@ export interface ReadingProjection {
 	/** CommCare HQ's name for the app, where the read learned it. */
 	readonly hq_app_name: string | null;
 	readonly state: "review" | "account" | "stop";
-	/** True where the call sent `page` and Nova answered the fresh read from its start. */
+	/**
+	 * True where the call sent `page` and the fresh read is now a review or an
+	 * account with another digest, answered from its start. False without
+	 * `page`, and for a stop, which answers as itself (`pageFor`).
+	 */
 	readonly restarted: boolean;
 	/** The restart's sentence where `restarted` is true, else null. */
 	readonly message: string | null;
@@ -329,14 +333,18 @@ export function parseAccountPage(
 /**
  * Where a fresh read's answer starts for a call that sent `cursor`: at the
  * cursor's index where the read is the account the cursor was cut from; from
- * the start and `restarted` where it is not; and null where the cursor names
- * that very account at an index past its end, which no answer gave.
+ * the start and `restarted` where the app is now a review or another account;
+ * and null where the cursor names that very account at an index past its end,
+ * which no answer gave. A stop is never `restarted`: it says nothing of the
+ * app the cursor was cut from (a refused key, CommCare HQ busy or away), so it
+ * answers as itself and the cursor still pages once the read gets through.
  */
 export function pageFor(
 	answer: ReadingAnswer,
 	cursor: { readonly from: number; readonly digest: string } | null,
 ): { readonly from: number; readonly restarted: boolean } | null {
-	if (cursor === null) return { from: 0, restarted: false };
+	if (cursor === null || answer.kind === "stop")
+		return { from: 0, restarted: false };
 	if (answer.kind !== "account" || accountDigest(answer) !== cursor.digest)
 		return { from: 0, restarted: true };
 	if (cursor.from >= answer.findings.length) return null;

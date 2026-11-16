@@ -7,6 +7,11 @@
  * app there exactly as it is; the server lets only a member who may delete
  * the Project's apps do it, and an editor who reaches it anyway reads the
  * refusal's own sentence here.
+ *
+ * A stop that did not answer with a stopped record tells its surface to read
+ * the records again (`onRecordsStale`): an answer lost on the way may follow
+ * a stop that landed, and a refusal that there is nothing to stop means the
+ * record on screen is older than the deployment.
  */
 "use client";
 
@@ -25,7 +30,10 @@ import {
 } from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import type { CommCareServer } from "@/lib/deployment";
-import { stopPublishingAction } from "@/lib/deployment/actions";
+import {
+	type StoppedPublishingView,
+	stopPublishingAction,
+} from "@/lib/deployment/actions";
 import {
 	STOP_PUBLISHING_CANCEL,
 	STOP_PUBLISHING_CONFIRM,
@@ -33,16 +41,12 @@ import {
 	stopPublishingConfirmTitle,
 } from "@/lib/publish/stopPublishing";
 
-type StopPublishingData = Extract<
-	Awaited<ReturnType<typeof stopPublishingAction>>,
-	{ success: true }
->["data"];
-
 export function StopPublishingDialog({
 	open,
 	onOpenChange,
 	target,
 	onStopped,
+	onRecordsStale,
 }: {
 	readonly open: boolean;
 	readonly onOpenChange: (open: boolean) => void;
@@ -53,7 +57,12 @@ export function StopPublishingDialog({
 		readonly domain: string;
 	};
 	/** Called once with the action's answer when the stop succeeds, before the dialog closes. */
-	readonly onStopped: (next: StopPublishingData) => void;
+	readonly onStopped: (next: StoppedPublishingView) => void;
+	/**
+	 * Called once when the stop answered anything but a stop, or no answer
+	 * arrived: the surface reads where the app stands again.
+	 */
+	readonly onRecordsStale: () => void;
 }): ReactElement {
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -87,7 +96,8 @@ export function StopPublishingDialog({
 			setError(stopFailureSentence(null));
 		}
 		setPending(false);
-	}, [appId, server, domain, onStopped, onOpenChange]);
+		onRecordsStale();
+	}, [appId, server, domain, onStopped, onOpenChange, onRecordsStale]);
 
 	return (
 		<AlertDialog open={open} onOpenChange={handleOpenChange}>

@@ -95,6 +95,13 @@ export interface KnownIndexTarget {
 export interface ReaderOptions {
 	/** `counts`, the default, keeps claim counts by entry. `full` also keeps every claim. */
 	readonly claims?: "counts" | "full";
+	/**
+	 * Told which part of the reading runs next: a stage's index in `STAGES`,
+	 * then `close`. A caller that catches a throw names where it came from with
+	 * the last one it was told, never with the thrown message, which can quote
+	 * the app. (Added by the bring-in layer for its reader-fault log line.)
+	 */
+	readonly onStage?: (at: number | "close") => void;
 }
 
 /** The tables of the source project space the app may read, with the ids project data gives them. */

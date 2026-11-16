@@ -234,8 +234,11 @@ Each part's "Executed during planning" gives what it read. The findings that dec
   starter app, with its JSON, its eleven form XML attachments and 2,379 expressions, and 31 to 38 ms
   per MiB over the three. The reader and acceptance do more than parse, so ten times that is
   allowed: about 0.35 seconds per MiB. That is why bringing an app in is two plain requests, and why
-  the cap is 16 MiB: more than thirty-two times the largest starter app, and under six seconds of
-  processing at that allowance, in pieces (part 05, section 3.3).
+  the cap is 16 MiB: more than thirty-two times the largest starter app (part 05, section 3.3).
+  Measured, a source of 16.7 MB at the cap is about 28 seconds of processing on a laptop, in 65
+  pieces with the event loop turning between them: the reader runs a stage per piece and acceptance
+  a check per piece, and the five-second bound holds each piece, never the request (part 12,
+  section 3.6).
 - **Three read-only production scans were run, and each found nothing**: the three of "What needs
   your yes before this starts". So no part plans a repair or the handling of a duplicate, and that
   section decides what the session does if one of them finds something later.

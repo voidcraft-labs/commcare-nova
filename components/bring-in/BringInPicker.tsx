@@ -32,6 +32,7 @@ import { Button } from "@/components/shadcn/button";
 import {
 	Combobox,
 	ComboboxContent,
+	ComboboxEmpty,
 	ComboboxInput,
 	ComboboxItem,
 	ComboboxList,
@@ -66,6 +67,7 @@ import {
 	PICKER_PROJECT_LABEL,
 	PICKER_READ_WAITS_LINE,
 	PICKER_SPACE_LABEL,
+	PICKER_SPACE_NO_MATCH,
 	PICKER_SPACE_PLACEHOLDER,
 	PICKER_SPACE_SELECT_PLACEHOLDER,
 	pickerAppsLoadingLine,
@@ -84,6 +86,7 @@ import {
 import {
 	alreadyInNovaNext,
 	type CircumstanceContext,
+	circumstanceBlock,
 } from "@/lib/publish/hqFindingCopy";
 import { READING_REFUSAL_COPY } from "@/lib/publish/hqReadingCopy";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
@@ -104,6 +107,18 @@ interface SpaceItem {
 
 function rowName(row: HqAppPickerRow): string {
 	return row.name.trim() === "" ? UNNAMED_HQ_APP : row.name;
+}
+
+/** The rows the filter leaves on screen: a case-insensitive match of the name. It never chooses. */
+function shownRows(
+	rows: readonly HqAppPickerRow[],
+	filter: string,
+): readonly HqAppPickerRow[] {
+	const needle = filter.trim().toLocaleLowerCase();
+	if (needle === "") return rows;
+	return rows.filter((row) =>
+		rowName(row).toLocaleLowerCase().includes(needle),
+	);
 }
 
 export function BringInPicker({
@@ -152,20 +167,38 @@ export function BringInPicker({
 		awaitingConnection.current = false;
 		return deferFocus(() => spaceControlRef.current?.focus());
 	}, [notConnected, hasSpaces, deferFocus]);
+	const shown =
+		loaded?.kind === "apps" ? shownRows(loaded.apps, picker.filter) : [];
+	/* The app Read this app reads is the one the list shows as chosen: a chosen
+	 * row the filter hides is no choice anyone can see. */
 	const chosen =
-		loaded?.kind === "apps" && picker.remoteAppId !== null
+		picker.remoteAppId !== null &&
+		shown.some((row) => row.remoteAppId === picker.remoteAppId)
 			? picker.remoteAppId
 			: null;
+	const appContext: CircumstanceContext = {
+		...context,
+		space: picker.domain ?? "",
+		app: null,
+	};
+	/* What the screen's status region says of the App field: the list being
+	 * read, then a stop met while reading it. Both arrive after the screen,
+	 * so each is announced. */
+	const appStatus =
+		picker.domain === null || notConnected ? null : picker.apps.kind ===
+			"loading" ? (
+			<span className="sr-only">{pickerAppsLoadingLine(picker.domain)}</span>
+		) : loaded?.kind === "stop" ? (
+			<span className="sr-only">
+				{circumstanceBlock(loaded.finding, appContext).title}
+			</span>
+		) : null;
 	const spaceItems: readonly SpaceItem[] = picker.domains.map((name) => ({
 		value: name,
 		label:
 			connection.availableDomains.find((domain) => domain.name === name)
 				?.displayName ?? name,
 	}));
-
-	const onStopAction = (action: StopAction) => {
-		if (action.kind === "check-again") dispatch({ type: "picker-reload" });
-	};
 
 	const footer = (
 		<>
@@ -202,6 +235,7 @@ export function BringInPicker({
 		<BringInScreenLayout
 			title={PICKER_HEADING}
 			description={PICKER_LEAD}
+			status={appStatus}
 			footer={footer}
 			footerNote={
 				project !== undefined ? (
@@ -359,6 +393,7 @@ export function BringInPicker({
 												data-1p-ignore
 											/>
 											<ComboboxContent>
+												<ComboboxEmpty>{PICKER_SPACE_NO_MATCH}</ComboboxEmpty>
 												<ComboboxList>
 													{(item: SpaceItem) => (
 														<ComboboxItem key={item.value} value={item}>
@@ -379,8 +414,8 @@ export function BringInPicker({
 									model={model}
 									dispatch={dispatch}
 									labelId={appLabelId}
-									context={{ ...context, space: picker.domain, app: null }}
-									onStopAction={onStopAction}
+									context={appContext}
+									shown={shown}
 								/>
 							) : null}
 						</>
@@ -396,56 +431,119 @@ function onCancel(): void {
 	pushBuilderHistory("/build/new", true);
 }
 
+/**
+ * The App field: its title, then the list, the wait for it, a list that could
+ * not be read, or a stop met while reading it. The title stands through every
+ * one of them, so Check again and Try again, whose own buttons leave with
+ * the answer they act on, hand focus to it and keep it in the card.
+ */
 function AppField({
 	model,
 	dispatch,
 	labelId,
 	context,
-	onStopAction,
+	shown,
 }: {
 	readonly model: BringInModel;
 	readonly dispatch: (event: BringInEvent) => void;
 	readonly labelId: string;
 	readonly context: CircumstanceContext;
-	readonly onStopAction: (action: StopAction) => void;
+	/** The rows the filter leaves on screen. */
+	readonly shown: readonly HqAppPickerRow[];
 }) {
 	const { picker } = model;
 	const domain = picker.domain ?? "";
 	const filterId = useId();
+	const titleRef = useRef<HTMLDivElement>(null);
+	const deferFocus = useDeferredFocus();
+
+	if (picker.apps.kind === "idle") return null;
+
+	const reload = () => {
+		dispatch({ type: "picker-reload" });
+		deferFocus(() => titleRef.current?.focus());
+	};
+	const onStopAction = (action: StopAction) => {
+		if (action.kind === "check-again") reload();
+	};
+
+	return (
+		<div className="flex flex-col gap-2">
+			<FieldTitle
+				id={labelId}
+				ref={titleRef}
+				tabIndex={-1}
+				className="outline-none"
+			>
+				{PICKER_APP_LABEL}
+			</FieldTitle>
+			<AppFieldBody
+				model={model}
+				domain={domain}
+				labelId={labelId}
+				filterId={filterId}
+				context={context}
+				shown={shown}
+				dispatch={dispatch}
+				onReload={reload}
+				onStopAction={onStopAction}
+			/>
+		</div>
+	);
+}
+
+function AppFieldBody({
+	model,
+	domain,
+	labelId,
+	filterId,
+	context,
+	shown,
+	dispatch,
+	onReload,
+	onStopAction,
+}: {
+	readonly model: BringInModel;
+	readonly domain: string;
+	readonly labelId: string;
+	readonly filterId: string;
+	readonly context: CircumstanceContext;
+	readonly shown: readonly HqAppPickerRow[];
+	readonly dispatch: (event: BringInEvent) => void;
+	readonly onReload: () => void;
+	readonly onStopAction: (action: StopAction) => void;
+}) {
+	const { picker } = model;
 
 	if (picker.apps.kind === "idle") return null;
 
 	if (picker.apps.kind === "loading") {
+		/* The screen's status region says this line; the drawn one is its
+		 * place in the field. */
 		return (
-			<div className="flex flex-col gap-1.5">
-				<FieldTitle id={labelId}>{PICKER_APP_LABEL}</FieldTitle>
-				<p role="status" className="text-[13px] text-nova-text-muted">
+			<>
+				<p className="text-[13px] text-nova-text-muted">
 					{pickerAppsLoadingLine(domain)}
 				</p>
 				{SKELETON_ROWS.map((key) => (
 					<Skeleton key={key} className="h-11 w-full rounded-lg" />
 				))}
-			</div>
+			</>
 		);
 	}
 
 	if (picker.apps.kind === "failed") {
 		return (
-			<div className="flex flex-col gap-2">
-				<FieldTitle id={labelId}>{PICKER_APP_LABEL}</FieldTitle>
+			<>
 				<p role="alert" className="text-sm leading-relaxed text-nova-text">
 					{pickerListFailedLine(domain)}
 				</p>
 				<div>
-					<Button
-						type="button"
-						variant="outline"
-						onClick={() => dispatch({ type: "picker-reload" })}
-					>
+					<Button type="button" variant="outline" onClick={onReload}>
 						{BRING_IN_ACTIONS.tryAgain}
 					</Button>
 				</div>
-			</div>
+			</>
 		);
 	}
 
@@ -454,7 +552,11 @@ function AppField({
 	if (answer.kind === "stop") {
 		const actions = pickerStopActions(answer.finding);
 		return (
-			<BringInStopBlock finding={answer.finding} context={context}>
+			<BringInStopBlock
+				finding={answer.finding}
+				context={context}
+				nothingChanged="read"
+			>
 				{actions.map((action, index) => (
 					<StopActionControl
 						key={action.kind}
@@ -467,58 +569,47 @@ function AppField({
 		);
 	}
 
-	const filter = picker.filter.trim().toLocaleLowerCase();
-	const shown =
-		filter === ""
-			? answer.apps
-			: answer.apps.filter((row) =>
-					rowName(row).toLocaleLowerCase().includes(filter),
-				);
+	if (answer.apps.length === 0) {
+		return (
+			<p className="text-sm text-nova-text-muted">{pickerNoAppsLine(domain)}</p>
+		);
+	}
 
 	return (
-		<div className="flex flex-col gap-2">
-			<FieldTitle id={labelId}>{PICKER_APP_LABEL}</FieldTitle>
-			{answer.apps.length === 0 ? (
+		<>
+			{answer.apps.length > FILTER_OVER_APPS ? (
+				<Input
+					id={filterId}
+					type="search"
+					aria-label={PICKER_APP_FILTER_PLACEHOLDER}
+					placeholder={PICKER_APP_FILTER_PLACEHOLDER}
+					value={picker.filter}
+					onChange={(event) =>
+						dispatch({ type: "picker-filter", filter: event.target.value })
+					}
+					autoComplete="off"
+					data-1p-ignore
+				/>
+			) : null}
+			{shown.length === 0 ? (
 				<p className="text-sm text-nova-text-muted">
-					{pickerNoAppsLine(domain)}
+					{pickerNoMatchLine(domain)}
 				</p>
 			) : (
-				<>
-					{answer.apps.length > FILTER_OVER_APPS ? (
-						<Input
-							id={filterId}
-							type="search"
-							aria-label={PICKER_APP_FILTER_PLACEHOLDER}
-							placeholder={PICKER_APP_FILTER_PLACEHOLDER}
-							value={picker.filter}
-							onChange={(event) =>
-								dispatch({ type: "picker-filter", filter: event.target.value })
-							}
-							autoComplete="off"
-							data-1p-ignore
-						/>
-					) : null}
-					{shown.length === 0 ? (
-						<p className="text-sm text-nova-text-muted">
-							{pickerNoMatchLine(domain)}
-						</p>
-					) : (
-						<RadioGroup
-							aria-labelledby={labelId}
-							value={picker.remoteAppId}
-							onValueChange={(next) => {
-								if (typeof next === "string")
-									dispatch({ type: "picker-app", remoteAppId: next });
-							}}
-						>
-							{shown.map((row) => (
-								<AppRow key={row.remoteAppId} row={row} context={context} />
-							))}
-						</RadioGroup>
-					)}
-				</>
+				<RadioGroup
+					aria-labelledby={labelId}
+					value={picker.remoteAppId}
+					onValueChange={(next) => {
+						if (typeof next === "string")
+							dispatch({ type: "picker-app", remoteAppId: next });
+					}}
+				>
+					{shown.map((row) => (
+						<AppRow key={row.remoteAppId} row={row} context={context} />
+					))}
+				</RadioGroup>
 			)}
-		</div>
+		</>
 	);
 }
 

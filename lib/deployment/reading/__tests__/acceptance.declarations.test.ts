@@ -51,9 +51,12 @@ vi.mock("@/lib/commcare/reader", async (importOriginal) => {
 	reads.actual = actual.readHqApp;
 	return {
 		...actual,
-		readHqApp: (...args: Parameters<typeof actual.readHqApp>) => {
+		/* Acceptance re-reads a stage at a time. */
+		readHqAppSteps: function* (
+			...args: Parameters<typeof actual.readHqAppSteps>
+		) {
 			reads.count++;
-			const outcome = actual.readHqApp(...args);
+			const outcome = yield* actual.readHqAppSteps(...args);
 			reads.calls.push({ input: args[0], outcome });
 			return outcome;
 		},

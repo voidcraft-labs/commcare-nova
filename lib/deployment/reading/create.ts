@@ -85,6 +85,10 @@ function bindingsMoved(appId: string, count: number): string {
 	return `The reading ${appId} bound ${count} of its lookup tables one way before the person answered and another way after. No answer the review offers may move a binding the reader read. Look at lib/deployment/reading/projectData/lookupTables.ts::resolveLookupBindings.`;
 }
 
+function lookupWriteRefused(appId: string, code: string): string {
+	return `The reading ${appId} could not write its lookup tables at the birth: the lookup store refused the write with ${code}. The review passed a table, or offered an answer for one, that the birth cannot keep. Look at lib/deployment/reading/projectData/lookupTables.ts::lookupTableStanding.`;
+}
+
 // ---------------------------------------------------------------------------
 // The bindings under the person's answers
 // ---------------------------------------------------------------------------
@@ -467,6 +471,14 @@ export async function createFromReview(
 				(error.code === "tag_taken" || error.code === "conflict"))
 		)
 			return settle({ kind: "read-again" });
+		/* Every other refusal of the lookup store names a table by its tag, so it is answered
+		 * here, logged by its code alone, and never reaches the route's failed line. */
+		if (error instanceof LookupError)
+			return checkFailed(
+				"integrity",
+				[],
+				lookupWriteRefused(appId, error.code),
+			);
 		if (error instanceof CommitReauthError) return refused("no_project_access");
 		/* Export readiness and the tail's media admission each refuse a file that left the
 		 * Project's library, and neither error says so: ask whether every published file is

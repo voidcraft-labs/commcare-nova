@@ -2765,6 +2765,11 @@ function assertCredentialsMatchServer(
  * so a person whose key no longer reaches the project space can still stop,
  * and the app there stays exactly as it is. An admin or owner of the app's
  * Project may (`store.ts::endDeployment`).
+ *
+ * The ending has committed before the setup artifact is read, so a fault
+ * reading it answers `artifact: null`, logged by the fault's class and code
+ * alone, rather than reporting a stop that landed as one that failed: a person
+ * told nothing changed would stop again and be told there is nothing to stop.
  */
 export async function stopPublishing(
 	scope: DeploymentScope,
@@ -2773,13 +2778,27 @@ export async function stopPublishing(
 	locations?: readonly StoredLocation[],
 ): Promise<{
 	readonly deployment: DeploymentWithResources;
-	readonly artifact: SetupArtifact;
+	readonly artifact: SetupArtifact | null;
 }> {
 	const deployment = await endDeployment(scope, target);
-	return {
-		deployment,
-		artifact: await setupArtifactFor(scope, deployment, doc, locations),
-	};
+	try {
+		return {
+			deployment,
+			artifact: await setupArtifactFor(scope, deployment, doc, locations),
+		};
+	} catch (error) {
+		log.error(
+			"[deployment] setup artifact unavailable after a stop landed",
+			undefined,
+			{
+				appId: scope.appId,
+				domain: target.domain,
+				errorName: error instanceof Error ? error.name : typeof error,
+				errorCode: faultCode(error),
+			},
+		);
+		return { deployment, artifact: null };
+	}
 }
 
 /** What Check status and a refresh of the kept values say of a deployment someone stopped. */
@@ -2932,12 +2951,17 @@ export async function deploymentKept(
 }
 
 /** The action whose write landed before its answer read the kept list. */
-export type KeptReadAfter = "publish" | "check-status" | "kept-refresh";
+export type KeptReadAfter =
+	| "publish"
+	| "check-status"
+	| "kept-refresh"
+	| "stop";
 
 /**
  * `deploymentKept` for the answer to an action whose write has landed: a
- * publish, Check status, or a refresh of the kept values. A fault reading
- * the list is logged and answers `unread`, which the answer leaves out (a
+ * publish, Check status, a refresh of the kept values, or MCP's stop. A
+ * fault reading the list is logged and answers `unread`, which the answer
+ * leaves out (a
  * card keeps the list it shows), so a store fault after the write never
  * reports a write that landed as one that failed, and nobody repeats it over
  * it. The next read of the records reads the list again.
@@ -3002,7 +3026,7 @@ export async function landedFirstPublish(
 }
 
 /** A fault's own code where it carries a string one (a Postgres SQLSTATE, a Node system code), else null. */
-function faultCode(error: unknown): string | null {
+export function faultCode(error: unknown): string | null {
 	if (typeof error !== "object" || error === null || !("code" in error))
 		return null;
 	return typeof error.code === "string" ? error.code : null;

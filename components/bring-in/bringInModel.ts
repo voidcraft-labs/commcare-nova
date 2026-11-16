@@ -200,6 +200,12 @@ export interface BringInModel {
 	} | null;
 	/** The tag of the table choice focus was last sent to, with a counter so a second press moves it again. */
 	readonly needsChoice: { readonly tag: string; readonly nonce: number } | null;
+	/**
+	 * A route answered 401: the session ended. Every request of the page would
+	 * answer the same until it is loaded again, so it holds until then,
+	 * wherever the address goes.
+	 */
+	readonly signedOut: boolean;
 }
 
 export type BringInEvent =
@@ -247,6 +253,8 @@ export type BringInEvent =
 			readonly call: BringInCall;
 			readonly refusal: ReadingRefusal;
 	  }
+	/** Any request of the page, a list, a read or a create, answered 401. */
+	| { readonly type: "signed-out" }
 	/** "Try again" after a `failed` line or two lost requests: the person asks for the same act. */
 	| { readonly type: "retry" }
 	| { readonly type: "answers"; readonly answers: ReviewAnswers }
@@ -313,6 +321,19 @@ function withoutTheApp(model: BringInModel): BringInModel {
 	};
 }
 
+/**
+ * Whether a `stage` or `files` line belongs to the screen on display: the
+ * read's, or the create's while its creating screen stands. A create the
+ * person left (its `pendingCreate` cleared by a `location` event, its `call`
+ * kept) names lines of another app than the one on screen.
+ */
+function linesAreOnScreen(model: BringInModel): boolean {
+	return (
+		model.call === "read" ||
+		(model.call === "create" && model.pendingCreate !== null)
+	);
+}
+
 /** The request ended: nothing of it is in flight or waited on. */
 function callEnded(model: BringInModel): BringInModel {
 	return { ...model, call: null, stage: null, files: null, waitingSince: null };
@@ -350,6 +371,7 @@ export function initialBringInModel(
 		refusal: null,
 		landing: null,
 		needsChoice: null,
+		signedOut: false,
 	};
 }
 
@@ -380,6 +402,15 @@ function reduceConnection(
 	let next: PickerModel = { ...picker, domains };
 	if (next.domain !== null && !domains.includes(next.domain)) {
 		next = { ...next, domain: null, apps: { kind: "idle" }, remoteAppId: null };
+	} else if (
+		next.domain !== null &&
+		next.apps.kind === "loaded" &&
+		next.apps.picker.kind === "not-connected"
+	) {
+		// The list found no key, and the connection now reaches its project
+		// space: the key came back, so the list is read again. Nothing else
+		// would ever read it, since the connection aside hides the fields.
+		next = { ...next, apps: { kind: "loading" } };
 	}
 	const only = domains.length === 1 ? domains[0] : undefined;
 	if (only !== undefined && next.domain === null && next.projectId !== null) {
@@ -624,7 +655,7 @@ export function reduceBringIn(
 				waitingSince: model.waitingSince ?? event.at,
 			};
 		case "stage":
-			if (model.call === null) return model;
+			if (!linesAreOnScreen(model)) return model;
 			return {
 				...model,
 				stage: event.stage,
@@ -634,7 +665,7 @@ export function reduceBringIn(
 						: null,
 			};
 		case "files":
-			if (model.call === null) return model;
+			if (!linesAreOnScreen(model)) return model;
 			return { ...model, files: { done: event.done, total: event.total } };
 		case "read-done":
 			if (model.call !== "read") return model;
@@ -659,6 +690,8 @@ export function reduceBringIn(
 				lost: 0,
 			};
 		}
+		case "signed-out":
+			return { ...callEnded(model), signedOut: true, pendingCreate: null };
 		case "retry":
 			return { ...model, lost: 0, failed: null };
 		case "answers": {
@@ -703,6 +736,8 @@ export function reduceBringIn(
 export type BringInScreen =
 	| { readonly kind: "none" }
 	| { readonly kind: "choose" }
+	/** A request answered 401: only a reload, which signs the person in again, can go on. */
+	| { readonly kind: "signed-out" }
 	/** `lost`: two requests in a row ended with no last line, and the screen offers Try again. */
 	| { readonly kind: "reading"; readonly lost: boolean }
 	/** Nova's own fault, in a read or in a create. */
@@ -723,6 +758,7 @@ export type BringInScreen =
 export function screenOf(model: BringInModel): BringInScreen {
 	const { location, landing } = model;
 	if (location.kind === "none") return { kind: "none" };
+	if (model.signedOut) return { kind: "signed-out" };
 	if (location.kind === "choose") return { kind: "choose" };
 	if (landing?.answer === "unverified")
 		return { kind: "unopened", appId: landing.appId };
@@ -767,6 +803,7 @@ const NO_ACT: BringInAct = Object.freeze({ kind: "none" });
 export function nextAct(model: BringInModel): BringInAct {
 	const { location, picker } = model;
 	if (location.kind === "none") return NO_ACT;
+	if (model.signedOut) return NO_ACT;
 	if (location.kind === "choose") {
 		return picker.apps.kind === "loading" && picker.domain !== null
 			? { kind: "list-apps", domain: picker.domain }

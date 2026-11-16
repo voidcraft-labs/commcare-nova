@@ -34,19 +34,32 @@ export const STOP_PUBLISHING_CANCEL = "Cancel";
  * nothing of `lib/deployment`. `date` is the day the caller formatted.
  * The `claimed-elsewhere` line names no person: whoever's restore or
  * publish met the other app chose nothing, so the line says what happened.
+ * Where another Nova app publishes to that HQ app now (`heldByAnotherApp`),
+ * a stop's line says so in place of the app staying as it was, which it no
+ * longer does. Where none does any more, a `claimed-elsewhere` line says
+ * only that another app had taken it over then, since "now" would
+ * contradict the link back the card offers again (`endedCardOf`).
  */
 export function endedLine(
 	ending: {
 		readonly byName: string;
 		readonly reason: "stopped" | "claimed-elsewhere";
+		readonly heldByAnotherApp: boolean;
 	},
 	date: string,
 ): string {
 	switch (ending.reason) {
 		case "stopped":
-			return `${ending.byName} stopped publishing here on ${date}. The app in CommCare HQ stays as it was, and publishing here again makes a new app beside it.`;
+			return ending.heldByAnotherApp
+				? `${ending.byName} stopped publishing here on ${date}. Another Nova app publishes to that CommCare HQ app now, so publishing here again makes a new app beside it.`
+				: `${ending.byName} stopped publishing here on ${date}. The app in CommCare HQ stays as it was, and publishing here again makes a new app beside it.`;
 		case "claimed-elsewhere":
-			return `Nova stopped publishing here on ${date}, because another Nova app publishes to that CommCare HQ app now. Publishing here again makes a new app beside it.`;
+			/* The app that took it may since have stopped there or been
+			 * deleted: the line then says what happened on that day, and
+			 * nothing of now, beside the link back the card offers again. */
+			return ending.heldByAnotherApp
+				? `Nova stopped publishing here on ${date}, because another Nova app publishes to that CommCare HQ app now. Publishing here again makes a new app beside it.`
+				: `Nova stopped publishing here on ${date}, because another Nova app had taken over that CommCare HQ app. Publishing here again makes a new app beside it.`;
 		default: {
 			const unplaced: never = ending.reason;
 			return unplaced;
@@ -56,6 +69,13 @@ export function endedLine(
 
 /** The link beside the ended line. */
 export const ENDED_HQ_APP_LINK = "Open the app in CommCare HQ";
+
+/**
+ * The Workers panel on an ended card, which draws only while this page still
+ * holds passwords Nova made on that project space.
+ */
+export const ENDED_WORKERS_LINE =
+	"Publishing here stopped, so Nova makes no more workers here. The accounts it made stay in CommCare HQ.";
 
 /** The publish dialog's plan line where the next publish makes a new app beside the ended one. */
 export const PUBLISH_PLAN_CREATES_BESIDE =

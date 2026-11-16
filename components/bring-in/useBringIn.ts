@@ -11,7 +11,8 @@
  * leaves that app or the flow unmounts, never because the act changed, and an
  * aborted read dispatches nothing. A create is never aborted: it runs to its
  * end on the server, and an answer that arrives once the flow has unmounted is
- * dropped.
+ * dropped, though it still removes the tab's key where this flow still holds
+ * it (`bringInCreateEnd.ts`, `bringInCreateKey.ts`).
  *
  * Two keys live in the tab's session storage, each read once and every access
  * inside `try`/`catch`: `nova:bring-in-create`, the create to send again
@@ -21,12 +22,26 @@
  */
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useReducer,
+	useRef,
+	useState,
+} from "react";
 import {
 	fetchHqApps,
 	postCreate,
 	postRead,
 } from "@/components/bring-in/bringInClient";
+import { endCreate } from "@/components/bring-in/bringInCreateEnd";
+import {
+	adoptCreate,
+	type CreateKeyStore,
+	forgetCreate,
+	rememberCreate,
+} from "@/components/bring-in/bringInCreateKey";
 import {
 	type BringInAct,
 	type BringInEvent,
@@ -80,7 +95,7 @@ export type LandCreatedAppReceipt = (
 	origin: "blank" | "brought-in",
 ) => "landed" | "leaving" | "unverified";
 
-/** The create a reload sends again: `{ at, input }`. */
+/** The create a reload sends again: `{ at, input, flow }`, `flow` the mounted flow that holds it. */
 export const BRING_IN_CREATE_KEY = "nova:bring-in-create";
 
 /**
@@ -113,11 +128,22 @@ function removeSessionKey(key: string): void {
 	}
 }
 
-function rememberCreate(input: BringInInput): void {
-	writeSessionKey(
-		BRING_IN_CREATE_KEY,
-		JSON.stringify({ at: Date.now(), input }),
-	);
+/** The tab's create key, through the guarded accessors above (`bringInCreateKey.ts`). */
+const CREATE_KEY_STORE: CreateKeyStore = {
+	read: () => readSessionKey(BRING_IN_CREATE_KEY),
+	write: (value) => writeSessionKey(BRING_IN_CREATE_KEY, value),
+	remove: () => removeSessionKey(BRING_IN_CREATE_KEY),
+};
+
+/** One id per mounted flow: the holder the tab's create key names. */
+function newFlowId(): string {
+	/* `randomUUID` exists only in a secure context; a page served over plain
+	 * HTTP on a LAN address still needs an id no other flow in the tab has. */
+	try {
+		return crypto.randomUUID();
+	} catch {
+		return `${Date.now()}-${Math.random()}`;
+	}
 }
 
 /** The Project "Add it to" starts on: the tab's where the person may add to it, else the first. */
@@ -190,6 +216,8 @@ export function useBringIn(input: {
 	toastRef.current = projectToast;
 
 	const mountedRef = useRef(true);
+	/** This mounted flow's id, which the tab's create key names while this flow holds it. */
+	const [flowId] = useState(newFlowId);
 	/** The read in flight, with the key it reads. */
 	const readRef = useRef<{
 		readonly key: ReadingKey;
@@ -209,15 +237,19 @@ export function useBringIn(input: {
 	/* Writes the tab's key wherever the person asks for a create: Bring it in,
 	 * and Try again after a create that failed, since the failed line removed
 	 * the key and the create is sent again. */
-	const dispatch = useCallback((event: BringInEvent) => {
-		if (event.type === "create-asked") rememberCreate(event.input);
-		if (event.type === "retry") {
-			const { failed, pendingCreate } = modelRef.current;
-			if (failed === "create" && pendingCreate !== null)
-				rememberCreate(pendingCreate);
-		}
-		dispatchModel(event);
-	}, []);
+	const dispatch = useCallback(
+		(event: BringInEvent) => {
+			if (event.type === "create-asked")
+				rememberCreate(CREATE_KEY_STORE, flowId, event.input, Date.now());
+			if (event.type === "retry") {
+				const { failed, pendingCreate } = modelRef.current;
+				if (failed === "create" && pendingCreate !== null)
+					rememberCreate(CREATE_KEY_STORE, flowId, pendingCreate, Date.now());
+			}
+			dispatchModel(event);
+		},
+		[flowId],
+	);
 
 	/* The address. */
 	useEffect(() => {
@@ -233,7 +265,8 @@ export function useBringIn(input: {
 	}, [location]);
 
 	/* Each time the address becomes an app, before any read: the create the
-	 * tab's key holds for it, if one is to be sent again. */
+	 * tab's key holds for it, if one is to be sent again. This flow takes the
+	 * key over, so the end of a request an earlier flow sent leaves it alone. */
 	useEffect(() => {
 		if (model.location.kind !== "app" || model.resumeChecked) return;
 		const resumed = resumableCreate(
@@ -242,8 +275,9 @@ export function useBringIn(input: {
 			Date.now(),
 		);
 		if (resumed === null) removeSessionKey(BRING_IN_CREATE_KEY);
+		else adoptCreate(CREATE_KEY_STORE, flowId);
 		dispatchModel({ type: "resume", input: resumed });
-	}, [model.location, model.resumeChecked]);
+	}, [model.location, model.resumeChecked, flowId]);
 
 	/* The connection as the context holds it now. */
 	const connection = useCommCareConnection();
@@ -274,7 +308,6 @@ export function useBringIn(input: {
 			answer,
 			appId: names?.appId ?? String(receipt?.appId ?? ""),
 		});
-		removeSessionKey(BRING_IN_CREATE_KEY);
 		if (answer === "landed" && names !== null) {
 			toastRef.current(
 				"info",
@@ -321,6 +354,9 @@ export function useBringIn(input: {
 			case "refused":
 				dispatchModel({ type: "refused", call: "read", refusal: end.refusal });
 				return;
+			case "signed-out":
+				dispatchModel({ type: "signed-out" });
+				return;
 			case "lost":
 				dispatchModel({ type: "lost", call: "read" });
 				return;
@@ -343,39 +379,16 @@ export function useBringIn(input: {
 			};
 			const end = await postCreate(createInput, onEvent);
 			if (startedActRef.current === actKey) startedActRef.current = null;
-			if (!mountedRef.current) return;
-			switch (end.kind) {
-				case "done":
-					if (end.answer.kind === "created") {
-						land(end.answer.receipt);
-						return;
-					}
-					removeSessionKey(BRING_IN_CREATE_KEY);
-					dispatchModel({
-						type: "create-done",
-						answer: end.answer,
-						at: Date.now(),
-					});
-					return;
-				case "failed":
-					removeSessionKey(BRING_IN_CREATE_KEY);
-					dispatchModel({ type: "failed", call: "create" });
-					return;
-				case "refused":
-					removeSessionKey(BRING_IN_CREATE_KEY);
-					dispatchModel({
-						type: "refused",
-						call: "create",
-						refusal: end.refusal,
-					});
-					return;
-				case "lost":
-					/* The key stays: the create is still the one on screen. */
-					dispatchModel({ type: "lost", call: "create" });
-					return;
-			}
+			endCreate(end, {
+				mounted: mountedRef.current,
+				onScreen: modelRef.current.pendingCreate !== null,
+				now: Date.now(),
+				forgetCreate: () => forgetCreate(CREATE_KEY_STORE, flowId),
+				land,
+				dispatch: dispatchModel,
+			});
 		},
-		[land],
+		[land, flowId],
 	);
 
 	/* The one effect over the next act. Each act changes the model as its
@@ -397,6 +410,10 @@ export function useBringIn(input: {
 				const { domain } = current;
 				void fetchHqApps({ domain }, controller.signal).then((answer) => {
 					if (controller.signal.aborted || !mountedRef.current) return;
+					if (!answer.ok && "signedOut" in answer) {
+						dispatchModel({ type: "signed-out" });
+						return;
+					}
 					dispatchModel({
 						type: "picker-apps",
 						domain,

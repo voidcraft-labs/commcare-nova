@@ -685,9 +685,51 @@ export interface FirstMenuCaseWatch {
 	readonly before: ReadonlyMap<Uuid, PostSubmitDestination | undefined>;
 }
 
+/**
+ * The menus of one batch's draft that list their forms in the menu above,
+ * kept across the batch so a write of a menu or a form, where no menu does,
+ * learns that no form reads the first menu's case without a walk of every
+ * menu. Derived from the draft on first use; `addModule`, `updateModule`
+ * and `removeModule` are the writes that set or drop the flag, and `after`
+ * re-reads it for the menu each names.
+ */
+export class MenusAbove {
+	private menus: Set<string> | undefined;
+
+	/** Whether no menu of `draft` lists its forms in the menu above. */
+	none(draft: Draft<BlueprintDoc>): boolean {
+		if (this.menus === undefined) {
+			this.menus = new Set();
+			for (const [uuid, mod] of Object.entries(draft.modules))
+				if (mod.formsInMenuAbove === true) this.menus.add(uuid);
+		}
+		return this.menus.size === 0;
+	}
+
+	/** Called with the draft after `mut`'s reducer ran. */
+	after(draft: Draft<BlueprintDoc>, mut: Mutation): void {
+		if (this.menus === undefined) return;
+		const uuid =
+			mut.kind === "addModule"
+				? mut.module.uuid
+				: mut.kind === "updateModule" || mut.kind === "removeModule"
+					? mut.uuid
+					: undefined;
+		if (uuid === undefined) return;
+		if (
+			Object.hasOwn(draft.modules, uuid) &&
+			draft.modules[uuid]?.formsInMenuAbove === true
+		)
+			this.menus.add(uuid);
+		else this.menus.delete(uuid);
+	}
+}
+
 export function watchFirstMenuCase(
 	draft: Draft<BlueprintDoc>,
+	above?: MenusAbove,
 ): FirstMenuCaseWatch | undefined {
+	if (above?.none(draft) === true) return undefined;
 	const forms = formsReadingFirstMenuCase(draft);
 	if (forms.length === 0) return undefined;
 	const read = firstMenuCaseRead(draft);

@@ -443,23 +443,45 @@ function declarationSites(
 function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 	const pending = ctx.pending.list();
 	const index = inventoryIndex();
-	const unread = reading.claims.filter((claim) => claim.source < 0);
-	const used = new Set<ExpressionClaim>();
+	/* Each unread declaration's claims by key and place, in reading order:
+	 * a declaration takes the first one not yet taken. */
+	const unreadAt = new Map<string, ExpressionClaim[]>();
+	for (const claim of reading.claims) {
+		if (claim.source >= 0) continue;
+		const at = JSON.stringify([claim.key, whereText(claim.place)]);
+		const claims = unreadAt.get(at);
+		if (claims === undefined) unreadAt.set(at, [claim]);
+		else claims.push(claim);
+	}
+	/* Each form's held registrations and the positions of their claims,
+	 * grouped once for every form rather than found again per form. */
+	const heldByForm = new Map<string, number[]>();
+	pending.forEach((registration, at) => {
+		if (reading.bound[at] === undefined) return;
+		const owner = slotForm(reading.doc, registration.ref);
+		if (owner === undefined) return;
+		const held = heldByForm.get(owner);
+		if (held === undefined) heldByForm.set(owner, [at]);
+		else held.push(at);
+	});
+	const claimsBySource = new Map<number, number[]>();
+	reading.claims.forEach((claim, position) => {
+		const positions = claimsBySource.get(claim.source);
+		if (positions === undefined) claimsBySource.set(claim.source, [position]);
+		else positions.push(position);
+	});
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
 			const xform = form.xform;
 			if (xform === null) continue;
 			const ids = new Set<string>();
-			const readClaims: ExpressionClaim[] = [];
-			const held = new Set<number>();
-			pending.forEach((registration, at) => {
-				if (reading.bound[at] === undefined) return;
-				if (slotForm(reading.doc, registration.ref) !== form.uuid) return;
-				held.add(at);
-				for (const id of instanceIdsRead(registration.text)) ids.add(id);
-			});
-			for (const claim of reading.claims)
-				if (held.has(claim.source)) readClaims.push(claim);
+			const held = heldByForm.get(form.uuid) ?? [];
+			for (const at of held)
+				for (const id of instanceIdsRead(pending[at]?.text ?? "")) ids.add(id);
+			const readClaims = held
+				.flatMap((at) => claimsBySource.get(at) ?? [])
+				.sort((a, b) => a - b)
+				.map((position) => reading.claims[position] as ExpressionClaim);
 			const where = whereText(form.place);
 			for (const [id, src] of xform.instanceSources) {
 				const declaration = xform.parsed.instances.find(
@@ -468,14 +490,8 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				if (declaration === undefined) continue;
 				const key = unreadDeclarationUse(src).key;
 				if (!ids.has(id)) {
-					const claim = unread.find(
-						(one) =>
-							!used.has(one) &&
-							one.key === key &&
-							whereText(one.place) === where,
-					);
+					const claim = unreadAt.get(JSON.stringify([key, where]))?.shift();
 					if (claim === undefined) continue;
-					used.add(claim);
 					for (const site of declarationSites(declaration.element))
 						ctx.accounting.claimEntry(
 							site,

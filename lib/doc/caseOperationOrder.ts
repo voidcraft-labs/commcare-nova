@@ -11,6 +11,7 @@ import {
 	orderedCaseOperations,
 } from "@/lib/domain";
 import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
+import { firstModuleListingForm } from "@/lib/domain/formMembership";
 import { deepEqual } from "./deepEqual";
 import { orderedFieldUuids } from "./fieldWalk";
 
@@ -1098,8 +1099,8 @@ function moduleCaseTypeForForm(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): string | undefined {
-	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
-		if (formUuids.includes(formUuid)) return doc.modules[moduleUuid]?.caseType;
-	}
-	return undefined;
+	const moduleUuid = firstModuleListingForm(doc.formOrder, formUuid);
+	return moduleUuid === undefined
+		? undefined
+		: doc.modules[moduleUuid]?.caseType;
 }

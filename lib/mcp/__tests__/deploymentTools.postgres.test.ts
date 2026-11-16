@@ -20,6 +20,10 @@ import {
 } from "@/lib/deployment/__tests__/adoptedBirth";
 import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import {
+	currentResourceIdentities,
+	stopPublishing,
+} from "@/lib/deployment/service";
+import {
 	applyDeploymentObservation,
 	foldDeploymentAttempt,
 	readDeployment,
@@ -46,6 +50,16 @@ vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/deployment/store", async (original) => {
 	const store = await original<typeof import("@/lib/deployment/store")>();
 	return { ...store, readTargetFacts: vi.fn(store.readTargetFacts) };
+});
+/* The stop tool's own calls pass through, so a test can make one fault after
+ * the ending has committed. */
+vi.mock("@/lib/deployment/service", async (original) => {
+	const service = await original<typeof import("@/lib/deployment/service")>();
+	return {
+		...service,
+		currentResourceIdentities: vi.fn(service.currentResourceIdentities),
+		stopPublishing: vi.fn(service.stopPublishing),
+	};
 });
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
@@ -1096,7 +1110,7 @@ it("says the kept settings were updated when a value moved under a label listed 
 	expect(facts?.profileProperties["cc-login-duration-seconds"]).toBe("3600");
 });
 
-it("answers a read that could not be used with its sentence dated by the ISO date of the read the list stands on, and writes nothing", async () => {
+it("answers a read that could not be used with its sentence dated by the UTC day of the read the list stands on, and writes nothing", async () => {
 	await seed(false);
 	await publishedWithRead(liveSource());
 	const before = await baselines();
@@ -1107,14 +1121,14 @@ it("answers a read that could not be used with its sentence dated by the ISO dat
 				app_id: APP,
 				kept_refresh: "key-not-accepted",
 				message:
-					"CommCare HQ didn't accept your saved API key, so these stay as of 2026-11-01. You can save a new key in Settings, then refresh again.",
+					"CommCare HQ didn't accept your saved API key, so these stay as of 1 November 2026. You can save a new key in Settings, then refresh again.",
 			});
 			sourceRequest(peer).reply(403, "");
 			expect(await refresh(client, KEPT_ARGS)).toEqual({
 				app_id: APP,
 				kept_refresh: "no-permission",
 				message:
-					"CommCare HQ didn't let your account read this app, so these stay as of 2026-11-01. Reading it needs permission to edit apps in clinic. You can check the connected account, then refresh again.",
+					"CommCare HQ didn't let your account read this app, so these stay as of 1 November 2026. Reading it needs permission to edit apps in clinic. You can check the connected account, then refresh again.",
 			});
 		});
 		expect(urls(peer)).toHaveLength(2);
@@ -1191,7 +1205,7 @@ it("answers a kept refresh whose write landed as landed when its list cannot be 
 			expect(answer).toMatchObject({
 				app_id: APP,
 				kept_refresh: "refreshed",
-				message: keptListUnreadSentence("2026-11-01"),
+				message: keptListUnreadSentence("1 November 2026"),
 				domain: "clinic",
 				state: "uploaded",
 			});
@@ -1250,6 +1264,14 @@ it("says where an app came from and where Nova stopped publishing, and lets only
 				app_id: BROUGHT_IN_APP,
 			});
 		});
+		/* A viewer cannot edit the app, so it finds nothing to stop, as the
+		 * description says. */
+		await h.seedProjectMember("viewer-person", PROJECT, "viewer");
+		await asUser(async (client) => {
+			expect(errorBody(await call(client, STOP, args))).toMatchObject({
+				error_type: "not_found",
+			});
+		}, "viewer-person");
 		const unchanged = await readDeployment(
 			{ ...SCOPE, appId: BROUGHT_IN_APP },
 			TARGET,
@@ -1274,7 +1296,11 @@ it("says where an app came from and where Nova stopped publishing, and lets only
 			});
 			expect(stopped.ending.message).toBe(
 				endedLine(
-					{ byName: "owner-person", reason: "stopped" },
+					{
+						byName: "owner-person",
+						reason: "stopped",
+						heldByAnotherApp: false,
+					},
 					driftDate(stopped.ending.at),
 				),
 			);
@@ -1286,4 +1312,73 @@ it("says where an app came from and where Nova stopped publishing, and lets only
 		/* Stopping asks CommCare HQ nothing. */
 		expect(urls(peer)).toEqual([]);
 	});
+});
+
+/* The ending commits before anything the answer shows is read. A fault
+ * reading it then must not answer an error: the agent would stop again and
+ * be told there is nothing to stop. Each read the tool makes after the
+ * ending catches its own store faults today, so the fault is made at the
+ * tool's own calls: the names it reads, and the setup notes the stop reads. */
+it("answers a stop whose reads after the ending fault as stopped, with a null setup artifact", async () => {
+	const BROUGHT_IN_APP = testUuid("faulting-stop-app");
+	const HQ_APP = "d".repeat(32);
+	await h.seedProjectMember("owner-person", PROJECT, "owner");
+	await birthAdoptedApp(h, {
+		appId: BROUGHT_IN_APP,
+		projectId: PROJECT,
+		actorUserId: "owner-person",
+		target: TARGET,
+		remoteAppId: HQ_APP,
+	});
+	const args = { app_id: BROUGHT_IN_APP, ...TARGET };
+	const words = "Mother's Visit Checklist";
+	const service = await vi.importActual<
+		typeof import("@/lib/deployment/service")
+	>("@/lib/deployment/service");
+	vi.mocked(currentResourceIdentities).mockRejectedValueOnce(
+		Object.assign(new Error(`could not read “${words}”`), { code: "57P01" }),
+	);
+	vi.mocked(stopPublishing).mockImplementationOnce(async (...stop) => ({
+		...(await service.stopPublishing(...stop)),
+		artifact: null,
+	}));
+	await asUser(async (client) => {
+		const result = await call(client, STOP, args);
+		expect(result.isError, JSON.stringify(result)).not.toBe(true);
+		const stopped = JSON.parse(resultText(result));
+		expect(stopped).toMatchObject({
+			app_id: BROUGHT_IN_APP,
+			domain: "clinic",
+			state: "ended",
+			left_behind: [],
+			ending: { by: "owner-person", reason: "stopped", hq_app_id: HQ_APP },
+			setup_artifact: null,
+		});
+		expect(log.error).toHaveBeenCalledWith(
+			"[deployment] resource names unavailable after a stop landed",
+			undefined,
+			{
+				appId: BROUGHT_IN_APP,
+				domain: "clinic",
+				errorName: "Error",
+				errorCode: "57P01",
+			},
+		);
+		expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
+			words,
+		);
+
+		/* The stop landed: a second one finds nothing to stop, and the
+		 * deployment reads back with its setup notes. */
+		expect(errorBody(await call(client, STOP, args))).toMatchObject({
+			error_type: "invalid_input",
+		});
+		const after = JSON.parse(
+			resultText(await call(client, GET, { app_id: BROUGHT_IN_APP })),
+		);
+		expect(after.deployments[0]).toMatchObject({
+			state: "ended",
+			ending: stopped.ending,
+		});
+	}, "owner-person");
 });

@@ -24,6 +24,7 @@ import type { DeploymentView } from "@/lib/deployment/actions";
 import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
 import {
 	activeRemoteApp,
+	type DeploymentEnding,
 	type NextPublishAction,
 	nextPublishAction,
 } from "@/lib/deployment/resources";
@@ -32,7 +33,6 @@ import type {
 	DeploymentConfirmationKey,
 	DeploymentConfirmationKind,
 	DeploymentConfirmationNeeded,
-	PreviewDeploymentAnswer,
 } from "@/lib/deployment/types";
 import {
 	type AppDeploymentNoticeEntry,
@@ -42,6 +42,7 @@ import {
 import {
 	PUBLISHING_STOPPED_ROW,
 	STOP_PUBLISHING_FAILED,
+	STOP_PUBLISHING_UNANSWERED,
 } from "@/lib/publish/bringInCopy";
 import {
 	isPlanFeatureId,
@@ -349,8 +350,10 @@ export function stopPublishingOffered(
  * What a stop that did not happen says, in the confirmation. A refusal whose
  * own sentence tells the person something true and actionable shows it: an
  * editor told who may stop (`not_permitted`), or a deployment with nothing
- * left to stop (`invalid_input`). Every other failure, a thrown request
- * included (`null`), is Nova's own and says it changed nothing.
+ * left to stop (`invalid_input`). A request whose answer never arrived
+ * (`null`) may have stopped publishing, so it says Nova is checking rather
+ * than that nothing changed. Every other failure is answered only for a stop
+ * that did not land (`stopPublishingAction`), and says it changed nothing.
  */
 export function stopFailureSentence(
 	failure: {
@@ -363,30 +366,26 @@ export function stopFailureSentence(
 		readonly message: string;
 	} | null,
 ): string {
-	return failure !== null &&
-		(failure.code === "not_permitted" || failure.code === "invalid_input")
+	if (failure === null) return STOP_PUBLISHING_UNANSWERED;
+	return failure.code === "not_permitted" || failure.code === "invalid_input"
 		? failure.message
 		: STOP_PUBLISHING_FAILED;
 }
 
 /**
- * What Preview names after a stop answered. The stop answers the project
- * space alone; the settings it keeps are kept only where Preview still
- * names the same space, and otherwise wait for the stream's deployment
- * lane, which the stop's write poked.
+ * What an ended card draws: the ending it stands at, and whether it links to
+ * the HQ app it stopped at. It does not where another Nova app publishes to
+ * that HQ app now (someone brought it in, or a restore took it back), since
+ * the way there is that app's and no longer this one's. Null for a card that
+ * is not ended (`cardKind`).
  */
-export function previewAnswerAfterStop(
-	previewProjectSpace: string | null,
-	current: PreviewDeploymentAnswer,
-): PreviewDeploymentAnswer {
-	return {
-		projectSpace: previewProjectSpace,
-		targetFacts:
-			previewProjectSpace !== null &&
-			previewProjectSpace === current.projectSpace
-				? current.targetFacts
-				: null,
-	};
+export function endedCardOf(view: DeploymentView): {
+	readonly ending: DeploymentEnding;
+	readonly linksToHqApp: boolean;
+} | null {
+	const ending = deploymentEnding(view.deployment);
+	if (ending === null) return null;
+	return { ending, linksToHqApp: !ending.heldByAnotherApp };
 }
 
 /**

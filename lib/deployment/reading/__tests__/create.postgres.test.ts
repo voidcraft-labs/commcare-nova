@@ -14,7 +14,8 @@
  * a digest that sees asset ids; a second copy of a file the Project holds; a
  * lost response making a second app; every overlap of two creates of one
  * reading answered as anything but that app; two Nova apps on one HQ app; a
- * stale receipt; and media that is not idempotent by content.
+ * stale receipt; media that is not idempotent by content; and a person who
+ * lost edit in the Project putting files or an app in it.
  */
 
 import { createHash } from "node:crypto";
@@ -847,6 +848,60 @@ describe("createFromReview", () => {
 		).toBe(1);
 	});
 
+	it("answers already-in-nova where another person's create of the HQ app commits between this one's claim advice and its birth, and keeps nothing of its own", async () => {
+		/* Both creates pass the claim advice of gatherReading, so the birth's own claim decides
+		 * the race: this one's claim meets the other's app. */
+		const SECOND = "bring-in-second-editor";
+		await h.seedProjectMember(SECOND, PROJECT, "editor");
+		await seedFixtureConnection(SECOND);
+		const reached = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		let holding = true;
+		let heldAtBirth = false;
+		seam.beforeBirth = async () => {
+			if (!holding) return undefined;
+			holding = false;
+			heldAtBirth = true;
+			reached.resolve();
+			await release.promise;
+			return undefined;
+		};
+		const { mine, theirs } = await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { times: 4 });
+			const myInput = createInputFor(KEY, await read());
+			const theirInput = createInputFor(KEY, await read(SECOND));
+			/* Mine waits at its birth, its claim advice already read. */
+			const waiting = create(myInput).finally(() => {
+				holding = false;
+				reached.resolve();
+			});
+			let theirs: CreateAnswer;
+			try {
+				await reached.promise;
+				theirs = await create(theirInput, SECOND);
+			} finally {
+				release.resolve();
+			}
+			return { mine: await waiting, theirs };
+		});
+		expect(heldAtBirth).toBe(true);
+		receiptOf(theirs);
+		expect(mine).toEqual({
+			kind: "changed",
+			now: expect.objectContaining({
+				kind: "stop",
+				finding: expect.objectContaining({ code: "already-in-nova" }),
+			}),
+		});
+		expect(await count(sql`SELECT count(*)::text AS count FROM apps`)).toBe(1);
+		expect(
+			await count(sql`SELECT count(*)::text AS count FROM app_deployments`),
+		).toBe(1);
+		expect(
+			await count(sql`SELECT count(*)::text AS count FROM lookup_tables`),
+		).toBe(1);
+	});
+
 	it("answers already-in-nova where another Nova app holds the HQ app, having added no file", async () => {
 		const review = await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer, { source: iconSource() });
@@ -958,5 +1013,61 @@ describe("createFromReview", () => {
 			await count(sql`SELECT count(*)::text AS count FROM media_assets`),
 		).toBe(1);
 		expect(uploadAssetBytes).toHaveBeenCalledTimes(1);
+	});
+
+	describe("a person who may only view the Project by the time the create acts brings nothing in", () => {
+		it("answers no_project_access at the publish, having added no file and written no app", async () => {
+			const review = await withHttpPeer(async (peer) => {
+				serveFixtureApp(peer, { source: iconSource() });
+				servePng(peer, "menuicon");
+				return read();
+			});
+			/* Authorized as an editor, as the route does before its stream opens. */
+			const actor = await actorFor();
+			await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+			const before = await rowCounts();
+			const answer = await withHttpPeer(async (peer) => {
+				serveFixtureApp(peer, { source: iconSource() });
+				servePng(peer, "menuicon");
+				return createFromReview(actor, createInputFor(KEY, review), {
+					onEvent: () => {},
+				});
+			});
+			expect(answer).toEqual({
+				kind: "refused",
+				refusal: "no_project_access",
+			});
+			expect(await rowCounts()).toEqual(before);
+			expect(uploadAssetBytes).not.toHaveBeenCalled();
+		});
+
+		it("answers no_project_access at the birth, having written no app", async () => {
+			seam.beforeBirth = async () => {
+				await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+				return undefined;
+			};
+			const answer = await withHttpPeer(async (peer) => {
+				serveFixtureApp(peer, { source: iconSource(), times: 2 });
+				servePng(peer, "menuicon", 2);
+				return create(createInputFor(KEY, await read()));
+			});
+			expect(answer).toEqual({
+				kind: "refused",
+				refusal: "no_project_access",
+			});
+			/* The file reached the Project's library while its publisher could still edit. */
+			expect(uploadAssetBytes).toHaveBeenCalledTimes(1);
+			expect(await count(sql`SELECT count(*)::text AS count FROM apps`)).toBe(
+				0,
+			);
+			expect(
+				await count(sql`SELECT count(*)::text AS count FROM app_deployments`),
+			).toBe(0);
+			expect(
+				await count(
+					sql`SELECT count(*)::text AS count FROM app_deployment_resources`,
+				),
+			).toBe(0);
+		});
 	});
 });

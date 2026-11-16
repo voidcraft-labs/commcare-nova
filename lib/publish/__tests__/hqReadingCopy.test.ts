@@ -126,6 +126,15 @@ describe("the leads", () => {
 		}
 	});
 
+	it("never say Nova chose again for a dropped answer, which a lookup table's choice left unanswered makes false", () => {
+		// A dropped table answer leaves the table with no answer at all, which the
+		// person has to give before a create; only a dropped declaration falls back.
+		expect(CREATE_ANSWER_LEADS.choicesDropped).not.toMatch(/\bNova chose\b/);
+		expect(CREATE_ANSWER_LEADS.choicesDropped).toContain(
+			"back to how the review offers them",
+		);
+	});
+
 	it("never say nothing was created, which is false after a publish", () => {
 		for (const sentence of [
 			...leads(),

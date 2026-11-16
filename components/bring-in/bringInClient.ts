@@ -4,9 +4,11 @@
  * Server Action, so a read that takes minutes holds nothing else of the tab
  * behind it and its stream can be read as it arrives.
  *
- * A route's refusal before its stream is ordinary JSON with a `code`; every
- * other failure, a lost connection among them, is told apart from it and
- * carries nothing, since the page answers them all the same way.
+ * A route's refusal before its stream is ordinary JSON with a `code`. A 401
+ * is the session that ended, which only a sign-in mends, so it is told apart
+ * from every other failure: sending the request again answers the same. Every
+ * other failure, a lost connection among them, carries nothing, since the
+ * page answers them all the same way.
  */
 
 import type {
@@ -24,7 +26,9 @@ import { READING_REFUSALS } from "@/lib/deployment/reading/types";
 export type BringInAnswer<T> =
 	| { readonly ok: true; readonly value: T }
 	/** A body with a `code` is that refusal. Any other failure, a lost request among them, is null. */
-	| { readonly ok: false; readonly refusal: ReadingRefusal | null };
+	| { readonly ok: false; readonly refusal: ReadingRefusal | null }
+	/** The route answered 401: the person is no longer signed in. */
+	| { readonly ok: false; readonly signedOut: true };
 
 /** How a request to one of the two bring-in routes ended. */
 export type BringInStreamEnd<T> =
@@ -34,7 +38,9 @@ export type BringInStreamEnd<T> =
 	| { readonly kind: "failed" }
 	/** The route answered a JSON body with a `code` and opened no stream. */
 	| { readonly kind: "refused"; readonly refusal: ReadingRefusal }
-	/** The stream ended with no last line, or the response was no stream and held no `code`. */
+	/** The route answered 401: the person is no longer signed in, and nothing was read or created. */
+	| { readonly kind: "signed-out" }
+	/** The stream ended with no last line, or the response was no stream, held no `code` and was no 401. */
 	| { readonly kind: "lost" };
 
 const HQ_APPS_PATH = "/api/commcare/hq-apps";
@@ -72,6 +78,9 @@ async function jsonOf(response: Response): Promise<unknown> {
 	}
 }
 
+/** What every route answers a request whose session has ended (`requireSession`). */
+const SIGNED_OUT_STATUS = 401;
+
 /** The refusal a JSON body names in its `code`, or null where it names none. */
 function refusalOf(body: unknown): ReadingRefusal | null {
 	if (!isRecord(body) || typeof body.code !== "string") return null;
@@ -92,6 +101,8 @@ export async function fetchHqApps(
 	} catch {
 		return { ok: false, refusal: null };
 	}
+	if (response.status === SIGNED_OUT_STATUS)
+		return { ok: false, signedOut: true };
 	const body = await jsonOf(response);
 	if (!response.ok) return { ok: false, refusal: refusalOf(body) };
 	if (
@@ -137,6 +148,7 @@ async function postBringIn<T>(
 	} catch {
 		return { kind: "lost" };
 	}
+	if (response.status === SIGNED_OUT_STATUS) return { kind: "signed-out" };
 	if (!response.ok || !isStream(response)) {
 		const refusal = refusalOf(await jsonOf(response));
 		return refusal === null ? { kind: "lost" } : { kind: "refused", refusal };

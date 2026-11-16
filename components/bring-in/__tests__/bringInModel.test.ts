@@ -370,10 +370,55 @@ describe("the reducer", () => {
 		expect(run(idle, { type: "files", done: 1, total: 2 })).toBe(idle);
 	});
 
+	it("drops the lines of a create the person left, on another app's reading screen", () => {
+		const elsewhere = run(
+			creating(),
+			{ type: "location", location: CHOOSE },
+			{ type: "location", location: OTHER_APP },
+			{ type: "resume", input: null },
+		);
+		expect(elsewhere.call).toBe("create");
+		expect(screenOf(elsewhere)).toEqual({ kind: "reading", lost: false });
+		expect(
+			run(
+				elsewhere,
+				{ type: "stage", stage: "bringing-in-media" },
+				{ type: "files", done: 3, total: 40 },
+			),
+		).toBe(elsewhere);
+
+		// The create on screen takes its own lines.
+		const shown = run(
+			creating(),
+			{ type: "stage", stage: "bringing-in-media" },
+			{ type: "files", done: 3, total: 40 },
+		);
+		expect(shown.stage).toBe("bringing-in-media");
+		expect(shown.files).toEqual({ done: 3, total: 40 });
+	});
+
+	it("signed-out ends the request and the create, and holds wherever the address goes", () => {
+		const out = run(creating(), { type: "signed-out" });
+		expect(out).toMatchObject({
+			signedOut: true,
+			call: null,
+			pendingCreate: null,
+			stage: null,
+			files: null,
+			waitingSince: null,
+		});
+		const moved = run(
+			out,
+			{ type: "location", location: CHOOSE },
+			{ type: "location", location: OTHER_APP },
+			{ type: "resume", input: null },
+		);
+		expect(moved.signedOut).toBe(true);
+	});
+
 	it("stage drops the count where the stage counts no files or is a new stage", () => {
 		const counting = run(
-			atApp(),
-			{ type: "call", call: "create", at: 1 },
+			creating(),
 			{ type: "stage", stage: "checking-media" },
 			{ type: "files", done: 3, total: 4 },
 		);
@@ -590,6 +635,25 @@ describe("screenOf", () => {
 		expect(screenOf(twice)).toEqual({ kind: "reading", lost: true });
 	});
 
+	it("draws signed-out over the picker and every screen of an app, and never Try again", () => {
+		const fromList = run(
+			initialBringInModel(CHOOSE, "project-1"),
+			{ type: "connection", domains: ["a"] },
+			{ type: "signed-out" },
+		);
+		expect(screenOf(fromList)).toEqual({ kind: "signed-out" });
+		for (const model of [reading(), creating(), onReview()]) {
+			const out = run(model, { type: "signed-out" });
+			expect(screenOf(out)).toEqual({ kind: "signed-out" });
+			expect(screenOf(run(out, { type: "retry" }))).toEqual({
+				kind: "signed-out",
+			});
+		}
+		expect(
+			screenOf(run(fromList, { type: "location", location: NONE })),
+		).toEqual({ kind: "none" });
+	});
+
 	it("draws a failed read until Try again", () => {
 		const failed = run(reading(), { type: "failed", call: "read" });
 		expect(screenOf(failed)).toEqual({ kind: "failed", operation: "read" });
@@ -648,6 +712,20 @@ describe("nextAct", () => {
 		const failed = run(reading(), { type: "failed", call: "read" });
 		expect(nextAct(failed)).toEqual(NO_ACT);
 		expect(nextAct(run(failed, { type: "retry" }))).toEqual(READ);
+	});
+
+	it("sends nothing once a request answered that the session ended", () => {
+		const fromList = run(
+			initialBringInModel(CHOOSE, "project-1"),
+			{ type: "connection", domains: ["a"] },
+			{ type: "signed-out" },
+		);
+		expect(fromList.picker.apps).toEqual({ kind: "loading" });
+		expect(nextAct(fromList)).toEqual(NO_ACT);
+		const read = run(reading(), { type: "signed-out" });
+		expect(nextAct(read)).toEqual(NO_ACT);
+		expect(nextAct(run(read, { type: "retry" }))).toEqual(NO_ACT);
+		expect(nextAct(run(creating(), { type: "signed-out" }))).toEqual(NO_ACT);
 	});
 
 	it("sends nothing over a refusal that leaves nothing to show", () => {
@@ -1090,6 +1168,29 @@ describe("the picker", () => {
 		});
 		expect(model.picker.domain).toBeNull();
 		expect(nextAct(model)).toEqual(NO_ACT);
+	});
+
+	it("lists again a project space whose list found no key once a connection reaches it", () => {
+		const unkeyed = run(
+			initialBringInModel(CHOOSE, "project-1"),
+			{ type: "connection", domains: ["a", "b"] },
+			{ type: "picker-domain", domain: "a" },
+			{ type: "picker-apps", domain: "a", picker: { kind: "not-connected" } },
+		);
+		expect(nextAct(unkeyed)).toEqual(NO_ACT);
+		const checked = run(unkeyed, { type: "connection", domains: ["a", "b"] });
+		expect(checked.picker.domain).toBe("a");
+		expect(checked.picker.apps).toEqual({ kind: "loading" });
+		expect(nextAct(checked)).toEqual({ kind: "list-apps", domain: "a" });
+
+		// A list that found the key stays as it is over the same check.
+		const keyed = run(
+			unkeyed,
+			{ type: "picker-reload" },
+			{ type: "picker-apps", domain: "a", picker: { ...LIST, domain: "a" } },
+		);
+		const again = run(keyed, { type: "connection", domains: ["a", "b"] });
+		expect(again.picker.apps).toBe(keyed.picker.apps);
 	});
 });
 
