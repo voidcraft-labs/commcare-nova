@@ -126,7 +126,8 @@ each such key, the first language's text that is not blank, as HQ's build
 merges its default table (a blank only where no language holds more), unless a language before it has a catalog that may hold the
 key (`appStringKeys.ts::defaultAppStringsHeldText`, `hqCatalogMayHold`: Nova
 writes no catalog text, so the phone's own wording stands), and on an app Nova brought in, CommCare
-HQ's language names. With no facts, Nova's own values stand, byte for byte. An
+HQ's language names. With no facts, Nova's own values stand, byte for byte,
+but for Nova's seeds on an app Nova brought in, which the archive never writes. An
 app that does not declare
 Android has no `.ccz` at all (`runtimeTarget.ts::chooseDownloadTarget`,
 `not-declared-for-android`): a `.ccz` installs an app on Android. The HQ import
@@ -156,8 +157,10 @@ order, each with the `force` its table gives: the two the app owns at the
 app's value, and each of the fifteen others at the value the archive's project
 space holds, or Nova's where it holds none and Nova created the app there
 (`keptProfile.ts::targetProfileProperties`, over the deployment's
-`TargetFacts`), then `cc-log-entity-detail-enabled` where the project space
-sets it. The archive writes neither
+`TargetFacts` and `CompileOptions.adopted`, the live app mapping's ownership,
+so an archive for an app Nova brought in writes no seed even where no read of
+the project space landed), then `cc-log-entity-detail-enabled` where the
+project space sets it. The archive writes neither
 `heartbeat-url` nor HQ's six other server properties: a `.ccz` is no HQ build,
 and a phone on one takes a newer `.ccz` for the same project space through
 Offline Update, on CommCare's update screen.
@@ -558,7 +561,9 @@ three keys need the target's current value: `profile`, `translations` and
 one read the publish hands it, its last before the import
 (`lib/deployment/CLAUDE.md` says which): it carries what the target owns,
 writes Nova's own values over it (`cc-show-saved` and `cc-show-incomplete`
-always; a constant setting only where the target holds no value for it), and
+always; a constant setting only where the target holds no value for it, and
+never on a deployment whose app Nova brought in, where an absent setting stays
+absent), and
 leaves a key out of the body when the result equals that read's value.
 `profile.properties` is projected whatever the Search advisory says; an
 `unverified` advisory leaves `custom_properties` as the target's bag. A source
@@ -2089,6 +2094,13 @@ unknown id, and 400 for an app deleted in HQ, whose source read still answers
 200 with a `doc_type` ending `-Deleted` (`app_manager/util.py::app_doc_types`)).
 An update never writes `multimedia_map`, `build_profiles`, `custom_base_url` or
 `practice_mobile_worker_id`, and Nova sends no `multimedia_map` in any mode.
+Every media file lives at its content-hash path under `commcare/`
+(`multimedia/assetWirePath.ts::wirePathFor`), except a path a target holds,
+which keeps its directory; the media suite writes each file's own
+(`multimedia/mediaSuiteXml.ts`: `path="../../<dir>"` and the location
+`./<dir>/<name>`, HQ's `media_resources` rule, which CommCare Android installs
+at `<dir>/<name>` where `jr://file/<dir>/<name>` reads it), and the `.ccz` and
+the bulk upload name the file at that path.
 `readHqAppSource` reads `build_profiles` so that a publish can refuse to leave
 a profile naming a language the app no longer has (`targetBuildProfiles.ts`).
 Which of the two a publish does, and what happens to it

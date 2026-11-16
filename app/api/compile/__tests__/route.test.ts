@@ -13,6 +13,10 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import {
+	OWNED_PROFILE_PROPERTY_KEYS,
+	SEEDED_PROFILE_PROPERTIES,
+} from "@/lib/commcare/appProfileSettings";
+import {
 	decodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 } from "@/lib/commcare/projectSpaceCompatibility";
@@ -260,6 +264,7 @@ const ACME: ReachedDeploymentTarget = {
 	hqAppId: "0123456789abcdef0123456789abcdef",
 	emptyCaseListText: false,
 	earlierHqApps: 0,
+	adopted: false,
 };
 /** What the ledger answers for a `.ccz` made for one reached deployment. */
 function cczFor(
@@ -275,6 +280,8 @@ function cczFor(
 			appId: target.hqAppId,
 		},
 		identity: DERIVED_WIRE_IDENTITY,
+		mediaPaths: new Map(),
+		keyedCaseIdPrefixes: new Map(),
 		attachmentTarget: attachmentUrlTarget(target),
 		reached: [target],
 		targetFacts,
@@ -597,6 +604,7 @@ const SEVERAL: readonly ReachedDeploymentTarget[] = [
 		hqAppId: "1".repeat(32),
 		emptyCaseListText: false,
 		earlierHqApps: 0,
+		adopted: false,
 	},
 ];
 it.each([
@@ -713,7 +721,6 @@ it("writes what the project space keeps into its CCZ and says what the CCZ canno
 			mobileReportVersion: "2.0",
 			credentialLevel: "3MON_ACTIVE",
 			languageNames: null,
-			seeds: "nova",
 		}),
 	);
 	const response = await cczPost(request());
@@ -734,6 +741,35 @@ it("writes what the project space keeps into its CCZ and says what the CCZ canno
 		),
 	).toEqual(["kept_android_logos_absent"]);
 });
+/* Who seeds is the live app mapping's, not the read's: a project space an
+ * app was brought in from whose read-back did not land gives no facts, and
+ * its CCZ still writes none of Nova's seeds, as CommCare HQ's build there
+ * writes none, and says its language names may differ. A project space Nova
+ * created the app on, with no facts either, keeps Nova's seventeen. */
+it.each([
+	{ adopted: true, seeded: false, advisories: ["kept_language_names_differ"] },
+	{ adopted: false, seeded: true, advisories: [] },
+])(
+	"writes Nova's seeds into a CCZ with no facts only where Nova created the app (adopted: $adopted)",
+	async ({ adopted, seeded, advisories }) => {
+		answers(cczFor({ ...ACME, adopted }, null));
+		const response = await cczPost(request());
+		expect(response.status).toBe(200);
+		const profile = member(
+			await unzip(new Uint8Array(await response.arrayBuffer())),
+			"profile.ccpr",
+		).toString();
+		for (const { key } of SEEDED_PROFILE_PROPERTIES)
+			expect(profile.includes(`key="${key}"`), key).toBe(seeded);
+		for (const key of OWNED_PROFILE_PROPERTY_KEYS)
+			expect(profile).toContain(`key="${key}"`);
+		expect(
+			decodeExportAdvisories(response.headers.get(EXPORT_ADVISORY_HEADER)).map(
+				(item) => item.id,
+			),
+		).toEqual(advisories);
+	},
+);
 it("drops India capture addresses when explicitly exporting for EU", async () => {
 	loads(fixture({ photo: true }));
 	/* India holds the app and EU does not, so the server narrows to none. */

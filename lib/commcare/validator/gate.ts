@@ -542,8 +542,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MEDIA_SUITE_PARSE_ERROR: "oracle",
 	MEDIA_SUITE_NO_SUITE_ELEMENT: "oracle",
 	MEDIA_SUITE_VERSION_NOT_INTEGER: "oracle",
-	MEDIA_NO_PATH: "oracle",
-	MEDIA_NO_RESOURCE: "oracle",
 	MEDIA_RESOURCE_NO_ID: "oracle",
 	MEDIA_RESOURCE_VERSION_NOT_INTEGER: "oracle",
 	MEDIA_RESOURCE_NO_LOCATION: "oracle",
@@ -552,6 +550,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MEDIA_LOCATION_UNKNOWN_AUTHORITY: "oracle",
 	MEDIA_RESOURCE_DUPLICATE_ID: "oracle",
 	MEDIA_LOCATION_PATH_NOT_BUNDLED: "oracle",
+	MEDIA_INSTALL_PATH_MISMATCH: "oracle",
 	// ── Media asset-context rules + export-budget guard ──────────────
 	MEDIA_ASSET_NOT_FOUND: "environment",
 	MEDIA_ASSET_NOT_READY: "environment",

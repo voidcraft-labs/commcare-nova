@@ -73,6 +73,7 @@ import {
 	KEPT_LABELS,
 	keptLead,
 } from "@/lib/publish/keptValues";
+import { GONE_APP_NEXT_PUBLISH } from "@/lib/publish/stopPublishing";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /**
@@ -233,9 +234,13 @@ export function DeploymentStatus({
 	 * and a record with no active mapping has nothing to name: offering the
 	 * one button whose every press errors is worse than not offering it. An
 	 * app HQ reported gone is always asked about again, since HQ's own undo
-	 * is how it comes back (`service.ts::refreshDeployment`). */
+	 * is how it comes back (`service.ts::refreshDeployment`). A mapping whose
+	 * HQ app another Nova app took (`releasedAt`) is never asked about: what
+	 * HQ says of that app is about the other app's publishes. */
+	const remoteApp = activeRemoteApp(view.deployment);
 	const observable =
-		activeRemoteApp(view.deployment) !== null &&
+		remoteApp !== null &&
+		remoteApp.releasedAt === null &&
 		(deploymentIsObservable(record) || remoteAppReportedGone(view.deployment));
 
 	return (
@@ -358,7 +363,7 @@ export function DeploymentStatus({
 					{record.resumePhase !== null ? (
 						<p className="mt-2 pl-9 text-nova-text-secondary">
 							{remoteAppReportedGone(view.deployment)
-								? "Publishing again creates a new app on CommCare HQ, because the one Nova made is gone."
+								? GONE_APP_NEXT_PUBLISH
 								: RESUME_SENTENCE[record.resumePhase]}
 						</p>
 					) : null}

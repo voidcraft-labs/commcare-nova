@@ -1344,6 +1344,7 @@ it("answers hq_web_apps_change structurally and lands with confirm_web_apps", as
 					from: false,
 					to: true,
 					changedInHq: true,
+					since: { kind: "published" },
 				}),
 				app_id: APP,
 				web_apps_change: { from: false, to: true, changed_in_hq: true },

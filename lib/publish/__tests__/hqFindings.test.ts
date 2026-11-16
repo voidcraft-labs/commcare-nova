@@ -5,12 +5,14 @@
  * to its bound; and Nova's own faults stay `not-yet` with no owner.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import type { HqAppClaimView } from "@/lib/deployment/store";
 import {
 	CIRCUMSTANCE_STANDINGS,
 	circumstanceFinding,
 	cutFindingName,
 	FINDING_NAME_MAX_LENGTH,
+	type HqAppClaimDetail,
 	type HqPlace,
 	NOVA_FAULT_CIRCUMSTANCES,
 	READ_CIRCUMSTANCES,
@@ -165,5 +167,17 @@ describe("the circumstance table", () => {
 				(code) => CIRCUMSTANCE_STANDINGS[code].standing === "stop",
 			),
 		).toEqual(Object.keys(stops));
+	});
+});
+
+describe("HqAppClaimDetail", () => {
+	it("is the store's claim view less its HQ app id, arm for arm", () => {
+		type ViewLessId = HqAppClaimView extends infer View
+			? View extends unknown
+				? Omit<View, "remoteAppId">
+				: never
+			: never;
+		expectTypeOf<ViewLessId>().toEqualTypeOf<HqAppClaimDetail>();
+		expectTypeOf<HqAppClaimView["remoteAppId"]>().toEqualTypeOf<string>();
 	});
 });

@@ -1450,9 +1450,15 @@ describe("the Web Apps question", () => {
 						from: false,
 						to: true,
 						changedInHq: false,
+						since: { kind: "published" },
 					}),
 				},
-				webAppsChange: { from: false, to: true, changedInHq: false },
+				webAppsChange: {
+					from: false,
+					to: true,
+					changedInHq: false,
+					since: { kind: "published" },
+				},
 			});
 			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
 
@@ -1474,6 +1480,7 @@ describe("the Web Apps question", () => {
 				from: false,
 				to: true,
 				changedInHq: true,
+				since: { kind: "published" },
 			});
 			expect(asked.failure.message).toMatch(
 				/^Someone turned this app's Web App setting off in CommCare HQ since Nova last published it to “clinic”\./,

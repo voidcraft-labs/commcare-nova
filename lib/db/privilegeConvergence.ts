@@ -247,22 +247,32 @@ const RUNTIME_INSERT_UPDATE_TABLES = [
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
- * row in place: writers insert, reconcilers delete, and every other path reads. */
+ * row in place: writers insert, reconcilers delete, and every other path reads.
+ * A deployment's identity, media-path and keyed case id rows are inserted when
+ * an app is brought in from CommCare HQ and deleted when the deployment is
+ * ended (a stop, or a settle that ends it); a Project move deletes an app's
+ * media-path rows and inserts them under the destination Project's asset ids;
+ * no row is ever changed. The app row's lock serializes the ending and the
+ * move: a settle and a move hold it `FOR UPDATE`, a stop `FOR SHARE` with the
+ * deployment row `FOR UPDATE`. The birth writes them for a deployment it
+ * inserts in the same transaction, which no other transaction sees until it
+ * commits. So none of them is ever row-locked. */
 const RUNTIME_INSERT_DELETE_TABLES = [
 	"media_asset_refs",
 	"app_location_references",
 	"thread_media_refs",
 	"design_lookup_protections",
+	"app_deployment_identities",
+	"app_deployment_media_paths",
+	"app_deployment_keyed_case_ids",
 ] as const;
 
 /** Only a migration writes these, as the migration role: fold baselines,
- * the identity overrides a deployment target holds (a publish writes none),
  * and the migration notices with their key-reader rows, so serving code
  * cannot forge one. */
 const RUNTIME_READ_ONLY_TABLES = [
 	"conversation_source_cutover",
 	"app_change_fold_baselines",
-	"app_deployment_identities",
 	"app_migration_notices",
 	"app_migration_notice_key_readers",
 ] as const;
@@ -655,6 +665,7 @@ const EXPECTED_PUBLIC_ROUTINES = [
 	...APP_TEST_RUNTIME_ROUTINES,
 	{ name: "nova_dispose_deleted_app_test", identityArguments: "" },
 	{ name: "rotate_deployment_push_token", identityArguments: "" },
+	{ name: "nova_fill_deployment_resource_target", identityArguments: "" },
 	{
 		name: "nova_admit_app_change_fold_baseline_insert",
 		identityArguments: "",

@@ -175,6 +175,12 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					doc,
 					compiledAtSeq: app.mutation_seq,
 					attachmentTarget,
+					/* A `.ccz` names each file where CommCare HQ keeps it on
+					 * the project space it is made for; the import file is
+					 * made for none. */
+					...(download.format === "ccz" && {
+						heldMediaPaths: download.mediaPaths,
+					}),
 				});
 				if (!boundary.ok) {
 					throw new McpInvalidInputError(
@@ -300,7 +306,9 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							{
 								emptyCaseListText: download.target.emptyCaseListText,
 								earlierHqApps: download.target.earlierHqApps,
+								adopted: download.target.adopted,
 								targetFacts: download.targetFacts,
+								keyedCaseIdPrefixes: download.keyedCaseIdPrefixes,
 							},
 						);
 						return {

@@ -9,6 +9,10 @@ import {
 	type DatabaseRoleFact,
 	PUBLIC_TABLE_POLICIES,
 	REQUIRED_PUBLIC_TABLES,
+	RUNTIME_TABLES_WITHOUT_DELETE,
+	RUNTIME_TABLES_WITHOUT_INSERT,
+	RUNTIME_TABLES_WITHOUT_ROW_LOCKS,
+	RUNTIME_TABLES_WITHOUT_UPDATE,
 	readDatabasePrivilegeRoleConfig,
 	runtimeTableCapability,
 } from "../privilegeConvergence";
@@ -185,6 +189,21 @@ describe("database privilege convergence contract", () => {
 		);
 		expect(runtimeTableCapability("kysely_migration")).toBe("none");
 		expect(runtimeTableCapability("not_a_table")).toBeNull();
+	});
+
+	test("lets the runtime insert and delete a deployment's identity, media-path and keyed case id rows, and never lock or change one", () => {
+		for (const table of [
+			"app_deployment_identities",
+			"app_deployment_media_paths",
+			"app_deployment_keyed_case_ids",
+		]) {
+			expect(runtimeTableCapability(table)).toBe("insert-delete");
+			expect(classifyPublicTable(table)).toBe("application");
+			expect(RUNTIME_TABLES_WITHOUT_ROW_LOCKS).toContain(table);
+			expect(RUNTIME_TABLES_WITHOUT_UPDATE).toContain(table);
+			expect(RUNTIME_TABLES_WITHOUT_INSERT).not.toContain(table);
+			expect(RUNTIME_TABLES_WITHOUT_DELETE).not.toContain(table);
+		}
 	});
 
 	test("carries every migrated app-state table, so a deploy is not blocked", () => {

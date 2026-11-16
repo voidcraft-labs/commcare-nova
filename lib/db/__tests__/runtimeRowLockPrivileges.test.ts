@@ -494,6 +494,48 @@ describe("runtime row-lock privilege contract", () => {
 		]);
 	});
 
+	it("refuses a row lock and an update on a deployment's identity, media-path and keyed case id rows, and admits their inserts and deletes", () => {
+		/* The app row's lock serializes the ending and the Project move, and the
+		 * birth writes rows no other transaction sees; a lock on one of the rows
+		 * themselves would need UPDATE, which the runtime never holds. */
+		for (const table of [
+			"app_deployment_identities",
+			"app_deployment_media_paths",
+			"app_deployment_keyed_case_ids",
+		]) {
+			expect(
+				rowLockViolationsInSource(
+					`db.selectFrom("${table}").forUpdate()`,
+					"fixture.ts",
+				),
+			).toEqual([
+				`fixture.ts:1 forUpdate targets ${table}, whose runtime capability forbids row locks`,
+			]);
+			expect(
+				rowLockViolationsInSource(
+					`sql\`SELECT deployment_id FROM ${table} FOR SHARE\``,
+					"fixture.ts",
+				),
+			).toEqual([
+				`fixture.ts:1 raw SQL row lock names ${table}, whose runtime capability forbids row locks`,
+			]);
+			expect(
+				writeCapabilityViolationsInSource(
+					`db.updateTable("${table}").set(patch)`,
+					"fixture.ts",
+				),
+			).toEqual([
+				`fixture.ts:1 updateTable targets ${table}, whose runtime capability lacks UPDATE`,
+			]);
+			expect(
+				writeCapabilityViolationsInSource(
+					`db.insertInto("${table}").values(rows); db.deleteFrom("${table}").where("deployment_id", "=", id)`,
+					"fixture.ts",
+				),
+			).toEqual([]);
+		}
+	});
+
 	it("reads a raw template past a nested template in an interpolation", () => {
 		/* The regression shape: a nested template literal inside \${} used to
 		 * end the scan at ITS backtick, hiding everything after it. */

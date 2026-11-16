@@ -11,6 +11,7 @@
 // rule is a rule that can drift.
 
 import type {
+	DeploymentEndReason,
 	DeploymentResource,
 	DeploymentResourceKind,
 	DeploymentWithResources,
@@ -49,7 +50,9 @@ export function activeRemoteApp(
  * A live mapping is updated in place whether or not it holds content yet: a
  * shell Nova created and never filled is filled by the next publish, never
  * made a second time. A mapping CommCare HQ reported gone
- * (`remoteMissingAt`) is created afresh.
+ * (`remoteMissingAt`) is created afresh. A released mapping
+ * (`releasedAt`), whose HQ app another Nova app took while this one was in
+ * recently deleted, is updated by no publish: the publish settles it first.
  *
  * Shared by the publish lifecycle (the decision itself) and the publish
  * dialog (the copy saying which will happen), so the promise on the
@@ -59,7 +62,11 @@ export function plannedInPlaceUpdate(
 	deployment: DeploymentWithResources,
 ): DeploymentResource | null {
 	const active = activeRemoteApp(deployment);
-	return active === null || active.remoteMissingAt !== null ? null : active;
+	return active === null ||
+		active.remoteMissingAt !== null ||
+		active.releasedAt !== null
+		? null
+		: active;
 }
 
 /**
@@ -84,17 +91,74 @@ export function publishedRemoteApp(
 	return planned !== null && remoteAppHoldsContent(planned) ? planned : null;
 }
 
-/** What the next publish to a target does with the app there. */
-export type NextPublishAction = "creates" | "fills-shell" | "updates";
+/** The ending a deployment still stands at, as `deploymentEnding` answers it. */
+export interface DeploymentEnding {
+	readonly at: string;
+	readonly byName: string;
+	readonly reason: DeploymentEndReason;
+	readonly hqAppId: string;
+}
 
 /**
- * What the next publish does: create an app, fill the empty one an earlier
- * try made, or update the app that is there. `null` is a target this app
- * has no deployment on.
+ * The ending this deployment still stands at, else null.
+ *
+ * Read from the mappings and never from the state: where the deployment has
+ * no live `app` mapping and its superseded `app` mapping with the greatest
+ * `supersededAt` carries an `endedReason`, it is that mapping. A publish to
+ * an ended deployment that passes preflight moves the state on, and one
+ * that then stops before it makes the new app leaves the old HQ app there
+ * and no new one, so the ending still stands until a publish records a new
+ * app.
+ */
+export function deploymentEnding(
+	view: DeploymentWithResources,
+): DeploymentEnding | null {
+	if (activeRemoteApp(view) !== null) return null;
+	let latest: {
+		readonly at: number;
+		readonly mapping: DeploymentResource;
+	} | null = null;
+	for (const mapping of view.superseded) {
+		if (mapping.kind !== "app" || mapping.supersededAt === null) continue;
+		if (mapping.novaResourceId !== view.deployment.appId) continue;
+		const at = Date.parse(mapping.supersededAt);
+		if (latest === null || at > latest.at) latest = { at, mapping };
+	}
+	if (latest === null) return null;
+	const { mapping } = latest;
+	if (mapping.endedReason === null || mapping.supersededAt === null) {
+		return null;
+	}
+	return {
+		at: mapping.supersededAt,
+		/* The ledger records who ended a deployment with every ending, and the
+		 * store resolves a former member's name, so this fallback is only for
+		 * a mapping built without one. */
+		byName: mapping.endedByName ?? "Someone",
+		reason: mapping.endedReason,
+		hqAppId: mapping.remoteId,
+	};
+}
+
+/** What the next publish to a target does with the app there. */
+export type NextPublishAction =
+	| "creates"
+	| "creates-beside"
+	| "fills-shell"
+	| "updates";
+
+/**
+ * What the next publish does: create an app, create one beside the app a
+ * stopped deployment left there, fill the empty one an earlier try made, or
+ * update the app that is there. `null` is a target this app has no
+ * deployment on.
  */
 export function nextPublishAction(
 	deployment: DeploymentWithResources | null,
 ): NextPublishAction {
+	if (deployment !== null && deploymentEnding(deployment) !== null) {
+		return "creates-beside";
+	}
 	const planned = deployment === null ? null : plannedInPlaceUpdate(deployment);
 	if (planned === null) return "creates";
 	return remoteAppHoldsContent(planned) ? "updates" : "fills-shell";
@@ -135,6 +199,13 @@ export function remoteAppReportedGone(
  * (`store.ts::recordPushedResources`), and no current identity answers to
  * its Nova id, so the `current === undefined` arm reports it. Nova still
  * deletes nothing; it stops claiming the table and starts naming it.
+ *
+ * An app a deployment was ended at is reported unless something else names
+ * it: the ended card's line while that ending still stands
+ * (`deploymentEnding`), or another Nova app that took it
+ * (`claimed-elsewhere`). No superseded app another Nova app publishes to now
+ * (`heldByAnotherApp`, read by the claim's own predicate) is reported, since
+ * removing it would take down that app's live HQ app.
  */
 export function leftBehindResources(
 	deployment: DeploymentWithResources,
@@ -149,9 +220,21 @@ export function leftBehindResources(
 	const historical = new Map(
 		deployment.superseded.map((resource) => [key(resource), resource]),
 	);
+	const ending = deploymentEnding(deployment);
 	return [...historical.values()].filter((resource) => {
 		if (active.has(key(resource))) return false;
-		if (resource.kind === "app") return true;
+		if (resource.kind === "app") {
+			/* Another Nova app publishes to this HQ app: it took it, or it
+			 * brought it in after this deployment stopped. It is that app's,
+			 * never something left behind here. */
+			if (resource.endedReason === "claimed-elsewhere") return false;
+			if (resource.heldByAnotherApp) return false;
+			/* The app the deployment still stands ended at is named by the
+			 * card's ended line. Once a later publish records a new app, or a
+			 * later ending names another one, nothing else names it, and it is
+			 * still in CommCare HQ beside the new one. */
+			return ending === null || ending.hqAppId !== resource.remoteId;
+		}
 		// Unavailable names are not evidence that every named resource vanished.
 		if (currentIdentities === null || resource.pushedIdentity === null)
 			return false;

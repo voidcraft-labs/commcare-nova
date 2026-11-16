@@ -109,7 +109,9 @@ and a grouped observation only gains one field (6.4). So nothing here moves
     `.ccz` cell, a Preview cell, an other-project-space cell and the base that exhibits it. A binding
     test holds the table to the manifest both ways.
 15. **`TargetFacts` is a pure projection of a deployment's stored baseline source** (6.1), with no new
-    column and no backfill. An absent or unread baseline gives none, and Nova's constants stand. The
+    column and no backfill. An absent or unread baseline gives none, and Nova's constants stand,
+    except Nova's seeds on a deployment whose app Nova brought in: who seeds is a fact of the app
+    mapping, not of a read (7.3). The
     type and the reading of HQ's keys live in `lib/commcare/targetFacts.ts`, which the emitter reads;
     `lib/deployment/targetFacts.ts` applies it to a baseline.
 16. **A view-capable reader returns the projection and never the source** (6.2). It sits beside
@@ -1553,8 +1555,8 @@ export interface TargetFacts {
 	 * the HQ app (7.2).
 	 */
 	readonly languageNames: Readonly<Record<string, Readonly<Record<string, string>>>> | null;
-	/** Who fills a seeded setting the project space holds no value for (7.3). */
-	readonly seeds: "nova" | "target";
+	/* Who fills a seeded setting the project space holds no value for is the app mapping's, not a
+	 * read's, so it travels apart from the facts (7.3). */
 }
 
 /** The facts one normalized source read holds. A source that is no object gives null. */
@@ -1901,8 +1903,10 @@ order of a restore and of local saves and which no read gives Nova. So that orde
 Preview makes; closeness among those rows is. Its fields are what a device's entity holds, the
 string each field's template evaluates to (`caseListFilterFields.ts::caseListFilterFields`; Core's
 `NodeEntityFactory.getEntity` over `Text`'s `string(...)`): each shown column's text, except a link
-column's `[text](value)` on both platforms, an image map's `jr://file/commcare/<hash><ext>` path of
-the first entry its value holds (from the image's media row, `imageReference`), and a calculated
+column's `[text](value)` on both platforms, an image map's `jr://file/` path of the first entry its
+value holds (`imageReference`: `commcare/<hash><ext>` from the image's media row, or, on a project
+space an app was brought in from, the path CommCare HQ keeps the file under; part 10, section 4.3,
+Preview), and a calculated
 column's XPath string (`true`, `false`, a date's ISO day); each hidden field's raw value or
 calculated string; each carrier's raw value; a multi select's raw value its tokens joined by one
 space. `sortText` is the value the field's `CaseListShortField.key` orders by, or `null` where the
@@ -2596,15 +2600,26 @@ So on a deployment whose app mapping is `adopted`:
   `"target"` exactly where the mapping it updates in place is `adopted` (part 10, section 6.3).
 - The ownership descriptor does not change: it names the two owned settings alone
   (`OWNED_PROFILE_PROPERTY_KEYS`), so the drift comparison already reads none of the fifteen.
-- `TargetFacts.seeds` (6.1) is `"target"` on an adopted deployment and `"nova"` otherwise.
-  `keptProfile.ts::targetProfileProperties` writes a seeded setting the facts hold no value for at
-  Nova's seed where `seeds` is `"nova"`, and leaves it out where it is `"target"`, so the archive and
-  HQ's build of an adopted deployment state one profile. With `facts` `null` it returns
-  `appProfileProperties(doc)`: no facts means no reached deployment was read.
-- The fifteen entries' cells (3.6) gain: "On a project space Nova brought the app in from, a publish
-  writes none of them: a setting it holds no value for stays absent (`projectProfileForTarget`,
-  `seeds: \"target\"`)". Their `KEPT_AT_HQ` rows are unchanged: another project space is a deployment
-  Nova creates, which is seeded.
+- Who seeds is a fact of the live app mapping, not of a read: a publish over an adopted mapping whose
+  read-back fails stores an `unread` baseline, and the deployment is still reached, so a `.ccz` is
+  offered for it with no facts. So `keptProfile.ts::targetProfileProperties(doc, facts, seeds)` takes
+  `seeds` apart from the facts, and `TargetFacts` carries none. `ReachedDeploymentTarget.adopted` (the
+  live app mapping is `adopted`) reaches `compileCcz` as `CompileOptions.adopted`, through
+  `compileLocalArchive`'s deployment argument, and gives `seeds` `"target"`, else `"nova"`. The
+  function writes a seeded setting the facts hold no value for at Nova's seed where `seeds` is
+  `"nova"`, and leaves it out where it is `"target"`, so the archive and HQ's build of an adopted
+  deployment state one profile, read or not. With `facts` `null` and `seeds` `"nova"` it returns
+  `appProfileProperties(doc)`; with `seeds` `"target"`, the two owned settings alone. An adopted
+  deployment with no facts writes Nova's language names, which it cannot read, so
+  `downloadKeptAdvisoryFacts` gives `languageNames` true there and the advisory
+  `kept_language_names_differ` is shown.
+- The fifteen entries' cells (3.6) gain: "On a project space Nova brought the app in from, neither a
+  publish nor a `.ccz` writes Nova's value: a setting the project space holds no value for stays
+  absent (`projectProfileForTarget`, `seeds: \"target\"`; `targetProfileProperties`)", and each
+  emission cell says where Nova's seed is written: "where it holds none, Nova's `<seed>` on a project
+  space where Nova created the app and nothing on one Nova brought it in from, on both paths". Their
+  `KEPT_AT_HQ` rows are unchanged: another project space is a deployment Nova creates, which is
+  seeded.
 - `keptListFor` is unchanged: an absent setting is no value that differs from a new app's.
 - Run 3 ("Written and not yet run") holds this on HQ's real build. `keptProfile.test.ts`'s property
   (section 10) runs under both values of the option.

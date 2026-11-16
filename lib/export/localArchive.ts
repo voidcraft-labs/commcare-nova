@@ -14,6 +14,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
+import type { Uuid } from "@/lib/domain/uuid";
 import type { PreparedExportBoundary } from "./boundaryValidation";
 
 /**
@@ -30,7 +31,10 @@ import type { PreparedExportBoundary } from "./boundaryValidation";
  * before this one, which the archive's version counts; and what the project
  * space keeps of the values Nova leaves to CommCare HQ (`targetFacts`, read
  * from the deployment's baseline, or null where none was read), which the
- * archive writes as HQ's build there does.
+ * archive writes as HQ's build there does; and the id prefix each keyed
+ * create's cases stand under in an app Nova brought in from there
+ * (`keyedCaseIdPrefixes`, empty everywhere else), so a key entered again on
+ * the phone files under the case CommCare HQ already holds.
  *
  * The expander stamps the prepared media manifest's references, resolves
  * attachment links against the prepared target, and names lookup tables
@@ -46,7 +50,10 @@ export function compileLocalArchive(
 	deployment: {
 		readonly emptyCaseListText: boolean;
 		readonly earlierHqApps: number;
+		/** The deployment's live app mapping is one Nova brought in. */
+		readonly adopted: boolean;
 		readonly targetFacts: TargetFacts | null;
+		readonly keyedCaseIdPrefixes: ReadonlyMap<Uuid, string>;
 	},
 ): Buffer {
 	if (prepared.mode !== "ccz") {
@@ -63,6 +70,7 @@ export function compileLocalArchive(
 		...(prepared.lookupNaming !== undefined && {
 			lookupNaming: prepared.lookupNaming,
 		}),
+		keyedCaseIdPrefixes: deployment.keyedCaseIdPrefixes,
 	});
 	return compileCcz(hqJson, doc.appName, doc, {
 		runtimeTarget,
@@ -70,6 +78,7 @@ export function compileLocalArchive(
 		compiledAtSeq,
 		earlierHqApps: deployment.earlierHqApps,
 		emptyCaseListText: deployment.emptyCaseListText,
+		adopted: deployment.adopted,
 		targetFacts: deployment.targetFacts,
 		...(prepared.lookupWire !== undefined && { lookup: prepared.lookupWire }),
 	});

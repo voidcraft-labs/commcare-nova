@@ -2082,10 +2082,11 @@ export async function createSmokeBuilders(
 					target,
 					"preflight",
 					{ status: "succeeded", at },
-					{ ensure: true },
+					{ ensure: true, expectedEndings: 0 },
 				);
 				const remoteAppId = `hq-${randomUUID().replaceAll("-", "")}`;
 				await recordRemoteResource(scope, target, {
+					expectedEndings: 0,
 					kind: "app",
 					novaResourceId: appId,
 					remoteId: remoteAppId,

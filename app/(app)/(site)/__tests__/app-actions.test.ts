@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppAccessError } from "@/lib/db/appAccess";
 import { CommitReauthError } from "@/lib/db/commitGuard";
+import { RESTORE_CLAIMS_CHANGED } from "@/lib/publish/stopPublishing";
 
 const mocks = vi.hoisted(() => {
 	return {
@@ -22,6 +23,7 @@ vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
 	resolveAppScope: mocks.resolveAppScope,
 }));
 vi.mock("@/lib/db/apps", () => ({
+	RestoreClaimsChangedError: class RestoreClaimsChangedError extends Error {},
 	restoreApp: mocks.restoreApp,
 	softDeleteApp: mocks.softDeleteApp,
 }));
@@ -73,6 +75,34 @@ describe("delete/restore authoritative admission", () => {
 			error: "App not found.",
 		});
 		expect(mocks.restoreApp).toHaveBeenCalledWith("app-1", "user-1");
+	});
+
+	it("names each project space a restore stopped publishing to with its server's label", async () => {
+		mocks.restoreApp.mockResolvedValue({
+			stoppedPublishing: [
+				{ server: "production", domain: "acme" },
+				{ server: "india", domain: "acme" },
+			],
+		});
+
+		await expect(restoreAppAction("app-1")).resolves.toEqual({
+			success: true,
+			stoppedPublishing: [
+				{ domain: "acme", serverLabel: "US" },
+				{ domain: "acme", serverLabel: "India" },
+			],
+		});
+		expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+	});
+
+	it("answers a restore whose claims kept changing with the sentence that says nothing changed", async () => {
+		const { RestoreClaimsChangedError } = await import("@/lib/db/apps");
+		mocks.restoreApp.mockRejectedValue(new RestoreClaimsChangedError());
+
+		await expect(restoreAppAction("app-1")).resolves.toEqual({
+			success: false,
+			error: RESTORE_CLAIMS_CHANGED,
+		});
 	});
 });
 

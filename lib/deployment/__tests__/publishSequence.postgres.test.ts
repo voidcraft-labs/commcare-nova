@@ -29,15 +29,23 @@ import {
 	type RetainedPublishRead,
 	replyRetained,
 	retainedBodyJson,
+	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
 import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
-import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
+import { readHqAppSource } from "@/lib/commcare/hq/appSource";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import {
+	derivedFormXmlns,
+	derivedUniqueId,
+	targetWireIdentity,
+} from "@/lib/commcare/wireIdentity";
 import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
@@ -56,13 +64,17 @@ import {
 	type CasePlacement,
 	type OrganizationLevel,
 } from "@/lib/domain";
+import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { createLocation } from "@/lib/organization/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { downloadAssetBytes } from "@/lib/storage/media";
+import { adoptedAppBaselineWrite } from "../adoption";
+import { attachmentUrlTarget } from "../attachmentTarget";
 import { resolveDownloadTarget } from "../downloadTarget";
 import { getEntryPointLink } from "../entryPointLinks";
 import { ABSENT_RESOURCE_DIGEST } from "../hqResourceBaseline";
+import { previewProjectSpaceFor } from "../previewSpace";
 import {
 	APP_PREVIEW_NOTE,
 	APP_READ_BACK_FAILED_WARNING,
@@ -73,7 +85,11 @@ import {
 	HQ_CHANGES_NONE_DETAIL,
 	HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
 } from "../remoteChanges";
-import { activeRemoteApp } from "../resources";
+import {
+	activeRemoteApp,
+	deploymentEnding,
+	nextPublishAction,
+} from "../resources";
 import {
 	type PublishInput,
 	type PublishOutcome,
@@ -81,7 +97,12 @@ import {
 	publishAppToHq,
 	setupArtifactFor,
 } from "../service";
-import { applyDeploymentObservation, readDeployment } from "../store";
+import {
+	applyDeploymentObservation,
+	endDeployment,
+	readDeployment,
+	readDeploymentIdentityOverrides,
+} from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 
@@ -1240,7 +1261,7 @@ describe("the app on HQ at the target-app edge", () => {
 				failure: {
 					code: "hq_app_state_unknown",
 					message:
-						"The app on “clinic” is a linked app in CommCare HQ, and Nova only updates apps it made. Nova left it unchanged. You can publish to another project space, or remove the link in CommCare HQ and publish again.",
+						"The app on “clinic” is a linked app in CommCare HQ, and Nova can't update a linked app. Nova left it unchanged. You can publish to another project space, or remove the link in CommCare HQ and publish again.",
 				},
 			});
 			expect(await snapshot()).toEqual(unchanged);
@@ -1702,6 +1723,8 @@ describe("changes made in CommCare HQ", () => {
 					note: null,
 					observedDigest: ABSENT_RESOURCE_DIGEST,
 					baselineKnown: true,
+					since: { kind: "published" },
+					canBringIn: false,
 				},
 			]);
 			const [table] = stopped.remoteChanges;
@@ -2306,6 +2329,724 @@ describe("the placements a publish records", () => {
 		expect(await changeKinds()).toEqual([
 			{ seq: 1, kind: "publish-placement" },
 		]);
+	});
+});
+
+// ── An app Nova brought in from CommCare HQ ─────────────────────────────
+
+/** When the app was brought in: the evening of the 10th in UTC, the 11th in Auckland. */
+const ADOPTED_AT = "2026-11-10T23:30:00.000Z";
+const ADOPTED_IDS = {
+	menu: "a".repeat(32),
+	form: "b".repeat(32),
+	xmlns:
+		"http://openrosa.org/formdesigner/5A2C1F0E-0000-4000-8000-0000000000AB",
+};
+/** The file CommCare HQ held at a published path when the app was brought in. */
+const HELD_MEDIA_FILES = { "commcare/image/logo.png": "hq-file-1" };
+const CREDENTIALS = {
+	username: "account",
+	apiKey: "fixture-key",
+	server: "india" as const,
+};
+/** A member who may stop publishing, beside the editor who publishes. */
+const ADMIN = "admin";
+const ADMIN_SCOPE = { ...SCOPE, actorUserId: ADMIN, role: "admin" };
+const SEED_KEY = "cc-autoup-freq";
+const withoutSeed = (source: Record<string, unknown>) => {
+	const profile = source.profile as { properties: Record<string, unknown> };
+	delete profile.properties[SEED_KEY];
+};
+const renamedLanguage = (source: Record<string, unknown>) => {
+	source.translations = { en: { en: "Inglés" } };
+};
+
+/**
+ * Leave the deployment the first publish made as a bring-in of that HQ app
+ * leaves one: the mapping `adopted` by the editor at `ADOPTED_AT`, one
+ * identity row for the menu and one for the form holding the ids CommCare
+ * HQ's app holds, and a `read` baseline of the source as `adoption.ts`
+ * builds it over the source the peer answers now (`edit` applied), with the
+ * file CommCare HQ held at a published path and the reviewed list. The
+ * document's media resolve through `assets`, at the paths HQ keeps them under.
+ */
+async function bringIn(
+	peer: MockAgent,
+	doc: BlueprintDoc,
+	edit: (source: Record<string, unknown>) => void = () => {},
+	assets: AssetManifest = new Map(),
+) {
+	const deployment = (await state()) ?? fail();
+	const id = deployment.deployment.id;
+	const module = doc.modules[doc.moduleOrder[0]];
+	const form = doc.forms[doc.formOrder[module.uuid][0]];
+	await h
+		.db()
+		.insertInto("app_deployment_identities")
+		.values([
+			{
+				deployment_id: id,
+				entity_kind: "module",
+				nova_entity_uuid: module.uuid,
+				unique_id: ADOPTED_IDS.menu,
+				xmlns: null,
+			},
+			{
+				deployment_id: id,
+				entity_kind: "form",
+				nova_entity_uuid: form.uuid,
+				unique_id: ADOPTED_IDS.form,
+				xmlns: ADOPTED_IDS.xmlns,
+			},
+		])
+		.execute();
+	await h
+		.db()
+		.updateTable("app_deployment_resources")
+		.set({ ownership: "adopted", adopted_at: ADOPTED_AT, adopted_by: ACTOR })
+		.where("deployment_id", "=", id)
+		.where("kind", "=", "app")
+		.where("superseded_at", "is", null)
+		.execute();
+	serveEdited(peer, SOURCE, "source-live", edit);
+	const read = await readHqAppSource(CREDENTIALS, TARGET.domain, HQ_APP);
+	if ("success" in read || read.kind !== "source") {
+		throw new Error("The peer answered no source to bring in.");
+	}
+	const write = adoptedAppBaselineWrite({
+		remoteAppId: HQ_APP,
+		source: read.source,
+		prepared: {
+			doc,
+			assets,
+			attachmentTarget: attachmentUrlTarget(TARGET),
+		},
+		target: TARGET,
+		identity: targetWireIdentity(
+			await readDeploymentIdentityOverrides(SCOPE, TARGET),
+		),
+		novaRevision: 0,
+		mediaFiles: HELD_MEDIA_FILES,
+		observedAt: ADOPTED_AT,
+		firstPublish: {
+			ids: ["forms-and-settings-rewritten"],
+			touchesWorkers: false,
+			of: "first-publish",
+		},
+	});
+	const list =
+		write.firstPublish.kind === "set" ? write.firstPublish.list : null;
+	await h
+		.db()
+		.updateTable("app_deployment_baselines")
+		.set({
+			origin: "read",
+			source_gzip: write.sourceGzip,
+			source_bytes: write.sourceBytes,
+			source_digest: write.sourceDigest,
+			ownership: JSON.stringify(write.ownership),
+			observed_at: ADOPTED_AT,
+			nova_revision: write.novaRevision,
+			media_files: JSON.stringify(HELD_MEDIA_FILES),
+			first_publish_changes: JSON.stringify(list),
+		})
+		.where("deployment_id", "=", id)
+		.execute();
+	return write;
+}
+
+/** The first publish of a survey, Nova-created, over the peer: shell, read, fill, read back. */
+async function publishFresh(
+	peer: MockAgent,
+	doc: BlueprintDoc,
+	readBack: (source: Record<string, unknown>) => void = () => {},
+) {
+	accepted(peer, 201);
+	serve(peer, SOURCE, "source-shell");
+	accepted(peer, 200);
+	serveEdited(peer, SOURCE, "source-live", readBack);
+	expect((await publish(doc)).landed).toBe(true);
+}
+
+async function baselineRow() {
+	return h
+		.db()
+		.selectFrom("app_deployment_baselines")
+		.select([
+			"origin",
+			"ownership",
+			"nova_revision",
+			"media_files",
+			"first_publish_changes",
+		])
+		.executeTakeFirstOrThrow();
+}
+
+describe("a publish over an app Nova brought in", () => {
+	it("updates the app it came from under the ids HQ holds, keeps the mapping adopted and the held files, and says so", async () => {
+		const doc = await seed();
+		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
+		const read = await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			const write = await bringIn(peer, doc);
+			const sent = requests(peer).length;
+
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			const outcome = await publish(doc);
+			expect(outcome).toMatchObject({
+				landed: true,
+				hqAppAction: "updated",
+				appPreviewNote: APP_PREVIEW_NOTE,
+			});
+			expect(hqChangesCheck(outcome)).toMatchObject({
+				status: "passed",
+				detail:
+					"Nothing in this app has changed in CommCare HQ since Nova brought it in on 10 November 2026.",
+			});
+			// No shell: the target-app read, the update, the read back.
+			expect(requests(peer).slice(sent)).toEqual([
+				`GET ${SOURCE}`,
+				`POST ${IMPORT}`,
+				`GET ${SOURCE}`,
+			]);
+			return write;
+		});
+
+		const [update] = bodies;
+		expect(update.appId).toBe(HQ_APP);
+		expect(update.app.modules).toMatchObject([
+			{
+				unique_id: ADOPTED_IDS.menu,
+				forms: [{ unique_id: ADOPTED_IDS.form, xmlns: ADOPTED_IDS.xmlns }],
+			},
+		]);
+		const mapping = activeRemoteApp((await state()) ?? fail()) ?? fail();
+		expect(mapping).toMatchObject({
+			remoteId: HQ_APP,
+			ownership: "adopted",
+			adoptedBy: ACTOR,
+		});
+		expect(new Date(mapping.adoptedAt ?? fail()).toISOString()).toBe(
+			ADOPTED_AT,
+		);
+		const baseline = await baselineRow();
+		expect(baseline).toMatchObject({
+			origin: "push",
+			media_files: HELD_MEDIA_FILES,
+			first_publish_changes: null,
+		});
+		expect(Number(baseline.nova_revision)).toBe(mapping.pushedRevision);
+		/* An app with no Search: the body the publish sent owns what the
+		 * bring-in's descriptor owns. */
+		expect(baseline.ownership).toEqual(read.ownership);
+	});
+
+	it("sends each media file at the path CommCare HQ keeps it under, and a kept keyed create under the prefix the project space's cases stand under", async () => {
+		const doc = caseOperationFixture("key");
+		const [{ formUuid, create }] = Object.entries(doc.forms).flatMap(
+			([uuid, form]) =>
+				(form.caseOperations ?? []).flatMap((operation) =>
+					operation.action === "create" &&
+					operation.target.kind === "new" &&
+					operation.target.idFrom !== undefined
+						? [{ formUuid: asUuid(uuid), create: operation }]
+						: [],
+				),
+		);
+		if (create.action !== "create") throw new Error("Expected a create");
+		/* The prefix HQ's source app derived for that create, which the
+		 * reading's own UUIDs cannot derive again. */
+		const heldPrefix = authoredCaseIdPrefix({
+			appId: "hq-source-app",
+			formUuid,
+			operationUuid: create.uuid,
+			caseType: create.caseType,
+		});
+		const derivedPrefix = authoredCaseIdPrefix({
+			appId: doc.appId,
+			formUuid,
+			operationUuid: create.uuid,
+			caseType: create.caseType,
+		});
+		const heldPath = Object.keys(HELD_MEDIA_FILES)[0];
+		const image = testMediaAssetId("held-image");
+		const png = readFileSync("public/nova-icons/household.png");
+		const hash = createHash("sha256").update(png).digest("hex");
+		const field = Object.values(doc.fields).find(
+			(candidate) => candidate.kind === "text",
+		);
+		if (field === undefined || field.kind !== "text")
+			throw new Error("Expected a text field");
+		field.label_media = { image };
+		await seed(doc);
+		await h
+			.db()
+			.insertInto("media_assets")
+			.values({
+				id: image,
+				project_id: PROJECT,
+				owner: "creator",
+				kind: "image",
+				content_hash: hash,
+				mime_type: "image/png",
+				extension: ".png",
+				size_bytes: png.length,
+				gcs_object_key: `projects/${PROJECT}/${hash}.png`,
+				original_filename: "logo.png",
+				display_name: "Logo",
+				status: "ready",
+				media_format: "png",
+			})
+			.execute();
+		vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+		const media = `/a/clinic/apps/api/${HQ_APP}/multimedia/`;
+		const zips: AdmZip[] = [];
+		const mediaTaken = (peer: MockAgent) => {
+			request(peer, media, "POST").reply(async (opts) => {
+				const form = await readMultipartRequest(opts);
+				const file = form.get("bulk_upload_file");
+				if (!(file instanceof Blob)) throw new Error("Expected a ZIP");
+				zips.push(new AdmZip(Buffer.from(await file.arrayBuffer())));
+				return {
+					statusCode: 200,
+					data: JSON.stringify({ success: true, processing_id: "media-job" }),
+				};
+			});
+			request(peer, `${media}status/media-job/`).reply(200, {
+				success: true,
+				processing_id: "media-job",
+				complete: true,
+				matched_count: 1,
+				unmatched_count: 0,
+				unmatched_files: [],
+				errors: [],
+			});
+		};
+		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			mediaTaken(peer);
+			expect((await publish(doc)).landed).toBe(true);
+			await bringIn(
+				peer,
+				doc,
+				undefined,
+				new Map([
+					[
+						image,
+						{
+							assetId: image,
+							wirePath: heldPath,
+							kind: "image",
+							mimeType: "image/png",
+							contentHash: hash,
+							extension: ".png",
+						},
+					],
+				]),
+			);
+			const id = ((await state()) ?? fail()).deployment.id;
+			await h
+				.db()
+				.insertInto("app_deployment_media_paths")
+				.values({
+					deployment_id: id,
+					media_asset_id: image,
+					wire_path: heldPath,
+				})
+				.execute();
+			await h
+				.db()
+				.insertInto("app_deployment_keyed_case_ids")
+				.values({
+					deployment_id: id,
+					nova_operation_uuid: create.uuid,
+					case_type: create.caseType,
+					case_id_prefix: heldPrefix,
+				})
+				.execute();
+
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			mediaTaken(peer);
+			expect((await publish(doc)).landed).toBe(true);
+		});
+
+		const [update] = bodies;
+		const forms = Object.values(
+			update.app._attachments as Record<string, unknown>,
+		)
+			.filter((value): value is string => typeof value === "string")
+			.join("\n");
+		expect(forms).toContain(heldPrefix);
+		expect(forms).not.toContain(derivedPrefix);
+		expect(forms).toContain(`jr://file/${heldPath}`);
+		const [first, republished] = zips.map((zip) =>
+			zip.getEntries().map((entry) => entry.entryName),
+		);
+		expect(first).not.toContain(heldPath);
+		expect(republished).toEqual([heldPath]);
+	});
+
+	it("records the publish's own descriptor, which differs from the bring-in's only in the Search key, where the advisory is available", async () => {
+		const doc = await seed(
+			buildDoc({
+				appName: "Patient search",
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseSearchConfig: {},
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [{ id: "note", kind: "text" }],
+							},
+						],
+					},
+				],
+			}),
+		);
+		const read = await withHttpPeer(async (peer) => {
+			/* The project space holds Search and the large-Search setting, on
+			 * every preflight. */
+			const visible = {
+				meta: { total_count: 1 },
+				objects: [{ domain_name: "clinic", project_name: "Clinic" }],
+			};
+			request(peer, PROJECT_SPACES).reply(200, visible).persist();
+			request(peer, `${PROJECT_SPACES}&feature_flag=search_claim`)
+				.reply(200, visible)
+				.persist();
+			request(peer, `${PROJECT_SPACES}&feature_flag=custom_properties`)
+				.reply(200, visible)
+				.persist();
+			request(
+				peer,
+				"/a/clinic/phone/search/?case_type=__nova_compatibility_probe__",
+			)
+				.reply(200, "<fixture/>", {
+					headers: { "content-type": "text/xml; charset=utf-8" },
+				})
+				.persist();
+			await publishFresh(peer, doc);
+			/* The first publish recorded where CommCare HQ keeps the form's
+			 * case change, so the app's head is the document it sent. */
+			const head = await reloadHeadFor(APP, ACTOR)();
+			const write = await bringIn(peer, head.doc);
+
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			const outcome = await publishAppToHq({
+				scope: SCOPE,
+				...TARGET,
+				doc: head.doc,
+				compiledAtSeq: head.seq,
+				reloadHead: reloadHeadFor(APP, ACTOR),
+				appName: head.doc.appName,
+				confirm: CONFIRM_ALL,
+			});
+			expect(outcome).toMatchObject({ landed: true });
+			expect(outcome.projectSpaceCompatibility?.advisories).toEqual([
+				expect.objectContaining({
+					id: "large-search-performance",
+					state: "available",
+				}),
+			]);
+			return write;
+		});
+		const pushed = (await baselineRow()).ownership as Record<string, unknown>;
+		const { profileCustomProperties: readCustom, ...readRest } =
+			read.ownership ?? fail();
+		const { profileCustomProperties: pushedCustom, ...pushedRest } = pushed;
+		expect(pushedRest).toEqual(readRest);
+		expect(pushedCustom).not.toEqual(readCustom);
+	});
+
+	it("keeps a language's name and a setting HQ holds no value for as HQ has them", async () => {
+		const doc = await seed();
+		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
+		await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			await bringIn(peer, doc, withoutSeed);
+
+			serveEdited(peer, SOURCE, "source-live", (source) => {
+				withoutSeed(source);
+				renamedLanguage(source);
+			});
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+		});
+		/* The body leaves the language names out, so CommCare HQ keeps the one
+		 * it holds. */
+		const [update] = bodies;
+		expect(update.app).not.toHaveProperty("translations");
+		/* A profile the body leaves out is CommCare HQ's as it holds it. */
+		const profile = update.app.profile as
+			| { properties: Record<string, unknown> }
+			| undefined;
+		expect(profile?.properties ?? {}).not.toHaveProperty(SEED_KEY);
+	});
+
+	it("compares a language's name and seeds a setting HQ holds no value for on a deployment Nova created", async () => {
+		const doc = await seed();
+		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
+		await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc, withoutSeed);
+
+			const edited = (source: Record<string, unknown>) => {
+				withoutSeed(source);
+				renamedLanguage(source);
+			};
+			serveEdited(peer, SOURCE, "source-live", edited);
+			const [change] = refusal(await publish(doc)).remoteChanges;
+			expect(change).toMatchObject({
+				kind: "app",
+				baselineKnown: true,
+				since: { kind: "published" },
+			});
+			expect(change?.parts.length).toBeGreaterThan(0);
+
+			serveEdited(peer, SOURCE, "source-live", edited);
+			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
+			expect(
+				(
+					await publish(doc, [
+						{
+							kind: "app",
+							novaResourceId: APP,
+							observedDigest: change?.observedDigest ?? fail(),
+						},
+					])
+				).landed,
+			).toBe(true);
+		});
+		const [update] = bodies;
+		expect(update.app.translations).toMatchObject({ en: { en: "English" } });
+		const profile = update.app.profile as {
+			properties: Record<string, unknown>;
+		};
+		expect(profile.properties[SEED_KEY]).toBe("freq-never");
+	});
+
+	it("names the day it was brought in, in the reader's zone, when HQ's copy changed since", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			await bringIn(peer, doc);
+			const sent = requests(peer).length;
+
+			serveEdited(peer, SOURCE, "source-live", renamedInHq);
+			const utc = refusal(await publish(doc));
+			const since = { kind: "brought-in", at: ADOPTED_AT };
+			expect(utc).toMatchObject({
+				failure: {
+					code: "hq_changed",
+					message:
+						"Something in this app isn't the same in CommCare HQ as when Nova brought it in on 10 November 2026, so Nova stopped before sending anything. A save in CommCare HQ can show up here even when it changed no value. You can publish over what's listed below, which replaces it with this app's version.",
+				},
+				remoteChanges: [
+					{ kind: "app", parts: ["The app's name"], since, canBringIn: false },
+				],
+			});
+
+			serveEdited(peer, SOURCE, "source-live", renamedInHq);
+			const auckland = refusal(
+				await publishAppToHq({
+					scope: SCOPE,
+					...TARGET,
+					doc,
+					compiledAtSeq: 0,
+					reloadHead: reloadHeadFor(APP, ACTOR),
+					appName: doc.appName,
+					confirm: CONFIRM_ALL,
+					driftDate: { locale: "en-GB", timeZone: "Pacific/Auckland" },
+				}),
+			);
+			expect(auckland.failure.message).toContain(
+				"as when Nova brought it in on 11 November 2026,",
+			);
+			expect(requests(peer).slice(sent)).toEqual([
+				`GET ${SOURCE}`,
+				`GET ${SOURCE}`,
+			]);
+		});
+	});
+});
+
+describe("a publish while someone stops publishing there", () => {
+	async function seedAdmin() {
+		await h.seedProjectMember(ADMIN, PROJECT, "admin");
+	}
+
+	it("refuses publishing_stopped when the ending lands before anything is sent, and records nothing more", async () => {
+		const doc = await seed();
+		await seedAdmin();
+		await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			await bringIn(peer, doc);
+			const sent = requests(peer).length;
+
+			request(peer, SOURCE).reply(async () => {
+				await endDeployment(ADMIN_SCOPE, TARGET);
+				const answer = retainedPublishRead("source-live");
+				return {
+					statusCode: answer.status,
+					data: retainedBodyText(answer),
+					responseOptions: { headers: { ...answer.headers } },
+				};
+			});
+			const outcome = await publish(doc);
+			expect(refusal(outcome)).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "publishing_stopped",
+					message:
+						"Someone stopped publishing this app to “clinic” while Nova was getting this publish ready, so nothing was sent. Publishing again makes a new app there.",
+				},
+			});
+			expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+			expect(outcome.deployment?.deployment).toMatchObject({
+				state: "ended",
+				endings: 1,
+			});
+		});
+		const after = (await state()) ?? fail();
+		expect(activeRemoteApp(after)).toBeNull();
+		expect(deploymentEnding(after)).toMatchObject({
+			reason: "stopped",
+			hqAppId: HQ_APP,
+		});
+	});
+
+	it("says CommCare HQ may hold what was sent when the ending lands during the import", async () => {
+		const doc = await seed();
+		await seedAdmin();
+		await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			await bringIn(peer, doc);
+
+			serve(peer, SOURCE, "source-live");
+			request(peer, IMPORT, "POST").reply(async () => {
+				await endDeployment(ADMIN_SCOPE, TARGET);
+				return {
+					statusCode: 200,
+					data: JSON.stringify({ success: true, app_id: HQ_APP, version: 2 }),
+				};
+			});
+			serve(peer, SOURCE, "source-live");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "upload",
+				failure: {
+					code: "publishing_stopped",
+					message:
+						"Someone stopped publishing this app to “clinic” while this publish was running. CommCare HQ may hold what this publish had already sent, and Nova keeps no record of it. Publishing again makes a new app there.",
+				},
+			});
+		});
+		expect(activeRemoteApp((await state()) ?? fail())).toBeNull();
+	});
+
+	it("makes a new app with derived ids on the next publish, and an attempt stopped before its create still stands at the ending", async () => {
+		const doc = await seed();
+		await seedAdmin();
+		const module = doc.modules[doc.moduleOrder[0]];
+		const form = doc.forms[doc.formOrder[module.uuid][0]];
+		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
+		await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			await bringIn(peer, doc);
+			await endDeployment(ADMIN_SCOPE, TARGET);
+
+			/* HQ refuses the create: the attempt passed preflight, made no app,
+			 * and the deployment still stands at its ending. */
+			request(peer, IMPORT, "POST").reply(500, "");
+			expect(refusal(await publish(doc)).phase).toBe("resources");
+			const stopped = (await state()) ?? fail();
+			expect(stopped.deployment.state).not.toBe("ended");
+			expect(deploymentEnding(stopped)).toMatchObject({ hqAppId: HQ_APP });
+			expect(nextPublishAction(stopped)).toBe("creates-beside");
+
+			accepted(peer, 201, "fresh-app");
+			serve(peer, sourcePath("fresh-app"), "source-shell");
+			accepted(peer, 200, "fresh-app", bodies);
+			serve(peer, sourcePath("fresh-app"), "source-live");
+			expect(await publish(doc)).toMatchObject({
+				landed: true,
+				hqAppAction: "created",
+			});
+		});
+		const [update] = bodies;
+		expect(update.app.modules).toMatchObject([
+			{
+				unique_id: derivedUniqueId(module.uuid),
+				forms: [
+					{
+						unique_id: derivedUniqueId(form.uuid),
+						xmlns: derivedFormXmlns(form.uuid),
+					},
+				],
+			},
+		]);
+		const after = (await state()) ?? fail();
+		expect(after.deployment.state).toBe("uploaded");
+		expect(activeRemoteApp(after)).toMatchObject({
+			remoteId: "fresh-app",
+			ownership: "nova-created",
+		});
+		expect(deploymentEnding(after)).toBeNull();
+		expect(nextPublishAction(after)).toBe("updates");
+	});
+});
+
+describe("a publish over an app another Nova app took while this one was in recently deleted", () => {
+	it("settles the released mapping before asking CommCare HQ anything, and Preview names the project space only after", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			await h
+				.db()
+				.updateTable("app_deployment_resources")
+				.set({ released_at: new Date() })
+				.where("kind", "=", "app")
+				.where("superseded_at", "is", null)
+				.execute();
+			expect(await previewProjectSpaceFor(SCOPE)).toBeNull();
+
+			const releasedAtFirstRead: (string | null)[] = [];
+			request(peer, SOURCE).reply(async () => {
+				const mapping = activeRemoteApp((await state()) ?? fail());
+				releasedAtFirstRead.push(mapping?.releasedAt ?? null);
+				const answer = retainedPublishRead("source-live");
+				return {
+					statusCode: answer.status,
+					data: retainedBodyText(answer),
+					responseOptions: { headers: { ...answer.headers } },
+				};
+			});
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect(await publish(doc)).toMatchObject({
+				landed: true,
+				hqAppAction: "updated",
+			});
+			expect(releasedAtFirstRead).toEqual([null]);
+		});
+		expect(await previewProjectSpaceFor(SCOPE)).toBe(TARGET.domain);
 	});
 });
 

@@ -19,7 +19,9 @@
  * they are seeded, not owned, and a `.ccz` made for a project space writes
  * that space's value (`keptProfile.ts`): the overlay
  * (`targetOverlay.ts::projectProfileForTarget`) keeps a value the target
- * already holds for any of the fifteen, and always writes Nova's two.
+ * already holds for any of the fifteen, and always writes Nova's two. On a
+ * deployment whose app Nova brought in from CommCare HQ it writes none of
+ * the fifteen (`seeds: "target"`).
  */
 
 import type { BlueprintDoc } from "@/lib/domain";

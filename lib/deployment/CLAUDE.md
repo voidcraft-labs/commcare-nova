@@ -106,7 +106,7 @@ share this rule, including that fallback.
 ## The state machine
 
 `preflight → resources → uploaded → built → released → runnable`, plus
-`incomplete`.
+`incomplete` and `ended`.
 
 `resources` is what the app's content DEPENDS ON, put there before that
 content: its lookup tables and its organization's places. The ordering is the
@@ -154,6 +154,12 @@ deployment sits there. It carries `resumePhase`, and the state a retry
 resumes from is DERIVED from it (`deploymentResumeState`) so the two can
 never disagree. A retry never requires re-importing the app, because the
 resource mapping already holds the remote id.
+
+`ended`: the person stopped publishing here, or a restored app found a live
+Nova app on its HQ app. It holds no position; a publish that passes preflight
+leaves it. A refused attempt leaves an ended deployment ended
+(`applyAttemptOutcome`), as before a first publish, where a refused attempt
+writes no row. "Ending a deployment" below holds the rest.
 
 **Observation may move a deployment backward.** If a build stops being
 released on CommCare HQ, a `runnable` deployment is not runnable any more;
@@ -286,9 +292,13 @@ and reasons, and the caller comes back naming what the person confirmed in
 (`plan-feature`, `flat-location-fixture`, `connect-forwarder`,
 `form-entry-sync-off`, `commtrack-off`), written only by
 the fold of a passed preflight (`foldDeploymentAttempt`'s `confirmations`), so
-a refused publish stores none and the caller resends them; the one exception is
-the resources fold of `hq_plan_lacks_web_apps`, which withdraws the `web-apps`
-answer HQ's create contradicted. One the app does
+a refused publish stores none and the caller resends them; two other writers
+touch them: the resources fold of `hq_plan_lacks_web_apps`, which withdraws the
+`web-apps` answer HQ's create contradicted, and bringing an app in from
+CommCare HQ, which records a `plan-feature` row for each feature the app's
+source already uses (`recordAdoptedDeploymentInTransaction`,
+`adoption.ts::adoptionPlanFeatureConfirmations`), since the first publish
+changes nothing about them. One the app does
 not need is dropped. A confirmation stands until someone withdraws it
 (`withdrawDeploymentConfirmation`, from the deployment's card or MCP's
 `withdraw_deployment_confirmation`), because Nova cannot see a plan change; a
@@ -424,7 +434,11 @@ else's work.
 `adopted` is never inferred. A publish that meets a name it cannot account for
 REFUSES and names the resource; the caller comes back with
 `adoptResourceIds` carrying the exact Nova ids a person confirmed, and only
-those become `adopted` mappings. The ledger records who and when (`adopted_at`
+those become `adopted` mappings of a table or a place. An `app` mapping is
+`adopted` by one route only: a person brings that app in from CommCare HQ, and
+its birth records the mapping with who and when. A publish keeps the ownership
+of the app mapping it updates, and an app a publish creates is `nova-created`.
+The ledger records who and when (`adopted_at`
 / `adopted_by`, set together and never alone, enforced by a CHECK and by
 `store.ts::writeResourceMapping` so the failure names the call rather than the
 constraint). Once recorded, the decision stands: later publishes read the
@@ -455,7 +469,8 @@ An ordinary republish updates the mapped app in place: the import
 carries the active mapping's remote id (`plannedInPlaceUpdate`,
 `resources.ts`), CommCare HQ overwrites that app, and the live row
 updates without supersession. A publish creates afresh only when there is
-no active mapping or the active mapping's `remote_missing_at` is set. HQ
+no active mapping (a first publish, or one after the deployment was ended) or
+the active mapping's `remote_missing_at` is set. HQ
 reports an app gone in two forms: a 404 from the source read, the update or
 `current_app_version`; or a 200 source read whose `doc_type` ends
 `-Deleted`, HQ's ordinary delete being soft, with the update answering 400
@@ -465,12 +480,15 @@ next creates an empty shell, then updates it, and supersedes the dead
 mapping. The app a publish has just created is the exception: its second
 read or its update reporting it gone refuses (`hq_app_state_unknown`,
 `hq_rejected_upload`) and keeps the mapping, so the next publish reads that
-app at `target-app` and records it gone there if it is. The recreated app keeps the deployment's recorded ids, which
-`app_deployment_identities` holds sparsely: only the ids that differ from
-the derivation, for a deployment first published before ids were derived (a
-menu's id and a form's `xmlns` as the app source held them, a form's id as
-the `ApplicationResource` read held it). No publish writes a row. No publish
-reads form ids back. A deployment whose HQ app is gone stays the same
+app at `target-app` and records it gone there if it is. The recreated app
+keeps the deployment's recorded ids and media paths.
+`app_deployment_identities` holds the ids a target holds that are not the
+derivation: every menu and form of an app brought in from CommCare HQ, on the
+project space it came from, and the ids of a deployment first published before
+ids were derived (a menu's id and a form's `xmlns` as the app source held
+them, a form's id as the `ApplicationResource` read held it). Rows are written
+when an app is brought in from CommCare HQ and deleted when its deployment is
+ended; no publish writes one, and no publish reads form ids back. A deployment whose HQ app is gone stays the same
 deployment: its live `app` mapping carries `remote_missing_at`, and its next
 publish creates a new app in that project space. One that holds no identity
 row gets derived ids there.
@@ -530,8 +548,38 @@ publish and every `.ccz` of one deployment sends the same ids and nothing in
 the document stores them. `app_deployment_identities` holds only the ids a
 target holds that differ. The runtime role reads it
 (`store.ts::readDeploymentIdentityOverrides`, which a publish and a `.ccz`
-hand the expander as `targetWireIdentity(overrides)`) and cannot write it;
-every row belongs to a deployment first published before ids were derived.
+hand the expander as `targetWireIdentity(overrides)`), inserts rows when an
+app is brought in from CommCare HQ and deletes them when a deployment is
+ended, and never changes one. An app brought in holds one row per menu and per
+form the reading held (`adoption.ts::adoptedIdentityRows`), written once, in
+the birth's transaction; a deployment first published before ids were derived
+holds the rows a migration wrote.
+
+`app_deployment_media_paths` holds, the same way, the path CommCare HQ keeps
+each of that app's media files under (`adoption.ts::assignMediaPaths`: one
+path per file, the first in code-unit order of the paths that can be held).
+`store.ts::readDeploymentMediaPaths` hands them to a publish's export boundary
+and a `.ccz`'s (`heldMediaPaths`), so each file goes out at the path HQ keeps
+it under on that project space and at its content-hash path everywhere else.
+A Project move writes those rows again under the destination Project's asset
+ids (`lib/db/hqAppClaims.ts::remapDeploymentMediaPathsInTransaction`), and
+deleting a file from the library removes its row.
+
+`app_deployment_keyed_case_ids` holds, for each create keyed by an answer that
+an app brought in from CommCare HQ keeps, the id prefix that project space's
+cases stand under and the case type it was derived with
+(`adoption.ts::adoptedKeyedCaseIdRows`). The reading mints its own app, form
+and operation UUIDs, so the document's own derivation
+(`lib/domain/caseOperationIdentity.ts`) gives another prefix. Its rows are
+written when the app is brought in and deleted when the deployment is ended,
+with the identity rows, and never updated. A publish and a `.ccz` made for
+that project space read them (`store.ts::readDeploymentKeyedCaseIds`) and
+print each keyed create under its row's prefix while the operation still
+creates that case type (`adoption.ts::keyedCaseIdPrefixesFor`, the expander's
+`keyedCaseIdPrefixes`), so a key a worker enters again after the first
+publish reaches the case it reached before. An operation whose type changed,
+every operation made in Nova, and every other project space take the
+derivation.
 
 ## Baselines
 
@@ -540,9 +588,17 @@ sent, so the drift check compares one HQ read with another
 (`hqSourceBaseline.ts`, `hqResourceBaseline.ts`, `remoteChanges.ts`). A
 deployment holds one app baseline (`app_deployment_baselines`): the normalized
 source HQ answered right after Nova's push (`push`), right after the empty app
-was made (`create`), or at the cutover (`cutover`), with the ownership
-descriptor of the body it describes. It holds no form ids: a source read
-re-mints them, so the normalization replaces each by its position.
+was made (`create`), at the cutover (`cutover`), or when the app was brought
+in (`read`), which is compared as a push is, with the ownership descriptor of
+the body it describes. A `read` baseline's descriptor is the one
+`importApplication.ts::hqImportApplication` gives for the document over that
+read on an adopted mapping, with the Search advisory taken as unverified. It
+holds no form ids: a source read re-mints them, so the normalization replaces
+each by its position. A baseline also holds the revision of the Nova app its
+source describes (`nova_revision`: the sequence a push sent, or the birth's),
+and, for an app brought in, which CommCare HQ file stood at each path the app
+publishes there when it came in (`media_files`, `hqMedia.ts::HqMediaRecord`),
+which a push keeps for the same HQ app.
 `targetFacts.ts::targetFactsFromBaseline` projects the stored source to
 `TargetFacts`, what the project space holds of the values Nova leaves to
 CommCare HQ, and `keptListFor` names the kept settings it holds differently
@@ -550,7 +606,11 @@ from a new app. `store.ts::readTargetFacts` returns that projection to a
 viewer and never the source, projecting an unchanged baseline once per
 instance (a bounded map keyed by its digest). A `.ccz`, Preview and the
 Publishing card read it; an absent, unread or shell baseline, or one that
-does not verify, gives none, and Nova's own values stand.
+does not verify, gives none, and Nova's own values stand, but for Nova's
+seeds on a deployment whose live app mapping is `adopted`: who seeds is the
+mapping's, which `ReachedDeploymentTarget.adopted` carries to the archive
+apart from the facts, so a `.ccz` there writes no seed and says its language
+names may differ (`downloadTarget.ts::downloadKeptAdvisoryFacts`).
 `service.ts::refreshKeptValues` replaces the baseline with a fresh read only
 where the publish's own comparison finds no change, so it moves no later
 drift verdict. Its write (`store.ts::recordRefreshedAppBaseline`) lands only
@@ -638,7 +698,11 @@ publish sends there.
 `hqImportApplication` projects `profile`, `translations` and `add_ons` on the
 publish's last read of the app's source before the import: the `target-app`
 read, the read after the shell create on a first publish, or the second read
-where this publish pushed a table or a place. The drift check compares Nova's
+where this publish pushed a table or a place. On a deployment whose live app mapping
+is `adopted` it asks the overlay to leave the target's language names and its
+absent profile settings as they are (`languageNames: "target"`,
+`seeds: "target"`), so the first publish over an app Nova brought in changes
+neither. The drift check compares Nova's
 part of the three keys, and nothing of them while the baseline's origin is
 `create`. The overlays carry the rest, the target's own, from that read, the
 same whether a comparison passed, none ran, or a person chose to publish over
@@ -842,13 +906,140 @@ because each fold states its precondition against that fresh row:
   first as superseded — the same answer two sequential creates produce.
 - `applyDeploymentObservation` folds only while the active mapping still
   carries the remote id AND the `push_token` the observation read before
-  asking. Postgres assigns a fresh UUID on insertion and every update of
+  asking, and is not released. Postgres assigns a fresh UUID on insertion and every update of
   push fields, even when the timestamp, source revision, and remote id stay
   equal. Observation-only updates and supersession retain that identity.
   Thus a refresh that spent five seconds asking
   about what a publish meanwhile replaced discards its answers instead
   of overwriting the fresh record. It also records the remote revision
   in that same transaction.
+- Every write of a publish carries the count of endings its first read
+  held, and refuses where the deployment has been ended since.
+
+## One HQ app, one Nova app
+
+An HQ app is published to by one Nova app at a time, across Projects and both
+ownerships. The partial unique index `app_deployment_resources_hq_app_claim`
+(`lib/db/hqAppClaims.ts::HQ_APP_CLAIM_INDEX`) over
+`app_deployment_resources (server, domain, remote_id)` for live, unreleased
+`app` mappings makes a second one unrepresentable. `server` and `domain` reach
+the mapping row through the `BEFORE INSERT` trigger
+`app_deployment_resources_target` and a composite foreign key to
+`app_deployments (id, server, domain)`, so no writer sets them. A mapping CommCare
+HQ reported gone still holds its claim, since HQ's own undo brings that app
+back.
+
+**An app in recently deleted gives its HQ app up when another app takes it,
+not when it is deleted.** Deleting an app writes no deployment row. A birth
+from CommCare HQ claims the HQ app first
+(`hqAppClaims.ts::claimHqAppInTransaction`): under the HQ app's transaction
+advisory lock it reads the live, unreleased mapping of that HQ app, refuses
+with `HqAppAlreadyClaimedError` where a live app holds it, and where the holder
+is in recently deleted, locks that app's row, reads it again and sets the
+mapping's `released_at`. The index is the floor under the lock: an insert that
+still meets it throws the same error with no holder. A live app whose mapping
+is released publishes nowhere there until it is settled:
+`resources.ts::plannedInPlaceUpdate` answers null for it, so it is no reached
+target, and `readDeploymentPreviewRecords` leaves it out. Check status
+(`refreshDeployment`) refuses it, asking CommCare HQ nothing and writing
+nothing, since what HQ says of that app is about the other app's publishes,
+and `applyDeploymentObservation` discards an observation of a mapping a birth
+released while HQ was being asked.
+
+**Restoring takes each given-up HQ app back unless a live Nova app holds it.**
+`lib/db/apps.ts::restoreApp`, and `publishAppToHq` before it reads anything
+of CommCare HQ (`store.ts::settleReleasedClaims`), settle the app's released
+claims: a claim no one holds is taken back with its identity rows, media
+paths and baseline as they were; one a holder in recently deleted took is
+taken back from it, releasing that holder's mapping in turn, so of two
+deleted apps the first one restored publishes there; and where a live app
+holds it, that deployment is ended with reason `claimed-elsewhere` and its
+project space is named in the answer (`stoppedPublishing`). The lock order is
+the one protocol in `lib/db` that locks more than one app row
+(`hqAppClaims.ts::lockReleasedClaimsInTransaction`): each HQ app's advisory
+lock in key order, then the app rows in ascending app id, then the membership
+gate. Where what it read before the locks no longer holds under them, the
+transaction writes nothing and starts again, three times at most; after the
+third, a restore throws `RestoreClaimsChangedError` and a publish stops with
+`app_changed_while_publishing` (`lib/publish/stopPublishing.ts`'s
+`RESTORE_CLAIMS_CHANGED` and `PUBLISH_CLAIMS_CHANGED` are the sentences).
+
+## Ending a deployment
+
+A person can stop publishing an app to one project space ("Stop publishing
+here"). `store.ts::endDeployment` is the one way in: an admin or owner of the
+app's Project may, the members who may delete its apps
+(`lib/auth/projectRoles.ts`); an editor sees the deployment and may publish to
+it, so the answer to an editor is `not_permitted` with a sentence that names
+who can, and a viewer or a stranger finds nothing to stop. CommCare HQ is
+asked nothing, so a person whose key no longer reaches the project space can
+still stop, and the HQ app stays exactly as it is. A deployment whose live
+mapping is a first publish's empty app can be stopped too. The Server Action
+`actions.ts::stopPublishingAction` goes through `service.ts::stopPublishing`,
+the one lifecycle a stop has, which also answers the setup artifact as a
+refresh does.
+
+**The transaction** (`lib/db/hqAppClaims.ts::endDeploymentInTransaction`),
+under the app row and the deployment row: it supersedes the live `app` mapping
+with who ended it and why (`ended_by`, `ended_reason`, `stopped` or
+`claimed-elsewhere`) and clears its `released_at`; deletes the deployment's
+identity, media-path and keyed-case-id rows; sets the state to `ended` with
+no resume phase and every phase outcome null, adds one to `endings`, rotates
+`content_generation`, and clears the entry-point manifest and observation,
+the offered logo hash, the target's empty-list text and the last observation;
+and pokes the deployment lane so every open tab re-resolves Preview's project
+space. It keeps the baseline as history, every confirmation (they are about
+the project space), and every table, place and worker mapping (what Nova put
+there is still there, and a later publish updates it in place). The HQ app is
+free to be brought in the moment it commits. A deployment with no live `app`
+mapping has nothing to stop, and says so.
+
+**An ending is read from the mappings, never the state.**
+`resources.ts::deploymentEnding` answers the ending a deployment still stands
+at: where it has no live `app` mapping and its latest superseded `app` mapping
+carries an `endedReason`. A publish to an ended deployment that passes
+preflight moves the state to `preflight`, and one that then stops before it
+makes the new app leaves the old HQ app there and no new one, so the state is
+the wrong witness. Read from the mappings, the ending stands until a publish
+records a new app.
+
+**The fence.** No lock spans a publish's round trips, so an ending can land
+in the middle of one. `publishAppToHq` reads `endings` once, from its first
+read, and every store write of that publish carries it (`DeploymentFence`):
+`foldDeploymentAttempt`, `beginDeploymentContentWrite`,
+`recordCreatedRemoteApp`, `recordPushedResources`,
+`markResourceBaselinesUnread`, `recordRemoteResource` and
+`recordRefreshedAppBaseline` throw `DeploymentEndedError` and write nothing
+where the row's count differs, and `finishDeploymentContentWrite` answers
+false. The publish answers `publishing_stopped`, the kept values' refresh
+answers that publishing there stopped, and provisioning records no worker
+mapping. Without the fence, its
+mapping would land on a deployment whose identity rows are gone, and the next
+publish would change every form's `xmlns`. `applyDeploymentObservation` and
+`recordEntryPointObservation` need no fence: an ended deployment has no live
+mapping and a new generation, so neither writes.
+
+**What every reader does with an ended deployment.**
+
+| Reader | What it does |
+| --- | --- |
+| Preview's project space (`readDeploymentPreviewRecords`) | `ended` does not display as `uploaded`, so the project space is not named; a released mapping on a live app is left out too |
+| `.ccz` and the HQ import file's attachment links (`readReachedDeploymentTargets`) | no live mapping, so it is no reached target |
+| deep links (`getEntryPointLink`) | no manifest and no published app, so it asks for a publish first |
+| Check status (`refreshDeployment`) and the kept values' refresh (`refreshKeptValues`) | say that publishing there stopped and read nothing of CommCare HQ |
+| provisioning workers (`provisionWorkers`) | refuses, saying publishing there stopped |
+| the Publishing card and the dialog's row (`nextPublishAction`) | `creates-beside` while `deploymentEnding` is not null |
+| the left-behind report (`leftBehindResources`) | the `app` mapping a standing ending names is not left behind, since the ending's line names it, nor one ended `claimed-elsewhere`, since another Nova app publishes to it; once a publish records a new app, or a later ending names another, a `stopped` one is left behind, unless another Nova app now holds its HQ app: no superseded `app` mapping a live, unreleased mapping of another deployment holds is ever left behind (`heldByAnotherApp`, marked by `store.ts::loadResources`), since that app publishes to it |
+| `earlierHqApps` (the `.ccz` version) | counts the ended mapping like any superseded `app` mapping |
+| the setup artifact | no HQ app id, so no link into the app's pages |
+| placements, migration notices, drift | unchanged: an ending changes no hold, and no mapping means nothing is compared |
+
+**A later publish creates afresh.** A publish to an ended deployment is a
+first publish in every step: no in-place update is planned, no identity row
+and no media path exists, so the empty app and its fill carry derived ids and
+paths, and the project space then holds two apps with no `xmlns` in common.
+`recordCreatedRemoteApp` takes the claim for the new HQ app, and its `create`
+baseline replaces the old one.
 
 ## The setup artifact regenerates, always
 
@@ -1048,7 +1239,9 @@ of four columns (`state`, `resume_phase`, `server`, `domain`), and filters with
 the DISPLAY predicate `deploymentDisplaysAsReached(record, "uploaded")`: a probe
 that could not be checked did not undo the upload, and withdrawing either
 answer over it would change the app for a reason that has nothing to do with
-the app.
+the app. It also leaves out a deployment whose live `app` mapping is released
+("One HQ app, one Nova app"), which still displays as uploaded and is
+published to by another app.
 
 - `previewTarget.ts` names the project space Preview resolves
   `commcare_project` to. A slug is the whole answer, so it de-dupes on the

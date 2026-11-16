@@ -275,6 +275,8 @@ test("native publish lists what changed in CommCare HQ, publishes over each tick
 			note: null,
 			observedDigest: "digest-app",
 			baselineKnown: true,
+			since: { kind: "published" },
+			canBringIn: false,
 		},
 		{
 			kind: "location",
@@ -285,6 +287,8 @@ test("native publish lists what changed in CommCare HQ, publishes over each tick
 			note: null,
 			observedDigest: "digest-north",
 			baselineKnown: false,
+			since: { kind: "published" },
+			canBringIn: false,
 		},
 	] as const;
 	const changed = {
@@ -741,6 +745,7 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 				lastObservedAt: null,
 				offeredLogoContentHash: null,
 				targetEmptyCaseListText: null,
+				endings: 0,
 			},
 			active: [
 				{
@@ -759,6 +764,11 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 					remoteObservedAt: null,
 					supersededAt: null,
 					remoteMissingAt: null,
+					adoptedByName: null,
+					releasedAt: null,
+					endedReason: null,
+					endedByName: null,
+					heldByAnotherApp: false,
 				},
 			],
 			superseded: [],
@@ -1071,6 +1081,7 @@ function landedView(
 				lastObservedAt: null,
 				offeredLogoContentHash: null,
 				targetEmptyCaseListText: null,
+				endings: 0,
 			},
 			active: [],
 			superseded: [],
@@ -1751,7 +1762,12 @@ test("native publish asks before turning Web Apps on for the app, holds Upload u
 	page,
 }) => {
 	const sent: Record<string, unknown>[] = [];
-	const change = { from: false, to: true, changedInHq: true };
+	const change = {
+		from: false,
+		to: true,
+		changedInHq: true,
+		since: { kind: "published" as const },
+	};
 	const message = webAppsChangeMessage("alpha", change);
 	await page.route("**/api/commcare/upload", (route) => {
 		sent.push(route.request().postDataJSON());

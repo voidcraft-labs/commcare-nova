@@ -11,6 +11,10 @@ import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
+import {
+	OWNED_PROFILE_PROPERTY_KEYS,
+	SEEDED_PROFILE_PROPERTIES,
+} from "@/lib/commcare/appProfileSettings";
 import type { HqApplication } from "@/lib/commcare/types";
 import { derivedFormXmlns } from "@/lib/commcare/wireIdentity";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -82,20 +86,26 @@ const AT = "2026-09-01T00:00:00.000Z";
 const hqAppId = (server: string, domain: string) =>
 	createHash("md5").update(`${server}/${domain}`).digest("hex");
 /** A deployment whose content is on the project space: a CCZ can be made for it. */
-async function publish(server: "india" | "production", domain: string) {
+async function publish(
+	server: "india" | "production",
+	domain: string,
+	adoptedBy?: string,
+) {
 	const target = { server, domain };
 	await foldDeploymentAttempt(
 		OWNER,
 		target,
 		"preflight",
 		{ status: "succeeded", at: AT },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	return recordRemoteResource(OWNER, target, {
+		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: APP,
 		remoteId: hqAppId(server, domain),
-		ownership: "nova-created",
+		ownership: adoptedBy === undefined ? "nova-created" : "adopted",
+		...(adoptedBy !== undefined && { adoptedBy }),
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
@@ -108,6 +118,9 @@ async function publish(server: "india" | "production", domain: string) {
 			ownership: null,
 			observedAt: AT,
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 }
@@ -119,9 +132,10 @@ async function shellOnly(server: "india" | "production", domain: string) {
 		target,
 		"preflight",
 		{ status: "succeeded", at: AT },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
 	await recordCreatedRemoteApp(OWNER, target, {
+		expectedEndings: 0,
 		remoteId: hqAppId(server, domain),
 		baseline: {
 			origin: "unread",
@@ -132,6 +146,9 @@ async function shellOnly(server: "india" | "production", domain: string) {
 			ownership: null,
 			observedAt: AT,
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 }
@@ -714,6 +731,107 @@ it("makes a CCZ for one deployment with its addresses, its HQ app and its record
 		expect(
 			elements(suite, "query").map((query) => query.attribs.url),
 		).toContain(`https://india.commcarehq.org/a/clinic/phone/search/${id}/`);
+	});
+});
+
+it("makes a CCZ for the project space an app was brought in from with HQ's media paths and form ids, and derived ones for another", async () => {
+	const doc = document(
+		f({
+			uuid: FIELD,
+			id: "patient_name",
+			kind: "text",
+			label: proseText("Patient name"),
+			label_media: { image: IMAGE },
+		}),
+	);
+	await seed(doc);
+	await seedImage();
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	const brought = await publish("india", "clinic");
+	await publish("india", "district");
+	const [formUuid] = doc.formOrder[doc.moduleOrder[0]];
+	const held = "media/patient-photo.png";
+	const hqXmlns = "http://openrosa.org/formdesigner/hq-own-xmlns";
+	await h
+		.db()
+		.insertInto("app_deployment_identities")
+		.values({
+			deployment_id: brought.deployment.id,
+			entity_kind: "form",
+			nova_entity_uuid: formUuid,
+			unique_id: "b".repeat(32),
+			xmlns: hqXmlns,
+		})
+		.execute();
+	await h
+		.db()
+		.insertInto("app_deployment_media_paths")
+		.values({
+			deployment_id: brought.deployment.id,
+			media_asset_id: IMAGE,
+			wire_path: held,
+		})
+		.execute();
+	await asUser(async (client) => {
+		const clinic = archive(
+			await call(client, "ccz", { domain: "clinic" }),
+			"ccz",
+		);
+		const clinicForm = clinic.readAsText("modules-0/forms-0.xml");
+		expect(elements(clinicForm, "data")[0].attribs.xmlns).toBe(hqXmlns);
+		expect(clinicForm).toContain(`jr://file/${held}`);
+		expect(clinicForm).not.toContain(WIRE);
+		expect(requiredFile(clinic, held)).toEqual(PNG);
+		expect(clinic.getEntry(WIRE)).toBeNull();
+
+		const district = archive(
+			await call(client, "ccz", { domain: "district" }),
+			"ccz",
+		);
+		const districtForm = district.readAsText("modules-0/forms-0.xml");
+		expect(elements(districtForm, "data")[0].attribs.xmlns).toBe(
+			derivedFormXmlns(formUuid),
+		);
+		expect(districtForm).toContain(`jr://file/${WIRE}`);
+		expect(requiredFile(district, WIRE)).toEqual(PNG);
+		expect(district.getEntry(held)).toBeNull();
+	});
+});
+
+/* Who seeds is the live app mapping's, not the read's: the project space an
+ * app was brought in from, whose read-back did not land, gives no facts, and
+ * its CCZ writes none of Nova's seeds there and says its language names may
+ * differ; another project space Nova created the app on keeps them. */
+it("makes a CCZ that seeds nothing for the project space an app was brought in from whose read-back did not land", async () => {
+	await seed();
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	await publish("india", "clinic", "creator");
+	await publish("india", "district");
+	await asUser(async (client) => {
+		for (const [domain, adopted] of [
+			["clinic", true],
+			["district", false],
+		] as const) {
+			const result = await call(client, "ccz", { domain });
+			const keys = new Set(
+				elements(
+					archive(result, "ccz").readAsText("profile.ccpr"),
+					"property",
+				).map((node) => node.attribs.key),
+			);
+			for (const { key } of SEEDED_PROFILE_PROPERTIES)
+				expect(keys.has(key), `${domain} ${key}`).toBe(!adopted);
+			for (const key of OWNED_PROFILE_PROPERTY_KEYS)
+				expect(keys.has(key), `${domain} ${key}`).toBe(true);
+			const advisories = (
+				(result._meta?.["nova/exportAdvisories"] ?? []) as readonly {
+					id: string;
+				}[]
+			).map((item) => item.id);
+			expect(advisories, domain).toEqual(
+				adopted ? ["kept_language_names_differ"] : [],
+			);
+		}
 	});
 });
 

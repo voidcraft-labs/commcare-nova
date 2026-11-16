@@ -56,6 +56,10 @@ import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
+import type {
+	DriftDateOptions,
+	DriftReference,
+} from "@/lib/publish/driftReference";
 import type { PlatformNarrowing } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
@@ -104,15 +108,17 @@ import {
 	describeAppChange,
 	describeLookupChange,
 	describePlaceChange,
-	HQ_CHANGED_MESSAGE,
-	HQ_CHANGES_CONFIRMED_DETAIL,
-	HQ_CHANGES_NONE_DETAIL,
+	driftReferenceOf,
 	HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
+	hqChangedMessage,
+	hqChangesConfirmedDetail,
+	hqChangesNoneDetail,
 	LOOKUP_DISCARD_NOTE,
 } from "./remoteChanges";
 import {
 	type DeploymentTargetKey,
 	readAppBaseline,
+	readDeploymentMediaPaths,
 	readResourceBaselines,
 } from "./store";
 import type {
@@ -350,6 +356,12 @@ export interface PreflightInput {
 	 */
 	readonly inPlaceUpdate: DeploymentResource | null;
 	/**
+	 * Whose language names the app comparison leaves out: `"target"` where
+	 * `inPlaceUpdate` is `adopted`, whose names the project space keeps
+	 * (`hqSourceBaseline.ts::diffHqAppSource`), `"nova"` otherwise.
+	 */
+	readonly languageNames: "nova" | "target";
+	/**
 	 * Nova table ids whose name clash on the target the caller has
 	 * explicitly resolved by taking the existing table over. Never
 	 * defaulted, never inferred from a previous attempt.
@@ -386,6 +398,12 @@ export interface PreflightInput {
 	readonly server: CommCareServer;
 	readonly domain: string;
 	readonly now: string;
+	/**
+	 * Whose calendar day the `hq-changes` and `web-apps` edges name where a
+	 * change is measured against the day the app was brought in. Absent reads
+	 * as the default's, the UTC day.
+	 */
+	readonly driftDate?: DriftDateOptions;
 }
 
 /**
@@ -674,6 +692,10 @@ export async function runDeploymentPreflight(
 		access: input.access,
 		doc: input.doc,
 		compiledAtSeq: input.compiledAtSeq,
+		/* The paths CommCare HQ keeps this target's files under, for an app
+		 * brought in from it: the bulk upload's entries and every reference
+		 * of the body name them. Empty everywhere else. */
+		heldMediaPaths: await readDeploymentMediaPaths(input.access, target),
 		// A publish knows its target exactly: it IS this server and this
 		// project space. So it never consults the deployment record the
 		// download paths fall back on — the record describes where the app
@@ -1302,6 +1324,8 @@ export async function runDeploymentPreflight(
 			remoteAppId: appId,
 			current: normalized,
 			baseline: appBaseline,
+			since: driftReferenceOf(appBaseline, input.inPlaceUpdate),
+			languageNames: input.languageNames,
 		});
 		if (change !== null) observed.push(change);
 		checks.push({
@@ -1323,36 +1347,38 @@ export async function runDeploymentPreflight(
 	});
 	if (!verdict.proceed) {
 		const items = verdict.remoteChanges.map((change) => change.name);
+		const message = hqChangedMessage(verdict.remoteChanges, input.driftDate);
 		checks.push({
 			id: "hq-changes",
 			title: "Changes in CommCare HQ",
 			status: "blocked",
-			detail: HQ_CHANGED_MESSAGE,
+			detail: message,
 			items,
 		});
 		return {
 			checks,
-			outcome: blockedOutcome(
-				input.now,
-				"hq_changed",
-				HQ_CHANGED_MESSAGE,
-				items,
-			),
+			outcome: blockedOutcome(input.now, "hq_changed", message, items),
 			ready: null,
 			projectSpaceCompatibility,
 			conflicts: [],
 			remoteChanges: verdict.remoteChanges,
 		};
 	}
+	/* The two details name what the app was compared against where it was
+	 * compared; a table's and a place's are always a publish's. */
+	const since =
+		targetApp === null
+			? ({ kind: "published" } as const)
+			: driftReferenceOf(appBaseline, input.inPlaceUpdate);
 	checks.push({
 		id: "hq-changes",
 		title: "Changes in CommCare HQ",
 		status: "passed",
 		detail:
 			verdict.confirmed.length > 0
-				? HQ_CHANGES_CONFIRMED_DETAIL
+				? hqChangesConfirmedDetail(since, input.driftDate)
 				: compared
-					? HQ_CHANGES_NONE_DETAIL
+					? hqChangesNoneDetail(since, input.driftDate)
 					: HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
 		items: verdict.confirmed.map((change) => change.name),
 	});
@@ -1430,9 +1456,10 @@ export async function runDeploymentPreflight(
 			held,
 			baseline: appBaseline,
 			confirmWebApps: input.confirmWebApps,
+			since: driftReferenceOf(appBaseline, input.inPlaceUpdate),
 		});
 		if (change !== null) {
-			const detail = webAppsChangeMessage(domain, change);
+			const detail = webAppsChangeMessage(domain, change, input.driftDate);
 			checks.push({
 				id: "web-apps",
 				title: "Web Apps",
@@ -1536,6 +1563,9 @@ function appRemoteChange(input: {
 	readonly remoteAppId: string;
 	readonly current: { readonly normalized: unknown; readonly digest: string };
 	readonly baseline: AppBaseline | null;
+	/** What the baseline is: a publish's read, or the read Nova brought the app in from. */
+	readonly since: DriftReference;
+	readonly languageNames: "nova" | "target";
 }): DeploymentRemoteChange | null {
 	const change = (
 		parts: readonly string[],
@@ -1549,6 +1579,8 @@ function appRemoteChange(input: {
 		note: null,
 		observedDigest: input.current.digest,
 		baselineKnown,
+		since: input.since,
+		canBringIn: false,
 	});
 	const { baseline } = input;
 	if (baseline === null || baseline.origin === "unread") {
@@ -1560,6 +1592,7 @@ function appRemoteChange(input: {
 		ownership: baseline.ownership,
 		shell: baseline.origin === "create",
 		schemaDefault: schemaPropertyDefault,
+		languageNames: input.languageNames,
 	});
 	return parts.length === 0
 		? null
@@ -1600,6 +1633,8 @@ async function lookupRemoteChange(input: {
 		note,
 		observedDigest,
 		baselineKnown,
+		since: { kind: "published" },
+		canBringIn: false,
 	});
 	const describe = (part: Parameters<typeof describeLookupChange>[0]) =>
 		describeLookupChange(part, input.tag);
@@ -1687,6 +1722,8 @@ function placeRemoteChange(input: {
 		note: null,
 		observedDigest,
 		baselineKnown,
+		since: { kind: "published" },
+		canBringIn: false,
 	});
 	const { current, baseline } = input;
 	if (current === null) {
@@ -1726,7 +1763,7 @@ export function remoteAppMissingFailure(domain: string): {
 } {
 	return {
 		code: "remote_app_missing",
-		message: `The app Nova published to “${domain}” isn't there any more: CommCare HQ reported it gone when Nova tried to update it. It may have been deleted there. Publish again to create a fresh one.`,
+		message: `The app this one publishes to on “${domain}” isn't there any more: CommCare HQ reported it gone when Nova tried to update it. It may have been deleted there. Publishing again creates a new one.`,
 		details: [],
 	};
 }
@@ -1780,7 +1817,7 @@ export function hqAppSourceReadFailure(
 	if (!("success" in read) && read.kind === "unsupported") {
 		return {
 			code: "hq_app_state_unknown",
-			message: `The app on “${domain}” is a linked app in CommCare HQ, and Nova only updates apps it made. Nova left it unchanged. You can publish to another project space, or remove the link in CommCare HQ and publish again.`,
+			message: `The app on “${domain}” is a linked app in CommCare HQ, and Nova can't update a linked app. Nova left it unchanged. You can publish to another project space, or remove the link in CommCare HQ and publish again.`,
 			details: [],
 		};
 	}

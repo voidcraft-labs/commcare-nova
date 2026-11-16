@@ -49,6 +49,9 @@ function baseline(
 		ownership: ownership(autoGpsCapture),
 		observedAt: OBSERVED_AT,
 		observedBy: "u1",
+		novaRevision: null,
+		mediaFiles: null,
+		sourceBytes: 0,
 	};
 }
 
@@ -67,14 +70,12 @@ describe("targetFactsFromBaseline", () => {
 				uiText: { en: { "home.start": "Begin" } },
 				autoGpsCapture: true,
 				languageNames: null,
-				seeds: "nova",
 			});
 			expect(
 				targetFactsFromBaseline(baseline(origin, true), false)?.autoGpsCapture,
 			).toBe(false);
 			expect(targetFactsFromBaseline(baseline(origin), true)).toMatchObject({
 				languageNames: { en: { en: "English" } },
-				seeds: "target",
 			});
 		}
 	});
@@ -112,7 +113,6 @@ const DEFAULTS: TargetFacts = {
 	mobileReportVersion: "2.0",
 	credentialLevel: null,
 	languageNames: null,
-	seeds: "nova",
 };
 
 function withSetting(key: string, value: string): Partial<TargetFacts> {
@@ -146,6 +146,7 @@ const PLANTED: Readonly<Record<KeptLabelId, Partial<TargetFacts>>> = {
 	),
 	"case-detail-view-logging": withSetting("cc-log-entity-detail-enabled", "no"),
 	"reworded-commcare-screens": { uiTextKeys: ["home.start"] },
+	"language-names": { languageNames: { en: { en: "English" } } },
 	"android-logos": { androidLogos: ["login"] },
 	"mobile-report-version": { mobileReportVersion: "1.0" },
 	"location-with-every-form": { autoGpsCapture: true },

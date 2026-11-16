@@ -25,6 +25,11 @@ export interface ReachedDeploymentTarget {
 	 * made after the target's HQ app was made afresh is newer to a phone.
 	 */
 	readonly earlierHqApps: number;
+	/**
+	 * The live app mapping is one Nova brought in: a `.ccz` made for it
+	 * seeds no profile setting, as no publish there does.
+	 */
+	readonly adopted: boolean;
 }
 
 export interface DownloadTargetInput {

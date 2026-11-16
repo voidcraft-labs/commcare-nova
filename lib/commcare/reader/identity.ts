@@ -301,6 +301,13 @@ export function matchingResolver(
 	return resolver(matchingUuidOf(appId, known));
 }
 
+/** A map that names one key or one UUID at two entries, counted from 0. */
+function namedTwice(what: string, first: number, second: number): Error {
+	return new Error(
+		`Nova was given an identity map that names ${what} twice (entries ${first} and ${second}). A map holds each key and each UUID once, so whatever built this map has a mistake to fix.`,
+	);
+}
+
 /**
  * The UUID `matchingResolver(appId, known)` gives a key it has not been asked
  * for before: `known`'s UUID where it holds the key, else `freeEntityUuid`
@@ -314,20 +321,21 @@ export function matchingUuidOf(
 ): (key: ExternalKey) => Uuid {
 	const byKey = new Map<string, Uuid>();
 	const keyOfUuid = new Map<Uuid, string>();
-	for (const entry of known) {
+	const placeOfKey = new Map<string, number>();
+	const placeOfUuid = new Map<Uuid, number>();
+	known.forEach((entry, place) => {
 		const text = externalKeyText(entry);
-		if (byKey.has(text))
-			throw new Error(
-				`Nova was handed an identity map that holds one ${entry.kind} key twice. A map holds each key once, so each entity it names has one UUID; look at how the map was built from its document.`,
-			);
-		const other = keyOfUuid.get(entry.uuid);
-		if (other !== undefined)
-			throw new Error(
-				`Nova was handed an identity map that holds the UUID ${entry.uuid} under two keys. One UUID names one entity; look at how the map was built from its document.`,
-			);
+		const keyPlace = placeOfKey.get(text);
+		if (keyPlace !== undefined)
+			throw namedTwice(`the key ${text}`, keyPlace, place);
+		const uuidPlace = placeOfUuid.get(entry.uuid);
+		if (uuidPlace !== undefined)
+			throw namedTwice(`the UUID ${entry.uuid}`, uuidPlace, place);
 		byKey.set(text, entry.uuid);
 		keyOfUuid.set(entry.uuid, text);
-	}
+		placeOfKey.set(text, place);
+		placeOfUuid.set(entry.uuid, place);
+	});
 	return (key) =>
 		byKey.get(externalKeyText(key)) ??
 		freeEntityUuid(appId, key, (uuid) => keyOfUuid.has(uuid));

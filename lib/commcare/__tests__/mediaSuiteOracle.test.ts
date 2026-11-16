@@ -87,15 +87,10 @@ describe("media-suite oracle — Category 1 parse-fatal", () => {
 		);
 	});
 
-	it("accepts native-legal media blocks without a path or resources", () => {
+	it("accepts an empty media block, which installs nothing", () => {
 		expect(validateMediaSuite('<suite version="1"><media/></suite>')).toEqual(
 			[],
 		);
-		expect(
-			validateMediaSuite(
-				CLEAN_MEDIA_SUITE.replace(' path="../../commcare"', ""),
-			),
-		).toEqual([]);
 	});
 	it("rejects a suite nested beneath another root", () => {
 		expect(
@@ -321,5 +316,94 @@ describe("media-suite oracle — Category 2 install-fatal", () => {
   </media>
 </suite>`;
 		expect(validateMediaSuite(xml)).toEqual([]);
+	});
+});
+
+// ── Install directory — where CommCare Android puts each file ─────
+
+describe("media-suite oracle — install directory", () => {
+	/**
+	 * A suite of three files in three directories, each block's path the
+	 * directory of its location, as CommCare HQ's build writes it.
+	 */
+	const SEVERAL_DIRECTORIES = `<?xml version="1.0"?>
+<suite version="1" descriptor="Media Suite File">
+  <media path="../../commcare">
+    <resource id="media-${HASH_A}-${HASH_A}.png" version="1">
+      <location authority="local">./commcare/${HASH_A}.png</location>
+    </resource>
+  </media>
+  <media path="../../commcare/image">
+    <resource id="media-${HASH_B}-cow.png" version="1">
+      <location authority="local">./commcare/image/cow.png</location>
+    </resource>
+  </media>
+  <media path="../../media">
+    <resource id="media-${"c".repeat(64)}-logo.png" version="1">
+      <location authority="local">./media/logo.png</location>
+    </resource>
+  </media>
+</suite>`;
+	const SEVERAL_BUNDLED = new Set([
+		`commcare/${HASH_A}.png`,
+		"commcare/image/cow.png",
+		"media/logo.png",
+	]);
+
+	it("joins every file of a suite under several directories to its bundled path", () => {
+		expect(validateMediaSuite(SEVERAL_DIRECTORIES, SEVERAL_BUNDLED)).toEqual(
+			[],
+		);
+		const missing = new Set(SEVERAL_BUNDLED);
+		missing.delete("media/logo.png");
+		expect(
+			validateMediaSuite(SEVERAL_DIRECTORIES, missing).map((error) => [
+				error.code,
+				error.message.includes('"./media/logo.png"'),
+			]),
+		).toEqual([["MEDIA_LOCATION_PATH_NOT_BUNDLED", true]]);
+	});
+
+	it.each([
+		[
+			"a path naming another directory",
+			' path="../../commcare/image"',
+			' path="../../commcare"',
+		],
+		[
+			"a path naming only the top directory",
+			' path="../../media"',
+			' path="../../commcare"',
+		],
+		["no path at all", ' path="../../media"', ""],
+	])(
+		"refuses %s, where CommCare Android would install the file away from its reference",
+		(_label, from, to) => {
+			expect(
+				codes(
+					validateMediaSuite(
+						SEVERAL_DIRECTORIES.replace(from, to),
+						SEVERAL_BUNDLED,
+					),
+				),
+			).toEqual(["MEDIA_INSTALL_PATH_MISMATCH"]);
+		},
+	);
+
+	it("holds a file at the top of the storage root to the path HQ's build gives it", () => {
+		const xml = (path: string) => `<?xml version="1.0"?>
+<suite version="1">
+  <media path="${path}">
+    <resource id="r" version="1">
+      <location authority="local">./logo.png</location>
+    </resource>
+  </media>
+</suite>`;
+		expect(validateMediaSuite(xml("../../"), new Set(["logo.png"]))).toEqual(
+			[],
+		);
+		expect(
+			codes(validateMediaSuite(xml("../../commcare"), new Set(["logo.png"]))),
+		).toEqual(["MEDIA_INSTALL_PATH_MISMATCH"]);
 	});
 });

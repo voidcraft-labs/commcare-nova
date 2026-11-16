@@ -518,7 +518,10 @@ all four. Two bounds keep that a pause:
   by setting it back to `0`. A lock request that queues behind a long reader would stall every
   later request for that table behind it, so none waits more than five seconds. One that times
   out fails the Job with nothing applied, which blocks the deploy, and running the deploy again
-  tries again. Each migration's own real Postgres test holds its bound.
+  tries again. Each migration's own real Postgres test holds its bound. Part 10's takes its four
+  table locks before its first change, together and without waiting while it holds any, for at
+  most five seconds (its section 11, "Locks"), because the serving revision takes its three
+  ledger tables in both orders.
 - *The time under the locks.* It is the statements' own work and at most five seconds for each of
   the seven tables the batch locks after the first. That work is catalog changes, one validation
   pass for each new check, three updates and the index builds, over tables that hold one row for
@@ -529,7 +532,16 @@ all four. Two bounds keep that a pause:
 While the batch holds a lock, a request of that revision that needs the table waits for the commit
 and then runs. Where such a request already holds a lock the batch asks for, PostgreSQL ends one
 of the two: the Job, which is run again, or the request's transaction, which
-`lib/db/pg.ts::withAppTx` runs again where the request goes through it.
+`lib/db/pg.ts::withAppTx` runs again where the request goes through it. A plain read outside
+`withAppTx` is not run again, which is why part 10's migration asks for its locks without waiting
+while it holds any; the batch's other waits come before it (part 04's) or after it (part 11's),
+and a migration after it waits while holding part 10's locks. A request that holds a ledger table
+and waits for one of part 04's tables meets no deadlock either: part 10's requests are refused
+until it commits, and where that takes more than five seconds the Job fails with nothing applied
+and the deploy is run again. Part 11's migration asks for its tables while the batch holds part
+10's, so it takes them as part 10's do, before its first change and without waiting while it holds
+any, or a request of that revision that holds one of them and then needs a ledger table would end
+in a deadlock that a plain read does not retry.
 
 A migration that refuses fails the Job, which blocks the deploy with nothing applied.
 

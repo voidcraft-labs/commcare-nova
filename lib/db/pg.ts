@@ -623,6 +623,9 @@ export interface AppDeploymentsTable {
 		boolean | null | undefined,
 		boolean | null
 	>;
+	/** How many times a person stopped publishing to this project space. Every
+	 * store write of a publish compares it with the count the publish read. */
+	endings: ColumnType<number, number | undefined, number>;
 }
 
 /**
@@ -699,13 +702,35 @@ export interface AppDeploymentResourcesTable {
 		Date | string | null | undefined,
 		Date | string | null
 	>;
+	/** The deployment's server and project space, copied by a `BEFORE INSERT`
+	 * trigger and held to the deployment by a composite foreign key, so no
+	 * writer sets either. */
+	server: ColumnType<string, never, never>;
+	domain: ColumnType<string, never, never>;
+	/** Set only on a live `app` mapping whose HQ app another Nova app took, or
+	 * took back, while this mapping's app was in recently deleted. */
+	released_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	/** Who ended the deployment, set with `ended_reason` on the superseded
+	 * `app` mapping an ending wrote, never on its own. */
+	ended_by: ColumnType<string | null, string | null | undefined, string | null>;
+	/** 'stopped' | 'claimed-elsewhere', reasserted on read. */
+	ended_reason: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	created_at: Timestamp;
 }
 
 /**
  * One id a deployment's target holds that is not Nova's derivation, for a
- * module or a form. Only a migration writes these rows, as the migration
- * role; the runtime role reads them.
+ * module or a form. Inserted when an app or a change made in CommCare HQ is
+ * brought in and deleted when the deployment is ended; never changed and
+ * never row-locked.
  */
 export interface AppDeploymentIdentitiesTable {
 	deployment_id: string;
@@ -714,6 +739,32 @@ export interface AppDeploymentIdentitiesTable {
 	nova_entity_uuid: string;
 	unique_id: string | null;
 	xmlns: string | null;
+	recorded_at: Timestamp;
+}
+
+/**
+ * The path CommCare HQ keeps one media file under for one deployment
+ * (`wire_path`, without `jr://file/`). Inserted and deleted, never changed
+ * and never row-locked; it cascades with its deployment and its asset.
+ */
+export interface AppDeploymentMediaPathsTable {
+	deployment_id: string;
+	media_asset_id: MediaAssetId;
+	wire_path: string;
+	recorded_at: Timestamp;
+}
+
+/**
+ * The id prefix a create keyed by an answer writes on the project space an
+ * app was brought in from, by operation, with the case type it was derived
+ * with. Inserted and deleted with the deployment's identity rows, never
+ * changed and never row-locked.
+ */
+export interface AppDeploymentKeyedCaseIdsTable {
+	deployment_id: string;
+	nova_operation_uuid: string;
+	case_type: string;
+	case_id_prefix: string;
 	recorded_at: Timestamp;
 }
 
@@ -745,7 +796,7 @@ export interface AppDeploymentConfirmationsTable {
 export interface AppDeploymentBaselinesTable {
 	deployment_id: string;
 	remote_app_id: string;
-	/** 'create' | 'push' | 'cutover' | 'unread'. */
+	/** 'create' | 'push' | 'cutover' | 'read' | 'changes' | 'unread'. */
 	origin: string;
 	source_gzip: Buffer | null;
 	source_bytes: number | null;
@@ -763,6 +814,31 @@ export interface AppDeploymentBaselinesTable {
 		Date | null,
 		Date | string | null | undefined,
 		Date | string | null
+	>;
+	/** The revision of this app the stored source describes, 0 or more. */
+	nova_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	/** Wire path to CommCare HQ's id of the file there, for each path this app
+	 * publishes to the deployment. */
+	media_files: JSONColumnType<
+		Readonly<Record<string, string>> | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** The first-publish list a brought-in source carries. Ids stay `string`:
+	 * a stored list can hold an id the registry has since dropped, which the
+	 * column's reader takes out before it parses the value. */
+	first_publish_changes: JSONColumnType<
+		{
+			readonly ids: readonly string[];
+			readonly webAppsOnInHq: boolean;
+			readonly of: "first-publish" | "next-publish";
+		} | null,
+		string | null | undefined,
+		string | null
 	>;
 }
 
@@ -1709,6 +1785,8 @@ export interface AppDatabase {
 	app_deployments: AppDeploymentsTable;
 	app_deployment_resources: AppDeploymentResourcesTable;
 	app_deployment_identities: AppDeploymentIdentitiesTable;
+	app_deployment_media_paths: AppDeploymentMediaPathsTable;
+	app_deployment_keyed_case_ids: AppDeploymentKeyedCaseIdsTable;
 	app_deployment_confirmations: AppDeploymentConfirmationsTable;
 	app_deployment_baselines: AppDeploymentBaselinesTable;
 	project_space_resource_baselines: ProjectSpaceResourceBaselinesTable;

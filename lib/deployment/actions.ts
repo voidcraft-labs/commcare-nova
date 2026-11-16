@@ -13,7 +13,10 @@ import {
 	getEntryPointLinkSchema,
 } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
-import { previewDeploymentAnswerFor } from "./previewSpace";
+import {
+	previewDeploymentAnswerFor,
+	previewProjectSpaceFor,
+} from "./previewSpace";
 import { leftBehindResources } from "./resources";
 import {
 	currentResourceIdentities,
@@ -23,6 +26,7 @@ import {
 	refreshDeployment,
 	refreshKeptValues,
 	setupArtifactFor,
+	stopPublishing,
 } from "./service";
 import type { SetupArtifact } from "./setupArtifact";
 import {
@@ -121,6 +125,11 @@ export type DeploymentActionResult<T> =
 				| "unauthenticated"
 				| "not_found"
 				| "invalid_input"
+				/**
+				 * The caller can see and edit the deployment and may not do this
+				 * to it. The message names who may.
+				 */
+				| "not_permitted"
 				| "unavailable";
 			readonly message: string;
 	  };
@@ -467,6 +476,61 @@ export async function withdrawDeploymentConfirmationAction(
 	}
 }
 
+/**
+ * "Stop publishing here" (`service.ts::stopPublishing`): this app stops
+ * publishing to one project space, and the app there stays as it is.
+ *
+ * The scope resolves at `edit`, as Check status does, so a viewer or a
+ * stranger finds nothing to stop; an editor, who can see and publish to the
+ * deployment, gets `not_permitted` with who may. The answer carries the
+ * project space Preview names now, since an ending can take it away.
+ */
+export async function stopPublishingAction(
+	input: unknown,
+): Promise<
+	DeploymentActionResult<
+		DeploymentView & { readonly previewProjectSpace: string | null }
+	>
+> {
+	const parsed = deploymentTargetSchema.safeParse(input);
+	if (!parsed.success) {
+		return {
+			success: false,
+			code: "invalid_input",
+			message:
+				"That request to stop publishing wasn't in a shape Nova understands.",
+		};
+	}
+	const resolved = await resolveScope(parsed.data.appId, "edit");
+	if (!resolved.ok) return resolved.result;
+	try {
+		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		const stopped = await stopPublishing(
+			resolved.scope,
+			{ server: parsed.data.server, domain: parsed.data.domain },
+			doc,
+			locations,
+		);
+		const [identities, kept, previewProjectSpace] = await Promise.all([
+			currentResourceIdentities(resolved.scope, doc),
+			deploymentKept(resolved.scope, stopped.deployment),
+			previewProjectSpaceFor(resolved.scope),
+		]);
+		return {
+			success: true,
+			data: {
+				deployment: stopped.deployment,
+				artifact: stopped.artifact,
+				leftBehind: leftBehindResources(stopped.deployment, identities),
+				kept,
+				previewProjectSpace,
+			},
+		};
+	} catch (error) {
+		return failure(error, "stop publishing", resolved.scope);
+	}
+}
+
 /** The project spaces a CCZ of this app can be made for, as the dialog offers them. */
 export interface DownloadTargetsView {
 	readonly targets: readonly DeploymentTargetKey[];
@@ -679,9 +743,12 @@ function failure(
 	 * reach. Replacing that with "Nova couldn't check just now" would ask
 	 * somebody to retry a thing that will never work. */
 	if (error instanceof DeploymentError) {
-		return error.code === "not_found"
-			? notFound()
-			: { success: false, code: "invalid_input", message: error.message };
+		if (error.code === "not_found") return notFound();
+		return {
+			success: false,
+			code: error.code === "not_permitted" ? "not_permitted" : "invalid_input",
+			message: error.message,
+		};
 	}
 	if (
 		error instanceof AppAccessError ||

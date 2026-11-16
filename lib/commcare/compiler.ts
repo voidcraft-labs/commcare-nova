@@ -8,6 +8,7 @@ import {
 import { buildEntryPointSuite } from "./entryPointSuite";
 import { basicActionsWriteWorker } from "./session";
 import type { TargetFacts } from "./targetFacts";
+import type { TargetFill } from "./targetOverlay";
 import { COMMCARE_VERSION_FLOOR } from "./versionFloor";
 import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
@@ -206,6 +207,14 @@ export interface CompileOptions {
 	 * HQ's language names). Absent or null reads Nova's own values.
 	 */
 	targetFacts?: TargetFacts | null;
+	/**
+	 * The target project space holds an app Nova brought in (its live app
+	 * mapping is `adopted`): no one seeds a profile setting there, so a
+	 * seeded setting the project space holds no value for, or one no read of
+	 * it tells, stays absent, as HQ's build there leaves it. Absent reads
+	 * false.
+	 */
+	adopted?: boolean;
 }
 
 /** The entry's new-case datum for `caseType`, which a form offered after an
@@ -335,6 +344,7 @@ export function compileCcz(
 		appName,
 		runtimeTarget: opts.runtimeTarget,
 		facts,
+		seeds: opts.adopted === true ? "target" : "nova",
 		firstLanguage: localization.languages[0],
 		sequence,
 		archiveVersion,
@@ -1398,8 +1408,9 @@ function ownEntry<T>(
  *   it, so the app starts in its first language.
  * - The seventeen settings (`keptProfile.ts::targetProfileProperties`),
  *   each with HQ's own `force`: a seeded one at the project space's value
- *   where it holds one, and the detail-view log setting after them where it
- *   holds that.
+ *   where it holds one, at Nova's where it holds none and Nova created the
+ *   HQ app there, and absent on an app Nova brought in; then the
+ *   detail-view log setting where the project space holds it.
  * - The derived properties, each forced as HQ's custom-property template
  *   writes them, and the logo's web-apps banner where the app has a logo.
  * - `<features>`: `<checkoff active="true"/>`, as HQ's `profile.ccpr` has
@@ -1421,6 +1432,7 @@ function generateProfile(input: {
 	readonly appName: string;
 	readonly runtimeTarget: RuntimeTarget;
 	readonly facts: TargetFacts | null;
+	readonly seeds: TargetFill;
 	readonly firstLanguage: string | undefined;
 	readonly sequence: number;
 	readonly archiveVersion: number;
@@ -1460,7 +1472,7 @@ function generateProfile(input: {
 							force: "false",
 						}),
 					]),
-			...targetProfileProperties(input.doc, facts).map(
+			...targetProfileProperties(input.doc, facts, input.seeds).map(
 				({ key, value, force }) =>
 					el("property", { key, value, ...(force && { force: "true" }) }),
 			),

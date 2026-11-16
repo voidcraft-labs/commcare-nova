@@ -73,6 +73,18 @@ export function authoredCaseIdPrefix(scope: AuthoredCaseIdScope): string {
 	return prefix;
 }
 
+/** The shape `authoredCaseIdPrefix` writes: the version marker, a lowercase
+ *  version-5 UUID and a colon. The deployment ledger's
+ *  `app_deployment_keyed_case_ids_prefix_shape` CHECK states the same
+ *  pattern, so a prefix this admits is one the ledger stores. */
+const AUTHORED_CASE_ID_PREFIX_SHAPE =
+	/^nova-case-v1:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:$/;
+
+/** Whether `text` is a prefix `authoredCaseIdPrefix` could have written. */
+export function isAuthoredCaseIdPrefix(text: string): boolean {
+	return AUTHORED_CASE_ID_PREFIX_SHAPE.test(text);
+}
+
 /**
  * Derive the concrete opaque case id used by Preview/CaseStore.
  *

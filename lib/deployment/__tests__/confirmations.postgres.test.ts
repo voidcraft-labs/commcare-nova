@@ -73,7 +73,7 @@ function confirm(
 		TARGET,
 		"preflight",
 		{ status: "succeeded", at: AT },
-		{ ensure: true, confirmations },
+		{ ensure: true, confirmations, expectedEndings: 0 },
 	);
 }
 
@@ -133,7 +133,7 @@ describe("confirmations", () => {
 					at: AT,
 					failure: { code: "hq_changed", message: "Changed.", details: [] },
 				},
-				{ confirmations: [LOOKUP] },
+				{ confirmations: [LOOKUP], expectedEndings: 0 },
 			),
 		).rejects.toThrow(/preflight that passed/);
 		expect(await rows()).toEqual([]);
@@ -179,7 +179,7 @@ describe("confirmations", () => {
 			TARGET,
 			"resources",
 			{ status: "failed", at: AT, failure },
-			{ withdraw: [WEB_APPS] },
+			{ withdraw: [WEB_APPS], expectedEndings: 0 },
 		);
 		/* The view the fold returns already reads the withdrawal beside the
 		 * refusal it folded: one transaction wrote both. */
@@ -225,6 +225,7 @@ describe("confirmations", () => {
 			await expect(
 				foldDeploymentAttempt(scope, TARGET, phase, outcome, {
 					withdraw: [WEB_APPS],
+					expectedEndings: 0,
 				}),
 			).rejects.toThrow(
 				"A confirmation is withdrawn by a publish only where CommCare HQ's own answer contradicted it, at resources, and this fold was not one.",

@@ -237,10 +237,13 @@ async function seed(publish = true) {
 		TARGET,
 		"preflight",
 		{ status: "succeeded", at: "2026-09-01T00:00:00.000Z" },
-		{ ensure: true },
+		{ ensure: true, expectedEndings: 0 },
 	);
-	const generation = await beginDeploymentContentWrite(SCOPE, TARGET);
+	const generation = await beginDeploymentContentWrite(SCOPE, TARGET, {
+		expectedEndings: 0,
+	});
 	await recordRemoteResource(SCOPE, TARGET, {
+		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: APP,
 		remoteId: "working-app",
@@ -257,16 +260,25 @@ async function seed(publish = true) {
 			ownership: null,
 			observedAt: "2026-09-01T00:00:00.000Z",
 			discard: null,
+			novaRevision: null,
+			mediaFiles: { kind: "set", files: null },
+			firstPublish: { kind: "set", list: null },
 		},
 	});
 	expect(
-		await finishDeploymentContentWrite(SCOPE, TARGET, generation, {
+		await finishDeploymentContentWrite(
+			SCOPE,
+			TARGET,
 			generation,
-			remoteAppId: "working-app",
-			sourceSequence: loaded.app.mutation_seq,
-			entries,
-			dependencies: [],
-		}),
+			{
+				generation,
+				remoteAppId: "working-app",
+				sourceSequence: loaded.app.mutation_seq,
+				entries,
+				dependencies: [],
+			},
+			{ expectedEndings: 0 },
+		),
 	).toBe(true);
 	return { suite, generation };
 }
@@ -378,7 +390,9 @@ it("rejects a completed remote check after another publish invalidates its gener
 	await withHttpPeer(async (peer) => {
 		released(peer, suite);
 		confirm(peer, 3, async () => {
-			await beginDeploymentContentWrite(SCOPE, TARGET);
+			await beginDeploymentContentWrite(SCOPE, TARGET, {
+				expectedEndings: 0,
+			});
 		});
 		await asUser(async (client) => {
 			const result = await call(client);
@@ -553,7 +567,7 @@ it("refuses absent and incomplete publishes before contacting HQ", async () => {
 				TARGET,
 				"preflight",
 				{ status: "succeeded", at: "2026-09-01T00:00:00.000Z" },
-				{ ensure: true },
+				{ ensure: true, expectedEndings: 0 },
 			);
 			const incomplete = await call(client);
 			expect(errorBody(incomplete).message).toContain("complete publish");

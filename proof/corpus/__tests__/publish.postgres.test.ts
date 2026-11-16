@@ -1518,7 +1518,12 @@ it("answers the Web Apps question of an edit that narrows the app to Android onl
 			code: "hq_web_apps_change",
 			remoteChanges: [],
 			conflicts: [],
-			webAppsChange: { from: true, to: false, changedInHq: false },
+			webAppsChange: {
+				from: true,
+				to: false,
+				changedInHq: false,
+				since: { kind: "published" },
+			},
 		},
 	]);
 	expect(confirmed.discards).toEqual([]);

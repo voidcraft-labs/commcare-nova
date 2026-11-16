@@ -36,6 +36,7 @@ import {
 	shellOwnership,
 } from "@/lib/commcare/targetOverlay";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
+import type { Uuid } from "@/lib/domain/uuid";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import type { DeploymentTargetKey } from "./store";
@@ -73,6 +74,27 @@ export interface HqImportApplicationInput {
 	readonly update: HqImportApplicationUpdate | null;
 	/** The ids this target holds for each menu and form. */
 	readonly identity: WireIdentity;
+	/**
+	 * Whose display name each language carries: `"target"` exactly where the
+	 * app mapping this publish updates in place is `adopted`, so a name the
+	 * project space holds is carried and an absent one stays absent; `"nova"`
+	 * otherwise, which writes Nova's label.
+	 */
+	readonly languageNames: "nova" | "target";
+	/**
+	 * Who writes a seeded setting the project space holds no value for:
+	 * `"target"` exactly where the mapping this publish updates in place is
+	 * `adopted`, which leaves it as it is; `"nova"` otherwise, which writes
+	 * Nova's seed.
+	 */
+	readonly seeds: "nova" | "target";
+	/**
+	 * The id prefix each keyed create's cases stand under on this target, by
+	 * operation (`adoption.ts::keyedCaseIdPrefixesFor` over the target's
+	 * rows), so a key entered again files under the case CommCare HQ already
+	 * holds for it. Empty for every target that holds none.
+	 */
+	readonly keyedCaseIdPrefixes: ReadonlyMap<Uuid, string>;
 }
 
 /**
@@ -128,11 +150,13 @@ export function hqImportApplication(
 		assets: prepared.assets,
 		attachmentTarget: prepared.attachmentTarget,
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
+		keyedCaseIdPrefixes: input.keyedCaseIdPrefixes,
 	});
 	const projected = projectApplicationForTarget(
 		generated,
 		update.source,
 		derivedProfileTargetState(input),
+		{ languageNames: input.languageNames, seeds: input.seeds },
 	);
 	/* Publish writes no logo. The key goes out only where the target holds a
 	 * path-only entry, which HQ's linked-app pull cannot read, and then

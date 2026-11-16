@@ -99,6 +99,12 @@ export interface PrepareExportBoundaryInput {
 	 * no project space, or more than one.
 	 */
 	readonly attachmentTarget: AttachmentUrlTarget | null;
+	/**
+	 * The media paths the export's target holds, by asset: a file that came
+	 * in from CommCare HQ keeps its path on the project space it came from.
+	 * Absent, every file takes its content-hash path.
+	 */
+	readonly heldMediaPaths?: ReadonlyMap<MediaAssetId, string>;
 }
 
 /**
@@ -169,18 +175,25 @@ export interface ExportBoundaryReads {
 		ids: readonly MediaAssetId[],
 		projectId: string,
 	) => Promise<MediaAssetRecord[]>;
-	/** The document's media manifest, with the bytes of every asset. */
+	/**
+	 * The document's media manifest, with the bytes of every asset, each at
+	 * the path `heldPaths` names for it or else at its content-hash path.
+	 */
 	readonly mediaManifest: (
 		doc: BlueprintDoc,
 		projectId: string,
+		heldPaths?: ReadonlyMap<MediaAssetId, string>,
 	) => Promise<Awaited<ReturnType<typeof resolveMediaManifest>>>;
 }
 
 const PRODUCTION_READS: ExportBoundaryReads = {
 	lookupFixtureData: (scope, tableIds) => getLookupFixtureData(scope, tableIds),
 	mediaRows: (ids, projectId) => loadAssetsByIds(ids, projectId),
-	mediaManifest: (doc, projectId) =>
-		resolveMediaManifest(doc, projectId, { withBytes: true }),
+	mediaManifest: (doc, projectId, heldPaths) =>
+		resolveMediaManifest(doc, projectId, {
+			withBytes: true,
+			...(heldPaths !== undefined && { heldPaths }),
+		}),
 };
 
 /** Build the available validator context without cloning its exact snapshot. */
@@ -670,7 +683,11 @@ async function prepareWithRegistry(
 	/* Bytes are resolved only after the complete boundary succeeds. All three
 	 * current targets need bytes: CCZ embeds them, HQ JSON ships its sidecar
 	 * bundle, and HQ upload sends its media bundle after import. */
-	const assets = await reads.mediaManifest(input.doc, input.access.projectId);
+	const assets = await reads.mediaManifest(
+		input.doc,
+		input.access.projectId,
+		input.heldMediaPaths,
+	);
 
 	return {
 		ok: true,

@@ -12,6 +12,7 @@ import {
 	APP_PREVIEW_NOTE,
 	HQ_CHANGED_MESSAGE,
 } from "@/lib/deployment/remoteChanges";
+import { nextPublishAction } from "@/lib/deployment/resources";
 import type {
 	DeploymentConfirmationNeeded,
 	DeploymentRecord,
@@ -66,6 +67,7 @@ const RECORD: DeploymentRecord = {
 	lastObservedAt: null,
 	offeredLogoContentHash: null,
 	targetEmptyCaseListText: null,
+	endings: 0,
 };
 const VIEW: NonNullable<PublishResponseBody["deployment"]> = {
 	deployment: RECORD,
@@ -92,6 +94,76 @@ const REFUSAL = {
 	webAppsChange: null,
 	placementMoves: null,
 };
+
+/** An `app` mapping as a server that predates mapping endings serves it: no
+ *  `adoptedByName`, `releasedAt`, `endedReason`, `endedByName` or
+ *  `heldByAnotherApp`. */
+function olderAppMapping(remoteId: string, supersededAt: string | null) {
+	return {
+		deploymentId: "dep-1",
+		kind: "app" as const,
+		novaResourceId: "app-1",
+		remoteId,
+		ownership: "nova-created" as const,
+		pushedIdentity: null,
+		adoptedAt: null,
+		adoptedBy: null,
+		pushedRevision: 3,
+		pushedAt: "2026-08-06T00:00:00.000Z",
+		pushToken: `push-${remoteId}`,
+		remoteRevision: 4,
+		remoteObservedAt: null,
+		supersededAt,
+		remoteMissingAt: null,
+	};
+}
+
+describe("a record from a server that predates mapping endings", () => {
+	const { endings: _, ...olderRecord } = RECORD;
+
+	it("reads the app it just updated as one the next publish updates", () => {
+		const outcome = publishOutcome(true, {
+			success: true,
+			hq_app_action: "updated",
+			deployment: {
+				deployment: olderRecord,
+				active: [olderAppMapping("hq-1", null)],
+				superseded: [],
+				confirmations: [],
+			},
+			setup_artifact: ARTIFACT,
+		});
+		if (outcome.kind !== "landed" || outcome.deployment === null)
+			throw new Error("The publish landed with its record.");
+		const record = outcome.deployment.deployment;
+		expect(record.deployment.endings).toBe(0);
+		expect(record.active[0]).toMatchObject({
+			adoptedByName: null,
+			releasedAt: null,
+			endedReason: null,
+			endedByName: null,
+			heldByAnotherApp: false,
+		});
+		expect(nextPublishAction(record)).toBe("updates");
+	});
+
+	it("reads an app a later publish replaced as replaced, not ended", () => {
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: REFUSAL,
+			deployment: {
+				deployment: olderRecord,
+				active: [],
+				superseded: [olderAppMapping("hq-0", "2026-08-05T00:00:00.000Z")],
+				confirmations: [],
+			},
+			setup_artifact: ARTIFACT,
+		});
+		if (outcome.kind !== "refused" || outcome.deployment === null)
+			throw new Error("The refusal carried its record.");
+		expect(nextPublishAction(outcome.deployment.deployment)).toBe("creates");
+	});
+});
 
 describe("a publish that landed", () => {
 	it("carries what the project space keeps of the settings Preview plays, and none where the response holds none", () => {
@@ -275,7 +347,12 @@ describe("a publish that was refused", () => {
 	});
 
 	it("carries the Web Apps question from the refusal, and none where it carries none", () => {
-		const change = { from: false, to: true, changedInHq: true };
+		const change = {
+			from: false,
+			to: true,
+			changedInHq: true,
+			since: { kind: "published" as const },
+		};
 		expect(
 			publishOutcome(true, {
 				success: false,
@@ -314,6 +391,8 @@ describe("a publish that was refused", () => {
 			note: null,
 			observedDigest: "digest-shown",
 			baselineKnown: true,
+			since: { kind: "published" as const },
+			canBringIn: false,
 		};
 		const outcome = publishOutcome(true, {
 			success: false,
@@ -338,6 +417,82 @@ describe("a publish that was refused", () => {
 			remoteChanges: [change],
 		});
 	});
+	it("reads a change and a Web Apps question from a server that names no reference as measured against the last publish", () => {
+		const {
+			since: _,
+			canBringIn: __,
+			...older
+		} = {
+			kind: "app" as const,
+			novaResourceId: "app-1",
+			name: "Clinic visits",
+			identity: "hq-1",
+			parts: ["The menu Patients"],
+			note: null,
+			observedDigest: "digest-shown",
+			baselineKnown: true,
+			since: { kind: "published" as const },
+			canBringIn: false,
+		};
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: {
+				...REFUSAL,
+				failure: {
+					code: "hq_changed",
+					message: HQ_CHANGED_MESSAGE,
+					details: ["Clinic visits"],
+				},
+				remoteChanges: [older],
+				webAppsChange: { from: false, to: true, changedInHq: true },
+			},
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			remoteChanges: [
+				{ ...older, since: { kind: "published" }, canBringIn: false },
+			],
+			webAppsChange: {
+				from: false,
+				to: true,
+				changedInHq: true,
+				since: { kind: "published" },
+			},
+		});
+	});
+
+	it("keeps the reference a change names: the day Nova brought the app in", () => {
+		const since = {
+			kind: "brought-in" as const,
+			at: "2026-11-10T23:30:00.000Z",
+		};
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: {
+				...REFUSAL,
+				failure: { code: "hq_changed", message: "Changed.", details: [] },
+				remoteChanges: [
+					{
+						kind: "app",
+						novaResourceId: "app-1",
+						name: "Clinic visits",
+						identity: "hq-1",
+						parts: [],
+						note: null,
+						observedDigest: "digest-shown",
+						baselineKnown: false,
+						since,
+						canBringIn: false,
+					},
+				],
+			},
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			remoteChanges: [{ since }],
+		});
+	});
+
 	it("does not synthesize setup instructions when the response has a record alone", () => {
 		const outcome = publishOutcome(true, { success: true, deployment: VIEW });
 		expect(outcome.kind).toBe("landed");

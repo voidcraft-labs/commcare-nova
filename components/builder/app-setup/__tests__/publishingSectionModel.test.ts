@@ -69,6 +69,7 @@ function view(overrides: {
 		lastObservedAt: null,
 		offeredLogoContentHash: null,
 		targetEmptyCaseListText: null,
+		endings: 0,
 	};
 	return {
 		deployment: {
@@ -107,6 +108,11 @@ function appResource(
 		remoteObservedAt: null,
 		supersededAt: null,
 		remoteMissingAt: null,
+		adoptedByName: null,
+		releasedAt: null,
+		endedReason: null,
+		endedByName: null,
+		heldByAnotherApp: false,
 	};
 }
 

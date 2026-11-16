@@ -25,7 +25,12 @@ export type DeploymentErrorCode =
 	 */
 	| "hq_not_connected"
 	/** The caller's key cannot reach this project space. */
-	| "domain_not_authorized";
+	| "domain_not_authorized"
+	/**
+	 * The caller can see and edit the deployment and may not do this to it.
+	 * Its message names who may.
+	 */
+	| "not_permitted";
 
 export class DeploymentError extends Error {
 	readonly name = "DeploymentError";
@@ -38,6 +43,29 @@ export class DeploymentError extends Error {
 	) {
 		super(message, { cause: options.cause });
 		this.code = code;
+	}
+}
+
+/**
+ * A store write found the deployment ended since its publish first read it.
+ * Never shown to a person: `publishAppToHq` and `service.ts::refreshKeptValues`
+ * catch it and answer that publishing there stopped, and
+ * `workers.ts::provisionWorkers` catches it and records no worker mapping.
+ * It is no `DeploymentError` and carries no code.
+ */
+export class DeploymentEndedError extends Error {
+	readonly name = "DeploymentEndedError";
+
+	constructor(
+		readonly deploymentId: string,
+		/** The count the writer was given. */
+		readonly expectedEndings: number,
+		/** The count the locked row holds. */
+		readonly endings: number,
+	) {
+		super(
+			`Deployment ${deploymentId} ended since its publish first read it: the publish read ${expectedEndings} endings and the row now holds ${endings}, so this write was refused.`,
+		);
 	}
 }
 

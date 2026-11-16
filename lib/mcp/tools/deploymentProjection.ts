@@ -36,6 +36,7 @@ import type {
 	DeploymentKept,
 	DeploymentPhase,
 	DeploymentResourceKind,
+	DeploymentState,
 	DeploymentWithResources,
 } from "@/lib/deployment/types";
 import { DEPLOYMENT_PHASES } from "@/lib/deployment/types";
@@ -57,7 +58,8 @@ export interface LeftBehindResource {
 export interface DeploymentProjection {
 	readonly server: string;
 	readonly domain: string;
-	readonly state: string;
+	/** Any of `DEPLOYMENT_STATES`, `ended` among them. */
+	readonly state: DeploymentState;
 	/** The phase a retry re-enters. Null unless the state is `incomplete`. */
 	readonly retry_from: DeploymentPhase | null;
 	/** The state that retry resumes from. Null unless `incomplete`. */

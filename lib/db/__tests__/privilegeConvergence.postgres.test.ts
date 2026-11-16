@@ -23,6 +23,8 @@ import {
 	RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 } from "@/lib/case-store/postgres/connection";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
+import { asUuid } from "@/lib/domain/uuid";
 import {
 	type DatabaseOwnerBootstrapConfig,
 	executeDatabaseOwnerBootstrap,
@@ -705,10 +707,18 @@ describe("database privilege convergence", () => {
 				RETURNING id`.execute(runtime.db);
 			const originalPush = await sql<{
 				push_token: string;
+				server: string;
+				domain: string;
 			}>`INSERT INTO app_deployment_resources
 				(deployment_id, kind, nova_resource_id, remote_id, ownership, pushed_at, pushed_revision)
 				VALUES (${target.rows[0].id}::uuid, 'app', ${genesis.appId}, 'hq-token-proof', 'nova-created', now(), 1)
-				RETURNING push_token`.execute(runtime.db);
+				RETURNING push_token, server, domain`.execute(runtime.db);
+			// The target trigger fills the mapping's server and project space
+			// from its deployment under the restricted runtime role too.
+			expect(originalPush.rows[0]).toMatchObject({
+				server: "production",
+				domain: "token-proof",
+			});
 			const nextPush = await sql<{
 				push_token: string;
 			}>`UPDATE app_deployment_resources
@@ -838,13 +848,74 @@ describe("database privilege convergence", () => {
 					code: "42501",
 				});
 			}
-			/* Only a migration writes identity overrides and migration notices;
-			 * the confirmation and baseline ledgers are never deleted. Empty
-			 * tables still exercise the runtime grants. */
+			/* A deployment's identity, media-path and keyed case id rows are
+			 * inserted and deleted by the runtime and never changed or
+			 * row-locked. The insert names the deployment the trigger above
+			 * filled, and the asset belongs to the probe's Project. */
+			const ledgerAssetId = crypto.randomUUID();
+			await sql`
+				INSERT INTO media_assets (
+					id, project_id, owner, content_hash, mime_type, extension,
+					size_bytes, kind, gcs_object_key, original_filename,
+					display_name, status
+				)
+				VALUES (
+					${ledgerAssetId}::uuid, ${probeProjectId}, ${probeUserId},
+					${"b".repeat(64)}, 'application/pdf', '.pdf', 128, 'pdf',
+					${`projects/${probeProjectId}/${ledgerAssetId}.pdf`},
+					'guide.pdf', 'Guide', 'ready'
+				)
+			`.execute(migration.db);
+			const ledgerDeployment = target.rows[0].id;
+			const keyedPrefix = authoredCaseIdPrefix({
+				appId: genesis.appId,
+				formUuid: asUuid(crypto.randomUUID()),
+				operationUuid: asUuid(crypto.randomUUID()),
+				caseType: "patient",
+			});
 			for (const statement of [
 				sql`INSERT INTO app_deployment_identities
 					(deployment_id, entity_kind, nova_entity_uuid, unique_id)
-					VALUES (gen_random_uuid(), 'form', gen_random_uuid(), 'form-id')`,
+					VALUES (${ledgerDeployment}::uuid, 'form', gen_random_uuid(), 'form-id')`,
+				sql`INSERT INTO app_deployment_media_paths
+					(deployment_id, media_asset_id, wire_path)
+					VALUES (${ledgerDeployment}::uuid, ${ledgerAssetId}::uuid, 'media/guide.pdf')`,
+				sql`INSERT INTO app_deployment_keyed_case_ids
+					(deployment_id, nova_operation_uuid, case_type, case_id_prefix)
+					VALUES (${ledgerDeployment}::uuid, gen_random_uuid(), 'patient', ${keyedPrefix})`,
+			]) {
+				await expect(statement.execute(runtime.db)).resolves.toMatchObject({
+					numAffectedRows: BigInt(1),
+				});
+			}
+			for (const statement of [
+				sql`UPDATE app_deployment_identities SET unique_id = unique_id`,
+				sql`UPDATE app_deployment_media_paths SET wire_path = wire_path`,
+				sql`UPDATE app_deployment_keyed_case_ids SET case_type = case_type`,
+				sql`SELECT deployment_id FROM app_deployment_identities FOR UPDATE`,
+				sql`SELECT deployment_id FROM app_deployment_media_paths FOR SHARE`,
+				sql`SELECT deployment_id FROM app_deployment_keyed_case_ids FOR KEY SHARE`,
+			]) {
+				await expect(statement.execute(runtime.db)).rejects.toMatchObject({
+					code: "42501",
+				});
+			}
+			for (const statement of [
+				sql`DELETE FROM app_deployment_identities
+					WHERE deployment_id = ${ledgerDeployment}::uuid`,
+				sql`DELETE FROM app_deployment_media_paths
+					WHERE deployment_id = ${ledgerDeployment}::uuid`,
+				sql`DELETE FROM app_deployment_keyed_case_ids
+					WHERE deployment_id = ${ledgerDeployment}::uuid`,
+			]) {
+				await expect(statement.execute(runtime.db)).resolves.toMatchObject({
+					numAffectedRows: BigInt(1),
+				});
+			}
+			/* Only a migration writes migration notices; the confirmation and
+			 * baseline ledgers are never deleted. Empty tables still exercise
+			 * the runtime grants. */
+			for (const statement of [
 				sql`INSERT INTO app_migration_notices (app_id, cutover, entries)
 					VALUES (${genesis.appId}, 'probe', '[{}]'::jsonb)`,
 				sql`INSERT INTO app_migration_notice_key_readers
