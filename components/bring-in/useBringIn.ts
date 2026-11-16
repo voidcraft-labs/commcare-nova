@@ -30,6 +30,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { v4 as uuidv4 } from "uuid";
 import {
 	fetchHqApps,
 	postCreate,
@@ -137,13 +138,7 @@ const CREATE_KEY_STORE: CreateKeyStore = {
 
 /** One id per mounted flow: the holder the tab's create key names. */
 function newFlowId(): string {
-	/* `randomUUID` exists only in a secure context; a page served over plain
-	 * HTTP on a LAN address still needs an id no other flow in the tab has. */
-	try {
-		return crypto.randomUUID();
-	} catch {
-		return `${Date.now()}-${Math.random()}`;
-	}
+	return uuidv4();
 }
 
 /** The Project "Add it to" starts on: the tab's where the person may add to it, else the first. */
@@ -266,7 +261,9 @@ export function useBringIn(input: {
 
 	/* Each time the address becomes an app, before any read: the create the
 	 * tab's key holds for it, if one is to be sent again. This flow takes the
-	 * key over, so the end of a request an earlier flow sent leaves it alone. */
+	 * key over, so the end of a request an earlier flow sent leaves it alone.
+	 * A key this flow's own create still running holds is that create's to
+	 * settle when it ends, whatever app the address names now. */
 	useEffect(() => {
 		if (model.location.kind !== "app" || model.resumeChecked) return;
 		const resumed = resumableCreate(
@@ -274,8 +271,9 @@ export function useBringIn(input: {
 			model.location.key,
 			Date.now(),
 		);
-		if (resumed === null) removeSessionKey(BRING_IN_CREATE_KEY);
-		else adoptCreate(CREATE_KEY_STORE, flowId);
+		if (resumed !== null) adoptCreate(CREATE_KEY_STORE, flowId);
+		else if (modelRef.current.leftCreate === null)
+			removeSessionKey(BRING_IN_CREATE_KEY);
 		dispatchModel({ type: "resume", input: resumed });
 	}, [model.location, model.resumeChecked, flowId]);
 

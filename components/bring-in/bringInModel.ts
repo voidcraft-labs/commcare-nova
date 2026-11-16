@@ -185,6 +185,14 @@ export interface BringInModel {
 	 * `creating` or the failed screen, never the review.
 	 */
 	readonly pendingCreate: BringInInput | null;
+	/**
+	 * The input of a create the person left while its request is still open:
+	 * `call` stays `create` until it ends. A stream's lines name no request,
+	 * so nothing else is sent until then, and the reading screen of the app
+	 * the person went to says which app it waits for. Going back to that
+	 * create's own app puts it on screen again.
+	 */
+	readonly leftCreate: BringInInput | null;
 	/** The finding of a create answered `held`. */
 	readonly held: CircumstanceFinding | null;
 	/** The lead of the last create that did not create, and whether a choice could not be kept. */
@@ -366,6 +374,7 @@ export function initialBringInModel(
 		answers: null,
 		carried: null,
 		pendingCreate: null,
+		leftCreate: null,
 		held: null,
 		lead: null,
 		refusal: null,
@@ -431,16 +440,22 @@ function reduceLocation(
 	// location leaves that app, dispatching nothing; a create runs to its end
 	// and keeps its call.
 	const call = model.call === "read" ? null : model.call;
+	const left =
+		call === "create" ? (model.pendingCreate ?? model.leftCreate) : null;
 	const cleared = {
 		...withoutTheApp(model),
 		location,
 		call,
 		pendingCreate: null,
+		leftCreate: left,
 	};
-	if (location.kind === "app") {
-		return { ...cleared, landing: null, resumeChecked: false };
-	}
-	return cleared;
+	if (location.kind !== "app") return cleared;
+	const moved = { ...cleared, landing: null, resumeChecked: false };
+	// Back at the app of the create still running: its creating screen again,
+	// whatever the tab's key still holds.
+	return left !== null && sameKey(left, location.key)
+		? { ...moved, pendingCreate: left, leftCreate: null }
+		: moved;
 }
 
 /**
@@ -480,7 +495,8 @@ function reduceCreateDone(
 	if (answer.kind === "created") return model;
 	// A create the person left: its answer ends the call and says nothing of
 	// the app now on screen.
-	if (model.pendingCreate === null) return { ...model, call: null };
+	if (model.pendingCreate === null)
+		return { ...model, call: null, leftCreate: null };
 	const ended: BringInModel = {
 		...callEnded(model),
 		pendingCreate: null,
@@ -639,6 +655,7 @@ export function reduceBringIn(
 			return {
 				...model,
 				pendingCreate: event.input,
+				leftCreate: null,
 				held: null,
 				lead: null,
 				refusal: null,
@@ -678,7 +695,7 @@ export function reduceBringIn(
 		case "refused": {
 			if (model.call !== event.call) return model;
 			if (event.call === "create" && model.pendingCreate === null)
-				return { ...model, call: null };
+				return { ...model, call: null, leftCreate: null };
 			if (event.type === "lost")
 				return { ...model, lost: model.lost + 1, call: null };
 			if (event.type === "failed")
@@ -691,7 +708,12 @@ export function reduceBringIn(
 			};
 		}
 		case "signed-out":
-			return { ...callEnded(model), signedOut: true, pendingCreate: null };
+			return {
+				...callEnded(model),
+				signedOut: true,
+				pendingCreate: null,
+				leftCreate: null,
+			};
 		case "retry":
 			return { ...model, lost: 0, failed: null };
 		case "answers": {
@@ -725,6 +747,7 @@ export function reduceBringIn(
 				landing: { answer: event.answer, appId: event.appId },
 				call: null,
 				pendingCreate: null,
+				leftCreate: null,
 			};
 	}
 }
@@ -811,6 +834,9 @@ export function nextAct(model: BringInModel): BringInAct {
 	}
 	if (!model.resumeChecked) return NO_ACT;
 	if (model.landing !== null) return NO_ACT;
+	// One request at a time, a create the person left included: the lines of a
+	// stream name no request. The reading screen of the app the person went
+	// to says what it waits for (`leftCreate`).
 	if (model.call !== null) return NO_ACT;
 	if (model.failed !== null) return NO_ACT;
 	if (model.lost >= 2) return NO_ACT;

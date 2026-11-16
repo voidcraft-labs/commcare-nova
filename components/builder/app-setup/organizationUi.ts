@@ -16,14 +16,7 @@ import type {
 	StoredLocation,
 } from "@/lib/organization/types";
 import { locationValueCatalogIssueForProperties } from "@/lib/organization/valueCatalog";
-import {
-	MANAGED_PLACES_ALREADY_MATCH,
-	MANAGED_PLACES_REFRESHED_SINCE,
-	managedOrganizationCommitRefusal,
-	managedPlacesKeptInUse,
-	managedPlacesKeptLeftOut,
-	managedPlacesRefreshed,
-} from "@/lib/publish/managedData";
+import { managedOrganizationCommitRefusal } from "@/lib/publish/managedData";
 
 export const PERSONA_LOCATION_PAGE_SIZE = 50;
 

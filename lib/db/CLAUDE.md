@@ -151,7 +151,12 @@ exactly the doc it did before they existed.
 arrays round-trip via the stored `ordinal`), `diffBlueprints` (the minimal
 row-set a commit changed — diffed per entity by content, NOT by mutation
 targets, because reducer side effects like a rename's prose cascade touch
-entities the batch never named). `apps.app_name` stores the blueprint name,
+entities the batch never named). Every writer of these rows (the genesis
+tail, a commit's diff, the test seed) writes and deletes them in statements of
+`ENTITY_ROWS_PER_STATEMENT` inside its one transaction
+(`entityRowStatements`): one statement binds at most 65,535 parameters, six
+per row, and an app brought in from CommCare HQ can hold far more rows than
+that allows. `apps.app_name` stores the blueprint name,
 which the schema keeps non-blank, so projections read it directly.
 `apps.localization` stores the optional app-level translation overlay as one
 root scalar. `NULL` is the canonical legacy English-only spelling; no migration

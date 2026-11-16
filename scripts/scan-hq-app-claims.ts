@@ -4,6 +4,10 @@
  * how many of those Nova apps are not in recently deleted. It prints the two
  * counts and nothing else: no app, Project or project space is named.
  * `--prod` reads production through the operator IAM identity.
+ *
+ * Exit status: 0 where no CommCare HQ app has two or more such Nova apps,
+ * 1 where one does, and 2 where the scan could not run (the counts were
+ * never read), so a failed read is never taken for an answer.
  */
 
 import "./lib/loadEnv";
@@ -13,14 +17,13 @@ import {
 	closeCaseStoreDatabase,
 	getCaseStoreDatabase,
 } from "../lib/case-store/postgres/connection";
-import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
 const program = new Command();
 program
 	.name("scan-hq-app-claims")
 	.description(
-		"Count, without writing, the CommCare HQ apps that two or more Nova apps publish to: those where two or more of them are not in recently deleted, and those where at most one is. Prints the two counts only. Exits 1 when some CommCare HQ app has two or more such Nova apps, 0 otherwise.",
+		"Count, without writing, the CommCare HQ apps that two or more Nova apps publish to: those where two or more of them are not in recently deleted, and those where at most one is. Prints the two counts only. Exits 0 when no CommCare HQ app has two or more such Nova apps, 1 when one does, and 2 when the scan could not run.",
 	)
 	.option(
 		"--prod",
@@ -31,6 +34,10 @@ program
 		"\nDatabase:\n" +
 			"  Reads NOVA_DB_LOCAL_URL by default. --prod targets production via\n" +
 			"  scripts/lib/prodDb.ts; it grants no write permissions.\n" +
+			"\nExit status:\n" +
+			"  0  no CommCare HQ app has two or more Nova apps not in recently deleted\n" +
+			"  1  some CommCare HQ app has two or more such Nova apps\n" +
+			"  2  the scan could not run, and counted nothing\n" +
 			"\nExamples:\n" +
 			"  $ npx tsx scripts/scan-hq-app-claims.ts\n" +
 			"  $ npx tsx scripts/scan-hq-app-claims.ts --prod\n",
@@ -39,7 +46,10 @@ program.parse();
 const opts = program.opts<{ prod?: boolean }>();
 if (opts.prod === true) targetProdDb();
 
-runMain(async () => {
+/** The exit status of a scan that could not run, apart from 1, which is an answer. */
+const FATAL_EXIT = 2;
+
+async function main(): Promise<void> {
 	try {
 		const db = await getCaseStoreDatabase();
 		const counts = await db
@@ -80,4 +90,9 @@ runMain(async () => {
 	} finally {
 		await closeCaseStoreDatabase();
 	}
+}
+
+main().catch((error: unknown) => {
+	console.error("Fatal:", error);
+	process.exit(FATAL_EXIT);
 });

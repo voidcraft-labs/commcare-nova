@@ -52,6 +52,7 @@ import {
 	REVIEW_WEB_APPS_ASKS_OFF,
 	readFailedAfterCreateBody,
 	readingStatusLine,
+	readingWaitsForCreateLine,
 	reviewHeading,
 	SIGNED_OUT_LINE,
 	SIGNED_OUT_TITLE,
@@ -2260,6 +2261,118 @@ test.describe("a reload during a create", () => {
 			await stream.close();
 		}
 	});
+
+	for (const end of ["read-again", "created"] as const) {
+		test(`a create left and come Back to holds the read of another app chosen meanwhile, which names it, until it answers ${end}`, async ({
+			page,
+		}) => {
+			const routes = removableRoutes(page);
+			const stream = await streamPeer();
+			const second: ReadingKey = { ...KEY, remoteAppId: "aaaa0004" };
+			try {
+				await answerApps(routes, { clinic: CLINIC_APPS });
+				const reads = await recorded(
+					routes,
+					"/api/commcare/bring-in/read",
+					(route) => {
+						const key = route.request().postDataJSON() as ReadingKey;
+						return fulfillNdjson(
+							route,
+							answered(
+								key.remoteAppId === second.remoteAppId
+									? reviewAnswer(
+											reviewOf({ appName: "Antenatal care" }),
+											"c".repeat(64),
+										)
+									: reviewAnswer(),
+							),
+						);
+					},
+				);
+				await routes.route("**/api/commcare/bring-in/create", (route) =>
+					stream.continue(route),
+				);
+				await open(page, routes, APP_ADDRESS, {}, stream.origin);
+				await expect(
+					heading(page, reviewHeading("Household visits")),
+				).toBeVisible();
+				await page
+					.locator('[data-review-table-choice="district"]')
+					.getByRole("radio", {
+						name:
+							tableChoiceView(DISTRICT_TABLE, TEAM.name, KEY.domain, false)
+								.rows[1]?.label ?? "",
+						exact: true,
+					})
+					.click();
+				await button(page, BRING_IN_ACTIONS.bringItIn).click();
+				expect((await stream.request(0)).body).toEqual(ANSWERED_INPUT);
+
+				/* The person leaves the page while the create runs, and comes Back. */
+				await openPage(page, `${stream.origin}/`);
+				await page.goBack();
+				await expect(heading(page, CREATING_STATUS)).toBeVisible();
+				const again = await stream.request(1);
+				expect(again.body).toEqual(ANSWERED_INPUT);
+
+				/* Then chooses another app while that create is still running. */
+				await page.evaluate((address) => {
+					window.history.pushState(null, "", address);
+					window.dispatchEvent(new PopStateEvent("popstate"));
+				}, CHOOSE_ADDRESS);
+				await page
+					.getByRole("radio", { name: "Antenatal care", exact: true })
+					.click();
+				await button(page, BRING_IN_ACTIONS.readThisApp).click();
+				await expect(
+					page.getByText(readingStatusLine("Antenatal care"), { exact: true }),
+				).toBeVisible();
+				await expect(
+					page.getByText(readingWaitsForCreateLine("Household visits"), {
+						exact: true,
+					}),
+				).toBeVisible();
+				expect(reads).toEqual([KEY]);
+
+				const receipt = receiptOf(ANSWERED_INPUT);
+				await again.write({
+					type: "done",
+					answer:
+						end === "created"
+							? { kind: "created", receipt }
+							: { kind: "read-again" },
+				});
+				await again.end();
+				if (end === "created") {
+					await expect.poll(async () => (await landings(page)).length).toBe(1);
+					expect(await landings(page)).toEqual([
+						{ raw: receipt, origin: "brought-in" },
+					]);
+					expect(reads).toEqual([KEY]);
+				} else {
+					await expect(
+						heading(page, reviewHeading("Antenatal care")),
+					).toBeVisible();
+					expect(reads).toEqual([KEY, second]);
+					expect(await landings(page)).toEqual([]);
+				}
+				await expect(
+					page.getByText(readingWaitsForCreateLine("Household visits"), {
+						exact: true,
+					}),
+				).toHaveCount(0);
+				expect(
+					await page.evaluate(
+						(key) => window.sessionStorage.getItem(key),
+						CREATE_KEY,
+					),
+				).toBeNull();
+			} finally {
+				await routes.removeAll();
+				await stream.close();
+			}
+		});
+	}
 
 	for (const stale of ["another app's", "an hour old"] as const) {
 		test(`removes a key that is ${stale} and reads the app`, async ({

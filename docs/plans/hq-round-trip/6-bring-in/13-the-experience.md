@@ -594,6 +594,13 @@ export interface BringInModel {
 	 * the screen is `creating` or the failed screen, never the review.
 	 */
 	readonly pendingCreate: BringInInput | null;
+	/**
+	 * The input of a create the person left while its request is still open (`call` stays
+	 * `create`). Nothing else is sent until it ends, and the reading screen of the app the person
+	 * went to says which app it waits for (5, W9). Going back to that create's own app puts it on
+	 * screen again.
+	 */
+	readonly leftCreate: BringInInput | null;
 	/** The finding of a create answered `held`. */
 	readonly held: CircumstanceFinding | null;
 	/** The lead of the last create that did not create, and whether a choice could not be kept. */
@@ -686,7 +693,8 @@ export function nextAct(model: BringInModel): BringInAct;
 |---|---|
 | `location` to `choose` | everything about the app cleared, and `pendingCreate`; `picker` kept, so "Choose another app" returns to the list the person left |
 | `location` to `app` with another key than the one held | everything about the app cleared, `pendingCreate` and `landing` among it; `resumeChecked` false |
-| `location` that leaves the app (to `choose`, `none` or another key), with a read in flight | `call` null as well: the hook aborts that read and dispatches nothing of it, so a `call` left at `read` would hold `nextAct`'s rule 4 at `none` for the next app. A create's `call` stays: it runs to its end |
+| `location` that leaves the app (to `choose`, `none` or another key), with a read in flight | `call` null as well: the hook aborts that read and dispatches nothing of it, so a `call` left at `read` would hold `nextAct`'s rule 4 at `none` for the next app. A create's `call` stays: it runs to its end, and `leftCreate` holds its input (the `pendingCreate` it had, or the `leftCreate` already held) |
+| `location` to `app` with the key of `leftCreate` | `pendingCreate` that input and `leftCreate` null: the person is back at the create still running, so its creating screen stands again and its lines and its end are the screen's own, whatever the tab's key still holds |
 | `resume` | `resumeChecked` true. With an input: `pendingCreate` that input, as `create-asked` sets it. With null: nothing else, and the next act is the read |
 | `connection` | `picker.domains` set. Where it holds exactly one and none is chosen: `domain` that one and `apps: loading`, so one project space is never a choice. A picker with no Project (`projectId` null) chooses none, since it shows no fields (4.5). Where the chosen `domain` is no longer among them: `domain` null, `apps: idle`, `remoteAppId` null. Where it is still among them and its list answered `not-connected`: `apps: loading`, so the list is read again once Check connection finds the key back (4.4); nothing else reads it, since the aside hides the fields. Otherwise nothing else moves |
 | `picker-project` | `picker.projectId`, and nothing else: the list is the project space's, whatever the Project |
@@ -694,7 +702,7 @@ export function nextAct(model: BringInModel): BringInAct;
 | `picker-reload` | `apps: loading` where a domain is chosen; nothing otherwise |
 | `picker-apps` | taken only where `apps` is `loading` and its `domain` is still the picker's; `null` is `failed`. `remoteAppId` is cleared where the list holds no row of it that can be chosen |
 | `read-asked` | everything about the app cleared. The next act is the read |
-| `create-asked` | `pendingCreate` the event's `input`; `held`, `lead`, `refusal`, `failed` and `needsChoice` cleared; `lost` 0. No request is in flight yet: the next act is `create`, which the hook posts |
+| `create-asked` | `pendingCreate` the event's `input`; `leftCreate`, `held`, `lead`, `refusal`, `failed` and `needsChoice` cleared; `lost` 0. No request is in flight yet: the next act is `create`, which the hook posts |
 | `call` | `call` set; `stage` and `files` null; `waitingSince` set to `at` where it was null |
 | `stage` | taken only where the line is the screen's own: `call` is `read`, or `call` is `create` with `pendingCreate` set. A create the person left still streams lines of another app, which never paint over the screen on display. `stage` set, and `files` null where the stage counts no files or is another stage than the one held (a create names `checking-media` with its count and then `bringing-in-media`, whose label takes no count until its own first `files` line) |
 | `files` | taken only where `stage` would be: `files` set |
@@ -721,7 +729,9 @@ the refusal's sentence stands above the review it answers.
 A request's last line (`read-done`, `create-done`, `failed`, `lost`, `refused`) is taken only while
 `call` is that request, so a line of a request no longer in flight never paints over a newer
 screen. A create the person left (its `pendingCreate` cleared by a `location` event, its `call`
-kept) ends with `call` null and nothing else, whatever it answers, but for `created`, which lands.
+kept, its input in `leftCreate`) ends with `call` and `leftCreate` null and nothing else, whatever
+it answers, but for `created`, which lands (`landed` clears `leftCreate` too, as `signed-out`
+does).
 
 **`screenOf`**, first match:
 
@@ -745,7 +755,10 @@ event came last.
    picker's `domain` where `picker.apps.kind === "loading"`, and `none` otherwise.
 2. `resumeChecked` false is `none`.
 3. `landing !== null` is `none`: the builder, the next page or the `unopened` screen has it.
-4. `call !== null` is `none`: the hook is reading that request's stream.
+4. `call !== null` is `none`: the hook is reading that request's stream. This holds for a create
+   the person left as well: a stream's lines name no request, so a read of another app beside it
+   could not tell its own lines and last line from the create's. The person is never left
+   looking at a silent wait: that app's reading screen says which app it waits for (W9, 5).
 5. `failed !== null` is `none`: a defect answers the same way twice, so the page never sends a
    failed request again by itself (5).
 6. `lost >= 2` is `none`: the screen offers Try again, which dispatches `retry`.
@@ -1176,6 +1189,9 @@ says as it arrives.
 - After twenty seconds of `waitingSince`: **W3**. This is the design system's rule for a wait, "Long
   operations get patient company ("Still building. Big apps take a minute or two."), not spinners in
   silence or percent counters", and it is why there is no bar.
+- Where a create the person left is still running (`leftCreate`, 3.3), under W1: **W9**, naming
+  that create's app. The read of this app waits for that create's end (`nextAct`, rule 4); a
+  create that brings its app in lands it (9.2), and any other end lets this read start.
 - Always: **W4**, and one link, **Go to your apps**.
 
 W4 says what leaving does, and it is true whichever way the person leaves: the read stops at its
@@ -1909,7 +1925,8 @@ the tab closes that:
   `remoteAppId` are the address's, and `at` is less than `BRING_IN_RESUME_WINDOW_MS` before `now`;
   otherwise null. The hook dispatches `resume` with the answer. With an input the flow takes the key
   over, the screen is this one and the act is the create; with null the hook removes the key and
-  the page reads the app.
+  the page reads the app, unless this flow's own create is still running (`leftCreate`): that key
+  is the create's, and its end settles it.
 
 The create it sends answers `created` where the first committed, joins the first where it is still
 running, and runs whole where the first died (part 12, 6.6). The window is one hour because that is
@@ -2987,12 +3004,18 @@ makes those changes: the same key carries it, with part 15's heading and lead.
 adds `brought_in` and `ending` and names all three in `get_deployment`'s description.
 `deploymentProjection.ts::describeDeployment` gains
 `brought_in: { at: string; by: string } | null` (from `broughtInOf`'s rule, server-side) and `ending:
-{ at: string; by: string; reason: "stopped" | "claimed-elsewhere"; hq_app_id: string; message: string
-} | null` (part 10's `deploymentEnding`, with `endedLine` as `message` and the UTC day).
+{ at: string; by: string; reason: "stopped" | "claimed-elsewhere"; held_by_another_app: boolean;
+hq_app_id?: string; message: string } | null` (part 10's `deploymentEnding`, with `endedLine` as
+`message` and the UTC day). Where another Nova app publishes to that HQ app now
+(`heldByAnotherApp`), `held_by_another_app` is true and `hq_app_id` is left out, as the ended card
+draws no link to it: the HQ app is no longer this app's, and an agent handed its id would offer a way
+back to it.
 `get_deployment`'s description changes its state list to "`preflight`, `uploaded`,
 `built`, `released`, `runnable`, `incomplete` or `ended`" and gains: " `brought_in` says the app came
 from CommCare HQ on that project space, when and by whom. `ending` says Nova stopped publishing
-there: the app in CommCare HQ stays, and the next upload makes a new app beside it." Part 15 adds
+there: the app in CommCare HQ stays, and the next upload makes a new app beside it; where
+`ending.held_by_another_app` is true, another Nova app publishes to that CommCare HQ app now, so
+`ending.hq_app_id` is left out and there is no way back to it to offer." Part 15 adds
 `nova_revision: number | null` beside `pushed_revision` in the same projection, and the sentence
 `refresh_deployment` relays where CommCare HQ's copy changed (its section 10).
 
@@ -3471,7 +3494,8 @@ In "Publishing", the table gains `stop_publishing` ("Stop publishing an app to o
 The app in CommCare HQ stays; a later upload makes a new app beside it. Admins and owners of the
 app's Project only. Requires `nova.hq.write`."), `get_deployment`'s row gains "`ended`" in its state
 list and "`brought_in` and `ending` say where the app came from and whether Nova stopped publishing
-there", and `upload_app_to_hq`'s row gains after its first sentence: "For an app brought in from that
+there. Where another Commcare Nova app publishes to that CommCare HQ app now,
+`ending.held_by_another_app` is true and `ending.hq_app_id` is left out", and `upload_app_to_hq`'s row gains after its first sentence: "For an app brought in from that
 project space, the first upload updates the app it came from." The row of
 `check_project_space_compatibility` (under "Browsing apps") gains: "`first_publish` is what the
 next upload changes in CommCare HQ beyond the user's own edits, for an app brought in from that
@@ -3574,6 +3598,7 @@ do and when, as an invitation, and never as a step to take or a fault.
 | | the same, under a create's lead (the read a `read-again` asks for) | Nova lost its connection partway. No app was created, and you can try again. |
 | W7 | Nova's own failure in a read under a create's lead: the body, under `READING_FAILED_COPY.read`'s title | Nova ran into a problem of its own while reading {app}. That's on Nova, and the team has been told. No app was created, and nothing changed in CommCare HQ. |
 | W8 | any request answered 401 (5): title, line, action | You're signed out / Reload the page to sign in again / Reload |
+| W9 | under W1, while a create the person left is still running (5) | Nova is still bringing in {first}, the app you asked for before. When that's done, Nova opens {first} if it came in, or reads this app if it didn't. (where that app has no name: Nova is still bringing in the app you asked for before. When that's done, Nova opens it if it came in, or reads this app if it didn't.) |
 | | the stages | part 12's `READING_STAGE_LABELS` |
 | | Nova's own failure: title, body | part 12's `READING_FAILED_COPY`, its `read` and `create` forms |
 
@@ -3769,7 +3794,7 @@ runners.
 | the same, `resumableCreate` | it answers the input for a stored create of the address's own key written inside the window; null for another app's key, for one written `BRING_IN_RESUME_WINDOW_MS` ago or more, for text that fails `bringInInputSchema`, and for no text | a create started on a page load the person did not ask for; one app's create sent for another |
 | the same, the three ends of a landing | `landed` with `unverified`: `screenOf` is `unopened` with the app's id and `nextAct` is `none`, so no second create can be sent; with `leaving`: `creating` and `none`; with `landed`: `creating` and `none` | Bring it in offered again for an app that exists |
 | the same, the picker | `connection` with one project space chooses it and sets `apps` to `loading`; `nextAct` is then `list-apps` with that project space; `picker-reload` returns a loaded list to `loading`; `picker-project` changes no list; a `picker-apps` for another project space is dropped; `connection` that no longer holds the chosen project space clears it; with no Project, `connection` chooses nothing and `nextAct` stays `none`; a list that answered `not-connected`, then a `connection` that still holds its project space, is `loading` again and `nextAct` lists it | a picker with one project space that never lists; a list for a project space no longer chosen painted over the new one; a Check connection that finds the key back and leaves the aside up for good |
-| the same | `read-asked` clears what the model held of the app and makes `nextAct` a `read`; a `stage` or `files` event with no call in flight is dropped, and so is one of a create the person left, at another app's reading screen; `answers` for another digest are dropped; `signed-out` makes `screenOf` `signed-out` over the picker and every screen of an app and `nextAct` `none`, through `retry` and a change of address; `accountOfOne` counts its one finding under that finding's standing | a stale line painting over a newer screen; a Check again that reads nothing; a retry loop into the same 401 |
+| the same | `read-asked` clears what the model held of the app and makes `nextAct` a `read`; a `stage` or `files` event with no call in flight is dropped, and so is one of a create the person left, at another app's reading screen; a create the person left holds the read of the app they went to, whose `leftCreate` names it, until its end, and any end but `created` then makes `nextAct` that read while `created` lands and reads nothing; a `location` back to that create's app puts it back in `pendingCreate`, whose lines and end are the screen's own; `answers` for another digest are dropped; `signed-out` makes `screenOf` `signed-out` over the picker and every screen of an app and `nextAct` `none`, through `retry` and a change of address; `accountOfOne` counts its one finding under that finding's standing | a stale line painting over a newer screen; a Check again that reads nothing; a retry loop into the same 401 |
 | `components/bring-in/__tests__/bringInCreateEnd.test.ts` | `endCreate` over every end of a create, mounted and not: unmounted, every end removes the key and dispatches and lands nothing; mounted, `created` lands and then removes the key, every other final answer removes it before the model hears it, and `lost` keeps it where its creating screen still stands (`pendingCreate` set) and removes it where the person went Back from it | a create that ended after the person left, sent again by the next Read this app; an answer drawn after the flow has gone |
 | `components/bring-in/__tests__/bringInCreateKey.test.ts` | the key across two flows mounted over one create (Bring it in, Go to your apps, Back, the second flow resumes): every end of the first flow's request, unmounted, leaves the key so `resumableCreate` still answers the input; the second flow's own end removes it, mounted or not; a resume keeps `at`; one flow that resumed its own key still removes it | the first flow's end taking the key from under the second flow's creating screen, so a reload there shows `already-in-nova` for the app just made or a second review; a window stretched by going Back and forth |
 | `components/bring-in/__tests__/bringInAccount.test.ts` | `accountGroups` makes one group a key, in first-appearance order, over a list where a form's questions come after another form's findings; folds a run of more than twenty; `accountHeading` follows part 01's `NOVA_FAULT_CIRCUMSTANCES`: `this-time` for a list of those alone, and `yet` for `too-large` alone, for `places-over-nova-limit` alone and for any mix; `countLine` singular and plural for each of the three parts and with zero parts left out; `placeGroupKey` gives a form and its questions one key and two menus two; a circumstance item whose code's row holds `name: "line"` (part 01, 8.3) draws its `named` line, and one whose row holds none draws no such line; `accountAsText` holds every finding, folded or not, gives a circumstance its body, its name and its next step from `circumstanceBlock`, and ends with `ACCOUNT_CHECK_AGAIN_LINE` | a form's heading drawn twice; a finding lost between the answer and the screen or the clipboard; "1 things"; "this time" over a limit a retry cannot pass; two findings of one code that read alike; a copied list that reads as complete |
@@ -3825,7 +3850,7 @@ is used and not changed.
 | the review | no checkbox exists on the screen; the preselected choice is checked; choosing another choice changes the Web Apps line, the recorded-features line and the list under "What the first publish changes", which gains "Web Apps is turned off for this app" and loses `FIRST_PUBLISH_NO_WORKER_CHANGE`, and keeps `FIRST_PUBLISH_FORM_BUILDER_NOTE` as its last line; a platform the app can't run on shows its features as list items; Bring it in with a table unanswered sends no request, focuses that group and shows V16; a table with neither answer offered shows V17 and not R11; with every choice answered, posts exactly the `BringInInput`, the address's key and the review's `readingId` and digest in it; an empty name focuses the field with its error |
 | a create's answers | `held` shows the block above the review and keeps every answer; `changed` with a review shows its lead, keeps the name the person typed and the choice that is still offered, and says so where one was dropped; `changed` with a stop of `already-in-nova` shows its own lead, Open, and no S1; `read-again` shows the reading screen under its lead and then the review with the answers kept; `check-failed` shows the account under heading A2 with "No app was created" |
 | creating | from the press on, no radio of the review is on screen; the count reads "Checking pictures and sounds" and then "Bringing in pictures and sounds", and on `creating` no stage line shows under X1; `created` calls the landing once with the receipt; a lost response retries once after three seconds (`page.clock`) with the same body and then offers Try again, which posts it again; a `failed` line shows the create's failed screen, and Try again posts the same body; a landing that answers `unverified` shows part 12's `UNVERIFIED_LANDING_TITLE` with Open your app, and no Bring it in |
-| a reload during a create | with the create held open, a reload shows the creating screen and posts the same body again, with no read between; `sessionStorage` holds `nova:bring-in-create` until the answer and not after it; with a key written for another app, and with one older than an hour (`page.clock`), the page removes the key and posts a read |
+| a reload during a create | with the create held open, a reload shows the creating screen and posts the same body again, with no read between; `sessionStorage` holds `nova:bring-in-create` until the answer and not after it; with a key written for another app, and with one older than an hour (`page.clock`), the page removes the key and posts a read; a create left by leaving the page and coming Back is sent again, and another app chosen while it runs shows W9 naming it and posts no read until that create ends: an end other than `created` then reads that app, and `created` lands the first and reads nothing |
 | narrow | at 360px wide the footer's buttons stack at 44px, the middle scrolls, and the document does not scroll sideways |
 
 `e2e/tests/browser/publishing.spec.ts` (extended): a brought-in record shows D1 and D2; Stop

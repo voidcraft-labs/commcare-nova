@@ -37,6 +37,10 @@ const CALLS: { readonly [K in FunctionName]: () => readonly unknown[] } = {
 		copy.readFailedAfterCreateBody("Household visits"),
 		copy.readFailedAfterCreateBody(null),
 	],
+	readingWaitsForCreateLine: () => [
+		copy.readingWaitsForCreateLine("Household visits"),
+		copy.readingWaitsForCreateLine(null),
+	],
 	stopNothingChangedLine: () => [
 		copy.stopNothingChangedLine("read"),
 		copy.stopNothingChangedLine("create"),
@@ -187,6 +191,9 @@ describe("bringInCopy", () => {
 			expect(copy.readingStatusLine(blank)).toBe(copy.readingStatusLine(null));
 			expect(copy.readFailedAfterCreateBody(blank)).toBe(
 				copy.readFailedAfterCreateBody(null),
+			);
+			expect(copy.readingWaitsForCreateLine(blank)).toBe(
+				copy.readingWaitsForCreateLine(null),
 			);
 		}
 	});

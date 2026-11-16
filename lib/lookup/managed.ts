@@ -744,6 +744,9 @@ export async function refreshManagedLookupTableInTransaction(
 	// `newColumnIds` gives under the field's own key, or one Postgres mints
 	// now. The rows are then keyed as they will be stored, and judged against
 	// the caps before the first write, so a refusal names the cap it is over.
+	// Its invariants name the table by its id and a field by its place, as the
+	// create arm's do: a field's name is the app's word, and a failed request
+	// carries the message to the error log.
 	const newIds = input.newColumnIds ?? {};
 	const newFields = content.fields.filter((field) => !byWireName.has(field));
 	const missing = newFields.filter(
@@ -763,7 +766,11 @@ export async function refreshManagedLookupTableInTransaction(
 		const id = Object.hasOwn(newIds, field)
 			? lookupColumnIdSchema.parse(newIds[field])
 			: minted[nextMinted++];
-		if (id === undefined) throw new Error(`No id was minted for ${field}.`);
+		if (id === undefined) {
+			throw new Error(
+				`No id was minted for the field ${content.fields.indexOf(field) + 1} of the lookup table ${tableId}.`,
+			);
+		}
 		added.push({ id, wireName: field });
 	}
 	const columnIdOf = new Map<string, LookupColumnId>();
@@ -773,16 +780,24 @@ export async function refreshManagedLookupTableInTransaction(
 			existing === undefined
 				? added.find((column) => column.wireName === field)?.id
 				: lookupColumnIdSchema.parse(existing.id);
-		if (id === undefined) throw new Error(`No column holds ${field}.`);
+		if (id === undefined) {
+			throw new Error(
+				`No column of the lookup table ${tableId} holds its field ${content.fields.indexOf(field) + 1}.`,
+			);
+		}
 		columnIdOf.set(field, id);
 	}
 	const rows = rowValuesFor(content, columnIdOf);
 	await holdCaps(tx, table.tag, content, rows);
 	checkCells(
 		table.tag,
-		content.fields.map((field) => {
+		content.fields.map((field, index) => {
 			const id = columnIdOf.get(field);
-			if (id === undefined) throw new Error(`No column holds ${field}.`);
+			if (id === undefined) {
+				throw new Error(
+					`No column of the lookup table ${tableId} holds its field ${index + 1}.`,
+				);
+			}
 			return textColumn(id, field);
 		}),
 		rows,
@@ -885,7 +900,9 @@ export async function refreshManagedLookupTableInTransaction(
 			}
 			const column = added.find((one) => one.wireName === entry.wireName);
 			if (column === undefined) {
-				throw new Error(`No column was planned for ${entry.wireName}.`);
+				throw new Error(
+					`No column was planned for the field ${index + 1} of the lookup table ${tableId}.`,
+				);
 			}
 			await tx
 				.insertInto("lookup_columns")

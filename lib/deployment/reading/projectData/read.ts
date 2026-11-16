@@ -303,6 +303,8 @@ export async function readReadingProjectData(input: {
 	const ids = { appId: input.appId, readingId: input.readingId };
 	const sourceText = readingSourceText(input.source);
 
+	/* Dated before CommCare HQ is asked, as every refresh dates its read. */
+	const tablesReadAt = new Date();
 	const lookups = await readHqLookupTablesForReading({
 		creds,
 		domain,
@@ -348,6 +350,7 @@ export async function readReadingProjectData(input: {
 			origin: { server: input.server, domain },
 			appId: input.appId,
 			readingId: input.readingId,
+			tablesReadAt,
 			tables: lookups.tables,
 			hqTags: lookups.listed,
 			project: {

@@ -64,7 +64,7 @@ import {
 } from "@/lib/media/builtinIconAssets";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import { decomposeBlueprint } from "./blueprintRows";
+import { decomposeBlueprint, entityRowStatements } from "./blueprintRows";
 import {
 	admitExactMediaReferences,
 	assertProjectCapabilityInTransaction,
@@ -150,12 +150,6 @@ export function prepareGenesisCandidate(args: {
 }
 
 // ── The shared write tail ──────────────────────────────────────────
-
-/** Entity rows per insert statement. Each row binds six parameters, and one
- *  statement may bind at most 65,535 (the protocol counts them in 16 bits), so
- *  an app brought in whole, at thousands of menus, forms and fields, is
- *  written in statements of this size inside the one birth transaction. */
-const ENTITY_INSERT_CHUNK = 1000;
 
 /** The holder + reservation column groups a design-slice genesis transfers
  *  onto the app row (the exact columns the design session held; §11.5 —
@@ -313,12 +307,13 @@ export async function writePreparedGenesisInTransaction(
 		projectId,
 		targets: candidate.lookupTargets,
 	});
-	const rows = decomposeBlueprint(candidate.persistable);
-	for (let start = 0; start < rows.length; start += ENTITY_INSERT_CHUNK) {
+	for (const statement of entityRowStatements(
+		decomposeBlueprint(candidate.persistable),
+	)) {
 		await tx
 			.insertInto("blueprint_entities")
 			.values(
-				rows.slice(start, start + ENTITY_INSERT_CHUNK).map((r) => ({
+				statement.map((r) => ({
 					app_id: appId,
 					uuid: r.uuid,
 					kind: r.kind,

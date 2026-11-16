@@ -320,7 +320,8 @@ HAVING count(*) > 1;
 ```
 
 It prints two numbers and nothing else: groups whose `live_apps` is 2 or more, and groups whose
-`live_apps` is 1 or 0. Nothing of its output is committed.
+`live_apps` is 1 or 0. Nothing of its output is committed. It exits 0 where no group has two live
+apps, 1 where one does, and 2 where it could not run, so a failed read is never taken for an answer.
 
 - **No group has two live apps.** The session goes on to the merge and removes the script in the
   last commit before it. The migration's statement 7 releases each deleted member of a group that

@@ -51,6 +51,7 @@ import {
 } from "@/lib/publish/hqFindings";
 import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
 import { birthAdoptedApp } from "../../__tests__/adoptedBirth";
+import { sourceMayReadPlaces } from "../projectData/places";
 import { authorizeBringIn, readHqAppForReview } from "../read";
 import {
 	READING_ID_PATTERN,
@@ -67,6 +68,14 @@ vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/commcare/reader", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/commcare/reader")>();
 	return { ...actual, readHqAppSteps: vi.fn(actual.readHqAppSteps) };
+});
+/* The source's test of places runs as it is; a case makes it miss a spelling once. */
+vi.mock("../projectData/places", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../projectData/places")>();
+	return {
+		...actual,
+		sourceMayReadPlaces: vi.fn(actual.sourceMayReadPlaces),
+	};
 });
 vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(),
@@ -418,6 +427,22 @@ function servePlaces(
 	});
 }
 
+/** The fixture's table list, the fields of `district` changed. */
+function districtFields(
+	change: (fields: readonly Body[]) => readonly Body[],
+): RetainedHqAnswer {
+	return changed(
+		retainedGroupRead("targeted-hq-side-lookup/lookup-tables"),
+		(body) => {
+			const [district] = body.objects as Body[];
+			if (district === undefined)
+				throw new Error("The fixture's list holds the table district.");
+			district.fields = change(district.fields as Body[]);
+			return body;
+		},
+	);
+}
+
 /** A source whose first menu shows an image as its icon, and the map entry that names it. */
 function withMenuIcon(answer: RetainedHqAnswer, multimediaId: string) {
 	const path = `jr://file/commcare/image/${multimediaId}.png`;
@@ -667,16 +692,10 @@ describe("readHqAppForReview", () => {
 				},
 			},
 			{
+				/* An app that reads places, whose levels the key may not read. */
 				code: "cannot-read-organization",
 				serving: (peer) => {
-					serveApp(peer, {
-						source: withFirstForm(source(), (_form, xml) => ({
-							xml: xml.replace(
-								'<instance src="jr://instance/casedb" id="casedb"/>',
-								'<instance src="jr://instance/casedb" id="casedb"/><instance src="jr://fixture/locations" id="locations"/>',
-							),
-						})),
-					});
+					serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
 					serve(peer, PATHS.levels, { status: 403, headers: {} });
 				},
 			},
@@ -864,6 +883,22 @@ describe("readHqAppForReview", () => {
 				},
 			},
 			{
+				/* CommCare HQ's Manage Tables page saves a table with no field. */
+				code: "table-has-no-fields",
+				serving: (peer) =>
+					serveFixtureApp(peer, {
+						tables: districtFields(() => []),
+					}),
+			},
+			{
+				/* CommCare HQ holds two fields of one name. */
+				code: "table-field-repeated",
+				serving: (peer) =>
+					serveFixtureApp(peer, {
+						tables: districtFields((fields) => [...fields, fields[0]]),
+					}),
+			},
+			{
 				code: "table-cell-unrepresentable",
 				serving: (peer) =>
 					serveFixtureApp(peer, {
@@ -911,6 +946,129 @@ describe("readHqAppForReview", () => {
 			expect(READ_CIRCUMSTANCES.filter((code) => !driven.has(code))).toEqual(
 				[],
 			);
+		});
+	});
+
+	describe("the places a source's text asks for", () => {
+		/** A source whose first form declares the list of places and reads none of it. */
+		const declaresPlaces = () =>
+			withFirstForm(source(), (_form, xml) => ({
+				xml: xml.replace(
+					'<instance src="jr://instance/casedb" id="casedb"/>',
+					'<instance src="jr://instance/casedb" id="casedb"/><instance src="jr://fixture/locations" id="locations"/>',
+				),
+			}));
+		const missedLines = () =>
+			vi
+				.mocked(log.error)
+				.mock.calls.filter(
+					([message]) => message === "[reading] places read missed",
+				);
+		const asked = (requests: readonly string[], path: string) =>
+			requests.filter((request) => request === path).length;
+
+		it("ends the reading of an app that reads places with the failed read of them, asking for them once", async () => {
+			const { answer, requests } = await read((peer) => {
+				serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
+				serve(peer, PATHS.levels, { status: 403, headers: {} });
+			});
+			expect(answer).toMatchObject({
+				kind: "stop",
+				finding: { code: "cannot-read-organization" },
+			});
+			expect(asked(requests, PATHS.levels)).toBe(1);
+			expect(asked(requests, PATHS.places)).toBe(0);
+			expect(missedLines()).toEqual([]);
+		});
+
+		it("drops the failed read for an app whose text names places and that reads none, and reads it to a review", async () => {
+			const { answer, requests } = await read((peer) => {
+				serveApp(peer, { source: declaresPlaces() });
+				serve(peer, PATHS.levels, { status: 403, headers: {} });
+			});
+			expect(answer.kind).toBe("review");
+			expect(asked(requests, PATHS.levels)).toBe(1);
+			expect(missedLines()).toEqual([]);
+		});
+
+		it("ends an account whose app reads places with the failed read of them, and drops it from one that reads none", async () => {
+			/* A read of places at a level CommCare HQ's levels do not hold is refused: an
+			 * account, whose reader still counts the read of places. */
+			const reading = await read((peer) => {
+				const doc = locationOwnerFixture("plain", { placeRead: true });
+				const body = servedExport(doc).body;
+				const [menu] = body.modules as Body[];
+				const [form] = menu.forms as Body[];
+				const attachments = body._attachments as Record<string, string>;
+				const key = `${form.unique_id as string}.xml`;
+				const list = "instance(&apos;locations&apos;)/locations/location";
+				const xml = attachments[key] as string;
+				if (!xml.includes(list))
+					throw new Error("The form reads the list of places.");
+				attachments[key] = xml
+					.split(list)
+					.join(`${list}[@location_type = &apos;nowhere&apos;]`);
+				serveApp(peer, {
+					source: {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(body),
+					},
+					resource: changed(application(), (resource) => ({
+						...resource,
+						modules: (body.modules as Body[]).map((one) => ({
+							case_properties: [],
+							case_type: one.case_type ?? null,
+							name: one.name,
+							unique_id: one.unique_id,
+							forms: (one.forms as Body[]).map((each) => ({
+								name: each.name,
+								unique_id: each.unique_id,
+								xmlns: each.xmlns,
+								questions: [],
+							})),
+						})),
+					})),
+				});
+				serve(peer, PATHS.levels, { status: 403, headers: {} });
+			});
+			expect(reading.answer).toMatchObject({
+				kind: "stop",
+				finding: { code: "cannot-read-organization" },
+			});
+			expect(asked(reading.requests, PATHS.levels)).toBe(1);
+
+			const unread = await read((peer) => {
+				serveApp(peer, { source: withUnparsedForm(declaresPlaces()) });
+				serve(peer, PATHS.levels, { status: 403, headers: {} });
+			});
+			expect(codes(unread.answer)).toContain("unrecognized");
+			expect(codes(unread.answer)).not.toContain("cannot-read-organization");
+			expect(missedLines()).toEqual([]);
+		});
+
+		it("reads places once more, and the reader again, where the source's test missed a spelling", async () => {
+			vi.mocked(sourceMayReadPlaces).mockReturnValueOnce(false);
+			const { answer, requests } = await read((peer) => {
+				serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
+				/* The read once more asks for the tables again. */
+				serve(peer, PATHS.tables, retainedGroupRead("lookups/lookup-tables"));
+				serveLevels(peer);
+				servePlaces(peer, [hqPlace("north", "region", null)]);
+			});
+			expect(answer.kind).not.toBe("stop");
+			expect(asked(requests, PATHS.tables)).toBe(2);
+			expect(asked(requests, PATHS.levels)).toBe(1);
+			expect(asked(requests, PATHS.places)).toBe(1);
+			expect(missedLines()).toHaveLength(1);
+			/* The reader ran first with no level, then again with CommCare HQ's. */
+			const levelCodes = vi
+				.mocked(readHqAppSteps)
+				.mock.calls.map(([input]) => input.organization.levelCodes);
+			expect(levelCodes.slice(0, 2)).toEqual([
+				[],
+				LOCATION_LEVELS.map((level) => level.code),
+			]);
 		});
 	});
 

@@ -107,6 +107,7 @@ import {
 	type ReadingProjectData,
 	readingLookupSnapshot,
 	readingProjectDataFindingsFor,
+	unreadPlacesFailure,
 } from "./projectData";
 import { boundAsItStands } from "./projectData/lookupTables";
 import {
@@ -979,9 +980,10 @@ export async function gatherFromHq(
 			readerFault(scope, "contract", appName, false, { broke: run.broke }),
 		);
 	let reads = projectDataReadsOf(data, run.outcome);
-	if (reads.readsPlaces && !data.placesRead) {
+	if (reads.readsPlaces && !data.placesRead && data.placesUnread === null) {
 		/* The source test of step 5 missed a spelling: read places, then the reader again. One
-		 * extra pass, never a loop, since this read always reads places. */
+		 * extra pass, never a loop, since this read always reads places. Where step 5 asked and
+		 * the read failed, nothing was missed: the failure below answers. */
 		log.error("[reading] places read missed", undefined, scopeContext(scope));
 		onEvent({ type: "stage", stage: "reading-project-data" });
 		const again = await readReadingProjectData({
@@ -1009,6 +1011,10 @@ export async function gatherFromHq(
 			);
 		reads = projectDataReadsOf(data, run.outcome);
 	}
+	/* A failed read of the places the source's text asked for ends the reading only where the
+	 * app reads places, which the function decides from the reader's own outcome. */
+	const placesFailure = unreadPlacesFailure(data, run.outcome);
+	if (placesFailure !== null) return answer(failedRead(placesFailure));
 	const first = run.outcome;
 	const readerClaims = first.claims;
 

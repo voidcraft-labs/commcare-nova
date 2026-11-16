@@ -116,6 +116,10 @@ export interface ReadingProjectData {
 		/** The two ids every lookup id of this reading derives from. */
 		readonly appId: string;
 		readonly readingId: string;
+		/** When the read of CommCare HQ's lookup tables began: the date a birth's write
+		 *  stamps on each table it takes CommCare HQ's content into, and the date no
+		 *  refresh since may pass. */
+		readonly tablesReadAt: Date;
 		readonly tables: readonly ReadingLookupTable[];
 		/** The Project's answers, kept whole: the snapshot and the review read them. */
 		readonly project: {
@@ -259,6 +263,8 @@ export function assembleReadingProjectData(input: {
 	readonly origin: { readonly server: string; readonly domain: string };
 	readonly appId: string;
 	readonly readingId: string;
+	/** When the read of CommCare HQ's lookup tables began. */
+	readonly tablesReadAt: Date;
 	readonly tables: readonly HqLookupTableRead[];
 	readonly hqTags: readonly string[];
 	readonly project: ReadingProjectAnswers;
@@ -357,6 +363,7 @@ export function assembleReadingProjectData(input: {
 			origin,
 			appId: input.appId,
 			readingId: input.readingId,
+			tablesReadAt: input.tablesReadAt,
 			tables,
 			project: {
 				projectId: project.projectId,
@@ -723,6 +730,8 @@ function tableChoicesUnusable(
 
 export interface ReadingProjectDataWrite {
 	readonly origin: { readonly server: string; readonly domain: string };
+	/** When the read of CommCare HQ's lookup tables began (`gathered.tablesReadAt`). */
+	readonly tablesReadAt: Date;
 	readonly tables: readonly BroughtInTableWrite[];
 	readonly places: ManagedPlacePlan | null;
 }
@@ -776,6 +785,7 @@ export function readingProjectDataWrite(
 	});
 	return {
 		origin: data.gathered.origin,
+		tablesReadAt: data.gathered.tablesReadAt,
 		tables,
 		places: reads.readsPlaces ? bornPlaces(data, doc, resolver) : null,
 	};

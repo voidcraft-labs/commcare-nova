@@ -2503,6 +2503,64 @@ test("an ended card whose HQ app another Nova app publishes to now names no way 
 	).toHaveCount(0);
 });
 
+/* A restore found another Nova app publishing to the HQ app, and ended this
+ * deployment. While that app still publishes there the card names no way
+ * back to it; once it has stopped there or been deleted, the card says what
+ * happened on that day and links to the HQ app again. */
+for (const heldByAnotherApp of [true, false]) {
+	test(`an ended card taken over by another Nova app ${heldByAnotherApp ? "that still publishes there names no way back to it" : "that no longer publishes there links to the HQ app again"}`, async ({
+		page,
+	}) => {
+		const ended = stoppedView();
+		const taken: DeploymentView = {
+			...ended,
+			deployment: {
+				...ended.deployment,
+				superseded: ended.deployment.superseded.map((mapping) => ({
+					...mapping,
+					endedReason: "claimed-elsewhere",
+					heldByAnotherApp,
+				})),
+			},
+		};
+		await openSection(page, "admin", () => [taken]);
+		const stopped = await cardDate(page, STOPPED_AT);
+		const line = (held: boolean) =>
+			endedLine(
+				{
+					byName: "Ada Lovelace",
+					reason: "claimed-elsewhere",
+					heldByAnotherApp: held,
+				},
+				stopped,
+			);
+		await expect(
+			page.getByText(line(heldByAnotherApp), { exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByText(line(!heldByAnotherApp), { exact: true }),
+		).toHaveCount(0);
+		const link = page.getByRole("link", {
+			name: new RegExp(`^${ENDED_HQ_APP_LINK}`),
+		});
+		if (heldByAnotherApp) {
+			await expect(link).toHaveCount(0);
+		} else {
+			await expect(link).toHaveAttribute(
+				"href",
+				hqPlaceUrl(
+					{ server: "production", domain: "alpha", remoteAppId: "hq-app" },
+					{ kind: "app" },
+				) ?? "",
+			);
+		}
+		/* An ending a restore made offers no stop either. */
+		await expect(
+			page.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true }),
+		).toHaveCount(0);
+	});
+}
+
 /* The answer to a stop can be lost after the stop landed. The confirmation
  * then cannot say nothing changed, and the section reads where the app stands
  * again, so a stop that landed shows as the ended card without a reload. */

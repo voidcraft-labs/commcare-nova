@@ -178,7 +178,11 @@ export async function adoptHqAppInTransaction(
 			await writeBroughtInLookupTablesInTransaction(
 				inner,
 				{ projectId, actorUserId, appId },
-				{ origin: projectData.origin, tables: projectData.tables, at },
+				{
+					origin: projectData.origin,
+					tables: projectData.tables,
+					readAt: projectData.tablesReadAt,
+				},
 			);
 			await writeBroughtInPlacesInTransaction(
 				inner,
