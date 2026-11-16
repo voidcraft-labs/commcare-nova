@@ -864,16 +864,22 @@ after the person presses Bring it in.
 
 The document acceptance judges under each choice is the reduction of `[...batch,
 ...choice.mutations]` from `emptyBlueprintDoc(appId)`, `batch` the construction batch acceptance
-derives from the draft's document (`AcceptedReading.batch`), through
-`lib/doc/commitVerdicts.ts::mutationCommitVerdict` (part 09, section 4). That is the batch the
-birth itself reduces for the choice the person makes (6.2), so what acceptance judged is what
+derives from the draft's document (`AcceptedReading.batch`), judged by the commit gate
+(`lib/doc/commitVerdicts.ts`, part 09, section 4). Acceptance reduces the construction batch once
+and applies each choice's own mutations to that batch's candidate
+(`acceptance.ts::joinedConstructionCandidate`), which is the same candidate: a construction batch
+from the empty document takes no entity out, so the joined batch's admission meets the batch's
+own document at the choice's mutations, and a test holds the two equal over the oracle corpora
+(`reading/__tests__/joinedCandidate.property.test.ts`). Where it is not so, or either part stops
+at an admission issue, the joined batch is prepared whole. That is the batch the birth itself
+reduces for the choice the person makes (6.2), so what acceptance judged is what
 `prepareGenesisCandidate` will reduce, but for the name.
 
 **The synchronous pieces.** The reader runs a stage at a time (`readHqAppSteps`, one piece per
 stage of `STAGES`, and a long stage a part per piece: the forms, the entry facts and their
 emission, the binding, the menus' settle and its emission, the assembly), acceptance a check at a
-time (`acceptReadingSteps`: the construction batch, each choice's gate a part at a time, its
-admission, its candidate and its validation in parts, each choice's export readiness, read from
+time (`acceptReadingSteps`: the construction batch, its candidate, each choice's gate a part at a
+time, its candidate and its validation in parts, each choice's export readiness, read from
 that same validation, each document's emission in parts, each stage of each re-read, identity in
 parts, summary, each choice's first-publish list), step 9's review a part at a time (each declaration's
 plan features, the baseline the birth will write, the Project data), and the digest is one piece
@@ -953,11 +959,17 @@ nearest such timer is the 10 second wait for a database connection
 (`lib/case-store/postgres/connection.ts::POOL_CONNECTION_TIMEOUT_MS`), on a pool of three
 (`POOL_MAX_PER_INSTANCE`). The next is the 30 second deadline on a CommCare HQ read. So what must
 be short is a piece, not the request. Measured on a laptop's efficiency cores (near a hosted
-runner's speed), a source of 16.7 MB (1,145 copies of one retained menu) is about 49 to 54
-seconds of processing in a read, in 222 pieces of which the longest is about 1.9 seconds, and
-`cap.test.ts` holds each piece of such a read under five seconds ("Tests"). The read as a whole
-does not yet fit that test's 60 seconds on those cores. A piece that runs longer is a defect in the reader or in
-acceptance, fixed there by cutting the piece where it is long, and never a reason to lower the cap.
+runner's speed, which varies there by half from one run to the next), a source of 16.7 MB (1,145
+copies of one retained menu) is about 21 to 36 seconds of processing in a read, about seven tenths
+of what the same build of the read before took in the same minutes, in 203 pieces of which the
+longest is about 1.4 to 2 seconds, and `cap.test.ts` holds each piece of such a read under five
+seconds ("Tests"); its case took 45 seconds there. A read shares work it would otherwise do twice:
+the construction batch is reduced once for every declaration choice (3.3), a form's XForm text is
+parsed once for every reader of it (`lib/commcare/xmlParse.ts::heldXmlParse`), and the fixed
+point's re-read is answered with the first reading's emissions where it emits the same settled
+document under the same inputs (`lib/commcare/reader/heldExpansions.ts`). A piece that runs longer
+is a defect in the reader or in acceptance, fixed there by cutting the piece where it is long, and
+never a reason to lower the cap.
 
 **Memory at the cap.** Three bounds are real, because each is enforced: a body is at most 16 MiB,
 so the two bodies of one read, the application resource and the source, are at most 32 MiB of
@@ -965,7 +977,9 @@ text; the files in flight are at most 64 MiB and in a create the kept files at m
 and the table rows are at most what part 11's caps admit (3.5). What the reader makes of a body is
 not a bound from the body's size and is written here as none: the size of a parsed JSON value
 beside its text, of the Nova document and its batch, of one form's XML as a tree, of acceptance's
-emission and re-read. There is no wide margin to lean on either. The 200 MiB that one publish of
+emission and re-read, and of the first reading's two emissions, which the request holds until its
+re-read. The parsed form texts the process holds are bounded by their characters
+(`PARSED_FORM_TEXTS_HELD_CHARACTERS`, 8 Mi characters, some eight bytes of tree each). There is no wide margin to lean on either. The 200 MiB that one publish of
 an app at Nova's media ceiling already holds in this process is about six times the two bodies at
 the cap, and nothing measured says the reader's own values stay under six times their text. So
 this part does not say that an app at the cap costs less memory than its files do.

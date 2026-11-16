@@ -25,6 +25,7 @@ import type { GeneratedNodePurpose } from "../xform/generatedNodes";
 import type { ClaimLog } from "./accounting";
 import type { ReaderDefectWhy } from "./defects";
 import type { ExpressionReading, RecordDialectJudge } from "./expressions";
+import type { HeldExpansions } from "./heldExpansions";
 import type { IdentityMapEntry, IdentityResolver } from "./identity";
 
 export interface ReaderInput {
@@ -101,6 +102,13 @@ export interface ReaderOptions {
 	 * the app. (Added by the bring-in layer for its reader-fault log line.)
 	 */
 	readonly onStage?: (at: number | "close") => void;
+	/**
+	 * Nova's emissions the readings of one request share
+	 * (`heldExpansions.ts`): a reading that emits a document another reading
+	 * of the request emitted under the same inputs is answered with that
+	 * emission. Absent, every emission is made afresh.
+	 */
+	readonly heldExpansions?: HeldExpansions;
 }
 
 /** The tables of the source project space the app may read, with the ids project data gives them. */

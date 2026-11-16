@@ -44,6 +44,7 @@ import {
 	type ClaimRecord,
 	serializeClaimLog,
 } from "@/lib/commcare/reader/accounting";
+import { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
@@ -286,6 +287,8 @@ export function unrecognizedLogKey(name: string): string {
 class Pieces {
 	total = 0;
 	longest = 0;
+	/** The emissions this request's readings share (`heldExpansions.ts`). */
+	readonly expansions = new HeldExpansions();
 
 	async run<T>(piece: () => T): Promise<T> {
 		await nextTurn();
@@ -533,6 +536,7 @@ async function runReader(
 		outcome = await pieces.steps(
 			readHqAppSteps(input, {
 				claims,
+				heldExpansions: pieces.expansions,
 				onStage: (stage) => {
 					at = stage === "close" ? "close" : `stage/${stage}`;
 				},
@@ -1305,6 +1309,7 @@ async function checkWith(
 			lookup,
 			mediaLeftOut: judgedPlan.inert.length,
 			media: { files: mediaFiles, rows: readingMediaRows(plan) },
+			heldExpansions: pieces.expansions,
 		}),
 	);
 	if (!accepted.ok) {

@@ -236,7 +236,31 @@ export function sourceFromEmission(
 	emission: HqApplication,
 	source: HqAppSource,
 ): HqAppSource {
+	return sourceFromServed(served(emission), source);
+}
+
+/**
+ * `sourceFromEmission` and `alignedFromEmission` of one emission, served
+ * once: each reads the served JSON and writes none of it.
+ */
+export function readerSourceOfEmission(
+	emission: HqApplication,
+	source: HqAppSource,
+): {
+	readonly source: HqAppSource;
+	readonly modules: readonly HqAlignedModule[];
+} {
 	const body = served(emission);
+	return {
+		source: sourceFromServed(body, source),
+		modules: alignedFromServed(body),
+	};
+}
+
+function sourceFromServed(
+	body: Record<string, unknown>,
+	source: HqAppSource,
+): HqAppSource {
 	const raw: Record<string, unknown> = { ...body };
 	for (const key of ["build_spec", "multimedia_map", "logo_refs"] as const) {
 		const value = source.raw[key];
@@ -278,7 +302,13 @@ export function sourceFromEmission(
 export function alignedFromEmission(
 	emission: HqApplication,
 ): readonly HqAlignedModule[] {
-	return servedModules(served(emission)).map((module) => ({
+	return alignedFromServed(served(emission));
+}
+
+function alignedFromServed(
+	body: Readonly<Record<string, unknown>>,
+): readonly HqAlignedModule[] {
+	return servedModules(body).map((module) => ({
 		kind: "aligned",
 		uniqueId: module.uniqueId,
 		docType: module.docType,

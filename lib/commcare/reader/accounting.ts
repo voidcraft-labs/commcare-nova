@@ -330,6 +330,12 @@ export class Accounting implements ClaimLedger {
 		this.#xml.set(cursor.document, cursor);
 	}
 
+	/** Whether a cursor of this reading already reads `document`: a second
+	 *  form of the same text reads a copy of its own. */
+	readsXml(document: Document): boolean {
+		return this.#xml.has(document);
+	}
+
 	#state(site: LedgerSite): NodeState {
 		let byOwner = this.#nodes.get(site.owner);
 		if (byOwner === undefined) {

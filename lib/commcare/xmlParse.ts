@@ -1,4 +1,5 @@
 import {
+	type ChildNode,
 	Comment,
 	Document,
 	Element,
@@ -8,6 +9,7 @@ import {
 } from "domhandler";
 import { appendChild } from "domutils";
 import { SaxesParser } from "saxes";
+import { HeldByText } from "./heldByText";
 
 /** Which way a source failed to parse: a document type declaration, an XML
  *  version other than 1.0, or markup that is not well-formed XML. */
@@ -118,6 +120,45 @@ export function tryParseXml(
 			return { issue: error.message, kind: error.kind };
 		throw error;
 	}
+}
+
+/**
+ * Form texts whose parse is held: about two cap-size apps' worth of forms
+ * that a reading parses again (its source's and Nova's emission's), each
+ * parsed document some eight bytes for each character of its text.
+ */
+export const PARSED_FORM_TEXTS_HELD_CHARACTERS = 8 * 1024 * 1024;
+
+const heldParses = new HeldByText<ReturnType<typeof tryParseXml>>(
+	PARSED_FORM_TEXTS_HELD_CHARACTERS,
+);
+
+/** Every node of `node`, frozen, so no reader of a shared document can write it. */
+function frozenTree(node: Document | ChildNode): void {
+	Object.freeze(node);
+	if ("attribs" in node) Object.freeze(node.attribs);
+	if ("children" in node) {
+		Object.freeze(node.children);
+		for (const child of node.children) frozenTree(child);
+	}
+}
+
+/**
+ * `tryParseXml(xml)`, answered for a text parsed before with the document
+ * that parse gave (`heldByText.ts`). The document is shared by every reader
+ * of the text, the readings of other requests included, so it is frozen
+ * whole: a reader reads it and never writes it, and one that needs a
+ * document of its own (the reader of HQ's forms, for a second form of the
+ * same text in one reading) takes `cloneNode(doc, true)`. A form's XForm text
+ * is read this way by `hq/publishedCaseBlocks.ts`, `hq/sourceIdentity.ts`
+ * and `reader/xform/index.ts`.
+ */
+export function heldXmlParse(xml: string): ReturnType<typeof tryParseXml> {
+	return heldParses.of(xml, (text) => {
+		const parsed = tryParseXml(text);
+		if ("doc" in parsed) frozenTree(parsed.doc);
+		return Object.freeze(parsed);
+	});
 }
 
 export function xmlParseIssue(xml: string): string | undefined {
