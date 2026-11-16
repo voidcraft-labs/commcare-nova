@@ -237,6 +237,13 @@ export type PreviewSearchState =
 			 *  default search again, whatever answers were given since
 			 *  (`previewSearchState.ts::searchWithLatestInputs`). */
 			readonly automatic?: true;
+			/** On Web Apps, history returned to a screen past the list and ran
+			 *  the list's query again there with these answers, the latest the
+			 *  worker gave it (`previewSearchState.ts::searchRunPastItsList`):
+			 *  the forms read what they find, and `matchCount` is still what
+			 *  the list counted for the answers it ran with before, which the
+			 *  list counts again as it comes on show. */
+			readonly rerunPastList?: true;
 	  };
 
 /** Which search offered a no-matches registration form. */
@@ -310,6 +317,11 @@ export interface PreviewParentCaseRequest {
 	resumeLocation?: Location;
 	/** Safe running-menu destination when the worker cancels the selector. */
 	cancelLocation?: Location;
+	/** The request at the selector before this one, where this one follows a
+	 * case chosen there in the same request. Back from this selector's list
+	 * lets that case go and returns to it, as `CommCareSession.stepBack`
+	 * pops the last datum and stops where the session asks for it again. */
+	previous?: PreviewParentCaseRequest;
 }
 
 // ── Staged media uploads ─────────────────────────────────────────────────

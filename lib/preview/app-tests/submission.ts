@@ -27,7 +27,7 @@ import { submittedEntryPath } from "../engine/formLinkEvaluation";
 import type { AppTestContext } from "./context";
 import { appTestDataRefusal } from "./dataRefusal";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
-import { enterAppTestMenu } from "./navigation";
+import { appTestHistoryEntry, enterAppTestMenu } from "./navigation";
 import type {
 	AppTestAfterSubmitRoute,
 	AppTestScreen,
@@ -286,7 +286,9 @@ export async function submitAppTest(
 			return {
 				state: {
 					...returned,
-					history: keyed.filter((records) => records !== keyedLanding),
+					history: keyed
+						.filter((records) => records !== keyedLanding)
+						.map((records) => appTestHistoryEntry(records, selections)),
 					screen: landing,
 				},
 				identity,
@@ -444,7 +446,10 @@ export async function submitAppTest(
 						nextState,
 						next.route.moduleUuid,
 					),
-					history: [...state.history, retiredScreen],
+					history: [
+						...state.history,
+						appTestHistoryEntry(retiredScreen, state.selections),
+					],
 				};
 				break;
 			case "form": {
@@ -462,7 +467,10 @@ export async function submitAppTest(
 						caseIds: ids,
 						entryCases: cases,
 					},
-					history: [...state.history, retiredScreen],
+					history: [
+						...state.history,
+						appTestHistoryEntry(retiredScreen, state.selections),
+					],
 				};
 				break;
 			}

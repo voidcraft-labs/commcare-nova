@@ -35,6 +35,7 @@ DOCUMENTS = (
     "targeted-multi-select-destinations",
     "targeted-save-to-case-read",
     "targeted-search-hq-compile",
+    "targeted-search-workflow",
     "targeted-validated-barcode-secret",
     "xpath-context",
 )

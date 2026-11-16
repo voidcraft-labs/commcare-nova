@@ -23,6 +23,7 @@ import {
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
 import {
+	caseSelectionRouteCaseAction,
 	parentCaseConstraint,
 	parentCaseIndex,
 } from "../caseSelectionNavigation";
@@ -98,5 +99,23 @@ describe("the index a parent selection follows", () => {
 		const doc = members({ heldKind: true });
 		expect(parentCaseConstraint(doc, MEMBERS, undefined)).toBeUndefined();
 		expect(parentCaseIndex(doc, HOUSEHOLDS)).toBeUndefined();
+	});
+});
+
+/* A case a list's address names (`/cases/{caseId}`) follows the row's rule:
+ * on a parent's list whose datum names no details screen the row goes on, so
+ * the address goes on with its case and never shows details a device never
+ * shows there; anywhere else it opens the case's details. */
+describe("caseSelectionRouteCaseAction", () => {
+	it.each([
+		["a parent's list whose row goes on", "form", true, "continue"],
+		["a parent's list whose datum names details", "detail", true, "detail"],
+		["a list choosing its own case", "form", false, "detail"],
+		["a list choosing its own case with details", "detail", false, "detail"],
+		["an informational list", "none", false, "detail"],
+	] as const)("%s", (_, rowAction, selectsForParentRequest, action) => {
+		expect(
+			caseSelectionRouteCaseAction({ rowAction, selectsForParentRequest }),
+		).toBe(action);
 	});
 });

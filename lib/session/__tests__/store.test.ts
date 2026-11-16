@@ -699,6 +699,27 @@ describe("BuilderSession store", () => {
 			},
 		});
 		expect(store.getState()).not.toBe(prev);
+
+		/* A request that differs only in the selector before it is another
+		 * step of the chain: Back from its list returns to that selector. */
+		const later = {
+			...request,
+			selectingModuleUuid: testUuid("later-selector"),
+		};
+		store.getState().setPreviewParentCaseRequest(later);
+		const withoutPrevious = store.getState();
+		store
+			.getState()
+			.setPreviewParentCaseRequest({ ...later, previous: request });
+		expect(store.getState()).not.toBe(withoutPrevious);
+		expect(store.getState().previewParentCaseRequest?.previous).toEqual(
+			request,
+		);
+		const withPrevious = store.getState();
+		store
+			.getState()
+			.setPreviewParentCaseRequest({ ...later, previous: { ...request } });
+		expect(store.getState()).toBe(withPrevious);
 	});
 
 	it("setPreviewing clears all case state on both transitions", () => {

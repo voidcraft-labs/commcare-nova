@@ -186,16 +186,20 @@ export interface SearchAwaitingDeviceValues {
 
 /**
  * The searches whose device values are still to be worked out: each one
- * pressed and still running with none recorded. The device works a search's
- * values out as it sends it, so they are recorded while it runs, and every
- * later state carries them forward (`settleSearch`); a completed search
- * holds them, or is the registered case, read by its id with none.
+ * pressed and still running with none recorded, and each that history ran
+ * again past its list with other answers (`searchRunPastItsList`). The device
+ * works a search's values out as it sends it, so they are recorded while it
+ * runs, and every later state carries them forward (`settleSearch`); a
+ * completed search holds them, or is the registered case, read by its id
+ * with none.
  */
 export function searchesAwaitingDeviceValues(
 	states: Readonly<Record<string, PreviewSearchState>>,
 ): readonly SearchAwaitingDeviceValues[] {
 	return Object.entries(states).flatMap(([moduleUuid, state]) =>
-		state.kind === "running" && state.deviceValues === undefined
+		(state.kind === "running" ||
+			(state.kind === "completed" && state.rerunPastList)) &&
+		state.deviceValues === undefined
 			? [{ moduleUuid, submission: state.submission, answers: state.answers }]
 			: [],
 	);
@@ -236,7 +240,8 @@ export function recordRegisteredCase(
 
 /** Whether Results may offer the no-matches registration form: a search
  *  the worker ran found nothing. A search keyed to a registered case is the
- *  return of a registration, never a search that found nothing. */
+ *  return of a registration, never a search that found nothing, and one run
+ *  again past its list holds answers no list counted. */
 export function noMatchesActionAvailable(
 	state: PreviewSearchState | undefined,
 ): state is Extract<PreviewSearchState, { kind: "completed" }> {
@@ -244,7 +249,8 @@ export function noMatchesActionAvailable(
 		state !== undefined &&
 		state.kind === "completed" &&
 		state.matchCount === 0 &&
-		state.registeredCaseId === undefined
+		state.registeredCaseId === undefined &&
+		state.rerunPastList === undefined
 	);
 }
 
@@ -295,10 +301,79 @@ export function searchWithLatestInputs<
 	latest: PreviewSearchAnswers | undefined,
 	promptKeys: ReadonlySet<string>,
 ): PreviewSearchState {
+	/* A search a screen past the list ran again holds answers its list never
+	 * counted, so the list runs it again, whatever the latest answers. */
+	if (search.kind === "completed" && search.rerunPastList)
+		return {
+			kind: "running",
+			attempt: search.attempt,
+			submission: search.submission,
+			answers:
+				latestPromptAnswers(search, latest, promptKeys) ?? search.answers,
+		};
+	const answers = latestPromptAnswers(search, latest, promptKeys);
+	if (answers === undefined || search.kind === "manual") return search;
+	if (search.kind === "action") return { ...search, answers };
+	return {
+		kind: "running",
+		attempt: search.attempt,
+		submission: search.submission,
+		answers,
+	};
+}
+
+/**
+ * A search history gives back on a screen past its list, as Web Apps runs it
+ * there. Formplayer replays the whole address on every request
+ * (`MenuSessionRunnerService.advanceSessionWithSelections`), so the list's
+ * query step runs again with the latest answers (`searchWithLatestInputs`'s
+ * rule) on a menu or a form past the list too, and a form of a menu whose
+ * forms read the search reads what that run finds (`results:inline`). The
+ * case the list chose still stands: the selection is confirmed
+ * (`RestoreFactory.isConfirmedSelection`), so `MenuSession.handleInput` sets
+ * the datum with no lookup in the new results.
+ *
+ * Only a completed search of a menu whose forms read it changes: a Search
+ * action's search is read by its list alone, which takes the latest answers
+ * as it comes on show, and a search still running or failed has no screen
+ * past its list. The search keeps its attempt and its identity and holds the
+ * latest answers, without the device values worked out for the answers it ran
+ * with (`searchesAwaitingDeviceValues` works them out again), and marked
+ * `rerunPastList`, as no list counted what these answers find.
+ */
+export function searchRunPastItsList<
+	S extends Exclude<PreviewSearchState, { kind: "not-searched" }>,
+>(
+	search: S,
+	latest: PreviewSearchAnswers | undefined,
+	promptKeys: ReadonlySet<string>,
+): PreviewSearchState {
+	if (search.kind !== "completed") return search;
+	const answers = latestPromptAnswers(search, latest, promptKeys);
+	if (answers === undefined) return search;
+	return {
+		kind: "completed",
+		attempt: search.attempt,
+		submission: search.submission,
+		answers,
+		matchCount: search.matchCount,
+		rerunPastList: true,
+	};
+}
+
+/** The answers Web Apps answers a search's query with on a step back through
+ *  history, where they differ from those the search holds; none where they do
+ *  not, or where Web Apps does not answer it from them
+ *  (`searchWithLatestInputs`). */
+function latestPromptAnswers(
+	search: Exclude<PreviewSearchState, { kind: "not-searched" }>,
+	latest: PreviewSearchAnswers | undefined,
+	promptKeys: ReadonlySet<string>,
+): Record<string, string> | undefined {
 	if (latest === undefined || search.kind === "manual" || search.automatic)
-		return search;
+		return undefined;
 	if (search.kind === "completed" && search.registeredCaseId !== undefined)
-		return search;
+		return undefined;
 	const answers: Record<string, string> = {};
 	for (const [key, value] of Object.entries(latest))
 		if (promptKeys.has(key)) answers[key] = value;
@@ -310,14 +385,8 @@ export function searchWithLatestInputs<
 				Object.hasOwn(answers, key) && answers[key] === search.answers[key],
 		)
 	)
-		return search;
-	if (search.kind === "action") return { ...search, answers };
-	return {
-		kind: "running",
-		attempt: search.attempt,
-		submission: search.submission,
-		answers,
-	};
+		return undefined;
+	return answers;
 }
 
 /**

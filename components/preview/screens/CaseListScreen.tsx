@@ -56,7 +56,11 @@ import {
 	useLocalizedValues,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
-import { previewTargetKeptForParentCase } from "@/components/preview/screens/moduleScreenNavigation";
+import {
+	previewParentCaseRequestAfterChoice,
+	previewParentCaseStepBack,
+	previewTargetKeptForParentCase,
+} from "@/components/preview/screens/moduleScreenNavigation";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
@@ -135,6 +139,7 @@ import {
 } from "@/lib/preview/caseListPhase";
 import { previewRegisterAction } from "@/lib/preview/caseListRegistration";
 import {
+	caseSelectionRouteCaseAction,
 	caseSelectionRowAction,
 	parentCaseConstraint as selectedParentConstraint,
 } from "@/lib/preview/caseSelectionNavigation";
@@ -239,6 +244,8 @@ import {
 	previewCaseChoiceOf,
 } from "@/lib/preview/searchClaims";
 import {
+	previewSearchAfterClear,
+	previewSearchClearOffered,
 	previewSearchReopened,
 	previewSearchRunFollows,
 } from "@/lib/preview/searchStanding";
@@ -508,25 +515,33 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				: undefined,
 		[menuCaseSelections, menuSource, moduleUuid],
 	);
-	/* The parent's list's own Back: the screen the request was asked from
+	/* The parent's list's own Back (`previewParentCaseStepBack`): after a
+	 * case chosen on an earlier selector of the request, that selector's list
+	 * again with its case let go, in place of this one, as the chain moves
+	 * forward in place; otherwise the screen the request was asked from
 	 * (`cancelLocation`), reached by a step back where it is the entry behind
 	 * the list (the menu that listed the form before asking for its parent,
 	 * a tile's menu, Home), so history holds that screen once and the next
 	 * Back goes on past it as a device's does (`CommCareSession.stepBack`). */
 	const cancelParentCaseSelection = useCallback(() => {
 		if (!selectsForParentRequest || !previewParentCaseRequest) return;
-		navigate.stepBackTo(
-			previewParentCaseRequest.cancelLocation ?? { kind: "home" },
-			() => {
-				setPreviewParentCaseRequest(undefined);
-				setPreviewCaseTarget(undefined);
-			},
-		);
+		const back = previewParentCaseStepBack(previewParentCaseRequest);
+		if (back.kind === "earlier-selector") {
+			setPreviewParentCaseRequest(back.request);
+			setPreviewMenuCaseSelection(back.letGo, undefined);
+			navigate.replace(back.location);
+			return;
+		}
+		navigate.stepBackTo(back.location, () => {
+			setPreviewParentCaseRequest(undefined);
+			setPreviewCaseTarget(undefined);
+		});
 	}, [
 		navigate,
 		previewParentCaseRequest,
 		selectsForParentRequest,
 		setPreviewCaseTarget,
+		setPreviewMenuCaseSelection,
 		setPreviewParentCaseRequest,
 	]);
 	const localizedValues = useLocalizedValues();
@@ -844,12 +859,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	);
 	/* The clear button retires the completed search so a later Results is a
 	 * new attempt and the registration form closes its door; Search again
-	 * (below) retires it the same way. */
+	 * (below) retires it the same way. A Search screen asked for again stays
+	 * on show, and the answers the page keeps for the query are left as the
+	 * worker last gave them (`searchStanding.ts::previewSearchAfterClear`). */
 	const resetSearch = useCallback(() => {
 		searchRun.clear();
 		heldSearchRef.current = undefined;
-		if (moduleUuid !== undefined) setPreviewSearchState(moduleUuid, undefined);
-	}, [searchRun, moduleUuid, setPreviewSearchState]);
+		if (moduleUuid !== undefined)
+			setPreviewSearchState(moduleUuid, previewSearchAfterClear(searchState));
+	}, [searchRun, moduleUuid, searchState, setPreviewSearchState]);
 	/* Search again from Results opens the Search screen, including where
 	 * the menu ran its default search as it opened. */
 	const searchAgain = useCallback(() => {
@@ -1586,8 +1604,14 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	const detailColumns = (
 		config === undefined ? [] : orderedColumns(config, "detail")
 	).filter((col) => col.visibleInDetail !== false);
-	const queryActive = searchRun.queryActive;
-	const draftActive = searchRun.draftActive;
+	/* Clear lives with the search, where you would reach to start over, and
+	 * shows only where the platform's Search screen has one and there is
+	 * something to clear (`searchStanding.ts::previewSearchClearOffered`). */
+	const clearOffered = previewSearchClearOffered({
+		platformClears: platformRules.searchClear,
+		searched: searchRun.queryActive,
+		typed: searchRun.draftActive,
+	});
 	const loadedRows = state.kind === "rows" ? state.rows : [];
 	const totalMatchingCases =
 		state.kind === "rows" ? (state.totalCount ?? loadedRows.length) : 0;
@@ -1644,8 +1668,56 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		routeFallbackOwnedFocusRef.current = null;
 		focusNextFrame(() => detailBackRef.current);
 	}, [focusNextFrame, routeCase, routeCaseId]);
+	/* The running app's row click: a configured detail opens the confirm
+	 * step in place; no detail fields means the row proceeds straight on;
+	 * a module with no case-loading form has nowhere to go (the list is
+	 * informational). A list another menu asked for its parent case chooses
+	 * for that menu's entry, whose parent datum names no details screen on a
+	 * basic menu, so the row goes on at once on both platforms
+	 * (`parentCaseSelection.ts::previewParentCaseListHasDetails`). */
+	const parentResume = previewParentCaseRequest?.resumeLocation;
+	/* The form whose entry asks for the parent: the leaf the request
+	 * resumes, a retained command's, or the form the resumed list holds. */
+	const parentRequestFormUuid =
+		parentResume !== undefined && "formUuid" in parentResume
+			? parentResume.formUuid
+			: (taskContinuation?.formUuid ?? previewCaseTarget?.formUuid);
+	const parentListHasDetails =
+		selectsForParentRequest && previewParentCaseRequest !== undefined
+			? previewParentCaseListHasDetails(menuSource.doc, {
+					selectorModuleUuid: previewParentCaseRequest.selectingModuleUuid,
+					requestingModuleUuid:
+						previewParentCaseRequest.returnModuleUuids.at(-1) ??
+						previewParentCaseRequest.selectingModuleUuid,
+					...(parentRequestFormUuid !== undefined && {
+						formUuid: parentRequestFormUuid,
+					}),
+				})
+			: undefined;
+	const rowAction = caseSelectionRowAction({
+		hasDetails:
+			parentListHasDetails !== undefined
+				? parentListHasDetails && detailColumns.length > 0
+				: detailColumns.length > 0,
+		multiple: multipleSelection !== undefined,
+		canContinue,
+	});
+	/* A case the list's address names follows the row's rule: on a parent's
+	 * list whose datum names no details screen it goes on as the row does,
+	 * once it has loaded, and never shows its details
+	 * (`caseSelectionNavigation.ts::caseSelectionRouteCaseAction`). */
+	const routeCaseAction = caseSelectionRouteCaseAction({
+		rowAction,
+		selectsForParentRequest,
+	});
+	const routeCaseGoesOnRef = useRef<
+		((row: CaseRowWithCalculated) => void) | null
+	>(null);
+	const routeCaseWentOnRef = useRef<string | null>(null);
 	const displayedOpenCase = routeCaseId
-		? routeCase
+		? routeCaseAction === "detail"
+			? routeCase
+			: null
 		: stateBelongsToModule && !routeDrivenExit
 			? openCase
 			: null;
@@ -2082,6 +2154,25 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		launchedAutomaticSearchRef.current = pass.launched;
 		if (pass.launch) submitSearch(EMPTY_SEARCH_INPUT_VALUES, true);
 	}, [automaticSearchToken, current, submitSearch]);
+	/* A case the list's address names on a parent's list whose datum names
+	 * no details screen goes on once it has loaded, as its row would
+	 * (`routeCaseAction`). The row's handler is the screen's own, which the
+	 * render past the guards below hands over. */
+	routeCaseGoesOnRef.current = null;
+	useEffect(() => {
+		const goOn = routeCaseGoesOnRef.current;
+		if (
+			routeCaseAction !== "continue" ||
+			routeCase === null ||
+			routeCaseId === undefined ||
+			goOn === null ||
+			routeCaseWentOnRef.current === routeCaseId
+		)
+			return;
+		routeCaseWentOnRef.current = routeCaseId;
+		explicitRouteCloseRef.current = routeCaseId;
+		goOn(routeCase);
+	}, [routeCase, routeCaseAction, routeCaseId]);
 	if (mod === undefined) {
 		return (
 			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
@@ -2234,18 +2325,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			const [nextModuleUuid, ...remainingModuleUuids] =
 				previewParentCaseRequest.returnModuleUuids;
 			setPreviewParentCaseRequest(
-				nextModuleUuid && remainingModuleUuids.length > 0
-					? {
-							selectingModuleUuid: nextModuleUuid,
-							returnModuleUuids: remainingModuleUuids,
-							...(previewParentCaseRequest.resumeLocation !== undefined && {
-								resumeLocation: previewParentCaseRequest.resumeLocation,
-							}),
-							...(previewParentCaseRequest.cancelLocation !== undefined && {
-								cancelLocation: previewParentCaseRequest.cancelLocation,
-							}),
-						}
-					: undefined,
+				previewParentCaseRequestAfterChoice(previewParentCaseRequest),
 			);
 			if (taskContinuation?.formUuid && nextModuleUuid) {
 				if (
@@ -2292,7 +2372,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			} else if (nextModuleUuid && remainingModuleUuids.length > 0) {
 				navigate.replace(parentCaseSelectorLocation(nextModuleUuid));
 			} else if (nextModuleUuid) {
-				navigate.openModule(nextModuleUuid);
+				/* A case the list's address named goes on in place of that
+				 * address, as a choice made at the row leaves the list behind. */
+				if (routeCaseId !== undefined)
+					navigate.replace({ kind: "module", moduleUuid: nextModuleUuid });
+				else navigate.openModule(nextModuleUuid);
 			} else {
 				navigate.openModule(moduleUuid);
 			}
@@ -2318,6 +2402,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			if (landed) continueWithChosenCase(row, claimed);
 		});
 	};
+	routeCaseGoesOnRef.current = proceedWithCase;
 	const continueWithChosenCase = (
 		row: CaseRowWithCalculated,
 		claimed: readonly string[],
@@ -2541,40 +2626,6 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		}
 	};
 
-	/* The running app's row click: a configured detail opens the confirm
-	 * step in place; no detail fields means the row proceeds straight on;
-	 * a module with no case-loading form has nowhere to go (the list is
-	 * informational). A list another menu asked for its parent case chooses
-	 * for that menu's entry, whose parent datum names no details screen on a
-	 * basic menu, so the row goes on at once on both platforms
-	 * (`parentCaseSelection.ts::previewParentCaseListHasDetails`). */
-	const parentResume = previewParentCaseRequest?.resumeLocation;
-	/* The form whose entry asks for the parent: the leaf the request
-	 * resumes, a retained command's, or the form the resumed list holds. */
-	const parentRequestFormUuid =
-		parentResume !== undefined && "formUuid" in parentResume
-			? parentResume.formUuid
-			: (taskContinuation?.formUuid ?? previewCaseTarget?.formUuid);
-	const parentListHasDetails =
-		selectsForParentRequest && previewParentCaseRequest !== undefined
-			? previewParentCaseListHasDetails(menuSource.doc, {
-					selectorModuleUuid: previewParentCaseRequest.selectingModuleUuid,
-					requestingModuleUuid:
-						previewParentCaseRequest.returnModuleUuids.at(-1) ??
-						previewParentCaseRequest.selectingModuleUuid,
-					...(parentRequestFormUuid !== undefined && {
-						formUuid: parentRequestFormUuid,
-					}),
-				})
-			: undefined;
-	const rowAction = caseSelectionRowAction({
-		hasDetails:
-			parentListHasDetails !== undefined
-				? parentListHasDetails && detailColumns.length > 0
-				: detailColumns.length > 0,
-		multiple: multipleSelection !== undefined,
-		canContinue,
-	});
 	const handleOpenCase = (
 		row: CaseRowWithCalculated,
 		trigger: HTMLButtonElement,
@@ -2613,7 +2664,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				<div>
 					{/* A search with no title draws no heading; the row stays only
 					 *  for its clear action. */}
-					{(title !== null || queryActive || draftActive) && (
+					{(title !== null || clearOffered) && (
 						<div className="flex min-h-11 min-w-0 items-center gap-2">
 							{title !== null && (
 								<>
@@ -2631,10 +2682,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 									</div>
 								</>
 							)}
-							{/* Clear what was typed: lives WITH the search (where you'd
-							 *  reach to start over) and only appears when there's an active
-							 *  query to clear. */}
-							{(queryActive || draftActive) && (
+							{clearOffered && (
 								<Button
 									type="button"
 									variant="ghost"

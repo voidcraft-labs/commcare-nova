@@ -34,6 +34,8 @@ import { buildNavigationDoc } from "./previewNavigationFixture";
  *   there.
  * - `?fixture=submenus`: a case-first menu of households and a menu that is
  *   only their case list, each keeping a submenu with a screen of its own.
+ * - `?fixture=parent-chain`: villages, their households and the
+ *   households' people, each chosen under the one before it.
  * - `?fixture=place-condition`: "Patients" beside a menu whose condition
  *   reads the worker's place, for a worker assigned nowhere.
  * - `?fixture=place-screens`: a submenu, a case-first menu's form and a
@@ -50,6 +52,7 @@ if (
 	fixture !== "case-first-entry" &&
 	fixture !== "child-list-above" &&
 	fixture !== "submenus" &&
+	fixture !== "parent-chain" &&
 	fixture !== "place-condition" &&
 	fixture !== "place-screens"
 )
@@ -107,9 +110,15 @@ root.render(
 	</TooltipProvider>,
 );
 
-window.previewNavigation = { dispose: () => root.unmount() };
+/* `go` moves the running app to a builder address as the app's own links
+ * do (`pushBuilderHistory`), so a spec can name a case in a list's address
+ * while a selection is under way. */
+window.previewNavigation = {
+	dispose: () => root.unmount(),
+	go: (path: string) => pushBuilderHistory(path),
+};
 declare global {
 	interface Window {
-		previewNavigation: { dispose(): void };
+		previewNavigation: { dispose(): void; go(path: string): void };
 	}
 }

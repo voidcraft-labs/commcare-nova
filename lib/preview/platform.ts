@@ -157,6 +157,13 @@ export interface PreviewPlatformRules {
 	 *  `activities/QueryRequestActivity.java::processSuccess` shows a toast and
 	 *  stays on the search. */
 	readonly zeroSearchResults: "results" | "stay-on-search";
+	/** Whether the Search screen offers Clear, which empties its fields. Web
+	 *  Apps draws it on every query screen (`cloudcare/partials/query/list.html`,
+	 *  `#query-clear-button`, `menus/views/query.js::QueryListView.clearAction`);
+	 *  Android's search screen holds its prompts, its search button and its
+	 *  error line alone (`activities/QueryRequestUiController.kt`, layout
+	 *  `http_request_layout.xml`), and `QueryRequestActivity` clears no field. */
+	readonly searchClear: boolean;
 	/** Whether the case list's Search action launches on its own: search first
 	 *  and skip to results. Core's cli `EntityScreen.evaluateAutoLaunch`, which
 	 *  Formplayer runs; commcare-android holds no reader of `auto_launch`, so it
@@ -169,8 +176,8 @@ export interface PreviewPlatformRules {
 	 *  `Utils.getCurrentQueryInputs`); Android's session keeps the query a
 	 *  step ran (`CommCareSession.setQueryDatum`). */
 	readonly searchReplay: "latest-answers" | "own-answers";
-	/** What a history entry Back or Forward returns to past Home shows its
-	 *  screen with (`lib/routing/previewSelectionsHistory.ts`). Web Apps'
+	/** What a history entry Back or Forward returns to shows its screen with
+	 *  (`lib/routing/previewSelectionsHistory.ts`). Web Apps'
 	 *  address holds the session's selections
 	 *  (`formplayer/utils/utils.js::CloudcareUrl`), and a popped address is
 	 *  routed again (`formplayer/router.js::listMenus`) to Formplayer, which
@@ -300,6 +307,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hiddenSearchFieldWithDefault: "hidden",
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
+		searchClear: true,
 		searchActionAutoLaunch: true,
 		searchReplay: "latest-answers",
 		poppedEntrySelections: "address",
@@ -352,6 +360,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hiddenSearchFieldWithDefault: "editable",
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
+		searchClear: false,
 		searchActionAutoLaunch: false,
 		searchReplay: "own-answers",
 		poppedEntrySelections: "session",

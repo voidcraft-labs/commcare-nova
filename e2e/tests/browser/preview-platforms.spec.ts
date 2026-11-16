@@ -1,13 +1,17 @@
 import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
+import { buildUrl } from "@/lib/routing/location";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-navigation-client";
 import type {} from "../../lib/preview-platforms-client";
 import type {} from "../../lib/preview-search-client";
 import {
+	NAVIGATION_APP_ID,
 	NAVIGATION_CASES,
 	NAVIGATION_HOUSEHOLDS,
+	NAVIGATION_VILLAGES,
+	PARENT_CHAIN_HOUSEHOLDS_MODULE_UUID,
 } from "../../lib/previewNavigationFixture";
 import {
 	PREVIEW_PLATFORM_SCENARIOS,
@@ -954,6 +958,14 @@ test("a menu that searches first opens on Search in Web Apps", async ({
 			main.getByRole("textbox", { name: "Patient name" }),
 		).toBeVisible();
 		await expect(main.getByRole("list", { name: "Cases" })).toHaveCount(0);
+		/* Web Apps' query screen draws Clear (`cloudcare/partials/query/list.html`,
+		 * `#query-clear-button`), which empties the fields. */
+		const answer = main.getByRole("textbox", { name: "Patient name" });
+		await answer.fill("Ko");
+		await main
+			.getByRole("button", { name: "Clear search", exact: true })
+			.click({ timeout: 20_000 });
+		await expect(answer).toHaveValue("");
 	} finally {
 		await closeNavigation(page);
 	}
@@ -975,6 +987,18 @@ test("a menu that searches first opens on its case list on Android", async ({
 		});
 		// The worker's own cases show before any search runs.
 		await expect(rows.first()).toContainText(FIRST_CASE);
+		/* Android's search screen holds its prompts, its search button and
+		 * its error line alone (`QueryRequestUiController`), so there is no
+		 * Clear to press, whatever the worker typed. */
+		const answer = main.getByRole("textbox", { name: "Patient name" });
+		await answer.fill("Ko");
+		await expect(answer).toHaveValue("Ko");
+		await expect(
+			main.getByRole("button", { name: "Search All Cases", exact: true }),
+		).toBeVisible();
+		await expect(
+			main.getByRole("button", { name: "Clear search", exact: true }),
+		).toHaveCount(0);
 	} finally {
 		await closeNavigation(page);
 	}
@@ -1078,6 +1102,108 @@ test("a case-first menu showing another menu's forms opens on its case list, and
 		await expect(page.getByLabel("Location")).toHaveText("cases");
 		await expect(choose).toBeVisible();
 		await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+/** Open `parent-chain` as `platform` and choose People, whose entry asks
+ *  for a household chosen under a village: CommCare asks for the village
+ *  first. */
+async function openParentChain(page: Page, platform: string) {
+	await page.setViewportSize({ width: 390, height: 800 });
+	await page.goto(
+		`${navigationPeer.origin}/?fixture=parent-chain&platform=${platform}`,
+	);
+	const main = page.locator("main");
+	await main
+		.getByRole("button", { name: /^People\b/ })
+		.click({ timeout: 20_000 });
+	return main;
+}
+
+const [NORTH_VILLAGE, SOUTH_VILLAGE] = NAVIGATION_VILLAGES;
+
+/* CommCare collects one datum per list: Back from the household's list pops
+ * the village just chosen and asks for it again (`CommCareSession.stepBack`,
+ * which Android's Back runs and Web Apps' address less its last selection
+ * replays), and Back from the village's list leaves to the screen People was
+ * chosen on. */
+for (const platform of ["web-apps", "android"] as const)
+	test(`${platform}: Back from a later parent's list returns to the earlier parent's list, and Back again leaves`, async ({
+		page,
+	}) => {
+		try {
+			const main = await openParentChain(page, platform);
+			const chooseNorth = main.getByRole("button", {
+				name: `Continue with ${NORTH_VILLAGE}`,
+			});
+			await expect(chooseNorth).toBeVisible({ timeout: 20_000 });
+			await chooseNorth.click();
+			const chooseRao = main.getByRole("button", {
+				name: `Continue with ${RAO_HOUSEHOLD.name}`,
+			});
+			await expect(chooseRao).toBeVisible({ timeout: 20_000 });
+			await expect(
+				main.getByRole("button", {
+					name: `Continue with ${NAVIGATION_HOUSEHOLDS[1].name}`,
+				}),
+			).toHaveCount(0);
+			await main.getByRole("button", { name: "Back", exact: true }).click();
+			// The village's list again, with no village chosen.
+			await expect(chooseNorth).toBeVisible({ timeout: 20_000 });
+			await expect(
+				main.getByRole("button", { name: `Continue with ${SOUTH_VILLAGE}` }),
+			).toBeVisible();
+			await expect(chooseRao).toHaveCount(0);
+			await main.getByRole("button", { name: "Back", exact: true }).click();
+			await expect(page.getByLabel("Location")).toHaveText("home", {
+				timeout: 20_000,
+			});
+			await expect(
+				main.getByRole("button", { name: /^People\b/ }),
+			).toBeVisible();
+		} finally {
+			await closeNavigation(page);
+		}
+	});
+
+/* A household's datum in People's entry names no details screen, so its row
+ * goes on at once; an address naming a household on that list goes on the
+ * same way and never shows its details. */
+test("a parent's list whose datum names no details goes on with a case its address names", async ({
+	page,
+}) => {
+	try {
+		const main = await openParentChain(page, "web-apps");
+		await main
+			.getByRole("button", { name: `Continue with ${NORTH_VILLAGE}` })
+			.click({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: `Continue with ${RAO_HOUSEHOLD.name}` }),
+		).toBeVisible({ timeout: 20_000 });
+		await page.evaluate(
+			(path) => window.previewNavigation.go(path),
+			buildUrl(`/build/${NAVIGATION_APP_ID}`, {
+				kind: "cases",
+				moduleUuid: PARENT_CHAIN_HOUSEHOLDS_MODULE_UUID,
+				caseId: "navigation-household-1",
+			}),
+		);
+		// People's list of the household's members, never its details.
+		const [member, other] = RAO_HOUSEHOLD.members;
+		await expect(
+			main.getByRole("button", { name: `Continue with ${member}` }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			main.getByRole("button", { name: `Continue with ${other}` }),
+		).toBeVisible();
+		await expect(
+			main.getByRole("button", { name: "Continue", exact: true }),
+		).toHaveCount(0);
+		await expect(
+			main.getByRole("heading", { name: RAO_HOUSEHOLD.name }),
+		).toHaveCount(0);
 	} finally {
 		await closeNavigation(page);
 	}

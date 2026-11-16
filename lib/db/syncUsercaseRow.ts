@@ -78,6 +78,34 @@ export async function findUsercaseRow(
 	return rows[0];
 }
 
+/** A stored row's properties as text, the values `casedb` hands a device. */
+function heldProperties(row: {
+	readonly properties?: Record<string, unknown> | null;
+}): Record<string, string> {
+	const held: Record<string, string> = {};
+	for (const [key, value] of Object.entries(row.properties ?? {})) {
+		if (value !== null && value !== undefined) held[key] = String(value);
+	}
+	return held;
+}
+
+/**
+ * The properties the worker's stored row holds, or `undefined` when it has
+ * none yet. Reads only: a member whose role cannot write case data reads
+ * through this, since creating the row is a case write.
+ */
+export async function storedUsercaseProperties(
+	store: Pick<CaseStore, "query" | "insert" | "update">,
+	args: {
+		readonly appId: string;
+		readonly workerId: string;
+		readonly doc: UserCollections;
+	},
+): Promise<Record<string, string> | undefined> {
+	const current = await findUsercaseRow(store, args);
+	return current === undefined ? undefined : heldProperties(current);
+}
+
 /** The record split the way the case store stores it: reserved scalars to
  *  their own columns, everything else to the JSONB document. */
 function splitRecord(record: Record<string, string>): {
@@ -194,11 +222,7 @@ export async function syncUsercaseRow(
 	}
 
 	if (args.ensureOnly === true) {
-		const held: Record<string, string> = {};
-		for (const [key, value] of Object.entries(current.properties ?? {})) {
-			if (value !== null && value !== undefined) held[key] = String(value);
-		}
-		return { created: false, changed: 0, stored: held };
+		return { created: false, changed: 0, stored: heldProperties(current) };
 	}
 
 	const changed = usercaseChangedFields(

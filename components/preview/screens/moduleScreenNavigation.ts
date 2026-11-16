@@ -102,7 +102,62 @@ export function previewParentCaseRequestFor(args: {
 				: args.structuralParentUuid
 					? { kind: "module", moduleUuid: args.structuralParentUuid }
 					: { kind: "home" }),
+		...(continuing?.previous !== undefined && {
+			previous: continuing.previous,
+		}),
 	};
+}
+
+/**
+ * The request once a case is chosen on its selector's list: the next
+ * selector of its chain, which remembers this request as the one before it
+ * (`previous`), so Back from the next list returns here; `undefined` where
+ * the chain ends at the module that asked, which the selection goes on to.
+ */
+export function previewParentCaseRequestAfterChoice(
+	request: PreviewParentCaseRequest,
+): PreviewParentCaseRequest | undefined {
+	const [next, ...remaining] = request.returnModuleUuids;
+	if (next === undefined || remaining.length === 0) return undefined;
+	return {
+		selectingModuleUuid: next,
+		returnModuleUuids: remaining,
+		...(request.resumeLocation !== undefined && {
+			resumeLocation: request.resumeLocation,
+		}),
+		...(request.cancelLocation !== undefined && {
+			cancelLocation: request.cancelLocation,
+		}),
+		previous: request,
+	};
+}
+
+/**
+ * Where a selector list's own Back goes. After a case chosen on an earlier
+ * selector of the same request, it returns to that selector's list with its
+ * case let go (`letGo`), its request standing again, as
+ * `CommCareSession.stepBack` pops the last datum the session collected and
+ * stops where the session asks for that datum again (Android's Back, and Web
+ * Apps' address less its last selection); otherwise it cancels the request
+ * to the screen it was asked from (`cancelLocation`).
+ */
+export function previewParentCaseStepBack(request: PreviewParentCaseRequest):
+	| {
+			readonly kind: "earlier-selector";
+			readonly request: PreviewParentCaseRequest;
+			readonly letGo: Uuid;
+			readonly location: Location;
+	  }
+	| { readonly kind: "cancel"; readonly location: Location } {
+	const previous = request.previous;
+	return previous === undefined
+		? { kind: "cancel", location: request.cancelLocation ?? { kind: "home" } }
+		: {
+				kind: "earlier-selector",
+				request: previous,
+				letGo: previous.selectingModuleUuid,
+				location: parentCaseSelectorLocation(previous.selectingModuleUuid),
+			};
 }
 
 /** What choosing a menu's tile reads and writes. */

@@ -130,6 +130,96 @@ test("a case-data refresh retires Submit without blaming answers or replaying th
 	}
 });
 
+test("Clear form holds Submit busy from the press until the fresh entry opens", async ({
+	page,
+}) => {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-form-lifecycle-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
+			"@/lib/doc/platformChangePreflight": boundary,
+			"@/lib/preview/xpath/browserWorkerClient": boundary,
+		},
+	);
+	const submissions: unknown[][] = [];
+	await page.route(`${peer.origin}/submission`, async (route) => {
+		submissions.push(route.request().postDataJSON());
+		await route.fulfill({
+			json: { kind: "error", message: "Unexpected submission" },
+		});
+	});
+	try {
+		await page.goto(peer.origin);
+		const name = page.getByRole("textbox", { name: /Question 1.*Name/ });
+		const submit = page.getByRole("button", { name: "Submit", exact: true });
+		await expect(name).toBeEnabled();
+		await name.fill("Answer to clear");
+		await expect(submit).toBeEnabled();
+		const entry = await page.evaluate(() =>
+			window.previewFormLifecycleAudit.entry(),
+		);
+		await page.evaluate(() => window.previewFormLifecycleAudit.armFreshEntry());
+		await page.getByRole("button", { name: "Clear form", exact: true }).click();
+		await expect
+			.poll(() =>
+				page.evaluate(() => window.previewFormLifecycleAudit.validationHeld()),
+			)
+			.toBe(true);
+		/* The fresh entry is still opening: Submit is busy from the press, the
+		 * line under it says why, and the retired answers are gone while the
+		 * fresh entry gets ready. */
+		await expect(submit).toBeDisabled();
+		await expect(submit).toHaveAttribute("data-submit-offer", "busy:clearing");
+		await expect(
+			page.getByRole("status").filter({
+				hasText: "A fresh form entry is opening.",
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Starting fresh", exact: true }),
+		).toBeDisabled();
+		await expect(
+			page
+				.getByRole("status")
+				.filter({ hasText: "This form is getting ready." }),
+		).toBeVisible();
+		await expect(name).toHaveCount(0);
+		await submit.click({ force: true });
+		expect(submissions).toHaveLength(0);
+
+		await page.evaluate(() =>
+			window.previewFormLifecycleAudit.releaseValidation(),
+		);
+		await page.evaluate(() => window.previewFormLifecycleAudit.settled());
+		await expect(
+			page.getByRole("button", { name: "Clear form", exact: true }),
+		).toBeEnabled();
+		await expect(name).toBeEnabled();
+		await expect(name).toHaveValue("");
+		await expect(submit).toBeEnabled();
+		await expect(submit).toHaveAttribute("data-submit-offer", "offered");
+		expect(
+			await page.evaluate(() => window.previewFormLifecycleAudit.entry()),
+		).not.toBe(entry);
+		expect(submissions).toHaveLength(0);
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewFormLifecycleAudit?.dispose());
+		} finally {
+			await page.close();
+			await peer.close();
+		}
+	}
+});
+
 test("Submit commits the coordinate and clock currently being edited", async ({
 	page,
 }) => {

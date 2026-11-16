@@ -17,7 +17,7 @@ const english = {
 	formGettingReady: "This form is getting ready.",
 	searchGettingReady: "This search is getting ready.",
 	answersLocked: "Answers are locked while this submission finishes.",
-	freshFormReady: "A fresh form entry is ready.",
+	freshFormStarting: "A fresh form entry is opening.",
 	caseDataRefreshing: "Case data is refreshing. Your answers are still here.",
 	selectedRecordLoading:
 		"The selected record is loading. Answers will be available shortly.",
@@ -332,7 +332,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	formGettingReady: "El formulario se está preparando.",
 	searchGettingReady: "La búsqueda se está preparando.",
 	answersLocked: "Las respuestas están bloqueadas mientras termina el envío.",
-	freshFormReady: "El formulario está listo para una nueva entrada.",
+	freshFormStarting: "Se está abriendo una nueva entrada del formulario.",
 	caseDataRefreshing:
 		"Los datos se están actualizando. Sus respuestas siguen aquí.",
 	selectedRecordLoading:

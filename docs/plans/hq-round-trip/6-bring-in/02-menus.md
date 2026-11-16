@@ -2443,10 +2443,15 @@ planned: where a run prints an app, the session stops and reports the ids, as th
 **Case data.** Neither concept changes Postgres: no case data, no submission change and no DDL. A
 registration opened from a case list submits as any registration form does.
 
-**`lib/db/appTests.ts::RUNTIME_VERSION`.** Nothing in this part moves it. A journey pins its
-document, no document saved before this step holds the slot or the `always` arm, no journey saved
-before it holds the launch field of section 11.5, and the runtime reads every such document and
-journey as it did.
+**`lib/db/appTests.ts::RUNTIME_VERSION`.** This part gives the step's one move (the top-level file,
+"Versions") two of its reasons: App Tests open the Search screen as Core's query manager is built
+(`searchRunState.ts::openSearchRunState`), and walk a menu's parent case as Preview does
+(`parentCaseSelection.ts`: asked for before the menu's screen only where Core asks for it there, and
+going on at the parent's row unless the datum names a details screen, and letting every case chosen
+after a screen go when Back returns to it, as `CommCareSession.stepBack` pops each datum collected
+since), so a journey started before either reads the same pinned document to other screens. The new slot, the `always` arm and the launch
+field of section 11.5 are none of them: no document saved before this step holds the slot or the
+arm, and no journey saved before it holds the launch field.
 
 ---
 ## Copy

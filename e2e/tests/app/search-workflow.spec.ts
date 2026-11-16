@@ -161,9 +161,20 @@ test("a list that opens on Results keeps the worker's search when history return
 	await test.step("the worker searches for one patient", async () => {
 		await main.getByRole("button", { name: "Search again" }).click();
 		await expect(searchScreen).toBeVisible({ timeout: 20_000 });
-		await searchScreen
-			.getByRole("textbox", { name: prompt.label })
-			.fill(searched.answer);
+		const answer = searchScreen.getByRole("textbox", { name: prompt.label });
+		/* Clear empties the fields and leaves the Search screen asked for
+		 * again on show (`query.js::QueryListView.clearAction`), never the
+		 * menu's default search. */
+		await answer.fill(other.answer);
+		await main
+			.getByRole("button", { name: "Clear search", exact: true })
+			.click({ timeout: 20_000 });
+		await expect(answer).toHaveValue("");
+		await expect(searchScreen).toBeVisible();
+		await expect(
+			main.getByRole("button", { name: "Search again" }),
+		).toHaveCount(0);
+		await answer.fill(searched.answer);
 		await searchScreen
 			.getByRole("button", { name: "Search All Cases", exact: true })
 			.click();

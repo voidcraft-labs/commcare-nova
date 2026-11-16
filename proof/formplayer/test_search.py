@@ -27,6 +27,29 @@ save that still writes the maps (Nova's would differ from what it stores),
 and an archive whose search writes no description (Formplayer would hand
 ``""``, as it did before).
 
+A menu that skips to the results of its default search runs that search only
+until the worker asks for the search again (``targeted-search-workflow``'s
+"Recent patients", a visible field and no hidden one). Contract
+(``MenuSessionRunnerService.handleQueryScreen``: ``autoSearch = replay ||
+(doDefaultSearch && !forceManualSearch)``, and a search runs where its query
+data says ``execute`` or where ``autoSearch`` holds): entering the menu with
+no query data answers its results and sends HQ one search, the default one,
+which holds nothing a worker typed, and hands the results the search beside
+them (``EntityListResponse``'s ``queryResponse``, set where the screen before
+the list was the query, which the client's ``menus/utils.js::
+isSidebarEnabled`` reads); the same entry with ``force_manual_search`` and no
+``execute`` (what the client sends to check the prompts as the worker types
+in the search beside the results, ``query.js::_updateModelsForValidation``,
+and ``router.js``'s ``menu:select`` with no index) answers the Search screen
+and sends HQ nothing; and with the worker's
+answer and ``execute`` (the client's Search beside the list, ``menu:query``,
+which forces the manual search there) answers the results again with one more
+search, the one that carries the answer. Preview's ``manual`` search state
+(``lib/preview/searchStanding.ts::previewSearchReopened``) plays this switch.
+Plausible failures: a default search that still runs under
+``force_manual_search`` (the Search screen never shows), or one that runs
+again with the worker's search (two searches where one was asked).
+
 A lookup-backed Search question lists its choices in the order of their
 labels (``prompt-widgets``): each itemset holds a ``<sort>`` on its label
 column, which HQ's Case List save requires (``views/modules.py::
@@ -57,8 +80,18 @@ NBSP = "\u00a0"
 SEARCH_MAPS = ("description", "title_label")
 
 
+# "Recent patients", the third menu of ``targeted-search-workflow``, skips to the results of its default search.
+SKIPS_TO_RESULTS = ["2"]
+TYPED = "Amina"
+
+
 def _query_data(key, inputs):
     return {key: {"inputs": inputs, "execute": True}}
+
+
+def _carries(search, text):
+    """Whether any parameter of the search HQ received holds ``text``."""
+    return any(text in value for _, values in search.params for value in values)
 
 
 def test_formplayer_keeps_a_mixed_quote_answer_from_hq_and_sends_a_one_mark_answer(
@@ -188,3 +221,73 @@ def test_formplayer_hands_a_lookup_prompts_choices_in_label_order(
     assert choices == {
         prompt: {"labels": ["East", "North & coast"], "keys": ["east", "north"]} for prompt in ("region", "regions")
     }
+
+
+def test_formplayer_runs_the_default_search_unless_search_again_forces_its_screen(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    with apps.published(formplayer_documents["targeted-search-workflow"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served, served.run("manual-search"):
+            web = apps.web(formplayer_runner, served)
+            # (a) The menu entered with no query data: its default search runs.
+            defaulted = web.navigate(SKIPS_TO_RESULTS)
+            sent_by_default = list(served.hq.searches)
+            key = defaulted.get("queryKey")
+            beside = defaulted.get("queryResponse") or {}
+            prompts = [display["id"] for display in beside.get("displays") or ()]
+            # (b) The same entry with the search forced to wait for the worker, and nothing to run.
+            forced = web.navigate(
+                SKIPS_TO_RESULTS,
+                query_data={
+                    key: {
+                        "inputs": None,
+                        "execute": False,
+                        "force_manual_search": True,
+                        "selections": SKIPS_TO_RESULTS,
+                    }
+                },
+            )
+            sent_when_forced = list(served.hq.searches)
+            # (c) The worker's answer, searched, with the search still forced to be the worker's.
+            searched = web.navigate(
+                SKIPS_TO_RESULTS,
+                query_data={
+                    key: {
+                        "inputs": {prompt: TYPED for prompt in prompts},
+                        "execute": True,
+                        "force_manual_search": True,
+                        "selections": SKIPS_TO_RESULTS,
+                    }
+                },
+            )
+            sent_when_searched = list(served.hq.searches)
+    evidence(
+        "forced-manual-search",
+        {
+            "defaulted": {
+                "screen": screen_kind(defaulted),
+                "queryKey": key,
+                "beside": prompts,
+                "sentHq": [list(search.params) for search in sent_by_default],
+            },
+            "forced": {"screen": screen_kind(forced), "sentHq": len(sent_when_forced)},
+            "searched": {
+                "screen": screen_kind(searched),
+                "sentHq": [list(search.params) for search in sent_when_searched],
+            },
+        },
+    )
+    # (a) The results of the one default search, which carries nothing typed, with the search beside them.
+    assert screen_kind(defaulted) == "entities", defaulted
+    assert key, defaulted
+    assert len(sent_by_default) == 1
+    assert not _carries(sent_by_default[0], TYPED)
+    assert len(prompts) == 1, beside
+    # (b) The Search screen, and no search sent.
+    assert screen_kind(forced) == "query", forced
+    assert forced.get("queryKey") == key
+    assert len(sent_when_forced) == 1
+    # (c) The results again, and exactly one more search: the worker's.
+    assert screen_kind(searched) == "entities", searched
+    assert len(sent_when_searched) == 2
+    assert _carries(sent_when_searched[1], TYPED)

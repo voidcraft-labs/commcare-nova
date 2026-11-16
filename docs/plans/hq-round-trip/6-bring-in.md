@@ -561,10 +561,14 @@ Part 13 holds the old sentence and its replacement in full, with every other pla
 constant ("Contracts and docs these changes make false"), and exit check 8 fails while the old
 sentence stands.
 
-`lib/db/appTests.ts::RUNTIME_VERSION` moves once, from 18 to 19, for two reasons: Preview's query
-repeat wrapper is renamed (part 04, section 3.4), and Preview stores a date and time saved to a case
-in CommCare HQ's spelling (part 03, section 7.1). An App Test journey in flight at the deploy is
-refused its next step and started again. `scripts/test-schema.ts` goes from 63 entries to 65, with
+`lib/db/appTests.ts::RUNTIME_VERSION` moves once, from 18 to 19, for four reasons: Preview's query
+repeat wrapper is renamed (part 04, section 3.4), Preview stores a date and time saved to a case
+in CommCare HQ's spelling (part 03, section 7.1), the Search screen opens as Core's query manager is
+built, and a menu that needs a parent case asks for it before its screen only where Core does, goes
+on at the parent's row unless the datum names a details screen, and Back lets go every case chosen
+after the screen it returns to (part 02, section 16). The
+stack deploys once, so the value moves once whatever number of its layers gives it a reason. An App
+Test journey in flight at the deploy is refused its next step and started again. `scripts/test-schema.ts` goes from 63 entries to 65, with
 `setFormSections` (part 03) and `getOrganization` (part 11).
 
 ### The plugin

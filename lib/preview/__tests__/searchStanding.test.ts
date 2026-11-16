@@ -17,9 +17,12 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { hiddenSearchInputDef, screenChoosesCaseFirst } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
 import { previewMenuSelectionsLetGo } from "@/lib/preview/menuProjection";
+import { PREVIEW_PLATFORM_RULES } from "@/lib/preview/platform";
 import {
 	type PreviewSearchReplay,
+	previewSearchAfterClear,
 	previewSearchArrival,
+	previewSearchClearOffered,
 	previewSearchesStandingAt,
 	previewSearchReopened,
 	previewSearchRunFollows,
@@ -547,6 +550,55 @@ describe("Search again opens the Search screen only while the request stands", (
 	});
 });
 
+describe("Clear empties the Search pane and leaves the request for the Search screen", () => {
+	it("keeps a Search screen asked for again on show, as Web Apps' Clear changes only the fields", () => {
+		const manual = manualSearch("patients-manual");
+		const after = previewSearchAfterClear(manual);
+		expect(after).toBe(manual);
+		// So skip to results still shows its Search screen, and the menu
+		// runs no default search over the cleared screen.
+		expect(previewSearchReopened(after, false)).toBe(true);
+	});
+
+	it("lets a search the pane's list holds go, so a later Results is a new attempt", () => {
+		expect(previewSearchAfterClear(patientsSearch)).toBeUndefined();
+		expect(
+			previewSearchAfterClear(actionSearch({ patient_name: "Kofi" }, "a")),
+		).toBeUndefined();
+		expect(previewSearchAfterClear(undefined)).toBeUndefined();
+	});
+});
+
+describe("Clear is offered where the platform's Search screen has one", () => {
+	const offered = (
+		platform: "web-apps" | "android",
+		searched: boolean,
+		typed: boolean,
+	) =>
+		previewSearchClearOffered({
+			platformClears: PREVIEW_PLATFORM_RULES[platform].searchClear,
+			searched,
+			typed,
+		});
+
+	it("offers Clear on Web Apps once there is something to clear", () => {
+		// `cloudcare/partials/query/list.html` draws `#query-clear-button` on
+		// every query screen.
+		expect(offered("web-apps", false, true)).toBe(true);
+		expect(offered("web-apps", true, false)).toBe(true);
+		expect(offered("web-apps", false, false)).toBe(false);
+	});
+
+	it("never offers Clear on Android, whose search screen has no such control", () => {
+		// `QueryRequestUiController`'s layout holds the prompts, the search
+		// button and the error line alone, so a search that found nothing
+		// stays on its Search screen with nothing to clear it.
+		expect(offered("android", false, true)).toBe(false);
+		expect(offered("android", true, false)).toBe(false);
+		expect(offered("android", true, true)).toBe(false);
+	});
+});
+
 /*
  * Web Apps keeps the answers the worker last gave each query in the page
  * (`utils.js::Utils.setCurrentQueryInputs`, by every `setQueryData`: a Search
@@ -676,26 +728,39 @@ describe("history gives a search back with the answers its platform runs it with
 		expect(android.searches[patientsModule]).toEqual(first);
 	});
 
-	it("keeps the entry's own search on a form and a menu past the list, which run no query to finish it", () => {
-		// A form that reads the search opens over what that search found, and
-		// the menu lists its forms by it; neither shows the list that would
-		// settle a search run again, so neither starts one.
+	it("runs the search again on a form and a menu past the list on Web Apps, which the form reads, and keeps its own on Android", () => {
+		// Formplayer replays the whole address, so the list's query step runs
+		// again with the latest answers on a screen past it, and the form
+		// reads what it finds; the search stays completed, so the form reads
+		// it rather than waiting on a list that is not on show.
+		const pastList = {
+			kind: "completed",
+			attempt: 1,
+			submission: "first-search",
+			answers: { patient_name: "Ama", searched_by: "worker" },
+			matchCount: 1,
+			rerunPastList: true,
+		};
 		for (const at of [formLoc, menuLoc]) {
 			const web = arrive(at, "latest-answers", afterSecond, secondPressed);
 			expect(web.standing).toEqual(["first-search"]);
-			expect(web.searches[patientsModule]).toEqual(first);
+			expect(web.searches[patientsModule]).toEqual(pastList);
+			// The Search screen drawn since gave no answer, a hidden one too.
 			expect(
 				arrive(at, "latest-answers", afterSecond, {
 					[patientsModule]: {},
 				}).searches[patientsModule],
-			).toEqual(first);
+			).toEqual({ ...pastList, answers: {} });
+			const android = arrive(at, "own-answers", afterSecond, secondPressed);
+			expect(android.standing).toEqual(["first-search"]);
+			expect(android.searches[patientsModule]).toEqual(first);
 		}
-		// The list it opens next takes the latest answers there.
+		// The list it opens next counts that run again.
 		expect(
 			arrive(
 				listLoc,
 				"latest-answers",
-				{ [patientsModule]: first },
+				{ [patientsModule]: pastList as PreviewSearchState },
 				secondPressed,
 				{
 					entry: nextEntry,

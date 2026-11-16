@@ -19,6 +19,11 @@
  *   notes" with a screen of its own, and "Household list", only its case
  *   list, keeping a submenu "Household checks". CommCare asks for the
  *   household before it lists either submenu's tile.
+ * - `parent-chain`: "Villages", "Households" (a village's households,
+ *   chosen under the village) and "People" (a household's members, chosen
+ *   under the household), each a menu of its own with one follow-up, so
+ *   CommCare asks for the village, then the household, before it lists
+ *   People.
  * - `place-condition`: "Patients" beside "Placed visits", a survey menu
  *   whose condition reads the worker's primary place from the session. The
  *   worker is assigned nowhere, so the device holds no such key and CommCare
@@ -57,6 +62,7 @@ export type NavigationFixture =
 	| "case-first-entry"
 	| "child-list-above"
 	| "submenus"
+	| "parent-chain"
 	| "place-condition"
 	| "place-screens";
 
@@ -66,7 +72,14 @@ export const NAVIGATION_HOUSEHOLDS = [
 	{ name: "Rao household", members: ["Asha Rao", "Ravi Rao"] },
 	{ name: "Mensah household", members: ["Kofi Mensah"] },
 ] as const;
+/** The villages each household of `NAVIGATION_HOUSEHOLDS` is under, in
+ *  order, for `parent-chain`. */
+export const NAVIGATION_VILLAGES = ["North village", "South village"] as const;
 const NAVIGATION_HOUSEHOLDS_MODULE_UUID = testUuid("navigation-households");
+/** `parent-chain`'s households menu, whose list a household's address names. */
+export const PARENT_CHAIN_HOUSEHOLDS_MODULE_UUID = testUuid(
+	"navigation-chain-households",
+);
 const PEOPLE_MODULE_UUID = testUuid("navigation-people");
 const NAME_COLUMN = testUuid("navigation-name-column");
 const visit: FormSpec = {
@@ -93,6 +106,7 @@ export function buildNavigationDoc(
 ): BlueprintDoc {
 	if (fixture === "child-list-above") return buildHouseholdsDoc();
 	if (fixture === "submenus") return buildSubmenusDoc();
+	if (fixture === "parent-chain") return buildParentChainDoc();
 	if (fixture === "place-condition") return buildPlaceConditionDoc();
 	if (fixture === "place-screens") return buildPlaceScreensDoc();
 	return buildDoc({
@@ -182,6 +196,55 @@ function buildHouseholdsDoc(): BlueprintDoc {
 		formsInMenuAbove: true,
 	};
 	return doc;
+}
+
+/** Villages, their households and the households' people, each chosen
+ *  under the one before it, each a menu of its own. */
+function buildParentChainDoc(): BlueprintDoc {
+	const list = (column: string) => ({
+		columns: [
+			plainColumn(testUuid(column), "case_name", "Name", {
+				visibleInList: true,
+				visibleInDetail: false,
+			}),
+		],
+		searchInputs: [],
+	});
+	const villages = testUuid("navigation-chain-villages");
+	return buildDoc({
+		appId: NAVIGATION_APP_ID,
+		appName: "Navigation",
+		caseTypes: [
+			{ name: "village", properties: [] },
+			{ name: "household", parent_type: "village", properties: [] },
+			{ name: "person", parent_type: "household", properties: [] },
+		],
+		modules: [
+			{
+				uuid: villages,
+				name: "Villages",
+				caseType: "village",
+				caseListConfig: list("navigation-chain-village-name"),
+				forms: [{ ...visit, name: "Visit village" }],
+			},
+			{
+				uuid: PARENT_CHAIN_HOUSEHOLDS_MODULE_UUID,
+				name: "Households",
+				caseType: "household",
+				parentCaseModuleUuid: villages,
+				caseListConfig: list("navigation-chain-household-name"),
+				forms: [{ ...visit, name: "Visit household" }],
+			},
+			{
+				uuid: testUuid("navigation-chain-people"),
+				name: "People",
+				caseType: "person",
+				parentCaseModuleUuid: PARENT_CHAIN_HOUSEHOLDS_MODULE_UUID,
+				caseListConfig: list("navigation-chain-person-name"),
+				forms: [{ ...visit, name: "Visit person" }],
+			},
+		],
+	});
 }
 
 /** Two household menus, each keeping a submenu of households with a screen

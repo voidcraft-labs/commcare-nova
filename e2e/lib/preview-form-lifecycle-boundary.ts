@@ -51,6 +51,9 @@ export const loadCaseDatabaseSnapshotAction: typeof Actions.loadCaseDatabaseSnap
 	};
 
 let armedEntry: string | undefined;
+/** The entry a fresh-entry hold waits to see replaced: the first form request
+ * of any OTHER entry is the one held. */
+let armedPastEntry: string | undefined;
 let heldValidation:
 	| { readonly request: XPathWorkerEvaluateRequest; release(): void }
 	| undefined;
@@ -66,11 +69,13 @@ export function createBrowserXPathWorker(): XPathWorkerPort {
 	return {
 		postMessage(request) {
 			if (
-				armedEntry === request.entryKey &&
 				request.operation === "evaluate" &&
-				request.profile === "form"
+				request.profile === "form" &&
+				(armedEntry === request.entryKey ||
+					(armedPastEntry !== undefined && armedPastEntry !== request.entryKey))
 			) {
 				armedEntry = undefined;
+				armedPastEntry = undefined;
 				heldValidation = {
 					request,
 					release() {
@@ -89,9 +94,25 @@ export function createBrowserXPathWorker(): XPathWorkerPort {
 }
 
 export function armValidationWorker(entryKey: string) {
-	if (armedEntry !== undefined || heldValidation !== undefined)
+	if (
+		armedEntry !== undefined ||
+		armedPastEntry !== undefined ||
+		heldValidation !== undefined
+	)
 		throw new Error("A validation request is already held");
 	armedEntry = entryKey;
+}
+
+/** Hold the first form request of the entry that replaces `entryKey`, so a
+ * restart (Clear form) stays mid-activation until it is released. */
+export function armFreshEntryWorker(entryKey: string) {
+	if (
+		armedEntry !== undefined ||
+		armedPastEntry !== undefined ||
+		heldValidation !== undefined
+	)
+		throw new Error("A validation request is already held");
+	armedPastEntry = entryKey;
 }
 
 export function validationWorkerHeld() {
@@ -100,6 +121,7 @@ export function validationWorkerHeld() {
 
 export function releaseValidationWorker() {
 	armedEntry = undefined;
+	armedPastEntry = undefined;
 	const held = heldValidation;
 	heldValidation = undefined;
 	held?.release();

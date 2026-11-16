@@ -233,6 +233,16 @@ describe("caseListRegistrationAdmission", () => {
 				searchState: { ...completed(0), registeredCaseId: "case-new" },
 			}),
 		).toEqual({ kind: "refused", reason: "stale-launch" });
+		// History ran the search again past its list with other answers: the
+		// empty result that offered the form was for the answers before.
+		expect(
+			caseListRegistrationAdmission({
+				...entry,
+				moduleUuid: MODULE,
+				launch: { moduleUuid: MODULE, attempt: 1 },
+				searchState: { ...completed(0), rerunPastList: true },
+			}),
+		).toEqual({ kind: "refused", reason: "stale-launch" });
 	});
 
 	it("names the next step in every refusal", () => {

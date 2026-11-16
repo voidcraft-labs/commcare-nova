@@ -59,14 +59,17 @@ import {
 import { appTestCellProjector, appTestDetails } from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
-	appTestBackScreen,
 	appTestCanContinue,
 	appTestCaseListMenuEntry,
+	appTestCaseListScreen,
 	appTestEntryScreen,
+	appTestHistoryEntry,
 	appTestMenuSelection,
 	appTestMenus,
+	appTestRecordsHaveDetails,
 	appTestScreenCaseLists,
 	appTestScreenForms,
+	appTestStepBack,
 	caseListMenuItemLanding,
 	enterAppTestForm,
 	enterAppTestMenu,
@@ -140,7 +143,8 @@ async function appTestSearchResults(
 		new AppTestActionError(
 			`${runtimeMessage(context.language, "searchResultsRefusalTitle")}. ${runtimeMessage(context.language, "searchResultsRefusalBody")}`,
 		);
-	const searchedScreen = [...state.history]
+	const visited: readonly AppTestScreen[] = state.history;
+	const searchedScreen = [...visited]
 		.reverse()
 		.find(
 			(prior): prior is Extract<AppTestScreen, { kind: "records" }> =>
@@ -725,13 +729,7 @@ async function advanceAppTestOnScreen(
 			break;
 		case "routeBack":
 		case "back": {
-			const prior = state.history.at(-1);
-			if (!prior) throw new AppTestActionError("There is no previous screen.");
-			next = {
-				...state,
-				screen: appTestBackScreen(prior, state.deviceCases),
-				history: state.history.slice(0, -1),
-			};
+			next = appTestStepBack(state);
 			break;
 		}
 		case "routeContinue":
@@ -742,7 +740,10 @@ async function advanceAppTestOnScreen(
 				next = {
 					...state,
 					screen: { kind: "home" },
-					history: [...state.history, screen],
+					history: [
+						...state.history,
+						appTestHistoryEntry(screen, state.selections),
+					],
 				};
 				break;
 			}
@@ -782,7 +783,13 @@ async function advanceAppTestOnScreen(
 				{ ...state, screen: screen.source },
 				[read.result.row],
 			);
-			next = { ...next, history: [...state.history, screen] };
+			next = {
+				...next,
+				history: [
+					...state.history,
+					appTestHistoryEntry(screen, state.selections),
+				],
+			};
 			({ context, state: next } = await postAppTestClaims(
 				context,
 				scope,
@@ -850,17 +857,28 @@ async function advanceAppTestOnScreen(
 					: task.kind === "menu" || task.kind === "records"
 						? refreshSelector(task)
 						: task;
+			const refreshSelections = (
+				selections: AppTestSessionState["selections"],
+			): AppTestSessionState["selections"] =>
+				Object.fromEntries(
+					Object.entries(selections).map(([uuid, selected]) => [
+						uuid,
+						refreshSelection(selected),
+					]),
+				);
+			// A screen Back returns to holds the selections it was shown with,
+			// whose records read as the device now holds them.
 			next = {
 				...state,
 				deviceCases,
 				screen: refreshTask(screen),
-				history: state.history.map(refreshTask),
-				selections: Object.fromEntries(
-					Object.entries(state.selections).map(([uuid, selected]) => [
-						uuid,
-						refreshSelection(selected),
-					]),
+				history: state.history.map((entry) =>
+					appTestHistoryEntry(
+						refreshTask(entry),
+						refreshSelections(entry.shownWith),
+					),
 				),
+				selections: refreshSelections(state.selections),
 			};
 			extra = {
 				synced: true,
@@ -892,7 +910,10 @@ async function advanceAppTestOnScreen(
 			next = {
 				...state,
 				screen: enterAppTestMenu(context, state, action.moduleUuid),
-				history: [...state.history, screen],
+				history: [
+					...state.history,
+					appTestHistoryEntry(screen, state.selections),
+				],
 			};
 			break;
 		}
@@ -930,18 +951,22 @@ async function advanceAppTestOnScreen(
 					"That case list is not available on the current screen.",
 				);
 			/* The menu's case list entry, where the screen lists it, opens its
-			 * list, whose choice takes the entry's route. */
+			 * list, whose choice takes the entry's route. A list that asks for
+			 * its parent case asks for it first, then opens. */
 			const entry = appTestCaseListMenuEntry(context, state, named);
 			next = {
 				...state,
-				screen: {
+				screen: appTestCaseListScreen(context, state, {
 					kind: "records",
 					moduleUuid: named,
 					...(entry !== undefined && {
 						openedFrom: "case-list-menu-item" as const,
 					}),
-				},
-				history: [...state.history, screen],
+				}),
+				history: [
+					...state.history,
+					appTestHistoryEntry(screen, state.selections),
+				],
 			};
 			break;
 		}
@@ -979,7 +1004,10 @@ async function advanceAppTestOnScreen(
 					history:
 						screen.kind === "menu" && screen.selection
 							? state.history
-							: [...state.history, screen],
+							: [
+									...state.history,
+									appTestHistoryEntry(screen, state.selections),
+								],
 				};
 				({ context, state: next } = await postAppTestClaims(
 					context,
@@ -1020,7 +1048,10 @@ async function advanceAppTestOnScreen(
 										hostModuleUuid: screen.moduleUuid,
 									},
 								},
-					history: [...state.history, read.state.screen],
+					history: [
+						...state.history,
+						appTestHistoryEntry(read.state.screen, state.selections),
+					],
 				};
 			} else
 				throw new AppTestActionError("Open a menu before choosing a form.");
@@ -1050,11 +1081,14 @@ async function advanceAppTestOnScreen(
 			const mod = context.doc.modules[recordsScreen.moduleUuid];
 			const multiple = caseSelectionCardinality(mod) !== "single";
 			const rowAction = caseSelectionRowAction({
-				hasDetails:
+				hasDetails: appTestRecordsHaveDetails(
+					context,
+					recordsScreen,
 					!!mod.caseListConfig &&
-					orderedColumns(mod.caseListConfig, "detail").some(
-						(column) => column.visibleInDetail !== false,
-					),
+						orderedColumns(mod.caseListConfig, "detail").some(
+							(column) => column.visibleInDetail !== false,
+						),
+				),
 				multiple,
 				canContinue: appTestCanContinue(context, recordsScreen),
 			});
@@ -1069,7 +1103,10 @@ async function advanceAppTestOnScreen(
 						caseId: selected[0].case_id,
 						source: recordsScreen,
 					},
-					history: [...state.history, read.state.screen],
+					history: [
+						...state.history,
+						appTestHistoryEntry(read.state.screen, state.selections),
+					],
 				};
 			else if (isCaseListMenuItemList(context, recordsScreen))
 				/* A case list menu entry's list holds no form: the choice takes
@@ -1078,7 +1115,10 @@ async function advanceAppTestOnScreen(
 			else
 				next = {
 					...selectAppTestRecords(context, read.state, selected),
-					history: [...state.history, read.state.screen],
+					history: [
+						...state.history,
+						appTestHistoryEntry(read.state.screen, state.selections),
+					],
 				};
 			({ context, state: next } = await postAppTestClaims(
 				context,

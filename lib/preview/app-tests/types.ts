@@ -330,6 +330,11 @@ export type AppTestScreen =
 				readonly moduleUuid: Uuid;
 				readonly formUuid: Uuid;
 			};
+			/** A step of a parent case selection a menu's case list asked for:
+			 *  once the last module of `returnModules` has its parent case, its
+			 *  list opens with this mark rather than its menu, as Preview's
+			 *  parent case request resumes the list it was asked from. */
+			resumesList?: { readonly openedFrom?: "case-list-menu-item" };
 			taskCases?: CaseDatabaseSnapshot;
 			searchEntry?: SearchEvaluationInput["entry"];
 			registeredCaseId?: string;
@@ -353,6 +358,15 @@ export type AppTestScreen =
 			 * it always offers; set by that action alone. */
 			caseListRegistrationLaunch?: PreviewCaseListRegistrationLaunch;
 	  };
+/** A screen the worker left, with the case selections the session held
+ *  while it was shown. Back returns to the screen and to those selections
+ *  (`navigation.ts::appTestStepBack`), so a case chosen after it is let go,
+ *  as `CommCareSession.stepBack` pops each datum collected since (Android)
+ *  and Formplayer replays the popped address's `selections` (Web Apps). */
+export type AppTestHistoryEntry = AppTestScreen & {
+	readonly shownWith: Readonly<Record<string, PreviewMenuCaseSelection>>;
+};
+
 /** A frame a submission pushed, routed when it was pushed. */
 export type AppTestAfterSubmitRoute = PostSubmissionFrame;
 
@@ -365,7 +379,7 @@ export interface AppTestSessionState {
 	androidDeviceId: string;
 	personaUuid: Uuid | null;
 	screen: AppTestScreen;
-	history: readonly AppTestScreen[];
+	history: readonly AppTestHistoryEntry[];
 	selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 	/** The worker's device holds this snapshot until sync or identity switch;
 	 * submissions overlay their transaction-captured patch, including closed rows. */

@@ -97,15 +97,19 @@ document whose expressions the current model does not read. Version 17 fences pl
 a journey started before it ran Preview's former mix of runtimes.
 Version 18 fences repeats and case writes: a journey started before it pinned
 a document whose query repeats, counts and case operations the current
-runtime reads differently. Runtime version 19 fences two things: it names a
-query repeat's wrapper `<id>.query`, and it saves a date and time to a case as
+runtime reads differently. Runtime version 19 fences four things: it names a
+query repeat's wrapper `<id>.query`; it saves a date and time to a case as
 the text CommCare HQ stores for its moment, UTC with six fraction digits and
 `Z` (`lib/domain/temporalValues.ts::caseDatetimeValue`), where a journey
-started before it saved the viewer's offset. Version 20 fences the Search
-screen's opening (`searchRunState.ts::openSearchRunState`): it reads every
-choice list and lets go a starting choice the rows do not offer, a menu that
-opens on its search or its results refuses as it opens, and the assigned-case
-exclusion refuses only where Results are read. A session's
+started before it saved the viewer's offset; it opens the Search screen as
+Core's query manager is built (`searchRunState.ts::openSearchRunState`),
+reading every choice list and letting go a starting choice the rows do not
+offer, refusing a menu that opens on its search or its results as it opens,
+and refusing the assigned-case exclusion only where Results are read; and it
+walks a menu's parent case as Preview does (`parentCaseSelection.ts`), asking
+for it before the menu's screen only where Core does, going on at the
+parent's row unless the datum it chooses for names a details screen, and
+letting every case chosen after a screen go when Back returns to it. A session's
 platform is its own `platform`, else the start's, else the one the saved app
 previews on by default (`context.ts::appTestPlatform`, which refuses a platform
 the app does not declare with `platformUnavailableSentence`); the session keeps
@@ -174,7 +178,18 @@ own menu, and the `records` action takes an optional `moduleUuid` naming the
 menu whose case list to open, needed where the screen lists several and
 omitted on a menu for its own. Choosing a menu lands where Preview lands it
 (`moduleDestination`): a case-first or bare case list screen on its records,
-submenus or not. Once a case is chosen, `continue` opens a form only where the
+submenus or not. A menu that needs a parent case the session lacks asks for
+it before its screen only where Core does
+(`engine/parentCaseSelection.ts::previewParentCaseBeforeMenu`); a menu that
+lists a survey or a registration beside a follow-up lists its forms first,
+and the `form` or `records` action that needs the parent opens the parent's
+records first (`navigation.ts::enterAppTestForm`, `appTestCaseListScreen`),
+then the form's own records or the list with its mark (`resumesList`); a
+survey there opens with no parent. A case chosen on a parent's records goes
+on at once unless the datum it chooses for names a details screen
+(`navigation.ts::appTestRecordsHaveDetails` over
+`previewParentCaseListHasDetails`), which a basic menu never gives a
+parent. Once a case is chosen, `continue` opens a form only where the
 worker chose it before the case (or a retained command names it), and then
 the menu is not listed and no condition is read; otherwise the observation is
 the menu, listing its forms however many there are, and the
@@ -238,8 +253,16 @@ eligibility. Informational details have no Continue action. Details opened
 through ordinary Back read current stored values, even if the record no longer
 matches its old Results page. Back retains the visited destinations; returning to a form
 starts a fresh entry (`navigation.ts::appTestBackScreen`), which carries no case list
-Register launch, since a launch belongs to the one entry it opened. These observations describe Preview navigation, not a
-native session-stack proof.
+Register launch, since a launch belongs to the one entry it opened. Each visited
+destination keeps the case selections the session held while it was shown
+(`types.ts::AppTestHistoryEntry`, written by `navigation.ts::appTestHistoryEntry`
+at every push), and Back returns to them (`appTestStepBack`), so a case chosen
+after that screen, a parent case asked for after a form's command included, is
+let go and the next walk past it asks for it again. One rule on both platforms:
+Android's Back is `CommCareSession.stepBack`, which pops each datum collected
+since, and Web Apps' is the previous address, whose `selections` Formplayer
+replays. Sync refreshes those kept selections with the session's own. These
+observations describe Preview navigation, not a native session-stack proof.
 
 A leaf record's inline form chooser carries its selection on that screen and
 offers only case-loading forms, matching the browser chooser. It

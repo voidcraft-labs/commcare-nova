@@ -75,6 +75,12 @@ export interface PreviewSearchSessionValues {
 	 * values sets. The device supplies it through `previewSessionValues`; an
 	 * identity's own session never carries it. */
 	readonly dayNumberEpoch?: DayNumberEpoch;
+	/** The worker's record as the identity holds it
+	 * (`ResolvedPreviewIdentity.usercase`), which a list's worker-record read
+	 * answers from where the store holds no row for the worker, as a form's
+	 * does (`previewWorkerPropertyBinding`). `previewSessionValues` supplies
+	 * it; an identity's own session never carries it. */
+	readonly usercase?: Readonly<Record<string, string>>;
 }
 
 /** Narrow user shape shared by Better Auth's client and server session. */
@@ -338,6 +344,7 @@ export function previewSessionValues(
 		...base,
 		context: { ...base.context, ...previewDeviceContext(device) },
 		dayNumberEpoch: previewPlatformRules(device.platform).dayNumberEpoch,
+		...(identity === null ? {} : { usercase: identity.usercase }),
 	};
 }
 

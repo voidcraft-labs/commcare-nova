@@ -574,6 +574,9 @@ export function previewCaseStoreBindings(
 		sessionUser: new Map(Object.entries(session.user)),
 		userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
 		sessionUserAbsent: { readsBlank: PREVIEW_UNKNOWN_WORKER_KEYS },
+		...(session.usercase === undefined
+			? {}
+			: { workerRecordWithoutRow: session.usercase }),
 		...(viewerTimeZone === undefined ? {} : { viewerTimeZone }),
 		viewerLocation: viewerLocationText(viewerLocation, rules),
 	};

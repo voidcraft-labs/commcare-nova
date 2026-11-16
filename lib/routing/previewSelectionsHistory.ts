@@ -20,10 +20,12 @@
  * (`lib/session/store.ts::clearPreviewNavigation`), and every Home starts a
  * new task (`previewTaskId`). So each entry records, beside its address, the
  * cases the store held while it was shown, with the Preview session and the
- * task it was shown in; an arrival in the same session and another task (Back
- * or Forward past Home) puts them back before any screen reads them. Within
- * one task the store already holds what the entry shows, and the record only
- * follows it.
+ * task it was shown in. An arrival in the same session and another task (Back
+ * or Forward past Home) puts them back before any screen reads them, taking
+ * that task up again. Within one task the session can have moved on from what
+ * an entry shows (a crumb let a case go, a later list chose another), and Web
+ * Apps replays the popped address's selections there too, so an arrival puts
+ * the entry's selections back wherever they differ from the session's.
  *
  * Android has no address: Preview's browser history stands for nothing a
  * phone keeps, and its Back is the device's step back
@@ -286,17 +288,26 @@ export function samePreviewSelections(
  *
  * - `restore`: on Web Apps, an entry off Home shown in this Preview session
  *   in another task (Home ended that task since): its selections become the
- *   session's and the session takes up its task again, as Formplayer replays
- *   a popped address's selections.
- * - `keep`: everything else. Within one task the session already holds what
- *   the entry shows (its record only follows the session); an entry of an
- *   earlier session names cases no worker of this one chose; Home clears the
- *   selections itself; and on Android the session as it stands is what any
- *   entry shows.
+ *   session's and the session takes up its task again, ending what is left
+ *   of the later one, as Formplayer replays a popped address's selections
+ *   into a new session.
+ * - `replay`: on Web Apps, an entry off Home shown in this task with
+ *   selections other than the session's (a crumb let a case go since, or a
+ *   later screen chose another case): its selections become the session's,
+ *   as Formplayer replays every popped address's selections
+ *   (`MenuSessionRunnerService.advanceSessionWithSelections`), and the rest
+ *   of the task stands.
+ * - `keep`: everything else. An entry the session already shows needs
+ *   nothing; an entry of an earlier session names cases no worker of this one
+ *   chose; Home clears the selections itself; and on Android the session as
+ *   it stands is what any entry shows.
  */
 export type PreviewSelectionsArrival =
 	| { readonly kind: "keep" }
-	| { readonly kind: "restore"; readonly recorded: RecordedPreviewSelections };
+	| {
+			readonly kind: "restore" | "replay";
+			readonly recorded: RecordedPreviewSelections;
+	  };
 
 export function previewSelectionsArrival(args: {
 	readonly replay: "address" | "session";
@@ -304,15 +315,25 @@ export function previewSelectionsArrival(args: {
 	readonly onEntry: RecordedPreviewSelections | undefined;
 	readonly session: string;
 	readonly task: string;
+	/** The selections the session holds as the worker arrives. */
+	readonly current: PreviewSessionSelections;
 }): PreviewSelectionsArrival {
 	const { onEntry } = args;
-	return args.replay === "address" &&
-		!args.atHome &&
-		onEntry !== undefined &&
-		onEntry.session === args.session &&
-		onEntry.task !== args.task
-		? { kind: "restore", recorded: onEntry }
-		: { kind: "keep" };
+	if (
+		args.replay !== "address" ||
+		args.atHome ||
+		onEntry === undefined ||
+		onEntry.session !== args.session
+	)
+		return { kind: "keep" };
+	if (onEntry.task !== args.task) return { kind: "restore", recorded: onEntry };
+	return samePreviewSelections(onEntry, {
+		...args.current,
+		session: onEntry.session,
+		task: onEntry.task,
+	})
+		? { kind: "keep" }
+		: { kind: "replay", recorded: onEntry };
 }
 
 /** The recorded selections the document still names: a menu or a form an
