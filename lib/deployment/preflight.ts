@@ -53,13 +53,30 @@ import {
 } from "@/lib/domain";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
+import { getLookupDefinitions } from "@/lib/lookup/service";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganization } from "@/lib/organization/service";
-import type { StoredLocation } from "@/lib/organization/types";
 import type {
-	DriftDateOptions,
-	DriftReference,
+	OrganizationSnapshot,
+	StoredLocation,
+} from "@/lib/organization/types";
+import {
+	type DriftDateOptions,
+	type DriftReference,
+	driftDate,
 } from "@/lib/publish/driftReference";
+import {
+	HAND_BACK_OFFERED,
+	MANAGED_DATA_CHANGED,
+	managedDataPassed,
+	managedDataUnreadable,
+	managedDataUnreadablePermission,
+	managedPlacesPassed,
+	managedTableFromElsewhereCurrentItem,
+	managedTableFromElsewhereItem,
+	managedTableRowsUnreadable,
+	managedTablesLeftOut,
+} from "@/lib/publish/managedData";
 import type { PlatformNarrowing } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
@@ -103,6 +120,15 @@ import {
 	planLookupResourcePush,
 } from "./lookupResourcePlan";
 import {
+	baselineFromTableOrigin,
+	isAccountRefusal,
+	type LookupTableOriginRead,
+	managedTableChangeItem,
+	readLookupTableOrigins,
+	refreshManagedPlacesFromRead,
+	reReadManagedTablesForPublish,
+} from "./managedData";
+import {
 	boundedParts,
 	decideRemoteChanges,
 	describeAppChange,
@@ -120,6 +146,7 @@ import {
 	readAppBaseline,
 	readDeploymentMediaPaths,
 	readResourceBaselines,
+	readSiblingLookupMappings,
 } from "./store";
 import type {
 	AppBaseline,
@@ -159,6 +186,13 @@ import { workerRecordSetup } from "./workerRecordRequirements";
  * space's plan, so the person confirms each plan feature the app needs, and
  * the two project-space settings no API reads, once per project space.
  *
+ * `managed-data` reads the lookup tables the app reads that CommCare HQ
+ * manages, and refreshes Nova's copy of them, before the export boundary
+ * validates the generation that results; it is the one edge before
+ * `plan-features` that asks CommCare HQ anything, because it only reads and
+ * what it writes is Nova's own copy. A table that changed there in a way the
+ * app depends on stops the publish before anything is sent.
+ *
  * `project-data` and `organization` talk to CommCare HQ here, and both are
  * blocking for the same reason: each is the only thing standing between a
  * publish and quietly writing over a lookup table or a place somebody else
@@ -184,6 +218,7 @@ import { workerRecordSetup } from "./workerRecordRequirements";
  */
 export const PREFLIGHT_CHECK_IDS = [
 	"hq-connection",
+	"managed-data",
 	"app-readiness",
 	"plan-features",
 	"project-data",
@@ -417,33 +452,51 @@ export interface PreflightInput {
  * degrades to no places, because the artifact is still right without them,
  * but here that reading would push nothing and then tell somebody their
  * organization is on the project space. The `organization` edge plans the
- * push from the same snapshot. The publish sends a lookup table workbook
- * exactly when the app reads a table (the export boundary refuses an app
- * whose tables it cannot push), and its capture links resolve against the
- * target, as `attachmentUrlTarget` hands them to the emitter. `lookupNaming`
- * is the naming of the Project's lookup definitions the publish emits
- * under (`undefined` for an app that reads no table).
+ * push from the same snapshot. Places CommCare HQ manages from the target
+ * are never sent there, so none is planned (`placesManagedHere`). The
+ * publish sends a lookup table workbook exactly when the app reads a table
+ * CommCare HQ does not manage from the target: `managedTableIds` are the
+ * tables the app reads that it does, which the workbook leaves out. Its
+ * capture links resolve against the target, as `attachmentUrlTarget` hands
+ * them to the emitter. `lookupNaming` is the naming of the Project's lookup
+ * definitions the publish emits under (`undefined` for an app that reads no
+ * table).
  */
 export async function publishConfirmationNeeds(
 	access: PreflightInput["access"],
 	doc: BlueprintDoc,
 	target: DeploymentTargetKey,
 	lookupNaming: LookupWireNaming | undefined,
+	managedTableIds: ReadonlySet<string>,
 ): Promise<{
 	readonly locations: readonly StoredLocation[];
 	readonly places: readonly PlannedPlace[];
+	/** Whether the app has levels and CommCare HQ manages its places from the target. */
+	readonly placesManagedHere: boolean;
 	readonly needed: DeploymentConfirmationNeeded[];
 }> {
 	const organized = Object.keys(organizationLevelsOf(doc)).length > 0;
-	const locations = organized ? await readAppLocations(access) : [];
-	const places = organized ? plannedPlacesFor(doc, locations) : [];
+	const organization = organized
+		? await readAppOrganization(access)
+		: { locations: [], hq: undefined };
+	const placesManagedHere =
+		organization.hq !== undefined &&
+		organization.hq.server === target.server &&
+		organization.hq.domain === target.domain;
+	const places =
+		organized && !placesManagedHere
+			? plannedPlacesFor(doc, organization.locations)
+			: [];
 	return {
-		locations,
+		locations: organization.locations,
 		places,
+		placesManagedHere,
 		needed: requiredConfirmations(
 			doc,
 			{
-				lookupTables: extractLookupReferenceTargets(doc).tableIds.length > 0,
+				lookupTables: extractLookupReferenceTargets(doc).tableIds.some(
+					(tableId) => !managedTableIds.has(tableId),
+				),
 				places: places.length > 0,
 			},
 			attachmentUrlTarget(target),
@@ -453,23 +506,23 @@ export async function publishConfirmationNeeds(
 }
 
 /**
- * The app's places. An app this caller can no longer reach (moved to another
- * Project, deleted, or its access withdrawn since the caller authorized it)
- * is an expected rejection, said as one; any other failure is operational
- * and stays as it is.
+ * The app's places and where CommCare HQ manages them, if it does. An app
+ * this caller can no longer reach (moved to another Project, deleted, or its
+ * access withdrawn since the caller authorized it) is an expected rejection,
+ * said as one; any other failure is operational and stays as it is.
  */
-async function readAppLocations(
-	access: PreflightInput["access"],
-): Promise<readonly StoredLocation[]> {
+async function readAppOrganization(access: PreflightInput["access"]): Promise<{
+	readonly locations: readonly StoredLocation[];
+	readonly hq: OrganizationSnapshot["hq"];
+}> {
 	try {
-		return (
-			await readOrganization({
-				appId: access.appId,
-				projectId: access.projectId,
-				role: access.role,
-				actorUserId: access.actorUserId,
-			})
-		).locations;
+		const snapshot = await readOrganization({
+			appId: access.appId,
+			projectId: access.projectId,
+			role: access.role,
+			actorUserId: access.actorUserId,
+		});
+		return { locations: snapshot.locations, hq: snapshot.hq };
 	} catch (error) {
 		if (error instanceof OrganizationError && error.code === "not_found") {
 			throw new DeploymentError("not_found", error.message, { cause: error });
@@ -488,6 +541,7 @@ function blockedOutcome(
 		| "hq_resource_state_unknown"
 		| "hq_resource_conflict"
 		| "hq_table_content_unsupported"
+		| "hq_managed_data_changed"
 		| "hq_organization_mismatch"
 		| "hq_app_state_unknown"
 		| "remote_app_missing"
@@ -680,6 +734,30 @@ export async function runDeploymentPreflight(
 		items: [],
 	});
 
+	// ── 1a. Does the data CommCare HQ manages still hold what the app reads?
+	// Blocking, and before the export boundary: refreshing Nova's copy of a
+	// table changes the lookup generation, and the boundary validates and
+	// emits the one that results. It only reads CommCare HQ, and what it
+	// writes is Nova's own copy, which a publish refused later keeps: it is
+	// CommCare HQ's current state, what Refresh would have written.
+	const managedHere = await managedDataEdge(input, creds, domain);
+	if (managedHere !== null) {
+		checks.push(managedHere.check);
+		if (managedHere.failure !== null) {
+			return {
+				checks,
+				outcome: {
+					status: "failed",
+					at: input.now,
+					failure: managedHere.failure,
+				},
+				ready: null,
+				projectSpaceCompatibility: null,
+				conflicts: [],
+			};
+		}
+	}
+
 	// ── 2. Is the app itself ready to leave Nova? ───────────────────
 	// The same zero-tolerance boundary every export path runs. One guard
 	// here is still closed: an owner set to one PARTICULAR place, which
@@ -704,6 +782,9 @@ export async function runDeploymentPreflight(
 			server: input.server,
 			domain: input.domain,
 		}),
+		/* A table CommCare HQ manages in this project space is never written
+		 * there, so the workbook leaves it out. */
+		lookupTarget: target,
 	});
 	if (!boundary.ok) {
 		const details = boundary.violations.map(userFacingError);
@@ -735,12 +816,16 @@ export async function runDeploymentPreflight(
 	/* The app's places and what this publish asks a person to confirm, read
 	 * before anything is asked of CommCare HQ, by the helper the pre-publish
 	 * check reads too. */
-	const { locations, places, needed } = await publishConfirmationNeeds(
-		input.access,
-		boundary.prepared.doc,
-		{ server: input.server, domain: input.domain },
-		boundary.prepared.lookupNaming,
-	);
+	const { locations, places, placesManagedHere, needed } =
+		await publishConfirmationNeeds(
+			input.access,
+			boundary.prepared.doc,
+			{ server: input.server, domain: input.domain },
+			boundary.prepared.lookupNaming,
+			new Set(
+				boundary.prepared.managedLookupTables.map((table) => table.tableId),
+			),
+		);
 	const settled = settleConfirmations({
 		needed,
 		live: input.confirmations,
@@ -788,7 +873,11 @@ export async function runDeploymentPreflight(
 	const workbook = boundary.prepared.lookupWorkbook;
 	let lookupPush: LookupPushPlan | null = null;
 	if (workbook !== undefined) {
-		const hqTables = await listHqLookupTables(creds, domain);
+		/* The `managed-data` edge read the list moments ago where a table
+		 * CommCare HQ manages here is among the app's, and what it wrote since
+		 * is Nova's own copy, so that answer stands. */
+		const hqTables =
+			managedHere?.hqTables ?? (await listHqLookupTables(creds, domain));
 		if ("success" in hqTables) {
 			/* Nova cannot tell its own tables from anybody else's without
 			 * this answer, so it does not push. Reading the failure as "the
@@ -813,11 +902,39 @@ export async function runDeploymentPreflight(
 				conflicts: [],
 			};
 		}
+		/* The Project's standing with each table on this project space, read
+		 * in the same pass as the list: the live mappings of the Project's
+		 * other apps, and the tables' own records of CommCare HQ, of which a
+		 * takeover from this project space is a person's decision to publish
+		 * Nova's copy here. */
+		const workbookTableIds = workbook.tables.map((table) => table.tableId);
+		const [siblings, origins] = await Promise.all([
+			readSiblingLookupMappings(input.access, target, workbookTableIds),
+			readLookupTableOrigins(input.access, workbookTableIds),
+		]);
+		const originByTableId = new Map(
+			origins.map((origin) => [origin.tableId, origin] as const),
+		);
 		const plan = planLookupResourcePush({
 			tables: workbook.tables,
 			mappings: input.mappings,
 			hqTables,
 			adoptTableIds: input.adoptResourceIds,
+			siblings,
+			takenOver: origins.flatMap((origin) =>
+				origin.takenOver !== null &&
+				origin.server === input.server &&
+				origin.domain === input.domain
+					? [
+							{
+								tableId: origin.tableId,
+								remoteId: origin.remoteId,
+								at: origin.takenOver.at,
+								by: origin.takenOver.by,
+							},
+						]
+					: [],
+			),
 		});
 		/* Named twice over: the tag is what CommCare HQ shows, and the
 		 * table's own name is what the author will recognize. The
@@ -889,27 +1006,48 @@ export async function runDeploymentPreflight(
 		}
 		lookupPush = { workbook, pushes: plan.pushes, names: nameByTableId };
 
-		/* Each table this deployment mapped under the tag it still plans, the
-		 * table there now or the one HQ deleted or renamed since. A table
-		 * this publish adopts is the person's decision to write over it, so
-		 * it is not compared. */
+		/* Each table a mapping accounts for under the tag it still plans, the
+		 * table there now or the one HQ deleted or renamed since, compared
+		 * with the baseline of that HQ table, which the Project's apps share;
+		 * and each table a person took over from here, compared with the
+		 * table's own record of CommCare HQ's table at its last refresh. A
+		 * table this publish adopts is the person's decision to write over
+		 * it, so it is not compared. */
 		const comparedTables = plan.pushes.flatMap((push) =>
-			push.mappedRemoteId === null
+			push.mappedRemoteId === null || push.baseline === null
 				? []
 				: [{ push, remoteId: push.mappedRemoteId }],
 		);
 		if (comparedTables.length > 0) {
 			compared = true;
-			const baselines = baselinesByRemoteId(
+			const stored = baselinesByRemoteId(
 				await readResourceBaselines(
 					input.access,
 					target,
-					comparedTables.map(({ remoteId }) => ({
-						kind: "lookup-table",
-						remoteId,
-					})),
+					comparedTables.flatMap(({ push, remoteId }) =>
+						push.baseline === "mapping"
+							? [{ kind: "lookup-table" as const, remoteId }]
+							: [],
+					),
 				),
 			);
+			const baselineOf = (
+				push: PlannedLookupPush,
+				remoteId: string,
+			): ResourceBaseline | undefined => {
+				if (push.baseline !== "table-origin") return stored.get(remoteId);
+				const origin = originByTableId.get(push.tableId);
+				if (origin === undefined) {
+					throw new Error(
+						`The lookup table ${push.tableId} was planned as taken over with no origin read.`,
+					);
+				}
+				return baselineFromTableOrigin({
+					canonical: origin.canonical,
+					remoteId,
+					refreshedAt: origin.refreshedAt,
+				});
+			};
 			/* The tables are independent, so their rows are read a few at a
 			 * time; the results keep the plan's order, and the first table
 			 * that could not be read is the one the refusal names. */
@@ -925,7 +1063,15 @@ export async function runDeploymentPreflight(
 						name: nameByTableId.get(push.tableId) ?? push.tag,
 						mappedRemoteId: remoteId,
 						hqTables,
-						baseline: baselines.get(remoteId),
+						baseline: baselineOf(push, remoteId),
+						/* A table Nova manages that came from this project space can be
+						 * handed back on its page, which takes the version CommCare HQ
+						 * holds here. One that came from another project space would
+						 * take that one's, not this change. */
+						handBackOffered: handBackTakesThisVersion(
+							originByTableId.get(push.tableId),
+							input,
+						),
 					}),
 			);
 			const unreadable = comparedTables.find(
@@ -958,11 +1104,17 @@ export async function runDeploymentPreflight(
 				if (change !== null && change !== "unreadable") observed.push(change);
 			}
 		}
+		const leftOut = boundary.prepared.managedLookupTables.map(
+			(table) => table.tag,
+		);
 		checks.push({
 			id: "project-data",
 			title: "Project data",
 			status: "passed",
-			detail: `Nova will put ${describeTableCount(workbook.tables.length)} on “${domain}” before sending the app.`,
+			detail:
+				leftOut.length === 0
+					? `Nova will put ${describeTableCount(workbook.tables.length)} on “${domain}” before sending the app.`
+					: `Nova will put ${describeTableCount(workbook.tables.length)} on “${domain}” before sending the app. ${managedTablesLeftOut(leftOut, domain)}`,
 			items: workbook.tables.map(
 				(table) => `${table.tag} (${describeRowCount(table.rowCount)})`,
 			),
@@ -976,74 +1128,101 @@ export async function runDeploymentPreflight(
 	// domain-unique identity, so pushing blind would take over a place
 	// somebody else made.
 	let locationPush: LocationPushPlan | null = null;
-	if (places.length > 0) {
-		/* Nova cannot tell its own places from anybody else's without
-		 * both answers, so a refusal is never read as "there is nothing
-		 * over there". Four separate things produce these statuses and
-		 * two of them are the same bodyless 403, so the sentence names
-		 * all of them rather than picking one and being confidently
-		 * wrong. */
-		const organizationUnreadable = (
-			error: CommCareApiError,
-		): PreflightResult => {
-			const detail =
-				error.status === 401 || error.status === 403
-					? `Nova can't read the organization on “${domain}”, so it won't push places over what's there. That project space needs the Organizations and API access features, and your CommCare HQ account needs the Edit Locations and Access APIs permissions. Ask a CommCare HQ administrator for whichever is missing.`
-					: `Nova couldn't ask “${domain}” about its organization, so it stopped rather than push places into it. Try publishing again in a moment.`;
-			checks.push({
-				id: "organization",
-				title: "Organization",
-				status: "blocked",
-				detail,
-				items: [],
-			});
-			return {
-				checks,
-				outcome: blockedOutcome(input.now, "hq_resource_state_unknown", detail),
-				ready: null,
-				projectSpaceCompatibility: null,
-				conflicts: [],
-			};
+	/* The target's own tree can make a reverse owner hop ambiguous in a way
+	 * Nova's cannot see. `assertReverseHopTargetsUnambiguous` proves the
+	 * invariant over `app_locations`; CommCare HQ builds the fixture from ITS
+	 * rows, which may hold places Nova never created. The emitted XPath
+	 * selects `@id` from every match, so two of them make owner choice depend
+	 * on fixture order — and quietly, since a predicate returning two nodes is
+	 * not an error. This is the one moment Nova can see that tree, and the
+	 * export boundary lets the rule through precisely because it carries no
+	 * Nova identity, so the check belongs here. */
+	const ambiguousOwners = (
+		ambiguous: ReturnType<typeof ambiguousReverseHopsOnTarget>,
+	): PreflightResult => {
+		const detail = `Some case owner rules in this app pick a place beneath the current owner, and “${domain}” holds more than one place to pick. CommCare HQ would choose between them by fixture order rather than by the rule, so Nova stopped. Give each of these owners one place at that level over there, then publish again.`;
+		checks.push({
+			id: "organization",
+			title: "Organization",
+			status: "blocked",
+			detail,
+			items: ambiguous.map(
+				(hop) =>
+					`${hop.ownerName} holds ${hop.destinationNames.length} places at “${hop.destinationCode}”: ${hop.destinationNames.join(", ")}.`,
+			),
+		});
+		return {
+			checks,
+			outcome: blockedOutcome(input.now, "hq_organization_mismatch", detail),
+			ready: null,
+			projectSpaceCompatibility: null,
+			conflicts: [],
 		};
+	};
+	/* Nova cannot tell its own places from anybody else's without both
+	 * answers, so a refusal is never read as "there is nothing over there".
+	 * Four separate things produce these statuses and two of them are the
+	 * same bodyless 403, so the sentence names all of them rather than
+	 * picking one and being confidently wrong. */
+	const organizationUnreadable = (error: CommCareApiError): PreflightResult => {
+		const detail =
+			error.status === 401 || error.status === 403
+				? `Nova can't read the organization on “${domain}”, so it won't push places over what's there. That project space needs the Organizations and API access features, and your CommCare HQ account needs the Edit Locations and Access APIs permissions. Ask a CommCare HQ administrator for whichever is missing.`
+				: `Nova couldn't ask “${domain}” about its organization, so it stopped rather than push places into it. Try publishing again in a moment.`;
+		checks.push({
+			id: "organization",
+			title: "Organization",
+			status: "blocked",
+			detail,
+			items: [],
+		});
+		return {
+			checks,
+			outcome: blockedOutcome(input.now, "hq_resource_state_unknown", detail),
+			ready: null,
+			projectSpaceCompatibility: null,
+			conflicts: [],
+		};
+	};
+	/* Places CommCare HQ manages from this project space are never pushed
+	 * there. The edge still reads its places: an owner rule that picks a
+	 * place beneath the case owner is judged on that project space's tree,
+	 * and the read refreshes Nova's copy, which Preview shows. A copy that
+	 * cannot be refreshed stops nothing, and the check's item is why. */
+	if (placesManagedHere) {
+		const readAt = new Date();
+		const hqPlaces = await listHqLocations(creds, domain);
+		if ("success" in hqPlaces) return organizationUnreadable(hqPlaces);
+		const ambiguous = ambiguousReverseHopsOnTarget(
+			authoredReverseHops(boundary.prepared.doc),
+			hqPlaces,
+		);
+		if (ambiguous.length > 0) return ambiguousOwners(ambiguous);
+		const refreshed = await refreshManagedPlacesFromRead(
+			input.access,
+			{ domain },
+			hqPlaces,
+			readAt,
+		);
+		checks.push({
+			id: "organization",
+			title: "Organization",
+			status: "passed",
+			detail: managedPlacesPassed(domain, refreshed.ok),
+			items: refreshed.ok ? [] : [refreshed.message],
+		});
+	}
+	if (places.length > 0) {
 		const hqLevels = await listHqLocationTypes(creds, domain);
 		if ("success" in hqLevels) return organizationUnreadable(hqLevels);
 		const hqPlaces = await listHqLocations(creds, domain);
 		if ("success" in hqPlaces) return organizationUnreadable(hqPlaces);
 
-		/* The target's own tree can make a reverse owner hop ambiguous
-		 * in a way Nova's cannot see. `assertReverseHopTargetsUnambiguous`
-		 * proves the invariant over `app_locations`; CommCare HQ builds
-		 * the fixture from ITS rows, which may hold places Nova never
-		 * created. The emitted XPath selects `@id` from every match, so
-		 * two of them make owner choice depend on fixture order — and
-		 * quietly, since a predicate returning two nodes is not an
-		 * error. This is the one moment Nova can see that tree, and the
-		 * export boundary lets the rule through precisely because it
-		 * carries no Nova identity, so the check belongs here. */
 		const ambiguous = ambiguousReverseHopsOnTarget(
 			authoredReverseHops(boundary.prepared.doc),
 			hqPlaces,
 		);
-		if (ambiguous.length > 0) {
-			const detail = `Some case owner rules in this app pick a place beneath the current owner, and “${domain}” holds more than one place to pick. CommCare HQ would choose between them by fixture order rather than by the rule, so Nova stopped. Give each of these owners one place at that level over there, then publish again.`;
-			checks.push({
-				id: "organization",
-				title: "Organization",
-				status: "blocked",
-				detail,
-				items: ambiguous.map(
-					(hop) =>
-						`${hop.ownerName} holds ${hop.destinationNames.length} places at “${hop.destinationCode}”: ${hop.destinationNames.join(", ")}.`,
-				),
-			});
-			return {
-				checks,
-				outcome: blockedOutcome(input.now, "hq_organization_mismatch", detail),
-				ready: null,
-				projectSpaceCompatibility: null,
-				conflicts: [],
-			};
-		}
+		if (ambiguous.length > 0) return ambiguousOwners(ambiguous);
 
 		const plan = planLocationResourcePush({
 			places,
@@ -1544,6 +1723,149 @@ export async function runDeploymentPreflight(
 	};
 }
 
+/**
+ * Whether Let CommCare HQ manage it again, on the table's page, would take
+ * the table this publish compares: the table is managed in Nova, and it came
+ * from the project space this publish writes to. The hand-back reads the
+ * project space the table came from, so for a table taken over from another
+ * one it would take that space's version, not this one's.
+ */
+function handBackTakesThisVersion(
+	origin: LookupTableOriginRead | undefined,
+	target: { readonly server: string; readonly domain: string },
+): boolean {
+	return (
+		origin !== undefined &&
+		origin.managedBy === "nova" &&
+		origin.server === target.server &&
+		origin.domain === target.domain
+	);
+}
+
+/**
+ * The `managed-data` edge, or null where no table the app reads is managed
+ * in CommCare HQ. It reads those tables again and refreshes Nova's copy
+ * (`managedData.ts::reReadManagedTablesForPublish`), and stops where one
+ * managed in the target changed in a way the app depends on, or could not be
+ * read: Nova cannot tell then whether the app's content would read what is
+ * gone.
+ */
+async function managedDataEdge(
+	input: PreflightInput,
+	creds: CommCareCredentials,
+	domain: string,
+): Promise<{
+	readonly check: PreflightCheck;
+	readonly failure: DeploymentFailure | null;
+	/** The target's table list where this edge read it, for `project-data` to reuse. */
+	readonly hqTables: readonly HqLookupTable[] | null;
+} | null> {
+	const { tableIds } = extractLookupReferenceTargets(input.doc);
+	if (tableIds.length === 0) return null;
+	const { definitions } = await getLookupDefinitions(
+		{
+			projectId: input.access.projectId,
+			actorId: input.access.actorUserId,
+			role: input.access.role,
+		},
+		tableIds,
+	);
+	const managed = definitions.filter(
+		(definition) => definition.hq?.managedBy === "commcare-hq",
+	);
+	if (managed.length === 0) return null;
+	const title = "Data managed in CommCare HQ";
+	const reRead = await reReadManagedTablesForPublish({
+		access: input.access,
+		doc: input.doc,
+		target: { server: input.server, domain: input.domain },
+		creds,
+	});
+	const blocked = (
+		failure: DeploymentFailure,
+	): {
+		check: PreflightCheck;
+		failure: DeploymentFailure;
+		hqTables: null;
+	} => ({
+		check: {
+			id: "managed-data",
+			title,
+			status: "blocked",
+			detail: failure.message,
+			items: failure.details,
+		},
+		failure,
+		hqTables: null,
+	});
+	if ("unreadable" in reRead) {
+		const message = isAccountRefusal(reRead.unreadable)
+			? managedDataUnreadablePermission(domain)
+			: reRead.rows !== null && reRead.unreadable.kind === "hq-unavailable"
+				? managedTableRowsUnreadable(reRead.rows, domain)
+				: managedDataUnreadable(domain);
+		return blocked({
+			code: "hq_resource_state_unknown",
+			message,
+			details: [],
+		});
+	}
+	if (reRead.blocking.length > 0) {
+		return blocked({
+			code: "hq_managed_data_changed",
+			message: MANAGED_DATA_CHANGED,
+			details: reRead.blocking.flatMap((table) =>
+				table.changes.map((change) =>
+					managedTableChangeItem(table.tag, change),
+				),
+			),
+		});
+	}
+	/* A table the target manages is left out of the workbook; one another
+	 * project space manages goes in from Nova's copy, so its item says so:
+	 * as it was last refreshed where that space could not be read, and as it
+	 * is now where it could. */
+	const staleByTag = new Map(reRead.stale.map((table) => [table.tag, table]));
+	const here = managed.filter(
+		(definition) =>
+			definition.hq?.server === input.server &&
+			definition.hq.domain === input.domain,
+	);
+	return {
+		check: {
+			id: "managed-data",
+			title,
+			status: "passed",
+			detail: managedDataPassed({
+				domain,
+				here: here.length,
+				elsewhere: managed.length - here.length,
+			}),
+			items: managed.map((definition) => {
+				const origin = definition.hq;
+				if (origin === undefined || here.includes(definition)) {
+					return definition.tag;
+				}
+				const stale = staleByTag.get(definition.tag);
+				return stale === undefined
+					? managedTableFromElsewhereCurrentItem(
+							definition.tag,
+							origin.domain,
+							domain,
+						)
+					: managedTableFromElsewhereItem(
+							stale.tag,
+							stale.domain,
+							driftDate(stale.refreshedAt, input.driftDate),
+							domain,
+						);
+			}),
+		},
+		failure: null,
+		hqTables: reRead.hqTables,
+	};
+}
+
 function baselinesByRemoteId(
 	baselines: readonly ResourceBaseline[],
 ): ReadonlyMap<string, ResourceBaseline> {
@@ -1615,10 +1937,20 @@ async function lookupRemoteChange(input: {
 	readonly mappedRemoteId: string;
 	readonly hqTables: readonly HqLookupTable[];
 	readonly baseline: ResourceBaseline | undefined;
+	/**
+	 * The table is managed in Nova and came from this project space, so its
+	 * page offers Let CommCare HQ manage it again, which takes the table
+	 * CommCare HQ holds here under the tag: a change to that table says so
+	 * last. A deleted or renamed table leaves nothing under the tag to take,
+	 * so neither says it.
+	 */
+	readonly handBackOffered: boolean;
 }): Promise<DeploymentRemoteChange | null | "unreadable"> {
 	/* A discard of a change to the table HQ still holds under this tag and
 	 * id replaces that table, so it carries the note; a deleted table is gone
 	 * and a renamed one is left alone, so theirs carry none. */
+	const withHandBack = (parts: readonly string[]): readonly string[] =>
+		input.handBackOffered ? [...parts, HAND_BACK_OFFERED] : parts;
 	const change = (
 		parts: readonly string[],
 		observedDigest: string,
@@ -1672,13 +2004,13 @@ async function lookupRemoteChange(input: {
 	}
 	const { baseline } = input;
 	if (baseline === undefined || baseline.origin === "unread") {
-		return change([], lookupDefinitionDigest(current), false);
+		return change(withHandBack([]), lookupDefinitionDigest(current), false);
 	}
 	const canonical = baseline.canonical as CanonicalLookupTable;
 	const definition = lookupDefinitionChange(canonical, current);
 	if (definition.length > 0) {
 		return change(
-			definition.map(describe),
+			withHandBack(definition.map(describe)),
 			lookupDefinitionDigest(current),
 			true,
 		);
@@ -1693,7 +2025,7 @@ async function lookupRemoteChange(input: {
 	return changed.length === 0
 		? null
 		: change(
-				changed.map(describe),
+				withHandBack(changed.map(describe)),
 				canonicalLookupTable(current, rows.rows).digest,
 				true,
 			);

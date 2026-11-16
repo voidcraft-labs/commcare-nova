@@ -1,7 +1,7 @@
 /**
  * Contract: the short and the long detail join into one set of columns by the six rules: equal
- * proposals join, an `invisible` short column joins its long partner by field and takes that
- * column's proposal, a list-only column is hidden from the detail, and a detail-only column is
+ * proposals join, an `invisible` short column joins its long partner by field and header and takes
+ * that column's proposal, a list-only column is hidden from the detail, and a detail-only column is
  * not on the list, in a list of either layout. The failure it catches: a detail column lost,
  * shown on the list, or written into the list as a hidden field a worker's filter then matches.
  */
@@ -63,14 +63,42 @@ describe("joinDetailColumns", () => {
 		expect(joined.detailOrder).toEqual([0, 2, 1]);
 	});
 
-	it("joins an invisible short column to the long column over its field, which gives the header", () => {
+	it("joins an invisible short column to the long column over its field that holds its header", () => {
+		const joined = joinDetailColumns(
+			[proposal("phone", "Phone", true)],
+			[proposal("phone", "Mobile"), proposal("phone", "Phone")],
+		);
+		expect(
+			joined.columns.map((one) => [
+				one.proposal.header,
+				one.visibleInList,
+				one.visibleInDetail,
+				one.long,
+			]),
+		).toEqual([
+			[{ en: "Phone" }, false, undefined, 1],
+			[{ en: "Mobile" }, false, undefined, 0],
+		]);
+	});
+
+	// Joined, the field would print the long column's header in its own place, which the
+	// export of the list it was read from does not.
+	it("joins an invisible short column to no long column over its field under another header", () => {
 		const joined = joinDetailColumns(
 			[proposal("phone", "", true)],
 			[proposal("phone", "Phone")],
 		);
-		expect(joined.columns).toHaveLength(1);
-		expect(joined.columns[0]?.proposal.header).toEqual({ en: "Phone" });
-		expect(joined.columns[0]?.visibleInList).toBe(false);
+		expect(
+			joined.columns.map((one) => [
+				one.proposal.header,
+				one.visibleInList,
+				one.visibleInDetail,
+				one.notOnList,
+			]),
+		).toEqual([
+			[{ en: "" }, false, false, undefined],
+			[{ en: "Phone" }, false, undefined, true],
+		]);
 	});
 
 	it("does not join two columns whose headers differ", () => {

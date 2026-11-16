@@ -1,5 +1,7 @@
 package nova.proof.android;
 
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,7 +25,8 @@ final class Views {
 
     /**
      * A view as Android built it: its class, and for a text view its text, gravity and text size, for an image
-     * view its scale type, with the width its layout gives it and its children the same way.
+     * view its scale type and what it draws ({@link #drawable}), with the width its layout gives it and its
+     * children the same way.
      */
     static JSONObject describe(View view) throws JSONException {
         JSONObject found = new JSONObject();
@@ -43,6 +46,7 @@ final class Views {
         }
         if (view instanceof ImageView) {
             found.put("scaleType", String.valueOf(((ImageView)view).getScaleType()));
+            found.put("drawable", drawable((ImageView)view));
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup)view;
@@ -55,6 +59,30 @@ final class Views {
             }
         }
         return found;
+    }
+
+    /**
+     * What an image view draws: null where it holds nothing, a color by its ARGB value ({@code color:#00000000}
+     * is the transparent fill a case list's image cell holds where its value maps to no picture),
+     * {@code resource:ic_menu_archive} for the picture a case list's image cell draws where the device holds no
+     * file for its value's picture ({@code EntityView.setupImageLayout}), and any other picture by its
+     * drawable's class. A drawable Android loaded from a resource shares that resource's one constant state,
+     * which is how the resource is known.
+     */
+    private static Object drawable(ImageView image) {
+        Drawable drawable = image.getDrawable();
+        if (drawable == null) {
+            return JSONObject.NULL;
+        }
+        if (drawable instanceof ColorDrawable) {
+            return String.format("color:#%08x", ((ColorDrawable)drawable).getColor());
+        }
+        Drawable.ConstantState state = drawable.getConstantState();
+        Drawable archive = image.getResources().getDrawable(org.commcare.dalvik.R.drawable.ic_menu_archive, null);
+        if (state != null && archive != null && archive.getConstantState() == state) {
+            return "resource:ic_menu_archive";
+        }
+        return drawable.getClass().getSimpleName();
     }
 
     /** Where the reader writes the pictures it draws, as the client names it; null where it names none. */

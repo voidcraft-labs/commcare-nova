@@ -44,6 +44,12 @@
  *   order, each field as its one value
  *   (`fixtures/models.py::LookupTableRow.fields_without_attributes`), with
  *   `meta.total_count`, in one page.
+ *
+ * The table list and the rows read answer a publish's `managed-data` edge as
+ * they answer its `project-data` edge: from the tables the peer holds, which
+ * a capture over tables CommCare HQ manages gives it before its first
+ * publish (`holdTables`), and which Nova's workbook never replaces, since it
+ * leaves such a table out.
  * - `GET /a/<domain>/apps/source/<app id>/` (`app_manager/views/apps.py::app_source`):
  *   the source the peer holds for the app, 404 before a create. A create
  *   makes it hold the shell's source (`shellSource`), and an update the
@@ -459,6 +465,33 @@ export class TargetPeer {
 
 	restore(holding: PeerHolding): void {
 		this.holding = structuredClone(holding);
+	}
+
+	/**
+	 * Hold `tables` as the lookup tables the project space has before Nova's
+	 * first publish, as HQ's own upload made them: every table and row under
+	 * the id HQ gave it, in the order HQ lists them. A capture over tables
+	 * CommCare HQ manages (`PublishInput.hqTables`) reads them through the
+	 * same two resources as every other table. Refused once the peer holds
+	 * anything, since no request of a capture made them.
+	 */
+	holdTables(tables: readonly PeerTable[]): void {
+		if (
+			this.holding.source !== undefined ||
+			this.holding.tables.length > 0 ||
+			this.requests.length > 0
+		) {
+			throw new Error(
+				"The capture gave its peer lookup tables to hold after the peer had answered a request. Give the tables before the first publish.",
+			);
+		}
+		const tags = new Set(tables.map((table) => table.tag));
+		if (tags.size !== tables.length) {
+			throw new Error(
+				"The capture gave its peer two lookup tables under one tag, which HQ never holds in one project space (`LookupTable.Meta.unique_together`).",
+			);
+		}
+		this.holding = { ...this.holding, tables: structuredClone(tables) };
 	}
 
 	/** The requests received since `mark`, for one step of a capture. */

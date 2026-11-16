@@ -47,6 +47,15 @@ other member into the one the reader returns and leaves every other document as 
 export at all. A print collision inside one expression slot is not a row here but a row of
 `expressions/canonical.ts::PRINT_COLLISIONS`, applied through `canonicalExpression`.
 
+`canon.ts` is the canonical form of a whole document: `CANONICALIZATIONS` wraps each row of
+`READER_CANONICAL_CHOICES`, then `expression-print-collisions`, which applies `canonicalExpression`
+to every expression slot in its own context (`slotContext` with no Project lookup types, the
+slot's print under the identity lookup naming) and drops a case list filter whose canonical tree
+is `match-all`; `canonDocument` applies the list until nothing changes, and throws where it never
+settles. A read back of a Nova document is compared with `canonDocument` of it, never with the
+rows applied once. `__tests__/canon.test.ts` holds one pair per row with every file of both exports
+equal, the local archive's included, and names the test of each row that has its own.
+
 A new row:
 
 1. is written by the reader module that makes the choice and registered in the list, after any
@@ -82,7 +91,8 @@ refuses with no finding fails the test that made it. A stage reading
 draft is no document the gate can judge; every source it reads is also read whole through
 `heldReading.ts` (but a source told lookup tables, which its own test holds under their context). Each compares a reading with the canonical document
 (the rows applied in list order) and is never weakened, skipped or special-cased. Beside them,
-`__tests__/canonicalRowsKeepExport.test.ts` applies the rows in list order to every document
+`__tests__/canonicalRowsKeepExport.test.ts` applies every row of `canon.ts::CANONICALIZATIONS`, in
+list order, to every document
 `targetedReadBack.test.ts` reads (`__tests__/publishedDocuments.ts`, the documents and the publish's
 expansion of each) and holds `expandDoc`'s output byte for byte after every row that changes the
 document, since a read-back that compares documents passes a row that moves content to a place
@@ -96,8 +106,13 @@ first reading; `matchingResolver` with the identities of the document Nova holds
 which `identityMapParity.test.ts` holds to `externalIdentityMap`), the source project space's
 lookup tables, organization levels and media files, the app strings Nova's build gives a
 document, the record dialect's judge, whether the project space applies "save only if changed",
-and, for an app Nova already holds, `knownCaseTypes`, the case type each index of a type reaches,
-consulted only where the app itself fixes none, and `knownLanguageCodes`
+and, for an app Nova already holds, `knownCaseTypes`: the case type each index of a type reaches,
+consulted only where the app itself fixes none, and the type the document declares for each
+property, which every property the reading holds takes (`catalog.ts::noteProperty`,
+`declareToldTypes`) unless a question writing it gives values that type cannot hold, since no print
+tells a reading a declared type and a sort's comparator, `datetime-coerce`, `format-date` and a
+comparison of dates and times each lower by it (`case-catalog-is-as-read` keeps every declared type
+of a property it keeps); and `knownLanguageCodes`
 (`languages.ts::knownLanguageCodesOf`), the language each stored wire code names, read before
 `languageIdentityForHqCode` because a stored code is never re-minted while the minter's spelling
 for an identity can change. A first reading is told neither. A test builds the input through
@@ -210,7 +225,7 @@ show otherwise, is refused at the app under
 `application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`
 (`appShell.ts::holdAppName`);
 a form's name read with a line break is written into its `<h:title>` and data node, which no screen
-a worker reads shows (part 09's decision table). A comparison of a stored text with Nova's print
+a worker reads shows. A comparison of a stored text with Nova's print
 compares both as held, and a text compared with HQ's default (a detail's empty-list and continue
 texts, the Search button's label) is the default where a device shows the default in every
 language, its map respelled by the first publish under `list-settings-respelled` where Nova writes

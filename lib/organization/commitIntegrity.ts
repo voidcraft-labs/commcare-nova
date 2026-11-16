@@ -13,9 +13,15 @@ import {
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
+	type ManagedOrganizationCommitRefusal,
+	managedOrganizationCommitRefusal,
+} from "@/lib/publish/managedData";
+import {
 	fixedLocationOwnerIssue,
 	ownerVerdictRows,
+	reverseHopDestinationLevelUuids,
 	reverseLocationOwnerIssue,
+	reverseLocationOwnerRefusal,
 } from "./ownerTargetVerdicts";
 import { locationValueCatalogIssue } from "./valueCatalog";
 import { advanceOrganizationRevision } from "./writerTransaction";
@@ -43,7 +49,74 @@ import { advanceOrganizationRevision } from "./writerTransaction";
  *
  * All of it runs after the verdict and before the entity write, so a rejection
  * leaves nothing behind and a shed never outlives the removal that caused it.
+ *
+ * Three of the row-to-document refusals end by sending the author to move or
+ * change places. Where the app's places are a copy CommCare HQ manages, Nova
+ * refuses those place edits, so the same refusal names CommCare HQ and a
+ * refresh instead ({@link refusalFor}). In such a copy an archived place is
+ * one CommCare HQ no longer lists: no author can bring it back or move it,
+ * and only a refresh restores it, rewriting its level, parent and values from
+ * CommCare HQ's list. So those three checks pass over archived rows there
+ * ({@link blocksChange}); otherwise a place deleted in CommCare HQ would hold
+ * a level or a property edit back for good, with nothing anyone could change.
+ * A live place a refresh kept after CommCare HQ stopped having it
+ * (`hq_gone_at`) is not in CommCare HQ either, so its refusal sends the
+ * author to what in the app uses it. A reverse owner hop that needs a place
+ * added or archived is worded the same way there
+ * ({@link assertReverseHopTargetsUnambiguous}).
  */
+
+/**
+ * The CommCare HQ project space that manages the app's places, or null,
+ * read at most once per check and only once a row would refuse the change,
+ * so a commit no row refuses reads nothing more.
+ */
+function managingDomainReader(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): () => Promise<string | null> {
+	let read: Promise<string | null> | undefined;
+	return () => {
+		read ??= tx
+			.selectFrom("app_organization_state")
+			.select(["hq_server", "hq_domain"])
+			.where("app_id", "=", appId)
+			.executeTakeFirst()
+			.then((state) =>
+				state === undefined ||
+				state.hq_server === null ||
+				state.hq_domain === null
+					? null
+					: state.hq_domain,
+			);
+		return read;
+	};
+}
+
+/** Whether a row that would refuse the change does: every row, except an archived one in a managed copy. */
+function blocksChange(
+	row: { readonly archived_at: Date | null },
+	domain: string | null,
+): boolean {
+	return domain === null || row.archived_at === null;
+}
+
+/**
+ * The refusal a row-to-document check throws: today's sentence, or, where
+ * CommCare HQ manages the app's places, the managed sentence with the step
+ * that works.
+ */
+function refusalFor(
+	domain: string | null,
+	sentence: string,
+	managed: ManagedOrganizationCommitRefusal,
+): BlueprintCommitRejectedError {
+	return new BlueprintCommitRejectedError(
+		domain === null
+			? sentence
+			: managedOrganizationCommitRefusal(managed, domain),
+	);
+}
 
 /**
  * Every location row the document references, deduplicated and sorted.
@@ -51,8 +124,9 @@ import { advanceOrganizationRevision } from "./writerTransaction";
  * Sorted because the insert order of an edge set is the only thing standing
  * between two concurrent app commits and a deadlock on the same rows.
  *
- * Persona assignments and fixed-location owner terms share this extractor and
- * table because both are the same kind of structural edge. Reverse-hop terms
+ * Persona assignments, fixed-location owner terms, automation location
+ * criteria and conditional-alert location recipients share this extractor and
+ * table because each is the same kind of structural edge. Reverse-hop terms
  * name a level, not a concrete row, so they are protected by blueprint identity
  * admission instead.
  */
@@ -193,7 +267,9 @@ export async function shedRemovedLocationPropertyValues(
  * `objects` rather than `active_objects`, so **archived places count**. Nova
  * counts them too. An archived place is recoverable, and unarchiving one
  * whose level had been deleted underneath it would resurrect a row pointing
- * at nothing.
+ * at nothing. A copy CommCare HQ manages is the exception: no author can
+ * unarchive there, and a refresh that restores a place rewrites its level
+ * from CommCare HQ's list, so only its live places count.
  */
 export async function assertRemovedLevelsUnused(
 	tx: Transaction<AppDatabase>,
@@ -213,24 +289,46 @@ export async function assertRemovedLevelsUnused(
 	const occupied = await tx
 		.selectFrom("app_locations")
 		.select("level_uuid")
-		.distinct()
+		// Null where a live place stands at the level, so the level reads as
+		// one row that is live or archived as a whole.
+		.select(
+			sql<Date | null>`CASE WHEN bool_or(archived_at IS NULL) THEN NULL ELSE max(archived_at) END`.as(
+				"archived_at",
+			),
+		)
+		// Whether every live place there is one CommCare HQ no longer has.
+		.select(
+			sql<boolean>`coalesce(bool_and(hq_gone_at IS NOT NULL) FILTER (WHERE archived_at IS NULL), false)`.as(
+				"all_gone",
+			),
+		)
 		.where("app_id", "=", appId)
 		.where(
 			"level_uuid",
 			"in",
 			removed.map((level) => level.uuid),
 		)
+		.groupBy("level_uuid")
 		.execute();
 	if (occupied.length === 0) return;
+	const domain = await managingDomainReader(tx, appId)();
+	const blocking = occupied.filter((row) => blocksChange(row, domain));
+	const blocked = new Set(blocking.map((row) => row.level_uuid));
+	if (blocked.size === 0) return;
 
-	const blocked = new Set(occupied.map((row) => row.level_uuid));
 	const names = removed
 		.filter((level) => blocked.has(level.uuid))
 		.map((level) => `"${level.name}"`);
-	throw new BlueprintCommitRejectedError(
+	throw refusalFor(
+		domain,
 		names.length === 1
 			? `${names[0]} still has places in it, so the level can't be removed. Bring back any archived places, then move every place to another level.`
 			: `${names.join(" and ")} still have places in them, so those levels can't be removed. Bring back any archived places, then move every place to another level.`,
+		{
+			kind: "level-in-use",
+			levels: names,
+			kept: blocking.every((row) => row.all_gone),
+		},
 	);
 }
 
@@ -274,7 +372,8 @@ export async function applyOrganizationCommitIntegrity(
  * Every row is therefore checked here under the guarded commit's app lock:
  * roots must stand at root levels, and every child level must be a strict
  * descendant of its parent place's level. Archived rows count because they can
- * be restored later and must not resurrect an impossible topology.
+ * be restored later and must not resurrect an impossible topology, except in
+ * a copy CommCare HQ manages, whose restore rewrites the placement.
  */
 export async function assertLocationPlacementsValid(
 	tx: Transaction<AppDatabase>,
@@ -282,37 +381,43 @@ export async function assertLocationPlacementsValid(
 ): Promise<void> {
 	const rows = await tx
 		.selectFrom("app_locations")
-		.select(["id", "name", "level_uuid", "parent_id"])
+		.select([
+			"id",
+			"name",
+			"level_uuid",
+			"parent_id",
+			"archived_at",
+			"hq_gone_at",
+		])
 		.where("app_id", "=", args.appId)
 		.execute();
 	if (rows.length === 0) return;
 	const levels = organizationLevelsOf(args.candidateDoc);
 	const byId = new Map(rows.map((row) => [row.id, row]));
+	const managingDomain = managingDomainReader(tx, args.appId);
 
 	for (const row of rows) {
 		const locationLevel = levels[row.level_uuid];
-		if (locationLevel === undefined) {
-			throw new BlueprintCommitRejectedError(
-				`"${row.name}" stands at a level this change removes. Bring it back first if it is archived, then move it to another level.`,
-			);
-		}
-		if (row.parent_id === null) {
-			if (locationLevel.parentLevelUuid !== undefined) {
-				throw new BlueprintCommitRejectedError(
-					`"${row.name}" would be left without a parent place after this level change. Bring it back first if it is archived, move it to a valid parent, then retry the level change.`,
-				);
-			}
-			continue;
-		}
-		const parent = byId.get(row.parent_id);
-		if (
-			parent === undefined ||
-			!levelMayNestUnder(row.level_uuid, parent.level_uuid, levels)
-		) {
-			throw new BlueprintCommitRejectedError(
-				`"${row.name}" would no longer sit under a place at a level above it after this level change. Bring it back first if it is archived, move it to a valid parent, then retry the level change.`,
-			);
-		}
+		const parent = row.parent_id === null ? undefined : byId.get(row.parent_id);
+		const sentence =
+			locationLevel === undefined
+				? `"${row.name}" stands at a level this change removes. Bring it back first if it is archived, then move it to another level.`
+				: row.parent_id === null
+					? locationLevel.parentLevelUuid === undefined
+						? undefined
+						: `"${row.name}" would be left without a parent place after this level change. Bring it back first if it is archived, move it to a valid parent, then retry the level change.`
+					: parent === undefined ||
+							!levelMayNestUnder(row.level_uuid, parent.level_uuid, levels)
+						? `"${row.name}" would no longer sit under a place at a level above it after this level change. Bring it back first if it is archived, move it to a valid parent, then retry the level change.`
+						: undefined;
+		if (sentence === undefined) continue;
+		const domain = await managingDomain();
+		if (!blocksChange(row, domain)) continue;
+		throw refusalFor(domain, sentence, {
+			kind: "placement",
+			place: `"${row.name}"`,
+			kept: row.hq_gone_at !== null,
+		});
 	}
 }
 
@@ -320,7 +425,9 @@ export async function assertLocationPlacementsValid(
  * A catalog edit is the reverse direction of a location value write. Validate
  * every existing row against the candidate catalog under the same app lock so
  * making a field required, narrowing its levels, or closing its choices cannot
- * strand values the location service would itself refuse.
+ * strand values the location service would itself refuse. An archived row in
+ * a copy CommCare HQ manages passes: a refresh that restores it rewrites its
+ * values from CommCare HQ's list.
  */
 export async function assertLocationValuesValid(
 	tx: Transaction<AppDatabase>,
@@ -328,20 +435,25 @@ export async function assertLocationValuesValid(
 ): Promise<void> {
 	const rows = await tx
 		.selectFrom("app_locations")
-		.select(["name", "level_uuid", "values"])
+		.select(["name", "level_uuid", "values", "archived_at", "hq_gone_at"])
 		.where("app_id", "=", args.appId)
 		.execute();
+	const managingDomain = managingDomainReader(tx, args.appId);
 	for (const row of rows) {
 		const issue = locationValueCatalogIssue(
 			args.candidateDoc,
 			row.level_uuid,
 			row.values,
 		);
-		if (issue !== undefined) {
-			throw new BlueprintCommitRejectedError(
-				`"${row.name}" blocks this change. ${issue}`,
-			);
-		}
+		if (issue === undefined) continue;
+		const domain = await managingDomain();
+		if (!blocksChange(row, domain)) continue;
+		throw refusalFor(domain, `"${row.name}" blocks this change. ${issue}`, {
+			kind: "value",
+			place: `"${row.name}"`,
+			issue,
+			kept: row.hq_gone_at !== null,
+		});
 	}
 }
 
@@ -405,25 +517,14 @@ function fixedOwnerTargets(doc: BlueprintDoc): readonly string[] {
 	return [...targets].sort();
 }
 
-function reverseHopDestinationLevelUuids(doc: BlueprintDoc): readonly string[] {
-	const targets = new Set<string>();
-	for (const form of Object.values(doc.forms)) {
-		for (const operation of form.caseOperations ?? []) {
-			if (operation.owner === undefined) continue;
-			walkExpressionTerms(operation.owner, (term) => {
-				if (term.kind === "owner-location-at-level") {
-					targets.add(term.levelUuid);
-				}
-			});
-		}
-	}
-	return [...targets].sort();
-}
-
 /**
  * A reverse owner hop is scalar, so every owning ancestor may have at most one
  * live destination at the referenced level. Without this invariant the XPath
  * returns multiple `@id` nodes and owner choice depends on fixture order.
+ *
+ * Where CommCare HQ manages the places, the place a refusal asks for (one
+ * more, or one fewer) is made in CommCare HQ, so the sentence says so
+ * (Copy O24, O25); the origin is read only once a rule would refuse.
  */
 export async function assertReverseHopTargetsUnambiguous(
 	tx: Transaction<AppDatabase>,
@@ -439,6 +540,7 @@ export async function assertReverseHopTargetsUnambiguous(
 		.where("app_id", "=", args.appId)
 		.execute();
 	const verdictRows = ownerVerdictRows(rows);
+	const managingDomain = managingDomainReader(tx, args.appId);
 
 	for (const destinationLevelUuid of destinationLevelUuids) {
 		const issue = reverseLocationOwnerIssue(
@@ -446,7 +548,25 @@ export async function assertReverseHopTargetsUnambiguous(
 			verdictRows,
 			destinationLevelUuid,
 		);
-		if (issue !== undefined) throw new BlueprintCommitRejectedError(issue);
+		if (issue === undefined) continue;
+		const domain = await managingDomain();
+		throw new BlueprintCommitRejectedError(
+			domain === null
+				? issue
+				: (reverseLocationOwnerRefusal(
+						args.candidateDoc,
+						verdictRows,
+						destinationLevelUuid,
+						{
+							domain,
+							goneIds: new Set(
+								rows
+									.filter((row) => row.hq_gone_at !== null)
+									.map((row) => row.id),
+							),
+						},
+					) ?? issue),
+		);
 	}
 }
 

@@ -201,8 +201,9 @@ describe("the case catalog of a reading", () => {
 		expect(plain(read)).toEqual(plain(catalogAsRead(doc)));
 		const patient = read?.find((type) => type.name === "patient");
 		// Labels are the names, a property select questions alone write takes
-		// their type, no other type is declared that no reader needs, and a
-		// property nothing writes or reads is gone.
+		// their type, a property the document declares keeps its type, as the
+		// read-back is told it (`ReaderInput.knownCaseTypes`), and a property
+		// nothing writes or reads is gone.
 		expect(
 			patient?.properties.map((property) => [
 				property.name,
@@ -210,7 +211,7 @@ describe("the case catalog of a reading", () => {
 			]),
 		).toEqual([
 			["condition_level", "single_select"],
-			["weight", undefined],
+			["weight", "decimal"],
 		]);
 		expect(patient?.properties[0]?.label).toEqual(proseText("condition_level"));
 	});
@@ -366,11 +367,13 @@ describe("the case catalog of a reading", () => {
 
 	// The sort element names one `date` comparison for every type of the date
 	// class (`hqJson/caseList.ts::sortElementType`), and another for an untyped
-	// property: the canonical catalog keeps the class, as the date class's one
-	// type, so the document and its canonical member print one export, which
-	// a whole reading gives back.
+	// property: a first reading, told nothing, declares the class's one type,
+	// `date`, which prints the same element; the canonical catalog keeps the
+	// type the document declares, which a read-back is told, so the document
+	// and its canonical member print one export, which a told reading gives
+	// back.
 	it.each(["date", "datetime", "time"] as const)(
-		"keeps the date class a sorted column's element names for a property only the catalog types %s",
+		"keeps the declared type a sorted column's element names for a property only the catalog types %s",
 		async (dataType) => {
 			const doc = buildDoc({
 				caseTypes: [
@@ -411,12 +414,23 @@ describe("the case catalog of a reading", () => {
 				one.caseTypes
 					?.find((type) => type.name === "patient")
 					?.properties.find((property) => property.name === "seen")?.data_type;
-			expect(typeOf(canonical)).toBe("date");
+			expect(typeOf(canonical)).toBe(dataType);
 			expect(expandDoc(canonical)).toEqual(expandDoc(doc));
-			const outcome = readHqApp(await inputFor(exportedBody(doc)));
-			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
-			if (outcome.kind !== "read") throw new Error("The export did not read.");
-			expect(plain(outcome.draft.doc.caseTypes ?? null)).toEqual(
+			const first = readHqApp(await inputFor(exportedBody(doc)));
+			expect(first.kind === "account" ? first.findings : []).toEqual([]);
+			if (first.kind !== "read") throw new Error("The export did not read.");
+			expect(typeOf(first.draft.doc)).toBe("date");
+			expect(
+				expandDoc({ ...doc, caseTypes: first.draft.doc.caseTypes }),
+			).toEqual(expandDoc(doc));
+			const told = readHqApp(
+				await inputFor(exportedBody(doc), {
+					knownCaseTypes: knownCaseTypesOf(doc),
+				}),
+			);
+			expect(told.kind === "account" ? told.findings : []).toEqual([]);
+			if (told.kind !== "read") throw new Error("The export did not read.");
+			expect(plain(told.draft.doc.caseTypes ?? null)).toEqual(
 				plain(canonical.caseTypes ?? null),
 			);
 		},
@@ -766,6 +780,7 @@ describe("a parent Nova holds that no export carries", () => {
 			input: (read) => ({
 				...read,
 				knownCaseTypes: {
+					declaredTypeOf: () => undefined,
 					targetOf: (caseType, identifier) =>
 						caseType === "patient" && identifier === "parent"
 							? { caseType: "household", relationship: "child" }
@@ -941,19 +956,24 @@ describe("a Hidden Value bound as a date and time", () => {
 		);
 	});
 
-	it("declares nothing where its value types the property", async () => {
+	it("declares nothing where its value types the property, and the document's type where it is told it", async () => {
 		const doc = hiddenSeen("now()");
-		const outcome = readHqApp(await inputFor(exportedBody(doc)));
-		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
-		if (outcome.kind !== "read") throw new Error("The export did not read.");
-		const seen = outcome.draft.doc.caseTypes
+		const first = readHqApp(await inputFor(exportedBody(doc)));
+		expect(first.kind === "account" ? first.findings : []).toEqual([]);
+		if (first.kind !== "read") throw new Error("The export did not read.");
+		const seen = first.draft.doc.caseTypes
 			?.find((type) => type.name === "patient")
 			?.properties.find((one) => one.name === "seen_at");
 		expect(seen).toBeDefined();
 		expect(seen?.data_type).toBeUndefined();
-		expect(plain(outcome.draft.doc.caseTypes)).toEqual(
-			plain(catalogAsRead(doc)),
+		const told = readHqApp(
+			await inputFor(exportedBody(doc), {
+				knownCaseTypes: knownCaseTypesOf(doc),
+			}),
 		);
+		expect(told.kind === "account" ? told.findings : []).toEqual([]);
+		if (told.kind !== "read") throw new Error("The export did not read.");
+		expect(plain(told.draft.doc.caseTypes)).toEqual(plain(catalogAsRead(doc)));
 	});
 });
 

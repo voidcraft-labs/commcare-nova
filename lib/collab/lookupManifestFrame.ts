@@ -38,6 +38,21 @@ const lookupTableManifestEntrySchema = z
 		definitionRevision: lookupRevisionSchema,
 		rowsRevision: lookupRevisionSchema,
 		tableRevision: lookupRevisionSchema,
+		/* Where a table came from in CommCare HQ and who manages it. The relay
+		 * omits the key for a table made in Nova. It carries no day of the last
+		 * refresh: a refresh that changed nothing stamps that day and advances
+		 * no revision, and one revision's frame never changes. */
+		hq: z
+			.strictObject({
+				server: z.string().min(1),
+				domain: z.string().min(1),
+				remoteId: z.string().min(1),
+				managedBy: z.enum(["commcare-hq", "nova"]),
+				broughtInAt: z.iso.datetime(),
+				takenOverAt: z.iso.datetime().nullable(),
+				takenOverBy: z.string().min(1).nullable(),
+			})
+			.optional(),
 	})
 	.superRefine((table, ctx) => {
 		const expectedTableRevision =

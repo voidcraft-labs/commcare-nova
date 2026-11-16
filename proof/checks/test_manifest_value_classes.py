@@ -1120,6 +1120,42 @@ def _media_app(path, media_type, **fields):
     )
 
 
+def _labelled_media_app(medium, path, mapped, **fields):
+    """An app whose one form's question carries ``path`` as its label's ``medium``, with that path's
+    ``multimedia_map`` entry where ``mapped``, beside an entry for another file, so the map is used either way."""
+    form = _form(
+        data="<q/>",
+        model=(
+            '<itext><translation lang="en" default=""><text id="q-label"><value>Q</value>'
+            f'<value form="{medium}">jr://file/{path}</value></text></translation></itext>'
+            '<bind nodeset="/data/q" type="xsd:string"/>'
+        ),
+        body='<input ref="/data/q"><label ref="jr:itext(\'q-label\')"/></input>',
+    )
+    entries = {"jr://file/commcare/other.png": {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage"}}
+    if mapped:
+        entries[f"jr://file/{path}"] = {
+            "doc_type": "HQMediaMapItem",
+            "media_type": "CommCareAudio" if medium == "audio" else "CommCareImage",
+        }
+    return _with_forms(_app([_module([_form_json("none")])], multimedia_map=entries, **fields), f=form)
+
+
+def _image_column_app(mapped, **fields):
+    """An app whose case list maps a status to the picture ``commcare/s.png`` in an image column, with that
+    path's ``multimedia_map`` entry where ``mapped``, beside an entry for another file."""
+    column = {
+        "doc_type": "DetailColumn",
+        "field": "status",
+        "format": "enum-image",
+        "enum": [{"key": "selected(., 'active')", "value": {"en": "jr://file/commcare/s.png"}}],
+    }
+    entries = {"jr://file/commcare/other.png": {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage"}}
+    if mapped:
+        entries["jr://file/commcare/s.png"] = {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage"}
+    return _app([_detail_module([column])], multimedia_map=entries, **fields)
+
+
 def _box(kind, body):
     return struct.pack(">I", 8 + len(body)) + kind + body
 
@@ -3945,6 +3981,53 @@ def _search_and_menus():
             accepted(
                 "app",
                 _media_app("commcare/a.png", "CommCareImage"),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+            ),
+        ),
+        "expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws": (
+            # In an app with Web Apps: a label's audio with no entry, and the same audio with its entry.
+            refused(
+                "app",
+                _labelled_media_app("audio", "commcare/q.mp3", mapped=False, cloudcare_enabled=True),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                _labelled_media_app("audio", "commcare/q.mp3", mapped=True, cloudcare_enabled=True),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+                readings=True,
+            ),
+            # A label's picture with no entry is drawn on Android alone, which no export declares.
+            unsettled(
+                "app",
+                _labelled_media_app("image", "commcare/q.png", mapped=False, cloudcare_enabled=True),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+                readings=True,
+            ),
+            # In an app with Web Apps at a version whose build writes an image column's alternative text: the
+            # column's picture with no entry, a broken picture in each cell, and the same picture with its entry.
+            refused(
+                "app",
+                _image_column_app(False, cloudcare_enabled=True, build_spec={"version": "2.57.0"}),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+            ),
+            accepted(
+                "app",
+                _image_column_app(True, cloudcare_enabled=True, build_spec={"version": "2.57.0"}),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+            ),
+            # Below 2.54 the build writes no alternative text, and the cell draws nothing in Web Apps; Android
+            # still draws its archive icon, which no export declares.
+            unsettled(
+                "app",
+                _image_column_app(False, cloudcare_enabled=True, build_spec={"version": "2.53.0"}),
                 "schema:Application.multimedia_map",
                 "/multimedia_map",
             ),

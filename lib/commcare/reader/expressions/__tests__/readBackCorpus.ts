@@ -177,36 +177,6 @@ export function storedSlots(doc: BlueprintDoc): StoredSlot[] {
 }
 
 /**
- * A worker property the reading minted from a slug the document reads by
- * name (the reading learns the worker fields an app reads and holds each as
- * a property), written back as the name-backed read it was. Every other
- * node is itself.
- */
-function asNamed(
-	value: unknown,
-	read: BlueprintDoc,
-	doc: BlueprintDoc,
-): unknown {
-	if (Array.isArray(value))
-		return value.map((item) => asNamed(item, read, doc));
-	if (value === null || typeof value !== "object") return value;
-	const node = value as Record<string, unknown>;
-	if (node.kind === "session-user-property") {
-		const uuid = node.userPropertyUuid as Uuid;
-		const minted = read.userProperties?.[uuid];
-		if (minted !== undefined && doc.userProperties?.[uuid] === undefined)
-			return {
-				kind: "session-user",
-				field: minted.slug,
-				...(node.source === undefined ? {} : { source: node.source }),
-			};
-	}
-	return Object.fromEntries(
-		Object.entries(node).map(([key, item]) => [key, asNamed(item, read, doc)]),
-	);
-}
-
-/**
  * Whether the read document can hold `tree` in the registration's slot as the
  * source writes it: the checker admits it there, and it prints the source's
  * own syntax. Where it cannot, what the stored tree needed is a fact of the
@@ -302,8 +272,10 @@ export function judgeReadBack(
 		)
 			return { stored, verdict: { kind: "dormant" } };
 		const got = readSlots.get(stored.key);
-		const named = read === undefined ? got : asNamed(got, read, doc);
-		if (isDeepStrictEqual(named, want))
+		// The canonical tree is taken in the read document's context, so a read
+		// by name of a slug the reading holds as a worker property is that
+		// property's read on both sides (`worker-field-by-name`), compared as is.
+		if (isDeepStrictEqual(got, want))
 			return { stored, verdict: { kind: "same" } };
 		if (
 			read !== undefined &&

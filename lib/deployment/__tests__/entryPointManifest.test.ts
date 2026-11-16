@@ -83,6 +83,8 @@ describe("published entry point selection contracts", () => {
 					definitions: [],
 				},
 				attachmentTarget: null,
+				managedLookupTables: [],
+				managedLookupWorkbooks: [],
 			};
 			const runtimeTarget = {
 				server: "india" as const,

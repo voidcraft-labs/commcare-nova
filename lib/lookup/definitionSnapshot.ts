@@ -14,6 +14,7 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { lookupHqOriginOf, type StoredLookupHqColumns } from "./managedRules";
 import { parseLookupRevision } from "./schema";
 import type {
 	LookupColumn,
@@ -21,7 +22,7 @@ import type {
 	LookupTableDefinition,
 } from "./types";
 
-interface StoredDefinitionRow {
+interface StoredDefinitionRow extends StoredLookupHqColumns {
 	project_revision: string;
 	table_id: string | null;
 	table_name: string | null;
@@ -74,6 +75,14 @@ export async function readLookupDefinitionsInTransaction(
 			table_row.name AS table_name,
 			table_row.tag AS table_tag,
 			table_row.definition_revision::text AS definition_revision,
+			table_row.hq_server,
+			table_row.hq_domain,
+			table_row.hq_remote_id,
+			table_row.hq_canonical,
+			table_row.hq_brought_in_at,
+			table_row.hq_refreshed_at,
+			table_row.hq_taken_over_at,
+			table_row.hq_taken_over_by,
 			column_row.table_id::text AS column_table_id,
 			column_row.id::text AS column_id,
 			column_row.wire_name AS column_wire_name,
@@ -81,7 +90,9 @@ export async function readLookupDefinitionsInTransaction(
 			column_row.data_type AS column_data_type
 		FROM project_snapshot
 		LEFT JOIN LATERAL (
-			SELECT id, name, tag, definition_revision
+			SELECT id, name, tag, definition_revision, hq_server, hq_domain,
+				hq_remote_id, hq_canonical, hq_brought_in_at, hq_refreshed_at,
+				hq_taken_over_at, hq_taken_over_by
 			FROM lookup_tables
 			WHERE project_id = ${projectId}
 				AND id = ANY(${tableIds}::uuid[])
@@ -100,6 +111,7 @@ export async function readLookupDefinitionsInTransaction(
 		LookupTableId,
 		LookupTableDefinition & { columns: LookupColumn[] }
 	>();
+	const originsById = new Map<LookupTableId, StoredLookupHqColumns>();
 	for (const row of result.rows) {
 		if (row.table_id === null) continue;
 		const tableId = lookupTableIdSchema.parse(row.table_id);
@@ -120,6 +132,7 @@ export async function readLookupDefinitionsInTransaction(
 				columns: [],
 			};
 			definitionsById.set(tableId, definition);
+			originsById.set(tableId, row);
 		}
 		if (row.column_id === null) continue;
 		if (
@@ -145,6 +158,13 @@ export async function readLookupDefinitionsInTransaction(
 	return {
 		projectId,
 		projectRevision,
-		definitions: [...definitionsById.values()],
+		definitions: [...definitionsById.values()].map((definition) => {
+			const origin = originsById.get(definition.id);
+			const hq =
+				origin === undefined
+					? undefined
+					: lookupHqOriginOf(origin, definition.columns);
+			return hq === undefined ? definition : { ...definition, hq };
+		}),
 	};
 }

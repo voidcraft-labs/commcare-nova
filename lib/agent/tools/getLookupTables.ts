@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { readAuthorizedLookupCatalog } from "@/lib/lookup/agentService";
 import { LookupError } from "@/lib/lookup/errors";
-import type { LookupDataType } from "@/lib/lookup/types";
+import type { LookupDataType, LookupHqOrigin } from "@/lib/lookup/types";
 import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import { lookupAgentScope } from "./shared/lookupScope";
@@ -39,9 +39,18 @@ interface CatalogTableSegment {
 	readonly definitionRevision: string;
 	readonly rowsRevision: string;
 	readonly tableRevision: string;
+	/** Present while CommCare HQ manages the table: Nova holds a copy, and
+	 * every change to it is refused. */
+	readonly managed_in_commcare_hq?: ManagedInCommCareHq;
 	readonly columnOffset?: number;
 	readonly columnsComplete: boolean;
 	readonly columns: readonly CatalogColumn[];
+}
+interface ManagedInCommCareHq {
+	/** The project space that manages the table. */
+	readonly project_space: string;
+	/** When Nova's copy was last refreshed from it. */
+	readonly refreshed_at: string;
 }
 export type GetLookupTablesResult =
 	| {
@@ -87,6 +96,19 @@ function decodeCursor(value: string | undefined) {
 function encodeCursor(value: z.infer<typeof catalogCursorSchema>): string {
 	return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }
+/** The managed fact a result carries: present only while CommCare HQ
+ * manages the table, never for a table handed to Nova. */
+function managedInCommCareHq(hq: LookupHqOrigin | undefined): {
+	readonly managed_in_commcare_hq?: ManagedInCommCareHq;
+} {
+	if (hq?.managedBy !== "commcare-hq") return {};
+	return {
+		managed_in_commcare_hq: {
+			project_space: hq.domain,
+			refreshed_at: hq.refreshedAt,
+		},
+	};
+}
 function projectColumn(column: CatalogColumn): CatalogColumn {
 	return {
 		id: column.id,
@@ -100,7 +122,7 @@ function projectColumn(column: CatalogColumn): CatalogColumn {
  * segment without ever crossing the model-facing result ceiling. */
 export const getLookupTablesTool = {
 	description:
-		"Read the Project data-table catalog with names, IDs and revisions. Continue with nextCursor until complete.",
+		"Read the Project data-table catalog with names, IDs and revisions. Continue with nextCursor until complete. A table with `managed_in_commcare_hq` is a copy of a table that lives in CommCare HQ. Read it freely. Changing it is refused: its rows and columns change in CommCare HQ.",
 	inputSchema: getLookupTablesInputSchema,
 	async execute(
 		input: GetLookupTablesInput,
@@ -152,6 +174,7 @@ export const getLookupTablesTool = {
 					definitionRevision: table.definitionRevision,
 					rowsRevision: table.rowsRevision ?? table.definitionRevision,
 					tableRevision: table.tableRevision ?? table.definitionRevision,
+					...managedInCommCareHq(table.hq),
 				};
 				const columns: CatalogColumn[] = [];
 				for (let index = columnOffset; index < table.columns.length; index++) {

@@ -6,6 +6,7 @@ import { declaresAndroid } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
+import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
 import { selectionsHeldFromHq } from "./downloadTarget";
 import { getEntryPointLink } from "./entryPointLinks";
 import {
@@ -17,12 +18,13 @@ import {
 	previewDeploymentAnswerFor,
 	previewProjectSpaceFor,
 } from "./previewSpace";
-import { leftBehindResources } from "./resources";
+import { firstPublishOf, leftBehindResources } from "./resources";
 import {
 	currentResourceIdentities,
 	deploymentKept,
 	type KeptReadAfter,
 	landedDeploymentKept,
+	landedFirstPublish,
 	refreshDeployment,
 	refreshKeptValues,
 	setupArtifactFor,
@@ -33,6 +35,7 @@ import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	readDeploymentsForApp,
+	readFirstPublishStates,
 	readReachedDeploymentTargets,
 	withdrawDeploymentConfirmation,
 } from "./store";
@@ -90,6 +93,14 @@ export interface DeploymentView {
 	 * no read of it (none stored, an unread one, a shell's).
 	 */
 	readonly kept: DeploymentKept | null;
+	/**
+	 * What the first publish over an app Nova brought in, or the next publish
+	 * after changes made in CommCare HQ were brought in, changes there, as the
+	 * baseline keeps it, with the Web Apps line worked out from where the app
+	 * runs now (`resources.ts::firstPublishOf`). Null where no list is kept or
+	 * the live app mapping is not the one it was kept for.
+	 */
+	readonly firstPublish: FirstPublishView | null;
 }
 
 /**
@@ -112,8 +123,11 @@ export interface DeploymentView {
  * the card keeps the list it shows (`keptListModel.ts::refreshedViewToShow`),
  * and the next read of the records reads it again.
  */
-export interface RefreshedDeploymentView extends Omit<DeploymentView, "kept"> {
+export interface RefreshedDeploymentView
+	extends Omit<DeploymentView, "kept" | "firstPublish"> {
 	readonly kept: DeploymentKept | null | "unread";
+	/** `unread` as `kept` is (`service.ts::landedFirstPublish`): the card keeps the list it shows. */
+	readonly firstPublish: FirstPublishView | null | "unread";
 	readonly preview: PreviewDeploymentAnswer | null;
 }
 
@@ -282,16 +296,18 @@ async function refreshedView(
 	doc: CommittedDoc["doc"],
 	after: KeptReadAfter,
 ): Promise<RefreshedDeploymentView> {
-	const [identities, kept, preview] = await Promise.all([
+	const [identities, kept, preview, firstPublish] = await Promise.all([
 		currentResourceIdentities(scope, doc),
 		landedDeploymentKept(scope, deployment, after),
 		previewDeploymentAnswerFor(scope),
+		landedFirstPublish(scope, deployment, doc.appSettings.runsOnlyOn, after),
 	]);
 	return {
 		deployment,
 		artifact,
 		leftBehind: leftBehindResources(deployment, identities),
 		kept,
+		firstPublish,
 		preview,
 	};
 }
@@ -406,6 +422,8 @@ export async function readDeploymentsAction(
 		/* Also once: the names belong to the app's tables, not to any one
 		 * project space, and `null` means Nova could not tell. */
 		const identities = await currentResourceIdentities(resolved.scope, doc);
+		/* Once as well: every deployment's first-publish list, by its id. */
+		const firstPublishStates = await readFirstPublishStates(resolved.scope);
 		return {
 			success: true,
 			data: await Promise.all(
@@ -419,6 +437,11 @@ export async function readDeploymentsAction(
 					),
 					leftBehind: leftBehindResources(deployment, identities),
 					kept: await deploymentKept(resolved.scope, deployment),
+					firstPublish: firstPublishOf(
+						deployment,
+						firstPublishStates.get(deployment.deployment.id),
+						doc.appSettings.runsOnlyOn,
+					),
 				})),
 			),
 		};
@@ -469,6 +492,11 @@ export async function withdrawDeploymentConfirmationAction(
 					await currentResourceIdentities(resolved.scope, doc),
 				),
 				kept: await deploymentKept(resolved.scope, deployment),
+				firstPublish: await deploymentFirstPublish(
+					resolved.scope,
+					deployment,
+					doc,
+				),
 			},
 		};
 	} catch (error) {
@@ -511,11 +539,13 @@ export async function stopPublishingAction(
 			doc,
 			locations,
 		);
-		const [identities, kept, previewProjectSpace] = await Promise.all([
-			currentResourceIdentities(resolved.scope, doc),
-			deploymentKept(resolved.scope, stopped.deployment),
-			previewProjectSpaceFor(resolved.scope),
-		]);
+		const [identities, kept, previewProjectSpace, firstPublish] =
+			await Promise.all([
+				currentResourceIdentities(resolved.scope, doc),
+				deploymentKept(resolved.scope, stopped.deployment),
+				previewProjectSpaceFor(resolved.scope),
+				deploymentFirstPublish(resolved.scope, stopped.deployment, doc),
+			]);
 		return {
 			success: true,
 			data: {
@@ -523,6 +553,7 @@ export async function stopPublishingAction(
 				artifact: stopped.artifact,
 				leftBehind: leftBehindResources(stopped.deployment, identities),
 				kept,
+				firstPublish,
 				previewProjectSpace,
 			},
 		};
@@ -693,6 +724,20 @@ export async function provisionWorkersAction(
 /** What `committedDocWithLocations` hands back, so this file names it once. */
 type CommittedDoc = Awaited<ReturnType<typeof committedDocWithLocations>>;
 
+/** One deployment's first-publish list as a view shows it (`resources.ts::firstPublishOf`). */
+async function deploymentFirstPublish(
+	scope: DeploymentScope,
+	deployment: DeploymentWithResources,
+	doc: CommittedDoc["doc"],
+): Promise<FirstPublishView | null> {
+	const states = await readFirstPublishStates(scope);
+	return firstPublishOf(
+		deployment,
+		states.get(deployment.deployment.id),
+		doc.appSettings.runsOnlyOn,
+	);
+}
+
 /** The record `provisionWorkers` reports, which may be absent. */
 type ProvisionWorkersOutcomeDeployment = Awaited<
 	ReturnType<typeof provisionWorkers>
@@ -724,6 +769,7 @@ async function provisionedView(
 				await currentResourceIdentities(scope, doc),
 			),
 			kept: await deploymentKept(scope, deployment),
+			firstPublish: await deploymentFirstPublish(scope, deployment, doc),
 		};
 	} catch (error) {
 		log.error("[deployment] provisioning view could not be built", error, {

@@ -121,8 +121,11 @@ import {
 } from "./basicActions";
 import {
 	blockTreesEqual,
+	type EarlierSpelling,
 	emittedFormSource,
+	type FormSourceModel,
 	type HeldSlotPrint,
+	modelNodeAt,
 	storedFormSource,
 } from "./saveToCaseCompare";
 
@@ -305,6 +308,22 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 
 /** The register row a date and time saved in the spelling Nova wrote before falls under. */
 const DATETIME_REGISTER = "date-and-time-saved-as-hq-stores-it";
+
+/**
+ * Each stored row bind whose value is a date and time in the spelling Nova
+ * wrote before (`typedInstantValue` of the whole value, with no clock node),
+ * by the bind: the value inside it, the row's path and the block's name. The
+ * row is the same write as Nova's current print of that value, which test 4
+ * compares by the value each holds (`earlierSpelling`).
+ */
+const EARLIER_ROWS = new WeakMap<
+	Element,
+	{
+		readonly value: string;
+		readonly rowPath: readonly string[];
+		readonly blockName: string;
+	}
+>();
 
 // ── Paths ───────────────────────────────────────────────────────────────
 
@@ -854,45 +873,87 @@ function rowValue(
 		return { value: undefined, text: earlier, earlier: true };
 	return {
 		value: undefined,
-		text: leafValues(xform, text, rowPath, blockName),
+		text: leafValues(text, rowPath, storedClockNodes(xform, blockName)),
 		earlier: false,
 	};
 }
 
+/**
+ * Where a row's value may read a clock node: the form's root name, and the
+ * calculate of the node at a path where that node is one the allocator names
+ * for the block's operation (`generatedBaseName("instant", <the block's
+ * name>, n)`), else undefined. The stored form's and the emitted form's are
+ * read alike, so a row in the spelling Nova wrote before can be compared with
+ * the emitter's by the value both hold.
+ */
+interface ClockNodes {
+	readonly root: string;
+	readonly calculateAt: (path: readonly string[]) => string | undefined;
+}
+
+/** Whether `name` is one of the first `bound` clock node names of the block named `blockName`. */
+function isClockNodeName(
+	name: string,
+	blockName: string,
+	bound: number,
+): boolean {
+	for (let n = 1; n <= bound; n += 1)
+		if (
+			isAllocatedName(name, generatedBaseName("instant", blockName, String(n)))
+		)
+			return true;
+	return false;
+}
+
+function storedClockNodes(xform: ReadXForm, blockName: string): ClockNodes {
+	return {
+		root: xform.parsed.dataRoot.name,
+		calculateAt: (path) => {
+			const target = xform.nodes.get(path.join("/"));
+			if (
+				target === undefined ||
+				!isClockNodeName(target.name, blockName, xform.caseRegion.length)
+			)
+				return undefined;
+			return xform.binds.get(target)?.logic.calculate;
+		},
+	};
+}
+
+function emittedClockNodes(
+	emitted: FormSourceModel,
+	blockName: string,
+): ClockNodes {
+	return {
+		root: emitted.dataRoot.name,
+		calculateAt: (path) => {
+			const node = modelNodeAt(emitted, path);
+			if (
+				node === undefined ||
+				!isClockNodeName(node.name, blockName, emitted.binds.length)
+			)
+				return undefined;
+			return node.calculate;
+		},
+	};
+}
+
 /** `text` with each leaf's stored date-and-time spelling taken off and each
- *  clock node's read replaced by the leaf its calculate holds. A clock node
- *  is one the allocator names for the block's operation
- *  (`generatedBaseName("instant", <the block's name>, n)`); test 4 holds it
- *  to the emitter's. */
+ *  clock node's read replaced by the leaf its calculate holds; test 4 holds
+ *  a clock node to the emitter's. */
 function leafValues(
-	xform: ReadXForm,
 	text: string,
 	rowPath: readonly string[],
-	blockName: string,
+	clocks: ClockNodes,
 ): string {
 	const tree = parse(text);
 	if (tree === undefined) return text;
-	const root = xform.parsed.dataRoot.name;
 	const replacements: { from: number; to: number; text: string }[] = [];
-	const isClockNode = (name: string): boolean => {
-		for (let n = 1; n <= xform.caseRegion.length; n += 1)
-			if (
-				isAllocatedName(
-					name,
-					generatedBaseName("instant", blockName, String(n)),
-				)
-			)
-				return true;
-		return false;
-	};
 	/** The leaf a `nova_instant_` node's calculate holds, where `read` is a read of one. */
 	const clockLeaf = (read: FormSyntax | undefined): string | undefined => {
 		if (read === undefined) return undefined;
-		const path = resolvePath(read, rowPath, root);
-		const target =
-			path === undefined ? undefined : xform.nodes.get(path.join("/"));
-		if (target === undefined || !isClockNode(target.name)) return undefined;
-		const calculate = xform.binds.get(target)?.logic.calculate;
+		const path = resolvePath(read, rowPath, clocks.root);
+		const calculate = path === undefined ? undefined : clocks.calculateAt(path);
 		return calculate === undefined
 			? undefined
 			: inside(calculate, typedInstantValue(holeWire()));
@@ -905,7 +966,7 @@ function leafValues(
 			replacements.push({
 				from: node.from,
 				to: node.to,
-				text: `(${leafValues(xform, stored, rowPath, blockName)})`,
+				text: `(${leafValues(stored, rowPath, clocks)})`,
 			});
 			return;
 		}
@@ -1455,6 +1516,11 @@ function readBlock(
 			if (property === "external_id" && value.value?.kind === "capture")
 				return fail(OUTSIDE_VOCABULARY);
 			if (value.earlier) {
+				EARLIER_ROWS.set(bind, {
+					value: value.text,
+					rowPath,
+					blockName: block.path[block.path.length - 1] as string,
+				});
 				const readId =
 					ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
 				ctx.facts.sameStateRewrites.push({
@@ -3356,8 +3422,53 @@ function ownCloseHolds(
 			apart,
 			heldSlotPrints(ctx, doc, reading),
 			leftOutPaths(reading, apart),
+			earlierSpelling(xform, reading),
 		)
 	);
+}
+
+/**
+ * How test 4 reads a form some of whose rows hold a date and time in the
+ * spelling Nova wrote before its clock nodes existed: such a row is the
+ * emitter's where the value inside it is the value the emitter's row holds,
+ * each clock node's read put back from that node, and a clock node the
+ * emitter writes for one of those rows' blocks that the stored form does not
+ * hold is no difference. Undefined where no row of the form is so spelled.
+ */
+function earlierSpelling(
+	xform: ReadXForm,
+	reading: FormBlocks,
+): EarlierSpelling | undefined {
+	const blockNames = new Set<string>();
+	const proposed = new Set(
+		reading.proposals.map((one) => one.block.path[one.block.path.length - 1]),
+	);
+	for (const bind of xform.parsed.binds) {
+		const earlier = EARLIER_ROWS.get(bind);
+		if (earlier !== undefined && proposed.has(earlier.blockName))
+			blockNames.add(earlier.blockName);
+	}
+	if (blockNames.size === 0) return undefined;
+	return {
+		calculate: (stored, emitted, emittedForm) => {
+			const earlier = EARLIER_ROWS.get(stored);
+			if (earlier === undefined) return false;
+			const value = leafValues(
+				emitted,
+				earlier.rowPath,
+				emittedClockNodes(emittedForm, earlier.blockName),
+			);
+			return sameXPathText(earlier.value, value, { ruleSet: "form" });
+		},
+		emittedOnly: (path) => {
+			const name = path[path.length - 1];
+			if (name === undefined || xform.nodes.has(path.join("/"))) return false;
+			for (const blockName of blockNames)
+				if (isClockNodeName(name, blockName, xform.parsed.binds.length + 1))
+					return true;
+			return false;
+		},
+	};
 }
 
 /**
@@ -3415,6 +3526,7 @@ function blocksHold(
 	const apart = judgedApart(reading);
 	const held = heldSlotPrints(ctx, doc, reading);
 	const leftOut = leftOutPaths(reading, apart);
+	const earlier = earlierSpelling(xform, reading);
 	const failing: ProposedBlock[] = [];
 	for (const one of reading.proposals) {
 		let shape: readonly SaveToCaseBlockSegment[] | undefined;
@@ -3436,6 +3548,7 @@ function blocksHold(
 				apart,
 				held,
 				leftOut,
+				earlier,
 			)
 		)
 			failing.push(one);

@@ -4985,6 +4985,81 @@ def android_verified_path_without_entry(use, manifest):
     return any(not path.startswith(MEDIA_PREFIX) or path[len(MEDIA_PREFIX) :] not in readings.media for path in paths)
 
 
+def media_reference_drawn_without_entry(use, manifest):
+    """``expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws``: a media reference
+    with no ``multimedia_map`` entry on a slot a runtime draws. Web Apps draws a question's label or help
+    audio or video (``form_entry/multimedia.html`` and ``help_multimedia.html``: ``visible: caption_audio``,
+    ``caption_video``, ``help_audio``, ``help_video``), so such a reference in an app with Web Apps
+    (``cloudcare_enabled``) is in the class. Web Apps also draws a broken picture for a case list image
+    column's picture with no entry: the cell's ``<img>`` has no address and, for its alternative text, what
+    HQ's build writes for the value (``case_list/item.html``), a no-break space where the app gives none
+    (``commcare_translations.py::dumps``), from CommCare 2.54 (``feature_support.py::supports_alt_text``), so
+    such a column in an app with Web Apps at a version that writes it is in the class, and one whose
+    ``build_spec`` names no version this reads is not said. Android draws every medium of a question's label or
+    help, of a choice, and a case list image column's picture (``MediaLayout.showMissingMediaView``,
+    ``setupStandardAudio``, ``EntityView.setupImageLayout``), and whether an app declares Android is no part of
+    its export, so such a reference on Android's slots alone is not said. A reference every slot of which no
+    runtime draws (a hint, a validation message, a menu's or a form's icon) stands with the INERT row, and an
+    app whose every reference has its entry holds none in the class. A form's itext is placed by what its
+    questions name it with (``Form.itext_references``), which the observation's readings hold."""
+    at = _json(use)
+    if at is None:
+        return None
+    mapped = set(at.app.doc.get("multimedia_map") or {})
+    web_apps = bool(at.app.doc.get("cloudcare_enabled"))
+    unsaid = False
+    for form in at.app.forms.values():
+        kinds, unplaced = form.itext_references
+        for translation in form.translations:
+            for text in _children(translation):
+                if _local(text) != "text":
+                    continue
+                for value in _children(text):
+                    medium = value.get("form")
+                    if _local(value) != "value" or medium not in ("image", "audio", "video"):
+                        continue
+                    path = (value.text or "").strip()
+                    if not path or path in mapped:
+                        continue
+                    held = kinds.get(text.get("id"))
+                    if held is None:
+                        unsaid = unsaid or unplaced
+                        continue
+                    if web_apps and medium in ("audio", "video") and held & {"label", "help"}:
+                        return True
+                    if held & {"label", "help", "choice"}:
+                        unsaid = True
+    spec = at.app.doc.get("build_spec")
+    version = _version(spec.get("version")) if isinstance(spec, dict) and spec.get("version") else None
+    for module in at.app.modules:
+        details = module.get("case_details") or {}
+        for screen in ("short", "long"):
+            for column in (details.get(screen) or {}).get("columns") or []:
+                if not isinstance(column, dict) or column.get("format") != "enum-image":
+                    continue
+                if any(path not in mapped for path in _media_paths(column.get("enum"))):
+                    if web_apps and version is not None and version >= ALT_TEXT_FROM:
+                        return True
+                    unsaid = True
+    return None if unsaid else False
+
+
+# The CommCare version from which HQ's build writes an image column's alternative text
+# (feature_support.py::supports_alt_text).
+ALT_TEXT_FROM = (2, 54)
+
+
+def _media_paths(value):
+    """Every string under ``value`` that names a file under ``jr://file/``."""
+    if isinstance(value, str):
+        return [value] if value.startswith(MEDIA_PREFIX) else []
+    if isinstance(value, dict):
+        return [path for item in value.values() for path in _media_paths(item)]
+    if isinstance(value, list):
+        return [path for item in value for path in _media_paths(item)]
+    return []
+
+
 # Media ----------------------------------------------------------------------------
 
 MEDIA_PREFIX = "jr://file/"
@@ -5377,7 +5452,8 @@ RESERVED_CASE_PROPERTIES = frozenset(
 )
 # A worker property's slug (``lib/domain/users.ts::USER_PROPERTY_SLUG_PATTERN``, at most 127 characters), matched whole.
 WORKER_PROPERTY_SLUG = re.compile(r"[a-zA-Z_][-a-zA-Z0-9_]{0,126}")
-# HQ's property grammar on an action's key (``helpers/validators.py::validate_property``; ``basicActions.ts::HQ_PROPERTY``).
+# HQ's property grammar on an action's key (``helpers/validators.py::validate_property``;
+# ``basicActions.ts::HQ_PROPERTY``).
 HQ_PROPERTY = re.compile(r"[a-zA-Z][\w-]*\n?")
 
 
@@ -7914,6 +7990,9 @@ VALUE_CLASSES = {
     "case-search/date-opened-closed-on-or-last-modified-compared-with-any": non_date_value,
     "expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install": (
         android_verified_path_without_entry
+    ),
+    "expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws": (
+        media_reference_drawn_without_entry
     ),
     "menus-and-case-lists/type-index-cache-and-index-order-2": sort_type_index,
     "expressions-and-data/image-tiff-heif": tiff_heif,

@@ -47,3 +47,15 @@ function bringInHeadline(
 		}
 	}
 }
+
+/**
+ * The publish dialog's heading over a list of kind `next-publish`: what a
+ * publish changes after changes made in CommCare HQ were brought in, or
+ * read and found equal, where HQ's version holds things Nova writes its
+ * own way.
+ */
+export const NEXT_PUBLISH_HEADING = "What this publish changes in CommCare HQ";
+
+/** The publish dialog's lead under `NEXT_PUBLISH_HEADING`. */
+export const NEXT_PUBLISH_DIALOG_LEAD =
+	"CommCare HQ's version holds a few things Nova writes its own way. This publish changes them there.";

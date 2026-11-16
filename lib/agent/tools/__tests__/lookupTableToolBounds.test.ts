@@ -1,5 +1,6 @@
-/** Pagination and pre-service receipt budgets over schema-admitted lookup
- * definitions. The service is a controlled boundary; no SQL/tenancy claim. */
+/** Pagination, the managed fact each catalog segment carries, and
+ * pre-service receipt budgets over schema-admitted lookup definitions. The
+ * service is a controlled boundary; no SQL/tenancy claim. */
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -15,6 +16,7 @@ import {
 import type {
 	LookupAuthoringBatchReceipt,
 	LookupDefinitionsSnapshot,
+	LookupHqOrigin,
 } from "@/lib/lookup/types";
 import { surveyFixture } from "../../__tests__/admittedFixture";
 import type { ToolInvocationContext } from "../../workspace/types";
@@ -175,6 +177,74 @@ describe("lookup shared-tool output bounds", () => {
 			offset += segment.columns.length;
 			expect(segment.columnsComplete).toBe(offset === 250);
 		}
+	});
+
+	it("marks every segment of a table CommCare HQ manages, and no table Nova manages", async () => {
+		const origin: LookupHqOrigin = {
+			server: "india",
+			domain: "district-health",
+			remoteId: "remote-large",
+			managedBy: "commcare-hq",
+			broughtInAt: "2026-10-01T08:00:00.000Z",
+			refreshedAt: "2026-11-02T09:30:00.000Z",
+			takenOverAt: null,
+			takenOverBy: null,
+			goneColumnIds: [],
+		};
+		const managed = hugeCatalog("project-1");
+		const small = (index: number, hq?: LookupHqOrigin) => ({
+			id: lookupTableIdSchema.parse(rawId(900 + index)),
+			name: `Small ${index}`,
+			tag: `small_${index}`,
+			definitionRevision: REVISION,
+			rowsRevision: REVISION,
+			tableRevision: REVISION,
+			columnCount: 1,
+			rowCount: 0,
+			dataBytes: 0,
+			columns: [
+				{
+					id: columnId(900 + index),
+					wireName: "code",
+					label: "Code",
+					dataType: "text" as const,
+				},
+			],
+			...(hq === undefined ? {} : { hq }),
+		});
+		mocks.readCatalog.mockResolvedValue(
+			admitCatalog({
+				...managed,
+				definitions: [
+					{ ...managed.definitions[0], hq: origin },
+					small(1, {
+						...origin,
+						remoteId: "remote-taken",
+						managedBy: "nova",
+						takenOverAt: "2026-11-03T10:00:00.000Z",
+						takenOverBy: "user-1",
+					}),
+					small(2),
+				],
+			}),
+		);
+
+		const { segments, pages } = await readAllSegments();
+		expect(pages).toBeGreaterThan(1);
+		const large = segments.filter((segment) => segment.id === TABLE_ID);
+		expect(large.length).toBeGreaterThan(1);
+		for (const segment of large)
+			expect(segment.managed_in_commcare_hq).toEqual({
+				project_space: "district-health",
+				refreshed_at: "2026-11-02T09:30:00.000Z",
+			});
+		const others = segments.filter((segment) => segment.id !== TABLE_ID);
+		expect(others.map((segment) => segment.tag)).toEqual([
+			"small_1",
+			"small_2",
+		]);
+		for (const segment of others)
+			expect(segment).not.toHaveProperty("managed_in_commcare_hq");
 	});
 
 	it("rejects a catalog cursor reused by another Project at the same revision", async () => {

@@ -14,7 +14,9 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useState } from "react";
+import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
+import { MANAGED_TABLE_BADGE } from "@/lib/publish/managedData";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useProjectCanEdit } from "@/lib/session/hooks";
 import { CreateTableDialog } from "./CreateTableDialog";
@@ -165,8 +167,13 @@ export function ProjectDataTableListScreen() {
 									    authored table name then ran straight off the card,
 									    cut mid-word with no ellipsis, over its own chevron.
 									    An authored name is content, so it wraps. */}
-									<span className="min-w-0 whitespace-normal text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
-										{table.name}
+									<span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+										<span className="min-w-0 whitespace-normal text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
+											{table.name}
+										</span>
+										{table.hq?.managedBy === "commcare-hq" && (
+											<Badge variant="violet">{MANAGED_TABLE_BADGE}</Badge>
+										)}
 									</span>
 									<span className="min-w-0 whitespace-normal text-[12px] leading-snug text-nova-text-secondary [overflow-wrap:anywhere]">
 										{formatLookupCount(table.columnCount, "column")} ·{" "}

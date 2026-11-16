@@ -58,7 +58,7 @@ import { type ValidationError, validationError } from "../errors";
 /** Whether a property declared `declared` holds the values a question of
  *  a kind giving `given` saves: its own type, an integer as a decimal, a
  *  choice as text. */
-function declaredTypeHolds(
+export function declaredTypeHolds(
 	given: CasePropertyDataType,
 	declared: CasePropertyDataType,
 ): boolean {

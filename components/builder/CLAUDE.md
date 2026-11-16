@@ -494,6 +494,29 @@ Property controls author the required and accepted-values contracts
 and preflight every existing place so a catalog change cannot create a
 cross-store state the server would refuse.
 
+Where the app's places are a copy CommCare HQ manages, the organization read
+says so (`OrganizationView.hq`, from the client's last complete read).
+`ManagedPlacesBanner` says where they live and when the copy was refreshed,
+offers Refresh from CommCare HQ and Open in CommCare HQ (the address and
+whether this viewer is connected there come from
+`readManagedPlacesViewAction`), invites a member with no connection on that
+server to connect in place of Refresh, and keeps what a refresh pressed in
+this tab answered (the places kept for a persona, an owner rule or an
+automation) until the tab's next refresh or reload. Places offers no add, edit, move or archive
+control while they are managed; Levels stays editable and states above them
+what Nova assumed; Personas, with none yet, says a persona is how Preview
+shows those places. The builder's prechecks count the places the commit
+counts: archived ones too where Nova manages the places, live ones only in
+a managed copy, where an archived row is a place CommCare HQ no longer lists
+(`organizationUi.ts::placeBlocksChange`, `levelOccupancy`). A level removal,
+a level change or a place information change those places block is refused
+before any commit with the sentence that sends the author to CommCare HQ and
+Refresh, or, for a place CommCare HQ no longer has, to what uses it
+(`levelRemovalRefusal`, `organizationLevelPatchIssue` given the snapshot's
+`managedPlacesContext`, `placeInformationChangeRefusal`), never one telling
+them to move a place Nova can't move. The control and the answer's lines are
+`organizationUi.ts`'s, pure and tested.
+
 ## App setup: Automations
 
 `app-setup/AutomationsSection.tsx` edits the Blueprint's canonical automation
@@ -1178,6 +1201,32 @@ revisioned-text model in `projectDataModel.ts`: pristine drafts reseed from
 realtime, dirty drift requires an explicit Use current / Keep my draft choice,
 and writes carry the captured revision. Export tags render on both table screens
 and only `delete`-capable authors receive the editor.
+
+**A table CommCare HQ manages is a copy, and who manages it is read from its
+manifest entry.** `useTableIsEditable(tableId)` answers `tableEditability`
+(`projectDataModel.ts`) for the table's entry in the freshest manifest the tab
+holds, the pushed frame or the workspace's read, and never the snapshot, so a
+colleague's Manage in Nova turns every control over the moment the frame
+lands; the snapshot refetches for the same change because it stamps the
+table's definition. `edit` covers names, labels, columns, rows, order and CSV;
+`changeSchema` the tag, a wire name, a type and removing a column; and
+`deleteTable` stays `delete`, since removing Nova's copy is allowed. Every
+control of `TableActions`, `ColumnInspectorBody` and the row bodies reads the
+member that was its capability, and `projectDataInspector` hands the bodies
+the refusal sentence as their read-only notice. `ManagedTableBanner` says
+where the table lives and offers Refresh, Open in CommCare HQ and Manage in
+Nova, or the hand-back on a table Nova took over; a control a person can't
+use stays and says why, and a member with no connection on the table's server
+is invited to connect in place of Refresh and the hand-back. Its two
+confirmations (`ManagedTableDialogs.tsx`) name the apps that read the table.
+The banner's day of the last refresh is the snapshot's (`table.hq.refreshedAt`),
+since the manifest carries none, and the page reads the table again after its
+own refresh. A write the server refuses with `managed_in_hq` means the tab
+missed a change of who manages the table, so every writer reads the table and
+the manifest again (`projectDataModel.ts::readAgainAfterRefusal`,
+`isManagedRefusal`) and the controls step aside under the refusal they show.
+A column CommCare HQ's table no longer has carries **Gone in CommCare HQ** in
+its header and names, in its inspector, the apps that keep it.
 
 Destructive changes (delete table, remove column, retype column) go through
 `DestructiveChangeDialog`, which NAMES the apps that would break — including one

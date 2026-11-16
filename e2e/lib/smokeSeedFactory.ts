@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
+import { v7 as uuidV7 } from "uuid";
 import {
 	caseChoiceDoc,
 	caseChoiceSnapshot,
@@ -26,22 +27,29 @@ import {
 	claimAndReserveRun,
 	clearRunLockAndSettle,
 	completeAndSettleRun,
+	loadAppInTransaction,
 } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { createReadyAsset } from "@/lib/db/mediaAssets";
-import { withAppTx } from "@/lib/db/pg";
+import { getAppDb, withAppTx } from "@/lib/db/pg";
 import {
 	loadThread,
 	persistResponseSnapshot,
 	upsertThreadTurn,
 } from "@/lib/db/threads";
 import { writeThreadTranscript } from "@/lib/db/threadTranscript";
+import { canonicalLookupTable } from "@/lib/deployment/hqResourceBaseline";
+import { managedLookupContentOf } from "@/lib/deployment/reading/projectData/lookupTables";
+import { planManagedPlaces } from "@/lib/deployment/reading/projectData/places";
 import {
 	foldDeploymentAttempt,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	asUuid,
@@ -55,10 +63,17 @@ import {
 	sessionUserProperty,
 	term,
 } from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { gcsObjectKeyFor } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
+import { createManagedLookupTablesInTransaction } from "@/lib/lookup/managed";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import { amrNb } from "@/lib/media/__tests__/builtFixtures";
+import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
+import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
 import { APP_NOTICES_SEED, appNoticesEntries } from "./appNoticesSeed";
@@ -107,6 +122,15 @@ import {
 	buildLocalizationBlueprint,
 	LOCALIZATION_SEED,
 } from "./localizationSeed";
+import {
+	buildManagedDataBlueprint,
+	MANAGED_DATA_SEED,
+	managedDataLevels,
+	managedDataRoutes,
+	managedHqPlaces,
+	managedHqRows,
+	managedHqTable,
+} from "./managedDataSeed";
 import {
 	buildMenuHeldCaseBlueprint,
 	MENU_HELD_CASE_SEED,
@@ -2178,6 +2202,119 @@ export async function createSmokeBuilders(
 		},
 		"identity-moves": async () => {
 			return { identityMoves: await seedIdentityMoves() };
+		},
+		"managed-data": async () => {
+			/* An app brought in from CommCare HQ, in the order its birth writes
+			 * one: the app row, then the copy of the lookup table it reads,
+			 * then its document, then the copy of its places, proved against
+			 * the levels that document holds. */
+			const seed = MANAGED_DATA_SEED;
+			const at = new Date(seed.broughtInAt);
+			const origin = { server: seed.server, domain: seed.domain };
+			const { appId, baseSeq } = await createExplicitBlankApp(
+				SEED.userId,
+				seedProjectId,
+				randomUUID(),
+				{ name: seed.appName, status: "complete" },
+			);
+			const hqTable = managedHqTable();
+			const hqRows = managedHqRows();
+			const binding = {
+				tag: seed.table.tag,
+				tableId: lookupTableIdSchema.parse(uuidV7()),
+				columns: Object.fromEntries(
+					seed.table.fields.map((field) => [
+						field,
+						lookupColumnIdSchema.parse(uuidV7()),
+					]),
+				),
+			};
+			await withAppTx((tx) =>
+				createManagedLookupTablesInTransaction(
+					tx,
+					{ projectId: seedProjectId, actorId: SEED.userId, role: "owner" },
+					[
+						{
+							binding,
+							name: seed.table.name,
+							content: managedLookupContentOf(hqTable, hqRows),
+							origin: {
+								...origin,
+								remoteId: hqTable.id,
+								canonical: { ...canonicalLookupTable(hqTable, hqRows) },
+							},
+						},
+					],
+					at,
+				),
+			);
+			const doc = buildManagedDataBlueprint(appId, binding);
+			await appendSyntheticBatch({
+				appId,
+				expectedBaseSeq: baseSeq,
+				targetDoc: toPersistableDoc(doc),
+				authority: { kind: "user", actorUserId: SEED.userId },
+			});
+			const plan = planManagedPlaces({
+				hqPlaces: managedHqPlaces(),
+				levels: managedDataLevels(),
+				properties: [],
+				mode: "birth",
+			});
+			if (plan.findings.length > 0) {
+				throw new Error(
+					`The managed places fixture holds a place Nova can't hold: ${plan.findings[0]?.code}`,
+				);
+			}
+			await withAppTx(async (tx) => {
+				await writeManagedPlacesInTransaction(tx, {
+					appId,
+					actorUserId: SEED.userId,
+					origin,
+					plan,
+					at,
+				});
+				const loaded = await loadAppInTransaction(tx, appId);
+				if (loaded === null)
+					throw new Error("The managed data fixture's app is missing.");
+				const saved = hydratePersistedBlueprint(loaded.blueprint);
+				await applyOrganizationCommitIntegrity(tx, {
+					appId,
+					previousDoc: saved,
+					candidateDoc: saved,
+				});
+			});
+			/* The owner is connected on the copies' server; nothing in the
+			 * journey sends the key, so the row holds no key Nova could use.
+			 * The second member is an editor with no connection. */
+			const appDb = await getAppDb();
+			await appDb
+				.insertInto("user_settings")
+				.values({
+					user_id: SEED.userId,
+					commcare_username: seed.username,
+					commcare_api_key: "smoke-fixture-no-key",
+					commcare_server: seed.server,
+					approved_domains: JSON.stringify([
+						{ name: seed.domain, displayName: seed.domain },
+					]),
+					updated_at: new Date(),
+				})
+				.execute();
+			const authDb = await getAuthDb();
+			await authDb
+				.updateTable("auth_member")
+				.set({ role: "editor" })
+				.where("userId", "=", SEED.viewerUserId)
+				.where("organizationId", "=", seedProjectId)
+				.executeTakeFirstOrThrow();
+			return {
+				managedData: {
+					appId,
+					tableId: binding.tableId,
+					routes: managedDataRoutes(appId, binding.tableId),
+				},
+			};
 		},
 		"connect-learn": async () => {
 			const appId = await seedRuntimeApp(

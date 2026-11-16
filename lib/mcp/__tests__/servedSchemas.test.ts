@@ -304,6 +304,12 @@ it("tells a client what a build profile's stop asks of it, right after the unrea
 	);
 });
 
+it("tells a client what the two stops over data CommCare HQ manages ask of it, right after the drift stop's", () => {
+	expect(served("upload_app_to_hq").description).toContain(
+		"uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. If a lookup table the app reads is managed in CommCare HQ and changed there in a way the app depends on, the call returns `hq_managed_data_changed` before sending anything: relay the `message`, which names each table, what changed and what the user can do, and upload again once that is done. To publish Nova's copy of a table instead, the user can hand it to Nova with `set_lookup_table_management`: show what that does and ask first. `managed_table_handed_back` means a table was handed back to CommCare HQ while the upload was getting ready, and Nova stopped before sending any lookup table or the app's content: upload again, and Nova leaves that table as it is.",
+	);
+});
+
 it("serves the CommCare Supply confirmation on upload and withdrawal, and names it in the compatibility check", () => {
 	const upload = (served("upload_app_to_hq").inputSchema as Json).properties;
 	if (!object(upload) || !object(upload.confirm_commtrack_off))
@@ -355,5 +361,14 @@ it("serves refresh_deployment's kept_values and tells a client what the kept lis
 	);
 	expect(served("get_deployment").description).toMatch(
 		/ `deployment\.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them\.$/,
+	);
+});
+
+it("tells a client which lookup tables and places are copies of CommCare HQ's, and that changing them is refused", () => {
+	expect(served("get_lookup_tables").description).toContain(
+		"A table with `managed_in_commcare_hq` is a copy of a table that lives in CommCare HQ. Read it freely. Changing it is refused: its rows and columns change in CommCare HQ.",
+	);
+	expect(served("get_organization").description).toContain(
+		"When `places_managed_in_commcare_hq` is present, the places are a copy of CommCare HQ's. Levels and place information can still be changed; places cannot.",
 	);
 });

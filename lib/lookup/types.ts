@@ -89,6 +89,34 @@ export interface LookupTableRevisions {
 	tableRevision: LookupRevision;
 }
 
+/**
+ * Where a table came from in CommCare HQ and who manages it now, as the
+ * manifest carries it: only what a write that advances the Project revision
+ * changes. A manifest's bytes at one revision never change, and a refresh
+ * that found CommCare HQ's table as it was stamps its day and advances
+ * nothing, so the day is read from the table, never from the manifest.
+ */
+export interface LookupManifestHqOrigin {
+	/** One of CommCare HQ's servers, by the name the deployment ledger uses. */
+	readonly server: string;
+	readonly domain: string;
+	readonly remoteId: string;
+	readonly managedBy: "commcare-hq" | "nova";
+	readonly broughtInAt: string;
+	readonly takenOverAt: string | null;
+	readonly takenOverBy: string | null;
+}
+
+/** Where a table came from in CommCare HQ, who manages it now, and when Nova's copy was last refreshed. */
+export interface LookupHqOrigin extends LookupManifestHqOrigin {
+	readonly refreshedAt: string;
+	/**
+	 * Columns CommCare HQ's table no longer has, kept because an app still
+	 * reads them. Only a refresh keeps one, so a table Nova manages has none.
+	 */
+	readonly goneColumnIds: readonly LookupColumnId[];
+}
+
 export interface LookupTableManifestEntry extends LookupTableRevisions {
 	id: LookupTableId;
 	name: string;
@@ -96,6 +124,8 @@ export interface LookupTableManifestEntry extends LookupTableRevisions {
 	columnCount: number;
 	rowCount: number;
 	dataBytes: number;
+	/** Present exactly when the table came from CommCare HQ. */
+	hq?: LookupManifestHqOrigin;
 }
 
 export interface LookupManifest {
@@ -119,6 +149,8 @@ export interface LookupTableSnapshot extends LookupTableRevisions {
 	updatedBy: string;
 	createdAt: string;
 	updatedAt: string;
+	/** Present exactly when the table came from CommCare HQ. */
+	hq?: LookupHqOrigin;
 }
 
 /** Rows-free table definition used by validation and compilation contexts. */
@@ -135,6 +167,8 @@ export interface LookupTableDefinition {
 	rowsRevision?: LookupRevision;
 	tableRevision?: LookupRevision;
 	columns: readonly LookupColumn[];
+	/** Present exactly when the table came from CommCare HQ. */
+	hq?: LookupHqOrigin;
 }
 
 /** Exact requested definitions and Project clock from one database snapshot. */
@@ -417,6 +451,8 @@ export type LookupActionErrorCode =
 	| "referenced"
 	| "last_column"
 	| "incompatible_values"
+	/** The table is managed in CommCare HQ, so Nova refuses every edit of it. */
+	| "managed_in_hq"
 	| "internal_error";
 
 export type LookupImportErrorCode = LookupActionErrorCode | "invalid_csv";

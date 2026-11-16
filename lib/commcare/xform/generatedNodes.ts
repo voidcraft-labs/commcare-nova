@@ -90,14 +90,27 @@ import {
 } from "@/lib/domain";
 import { isKeyedRootCreate } from "@/lib/domain/basicCaseSlots";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import {
+	expressionFacts,
+	referencedCountResults,
+} from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
+import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
+import { planFormCaseWire } from "../casePlacementPlan";
+import { emissionPlan } from "../emissionPlan";
+import { placedBasic } from "../placement";
+import { queryRepeatNodeReads } from "./builder";
+import { type AttachmentUrlTarget, captureUrlNodePath } from "./captureUrlNode";
+import { caseWriteSiblingPaths, collectFieldLocations } from "./caseOps";
 import { planConstraintCollections } from "./constraintCollections";
 import {
 	bindCarriesConstraint,
 	constraintMessageNeedsProtection,
 } from "./constraintMessage";
+import { datetimeCaseValuePath } from "./datetimeCaseValue";
 import { descendFormPathIntoField, FormPath } from "./formPath";
 import { Namespace } from "./namespace";
 import { planQueryRepeatNames, queryRepeatBaseNames } from "./queryRepeatNames";
@@ -853,4 +866,174 @@ function allocateGeneratedNodes(
 		close: () => close,
 		nodes,
 	};
+}
+
+/**
+ * The purposes of the nodes Nova writes beside a form's authored content:
+ * each a Hidden Value outside the case region, which the reader of CommCare
+ * HQ's forms folds back into its owner. A keyed repeat and its count, a
+ * condition group, a guard and a clock node stand in a `nova_operations`
+ * group, the case region, which is compared as the blocks it holds.
+ */
+const GENERATED_BESIDE_CONTENT: ReadonlySet<GeneratedNodePurpose> =
+	new Set<GeneratedNodePurpose>([
+		"constraint-count",
+		"constraint-message",
+		"url",
+		"datetime",
+		"trimmed",
+		"count",
+		"query-ids",
+		"query-count",
+		"query-position",
+		"query-id",
+		"query-index",
+		"owner",
+	]);
+
+/**
+ * Every generated node outside the case region that the form's source holds
+ * when `expandDoc` writes `doc` with `attachmentTarget`, keyed by its absolute
+ * data path (`/data/...`), each the plan's own `GeneratedNode`.
+ *
+ * The plan reserves names the source may not use: a count-bound repeat's
+ * count where the count needs no node, a query repeat's nodes where it takes
+ * model iteration, its position node where nothing reads it, a link, a date
+ * and time's text or a trimmed value where no case change reads it, and a
+ * protected message's carrier where no constraint carries the message. So
+ * each node is kept by the rule the XForm builder writes it by
+ * (`builder.ts::buildFieldParts`, `buildRepeat`, and the owner nodes of an
+ * advanced form's open actions), over the document the builder is handed
+ * (`emissionPlan.ts::emissionPlan`), and placed by the function the builder
+ * places it by.
+ */
+export function generatedNodePaths(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	attachmentTarget: AttachmentUrlTarget | null,
+): ReadonlyMap<string, GeneratedNode> {
+	const wireDoc = emissionPlan(doc).doc;
+	const plan = planGeneratedNodes(wireDoc, formUuid);
+	const form = formStructure(doc, formUuid);
+	if (form === undefined)
+		throw new Error(
+			`Nova could not resolve the structure of form ${formUuid} while placing its generated nodes.`,
+		);
+	const locations = collectFieldLocations(wireDoc, formUuid);
+	const guards = caseScalarTextGuards(wireDoc, formUuid, {
+		placedBasic: placedBasic(wireDoc, formUuid),
+	});
+	const siblings = caseWriteSiblingPaths(
+		wireDoc,
+		formUuid,
+		plan,
+		attachmentTarget,
+	);
+	const counts = planRepeatCountCarriers(
+		form,
+		referencedCountResults(doc, formUuid),
+		expressionFacts(doc),
+	);
+	const positionsRead = queryRepeatNodeReads(wireDoc, form).positions;
+	const caseWire = planFormCaseWire(wireDoc, formUuid, { attachmentTarget });
+	const owners = caseWire.kind === "advanced" ? caseWire.generated : [];
+
+	const fieldPath = (uuid: Uuid): FormPath => {
+		const location = locations.get(uuid);
+		if (location === undefined)
+			throw new Error(
+				`Nova's plan of generated nodes for form ${formUuid} names question ${uuid}, which the form does not hold.`,
+			);
+		return location.path;
+	};
+	const placed = (node: GeneratedNode): FormPath | undefined => {
+		switch (node.purpose) {
+			case "constraint-count":
+			case "constraint-message":
+			case "count":
+				return presentBesideQuestion(node)
+					? fieldPath(node.owner).parent().child(node.name)
+					: undefined;
+			case "url": {
+				const path = captureUrlNodePath(
+					plan,
+					node.owner,
+					fieldPath(node.owner),
+				);
+				return attachmentTarget !== null && siblings.has(path.toXPath())
+					? path
+					: undefined;
+			}
+			case "datetime": {
+				const path = datetimeCaseValuePath(
+					plan,
+					node.owner,
+					fieldPath(node.owner),
+				);
+				return guards.has(node.owner) || siblings.has(path.toXPath())
+					? path
+					: undefined;
+			}
+			case "trimmed":
+				return guards.has(node.owner)
+					? trimmedValuePath(plan, node.owner, fieldPath(node.owner))
+					: undefined;
+			case "query-ids":
+			case "query-count":
+			case "query-position":
+				return effectiveQueryRepeatPlacement(form, node.owner) === "count" &&
+					(node.purpose !== "query-position" || positionsRead.has(node.owner))
+					? fieldPath(node.owner).child(node.name)
+					: undefined;
+			case "query-id":
+			case "query-index": {
+				const repeat = wireDoc.fields[node.owner];
+				return repeat !== undefined &&
+					effectiveQueryRepeatPlacement(form, node.owner) === "count"
+					? descendFormPathIntoField(repeat, fieldPath(node.owner)).child(
+							node.name,
+						)
+					: undefined;
+			}
+			case "owner": {
+				const owner = owners.find(
+					(candidate) =>
+						candidate.operationUuid === node.owner &&
+						candidate.name === node.name,
+				);
+				return owner?.scope.child(owner.name);
+			}
+			default:
+				return undefined;
+		}
+	};
+	/** A validation count is written wherever the plan names it, a protected
+	 *  message's carrier where its question's bind carries a constraint, and a
+	 *  count-bound repeat's count where the count needs a node of its own. */
+	const presentBesideQuestion = (node: GeneratedNode): boolean => {
+		if (node.purpose === "constraint-count") return true;
+		if (node.purpose === "count")
+			return counts.forRepeat(node.owner)?.materialized === true;
+		const field = wireDoc.fields[node.owner];
+		return (
+			field !== undefined &&
+			bindCarriesConstraint(
+				field.kind,
+				expressionSlotValue(wireDoc, {
+					entity: "field",
+					uuid: node.owner,
+					slot: "validate",
+				}),
+				guards.get(node.owner),
+			)
+		);
+	};
+
+	const paths = new Map<string, GeneratedNode>();
+	for (const node of plan.nodes) {
+		if (!GENERATED_BESIDE_CONTENT.has(node.purpose)) continue;
+		const path = placed(node);
+		if (path !== undefined) paths.set(path.toXPath(), node);
+	}
+	return paths;
 }

@@ -137,6 +137,16 @@ export type HqToolErrorType =
  *     Nothing was sent, and neither an adoption nor a discard resolves it:
  *     the message names each table, and a new export tag in Project data
  *     lets Nova publish its own table and leave that one alone.
+ *   - `hq_managed_data_changed` — a lookup table this app reads is managed
+ *     in CommCare HQ in the project space, and changed there in a way the
+ *     app depends on (a column it reads or the table gone, or content Nova
+ *     can't hold). Nova stopped it itself and sent nothing: the message names
+ *     each table, what changed and what the user can do, in CommCare HQ or by
+ *     managing the table in Nova.
+ *   - `managed_table_handed_back` — a lookup table this app reads was handed
+ *     back to CommCare HQ while the upload was getting ready. Nova stopped
+ *     before sending any lookup table or the app's content; uploading again
+ *     leaves that table as it is.
  *   - `hq_organization_mismatch` — the app's organization does not fit the
  *     levels the project space defines, so CommCare HQ would refuse its
  *     places. Nothing was sent. Distinct from a conflict because no
@@ -197,6 +207,8 @@ export type UploadErrorType =
 	| "remote_app_missing"
 	| "hq_resource_conflict"
 	| "hq_table_content_unsupported"
+	| "hq_managed_data_changed"
+	| "managed_table_handed_back"
 	| "hq_organization_mismatch"
 	| "project_space_incompatible"
 	| "hq_app_state_unknown"

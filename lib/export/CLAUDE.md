@@ -3,7 +3,11 @@
 `lib/export/boundaryValidation.ts` is the one server-only preparation seam for
 every artifact and direct-HQ export. It speaks Nova intent through the explicit
 `ccz`, `hq-json`, and `hq-upload` modes; wire generation stays in
-`lib/commcare`.
+`lib/commcare`. Its row and mode findings (the lookup carrier's, the
+fixed-place owner's and the two nested selections') are computed by the pure
+`boundaryFindings.ts::exportCarrierFindings`, which the seam calls and which
+acceptance of an app brought in from CommCare HQ calls for the first publish it
+will make.
 
 Callers must authorize and hydrate the app first, then pass the resulting exact
 Project access, document, and mutation sequence to `prepareExportBoundary`.
@@ -68,6 +72,27 @@ elements the budget measured) and takes the aggregate 10,000-row /
 whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`), their one size
 verdict. A 32-character tag pushes, so the workbook builder is total over every
 tag the schema admits.
+
+A table CommCare HQ manages (its definition's `hq.managedBy` is
+`"commcare-hq"`) is a copy Nova never writes in the project space that manages
+it. `hq-upload` takes the project space it writes to as `lookupTarget` and
+leaves out of its workbook every table managed in exactly that server and
+domain; CommCare HQ's upload leaves a table it is not sent alone, and a managed
+table of another project space goes in and is made there from Nova's copy.
+`hq-json` is made for no project space, so it puts every managed table in a
+workbook of the project space that manages it (`managedLookupWorkbooks`, one
+per project space, which the HQ app file names
+`lookup-tables-managed-in-<domain>.xlsx` and its guide tells a person to leave
+out only when importing into that space) and the rest in the first. `ccz`
+embeds every table. `managedLookupTables` lists every table the mode left out
+of `lookupWorkbook`, in the definitions' order, and `lookupWorkbook` is absent
+where no table goes. The HQ cell-text check, the reserved tag and the workbook
+row ceiling judge only the tables a workbook carries, each workbook over its
+own, since a table no workbook carries is never trimmed or refused there; the
+XML text check judges every table the app reads in every mode. Both cell-text
+findings end with the managed remedy for a table CommCare HQ manages (change
+it there, then refresh Nova's copy), never with Project data, which refuses
+every edit to it, and carry that project space as `managedInDomain`.
 Select-source option validity over complete tables (`LOOKUP_SELECT_SOURCE_*`)
 is common to all three: a choice list whose saved values are blank or
 duplicated is equally broken however the table reached the device, and one
@@ -75,7 +100,12 @@ over a table with no rows (`LOOKUP_SELECT_SOURCE_EMPTY`) never opens there,
 since Core refuses an itemset whose path reaches no row
 (`ItemSetUtils.populateDynamicChoices`; a Search prompt's
 `RemoteQuerySessionManager.populateItemSetChoices`). A row filter that leaves
-no choice over rows that exist still opens. All are
+no choice over rows that exist still opens. Over a table CommCare HQ manages
+these too end with the managed remedy (add or change its rows there, then
+refresh Nova's copy, or choose another table or column) and carry
+`managedInDomain`: a publish's re-read refreshes the copy whatever its rows
+are, so a table emptied or a cell blanked in CommCare HQ reaches this check.
+All are
 `environment`-class: rows change outside the document, so they never gate a
 commit. Export therefore needs its own selected-target verdict over those
 current external rows in addition to the absolute document commit gate.

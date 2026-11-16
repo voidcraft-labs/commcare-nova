@@ -17,6 +17,7 @@
  */
 
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import type { SiblingLookupMapping } from "./store";
 import type { DeploymentResource, DeploymentResourceOwnership } from "./types";
 
 /** One lookup table as the target reports it. */
@@ -134,6 +135,20 @@ export interface PlannedLookupPush {
 	 * over is the person's decision to write over it.
 	 */
 	readonly mappedRemoteId: string | null;
+	/**
+	 * Who handed the table to Nova and when, where the push inherits that
+	 * standing: the earliest adopted sibling's pair, or the takeover's. Null
+	 * where this push's own mapping carries it, where Nova makes the table,
+	 * and where this push adopts it, which the person pressing records.
+	 */
+	readonly adoption: { readonly at: string; readonly by: string } | null;
+	/**
+	 * What the drift check compares the table with: the stored baseline of
+	 * the HQ table a mapping names (`mapping`), the table's own record of
+	 * CommCare HQ's table at its last refresh (`table-origin`, for a table a
+	 * person took over with Manage in Nova), or nothing.
+	 */
+	readonly baseline: "mapping" | "table-origin" | null;
 }
 
 export type LookupResourcePlan =
@@ -158,6 +173,15 @@ export interface PlanLookupResourcePushInput {
 	 * nothing — the plan still records the ownership it can actually prove.
 	 */
 	readonly adoptTableIds: readonly string[];
+	/** Live mappings of the Project's other apps for these tables on this project space. */
+	readonly siblings: readonly SiblingLookupMapping[];
+	/** Tables a person took over from this project space with Manage in Nova. */
+	readonly takenOver: readonly {
+		readonly tableId: string;
+		readonly remoteId: string;
+		readonly at: string;
+		readonly by: string;
+	}[];
 }
 
 /**
@@ -172,6 +196,15 @@ export interface PlanLookupResourcePushInput {
  * owns the table: adopting cannot keep that content, and the one way out,
  * a new export tag, settles a name clash on the same table too, so asking
  * for an adoption first would only lead here.
+ *
+ * For a table whose tag CommCare HQ holds, the first arm that matches
+ * decides: this deployment's own mapping of that very table; a mapping of
+ * the Project's other apps of that very table, whose standing the push
+ * inherits (adopted where any of them adopted it, with the earliest
+ * adoption's pair); a person's takeover of the table with Manage in Nova,
+ * compared with the table's own record of CommCare HQ's table; the caller's
+ * explicit adoption; or a conflict. A tag CommCare HQ does not hold is
+ * created.
  */
 export function planLookupResourcePush(
 	input: PlanLookupResourcePushInput,
@@ -202,6 +235,9 @@ export function planLookupResourcePush(
 		input.mappings
 			.filter((resource) => resource.kind === "lookup-table")
 			.map((resource) => [resource.novaResourceId, resource] as const),
+	);
+	const takenOverByTableId = new Map(
+		input.takenOver.map((taken) => [taken.tableId, taken] as const),
 	);
 	const adopting = new Set(input.adoptTableIds);
 
@@ -234,6 +270,8 @@ export function planLookupResourcePush(
 				tag: table.tag,
 				ownership: mapping.ownership,
 				mappedRemoteId: mapping.remoteId,
+				adoption: null,
+				baseline: "mapping",
 			});
 			continue;
 		}
@@ -253,14 +291,60 @@ export function planLookupResourcePush(
 			 * would file a table nobody has ever seen as one somebody chose
 			 * to take over. The old table keeps its own adopted row, which is
 			 * what the left-behind report reads. */
+			const mappedRemoteId =
+				mapping !== undefined && mapping.pushedIdentity === table.tag
+					? mapping.remoteId
+					: null;
 			pushes.push({
 				tableId: table.tableId,
 				tag: table.tag,
 				ownership: "nova-created",
-				mappedRemoteId:
-					mapping !== undefined && mapping.pushedIdentity === table.tag
-						? mapping.remoteId
-						: null,
+				mappedRemoteId,
+				adoption: null,
+				baseline: mappedRemoteId === null ? null : "mapping",
+			});
+			continue;
+		}
+
+		/* Another app of the Project accounts for the very table CommCare HQ
+		 * holds under this tag: the standing is the Project's, so this app
+		 * pushes it too, and compares with the baseline that app's push
+		 * wrote, which is keyed by the HQ table. A sibling whose mapping
+		 * names another id describes a table CommCare HQ has since made
+		 * again, and says nothing. */
+		const accounting = input.siblings.filter(
+			(sibling) =>
+				sibling.tableId === table.tableId &&
+				sibling.pushedIdentity === table.tag &&
+				sibling.remoteId === remote.id,
+		);
+		if (accounting.length > 0) {
+			const adoption = earliestAdoption(accounting);
+			pushes.push({
+				tableId: table.tableId,
+				tag: table.tag,
+				ownership: adoption === null ? "nova-created" : "adopted",
+				mappedRemoteId: remote.id,
+				adoption,
+				baseline: "mapping",
+			});
+			continue;
+		}
+
+		/* A person took the table over from this project space with Manage in
+		 * Nova. That is the recorded decision to publish Nova's copy over it,
+		 * attributed to them; the drift check compares CommCare HQ now with
+		 * the table's record of it at the last refresh, by content, so an id
+		 * CommCare HQ minted again since is no reason to stop. */
+		const taken = takenOverByTableId.get(table.tableId);
+		if (taken !== undefined) {
+			pushes.push({
+				tableId: table.tableId,
+				tag: table.tag,
+				ownership: "adopted",
+				mappedRemoteId: remote.id,
+				adoption: { at: taken.at, by: taken.by },
+				baseline: "table-origin",
 			});
 			continue;
 		}
@@ -280,9 +364,37 @@ export function planLookupResourcePush(
 			tag: table.tag,
 			ownership: "adopted",
 			mappedRemoteId: null,
+			adoption: null,
+			baseline: null,
 		});
 	}
 
 	if (conflicts.length > 0) return { ok: false, conflicts };
 	return { ok: true, pushes };
+}
+
+/**
+ * The earliest adoption among sibling mappings of one table, or null where
+ * none of them adopted it. Ties on the moment go to the first listed, which
+ * `readSiblingLookupMappings` orders by mapping age.
+ */
+function earliestAdoption(
+	siblings: readonly SiblingLookupMapping[],
+): { readonly at: string; readonly by: string } | null {
+	let earliest: { readonly at: string; readonly by: string } | null = null;
+	for (const sibling of siblings) {
+		if (sibling.ownership !== "adopted") continue;
+		if (sibling.adoptedAt === null || sibling.adoptedBy === null) {
+			throw new Error(
+				"An adopted lookup table mapping holds no adoption pair, which its CHECK rules out.",
+			);
+		}
+		if (
+			earliest === null ||
+			Date.parse(sibling.adoptedAt) < Date.parse(earliest.at)
+		) {
+			earliest = { at: sibling.adoptedAt, by: sibling.adoptedBy };
+		}
+	}
+	return earliest;
 }

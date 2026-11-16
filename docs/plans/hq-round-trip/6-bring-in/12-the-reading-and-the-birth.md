@@ -746,8 +746,12 @@ show.
       `readingProjectDataFindingsFor(data, reads, draft?.doc ?? null, mintingResolver(appId))`
       (part 11, 14.1): every finding of project data for this read, raised in this one place. A
       table matters only where the app reads it, and levels and places only where the app reads
-      places, which is why the findings wait for the reader. Where `reads.readsPlaces` is true and
-      `data.placesRead` is false, the source test of step 5 missed a spelling: step 5 runs once
+      places, which is why the findings wait for the reader. Where
+      `unreadPlacesFailure(data, outcome)` (part 11, 14.1) answers a failure, the request ends
+      with it as with any failed read (part 11, 11.1): that is wherever the reader gave an
+      account, and wherever its document reads places, since a reader run without the levels
+      refuses a read of a place at a level and so cannot say the app reads none. Where `reads.readsPlaces` is true,
+      `data.placesRead` is false and `data.placesUnread` is null, the source test of step 5 missed a spelling: step 5 runs once
       more with `places: "always"` and then the reader again (part 11, 11.1's backstop), and the
       miss is logged at error (10). It is one extra pass and never a loop, since the second call
       always reads places.
@@ -1028,10 +1032,10 @@ account is answered `changed` with the account (5.3, step 5).
 | `media-not-played-where-app-runs` | part 11's `readingMediaFindings` | an account | `changed`, with the account |
 | `places-over-nova-limit`, `place-not-holdable` | part 11's `readingProjectDataFindingsFor` | an account | `changed`, with the account |
 | `table-rows-unreadable` | part 11's `readingProjectDataFindingsFor`, from a rows read | an account | `changed`, with the account |
-| `table-cell-unrepresentable`, `table-choices-unusable` | part 11's `readingProjectDataFindingsFor` | an account | `changed`, with the account |
+| `table-cell-unrepresentable`, `table-choices-unusable`, `table-has-no-fields`, `table-field-repeated` | part 11's `readingProjectDataFindingsFor` | an account | `changed`, with the account |
 | `owner-rule-needs-one-place` | part 11's `readingProjectDataFindingsFor` | an account | `changed`, with the account |
 
-Together the rows hold every code of part 01's `READ_CIRCUMSTANCES` (34), each answered by the
+Together the rows hold every code of part 01's `READ_CIRCUMSTANCES` (35), each answered by the
 standing its `CIRCUMSTANCE_STANDINGS` gives it (part 01, section 8.3).
 
 `held` is a create's answer and nothing more: it carries the circumstance for the page to show, and

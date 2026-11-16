@@ -18,6 +18,11 @@ import {
 	distanceSearchSetupStep,
 	distanceSearchSetupSummary,
 } from "./distanceSearchSetup";
+import {
+	type ManagedLookupGuideFile,
+	managedLookupGuideLines,
+	managedLookupGuideTitle,
+} from "./managedData";
 import { namesInWords } from "./planFeatures";
 import {
 	PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
@@ -26,6 +31,7 @@ import {
 
 export type ManualImportStepKind =
 	| "lookup-tables"
+	| "managed-lookup-tables"
 	| "import-app"
 	| "commcare-version"
 	| "media"
@@ -42,6 +48,7 @@ export type ManualImportStepKind =
 
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"lookup-tables",
+	"managed-lookup-tables",
 	"import-app",
 	"commcare-version",
 	"media",
@@ -64,11 +71,28 @@ export interface ManualImportStep {
 	readonly lines: readonly string[];
 }
 
+/**
+ * A step's identity within one guide. A guide holds one step of each kind
+ * but `managed-lookup-tables`, which it holds once per managed workbook, and
+ * each of those titles names its own project space (with its server where
+ * two share a domain), so kind and title together name one step.
+ */
+export function manualImportStepKey(step: ManualImportStep): string {
+	return `${step.kind}:${step.title}`;
+}
+
 export interface ManualImportGuideInput {
 	/** The app JSON's member name in the ZIP, without its extension. */
 	readonly appFileName: string;
 	/** The tag of each lookup table the workbook carries; empty for none. */
 	readonly lookupTags: readonly string[];
+	/**
+	 * The file's workbooks of the lookup tables CommCare HQ manages, one per
+	 * project space that manages some, in the order the archive holds them:
+	 * each file's name, that project space, and each table with the UTC day
+	 * Nova's copy was last refreshed. Empty for none.
+	 */
+	readonly managedLookupFiles: readonly ManagedLookupGuideFile[];
 	readonly hasMedia: boolean;
 	/** The floor as text, "2.57". The caller formats it; the guide imports no constant. */
 	readonly versionFloor: string;
@@ -106,6 +130,15 @@ export interface ManualImportGuideInput {
 
 /** The ZIP's member that holds the lookup tables. */
 export const MANUAL_IMPORT_LOOKUP_WORKBOOK = "lookup-tables.xlsx";
+/**
+ * The start of each ZIP member that holds Nova's copy of the lookup tables
+ * one project space manages in CommCare HQ; the rest of the name is that
+ * project space's. A file of its own per project space, so a person
+ * importing into a project space that manages some of them leaves that one
+ * file out and touches nothing CommCare HQ manages there.
+ */
+export const MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK_PREFIX =
+	"lookup-tables-managed-in-";
 /** The ZIP's member that holds the media, in CommCare HQ's bulk-upload format. */
 export const MANUAL_IMPORT_MEDIA_ZIP = "multimedia.zip";
 
@@ -134,6 +167,29 @@ function lookupTablesStep(tags: readonly string[]): ManualImportStep {
 			"of those names, uploading replaces its rows.",
 		],
 	};
+}
+
+/**
+ * One step per workbook of tables CommCare HQ manages, right after the
+ * first workbook's. Uploading one into the project space that manages its
+ * tables would replace their rows there with Nova's copy, so its step says
+ * to leave it out there; the first, where the file carries no first
+ * workbook, says how to upload it anywhere else, and each later one points
+ * at the step above.
+ */
+function managedLookupTablesSteps(
+	files: readonly ManagedLookupGuideFile[],
+	afterLookupTablesStep: boolean,
+): readonly ManualImportStep[] {
+	const several = files.length > 1;
+	return files.map((file, index) => ({
+		kind: "managed-lookup-tables",
+		title: managedLookupGuideTitle(file, several),
+		lines: managedLookupGuideLines(file, {
+			several,
+			afterUploadStep: afterLookupTablesStep || index > 0,
+		}),
+	}));
 }
 
 /**
@@ -386,6 +442,10 @@ export function manualImportGuide(
 		...(input.lookupTags.length > 0
 			? [lookupTablesStep(input.lookupTags)]
 			: []),
+		...managedLookupTablesSteps(
+			input.managedLookupFiles,
+			input.lookupTags.length > 0,
+		),
 		importAppStep(input.appFileName),
 		commCareVersionStep(input.versionFloor),
 		...(input.hasMedia ? [mediaStep()] : []),

@@ -473,6 +473,27 @@ export interface LookupTablesTable {
 	updated_by: string;
 	created_at: Timestamp;
 	updated_at: Timestamp;
+	/** Where the table came from in CommCare HQ. The first eight are all set
+	 * or all null (`lookup_tables_hq_origin_whole`); the server is one of the
+	 * deployment ledger's names. */
+	hq_server: string | null;
+	hq_domain: string | null;
+	hq_remote_id: string | null;
+	/** The canonical value of CommCare HQ's table at the last refresh, an
+	 * object whose `digest` is 64 lowercase hex digits. */
+	hq_canonical: JSONColumnType<
+		Readonly<Record<string, unknown>> | null,
+		string | null,
+		string | null
+	>;
+	hq_brought_in_at: Timestamp | null;
+	hq_brought_in_by: string | null;
+	hq_refreshed_at: Timestamp | null;
+	hq_refreshed_by: string | null;
+	/** A person chose to manage the table in Nova: both set or both null, and
+	 * only on a table with an origin (`lookup_tables_hq_takeover_attributed`). */
+	hq_taken_over_at: Timestamp | null;
+	hq_taken_over_by: string | null;
 }
 
 export type StoredLookupColumnDataType =
@@ -528,6 +549,23 @@ export interface AppOrganizationStateTable {
 	revision: DefaultedLookupRevisionColumn;
 	location_count: ColumnType<number, number | undefined, number>;
 	updated_at: Timestamp;
+	/** Where the app's places came from in CommCare HQ: all set or all null
+	 * (`app_organization_state_hq_origin_whole`). */
+	hq_server: string | null;
+	hq_domain: string | null;
+	/** 64 lowercase hex digits. */
+	hq_places_digest: string | null;
+	/** How many active places of CommCare HQ the copy left out because their
+	 * level is not in the app, by level code. */
+	hq_left_out: JSONColumnType<
+		Readonly<Record<string, number>> | null,
+		string | null,
+		string | null
+	>;
+	hq_brought_in_at: Timestamp | null;
+	hq_brought_in_by: string | null;
+	hq_refreshed_at: Timestamp | null;
+	hq_refreshed_by: string | null;
 }
 
 export interface AppLocationsTable {
@@ -552,6 +590,18 @@ export interface AppLocationsTable {
 	updated_at: Timestamp;
 	created_by: string | null;
 	updated_by: string | null;
+	/** CommCare HQ's id of a place CommCare HQ manages; never blank. */
+	hq_location_id: string | null;
+	/**
+	 * When a refresh of a managed copy found this place gone from CommCare
+	 * HQ's list and kept it live because the app still uses it; null for
+	 * every place CommCare HQ lists, and for every place of an unmanaged app.
+	 */
+	hq_gone_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
 }
 
 export interface AppLocationReferencesTable {

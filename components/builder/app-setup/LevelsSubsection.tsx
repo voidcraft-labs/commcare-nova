@@ -57,13 +57,19 @@ import {
 	type OrganizationLevelPatch,
 	organizationLevelPatchIssue,
 } from "@/lib/organization/levelUpdateVerdicts";
+import type { ManagedPlacesContext } from "@/lib/organization/ownerTargetVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
+import { managedPlacesLevelsNote } from "@/lib/publish/managedData";
 import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { DraftCommitInput } from "./DraftCommitField";
-import { uniqueLevelCode } from "./organizationUi";
+import {
+	type LevelOccupancy,
+	levelRemovalRefusal,
+	uniqueLevelCode,
+} from "./organizationUi";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 /** Sentinel for "no parent": a Select item cannot carry an empty value. */
@@ -71,13 +77,18 @@ const TOP_LEVEL = "__top__";
 const NO_LEVEL_LIMIT = "__none__";
 
 export function LevelsSubsection({
-	occupiedLevelUuids,
+	occupiedLevels,
 	locations,
+	managed,
 }: {
-	/** Levels that currently hold at least one place, so a removal can say
-	 *  so immediately rather than after a round trip. */
-	occupiedLevelUuids: ReadonlySet<string>;
+	/** Levels that hold a place the commit counts (`levelOccupancy`), so a
+	 *  removal can say so immediately rather than after a round trip. */
+	occupiedLevels: ReadonlyMap<string, LevelOccupancy>;
 	locations: readonly StoredLocation[];
+	/** Where CommCare HQ manages this app's places, while it does. Levels
+	 *  stay Nova's to edit, what Nova assumed about them is said above them,
+	 *  and a change the places block names the step that works there. */
+	managed?: ManagedPlacesContext;
 }) {
 	const levels = useOrganizationLevels();
 	const canEdit = useCanEdit();
@@ -134,6 +145,14 @@ export function LevelsSubsection({
 			canEdit={canEdit && !adding}
 			addButtonRef={rowFocus.addRef}
 		>
+			{managed !== undefined && (
+				<p
+					data-managed-places-levels-note
+					className="max-w-prose rounded-lg border border-nova-violet/30 bg-nova-violet/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
+				>
+					{managedPlacesLevelsNote(managed.domain)}
+				</p>
+			)}
 			{levels.length === 0 ? (
 				<SubsectionEmpty>
 					Start with the widest level, such as a region or state. Then add the
@@ -145,8 +164,9 @@ export function LevelsSubsection({
 						key={level.uuid}
 						level={level}
 						peers={levels}
-						occupied={occupiedLevelUuids.has(level.uuid)}
+						occupancy={occupiedLevels.get(level.uuid)}
 						locations={locations}
+						managed={managed}
 						open={openUuid === level.uuid}
 						onOpenChange={(next) => setOpenUuid(next ? level.uuid : undefined)}
 						rowFocusRef={rowFocus.register(index)}
@@ -312,8 +332,9 @@ function summarize(level: OrganizationLevel): string {
 function LevelRow({
 	level,
 	peers,
-	occupied,
+	occupancy,
 	locations,
+	managed,
 	open,
 	onOpenChange,
 	rowFocusRef,
@@ -321,8 +342,9 @@ function LevelRow({
 }: {
 	level: OrganizationLevel;
 	peers: readonly OrganizationLevel[];
-	occupied: boolean;
+	occupancy: LevelOccupancy | undefined;
 	locations: readonly StoredLocation[];
+	managed: ManagedPlacesContext | undefined;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	rowFocusRef: (element: HTMLButtonElement | null) => void;
@@ -366,7 +388,7 @@ function LevelRow({
 			)
 		: [];
 	const issueFor = (patch: OrganizationLevelPatch) =>
-		organizationLevelPatchIssue(doc, locations, level.uuid, patch);
+		organizationLevelPatchIssue(doc, locations, level.uuid, patch, managed);
 	const commitPatch = (patch: OrganizationLevelPatch) => {
 		const issue = issueFor(patch);
 		if (issue !== undefined) {
@@ -527,7 +549,8 @@ function LevelRow({
 					{canEdit && (
 						<RemoveLevel
 							level={level}
-							occupied={occupied}
+							occupancy={occupancy}
+							managed={managed}
 							onRemove={onRemove}
 						/>
 					)}
@@ -1209,13 +1232,16 @@ function IssueSelectItem({
  */
 function RemoveLevel({
 	level,
-	occupied,
+	occupancy,
+	managed,
 	onRemove,
 }: {
 	level: OrganizationLevel;
-	occupied: boolean;
+	occupancy: LevelOccupancy | undefined;
+	managed: ManagedPlacesContext | undefined;
 	onRemove: () => void;
 }) {
+	const occupied = occupancy !== undefined;
 	const mutations = useBlueprintMutations();
 	const [confirming, setConfirming] = useState(false);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
@@ -1231,11 +1257,14 @@ function RemoveLevel({
 					variant="ghost-destructive"
 					className="self-start"
 					onClick={() => {
-						setRefusal(undefined);
-						if (!plan.ok) {
-							setRefusal(plan.userMessage);
-							return;
-						}
+						const planRefusal = levelRemovalRefusal(
+							plan,
+							level.name,
+							occupancy,
+							managed,
+						);
+						setRefusal(planRefusal);
+						if (planRefusal !== undefined) return;
 						setConfirming(true);
 					}}
 				>

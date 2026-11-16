@@ -19,7 +19,9 @@
  * shadow form, whose actions are its parent's; a form of another kind; no
  * `xmlns`, or one two forms share; an XForm missing or unparsed; actions HQ's
  * build could not read; and blocks that depend on what the source does not
- * say (a data registry's case, a visit schedule).
+ * say (a data registry's case, a visit schedule). Acceptance of a reading is
+ * its caller (`lib/deployment/reading/identityAgreement.ts`), and fails a
+ * reading for any form listed in `unread`.
  *
  * Every path is a data path relative to the instance root, its element names
  * joined by `/`. The own block's path is its `case` element at the data root;

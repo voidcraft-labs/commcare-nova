@@ -333,7 +333,11 @@ These decisions are closed unless the project owner explicitly reopens them.
   never ordinary success with a warning.
 - A durable deployment record is keyed by Nova app, Project, HQ server, and HQ
   domain. Remote-resource mappings additionally key the Nova resource UUID and
-  store ownership/adoption, remote id, pushed identity, and revision. One HQ
+  store ownership/adoption, remote id, pushed identity, and revision. A lookup
+  table's standing in a project space is the Project's: a publish reads it from
+  every app of the Project that holds a live mapping for the table CommCare HQ
+  has under the tag, so a second app publishes the Project's own table without
+  being asked to take it over. One HQ
   app is published to by one Nova app at a time, across Projects. An app in
   recently deleted gives its HQ app up to whoever takes it. A deployment can be
   ended: its app mapping is superseded with no successor, its recorded ids and
@@ -341,7 +345,10 @@ These decisions are closed unless the project owner explicitly reopens them.
 - Nova never auto-adopts a same-named HQ resource, overwrites an unowned
   resource, or deletes a remote resource on rename. First adoption is explicit.
   Renames create/repoint or update only resources Nova demonstrably owns, and
-  report any old remote resource left behind.
+  report any old remote resource left behind. A table or a set of places
+  managed in CommCare HQ is never written in the project space that manages
+  it. Manage in Nova is the one way a person hands such a table to Nova, and it
+  is recorded on the table with who and when.
 - Nova never writes over a change made in CommCare HQ since its last publish
   there, or since it brought the app in, without a person's word. Every such
   decision a person can answer is made in preflight, before any write, by
@@ -357,6 +364,10 @@ These decisions are closed unless the project owner explicitly reopens them.
   Project data is pushed: it stops that publish at `upload`, before the app's
   content is sent, and the next publish's preflight asks about it. A change of
   the Web App setting during the push stops that publish the same way.
+- The first publish over an app brought in from CommCare HQ changes only what
+  `FIRST_PUBLISH_CHANGES` declares, each entry shown to the person at the
+  review and again before that publish. The proof lane holds the declared set
+  equal to the observed set on every HQ-authored base.
 - A case change's placement (a Case Management action, an advanced menu's case
   action and its tag, or a Save to Case block path), a query repeat's placement
   and a menu's advanced kind are held from the publish that first carries them,
@@ -525,7 +536,9 @@ compatibility inputs.
 All persistent state uses the Cloud SQL Postgres pool and the Kysely migration
 owner.
 
-Lookup definitions and rows are Project-scoped. Organization and persona data are
+Lookup definitions and rows are Project-scoped. A table records where in
+CommCare HQ it came from and who manages it; an app's organization state
+records the same for its places. Organization and persona data are
 app-scoped unless a later approved contract says otherwise. Every table has
 explicit tenancy keys, authorization, project-move behavior, indexes, migration
 ownership, retention/deletion behavior, and one explicit runtime privilege
@@ -685,7 +698,13 @@ No interval leaves an accepted lookup dependency unprotected.
 ### Locations and restore scope
 
 Organization structure lives partly in the blueprint and partly in app-scoped
-rows, so mutations and row writes share the app-row lock discipline. Removing or
+rows, so mutations and row writes share the app-row lock discipline. An app
+brought in from CommCare HQ whose logic reads places holds them as a copy that
+project space manages: every place write but the refresh is refused, a publish
+to that project space sends no place, and a publish to any other creates them
+from the copy. Levels and place information stay document entities and stay
+editable; level settings no CommCare HQ API returns take Nova's defaults and are
+said so in Organization. Removing or
 retyping a level, archiving a referenced location, moving an app between
 Projects, and adding a reverse-hop expression must account for current rows and
 references atomically.

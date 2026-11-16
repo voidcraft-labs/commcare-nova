@@ -749,8 +749,29 @@ export function slotPrint(
 	ref: SlotContextRef,
 	env: ExpressionReadEnv,
 ): SlotPrint {
+	return slotPrintUnder(doc, ref, namingOf(env));
+}
+
+/** `slotPrint` under a lookup naming the caller holds: the questions a
+ *  block's place binds are the same under every naming, which names only
+ *  tables and columns. */
+export function slotPrintUnder(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+	naming: LookupWireNaming,
+): SlotPrint {
+	// A select's choices from a table or from cases print every question of
+	// the form through `bindLookupFilterFieldPaths` (the slot's print above),
+	// so a read of any of them prints its binding whatever its spelling.
+	if (ref.entity === "field" && ref.slot === "lookup_options_source") {
+		const formUuid = slotForm(doc, ref);
+		return formUuid === undefined
+			? {}
+			: {
+					boundFields: new Set(collectFieldLocations(doc, formUuid).keys()),
+				};
+	}
 	if (!caseOperationSlot(ref)) return {};
-	const naming = namingOf(env);
 	let bindings: WireTermBindings | undefined;
 	try {
 		bindings = caseOperationPlaces(

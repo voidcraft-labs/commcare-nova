@@ -10,9 +10,10 @@
 
 import dynamic from "next/dynamic";
 import { useMemo } from "react";
-import { useProjectCanEdit } from "@/lib/session/hooks";
+import { managedLookupTableRefusal } from "@/lib/publish/managedData";
 import type { ActiveInspectorDescriptor } from "./inspectorTypes";
 import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
+import { useManifestEntry, useTableIsEditable } from "./useProjectData";
 
 function InspectorBodyLoading() {
 	return (
@@ -50,18 +51,33 @@ const RowInspectorBody = dynamic(
  * An unresolved conflict outranks the selection and needs no live table body.
  * That is what lets the last authorized snapshot render even when a co-member
  * deleted the whole table.
+ *
+ * What each body may change is read once here, from the table's manifest
+ * entry and the viewer's two capabilities (`useTableIsEditable`), and handed
+ * down: a table CommCare HQ manages offers no edit to anyone, and its bodies
+ * say why in the sentence every refused write to it carries.
  */
 export function useProjectDataInspector(): {
 	readonly inspector: ActiveInspectorDescriptor | null;
 	readonly onClose: () => void;
 } | null {
 	const workspace = useProjectDataWorkspace();
-	const canEdit = useProjectCanEdit();
 	const selection = workspace?.selection ?? null;
 	const table =
 		workspace?.table.kind === "data" ? workspace.table.value : undefined;
 
 	const conflict = workspace?.rowConflict ?? null;
+	const editedTableId = conflict?.tableId ?? workspace?.tableId;
+	const editability = useTableIsEditable(editedTableId);
+	const canEdit = editability.edit;
+	const managedHq = useManifestEntry(editedTableId)?.hq;
+	const readOnlyNotice =
+		managedHq?.managedBy === "commcare-hq"
+			? managedLookupTableRefusal(
+					conflict?.tableName ?? table?.name ?? "",
+					managedHq.domain,
+				)
+			: undefined;
 
 	return useMemo(() => {
 		if (workspace === null) return null;
@@ -110,6 +126,7 @@ export function useProjectDataInspector(): {
 							table={table}
 							workspace={workspace}
 							canEdit={canEdit}
+							readOnlyNotice={readOnlyNotice}
 						/>
 					),
 				},
@@ -130,10 +147,20 @@ export function useProjectDataInspector(): {
 						column={column}
 						table={table}
 						workspace={workspace}
+						editability={editability}
+						readOnlyNotice={readOnlyNotice}
 					/>
 				),
 			},
 			onClose,
 		};
-	}, [workspace, conflict, selection, table, canEdit]);
+	}, [
+		workspace,
+		conflict,
+		selection,
+		table,
+		canEdit,
+		editability,
+		readOnlyNotice,
+	]);
 }

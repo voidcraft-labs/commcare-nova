@@ -44,6 +44,7 @@ export const SMOKE_PROFILES = [
 	"kept-baseline",
 	"connect-learn",
 	"identity-moves",
+	"managed-data",
 ] as const satisfies readonly SmokeProfile[];
 
 export type SmokeScenario = {

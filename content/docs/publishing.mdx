@@ -397,6 +397,20 @@ version in CommCare HQ checks the app afresh. Saving the form once in CommCare
 HQ's form builder clears the old check, and Nova's next publish then asks before
 replacing that form.
 
+## Lookup tables and places managed in CommCare HQ
+
+Before a publish to the project space that manages them, Nova checks the lookup
+tables CommCare HQ manages for the app. When nothing the app reads is missing,
+Nova sends none of them there and refreshes its own copy. When a table changed
+in CommCare HQ in a way the app depends on, such as a column it reads being
+removed, Nova stops before sending anything and shows you what changed. Nova
+never changes the places CommCare HQ manages in that project space either.
+
+Any other project space you publish to gets Nova's copy of those tables and
+places, as tables and places Nova made there. [Project data](/docs/project-data) and
+[Organization](/docs/organization) say what "managed in CommCare HQ" means for a
+table and for places.
+
 ## What stays as it is in CommCare HQ
 
 Some of an app's settings are CommCare HQ's to keep: how often phones update,

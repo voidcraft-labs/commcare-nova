@@ -142,7 +142,9 @@ describe("CommCare HQ's sort elements", () => {
 			},
 		});
 		expect(codes(reading)).toEqual([]);
-		expect(registers(reading)).toContain("sort-rule-kept-as-hidden-column");
+		// The column is on the list and stays there: only the stored word is new.
+		expect(registers(reading)).toContain("list-settings-respelled");
+		expect(registers(reading)).not.toContain("sort-rule-kept-as-hidden-column");
 	});
 
 	it("raises a label on a sort-only element", async () => {
@@ -363,7 +365,8 @@ describe("a text comparison over a whole-number property", () => {
 			},
 		});
 		expect(closedCodes(reading)).toEqual([]);
-		expect(registers(reading)).toContain("sort-rule-kept-as-hidden-column");
+		expect(registers(reading)).toContain("list-settings-respelled");
+		expect(registers(reading)).not.toContain("sort-rule-kept-as-hidden-column");
 		const written = await emittedApp(reading.ctx.doc as BlueprintDoc);
 		expect(written.modules[0]?.case_details.short.sort_elements[0]?.type).toBe(
 			"plain",

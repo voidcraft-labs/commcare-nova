@@ -11,11 +11,20 @@ import {
 import { lookupRevisionSchema } from "@/lib/lookup/schema";
 import type {
 	LookupColumn,
+	LookupHqOrigin,
 	LookupRevision,
 	LookupRow,
 	LookupRowValues,
+	LookupTableManifestEntry,
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
+import {
+	MANAGED_TABLE_ALREADY_MATCHES,
+	MANAGED_TABLE_REFRESHED_COLUMNS,
+	MANAGED_TABLE_REFRESHED_ROWS,
+	MANAGED_TABLE_REFRESHED_SINCE,
+	managedColumnKept,
+} from "@/lib/publish/managedData";
 import {
 	captureRowEditBaseline,
 	cellText,
@@ -30,10 +39,14 @@ import {
 	filterRows,
 	formatLookupBytes,
 	formatLookupCount,
+	freshestManifestEntry,
 	hasRetainedRowWorkForProject,
 	keepRevisionedTextDraft,
+	managedTableBannerModel,
+	managedTableOutcomeLines,
 	manifestProvesTableUnavailable,
 	mergeUnavailableRowDraft,
+	readAgainAfterRefusal,
 	reconcileConflictDraft,
 	reconcileRevisionedTextDraft,
 	reconcileRowDraft,
@@ -45,6 +58,7 @@ import {
 	rowWriteConflictVerdict,
 	suggestWireName,
 	tableCapacity,
+	tableEditability,
 	temporalDraftTextHiddenByControl,
 } from "../projectDataModel";
 
@@ -987,5 +1001,311 @@ describe("columnsEqual", () => {
 				[{ ...nameColumn, dataType: "int" satisfies LookupColumn["dataType"] }],
 			),
 		).toBe(false);
+	});
+});
+
+describe("tables that came from CommCare HQ", () => {
+	const origin = (managedBy: LookupHqOrigin["managedBy"]): LookupHqOrigin => ({
+		server: "india",
+		domain: "district-health",
+		remoteId: "remote-facilities",
+		managedBy,
+		broughtInAt: "2026-11-01T09:00:00.000Z",
+		refreshedAt: "2026-11-02T09:00:00.000Z",
+		takenOverAt: managedBy === "nova" ? "2026-11-03T09:00:00.000Z" : null,
+		takenOverBy: managedBy === "nova" ? "owner-1" : null,
+		goneColumnIds: [],
+	});
+	const entry = (
+		id: typeof tableId,
+		hq?: LookupHqOrigin,
+	): LookupTableManifestEntry => ({
+		id,
+		name: "Facilities",
+		tag: "facilities",
+		columnCount: 2,
+		rowCount: 3,
+		dataBytes: 120,
+		definitionRevision: revision("4"),
+		rowsRevision: revision("4"),
+		tableRevision: revision("4"),
+		...(hq === undefined ? {} : { hq }),
+	});
+
+	describe("tableEditability", () => {
+		const roles = {
+			view: { canEdit: false, canDelete: false },
+			edit: { canEdit: true, canDelete: false },
+			delete: { canEdit: true, canDelete: true },
+		} as const;
+		const states = {
+			plain: entry(tableId),
+			"managed in CommCare HQ": entry(tableId, origin("commcare-hq")),
+			"managed in Nova": entry(tableId, origin("nova")),
+		} as const;
+		const expected: Record<
+			keyof typeof states,
+			Record<keyof typeof roles, ReturnType<typeof tableEditability>>
+		> = {
+			plain: {
+				view: { edit: false, changeSchema: false, deleteTable: false },
+				edit: { edit: true, changeSchema: false, deleteTable: false },
+				delete: { edit: true, changeSchema: true, deleteTable: true },
+			},
+			"managed in CommCare HQ": {
+				view: { edit: false, changeSchema: false, deleteTable: false },
+				edit: { edit: false, changeSchema: false, deleteTable: false },
+				delete: { edit: false, changeSchema: false, deleteTable: true },
+			},
+			"managed in Nova": {
+				view: { edit: false, changeSchema: false, deleteTable: false },
+				edit: { edit: true, changeSchema: false, deleteTable: false },
+				delete: { edit: true, changeSchema: true, deleteTable: true },
+			},
+		};
+		for (const [state, table] of Object.entries(states)) {
+			for (const [role, { canEdit, canDelete }] of Object.entries(roles)) {
+				it(`a ${state} table, for a member who can ${role}`, () => {
+					expect(tableEditability(table, canEdit, canDelete)).toEqual(
+						expected[state as keyof typeof states][role as keyof typeof roles],
+					);
+				});
+			}
+		}
+	});
+
+	describe("freshestManifestEntry", () => {
+		it("reads who manages a table from the newer of the pushed and the read manifest, comparing clocks as numbers", () => {
+			const read = {
+				projectId: "project-1",
+				projectRevision: revision("9"),
+				tables: [entry(tableId, origin("commcare-hq"))],
+			};
+			const pushed = {
+				projectId: "project-1",
+				projectRevision: revision("10"),
+				tables: [entry(tableId, origin("nova"))],
+			};
+			expect(
+				freshestManifestEntry([pushed, read], "project-1", tableId)?.hq
+					?.managedBy,
+			).toBe("nova");
+			expect(
+				freshestManifestEntry([read, pushed], "project-1", tableId)?.hq
+					?.managedBy,
+			).toBe("nova");
+		});
+
+		it("never consults another Project's manifest, and knows nothing before a manifest of this one", () => {
+			const elsewhere = {
+				projectId: "project-2",
+				projectRevision: revision("50"),
+				tables: [entry(tableId)],
+			};
+			const here = {
+				projectId: "project-1",
+				projectRevision: revision("3"),
+				tables: [entry(tableId, origin("commcare-hq"))],
+			};
+			expect(
+				freshestManifestEntry([elsewhere, here], "project-1", tableId)?.hq
+					?.managedBy,
+			).toBe("commcare-hq");
+			expect(
+				freshestManifestEntry(
+					[elsewhere, null, undefined],
+					"project-1",
+					tableId,
+				),
+			).toBeUndefined();
+			expect(freshestManifestEntry([here], undefined, tableId)).toBeUndefined();
+		});
+
+		it("answers nothing for a table the freshest manifest no longer holds, though an older one did", () => {
+			const older = {
+				projectId: "project-1",
+				projectRevision: revision("3"),
+				tables: [entry(tableId)],
+			};
+			const newer = {
+				projectId: "project-1",
+				projectRevision: revision("4"),
+				tables: [entry(secondTableId)],
+			};
+			expect(
+				freshestManifestEntry([older, newer], "project-1", tableId),
+			).toBeUndefined();
+		});
+	});
+
+	describe("readAgainAfterRefusal", () => {
+		const reads = () => {
+			const read: string[] = [];
+			return {
+				read,
+				reload: async () => {
+					read.push("table");
+				},
+				reloadManifest: async () => {
+					read.push("manifest");
+				},
+			};
+		};
+
+		it("reads the table and the manifest again after a write CommCare HQ's management refused, so a stale tab stops offering edits", async () => {
+			const tab = reads();
+			await readAgainAfterRefusal(
+				{ code: "managed_in_hq" },
+				tab.reload,
+				tab.reloadManifest,
+			);
+			expect(tab.read.sort()).toEqual(["manifest", "table"]);
+		});
+
+		it("reads only the table after a conflict, and nothing after any other refusal", async () => {
+			const conflict = reads();
+			await readAgainAfterRefusal(
+				{ code: "conflict" },
+				conflict.reload,
+				conflict.reloadManifest,
+			);
+			expect(conflict.read).toEqual(["table"]);
+			const other = reads();
+			await readAgainAfterRefusal(
+				{ code: "storage_limit" },
+				other.reload,
+				other.reloadManifest,
+			);
+			expect(other.read).toEqual([]);
+		});
+	});
+
+	describe("managedTableBannerModel", () => {
+		it("offers a refresh to a connected editor, invites one with no connection to connect, and names who can for a viewer", () => {
+			const hq = origin("commcare-hq");
+			expect(managedTableBannerModel(hq, true, true, false)).toEqual({
+				kind: "managed-in-hq",
+				refresh: "offered",
+				manageInNova: "needs-admin",
+			});
+			expect(managedTableBannerModel(hq, false, true, false)).toEqual({
+				kind: "managed-in-hq",
+				refresh: "connect",
+				manageInNova: "needs-admin",
+			});
+			expect(managedTableBannerModel(hq, false, false, false)).toEqual({
+				kind: "managed-in-hq",
+				refresh: "needs-editor",
+				manageInNova: "needs-admin",
+			});
+		});
+
+		it("offers Manage in Nova to an admin with no connection, since it reads nothing of CommCare HQ", () => {
+			expect(
+				managedTableBannerModel(origin("commcare-hq"), false, true, true),
+			).toEqual({
+				kind: "managed-in-hq",
+				refresh: "connect",
+				manageInNova: "offered",
+			});
+		});
+
+		it("offers the hand-back to a connected admin only, and names who can before asking anyone to connect", () => {
+			const hq = origin("nova");
+			expect(managedTableBannerModel(hq, true, true, true)).toEqual({
+				kind: "managed-in-nova",
+				handBack: "offered",
+			});
+			expect(managedTableBannerModel(hq, false, true, true)).toEqual({
+				kind: "managed-in-nova",
+				handBack: "connect",
+			});
+			expect(managedTableBannerModel(hq, false, true, false)).toEqual({
+				kind: "managed-in-nova",
+				handBack: "needs-admin",
+			});
+		});
+	});
+
+	describe("managedTableOutcomeLines", () => {
+		const landed = (
+			changed: "nothing" | "rows" | "definition" | "superseded",
+			keptGoneColumns: {
+				wireName: string;
+				apps: { appId: string; appName: string; deleted: boolean }[];
+			}[] = [],
+		) =>
+			({
+				ok: true,
+				table: entry(tableId, origin("commcare-hq")),
+				receipt: {
+					definitionRevision: revision("5"),
+					rowsRevision: revision("5"),
+					tableRevision: revision("5"),
+					changed,
+					addedColumns: [],
+					removedColumns: [],
+					keptGoneColumns: keptGoneColumns.map((column, index) => ({
+						id: [nameColumnId, codeColumnId][index] ?? nameColumnId,
+						...column,
+					})),
+				},
+			}) as const;
+		const app = { appId: "app-1", appName: "Facility visits", deleted: false };
+
+		it("says what a refresh changed", () => {
+			expect(
+				managedTableOutcomeLines(landed("nothing"), "district-health"),
+			).toEqual({ tone: "status", lines: [MANAGED_TABLE_ALREADY_MATCHES] });
+			expect(
+				managedTableOutcomeLines(landed("rows"), "district-health"),
+			).toEqual({ tone: "status", lines: [MANAGED_TABLE_REFRESHED_ROWS] });
+			expect(
+				managedTableOutcomeLines(landed("definition"), "district-health"),
+			).toEqual({ tone: "status", lines: [MANAGED_TABLE_REFRESHED_COLUMNS] });
+			expect(
+				managedTableOutcomeLines(landed("superseded"), "district-health"),
+			).toEqual({ tone: "status", lines: [MANAGED_TABLE_REFRESHED_SINCE] });
+		});
+
+		it("names each column a refresh kept for the apps that read it, and none an app does not read", () => {
+			expect(
+				managedTableOutcomeLines(
+					landed("definition", [
+						{ wireName: "district", apps: [app] },
+						{ wireName: "zone", apps: [] },
+					]),
+					"district-health",
+				),
+			).toEqual({
+				tone: "status",
+				lines: [
+					MANAGED_TABLE_REFRESHED_COLUMNS,
+					managedColumnKept("district", [app], "district-health"),
+				],
+			});
+		});
+
+		it("says nothing of a change with no receipt, and a refusal's own sentence", () => {
+			expect(
+				managedTableOutcomeLines(
+					{ ok: true, receipt: null, table: entry(tableId, origin("nova")) },
+					"district-health",
+				),
+			).toEqual({ tone: "status", lines: [] });
+			expect(
+				managedTableOutcomeLines(
+					{
+						ok: false,
+						reason: "unavailable",
+						message: "CommCare HQ didn't answer just now.",
+					},
+					"district-health",
+				),
+			).toEqual({
+				tone: "alert",
+				lines: ["CommCare HQ didn't answer just now."],
+			});
+		});
 	});
 });

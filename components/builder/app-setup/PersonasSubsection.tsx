@@ -33,6 +33,7 @@ import { asUuid } from "@/lib/doc/types";
 import type { Persona, UserProperty, UserType } from "@/lib/domain";
 import { hasOwnRecordKey, ownRecordValue } from "@/lib/domain";
 import { useOrganization } from "@/lib/organization/useOrganization";
+import { MANAGED_PLACES_NO_PERSONA } from "@/lib/publish/managedData";
 import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { DraftCommitInput } from "./DraftCommitField";
@@ -81,8 +82,11 @@ export function PersonasSubsection() {
 		>
 			{personas.length === 0 ? (
 				<SubsectionEmpty>
-					No personas yet. Add one to preview the app as a particular worker
-					instead of as yourself.
+					{/* Places CommCare HQ manages reach Preview only through a
+					 *  persona standing in one, so the invitation says that. */}
+					{organization.hq !== undefined
+						? MANAGED_PLACES_NO_PERSONA
+						: "No personas yet. Add one to preview the app as a particular worker instead of as yourself."}
 				</SubsectionEmpty>
 			) : (
 				personas.map((persona) => (

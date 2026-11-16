@@ -783,6 +783,9 @@ function appLevelValues(
 		makeTranslationUnitId("app", "name"),
 	);
 	return {
+		// A Connect app captures location on every form. Over an app brought
+		// in from CommCare HQ that left it off, the first-publish register
+		// declares the change (`connect-app-captures-location`).
 		...(doc.connectType && { autoGpsCapture: true }),
 		langs: [...localization.languages],
 		translations: Object.fromEntries(

@@ -54,6 +54,71 @@ this lock order (`writerTransaction.ts` — do not fork it in a new writer):
    transactional notification;
 7. commit.
 
+`lockOrganizationForWrite` takes a required `purpose`. `author` is the four
+place writers' (`createLocation`, `updateLocation`, `moveLocation`,
+`setLocationArchived`, all through `withOrganizationWrite`), and on an app
+whose places CommCare HQ manages (`app_organization_state.hq_server` set) it
+throws `managed-in-hq` with the sentence that sends the person to CommCare HQ
+and Refresh, before the revision compare, so a stale tab learns the places are
+managed rather than being sent to reload. `read` is `describeArchiveImpact`'s,
+never refused because it writes nothing. `hq-refresh` is the refresh's, and is
+refused where the app has no managed copy.
+
+A managed copy has two writers, both in `managed.ts` and both taking the
+caller's transaction. `writeManagedPlacesInTransaction` writes the copy at an
+app's birth, inside the genesis tail and before the tail's integrity step, so
+`applyOrganizationCommitIntegrity` proves the rows against the levels and
+location properties the same birth saves; it takes no lock, because the app row
+is that transaction's own insert. `refreshManagedPlacesInTransaction` matches
+CommCare HQ's places by `hq_location_id` first, because CommCare HQ lets a
+place's site code change under its stable `location_id`, then by site code (a
+code CommCare HQ re-made under a new id).
+It inserts, updates (site code included), archives and restores, keeps live a
+place the plan no longer lists that `app_location_references` names (a
+persona, an owner rule or an automation) and its unlisted ancestors, so
+nothing live stands under an archived place. A kept place KEEPS its
+`hq_location_id`, so a refresh that finds it listed again under any code
+matches it by that id; one CommCare HQ no longer has (not one the plan leaves
+out at a level the app lacks, `leftOutHqLocationIds`) takes `hq_gone_at`,
+which worker provisioning reads as gone and the next match clears. A kept place
+the plan leaves out stays as the copy held it, at its old level, and the
+refresh names it (`keptLeftOut`, Copy O27), as the standing left-out line
+(O8) says such places stay. A gone row
+whose code CommCare HQ now gives another place takes a numbered code, and
+re-coded rows pass through a `~<id>` placeholder so a swap never meets the
+unique site code midway. Past `MAX_LOCATIONS_PER_APP` (archived rows count,
+since every whole-tree read reads them) it deletes archived rows nothing
+names and no case is owned by (`service.ts::locationsOwningCases`, open and
+closed cases alike, since a case's `owner_id` is the row's id), longest
+archived first and each after the rows under it, and refuses
+`limit` only where the rows that must stay pass the bound: no author can shed
+an archived row of a managed copy, so without this a project space that keeps
+replacing places would refuse every refresh. It proves the LIVE result
+against the document as the place writers do, with sentences that name a step that works on a managed copy
+(`managedPlacesRefreshRefusal`; the reverse hop through
+`ownerTargetVerdicts.ts::reverseLocationOwnerVerdict`), and advances the
+revision once, or not at all where the stored digest and left-out counts equal
+the plan's. A refresh never writes the document, so it never unassigns a
+persona: the person moves the persona and refreshes again, and a refresh that
+kept a place stores a digest no plan equals, so that next refresh compares the
+rows again. Its `at` is when the read of CommCare HQ began: under the
+organization lock, a refresh whose `at` is earlier than the stored
+`hq_refreshed_at` writes nothing and answers `superseded`, so an older read
+never replaces a newer one.
+
+In a managed copy an archived row is a place CommCare HQ no longer lists. No
+author can unarchive or move it, and a refresh that restores it rewrites its
+level, parent and values from CommCare HQ's list, so neither the refresh's
+proof nor the commit's three row-to-document checks count it: otherwise a
+place deleted in CommCare HQ would hold a refresh or a level edit back for
+good. Such a row may therefore stand at a level the document no longer has.
+A live row with `hq_gone_at` is a place CommCare HQ no longer has, so the
+commit's refusals over it, and the builder's (the snapshot's `hq.goneIds`),
+take their kept forms, which send the person to change what uses it; and the
+reverse hop's refusal, whose author sentences ask for a place added or
+archived, is worded through `ownerTargetVerdicts.ts::reverseLocationOwnerRefusal`
+where the places are managed.
+
 **This is the existing app-first prefix, not a new one.** Every run, commit,
 and thread write already takes the app row first, so a level removal inside a
 blueprint commit and a concurrent location insert at that level serialize on
@@ -94,8 +159,9 @@ correctly roll back.
 transaction** (`lib/db/apps.ts::commitGuardedBatchInTransaction`), after the
 verdict and before the entity write.
 
-- **Document → rows.** A persona's assignment and every fixed case-owner term
-  name location rows, which
+- **Document → rows.** A persona's assignment, every fixed case-owner term,
+  and every automation location criterion or alert location recipient name
+  location rows, which
   become exact edges in `app_location_references`. The complete set is
   replaced on every authoritative commit, so the edges are derived state any
   unrelated commit reconverges — the same contract lookup edges have. The
@@ -123,13 +189,22 @@ verdict and before the entity write.
   an occupied level whose parent level changed. The document-side removal
   planner also refuses while an automation uses the level to filter descendant
   location recipients, naming the automation to repair before proposing the
-  destructive batch.
+  destructive batch. Where an app's places are managed in CommCare HQ, the
+  same three refusals (a removed level still occupied, a placement the change
+  breaks, a value the change no longer admits) say so and send the author to
+  CommCare HQ and Refresh, and pass over archived rows there (above). They read
+  the origin only once a row would refuse, so a commit no row refuses reads
+  nothing more.
 
 ## Archive is the reversible gesture, and it spans both stores
 
 There is no hard delete, matching the platform: HQ exposes archive/unarchive
 only, and its v0.6 location API has no `delete` method at all. Deleting a row
-whose id is a live `owner_id` would strand cases irreversibly.
+whose id is a live `owner_id` would strand cases irreversibly. The one delete
+is a managed copy's refresh past `MAX_LOCATIONS_PER_APP` (above): only rows
+already archived because CommCare HQ no longer lists them, which no author can
+bring back, that nothing names and that own no case, and only as many as the
+bound needs.
 
 Archiving is also where a published place parts company with Nova. The push
 sends live places only, so archiving stops Nova naming that place and the
@@ -247,6 +322,9 @@ a memory of an older one.
   `_update` REGENERATES the code on any request carrying a new `name` without
   one — so a rename that let the code drift would silently repoint the
   bulk-upload key on the next push. The push must always send the stored code.
+  A copy CommCare HQ manages is the exception: its codes are CommCare HQ's,
+  and a refresh follows a re-coded place by its `hq_location_id`, which a
+  kept place keeps for the same reason.
 - A level may change only while the place is a **leaf**, which is HQ's rule
   (`util.py::get_location_type`) enforced in the store rather than the form.
 
@@ -323,9 +401,11 @@ Rows still come only from complete server reads, never an optimistic reducer.
   Custom values are omitted unless explicitly requested. Every SA/MCP row
   write, including an atomic branch create, requires the exact revision it
   read, and callers chain the revision each write returns.
-- `countCasesOwnedBy` in `service.ts` is the one place this package reads case
-  rows, and it is raw SQL because `cases` belongs to the case store's schema
-  rather than `AppDatabase`. It is advisory only — never a gate.
+- `countCasesOwnedBy` and `locationsOwningCases` in `service.ts` are the two
+  places this package reads case rows, raw SQL because `cases` belongs to the
+  case store's schema rather than `AppDatabase`. The count is advisory only,
+  never a gate; the set keeps a managed refresh from deleting a row a case
+  names as its owner.
 - Do not import `lib/commcare` here. The compile boundary owns the fixture's
   meaning and its budget; it may refuse to emit a footprint but cannot
   reinterpret these rows.

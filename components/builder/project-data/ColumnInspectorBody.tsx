@@ -11,12 +11,18 @@
  *   - the TYPE and REMOVAL are destructive or contract-breaking, need `delete`,
  *     AND need zero apps referencing the column, which is what the
  *     confirmation names before it happens.
+ *
+ * What may change comes from `projectDataInspector`, which reads it from the
+ * table's manifest entry: a table CommCare HQ manages offers none of the four,
+ * and says why. A column CommCare HQ's table no longer has, kept because apps
+ * still read it, says so and names those apps.
  */
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId, useState } from "react";
+import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
@@ -34,7 +40,7 @@ import type {
 	LookupRevision,
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
-import { useCanDelete, useProjectCanEdit } from "@/lib/session/hooks";
+import { appsThatReadIt, COLUMN_GONE_IN_HQ } from "@/lib/publish/managedData";
 import { DestructiveChangeDialog } from "./DestructiveChangeDialog";
 import { LookupOrderingSection } from "./LookupOrderingSection";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
@@ -46,24 +52,44 @@ import {
 	keepRevisionedTextDraft,
 	type RevisionedTextDraft,
 	reconcileRevisionedTextDraft,
+	type TableEditability,
 } from "./projectDataModel";
+import { useManagedLookupTableView } from "./useProjectData";
 import { useColumnWrites } from "./useProjectDataWrites";
 
 export function ColumnInspectorBody({
 	column,
 	table,
 	workspace,
+	editability,
+	readOnlyNotice,
 }: {
 	column: LookupColumn;
 	table: LookupTableSnapshot;
 	workspace: ProjectDataWorkspace;
+	editability: TableEditability;
+	/** Why nobody may change this column, where the reason is the table and
+	 *  not the viewer's role: a table CommCare HQ manages. */
+	readOnlyNotice?: string;
 }) {
-	const canEdit = useProjectCanEdit();
-	const canDelete = useCanDelete();
+	const canEdit = editability.edit;
+	const canDelete = editability.changeSchema;
+	const gone = table.hq?.goneColumnIds.includes(column.id) === true;
+	const goneView = useManagedLookupTableView(table, gone);
+	const goneApps =
+		goneView.state.kind === "data"
+			? goneView.state.value.goneColumns.find(
+					(candidate) => candidate.wireName === column.wireName,
+				)?.apps
+			: undefined;
 	const labelId = useId();
 	const wireNameId = useId();
 	const typeId = useId();
-	const writes = useColumnWrites(table, workspace.reload);
+	const writes = useColumnWrites(
+		table,
+		workspace.reload,
+		workspace.reloadManifest,
+	);
 
 	const [label, setLabel] = useState(() =>
 		createRevisionedTextDraft(column.label, table.tableRevision),
@@ -100,10 +126,45 @@ export function ColumnInspectorBody({
 
 	return (
 		<div className="space-y-5">
+			{gone && (
+				<div
+					data-project-data-gone-column={column.id}
+					className="space-y-2 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2.5"
+				>
+					<Badge variant="amber">{COLUMN_GONE_IN_HQ}</Badge>
+					{goneView.state.kind === "loading" ||
+					goneView.state.kind === "idle" ? (
+						<p
+							role="status"
+							className="text-[13px] leading-relaxed text-nova-text-secondary"
+						>
+							Checking which apps read this column
+						</p>
+					) : goneView.state.kind === "failed" ? (
+						<p
+							role="alert"
+							className="text-[13px] leading-relaxed text-nova-text-secondary"
+						>
+							Nova couldn't check which apps read this column.{" "}
+							<Button
+								type="button"
+								variant="ghost-action"
+								onClick={() => void goneView.reload()}
+							>
+								Try again
+							</Button>
+						</p>
+					) : goneApps !== undefined && goneApps.length > 0 ? (
+						<p className="text-[13px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]">
+							{appsThatReadIt(goneApps)}
+						</p>
+					) : null}
+				</div>
+			)}
 			{!canEdit && (
 				<p className="rounded-lg bg-nova-elevated px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary">
-					You can read this column. Changing it needs edit access to this
-					project.
+					{readOnlyNotice ??
+						"You can read this column. Changing it needs edit access to this project."}
 				</p>
 			)}
 
@@ -166,8 +227,9 @@ export function ColumnInspectorBody({
 					</p>
 				)}
 				<p className="mt-1 text-[12px] leading-snug text-nova-text-muted">
-					Shown in this table and wherever a question offers its values.
-					Changing it is safe.
+					{readOnlyNotice !== undefined
+						? "Shown in this table and wherever a question offers its values."
+						: "Shown in this table and wherever a question offers its values. Changing it is safe."}
 				</p>
 			</div>
 
@@ -234,7 +296,9 @@ export function ColumnInspectorBody({
 				<p className="mt-1 text-[12px] leading-snug text-nova-text-muted">
 					{canDelete
 						? "This is the heading a CSV import must use, and the name CommCare sees. Changing it means every CSV you import from now on needs the new heading."
-						: "This is the heading a CSV import must use, and the name CommCare sees. Changing it needs admin access."}
+						: readOnlyNotice !== undefined
+							? "This is the heading a CSV import must use, and the name CommCare sees."
+							: "This is the heading a CSV import must use, and the name CommCare sees. Changing it needs admin access."}
 				</p>
 			</div>
 
@@ -279,7 +343,9 @@ export function ColumnInspectorBody({
 				<p className="mt-1 text-[12px] leading-snug text-nova-text-muted">
 					{canDelete
 						? "Every value already in this column has to fit the new type. Nova checks before it changes anything."
-						: "Changing the type needs admin access."}
+						: readOnlyNotice !== undefined
+							? "Every column of a table CommCare HQ manages is text, as CommCare HQ holds it."
+							: "Changing the type needs admin access."}
 				</p>
 			</div>
 

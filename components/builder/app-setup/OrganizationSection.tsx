@@ -9,7 +9,10 @@
  *
  * The store's snapshot is read once here and passed down, so the two
  * subsections that need it (Places, and Levels for its occupied set) share
- * one subscription rather than racing two.
+ * one subscription rather than racing two. Where the places are a copy
+ * CommCare HQ manages, the snapshot says so (`hq`): the banner above says
+ * where they live, Levels says what Nova assumed, and Places offers no
+ * control.
  */
 "use client";
 
@@ -18,6 +21,8 @@ import { Spinner } from "@/components/shadcn/spinner";
 import { useOrganization } from "@/lib/organization/useOrganization";
 import { useAppId } from "@/lib/session/hooks";
 import { LevelsSubsection } from "./LevelsSubsection";
+import { ManagedPlacesBanner } from "./ManagedPlacesBanner";
+import { levelOccupancy, managedPlacesContext } from "./organizationUi";
 import { PlaceInformationSubsection } from "./PlaceInformationSubsection";
 import { PlacesSubsection } from "./PlacesSubsection";
 
@@ -27,12 +32,11 @@ export function OrganizationSection() {
 	const appId = useAppId();
 	const organization = useOrganization(appId ?? "");
 
-	// Which levels currently hold a place — including archived ones, because
-	// CommCare's own guard counts them and unarchiving into a removed level
-	// would resurrect a row pointing at nothing.
-	const occupiedLevelUuids = new Set(
-		organization.locations.map((location) => location.levelUuid),
-	);
+	// Where CommCare HQ manages the places, and which levels hold a place the
+	// commit would count: archived ones too where Nova manages the places,
+	// live ones only where CommCare HQ does (`levelOccupancy`).
+	const managed = managedPlacesContext(organization.hq);
+	const occupiedLevels = levelOccupancy(organization.locations, managed);
 	const status = organization.loading ? (
 		<p className="flex items-center gap-2 rounded-lg border border-nova-border px-3 py-4 text-[13px] text-nova-text-muted">
 			<Spinner className="size-4" />
@@ -91,11 +95,22 @@ export function OrganizationSection() {
 								</Button>
 							</p>
 						)}
+						{organization.hq !== undefined && appId !== undefined && (
+							<ManagedPlacesBanner
+								appId={appId}
+								hq={organization.hq}
+								onRefreshed={organization.reload}
+							/>
+						)}
 						<LevelsSubsection
-							occupiedLevelUuids={occupiedLevelUuids}
+							occupiedLevels={occupiedLevels}
 							locations={organization.locations}
+							managed={managed}
 						/>
-						<PlaceInformationSubsection locations={organization.locations} />
+						<PlaceInformationSubsection
+							locations={organization.locations}
+							managed={managed}
+						/>
 						<PlacesSubsection organization={organization} />
 					</>
 				)}

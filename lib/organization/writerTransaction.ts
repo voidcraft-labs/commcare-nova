@@ -15,6 +15,7 @@ import { type AppDatabase, notifyAppOrganization } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { exactRunHolderMatches } from "@/lib/db/runHolderWrites";
 import { runLeaseState } from "@/lib/db/runLiveness";
+import { organizationManagedRefusal } from "@/lib/publish/managedData";
 import { OrganizationError } from "./errors";
 import { parseOrganizationRevision } from "./schema";
 import type { OrganizationRevision, OrganizationScope } from "./types";
@@ -43,6 +44,15 @@ import type { OrganizationRevision, OrganizationScope } from "./types";
 export interface LockedOrganization {
 	readonly revision: OrganizationRevision;
 	readonly locationCount: number;
+	/** Where the places came from in CommCare HQ, while it manages them. */
+	readonly hq: {
+		readonly server: string;
+		readonly domain: string;
+		readonly placesDigest: string;
+		readonly leftOut: Readonly<Record<string, number>>;
+		/** When the read of CommCare HQ the copy last took began. */
+		readonly refreshedAt: Date | null;
+	} | null;
 }
 
 export async function authorizeOrganizationWriteInTransaction(
@@ -160,11 +170,24 @@ export async function authorizeOrganizationWriteInTransaction(
 	}
 }
 
+/**
+ * Why a transaction takes the organization lock, which decides what it may do
+ * to places CommCare HQ manages. Required, so no caller locks without saying.
+ */
+export type OrganizationWritePurpose =
+	/** A person, the SA or an MCP client changing places. Refused while CommCare HQ manages them. */
+	| "author"
+	/** Bringing CommCare HQ's places into the copy. Refused where the app has no copy. */
+	| "hq-refresh"
+	/** A locked read that writes nothing. Allowed in every state. */
+	| "read";
+
 export async function lockOrganizationForWrite(
 	tx: Transaction<AppDatabase>,
 	scope: OrganizationScope,
 	options: {
 		readonly capability: AppCapability;
+		readonly purpose: OrganizationWritePurpose;
 		readonly exclusiveApp?: boolean;
 	},
 ): Promise<LockedOrganization> {
@@ -176,7 +199,15 @@ export async function lockOrganizationForWrite(
 		.execute();
 	const state = await tx
 		.selectFrom("app_organization_state")
-		.select(["revision", "location_count"])
+		.select([
+			"revision",
+			"location_count",
+			"hq_server",
+			"hq_domain",
+			"hq_places_digest",
+			"hq_left_out",
+			"hq_refreshed_at",
+		])
 		.where("app_id", "=", scope.appId)
 		.forUpdate()
 		.executeTakeFirst();
@@ -185,9 +216,36 @@ export async function lockOrganizationForWrite(
 			"App organization state disappeared after its locked upsert.",
 		);
 	}
+	const hq =
+		state.hq_server === null ||
+		state.hq_domain === null ||
+		state.hq_places_digest === null
+			? null
+			: {
+					server: state.hq_server,
+					domain: state.hq_domain,
+					placesDigest: state.hq_places_digest,
+					leftOut: state.hq_left_out ?? {},
+					refreshedAt: state.hq_refreshed_at,
+				};
+	// Before the revision compare its caller makes, so a stale tab learns the
+	// places are managed rather than being sent to reload first.
+	if (options.purpose === "author" && hq !== null) {
+		throw new OrganizationError(
+			"managed-in-hq",
+			organizationManagedRefusal(hq.domain),
+		);
+	}
+	if (options.purpose === "hq-refresh" && hq === null) {
+		throw new OrganizationError(
+			"not_found",
+			"This app has no places from CommCare HQ to refresh. Reload to get the latest organization.",
+		);
+	}
 	return {
 		revision: parseOrganizationRevision(state.revision),
 		locationCount: state.location_count,
+		hq,
 	};
 }
 

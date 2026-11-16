@@ -299,7 +299,7 @@ export const setLocationArchivedToolInputSchema = z
 
 export const getOrganizationTool = {
 	description:
-		"Read organization levels, place fields, revisions and places, including archived places. Continue with the returned cursor; restart if requested. Include saved custom values only when needed.",
+		"Read organization levels, place fields, revisions and places, including archived places. Continue with the returned cursor; restart if requested. Include saved custom values only when needed. When `places_managed_in_commcare_hq` is present, the places are a copy of CommCare HQ's. Levels and place information can still be changed; places cannot.",
 	inputSchema: getOrganizationInputSchema,
 	async execute(
 		input: z.infer<typeof getOrganizationInputSchema>,
@@ -422,6 +422,16 @@ export const getOrganizationTool = {
 					 * its first commit, a change set with no app row). */
 					blueprintSeq: ctx.snapshot.canonicalSeq,
 					revision: snapshot.revision,
+					/* Present while the places are a copy of a CommCare HQ
+					 * project space's, whose every place write is refused. */
+					...(snapshot.hq === undefined
+						? {}
+						: {
+								places_managed_in_commcare_hq: {
+									project_space: snapshot.hq.domain,
+									refreshed_at: snapshot.hq.refreshedAt,
+								},
+							}),
 					locations,
 					page: {
 						returned,

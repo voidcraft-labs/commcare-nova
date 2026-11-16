@@ -90,7 +90,11 @@ import {
 } from "@/lib/commcare/formLinkProjection";
 import { hqLocaleFileValue } from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
-import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
+import type {
+	CompiledLookupFixtureSet,
+	PreparedLookupWire,
+} from "@/lib/commcare/lookup/fixtures";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMediaBundle } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoProfileProperty } from "@/lib/commcare/multimedia/logoEntry";
@@ -287,6 +291,36 @@ function registerActionFor(
 }
 
 /**
+ * What `compileCczParts` takes: `CompileOptions` with the lookup wire split
+ * in two. The walk prints every lookup read under `lookupNaming`, and the
+ * suite embeds `lookupFixtures`' blocks, which the suite oracle resolves
+ * each `jr://fixture` declaration against.
+ */
+export type CompilePartsOptions = Omit<CompileOptions, "lookup"> & {
+	readonly lookupNaming?: LookupWireNaming;
+	readonly lookupFixtures?: CompiledLookupFixtureSet;
+};
+
+/** An archive's content before its app-string tables are serialized. */
+export interface CczParts {
+	/** Every text entry of the archive but each language's `app_strings.txt`, by its path. */
+	readonly files: Readonly<Record<string, string>>;
+	/** The media bundle's byte entries, as `packageCcz` takes them. */
+	readonly mediaEntries: readonly {
+		readonly path: string;
+		readonly bytes: Buffer;
+	}[];
+	/**
+	 * Each language directory's app-string table, as values, before any is
+	 * serialized: `default` first, then each language's own directory, each
+	 * table in the order the archive writes its lines.
+	 */
+	readonly tables: Readonly<Record<string, ReadonlyMap<string, string>>>;
+	/** Each app string's source unit, as the walk filled it. */
+	readonly appStringUnits: Readonly<Record<string, WireStringSource>>;
+}
+
+/**
  * Compile an HQ application JSON (already expanded from a domain doc)
  * into a .ccz archive `Buffer`.
  *
@@ -299,6 +333,13 @@ function registerActionFor(
  * the SAME manifest passed to `expandDoc` (so the jr:// references the
  * XForms + shells carry resolve to bundled files); the route that loads
  * assets passes one manifest to both. Absent = media-free archive.
+ *
+ * `compileCczParts` is the same walk up to each language's app-string
+ * table and before any is serialized, and
+ * `lib/commcare/appStrings.ts::localAppStringTable` reads a document's app
+ * strings from it. This function writes each `<dir>/app_strings.txt` from
+ * those tables, every value spelled as HQ's build spells it
+ * (`hqLocaleFileValue`), and packages the archive.
  */
 export function compileCcz(
 	hqJson: HqApplication,
@@ -306,6 +347,35 @@ export function compileCcz(
 	authoredDoc: BlueprintDoc,
 	opts: CompileOptions,
 ): Buffer {
+	const { lookup, ...rest } = opts;
+	const parts = compileCczParts(hqJson, appName, authoredDoc, {
+		...rest,
+		...(lookup !== undefined && {
+			lookupNaming: lookup.naming,
+			lookupFixtures: lookup.fixtures,
+		}),
+	});
+	const files: Record<string, string> = { ...parts.files };
+	for (const [dir, table] of Object.entries(parts.tables)) {
+		files[`${dir}/app_strings.txt`] = [...table]
+			.map(([key, value]) => `${key}=${hqLocaleFileValue(value)}`)
+			.join("\n");
+	}
+	return packageCcz(files, parts.mediaEntries);
+}
+
+/**
+ * The walk `compileCcz` packages: every form, the suite, the profile and the
+ * media suite, each through its oracle, and each language directory's
+ * app-string table, with the suite checked against every table. A value is
+ * returned as the text it is; serializing it is the caller's.
+ */
+export function compileCczParts(
+	hqJson: HqApplication,
+	appName: string,
+	authoredDoc: BlueprintDoc,
+	opts: CompilePartsOptions,
+): CczParts {
 	// The same derived module sequence the expander walked
 	// (`emissionPlan.ts`): authored modules with their menu forms, then the
 	// hidden module of each no-matches registration form.
@@ -314,7 +384,7 @@ export function compileCcz(
 	const hqModules = hqJson.modules;
 	const attachments = hqJson._attachments;
 	const assets = opts.assets;
-	const lookupNaming = opts.lookup?.naming;
+	const lookupNaming = opts.lookupNaming;
 	const localization = commCareLocalization(authoredDoc);
 	const sequence = opts.compiledAtSeq ?? 1;
 	const archiveVersion = sequence + (opts.earlierHqApps ?? 0);
@@ -1237,7 +1307,7 @@ export function compileCcz(
 	// position; the placement is a pinned canonical choice, not a parse
 	// requirement. The elements are the exact blocks the boundary's budget
 	// measured.
-	const suiteFixtures = (opts.lookup?.fixtures.fixtures ?? []).map(
+	const suiteFixtures = (opts.lookupFixtures?.fixtures ?? []).map(
 		(fixture) => fixture.element,
 	);
 	const entryPointSuite = buildEntryPointSuite(doc, linkContext);
@@ -1325,8 +1395,9 @@ export function compileCcz(
 	// (its runtime UI text among them), after Nova's own entries and over any
 	// of them, as HQ's build
 	// puts a stored translation over every string. Every value, Nova's own and
-	// the project space's, is written in HQ's own spelling
-	// (`hqLocaleFileValue`), so a worker reads one string from either. `default`
+	// the project space's, stays the text it is here; `compileCcz` writes each
+	// in HQ's own spelling (`hqLocaleFileValue`), so a worker reads one string
+	// from either. `default`
 	// takes the default language's names, and under each other key the text
 	// HQ's build merges into its default table from every language
 	// (`defaultAppStringsHeldText`); a language of the facts the app does not
@@ -1335,6 +1406,7 @@ export function compileCcz(
 		facts === null
 			? {}
 			: defaultAppStringsHeldText(facts.uiText, localization.languages);
+	const tables: Record<string, ReadonlyMap<string, string>> = {};
 	for (const [language, dir] of langDirs) {
 		const table = new Map<string, string>();
 		for (const [localeId, source] of Object.entries(appStrings)) {
@@ -1373,12 +1445,15 @@ export function compileCcz(
 					.join("\n")}`,
 			);
 		}
-		files[`${dir}/app_strings.txt`] = [...table]
-			.map(([key, value]) => `${key}=${hqLocaleFileValue(value)}`)
-			.join("\n");
+		tables[dir] = table;
 	}
 
-	return packageCcz(files, mediaBundle.cczEntries);
+	return {
+		files,
+		mediaEntries: mediaBundle.cczEntries,
+		tables,
+		appStringUnits,
+	};
 }
 
 /** The value `record` holds under its own `key`, never one it inherits. */

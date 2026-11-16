@@ -30,6 +30,7 @@ import type { DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import type { ExpressionReadEnv, GeneratedValue } from "../expressions";
 import { externalKey } from "../identity";
+import { pointerToken } from "../jsonCursor";
 import type { DefaultEvent, ReadMode } from "../pendingExpressions";
 import { placeKey, whereText } from "../place";
 import type { ReadGeneratedNode } from "../types";
@@ -595,7 +596,8 @@ function readForm(
 				: absolutePath(role.owner, rootName),
 		);
 		// A date and time an app Nova published before kept the device's clock is saved as
-		// CommCare HQ stores it at the first publish.
+		// CommCare HQ stores it at the first publish, which writes the form's source again: the
+		// record names that source in the stored app, as the Save to Case reader's does.
 		const ownerPath = role.owner === null ? undefined : formPathOf(role.owner);
 		const calculate = bind?.logic.calculate;
 		if (
@@ -603,12 +605,15 @@ function readForm(
 			ownerPath !== undefined &&
 			calculate !== undefined &&
 			datetimeSpelling(calculate, ownerPath) === "earlier"
-		)
+		) {
+			const readId =
+				ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
 			ctx.facts.sameStateRewrites.push({
 				entry: DATETIME_SIBLING_ENTRY,
-				path: absolutePath(node, rootName),
+				path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
 				register: "date-and-time-saved-as-hq-stores-it",
 			});
+		}
 	};
 	// Logic and load-time values (11), then text (12), both by the fields in document order.
 	const fields = fieldsInOrder(joined.childrenOf);
@@ -985,6 +990,9 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		entryFactsRefused: new Set(ctx.facts.entryFactsRefused),
 		formPlaces,
 		computedDatums,
+		...(ctx.input.knownCaseTypes !== undefined && {
+			knownCaseTypes: ctx.input.knownCaseTypes,
+		}),
 	};
 }
 

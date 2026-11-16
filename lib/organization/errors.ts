@@ -26,7 +26,13 @@ export type OrganizationErrorCode =
 	 */
 	| "not-committed"
 	/** The app already holds as many places as Nova stores. */
-	| "limit";
+	| "limit"
+	/**
+	 * The app's places are a copy of CommCare HQ's, which only a refresh
+	 * writes. Its own code because no edit, retried or reloaded, can succeed:
+	 * the next step is CommCare HQ, which the message names.
+	 */
+	| "managed-in-hq";
 
 /**
  * An expected service-layer rejection.

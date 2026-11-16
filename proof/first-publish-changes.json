@@ -1,0 +1,937 @@
+[
+	{
+		"change": "forms-and-settings-rewritten",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/case_references_data/load"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/filter"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/created_from_template"
+			}
+		]
+	},
+	{
+		"change": "hidden-values-added",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "case-names-checked",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions"
+			}
+		]
+	},
+	{
+		"change": "validation-counts-moved",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "validation-messages-composed",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "instant-comparison",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/module_filter"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/form_filter"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/form_links/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/*"
+			}
+		]
+	},
+	{
+		"change": "empty-rows-guard",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/module_filter"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/form_filter"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/form_links/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/*"
+			}
+		]
+	},
+	{
+		"change": "absent-session-value-guard",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/module_filter"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/form_filter"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/form_links/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/*"
+			}
+		]
+	},
+	{
+		"change": "row-predicate-current",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "search-value-guards",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/*"
+			}
+		]
+	},
+	{
+		"change": "search-today-device-day",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/*"
+			}
+		]
+	},
+	{
+		"change": "case-settings-respelled",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "search-filter-rows-recut",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/default_properties"
+			}
+		]
+	},
+	{
+		"change": "sort-rule-kept-as-hidden-column",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/sort_elements/*/field"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/sort_elements/*/display"
+			}
+		]
+	},
+	{
+		"change": "list-settings-respelled",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/max_select_value"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/sort_elements"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/title_label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/description"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/search_button_display_condition"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/blacklisted_owner_ids_expression"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/data_registry"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/custom_related_case_property"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/instance_name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/data_registry_workflow"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/additional_registry_cases"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/additional_case_types"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/hint"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/receiver_expression"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/default_value"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/required"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/validations/*/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/header"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/no_items_text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/select_text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/search_button_label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/alt_text"
+			}
+		]
+	},
+	{
+		"change": "search-filter-joined-to-list",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/filter"
+			}
+		]
+	},
+	{
+		"change": "search-restates-list-filter",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/default_properties"
+			}
+		]
+	},
+	{
+		"change": "link-held-case-guards-added",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/form_links/*/xpath"
+			}
+		]
+	},
+	{
+		"change": "registration-label-fixed",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/label/*"
+			}
+		]
+	},
+	{
+		"change": "date-and-time-saved-as-hq-stores-it",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "connect-app-captures-location",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/auto_gps_capture"
+			}
+		]
+	},
+	{
+		"change": "translation-overrides-folded",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/name/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/name/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/label/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/label/*"
+			}
+		]
+	},
+	{
+		"change": "location-list-setting-reset",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/location_fixture_restore"
+			}
+		]
+	},
+	{
+		"change": "web-apps-turned-off",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/cloudcare_enabled"
+			}
+		]
+	},
+	{
+		"change": "web-apps-turned-on",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/cloudcare_enabled"
+			}
+		]
+	},
+	{
+		"change": "date-and-time-questions-split",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions"
+			}
+		]
+	},
+	{
+		"change": "blank-translations-filled",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "media-paths-joined",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/logo_refs/*"
+			}
+		]
+	},
+	{
+		"change": "media-files-renamed",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/logo_refs/*"
+			}
+		]
+	},
+	{
+		"change": "media-references-with-no-file-removed",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/logo_refs/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*"
+			}
+		]
+	},
+	{
+		"change": "unused-media-entries-removed",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*"
+			}
+		]
+	},
+	{
+		"change": "names-respelled",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/app.display.name"
+			}
+		]
+	},
+	{
+		"change": "media-maps-respelled",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_image"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_audio"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/use_default_image_for_all"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/use_default_audio_for_all"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_image"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_audio"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/use_default_image_for_all"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/use_default_audio_for_all"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_image"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_audio"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/use_default_image_for_all"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/use_default_audio_for_all"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_image"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_audio"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/use_default_image_for_all"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/use_default_audio_for_all"
+			}
+		]
+	},
+	{
+		"change": "text-spaces-dropped",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/header"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/title_label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/description"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/label"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/hint"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/required/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/validations/*/text"
+			}
+		]
+	},
+	{
+		"change": "form-text-characters-written-as-outputs",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
+	}
+]

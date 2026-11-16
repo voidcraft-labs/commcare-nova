@@ -306,6 +306,20 @@ function buildError(args: {
 
 /** The unified child inventory carries every reference, including newly recursive
  * field filters and dynamic operands. Only the presence gate changes admission. */
+/**
+ * The Search fields a condition of a slot CommCare's search reads (the case list filter while
+ * Search is on, an advanced field's condition) reads outside their presence guard, in the order
+ * it reads them: this rule's refusal of the slot, which the reader of CommCare HQ's apps asks
+ * before it proposes a search row as either.
+ */
+export function unguardedSearchInputReads(
+	expression: Expression,
+): readonly Uuid[] {
+	return findBareInputRefs(expression, "requires-envelope", true).map(
+		(ref) => ref.inputUuid,
+	);
+}
+
 function findBareInputRefs(
 	expression: Expression,
 	mode: SlotMode,

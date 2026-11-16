@@ -18,7 +18,11 @@
 // - `list`: a case list. `tiles` says which of the client's two layouts
 //   it used. `headers` are the table's column headers as shown, `rows`
 //   each case's shown cells (for a tile, every cell with whether the
-//   browser lays its content out), `empty` the empty-list message's markup
+//   browser lays its content out; for a table, each cell's text and the
+//   address of the picture it lays out, and, for a picture the client
+//   gave no address, `drawn`: whether the browser draws anything for it,
+//   which it does for one whose alternative text is not empty, its
+//   stand-in for a picture it cannot show), `empty` the empty-list message's markup
 //   and whether the browser shows its box, `sort` the tile layout's sort
 //   choices, `actions` the list's action buttons, `search` whether the
 //   client offers its search box, and `cells` the first tile's cells as the
@@ -136,10 +140,19 @@
 							text: text(cell),
 							hidden: !visible(cell.firstElementChild ?? cell),
 						}))
-					: all(row, "td.module-case-list-column").map((cell) => ({
-							text: text(cell),
-							image: one(cell, "img")?.getAttribute("src") ?? null,
-						})),
+					: all(row, "td.module-case-list-column").map((cell) => {
+							const picture = one(cell, "img");
+							const image = picture?.getAttribute("src") ?? null;
+							if (image !== "") return { text: text(cell), image };
+							// A picture with no address loads nothing, so the box the
+							// browser gives it is settled once it is laid out.
+							const box = picture.getBoundingClientRect();
+							return {
+								text: text(cell),
+								image,
+								drawn: box.width > 0 && box.height > 0,
+							};
+						}),
 			})),
 			empty: empty
 				? {

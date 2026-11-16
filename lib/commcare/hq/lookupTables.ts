@@ -142,11 +142,14 @@ function toHqLookupTable(raw: unknown): HqLookupTable | null {
 	 * layer: the names identify the columns, and the properties are what the
 	 * drift comparison reads of each. */
 	const fields: string[] = [];
-	const fieldProperties: Record<string, readonly string[]> = {};
+	/* Entries, not bracket assignment: a field may be named `__proto__`,
+	 * which both grammars accept and an assignment would take as the
+	 * object's prototype. */
+	const properties: [string, readonly string[]][] = [];
 	for (const field of raw.fields) {
 		if (typeof field === "string") {
 			fields.push(field);
-			fieldProperties[field] = [];
+			properties.push([field, []]);
 			continue;
 		}
 		if (!isHqObject(field)) return null;
@@ -156,11 +159,13 @@ function toHqLookupTable(raw: unknown): HqLookupTable | null {
 				: typeof field.name === "string"
 					? field.name
 					: null;
-		const properties = stringList(field.properties);
-		if (name === null || properties === null) return null;
+		const own = stringList(field.properties);
+		if (name === null || own === null) return null;
 		fields.push(name);
-		fieldProperties[name] = properties;
+		properties.push([name, own]);
 	}
+	const fieldProperties: Record<string, readonly string[]> =
+		Object.fromEntries(properties);
 	const itemAttributes = stringList(raw.item_attributes);
 	if (itemAttributes === null) return null;
 	return {
@@ -226,16 +231,15 @@ export const LOOKUP_ROWS_READ_CONCURRENCY = 4;
 function toFixtureRowFields(
 	raw: Record<string, unknown>,
 ): HqFixtureRow["fields"] | null {
-	const fields: Record<string, HqFixtureRow["fields"][string]> = {};
+	/* Entries, not bracket assignment: a field named `__proto__` is a field
+	 * like any other, and an assignment would drop its value. */
+	const fields: [string, HqFixtureRow["fields"][string]][] = [];
 	const values = Object.values(raw);
 	/* The two shapes never mix in one row: `FixtureResource.dehydrate_fields`
 	 * falls back to the `field_list` form for the whole row as soon as one of
 	 * its fields holds more than one value. */
 	if (values.every((value) => typeof value === "string")) {
-		for (const [name, value] of Object.entries(raw)) {
-			fields[name] = value as string;
-		}
-		return fields;
+		return Object.fromEntries(Object.entries(raw) as [string, string][]);
 	}
 	for (const [name, value] of Object.entries(raw)) {
 		if (!isHqObject(value) || !Array.isArray(value.field_list)) return null;
@@ -255,9 +259,9 @@ function toFixtureRowFields(
 				properties: item.properties as Record<string, string>,
 			});
 		}
-		fields[name] = list;
+		fields.push([name, list]);
 	}
-	return fields;
+	return Object.fromEntries(fields);
 }
 
 /** One table's rows, with the total HQ reports for it. */

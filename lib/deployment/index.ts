@@ -28,6 +28,8 @@ export {
 export {
 	type DeploymentEnding,
 	deploymentEnding,
+	type FirstPublishState,
+	firstPublishOf,
 	leftBehindResources,
 	type NextPublishAction,
 	nextPublishAction,

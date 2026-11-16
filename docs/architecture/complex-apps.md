@@ -2290,7 +2290,11 @@ lookup tables — sharing a name and picking one would attach a deployment to
 somebody else's work. An adoption is never inferred: the publish REFUSES,
 names the resource, and only a caller naming that exact Nova id records it,
 attributed to who and when. An app is `adopted` by one route alone, bringing
-it in from CommCare HQ, which records who did. `pushed_identity` holds the external name a
+it in from CommCare HQ, which records who did. A Project's lookup table is
+accounted for in a project space when any app of the Project holds a live
+mapping for the table CommCare HQ has under its tag, so a second app publishes
+the Project's own table without being asked to take it over, inheriting the
+first adoption's who and when. `pushed_identity` holds the external name a
 resource carries there, which is what makes a renamed resource reportable as
 left behind. `lib/deployment/CLAUDE.md` owns the detail.
 
@@ -2514,9 +2518,11 @@ Preflight is a dependency graph with two kinds of edge. A blocking edge is a
 real prerequisite: no connection, an app the export boundary refuses, required
 project-space support Nova cannot confirm, or Project data or places Nova may
 not write over. Failing one leaves the deployment `incomplete` before any
-remote write. The `project-data`, `organization`, and project-space
-compatibility edges talk to HQ during preflight, each appearing only when the
-app carries that thing; the table
+remote write. The `managed-data`, `project-data`, `organization`, and
+project-space compatibility edges talk to HQ during preflight, each appearing
+only when the app carries that thing. `managed-data` comes first: it reads the
+lookup tables CommCare HQ manages for the app, refreshes Nova's copy where only
+rows changed, and stops the publish where something the app reads is gone; the table
 refusal is all-or-nothing because the workbook is one upload and a half-pushed
 project space has no honest state to describe it, and the place refusals are
 decided in full before the first batch for the same reason one level down. An attention edge is something the target needs that Nova

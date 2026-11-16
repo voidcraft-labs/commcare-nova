@@ -65,7 +65,7 @@ and a grouped observation only gains one field (6.4). So nothing here moves
 2. **`subject` is required on every HELD-NEW and REFUSED entry and forbidden elsewhere** (2.2). It is one
    of 83 slugs in `lib/publish/hqFindings.ts::SUBJECTS`, each a noun a person would use. Appendix A
    assigns the 586 entries the manifest held when the step began and every entry the step adds. Where
-   every run gives the outcome its part plans for, 676 entries hold one when the step is done: 296
+   every run gives the outcome its part plans for, 677 entries hold one when the step is done: 297
    HELD-NEW and 380 REFUSED.
 3. **`owner` is required on every HELD-NEW entry and forbidden elsewhere** (2.3). It is one of the
    eight step 7 group ids, the groups of `7-rest-of-model.md`. An entry step 6 itself flips carries
@@ -156,7 +156,7 @@ and a grouped observation only gains one field (6.4). So nothing here moves
     blocking edge of preflight, it names the profile and the language, and it says where the person
     changes it. Removing a language stays always allowed in Nova.
 26. **A finding is `{ code, standing, place, subject, detail }`, and a `fix-in-hq` one also carries its
-    `cause`** (8.1). `code` is a manifest entry id or one of 34 circumstances (8.3). Nothing parses a
+    `cause`** (8.1). `code` is a manifest entry id or one of 36 circumstances (8.3). Nothing parses a
     finding at run time, so there is no schema: one typed constructor makes a circumstance finding and
     the reader's index makes a manifest one. A media file over Nova's size limit and a table over Nova's
     caps are manifest entries, not circumstances. A `stop` is no standing of anything the app holds: it
@@ -793,7 +793,7 @@ export type Step7Group = (typeof STEP_7_GROUPS)[number];
 
 `inventoryEntrySchema`'s HELD-NEW arm gains `owner: z.enum(STEP_7_GROUPS)`; no other arm admits it.
 Appendix A.1 assigns every one. Where every run gives the outcome its part plans for, the counts when
-the step is done are `case-list-and-detail` 63, `question-display` 63, `case-search` 44,
+the step is done are `case-list-and-detail` 63, `question-display` 63, `case-search` 45,
 `forms-and-case-management` 41, `xform` 40, `menus` 22, `project-data-at-hq-size` 13 and
 `settings-nova-comes-to-own` 10 (the manifest test computes them). Updating a copy in a second
 project space is a thing Nova does, not content an app holds, so no entry can name it and the list
@@ -3186,7 +3186,7 @@ its table of a stop's actions total over the `stop` codes at compile time (secti
 no finding about the app and no standing of anything in it: it says the read ended. It is shown where
 the person stands and is never mixed into an account.
 
-The table holds 34 codes: the 19 stops, then the 15 an account can hold.
+The table holds 36 codes: the 19 stops, then the 17 an account can hold.
 
 | Code | Standing | Owner | Name | When | `detail` |
 |---|---|---|---|---|---|
@@ -3218,6 +3218,8 @@ The table holds 34 codes: the 19 stops, then the 15 an account can hold.
 | `table-rows-unreadable` | fix-in-hq | | body | a read of one table's rows answers a status of 500 or more that is not the edge's and is not 502, 503 or 504, and answers one again when it is sent once more, where the table list answered | `name`: the tag |
 | `table-cell-unrepresentable` | fix-in-hq | | body | a lookup table the app reads holds, in a field its definition names, a character XML 1.0 cannot carry | `name`: `"<tag> (the field <field name>)"` |
 | `table-choices-unusable` | fix-in-hq | | body | a question or a search field of the app takes its choices from a lookup table, and that table has no rows, or a row whose value is blank, has white space at an end or repeats another's, or whose label is blank | `name`: `"<tag> (the field <field name>)"` |
+| `table-has-no-fields` | fix-in-hq | | body | a lookup table the app reads has no field: CommCare HQ's Manage Tables page saves one, and Nova's table holds one column at least | `name`: the tag |
+| `table-field-repeated` | fix-in-hq | | body | a lookup table the app reads names one field twice: CommCare HQ's Manage Tables page, its lookup table API and its workbook upload all save such a list (part 11, section 5.3), and Nova's table holds one column per name | `name`: `"<tag> (the field <field name>)"` |
 | `no-platform-runs-everything` | fix-in-hq | | body | no declaration runs all of the app's content: some use runs only in Web Apps and some only on Android | `name`: the feature's label in curly quotes and the platform that cannot run it, `“Date and time questions”, which Web Apps can't run`; `reason`: `split-refused` at a date and time question whose split is refused (8.4) |
 | `places-over-nova-limit` | not-yet | `project-data-at-hq-size` | body | the project space has more active places than Nova holds for an app | `name`: the count CommCare HQ reports, `"12,400 places"`, or `"more than 10,000 places"` where it reports none |
 | `place-not-holdable` | not-yet | `project-data-at-hq-size` | body | a level's code, a place's site code, name, coordinates, parent or a value the app reads is outside what Nova's organization holds | `name`: the level's or the place's name |
@@ -3237,7 +3239,7 @@ telling two findings apart, and no surface shows it. A code with no `name` carri
 and `changed-while-reading` from the bracketed read (part 05, section 8.2). `notSummarizedMenus` gives
 `menu-unreadable-in-hq` and `app-unreadable-in-hq` (part 05, section 8.3). The reader gives
 `shadow-disagrees`, `unrecognized` and `no-platform-runs-everything` (part 06, sections 14.2, 4.4 and
-16.3). Part 11 gives the two media codes, the three table codes and the three place codes
+16.3). Part 11 gives the two media codes, the five table codes and the three place codes
 (`11-project-data.md`, section 13.2). Acceptance and the birth give `read-back-differs` (part 09, section
 14; part 12, `12-the-reading-and-the-birth.md`, section 6.5). What a read and a create answer for each is
 part 12's table (its section 3.8).
@@ -3681,6 +3683,8 @@ code cite it.
 | `table-rows-unreadable` | CommCare HQ couldn't send this table's rows | CommCare HQ listed the lookup table {name} and then couldn't send its rows. A row that holds a field with no value is one cause Nova knows of. | You can open the table in CommCare HQ and fill in or remove that row, then check again. |
 | `table-cell-unrepresentable` | A lookup table holds a character CommCare can't carry | The lookup table {name} in {space} holds a character CommCare can't carry in a value. | You can take that character out in CommCare HQ, then check again. |
 | `table-choices-unusable` | A lookup table's rows can't be a question's choices | A question takes its choices from the lookup table {name} in {space}, and that table has no rows there, or has a row whose value is blank, starts or ends with a space or appears twice, or whose label is blank. | You can change those rows in CommCare HQ, then check again. |
+| `table-has-no-fields` | A lookup table has no fields | The lookup table {name} in {space} has no fields, and Nova holds a lookup table only with at least one. | You can add a field to it in CommCare HQ, then check again. |
+| `table-field-repeated` | A lookup table has two fields of one name | The lookup table {name} in {space} has more than one field of that name, and Nova holds each field of a table under a name of its own. | You can rename or remove one of them in CommCare HQ, then check again. |
 | `no-platform-runs-everything` | No one platform runs this whole app | This uses {name}. Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work. | You can change one of these in CommCare HQ so one platform runs everything, then check again. Under `detail.reason: "split-refused"`: You can change how the date and time question {question} reads its own answer in CommCare HQ, then check again. |
 | `places-over-nova-limit` | This project space has more places than Nova takes | {app} reads places, and {space} has {name}. Nova holds up to 10,000 for an app. | There is nothing for you to change. You can check again after a Nova update. |
 | `place-not-holdable` | A place or level is one Nova can't hold yet | {name} in {space} has a code, a name or a value Nova can't hold yet. | There is nothing for you to change. You can check again after a Nova update. |
@@ -3688,7 +3692,7 @@ code cite it.
 | `unrecognized` | Nova met something it doesn't know | Nova found something in this app it has no reading for yet. That gap is Nova's, and it has been reported to the team with what it was. | There is nothing for you to change. You can check again after a Nova update. |
 | `read-back-differs` | Nova couldn't confirm what it read | Nova read {app}, and one of Nova's own checks on what it read didn't pass. That's Nova's mistake, not the app's, and it has been reported to the team. | You can check again after a Nova update. |
 
-For `table-cell-unrepresentable` and `table-choices-unusable`, `{name}` is the whole `detail.name`,
+For `table-cell-unrepresentable`, `table-choices-unusable` and `table-field-repeated`, `{name}` is the whole `detail.name`,
 so a body reads "The lookup table regions (the field district_name) in ...". For
 `no-platform-runs-everything`, `{name}` is the feature's label in curly quotes and the platform that
 cannot run it, so a body opens "This uses “Date and time questions”, which Web Apps can't run."; the
@@ -4098,7 +4102,7 @@ numbers are cited from other files, so none moves.
     (`case-sharing`, `connect-blocks`, `lookup-tables`, `search-expressions`, `question-media`), so
     "set up in a way CommCare HQ can't save or build" would be false of an app HQ builds. `not-yet` and
     `never` keep one sentence per subject.
-12. **Permissions are three codes, and `READ_CIRCUMSTANCES` closes at thirty-four.** Permissions are
+12. **Permissions are three codes, and `READ_CIRCUMSTANCES` closes at thirty-five.** Permissions are
     three codes, chosen by the read (8.3): HQ says which permission only through which read it
     refused, and one sentence naming every permission would send a person to ask for ones they hold.
     Not done: one `permissions` code, or a list closed at the plain failures of a read. The parts
@@ -4451,7 +4455,7 @@ Counts by owner over these 237: `case-list-and-detail` 56, `case-search` 30,
 
 Each entry below becomes HELD-NEW in this step and holds both fields from then on. The part and
 section beside it write the entry's other fields. An entry marked "re-cut" exists today under another
-disposition. There are 80.
+disposition. There are 81.
 
 - `advanced-forms` → `forms-and-case-management` (part 07, `07-the-reader-cases-menus-lists.md`,
   section 14): `forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain`,
@@ -4548,6 +4552,7 @@ disposition. There are 80.
   `questions/savetocase-link-name-outside-nova-s-identifier-grammar`
 - `search-default-filters` → `case-search` (part 07, section 14):
   `case-search/xpath-query-row-reading-a-field-hq-also-matches`,
+  `case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard`,
   `case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s`
 - `search-expressions` → `case-search` (part 08, section 11):
   `case-search/a-search-value-that-queries-cases-a-table-or-places`,

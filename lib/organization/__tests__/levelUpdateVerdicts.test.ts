@@ -105,6 +105,61 @@ describe("organizationLevelPatchIssue", () => {
 		).toMatch(/bring it back.*move it to a valid parent/i);
 	});
 
+	it("sends the person to CommCare HQ where it manages the places, and passes over places it no longer lists", () => {
+		const { doc, locations } = fixture();
+		expect(
+			organizationLevelPatchIssue(
+				doc,
+				locations,
+				FACILITY,
+				{ parentLevelUuid: null },
+				{ domain: "district-health", goneIds: new Set() },
+			),
+		).toBe(
+			"“Clinic” wouldn't fit where it stands after this level change, and this app's places are managed in CommCare HQ (district-health). You can move it there and refresh, then try the change again.",
+		);
+		// Archived in a managed copy: a place CommCare HQ no longer lists.
+		const archived = locations.map((location) =>
+			location.id === FACILITY_PLACE
+				? { ...location, archivedAt: new Date("2026-08-03T00:00:00.000Z") }
+				: location,
+		);
+		const unassigned: BlueprintDoc = {
+			...doc,
+			personas: { [PERSONA]: { uuid: PERSONA, name: "Asha" } },
+		};
+		expect(
+			organizationLevelPatchIssue(
+				unassigned,
+				archived,
+				FACILITY,
+				{ parentLevelUuid: null },
+				{ domain: "district-health", goneIds: new Set() },
+			),
+		).toBeUndefined();
+		// Without a managing project space the archived place still counts.
+		expect(
+			organizationLevelPatchIssue(unassigned, archived, FACILITY, {
+				parentLevelUuid: null,
+			}),
+		).toMatch(/bring it back.*move it to a valid parent/i);
+	});
+
+	it("sends the person to what uses a live place CommCare HQ no longer has", () => {
+		const { doc, locations } = fixture();
+		expect(
+			organizationLevelPatchIssue(
+				doc,
+				locations,
+				FACILITY,
+				{ parentLevelUuid: null },
+				{ domain: "district-health", goneIds: new Set([FACILITY_PLACE]) },
+			),
+		).toBe(
+			"“Clinic” wouldn't fit where it stands after this level change. CommCare HQ (district-health) no longer has it, and Nova keeps it only while something in this app uses it or a place below it. You can move or change what uses it and refresh, then try the change again.",
+		);
+	});
+
 	it("refuses turning off workers while a persona remains assigned", () => {
 		const { doc, locations } = fixture();
 		expect(

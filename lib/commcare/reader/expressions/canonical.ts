@@ -53,9 +53,11 @@ import { sameJson } from "../jsonCursor";
 import { shapedLiteral as shapedLiteralText } from "./folds";
 
 /** What the emitter's print of the slot binds beside its context: the
- *  questions whose read prints as the path the case operation emitter binds
- *  it to, whatever its spelling, where `xform/caseOps.ts` prints the slot
- *  from a Save to Case block's node (`readExpression.ts::slotPrint`). */
+ *  questions whose read prints as the path the emitter binds it to, whatever
+ *  its spelling, where `xform/caseOps.ts` prints the slot from a Save to Case
+ *  block's node, and every question of the form in a select's choices from a
+ *  table or from cases (`bindLookupFilterFieldPaths`;
+ *  `readExpression.ts::slotPrintUnder`). */
 export interface SlotPrint {
 	readonly boundFields?: ReadonlySet<Uuid>;
 }
@@ -469,6 +471,18 @@ function literalTexts(value: string, mode: WireMode): string[] {
 	return literalArguments(value, mode, true).map((arg) => arg.text);
 }
 
+/** Whether `node` is a text literal that prints alone as a `concat` of the
+ *  very arguments it prints as inside one, so `concat(<node>)` and `<node>`
+ *  print the same bytes. */
+function printsAsItsOwnConcat(node: Expression, mode: WireMode): boolean {
+	const text = stringLiteral(node);
+	if (text === undefined) return false;
+	const tokens = (keepEmptyQuotePieces: boolean) =>
+		literalArguments(text, mode, keepEmptyQuotePieces).map((arg) => arg.token);
+	const alone = tokens(false);
+	return alone.length > 1 && sameJson(alone, tokens(true));
+}
+
 /** The property a query of the worker's own case reads: the `casedb` row
  *  of type `commcare-user` whose `hq_user_id` is the session's user. */
 function usercaseProjection(node: Expression): string | undefined {
@@ -499,11 +513,37 @@ function usercaseProjection(node: Expression): string | undefined {
 		: undefined;
 }
 
-/** The worker-record leaf of a slug: the app's worker property of that slug
- *  by identity where the app holds exactly one, else the name-backed read,
- *  as the parser binds `#user/<slug>`. */
-function workerRecordLeaf(slug: string, context: ExpressionContext): Term {
-	const matches = [...context.facts.userPropertySlugs].filter(
+/** The worker leaf of a slug read from `source`: the app's worker property of
+ *  that slug by identity where the app holds exactly one, else the
+ *  name-backed read, as the parser binds `#user/<slug>` and the session's
+ *  `user/data/<slug>` (`xpath/referenceBindings.ts::formUserProperty`). */
+function workerLeaf(
+	slug: string,
+	context: ExpressionContext,
+	source: "worker-record" | undefined,
+): Term {
+	const held = workerPropertyNamed(slug, context.facts.userPropertySlugs);
+	const provenance = source === undefined ? {} : { source };
+	return held !== undefined
+		? {
+				kind: "session-user-property",
+				userPropertyUuid: held,
+				...provenance,
+			}
+		: { kind: "session-user", field: slug, ...provenance };
+}
+
+/**
+ * The worker property a read of `slug` by name prints as, as the parser binds
+ * `#user/<slug>` (`xpath/referenceBindings.ts::formUserProperty`): the one
+ * property whose slug is `slug` in any letters, where it is exactly `slug`
+ * and `slug` is a valid slug; otherwise none, and the read stays by name.
+ */
+export function workerPropertyNamed(
+	slug: string,
+	slugs: ReadonlyMap<Uuid, string>,
+): Uuid | undefined {
+	const matches = [...slugs].filter(
 		([, held]) => held.toLowerCase() === slug.toLowerCase(),
 	);
 	const [only] = matches;
@@ -511,12 +551,13 @@ function workerRecordLeaf(slug: string, context: ExpressionContext): Term {
 		only !== undefined &&
 		only[1] === slug &&
 		userPropertySlugVerdict(slug, NO_SLUGS).ok
-		? {
-				kind: "session-user-property",
-				userPropertyUuid: only[0],
-				source: "worker-record",
-			}
-		: { kind: "session-user", field: slug, source: "worker-record" };
+		? only[0]
+		: undefined;
+}
+
+/** The worker-record leaf of a slug, as the parser binds `#user/<slug>`. */
+function workerRecordLeaf(slug: string, context: ExpressionContext): Term {
+	return workerLeaf(slug, context, "worker-record");
 }
 const NO_SLUGS: ReadonlySet<string> = new Set();
 const USERCASE_TYPE = "commcare-user";
@@ -1224,8 +1265,13 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			}
 			const [only, ...more] = parts;
 			if (only === undefined) return undefined;
+			// A `concat` of one part prints `concat(…)` around it, which the part
+			// alone does not, unless the part is a literal that prints alone as
+			// the `concat` of its pieces.
 			const result: Expression =
-				more.length === 0 ? only : { kind: "concat", parts: [only, ...more] };
+				more.length === 0 && printsAsItsOwnConcat(only, mode)
+					? only
+					: { kind: "concat", parts: [only, ...more] };
 			return sameJson(result, node) ? undefined : result;
 		},
 	},
@@ -1293,6 +1339,20 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			const slug = usercaseProjection(node);
 			if (slug === undefined) return undefined;
 			return { kind: "term", term: workerRecordLeaf(slug, context) };
+		},
+	},
+	{
+		// A worker field read by name where the app holds a worker property of
+		// that slug prints the property's slug, the read of the property, so
+		// the name-backed read is the property's read.
+		id: "worker-field-by-name",
+		rewrite(node, context) {
+			const read = termOf(node);
+			if (read?.kind !== "session-user") return undefined;
+			const leaf = workerLeaf(read.field, context, read.source);
+			return leaf.kind === "session-user-property"
+				? { kind: "term", term: leaf }
+				: undefined;
 		},
 	},
 	{

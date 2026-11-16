@@ -7,11 +7,22 @@ import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
+	canonicalLookupTable,
+	lookupDefinitionChange,
+	lookupRowsChange,
+} from "../hqResourceBaseline";
+import {
 	planLookupResourcePush,
 	type RemoteLookupTable,
 	unsupportedLookupContent,
 } from "../lookupResourcePlan";
-import type { DeploymentResource, DeploymentResourceOwnership } from "../types";
+import { baselineFromTableOrigin } from "../managedData";
+import type { SiblingLookupMapping } from "../store";
+import type {
+	CanonicalLookupTable,
+	DeploymentResource,
+	DeploymentResourceOwnership,
+} from "../types";
 
 const DISTRICTS = lookupTableIdSchema.parse(
 	"018f0000-0000-7000-8000-000000000001",
@@ -60,6 +71,8 @@ function hq(
 }
 const districts = { tableId: DISTRICTS, tag: "districts" };
 const statuses = { tableId: STATUSES, tag: "statuses" };
+/** No sibling mapping and no takeover: the input every case starts from. */
+const ALONE = { siblings: [], takenOver: [] } as const;
 
 it.each(["nova-created", "adopted"] as const)(
 	"retains %s ownership only for the exact surviving remote object",
@@ -69,9 +82,16 @@ it.each(["nova-created", "adopted"] as const)(
 			mappings: [mapping(ownership)],
 			hqTables: [hq("hq-districts", "districts")],
 			adoptTableIds: [],
+			...ALONE,
 		};
 		const before = structuredClone(input);
-		const owned = { ...districts, ownership, mappedRemoteId: "hq-districts" };
+		const owned = {
+			...districts,
+			ownership,
+			mappedRemoteId: "hq-districts",
+			adoption: null,
+			baseline: "mapping",
+		};
 		expect(planLookupResourcePush(input)).toEqual({
 			ok: true,
 			pushes: [owned],
@@ -99,7 +119,15 @@ it.each(["nova-created", "adopted"] as const)(
 		).toEqual({
 			ok: true,
 			// A table taken over in this publish is not compared with the one mapped before.
-			pushes: [{ ...districts, ownership: "adopted", mappedRemoteId: null }],
+			pushes: [
+				{
+					...districts,
+					ownership: "adopted",
+					mappedRemoteId: null,
+					adoption: null,
+					baseline: null,
+				},
+			],
 		});
 	},
 );
@@ -112,6 +140,7 @@ it.each(["nova-created", "adopted"] as const)(
 			mappings: [mapping(ownership)],
 			hqTables: [],
 			adoptTableIds: [],
+			...ALONE,
 		};
 		// The mapped table HQ no longer holds is still the one compared.
 		expect(planLookupResourcePush(input)).toEqual({
@@ -121,6 +150,8 @@ it.each(["nova-created", "adopted"] as const)(
 					...districts,
 					ownership: "nova-created",
 					mappedRemoteId: "hq-districts",
+					adoption: null,
+					baseline: "mapping",
 				},
 			],
 		});
@@ -134,7 +165,15 @@ it.each(["nova-created", "adopted"] as const)(
 		).toEqual({
 			ok: true,
 			// Renamed in Nova: the mapping names another tag, so nothing is compared.
-			pushes: [{ ...renamed, ownership: "nova-created", mappedRemoteId: null }],
+			pushes: [
+				{
+					...renamed,
+					ownership: "nova-created",
+					mappedRemoteId: null,
+					adoption: null,
+					baseline: null,
+				},
+			],
 		});
 		expect(
 			planLookupResourcePush({
@@ -152,13 +191,11 @@ it("creates all requested tables in order only when none conflicts", () => {
 		mappings: [],
 		hqTables: [],
 		adoptTableIds: [],
+		...ALONE,
 	};
 	expect(planLookupResourcePush(input)).toEqual({
 		ok: true,
-		pushes: [
-			{ ...statuses, ownership: "nova-created", mappedRemoteId: null },
-			{ ...districts, ownership: "nova-created", mappedRemoteId: null },
-		],
+		pushes: [created(statuses), created(districts)],
 	});
 	expect(
 		planLookupResourcePush({
@@ -177,6 +214,7 @@ it("adopts exactly the named conflicts and refuses the whole workbook until ever
 			hq("foreign-statuses", "statuses"),
 		],
 		adoptTableIds: [],
+		...ALONE,
 	};
 	expect(planLookupResourcePush(input)).toEqual({
 		ok: false,
@@ -195,12 +233,24 @@ it("adopts exactly the named conflicts and refuses the whole workbook until ever
 		planLookupResourcePush({ ...input, adoptTableIds: [DISTRICTS, STATUSES] }),
 	).toEqual({
 		ok: true,
-		pushes: [
-			{ ...districts, ownership: "adopted", mappedRemoteId: null },
-			{ ...statuses, ownership: "adopted", mappedRemoteId: null },
-		],
+		pushes: [adoptedHere(districts), adoptedHere(statuses)],
 	});
 });
+
+/** A table this push makes, mapped by nobody. */
+function created(table: { tableId: typeof DISTRICTS; tag: string }) {
+	return {
+		...table,
+		ownership: "nova-created",
+		mappedRemoteId: null,
+		adoption: null,
+		baseline: null,
+	};
+}
+/** A table the caller names in `adoptTableIds`, attributed to whoever presses. */
+function adoptedHere(table: { tableId: typeof DISTRICTS; tag: string }) {
+	return { ...created(table), ownership: "adopted" };
+}
 
 const FIELD_PROPERTY = { fieldProperties: { code: [], name: ["lang"] } };
 const ROW_ATTRIBUTE = { itemAttributes: ["zone"] };
@@ -240,6 +290,7 @@ it.each([
 				mappings: [mapping(ownership)],
 				hqTables: [hq("hq-districts", "districts", held)],
 				adoptTableIds,
+				...ALONE,
 			});
 			expect(plan).toEqual({
 				ok: false,
@@ -269,6 +320,7 @@ it("refuses a table being adopted and a clash not yet adopted, ahead of the clas
 			}),
 		],
 		adoptTableIds: [],
+		...ALONE,
 	};
 	const refused = {
 		ok: false,
@@ -310,11 +362,9 @@ it("never refuses for a tag HQ does not hold, whatever else it holds", () => {
 			mappings: [],
 			hqTables: [hq("other", "other_tag", { ...NOT_GLOBAL, ...ROW_ATTRIBUTE })],
 			adoptTableIds: [],
+			...ALONE,
 		}),
-	).toEqual({
-		ok: true,
-		pushes: [{ ...districts, ownership: "nova-created", mappedRemoteId: null }],
-	});
+	).toEqual({ ok: true, pushes: [created(districts)] });
 });
 
 it("names the retained table that holds all three in HQ's own definition list", async () => {
@@ -353,4 +403,197 @@ it("names the retained table that holds all three in HQ's own definition list", 
 		"not-global",
 	]);
 	expect(unsupportedLookupContent(plain)).toEqual([]);
+});
+
+/** A live mapping another app of the Project holds on this project space. */
+function sibling(
+	appId: string,
+	remoteId: string,
+	adopted: { at: string; by: string } | null = null,
+): SiblingLookupMapping {
+	return {
+		tableId: DISTRICTS,
+		appId,
+		remoteId,
+		pushedIdentity: "districts",
+		ownership: adopted === null ? "nova-created" : "adopted",
+		adoptedAt: adopted?.at ?? null,
+		adoptedBy: adopted?.by ?? null,
+	};
+}
+
+it("pushes the Project's own table where a sibling's mapping names the table HQ holds, and compares with that mapping's baseline", () => {
+	const plan = planLookupResourcePush({
+		tables: [districts],
+		mappings: [],
+		hqTables: [hq("hq-districts", "districts")],
+		adoptTableIds: [],
+		siblings: [sibling("app-a", "hq-districts")],
+		takenOver: [],
+	});
+	expect(plan).toEqual({
+		ok: true,
+		pushes: [
+			{
+				...districts,
+				ownership: "nova-created",
+				mappedRemoteId: "hq-districts",
+				adoption: null,
+				baseline: "mapping",
+			},
+		],
+	});
+});
+
+it("inherits an adoption from the earliest adopted sibling, whoever pushed first", () => {
+	const plan = planLookupResourcePush({
+		tables: [districts],
+		mappings: [],
+		hqTables: [hq("hq-districts", "districts")],
+		adoptTableIds: [],
+		siblings: [
+			sibling("app-a", "hq-districts"),
+			sibling("app-b", "hq-districts", {
+				at: "2026-09-02T10:00:00.000Z",
+				by: "later-admin",
+			}),
+			sibling("app-c", "hq-districts", {
+				at: "2026-08-30T08:00:00.000Z",
+				by: "first-admin",
+			}),
+		],
+		takenOver: [],
+	});
+	expect(plan).toEqual({
+		ok: true,
+		pushes: [
+			{
+				...districts,
+				ownership: "adopted",
+				mappedRemoteId: "hq-districts",
+				adoption: { at: "2026-08-30T08:00:00.000Z", by: "first-admin" },
+				baseline: "mapping",
+			},
+		],
+	});
+});
+
+it("reads a sibling's mapping of another HQ table, or under another tag, as nothing and refuses the clash", () => {
+	for (const stale of [
+		sibling("app-a", "hq-made-again"),
+		{ ...sibling("app-a", "hq-districts"), pushedIdentity: "areas" },
+	]) {
+		expect(
+			planLookupResourcePush({
+				tables: [districts],
+				mappings: [],
+				hqTables: [hq("hq-districts", "districts")],
+				adoptTableIds: [],
+				siblings: [stale],
+				takenOver: [],
+			}),
+		).toEqual({
+			ok: false,
+			conflicts: [{ ...districts, remoteId: "hq-districts" }],
+		});
+	}
+});
+
+it("pushes a table taken over with Manage in Nova as adopted by that person, compared with the table's own origin", () => {
+	const taken = {
+		tableId: DISTRICTS,
+		remoteId: "hq-districts-at-refresh",
+		at: "2026-10-01T09:00:00.000Z",
+		by: "admin",
+	};
+	// CommCare HQ minted the table again since the last refresh: the takeover
+	// still decides, and the comparison reads content, not the id.
+	expect(
+		planLookupResourcePush({
+			tables: [districts],
+			mappings: [],
+			hqTables: [hq("hq-districts-now", "districts")],
+			adoptTableIds: [],
+			siblings: [],
+			takenOver: [taken],
+		}),
+	).toEqual({
+		ok: true,
+		pushes: [
+			{
+				...districts,
+				ownership: "adopted",
+				mappedRemoteId: "hq-districts-now",
+				adoption: { at: taken.at, by: taken.by },
+				baseline: "table-origin",
+			},
+		],
+	});
+	// A sibling's mapping of the very table comes first: it is the Project's standing.
+	expect(
+		planLookupResourcePush({
+			tables: [districts],
+			mappings: [],
+			hqTables: [hq("hq-districts-now", "districts")],
+			adoptTableIds: [],
+			siblings: [sibling("app-a", "hq-districts-now")],
+			takenOver: [taken],
+		}),
+	).toMatchObject({ ok: true, pushes: [{ baseline: "mapping" }] });
+	// A tag HQ does not hold is a create whatever the takeover says.
+	expect(
+		planLookupResourcePush({
+			tables: [districts],
+			mappings: [],
+			hqTables: [],
+			adoptTableIds: [],
+			siblings: [],
+			takenOver: [taken],
+		}),
+	).toEqual({ ok: true, pushes: [created(districts)] });
+});
+
+it("compares a re-minted taken-over table by content: its origin's canonical value under HQ's current id", () => {
+	const table = {
+		id: "hq-districts-now",
+		tag: "districts",
+		isGlobal: true,
+		fields: ["code", "name"],
+		fieldProperties: { code: [], name: [] },
+		itemAttributes: [],
+	};
+	const rows = [{ id: "row-1", fields: { code: "001", name: "North" } }];
+	const atRefresh = canonicalLookupTable(
+		{ ...table, id: "hq-districts-at-refresh" },
+		rows,
+	);
+	const baseline = baselineFromTableOrigin({
+		canonical: JSON.parse(JSON.stringify(atRefresh)),
+		remoteId: table.id,
+		refreshedAt: "2026-10-01T09:00:00.000Z",
+	});
+	expect(baseline).toEqual({
+		origin: "push",
+		kind: "lookup-table",
+		remoteId: table.id,
+		canonical: { ...atRefresh, remoteId: table.id },
+		digest: atRefresh.digest,
+		observedAt: "2026-10-01T09:00:00.000Z",
+	});
+	expect(
+		lookupDefinitionChange(baseline.canonical as CanonicalLookupTable, table),
+	).toEqual([]);
+	expect(
+		lookupRowsChange(baseline.canonical as CanonicalLookupTable, {
+			totalCount: 1,
+			rows,
+		}),
+	).toEqual([]);
+	expect(() =>
+		baselineFromTableOrigin({
+			canonical: { digest: atRefresh.digest },
+			remoteId: table.id,
+			refreshedAt: "2026-10-01T09:00:00.000Z",
+		}),
+	).toThrow();
 });

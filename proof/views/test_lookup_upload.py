@@ -28,6 +28,16 @@ the bytes Nova's own client sent (the corpus's captured request).
   of 33 characters: HQ's upload checks no length, its column holds 32
   characters, and the view fails with a database error HQ answers as a 500,
   so the cap a client needs is 32, and it is the client's to hold.
+- **A replacing upload that names one table.** Contract: HQ's upload with
+  "replace" on, which Nova's push sends, deletes rows only of the tables its
+  workbook names, and leaves every other table of the project space with its
+  id, its definition and its rows as they were (``fixtures/upload/run_upload.py::_run_upload``
+  processes tables with ``delete_missing=False``, and a table's ``old_rows``
+  are that table's alone). Nova rests on it when it leaves a table CommCare HQ
+  manages out of its workbook and sends no refusal for it. The plausible
+  failure: a replacing upload that clears or deletes a table it does not
+  name. The counterpart: the table the workbook names loses the row the
+  workbook no longer holds, so the upload did replace.
 
 The page's own script is named by HQ's webpack manifest, which a
 deployment's static build writes and the image's holds only for the pages
@@ -77,14 +87,20 @@ def _tags(unit):
     return sorted(table.tag for table in LookupTable.objects.filter(domain=unit.domain))
 
 
-def _push(unit, captured, body=None, label="push"):
-    """Nova's captured lookup push, sent to HQ as Nova's client sends it, with an API key of the web user."""
+def _push(unit, captured, body=None, label="push", authorization=None):
+    """Nova's captured lookup push, sent to HQ as Nova's client sends it, with an API key of the web user.
+
+    A test that pushes more than once mints its key once and hands it in as ``authorization``: HQ holds one key of a
+    name for a user (``users_hqapikey``'s unique ``(user, name)``), so a second ``api_key`` in one unit is refused."""
     return ask(
         unit,
         captured.meta["method"],
         captured.meta["path"],
         body=captured.body_path.read_bytes() if body is None else body,
-        headers=(("Content-Type", captured.content_type), ("Authorization", api_key(unit))),
+        headers=(
+            ("Content-Type", captured.content_type),
+            ("Authorization", api_key(unit) if authorization is None else authorization),
+        ),
         label=label,
     )
 
@@ -157,3 +173,112 @@ def test_hqs_upload_reads_a_table_whose_tag_holds_32_characters_and_fails_on_33(
     # HQ's column holds 32 characters (``LookupTable.tag``), and its upload checks no length before it writes:
     # a longer tag is a database error HQ answers with a 500, never a refusal a client can read.
     assert found == {32: (200, 200, True), 33: (500, None, False)}, found
+
+
+def _with_extra_row(workbook: bytes, tag: str, value: str) -> bytes:
+    """``workbook`` with one more row on the sheet of ``tag``: its last row again, its ``UID`` empty (a new row) and
+    its first field's value ``value``."""
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(workbook))
+    sheet = book[tag]
+    header = [cell.value for cell in sheet[1]]
+    last = [cell.value for cell in sheet[sheet.max_row]]
+    extra = list(last)
+    extra[header.index("UID")] = None
+    extra[next(index for index, name in enumerate(header) if str(name).startswith("field: "))] = value
+    sheet.append(extra)
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()
+
+
+def _table_as_held(unit, tag):
+    """A table as HQ holds it: its id and definition, and each row's id, values, attributes and order."""
+    from corehq.apps.fixtures.models import LookupTable, LookupTableRow
+
+    table = LookupTable.objects.get(domain=unit.domain, tag=tag)
+    rows = [
+        (
+            row.id,
+            {name: [(each.value, each.properties) for each in values] for name, values in row.fields.items()},
+            row.item_attributes,
+            row.sort_key,
+        )
+        for row in LookupTableRow.objects.iter_rows(unit.domain, tag=tag)
+    ]
+    definition = (
+        table.is_global,
+        [(each.name, list(each.properties), each.is_indexed) for each in table.fields],
+        table.item_attributes,
+        table.description,
+    )
+    return table.id, definition, rows
+
+
+def _first_values(held):
+    """Each row's values of its every field, in HQ's row order."""
+    _, _, rows = held
+    return [
+        sorted((name, tuple(value for value, _ in values)) for name, values in fields.items())
+        for _, fields, _, _ in rows
+    ]
+
+
+def test_a_replacing_upload_leaves_an_unnamed_table_alone(hq, core_runner, view_documents, published):
+    from proof.hq.seams import api_rate_limits
+
+    document = view_documents[DOCUMENT]
+    # Three pushes in one second pass HQ's API rate limiter's floor (it answers the second 429): the limiter's
+    # counts are held within their limits for the block, as every lane test that asks HQ's API more than once does.
+    with published(document, "minimum", core_runner, create=False) as (unit, _, export), api_rate_limits(unit):
+        captured = export.content.lookups
+        # Nova's push asks HQ to replace the tables its workbook names.
+        assert upload_field_value(captured, "replace") == b"true"
+        workbook = captured.workbook()
+        (named,) = _sheet_tags(workbook)
+        unnamed = "unnamed_table"
+
+        authorization = api_key(unit)
+
+        def push(book, label):
+            answer = _push(unit, captured, _multipart(captured, book), label, authorization)
+            assert (answer.status, answer.content_type) == (200, "application/json"), answer
+            assert json.loads(answer.body)["code"] == 200, answer
+
+        # Both tables hold a row the next workbook does not: the unnamed one under its own tag, the named one as Nova's
+        # earlier rows with one more.
+        push(_with_extra_row(_renamed(workbook, unnamed), unnamed, "kept-row"), "unnamed")
+        push(_with_extra_row(workbook, named, "replaced-row"), "named-with-extra")
+        unnamed_before = _table_as_held(unit, unnamed)
+        named_before = _table_as_held(unit, named)
+        assert any(("kept-row",) in dict(values).values() for values in _first_values(unnamed_before))
+        assert any(("replaced-row",) in dict(values).values() for values in _first_values(named_before))
+
+        push(workbook, "named")
+
+        # The table the workbook does not name: the same id, definition and rows, each row under its own id.
+        assert _table_as_held(unit, unnamed) == unnamed_before
+        # The table it names: replaced, so the row the workbook no longer holds is gone.
+        named_after = _table_as_held(unit, named)
+        assert named_after[0] == named_before[0]
+        assert not any(("replaced-row",) in dict(values).values() for values in _first_values(named_after))
+        assert len(named_after[2]) == len(named_before[2]) - 1
+        assert _tags(unit) == sorted([named, unnamed])
+
+
+def upload_field_value(captured, name: str) -> bytes:
+    """The content of the captured push's one field ``name``."""
+    from proof.hq.operations import upload_field
+
+    return upload_field(captured.upload(), name)
+
+
+def _sheet_tags(workbook: bytes) -> list[str]:
+    """The tags the workbook's ``types`` sheet names."""
+    from openpyxl import load_workbook
+
+    types = load_workbook(io.BytesIO(workbook))["types"]
+    header = [cell.value for cell in types[1]]
+    column = header.index("table_id") + 1
+    return sorted({types.cell(row=row, column=column).value for row in range(2, types.max_row + 1)})

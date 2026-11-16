@@ -24,7 +24,7 @@ import type {
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
 import { useProjectId } from "@/lib/session/hooks";
-import { formatLookupCount } from "./projectDataModel";
+import { formatLookupCount, readAgainAfterRefusal } from "./projectDataModel";
 
 /** The refusal a write reports when the session has no Project yet, a state
  *  the UI already prevents, spelled as a real failure so no caller has to
@@ -102,6 +102,7 @@ export interface LookupOrderingWrites {
 export function useLookupOrderingWrites(
 	table: LookupTableSnapshot,
 	reload: () => Promise<void>,
+	reloadManifest: () => Promise<void>,
 ): LookupOrderingWrites {
 	const projectId = useProjectId();
 	const [moving, setMoving] = useState(false);
@@ -145,6 +146,7 @@ export function useLookupOrderingWrites(
 						);
 					} else {
 						setFailure(result.message);
+						await readAgainAfterRefusal(result, reload, reloadManifest);
 					}
 					return false;
 				}
@@ -163,7 +165,7 @@ export function useLookupOrderingWrites(
 				setMoving(false);
 			}
 		},
-		[projectId, reload, table.id],
+		[projectId, reload, reloadManifest, table.id],
 	);
 
 	const moveColumn = useCallback<LookupOrderingWrites["moveColumn"]>(
@@ -183,6 +185,7 @@ export function useLookupOrderingWrites(
 export function useColumnWrites(
 	table: LookupTableSnapshot,
 	reload: () => Promise<void>,
+	reloadManifest: () => Promise<void>,
 ): ColumnWrites {
 	const projectId = useProjectId();
 	const [status, setStatus] = useState<string | null>(null);
@@ -211,14 +214,14 @@ export function useColumnWrites(
 				}
 				setStatus(null);
 				setFailure(result.message);
-				if (result.code === "conflict") await reload();
+				await readAgainAfterRefusal(result, reload, reloadManifest);
 				return false;
 			} catch {
 				setFailure(transportFailure().message);
 				return false;
 			}
 		},
-		[projectId, table.id, reload],
+		[projectId, table.id, reload, reloadManifest],
 	);
 
 	const renameWireName = useCallback(
@@ -246,14 +249,14 @@ export function useColumnWrites(
 				}
 				setStatus(null);
 				setFailure(result.message);
-				if (result.code === "conflict") await reload();
+				await readAgainAfterRefusal(result, reload, reloadManifest);
 				return false;
 			} catch {
 				setFailure(transportFailure().message);
 				return false;
 			}
 		},
-		[projectId, table.id, reload],
+		[projectId, table.id, reload, reloadManifest],
 	);
 
 	const removeColumn = useCallback(
@@ -272,7 +275,7 @@ export function useColumnWrites(
 				});
 				if (!result.success) {
 					setFailure(result.message);
-					if (result.code === "conflict") await reload();
+					await readAgainAfterRefusal(result, reload, reloadManifest);
 					return result;
 				}
 				const removed = result.value;
@@ -289,7 +292,7 @@ export function useColumnWrites(
 				return failure;
 			}
 		},
-		[projectId, table.id, reload],
+		[projectId, table.id, reload, reloadManifest],
 	);
 
 	const retypeColumn = useCallback(
@@ -314,7 +317,7 @@ export function useColumnWrites(
 							? `${result.message} Nothing changed.`
 							: result.message,
 					);
-					if (result.code === "conflict") await reload();
+					await readAgainAfterRefusal(result, reload, reloadManifest);
 					return result;
 				}
 				setStatus(`“${column.label}” now holds ${dataType} values.`);
@@ -326,7 +329,7 @@ export function useColumnWrites(
 				return failure;
 			}
 		},
-		[projectId, table.id, reload],
+		[projectId, table.id, reload, reloadManifest],
 	);
 
 	return {

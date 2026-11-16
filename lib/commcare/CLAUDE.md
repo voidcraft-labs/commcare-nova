@@ -58,6 +58,24 @@ CommCare Android removes only the literal `default` locale from its language
 picker, so the named copy is required to let a worker switch back to the app's
 default language.
 
+`compiler.ts::compileCczParts` is `compileCcz`'s walk up to each language
+directory's app-string table, before any is serialized: every text entry but
+the app-string files, the media entries, the tables as values and each
+string's source unit. `compileCcz` writes the files from it and packages them.
+`appStrings.ts::localAppStringTable(doc, lookupDefinitions)` reads a
+document's app strings from it with no deployment: a fixed stand-in target,
+no media, and each table the document reads named by the definitions given
+(a column's type decides how a comparison over it prints, so no stand-in
+naming will do) and carried with no rows. It leaves out exactly the strings
+only a media manifest writes (a menu's media paths, an image map's alt
+texts, keyed by a file's path), so a reading judges an app's override of
+one of those keys by what CommCare HQ's build of the stored app shows there
+instead (`reader/assemble.ts::mediaKeyReading`): inert where no screen reads
+the key or it names the file the language already shows, refused otherwise.
+It throws, as the compiler's oracles do, for
+a document the gate refuses; a reading asks the gate first
+(`lib/deployment/reading/appStrings.ts::readingAppStrings`).
+
 The app language catalog uses Nova identity tags until this boundary. A
 language's wire code is chosen here once, when the language is added, and
 stored in `localization.wireCodes`; every export reads the stored code, so
@@ -291,7 +309,9 @@ a re-read), the source project space's lookup tables, organization levels and
 media files, whether that project space applies "save only if changed", and,
 for an app Nova already holds, `knownCaseTypes`, the case type each index of a
 type reaches, consulted only where the app itself fixes none (no child link,
-no parent selection, no open action's index), and `knownLanguageCodes`, the
+no parent selection, no open action's index), and the type its catalog
+declares for each property, which no print carries and every read of the
+property lowers by, and `knownLanguageCodes`, the
 language each wire code it stored names, which a re-read takes before
 `languageIdentityForHqCode`. The app's first language (HQ's `langs[0]`) is its default. The
 reading's source language, whose text the document's own slots hold, is the
@@ -784,7 +804,7 @@ replaces literal NBSP throughout the XML, so NBSP inside ordinary prose uses
 that protected spelling too. Other prose retains its authored text nodes. Entity-looking spellings stay
 literal through admission, editing, Preview and emission; only the XML
 serializer escapes them. Platform Markdown rendering happens after XML is read.
-The character classifier (`xform/consumerWhitespace.ts::isConsumerWhitespace`) mirrors these consumers, not JavaScript `trim()`; the reader of HQ's forms reads such a text node as nothing and each literal output as the text it spells, confirmed by printing it back with `buildLabelNodes` (`reader/xform/prose.ts::literalOutputText`). Literal text that CommCare HQ's build would read as an instance (`hqInstanceScan.ts`) is written with its bracket as a literal output, so no label can add an instance or fail a build. Plain text in a form's source has no such spelling and is refused ("CommCare Connect"); a choice's value, the text of an `<item>`'s `<value>`, is refused by its own grammar (`lib/domain/selectOptionValue.ts`, problem `instance-read`, over `lib/domain/hqInstanceRead.ts`).
+The character classifier (`xform/consumerWhitespace.ts::isConsumerWhitespace`) mirrors these consumers, not JavaScript `trim()`; the reader of HQ's forms reads such a text node as nothing and each literal output as the text it spells, confirmed by printing it back with `buildLabelNodes` (`reader/xform/prose.ts::literalOutputText`). Literal text that CommCare HQ's build would read as an instance (`hqInstanceScan.ts`) is written with its bracket as a literal output, so no label can add an instance or fail a build. A source from CommCare HQ that spells such a bracket, or a no-break space, in a text node is held as it stands, and the form reader records the form under the first-publish register's `form-text-characters-written-as-outputs` (`reader/xform/prose.ts::recordTextOutputs`), since its first publish writes the output the form builder then shows. Plain text in a form's source has no such spelling and is refused ("CommCare Connect"); a choice's value, the text of an `<item>`'s `<value>`, is refused by its own grammar (`lib/domain/selectOptionValue.ts`, problem `instance-read`, over `lib/domain/hqInstanceRead.ts`).
 
 Plain literal validation messages emit the compatible bind `jr:constraintMsg`
 reference and a body `<alert>` pointing at the same itext entry. Empty messages
@@ -1735,7 +1755,11 @@ suite fixtures, and the two HQ modes build the fixapi workbook. The
 row-dependent select-source findings are common to all three — a choice list
 whose saved values are blank or duplicated is equally broken however the table
 reached the device — and are `environment`-class, since rows change outside the
-document and must never gate a commit. What differs is what each CARRIER can
+document and must never gate a commit. Over a table CommCare HQ manages, each
+ends with the managed remedy (`selectSourceRows.ts::selectSourceManagedRemedy`:
+change its rows there and refresh Nova's copy, or choose another table or
+column) and carries `managedInDomain`, as the two cell-text findings do, since
+Project data refuses every edit to such a table. What differs is what each CARRIER can
 hold: `ccz` takes the aggregate fixture budgets, and the HQ modes take one
 size verdict, `LOOKUP_HQ_PUSH_TOO_LARGE` (CommCare HQ's whole-workbook row
 ceiling). HQ's upload reads a 32-character sheet name, so a 32-character tag

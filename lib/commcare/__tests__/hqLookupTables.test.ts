@@ -592,6 +592,68 @@ it("refuses a failed page and any row shape HQ does not serve", async () => {
 	}
 });
 
+it("reads a field named __proto__ like any other field, in the definition and in both row shapes", async () => {
+	/* JSON.parse makes `__proto__` an own key, as it does of HQ's answer;
+	 * an object literal would set the prototype instead. */
+	const list = retained("lookup-tables.json");
+	if ("exception" in list) throw new Error("the table list is an answer");
+	const listBody = JSON.parse(list.body) as {
+		objects: Record<string, unknown>[];
+	};
+	const [first] = listBody.objects;
+	if (first === undefined) throw new Error("the retained list holds a table");
+	first.fields = JSON.parse(
+		'[{"field_name":"__proto__","properties":["lang"]},{"field_name":"code","properties":[]}]',
+	);
+	const tables = await withHttpPeer(async (peer) => {
+		serve(peer, LIST, { ...list, body: JSON.stringify(listBody) });
+		return listHqLookupTables(CREDS, DOMAIN);
+	});
+	if ("success" in tables) throw new Error("the edited list did not parse");
+	const [table] = tables;
+	expect(table?.fields).toEqual(["__proto__", "code"]);
+	expect(Object.getPrototypeOf(table?.fieldProperties)).toBe(Object.prototype);
+	expect(Object.entries(table?.fieldProperties ?? {})).toEqual([
+		["__proto__", ["lang"]],
+		["code", []],
+	]);
+
+	const plain = tableTagged(await retainedTables(), "plain");
+	const rows = retained("fixture-rows-plain.json");
+	if ("exception" in rows) throw new Error("the plain rows are an answer");
+	for (const [fields, expected] of [
+		[
+			'{"__proto__":"x","code":"1"}',
+			[
+				["__proto__", "x"],
+				["code", "1"],
+			],
+		],
+		[
+			'{"__proto__":{"field_list":[{"field_value":"a","properties":{}}]},"code":{"field_list":[{"field_value":"b","properties":{}}]}}',
+			[
+				["__proto__", [{ value: "a", properties: {} }]],
+				["code", [{ value: "b", properties: {} }]],
+			],
+		],
+	] as const) {
+		const body = JSON.parse(rows.body) as {
+			objects: { fields: unknown }[];
+		};
+		const [row] = body.objects;
+		if (row === undefined) throw new Error("the plain rows hold a row");
+		row.fields = JSON.parse(fields);
+		const read = await withHttpPeer(async (peer) => {
+			serve(peer, rowsPath(plain.id), { ...rows, body: JSON.stringify(body) });
+			return readHqLookupTableRows(CREDS, DOMAIN, plain.id);
+		});
+		if ("success" in read) throw new Error("the edited rows did not parse");
+		const read0 = read.rows[0]?.fields;
+		expect(Object.getPrototypeOf(read0)).toBe(Object.prototype);
+		expect(Object.entries(read0 ?? {})).toEqual(expected);
+	}
+});
+
 it("refuses a definition it would otherwise read with a default", async () => {
 	const answer = retained("lookup-tables.json");
 	if ("exception" in answer) throw new Error("the table list is an answer");

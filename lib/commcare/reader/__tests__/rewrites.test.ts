@@ -290,12 +290,34 @@ const CASES: {
 			),
 	},
 	{
-		section: "11.4, a sort element's `type: string`",
+		section: "11.4, a sort element no column joins",
 		register: "sort-rule-kept-as-hidden-column",
 		rewrites: () =>
 			listRewrites(sortedList(), (app) => {
 				const first = app.modules[0]?.case_details.short.sort_elements[0];
+				if (first !== undefined) first.field = "phone";
+			}),
+	},
+	{
+		section: "11.4, a sort element's `type: string` on a column the list shows",
+		register: "list-settings-respelled",
+		rewrites: () =>
+			listRewrites(sortedList(), (app) => {
+				const first = app.modules[0]?.case_details.short.sort_elements[0];
 				if (first !== undefined) first.type = "string";
+			}),
+	},
+	{
+		// HQ's build writes `date` over a property that is not of the date class as it writes
+		// `plain` (`detail_screen.py::FormattedDetailColumn.sort_node`), and the first publish
+		// writes `plain`: no hidden column is added, so the hidden-column row must not apply.
+		section:
+			"11.4, a sort element's `type: date` on a shown column Nova writes `plain`",
+		register: "list-settings-respelled",
+		rewrites: () =>
+			listRewrites(sortedList(), (app) => {
+				const first = app.modules[0]?.case_details.short.sort_elements[0];
+				if (first !== undefined) first.type = "date";
 			}),
 	},
 	{

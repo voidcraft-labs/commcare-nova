@@ -8,7 +8,11 @@ import type {
 	setLocationArchivedAction,
 	updateLocationAction,
 } from "./actions";
-import type { ArchiveImpact, StoredLocation } from "./types";
+import type {
+	ArchiveImpact,
+	OrganizationSnapshot,
+	StoredLocation,
+} from "./types";
 
 type LocalWriteFailure = {
 	readonly success: false;
@@ -48,6 +52,8 @@ const transportFailure = (): LocalWriteFailure => ({
 export interface OrganizationView {
 	readonly locations: readonly StoredLocation[];
 	readonly revision: string;
+	/** Where the places come from, while they are a copy CommCare HQ manages; as the last complete read held it. */
+	readonly hq: OrganizationSnapshot["hq"];
 	/** True until the first read resolves — distinct from "no places yet". */
 	readonly loading: boolean;
 	/** Set when the last read failed, so the surface can say so rather than
@@ -116,6 +122,7 @@ export function createOrganizationClient(
 	let snapshot: OrganizationClientSnapshot = {
 		locations: [],
 		revision: "0",
+		hq: undefined,
 		loading: true,
 		error: undefined,
 		warning: undefined,
@@ -163,6 +170,7 @@ export function createOrganizationClient(
 			warning: undefined,
 			locations: result.data.locations,
 			revision: result.data.revision,
+			hq: result.data.hq,
 		});
 	}
 	const reload = () => {

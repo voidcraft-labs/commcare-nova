@@ -119,6 +119,48 @@ describe("lookup manifest stream frames", () => {
 		).toBeNull();
 	});
 
+	it("carries where a table came from in CommCare HQ, and only for such a table", () => {
+		const hq = {
+			server: "production",
+			domain: "district-health",
+			remoteId: "hq-table-1",
+			managedBy: "commcare-hq",
+			broughtInAt: "2026-11-01T09:30:00.000Z",
+			takenOverAt: null,
+			takenOverBy: null,
+		};
+		const managed = {
+			...MANIFEST,
+			tables: [{ ...MANIFEST.tables[0], hq }],
+		};
+		expect(parseLookupManifestFrame(JSON.stringify(managed))).toEqual(managed);
+
+		const plain = parseLookupManifestFrame(JSON.stringify(MANIFEST));
+		expect(plain?.tables[0]).not.toHaveProperty("hq");
+
+		for (const malformed of [
+			{ ...hq, managedBy: "someone-else" },
+			{ ...hq, domain: "" },
+			{ ...hq, broughtInAt: "yesterday" },
+			{ ...hq, takenOverAt: "2026-11-03T00:00:00.000Z", takenOverBy: "" },
+			/* The day of the last refresh moves with no revision, so a frame
+			 * never carries it, nor the gone columns, which a manifest can't
+			 * know. */
+			{ ...hq, refreshedAt: "2026-11-02T10:00:00.000Z" },
+			{ ...hq, goneColumnIds: [] },
+			{ ...hq, extra: true },
+		]) {
+			expect(
+				parseLookupManifestFrame(
+					JSON.stringify({
+						...MANIFEST,
+						tables: [{ ...MANIFEST.tables[0], hq: malformed }],
+					}),
+				),
+			).toBeNull();
+		}
+	});
+
 	it("signals malformed current pages instead of silently retaining stale data", () => {
 		const broker = createLookupManifestBroker();
 		expect(broker.dispatch(JSON.stringify(MANIFEST))).toBe(true);

@@ -10,6 +10,7 @@ import type { StoredLocation } from "@/lib/organization/types";
 import {
 	fixedLocationOwnerIssue,
 	reverseLocationOwnerIssue,
+	reverseLocationOwnerRefusal,
 } from "../ownerTargetVerdicts";
 
 const ROOT = testUuid("depth-root");
@@ -173,6 +174,71 @@ describe("owner target depth ceilings", () => {
 
 		expect(reverseLocationOwnerIssue(doc, rows, DESTINATION)).toMatch(
 			/outside Asha's address book/,
+		);
+	});
+});
+
+describe("a reverse owner hop's refusal where CommCare HQ manages the places", () => {
+	const SECOND_DESTINATION = testUuid("depth-second-destination");
+	const withoutDestination = rows.filter((row) => row.id !== DESTINATION_PLACE);
+	const twoDestinations = [
+		...rows,
+		location(SECOND_DESTINATION, DESTINATION, SOURCE_PLACE, "Annex"),
+	];
+	const managed = (goneIds: readonly string[] = []) => ({
+		domain: "district-health",
+		goneIds: new Set(goneIds),
+	});
+
+	it("never offers a place edit a managed copy refuses", () => {
+		const doc = depthDoc();
+		// The author's sentence offers a create request and a fixed place.
+		expect(
+			reverseLocationOwnerRefusal(
+				doc,
+				withoutDestination,
+				DESTINATION,
+				undefined,
+			),
+		).toBe(reverseLocationOwnerIssue(doc, withoutDestination, DESTINATION));
+		expect(
+			reverseLocationOwnerRefusal(
+				doc,
+				withoutDestination,
+				DESTINATION,
+				managed(),
+			),
+		).toBe(
+			'The owner rule for Destination needs exactly one live destination below "Source", and this app\'s places are managed in CommCare HQ (district-health), which has none there. You can add one there and refresh, or change the rule.',
+		);
+		expect(
+			reverseLocationOwnerRefusal(doc, twoDestinations, DESTINATION, managed()),
+		).toBe(
+			'The owner rule for Destination needs exactly one live destination below "Source", and both "Destination" and "Annex" stand there. This app\'s places are managed in CommCare HQ (district-health), so you can archive one of them there and refresh, or change the rule.',
+		);
+	});
+
+	it("sends the person to what uses a place CommCare HQ no longer has", () => {
+		const doc = depthDoc();
+		expect(
+			reverseLocationOwnerRefusal(
+				doc,
+				withoutDestination,
+				DESTINATION,
+				managed([SOURCE_PLACE]),
+			),
+		).toBe(
+			'The owner rule for Destination needs exactly one live destination below "Source", which CommCare HQ (district-health) no longer has. Nova keeps it only while something in this app uses it or a place below it. You can move or change what uses it and refresh, or change the rule.',
+		);
+		expect(
+			reverseLocationOwnerRefusal(
+				doc,
+				twoDestinations,
+				DESTINATION,
+				managed([SECOND_DESTINATION]),
+			),
+		).toMatch(
+			/CommCare HQ \(district-health\) no longer has "Annex", and Nova keeps it only while something in this app uses it/,
 		);
 	});
 });

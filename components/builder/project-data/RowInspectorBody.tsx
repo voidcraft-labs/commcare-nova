@@ -35,11 +35,15 @@ export function RowInspectorBody({
 	table,
 	workspace,
 	canEdit,
+	readOnlyNotice,
 }: {
 	row: LookupRow;
 	table: LookupTableSnapshot;
 	workspace: ProjectDataWorkspace;
 	canEdit: boolean;
+	/** Why nobody may change this row, where the reason is the table and not
+	 *  the viewer's role: a table CommCare HQ manages. */
+	readOnlyNotice?: string;
 }) {
 	const columns = table.columns;
 	const stored = useMemo(
@@ -124,9 +128,13 @@ export function RowInspectorBody({
 		<div className="space-y-4">
 			{!canEdit && (
 				<p className="rounded-lg bg-nova-elevated px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary">
-					{dirty
-						? "Your edit access changed, so this local row draft cannot be saved. Nova kept it here for you to copy or explicitly discard."
-						: "You can read this row. Changing it needs edit access to this Project."}
+					{readOnlyNotice !== undefined
+						? dirty
+							? `${readOnlyNotice} Nova kept your local row draft here for you to copy or explicitly discard.`
+							: readOnlyNotice
+						: dirty
+							? "Your edit access changed, so this local row draft cannot be saved. Nova kept it here for you to copy or explicitly discard."
+							: "You can read this row. Changing it needs edit access to this Project."}
 				</p>
 			)}
 			{canEdit ? (

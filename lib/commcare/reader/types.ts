@@ -8,6 +8,7 @@ import type { DeclarationChoices } from "@/lib/doc/platformDeclaration";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
+	CasePropertyDataType,
 	CaseType,
 	LanguageTag,
 	LookupColumnId,
@@ -51,8 +52,10 @@ export interface ReaderInput {
 	 *  answered; absent where the source holds no `update_mode: "edit"` and no probe was made. */
 	readonly saveOnlyEditedApplied?: boolean;
 	/** What Nova already holds about this app's case types that no export carries: the case type
-	 *  each index of a type reaches. Consulted only where the app itself fixes none (no child
-	 *  link, no parent selection, no open action's index). Absent for an app Nova has never held. */
+	 *  each index of a type reaches, consulted only where the app itself fixes none (no child
+	 *  link, no parent selection, no open action's index), and the type its catalog declares for
+	 *  each property, which every property the reading holds takes unless a question that writes
+	 *  it gives values that type cannot hold. Absent for an app Nova has never held. */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
 	/** What Nova already holds about this app's languages that no export carries: the language
 	 *  each CommCare HQ code it published names, from the held document's `localization.wireCodes`
@@ -65,14 +68,22 @@ export interface ReaderInput {
 /** The language each CommCare HQ code of an app Nova holds names, by the code. */
 export type ReaderKnownLanguageCodes = ReadonlyMap<string, LanguageTag>;
 
-/** The case types the indices of the app's document reach, as Nova holds them
- *  (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */
+/** The case types the indices of the app's document reach and the types its catalog declares,
+ *  as Nova holds them (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */
 export interface ReaderKnownCaseTypes {
 	/** The type a case of `caseType` reaches through its index `identifier`: for `parent`, the
 	 *  catalog's parent and the relationship it holds; for any other identifier, the type every
 	 *  typed step of the document through that identifier from `caseType` agrees on. Undefined
 	 *  where Nova holds none, or where those steps disagree. */
 	targetOf(caseType: string, identifier: string): KnownIndexTarget | undefined;
+	/** The `data_type` the document's catalog declares for `property` of `caseType`: the type
+	 *  every print of a read of it lowers by (a sort's comparator, `datetime-coerce`,
+	 *  `format-date`, a comparison of dates and times), which no print tells a reading.
+	 *  Undefined where the catalog declares none. */
+	declaredTypeOf(
+		caseType: string,
+		property: string,
+	): CasePropertyDataType | undefined;
 }
 
 export interface KnownIndexTarget {
@@ -257,9 +268,11 @@ export const SAME_STATE_REGISTERS = [
  * (`structure.ts::nameAsRead`), an app string of any surface where a worker
  * then reads another text in some language (one that shows blank beside a
  * source that does not where its role requires text, or begins with a space,
- * `heldText.ts::heldText`), and a menu's, form's or case list item's media
+ * `heldText.ts::heldText`), a menu's, form's or case list item's media
  * map read as the file HQ's build shows in each language where Nova prints
- * another map (`menus/navMedia.ts::shownNavMedia`).
+ * another map (`menus/navMedia.ts::shownNavMedia`), and a form's text whose
+ * source spells, in a text node, a character Nova writes as a literal output
+ * (`xform/prose.ts::recordTextOutputs`).
  */
 export const FIRST_PUBLISH_READING_RECORDS = [
 	"date-and-time-saved-as-hq-stores-it",
@@ -267,6 +280,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"names-respelled",
 	"text-spaces-dropped",
 	"media-maps-respelled",
+	"form-text-characters-written-as-outputs",
 ] as const;
 
 export type SameStateRegister =

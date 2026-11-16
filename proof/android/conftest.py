@@ -1,5 +1,5 @@
 """Fixtures for the Android reader's tests that read the corpus (``test_form_reads.py``, ``test_case_blocks.py``,
-``test_case_name_guard.py``, ``test_case_lists.py``, ``test_navigation.py``).
+``test_case_name_guard.py``, ``test_case_lists.py``, ``test_navigation.py``, ``test_missing_media.py``).
 
 ``DOCUMENTS`` names every corpus document these tests read, which is what a
 stored outcome of this package is keyed by (``proof.store.queue.PACKAGE_DATA``),
@@ -27,6 +27,7 @@ DOCUMENTS = (
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
     "targeted-hidden-from-menu",
+    "targeted-missing-media",
     "targeted-multi-select-destinations",
     "targeted-number-keypad",
     "targeted-plain-help",
