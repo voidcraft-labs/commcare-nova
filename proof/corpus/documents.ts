@@ -159,8 +159,9 @@ export interface TargetedEdit {
  * - `uiTranslations`: on the app's UI translations page, each language's
  *   texts by key, saved beside the texts A holds for that language
  *   (`views/apps.py::edit_app_ui_translations`);
- * - `appAttributes`: on the app's settings page, each attribute's value
- *   (`views/apps.py::edit_app_attr`);
+ * - `appAttributes`: on the app's settings page, each attribute's value,
+ *   in the page's one save (`views/settings.py::edit_commcare_settings`,
+ *   which stores each through `views/apps.py::edit_app_attr` with `all`);
  * - `buildProfiles`: on the app's language profiles page, each profile's
  *   id, name and language codes (`views/releases.py::LanguageProfilesView`);
  * - `lookupTable`: the table Nova's publish uploaded under `tag`, as a
@@ -175,7 +176,10 @@ export interface TargetedEdit {
  *   add-ons Nova wrote;
  * - `profileProperties`: on the app's settings page, each setting's value
  *   by key (`views/settings.py::edit_commcare_profile`), beside the settings
- *   A holds.
+ *   A holds: a choice as its text, a switch as `true` or `false`;
+ * - `profileFeatures`: on the same page, each profile feature's value by
+ *   key, such as the worker activity level `credentials`, beside the
+ *   features A holds.
  *
  * It also states what Nova's next publish over the saves does, which the
  * capture holds (`./publish.ts`): `republish` is `"proceeds"` (it goes
@@ -222,7 +226,8 @@ export interface HqSideSaveKinds {
 		readonly description: string;
 	};
 	readonly addOns?: Readonly<Record<string, boolean>>;
-	readonly profileProperties?: Readonly<Record<string, string>>;
+	readonly profileProperties?: Readonly<Record<string, string | boolean>>;
+	readonly profileFeatures?: Readonly<Record<string, string>>;
 }
 
 /**

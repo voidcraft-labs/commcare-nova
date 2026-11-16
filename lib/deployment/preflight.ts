@@ -11,6 +11,11 @@ import {
 	readHqAppSource,
 } from "@/lib/commcare/hq/appSource";
 import {
+	classifyHqFailure,
+	type HqFailure,
+	type HqFailureKind,
+} from "@/lib/commcare/hq/failure";
+import {
 	type HqLocation,
 	listHqLocations,
 	listHqLocationTypes,
@@ -28,10 +33,16 @@ import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceC
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import {
+	type BuildProfileLanguageGap,
+	buildProfileLanguageGaps,
+	buildProfileLanguageLabel,
+	publishedLanguageCodes,
+} from "@/lib/commcare/targetBuildProfiles";
+import {
 	COMMCARE_VERSION_FLOOR,
 	compareToVersionFloor,
 } from "@/lib/commcare/versionFloor";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { getHqCredentials } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
@@ -147,14 +158,17 @@ import { workerRecordSetup } from "./workerRecordRequirements";
  * publish and quietly writing over a lookup table or a place somebody else
  * made. They appear only when the app actually carries one. `target-app`
  * reads the app this publish is about to update, and appears only when
- * there is one: it is where a publish learns the app is gone, or is not an
+ * there is one: it is where a publish learns the app is gone or is not an
  * app Nova updates, before anything is written.
  *
  * The same three edges compare what CommCare HQ holds now with what Nova
  * last read back from it there (the baselines), and `hq-changes` decides
  * over everything they collected: a change nobody chose to publish over
  * stops the whole publish before any write, because a stop after a table or
- * place went out would leave them overwritten.
+ * place went out would leave them overwritten. `build-profiles` holds the
+ * `target-app` read's build profiles to the languages this publish writes
+ * only after that verdict, so a language added in CommCare HQ since Nova's
+ * last push is first asked about as the change it is.
  *
  * `organization` is also where the shapes CommCare HQ will not hold are
  * caught. Places go out in atomic batches of a hundred, one level at a
@@ -171,6 +185,7 @@ export const PREFLIGHT_CHECK_IDS = [
 	"project-space-compatibility",
 	"target-app",
 	"hq-changes",
+	"build-profiles",
 	"web-apps",
 	"required-worker-data",
 	"worker-record-access",
@@ -461,7 +476,8 @@ function blockedOutcome(
 		| "hq_changed"
 		| "hq_confirmation_needed"
 		| "hq_web_apps_change"
-		| "hq_app_version_below_floor",
+		| "hq_app_version_below_floor"
+		| "hq_build_profile_language_missing",
 	message: string,
 	details: readonly string[] = [],
 ): {
@@ -564,7 +580,7 @@ export async function runDeploymentPreflight(
 	let compared = false;
 
 	// ── 1. Can we reach that project space at all? ──────────────────
-	const credResult = await getCredentialsForUpload(
+	const credResult = await getHqCredentials(
 		input.access.actorUserId,
 		input.domain,
 	);
@@ -755,17 +771,11 @@ export async function runDeploymentPreflight(
 			/* Nova cannot tell its own tables from anybody else's without
 			 * this answer, so it does not push. Reading the failure as "the
 			 * project space has none" is the one interpretation that turns a
-			 * permissions problem into somebody's data being overwritten.
-			 *
-			 * Reading the table list needs the paid API access privilege on
-			 * the project space AND the account's own Access APIs
-			 * permission, while the upload itself needs neither — so this
-			 * refusal is genuinely reachable on a project space that would
-			 * have accepted the push. */
-			const detail =
-				hqTables.status === 401 || hqTables.status === 403
-					? `Nova can't see which lookup tables “${domain}” already has, so it won't push over them. Reading them needs API access on that project space and the Access APIs permission on your CommCare HQ account; ask a CommCare HQ administrator for both.`
-					: `Nova couldn't ask “${domain}” which lookup tables it already has, so it stopped rather than push over them. Try publishing again in a moment.`;
+			 * permissions problem into somebody's data being overwritten. */
+			const detail = lookupTableListFailureDetail(
+				classifyHqFailure(hqTables, "lookup-tables"),
+				domain,
+			);
 			checks.push({
 				id: "project-data",
 				title: "Project data",
@@ -1347,6 +1357,57 @@ export async function runDeploymentPreflight(
 		items: verdict.confirmed.map((change) => change.name),
 	});
 
+	// ── 8a. Does a build profile name a language the app lacks? ────────
+	// Blocking, and only where step 7 read an app. No API key can change a
+	// build profile, so a profile this publish would leave naming a language
+	// the app does not have stops it here, before any write. After
+	// `hq-changes`, because a language a profile names may have been added
+	// in CommCare HQ since Nova's last push: the person decides on that
+	// change first, and a publish over it takes the language out of `langs`.
+	// It stops whatever the plan: no API key reads whether the plan still
+	// includes application profiles, and HQ keeps a profile on a plan
+	// without them and builds it again the day the plan includes them. So
+	// the refusal names the way out that works on any plan, where there is
+	// one.
+	if (targetApp !== null) {
+		const gaps = buildProfileLanguageGaps(
+			publishedLanguageCodes(input.doc),
+			targetApp.source.buildProfiles,
+		);
+		if (gaps.length > 0) {
+			const failure = buildProfileLanguageFailure(domain, gaps, {
+				duringPush: false,
+				hqLangs: targetApp.source.langs,
+			});
+			checks.push({
+				id: "build-profiles",
+				title: "Application profiles",
+				status: "blocked",
+				detail: failure.message,
+				items: failure.details,
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(
+					input.now,
+					failure.code,
+					failure.message,
+					failure.details,
+				),
+				ready: null,
+				projectSpaceCompatibility,
+				conflicts: [],
+			};
+		}
+		checks.push({
+			id: "build-profiles",
+			title: "Application profiles",
+			status: "passed",
+			detail: `No application profile of the app on “${domain}” includes a language this app doesn't have.`,
+			items: [],
+		});
+	}
+
 	// ── 8b. Does the app's Web App setting on HQ match where it runs? ──
 	// Blocking, after `hq-changes` because a person decides a drift discard
 	// over the app first, and before every write. It asks CommCare HQ
@@ -1670,6 +1731,34 @@ export function remoteAppMissingFailure(domain: string): {
 	};
 }
 
+/** The kinds of a refused read that are the account's, or its key's, to fix: every 401 and 403 CommCare HQ itself gave. */
+const ACCOUNT_REFUSAL_KINDS: ReadonlySet<HqFailureKind> = new Set([
+	"key-not-accepted",
+	"plan-lacks-api-access",
+	"api-cut-off",
+	"not-a-member",
+	"permission",
+]);
+
+/**
+ * Why the lookup table list could not be read, for the `project-data` edge.
+ *
+ * Reading the table list needs the paid API access privilege on the project
+ * space AND the account's own Access APIs permission, while the upload
+ * itself needs neither, so this refusal is genuinely reachable on a project
+ * space that would have accepted the push. Only a refusal CommCare HQ itself
+ * gave names them; an edge's refusal, an outage and a list HQ served
+ * malformed are a question Nova couldn't ask.
+ */
+export function lookupTableListFailureDetail(
+	failure: HqFailure,
+	domain: string,
+): string {
+	return ACCOUNT_REFUSAL_KINDS.has(failure.kind)
+		? `Nova can't see which lookup tables “${domain}” already has, so it won't push over them. Reading them needs API access on that project space and the Access APIs permission on your CommCare HQ account; ask a CommCare HQ administrator for both.`
+		: `Nova couldn't ask “${domain}” which lookup tables it already has, so it stopped rather than push over them. Try publishing again in a moment.`;
+}
+
 /**
  * The refusal for a read of the app's source that did not give a source
  * Nova can update.
@@ -1695,8 +1784,11 @@ export function hqAppSourceReadFailure(
 			details: [],
 		};
 	}
+	/* Every 401 and 403 CommCare HQ itself gave; an edge's is
+	 * `gateway-refused` and takes the "couldn't safely read" sentence. */
 	const permissions =
-		"success" in read && (read.status === 401 || read.status === 403);
+		"success" in read &&
+		ACCOUNT_REFUSAL_KINDS.has(classifyHqFailure(read, "app-source").kind);
 	if (createdApp) {
 		return {
 			code: "hq_app_state_unknown",
@@ -1737,6 +1829,61 @@ export function versionBelowFloorFailure(
 			? `${opening} Nova created the app there and will fill it in on the next publish.`
 			: `${opening} Saving that page can also set the app's other settings there, so Nova may show you what changed before it publishes.`,
 		details: [],
+	};
+}
+
+/**
+ * The refusal for a publish that would leave a build profile of the app on
+ * CommCare HQ naming a language this app no longer has: one `details` line
+ * per profile, in HQ's order. `duringPush` is true where the second read,
+ * after the lookup tables and places went, found it, so the sentence says
+ * what was sent. No API key can change a build profile, so the person
+ * changes it in CommCare HQ: on the Application Profiles tab, which HQ
+ * shows and saves only under the `build_profiles` plan privilege
+ * (`views/releases.py::LanguageProfilesView`), or, where `hqLangs` (the
+ * `langs` of the read the gaps came from) still lists every missing
+ * language, on the app's Languages tab, which takes a removed language out
+ * of every profile on any plan (`views/apps.py::edit_app_langs`).
+ */
+export function buildProfileLanguageFailure(
+	domain: string,
+	gaps: readonly BuildProfileLanguageGap[],
+	read: { readonly duringPush: boolean; readonly hqLangs: readonly string[] },
+): {
+	readonly code: "hq_build_profile_language_missing";
+	readonly message: string;
+	readonly details: readonly string[];
+} {
+	if (gaps.length === 0) {
+		throw new Error(
+			"A build profile refusal was built with no profile that names a missing language.",
+		);
+	}
+	const stopped = read.duringPush
+		? "which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content"
+		: "so Nova stopped before sending anything";
+	const one = gaps.length === 1 && gaps[0].missing.length === 1;
+	const held = new Set(read.hqLangs);
+	const onLanguagesTab = gaps.every((gap) =>
+		gap.missing.every((code) => held.has(code)),
+	);
+	const message = one
+		? `An application profile of the app on “${domain}” includes a language this app no longer has, ${stopped}. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. That tab shows only where the project space's plan includes application profiles.${onLanguagesTab ? " On any plan, you can instead remove the language on the Languages tab of the app's settings there, which takes it out of every profile. Nova may then show you that change before it publishes." : ""} Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.`
+		: `Application profiles of the app on “${domain}” include languages this app no longer has, ${stopped}. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. That tab shows only where the project space's plan includes application profiles.${onLanguagesTab ? " On any plan, you can instead remove those languages on the Languages tab of the app's settings there, which takes them out of every profile. Nova may then show you that change before it publishes." : ""} Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.`;
+	return {
+		code: "hq_build_profile_language_missing",
+		message,
+		details: gaps.map((gap) => {
+			const profile =
+				gap.name === "" ? "A profile with no name" : `“${gap.name}”`;
+			const languages = gap.missing.map(buildProfileLanguageLabel).join(", ");
+			const only = gap.emptied
+				? gap.missing.length === 1
+					? ", the only language it has"
+					: ", the only languages it has"
+				: "";
+			return `${profile}: ${languages}${only}`;
+		}),
 	};
 }
 

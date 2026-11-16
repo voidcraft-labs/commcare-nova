@@ -12,12 +12,14 @@
 // currently holds of it.
 
 import { z } from "zod";
+import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
 import {
 	COMMCARE_SERVER_IDS,
 	COMMCARE_SERVERS,
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import type { KeptListValues } from "@/lib/publish/keptValues";
 import type { PlacementMoveOfferView } from "@/lib/publish/placementMoves";
 import {
 	PLAN_FEATURE_IDS,
@@ -227,6 +229,12 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 */
 	"hq_app_version_below_floor",
 	/**
+	 * A build profile of the app on CommCare HQ names a language this app no
+	 * longer has, and no API key can change a build profile. Nothing of this
+	 * publish's content was sent.
+	 */
+	"hq_build_profile_language_missing",
+	/**
 	 * CommCare HQ made the new app with Web Apps off, which it does where the
 	 * plan has no Web Apps, for an app that runs in Web Apps. Only the empty
 	 * app was made, and the person's plan answer is withdrawn.
@@ -415,9 +423,12 @@ export interface BaselineDiscardWrite {
 	readonly digest: string;
 }
 
-/** What the app baseline writers take. Gzip and digests are computed before the transaction. */
+/**
+ * What the app baseline writers take. Gzip and digests are computed before the transaction.
+ * `cutover` is written only by a refresh, which keeps the origin the baseline it replaces held.
+ */
 export interface AppBaselineWrite {
-	readonly origin: "create" | "push" | "unread";
+	readonly origin: "create" | "push" | "cutover" | "unread";
 	readonly remoteAppId: string;
 	readonly sourceGzip: Buffer | null;
 	readonly sourceBytes: number | null;
@@ -645,6 +656,31 @@ export interface AppOwnership {
 	readonly profileProperties: readonly string[];
 	readonly profileCustomProperties: readonly string[];
 	readonly autoGpsCapture: boolean;
+}
+
+/**
+ * The kept list of one deployment: the settings its project space holds in
+ * CommCare HQ at another value than a new app's, as label ids in the list's
+ * order, and the date of the baseline they were read from (an ISO 8601
+ * instant). Empty `labels` is a list that names nothing, which still has a date.
+ */
+export interface DeploymentKept extends KeptListValues {
+	readonly observedAt: string;
+}
+
+/**
+ * What Preview may name and play of where an app is published: the project
+ * space `commcare_project` resolves to, and what that one project space
+ * holds of the two kept settings Preview plays (fuzzy search in a case list,
+ * and the asterisk on a required question).
+ *
+ * `targetFacts` is `null` where Preview holds no facts (no reached project
+ * space, several, or a baseline Nova never read), and Preview plays Nova's
+ * own value of each, which is what a new project space gives.
+ */
+export interface PreviewDeploymentAnswer {
+	readonly projectSpace: string | null;
+	readonly targetFacts: PreviewTargetFacts | null;
 }
 
 /** The app as CommCare HQ returned it when Nova last read it, or the fact that Nova could not read it. */

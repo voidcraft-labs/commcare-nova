@@ -14,10 +14,12 @@
  * device does from install, and HQ's settings page keeps each, since each is
  * one of the setting's own choices. Every forced one is written again at an
  * update, on both paths, so fuzzy search, automatic updates and text to
- * speech, which a worker can also set, return to these values then; the map
- * layer, written without `force`, keeps the worker's. On a publish they are seeded, not owned:
- * the overlay (`targetOverlay.ts::projectProfileForTarget`) keeps a value the
- * target already holds for any of the fifteen, and always writes Nova's two.
+ * speech, which a worker can also set, return to the profile's values then;
+ * the map layer, written without `force`, keeps the worker's. On a publish
+ * they are seeded, not owned, and a `.ccz` made for a project space writes
+ * that space's value (`keptProfile.ts`): the overlay
+ * (`targetOverlay.ts::projectProfileForTarget`) keeps a value the target
+ * already holds for any of the fifteen, and always writes Nova's two.
  */
 
 import type { BlueprintDoc } from "@/lib/domain";

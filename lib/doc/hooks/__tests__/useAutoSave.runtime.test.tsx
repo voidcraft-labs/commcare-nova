@@ -92,6 +92,7 @@ function setup() {
 		subscribePresence: () => () => {},
 		subscribeAppOrganization: () => () => {},
 		subscribePreviewProjectSpace: () => () => {},
+		subscribePreviewTargetFacts: () => () => {},
 		subscribeLookupManifest: () => () => {},
 		subscribeProjectScopeReset: () => () => {},
 		isProjectScopeCurrent: () => true,

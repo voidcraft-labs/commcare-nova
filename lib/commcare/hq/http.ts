@@ -14,6 +14,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { COMMCARE_SERVERS, type CommCareServer } from "../servers";
+import { hqDeadlineReached } from "./deadline";
 
 /**
  * Error from a CommCare HQ API call — just the status code.
@@ -32,20 +33,118 @@ export interface CommCareApiError {
 	 */
 	edgeRefusal?: boolean;
 	/**
-	 * Why a read synthesized its status rather than taking one CommCare HQ
-	 * answered: no answer reached Nova (`network`, a 503), the request's
-	 * deadline ran out first (`timeout`, a 503), or the answer could not be
-	 * read as what was asked for (`malformed`, a 502). Absent on a status
-	 * CommCare HQ or its edge answered. A caller that retries reads it to tell
-	 * a passing fault from an answer that will not change.
+	 * Why a read synthesized its status: no answer reached Nova (`network`,
+	 * 503), the deadline ran out (`timeout`, 503), the body was longer than
+	 * the read's bound (`too-large`, 502), the answer was a page for a browser
+	 * where JSON was asked (`browser-page`, 502), or it could not be read as
+	 * what was asked for (`malformed`, 502, or 508 for a list whose cursor
+	 * never ends). Absent on a status CommCare HQ or its edge answered.
 	 */
-	cause?: "network" | "timeout" | "malformed";
+	cause?: "network" | "timeout" | "malformed" | "too-large" | "browser-page";
 	/**
 	 * The wait the response's `Retry-After` asked for, in milliseconds, when
 	 * it was a count of seconds (`retryAfterMs`). Absent when the response
 	 * sent none, sent an HTTP date, or was never read.
 	 */
 	retryAfterMs?: number;
+	/**
+	 * The first `HQ_REFUSED_BODY_MAX_CHARS` characters of a refused answer's
+	 * body, present only where the read asked for it
+	 * (`ReadHqJsonOptions.keepRefusedBody`) and the whole body arrived within
+	 * `HQ_REFUSED_BODY_READ_MAX_BYTES`. Read only inside this module, never
+	 * shown and never logged: a refusal's body can quote an app.
+	 */
+	refusedBody?: string;
+}
+
+/** The most characters of a refused answer's body a read keeps as `refusedBody`. */
+export const HQ_REFUSED_BODY_MAX_CHARS = 2_048;
+/** The most bytes of a refused answer's body a read takes in before it cuts `refusedBody`. */
+export const HQ_REFUSED_BODY_READ_MAX_BYTES = 64 * 1024;
+
+/**
+ * The failure of a request whose answer Nova could not read as what was
+ * asked for: a read's 2xx, or an import's acknowledgement. Frozen, so every
+ * caller can return this one value.
+ */
+export const HQ_MALFORMED_ANSWER: CommCareApiError = Object.freeze({
+	success: false,
+	status: 502,
+	cause: "malformed",
+});
+
+/**
+ * Whether `value` is a count or a save counter as CommCare HQ writes one: a
+ * whole number from zero to `Number.MAX_SAFE_INTEGER`.
+ */
+export function isHqCount(value: unknown): value is number {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * A read no answer reached, or whose body stopped: the deadline, the
+ * caller's `cancel`, or the network. A read its caller's `cancel` ended
+ * answers `{ status: 503, cause: "network" }` and logs nothing, since the
+ * caller that cancelled is the only reader of the answer; any other logs
+ * `[commcare] <label> unavailable` with what the request or the stream threw.
+ */
+export function unansweredRead(
+	label: string,
+	signal: AbortSignal,
+	error?: unknown,
+	context: Readonly<Record<string, unknown>> = {},
+): CommCareApiError {
+	if (signal.aborted && !hqDeadlineReached(signal))
+		return { success: false, status: 503, cause: "network" };
+	log.warn(`[commcare] ${label} unavailable`, { ...context, error });
+	return {
+		success: false,
+		status: 503,
+		cause: signal.aborted ? "timeout" : "network",
+	};
+}
+
+/**
+ * `api/resources/__init__.py::HqBaseResource.dispatch`, the plan refusal:
+ * the project space's subscription has no API access. The check runs before
+ * tastypie authenticates, so it answers every key, a superuser's included.
+ */
+export const HQ_API_ACCESS_REFUSAL =
+	"Your current subscription does not have access to this feature";
+/**
+ * The same method's refusal while the `API_BLACKLIST` toggle is on for the
+ * request's user or project space. Two spaces after "requests.".
+ */
+export const HQ_API_CUT_OFF_REFUSAL =
+	"API access has been temporarily cut off due to too many requests.  To re-enable, please contact support.";
+
+/**
+ * `plan` or `cut-off` where a 401 CommCare HQ itself answered holds exactly
+ * one of the two sentences of `HqBaseResource.dispatch` as its `error`, and
+ * null for every other answer. Any other 401 is a key HQ did not accept,
+ * never a guess at the plan.
+ */
+export function apiRefusalSentence(
+	error: CommCareApiError,
+): "plan" | "cut-off" | null {
+	if (
+		error.status !== 401 ||
+		error.edgeRefusal === true ||
+		error.refusedBody === undefined
+	)
+		return null;
+	let body: unknown;
+	try {
+		body = JSON.parse(error.refusedBody);
+	} catch {
+		return null;
+	}
+	if (typeof body !== "object" || body === null || Array.isArray(body))
+		return null;
+	const sentence = (body as Record<string, unknown>).error;
+	if (sentence === HQ_API_ACCESS_REFUSAL) return "plan";
+	if (sentence === HQ_API_CUT_OFF_REFUSAL) return "cut-off";
+	return null;
 }
 
 /**
@@ -156,8 +255,9 @@ export function isEdgeRefusal(body: string): boolean {
  *
  * HQ's limiter sends a decimal count of seconds, the time left in its
  * current window (`corehq/apps/api/resources/meta.py::HQThrottle.retry_after`).
- * The header's other form, an HTTP date, HQ does not send; it is read as no
- * wait, as an absent header is.
+ * The header's other form, an HTTP date, HQ does not send; it names no wait
+ * Nova reads, so a read or an import that meets one takes its 429 as the
+ * answer rather than waiting the second an absent header gets.
  */
 export function retryAfterMs(header: string | null): number | null {
 	if (header === null) return null;
@@ -167,8 +267,11 @@ export function retryAfterMs(header: string | null): number | null {
 	return Number.isFinite(ms) ? ms : null;
 }
 
-/** A failed response's error: its status, whether the edge refused it, and its `Retry-After`. */
-function failedResponseError(res: Response, body: string): CommCareApiError {
+/** The error a refused answer is, from its status, its `Retry-After` and its body, logging nothing. */
+export function failedResponseError(
+	res: Response,
+	body: string,
+): CommCareApiError {
 	const wait = retryAfterMs(res.headers.get("retry-after"));
 	return {
 		success: false,
@@ -178,9 +281,60 @@ function failedResponseError(res: Response, body: string): CommCareApiError {
 	};
 }
 
+/** What a text CommCare HQ answered is, in one word that holds none of it. */
+export type HqTextShape = "empty" | "json" | "page" | "text";
+
 /**
- * Log a failed CommCare HQ response for server-side debugging.
- * The body is never returned to callers or shown to users.
+ * `empty`, `json` where the text opens as a JSON object or array, `page`
+ * where it opens with `<`, else `text`.
+ */
+export function hqTextShape(text: string): HqTextShape {
+	const head = text.trimStart();
+	if (head === "") return "empty";
+	if (head.startsWith("{") || head.startsWith("[")) return "json";
+	return head.startsWith("<") ? "page" : "text";
+}
+
+/**
+ * What a log line may say of a text CommCare HQ answered (a refused body,
+ * a verdict's message, an import's error): its shape and its length in
+ * UTF-8 bytes, never a word of it. HQ's refusals quote an app
+ * (`util/view_utils.py::json_error` answers `str(e)`, and an import's
+ * `AppEditingError` names a form or a question), and a log line's context
+ * reaches Cloud Logging and, at error, Sentry.
+ */
+export function hqTextFacts(text: string): {
+	readonly shape: HqTextShape;
+	readonly bytes: number;
+} {
+	return {
+		shape: hqTextShape(text),
+		bytes: new TextEncoder().encode(text).byteLength,
+	};
+}
+
+/**
+ * The context of the line a refused response logs: its status, whether the
+ * edge refused it, and its body's shape and length, never its text.
+ */
+function refusedResponseContext(
+	res: Response,
+	body: string,
+	error: CommCareApiError,
+) {
+	const facts = hqTextFacts(body);
+	return {
+		status: res.status,
+		edgeRefusal: error.edgeRefusal === true,
+		body: facts.shape,
+		bodyBytes: facts.bytes,
+	};
+}
+
+/**
+ * Log a failed CommCare HQ response for server-side debugging, by its
+ * status and its body's shape and length (`hqTextFacts`). The body is never
+ * logged, returned to callers or shown to users.
  */
 export async function logAndReturnError(
 	context: string,
@@ -190,11 +344,13 @@ export async function logAndReturnError(
 	try {
 		body = await res.text();
 	} catch {}
-	log.error(`[commcare] ${context}`, undefined, {
-		status: res.status,
-		body: body.substring(0, 200),
-	});
-	return failedResponseError(res, body);
+	const error = failedResponseError(res, body);
+	log.error(
+		`[commcare] ${context}`,
+		undefined,
+		refusedResponseContext(res, body, error),
+	);
+	return error;
 }
 
 /**
@@ -215,11 +371,9 @@ export async function warnAndReturnError(
 	try {
 		body = await res.text();
 	} catch {}
-	log.warn(`[commcare] ${context}`, {
-		status: res.status,
-		body: body.substring(0, 200),
-	});
-	return failedResponseError(res, body);
+	const error = failedResponseError(res, body);
+	log.warn(`[commcare] ${context}`, refusedResponseContext(res, body, error));
+	return error;
 }
 
 /**

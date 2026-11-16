@@ -5,6 +5,7 @@ import {
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	projectSpaceCompatibilityForDownload,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import { downloadKeptAdvisoryFacts } from "@/lib/deployment/downloadTarget";
 import { compileLocalArchive } from "@/lib/export/localArchive";
 import {
 	EXPORT_ADVISORY_HEADER,
@@ -47,12 +48,17 @@ export async function POST(req: NextRequest) {
 		// `mutation_seq` into the profile's `cc-content-version` so the archive
 		// names the exact document version it was built from. It is made for
 		// the one project space the request named: its addresses, its HQ app
-		// id and its recorded ids.
+		// id and its recorded ids, and what it keeps of the values Nova leaves
+		// to CommCare HQ.
 		const buffer = compileLocalArchive(
 			prepared,
 			download.runtimeTarget,
 			download.identity,
-			download.target,
+			{
+				emptyCaseListText: download.target.emptyCaseListText,
+				earlierHqApps: download.target.earlierHqApps,
+				targetFacts: download.targetFacts,
+			},
 		);
 
 		// Stream the freshly-built archive straight back to the caller. The
@@ -62,8 +68,13 @@ export async function POST(req: NextRequest) {
 		const projectSpaceCompatibility = projectSpaceCompatibilityForDownload(doc);
 		// The archive is complete and correct; the advisories say what it
 		// could not carry, so they ride beside the bytes rather than
-		// replacing them.
-		const advisories = exportAdvisories(doc, attachmentTargetState);
+		// replacing them: the attachment links it leaves empty, and what it
+		// cannot follow of the values its project space keeps.
+		const advisories = exportAdvisories(
+			doc,
+			attachmentTargetState,
+			downloadKeptAdvisoryFacts(download, doc),
+		);
 		return new NextResponse(new Uint8Array(buffer), {
 			headers: {
 				"Content-Type": "application/octet-stream",

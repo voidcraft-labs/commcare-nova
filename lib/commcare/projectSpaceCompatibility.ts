@@ -108,6 +108,17 @@ const HQ_PRIVATE_FEATURE_FLAGS = Object.fromEntries(
 	}),
 ) as Readonly<Record<HqPrivateFeatureFlagId, HqPrivateFeatureFlagRequirement>>;
 
+/**
+ * The flag the publish probe names for `id`, with the slug and namespace of
+ * its toggle's gate entry. A reader that needs one flag of a project space
+ * asks for it here, so the request spells the flag exactly as the probe does.
+ */
+export function hqPrivateFeatureFlag(
+	id: HqPrivateFeatureFlagId,
+): HqPrivateFeatureFlagRequirement {
+	return HQ_PRIVATE_FEATURE_FLAGS[id];
+}
+
 export type HqProjectSpaceRuntimeProbe = "case-search";
 
 export interface HqProjectSpaceCapabilityProbePlan {

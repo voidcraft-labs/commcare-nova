@@ -1,8 +1,16 @@
 import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
+import {
+	KEPT_REFRESH_BUTTON,
+	KEPT_REFRESH_BUTTON_PENDING,
+} from "@/components/builder/keptListModel";
 import type { PublishResponseBody } from "@/components/builder/publishOutcome";
 import { endpointWireFixture } from "@/lib/commcare/__tests__/endpointWireFixture";
-import type { DeploymentView } from "@/lib/deployment/actions";
+import type {
+	DeploymentActionResult,
+	DeploymentView,
+	KeptRefreshView,
+} from "@/lib/deployment/actions";
 import {
 	APP_PREVIEW_NOTE,
 	BASELINE_UNKNOWN_SENTENCE,
@@ -15,6 +23,11 @@ import {
 	type DeploymentConfirmationNeeded,
 	NO_DEPLOYMENT_PHASE_OUTCOMES,
 } from "@/lib/deployment/types";
+import {
+	KEPT_LABELS,
+	keptLead,
+	keptRefreshSentence,
+} from "@/lib/publish/keptValues";
 import {
 	encodeManualImportGuide,
 	MANUAL_IMPORT_GUIDE_HEADER,
@@ -759,6 +772,7 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 			locations: [],
 		}),
 		leftBehind: [],
+		kept: null,
 	};
 	await page.route("**/api/commcare/upload", (route) =>
 		route.fulfill({
@@ -1070,8 +1084,136 @@ function landedView(
 			locations: [],
 		}),
 		leftBehind: [],
+		kept: null,
 	};
 }
+
+test("native Refresh from CommCare HQ reads the kept list again, keeps it through a read that did not happen, and shows what changed", async ({
+	page,
+}) => {
+	const shownKept = {
+		labels: ["fuzzy-search"],
+		valuesDigest: "kept-before",
+		observedAt: "2026-10-01T12:00:00Z",
+	} as const;
+	const readKept = {
+		labels: ["fuzzy-search", "required-question-asterisk"],
+		valuesDigest: "kept-after",
+		observedAt: "2026-10-02T12:00:00Z",
+	} as const;
+	const asked: unknown[] = [];
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({
+			json: {
+				success: true,
+				hq_app_action: "updated",
+				url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+				warnings: [],
+				deployment: landedView([]).deployment,
+				setup_artifact: landedView([]).artifact,
+				kept: shownKept,
+				preview_project_space: "alpha",
+				logo_step: null,
+			} satisfies PublishResponseBody,
+		}),
+	);
+	await page.route("**/publishing/refresh-kept", async (route) => {
+		asked.push(route.request().postDataJSON());
+		if (asked.length === 1) {
+			/* Held until the card has shown the read in flight. */
+			await held;
+			return route.fulfill({
+				json: {
+					success: true,
+					data: { kind: "key-not-accepted" },
+				} satisfies DeploymentActionResult<KeptRefreshView>,
+			});
+		}
+		return route.fulfill({
+			json: {
+				success: true,
+				data: {
+					kind: "refreshed",
+					deployment: {
+						...landedView([]),
+						kept: readKept,
+						preview: { projectSpace: "alpha", targetFacts: null },
+					},
+				},
+			} satisfies DeploymentActionResult<KeptRefreshView>,
+		});
+	});
+	try {
+		await open(page);
+		await page.getByRole("button", { name: "Upload", exact: true }).click();
+		await expect(
+			page.getByText("Your app is updated on CommCare HQ", { exact: true }),
+		).toBeVisible();
+		const lead = page.getByText(
+			/^These stay as they are in CommCare HQ, as it held them on .+:$/,
+		);
+		const kept = page.locator("[data-kept-values]").getByRole("listitem");
+		await expect(lead).toBeVisible();
+		await expect(kept).toHaveText([KEPT_LABELS["fuzzy-search"]]);
+		/* The date the card shows, as the reader's browser words it. */
+		const shownDate = (await lead.textContent())
+			?.replace(
+				/^These stay as they are in CommCare HQ, as it held them on /,
+				"",
+			)
+			.replace(/:$/, "");
+		expect(shownDate).toBeTruthy();
+
+		await page
+			.getByRole("button", { name: KEPT_REFRESH_BUTTON, exact: true })
+			.click();
+		await expect(
+			page.getByRole("button", {
+				name: KEPT_REFRESH_BUTTON_PENDING,
+				exact: true,
+			}),
+		).toBeDisabled();
+		release();
+		/* A read that did not happen is an alert under the list, and the list
+		 * and its date stay as they were. */
+		await expect(page.getByRole("alert")).toHaveText(
+			keptRefreshSentence(
+				{ kind: "key-not-accepted", changed: false },
+				{ date: shownDate ?? "", space: "alpha" },
+			),
+		);
+		await expect(lead).toHaveText(keptLead(shownDate ?? "", true));
+		await expect(kept).toHaveText([KEPT_LABELS["fuzzy-search"]]);
+
+		await page
+			.getByRole("button", { name: KEPT_REFRESH_BUTTON, exact: true })
+			.click();
+		/* A read that found a change says so and shows the new list. */
+		await expect(
+			page.getByRole("status").filter({
+				hasText: keptRefreshSentence(
+					{ kind: "refreshed", changed: true },
+					{ date: shownDate ?? "", space: "alpha" },
+				),
+			}),
+		).toBeVisible();
+		await expect(kept).toHaveText([
+			KEPT_LABELS["fuzzy-search"],
+			KEPT_LABELS["required-question-asterisk"],
+		]);
+		await expect(page.getByRole("alert")).toHaveCount(0);
+		expect(asked).toEqual([
+			{ appId: "native-publishing", server: "production", domain: "alpha" },
+			{ appId: "native-publishing", server: "production", domain: "alpha" },
+		]);
+	} finally {
+		release();
+	}
+});
 
 test("native publish asks for each plan feature and project-space setting before the first press, holds Upload until each is ticked, and lands with the logo step", async ({
 	page,
@@ -1493,6 +1635,56 @@ test("native publish below the CommCare version floor links to the app whose set
 		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(page.getByText(message, { exact: true })).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: "Open the app in CommCare HQ" }),
+	).toHaveAttribute(
+		"href",
+		"https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+	);
+});
+test("native publish over an application profile naming a removed language shows a line per profile and links to the app", async ({
+	page,
+}) => {
+	const message =
+		"Application profiles of the app on “alpha” include languages this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. That tab shows only where the project space's plan includes application profiles. Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.";
+	const lines = [
+		"“Field team”: French (fra), Hausa (hau)",
+		"A profile with no name: French (fra), the only language it has",
+	];
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({
+			json: {
+				success: false,
+				refusal: {
+					phase: "preflight",
+					failure: {
+						code: "hq_build_profile_language_missing",
+						message,
+						details: lines,
+					},
+					resourceConflicts: [],
+					remoteChanges: [],
+					confirmationsNeeded: [],
+					webAppsChange: null,
+					placementMoves: null,
+				},
+				url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+				preview_project_space: null,
+			} satisfies PublishResponseBody,
+		}),
+	);
+	await open(page);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(page.getByText(message, { exact: true })).toBeVisible();
+	for (const line of lines) {
+		await expect(page.getByText(line, { exact: true })).toBeVisible();
+	}
 	await expect(
 		page.getByRole("link", { name: "Open the app in CommCare HQ" }),
 	).toHaveAttribute(

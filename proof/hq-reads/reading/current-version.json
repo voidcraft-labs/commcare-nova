@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json"
+	},
+	"body": "{\"currentVersion\": 2, \"latestBuild\": 2, \"latestReleasedBuild\": null}"
+}

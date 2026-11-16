@@ -6,6 +6,7 @@ import {
 	listDomains,
 	testDomainAccess,
 } from "../client";
+import { HQ_APP_LIST_MAX_BYTES } from "../hq/apps";
 
 const CREDS = { username: "account", apiKey: "key", server: "eu" } as const;
 const HOST = "https://eu.commcarehq.org";
@@ -20,6 +21,16 @@ const memberships = (names: string[], meta: object = {}) => ({
 });
 const accessPath = (domain: string) => `/a/${domain}/apps/api/list_apps/`;
 afterEach(() => vi.useRealTimers());
+
+/**
+ * Until the read's resend wait is scheduled beside its deadline. It yields
+ * through `setImmediate`, which the fake clock leaves real, so no fake time
+ * passes while it waits (`vi.waitFor` would advance the clock as it polls).
+ */
+async function untilWaitScheduled(): Promise<void> {
+	while (vi.getTimerCount() < 2)
+		await new Promise<void>((resolve) => setImmediate(resolve));
+}
 
 it("retains only accessible memberships with exact display names on the selected server", async () => {
 	await withHttpPeer(async (peer) => {
@@ -113,7 +124,7 @@ it("refuses malformed, duplicated, incomplete or unroutable memberships before a
 			expect(
 				await discoverAccessibleDomains(CREDS),
 				JSON.stringify(data),
-			).toEqual({ success: false, status: 502 });
+			).toEqual({ success: false, status: 502, cause: "malformed" });
 		}
 		expect(
 			peer
@@ -143,6 +154,7 @@ it("refuses malformed or changed pagination targets and HTTP redirects without f
 			expect(await listDomains(CREDS), next).toEqual({
 				success: false,
 				status: 502,
+				cause: "malformed",
 			});
 		}
 		peer
@@ -165,9 +177,60 @@ it("refuses malformed or changed pagination targets and HTTP redirects without f
 	});
 });
 
-it("returns transport, JSON, permission and throttle failures rather than incomplete membership", async () => {
+it("refuses a count that moves between pages, and a cursor that never ends, as answers Nova cannot read", async () => {
+	const NEXT = "/api/user_domains/v1/?limit=100&offset=100";
 	await withHttpPeer(async (peer) => {
-		for (const status of [401, 403, 429, 503]) {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(
+				200,
+				memberships(["alpha"], {
+					total_count: 2,
+					next: "?limit=100&offset=100",
+				}),
+			);
+		peer
+			.get(HOST)
+			.intercept({ path: NEXT, method: "GET" })
+			.reply(200, memberships(["beta"], { total_count: 3, next: null }));
+		expect(await listDomains(CREDS)).toEqual({
+			success: false,
+			status: 502,
+			cause: "malformed",
+		});
+
+		/* Every page names the next, and none holds a project space. */
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(200, memberships([], { next: "?limit=100&offset=100" }));
+		peer
+			.get(HOST)
+			.intercept({ path: NEXT, method: "GET" })
+			.reply(200, memberships([], { next: "?limit=100&offset=100" }))
+			.persist();
+		expect(await listDomains(CREDS)).toEqual({
+			success: false,
+			status: 508,
+			cause: "malformed",
+		});
+		const sent = peer
+			.getCallHistory()
+			?.calls()
+			.map((call) => call.fullUrl);
+		/* Two pages for the moving count, then the fifty pages the reader follows at most. */
+		expect(sent).toHaveLength(52);
+		expect(sent?.slice(2)).toEqual([
+			HOST + LIST,
+			...Array(49).fill(HOST + NEXT),
+		]);
+	});
+});
+
+it("returns transport, JSON and permission failures rather than incomplete membership", async () => {
+	await withHttpPeer(async (peer) => {
+		for (const status of [401, 403, 503]) {
 			peer
 				.get(HOST)
 				.intercept({ path: LIST, method: "GET" })
@@ -185,7 +248,7 @@ it("returns transport, JSON, permission and throttle failures rather than incomp
 		expect(await discoverAccessibleDomains(CREDS)).toEqual({
 			success: false,
 			status: 502,
-			cause: "malformed",
+			cause: "browser-page",
 		});
 		peer
 			.get(HOST)
@@ -201,7 +264,47 @@ it("returns transport, JSON, permission and throttle failures rather than incomp
 				.getCallHistory()
 				?.calls()
 				.map((call) => call.fullUrl),
-		).toEqual(Array(6).fill(HOST + LIST));
+		).toEqual(Array(5).fill(HOST + LIST));
+	});
+});
+
+it("answers HQ's 429 once the list has been sent three times, waiting a second before each resend", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(429, "")
+			.times(3);
+		const pending = discoverAccessibleDomains(CREDS);
+		for (const sent of [1, 2]) {
+			await untilWaitScheduled();
+			await vi.advanceTimersByTimeAsync(999);
+			expect(peer.getCallHistory()?.calls()).toHaveLength(sent);
+			await vi.advanceTimersByTimeAsync(1);
+		}
+		expect(await pending).toEqual({
+			success: false,
+			status: 429,
+			edgeRefusal: false,
+		});
+		expect(peer.getCallHistory()?.calls()).toHaveLength(3);
+	});
+});
+
+it("answers a 429 whose Retry-After is past the short wait at once", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(429, "", { headers: { "retry-after": "30" } });
+		expect(await discoverAccessibleDomains(CREDS)).toEqual({
+			success: false,
+			status: 429,
+			edgeRefusal: false,
+			retryAfterMs: 30_000,
+		});
+		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
 	});
 });
 
@@ -223,7 +326,7 @@ it("does not call a redirected or HTML login page successful app access", async 
 		expect(await testDomainAccess(CREDS, "alpha")).toEqual({
 			success: false,
 			status: 502,
-			cause: "malformed",
+			cause: "browser-page",
 		});
 		expect(
 			peer
@@ -231,6 +334,55 @@ it("does not call a redirected or HTML login page successful app access", async 
 				?.calls()
 				.map((call) => call.fullUrl),
 		).toEqual(Array(2).fill(HOST + accessPath("alpha")));
+	});
+});
+
+it("keeps a project space whose app list passes the list's bound, and the others beside it", async () => {
+	/* A list of many apps is still CommCare HQ's envelope, and one long
+	 * list must not stop the save of a key for every other project space. */
+	const long = JSON.stringify({
+		status: "success",
+		applications: Array.from({ length: 40_000 }, (_, i) => ({
+			name: `App ${i}`,
+			version: i,
+			app_id: `app${i}`,
+			download_url: `${HOST}/a/alpha/apps/api/download_ccz/?app_id=app${i}`,
+		})),
+	});
+	expect(new TextEncoder().encode(long).length).toBeGreaterThan(
+		HQ_APP_LIST_MAX_BYTES,
+	);
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(200, memberships(["alpha", "beta"]));
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath("alpha"), method: "GET" })
+			.reply(200, long);
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath("beta"), method: "GET" })
+			.reply(200, { status: "success", applications: [] });
+		expect(await discoverAccessibleDomains(CREDS)).toEqual([
+			{ name: "alpha", displayName: "alpha display" },
+			{ name: "beta", displayName: "beta display" },
+		]);
+	});
+});
+
+it("does not call a page past the list's bound app access", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath("alpha"), method: "GET" })
+			.reply(200, `<html>${"x".repeat(HQ_APP_LIST_MAX_BYTES)}</html>`);
+		expect(await testDomainAccess(CREDS, "alpha")).toEqual({
+			success: false,
+			status: 502,
+			cause: "browser-page",
+		});
 	});
 });
 

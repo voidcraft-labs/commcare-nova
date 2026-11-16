@@ -2,6 +2,7 @@
 import type { MockAgent } from "undici";
 import { expect, it } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { applicationAnswer } from "@/__tests__/helpers/retainedHqReads";
 import { observeDeployment } from "../observe";
 
 const HOST = "https://eu.commcarehq.org";
@@ -144,11 +145,12 @@ it.each([
 			reply(
 				peer,
 				BUILDS,
-				{
-					versions: example.missingBuild
+				applicationAnswer(
+					"working",
+					example.missingBuild
 						? []
 						: [{ id: "released", version: 2, is_released: true }],
-				},
+				).body,
 				example.listStatus ?? 200,
 			);
 			if (example.profileStatus !== undefined)

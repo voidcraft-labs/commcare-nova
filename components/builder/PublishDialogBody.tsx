@@ -46,13 +46,15 @@ import {
 	withLandedConfirmations,
 } from "@/components/builder/app-setup/publishingSectionModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
-import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
+import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
+import type { ShownRefreshedView } from "@/components/builder/keptListModel";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
 	type PublishLogoStepBody,
 	placementOfferCopy,
 	publishOutcome,
+	refusalOpensHqApp,
 	withAcceptedMoves,
 	withConfirmation,
 } from "@/components/builder/publishOutcome";
@@ -92,7 +94,6 @@ import {
 import {
 	type DeploymentView,
 	type DownloadTargetsView,
-	type RefreshedDeploymentView,
 	readDeploymentsAction,
 	readDownloadTargetsAction,
 } from "@/lib/deployment/actions";
@@ -351,7 +352,7 @@ export function PublishDialogBody({
 	const accessPhase = useAccessPhase();
 	const canEdit = useCanEdit();
 	const session = useBuilderSessionApi();
-	const setProjectSpace = useSetDeploymentProjectSpace();
+	const applyPreviewAnswer = useApplyPreviewDeploymentAnswer();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
 	const compatibilityControllerRef = useRef<AbortController | null>(null);
@@ -650,13 +651,14 @@ export function PublishDialogBody({
 		[noteDeploymentRecordsChanged],
 	);
 	/* Every refresh answers with the record AND what Preview may now name,
-	 * because an observation can change both. */
+	 * with what that project space keeps of the settings Preview plays,
+	 * because an observation can change all three. */
 	const handleRefreshed = useCallback(
-		(next: RefreshedDeploymentView) => {
+		(next: ShownRefreshedView) => {
 			upsertView(next);
-			setProjectSpace(next.previewProjectSpace);
+			applyPreviewAnswer(next.preview);
 		},
-		[upsertView, setProjectSpace],
+		[upsertView, applyPreviewAnswer],
 	);
 
 	/* What publishing to the selected project space will do. The SAME
@@ -974,7 +976,7 @@ export function PublishDialogBody({
 			 * just used would make a condition pass here and fail for half
 			 * the workers until the next reload withdrew it. A refusal's
 			 * answer applies too: this call is the freshest word either way. */
-			setProjectSpace(outcome.previewProjectSpace);
+			applyPreviewAnswer(outcome.preview);
 			if (outcome.kind === "landed") {
 				if (outcome.deployment !== null) upsertView(outcome.deployment);
 				/* The check's rows were read before this publish stored what
@@ -1102,7 +1104,7 @@ export function PublishDialogBody({
 		appName,
 		getAppId,
 		session,
-		setProjectSpace,
+		applyPreviewAnswer,
 		upsertView,
 		reconciler,
 	]);
@@ -1536,7 +1538,7 @@ export function PublishDialogBody({
 												disabled={isWorking}
 											/>
 										) : null}
-										{status.refusal.code === "hq_app_version_below_floor" &&
+										{refusalOpensHqApp(status.refusal.code) &&
 										status.hqAppUrl !== null ? (
 											<div className="mt-2 text-left">
 												<a

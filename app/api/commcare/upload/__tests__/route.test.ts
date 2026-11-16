@@ -21,9 +21,10 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { previewDeploymentAnswerFor } from "@/lib/deployment/previewSpace";
 import {
 	currentResourceIdentities,
+	landedDeploymentKept,
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
@@ -39,18 +40,22 @@ vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
 	resolveAppAccess: vi.fn(),
 }));
 vi.mock("@/lib/db/settings", () => ({ getCommCareSettings: vi.fn() }));
-/* Both service functions the route imports. A factory that names only
- * `publishAppToHq` leaves the other `undefined`, and the route throws on
+/* Every service function the route imports. A factory that names only
+ * `publishAppToHq` leaves the others `undefined`, and the route throws on
  * the call rather than failing an assertion, so every case in this file
  * reports an opaque 500 instead of what it meant to check. */
 vi.mock("@/lib/deployment/service", () => ({
 	publishAppToHq: vi.fn(),
 	currentResourceIdentities: vi.fn(async () => new Map<string, string>()),
+	landedDeploymentKept: vi.fn(async () => null),
 }));
 /* The route asks the server what Preview may name; only the server can
  * see whether the app is now live on more than one space. */
 vi.mock("@/lib/deployment/previewSpace", () => ({
-	previewProjectSpaceFor: vi.fn(async () => "acme"),
+	previewDeploymentAnswerFor: vi.fn(async () => ({
+		projectSpace: "acme",
+		targetFacts: null,
+	})),
 }));
 
 const SESSION = { user: { id: "u1" } };
@@ -226,6 +231,45 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(Object.hasOwn(body, "web_apps_enabled")).toBe(false);
 	});
 
+	it("answers with the kept list of the record the publish left", async () => {
+		const kept = {
+			labels: ["fuzzy-search"] as const,
+			valuesDigest: "a".repeat(64),
+			observedAt: "2026-11-01T09:00:00.000Z",
+		};
+		vi.mocked(landedDeploymentKept).mockResolvedValueOnce(kept);
+
+		const body = (await (
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }))
+		).json()) as { kept: unknown };
+
+		expect(body.kept).toEqual(kept);
+		expect(landedDeploymentKept).toHaveBeenCalledWith(
+			expect.objectContaining({ appId: "app-1", projectId: "proj-1" }),
+			deploymentView("uploaded"),
+			"publish",
+		);
+	});
+
+	it("answers a landed publish as landed when the reads after it fault, leaving out what it could not read", async () => {
+		/* The import went through. A store fault reading the kept list or
+		 * what Preview may name must not turn that into "Upload failed",
+		 * which would send the person to publish again. */
+		vi.mocked(landedDeploymentKept).mockResolvedValueOnce("unread");
+		vi.mocked(previewDeploymentAnswerFor).mockResolvedValueOnce(null);
+
+		const res = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
+		);
+		const body = (await res.json()) as Record<string, unknown>;
+
+		expect(res.status).toBe(201);
+		expect(body.success).toBe(true);
+		expect(Object.hasOwn(body, "kept")).toBe(false);
+		expect(Object.hasOwn(body, "preview_project_space")).toBe(false);
+		expect(Object.hasOwn(body, "preview_target_facts")).toBe(false);
+	});
+
 	it("names a lookup table an earlier publish left behind", async () => {
 		/* The client cannot work this out for itself: a table deleted on
 		 * CommCare HQ and recreated by the next push also supersedes its
@@ -334,14 +378,22 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		// The browser cannot see whether this app is now live on a second
 		// project space, which is when `commcare_project` has two real
 		// answers and Nova must name neither.
-		vi.mocked(previewProjectSpaceFor).mockResolvedValue(null as never);
+		const facts = { fuzzyListSearch: true, markRequiredQuestions: false };
+		vi.mocked(previewDeploymentAnswerFor).mockResolvedValue({
+			projectSpace: null,
+			targetFacts: facts,
+		});
 
 		const res = await POST(
 			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
 		);
-		const body = (await res.json()) as { preview_project_space: unknown };
+		const body = (await res.json()) as {
+			preview_project_space: unknown;
+			preview_target_facts: unknown;
+		};
 
 		expect(body.preview_project_space).toBeNull();
+		expect(body.preview_target_facts).toEqual(facts);
 	});
 
 	it("reads success from the attempt, not from what the target holds", async () => {

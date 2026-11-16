@@ -5,6 +5,7 @@ import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { applicationAnswer } from "@/__tests__/helpers/retainedHqReads";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -125,13 +126,15 @@ function released(
 ) {
 	available(peer);
 	reply(peer, PATH.versions, VERSIONS);
-	reply(peer, PATH.builds, {
-		versions: [
+	reply(
+		peer,
+		PATH.builds,
+		applicationAnswer("working-app", [
 			{ id: "newer-unreleased", version: 5, is_released: false },
 			{ id: "released-build", version: 3, is_released: true },
 			{ id: "older-released", version: 2, is_released: true },
-		],
-	});
+		]).body,
+	);
 	reply(peer, PATH.profile, options.profile ?? PROFILE);
 	reply(peer, PATH.suite, suite, options.suiteStatus ?? 200);
 }

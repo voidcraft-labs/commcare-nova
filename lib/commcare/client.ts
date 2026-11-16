@@ -1,4 +1,3 @@
-import { withHqRequestDeadline } from "./hq/deadline";
 /**
  * CommCare HQ REST API client — server-side only.
  *
@@ -37,13 +36,19 @@ import {
 	projectSpaceCompatibilityForTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
 import { profileReferencesBuildSuite } from "./buildProfile";
+import { readHqAppListEnvelope } from "./hq/apps";
+import { type HqReadDeadline, withHqRequestDeadline } from "./hq/deadline";
+import { classifyHqFailure, type HqFailure } from "./hq/failure";
 import {
 	authHeader,
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
+	HQ_MALFORMED_ANSWER,
+	hqTextFacts,
 	isEdgeRefusal,
+	isHqCount,
 	isValidDomainSlug,
 	logAndReturnError,
 	retryAfterMs,
@@ -52,14 +57,17 @@ import {
 } from "./hq/http";
 import { isHqObject } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
-/** Private compatibility inputs stay behind the CommCare boundary. They are
- * types here so no manifest can enter a browser bundle through this client. */
+import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
+/** Private compatibility inputs stay behind the CommCare boundary: the probe
+ * takes its plan as data, and the one flag this client reads by name comes
+ * from `hqPrivateFeatureFlag`, so its slug is the probe's own. */
 import type {
 	HqPrivateFeatureFlagRequirement,
 	HqProjectSpaceAdvisoryProbePlan,
 	HqProjectSpaceCapabilityProbePlan,
 	HqProjectSpaceCompatibilityProbePlan,
 } from "./projectSpaceCompatibility";
+import { hqPrivateFeatureFlag } from "./projectSpaceCompatibility";
 import { domainFeatureFlag } from "./surface/gates";
 
 /* The HQ wire primitives live in `./hq/http` so every driver shares one
@@ -67,6 +75,7 @@ import { domainFeatureFlag } from "./surface/gates";
  * re-exported here because this module was their home first and a great
  * many callers import them by this path; the definitions are not
  * duplicated. */
+export type { HqAppBuild } from "./hq/application";
 export type { CommCareApiError, CommCareCredentials } from "./hq/http";
 export { isValidDomainSlug } from "./hq/http";
 
@@ -138,11 +147,11 @@ export async function listDomains(
 async function listDomainsMatching(
 	creds: CommCareCredentials,
 	featureFlag?: string,
-	signal?: AbortSignal,
+	within?: HqReadDeadline,
 ): Promise<CommCareDomain[] | CommCareApiError> {
-	if (signal === undefined)
-		return withHqRequestDeadline((owned) =>
-			listDomainsMatching(creds, featureFlag, owned),
+	if (within === undefined)
+		return withHqRequestDeadline((signal, deadline) =>
+			listDomainsMatching(creds, featureFlag, { signal, deadline }),
 		);
 	const domains: CommCareDomain[] = [];
 	const seen = new Set<string>();
@@ -154,19 +163,17 @@ async function listDomainsMatching(
 	let url = target.toString();
 	let total: number | undefined;
 	for (let page = 0; page < 50; page++) {
-		const result = await readHqJson(creds, url, "project space list", {
-			signal,
-		});
+		const result = await readHqJson(creds, url, "project space list", within);
 		if ("success" in result) return result;
 		const data = result.data;
 		if (
 			!isUserDomainsResponse(data) ||
 			(total !== undefined && total !== data.meta.total_count)
 		)
-			return { success: false, status: 502 };
+			return HQ_MALFORMED_ANSWER;
 		total = data.meta.total_count;
 		for (const row of data.objects) {
-			if (seen.has(row.domain_name)) return { success: false, status: 502 };
+			if (seen.has(row.domain_name)) return HQ_MALFORMED_ANSWER;
 			seen.add(row.domain_name);
 			domains.push({
 				name: row.domain_name,
@@ -174,14 +181,12 @@ async function listDomainsMatching(
 			});
 		}
 		if (data.meta.next === null || data.meta.next === undefined)
-			return domains.length === total
-				? domains
-				: { success: false, status: 502 };
+			return domains.length === total ? domains : HQ_MALFORMED_ANSWER;
 		let next: URL;
 		try {
 			next = new URL(data.meta.next, url);
 		} catch {
-			return { success: false, status: 502 };
+			return HQ_MALFORMED_ANSWER;
 		}
 		if (
 			data.meta.next === "" ||
@@ -196,10 +201,10 @@ async function listDomainsMatching(
 				(key) => key !== "limit" && key !== "offset" && key !== "feature_flag",
 			)
 		)
-			return { success: false, status: 502 };
+			return HQ_MALFORMED_ANSWER;
 		url = next.toString();
 	}
-	return { success: false, status: 508 };
+	return { success: false, status: 508, cause: "malformed" };
 }
 
 function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
@@ -217,9 +222,7 @@ function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
 	}
 	const meta = candidate.meta as Record<string, unknown>;
 	return (
-		typeof meta.total_count === "number" &&
-		Number.isSafeInteger(meta.total_count) &&
-		meta.total_count >= 0 &&
+		isHqCount(meta.total_count) &&
 		(meta.limit === undefined ||
 			meta.limit === null ||
 			typeof meta.limit === "number") &&
@@ -303,8 +306,8 @@ export async function probeHqProjectSpaceCompatibility(
 	// domain approvals can become stale after HQ membership changes; without
 	// this guard, losing access would be misreported as every flag being off.
 	try {
-		const visibleDomains = await runBoundedCompatibilityProbe((signal) =>
-			listDomainsMatching(creds, undefined, signal),
+		const visibleDomains = await runBoundedCompatibilityProbe((within) =>
+			listDomainsMatching(creds, undefined, within),
 		);
 		if (!Array.isArray(visibleDomains)) {
 			log.warn(
@@ -430,8 +433,8 @@ async function probePrivateFeatureFlag(
 	}
 
 	try {
-		const enabledDomains = await runBoundedCompatibilityProbe((signal) =>
-			listDomainsMatching(creds, requirement.slug, signal),
+		const enabledDomains = await runBoundedCompatibilityProbe((within) =>
+			listDomainsMatching(creds, requirement.slug, within),
 		);
 		if (!Array.isArray(enabledDomains)) {
 			log.warn("[commcare/project-space] private probe unavailable", {
@@ -463,7 +466,7 @@ async function probeCaseSearchRuntime(
 	domain: string,
 ): Promise<PrivateProbeAssessment> {
 	try {
-		return await runBoundedCompatibilityProbe(async (signal) => {
+		return await runBoundedCompatibilityProbe(async ({ signal }) => {
 			const query = new URLSearchParams({ case_type: CASE_SEARCH_PROBE_TYPE });
 			const url = `${baseUrl(creds)}/a/${domain}/phone/search/?${query.toString()}`;
 			const response = await fetch(url, {
@@ -615,56 +618,120 @@ function notAMemberProjectSpaceResult(
 	};
 }
 
+/** Whether CommCare HQ's builds in a project space save an answer only when the worker changed it. */
+export type HqSaveOnlyEditedAnswers =
+	/** The project space holds the flag: CommCare HQ's build compares before it saves. */
+	| { readonly kind: "applied" }
+	/** The project space does not hold it: CommCare HQ's build saves every time. */
+	| { readonly kind: "not-applied" }
+	/** The key's own list of project spaces answered and does not hold this one. */
+	| { readonly kind: "not-a-member" }
+	| { readonly kind: "failed"; readonly failure: HqFailure };
+
+/**
+ * Read the one flag that changes what a property write saved only if the
+ * worker changed it means: `app_manager/xform.py::XFormCaseBlock.add_case_updates`
+ * compares before it saves only where the project space holds
+ * `SAVE_ONLY_EDITED_FORM_FIELDS`.
+ *
+ * The two reads the publish probe makes for a flag, one after the other,
+ * each under the default deadline: the key's whole list of project spaces,
+ * which proves the key still reaches this one, then the list filtered by the
+ * flag's slug. The flag is keyed by project space alone
+ * (`surface/gates.ts::domainFeatureFlag` refuses any other), so a listed
+ * project space is the space's own flag. Unlike the probe, a failed read is
+ * the answer, never a guess.
+ */
+export async function readHqSaveOnlyEditedAnswers(
+	creds: CommCareCredentials,
+	domain: string,
+	options: { readonly cancel?: AbortSignal } = {},
+): Promise<HqSaveOnlyEditedAnswers> {
+	const failed = (error: CommCareApiError): HqSaveOnlyEditedAnswers => ({
+		kind: "failed",
+		failure: classifyHqFailure(error, "project-spaces"),
+	});
+	const list = (featureFlag: string | undefined) =>
+		withHqRequestDeadline(
+			(signal, deadline) =>
+				listDomainsMatching(creds, featureFlag, { signal, deadline }),
+			undefined,
+			options.cancel,
+		);
+	const visible = await list(undefined);
+	if (!Array.isArray(visible)) return failed(visible);
+	if (!visible.some((candidate) => candidate.name === domain))
+		return { kind: "not-a-member" };
+	const flag = hqPrivateFeatureFlag("save-only-edited-answers");
+	const flagged = await list(flag.slug);
+	if (!Array.isArray(flagged)) {
+		/* A slug HQ no longer knows answers 400, which is Nova's to fix. */
+		if (flagged.status === 400 && flagged.cause === undefined)
+			log.error("[commcare] feature flag list refused", undefined, {
+				domain,
+				request: "project-spaces",
+				status: flagged.status,
+			});
+		return failed(flagged);
+	}
+	return flagged.some((candidate) => candidate.name === domain)
+		? { kind: "applied" }
+		: { kind: "not-applied" };
+}
+
 /** A compatibility check must never hold open the publish preflight. */
 export const HQ_PROJECT_SPACE_COMPATIBILITY_PROBE_TIMEOUT_MS = 5_000;
 
+/** Each check owns its five second deadline, handed on as the signal and its instant. */
 async function runBoundedCompatibilityProbe<T>(
-	probe: (signal: AbortSignal) => Promise<T>,
+	probe: (within: HqReadDeadline) => Promise<T>,
 ): Promise<T> {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => {
-		controller.abort(
-			new DOMException("HQ compatibility probe timed out", "TimeoutError"),
-		);
-	}, HQ_PROJECT_SPACE_COMPATIBILITY_PROBE_TIMEOUT_MS);
-	try {
-		return await probe(controller.signal);
-	} finally {
-		clearTimeout(timeout);
-	}
+	return withHqRequestDeadline(
+		(signal, deadline) => probe({ signal, deadline }),
+		HQ_PROJECT_SPACE_COMPATIBILITY_PROBE_TIMEOUT_MS,
+	);
 }
 
 /**
  * Test whether the API key can access a specific domain.
  *
- * Makes a lightweight GET to the list_apps endpoint: its explicit JSON success
- * envelope proves access; ordinary 401/403 responses refuse it. CommCare HQ returns 401 (not 403) for domains
- * where the API key lacks app-level access, even though the key is valid
- * for the user_domains endpoint. Since callers already validated the key
- * via listDomains(), a per-domain 401 is a scope issue, not invalid creds.
- * Edge refusals, redirects, transport failures and malformed bodies remain
- * unavailable answers rather than silently dropping an accessible space.
+ * Reads the app list's envelope (`hq/apps.ts::readHqAppListEnvelope`): its
+ * explicit JSON success envelope proves access; ordinary 401/403 responses
+ * refuse it. CommCare HQ returns 401 (not 403) for domains where the API key
+ * lacks app-level access, even though the key is valid for the user_domains
+ * endpoint. Since callers already validated the key via listDomains(), a
+ * per-domain 401 is a scope issue, not invalid creds. Edge refusals,
+ * redirects, transport failures and malformed envelopes remain unavailable
+ * answers rather than silently dropping an accessible space.
+ *
+ * The rows are not checked: HQ passes each app's `name` and `version`
+ * through as stored, discovery stops on the first error of any project
+ * space, and one app Nova cannot type must not fail the save of a key that
+ * reaches hundreds. For the same reason a list longer than the envelope
+ * read's bound is access: `readHqJson` answers `too-large` only for a 2xx
+ * body that does not open as a page, and `views/cli.py::list_apps` answers
+ * 2xx with JSON only as its envelope (`@json_error` answers its errors
+ * with their own status), so the list of a project space with many apps
+ * proves the key reaches it without Nova holding it. A slug Nova cannot put
+ * in a URL is a project space the key does not reach, never an error that
+ * stops discovery.
  */
 export async function testDomainAccess(
 	creds: CommCareCredentials,
 	domain: string,
 ): Promise<boolean | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return false;
-	const url = `${baseUrl(creds)}/a/${domain}/apps/api/list_apps/`;
-	const result = await readHqJson(creds, url, "app access");
+	const result = await readHqAppListEnvelope(creds, domain);
 	if ("success" in result) {
 		if (
 			(result.status === 401 || result.status === 403) &&
 			result.edgeRefusal !== true
 		)
 			return false;
+		if (result.cause === "too-large") return true;
 		return result;
 	}
-	return isHqObject(result.data) &&
-		result.data.status === "success" &&
-		Array.isArray(result.data.applications)
-		? true
-		: { success: false, status: 502 };
+	return true;
 }
 
 /**
@@ -728,7 +795,7 @@ export async function discoverAccessibleDomains(
 }
 
 /** The most an import waits on a `Retry-After` before sending again. */
-export const IMPORT_RETRY_MAX_WAIT_MS = 2_000;
+export const IMPORT_RETRY_MAX_WAIT_MS = HQ_THROTTLE_MAX_WAIT_MS;
 
 /** How many times one import is sent at most: the first and two resends. */
 const IMPORT_SENDS = 3;
@@ -823,7 +890,11 @@ export async function importApp(
 				log.error("[commcare] import response unavailable", error, {
 					domain,
 				});
-				return { success: false, status: 503 };
+				return {
+					success: false,
+					status: 503,
+					cause: signal.aborted ? "timeout" : "network",
+				};
 			}
 			const wait =
 				res.status === 429 && sent < IMPORT_SENDS
@@ -857,20 +928,27 @@ export async function importApp(
 			data = await res.json();
 		} catch {
 			log.error("[commcare] import returned non-JSON", undefined, { domain });
-			return { success: false, status: signal.aborted ? 503 : 502 };
+			return signal.aborted
+				? { success: false, status: 503, cause: "timeout" }
+				: HQ_MALFORMED_ANSWER;
 		}
 		if (typeof data !== "object" || data === null || Array.isArray(data)) {
-			return { success: false, status: 502 };
+			return HQ_MALFORMED_ANSWER;
 		}
 		const acknowledgement = data as Record<string, unknown>;
 
 		/* HQ can return HTTP 200 with success:false for application-level
-		 * import failures (malformed JSON, schema violations). The response
-		 * body is already consumed so we log the parsed result directly. */
+		 * import failures (malformed JSON, schema violations). Its `error`
+		 * can quote the app (`AppEditingError` names a form or a question),
+		 * so the line names that text's shape and length, never the text. */
 		if (acknowledgement.success === false) {
+			const error = hqTextFacts(
+				typeof acknowledgement.error === "string" ? acknowledgement.error : "",
+			);
 			log.error("[commcare] import rejected by HQ", undefined, {
 				domain,
-				data,
+				error: error.shape,
+				errorBytes: error.bytes,
 			});
 			return { success: false, status: 422 };
 		}
@@ -880,10 +958,7 @@ export async function importApp(
 			typeof appId !== "string" ||
 			!/^[A-Za-z0-9_-]+$/.test(appId) ||
 			(updateAppId !== undefined && appId !== updateAppId) ||
-			(version !== undefined &&
-				(typeof version !== "number" ||
-					!Number.isSafeInteger(version) ||
-					version < 0)) ||
+			(version !== undefined && !isHqCount(version)) ||
 			(warnings !== undefined &&
 				(!Array.isArray(warnings) ||
 					!warnings.every((warning) => typeof warning === "string")))
@@ -893,7 +968,7 @@ export async function importApp(
 			log.error("[commcare] import acknowledgement is malformed", undefined, {
 				domain,
 			});
-			return { success: false, status: 502 };
+			return HQ_MALFORMED_ANSWER;
 		}
 
 		return {
@@ -1138,19 +1213,8 @@ export interface HqAppVersions {
 	readonly latestReleasedVersion: number | null;
 }
 
-/** One build CommCare HQ holds for an app. */
-export interface HqAppBuild {
-	readonly id: string;
-	readonly version: number;
-	readonly isReleased: boolean;
-	readonly builtOn: string | null;
-	readonly buildComment: string | null;
-}
-
 function finiteIntOrNull(value: unknown): number | null {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-		? value
-		: null;
+	return isHqCount(value) ? value : null;
 }
 
 /**
@@ -1159,7 +1223,8 @@ function finiteIntOrNull(value: unknown): number | null {
  * `GET /a/{domain}/apps/view/{app_id}/current_version/`, which carries
  * `@login_or_api_key` (`views/releases.py::current_app_version`) and so is
  * reachable with the stored key. It answers with version NUMBERS, not
- * build ids; `listAppBuilds` is what supplies an id.
+ * build ids; the application resource (`hq/application.ts::readHqApplication`)
+ * is what supplies an id.
  *
  * A 404 here means CommCare HQ has no such working app in the domain —
  * either it was deleted, or the id names a build rather than the app
@@ -1170,15 +1235,18 @@ export async function readAppVersions(
 	creds: CommCareCredentials,
 	domain: string,
 	hqAppId: string,
+	options: { readonly cancel?: AbortSignal } = {},
 ): Promise<HqAppVersions | CommCareApiError> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
 		return { success: false, status: 400 };
 	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
-	const result = await readHqJson(creds, url, "app versions");
+	const result = await readHqJson(creds, url, "app versions", {
+		cancel: options.cancel,
+	});
 	if ("success" in result) return result;
 	const data = result.data;
 	if (typeof data !== "object" || data === null || Array.isArray(data))
-		return { success: false, status: 502 };
+		return HQ_MALFORMED_ANSWER;
 	const record = data as Record<string, unknown>;
 	const currentVersion = finiteIntOrNull(record.currentVersion);
 	if (
@@ -1188,73 +1256,12 @@ export async function readAppVersions(
 		(record.latestReleasedBuild !== null &&
 			finiteIntOrNull(record.latestReleasedBuild) === null)
 	)
-		return { success: false, status: 502 };
+		return HQ_MALFORMED_ANSWER;
 	return {
 		currentVersion,
 		latestBuildVersion: finiteIntOrNull(record.latestBuild),
 		latestReleasedVersion: finiteIntOrNull(record.latestReleasedBuild),
 	};
-}
-
-/**
- * List an app's builds, with their ids and release flags.
- *
- * The tastypie Application resource
- * (`corehq/apps/api/resources/v0_4.py::ApplicationResource.dehydrate_versions`)
- * is read-only and authenticates through `LoginAndDomainAuthentication`,
- * whose decorator map carries an `API_KEY` entry — so the stored key
- * works, provided its account also holds CommCare HQ's `access_api`
- * permission. A key without it gets a 401/403 here while the rest of the
- * deployment still functions, which is why callers treat a failure as
- * "could not check" rather than "not built".
- *
- * `versions` comes back empty for a build rather than a working app, so an
- * empty list from a working app genuinely means nothing has been built.
- */
-export async function listAppBuilds(
-	creds: CommCareCredentials,
-	domain: string,
-	hqAppId: string,
-): Promise<readonly HqAppBuild[] | CommCareApiError> {
-	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
-		return { success: false, status: 400 };
-	const url = `${baseUrl(creds)}/a/${domain}/api/application/v1/${encodeURIComponent(hqAppId)}/`;
-	const result = await readHqJson(creds, url, "app builds");
-	if ("success" in result) return result;
-	const data = result.data;
-	if (
-		typeof data !== "object" ||
-		data === null ||
-		!("versions" in data) ||
-		!Array.isArray(data.versions)
-	)
-		return { success: false, status: 502 };
-	const builds: HqAppBuild[] = [];
-	const ids = new Set<string>();
-	for (const entry of data.versions) {
-		if (!isHqObject(entry)) return { success: false, status: 502 };
-		const row = entry as Record<string, unknown>;
-		const id = typeof row.id === "string" ? row.id : null;
-		const version = finiteIntOrNull(row.version);
-		if (
-			id === null ||
-			!/^[\w-]+$/.test(id) ||
-			version === null ||
-			typeof row.is_released !== "boolean" ||
-			ids.has(id)
-		)
-			return { success: false, status: 502 };
-		ids.add(id);
-		builds.push({
-			id,
-			version,
-			isReleased: row.is_released === true,
-			builtOn: typeof row.built_on === "string" ? row.built_on : null,
-			buildComment:
-				typeof row.build_comment === "string" ? row.build_comment : null,
-		});
-	}
-	return builds;
 }
 
 /**

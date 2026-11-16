@@ -39,6 +39,7 @@ import {
 	type PublishResponseBody,
 	placementOfferCopy,
 	publishOutcome,
+	refusalOpensHqApp,
 	withAcceptedMoves,
 	withConfirmation,
 } from "../publishOutcome";
@@ -93,6 +94,46 @@ const REFUSAL = {
 };
 
 describe("a publish that landed", () => {
+	it("carries what the project space keeps of the settings Preview plays, and none where the response holds none", () => {
+		const facts = { fuzzyListSearch: true, markRequiredQuestions: true };
+		const body = {
+			success: true,
+			url: "https://hq/app",
+			deployment: VIEW,
+			setup_artifact: ARTIFACT,
+			preview_project_space: "acme",
+		};
+		expect(
+			publishOutcome(true, { ...body, preview_target_facts: facts }),
+		).toMatchObject({
+			kind: "landed",
+			preview: { projectSpace: "acme", targetFacts: facts },
+		});
+		expect(
+			publishOutcome(true, { ...body, preview_target_facts: null }),
+		).toMatchObject({
+			kind: "landed",
+			preview: { projectSpace: "acme", targetFacts: null },
+		});
+		/* One half alone reads the other as null: Preview plays a new project space. */
+		expect(publishOutcome(true, body)).toMatchObject({
+			kind: "landed",
+			preview: { projectSpace: "acme", targetFacts: null },
+		});
+	});
+
+	it("carries no Preview answer where the response holds neither half, so the tab keeps what it holds", () => {
+		const landed = publishOutcome(true, {
+			success: true,
+			url: "https://hq/app",
+			deployment: VIEW,
+			setup_artifact: ARTIFACT,
+		});
+		expect(landed).toMatchObject({ kind: "landed", preview: null });
+		const refused = publishOutcome(true, { success: false, refusal: REFUSAL });
+		expect(refused).toMatchObject({ kind: "refused", preview: null });
+	});
+
 	it("carries the record, the url, and what Preview may name", () => {
 		const outcome = publishOutcome(true, {
 			success: true,
@@ -104,15 +145,41 @@ describe("a publish that landed", () => {
 		});
 		expect(outcome).toStrictEqual({
 			kind: "landed",
-			deployment: { deployment: VIEW, artifact: ARTIFACT, leftBehind: [] },
+			deployment: {
+				deployment: VIEW,
+				artifact: ARTIFACT,
+				leftBehind: [],
+				kept: null,
+			},
 			hqAppAction: null,
 			appUrl: "https://hq/app",
 			warnings: ["media still processing"],
-			previewProjectSpace: "acme",
+			preview: { projectSpace: "acme", targetFacts: null },
 			appPreviewNote: null,
 			logoStep: null,
 			placements: { recorded: 0, moved: 0 },
 		});
+	});
+
+	it("carries the kept list the publish left on the landed record, and none where the response holds none", () => {
+		const kept = {
+			labels: ["fuzzy-search", "required-question-asterisk"] as const,
+			valuesDigest: "a".repeat(64),
+			observedAt: "2026-11-01T09:00:00.000Z",
+		};
+		const body = {
+			success: true,
+			url: "https://hq/app",
+			deployment: VIEW,
+			setup_artifact: ARTIFACT,
+		};
+		const landed = publishOutcome(true, { ...body, kept });
+		if (landed.kind !== "landed") throw new Error("Expected a landed publish");
+		expect(landed.deployment?.kept).toStrictEqual(kept);
+		/* Absent reads as no kept list, which draws nothing. */
+		const absent = publishOutcome(true, body);
+		if (absent.kind !== "landed") throw new Error("Expected a landed publish");
+		expect(absent.deployment?.kept).toBeNull();
 	});
 
 	it("carries the logo step the publish offers, and none for an app with no logo", () => {
@@ -203,7 +270,7 @@ describe("a publish that was refused", () => {
 			placementMoves: null,
 			placements: { recorded: 0, moved: 0 },
 			warnings: ["Review target"],
-			previewProjectSpace: null,
+			preview: null,
 		});
 	});
 
@@ -287,6 +354,10 @@ describe("a publish that was refused", () => {
 			},
 			setup_artifact: ARTIFACT,
 			preview_project_space: "acme",
+			preview_target_facts: {
+				fuzzyListSearch: false,
+				markRequiredQuestions: true,
+			},
 		});
 		expect(outcome).toMatchObject({
 			kind: "refused",
@@ -294,7 +365,13 @@ describe("a publish that was refused", () => {
 				message: "CommCare HQ isn't connected yet.",
 				items: [],
 			},
-			previewProjectSpace: "acme",
+			preview: {
+				projectSpace: "acme",
+				targetFacts: {
+					fuzzyListSearch: false,
+					markRequiredQuestions: true,
+				},
+			},
 		});
 		expect(outcome.kind).toBe("refused");
 		if (outcome.kind !== "refused") throw new Error("Expected refused publish");
@@ -302,6 +379,7 @@ describe("a publish that was refused", () => {
 			deployment: { ...VIEW, deployment: { ...RECORD, state: "runnable" } },
 			artifact: ARTIFACT,
 			leftBehind: [],
+			kept: null,
 		});
 		expect(outcome.resourceConflicts).toStrictEqual([]);
 	});
@@ -392,6 +470,32 @@ describe("a publish that was refused", () => {
 			refusal: { code: "hq_app_version_below_floor", message: failure.message },
 			hqAppUrl: "https://www.commcarehq.org/a/acme/apps/view/hq-1/",
 		});
+	});
+
+	it("keeps a build profile's lines and the HQ app's address with its stop, so the dialog draws both and the link", () => {
+		const failure = {
+			code: "hq_build_profile_language_missing" as const,
+			message:
+				"An application profile of the app on “acme” includes a language this app no longer has, so Nova stopped before sending anything.",
+			details: ["“Mandarin”: Chinese (zho), the only language it has"],
+		};
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: { ...REFUSAL, failure },
+			url: "https://www.commcarehq.org/a/acme/apps/view/hq-1/",
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			refusal: {
+				code: "hq_build_profile_language_missing",
+				message: failure.message,
+				items: failure.details,
+			},
+			hqAppUrl: "https://www.commcarehq.org/a/acme/apps/view/hq-1/",
+		});
+		expect(refusalOpensHqApp("hq_build_profile_language_missing")).toBe(true);
+		expect(refusalOpensHqApp("hq_app_version_below_floor")).toBe(true);
+		expect(refusalOpensHqApp("hq_app_state_unknown")).toBe(false);
 	});
 
 	it("carries no record for a target the app never reached", () => {

@@ -51,6 +51,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
+import { useDeploymentTargetFacts } from "@/components/builder/DeploymentTargetProvider";
 import {
 	useBuilderLanguage,
 	useLocalizedValues,
@@ -66,7 +67,7 @@ import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import {
 	ListFilterBox,
-	rowMatchesFilterText,
+	rowsMatchingFilterText,
 } from "@/components/preview/shared/listFilter";
 import {
 	PinnedCaseTile,
@@ -80,6 +81,7 @@ import {
 } from "@/components/preview/shared/RestoreScopeNote";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
+import { useImageReference } from "@/components/preview/shared/useImageReference";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import {
@@ -145,7 +147,10 @@ import {
 } from "@/lib/preview/caseSelectionNavigation";
 import {
 	type GroupedTileProjection,
+	groupedPageRows,
 	splitTileGridByGroupHeader,
+	type TileGroupCard,
+	tileGroupCards,
 } from "@/lib/preview/caseTileGrouping";
 import {
 	projectTileGrid,
@@ -306,6 +311,7 @@ import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
 const SPLIT_MIN_WIDTH = 760;
 /** Keep real case populations bounded in both the SQL payload and the DOM. */
 const CASE_LIST_PAGE_SIZE = 50;
+const UNEDITED_FILTER_BOX = { text: "", edited: false } as const;
 const EMPTY_SEARCH_INPUT_VALUES: ReadonlyMap<string, string> = new Map();
 /** Stable empty catalog slice: a fresh `[]` per render would defeat the
  *  display context's memo. */
@@ -894,7 +900,14 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		appId,
 		caseType?.name,
 	);
-	const [filterText, setFilterText] = useState("");
+	/* The filter box: its text, and whether the worker has changed it since the
+	 * list opened, which an emptied box on Android depends on
+	 * (`PreviewPlatformRules.listFilter`, `emptyText`). */
+	const [filterBox, setFilterBox] = useState<{
+		readonly text: string;
+		readonly edited: boolean;
+	}>(UNEDITED_FILTER_BOX);
+	const filterText = filterBox.text;
 	/* Paging belongs to the effective module query. A newly submitted Search or
 	 * authored config changes that query identity and synchronously derives page
 	 * zero; no effect-frame can briefly request a stale far-away page. */
@@ -1071,7 +1084,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		/* Quick-filter text can itself contain a copied case name or other source
 		 * value. Clear it with rows/selections on every Project generation, even
 		 * when a same-app move leaves the module UUID unchanged. */
-		setFilterText("");
+		setFilterBox(UNEDITED_FILTER_BOX);
 		setOpenCase(null);
 		originatingCaseIdRef.current = null;
 		routeFallbackOwnedFocusRef.current = null;
@@ -1569,8 +1582,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		(col) => col.visibleInList ?? true,
 	);
 	/* The quick filter matches what a device's search matches: every field's
-	 * text, the hidden fields and the order plan's carriers included. */
+	 * text, the hidden fields and the order plan's carriers included, an
+	 * image map's field by the path a device holds for its image. */
 	const orderPlan = useCaseListOrderPlan(moduleUuid, config);
+	const imageReference = useImageReference(visibleColumns);
 	/* A tile carries the columns the short detail emits: the visible ones
 	 * PLUS any hidden column that still orders the list. The hidden one holds
 	 * NO square (the wire gives it no `<style>`, so the device draws an empty
@@ -1836,53 +1851,59 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				: undefined,
 		);
 	}, [selectedCase, setPreviewSelectedCase]);
+	/* The one filter site. A grouped page is filtered as the list's own run of
+	 * rows (`groupedPageRows`) and its cards are made from the matches
+	 * (`tileGroupCards`), as Formplayer filters, sorts and then groups
+	 * (`EntityScreenHelper.java::initEntities`): the groups stand in the order
+	 * of each one's first match, and a card's heading and its one choice are
+	 * that match. With no text the cards are the store's own groups. Fuzzy
+	 * matching follows the reached project space's `cc-fuzzy-search-enabled`;
+	 * with no facts it is off, which is Nova's own value. */
+	const fuzzyListSearch = useDeploymentTargetFacts()?.fuzzyListSearch ?? false;
+	const groupedRows = useMemo(
+		() =>
+			groupedResult === undefined ? undefined : groupedPageRows(groupedResult),
+		[groupedResult],
+	);
 	const filteredRows = useMemo(
 		() =>
-			filterText === ""
-				? loadedRows
-				: loadedRows.filter((row) =>
-						rowMatchesFilterText(
-							visibleColumns,
-							row,
-							filterText,
-							resultsDisplayContext,
-							orderPlan,
-						),
-					),
-		[loadedRows, visibleColumns, filterText, resultsDisplayContext, orderPlan],
+			rowsMatchingFilterText(
+				visibleColumns,
+				groupedRows?.rows ?? loadedRows,
+				filterText,
+				resultsDisplayContext,
+				orderPlan,
+				{
+					fuzzy: fuzzyListSearch,
+					rules: platformRules.listFilter,
+					edited: filterBox.edited,
+					imageReference,
+				},
+			),
+		[
+			fuzzyListSearch,
+			imageReference,
+			groupedRows,
+			loadedRows,
+			visibleColumns,
+			filterText,
+			filterBox.edited,
+			resultsDisplayContext,
+			orderPlan,
+			platformRules.listFilter,
+		],
 	);
-	/* The same narrowing, applied inside each group. A group whose members all
-	 * fail the filter disappears; the ones that survive keep drawing their
-	 * header from the group's OWN first case, because the header names the
-	 * group rather than one of the matches. */
-	const filteredGroups = useMemo<
-		readonly ResultsTileGroup[] | undefined
-	>(() => {
-		if (groupedResult === undefined) return undefined;
-		return groupedResult.groups.flatMap<ResultsTileGroup>((group) => {
-			const header = group.rows[0];
-			if (header === undefined) return [];
-			const rows =
-				filterText === ""
-					? group.rows
-					: group.rows.filter((row) =>
-							rowMatchesFilterText(
-								visibleColumns,
-								row,
-								filterText,
-								resultsDisplayContext,
-								orderPlan,
-							),
-						);
-			return rows.length === 0 ? [] : [{ key: group.key, header, rows }];
-		});
-	}, [
-		groupedResult,
-		visibleColumns,
-		filterText,
-		resultsDisplayContext,
-		orderPlan,
-	]);
+	const tileCards = useMemo(
+		() =>
+			groupedRows === undefined
+				? undefined
+				: tileGroupCards(filteredRows, groupedRows.keyOf),
+		[groupedRows, filteredRows],
+	);
+	/* Whether the filter narrows what the list shows: typed text, or an
+	 * emptied box that still drops a row (Android runs it once edited). */
+	const filterActive =
+		filterText !== "" || filteredRows.length !== loadedRows.length;
 	const caseCount = (count: number) =>
 		message(count === 1 ? "caseCountOne" : "caseCountMany", {
 			count: count.toLocaleString(),
@@ -1903,26 +1924,24 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		shown: filteredRows.length.toLocaleString(),
 		total: caseCount(loadedRows.length),
 	});
-	const visibleResultCount =
-		filterText !== ""
-			? pageLocalFilter
-				? message("onThisPage", { count: filteredCount })
-				: filteredCount
-			: pageLocalFilter
-				? range
-				: groupedResult !== undefined
-					? message("casesInGroups", {
-							cases: caseCount(totalMatchingCases),
-							groups: groupCount(pagedUnitTotal),
-						})
-					: caseCount(totalMatchingCases);
+	const visibleResultCount = filterActive
+		? pageLocalFilter
+			? message("onThisPage", { count: filteredCount })
+			: filteredCount
+		: pageLocalFilter
+			? range
+			: groupedResult !== undefined
+				? message("casesInGroups", {
+						cases: caseCount(totalMatchingCases),
+						groups: groupCount(pagedUnitTotal),
+					})
+				: caseCount(totalMatchingCases);
 	const pagerSummary = message("showingResults", { count: range });
-	const announcedResultCount =
-		filterText !== ""
-			? visibleResultCount
-			: message(pageLocalFilter ? "showingResults" : "resultsFound", {
-					count: visibleResultCount,
-				});
+	const announcedResultCount = filterActive
+		? visibleResultCount
+		: message(pageLocalFilter ? "showingResults" : "resultsFound", {
+				count: visibleResultCount,
+			});
 	const sourceSearchTitle = searchScreenTitleText(searchConfig);
 	const { title, subtitle } = searchScreenHeading(platformRules, {
 		title:
@@ -2481,9 +2500,9 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	const chooseVisibleCases = () => {
 		if (validatingSelection) return;
 		const selectableRows =
-			filteredGroups === undefined
+			tileCards === undefined
 				? filteredRows
-				: filteredGroups.map((group) => group.header);
+				: tileCards.map((card) => card.rows[0]);
 		const visibleChoices = selectableRows.map(previewCaseChoiceOf);
 		const result = addVisiblePreviewCaseChoices(
 			selectedChoices,
@@ -3239,8 +3258,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				<div className="mb-3">
 					<ListFilterBox
 						value={filterText}
-						onChange={setFilterText}
-						resultCount={filterText === "" ? undefined : filteredRows.length}
+						onChange={(text) => setFilterBox({ text, edited: true })}
+						resultCount={filterActive ? filteredRows.length : undefined}
 						scope={pageLocalFilter ? "page" : "results"}
 					/>
 					{pageLocalFilter && (
@@ -3298,8 +3317,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				onRetryCount={retryCountWithFocus}
 				onSignIn={() => void signIn()}
 				rows={filteredRows}
-				groups={filteredGroups}
-				filterActive={filterText !== ""}
+				groups={tileCards}
+				filterActive={filterActive}
 				pageLocalFilter={pageLocalFilter}
 				visibleColumns={visibleColumns}
 				tile={resultsTileLayout}
@@ -3581,8 +3600,8 @@ function ResultsBody({
 	readonly onSignIn: () => void;
 	/** Rows after the list filter box's narrowing. */
 	readonly rows: readonly CaseRowWithCalculated[];
-	/** Present exactly when the list is grouped, narrowed the same way. */
-	readonly groups: readonly ResultsTileGroup[] | undefined;
+	/** Present exactly when the list is grouped: the cards the rows above make. */
+	readonly groups: readonly TileGroupCard<CaseRowWithCalculated>[] | undefined;
 	readonly filterActive: boolean;
 	readonly pageLocalFilter: boolean;
 	readonly visibleColumns: CaseListConfig["columns"];
@@ -4429,18 +4448,6 @@ interface ResultsTileLayout {
 }
 
 /**
- * One group as the list draws it: the case its header comes from, and the
- * members whose body rows it stacks. `header` is the group's own first
- * case even when the list filter has narrowed `rows`, because the header
- * names the group rather than one of the matches.
- */
-interface ResultsTileGroup {
-	readonly key: string;
-	readonly header: CaseRowWithCalculated;
-	readonly rows: readonly CaseRowWithCalculated[];
-}
-
-/**
  * The Results list when the case list carries a tile layout: one tile per
  * row, drawn from the authored grid instead of a row of columns.
  *
@@ -4480,7 +4487,7 @@ function ResultsTiles({
 }: {
 	readonly rows: readonly CaseRowWithCalculated[];
 	/** Present exactly when the list is grouped; one entry per drawn card. */
-	readonly groups: readonly ResultsTileGroup[] | undefined;
+	readonly groups: readonly TileGroupCard<CaseRowWithCalculated>[] | undefined;
 	readonly tile: ResultsTileLayout;
 	readonly caseProperties: readonly CaseProperty[];
 	readonly columnDisplayContext: ColumnDisplayContext;
@@ -4502,7 +4509,8 @@ function ResultsTiles({
 	/* One drawn card and the ONE case choosing it opens. Grouped or not, a
 	 * card is a single target: Web Apps keeps only the group's first model in
 	 * the rendered collection, so its body rows carry no id and no handler
-	 * (`views.js::CaseTileGroupedListView.initialize`). */
+	 * (`views.js::CaseTileGroupedListView.initialize`). That model is the
+	 * card's first case, `rows[0]`, which also draws its heading. */
 	const groupedTile = groups === undefined ? undefined : tile.grouped;
 	const cards: ReadonlyArray<{
 		readonly key: string;
@@ -4510,15 +4518,14 @@ function ResultsTiles({
 		readonly tile: ReactNode;
 	}> =
 		groups !== undefined && groupedTile !== undefined
-			? groups.map((group) => ({
-					key: `group:${group.key}`,
-					actionRow: group.header,
+			? groups.map((card) => ({
+					key: `group:${card.key}`,
+					actionRow: card.rows[0],
 					tile: (
 						<CaseTileGroup
 							projection={groupedTile}
 							columns={tile.columns}
-							headerRow={group.header}
-							rows={group.rows}
+							rows={card.rows}
 							caseProperties={caseProperties}
 							displayContext={columnDisplayContext}
 							className="relative z-10"

@@ -13,11 +13,15 @@ import {
 	getEntryPointLinkSchema,
 } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
-import { previewProjectSpaceFor } from "./previewSpace";
+import { previewDeploymentAnswerFor } from "./previewSpace";
 import { leftBehindResources } from "./resources";
 import {
 	currentResourceIdentities,
+	deploymentKept,
+	type KeptReadAfter,
+	landedDeploymentKept,
 	refreshDeployment,
+	refreshKeptValues,
 	setupArtifactFor,
 } from "./service";
 import type { SetupArtifact } from "./setupArtifact";
@@ -29,10 +33,13 @@ import {
 	withdrawDeploymentConfirmation,
 } from "./store";
 import {
+	type CommCareServer,
+	type DeploymentKept,
 	type DeploymentResource,
 	type DeploymentWithResources,
 	deploymentAppIdSchema,
 	deploymentTargetSchema,
+	type PreviewDeploymentAnswer,
 	provisionWorkersSchema,
 	withdrawDeploymentConfirmationSchema,
 } from "./types";
@@ -72,11 +79,19 @@ export interface DeploymentView {
 	 * uses, so the two surfaces cannot disagree about what is abandoned.
 	 */
 	readonly leftBehind: readonly DeploymentResource[];
+	/**
+	 * The settings this project space keeps in CommCare HQ at another value
+	 * than a new app's, with the date Nova read them; an empty list still
+	 * has its date. Null where the app's content is not there or Nova holds
+	 * no read of it (none stored, an unread one, a shell's).
+	 */
+	readonly kept: DeploymentKept | null;
 }
 
 /**
- * A refresh's answer: the updated record, and what Preview may now name
- * for `commcare_project`.
+ * A refresh's answer: the updated record, what Preview may now name for
+ * `commcare_project`, and what that one project space keeps of the settings
+ * Preview plays.
  *
  * The project space rides along because a refresh can CHANGE it: an
  * observation that finds the app gone walks the deployment back below
@@ -84,9 +99,18 @@ export interface DeploymentView {
  * naming that space. A client that kept its old value would make one
  * expression answer two ways depending on which side evaluated it, so the
  * same response that changes the record hands the client the new answer.
+ * The facts follow the same rule for the same reason.
+ *
+ * `preview` is `null` where Nova could not read the answer just now: the
+ * refresh's write has landed, so the tab keeps what it holds, and the
+ * stream's deployment lane, which that write poked, brings the new answer.
+ * `kept` is `unread` for the same reason (`service.ts::landedDeploymentKept`):
+ * the card keeps the list it shows (`keptListModel.ts::refreshedViewToShow`),
+ * and the next read of the records reads it again.
  */
-export interface RefreshedDeploymentView extends DeploymentView {
-	readonly previewProjectSpace: string | null;
+export interface RefreshedDeploymentView extends Omit<DeploymentView, "kept"> {
+	readonly kept: DeploymentKept | null | "unread";
+	readonly preview: PreviewDeploymentAnswer | null;
 }
 
 export type DeploymentActionResult<T> =
@@ -223,17 +247,118 @@ export async function refreshDeploymentAction(
 		if (refreshed === null) return notFound();
 		return {
 			success: true,
-			data: {
-				...refreshed,
-				leftBehind: leftBehindResources(
-					refreshed.deployment,
-					await currentResourceIdentities(resolved.scope, doc),
-				),
-				previewProjectSpace: await previewProjectSpaceFor(resolved.scope),
-			},
+			data: await refreshedView(
+				resolved.scope,
+				refreshed.deployment,
+				refreshed.artifact,
+				doc,
+				"check-status",
+			),
 		};
 	} catch (error) {
 		return failure(error, "refresh", resolved.scope);
+	}
+}
+
+/**
+ * A record as a refresh hands it back: the record, its setup notes, what it
+ * left behind, its kept list, and what Preview may now name and play. The
+ * refresh's write has landed by now, so neither the kept list nor Preview's
+ * answer can turn it into a failure: each answers that it could not be read.
+ */
+async function refreshedView(
+	scope: DeploymentScope,
+	deployment: DeploymentWithResources,
+	artifact: SetupArtifact,
+	doc: CommittedDoc["doc"],
+	after: KeptReadAfter,
+): Promise<RefreshedDeploymentView> {
+	const [identities, kept, preview] = await Promise.all([
+		currentResourceIdentities(scope, doc),
+		landedDeploymentKept(scope, deployment, after),
+		previewDeploymentAnswerFor(scope),
+	]);
+	return {
+		deployment,
+		artifact,
+		leftBehind: leftBehindResources(deployment, identities),
+		kept,
+		preview,
+	};
+}
+
+/** A kept refresh's outcome as the card reads it. */
+export type KeptRefreshView =
+	| {
+			readonly kind: "refreshed" | "superseded";
+			/** With `preview`, as Check status returns it. */
+			readonly deployment: RefreshedDeploymentView;
+	  }
+	| {
+			readonly kind:
+				| "changed-in-hq"
+				| "no-baseline"
+				| "app-gone"
+				| "unreadable"
+				| "too-large"
+				| "browser-only"
+				| "key-not-accepted"
+				| "no-permission"
+				| "unavailable";
+	  };
+
+/**
+ * Read again the settings this project space keeps in CommCare HQ, without
+ * a publish (`service.ts::refreshKeptValues`). An edit, as Check status is:
+ * it writes the baseline and reads CommCare HQ with the caller's own key,
+ * and a key that is missing or cannot reach the project space is this
+ * action's `success: false`.
+ */
+export async function refreshKeptValuesAction(input: {
+	readonly appId: string;
+	readonly server: CommCareServer;
+	readonly domain: string;
+}): Promise<DeploymentActionResult<KeptRefreshView>> {
+	const parsed = deploymentTargetSchema.safeParse(input);
+	if (!parsed.success) {
+		return {
+			success: false,
+			code: "invalid_input",
+			message: "That refresh request wasn't in a shape Nova understands.",
+		};
+	}
+	const resolved = await resolveScope(parsed.data.appId, "edit");
+	if (!resolved.ok) return resolved.result;
+	try {
+		const outcome = await refreshKeptValues(resolved.scope, {
+			server: parsed.data.server,
+			domain: parsed.data.domain,
+		});
+		if (outcome.kind !== "refreshed" && outcome.kind !== "superseded") {
+			return { success: true, data: { kind: outcome.kind } };
+		}
+		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		const artifact = await setupArtifactFor(
+			resolved.scope,
+			outcome.deployment,
+			doc,
+			locations,
+		);
+		return {
+			success: true,
+			data: {
+				kind: outcome.kind,
+				deployment: await refreshedView(
+					resolved.scope,
+					outcome.deployment,
+					artifact,
+					doc,
+					"kept-refresh",
+				),
+			},
+		};
+	} catch (error) {
+		return failure(error, "refresh kept values", resolved.scope);
 	}
 }
 
@@ -284,6 +409,7 @@ export async function readDeploymentsAction(
 						locations,
 					),
 					leftBehind: leftBehindResources(deployment, identities),
+					kept: await deploymentKept(resolved.scope, deployment),
 				})),
 			),
 		};
@@ -333,6 +459,7 @@ export async function withdrawDeploymentConfirmationAction(
 					deployment,
 					await currentResourceIdentities(resolved.scope, doc),
 				),
+				kept: await deploymentKept(resolved.scope, deployment),
 			},
 		};
 	} catch (error) {
@@ -532,6 +659,7 @@ async function provisionedView(
 				deployment,
 				await currentResourceIdentities(scope, doc),
 			),
+			kept: await deploymentKept(scope, deployment),
 		};
 	} catch (error) {
 		log.error("[deployment] provisioning view could not be built", error, {

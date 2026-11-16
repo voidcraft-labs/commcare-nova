@@ -24,9 +24,13 @@ capture of a download) is assembled by
 `lib/export/localArchive.ts::compileLocalArchive` from a `ccz`-mode prepared
 export and the one published project space the archive is made for
 (`compileLocalArchive(prepared, runtimeTarget, identity, deployment)`, the
-target, that deployment's ids and the reached target's `emptyCaseListText` and
-`earlierHqApps` required), so no archive is compiled without one; change what
-an archive holds there.
+target, that deployment's ids, the reached target's `emptyCaseListText` and
+`earlierHqApps`, and the deployment's `targetFacts`, what its project space
+keeps of the values Nova leaves to CommCare HQ or null where no baseline was
+read, all required), so no archive is compiled without one; change what an
+archive holds there. What a `.ccz` cannot follow of those kept values it says in
+its advisories (`lib/publish/exportAdvisories.ts`, the `kept_` ids, from
+`lib/deployment/downloadTarget.ts::downloadKeptAdvisoryFacts`).
 
 A download records nothing: the HQ import file and the `.ccz` emit each case
 change's effective placement, held or else the simplest, and write no

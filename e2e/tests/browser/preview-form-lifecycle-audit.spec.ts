@@ -636,12 +636,18 @@ for (const sectioned of [false, true]) {
 			await page.goto(`${peer.origin}/${sectioned ? "?sections" : ""}`);
 			const label = sectioned ? "Area" : "Name";
 			const path = sectioned ? "/data/first/zone" : "/data/name";
+			/* The sectioned document plays Android, which marks a required
+			 * question only where the project space turns the asterisk on, and
+			 * this peer reaches no project space: the screen reader hears no
+			 * mark there, in either language, and the worker is still stopped
+			 * and told. Web Apps marks every required question. */
+			const marked = (word: string) => (sectioned ? "" : ` ${word}`);
 			const answer = page
 				.locator(`[data-instance-path="${path}"]`)
 				.getByRole("textbox");
 			await expect(answer).toBeVisible();
 			await expect(answer).toHaveAccessibleName(
-				`Question 1. ${label} Required.`,
+				`Question 1. ${label}${marked("Required.")}`,
 			);
 			await page
 				.getByRole("button", { name: "Worker language: English" })
@@ -650,7 +656,7 @@ for (const sectioned of [false, true]) {
 				.getByRole("menuitemradio", { name: "Español", exact: true })
 				.click();
 			await expect(answer).toHaveAccessibleName(
-				`Pregunta 1. ${label} Obligatoria.`,
+				`Pregunta 1. ${label}${marked("Obligatoria.")}`,
 			);
 			await answer.fill("");
 			await page
@@ -675,7 +681,7 @@ for (const sectioned of [false, true]) {
 				.getByRole("menuitemradio", { name: "English", exact: true })
 				.click();
 			await expect(answer).toHaveAccessibleName(
-				`Question 1. ${label} Required.`,
+				`Question 1. ${label}${marked("Required.")}`,
 			);
 			await expect(answer).toHaveValue("Retained answer");
 			await answer.fill("");

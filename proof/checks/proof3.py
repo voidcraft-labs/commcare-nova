@@ -159,18 +159,16 @@ content's own on both sides (``declared_versions``, ``local_versions``); a
 version a form does not declare is compared as it is. The B build is aligned
 to A already.
 
-A value a person saved only in HQ (``hq-side.json``) is one the local archive
-cannot hold, so on such a document the local archive's comparisons hold it
-both ways (``stated_hq_side_values``): Auto Capture Location saved on an app
-that is not a Connect app is a location HQ's side holds and the local
-archive's lacks, on Core's trace (``trace@local.ccz``), on Formplayer's
-output and submissions (``formplayer@local.ccz``) and on a device's walks
-(``android@local.ccz``: the location the form asks for, the fix it is given
-and the location the saved record holds); a profile setting saved in HQ is
-the saved value in HQ's trace and Nova's constant in the local archive's,
-and the device's readers of it differ accordingly. Each is a difference of
-exactly that shape, which the check takes as the statement holding; one of
-another shape, or none where the comparison ran, is reported.
+A value a person saved only in HQ (``hq-side.json``) that the local archive
+cannot hold is held both ways on such a document's local archive
+comparisons (``stated_hq_side_values``). The local archive is made for the
+project space the saves were made in and writes what it keeps as HQ's build
+there does (Auto Capture Location, its UI translations, each kept profile
+setting), so only a profile setting outside those is stated: HQ's trace
+holds it (``trace@local.ccz``) and the local archive's profile does not.
+Each is a difference of exactly that shape, which the check takes as the
+statement holding; one of another shape, or none where the comparison ran,
+is reported.
 
 The sessions, HQ's restores and HQ's case processing are observed over B's
 state, or A's where HQ refused B (``proof.observe.sessions``), and kept in
@@ -238,7 +236,8 @@ CASE_ACTIONS = ("create", "update", "index", "close", "attachment", "commtrack",
 
 @dataclass(frozen=True)
 class PropertyReaders:
-    """Where the manifest holds one profile property as app content, and the runtime code that reads it."""
+    """Where the manifest holds one runtime-read profile property, as app content or as a setting the project
+    space keeps, and the runtime code that reads it."""
 
     setting: str
     android: str | None = None
@@ -255,8 +254,12 @@ _MAIN = "commcare-android app/src/org/commcare/preferences/MainConfigurablePrefe
 _FORMPLAYER = "formplayer org/commcare/formplayer/util/FormplayerPropertyManager.java"
 _BANNER = "commcare-android app/src/org/commcare/views/CustomBanner.java::getBannerURI"
 
-# The profile properties the manifest holds as app content (HELD or HELD-NEW)
-# that a runtime reads, by the key HQ's profile writes them under, each with
+# The profile properties a runtime reads that the manifest holds as app
+# content (HELD or HELD-NEW) or as a setting the project space keeps
+# (TARGET-OWNED: a publish never changes it, and the local archive made for
+# the project space writes it as HQ's build there does,
+# lib/commcare/keptProfile.ts, or its download says it cannot, as for an
+# Android logo), by the key HQ's profile writes them under, each with
 # its setting (a surface key, or the entry naming it) and its readers. Logos
 # are written under ANDROID_LOGO_PROPERTY_MAPPING's keys
 # (app_manager/models/applications.py::Application.create_profile), and the two
@@ -1226,53 +1229,27 @@ class StatedValue:
     values: tuple | None = None
 
 
-# The paths a location HQ's side holds and the local archive's lacks shows at, on each reader's comparison.
-LOCATION_PATHS = {
-    "trace@local.ccz": ("/runs/*/trace/*/submission/data/meta[*]/location[*]",),
-    f"{FORMPLAYER}@local.ccz": (
-        "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
-        "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
-    ),
-    "android@local.ccz": (
-        "/walks/*/steps/*/form/deviceAsked",
-        "/walks/*/steps/*/form/deviceGave",
-        "/walks/*/steps/*/form/saved/records/*/metaLocation",
-    ),
-}
-# The device's readers that answer from a profile setting (``proof/android/src/nova/proof/android/Profile.java``).
-SETTING_READERS = {
-    "cc-autoup-freq": (
-        "UpdateHelper.getAutoUpdateFrequency",
-        "UpdateHelper.getAutoUpdatePeriodicity",
-        "UpdateHelper.isAutoUpdateOn",
-    ),
-}
-
-
 def stated_values(hq_side) -> list:
-    """What a document's ``hq-side.json`` says HQ's side holds and the local archive cannot, as ``StatedValue``s."""
-    from proof.checks.intent import NOVA_PROFILE_CONSTANTS
+    """What a document's ``hq-side.json`` says HQ's side holds and the local archive cannot, as ``StatedValue``s.
 
+    The local archive is made for the project space the saves were made in, and writes what that project space
+    keeps as HQ's build there does (``lib/commcare/compiler.ts::compileCcz`` over the deployment's ``TargetFacts``):
+    Auto Capture Location, a UI translation and each kept profile setting (``intent.NOVA_PROFILE_CONSTANTS`` and
+    ``intent.LOCAL_KEPT_UNSTATED``) are no difference. A profile setting outside them is HQ's build's alone: the
+    local archive's profile lacks it. An Android logo is kept too, but the local archive cannot write one
+    (``lib/commcare/surface/keptAtHq.ts``, ``kept_android_logos_absent``); HQ's side holds one only through a logo
+    upload, which no ``proof/observe/hqside.py::SAVES`` kind makes, so a kind that makes one is stated here as the
+    ``brand-banner-*`` property it gives HQ's profile."""
+    from proof.checks.intent import LOCAL_KEPT_UNSTATED, NOVA_PROFILE_CONSTANTS, hq_profile_text
+
+    kept = {*NOVA_PROFILE_CONSTANTS, *LOCAL_KEPT_UNSTATED}
     found = []
     if not hq_side:
         return found
-    if ((hq_side.get("appAttributes") or {}).get("auto_gps_capture")) is True:
-        for artifact, paths in LOCATION_PATHS.items():
-            found += [StatedValue("auto_gps_capture", artifact, path, "removed") for path in paths]
     for key, value in sorted((hq_side.get("profileProperties") or {}).items()):
-        found.append(
-            StatedValue(
-                key,
-                "trace@local.ccz",
-                f"/profile/properties/{pointer_token(key)}/value",
-                "changed",
-                (value, NOVA_PROFILE_CONSTANTS.get(key)),
-            )
-        )
-        found += [
-            StatedValue(key, "android@local.ccz", f"/profile/readers/{reader}", "changed")
-            for reader in SETTING_READERS.get(key, ())
-        ]
+        if key in kept or hq_profile_text(value) is None:
+            continue
+        found.append(StatedValue(key, "trace@local.ccz", f"/profile/properties/{pointer_token(key)}", "removed"))
     return found
 
 

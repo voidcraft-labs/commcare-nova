@@ -2,11 +2,13 @@
  * LocationTypeV0_5Test / LocationV0_6Test and LocationResource._update. */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import type { MockAgent } from "undici";
 import { afterEach, expect, it, vi } from "vitest";
 import {
 	readHttpRequestBody,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
+import { log } from "@/lib/logger";
 import {
 	listHqLocations,
 	listHqLocationTypes,
@@ -203,9 +205,10 @@ it.each([
 				.intercept({ path, method: "GET" })
 				.reply(200, { objects: [], meta: { next: null } });
 			for (const data of bodies)
-				expect(await read(CREDS, DOMAIN), JSON.stringify(data)).toMatchObject({
+				expect(await read(CREDS, DOMAIN), JSON.stringify(data)).toEqual({
 					success: false,
 					status: 502,
+					cause: "malformed",
 				});
 			expect(await read(CREDS, DOMAIN)).toEqual([]);
 			expect(
@@ -244,7 +247,7 @@ it("does not turn an unresolvable parent into a root or accept contradictory lev
 			expect(
 				await listHqLocationTypes(CREDS, DOMAIN),
 				JSON.stringify(objects),
-			).toEqual({ success: false, status: 502 });
+			).toEqual({ success: false, status: 502, cause: "malformed" });
 	});
 });
 
@@ -277,7 +280,7 @@ it.each([
 					edgeRefusal: false,
 				});
 			for (const [status, cause] of [
-				[502, "malformed"],
+				[502, "browser-page"],
 				[503, "network"],
 			] as const)
 				expect(await read(CREDS, DOMAIN)).toEqual({
@@ -556,4 +559,121 @@ it("reads coordinates as HQ's own strings, and null where HQ holds none, from HQ
 	expect(parent?.latitude).toMatch(/^-?\d+\.\d{10}$/);
 	expect(parent?.longitude).toMatch(/^-?\d+\.\d{10}$/);
 	expect(child).toMatchObject({ latitude: null, longitude: null });
+});
+
+it("stops the place list at a page whose total is over the caller's limit, after one request", async () => {
+	const answer = JSON.parse(
+		readFileSync(
+			path.join(process.cwd(), "proof/hq-reads/places/locations.json"),
+			"utf8",
+		),
+	) as { status: number; headers: Record<string, string>; body: string };
+	const total = (JSON.parse(answer.body) as { meta: { total_count: number } })
+		.meta.total_count;
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PLACES, method: "GET" })
+			.reply(answer.status, answer.body, { headers: answer.headers });
+		expect(
+			await listHqLocations(CREDS, DOMAIN, { stopPast: total - 1 }),
+		).toEqual({ kind: "past-limit", totalCount: total });
+		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
+	});
+});
+
+it("refuses a place list whose places pass the limit while the total it names does not", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PLACES, method: "GET" })
+			.reply(200, {
+				objects: [root, child],
+				meta: { next: null, total_count: 1 },
+			});
+		expect(await listHqLocations(CREDS, DOMAIN, { stopPast: 1 })).toEqual({
+			success: false,
+			status: 502,
+			cause: "malformed",
+		});
+	});
+});
+
+it("stops a place list that names no total at the first page that takes it past the limit, and reads it whole without one", async () => {
+	/* Written here: every retained page names a total. */
+	const SECOND = "/a/clinic/api/location/v2/?limit=1000&offset=1000";
+	const THIRD = "/a/clinic/api/location/v2/?limit=1000&offset=2000";
+	const serve = (peer: MockAgent) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PLACES, method: "GET" })
+			.reply(200, { objects: [root], meta: { next: SECOND } });
+		peer
+			.get(HOST)
+			.intercept({ path: SECOND, method: "GET" })
+			.reply(200, { objects: [child], meta: { next: THIRD } });
+	};
+	await withHttpPeer(async (peer) => {
+		serve(peer);
+		expect(await listHqLocations(CREDS, DOMAIN, { stopPast: 1 })).toEqual({
+			kind: "past-limit",
+			totalCount: null,
+		});
+		expect(peer.getCallHistory()?.calls()).toHaveLength(2);
+	});
+	await withHttpPeer(async (peer) => {
+		serve(peer);
+		peer
+			.get(HOST)
+			.intercept({ path: THIRD, method: "GET" })
+			.reply(200, { objects: [], meta: { next: null } });
+		const places = await listHqLocations(CREDS, DOMAIN);
+		if ("success" in places) throw new Error("the list did not read");
+		expect(places.map((place) => place.locationId)).toEqual([
+			root.location_id,
+			child.location_id,
+		]);
+	});
+});
+
+it("logs a refused batch by its status, its count and its body's shape and length, never HQ's sentence", async () => {
+	const refused = JSON.stringify({
+		error: "Name already exists. Location site code: north_maternity_ward.",
+	});
+	const bytes = new TextEncoder().encode(refused).byteLength;
+	await withHttpPeer(async (peer) => {
+		for (const status of [400, 403])
+			peer
+				.get(HOST)
+				.intercept({ path: PATCH, method: "PATCH" })
+				.reply(status, refused);
+		/* What a person is shown keeps HQ's sentence; only the log loses it. */
+		expect(await patchHqLocations(CREDS, DOMAIN, [CREATE])).toMatchObject({
+			status: 400,
+			message: "Name already exists. Location site code: north_maternity_ward.",
+		});
+		await patchHqLocations(CREDS, DOMAIN, [CREATE]);
+	});
+	const context = (status: number) => ({
+		domain: DOMAIN,
+		status,
+		count: 1,
+		body: "json",
+		bodyBytes: bytes,
+	});
+	expect(log.error).toHaveBeenCalledExactlyOnceWith(
+		"[commcare] location push failed",
+		undefined,
+		context(400),
+	);
+	expect(log.warn).toHaveBeenCalledExactlyOnceWith(
+		"[commcare] location push refused",
+		context(403),
+	);
+	expect(
+		JSON.stringify([
+			vi.mocked(log.error).mock.calls,
+			vi.mocked(log.warn).mock.calls,
+		]),
+	).not.toContain("north_maternity_ward");
 });

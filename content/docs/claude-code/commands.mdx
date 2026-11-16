@@ -98,6 +98,7 @@ Before anything is sent, Claude checks in with you about what Nova can't see for
 
 - **Plan features and project-space settings.** No API key can read a project space's plan or two of its settings, so when your app needs a plan feature that nobody has confirmed there yet, Claude names it, what happens without it and the plans that include it. The same goes for the two settings an app can need: the flat location list and a CommCare Connect forwarder, which the project space turns on whatever its plan. Nova sends the upload once you say the project space has them, and keeps what you confirmed for the next upload there.
 - **The CommCare version.** If the app in CommCare HQ is set to a CommCare version older than 2.57, Nova sends none of its content, and Claude gives you the link to the app's settings in CommCare HQ, where you can raise it before uploading again.
+- **Application profiles.** If an application profile of the app in CommCare HQ includes a language you removed, Nova sends none of the app's content, and Claude gives you the link to the app in CommCare HQ, where you can change the profile before uploading again.
 - **Changes made in CommCare HQ.** If the app, a lookup table or a place changed in CommCare HQ since Nova last published it, Claude shows you what changed, and Nova writes over a change only once you choose to replace it. A change you'd rather keep stays as it is in CommCare HQ, and you can bring it into your app in Nova before you upload again.
 
 ```text

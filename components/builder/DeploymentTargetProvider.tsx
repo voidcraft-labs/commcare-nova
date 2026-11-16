@@ -15,37 +15,53 @@
  * project space yet, or it is on several and picking one would be a guess.
  * Preview then omits the key entirely, which is what CommCare does for a
  * value it has not got.
+ *
+ * Beside it, under the same rule and through the same three paths (the
+ * stream's `preview-target-facts` frame among them), it holds what that one
+ * project space keeps of the settings Preview plays: fuzzy search in a case
+ * list and the asterisk on a required question. `null` means Preview holds
+ * no facts and plays what a new project space gives.
  */
 "use client";
 
 import {
 	createContext,
 	type ReactNode,
+	useCallback,
 	useContext,
 	useEffect,
 	useMemo,
 	useState,
 } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
+import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
+import type { PreviewDeploymentAnswer } from "@/lib/deployment/types";
 
 interface DeploymentTargetValue {
 	readonly projectSpace: string | null;
 	readonly setProjectSpace: (domain: string | null) => void;
+	readonly targetFacts: PreviewTargetFacts | null;
+	readonly setTargetFacts: (facts: PreviewTargetFacts | null) => void;
 }
 
 const DeploymentTargetContext = createContext<DeploymentTargetValue>({
 	projectSpace: null,
 	setProjectSpace: () => {},
+	targetFacts: null,
+	setTargetFacts: () => {},
 });
 
 export function DeploymentTargetProvider({
 	initialProjectSpace,
+	initialTargetFacts,
 	children,
 }: {
 	initialProjectSpace: string | null;
+	initialTargetFacts: PreviewTargetFacts | null;
 	children: ReactNode;
 }) {
 	const [projectSpace, setProjectSpace] = useState(initialProjectSpace);
+	const [targetFacts, setTargetFacts] = useState(initialTargetFacts);
 	/* Nullable by design: replay mode mounts no reconciler, and `/build/new`
 	 * has no deployments to hear about. The server-rendered seed and the
 	 * dialog's own responses still apply there. */
@@ -54,9 +70,13 @@ export function DeploymentTargetProvider({
 		() => reconciler?.subscribePreviewProjectSpace(setProjectSpace),
 		[reconciler],
 	);
+	useEffect(
+		() => reconciler?.subscribePreviewTargetFacts(setTargetFacts),
+		[reconciler],
+	);
 	const value = useMemo(
-		() => ({ projectSpace, setProjectSpace }),
-		[projectSpace],
+		() => ({ projectSpace, setProjectSpace, targetFacts, setTargetFacts }),
+		[projectSpace, targetFacts],
 	);
 	return (
 		<DeploymentTargetContext value={value}>{children}</DeploymentTargetContext>
@@ -68,10 +88,32 @@ export function useDeploymentProjectSpace(): string | null {
 	return useContext(DeploymentTargetContext).projectSpace;
 }
 
-/** Apply a publish or refresh response's answer without waiting for the
- * stream frame to arrive back. */
-export function useSetDeploymentProjectSpace(): (
-	domain: string | null,
+/** What the one reached project space keeps of the settings Preview plays,
+ * or `null` where Preview holds no facts. */
+export function useDeploymentTargetFacts(): PreviewTargetFacts | null {
+	return useContext(DeploymentTargetContext).targetFacts;
+}
+
+/**
+ * Apply a publish or refresh response's answer, the project space and its
+ * facts together, without waiting for the stream frame to arrive back.
+ *
+ * A response whose `preview` is `null` carries no answer (the server could
+ * not read it just now), so the tab keeps what it holds and the stream's
+ * deployment lane, which the response's write poked, brings the new one.
+ */
+export function useApplyPreviewDeploymentAnswer(): (
+	answer: PreviewDeploymentAnswer | null,
 ) => void {
-	return useContext(DeploymentTargetContext).setProjectSpace;
+	const { setProjectSpace, setTargetFacts } = useContext(
+		DeploymentTargetContext,
+	);
+	return useCallback(
+		(answer: PreviewDeploymentAnswer | null) => {
+			if (answer === null) return;
+			setProjectSpace(answer.projectSpace);
+			setTargetFacts(answer.targetFacts);
+		},
+		[setProjectSpace, setTargetFacts],
+	);
 }

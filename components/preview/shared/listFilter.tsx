@@ -1,16 +1,17 @@
 // components/preview/shared/listFilter.tsx
 //
-// The case list's own filter box: the same quick narrowing CommCare
-// gives every case list: type a few letters and the rows narrow to
-// the ones containing them, case-insensitively, across every field of
-// the list; each typed word has to match somewhere in the row. A device
-// matches every field's text, so the box also matches each field hidden
-// from Results and each carrier of the list's order plan. It runs
-// entirely client-side over the rows already on screen: the
-// authored search fields query the case store, this narrows what
-// came back. (CommCare's engine implements the same contract in
-// commcare-core's entity filterer: per-term, case-folded, substring,
-// all terms required.)
+// The case list's own filter box, and the rule it runs: Core's entity
+// filter (`lib/preview/listFilterMatch.ts`), the one CommCare runs when a
+// worker types into a list's search box. Every typed term has to match
+// somewhere in the row, with accents folded and case ignored; with the project
+// space's fuzzy search on, a near miss also matches a word of a field's sort
+// text. A device matches every field of the list, so the box also matches each
+// field hidden from Results and each carrier of the list's order plan, each
+// read as the device holds it. How the
+// typed text splits into terms, what closeness does to the order and what an
+// emptied box does are the platform's (`PreviewPlatformRules.listFilter`). It
+// runs entirely client-side over the rows already on screen: the authored
+// search fields query the case store, this narrows what came back.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -20,52 +21,89 @@ import { useId, useRef } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import type { CaseListOrderPlan, Column } from "@/lib/domain";
-import {
-	type ColumnDisplayContext,
-	projectColumnDisplay,
-} from "@/lib/preview/columnDisplay";
-import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingClient";
+import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import {
+	caseListFilterFields,
+	caseListOrderTerms,
+	type ImageReference,
+	orderTermsTie,
+} from "@/lib/preview/engine/caseListFilterFields";
+import { filterTerms, rowFilterScore } from "@/lib/preview/listFilterMatch";
+import type { PreviewPlatformRules } from "@/lib/preview/platform";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { useWorkerMessage } from "./WorkerText";
 
+/** What the filter needs besides the text: the project space's fuzzy search,
+ *  the platform's rule, whether the worker has changed the box since the list
+ *  opened, and the path a device holds for each image a mapping shows. */
+export interface ListFilterOptions {
+	readonly fuzzy: boolean;
+	readonly rules: PreviewPlatformRules["listFilter"];
+	readonly edited: boolean;
+	readonly imageReference: ImageReference;
+}
+
 /**
- * Does this row survive the filter text? Every whitespace-separated
- * term must appear (case-insensitively) somewhere in the row: in a
- * shown column's rendered text, and with the list's order plan, in each
- * hidden field's text (the raw property value, or a hidden calculated
- * column's value) and each carrier's raw value. That is what a device's
- * search matches (commcare-core `util/EntitySortUtil.sortEntities`): a
- * hidden field's template holds the raw value, and so does the field HQ
- * appends for a carrier. Empty / all-space filter keeps every row.
+ * The rows that survive the filter text, as the platform shows them.
+ *
+ * A row's fields are what a device's filter reads
+ * (`lib/preview/engine/caseListFilterFields.ts::caseListFilterFields`): the
+ * text each field's template evaluates to, which is not always what its cell
+ * draws.
+ *
+ * The matches keep the given order with `fuzzy` off. With `fuzzy` on they
+ * are stably re-sorted by ascending score: over the whole list under
+ * `closest-first`, and under `closest-among-ties` within each run of matches
+ * the list's order ties on every rule (`caseListOrderTerms`, `orderTermsTie`),
+ * as Formplayer sorts the filter's closest-first matches again by the list's
+ * order with a stable sort. An empty text returns every row under `skipped`
+ * and before the worker has edited the box; once edited, `runs-once-edited`
+ * runs it as the one empty term it splits into. Text of separators alone
+ * gives no terms, which every row passes.
  */
-export function rowMatchesFilterText(
+export function rowsMatchingFilterText<Row extends CaseRowWithCalculated>(
 	columns: readonly Column[],
-	row: CaseRowWithCalculated,
+	rows: readonly Row[],
 	filterText: string,
 	context: ColumnDisplayContext,
-	plan?: CaseListOrderPlan,
-): boolean {
-	const terms = filterText.toLocaleLowerCase().split(/\s+/).filter(Boolean);
-	if (terms.length === 0) return true;
-	const displayedColumns = [
-		...columns.map((column) => projectColumnDisplay(column, row, context).text),
-		...(plan?.fields ?? []).flatMap((field) => {
-			if (!field.hidden) return [];
-			const { column } = field;
-			return [
-				column.kind === "calculated"
-					? projectColumnDisplay(column, row, context).text
-					: caseRowDisplayValue(row, column.field),
-			];
-		}),
-		...(plan?.carriers ?? []).map((carrier) =>
-			caseRowDisplayValue(row, carrier.property),
-		),
-	].map((text) => text.toLocaleLowerCase());
-	return terms.every((term) =>
-		displayedColumns.some((displayed) => displayed.includes(term)),
-	);
+	plan: CaseListOrderPlan | undefined,
+	options: ListFilterOptions,
+): readonly Row[] {
+	if (
+		filterText === "" &&
+		(options.rules.emptyText === "skipped" || !options.edited)
+	)
+		return rows;
+	const terms = filterTerms(filterText, options.rules.terms);
+	if (terms.length === 0) return rows;
+	const matches = rows.flatMap((row) => {
+		const verdict = rowFilterScore(
+			terms,
+			caseListFilterFields(columns, row, context, plan, options.imageReference),
+			options.fuzzy,
+		);
+		return verdict.matches ? [{ row, score: verdict.score }] : [];
+	});
+	if (!options.fuzzy) return matches.map((match) => match.row);
+	const byScore = (a: { score: number }, b: { score: number }) =>
+		a.score - b.score;
+	if (options.rules.fuzzyOrder === "closest-first")
+		return matches.sort(byScore).map((match) => match.row);
+	const ordered: Row[] = [];
+	let run: { row: Row; score: number }[] = [];
+	let runTerms: ReturnType<typeof caseListOrderTerms> = [];
+	for (const match of matches) {
+		const matchTerms = caseListOrderTerms(match.row, context, plan);
+		if (run.length > 0 && !orderTermsTie(runTerms, matchTerms)) {
+			for (const tied of run.sort(byScore)) ordered.push(tied.row);
+			run = [];
+		}
+		if (run.length === 0) runTerms = matchTerms;
+		run.push(match);
+	}
+	for (const tied of run.sort(byScore)) ordered.push(tied.row);
+	return ordered;
 }
 
 /**

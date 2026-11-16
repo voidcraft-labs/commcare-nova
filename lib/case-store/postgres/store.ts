@@ -1449,6 +1449,7 @@ export class PostgresCaseStore implements CaseStore {
 			const totals = empty.rows[0];
 			return {
 				groups: [],
+				listOrder: [],
 				totalGroups: Number(totals?.total_groups ?? 0),
 				totalRows: Number(totals?.total_rows ?? 0),
 			};
@@ -1466,9 +1467,21 @@ export class PostgresCaseStore implements CaseStore {
 			else groups.push({ key, rows: [shaped] });
 		}
 
+		// The list's own order, which the clustering set aside: the page's rows by
+		// the ordinal the user's sort gave them. `row_number()` gives each row its
+		// own ordinal, so the order is total, and the same statement's.
+		const listOrder = rows
+			.map((row) => ({
+				caseId: String(row.case_id),
+				ordinal: Number(row[ROW_ORDINAL_ALIAS]),
+			}))
+			.sort((a, b) => a.ordinal - b.ordinal)
+			.map((entry) => entry.caseId);
+
 		const first = rows[0];
 		return {
 			groups,
+			listOrder,
 			totalGroups: Number(first[TOTAL_GROUPS_ALIAS] ?? 0),
 			totalRows: Number(first[TOTAL_ROWS_ALIAS] ?? 0),
 		};

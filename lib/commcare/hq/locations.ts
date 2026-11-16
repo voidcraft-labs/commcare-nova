@@ -41,10 +41,16 @@ import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
+	HQ_MALFORMED_ANSWER,
+	hqTextFacts,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 } from "./http";
-import { isHqObject, readHqCollection } from "./readCollection";
+import {
+	type HqPastLimit,
+	isHqObject,
+	readHqCollection,
+} from "./readCollection";
 
 /** One level, as CommCare HQ reports it. Nova reads these, never writes. */
 export interface HqLocationType {
@@ -185,6 +191,7 @@ const MAX_LOCATION_PAGES = 100;
 export async function listHqLocationTypes(
 	creds: CommCareCredentials,
 	domain: string,
+	options: { readonly cancel?: AbortSignal } = {},
 ): Promise<readonly HqLocationType[] | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
 	const raw = await readHqCollection(
@@ -192,6 +199,7 @@ export async function listHqLocationTypes(
 		`${baseUrl(creds)}/a/${domain}/api/location_type/v1/?limit=${LOCATION_PAGE_SIZE}`,
 		"location type list",
 		MAX_LOCATION_PAGES,
+		{ cancel: options.cancel },
 	);
 	if ("success" in raw) return raw;
 
@@ -253,7 +261,7 @@ function malformedInventory(part: string): CommCareApiError {
 	log.error("[commcare] organization inventory is malformed", undefined, {
 		part,
 	});
-	return { success: false, status: 502 };
+	return HQ_MALFORMED_ANSWER;
 }
 
 /** ForeignKey serializes a URI. Missing/unresolvable is not a root. Both HQ
@@ -302,18 +310,52 @@ function parentLevelCode(
  * taken, which is why a site-code collision is reported from CommCare
  * HQ's own refusal rather than predicted from this list.
  */
+export function listHqLocations(
+	creds: CommCareCredentials,
+	domain: string,
+	options?: { readonly cancel?: AbortSignal },
+): Promise<readonly HqLocation[] | CommCareApiError>;
+/**
+ * With `stopPast`: `past-limit` where the project space holds more places
+ * than it. The read ends at the page whose `meta.total_count` is over it,
+ * with that total, or, where no page names a total, at the first page that
+ * takes the places read past it, with a null total.
+ */
+export function listHqLocations(
+	creds: CommCareCredentials,
+	domain: string,
+	options: { readonly cancel?: AbortSignal; readonly stopPast: number },
+): Promise<readonly HqLocation[] | HqPastLimit | CommCareApiError>;
 export async function listHqLocations(
 	creds: CommCareCredentials,
 	domain: string,
-): Promise<readonly HqLocation[] | CommCareApiError> {
+	options: { readonly cancel?: AbortSignal; readonly stopPast?: number } = {},
+): Promise<readonly HqLocation[] | HqPastLimit | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
-	const raw = await readHqCollection(
-		creds,
-		`${baseUrl(creds)}/a/${domain}/api/location/v2/?limit=${LOCATION_PAGE_SIZE}`,
-		"location list",
-		MAX_LOCATION_PAGES,
-	);
-	if ("success" in raw) return raw;
+	const url = `${baseUrl(creds)}/a/${domain}/api/location/v2/?limit=${LOCATION_PAGE_SIZE}`;
+	const { cancel, stopPast } = options;
+	const raw =
+		stopPast === undefined
+			? await readHqCollection(
+					creds,
+					url,
+					"location list",
+					MAX_LOCATION_PAGES,
+					{
+						cancel,
+					},
+				)
+			: await readHqCollection(
+					creds,
+					url,
+					"location list",
+					MAX_LOCATION_PAGES,
+					{
+						cancel,
+						stopPast,
+					},
+				);
+	if ("success" in raw || "kind" in raw) return raw;
 
 	const places: HqLocation[] = [];
 	const ids = new Set<string>();
@@ -513,11 +555,15 @@ async function refusedPush(
 			message = (parsed as { error: string }).error;
 		}
 	} catch {}
+	/* HQ's sentence names a place and its site code, so the line holds the
+	 * body's shape and length, never its words. */
+	const facts = hqTextFacts(body);
 	const refusal = {
 		domain,
 		status: res.status,
 		count,
-		body: body.slice(0, 200),
+		body: facts.shape,
+		bodyBytes: facts.bytes,
 	};
 	if (res.status === 401 || res.status === 403) {
 		log.warn("[commcare] location push refused", refusal);

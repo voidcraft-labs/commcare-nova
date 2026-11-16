@@ -33,6 +33,17 @@ import {
 	DEPLOYMENT_STATE_LABELS,
 	liveConfirmationRows,
 } from "@/components/builder/app-setup/publishingSectionModel";
+import {
+	KEPT_REFRESH_BUTTON,
+	KEPT_REFRESH_BUTTON_PENDING,
+	type KeptRefreshNotice,
+	keptDateText,
+	keptNoticeApplies,
+	keptRefreshNotice,
+	keptRefreshNotReached,
+	refreshedViewToShow,
+	type ShownRefreshedView,
+} from "@/components/builder/keptListModel";
 import { Button } from "@/components/shadcn/button";
 import type { SetupArtifactSection } from "@/lib/deployment";
 import {
@@ -45,15 +56,23 @@ import {
 } from "@/lib/deployment";
 import {
 	type DeploymentView,
-	type RefreshedDeploymentView,
 	refreshDeploymentAction,
+	refreshKeptValuesAction,
 	withdrawDeploymentConfirmationAction,
 } from "@/lib/deployment/actions";
 import {
 	activeRemoteApp,
 	remoteAppReportedGone,
 } from "@/lib/deployment/resources";
-import type { DeploymentConfirmationKey } from "@/lib/deployment/types";
+import type {
+	DeploymentConfirmationKey,
+	DeploymentKept,
+} from "@/lib/deployment/types";
+import {
+	KEPT_FOLLOWS_LINE,
+	KEPT_LABELS,
+	keptLead,
+} from "@/lib/publish/keptValues";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /**
@@ -93,7 +112,7 @@ export function DeploymentStatus({
 	 */
 	canRefresh?: boolean;
 	/** Lets the surrounding surface keep the record it is holding current. */
-	onUpdated: (next: RefreshedDeploymentView) => void;
+	onUpdated: (next: ShownRefreshedView) => void;
 	/**
 	 * Takes the record a withdrawn confirmation answers with. Withdrawing
 	 * changes what the next publish asks, never which project space Preview
@@ -126,6 +145,11 @@ export function DeploymentStatus({
 	const sessionApi = useBuilderSessionApi();
 	const [pending, startTransition] = useTransition();
 	const [refreshError, setRefreshError] = useState<string | null>(null);
+	/* Refresh from CommCare HQ: its in-flight state and its sentence, held
+	 * here beside Check status's own rather than in the kept block, which a
+	 * superseded answer can take away with a record that holds no list. */
+	const [keptPending, startKeptTransition] = useTransition();
+	const [keptNotice, setKeptNotice] = useState<KeptRefreshNotice | null>(null);
 	const headingId = useId();
 
 	const handleRefresh = useCallback(() => {
@@ -145,7 +169,9 @@ export function DeploymentStatus({
 					domain: record.domain,
 				});
 				if (result.success) {
-					onUpdated(result.data);
+					/* A kept list Check status could not read after its write
+					 * landed keeps the list the card shows. */
+					onUpdated(refreshedViewToShow(result.data, view.kept));
 					return;
 				}
 				setRefreshError(result.message);
@@ -155,7 +181,40 @@ export function DeploymentStatus({
 				);
 			}
 		});
-	}, [appId, record.server, record.domain, onUpdated, sessionApi]);
+	}, [appId, record.server, record.domain, view.kept, onUpdated, sessionApi]);
+
+	const shownKept = view.kept;
+	const handleKeptRefresh = useCallback(() => {
+		/* Refreshing writes the baseline, so it re-reads live capability
+		 * rather than trusting the prop this rendered with. */
+		if (!sessionApi.getState().canEdit || shownKept === null) return;
+		setKeptNotice(null);
+		startKeptTransition(async () => {
+			/* A rejected async transition is re-thrown during render, which
+			 * would take the whole builder page down over one failed read. */
+			try {
+				const result = await refreshKeptValuesAction({
+					appId,
+					server: record.server,
+					domain: record.domain,
+				});
+				const next = keptRefreshNotice(result, shownKept, {
+					now: new Date(),
+					space: record.domain,
+				});
+				if (next.view !== null) onUpdated(next.view);
+				setKeptNotice(next);
+			} catch {
+				setKeptNotice(keptRefreshNotReached(shownKept));
+			}
+		});
+	}, [appId, record.server, record.domain, shownKept, onUpdated, sessionApi]);
+	/* A sentence speaks of the list it was given for, and leaves once a
+	 * publish or a reload moves the list. */
+	const shownKeptNotice =
+		keptNotice !== null && keptNoticeApplies(keptNotice, view.kept)
+			? keptNotice
+			: null;
 
 	const refused = record.state === "incomplete";
 	/* The record carries a failure exactly when the deployment is refused:
@@ -254,6 +313,23 @@ export function DeploymentStatus({
 				})}
 			</ol>
 
+			{view.kept !== null ? (
+				<KeptValues
+					kept={view.kept}
+					canRefresh={canRefresh}
+					pending={keptPending}
+					onRefresh={handleKeptRefresh}
+					notice={shownKeptNotice}
+				/>
+			) : shownKeptNotice !== null ? (
+				/* A refresh whose answer left a record with no list, such as
+				 * a publish that landed during the read and could not read the
+				 * app back, still says what happened. */
+				<div className="mt-4 text-[13px] leading-relaxed">
+					<KeptNotice notice={shownKeptNotice} />
+				</div>
+			) : null}
+
 			{failure?.status === "failed" ? (
 				/* Amber, the same tone the refusal hero above it uses. A phase
 				   that stopped is recoverable and says how; rose is reserved on
@@ -310,6 +386,84 @@ export function DeploymentStatus({
 
 			<SetupNotes sections={view.artifact.sections} />
 		</section>
+	);
+}
+
+/**
+ * The settings this project space keeps in CommCare HQ at another value
+ * than a new app's, with the date Nova read them, and a way to read them
+ * again.
+ *
+ * Drawn with an empty list too: that is where a person asks Nova to look
+ * again after changing a setting in CommCare HQ, and a project space that
+ * held every default at the last publish would otherwise have no way to tell
+ * Preview that fuzzy search is now on. The refresh's in-flight state and its
+ * sentence belong to `DeploymentStatus`, as Check status's do.
+ */
+function KeptValues({
+	kept,
+	canRefresh,
+	pending,
+	onRefresh,
+	notice,
+}: {
+	kept: DeploymentKept;
+	canRefresh: boolean;
+	pending: boolean;
+	onRefresh: () => void;
+	notice: KeptRefreshNotice | null;
+}) {
+	const leadId = useId();
+	const date = keptDateText(kept.observedAt, new Date());
+	const hasLabels = kept.labels.length > 0;
+
+	return (
+		<div className="mt-4 text-[13px] leading-relaxed" data-kept-values>
+			<p id={leadId} className="text-nova-text">
+				{keptLead(date, hasLabels)}
+			</p>
+			{hasLabels ? (
+				<ul
+					aria-labelledby={leadId}
+					className="mt-1.5 flex list-disc flex-col gap-1 pl-5 text-nova-text-secondary"
+				>
+					{kept.labels.map((label) => (
+						<li key={label}>{KEPT_LABELS[label]}</li>
+					))}
+				</ul>
+			) : null}
+			<p className="mt-1.5 text-nova-text-secondary">{KEPT_FOLLOWS_LINE}</p>
+			{canRefresh ? (
+				<Button
+					variant="ghost"
+					className="mt-1"
+					onClick={onRefresh}
+					disabled={pending}
+				>
+					<Icon
+						icon={pending ? tablerLoader2 : tablerRefresh}
+						width="16"
+						height="16"
+						className={pending ? "animate-spin" : undefined}
+						aria-hidden="true"
+					/>
+					{pending ? KEPT_REFRESH_BUTTON_PENDING : KEPT_REFRESH_BUTTON}
+				</Button>
+			) : null}
+			{notice !== null ? <KeptNotice notice={notice} /> : null}
+		</div>
+	);
+}
+
+/** What one press of Refresh from CommCare HQ amounted to. */
+function KeptNotice({ notice }: { notice: KeptRefreshNotice }) {
+	return (
+		<p
+			role={notice.failed ? "alert" : "status"}
+			className={`mt-1 ${notice.failed ? "text-nova-rose" : "text-nova-text-secondary"}`}
+		>
+			{notice.sentence}
+		</p>
 	);
 }
 

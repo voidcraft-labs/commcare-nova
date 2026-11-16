@@ -19,7 +19,15 @@ import { type BlueprintDoc, caseWriteValueField } from "@/lib/domain";
 
 export const EXPORT_ADVISORY_HEADER = "X-Nova-Export-Advisories";
 
-export type ExportAdvisoryId = "attachment_links_without_target";
+export type ExportAdvisoryId =
+	| "attachment_links_without_target"
+	| "kept_ui_text_falls_back"
+	| "kept_android_logos_absent"
+	| "kept_practice_worker_absent"
+	| "kept_language_names_differ";
+
+/** The advisories that say what a `.ccz` cannot follow of a kept value. */
+export type KeptExportAdvisoryId = Extract<ExportAdvisoryId, `kept_${string}`>;
 
 /**
  * Whether Nova could name the CommCare HQ project space an attachment link
@@ -31,6 +39,56 @@ export type ExportAdvisoryId = "attachment_links_without_target";
  * "more than one place" leave a person with different next steps.
  */
 export type AttachmentTargetState = "known" | "none" | "ambiguous";
+
+/** What a `.ccz` cannot follow of what its project space holds. Plain booleans: no wire vocabulary. */
+export interface KeptAdvisoryFacts {
+	readonly uiTextFallsBack: boolean;
+	readonly androidLogos: boolean;
+	readonly practiceWorker: boolean;
+	/** Some language name in the archive is Nova's where CommCare HQ holds none. */
+	readonly languageNames: boolean;
+}
+
+/**
+ * What a person reads for each kept advisory, in the order a download lists
+ * them. Each is said only where its fact holds: the archive was made for a
+ * project space that keeps something it cannot carry.
+ */
+const KEPT_ADVISORIES: readonly {
+	readonly id: KeptExportAdvisoryId;
+	readonly when: keyof KeptAdvisoryFacts;
+	readonly title: string;
+	readonly message: string;
+}[] = [
+	{
+		id: "kept_ui_text_falls_back",
+		when: "uiTextFallsBack",
+		title: "Some of CommCare's own wording differs in this file",
+		message:
+			"This project space rewords some of CommCare's own screens. This CCZ carries each rewording it holds. Where a language has none, an app installed from CommCare HQ shows CommCare HQ's translation and this file shows the phone's built-in wording.",
+	},
+	{
+		id: "kept_android_logos_absent",
+		when: "androidLogos",
+		title: "This file has no Android logos",
+		message:
+			"This project space's app has its own logos for the Android home, sign-in or practice screen. They live in CommCare HQ, so this CCZ shows CommCare's own. An app installed from CommCare HQ shows yours.",
+	},
+	{
+		id: "kept_practice_worker_absent",
+		when: "practiceWorker",
+		title: "Practice mode uses CommCare's sample worker in this file",
+		message:
+			"This project space's app has a practice mobile worker. That worker's data lives in CommCare HQ, so practice mode in this CCZ opens CommCare's own sample worker.",
+	},
+	{
+		id: "kept_language_names_differ",
+		when: "languageNames",
+		title: "Some language names may differ in this file",
+		message:
+			"CommCare HQ names a language itself where this app gives none, and this CCZ uses Nova's name for it. The language picker may show a different spelling than an app installed from CommCare HQ.",
+	},
+];
 
 /** One thing the export is telling the person who asked for it. */
 export interface ExportAdvisory {
@@ -67,13 +125,33 @@ function nameList(names: readonly string[]): string {
 }
 
 /**
- * Everything a downloaded `.ccz` or HQ-import file should say about itself.
+ * Everything a downloaded `.ccz` or HQ-import file should say about itself:
+ * the attachment links it leaves empty first, then what a `.ccz` cannot
+ * follow of the values its project space keeps (`kept`, null for a file
+ * made for no project space read, the HQ import file among them).
  *
  * A publish never calls this: an upload IS the act of putting the app on a
  * project space, so its target is the one being published to and is never
- * missing. Only a file that leaves without one has anything to report.
+ * missing, and what that project space keeps stays there. Only a file that
+ * leaves has anything to report.
  */
 export function exportAdvisories(
+	doc: BlueprintDoc,
+	attachmentTarget: AttachmentTargetState,
+	kept: KeptAdvisoryFacts | null,
+): readonly ExportAdvisory[] {
+	return [
+		...attachmentAdvisories(doc, attachmentTarget),
+		...(kept === null
+			? []
+			: KEPT_ADVISORIES.filter((advisory) => kept[advisory.when]).map(
+					({ id, title, message }) => ({ id, title, message }),
+				)),
+	];
+}
+
+/** The attachment links a file made without one known project space leaves empty. */
+function attachmentAdvisories(
 	doc: BlueprintDoc,
 	attachmentTarget: AttachmentTargetState,
 ): readonly ExportAdvisory[] {
@@ -130,6 +208,7 @@ export function decodeExportAdvisories(
 
 const EXPORT_ADVISORY_IDS = new Set<string>([
 	"attachment_links_without_target",
+	...KEPT_ADVISORIES.map((advisory) => advisory.id),
 ]);
 
 function isExportAdvisory(value: unknown): value is ExportAdvisory {

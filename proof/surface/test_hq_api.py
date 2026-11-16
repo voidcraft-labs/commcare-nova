@@ -37,7 +37,7 @@ from proof.surface.families import hq_api
 from proof.surface.families.hq_api import RESOURCES, VIEWS
 
 # The request path each endpoint answers when Nova calls it (lib/commcare/client.ts, lib/commcare/hq/*.ts),
-# with example ids; LookupTableItemResource is the plan's, for reading a table's rows.
+# with example ids.
 NOVA_PATHS = {
     "import_app_api": "/a/demo/apps/api/import_app/",
     "upload_multimedia_api": "/a/demo/apps/api/app1/multimedia/",
@@ -53,7 +53,7 @@ NOVA_PATHS = {
     "UserDomainsResource": "/api/user_domains/v1/",
     "ApplicationResource": "/a/demo/api/application/v1/app1/",
     "LookupTableResource": "/a/demo/api/lookup_table/v1/",
-    "LookupTableItemResource": "/a/demo/api/lookup_table_item/v2/",
+    "FixtureResource": "/a/demo/api/fixture/v1/",
     "LocationTypeResource": "/a/demo/api/location_type/v1/",
     "LocationResource": "/a/demo/api/location/v2/",
     "CommCareUserResource": "/a/demo/api/user/v1/",
