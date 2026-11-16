@@ -6,7 +6,7 @@
 
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
-import type { HqPlace } from "@/lib/publish/hqFindings";
+import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { FormPath } from "../../xform/formPath";
 import {
 	JAVAROSA_NS,
@@ -81,6 +81,15 @@ export interface SetvalueFacts {
 	/** The path `ref` names, an attribute as a last step `@name`; undefined where it names none. */
 	readonly target: readonly string[] | undefined;
 	readonly value: string | undefined;
+	/** The refusal of the data tree its `ref` reaches, where it reaches a node the tree refused
+	 *  or names none past one: the setvalue stands under that refusal. */
+	readonly refusal: NodeRefusal | undefined;
+}
+
+/** A refusal of the data tree itself, with the detail its one finding names. */
+export interface NodeRefusal {
+	readonly claim: Claim<"refuse">;
+	readonly detail?: FindingDetail;
 }
 
 /** A data tree read from the data root, every node by its path joined with "/". */
@@ -92,8 +101,10 @@ export interface DataTree {
 	/** The data root's own children. */
 	readonly top: readonly DataNode[];
 	/** Each node a refusal of the tree itself covers (two siblings of one name, an authored
-	 *  `meta` block), with everything under it, to the refusal's claim. */
-	readonly refused: ReadonlyMap<DataNode, Claim<"refuse">>;
+	 *  `meta` block), with everything under it, and the Save to Case block a refused node stands
+	 *  in, to the refusal. Every bind, setvalue and control that reaches one stands under it, so
+	 *  the source's one cause is one finding. */
+	readonly refused: ReadonlyMap<DataNode, NodeRefusal>;
 }
 
 /** What a path names in the data tree. */
@@ -109,8 +120,9 @@ export type NodePathRead =
 	 *  (`XFormParser.getAbsRef` from the FormDef's own reference, `/data`). No question of the
 	 *  form owns it. A path that steps down and back up to the root is no path (below). */
 	| { readonly kind: "root"; readonly attribute?: string }
-	/** A chain of steps that names no node of the tree, `/` above the data root included. */
-	| { readonly kind: "none" }
+	/** A chain of steps that names no node of the tree, `/` above the data root included.
+	 *  `through` is the last node the steps named before one named nothing. */
+	| { readonly kind: "none"; readonly through?: DataNode }
 	/** Not a chain of child steps with at most one final attribute step, or one Core's reference
 	 *  parser refuses: a `..` in an absolute path, or after a name step of a relative one. */
 	| { readonly kind: "not-a-path" };
@@ -205,7 +217,8 @@ export function readNodePath(
 		parentsAllowed = false;
 		const children: readonly DataNode[] = at === null ? tree.top : at.children;
 		const next = children.find((child) => child.name === step);
-		if (next === undefined) return { kind: "none" };
+		if (next === undefined)
+			return at === null ? { kind: "none" } : { kind: "none", through: at };
 		at = next;
 	}
 	if (at === null)
@@ -215,6 +228,19 @@ export function readNodePath(
 	return attribute === undefined
 		? { kind: "node", node: at }
 		: { kind: "node", node: at, attribute };
+}
+
+/** The refusal of the data tree a path stands under: the node's it names, or, where it names
+ *  none, the last node its steps named, since a node the tree refused covers everything under
+ *  it, and a path that names a node of a refused pair by its name may mean either. */
+export function refusalOf(
+	read: NodePathRead,
+	tree: DataTree,
+): NodeRefusal | undefined {
+	if (read.kind === "node") return tree.refused.get(read.node);
+	if (read.kind === "none" && read.through !== undefined)
+		return tree.refused.get(read.through);
+	return undefined;
 }
 
 /** `name`'s value among an element's attributes, by the name as written with no prefix. */
@@ -247,7 +273,9 @@ export function attributeNameIn(
 /**
  * The data tree, as `parser.js::parseDataTree` and `parseDataElement` read it. Claims what
  * stands whatever the node becomes: two siblings of one name, an authored `meta` block, a
- * `vellum:comment`, a `vellum:lock`.
+ * `vellum:comment`, a `vellum:lock`. A refused node inside a Save to Case block refuses the
+ * block with it, under the same finding: a block is one change, and no reading holds part of
+ * one (two rows of one name in a block, which HQ's form builder writes as one row).
  */
 export function readDataTree(
 	parsed: ParsedXForm,
@@ -288,11 +316,11 @@ export function readDataTree(
 	const top = parsed.dataRoot.children
 		.filter(isTag)
 		.map((element) => build(element, null));
-	const refused = new Map<DataNode, Claim<"refuse">>();
+	const refused = new Map<DataNode, NodeRefusal>();
 	const tree: DataTree = { root: parsed.dataRoot, nodes, order, top, refused };
-	const refuseUnder = (node: DataNode, claim: Claim<"refuse">) => {
-		refused.set(node, claim);
-		for (const child of node.children) refuseUnder(child, claim);
+	const refuseUnder = (node: DataNode, refusal: NodeRefusal) => {
+		refused.set(node, refusal);
+		for (const child of node.children) refuseUnder(child, refusal);
 	};
 
 	for (const node of order) {
@@ -302,10 +330,14 @@ export function readDataTree(
 			!refused.has(node) &&
 			siblings.filter((sibling) => sibling.name === node.name).length > 1
 		) {
-			cursor.refuseSubtree(node.element, X.siblingsOfOneName, formPlace, {
-				name: node.name,
-			});
-			refuseUnder(node, X.siblingsOfOneName);
+			const detail = { name: node.name };
+			cursor.refuseSubtree(
+				node.element,
+				X.siblingsOfOneName,
+				formPlace,
+				detail,
+			);
+			refuseUnder(node, { claim: X.siblingsOfOneName, detail });
 		}
 		const comment = attributeNameIn(node.element, parsed, VELLUM_NS, "comment");
 		if (comment !== undefined)
@@ -324,8 +356,22 @@ export function readDataTree(
 	for (const node of top)
 		if (node.name.toLowerCase() === "meta" && !refused.has(node)) {
 			cursor.refuseSubtree(node.element, X.authoredMeta, formPlace);
-			refuseUnder(node, X.authoredMeta);
+			refuseUnder(node, { claim: X.authoredMeta });
 		}
+	for (const node of order) {
+		const refusal = refused.get(node);
+		if (refusal === undefined) continue;
+		let block: DataNode | null = node.parent;
+		while (block !== null && block.role !== "SaveToCase") block = block.parent;
+		if (block === null || refused.has(block)) continue;
+		cursor.refuseSubtree(
+			block.element,
+			refusal.claim,
+			formPlace,
+			refusal.detail,
+		);
+		refuseUnder(block, refusal);
+	}
 	return tree;
 }
 
@@ -382,6 +428,12 @@ export function readBinds(
 		if (path === undefined) continue;
 		const read = readNodePath(path.text, tree, null);
 		if (read.kind === "not-a-path") continue;
+		// A bind on a node the data tree refused, or past one, stands under that refusal.
+		const refusal = refusalOf(read, tree);
+		if (refusal !== undefined) {
+			cursor.refuseSubtree(element, refusal.claim, formPlace, refusal.detail);
+			continue;
+		}
 		if (read.kind === "none") {
 			cursor.dropSubtree(element, X.bindNoNode);
 			continue;
@@ -474,6 +526,7 @@ export function readSetvalues(
 						]
 					: undefined,
 			value: plainAttribute(element, "value"),
+			refusal: read === undefined ? undefined : refusalOf(read, tree),
 		};
 	});
 }

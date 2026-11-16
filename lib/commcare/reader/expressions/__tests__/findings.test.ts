@@ -138,6 +138,8 @@ const CODES: Readonly<Record<CheckErrorCode, true>> = {
 	"runtime-selected-value-on-device": true,
 	"distance-not-numeric": true,
 	"distance-unit-type": true,
+	"undeclared-worker-field": true,
+	"worker-property-read-by-name": true,
 };
 
 const ALLOWING = new Set(["held", "kept", "inert"]);

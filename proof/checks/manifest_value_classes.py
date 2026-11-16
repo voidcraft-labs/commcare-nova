@@ -5560,31 +5560,164 @@ def _common_prefix(lists):
     return prefix
 
 
-def _suite_supplied(root, element):
+def _suite_supplied(document, element, sessions=frozenset()):
     """The session data ids set where a suite element's expressions run, or None where the suite does not say:
-    inside an entry or a remote request, the ids its session writes (in a datum, only those before it); inside a
-    menu, the ids every entry of the menu it shows in shares first (a menu's own condition shows it in its
-    ``root``'s list, a command's in its own menu's); inside a detail, the ids written before each datum that shows
-    it (through the datum, for a detail that stays on screen while the form runs), every such datum agreeing."""
+    inside an entry or a remote request, the ids its session writes (in a datum, only those before it), and inside
+    a remote request also the ids the frame holds wherever its command is launched (``_launch_frames``); inside an
+    entry's stack operation whose ``if`` holds a session value equal to a literal (``return_to = 'm1'``), also the
+    ids every launch of the entry that sets that value holds (``_conditioned_supplied``); inside a menu, the ids
+    every entry of the menu it shows in shares first (a menu's own condition shows it in its ``root``'s list, a
+    command's in its own menu's); inside a detail, the ids written before each datum that shows it (through the
+    datum, for a detail that stays on screen while the form runs), every such datum agreeing."""
+    root = document.root
     chain = [element, *element.iterancestors()]
     holder = next((at for at in chain if _local(at) in ("entry", "remote-request")), None)
     if holder is not None:
         ids = _session_ids(holder)
+        if _local(holder) == "remote-request":
+            launched = _agreed(frame for frame, _ in _launch_frames(root, _command_id(holder))) or []
+        else:
+            launched = _conditioned_supplied(document, holder, chain, sessions)
         datum = next((at for at in chain if at.getparent() is not None and _local(at.getparent()) == "session"), None)
         if datum is None:
-            return [datum_id for datum_id, _ in ids]
-        return [datum_id for datum_id, _ in ids[: next(i for i, (_, at) in enumerate(ids) if at is datum)]]
+            return [*launched, *(datum_id for datum_id, _ in ids)]
+        before = ids[: next(i for i, (_, at) in enumerate(ids) if at is datum)]
+        return [*launched, *(datum_id for datum_id, _ in before)]
     menu = next((at for at in chain if _local(at) == "menu"), None)
     if menu is not None:
         shown_in = menu.get("id") if element is not menu else (menu.get("root") or "root")
-        if shown_in == "root":
-            return []
-        lists = [[datum_id for datum_id, _ in _session_ids(holder)] for holder in _entries_under(root, shown_in)]
-        return _common_prefix(lists) if lists else None
+        return _menu_supplied(root, shown_in)
     details = [at for at in chain if _local(at) == "detail"]
     if not details:
         return None
-    detail_id = details[-1].get("id")
+    return _detail_supplied(root, details[-1].get("id"))
+
+
+def _menu_supplied(root, menu_id):
+    """The ids every entry of a menu shares first, which Core collects before the menu's items show; none for the
+    root menu, and None where no entry names a command of the menu."""
+    if menu_id == "root":
+        return []
+    lists = [[datum_id for datum_id, _ in _session_ids(holder)] for holder in _entries_under(root, menu_id)]
+    return _common_prefix(lists) if lists else None
+
+
+def _command_id(holder):
+    """The id of an entry's or a remote request's ``<command>``, or None."""
+    return next((child.get("id") for child in _children(holder) if _local(child) == "command"), None)
+
+
+def _literal_value(element, text):
+    """Whether an element's ``value`` is the string literal ``text`` (HQ's and Nova's builds write a command's id
+    and a fixed datum value as a quoted literal)."""
+    value = (element.get("value") or "").strip()
+    return value in (f"'{text}'", f'"{text}"')
+
+
+def _agreed(frames):
+    """The ids every frame holds, or None where there is none."""
+    supplied = None
+    for frame in frames:
+        if frame is not None:
+            supplied = set(frame) if supplied is None else supplied & set(frame)
+    return None if supplied is None else list(supplied)
+
+
+def _stack_frames(stack, command_id, start):
+    """Each frame a stack's operations hold where one names ``command_id``, with that operation: a ``<create>``
+    begins a frame of its own and a ``<push>`` adds to the current one (Core's ``StackOperation``), starting from
+    ``start``, the ids the frame holds where the stack runs; the operation that names the command adds every
+    datum it sets."""
+    frame = list(start)
+    for operation in _children(stack):
+        kind = _local(operation)
+        if kind == "create":
+            frame = []
+        elif kind != "push":
+            continue
+        steps = _children(operation)
+        datums = [step.get("id") for step in steps if _local(step) == "datum" and step.get("id")]
+        if any(_local(step) == "command" and _literal_value(step, command_id) for step in steps):
+            yield [*frame, *datums], operation
+        frame.extend(datums)
+
+
+def _launch_frames(root, command_id):
+    """Each frame the session holds where an entry's or a remote request's command is launched, with the stack
+    operation that launches it (None from a menu): from a menu, the ids its entries share first; from a detail's
+    action, the ids where the detail shows, then the action's stack; from an endpoint's or an entry's stack, the
+    stack's own frame (an entry's starting from the ids its session wrote)."""
+    if command_id is None:
+        return
+    for element in root.iter():
+        if not isinstance(element.tag, str):
+            continue
+        kind = _local(element)
+        if kind == "menu":
+            if any(_local(child) == "command" and child.get("id") == command_id for child in _children(element)):
+                yield _menu_supplied(root, element.get("id")), None
+        elif kind == "stack":
+            parent = element.getparent()
+            owner = next((at for at in element.iterancestors() if _local(at) in ("detail", "endpoint", "entry")), None)
+            if owner is None:
+                continue
+            if _local(owner) == "detail" and parent is not None and _local(parent) == "action":
+                start = _detail_supplied(root, owner.get("id"))
+                if start is None:
+                    continue
+            elif _local(owner) == "entry":
+                start = [datum_id for datum_id, _ in _session_ids(owner)]
+            else:
+                start = []
+            yield from _stack_frames(element, command_id, start)
+
+
+def _conditioned_supplied(document, holder, chain, sessions):
+    """The ids an entry's stack operation holds beyond the entry's own where its ``if`` holds session values equal
+    to literals (CommCare HQ's case list registration frames, ``return_to = 'm1'``, ``workflow.py``): the ids every
+    launch of the entry that sets each such value holds, Core evaluating the operation's children only where its
+    ``if`` holds. Empty where the operation has no such condition or no launch sets it."""
+    operation = next(
+        (at for at in chain if at.getparent() is not None and _local(at.getparent()) == "stack" and at.get("if")),
+        None,
+    )
+    if operation is None or not hasattr(document, "tree"):
+        return []
+    tree = document.tree(operation.get("if"))
+    if tree is None or _holds_other(tree):
+        return []
+    wanted = _literal_equalities(tree, sessions)
+    if not wanted:
+        return []
+    frames = []
+    for frame, launch in _launch_frames(document.root, _command_id(holder)):
+        sets = {}
+        for step in _children(launch) if launch is not None else ():
+            if _local(step) == "datum" and step.get("id") in wanted:
+                sets[step.get("id")] = step
+        if all(key in sets and _literal_value(sets[key], text) for key, text in wanted.items()):
+            frames.append(frame)
+    return _agreed(frames) or []
+
+
+def _literal_equalities(tree, sessions):
+    """The session data ids an ``and`` chain holds equal to a string literal, each with its text."""
+    if tree[0] != "binary":
+        return {}
+    if tree[1] == "and":
+        return {**_literal_equalities(tree[2], sessions), **_literal_equalities(tree[3], sessions)}
+    if tree[1] != "=":
+        return {}
+    for side, other in ((tree[2], tree[3]), (tree[3], tree[2])):
+        read = _session_data_id(side, sessions)
+        if read is not None and other[0] == "text":
+            return {read: other[1]}
+    return {}
+
+
+def _detail_supplied(root, detail_id):
+    """The ids written before each datum that shows a detail (through the datum, for a detail that stays on
+    screen while the form runs), every such datum agreeing; None where no datum shows it."""
     supplied = None
     for holder in _children(root):
         if _local(holder) not in ("entry", "remote-request"):
@@ -5626,12 +5759,17 @@ def datum_not_supplied(use, manifest):
     suite's: in a suite, the session where the element runs (``_suite_supplied``); in a form, the ids every entry
     that opens it writes, from the suites the check reads beside the form (a local archive's own, and for an app
     JSON's form each build HQ made of its upload, or the local archive Nova built of the same export where HQ
-    built none), and None where it reads none."""
+    built none), and None where it reads none. A read Core never unpacks is no read here: the path a ``count()``
+    counts (Core counts an absent leaf as none), and a read on the right of an ``and`` whose left holds
+    ``count(<the read>) = 1``, ``>= 1`` or ``> 0``, which Core does not evaluate where the leaf is absent (the
+    ``return_to`` guard of CommCare HQ's case list registration frames, ``workflow.py``), read over the
+    expression's structure as HQ's XPath grammar reads it where the records hold it."""
     at = _xml(use)
     if at is None or at.attribute is None:
         return None
     document = at.document
-    parsed = document.parsed(at.element.get(at.attribute))
+    text = at.element.get(at.attribute)
+    parsed = document.parsed(text)
     if parsed is None or "error" in parsed:
         return None
     sessions = {
@@ -5647,12 +5785,98 @@ def datum_not_supplied(use, manifest):
         and path["steps"][:2] == ["session", "data"]
         and path["steps"][2] not in _OWN_SESSION_DATA
     }
+    tree = document.tree(text) if read and hasattr(document, "tree") else None
+    if tree is not None and not _holds_other(tree):
+        read &= _unpacked_session_data(tree, sessions, frozenset())
     if not read:
         return False
-    supplied = _form_supplied(document) if document.kind == "xform" else _suite_supplied(document.root, at.element)
+    supplied = _form_supplied(document) if document.kind == "xform" else _suite_supplied(document, at.element, sessions)
     if supplied is None:
         return None
     return not read <= set(supplied)
+
+
+def _holds_other(tree):
+    """Whether an expression's structure holds a part HQ's grammar gives no structure of (``["other", ...]``)."""
+    kind = tree[0]
+    if kind == "other":
+        return True
+    if kind == "path":
+        return any(_holds_other(predicate) for predicate in tree[3])
+    if kind == "call":
+        return any(_holds_other(argument) for argument in tree[2])
+    if kind == "binary":
+        return _holds_other(tree[2]) or _holds_other(tree[3])
+    if kind == "negative":
+        return _holds_other(tree[1])
+    return False
+
+
+def _session_data_id(path, sessions):
+    """The id a location path reads of the session's ``data/<id>`` with no predicate on it, or None."""
+    if path[0] != "path" or not path[1].startswith("instance:") or path[1][len("instance:") :] not in sessions:
+        return None
+    steps = path[4]
+    if len(steps) != 3 or [step[1] for step in steps[:2]] != ["session", "data"]:
+        return None
+    if any(step[0] != "child" or step[2] for step in steps):
+        return None
+    return steps[2][1]
+
+
+def _present_by_guard(tree, sessions):
+    """The session data ids a condition, where true, holds present: ``count(<the read>) = 1``, ``>= 1`` or
+    ``> 0``, and each conjunct's of an ``and``."""
+    if tree[0] != "binary":
+        return frozenset()
+    if tree[1] == "and":
+        return _present_by_guard(tree[2], sessions) | _present_by_guard(tree[3], sessions)
+    left, right = tree[2], tree[3]
+    counted = (
+        _session_data_id(left[2][0], sessions)
+        if left[0] == "call" and left[1] == "count" and len(left[2]) == 1
+        else None
+    )
+    if counted is None or right[0] != "number":
+        return frozenset()
+    holds = (tree[1] in ("=", ">=") and float(right[1]) == 1) or (tree[1] == ">" and float(right[1]) == 0)
+    return frozenset({counted}) if holds else frozenset()
+
+
+def _unpacked_session_data(tree, sessions, present):
+    """The session data ids an expression's structure reads by value, less those ``present`` holds: every
+    ``data/<id>`` path but the one a ``count()`` counts (its predicates are read), and on the right of an ``and``
+    less the ids its left holds present where true (``_present_by_guard``)."""
+    kind = tree[0]
+    if kind == "path":
+        found = set()
+        for predicate in tree[3]:
+            found |= _unpacked_session_data(predicate, sessions, present)
+        read = _session_data_id(tree, sessions)
+        if read is None and tree[1].startswith("instance:") and tree[1][len("instance:") :] in sessions:
+            steps = tree[4]
+            if len(steps) > 2 and [step[1] for step in steps[:2]] == ["session", "data"]:
+                read = steps[2][1]
+        if read is not None and read not in present:
+            found.add(read)
+        return found
+    if kind == "call":
+        found = set()
+        for argument in tree[2]:
+            if tree[1] == "count" and argument[0] == "path":
+                for predicate in argument[3]:
+                    found |= _unpacked_session_data(predicate, sessions, present)
+            else:
+                found |= _unpacked_session_data(argument, sessions, present)
+        return found
+    if kind == "binary":
+        left = _unpacked_session_data(tree[2], sessions, present)
+        if tree[1] == "and":
+            present = present | _present_by_guard(tree[2], sessions)
+        return left | _unpacked_session_data(tree[3], sessions, present)
+    if kind == "negative":
+        return _unpacked_session_data(tree[1], sessions, present)
+    return set()
 
 
 def var_in_form(use, manifest):

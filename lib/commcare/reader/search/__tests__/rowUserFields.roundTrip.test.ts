@@ -95,7 +95,10 @@ function regionSearch(): BlueprintDoc {
 describe("a worker property only a search filter row reads", () => {
 	it("is named by the searches' first pass", async () => {
 		const reading = await readLists(regionSearch(), { firstPassOnly: true });
-		expect(searchRowUserFields(reading.ctx)).toEqual(["region"]);
+		expect(searchRowUserFields(reading.ctx)).toEqual({
+			userFields: ["region"],
+			sessionUserFields: ["region"],
+		});
 	});
 
 	it("reads back to the property, and the row to a read of it", async () => {

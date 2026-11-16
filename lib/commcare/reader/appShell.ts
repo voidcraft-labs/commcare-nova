@@ -31,6 +31,8 @@ import {
 	keyDefinedAfterLineEnd,
 	LINE_END_DEFINES_KEY,
 	recordTextRewrite,
+	refuseUnheldText,
+	unheldText,
 } from "./heldText";
 import {
 	isJsonObject,
@@ -241,6 +243,11 @@ const CLAIMS = defineClaims("appShell", {
 	otherUnknownKey: account(
 		`${A}/any-other-unknown-top-level-key-that-names-no-application`,
 		key("<undeclared>"),
+	),
+	/** A `name` the profile shows otherwise than the app strings do (`holdAppName`). */
+	nameShownTwoWays: refuse(
+		`${A}/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`,
+		null,
 	),
 });
 
@@ -829,12 +836,14 @@ function readTranslations(
  * source language's `app.display.name` read over it) or its own `app.display.name`, held as
  * every app string is (`heldText.ts::heldText`): no space at either end, and a language whose
  * name shows blank beside a source that does not takes the source's name. The source's text is
- * written into the draft, and each other language's translation is returned by code. A name
- * Nova's gate admits no spelling of, and a `name` holding the two characters `\n`, a backslash
- * before `#` or a carriage return, which the profile's `name` shows otherwise than the app
- * strings do, is named
- * `unrecognized` at the app, a `name` whose rest after a carriage return defines another app
- * string is refused at the app under its own entry, and the names are returned as stored. Where
+ * written into the draft, and each other language's translation is returned by code. A `name`
+ * whose rest after a carriage return defines another app string is refused at the app under the
+ * line-end entry; any other `name` holding the two characters `\n`, a backslash before `#` or a
+ * carriage return, which the profile's `name` shows otherwise than the app strings do, under
+ * `application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`;
+ * and a name Nova's gate admits no spelling of under the entry that names why
+ * (`heldText.ts::refuseUnheldText`), each one finding at the app, and the names are returned as
+ * stored. Where
  * the first publish writes a stored value again, the reading records it, the source language's at
  * its `app.display.name` where that supplied the name (`fromDisplayName`) and at `name`
  * otherwise: under `text-spaces-dropped` where a worker then reads another name, else under
@@ -870,16 +879,24 @@ function holdAppName(
 		});
 		return appNames;
 	}
-	const held =
+	if (
 		name.value.includes("\\n") ||
 		name.value.includes("\\#") ||
 		name.value.includes("\r")
-			? undefined
-			: heldText(shown, languages.codes, source, "app-name");
-	if (held === undefined) {
-		ctx.accounting.circumstance("unrecognized", appPlace(), {
-			name: key("name"),
+	) {
+		ctx.accounting.finding(CLAIMS.nameShownTwoWays, appPlace(), {
+			name: name.value,
 		});
+		return appNames;
+	}
+	const held = heldText(shown, languages.codes, source, "app-name");
+	if (held === undefined) {
+		refuseUnheldText(
+			ctx,
+			appPlace(),
+			key("name"),
+			unheldText(shown, languages.codes, source, "app-name"),
+		);
 		return appNames;
 	}
 	if (held.source !== sourceName)

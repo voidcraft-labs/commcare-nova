@@ -19,6 +19,8 @@ import {
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
 import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
+import { projectProseTemplate } from "@/lib/domain/prose";
+import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
@@ -541,9 +543,30 @@ const TRANSLATION_REPAIRS: Readonly<Record<AppStringIssue, string>> = {
 		"Write the text without ${: keep $ and { apart, or leave the $ out, as the source text does.",
 };
 
+/** A document of no entities: each reference prints the text the gate prints for one it cannot
+ *  name (`prose.ts::projectProseTemplate`), a hashtag as every reference's print is. */
+const NO_REFERENCE_NAMES: ReferenceNamesDoc = {
+	fields: {},
+	forms: {},
+	fieldOrder: {},
+};
+
+/**
+ * Each requested unit's accepted value, or an error naming what the model must
+ * write instead. A unit whose text lands in the app strings
+ * (`localeFile.ts::translationUnitUsesLocaleFile`) is checked as the commit
+ * gate checks a translation (`validator/rules/app.ts::validTranslationOverlays`):
+ * the decoded value, a prose value as `projectProseTemplate` prints it over
+ * `doc`, the document the units were collected from, so a sequence only the
+ * printed references make (a backslash left before a reference, whose print
+ * starts with `#`) is refused when the batch comes back rather than when the
+ * translation is saved. Without `doc` (units no document holds, as the offline
+ * evaluation's) each reference prints as one no document names.
+ */
 export function validateTranslationBatchOutput(
 	units: readonly EncodedTranslationUnit[],
 	output: TranslationBatchOutput,
+	doc: ReferenceNamesDoc = NO_REFERENCE_NAMES,
 ): ReadonlyMap<string, LocalizedValue> {
 	const expected = new Map(units.map((unit) => [unit.unitId, unit]));
 	const translated = new Map<string, LocalizedValue>();
@@ -557,9 +580,12 @@ export function validateTranslationBatchOutput(
 		if (translated.has(item.unitId)) {
 			throw new Error(`Translation output repeated unit ${item.unitId}.`);
 		}
+		const value = decodeTranslatedValue(unit, item.translatedText);
 		if (translationUnitUsesLocaleFile(unit.role)) {
 			const issue = appStringIssue(
-				normalizeTranslatedFormatting(unit, item.translatedText),
+				typeof value === "string"
+					? value
+					: projectProseTemplate(value, doc).text,
 				unit.role,
 			);
 			if (issue !== undefined) {
@@ -568,10 +594,7 @@ export function validateTranslationBatchOutput(
 				);
 			}
 		}
-		translated.set(
-			item.unitId,
-			decodeTranslatedValue(unit, item.translatedText),
-		);
+		translated.set(item.unitId, value);
 	}
 	if (translated.size !== expected.size) {
 		const missing = [...expected.keys()].filter((id) => !translated.has(id));

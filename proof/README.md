@@ -3797,7 +3797,7 @@ reused is only what a key names whole, and the reuse is audited:
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their
   ids, wrapping at the end, so every document is compared within the
-  corpus's size over 24 weeks, rounded up (twenty for 461), and the three
+  corpus's size over 24 weeks, rounded up (twenty for 464), and the three
   runs of a week check the same sample. The
   seed and the sample's documents are in each sampled lane's job summary,
   its verdict and a failed week's issue, and a dispatch that names the seed

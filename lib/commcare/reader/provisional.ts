@@ -655,10 +655,15 @@ export function bindExpressions(ctx: ReadContext): void {
 	const env = expressionEnvOf(ctx);
 	const pending = ctx.pending.list();
 	const first = readExpressions(provisionalDocument(ctx), pending, env);
+	const rows = searchRowUserFields(ctx);
 	const world = worldEntitiesFromReads(
 		{
 			...first.worldReads,
-			userFields: [...first.worldReads.userFields, ...searchRowUserFields(ctx)],
+			userFields: [...first.worldReads.userFields, ...rows.userFields],
+			sessionUserFields: [
+				...first.worldReads.sessionUserFields,
+				...rows.sessionUserFields,
+			],
 			writtenUserFields: workerRecordWriteSlugs(ctx),
 		},
 		ctx.resolver,

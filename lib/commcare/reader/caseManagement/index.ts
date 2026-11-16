@@ -12,6 +12,7 @@
  * written back.
  */
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { planCaseRetype } from "@/lib/domain/caseRetype";
 import {
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
@@ -44,6 +45,7 @@ import {
 	type TargetTypeMismatchReason,
 	validateCaseOperations,
 } from "../../validator/rules/caseOperations";
+import { multiSelectFormSemantics } from "../../validator/rules/multiSelect";
 import type { Claim } from "../claims";
 import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
@@ -56,6 +58,7 @@ import { heldWorkerSlugs, holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
 import {
 	ADVANCED_CLAIMS,
+	advancedCaseReading,
 	readAdvancedActions,
 	readAdvancedMenu,
 	settleAdvancedForm,
@@ -72,6 +75,7 @@ import {
 	writeBasicOperations,
 } from "./basicActions";
 import {
+	carryRetypedProperties,
 	readCaseCatalog,
 	settleWriterTypes,
 	takeBackWriterTypedDateTimes,
@@ -88,6 +92,7 @@ import {
 	SAVE_TO_CASE_CLAIMS,
 	saveToCaseBlockPlace,
 	saveToCaseReading,
+	scalarFieldsOfRefusedBlocks,
 	settleSaveToCase,
 	writeSaveToCaseOperations,
 } from "./saveToCase";
@@ -508,8 +513,17 @@ function settleScalarChecks(
 	const guards = caseScalarTextGuards(doc, form.uuid, {
 		placedBasic: placedBasic(doc, form.uuid),
 	});
+	// A block the reading refuses, or an advanced form's actions it refuses
+	// part of, whose check its question carries, is that finding: the
+	// document leaves the change and its check out together.
+	const advanced = advancedCaseReading(form);
+	const refused = new Set([
+		...scalarFieldsOfRefusedBlocks(form),
+		...(advanced?.refused === true ? advanced.createNames : []),
+	]);
 	for (const field of readFields(xform)) {
 		if (field.scalarCheck === undefined || field.uuid === undefined) continue;
+		if (refused.has(field) && !guards.has(field.uuid)) continue;
 		if (
 			guards.get(field.uuid) !== field.scalarCheck ||
 			!caseScalarTextGuardIsChecked(field.kind)
@@ -586,8 +600,10 @@ function detail(
 
 /**
  * The gate's own verdict over a form's case changes
- * (`validator/rules/caseOperations.ts::validateCaseOperations`, asked once of
- * the bound document in the order the reading holds), each refusal a reader
+ * (`validator/rules/caseOperations.ts::validateCaseOperations`, and
+ * `validator/rules/multiSelect.ts::multiSelectFormSemantics` for a form of a
+ * menu that chooses several cases, asked once of the bound document in the
+ * order the reading holds), each refusal a reader
  * stage cannot see on one change alone given as one finding under the entry
  * of the source shape that gives it. No rule is stated a second time here:
  * each refusal is the gate's, told apart by the reason the gate gives it
@@ -660,13 +676,35 @@ function detail(
  *   `CommCareCaseIndex.referenced_type`);
  * - `CASE_OPERATION_TARGET_INVALID` reason `id-of-target`: a case id
  *   expression that reads the id of a case the form creates, which Nova holds
- *   only as that create's own target.
+ *   only as that create's own target;
+ * - `CASE_OPERATION_AMBIGUOUS_REFERENCE` and
+ *   `CASE_OPERATION_REPEAT_CORRELATION`: a change that reads the case a
+ *   create of a repeat makes from outside that repeat's rows (a change at the
+ *   root, or in another repeat), or a value of a repeat's answer from outside
+ *   it. Each row of the repeat holds its own case and answer, and Nova holds
+ *   such a read only in the same row, so the expression is outside Nova's
+ *   typed vocabulary, the entry the expression stage gives a value it cannot
+ *   hold; a create keyed by such an answer is the authored create id's;
+ * - `MULTI_SELECT_SESSION_OPERATION_LINK` and
+ *   `MULTI_SELECT_APP_OPERATION_CASE_READ`: on a form of a menu that chooses
+ *   several cases, a change that runs once for the form and links to, or
+ *   reads, "the" chosen case, which the form holds as a set
+ *   (`validator/rules/multiSelect.ts::multiSelectFormSemantics`); and
+ *   `MULTI_SELECT_AUTHORED_KEY_CREATE`, a create there keyed by one answer,
+ *   the authored create id's entry.
  *
  * The gate's other refusals of a change on its own are a reader stage's,
  * where it reads the change (a slot's expression, a key, a link's name, a
  * create's key), and the case management tests hold every reading to the
  * whole gate (`__tests__/heldReading.ts`).
  */
+/** A Save to Case expression outside Nova's typed vocabularies, its case id,
+ *  owner, conditions and values alike. */
+const OUTSIDE_VOCABULARY =
+	EXPRESSION_CLAIMS[
+		"savetocase-expressions-outside-nova-s-typed-vocabularies-case-id"
+	];
+
 function settleCaseChanges(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -676,7 +714,19 @@ function settleCaseChanges(
 	if (operations.length === 0) return;
 	const moduleUuid = moduleUuidOfForm(doc, form.uuid);
 	if (moduleUuid === undefined) return;
-	const verdict = validateCaseOperations(doc, form.uuid, moduleUuid);
+	const module = doc.modules[moduleUuid];
+	const formDoc = doc.forms[form.uuid];
+	const verdict = [
+		...validateCaseOperations(doc, form.uuid, moduleUuid),
+		...(module === undefined || formDoc === undefined
+			? []
+			: multiSelectFormSemantics(doc, formDoc, module, {
+					moduleUuid,
+					moduleName: module.name,
+					formUuid: form.uuid,
+					formName: formDoc.name,
+				})),
+	];
 	const operationOf = (finding: { readonly details?: unknown }) => {
 		const uuid = detail(finding, "operationUuid");
 		return operations.find((one) => one.uuid === uuid);
@@ -687,7 +737,14 @@ function settleCaseChanges(
 			one.target.kind === "worker-record" &&
 			one.placement?.kind === "save-to-case",
 	);
-	const atForm = new Set<Claim<"refuse">>();
+	// Each finding at the form, with the changes the gate names it of.
+	const formFindings = new Map<Claim<"refuse">, (Uuid | undefined)[]>();
+	let named: Uuid | undefined;
+	const atForm = {
+		add(claim: Claim<"refuse">): void {
+			formFindings.set(claim, [...(formFindings.get(claim) ?? []), named]);
+		},
+	};
 	const atBlock = new Map<Uuid, Claim<"refuse">>();
 	// A device's refusal of the block stands over any other finding of it.
 	const refuseBlock = (uuid: Uuid, claim: Claim<"refuse">) => {
@@ -696,6 +753,7 @@ function settleCaseChanges(
 	};
 	for (const finding of verdict) {
 		const operation = operationOf(finding);
+		named = operation?.uuid;
 		const block =
 			operation?.placement?.kind === "save-to-case" ? operation : undefined;
 		const reason = detail(finding, "reason");
@@ -727,12 +785,7 @@ function settleCaseChanges(
 				else if (reason === ("blank-target" satisfies TargetInvalidReason))
 					refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.deviceRefuses);
 				else if (reason === ("id-of-target" satisfies TargetInvalidReason))
-					refuseBlock(
-						block.uuid,
-						EXPRESSION_CLAIMS[
-							"savetocase-expressions-outside-nova-s-typed-vocabularies-case-id"
-						],
-					);
+					refuseBlock(block.uuid, OUTSIDE_VOCABULARY);
 				break;
 			case "CASE_OPERATION_SESSION_UNAVAILABLE":
 				if (block === undefined) break;
@@ -750,11 +803,50 @@ function settleCaseChanges(
 				)
 					refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.deviceRefuses);
 				break;
+			case "CASE_OPERATION_AMBIGUOUS_REFERENCE":
+			case "CASE_OPERATION_REPEAT_CORRELATION":
+			case "MULTI_SELECT_SESSION_OPERATION_LINK":
+			case "MULTI_SELECT_APP_OPERATION_CASE_READ":
+				if (block !== undefined) refuseBlock(block.uuid, OUTSIDE_VOCABULARY);
+				break;
+			case "MULTI_SELECT_AUTHORED_KEY_CREATE":
+				if (block !== undefined)
+					refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.authoredCreateId);
+				break;
+			case "CAPTURE_CASE_WRITE_STANDARD_PROPERTY":
+				if (block !== undefined) refuseBlock(block.uuid, OUTSIDE_VOCABULARY);
+				break;
+			case "CASE_OPERATION_RETYPE_UNSAFE": {
+				if (block === undefined || block.action !== "update") break;
+				// The gate's own plan tells the two causes apart: a change of the
+				// type of a case a create keyed by an answer makes, whose next
+				// submission's create gives the case its earlier type again, and a
+				// type that holds a property the earlier type holds as another type.
+				const plan =
+					block.retype === undefined
+						? undefined
+						: planCaseRetype(doc, block.caseType, block.retype);
+				if (plan === undefined || plan.wirePortable)
+					atForm.add(ORDER_CLAIMS.typeChange);
+				else refuseBlock(block.uuid, SAVE_TO_CASE_CLAIMS.retypeConverts);
+				break;
+			}
 		}
 	}
-	for (const claim of atForm) ctx.accounting.finding(claim, form.place);
+	const placeOf = (uuid: Uuid) =>
+		saveToCaseBlockPlace(form, uuid) ?? form.place;
+	// A finding at the form that names only changes a finding at their own
+	// block refuses is that block's: the reading holds none of them, and the
+	// block's finding names what to change.
+	const refusedAtBlock = (uuid: Uuid | undefined) =>
+		uuid !== undefined &&
+		(atBlock.has(uuid) ||
+			(saveToCaseBlockPlace(form, uuid) !== undefined &&
+				ctx.accounting.hasFindingAt(placeOf(uuid))));
+	for (const [claim, of] of formFindings)
+		if (!of.every(refusedAtBlock)) ctx.accounting.finding(claim, form.place);
 	for (const [uuid, claim] of atBlock) {
-		const place = saveToCaseBlockPlace(form, uuid) ?? form.place;
+		const place = placeOf(uuid);
 		if (!ctx.accounting.hasFindingAt(place))
 			ctx.accounting.finding(claim, place);
 	}
@@ -768,7 +860,9 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 	for (const module of app.modules)
 		for (const form of module.forms) settleDatetimeJoins(ctx, form);
 	if (ctx.doc !== undefined)
-		ctx.doc = takeBackWriterTypedDateTimes(ctx, ctx.doc);
+		ctx.doc = carryRetypedProperties(
+			takeBackWriterTypedDateTimes(ctx, ctx.doc),
+		);
 	const doc = ctx.doc;
 	if (doc === undefined) {
 		// No document to emit: each form's blocks stand as pass 1 read them,
@@ -880,13 +974,19 @@ export function compareEntryFacts(ctx: ReadContext, app: DraftApp): void {
 					? ADVANCED_CLAIMS.underivedTag
 					: ADVANCED_CLAIMS.notOneChain;
 				// One class is one finding: pass 1 may have raised it at the form.
-				const standing = ctx.accounting
-					.findings()
-					.some(
-						(one) =>
-							one.code === claim.entry &&
-							whereText(one.place) === whereText(form.place),
-					);
+				// A form whose stored actions pass 1 refused part of has that
+				// finding at the form, and the document leaves the refused loads
+				// out, so the loads the entry carries differ for that one cause.
+				const standing =
+					(advancedCaseReading(form)?.refused === true &&
+						ctx.accounting.hasFindingAt(form.place)) ||
+					ctx.accounting
+						.findings()
+						.some(
+							(one) =>
+								one.code === claim.entry &&
+								whereText(one.place) === whereText(form.place),
+						);
 				if (!standing)
 					ctx.accounting.finding(claim, form.place, {
 						name:

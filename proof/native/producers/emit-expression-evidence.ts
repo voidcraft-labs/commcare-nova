@@ -549,8 +549,10 @@ function compiledForm(doc: BlueprintDoc, module: number, form: number) {
 // a repeat entry is made, which the absolute spelling answers alike, and a
 // read of the places filtered by another question of the entry, which only
 // `current()` answers per entry. The class makes the absolute spellings from
-// the same bytes, and writes the entry's number as a count of the repeat's
-// entries (Nova's count of the repeat inside an entry counts that entry).
+// the same bytes, and writes the entry's number as its position: Nova's count
+// of the repeat inside an entry counts that entry alone, as does a count of
+// the repeat's absolute path, which Core contextualizes against the entry
+// (`TreeReference.contextualize`).
 {
 	const doc = admitted("starting values form", rowDefaultDoc());
 	const form = compiledForm(doc, 0, 0);
@@ -580,7 +582,12 @@ function compiledForm(doc: BlueprintDoc, module: number, form: number) {
 				{ current: reads.copy, absolute: "/data/seed" },
 				{ current: reads.early, absolute: "/data/seed" },
 			],
-			entryCount: { nova: reads.entryCount, written: "count(/data/rounds)" },
+			// Core's position() of a node is its zero-based multiplicity
+			// (`XPathPositionFunc.position`, `TreeReference.getMultLast`).
+			entryCount: {
+				nova: reads.entryCount,
+				written: "position(current()/..) + 1",
+			},
 			named: { current: reads.named, absolute: "/data/rounds/entry" },
 			...ROW_DEFAULT_ROWS,
 		})}\n`,

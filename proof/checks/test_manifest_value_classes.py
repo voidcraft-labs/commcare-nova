@@ -923,6 +923,9 @@ class Shape:
     case_types: dict | None = None  # declared types, supplied beside the recorded export as a retained control's are
     # The configurations an app JSON was sent under (``App.configurations``), which a flag's class reads.
     configurations: tuple | None = None
+    # How many uses of the key sit there: one, but where the expression reads the key more than once (a guard and
+    # the read it guards), each read is a use and each takes the verdict.
+    uses: int = 1
 
 
 def refused(export, source, key, where, **kw):
@@ -4033,6 +4036,62 @@ SESSION_DATUMS_SUITE = b"""<suite version="1">
       <datum id="case_id" value="./@case_id" detail-select="d"
         nodeset="instance('casedb')/casedb/case[index/parent = instance('commcaresession')/session/data/parent_id]"/>
     </session></entry></suite>"""
+# Session data a suite reads where its frame holds it: a search launched from a case list's action reads the
+# case the menu chose before the list (its query's ``data[2]``) and one nothing writes (``data[3]``); a claim an
+# endpoint launches reads the case the endpoint's push writes; a registration form the list's Register action opens
+# with ``return_to = 'm1'`` reads ``return_to`` under HQ's count guard (``create[1]``) and without one
+# (``create[2]``), and the chosen case where its operation's condition names the action's frame (``create[1]``'s
+# datum) and where no launch sets the value its condition names (``create[3]``'s).
+SESSION_LAUNCH_SUITE = b"""<suite version="1">
+  <detail id="d"><title><text><locale id="t"/></text></title>
+    <field><header><text><locale id="h"/></text></header><template><text>
+      <xpath function="./@case_id"/></text></template></field>
+    <action><display><text><locale id="a"/></text></display>
+      <stack><push><mark/><command value="'search_command.m0'"/></push></stack></action>
+    <action><display><text><locale id="r"/></text></display>
+      <stack><push><command value="'m1-f0'"/><datum id="case_id_new_visit_0" value="uuid()"/>
+        <datum id="return_to" value="'m1'"/></push></stack></action></detail>
+  <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="c"/></text></command>
+    <instance id="casedb" src="jr://instance/casedb"/>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session>
+      <datum id="parent_id" value="./@case_id" nodeset="instance('casedb')/casedb/case[@case_type = 'household']"/>
+      <datum id="case_id" value="./@case_id" detail-select="d"
+        nodeset="instance('casedb')/casedb/case[index/parent = instance('commcaresession')/session/data/parent_id]"/>
+    </session></entry>
+  <entry><form>http://example.org/r</form><command id="m1-f0"><text><locale id="c"/></text></command>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session><datum id="case_id_new_visit_0" function="uuid()"/></session>
+    <stack>
+      <create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm1'"><command value="'m1'"/>
+        <datum id="parent_id" value="instance('commcaresession')/session/data/parent_id"/></create>
+      <create if="instance('commcaresession')/session/data/return_to = 'm2'"><command value="'m2'"/></create>
+      <create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm9'"><command value="'m9'"/>
+        <datum id="parent_id" value="instance('commcaresession')/session/data/parent_id"/></create>
+    </stack></entry>
+  <remote-request>
+    <post url="https://example.org/claim/" relevant="true()">
+      <data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/></post>
+    <command id="search_command.m0"><display><text><locale id="s"/></text></display></command>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <instance id="results" src="jr://instance/remote/results"/>
+    <session>
+      <query url="https://example.org/search/" storage-instance="results" template="case" default_search="false">
+        <data key="case_type" ref="'visit'"/>
+        <data key="parent" ref="instance('commcaresession')/session/data/parent_id"/>
+        <data key="other" ref="instance('commcaresession')/session/data/other_id"/></query>
+      <datum id="search_case_id" nodeset="instance('results')/results/case" value="./@case_id"/>
+    </session><stack/></remote-request>
+  <remote-request>
+    <post url="https://example.org/claim/" relevant="true()">
+      <data key="case_id" ref="instance('commcaresession')/session/data/case_id"/></post>
+    <command id="claim_command.visit.case_id"><display><text/></display></command>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session><datum id="case_id" function="instance('commcaresession')/session/data/case_id"/></session>
+    <stack/></remote-request>
+  <endpoint id="visit"><argument id="case_id"/>
+    <stack><push><datum id="case_id" value="$case_id"/><command value="'claim_command.visit.case_id'"/></push></stack>
+  </endpoint></suite>"""
 # A suite expression reading a variable (a menu's display condition).
 VARIABLES_SUITE = b"""<suite version="1"><menu id="m0" relevant="$v = 1"><text><locale id="m"/></text></menu></suite>"""
 # A case's system date read by name, ordered against a date, which is never a time of day; and another property
@@ -4873,6 +4932,56 @@ def _data_binds_and_itext():
                 "field[2]/template[1]/text[1]/xpath[1]/@function",
                 readings=True,
             ),
+            accepted(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "remote-request[1]/session[1]/query[1]/data[2]/@ref",
+                readings=True,
+            ),
+            refused(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "remote-request[1]/session[1]/query[1]/data[3]/@ref",
+                readings=True,
+            ),
+            accepted(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "remote-request[2]/session[1]/datum[1]/@function",
+                readings=True,
+            ),
+            accepted(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "entry[2]/stack[1]/create[1]/@if",
+                readings=True,
+                uses=2,
+            ),
+            refused(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "entry[2]/stack[1]/create[2]/@if",
+                readings=True,
+            ),
+            accepted(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "entry[2]/stack[1]/create[1]/datum[1]/@value",
+                readings=True,
+            ),
+            refused(
+                "suite",
+                SESSION_LAUNCH_SUITE,
+                "session-path:session/data/*",
+                "entry[2]/stack[1]/create[3]/datum[1]/@value",
+                readings=True,
+            ),
         ),
         "expressions-and-data/var-in-a-form-expression": (
             refused("form", variables, "xpath-token:VAR", "bind[1]/@calculate", readings=True),
@@ -4951,22 +5060,24 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
     for shape in SHAPES[entry_id]:
         found = _shape_uses(shape, manifest, readings if shape.readings else None)
         uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
-        assert len(uses) == 1, f"{entry_id}: {shape.key} at {shape.where} is {len(uses)} uses, not one"
-        (use,) = uses
+        assert len(uses) == shape.uses, (
+            f"{entry_id}: {shape.key} at {shape.where} is {len(uses)} uses, not {shape.uses}"
+        )
         named = entry in manifest.entries.get(shape.key, ())
         # A key the entry should name and does not is a gap listed in UNCONSULTED; one it names now moves its shape.
         assert named is shape.named, f"{entry_id} {'does not name' if shape.named else 'now names'} {shape.key}"
-        verdict = classes.VALUE_CLASSES[entry_id](use, manifest)
-        assert verdict is shape.verdict, f"{entry_id} reads {shape.key} at {shape.where} as {verdict}"
-        if not named:
-            continue
-        # The check consults the reader for that use: the use stands in the class where the reader takes it.
-        kind, held = manifest_usage.standing(manifest, use)
-        if shape.verdict:
-            refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
-            assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
-        elif shape.verdict is False:
-            assert entry not in held
+        for use in uses:
+            verdict = classes.VALUE_CLASSES[entry_id](use, manifest)
+            assert verdict is shape.verdict, f"{entry_id} reads {shape.key} at {shape.where} as {verdict}"
+            if not named:
+                continue
+            # The check consults the reader for that use: the use stands in the class where the reader takes it.
+            kind, held = manifest_usage.standing(manifest, use)
+            if shape.verdict:
+                refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
+                assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
+            elif shape.verdict is False:
+                assert entry not in held
 
 
 @pytest.mark.parametrize(

@@ -987,6 +987,64 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "the app's `name` holding the two characters `\\n`, a backslash before `#`, or a carriage return",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The text is the value of `name`, which `application-and-settings/name` holds; what each screen shows of it is read from the profile and the app strings file HQ's build writes it into, and Nova writes one name into both (`appShell.ts::holdAppName`).",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build writes `name` as stored into the profile's `name` attribute (`app_manager/profile.xml`, `Application.create_profile`), which Android's list of the apps on a phone shows, a carriage return or a line break there read as a space (`ProfileParser` through kxml2, `ApplicationRecord.setPropertiesFromProfile`), and Web Apps' list of apps shows the app's `name` as stored (`cloudcare/views.py`, `cloudcare/partials/grid_view/row.html`), while the app's own screens show each language's `app.display.name` app string (`app_strings.py`, `commcare_translations.py::dumps`), which Core reads with `\\n` as a line break, `\\#` as `#` and the line ended at a carriage return (`LocalizationUtils.parseValue`, `BufferedReader.readLine`), so the lists of apps show one text and the app's screens another, and no one name Nova writes into both gives both back; a line break in the name, which Nova writes into both again as the source holds it, is held",
+		"subject": "app-name",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's build writes `name` as stored into the profile's `name` attribute (`app_manager/profile.xml`, `Application.create_profile`), which Android's list of the apps on a phone shows, a carriage return or a line break there read as a space (`ProfileParser` through kxml2, `ApplicationRecord.setPropertiesFromProfile`), and Web Apps' list of apps shows the app's `name` as stored (`cloudcare/views.py`, `cloudcare/partials/grid_view/row.html`), while the app's own screens show each language's `app.display.name` app string (`app_strings.py`, `commcare_translations.py::dumps`), which Core reads with `\\n` as a line break, `\\#` as `#` and the line ended at a carriage return (`LocalizationUtils.parseValue`, `BufferedReader.readLine`), so the lists of apps show one text and the app's screens another, and no one name Nova writes into both gives both back; a line break in the name, which Nova writes into both again as the source holds it, is held"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/app-text-holding-a-character-xml-cannot-carry",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "an app text (the app's name, a menu's or form's name, a label, a header, a Search field's text, the search screen's title or subtitle) holding a character XML 1.0 cannot carry (a control character other than a tab, a line break or a carriage return, an unpaired surrogate, U+FFFE or U+FFFF), but for one at either end of a text that holds more, which Core's locale reader trims away",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The text is a value of the key that stores it, which other entries hold; Nova's gate admits no app text holding such a character (`APP_TEXT_UNREPRESENTABLE`, `xmlText.ts::xmlTextIssue`).",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable for a form's name: HQ's form settings write the name into the form's title (`views/forms.py::_apply_form_name_and_comment_updates`, `XForm.set_name`), and lxml refuses a character XML 1.0 cannot carry; not HQ-buildable for an unpaired surrogate in any app text: HQ's build encodes each app strings file, and the profile that carries the app's name, as UTF-8 (`Application._make_language_files`, `Application.create_profile`), and an unpaired surrogate has no UTF-8 encoding. Elsewhere HQ's build writes the character as it is into the app strings and, for the app's name, into the profile (`app_manager/profile.xml`, which no step of the build parses), and Core reads both as text (`LocalizationUtils.parseValue`; `ProfileParser` reads the profile's `name` through kxml2 as stored), so the refusal is Nova's gate's alone (`APP_TEXT_UNREPRESENTABLE`, `xmlText.ts::xmlTextIssue`), which admits it in no app text",
+		"subject": "text-characters",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's form settings write the name into the form's title (`views/forms.py::_apply_form_name_and_comment_updates`, `XForm.set_name`), and lxml refuses a character XML 1.0 cannot carry",
+				"condition": "a form's name"
+			},
+			{
+				"kind": "not-hq-buildable",
+				"named": "HQ's build encodes each app strings file, and the profile that carries the app's name, as UTF-8 (`Application._make_language_files`, `Application.create_profile`), and an unpaired surrogate has no UTF-8 encoding",
+				"condition": "an unpaired surrogate in any app text"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/translations-key-no-runtime-reads",
 		"area": "application-and-settings",
 		"section": "Application",

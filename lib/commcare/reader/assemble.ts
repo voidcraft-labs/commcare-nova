@@ -839,9 +839,10 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: menuAndFormIdsAsRead,
 	},
 	{
-		/** A worker field the logic reads by name that no worker property names, and the same read
-		 *  beside a worker property of that slug, labelled with it: both print one source, and the
-		 *  reader returns the second, minting the property as a re-read of the app does
+		/** A worker field the logic reads by name that no worker property names, and the read of a
+		 *  worker property of that slug, labelled with it: both print one source, and the reader
+		 *  returns the second, minting the property as a re-read of the app does and reading each
+		 *  read by name of its slug as the property, as the gate holds a declared slug's read
 		 *  (`worldEntities.ts::namedWorkerReadsAreProperties`). */
 		id: "worker-fields-read-by-name-are-properties",
 		kind: "one-wire",

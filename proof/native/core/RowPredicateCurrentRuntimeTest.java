@@ -214,7 +214,7 @@ public class RowPredicateCurrentRuntimeTest {
         }
     }
 
-    /** The starting values form with each entry numbered by a count of the repeat's entries. */
+    /** The starting values form with each entry numbered by its position in the repeat. */
     private static String startsSource(JSONObject rows) throws Exception {
         JSONObject entryCount = rows.getJSONObject("entryCount");
         String xml = source(rows);

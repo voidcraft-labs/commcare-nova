@@ -539,13 +539,18 @@ STRUCTURE_EXPRESSIONS = frozenset({"XPathCmpExpr"})
 def structure_read(parsed):
     """Whether the judge reads an expression's structure (``expression_tree``) by what Core's parse holds of it:
     a call to one of ``STRUCTURE_CALLS``, a step on one of ``STRUCTURE_AXES``, an expression of one of
-    ``STRUCTURE_EXPRESSIONS``."""
+    ``STRUCTURE_EXPRESSIONS``, or a ``count()`` beside a read of the session's ``data/<id>``, whose guard the
+    judge reads (``manifest_value_classes.datum_not_supplied``)."""
     if "error" in parsed:
         return False
     return bool(
         STRUCTURE_CALLS & set(parsed["functions"])
         or STRUCTURE_AXES & set(parsed["axes"])
         or STRUCTURE_EXPRESSIONS & set(parsed["expressions"])
+        or (
+            "count" in parsed["functions"]
+            and any(path["steps"][:2] == ["session", "data"] for path in parsed["instancePaths"])
+        )
     )
 
 

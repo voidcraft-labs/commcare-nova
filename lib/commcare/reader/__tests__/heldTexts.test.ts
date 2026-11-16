@@ -167,6 +167,14 @@ function guardOf(text: string): string {
 const LINE_END_ENTRY =
 	"application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string";
 
+/** The entry an app text holding a character XML 1.0 cannot carry is refused under. */
+const CHARACTER_ENTRY =
+	"application-and-settings/app-text-holding-a-character-xml-cannot-carry";
+
+/** The entry an app `name` the profile shows otherwise than the app strings do is refused under. */
+const APP_NAME_ENTRY =
+	"application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return";
+
 const TEXT_REGISTERS = new Set([
 	"names-respelled",
 	"list-settings-respelled",
@@ -978,7 +986,7 @@ describe("a case list menu item's label Nova's gate admits no spelling of", () =
 		const body = exportedBody(menuItemDoc());
 		const path = ["modules", 0, "case_list"] as const;
 		const caseList = get(body, path) as JsonObject;
-		// A character XML 1.0 cannot hold.
+		// A character XML 1.0 cannot carry, which Nova's gate admits in no app text.
 		caseList.label = { es: "To\u0001dos", en: "All patients" };
 		caseList.custom_icons = [{ form: "badge", text: {}, xpath: "1" }];
 		const outcome = readHqApp(await inputFor(body));
@@ -988,18 +996,15 @@ describe("a case list menu item's label Nova's gate admits no spelling of", () =
 		const atCaseList = outcome.findings.filter(
 			(one) => one.place.kind === "case-list",
 		);
-		// One finding names the label, and `custom_icons` is refused by its own entry, never left
-		// unclaimed.
+		// One finding names the label, under the entry that says what is wrong with it, and
+		// `custom_icons` is refused by its own entry, never left unclaimed.
 		expect(
-			atCaseList.filter((one) => one.detail?.name === "schema:CaseList.label"),
+			atCaseList.filter((one) => one.code === CHARACTER_ENTRY),
 		).toHaveLength(1);
 		expect(
-			atCaseList.filter(
-				(one) =>
-					one.code === "unrecognized" &&
-					one.detail?.name !== "schema:CaseList.label",
-			),
-		).toEqual([]);
+			atCaseList.find((one) => one.code === CHARACTER_ENTRY)?.detail?.name,
+		).toBe("To\u0001dos");
+		expect(atCaseList.filter((one) => one.code === "unrecognized")).toEqual([]);
 	});
 });
 
@@ -1225,8 +1230,13 @@ describe("a name a device shows with a line break where CommCare HQ stores `\\n`
 		expect(formWireName(draft.doc, formUuid as Uuid)).toBe("Visita\nhoy");
 	});
 
-	it("in the app's `name` is refused at the app: Android's app picker shows the profile's name as stored", async () => {
-		for (const name of ["Health\\napp", "Health app \\#1"]) {
+	// HQ's build writes `name` as stored into the profile's `name` attribute, which Android's list of
+	// the apps on a phone shows (kxml2 reads a carriage return there as a space), and Web Apps' list
+	// of apps shows the app's `name` as stored, while the app's own screens show the app strings as
+	// Core reads them: the lists show one text and the screens another, and no one name Nova writes
+	// into both gives both back. One finding, under its own entry.
+	it("in the app's `name` is refused at the app: the lists of apps show the name otherwise than the app's screens", async () => {
+		for (const name of ["Health\\napp", "Health app \\#1", "Health\rapp"]) {
 			const body = exportedBody(PROMPTS);
 			body.name = name;
 			const outcome = readHqApp(await inputFor(body));
@@ -1234,9 +1244,67 @@ describe("a name a device shows with a line break where CommCare HQ stores `\\n`
 			expect(outcome.kind).toBe("account");
 			if (outcome.kind !== "account") return;
 			expect(
-				outcome.findings.map((finding) => [finding.code, finding.place.kind]),
-			).toEqual([["unrecognized", "app"]]);
+				outcome.findings.map((finding) => [
+					finding.code,
+					finding.place.kind,
+					finding.detail?.name,
+				]),
+			).toEqual([[APP_NAME_ENTRY, "app", name]]);
 		}
+	});
+
+	// A line break inside the name shows as a space in the lists of apps (the profile's attribute,
+	// Web Apps' tile) and as a line break on the app's screens, but that is no change a reading
+	// makes: Nova writes the source's `name` and app strings again, so HQ's build of Nova's publish
+	// gives the profile and the app strings HQ's build of the source gave.
+	it("a line break inside the app's `name` is held, and Nova writes the same name and app strings again", async () => {
+		const { body, draft } = await read(PROMPTS, (body) => {
+			body.name = "Health\napp";
+		});
+		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(draft.doc.appName).toBe("Health\napp");
+		const again = republished(draft.doc);
+		// The profile's `name` and Web Apps' list of apps read `name` as stored.
+		expect(again.name).toBe(body.name);
+		const appStrings = (doc: JsonObject): Texts => {
+			const translations = (doc.translations ?? {}) as Record<
+				string,
+				Record<string, unknown>
+			>;
+			return Object.fromEntries(
+				LANGS.map((lang) => {
+					const override = translations[lang]?.["app.display.name"];
+					return [
+						lang,
+						onDevice(
+							typeof override === "string" && override !== ""
+								? override
+								: (doc.name as string),
+						),
+					];
+				}),
+			);
+		};
+		expect(appStrings(again)).toEqual(appStrings(body));
+		expect(appStrings(again)).toEqual({ es: "Health\napp", en: "Health\napp" });
+	});
+
+	// HQ's build writes the name into the profile and the app strings as it is, and Core reads
+	// both as text, but Nova's gate admits the character in no app text.
+	it("in the app's `name`, a character XML cannot carry is one finding at the app under its own entry", async () => {
+		const body = exportedBody(PROMPTS);
+		body.name = "Health\u0001app";
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") return;
+		expect(
+			outcome.findings.map((finding) => [
+				finding.code,
+				finding.place.kind,
+				finding.detail?.name,
+			]),
+		).toEqual([[CHARACTER_ENTRY, "app", "Health\u0001app"]]);
 	});
 });
 
@@ -1398,7 +1466,8 @@ const UNHELD_SURFACES: readonly {
  * it: a text a device shows none of (nothing before a carriage return, whose rest defines no app
  * string), a text a device shows with a backslash before `#` (two backslashes then `#` are left
  * by `dumps` and shown by Core as one backslash then `#`, which only a text holding a backslash
- * before `#` spells, and the gate admits none), and a `${` a screen of the text's role fills.
+ * before `#` spells, and the gate admits none), a `${` a screen of the text's role fills, and a
+ * character XML 1.0 cannot carry, which the gate admits in no app text.
  */
 describe("an app string Nova's gate admits no spelling of", () => {
 	const shapes = [
@@ -1416,6 +1485,11 @@ describe("an app string Nova's gate admits no spelling of", () => {
 			title: "holding a `${` some screen fills",
 			text: `Visitas \${0}`,
 			entry: PLACEHOLDER_ENTRY,
+		},
+		{
+			title: "holding a character XML cannot carry",
+			text: "Nom\u0001bre",
+			entry: CHARACTER_ENTRY,
 		},
 	] as const;
 	for (const shape of shapes)
@@ -1601,7 +1675,7 @@ describe("a Search text compared with what CommCare HQ shows", () => {
 		},
 		{
 			title: { es: "\u0001", en: "\u0001" },
-			finding: ["unrecognized", "search", "schema:CaseSearch.title_label"],
+			finding: [CHARACTER_ENTRY, "search", "\u0001"],
 		},
 	])
 		it(`gives one finding for a search title whose line defines no string in some language, ${JSON.stringify(title)}`, async () => {

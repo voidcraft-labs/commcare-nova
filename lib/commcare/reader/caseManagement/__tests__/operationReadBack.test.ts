@@ -618,30 +618,20 @@ describe("a several-case close form's own close with the condition on its close"
 		expect(outcome.defects).toEqual([]);
 		expect(outcome.kind).toBe("account");
 		const findings = outcome.kind === "account" ? outcome.findings : [];
+		// The selected-cases repeat around the block, its iteration's binds and
+		// setvalues among it, stands under the block's one finding: the reading
+		// holds none of what it wraps, and the source's one cause is one
+		// finding, with no `unrecognized` beside it.
 		expect(
-			findings
-				.filter((finding) => finding.code !== "unrecognized")
-				.map((finding) => ({
-					code: finding.code,
-					path: (finding.place as { path?: string }).path,
-				})),
+			findings.map((finding) => ({
+				code: finding.code,
+				path: (finding.place as { path?: string }).path,
+			})),
 		).toEqual([
 			{
 				code: "questions/a-close-only-savetocase-block-with-a-close-condition",
 				path: `nova_selected_cases/item/nova_operations/${CLOSE_BLOCK}`,
 			},
-		]);
-		// The selected-cases repeat around the block, which no operation the
-		// reading holds runs in, is no node Nova generates for the form.
-		expect(
-			findings
-				.filter((finding) => finding.code === "unrecognized")
-				.map((finding) => finding.detail?.name)
-				.sort(),
-		).toEqual([
-			"xform:bind",
-			"xform:setvalue",
-			expect.stringMatching(/}nova_selected_cases$/),
 		]);
 	});
 });

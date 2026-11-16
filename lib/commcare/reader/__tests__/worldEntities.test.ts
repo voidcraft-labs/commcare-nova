@@ -17,6 +17,7 @@ import {
 	organizationLevelSchema,
 	type Uuid,
 } from "@/lib/domain";
+import { term } from "@/lib/domain/expression";
 import type { HqLocationType } from "../../hq/locations";
 import {
 	externalKey,
@@ -244,5 +245,15 @@ describe("namedWorkerReadsAreProperties", () => {
 			{ uuid: kept, slug: "position", label: "Position" },
 			{ uuid: reread.uuid, slug: "role", label: "role" },
 		]);
+		/* The read by name becomes the read of the minted property, as the
+		 * parser binds a declared slug and the gate holds it. */
+		const role = Object.values(chosen.fields).find((one) => one.id === "role");
+		expect(role?.kind === "hidden" ? role.calculate : undefined).toEqual(
+			term({
+				kind: "session-user-property",
+				userPropertyUuid: reread.uuid,
+				source: "worker-record",
+			}),
+		);
 	});
 });

@@ -871,9 +871,19 @@ export function joinForm(input: JoinInput): JoinedForm {
 	}
 
 	// A refused data node stands in, so a path another expression writes to it still binds.
+	// A refused Save to Case block, and what it holds, is no question: the case management
+	// stage reads it as a change it refuses.
+	const caseScaffolding = (node: DataNode): boolean => {
+		for (let at: DataNode | null = node; at !== null; at = at.parent) {
+			if (at.role === "SaveToCase") return true;
+			if (!tree.refused.has(at)) return roles.get(at)?.kind === "case-region";
+		}
+		return false;
+	};
 	for (const [node] of tree.refused) {
 		if (fieldOf.has(node) || roles.has(node)) continue;
 		if (node.name.toLowerCase() === "meta" && node.parent === null) continue;
+		if (caseScaffolding(node)) continue;
 		const path = node.path.join("/");
 		if (tree.nodes.get(path) !== node) continue;
 		const parent = dataParent(node);

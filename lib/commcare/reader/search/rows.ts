@@ -41,21 +41,25 @@ import {
 	simpleArmNeedsXPathQueryEmission,
 } from "../../suite/case-search/simpleArmDerivation";
 import { ZERO_INPUT_SEARCH_SENTINEL } from "../../suite/case-search/xpathQuery";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { withCandidate } from "../candidate";
 import { sameState } from "../caseList/details";
 import { defineClaims, refuse } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import type { ComparedType } from "../expressions/comparedTypes";
+import { core, flat, instanceId } from "../expressions/folds";
 import { searchRowProperties } from "../expressions/scanReads";
 import {
 	emittedSearchConjuncts,
 	matchSearchRows,
 	readSearchRowConjuncts,
 } from "../expressions/searchRows";
+import { externalKey, mintEntityUuid } from "../identity";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { readProjectionInputs } from "../projectionInputs";
 import { refusalDeferredAt } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import type { PromptReading } from "./prompts";
 import { searchPlace } from "./workflow";
 
@@ -468,55 +472,185 @@ export function dateFieldDeclarations(
  *   on every worker's case itself, as the expression stage lists a slot's
  *   (`expressions/index.ts::readExpressions`). A row binds at the settle, after the worker
  *   properties are minted from the expression stage's reads, so it names its own; a property
- *   minted for it reads the row back as a read of that property.
+ *   minted for it reads the row back as a read of that property. The checker refuses a session
+ *   read of a name no worker property declares (`undeclared-worker-field`), which is every such
+ *   read before the properties are minted, so a row refused for that alone is read again over
+ *   `doc` holding a worker property for each name it reads of the session's worker data
+ *   (`withSessionUserFields`), and names those its reading binds. `sessionUserFields` are those
+ *   read from the session and not the worker's own case.
  */
 export function rowEarlyReads(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 	module: DraftModule,
 	input: RowsInput,
-): { types: ComparedType[]; userFields: string[] } {
+): {
+	types: ComparedType[];
+	userFields: string[];
+	sessionUserFields: string[];
+} {
 	const out: ComparedType[] = [];
 	const userFields: string[] = [];
+	const sessionUserFields: string[] = [];
 	if (input.zeroInput || doc.modules[module.uuid] === undefined)
-		return { types: out, userFields };
+		return { types: out, userFields, sessionUserFields };
 	const naming = readProjectionInputs(ctx).lookupNaming;
-	const env = { doc, lookup: ctx.input.lookup.definitions };
-	const contexts = moduleExpressionContexts(doc, module.uuid, naming);
-	for (const row of input.rows) {
-		let read = readSearchRowConjuncts(
-			row.text,
-			contexts({ slot: "case_list_filter" }),
-			env,
-		);
+	const readRow = (over: BlueprintDoc, text: string) => {
+		const env = { doc: over, lookup: ctx.input.lookup.definitions };
+		const contexts = moduleExpressionContexts(over, module.uuid, naming);
+		let undeclared = false;
+		const attempt = (context: ExpressionContext) => {
+			const one = readSearchRowConjuncts(text, context, env);
+			if (
+				!one.ok &&
+				"claim" in one &&
+				one.claim.detail.reason === "undeclared-worker-field"
+			)
+				undeclared = true;
+			return one;
+		};
+		let read = attempt(contexts({ slot: "case_list_filter" }));
 		if (!read.ok)
 			for (const prompt of input.prompts) {
 				const own = fieldConditionContext(contexts, prompt, new Set());
 				if (own === undefined) continue;
-				const again = readSearchRowConjuncts(row.text, own, env);
+				const again = attempt(own);
 				if (!again.ok) continue;
 				read = again;
 				break;
 			}
+		return { read, undeclared };
+	};
+	for (const row of input.rows) {
+		let over = doc;
+		let { read, undeclared } = readRow(doc, row.text);
+		if (!read.ok && undeclared) {
+			over = withSessionUserFields(doc, sessionUserDataNames(row.text));
+			({ read } = readRow(over, row.text));
+		}
 		if (!read.ok) continue;
 		out.push(...read.types);
+		const scratch = over.userProperties ?? {};
 		for (const conjunct of read.conjuncts)
 			walkExpressionTerms(conjunct, (term) => {
 				// A field CommCare HQ writes on every worker's own case
 				// (`callcenter/sync_usercase.py::_get_user_case_fields`) is no
 				// worker property: the read stays the name-backed leaf.
+				const field =
+					term.kind === "session-user"
+						? term.source === "worker-record" &&
+							USERCASE_BUILT_IN_KEYS.includes(term.field)
+							? undefined
+							: term.field
+						: term.kind === "session-user-property" &&
+								doc.userProperties?.[term.userPropertyUuid] === undefined
+							? scratch[term.userPropertyUuid]?.slug
+							: undefined;
+				if (field === undefined) return;
+				if (!userFields.includes(field)) userFields.push(field);
 				if (
-					term.kind === "session-user" &&
-					!(
-						term.source === "worker-record" &&
-						USERCASE_BUILT_IN_KEYS.includes(term.field)
-					) &&
-					!userFields.includes(term.field)
+					(term.kind === "session-user" ||
+						term.kind === "session-user-property") &&
+					term.source !== "worker-record" &&
+					!sessionUserFields.includes(field)
 				)
-					userFields.push(term.field);
+					sessionUserFields.push(field);
 			});
 	}
-	return { types: out, userFields };
+	return { types: out, userFields, sessionUserFields };
+}
+
+/**
+ * Each name a row's text reads of the session's worker data,
+ * `instance('commcaresession')/session/user/data/<name>`, from its syntax alone and in the
+ * order it reads them: the names `rowEarlyReads` gives a worker property to read the row again
+ * over, before its reading binds them.
+ */
+function sessionUserDataNames(text: string): string[] {
+	let read: ReturnType<typeof readFormSyntax>;
+	try {
+		read = readFormSyntax(text);
+	} catch {
+		return [];
+	}
+	if (!read.ok || read.node === undefined) return [];
+	const found: string[] = [];
+	const visit = (node: FormSyntax, partOfPath: boolean): void => {
+		const at = core(node);
+		const path = partOfPath ? undefined : flat(at);
+		const [session, user, data, name, ...rest] = path?.steps ?? [];
+		if (
+			instanceId(path) === "commcaresession" &&
+			rest.length === 0 &&
+			[session, user, data].every(
+				(step, index) =>
+					step !== undefined &&
+					!step.attribute &&
+					step.where.length === 0 &&
+					step.name === ["session", "user", "data"][index],
+			) &&
+			name !== undefined &&
+			!name.attribute &&
+			name.where.length === 0 &&
+			!found.includes(name.name)
+		)
+			found.push(name.name);
+		switch (at.kind) {
+			case "negative":
+				visit(at.value, false);
+				return;
+			case "axis":
+				visit(at.value, true);
+				return;
+			case "child":
+				if (at.left !== undefined) visit(at.left, true);
+				visit(at.step, true);
+				return;
+			case "filter":
+				visit(at.base, true);
+				visit(at.where, false);
+				return;
+			case "binary":
+				visit(at.left, false);
+				visit(at.right, false);
+				return;
+			case "call":
+				for (const arg of at.args) visit(arg, false);
+				return;
+			default:
+				return;
+		}
+	};
+	visit(read.node, false);
+	return found;
+}
+
+/**
+ * `doc` holding a worker property for each of `names` it declares no worker property for: a
+ * document a row is read over only to learn which of the names its reading binds, never one
+ * a reading returns. Each property takes the UUID a first reading of the app mints for its slug
+ * (`identity.ts::mintEntityUuid`), which no other kind of entity takes.
+ */
+function withSessionUserFields(
+	doc: BlueprintDoc,
+	names: readonly string[],
+): BlueprintDoc {
+	const declared = new Set(
+		Object.values(doc.userProperties ?? {}).map((one) => one.slug),
+	);
+	const adding = names.filter((name) => !declared.has(name));
+	if (adding.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		const properties = draft.userProperties ?? {};
+		const order = draft.userPropertyOrder ?? [];
+		for (const slug of adding) {
+			const uuid = mintEntityUuid(doc.appId, externalKey.userProperty(slug));
+			properties[uuid] = { uuid, slug, label: slug };
+			order.push(uuid);
+		}
+		draft.userProperties = properties;
+		draft.userPropertyOrder = order;
+	});
 }
 
 /** Whether an advanced form of the app names the menu as its load's `details_module`. */

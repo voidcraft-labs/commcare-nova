@@ -260,8 +260,11 @@ describe("a block the emitter would write otherwise, read through every stage", 
 			);
 			expect(outcome.kind).toBe("account");
 			const findings = outcome.kind === "account" ? outcome.findings : [];
+			// The block's one finding, with no other beside it: an extra bind on
+			// a leaf stands under it, as the stored save map does.
+			expect(findings.map((one) => one.code)).toEqual([OUTSIDE]);
+			expect(outcome.defects).toEqual([]);
 			const outside = findings.filter((one) => one.code === OUTSIDE);
-			expect(outside).toHaveLength(1);
 			expect(outside[0]?.place).toMatchObject({
 				kind: "question",
 				path: "nova_operations/photo",

@@ -199,10 +199,16 @@ some screen reads through Core's argument filler (a menu's or form's name, a cas
 or Register button's label, a Search field's label) holding a `${` that screen shows otherwise
 (`localeFile.ts::argumentScreenIssue`, applied by `heldText` per role) under
 `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`; and one holding a
-character XML cannot hold is `unrecognized`. A generated key folded over one is refused
+character XML 1.0 cannot carry, which the gate admits in no app text (`APP_TEXT_UNREPRESENTABLE`),
+under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`. A generated key
+folded over one is refused
 (`assemble.ts::decideGeneratedKeys`); every other fold is held as a device shows it, a choice
-label's too. The app's `name` is also the profile's `name`, which Android's app picker shows as
-stored, so one holding `\n`, `\#` or a carriage return stays `unrecognized` (`appShell.ts::holdAppName`);
+label's too. The app's `name` is also the profile's `name`, which Android's list of the apps on a
+phone shows (a carriage return or a line break there as a space), and the name Web Apps' list of
+apps shows as stored, so one holding `\n`, `\#` or a carriage return, which the app's own screens
+show otherwise, is refused at the app under
+`application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`
+(`appShell.ts::holdAppName`);
 a form's name read with a line break is written into its `<h:title>` and data node, which no screen
 a worker reads shows (part 09's decision table). A comparison of a stored text with Nova's print
 compares both as held, and a text compared with HQ's default (a detail's empty-list and continue
@@ -286,11 +292,28 @@ A change that holds one removes its line.
   key, so a device shows the default table's text where that table defines the key, and where it
   does not (the first language's text is the one that shows nothing) fails to load every language
   whose file defines it and to show the screen in the rest; Nova holds no text that shows so.
-  The app's `name` is still `unrecognized` (below).
+  The app's `name` holding a carriage return is refused under its own entry (below).
 - **An app `name` holding the two characters `\n`, a backslash before `#` or a carriage
-  return**: `unrecognized` at the app, `name` (`appShell.ts::holdAppName`). The profile's `name`,
-  which Android's app picker shows, carries it as stored while the app strings show a line break,
-  `#` alone or the text before the carriage return; Nova prints one name into both.
+  return**: refused at the app under
+  `application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`
+  (`appShell.ts::holdAppName`), one whose rest after the carriage return defines an app string
+  under the line-end entry. Android's list of the apps on a phone shows the profile's `name`,
+  which HQ's build writes as stored (a carriage return there read as a space), and Web Apps' list
+  of apps the app's `name` as stored, while the app's own screens show the app strings' line
+  break, `#` alone or the text before the carriage return; no one name Nova prints into both gives
+  both back. A line break inside the name is held: the lists show it as a space and the screens as
+  a line break, but Nova prints the source's `name` and app strings again, so HQ's build shows
+  what it showed.
+- **An app text holding a character XML 1.0 cannot carry** (a control character but a tab, a line
+  break or a carriage return, an unpaired surrogate, U+FFFE, U+FFFF), but at an end of a text a
+  device trims it from: refused under
+  `application-and-settings/app-text-holding-a-character-xml-cannot-carry` at its place
+  (`heldText.ts::unheldRefusal`, `refuseUnheldText`). HQ's build refuses it as an unpaired surrogate
+  anywhere (it encodes each app strings file and the profile as UTF-8), and HQ's form settings
+  refuse it in a form's name (lxml, `XForm.set_name`); elsewhere HQ's build writes it into the app
+  strings and, for the app's name, into a profile no step of the build parses, and Core reads both
+  as text, so the refusal is the gate's alone (`APP_TEXT_UNREPRESENTABLE`), which admits it in no
+  app text.
 - **An app string a device shows with a backslash before `#`** (two backslashes then `#`
   stored): refused under
   `application-and-settings/app-text-a-device-shows-with-a-backslash-before-hash` at its place
@@ -340,7 +363,14 @@ A change that holds one removes its line.
   (`caseManagement/index.ts::refuseWritesOfFoldedWorkerNames`); a `location_data` read of a second
   such name, or of one the gate refuses for a location property, under
   `expressions-and-data/a-read-of-a-place-s-location-data-under-a-name-no-location-property-takes`
-  (`worldEntities.ts::locationDataNameRefused`); and a level whose name a level already placed (parent
+  (`worldEntities.ts::locationDataNameRefused`); a session read of the worker's `user/data/` under a
+  second such name, or under one the gate refuses for a worker property, under
+  `expressions-and-data/a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes`
+  (`worldEntities.ts::workerDataNameRefused`, routed from the checker's `undeclared-worker-field` by
+  `expressions/findings.ts::checkErrorEntry`), since the gate holds a session read of worker
+  information only by identity, while a read of the worker's own case stands by name and the
+  reading declares the name the session reads where one of the pair is read there
+  (`worldEntities.ts::heldWorkerSlugs`); and a level whose name a level already placed (parent
   before child, siblings in HQ's order) spells in other letters only is `place-not-holdable`
   (`worldEntities.ts::levelsFromHq`), while a level left out for another reason takes no name and
   refuses none. CommCare HQ's
@@ -364,6 +394,22 @@ A change that holds one removes its line.
   reason `declared-type`, a violation that is not `retyped`). Neither runtime reads a block's
   `vellum:case_type`, and both keep a link's `case_type` as written; Nova types a change by the
   case it reaches.
+- **A Save to Case `case_type` row that gives a case a type holding one of the earlier type's
+  properties as another type**: one finding at the block under
+  `questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type`
+  (`caseManagement/index.ts::settleCaseChanges`, the gate's `CASE_OPERATION_RETYPE_UNSAFE` told apart
+  through `lib/domain/caseRetype.ts::planCaseRetype`). Both runtimes change only the case's type and
+  keep every property, and Nova changes a type only where the later type holds every property as the
+  same type. A property the later type holds nowhere, or holds only through a read that no writer of
+  its own and no declaration the reading derives types, is carried onto it, typed as the earlier type
+  types it (`caseManagement/catalog.ts::carryRetypedProperties`, which the settle and the canonical row
+  `case-catalog-is-as-read` both apply), so that shape is held; a change of the type of a case a
+  create keyed by an answer makes is the type change's finding at the form.
+- **A link to a captured file as a case's name or external id** in a Save to Case block: one finding
+  at the block under `questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id`
+  (`caseManagement/saveToCase.ts::readBlock`). CommCare keeps a name and an external id as the case's
+  own value, and the gate holds a link only in a property of its own
+  (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
 - **A Save to Case update of the worker's record in a condition group or in a repeat**: one finding
   at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`

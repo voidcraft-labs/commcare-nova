@@ -363,13 +363,18 @@ function sameLists<T>(
  * `judgedApart` (the paths of the blocks and wrappers judged on their own),
  * is compared whole with its binds and setvalues: a guard, a keyed create's
  * count and a clock node are the emitter's, and an edit to one is a
- * difference.
+ * difference. A stored child in `leftOut` (a block the reading refuses, a
+ * wrapper only such blocks stand in, a refused keyed create's count) is in
+ * no document the reading proposes, so it is left out of the comparison: its
+ * own finding names it, and the blocks beside it are judged as Nova prints
+ * them without it.
  */
 export function blockTreesEqual(
 	stored: StoredSaveToCaseBlock,
 	emitted: FormSourceModel,
 	judgedApart: ReadonlySet<string> = new Set(),
 	heldPrint?: HeldSlotPrint,
+	leftOut: ReadonlySet<string> = new Set(),
 ): boolean {
 	const { block, form } = stored;
 	/** The element at `path` on both sides alike with everything under it,
@@ -403,11 +408,14 @@ export function blockTreesEqual(
 	]);
 	const wrapperHolds = (wrapper: ReadSaveToCaseBlock["wrappers"][number]) => {
 		const emittedWrapper = elementAt(emitted, wrapper.path);
+		const storedChildren = children(wrapper.element).filter(
+			(child) => !leftOut.has([...wrapper.path, child.name].join("/")),
+		);
 		if (
 			emittedWrapper === undefined ||
 			!sameDataElement(wrapper.element, form, emittedWrapper, emitted, false) ||
 			!sameLists(
-				children(wrapper.element).map((child) => child.name),
+				storedChildren.map((child) => child.name),
 				children(emittedWrapper).map((child) => child.name),
 				(a, b) => a === b,
 			)
@@ -416,7 +424,7 @@ export function blockTreesEqual(
 		// Each child no other comparison judges (a guard, a keyed create's
 		// count, a clock node, a selected-cases query node) whole, with its
 		// binds and setvalues.
-		for (const child of children(wrapper.element)) {
+		for (const child of storedChildren) {
 			const path = [...wrapper.path, child.name];
 			const key = path.join("/");
 			if (ownPath.has(key) || judgedApart.has(key)) continue;
