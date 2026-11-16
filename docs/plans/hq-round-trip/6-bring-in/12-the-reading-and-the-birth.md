@@ -862,16 +862,20 @@ read, as any other failure of acceptance is. So `acceptReading` takes no choice 
 a read and a create hand it the same input, and a review never offers a choice that then fails
 after the person presses Bring it in.
 
-The document acceptance judges under each choice is the reduction of `[...draft.batch,
-...choice.mutations]` from `emptyBlueprintDoc(appId)`, through
+The document acceptance judges under each choice is the reduction of `[...batch,
+...choice.mutations]` from `emptyBlueprintDoc(appId)`, `batch` the construction batch acceptance
+derives from the draft's document (`AcceptedReading.batch`), through
 `lib/doc/commitVerdicts.ts::mutationCommitVerdict` (part 09, section 4). That is the batch the
 birth itself reduces for the choice the person makes (6.2), so what acceptance judged is what
 `prepareGenesisCandidate` will reduce, but for the name.
 
 **The synchronous pieces.** The reader runs a stage at a time (`readHqAppSteps`, one piece per
-stage of `STAGES`), acceptance a check at a time (`acceptReadingSteps`: each choice's gate, each
-choice's export readiness, each document's emission, each stage of each re-read, identity,
-summary, each choice's first-publish list), step 9's review a part at a time (each declaration's
+stage of `STAGES`, and a long stage a part per piece: the forms, the entry facts and their
+emission, the binding, the menus' settle and its emission, the assembly), acceptance a check at a
+time (`acceptReadingSteps`: the construction batch, each choice's gate a part at a time, its
+admission, its candidate and its validation in parts, each choice's export readiness, read from
+that same validation, each document's emission in parts, each stage of each re-read, identity in
+parts, summary, each choice's first-publish list), step 9's review a part at a time (each declaration's
 plan features, the baseline the birth will write, the Project data), and the digest is one piece
 more. `gather.ts::Pieces` times each with `performance.now()` into `GatherFacts`, and before each
 it awaits `node:timers/promises::setImmediate()`, so the event loop turns between pieces. Section
@@ -948,10 +952,11 @@ another request's wait that ran out during the piece fails even though its answe
 nearest such timer is the 10 second wait for a database connection
 (`lib/case-store/postgres/connection.ts::POOL_CONNECTION_TIMEOUT_MS`), on a pool of three
 (`POOL_MAX_PER_INSTANCE`). The next is the 30 second deadline on a CommCare HQ read. So what must
-be short is a piece, not the request. Measured, a source of 16.7 MB (1,145 copies of one retained
-menu) is about 28 seconds of processing in a read on a laptop, in 65 pieces of which the longest
-is about 1.6 seconds, and `cap.test.ts` holds each piece of such a read under five seconds
-("Tests"). A piece that runs longer is a defect in the reader or in
+be short is a piece, not the request. Measured on a laptop's efficiency cores (near a hosted
+runner's speed), a source of 16.7 MB (1,145 copies of one retained menu) is about 49 to 54
+seconds of processing in a read, in 222 pieces of which the longest is about 1.9 seconds, and
+`cap.test.ts` holds each piece of such a read under five seconds ("Tests"). The read as a whole
+does not yet fit that test's 60 seconds on those cores. A piece that runs longer is a defect in the reader or in
 acceptance, fixed there by cutting the piece where it is long, and never a reason to lower the cap.
 
 **Memory at the cap.** Three bounds are real, because each is enforced: a body is at most 16 MiB,
@@ -1642,14 +1647,14 @@ fetch them again (Departure 18).
 
 ### 6.2 The candidate, and one seam in the tail
 
-**The construction batch** is the reader's batch (`Gathered.draft.batch`), then the mutations of
+**The construction batch** is acceptance's batch (`Gathered.accepted.batch`), then the mutations of
 the declaration the person chose (the `AcceptedDeclaration` of `gathered.accepted.declarations`
 whose `runsOnlyOn` and `splitDatetime` are the input's: its `mutations`, which are part 06's for
 that choice, a `setAppSettings` where it narrows and then each split's mutations, in the order
 `planDeclarationChoices` gives them), then `{ kind: "setAppName", name: input.appName.trim() }`
 where that differs from the document's. `gathered` is the run the birth is made from (5.3, step
-9), so the batch names final asset ids. The birth diffs nothing itself: the reader hands over the
-batch with its document (part 06, section 2.2, `ReadDraft.batch`), so this part holds no second
+9), so the batch names final asset ids. The birth diffs nothing itself: acceptance hands over the
+batch it judged (part 09, section 4, `AcceptedReading.batch`), so this part holds no second
 derivation of the document to prove equal to the first (Departure 9).
 
 ```ts
@@ -2829,9 +2834,10 @@ gaps.
    meets one situation and one next step. A developer tells the birth from acceptance by
    `detail.name`'s `birth-` prefix and by the log line. Not done: a circumstance code of its own,
    whose block said the same thing in other words.
-9. **The birth diffs nothing.** The reader returns the construction batch: part 06 makes it inside
-   the reader, as `ReadDraft.batch`, by `diffDocsToMutations(emptyBlueprintDoc(appId), doc)` (its
-   2.2). So the document acceptance judges and the birth writes is that batch's reduction, and
+9. **The birth diffs nothing.** Acceptance returns the construction batch it judged, as
+   `AcceptedReading.batch`, by `diffDocsToMutations(emptyBlueprintDoc(appId), doc)` over the
+   reader's document (part 09, section 4). So the document acceptance judges and the birth writes is
+   that batch's reduction, and
    this part holds no second derivation to prove equal (3.3, 6.2). Not done: running that diff
    again at the birth over the reader's document.
 10. **The activation receipt's arm is a second exact key set**, not a new key on every receipt

@@ -13,7 +13,11 @@
  */
 
 import type { HqApplication } from "@/lib/commcare";
-import { type ExpandOptions, expandDoc } from "@/lib/commcare/expander";
+import {
+	type ExpandOptions,
+	expandDoc,
+	expandDocSteps,
+} from "@/lib/commcare/expander";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type {
 	HqAppSource,
@@ -116,6 +120,13 @@ export interface ReadingEmissionInput {
 /** Nova's emission of a read document under the source's own ids, names and paths. */
 export function readingEmission(input: ReadingEmissionInput): HqApplication {
 	return expandDoc(input.doc, readingEmissionOptions(input));
+}
+
+/** `readingEmission` a part at a time (`expander.ts::expandDocSteps`). */
+export function* readingEmissionSteps(
+	input: ReadingEmissionInput,
+): Generator<void, HqApplication, void> {
+	return yield* expandDocSteps(input.doc, readingEmissionOptions(input));
 }
 
 /**

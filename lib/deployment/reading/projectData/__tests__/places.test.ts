@@ -227,7 +227,6 @@ describe("unreadPlacesFailure", () => {
 		kind: "read",
 		draft: {
 			doc,
-			batch: [],
 			identities: { modules: [], forms: [], keyedCreates: [], entries: [] },
 			declaration: { kind: "none", blocking: [] },
 			facts: {

@@ -19,7 +19,7 @@ import {
 } from "@/lib/domain/caseScalarTextGuard";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { planFormCaseWire } from "../../casePlacementPlan";
-import { expandDoc } from "../../expander";
+import { expandDocSteps } from "../../expander";
 import {
 	entryFactsDifference,
 	hqEntryFacts,
@@ -963,11 +963,24 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
  * that differs is listed in `ctx.facts.entryFactsRefused`, with its finding.
  */
 export function compareEntryFacts(ctx: ReadContext, app: DraftApp): void {
+	const steps = compareEntryFactsSteps(ctx, app);
+	while (!steps.next().done);
+}
+
+/** `compareEntryFacts`, stopping between the source's facts, Nova's emission
+ *  and the emission's facts until it is resumed. */
+export function* compareEntryFactsSteps(
+	ctx: ReadContext,
+	app: DraftApp,
+): Generator<void, void, void> {
 	const doc = provisionalDocument(ctx);
 	const source = hqEntryFacts(ctx.input.source.raw);
+	yield;
 	let emitted: ReturnType<typeof hqEntryFacts>;
 	try {
-		emitted = hqEntryFacts(expandDoc(doc, readProjectionInputs(ctx)));
+		const expansion = yield* expandDocSteps(doc, readProjectionInputs(ctx));
+		yield;
+		emitted = hqEntryFacts(expansion);
 	} catch {
 		ctx.accounting.defect(
 			appPlace(),

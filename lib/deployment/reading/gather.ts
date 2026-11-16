@@ -19,7 +19,6 @@ import "server-only";
  */
 
 import { setImmediate as nextTurn } from "node:timers/promises";
-import { Immer } from "immer";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
 import {
@@ -55,14 +54,11 @@ import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { getHqCredentials } from "@/lib/db/settings";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
-import { applyMutations } from "@/lib/doc/mutations";
 import type {
 	DeclarationChoice,
 	DeclarationChoices,
 } from "@/lib/doc/platformDeclaration";
-import type { Mutation } from "@/lib/doc/types";
 import {
-	type BlueprintDoc,
 	effectiveAppLocalization,
 	PLATFORMS,
 	type Platform,
@@ -88,12 +84,12 @@ import {
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	type AdoptedMediaFile,
-	adoptedAppBaselineWrite,
+	adoptedBaselineOwnershipSteps,
 	adoptedIdentityRows,
+	adoptedSourceTree,
 	adoptionPlanFeatureConfirmations,
 	assignMediaPaths,
 } from "../adoption";
-import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { readHqAppClaims } from "../store";
 import { keptListFor } from "../targetFacts";
 import { type AcceptedReading, acceptReadingSteps } from "./acceptance";
@@ -1138,18 +1134,6 @@ export async function checkFetched(input: {
 	return { result, facts: factsOf(pieces, tally) };
 }
 
-/** Applies a choice's mutations to a copy of the reading's document, which stays as it came. */
-const UNFROZEN = new Immer({ autoFreeze: false });
-
-function docUnder(
-	doc: BlueprintDoc,
-	mutations: readonly Mutation[],
-): BlueprintDoc {
-	return UNFROZEN.produce(doc, (working) => {
-		applyMutations(working, mutations);
-	});
-}
-
 async function checkWith(
 	input: {
 		readonly appId: string;
@@ -1440,7 +1424,7 @@ function* reviewOf(input: {
 			splitDatetime: declaration.splitDatetime,
 			preselected: declaration.preselected,
 			recordedFeatures: adoptionPlanFeatureConfirmations({
-				doc: docUnder(doc, declaration.mutations),
+				doc: declaration.doc,
 				target,
 				sourceWebAppsOn: source.cloudcareEnabled,
 				sourceHoldsSaveToCase: accepted.sourceHoldsSaveToCase,
@@ -1487,26 +1471,31 @@ function* reviewOf(input: {
 			"Acceptance answered declarations with none preselected. Look at lib/deployment/reading/acceptance.ts.",
 		);
 	const origin = COMMCARE_SERVERS[key.server].baseUrl;
+	/* What the baseline the birth writes (`adoptedAppBaselineWrite`) records of
+	 * the source and of what Nova owns, a part at a time: its source as stored
+	 * and the ownership of its first import, which is all the review reads of
+	 * it. */
 	yield;
-	const baseline = adoptedAppBaselineWrite({
+	const normalized = adoptedSourceTree(key.remoteAppId, source);
+	yield;
+	const prepared = adoptionExportBoundary(
+		preselected.doc,
+		input.lookup.definitions,
+		input.mediaFiles,
+		{ origin, domain: key.domain },
+	);
+	yield;
+	const ownership = yield* adoptedBaselineOwnershipSteps({
 		remoteAppId: key.remoteAppId,
 		source,
-		prepared: adoptionExportBoundary(
-			docUnder(doc, preselected.mutations),
-			input.lookup.definitions,
-			input.mediaFiles,
-			{ origin, domain: key.domain },
-		),
+		prepared,
 		target,
 		identity: targetWireIdentity(input.identityRows),
-		novaRevision: 1,
-		mediaFiles: {},
-		observedAt: fetched.readAt,
-		firstPublish: accepted.firstPublish,
 	});
-	const facts = targetFactsFromSource(normalizedSourceOf(source), {
+	yield;
+	const facts = targetFactsFromSource(normalized, {
 		observedAt: fetched.readAt,
-		novaOwnsAutoGpsCapture: baseline.ownership?.autoGpsCapture === true,
+		novaOwnsAutoGpsCapture: ownership?.autoGpsCapture === true,
 		adopted: true,
 	});
 
@@ -1550,10 +1539,4 @@ function* reviewOf(input: {
 		mediaLeftOut: input.judgedPlan.inert.length,
 		firstPublish: accepted.firstPublish,
 	};
-}
-
-/** The source as the adopted baseline stores it. */
-function normalizedSourceOf(source: HqAppSource): unknown {
-	const normalized = normalizeHqAppSource(source.raw);
-	return "malformed" in normalized ? null : normalized.normalized;
 }

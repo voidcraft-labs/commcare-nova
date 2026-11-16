@@ -417,7 +417,7 @@ export async function createFromReview(
 			declaration.splitDatetime === input.splitDatetime,
 	);
 	if (chosen === undefined) return checkFailed("integrity", []);
-	const batch: Mutation[] = [...born.draft.batch, ...chosen.mutations];
+	const batch: Mutation[] = [...born.accepted.batch, ...chosen.mutations];
 	if (appName !== born.draft.doc.appName)
 		batch.push({ kind: "setAppName", name: appName });
 	const candidate = prepareGenesisCandidate({

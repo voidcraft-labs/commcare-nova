@@ -53,6 +53,7 @@ import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
 import { FORM_TYPES, type FormType } from "./forms";
 import type { ColumnKind, SearchInputDef } from "./modules";
 import { ownRecordValue } from "./records";
+import { isDeeplySettled } from "./settled";
 import type { Uuid } from "./uuid";
 
 /**
@@ -1218,12 +1219,54 @@ export function expressionSlotValues(
 	doc: ExpressionReadableDoc,
 	owner: ExpressionCarrierRef,
 ): readonly ExpressionSlotValue[] {
+	const entity =
+		owner.entity === "field"
+			? ownRecordValue(doc.fields, owner.uuid)
+			: owner.entity === "form"
+				? ownRecordValue(doc.forms, owner.uuid)
+				: ownRecordValue(doc.modules, owner.uuid);
+	const known =
+		entity === undefined ? undefined : slotValuesByEntity.get(entity);
+	if (
+		known !== undefined &&
+		known.entity === owner.entity &&
+		known.uuid === owner.uuid
+	)
+		return known.values;
 	const values: ExpressionSlotValue[] = [];
 	visitExpressionSlots(doc, owner, (_holder, _key, value, ref, path) => {
 		if (isExpression(value)) values.push({ ref, expression: value, path });
 	});
+	if (entity !== undefined && isDeeplySettled(entity)) {
+		const held = Object.freeze(values.map((value) => Object.freeze(value)));
+		slotValuesByEntity.set(entity, {
+			entity: owner.entity,
+			uuid: owner.uuid,
+			values: held,
+		});
+		return held;
+	}
 	return values;
 }
+
+/**
+ * Each settled owner's expression values. The walk reads the owner's own
+ * record value alone (`visitExpressionSlots`, `expressionRefForEntry`), so its
+ * answer is a projection of that object, remembered by the object's identity
+ * only once it and everything it holds are frozen and no Immer draft
+ * (`settled.ts::isDeeplySettled`): documents that share an unchanged module,
+ * form or field, as a document under a declaration choice shares the
+ * reading's, walk it once. The owner's kind and uuid are kept beside the
+ * answer, since the slots a walk names carry them.
+ */
+const slotValuesByEntity = new WeakMap<
+	object,
+	{
+		readonly entity: ExpressionCarrierRef["entity"];
+		readonly uuid: Uuid;
+		readonly values: readonly ExpressionSlotValue[];
+	}
+>();
 
 /** Read one stored expression without parsing or a second address vocabulary. */
 export function expressionSlotValue(

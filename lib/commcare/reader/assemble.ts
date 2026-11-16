@@ -7,12 +7,10 @@
  * commit verdicts import `lib/commcare`, so acceptance runs it over the draft.
  */
 
-import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { holdsUserRepeat } from "@/lib/doc/groupFieldLists";
 import { applyHoldPlacements } from "@/lib/doc/mutations/placements";
 import { planDeclarationChoices } from "@/lib/doc/platformDeclaration";
-import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -1746,6 +1744,14 @@ function withSourceFolds(
  * no finding stands, the generated translation keys, the close, and the draft.
  */
 export function assembleDocument(ctx: ReadContext): void {
+	const steps = assembleDocumentSteps(ctx);
+	while (!steps.next().done);
+}
+
+/** `assembleDocument`, stopping between its parts until it is resumed. */
+export function* assembleDocumentSteps(
+	ctx: ReadContext,
+): Generator<void, void, void> {
 	// 1. The claims that waited for every form.
 	if (ctx.draft.connectType !== null)
 		ctx.app.derived("auto_gps_capture", CLAIMS.autoGpsConnect);
@@ -1754,6 +1760,7 @@ export function assembleDocument(ctx: ReadContext): void {
 	// 2. The declaration, over the document as it stands, in every reading.
 	const working = ctx.doc ?? provisionalDocument(ctx);
 	const declaration = judgeDeclaration(ctx, working);
+	yield;
 
 	// 3. The document, where no finding stands yet.
 	let whole =
@@ -1761,6 +1768,7 @@ export function assembleDocument(ctx: ReadContext): void {
 			? withTranslations(working, ctx.translations)
 			: undefined;
 	if (whole !== undefined && !parsesWhole(ctx, whole)) whole = undefined;
+	yield;
 
 	// 4. The generated translation keys, in every reading.
 	const sourceFolds = new Map<TranslationUnitId, string>();
@@ -1780,10 +1788,12 @@ export function assembleDocument(ctx: ReadContext): void {
 		if (!parsesWhole(ctx, whole)) whole = undefined;
 	}
 	ctx.facts.forms.push(...formFacts(ctx));
+	yield;
 
 	// 5. The close.
 	const closed = ctx.close();
 	if (closed.findings.length > 0 || whole === undefined) return;
+	yield;
 
 	// 6. The draft.
 	const doc = whole;
@@ -1809,7 +1819,6 @@ export function assembleDocument(ctx: ReadContext): void {
 	);
 	const draft: ReadDraft = {
 		doc,
-		batch: diffDocsToMutations(emptyBlueprintDoc(ctx.input.appId), doc),
 		identities: {
 			modules: ctx.draft.modules.map((module) => {
 				const formUuid = folds.get(module);

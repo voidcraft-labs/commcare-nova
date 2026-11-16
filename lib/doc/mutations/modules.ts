@@ -71,17 +71,28 @@ function placedModuleOrder(
 		if (moving.length > 1) return undefined;
 	}
 
-	const destinationSiblings = moduleSiblings(draft, destinationParent, uuid);
+	/* `after` must be one of the destination's siblings: a module the order
+	 * holds, other than the one placed, under the destination parent. Asked of
+	 * the anchor alone, since a scan of every module's parent opens a draft of
+	 * each and a whole-app batch adds every module. */
 	if (
 		after !== undefined &&
 		after !== null &&
-		!destinationSiblings.includes(after)
+		(after === uuid ||
+			!draft.moduleOrder.includes(after) ||
+			moduleParentOf(draft, after) !== destinationParent)
 	) {
 		return undefined;
 	}
 
 	const movingSet = new Set(moving);
-	const without = draft.moduleOrder.filter((entry) => !movingSet.has(entry));
+	/* The order itself where it holds none of `moving`, as a birth's does:
+	 * read, never written, so a batch of births copies the order once each
+	 * rather than twice. */
+	const order = draft.moduleOrder;
+	const without = moving.some((uuid) => order.includes(uuid))
+		? order.filter((entry) => !movingSet.has(entry))
+		: order;
 	let insertionIndex: number;
 	if (destinationParent === null) {
 		if (after === undefined) insertionIndex = without.length;
@@ -123,11 +134,9 @@ function placedModuleOrder(
 			}
 		}
 	}
-	return [
-		...without.slice(0, insertionIndex),
-		...moving,
-		...without.slice(insertionIndex),
-	];
+	const placed = without.slice();
+	placed.splice(insertionIndex, 0, ...moving);
+	return placed;
 }
 
 /**

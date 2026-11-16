@@ -93,7 +93,7 @@ async function navigationBase(
 	return acceptanceInput(reader, readClean(reader));
 }
 
-/** The outcome with `doc` as its document and the construction batch that builds it. */
+/** The outcome with `doc` as its document. */
 function withDocument(
 	input: AcceptReadingInput,
 	change: (doc: BlueprintDoc) => BlueprintDoc,
@@ -106,7 +106,6 @@ function withDocument(
 			draft: {
 				...input.outcome.draft,
 				doc,
-				batch: diffDocsToMutations(emptyBlueprintDoc(input.appId), doc),
 			},
 		},
 	};
@@ -432,7 +431,7 @@ describe("check 3, the fixed point", () => {
 		expect(doc.caseTypes).toBeNull();
 		const born = mutationCommitVerdict(
 			emptyBlueprintDoc(read.reader.appId),
-			read.outcome.draft.batch,
+			diffDocsToMutations(emptyBlueprintDoc(read.reader.appId), doc),
 			{
 				kind: "available",
 				projectId: NO_TABLES.projectId,
@@ -471,7 +470,13 @@ describe("check 3, the fixed point", () => {
 
 		const verdict = mutationCommitVerdict(
 			emptyBlueprintDoc(input.appId),
-			[...input.outcome.draft.batch, ...split.mutations],
+			[
+				...diffDocsToMutations(
+					emptyBlueprintDoc(input.appId),
+					input.outcome.draft.doc,
+				),
+				...split.mutations,
+			],
 			{
 				kind: "available",
 				projectId: NO_TABLES.projectId,

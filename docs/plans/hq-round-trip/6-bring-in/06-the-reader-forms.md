@@ -50,8 +50,9 @@ adds no `scripts/test-schema.ts` entry. Nothing in it changes what an app test r
 
 1. **The reader is one pure function, `readHqApp(input, options)`, in `lib/commcare/reader/`** (2). It
    reads nothing but its arguments, never throws for an app's content, reports every finding in one
-   pass, and returns either a draft (the document, its construction batch, identities, the declaration
-   choices and the facts later parts read) or an account. It is outside the `lib/commcare` barrel and
+   pass, and returns either a draft (the document, identities, the declaration choices and the facts
+   later parts read) or an account. The construction batch is derived from the draft's document by
+   acceptance (part 09, section 4), so a re-read that only compares documents derives none. It is outside the `lib/commcare` barrel and
    carries `server-only`. Its stages, 1 to 11 with 5b, run in one fixed order (2.3), with part 07's
    four settle functions after the expressions are bound.
 2. **The reader needs no new consumer in `biome.json`** (2.4). Its one production consumer is
@@ -343,8 +344,9 @@ are held by the form fixed point over the fuzz corpus ("Tests").
 The reader's time is no run of this part. An app's source is refused above part 12's byte bound
 before it is parsed, and the test at that bound, which holds each synchronous piece of a read
 under five seconds, is part 12's (its "Tests"). A request never runs `readHqApp` as one piece: it
-drives `readHqAppSteps`, one piece per stage, and acceptance a check per piece; measured, a source
-of 16.7 MB at the cap is about 28 seconds over 65 pieces (part 12, section 3.6). What this part
+drives `readHqAppSteps`, one piece per stage or per part of a long stage, and acceptance a check
+per piece; measured on a laptop's efficiency cores, a source of 16.7 MB at the cap is about 49 to
+54 seconds over 222 pieces (part 12, section 3.6). What this part
 holds is deterministic: `readerWork.test.ts` ("Tests") reads a form of 200 questions and one of
 400 and requires each counter of `ReadWork` (2.2) to at most double, so a stage that goes
 quadratic fails there with no clock in the test.
@@ -573,8 +575,6 @@ export interface ReadMenuAndFormIdentities {
 export interface ReadDraft {
 	/** The document, before the gate. Part 09 runs the gate and export readiness over it. */
 	readonly doc: BlueprintDoc;
-	/** `diffDocsToMutations(emptyBlueprintDoc(appId), doc)`: the birth's construction batch. */
-	readonly batch: readonly Mutation[];
 	readonly identities: ReadMenuAndFormIdentities & { readonly entries: readonly IdentityMapEntry[] };
 	readonly declaration: DeclarationChoices;
 	readonly facts: ReadFacts;
@@ -3726,12 +3726,15 @@ reading.
 5. **The close.** `Accounting.close()`. If a finding stands, the outcome is the account, with
    `unreadTables` and `readsLocations` from `ctx.facts` (2.2), and the provisional document is
    dropped.
-6. **The draft.** `batch` is `lib/doc/diffDocsToMutations.ts::diffDocsToMutations` from
-   `lib/doc/scaffolds.ts::emptyBlueprintDoc(appId)` to the document, the construction a birth applies
-   (as `e2e/lib/smokeSeedFactory.ts` builds one today). Its last mutation is the one
-   `holdPlacements` that function writes for held slots, carrying every query repeat's `placement`
-   this part read and every `placement`, `Form.ownClosePlacement` and `Module.heldKind` part 07 read,
-   which part 12's genesis records as holds (its 6.4, "held placements").
+6. **The draft.** The construction a birth applies is
+   `lib/doc/diffDocsToMutations.ts::diffDocsToMutations` from
+   `lib/doc/scaffolds.ts::emptyBlueprintDoc(appId)` to the draft's document (as
+   `e2e/lib/smokeSeedFactory.ts` builds one today), which acceptance derives once and returns as
+   `AcceptedReading.batch` (part 09, section 4); the fixed point's re-read compares documents and
+   derives none. Its last mutation is the one `holdPlacements` that function writes for held slots,
+   carrying every query repeat's `placement` this part read and every `placement`,
+   `Form.ownClosePlacement` and `Module.heldKind` part 07 read, which part 12's genesis records as
+   holds (its 6.4, "held placements").
    `identities.entries` is `resolver.entries()`; `identities.modules` and `identities.forms` are the
    drafts' ids (part 10, 3.1), a folded hidden menu listed by part 07; `declaration` is 16.3's
    choices.
@@ -4420,7 +4423,7 @@ touches a database, and none renders a component. Each names the failure it woul
 | `reader/__tests__/structure.test.ts` | `readStructure` over hand-built menus and forms | a mirror menu read key by key into dozens of findings; two forms of one `xmlns` both minted; with a report menu and a shadow form in one app, that both findings are in one account; and a form named `instance('casedb') practice` read to anything but the one finding `form-name-read-as-an-instance` |
 | `reader/__tests__/generatedTranslationKeys.test.ts` | the classifier over hand-built tables, one case per rule of part 01's 7.1 and the two-key fold; `generatedKeyOwner` and `repositionGeneratedKey` over a key for every pattern of `GENERATED_APP_STRING_PATTERNS`; the keys `custom_assertion.m0.f1.3`, `custom_assertion.m0.3` and `custom_assertion.root.3`, each read as the app's and classified inert against a table built for a document with two menus | an override of a constant string called inert; one fold applied twice; a pattern whose key names no owner or the wrong one; a key repositioned at any number but its menu's and form's; a `custom_assertion` key read as a menu's or a form's, or given any verdict but inert (16.5) |
 | `reader/__tests__/generatedKeysInAccount.test.ts` | `readHqApp` over hand-built sources, with `appStrings` a hand-built function: a mirror menu standing before a plain menu whose name holds an override; a key on a menu whose case list holds a finding; a key under a language code the reading cannot name; `appStrings` answering `null` beside a finding, and with none; an option label's override in two menus, one of them a mirror | a key whose menu read whole left out of an account that holds another menu's finding; a key judged against the string of the menu that now stands at its number; a covered key reported, as a finding or as `unrecognized`; a key left unclaimed where there is no table; a clean read whose document the gate refuses returned and not thrown (C9); a `not-yet` raised for a key the source does not make one |
-| `reader/__tests__/assemble.test.ts` | `assembleDocument` over complete drafts built through the stages' own setters | a document the schema refuses; a `batch` that does not rebuild the document (`applyMutations(emptyBlueprintDoc(appId), batch)` must equal `doc`); a generated translation key reported as `unrecognized`; a fold that does not reach the returned document, or is counted twice; a `batch` whose held placements are not its one trailing `holdPlacements`; a document of content no platform runs whole returned without `no-platform-runs-everything`, alone and beside another finding |
+| `reader/__tests__/assemble.test.ts` | `assembleDocument` over complete drafts built through the stages' own setters | a document the schema refuses; a construction batch (`diffDocsToMutations` from the empty document to the draft's) that does not rebuild the document (`applyMutations(emptyBlueprintDoc(appId), batch)` must equal `doc`); a generated translation key reported as `unrecognized`; a fold that does not reach the returned document, or is counted twice; a construction batch whose held placements are not its one trailing `holdPlacements`; a document of content no platform runs whole returned without `no-platform-runs-everything`, alone and beside another finding |
 | `reader/__tests__/readerPurity.test.ts` | `readHqApp` twice over one input with fresh resolvers | hidden state; an order that depends on a `Map`'s insertion history |
 | `lib/doc/__tests__/declarationChoices.test.ts` | `planDeclarationChoices` over production documents: plain; date-and-time questions alone; a date-and-time question beside a feature Android cannot run; uses neither platform runs; a refused split; each with HQ's setting on and off. And over the fuzz documents: every choice's mutations leave no unavailable use, and `planContentDeclaration`'s declaration is among the choices | a choice the gate would refuse; the split offered where it adds nothing; the proposal ignoring HQ's setting; "Android only" proposed, with Web Apps on in HQ, for an app the split would keep in Web Apps |
 | `lib/commcare/hq/__tests__/publishedCaseBlocks.test.ts` | unchanged | the helpers' move changing what it reads |

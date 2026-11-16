@@ -716,9 +716,22 @@ function fieldsInOrder(
 
 /** Stage 3: each form's source, read into its draft. */
 export function readForms(ctx: ReadContext): void {
+	const steps = readFormsSteps(ctx);
+	while (!steps.next().done);
+}
+
+/** How many forms `readFormsSteps` reads between two stops. */
+const FORMS_PER_STEP = 200;
+
+/** `readForms`, stopping after every `FORMS_PER_STEP` forms until it is
+ *  resumed, so a reading of an app at the byte cap is no one long piece. */
+export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 	const attachments = applicationReading(ctx)?.attachments?.value;
+	let read = 0;
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
+			if (read > 0 && read % FORMS_PER_STEP === 0) yield;
+			read += 1;
 			const readId =
 				ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
 			const value =

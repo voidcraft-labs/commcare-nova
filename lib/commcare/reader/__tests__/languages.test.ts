@@ -16,6 +16,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
@@ -346,7 +347,10 @@ describe("a reading whose source is not among its first two languages", () => {
 			languageOrder: ["eng", "fra", "spa"],
 		});
 		const replayed = produce(emptyBlueprintDoc("app-1"), (draft) => {
-			applyMutations(draft, [...read.draft.batch]);
+			applyMutations(
+				draft,
+				diffDocsToMutations(emptyBlueprintDoc("app-1"), read.draft.doc),
+			);
 		});
 		expect(toPersistableDoc(replayed).localization).toEqual(
 			toPersistableDoc(read.draft.doc).localization,

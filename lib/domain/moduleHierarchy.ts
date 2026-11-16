@@ -1,6 +1,7 @@
 import type { BlueprintDoc } from "./blueprint";
 import { moduleIsBareCaseList } from "./menuForms";
 import type { Module } from "./modules";
+import { isSettled } from "./settled";
 import type { Uuid } from "./uuid";
 
 /** The structural slice every menu-hierarchy projection needs. */
@@ -46,6 +47,25 @@ export function moduleSiblingUuids(
 	});
 }
 
+/**
+ * `moduleSiblingUuids` for every sibling group at once, from one walk of
+ * `moduleOrder`: a caller that asks of every group asks in time linear in
+ * the menus rather than once per group.
+ */
+export function moduleSiblingGroups(
+	doc: ModuleHierarchySource,
+): (parentModuleUuid: ModuleParent) => readonly Uuid[] {
+	const groups = new Map<ModuleParent, Uuid[]>();
+	for (const uuid of doc.moduleOrder) {
+		const parent = moduleParent(doc, uuid);
+		if (parent === undefined) continue;
+		const group = groups.get(parent);
+		if (group === undefined) groups.set(parent, [uuid]);
+		else group.push(uuid);
+	}
+	return (parentModuleUuid) => groups.get(parentModuleUuid) ?? [];
+}
+
 export function childModuleUuids(
 	doc: ModuleHierarchySource,
 	parentModuleUuid: Uuid,
@@ -87,4 +107,42 @@ export function projectedModulePreorder(doc: ModuleHierarchySource): Uuid[] {
 		if (block !== undefined) preorder.push(...block);
 	}
 	return preorder;
+}
+
+/** The modules of `projectedModulePreorder`, by a settled `moduleOrder` and
+ *  `modules`. */
+const projectedByOrder = new WeakMap<
+	object,
+	WeakMap<object, ReadonlySet<Uuid>>
+>();
+
+/**
+ * The modules `projectedModulePreorder` lists, as a set. The preorder reads
+ * `moduleOrder` and each module's parent, so the set is remembered by those
+ * two records' identity only where both, and every module, are frozen and no
+ * Immer draft: a check asked once per menu then derives it once per document,
+ * not once per menu. Anything else is derived again.
+ */
+export function projectedModuleSet(
+	doc: ModuleHierarchySource,
+): ReadonlySet<Uuid> {
+	const byModules = projectedByOrder.get(doc.moduleOrder);
+	const known = byModules?.get(doc.modules);
+	if (known !== undefined) return known;
+	const set: ReadonlySet<Uuid> = new Set(projectedModulePreorder(doc));
+	if (
+		isSettled(doc.moduleOrder) &&
+		isSettled(doc.modules) &&
+		Object.values(doc.modules).every(
+			(mod) => typeof mod === "object" && mod !== null && isSettled(mod),
+		)
+	) {
+		let held = byModules;
+		if (held === undefined) {
+			held = new WeakMap();
+			projectedByOrder.set(doc.moduleOrder, held);
+		}
+		held.set(doc.modules, set);
+	}
+	return set;
 }

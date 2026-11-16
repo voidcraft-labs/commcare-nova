@@ -22,6 +22,7 @@ import {
 	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
 } from "./modules";
+import { isSettled } from "./settled";
 import type { Uuid } from "./uuid";
 import { savesToWorkerRecord } from "./workerRecordRequirements";
 
@@ -93,7 +94,7 @@ function entryKey(entry: DatumEntry): string {
 }
 
 function parentSelectionChain(
-	doc: EntrySelectionSource,
+	doc: Pick<EntrySelectionSource, "modules">,
 	moduleUuid: Uuid,
 ): Uuid[] {
 	const reverse: Uuid[] = [];
@@ -484,11 +485,50 @@ export function modulesSelectingThrough(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): readonly Uuid[] {
+	const settled = selectingThroughOf(doc.modules);
+	if (settled !== undefined) return settled.get(moduleUuid) ?? NO_MODULES;
 	return (Object.keys(doc.modules) as Uuid[]).filter(
 		(uuid) =>
 			uuid !== moduleUuid &&
 			parentSelectionChain(doc, uuid).includes(moduleUuid),
 	);
+}
+
+const NO_MODULES: readonly Uuid[] = [];
+
+/** Each module's `modulesSelectingThrough`, by a settled `modules` record. */
+const selectingThroughByModules = new WeakMap<
+	object,
+	ReadonlyMap<Uuid, readonly Uuid[]>
+>();
+
+/**
+ * Every module's answer at once, from one walk of each module's chain:
+ * remembered by the `modules` record only where it and each module in it are
+ * frozen and no Immer draft, since a chain reads each module's
+ * `parentCaseModuleUuid`, its own property. Anything else is `undefined`, and
+ * the caller walks every chain again. A chain never holds its own module, and
+ * holds each module once, so a module is listed under each module of its
+ * chain once, in the record's key order.
+ */
+function selectingThroughOf(
+	modules: BlueprintDoc["modules"],
+): ReadonlyMap<Uuid, readonly Uuid[]> | undefined {
+	const known = selectingThroughByModules.get(modules);
+	if (known !== undefined) return known;
+	if (!isSettled(modules)) return undefined;
+	const all = Object.values(modules);
+	if (!all.every((mod) => typeof mod === "object" && isSettled(mod)))
+		return undefined;
+	const byModule = new Map<Uuid, Uuid[]>();
+	for (const uuid of Object.keys(modules) as Uuid[])
+		for (const through of parentSelectionChain({ modules }, uuid)) {
+			const listed = byModule.get(through);
+			if (listed === undefined) byModule.set(through, [uuid]);
+			else listed.push(uuid);
+		}
+	selectingThroughByModules.set(modules, byModule);
+	return byModule;
 }
 
 /** The entry that stands for every entry of `moduleUuid` that selects its

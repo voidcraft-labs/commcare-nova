@@ -189,7 +189,7 @@ async function preparedBirth(
 	const candidate = prepareGenesisCandidate({
 		appId,
 		projectId: PROJECT,
-		mutations: [...gathered.draft.batch, ...chosen.mutations],
+		mutations: [...gathered.accepted.batch, ...chosen.mutations],
 	});
 	const deployment = adoptedDeploymentWrite({
 		appId,

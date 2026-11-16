@@ -36,8 +36,6 @@ import {
 import { hqPrivateFeatureFlag } from "@/lib/commcare/projectSpaceCompatibility";
 import { readHqAppSteps, STAGES } from "@/lib/commcare/reader";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
-import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
 	FIXTURE_MODULE,
@@ -875,7 +873,6 @@ describe("readHqAppForReview", () => {
 								draft: {
 									...outcome.draft,
 									doc,
-									batch: diffDocsToMutations(emptyBlueprintDoc(doc.appId), doc),
 								},
 							};
 						},

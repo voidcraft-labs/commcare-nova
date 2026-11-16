@@ -703,9 +703,10 @@ number is set by how long one app may hold that process, not by the largest app 
 hold. Nova's own parsers take 16 ms over the largest of HQ's starter apps and 31 to 38 ms per MiB
 over the three ("Executed during planning"). The reader and acceptance do more than parse, so ten
 times that is allowed: about 0.35 seconds per MiB. Measured, an app at the cap, a source of 16.7 MB
-(thirty-two times HQ's largest starter app), is about 28 seconds of processing on a laptop, in 65
-pieces with the event loop turning between them: the reader runs a stage per piece
-(`readHqAppSteps`) and acceptance a check per piece (`acceptReadingSteps`), so the bound that
+(thirty-two times HQ's largest starter app), is about 49 to 54 seconds of processing on a laptop's
+efficiency cores, in 222 pieces with the event loop turning between them: the reader runs a stage,
+or a long stage's part, per piece (`readHqAppSteps`) and acceptance a check, or a long check's
+part, per piece (`acceptReadingSteps`), so the bound that
 matters is each piece's length, never the request's (part 12, section 3.6). Part 12
 (`12-the-reading-and-the-birth.md`, "Tests") holds the one
 test at the cap, in ordinary CI, which holds each synchronous piece under five seconds; a failure

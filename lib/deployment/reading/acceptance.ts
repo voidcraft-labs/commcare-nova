@@ -51,11 +51,16 @@ import type {
 	ValidationLocation,
 } from "@/lib/commcare/validator/errors";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
-import {
-	exportReadinessFindings,
-	mutationCommitVerdict,
-} from "@/lib/doc/commitVerdicts";
+import type { exportReadinessFindings } from "@/lib/doc/commitVerdicts";
+import { mutationCommitVerdictSteps } from "@/lib/doc/commitVerdicts";
+import { diffDocsToMutationsSteps } from "@/lib/doc/diffDocsToMutations";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+	concatAdmittedMutationBatches,
+	MutationWireCanonicalityError,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { DeclarationChoices } from "@/lib/doc/platformDeclaration";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
@@ -74,8 +79,9 @@ import type { AdoptedMediaFile } from "../adoption";
 import type { DeploymentTargetKey } from "../store";
 import {
 	alignedFromEmission,
-	readingEmission,
+	type readingEmission,
 	readingEmissionOptions,
+	readingEmissionSteps,
 	sourceFromEmission,
 } from "./emission";
 import {
@@ -83,7 +89,11 @@ import {
 	firstPublishFactsOf,
 } from "./firstPublishChanges";
 import { fixedPointDifferences } from "./fixedPoint";
-import { identityDifferences, sourceApplication } from "./identityAgreement";
+import {
+	type identityDifferences,
+	identityDifferencesSteps,
+	sourceApplication,
+} from "./identityAgreement";
 import type { HandOffSettlement } from "./projectData/settlements";
 import { differenceSignature, documentPathKinds } from "./signature";
 import { sourcePlaces } from "./sourcePlaces";
@@ -162,6 +172,12 @@ export interface AcceptedDeclaration {
 	readonly mutations: readonly Mutation[];
 	/** What a first publish changes where this choice is made. */
 	readonly firstPublish: FirstPublishView;
+	/**
+	 * The choice's document: the candidate the gate admitted, the reduction of
+	 * the construction batch and the choice's mutations from the empty
+	 * document, which is what the birth reduces for this choice.
+	 */
+	readonly doc: BlueprintDoc;
 }
 
 /** Something acceptance found, for a developer and a test. Never stored, never logged. */
@@ -176,6 +192,12 @@ export interface AcceptanceDifference {
 export type AcceptedReading =
 	| {
 			readonly ok: true;
+			/**
+			 * The birth's construction batch,
+			 * `diffDocsToMutations(emptyBlueprintDoc(appId), outcome.draft.doc)`:
+			 * each choice's mutations follow it, and the gate judged each.
+			 */
+			readonly batch: readonly Mutation[];
 			/** One per choice of `input.choices`, in its order. */
 			readonly declarations: readonly AcceptedDeclaration[];
 			/** The preselected declaration's list. */
@@ -268,6 +290,18 @@ function thrownDetail(error: Threw): string {
 		: String(error.cause);
 }
 
+/** `mutations` admitted, or nothing where they do not admit. */
+function admittedOrNot(
+	mutations: readonly Mutation[],
+): AdmittedMutationBatch | undefined {
+	try {
+		return admitMutationBatch(mutations);
+	} catch (error) {
+		if (error instanceof MutationWireCanonicalityError) return undefined;
+		throw error;
+	}
+}
+
 /** One choice that passed the gate, with the document it gives. */
 interface Gated {
 	readonly choice: AcceptReadingInput["choices"]["choices"][number];
@@ -332,28 +366,60 @@ export function* acceptReadingSteps(
 	};
 	const gated: Gated[] = [];
 	const gate: AcceptanceDifference[] = [];
+	let batch: readonly Mutation[];
+	let admittedBatch: AdmittedMutationBatch | undefined;
+	try {
+		batch = yield* callingSteps(
+			"diffDocsToMutations",
+			diffDocsToMutationsSteps(emptyBlueprintDoc(input.appId), draft.doc),
+		);
+		yield;
+		/* `[...batch, ...choice.mutations]` for each choice, the batch
+		 * admitted once: each gate meets an admitted batch. Where a part does
+		 * not admit, the gate is handed the batch as it stands and refuses it
+		 * in its own words. */
+		const admitting = batch;
+		admittedBatch = calling("mutationCommitVerdict", () =>
+			admittedOrNot(admitting),
+		);
+	} catch (error) {
+		return failed("gate", threw("gate", error));
+	}
+	const choiceBatch = (mutations: readonly Mutation[]): unknown => {
+		const choiceMutations = admittedOrNot(mutations);
+		return admittedBatch === undefined || choiceMutations === undefined
+			? [...batch, ...mutations]
+			: concatAdmittedMutationBatches(admittedBatch, choiceMutations);
+	};
 	for (const [index, choice] of input.choices.choices.entries()) {
 		yield;
 		try {
-			const verdict = calling("mutationCommitVerdict", () =>
-				mutationCommitVerdict(
+			const mutations = calling("mutationCommitVerdict", () =>
+				choiceBatch(choice.mutations),
+			);
+			const judged = yield* callingSteps(
+				"mutationCommitVerdict",
+				mutationCommitVerdictSteps(
 					emptyBlueprintDoc(input.appId),
-					[...draft.batch, ...choice.mutations],
+					mutations,
 					lookupContext,
 				),
 			);
-			if (!verdict.ok) {
-				for (const finding of verdict.findings)
+			if (!("readiness" in judged)) {
+				for (const finding of judged.verdict.findings)
 					gate.push(
 						gateDifference(difference, [finding.code], finding, placeOf),
 					);
 				continue;
 			}
-			const doc = verdict.nextDoc;
+			const doc = judged.verdict.nextDoc;
 			yield;
+			/* `exportReadinessFindings(doc, lookupContext, input.media.rows)`,
+			 * from the run the gate made of the same document. */
 			const readiness = calling("exportReadinessFindings", () =>
-				exportReadinessFindings(doc, lookupContext, input.media.rows),
+				judged.readiness(input.media.rows ?? new Map()),
 			);
+			yield;
 			const carrier = calling("exportCarrierFindings", () => {
 				const found = exportCarrierFindings({
 					doc,
@@ -390,8 +456,9 @@ export function* acceptReadingSteps(
 	yield;
 	let identity: ReturnType<typeof identityDifferences>;
 	try {
-		identity = calling("identityDifferences", () =>
-			identityDifferences({
+		identity = yield* callingSteps(
+			"identityDifferences",
+			identityDifferencesSteps({
 				source,
 				emission,
 				draft,
@@ -422,10 +489,11 @@ export function* acceptReadingSteps(
 	if (summary.length > 0) return failed("summary", summary);
 
 	// What a first publish changes, per choice, from that choice's own document.
+	const identityOf = new Map<string, (typeof draft.identities.forms)[number]>();
+	for (const one of draft.identities.forms)
+		if (!identityOf.has(one.xmlns)) identityOf.set(one.xmlns, one);
 	const forms = draft.facts.forms.flatMap((form) => {
-		const found = draft.identities.forms.find(
-			(one) => one.xmlns === form.xmlns,
-		);
+		const found = identityOf.get(form.xmlns);
 		return found === undefined ? [] : [{ uuid: found.uuid }];
 	});
 	const declarations: AcceptedDeclaration[] = [];
@@ -453,6 +521,7 @@ export function* acceptReadingSteps(
 				preselected: index === input.choices.proposed,
 				mutations: choice.mutations,
 				firstPublish,
+				doc,
 			});
 		} catch (error) {
 			return failed("gate", threw("gate", error));
@@ -471,6 +540,7 @@ export function* acceptReadingSteps(
 		]);
 	return {
 		ok: true,
+		batch,
 		declarations,
 		firstPublish: preselected.firstPublish,
 		sourceHoldsSaveToCase: [
@@ -665,8 +735,9 @@ function* fixedPointCheck(
 
 	let emission: ReturnType<typeof readingEmission>;
 	try {
-		emission = calling("readingEmission", () =>
-			readingEmission(emitted(draft.doc)),
+		emission = yield* callingSteps(
+			"readingEmission",
+			readingEmissionSteps(emitted(draft.doc)),
 		);
 		yield;
 		const again = yield* reRead(
@@ -674,6 +745,7 @@ function* fixedPointCheck(
 			emission,
 			mintingResolver(input.appId),
 		);
+		yield;
 		const found = fixedPointDifferences(draft.doc, again, { outcome }, naming);
 		if (found.length > 0) return { differences: found };
 	} catch (error) {
@@ -695,8 +767,10 @@ function* fixedPointCheck(
 				readingEmissionOptions(emitted(expected)),
 			);
 			const identity = options.identity as WireIdentity;
-			const splitEmission = calling("readingEmission", () =>
-				readingEmission(emitted(expected)),
+			yield;
+			const splitEmission = yield* callingSteps(
+				"readingEmission",
+				readingEmissionSteps(emitted(expected)),
 			);
 			yield;
 			const again = yield* reRead(
@@ -709,6 +783,7 @@ function* fixedPointCheck(
 					),
 				),
 			);
+			yield;
 			const found = fixedPointDifferences(
 				expected,
 				again,

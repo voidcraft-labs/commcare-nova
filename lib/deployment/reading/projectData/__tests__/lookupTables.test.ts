@@ -1530,7 +1530,6 @@ describe("projectDataReadsOf", () => {
 			kind: "read",
 			draft: {
 				doc: selectDoc(binding),
-				batch: [],
 				identities: { modules: [], forms: [], keyedCreates: [], entries: [] },
 				declaration: { kind: "none", blocking: [] },
 				facts: {

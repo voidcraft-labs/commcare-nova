@@ -112,7 +112,15 @@ export function addOnsNeededBy(
 			for (const slug of formActionAddOns(form)) needed.add(slug);
 			if (form.form_filter) needed.add("display_conditions");
 			const source = app._attachments[`${form.unique_id}.xml`];
-			if (source !== undefined && holdsItemset(source)) {
+			/* An element's name stands in the source as written (XML spells no
+			 * name through a reference), so a source without the word holds no
+			 * `<itemset>`, and once one form needs the add-on no other can add it. */
+			if (
+				source !== undefined &&
+				!needed.has("advanced_itemsets") &&
+				source.includes("itemset") &&
+				holdsItemset(source)
+			) {
 				needed.add("advanced_itemsets");
 			}
 		}
