@@ -200,7 +200,9 @@ describe("a basic form read back from Nova's own emission", () => {
 			{ numRuns: 12 },
 		);
 		expect(operationsRead).toBeGreaterThan(0);
-	});
+		// Each run emits a whole drawn app and reads it back, so the test's cost
+		// is twelve emissions and readings: past the default on a shared runner.
+	}, 60_000);
 
 	/** Members chosen under their household, whose visit saves its own answers and, through the
 	 *  household it was chosen under, the household's: each step typed or not, as Nova admits both. */
@@ -384,7 +386,9 @@ describe("a basic form read back from Nova's own emission", () => {
 				{ numRuns: 6 },
 			);
 			expect(operationsRead).toBeGreaterThan(0);
-		});
+			// Six whole apps emitted and read back: past the default on a shared
+			// runner, where the expression family's draws took over five seconds.
+		}, 60_000);
 
 	/** A follow-up that opens a child case and closes it again, the close sharing the create's place. */
 	function childWithClose(): BlueprintDoc {
