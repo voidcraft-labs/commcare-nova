@@ -310,6 +310,7 @@ export const READ_CIRCUMSTANCES = [
 	"table-cell-unrepresentable",
 	"table-choices-unusable",
 	"table-has-no-fields",
+	"table-field-repeated",
 	"no-platform-runs-everything",
 	"places-over-nova-limit",
 	"place-not-holdable",
@@ -356,6 +357,7 @@ export const CIRCUMSTANCE_STANDINGS = {
 	"table-cell-unrepresentable": { standing: "fix-in-hq", name: "body" },
 	"table-choices-unusable": { standing: "fix-in-hq", name: "body" },
 	"table-has-no-fields": { standing: "fix-in-hq", name: "body" },
+	"table-field-repeated": { standing: "fix-in-hq", name: "body" },
 	"no-platform-runs-everything": { standing: "fix-in-hq", name: "body" },
 	"places-over-nova-limit": {
 		standing: "not-yet",

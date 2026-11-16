@@ -257,9 +257,11 @@ export const SAME_STATE_REGISTERS = [
  * (`structure.ts::nameAsRead`), an app string of any surface where a worker
  * then reads another text in some language (one that shows blank beside a
  * source that does not where its role requires text, or begins with a space,
- * `heldText.ts::heldText`), and a menu's, form's or case list item's media
+ * `heldText.ts::heldText`), a menu's, form's or case list item's media
  * map read as the file HQ's build shows in each language where Nova prints
- * another map (`menus/navMedia.ts::shownNavMedia`).
+ * another map (`menus/navMedia.ts::shownNavMedia`), and a form's text whose
+ * source spells, in a text node, a character Nova writes as a literal output
+ * (`xform/prose.ts::recordTextOutputs`).
  */
 export const FIRST_PUBLISH_READING_RECORDS = [
 	"date-and-time-saved-as-hq-stores-it",
@@ -267,6 +269,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"names-respelled",
 	"text-spaces-dropped",
 	"media-maps-respelled",
+	"form-text-characters-written-as-outputs",
 ] as const;
 
 export type SameStateRegister =

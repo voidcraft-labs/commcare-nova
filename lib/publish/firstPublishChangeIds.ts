@@ -48,6 +48,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"names-respelled",
 	"media-maps-respelled",
 	"text-spaces-dropped",
+	"form-text-characters-written-as-outputs",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
@@ -107,6 +108,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"names-respelled": false,
 	"media-maps-respelled": false,
 	"text-spaces-dropped": true,
+	"form-text-characters-written-as-outputs": false,
 };
 
 /** Ids another entry's sentence says to a person. */

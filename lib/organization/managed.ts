@@ -34,6 +34,7 @@ import {
 	MAX_LOCATIONS_PER_APP,
 	SITE_CODE_MAX_LENGTH,
 } from "./schema";
+import { locationsOwningCases } from "./service";
 import type { OrganizationRevision, OrganizationScope } from "./types";
 import { locationValueCatalogIssue } from "./valueCatalog";
 import {
@@ -91,10 +92,18 @@ export interface ManagedPlacesRefresh {
 	 * Places gone from CommCare HQ that a persona, an owner rule or an
 	 * automation still names (an `app_location_references` edge): kept, with
 	 * `hq_gone_at` set. A place the refresh leaves out because CommCare HQ
-	 * holds it at a level the app lacks is kept the same way and is not named
-	 * here: CommCare HQ still has it.
+	 * holds it at a level the app lacks is kept the same way and is named in
+	 * `keptLeftOut` instead: CommCare HQ still has it.
 	 */
 	readonly keptInUse: readonly string[]; // names
+	/**
+	 * Places CommCare HQ now holds at a level the app lacks that a persona, an
+	 * owner rule or an automation still names: kept live as they stood before
+	 * the refresh (their level, parent, name and values the copy held), with
+	 * their CommCare HQ id and no `hq_gone_at`. The plan's `leftOut` counts
+	 * them too, so the copy's standing line (Copy O8) says such places stay.
+	 */
+	readonly keptLeftOut: readonly string[]; // names
 	readonly leftOut: Readonly<Record<string, number>>;
 	/**
 	 * Present where a newer refresh landed while this one was reading
@@ -561,10 +570,11 @@ async function writeSiteCodes(
  * The archived rows a refresh lets go of to stay within
  * {@link MAX_LOCATIONS_PER_APP}: `count` of them where that many can go, in
  * layers to delete in order. Only a row that ends the refresh archived and
- * that nothing names can go; the longest archived goes first (a row this
- * refresh archives counts as archived at `at`), then by id, and a row goes
- * only in a layer after every row standing under it once the refresh is done,
- * so each layer's delete leaves the parent key whole.
+ * that `kept` does not hold can go (nothing names it, and no case is owned by
+ * it); the longest archived goes first (a row this refresh archives counts as
+ * archived at `at`), then by id, and a row goes only in a layer after every
+ * row standing under it once the refresh is done, so each layer's delete
+ * leaves the parent key whole. A kept row therefore keeps its ancestors too.
  *
  * Its Nova id goes with it: were CommCare HQ to list the place again, the
  * copy would take it as a new place.
@@ -572,7 +582,8 @@ async function writeSiteCodes(
 function shedArchivedRows(input: {
 	readonly rows: readonly LocationRow[];
 	readonly endsArchived: (row: LocationRow) => boolean;
-	readonly referenced: ReadonlySet<string>;
+	/** Rows that must stay: named by an `app_location_references` edge, or a case's owner. */
+	readonly kept: ReadonlySet<string>;
 	/** Each existing row's parent once the refresh is done. */
 	readonly parentOf: (id: string) => string | null;
 	/** The parent of each place the refresh inserts. */
@@ -590,7 +601,7 @@ function shedArchivedRows(input: {
 	const archivedAt = (row: LocationRow): number =>
 		(row.archived_at ?? input.at).getTime();
 	const candidates = input.rows
-		.filter((row) => input.endsArchived(row) && !input.referenced.has(row.id))
+		.filter((row) => input.endsArchived(row) && !input.kept.has(row.id))
 		.sort(
 			(left, right) =>
 				archivedAt(left) - archivedAt(right) || compareText(left.id, right.id),
@@ -635,10 +646,13 @@ function shedArchivedRows(input: {
  * never unassigns a persona: the person moves the persona and refreshes again.
  *
  * Where the copy would pass {@link MAX_LOCATIONS_PER_APP} rows, the archived
- * rows nothing names go, longest archived first and each after every row
- * under it ({@link shedArchivedRows}): in a managed copy each is a place
- * CommCare HQ no longer lists, which no author can bring back, and keeping
- * them would let CommCare HQ replacing its places refuse every later refresh.
+ * rows nothing names and no case is owned by go, longest archived first and
+ * each after every row under it ({@link shedArchivedRows}): in a managed copy
+ * each is a place CommCare HQ no longer lists, which no author can bring back,
+ * and keeping them would let CommCare HQ replacing its places refuse every
+ * later refresh. A row that is a saved case's owner, open or closed
+ * (`service.ts::locationsOwningCases`), stays, so no case is left owned by a
+ * place Nova no longer has.
  *
  * Where the stored digest equals the plan's and the left-out counts are the
  * same, only the two refresh columns move and the revision does not.
@@ -671,6 +685,7 @@ export async function refreshManagedPlacesInTransaction(
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: hq.leftOut,
 			superseded: true,
 		};
@@ -689,6 +704,7 @@ export async function refreshManagedPlacesInTransaction(
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			keptLeftOut: [],
 			leftOut: plan.leftOut,
 		};
 	}
@@ -777,9 +793,10 @@ export async function refreshManagedPlacesInTransaction(
 	);
 	const keptIds = new Set<string>();
 	const keptInUse: string[] = [];
+	const keptLeftOut: string[] = [];
 	for (const row of gone) {
 		if (!referenced.has(row.id)) continue;
-		if (isGone(row)) keptInUse.push(row.name);
+		(isGone(row) ? keptInUse : keptLeftOut).push(row.name);
 		let current: LocationRow | undefined = row;
 		while (
 			current !== undefined &&
@@ -812,16 +829,28 @@ export async function refreshManagedPlacesInTransaction(
 
 	// The bound counts every row, archived ones too, since every whole-tree
 	// read reads them; a managed copy makes room by letting go of archived
-	// rows nothing names.
+	// rows nothing names and no case is owned by. A case's `owner_id` holds a
+	// place's id, so deleting such a row would leave the case owned by no
+	// place; it stays archived, as an archive in Nova leaves it.
 	const excess =
 		locked.locationCount + newPlaces.length - MAX_LOCATIONS_PER_APP;
+	const endsArchived = (row: LocationRow): boolean =>
+		!matchedIds.has(row.id) && !keptIds.has(row.id);
 	const shedLayers =
 		excess > 0
 			? shedArchivedRows({
 					rows,
-					endsArchived: (row) =>
-						!matchedIds.has(row.id) && !keptIds.has(row.id),
-					referenced,
+					endsArchived,
+					kept: new Set([
+						...referenced,
+						...(await locationsOwningCases(
+							tx,
+							scope.appId,
+							rows
+								.filter((row) => endsArchived(row) && !referenced.has(row.id))
+								.map((row) => row.id),
+						)),
+					]),
 					parentOf: (id) => finalParent.get(id) ?? null,
 					newParents: newPlaces.map(parentIdOf),
 					at,
@@ -832,7 +861,7 @@ export async function refreshManagedPlacesInTransaction(
 	if (shedCount < excess) {
 		throw new OrganizationError(
 			"limit",
-			`Refreshing would take this app past ${MAX_LOCATIONS_PER_APP.toLocaleString("en-US")} places, which is as many as Nova stores for one app: CommCare HQ's places and the ones Nova keeps because this app still uses them come to more than that. You can move or change what uses the places CommCare HQ no longer has, then refresh again. Nova kept its copy as it was.`,
+			`Refreshing would take this app past ${MAX_LOCATIONS_PER_APP.toLocaleString("en-US")} places, which is as many as Nova stores for one app: CommCare HQ's places, the ones Nova keeps because this app still uses them and the ones saved cases belong to come to more than that. You can move or change what uses the places CommCare HQ no longer has, then refresh again. Nova kept its copy as it was.`,
 		);
 	}
 
@@ -1052,6 +1081,7 @@ export async function refreshManagedPlacesInTransaction(
 		changed,
 		archived: archiveIds.length,
 		keptInUse: keptInUse.sort(compareText),
+		keptLeftOut: keptLeftOut.sort(compareText),
 		leftOut: plan.leftOut,
 	};
 }

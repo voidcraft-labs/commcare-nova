@@ -923,5 +923,15 @@
 				"path": "/modules/*/search_config/properties/*/validations/*/text"
 			}
 		]
+	},
+	{
+		"change": "form-text-characters-written-as-outputs",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			}
+		]
 	}
 ]

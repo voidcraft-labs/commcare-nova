@@ -690,6 +690,19 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/search_config/properties/*/validations/*/text",
 		],
 	},
+	/**
+	 * A form's text whose source holds, in a text node, a no-break space or a
+	 * bracket CommCare HQ's build would read as `instance(`: Nova writes each
+	 * as a literal output (`xform/builder.ts::literalLabelNodes`), which every
+	 * runtime shows as the same characters and CommCare HQ's form builder shows
+	 * as an output. Recorded by `xform/prose.ts::recordTextOutputs`.
+	 */
+	"form-text-characters-written-as-outputs": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("form-text-characters-written-as-outputs"),
+		paths: ["/_attachments/*"],
+	},
 };
 
 /**

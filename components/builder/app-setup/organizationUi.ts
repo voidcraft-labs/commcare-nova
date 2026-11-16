@@ -22,6 +22,7 @@ import {
 	MANAGED_PLACES_REFRESHED_SINCE,
 	managedOrganizationCommitRefusal,
 	managedPlacesKeptInUse,
+	managedPlacesKeptLeftOut,
 	managedPlacesRefreshed,
 } from "@/lib/publish/managedData";
 
@@ -200,18 +201,21 @@ export function managedPlacesRefreshControl(
 
 /**
  * What the banner says after a refresh of places it pressed: what changed,
- * then the places gone from CommCare HQ that Nova kept because a persona or
- * an owner rule still uses them. The places left out for a level the app
- * lacks are the copy's standing fact, which the banner shows from the
- * organization's own read, not from this answer. A refusal says its own
- * sentence, and the copy is as it was.
+ * then the places gone from CommCare HQ that Nova kept because a persona, an
+ * owner rule or an automation still uses them, then the places CommCare HQ
+ * now holds at a level the app lacks that Nova kept as they stood for the
+ * same reason. The count of places left out for a level the app lacks is the
+ * copy's standing fact, which the banner shows from the organization's own
+ * read, not from this answer. A refusal says its own sentence, and the copy
+ * is as it was.
  */
 export function managedPlacesOutcomeLines(outcome: ManagedPlacesOutcome): {
 	readonly tone: "status" | "alert";
 	readonly lines: readonly string[];
 } {
 	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
-	const { added, changed, archived, keptInUse, superseded } = outcome.refresh;
+	const { added, changed, archived, keptInUse, keptLeftOut, superseded } =
+		outcome.refresh;
 	if (superseded) {
 		return { tone: "status", lines: [MANAGED_PLACES_REFRESHED_SINCE] };
 	}
@@ -222,6 +226,9 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesOutcome): {
 				? MANAGED_PLACES_ALREADY_MATCH
 				: managedPlacesRefreshed(added, changed, archived),
 			...(keptInUse.length === 0 ? [] : [managedPlacesKeptInUse(keptInUse)]),
+			...(keptLeftOut.length === 0
+				? []
+				: [managedPlacesKeptLeftOut(keptLeftOut)]),
 		],
 	};
 }

@@ -207,8 +207,10 @@ export function whitespaceOutput(
  * the same characters on every runtime, and the build's pattern finds no
  * `instance(` in the rendered form. Like the whitespace outputs, it carries no
  * Vellum shadow. An app brought in from CommCare HQ whose label holds such
- * text shows a worker the same label after its first publish, since no
- * runtime reads label text as a path, so nothing is declared for it.
+ * text, or a no-break space, shows a worker the same label after its first
+ * publish, since no runtime reads label text as a path; CommCare HQ's form
+ * builder shows the output as one, which the first-publish register says
+ * (`form-text-characters-written-as-outputs`).
  */
 function literalLabelNodes(
 	literal: string,

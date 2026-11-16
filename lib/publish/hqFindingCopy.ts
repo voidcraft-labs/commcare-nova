@@ -837,6 +837,11 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "The lookup table {name} in {space} has no fields, and Nova holds a lookup table only with at least one.",
 		next: "You can add a field to it in CommCare HQ, then check again.",
 	},
+	"table-field-repeated": {
+		title: "A lookup table has two fields of one name",
+		body: "The lookup table {name} in {space} has more than one field of that name, and Nova holds each field of a table under a name of its own.",
+		next: "You can rename or remove one of them in CommCare HQ, then check again.",
+	},
 	"no-platform-runs-everything": {
 		title: "No one platform runs this whole app",
 		body: "This uses {name}. Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work.",

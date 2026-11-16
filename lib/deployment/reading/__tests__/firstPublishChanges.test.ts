@@ -27,8 +27,8 @@
  * parting ways.
  */
 
-import { type Element, isTag } from "domhandler";
-import { findAll, findOne, removeElement } from "domutils";
+import { type Element, isTag, Text } from "domhandler";
+import { findAll, findOne, removeElement, replaceElement } from "domutils";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -61,6 +61,7 @@ import type {
 	ReadFacts,
 	SameStateRewrite,
 } from "@/lib/commcare/reader/types";
+import { literalOutputText } from "@/lib/commcare/reader/xform/prose";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { FormPath } from "@/lib/commcare/xform/formPath";
@@ -412,6 +413,48 @@ function withEarlierClockRow(property: string): (xml: string) => string {
 			removeElement(element);
 		return serializeXml(document);
 	};
+}
+
+/** A survey of one question whose label is `label`. */
+function labelledDoc(label: string): () => BlueprintDoc {
+	return () =>
+		buildDoc({
+			modules: [
+				{
+					name: "Menu",
+					forms: [
+						{
+							name: "Form",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: proseText(label) })],
+						},
+					],
+				},
+			],
+		});
+}
+
+/**
+ * Every literal output of a form's texts written as the text it spells, as
+ * an author's form holds a no-break space or an `instance(` CommCare HQ's
+ * build reads: the source Nova's print writes those characters as outputs in.
+ */
+function withLiteralOutputsAsText(xml: string): string {
+	const document = parseXml(xml);
+	const literals = findAll(
+		(element: Element) =>
+			element.name === "output" &&
+			literalOutputText(element.attribs.value ?? "") !== undefined,
+		document.children.filter(isTag),
+	);
+	if (literals.length === 0) return xml;
+	for (const output of literals)
+		replaceElement(
+			output,
+			new Text(literalOutputText(output.attribs.value ?? "") as string),
+		);
+	// Parsed again, so a value's runs of text are one text node, as a source's are.
+	return serializeXml(parseXml(serializeXml(document)));
 }
 
 // ── The register's columns ───────────────────────────────────────────────
@@ -1447,6 +1490,11 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 		followUpDoc,
 		menuNamed({ en: " Patients" }),
 	),
+	// A label whose no-break space the source holds as text.
+	"form-text-characters-written-as-outputs": editedPair(
+		labelledDoc("Weight\u00a0(kg)"),
+		{ xml: withLiteralOutputsAsText },
+	),
 };
 
 /** A media map item as CommCare HQ stores one for an image. */
@@ -1508,6 +1556,29 @@ describe("each entry", () => {
 		);
 		expect(view.ids).toContain("case-names-checked");
 		expect(view.touchesWorkers).toBe(true);
+	});
+
+	it("records a label whose instance( CommCare HQ's build reads, held as text in the source, at the pointer of its form", {
+		timeout: 60_000,
+	}, async () => {
+		const doc = labelledDoc("Ask instance('district') here")();
+		const exported = exportedBody(doc, {
+			expand: { attachmentTarget: TARGET },
+		});
+		// Nova's print writes the bracket as an output, so its own export records nothing.
+		expect(JSON.stringify(exported)).toContain("instance<output");
+		const on = await readAs(doc, { xml: withLiteralOutputsAsText });
+		const records = on.draft.facts.sameStateRewrites.filter(
+			(record) => record.register === "form-text-characters-written-as-outputs",
+		);
+		expect(records).toHaveLength(1);
+		expect(records.every(coveredByItsEntry)).toBe(true);
+		expect(on.draft.doc.fields).toEqual(
+			(await readExport(doc, TARGET)).draft.doc.fields,
+		);
+		expect(
+			applies("form-text-characters-written-as-outputs", factsOf(on)),
+		).toBe(true);
 	});
 
 	it("reads a Save to Case value in the spelling Nova wrote before as the same write, holding the document the current spelling gives", async () => {

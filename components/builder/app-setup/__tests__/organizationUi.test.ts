@@ -14,6 +14,7 @@ import {
 	MANAGED_PLACES_REFRESHED_SINCE,
 	managedOrganizationCommitRefusal,
 	managedPlacesKeptInUse,
+	managedPlacesKeptLeftOut,
 	managedPlacesRefreshed,
 } from "@/lib/publish/managedData";
 import {
@@ -265,11 +266,12 @@ describe("a refresh of places CommCare HQ manages", () => {
 	const landed = (
 		counts: { added: number; changed: number; archived: number },
 		keptInUse: readonly string[] = [],
+		keptLeftOut: readonly string[] = [],
 	) =>
 		({
 			ok: true,
 			refreshedAt: "2026-11-03T09:00:00.000Z",
-			refresh: { ...counts, keptInUse, leftOut: { ward: 2 } },
+			refresh: { ...counts, keptInUse, keptLeftOut, leftOut: { ward: 2 } },
 		}) as const;
 
 	it("says the copy already matched where nothing was added, changed or archived", () => {
@@ -288,7 +290,7 @@ describe("a refresh of places CommCare HQ manages", () => {
 		).toEqual({ tone: "status", lines: [MANAGED_PLACES_REFRESHED_SINCE] });
 	});
 
-	it("counts what changed, then names the places Nova kept for a persona, an owner rule or an automation, and never the places left out", () => {
+	it("counts what changed, then names the places Nova kept for a persona, an owner rule or an automation, those gone from CommCare HQ, then those at a level the app lacks", () => {
 		expect(
 			managedPlacesOutcomeLines(
 				landed({ added: 2, changed: 0, archived: 1 }, ["North clinic"]),
@@ -298,6 +300,22 @@ describe("a refresh of places CommCare HQ manages", () => {
 			lines: [
 				managedPlacesRefreshed(2, 0, 1),
 				managedPlacesKeptInUse(["North clinic"]),
+			],
+		});
+		expect(
+			managedPlacesOutcomeLines(
+				landed(
+					{ added: 0, changed: 0, archived: 0 },
+					["North clinic"],
+					["Mercy Clinic"],
+				),
+			),
+		).toEqual({
+			tone: "status",
+			lines: [
+				MANAGED_PLACES_ALREADY_MATCH,
+				managedPlacesKeptInUse(["North clinic"]),
+				managedPlacesKeptLeftOut(["Mercy Clinic"]),
 			],
 		});
 	});
