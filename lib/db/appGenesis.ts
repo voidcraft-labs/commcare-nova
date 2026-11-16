@@ -1,6 +1,6 @@
 /**
- * The closed genesis owner — every persisted app is born here, through one
- * of exactly two provenances:
+ * The closed genesis owner: every persisted app is born here, through one of
+ * three provenances:
  *
  *   - `explicit-blank` (`createExplicitBlankApp`): the canonical minimal
  *     Survey/Form/Question app, created immediately for "Start with a blank
@@ -12,8 +12,12 @@
  *     transaction-scoped writer here (the replay lives beside the change-set
  *     runtime; the write tail lives beside the canonical commit kernel so
  *     neither package duplicates the other's rules).
+ *   - `hq-adoption` (`lib/deployment/reading/birth.ts::adoptHqAppInTransaction`):
+ *     an app brought in from CommCare HQ, born `complete` from the reader's
+ *     construction batch in the transaction that also writes its Project data
+ *     and its adopted deployment.
  *
- * Both provenances share ONE preparation (`prepareGenesisCandidate`) and ONE
+ * Every provenance shares ONE preparation (`prepareGenesisCandidate`) and ONE
  * write tail (`writePreparedGenesisInTransaction`): exact mutation admission,
  * candidate reduction, the absolute whole-document gate, export readiness,
  * exact lookup/media projections, entity decomposition, the attributed
@@ -73,14 +77,35 @@ import { type AppDatabase, withAppTx } from "./pg";
 // ── Typed rejections ───────────────────────────────────────────────
 
 /**
- * The genesis candidate failed the absolute gate or export readiness — a
+ * The genesis candidate failed the absolute gate or export readiness: a
  * deterministic content rejection, never an infrastructure fault. For the
  * explicit-blank starter this is a compiler bug (the canonical starter is
  * valid by construction); for a design-slice candidate it is the executor's
- * structured signal to amend the change set.
+ * structured signal to amend the change set. For an `hq-adoption` candidate
+ * it is Nova's defect: acceptance passed the same document, and the create
+ * answers `check-failed`.
+ *
+ * `check` names which verdict refused (`gate` for the absolute gate, `export`
+ * for export readiness) and `findingCodes` holds the `code` of each finding,
+ * so a caller can log what was refused without logging the app's words, which
+ * the message quotes.
  */
 export class GenesisGateRejectedError extends Error {
 	readonly name = "GenesisGateRejectedError";
+	readonly check: "gate" | "export";
+	readonly findingCodes: readonly string[];
+
+	constructor(
+		message: string,
+		options: {
+			readonly check: "gate" | "export";
+			readonly findingCodes: readonly string[];
+		},
+	) {
+		super(message);
+		this.check = options.check;
+		this.findingCodes = options.findingCodes;
+	}
 }
 
 // ── Preparation ────────────────────────────────────────────────────
@@ -150,6 +175,12 @@ export interface WritePreparedGenesisArgs {
 	/** Present exactly when a design-slice materialization transfers the
 	 *  session's live hold onto the new app row. */
 	readonly holderTransfer?: GenesisHolderTransfer;
+	/**
+	 * Runs once, after the app row is inserted and before the lookup context is read. A birth that
+	 * brings Project data with it writes that data here, so every verdict below reads it on this
+	 * transaction. It may lock Project state and the new app's own rows, and no existing app's row.
+	 */
+	readonly afterAppInsert?: (tx: Transaction<AppDatabase>) => Promise<void>;
 }
 
 /**
@@ -157,8 +188,10 @@ export interface WritePreparedGenesisArgs {
  * the caller's transaction. The caller owns its authority locks (a
  * design-slice materialization holds the actor gate, session row, and
  * change-set row; explicit-blank creation is the shared-gate-first
- * exception); this tail owns everything from membership reauthorization to
- * the immutable baseline. Every verdict here re-runs against the
+ * exception; an `hq-adoption` birth holds its HQ app's claim, which may lock
+ * one other app's row); this tail owns everything from membership
+ * reauthorization to the immutable baseline, with the caller's
+ * `afterAppInsert` run inside it. Every verdict here re-runs against the
  * transaction's own locked reads — a prepared candidate is never trusted
  * across the transaction boundary for anything but its deterministic
  * reduction.
@@ -205,6 +238,11 @@ export async function writePreparedGenesisInTransaction(
 			}),
 		})
 		.execute();
+	/* After the membership gate (Project state is never taken before it) and
+	 * after the app row (a place references it), before the lookup context:
+	 * the tables and places this hook writes are what the gate, export
+	 * readiness and the organization's integrity read below. */
+	if (args.afterAppInsert !== undefined) await args.afterAppInsert(tx);
 	const lookupContext = await lookupContextForAuthoritativeWrite(
 		tx,
 		projectId,
@@ -219,6 +257,10 @@ export async function writePreparedGenesisInTransaction(
 			`The app's first revision must be completely valid, but it is not: ${describeCommitFindings(
 				verdict.findings,
 			)}`,
+			{
+				check: "gate",
+				findingCodes: verdict.findings.map((finding) => finding.code),
+			},
 		);
 	}
 	const { realIds, builtinSlugs } = partitionAssetRefs([
@@ -244,6 +286,10 @@ export async function writePreparedGenesisInTransaction(
 			`The app's first revision must be export-ready, but it could not be exported:\n${notExportable
 				.map((error) => `- ${error.message}`)
 				.join("\n")}`,
+			{
+				check: "export",
+				findingCodes: notExportable.map((finding) => finding.code),
+			},
 		);
 	}
 	await applyOrganizationCommitIntegrity(tx, {
@@ -426,7 +472,8 @@ export async function createExplicitBlankApp(
  * read back after a fold horizon follows the birth carries the saved app at
  * its own sequence, because the birth sequence no longer replays. The
  * explicit-blank variant carries the starter UUIDs (the blank-builder UX
- * selects/names them); a design-slice receipt has no starter.
+ * selects/names them); a design-slice receipt has no starter. An
+ * `hq-adoption` birth sends `AdoptedAppReceipt`, these keys and `adoption`.
  */
 export interface AppMaterializationReceipt {
 	readonly eventVersion: 1;
@@ -445,4 +492,25 @@ export interface AppMaterializationReceipt {
 		readonly formUuid: Uuid;
 		readonly fieldUuid: Uuid;
 	} | null;
+}
+
+/** What a brought-in app's receipt says of where it came from. */
+export interface AppAdoption {
+	/** A `CommCareServer`, as text: this file imports nothing of `lib/commcare`. */
+	readonly server: string;
+	readonly domain: string;
+	readonly remoteAppId: string;
+}
+
+/**
+ * The activation receipt of an `hq-adoption` birth: the twelve keys of every
+ * receipt, and one. Only the bring-in's create sends it, to a client that
+ * admits it as a second exact key set; every other birth keeps sending the
+ * twelve keys, so a tab running an earlier client still lands those.
+ */
+export interface AdoptedAppReceipt extends AppMaterializationReceipt {
+	readonly designSessionId: null;
+	readonly changeSetId: null;
+	readonly starter: null;
+	readonly adoption: AppAdoption;
 }

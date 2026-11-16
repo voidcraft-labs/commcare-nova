@@ -403,7 +403,7 @@ call the reader in `lib/commcare/reader/` and part 05's readers. No file of `lib
 
 | File of `lib/deployment/reading/` | Exports |
 |---|---|
-| `types.ts` | client-safe: `ReadingKey`, `readingKeySchema`, `READING_ID_PATTERN`, `ReadingAnswer`, `READING_MAX_LISTED_FINDINGS`, `READING_STAGES`, `ReadingStage`, `ReadingEvent`, `ReadingReview`, `ReadingDeclarationChoice`, `bringInInputSchema`, `BringInInput`, `CreateAnswer`, `READING_REFUSALS`, `ReadingRefusal`, `READING_REFUSAL_STATUS`; and, re-exported from part 11's `projectData/reviewTypes.ts`, `ReviewTable` and `ReviewPlaces`. Its run-time imports are `zod`, `PLATFORMS` (`@/lib/domain`), `COMMCARE_SERVER_IDS` (`lib/commcare/servers.ts`, constants) and part 11's `LOOKUP_TABLE_CHOICES`; everything else it imports is a type |
+| `types.ts` | client-safe: `ReadingKey`, `readingKeySchema`, `READING_ID_PATTERN`, `ReadingAnswer`, `READING_MAX_LISTED_FINDINGS`, `READING_STAGES`, `ReadingStage`, `ReadingEvent`, `ReadingReview`, `ReadingDeclarationChoice`, `bringInInputSchema`, `BringInInput`, `CreateAnswer`, `READING_REFUSALS`, `ReadingRefusal`, `READING_REFUSAL_STATUS`; and, re-exported from part 11's `projectData/reviewTypes.ts`, `ReviewTable` and `ReviewPlaces`. Its run-time imports are `zod`, `PLATFORMS` (`@/lib/domain`), `COMMCARE_SERVER_IDS` (`lib/commcare/servers.ts`, constants), `LOOKUP_UUID_V7_PATTERN` (`lib/domain/lookupIds.ts`, whose own only run-time import is `zod`; `READING_ID_PATTERN` is that same expression) and part 11's `LOOKUP_TABLE_CHOICES`; everything else it imports is a type |
 | `appId.ts` | `BROUGHT_IN_APP_NAMESPACE`, `broughtInAppId` (2.3) |
 | `mediaIds.ts` | `READING_MEDIA_NAMESPACE`, `provisionalReadingMediaId`, `reviewMediaId` (5.2). It imports nothing else of this directory, so part 11's media functions import it |
 | `gather.ts` | `gatherReading`, `GatherInput`, `gatherFromHq`, `GatherSources`, `GatherResult`, `GatherClaims`, `Fetched`, `Gathered`, `GatherFacts`, `checkFetched`, `unrecognizedLogKey` (3.3, 10) |
@@ -633,6 +633,8 @@ export function gatherFromHq(
 	input: Omit<GatherInput, "actor"> & GatherSources & {
 		/** Counts alone by default, as every request keeps them. The proof lane asks `full`. */
 		readonly claims?: "counts" | "full";
+		/** The person, where there is one: it joins the request's log lines to them (10). */
+		readonly actorUserId?: string;
 	},
 ): Promise<{ readonly result: GatherResult; readonly facts: GatherFacts;
              /** Null where the reader never ran: a stop before step 6. */
@@ -649,6 +651,8 @@ export function checkFetched(input: {
 	readonly appId: string; readonly key: ReadingKey;
 	readonly fetched: Fetched; readonly media: ReadingMediaPlan;
 	readonly first?: ReadOutcome;
+	/** As `gatherFromHq`'s: the person whose create this is, for its log lines. */
+	readonly actorUserId?: string;
 }): Promise<{ readonly result: Exclude<GatherResult, { kind: "stop" }>;
               readonly facts: GatherFacts }>;
 ```
@@ -688,7 +692,7 @@ show.
    | `read` | go on |
    | `changed` | the attempt is made once more, in this same request. A second `changed` is `stop`, `changed-while-reading` |
    | `linked`, `remote`, `deleted`, `gone` | `stop`: `linked-app`, `remote-app`, `app-deleted`, `app-gone` |
-   | `failed` | `hqReadCircumstance(failure)` (part 05, section 4.3): `stop` where part 01's `CIRCUMSTANCE_STANDINGS` says `stop`, else an account of that one finding, which is `too-large` (3.6), with `appName` null where the application resource was the body over the bound |
+   | `failed` | `hqReadCircumstance(failure)` (part 05, section 4.3): `stop` where part 01's `CIRCUMSTANCE_STANDINGS` says `stop`, else an account of that one finding, which is `too-large` (3.6), with `appName` null: part 05's `failed` answer carries no name, whichever of the two bodies was over the bound |
 
    Then, only where part 07's `publishedCaseBlocks.ts::sourceHoldsEditMode` says the source holds a
    write saved only if the worker changed it (`07-the-reader-cases-menus-lists.md`, section 6.1),
@@ -794,9 +798,9 @@ show.
       section 2.2): its five checks, in the order of its `ACCEPTANCE_CHECKS`. It is called where
       the reader read clean and no step above gave a finding. A draft that part 11 holds a finding
       against is no document Nova would return (part 06, section 10.1), so judging it would word
-      part 11's finding a second time as Nova's own defect. Step 4's menu findings do not hold
-      acceptance back: its check 5 skips the forms of a menu CommCare HQ could not summarize (part
-      09, section 7.5). `input` is part 09's `AcceptReadingInput`, and no value of this part's own is
+      part 11's finding a second time as Nova's own defect. A menu CommCare HQ could not summarize
+      never reaches here: step 4's findings end the request at step 6, before any file is fetched
+      (and part 09's check 5, section 7.5, skips such a menu's forms besides). `input` is part 09's `AcceptReadingInput`, and no value of this part's own is
       handed to it:
 
       | Member | Value |
@@ -808,11 +812,12 @@ show.
       | `choices` | `narrowDeclarationsByMedia(outcome.draft.declaration, playsOn)` |
       | `settlements` | `handOffSettlements(outcome.claims.handOffs, media, findings)` (part 11, its 14.3), `media` being this read's `HqMediaPlan` and `findings` those of steps 6.2 and 8.2 |
       | `lookup` | `readingLookupSnapshot(data, reads)` (part 11, its 14.3) |
-      | `mediaLeftOut` | `HqMediaPlan.inert.length` |
+      | `mediaLeftOut` | `HqMediaPlan.inert.length` plus `readingMediaFindings().inert.length`: the references the source names no file for, and those of a file judged `missing` that nothing the app runs on draws |
       | `media` | `{ files: adoptedMediaFiles(plan), rows: readingMediaRows(plan) }` (part 11, its 14.2 and 14.3): the plan's held files, each under the id the document names it by, which is its provisional id until a create publishes it and its published asset's after |
 
-      A failing answer is an account of one `read-back-differs` at the app, with `mediaChecked:
-      true`. Its `differences` stay inside `acceptReading`'s answer and are never logged; the log
+      A failing answer is an account of the failing arm's own `findings` (part 09, section 2.3:
+      one `read-back-differs` per differing place, named by the check, at most twenty; an
+      `unrecognized` for an unsettled hand-off), with `mediaChecked: true`. Its `differences` stay inside `acceptReading`'s answer and are never logged; the log
       takes the check, the count and the signatures (10).
 9. **A clean read's values.** Where there is no finding: `projectDataReview(data, reads, doc,
    mintingResolver(appId))` (the review's `tables` and `places`), the `lookup` snapshot and the
@@ -966,8 +971,8 @@ reader holds (`vitest.config.mts` passes no `--expose-gc`).
 **What the person reads.** The circumstance `too-large` (part 01, sections 8.3 and 9.3) has one
 cause, a body over the bound, and carries no `detail.name`. It is answered as an account of that
 one finding. Part 01's block promises no update, because nothing plans one, and offers a step the
-person can take today. Where the app's name is not known, because the application resource was the
-body over the bound, the account's `appName` is null and the block's `{app}` reads "This app" (part
+person can take today. Where the app's name is not known, because a body of the app was over the bound (part 05's
+`failed` answer carries no name, whichever body it was), the account's `appName` is null and the block's `{app}` reads "This app" (part
 01's `circumstanceBlock`, its section 8.4).
 
 ### 3.7 How long it takes
@@ -1322,10 +1327,10 @@ Where each field comes from, in `gather.ts`, after acceptance:
 | `runsOnWhy` | `web-apps-off-in-hq` where the draft's `narrowedByHq` is true and the proposal stands, `keeps-web-apps` where `keepsWebApps` is true and the proposal stands, and `content` otherwise, including where part 11's files removed the proposal. The proposal stands where the choice at the draft's `proposed` index is the preselected entry of `runsOn` |
 | `webAppsOnInHq` | `draft.facts.webAppsOnInHq` (part 06, section 17.3) |
 | `datetimeQuestions` | the count of date-and-time questions a splitting choice changes: `splits.length` of a choice of `AcceptReadingInput.choices` whose `split` is true (every such choice splits the same questions); 0 where no choice splits |
-| `platformsOut` | one entry per platform no offered choice declares, in `PLATFORMS`' order: `features` the distinct features of `platformUses.ts::unavailableUses(doc, [platform])` in table order, and `media` true where `readingMediaFindings().playsOn` leaves the platform out |
+| `platformsOut` | one entry per platform no offered choice declares, in `PLATFORMS`' order: `features` the distinct features of `platformUses.ts::unavailableUses(doc, [platform])` in table order, and `media` true where some held file's format does not play there (`mediaFormatPlaysOn`), which for an offered platform is where `readingMediaFindings().playsOn` leaves it out, and which `playsOn` cannot say for a platform no choice of the draft offers |
 | `kept` | `keptListFor(facts)` (part 01, section 6.1), `facts` being `targetFactsFromSource` over the source as the adopted baseline will store it, with `observedAt` the read's `readAt`, `adopted: true` and `novaOwnsAutoGpsCapture` the `autoGpsCapture` of the ownership part 10's `adoptedAppBaselineWrite` gives that baseline (its 6.3); the empty list where the answer is null |
 | `tables`, `places` | `projectDataReview(data, reads, doc, mintingResolver(appId))` (part 11, 14.1) |
-| `mediaLeftOut` | `HqMediaPlan.inert.length` |
+| `mediaLeftOut` | `HqMediaPlan.inert.length` and `readingMediaFindings().inert.length` together (3.3, step 8.3) |
 | `firstPublish` | `AcceptedReading.firstPublish`, the preselected declaration's |
 
 The review holds no sentence: part 13 words it from these values and the copy tables of parts 01,
@@ -1690,6 +1695,7 @@ Every field of part 10's type (its 6.2), and where it comes from:
 | `identities` | `adoptedIdentityRows(gathered.draft.identities, gathered.fetched.modules)`'s `rows` (part 10, 3.1), the rows the digest covered (3.3, step 9) |
 | `baseline` | `adoptedAppBaselineWrite({ remoteAppId, source, prepared, target, identity, novaRevision, mediaFiles, observedAt, firstPublish })` (part 10, 6.3; `firstPublish` is part 09's input, its 12.3): `source` is `gathered.fetched.source`, `identity` `targetWireIdentity(rows)`, `novaRevision` 1, the birth's sequence, `mediaFiles` part 15's `hqMediaRecordFromSource` over the wire paths of the `mediaPaths` rows below and `gathered.fetched.source.multimediaMap` (`15-changes-made-in-commcare-hq.md`, section 7.8), `observedAt` `gathered.fetched.readAt`, and `firstPublish` `chosen.firstPublish`, from this create's own acceptance. `prepared` is part 09's `adoptionExportBoundary(doc, lookup.definitions, mediaFiles, target)` (its 15.2): `doc` the candidate's document, `lookup` `gathered.lookup`, `mediaFiles` `gathered.mediaFiles`, and `target` the server's origin and the project space, as the reader takes it |
 | `mediaPaths` | `assignMediaPaths(gathered.mediaFiles).rows` (part 10, 4.2): the kept paths, by published asset |
+| `keyedCaseIds` | `adoptedKeyedCaseIdRows(gathered.draft.identities)` (part 10): the prefix each create keyed by an answer stands under in the source project space |
 | `confirmations` | `adoptionPlanFeatureConfirmations` over the candidate's document, the target, `source.cloudcareEnabled` and `accepted.sourceHoldsSaveToCase` (part 10, 6.5): the `recordedFeatures` the review showed for the chosen declaration, computed again from the document being born |
 
 The project data's write is part 11's `readingProjectDataWrite(data, reads, doc,
@@ -1783,7 +1789,7 @@ In order, with the lock each statement takes:
 | 2 | `writePreparedGenesisInTransaction(tx, { candidate, actorUserId, runId, status: "complete", afterAppInsert })`: | |
 | 2a | `assertProjectCapabilityInTransaction(…, "edit")` | the shared membership gate; the member row is read |
 | 2b | `INSERT apps` at sequence 1, `status` `complete`, no holder and no reservation columns | a new row |
-| 2c | `afterAppInsert`, with `write` being `birth.projectData` and `origin` `write.origin`: part 11's `writeBroughtInLookupTablesInTransaction(tx, { projectId, actorUserId }, { origin, tables: write.tables, at })` (its 7.4), which derives each standing again under the lock and throws `BroughtInTableChangedError` where one is no longer the standing its binding was made for | `lookup_project_state FOR UPDATE`, then each table it creates or refreshes |
+| 2c | `afterAppInsert`, with `write` being `birth.projectData` and `origin` `write.origin`: part 11's `writeBroughtInLookupTablesInTransaction(tx, { projectId, actorUserId, appId }, { origin, tables: write.tables, at })` (`appId`, the new app, whose own mappings are no sibling's) (its 7.4), which derives each standing again under the lock and throws `BroughtInTableChangedError` where one is no longer the standing its binding was made for | `lookup_project_state FOR UPDATE`, then each table it creates or refreshes |
 | 2d | `afterAppInsert`, after 2c: part 11's `writeBroughtInPlacesInTransaction(tx, { appId, projectId, actorUserId }, { origin, places: write.places, at })` (its 11.4), which takes a null `places` and then writes nothing; otherwise it reaches `lib/organization/managed.ts::writeManagedPlacesInTransaction` | new rows: the new app's `app_organization_state` and its `app_locations` |
 | 2e | lookup context; the absolute gate; `getAssetsInTransaction` over the referenced assets; export readiness | the candidate's tables `FOR KEY SHARE` (those 2c wrote are already held); each referenced asset `FOR SHARE`, in id order |
 | 2f | organization integrity, which reads the places 2d wrote; `admitExactMediaReferences`; lookup edges | the same assets, already held |
@@ -1857,9 +1863,9 @@ been.
 | `replay` | another call of this reading's create committed first | `created`, with the receipt read back (6.6) |
 | `HqAppAlreadyClaimedError` with any other holder, the null holder of part 10's index floor included | a live Nova app publishes to this HQ app | by 6.6's rule: `created` where this reading's own app exists; otherwise `changed` with the stop `already-in-nova`, its `detail.claim` from a fresh `readHqAppClaims` |
 | a primary-key conflict on `apps` | this reading's app exists and is in recently deleted: only a delete racing a replay gives it | as `replay` |
-| `GenesisGateRejectedError` | the tail's gate or export readiness refused a document acceptance had just passed | `check-failed`, `birth-` and the error's `check`: `birth-gate` or `birth-export` |
+| `GenesisGateRejectedError`, every published asset still a ready file of the Project | the tail's gate or export readiness refused a document acceptance had just passed | `check-failed`, `birth-` and the error's `check`: `birth-gate` or `birth-export` |
 | part 11's `BroughtInTableChangedError`; its `LookupError` with code `tag_taken` or `conflict` | a table the app reads changed in the Project between this create's read and the birth's lock: a table of that tag was created, edited, or taken over with Manage in Nova | `read-again`. The caller reads the app again, and the fresh review shows the table as it now stands, with its choice where it asks one |
-| `BlueprintCommitRejectedError`, and some published asset is no longer a ready file of the Project (`lib/db/mediaAssets.ts::loadAssetsByIds` after the rollback) | someone removed a file from the Project's library between its publication and the birth | `refused: project_changed`. The next create fetches and publishes the file again |
+| `BlueprintCommitRejectedError`, or `GenesisGateRejectedError` with `check` `export` (export readiness reads the referenced asset rows before media admission does, so a removed file meets it first), and some published asset is no longer a ready file of the Project (`lib/db/mediaAssets.ts::loadAssetsByIds` after the rollback) | someone removed a file from the Project's library between its publication and the birth | `refused: project_changed`. The next create fetches and publishes the file again |
 | `BlueprintCommitRejectedError`, and every published asset is still a ready file of the Project | the tail's lookup context, organization integrity or media admission refused what acceptance and part 11's plans had passed | `check-failed`, `birth-integrity` |
 | `CommitReauthError` | the person no longer edits in the Project | `refused: no_project_access` |
 | anything else | infrastructure, or a bug of Nova's | thrown on: the route writes a `failed` line and logs `[reading] failed` (10) |
@@ -2205,13 +2211,13 @@ holds that over every constructor (its section 5.1 and "Tests").
 | Message | Level | When | Further context |
 |---|---|---|---|
 | `[reading] answered` | info | a read or a create answered | `phase`: `stop`, `account`, `review`, `created`, `changed`, `read-again`, `check-failed`, `held` or `refused`; `elapsedMs`; `checkMs` and `longestPieceMs`, the time the request's synchronous pieces took and the longest of them, with `sourceBytes`, which together say what the reader's rate is on real apps (3.6); `mediaTotal`; for an account, `findingCount`, `codeCount`, `notYet`, `never`, `fixInHq`; `expressionRounds` where the reader gave a draft (`ReadFacts.expressionRounds`, the count part 08's section 2.5 keeps for this line) |
-| `[reading] failed` | error | something was thrown that is no answer, and the stream ended in a `failed` line | `phase`: the stage that was running, and the error itself. What reaches it is infrastructure or a bug of Nova's, never a judgment of content: acceptance never throws for content (part 09, section 2.5), and the errors whose messages hold the app's words are caught and answered before it (6.5) |
+| `[reading] failed` | error | something was thrown that is no answer, and the stream ended in a `failed` line | `phase`: the stage that was running (null before the first), and the error itself. The route writes it, so a read's line carries no `appId`: the reading's id is minted inside `readHqAppForReview`, and a create's carries the one the route derives from the body. What reaches it is infrastructure or a bug of Nova's, never a judgment of content: acceptance never throws for content (part 09, section 2.5), and the errors whose messages hold the app's words are caught and answered before it (6.5) |
 | `[reading] stopped` | warn | a stop was answered | `phase`: the circumstance code |
 | `[reading] places read missed` | error | 3.3, step 6.2: the document reads places and part 11's source test named none, so the request read them in a second pass | |
 | `[reading] unrecognized: <log key>` | error | once per distinct log key of the request's `unrecognized` findings | `defects`: the `why` of each `ReaderDefect` whose `name` gives that log key, at most five (below) |
-| `[reading] read-back differs: <check>: <signature>` | error | once per distinct signature of the request | `phase`: the check; `differenceCount`; `signatures`, the request's distinct signatures, at most five (part 09, 14.3); for `accounting/defect`, `defects`, the `why` of each defect, at most five |
+| `[reading] read-back differs: <check>: <signature>` | error | once per failing check, its message the first difference's signature | `phase`: the check; `differenceCount`; `signatures`, the request's distinct signatures, at most five (part 09, 14.3); for `accounting/defect`, `defects`, the `why` of each defect, at most five |
 | `[reading] could not create: <check>` | error | 6.5; a message with no error object | `findingCodes`; for `identity` and `bindings`, `why`, C8's line for the check |
-| `[reading] request refused` | warn | a route body failed its schema (4.1) | `phase`: the route; the first Zod issue as `<top-level key>: <issue code>`, never a deeper path (a key of `tableChoices` is a table's tag) and never a value |
+| `[reading] request refused` | warn | a route body failed its schema, or its `domain` is no project space slug (4.1) | `phase` and `operation`: the route; `issue`: the first Zod issue as `<top-level key>: <issue code>`, `body: <issue code>` where the issue has no key (a body that is no object, a key the schema does not hold), and `domain: not_a_project_space` for the slug, never a deeper path (a key of `tableChoices` is a table's tag) and never a value |
 | `[reading] created` | info | the birth committed | `elapsedMs`, the transaction's own time; `tables`, `places`, `mediaFiles`, `identityRows` as counts |
 
 A read and a create each write one `[reading] answered` line, in `read.ts` and `create.ts`; a
@@ -2376,6 +2382,9 @@ message is the form with none, and the count rides its `extra` (4.4).
 
 "Nova found {more} more things to list and counted every one. This list shows the first 2,000."
 
+Where `more` is 1: "Nova found 1 more thing to list and counted it. This list shows the first
+2,000."
+
 The rest are not said to be like the ones shown: the list is in the app's order, so what is cut
 off is whatever came last, of any kind.
 
@@ -2462,10 +2471,16 @@ runs in the work's own CI.
 
 The fixture these tests start from is exported for part 13's Playwright seed:
 `lib/deployment/reading/__tests__/adoptionFixture.ts::adoptFixtureApp(input: { projectId: string;
-actorUserId: string }): Promise<{ appId: string; receipt: AdoptedAppReceipt }>`, which
-`e2e/lib/bringInSeed.ts` calls. It reads the suite's small controlled source for that person into
+actorUserId: string }): Promise<{ appId: string; receipt: AdoptedAppReceipt }>`. It reads the suite's small controlled source for that person into
 that Project and creates from the review through the production functions, with CommCare HQ
 answered from part 05's retained answers, and returns the born app's id with its receipt.
+`e2e/lib/bringInSeed.ts` brings the same source in through the same production functions and
+the fixture's exported answers (`fixtureSource`, `fixtureResource`, `FIXTURE_PATHS`,
+`serveFixtureTables`, `createInputFor`), each app under a fresh CommCare HQ app id: one HQ app is
+published to by one Nova app across every Project, so the two apps of one scenario, and the apps of
+every other scenario, cannot share the fixture's one id. The seed process has no Cloud KMS, so for
+the length of each birth it answers the stored key at the KMS client's `decrypt`, the boundary
+the create tests control with `vi.mock`.
 
 | Test | Catches |
 |---|---|
@@ -2511,7 +2526,7 @@ answered from part 05's retained answers, and returns the born app's id with its
 
 | File | Tests | Catches |
 |---|---|---|
-| `lib/deployment/reading/__tests__/cap.test.ts`, over `gatherFromHq` with a Project side that holds nothing and the HQ peer controlled; its own timeout of 60 seconds | an application resource one byte over `HQ_BRING_IN_APP_MAX_BYTES`, and then a source one byte over it, each answer an account of one `too-large` (the first with `appName` null), and the peer's stream was cancelled at the bound each time. A source and its resource just under the cap, built by repeating one retained menu under fresh ids, read to a review, with `GatherFacts.longestPieceMs` under 5,000 | a body held or parsed past the bound; a synchronous piece long enough to fail another request's timer on the same instance (3.6). A failure of the second case is fixed in the reader or in acceptance, by cutting the piece where it is long, and the cap stands |
+| `lib/deployment/reading/__tests__/cap.test.ts`, over `gatherFromHq` with a Project side that holds nothing and the HQ peer controlled; its own timeout of 60 seconds | an application resource one byte over `HQ_BRING_IN_APP_MAX_BYTES`, and then a source one byte over it, each answer an account of one `too-large` with `appName` null, and the peer's stream was cancelled at the bound each time. A source and its resource just under the cap, built by repeating one retained menu under fresh ids, read to a review, with `GatherFacts.longestPieceMs` under 5,000 | a body held or parsed past the bound; a synchronous piece long enough to fail another request's timer on the same instance (3.6). A failure of the second case is fixed in the reader or in acceptance, by cutting the piece where it is long, and the cap stands |
 | `lib/deployment/reading/__tests__/create.test.ts` | `movedBindingCount` over two lists of part 11's gathered tables the test builds by hand: equal bindings under the answers answer 0; a `choice` table whose binding the test moves to another column for a field the reader read answers 1, and so does one whose binding it moves to another table id; a column moved for a field the reader did not read answers 0 | an answer that moves a binding the reader read going on to a birth unseen (5.3, step 6), so an app born from a document its digest never covered; `use-project` refused for a column the app never reads |
 | `lib/deployment/reading/__tests__/appId.test.ts` | `broughtInAppId` is stable, passes `lib/domain/uuid.ts::CANONICAL_UUID_PATTERN`, and differs when any one of its six inputs does | an app id two people, two Projects or two readings share |
 | `lib/deployment/reading/__tests__/digest.test.ts` | changing each of `review`'s fields, `document`, one identity row or one media path changes the digest; changing `readAt` cannot (it is not in the input type); two asset ids of one content give one digest | a part of the review the digest forgot |
@@ -2624,8 +2639,8 @@ form whose id the map lacks a new random id;
 >   the digest of what it read is the one the person reviewed (`lib/deployment/reading`).
 > - **The source and the resource are read as one bracket.** The stored source and the
 >   application resource share no revision (`ApplicationBase._meta_fields`,
->   `Application.export_json`), so a reading brackets them with the app's version read before
->   and after, and reads again where it moved
+>   `Application.export_json`), so a reading brackets them with the app's save counter
+>   (`version`, the key the source leaves out) read before and after, and reads again where it moved
 >   (`lib/commcare/hq/appReading.ts::readHqAppForReading`).
 > - **A form's own id needs API access.** The source read serves a freshly minted id for each
 >   form (`models/applications.py::Application.scrub_source`, through
@@ -2694,9 +2709,12 @@ Every id is derived from the reading's id, so both requests name the same app.
 tables and places in its seam, `recordAdoptedDeploymentInTransaction`). Before a create answers
 anything but the app, it looks for the app once more, so a repeated create answers the same app in
 every overlap. Both routes are under `/api/commcare/bring-in` and answer a stream of NDJSON lines;
-the MCP tools call the same two functions. An app whose source is over
+the MCP tools call the same two functions (`read.ts::readHqAppForReview`,
+`create.ts::createFromReview`). An app whose source is over
 `HQ_BRING_IN_APP_MAX_BYTES` is refused. Client code imports the reading's types from
-`lib/deployment`, never `lib/deployment/reading`, which is server-only."
+`lib/deployment`, and the client-safe values of `reading/types.ts`, `reading/stream.ts` and
+`reading/answers.ts` from those files, never from `lib/deployment/reading`, whose index is
+server-only."
 
 **Code comments.**
 
@@ -2887,7 +2905,7 @@ New:
 | `lib/deployment/reading/index.ts` | `import "server-only"`: `authorizeBringIn`, `readHqAppForReview`, `createFromReview` |
 | `lib/deployment/reading/__tests__/`: `read.postgres.test.ts`, `create.postgres.test.ts`, `birth.postgres.test.ts`, `cap.test.ts`, `create.test.ts`, `appId.test.ts`, `digest.test.ts`, `mediaIds.test.ts`, `gather.test.ts`, `stream.test.ts` | "Tests" |
 | `lib/deployment/reading/__tests__/adoptionFixture.ts` | `adoptFixtureApp`, the create tests' fixture, exported for part 13's `e2e/lib/bringInSeed.ts` ("Tests") |
-| `app/api/commcare/bring-in/read/route.ts`, `app/api/commcare/bring-in/create/route.ts`, `app/api/commcare/bring-in/__tests__/routes.test.ts` | the two routes (4.1). Neither exports `maxDuration` |
+| `app/api/commcare/bring-in/read/route.ts`, `app/api/commcare/bring-in/create/route.ts`, `app/api/commcare/bring-in/respond.ts`, `app/api/commcare/bring-in/__tests__/routes.test.ts` | the two routes (4.1), each a few lines over `respond.ts::answerBringIn`, the one shell both halves (before the stream, and the stream with its one last line) are written in. Neither exports `maxDuration` |
 | `lib/publish/hqReadingCopy.ts`, `lib/publish/__tests__/hqReadingCopy.test.ts` | "Copy", C1 to C9 |
 | `lib/commcare/surface/revision.ts`, `lib/commcare/surface/__tests__/revision.test.ts` | `isDeclaredSurfaceKey` (10) |
 | `components/chat/__tests__/chatLifecycle.adoption.test.ts` | 7.2 |

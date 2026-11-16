@@ -30,36 +30,48 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useId,
 	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
+import { FirstPublishLines } from "@/components/bring-in/FirstPublishLines";
 import {
+	broughtInElsewhere,
 	type ConfirmationRequest,
 	compactTargetRows,
 	confirmationRequests,
 	everyConfirmationGiven,
 	preseededDomainSelection,
+	previewAnswerAfterStop,
 	sameConfirmationKey,
 	upsertDeploymentViews,
 	withLandedConfirmations,
 } from "@/components/builder/app-setup/publishingSectionModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
-import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
+import {
+	useApplyPreviewDeploymentAnswer,
+	useDeploymentProjectSpace,
+	useDeploymentTargetFacts,
+} from "@/components/builder/DeploymentTargetProvider";
+import { HqNotConnected } from "@/components/builder/HqNotConnected";
 import type { ShownRefreshedView } from "@/components/builder/keptListModel";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
 	type PublishedDeploymentView,
 	type PublishLogoStepBody,
+	type PublishPlan,
 	placementOfferCopy,
 	publishedViewToHold,
 	publishOutcome,
+	publishPlanCopy,
 	refusalOpensHqApp,
 	withAcceptedMoves,
 	withConfirmation,
 } from "@/components/builder/publishOutcome";
+import { StopPublishingDialog } from "@/components/builder/StopPublishingDialog";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import {
@@ -100,10 +112,7 @@ import {
 	readDownloadTargetsAction,
 } from "@/lib/deployment/actions";
 import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
-import {
-	type NextPublishAction,
-	nextPublishAction,
-} from "@/lib/deployment/resources";
+import { nextPublishAction } from "@/lib/deployment/resources";
 import {
 	NEEDS_PUBLISHED_PROJECT_SPACE,
 	projectSpaceLabel,
@@ -119,6 +128,12 @@ import type {
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import {
+	CONNECTION_CHECK_FAILED,
+	DRIFT_STOP_EDITOR_LINE,
+	DRIFT_STOP_LEAVE_HEADING,
+	stoppedPublishingLine,
+} from "@/lib/publish/bringInCopy";
 import { viewerDriftDate } from "@/lib/publish/driftReference";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
 import {
@@ -136,7 +151,10 @@ import {
 	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
-import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
+import {
+	STOP_PUBLISHING_ACTION,
+	STOP_PUBLISHING_HELPER,
+} from "@/lib/publish/stopPublishing";
 import {
 	WEB_APPS_CHANGE_HEADING,
 	type WebAppsChange,
@@ -144,6 +162,7 @@ import {
 } from "@/lib/publish/webApps";
 import {
 	useAccessPhase,
+	useCanDelete,
 	useCanEdit,
 	useNoteDeploymentRecordsChanged,
 } from "@/lib/session/hooks";
@@ -213,6 +232,8 @@ export interface PublishDialogProps {
 	 *  History-API push) so this dialog carries no location subscription. */
 	onOpenPublishing: () => void;
 	isRefreshingHqConnection: boolean;
+	/** True where the last Check connection could not be read. */
+	hqConnectionRefreshFailed: boolean;
 	onRefreshHqConnection: () => void;
 	onLoadProjectSpaceCompatibility: (
 		domain: string | undefined,
@@ -317,9 +338,6 @@ function compatibilityTargetDisplayName(
 	);
 }
 
-/** What publishing to the selected project space will do, or "unknown" before Nova can say. */
-type PublishPlan = NextPublishAction | "unknown";
-
 /** The project spaces a CCZ can be made for, loaded when the dialog opens. */
 type DownloadTargets =
 	| { type: "loading" }
@@ -351,6 +369,7 @@ export function PublishDialogBody({
 	requestedDomain,
 	onOpenPublishing,
 	isRefreshingHqConnection,
+	hqConnectionRefreshFailed,
 	onRefreshHqConnection,
 	onLoadProjectSpaceCompatibility,
 	onDownloadJson,
@@ -358,6 +377,9 @@ export function PublishDialogBody({
 }: PublishDialogProps) {
 	const accessPhase = useAccessPhase();
 	const canEdit = useCanEdit();
+	/* Stopping publishing is the Project's `delete`; an editor is told who
+	 * can. */
+	const canStop = useCanDelete();
 	const session = useBuilderSessionApi();
 	const applyPreviewAnswer = useApplyPreviewDeploymentAnswer();
 	const reconciler = useReconcilerContext();
@@ -448,6 +470,11 @@ export function PublishDialogBody({
 	const [acceptMoves, setAcceptMoves] = useState<AcceptPlacementMoves | null>(
 		null,
 	);
+	/**
+	 * The project space this dialog just stopped publishing to, whose line
+	 * the destination step shows until the person picks anything else.
+	 */
+	const [stoppedDomain, setStoppedDomain] = useState<string | null>(null);
 	const [compatibilityState, setCompatibilityState] =
 		useState<ProjectSpaceCompatibilityState>({
 			type: "loading",
@@ -468,6 +495,7 @@ export function PublishDialogBody({
 		setConfirmations([]);
 		setConfirmWebApps(null);
 		setAcceptMoves(null);
+		setStoppedDomain(null);
 	}, [connectionServer]);
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
@@ -541,6 +569,7 @@ export function PublishDialogBody({
 		setConfirmations([]);
 		setConfirmWebApps(null);
 		setAcceptMoves(null);
+		setStoppedDomain(null);
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
 		setDownloadTargets({ type: "loading" });
@@ -682,6 +711,37 @@ export function PublishDialogBody({
 		},
 		[upsertView, applyPreviewAnswer],
 	);
+	/* Stopping publishing at a change made in CommCare HQ answers the
+	 * refusal another way: the refusal and every tick go, the dialog returns
+	 * to its destination step saying so, and the plan line there reads off
+	 * the ended record (`creates-beside`). */
+	const previewProjectSpace = useDeploymentProjectSpace();
+	const previewTargetFacts = useDeploymentTargetFacts();
+	const handleStopped = useCallback(
+		(
+			next: DeploymentView & { readonly previewProjectSpace: string | null },
+		) => {
+			const { previewProjectSpace: stoppedSpace, ...stoppedView } = next;
+			upsertView(stoppedView);
+			applyPreviewAnswer(
+				previewAnswerAfterStop(stoppedSpace, {
+					projectSpace: previewProjectSpace,
+					targetFacts: previewTargetFacts,
+				}),
+			);
+			operationGenerationRef.current += 1;
+			setStatus({ type: "idle" });
+			setAdoptResourceIds([]);
+			setDiscardRemoteChanges([]);
+			setConfirmations([]);
+			setConfirmWebApps(null);
+			setAcceptMoves(null);
+			setStoppedDomain(stoppedView.deployment.deployment.domain);
+			pendingStepFocus.current = true;
+			setReviewing(false);
+		},
+		[upsertView, applyPreviewAnswer, previewProjectSpace, previewTargetFacts],
+	);
 
 	/* What publishing to the selected project space will do. The SAME
 	 * predicate the publish lifecycle applies server-side
@@ -690,19 +750,33 @@ export function PublishDialogBody({
 	 * follows will do — and "unknown" while the records are loading, when
 	 * the read failed, or before a domain is picked, because a claim made
 	 * in those windows would be a guess the upload could contradict. */
+	const selectedView =
+		existing.type !== "ready" || selectedDomain === ""
+			? null
+			: (existing.views.find(
+					(view) =>
+						/* The server half matters: a record for a same-named
+						 * space on another CommCare HQ installation says nothing
+						 * about what this upload will do. */
+						view.deployment.deployment.server === connectionServer &&
+						view.deployment.deployment.domain === selectedDomain,
+				) ?? null);
 	const publishPlan: PublishPlan =
 		existing.type !== "ready" || selectedDomain === ""
 			? "unknown"
-			: nextPublishAction(
-					existing.views.find(
-						(view) =>
-							/* The server half matters: a record for a same-named
-							 * space on another CommCare HQ installation says nothing
-							 * about what this upload will do. */
-							view.deployment.deployment.server === connectionServer &&
-							view.deployment.deployment.domain === selectedDomain,
-					)?.deployment ?? null,
-				);
+			: nextPublishAction(selectedView?.deployment ?? null);
+	/* A new app here is a second copy where the app was brought in from
+	 * another project space, which the plan line says. */
+	const publishPlanContext = {
+		broughtInElsewhere:
+			existing.type === "ready" &&
+			connectionServer !== null &&
+			selectedDomain !== "" &&
+			broughtInElsewhere(existing.views, {
+				server: connectionServer,
+				domain: selectedDomain,
+			}),
+	};
 
 	const compatibilityDomain =
 		target === "hq"
@@ -775,6 +849,7 @@ export function PublishDialogBody({
 			setConfirmations([]);
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
+			setStoppedDomain(null);
 			setTarget(next);
 			setReviewing(false);
 			setStatus({ type: "idle" });
@@ -799,6 +874,7 @@ export function PublishDialogBody({
 			setConfirmations([]);
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
+			setStoppedDomain(null);
 		},
 		[compatibilityDomain, invalidateCompatibilityReport],
 	);
@@ -909,6 +985,7 @@ export function PublishDialogBody({
 		 * time it answers. */
 		const publishedDomain = selectedDomain;
 		setStatus({ type: "uploading" });
+		setStoppedDomain(null);
 
 		try {
 			const saved = await reconciler?.reconciler.waitForHumanSaveBarrier();
@@ -1383,12 +1460,29 @@ export function PublishDialogBody({
 						)}
 						{target === "hq" ? (
 							notConfigured ? (
-								<NotConfigured
+								<HqNotConnected
+									title="Connect CommCare HQ to upload"
+									body="You can add your CommCare HQ API key in Settings to upload directly from commcare nova"
+									note="You can still choose a CommCare HQ app file or mobile app file above"
+									error={
+										hqConnectionRefreshFailed
+											? CONNECTION_CHECK_FAILED
+											: undefined
+									}
 									isRefreshing={isRefreshingHqConnection}
 									onRefresh={onRefreshHqConnection}
 								/>
 							) : (
 								<>
+									{stoppedDomain !== null &&
+									stoppedDomain === selectedDomain ? (
+										<p
+											role="status"
+											className="rounded-lg border border-nova-border bg-nova-well px-3 py-2.5 text-[13px] leading-relaxed text-nova-text"
+										>
+											{stoppedPublishingLine(stoppedDomain)}
+										</p>
+									) : null}
 									<UploadForm
 										availableDomains={availableDomains}
 										domainItems={domainItems}
@@ -1398,7 +1492,10 @@ export function PublishDialogBody({
 										appName={appName}
 										onAppNameChange={setAppName}
 										status={status}
-										publishPlan={publishPlan}
+										publishPlanLine={publishPlanCopy(
+											publishPlan,
+											publishPlanContext,
+										)}
 									/>
 									{existing.type === "ready" && existing.views.length > 0 ? (
 										<Collapsible>
@@ -1446,7 +1543,7 @@ export function PublishDialogBody({
 								</p>
 								{target === "hq" ? (
 									<p className="mt-2 text-sm text-nova-text-secondary">
-										{publishPlanCopy(publishPlan)}
+										{publishPlanCopy(publishPlan, publishPlanContext)}
 									</p>
 								) : null}
 							</div>
@@ -1532,6 +1629,19 @@ export function PublishDialogBody({
 												changes={status.remoteChanges}
 												discarded={discardRemoteChanges}
 												onDiscardChange={handleDiscardChange}
+												stop={
+													connectionServer === null
+														? null
+														: {
+																canStop,
+																target: {
+																	appId: getAppId(),
+																	server: connectionServer,
+																	domain: selectedDomain,
+																},
+																onStopped: handleStopped,
+															}
+												}
 											/>
 										) : null}
 										{/* The Web Apps question: the app's Web App setting
@@ -1630,6 +1740,15 @@ export function PublishDialogBody({
 						)}
 						{target === "hq" && !complete ? (
 							<>
+								{/* What the first publish over an app brought in
+								    changes: a consequence, so it stays visible and
+								    holds no control. */}
+								{selectedView !== null && selectedView.firstPublish !== null ? (
+									<FirstPublishLines
+										view={selectedView.firstPublish}
+										surface="publish"
+									/>
+								) : null}
 								{requestedConfirmations.length > 0 && canEdit ? (
 									<ConfirmationChoice
 										requests={requestedConfirmations}
@@ -1812,14 +1931,9 @@ function ExistingTargetRows({
 							    a target this connection can publish to. A record on
 							    another CommCare HQ installation instead says where it
 							    is, so nobody wonders why the select doesn't offer it. */}
-							{!row.reachable ? (
+							{row.line !== null ? (
 								<span className="block text-[12px] font-normal text-nova-text-muted">
-									On CommCare HQ's {deploymentServerLabel(row.server)} server,
-									which this connection doesn't reach
-								</span>
-							) : row.nextPublish === "creates" && !row.stopped ? (
-								<span className="block text-[12px] font-normal text-nova-text-muted">
-									Publishing again creates a fresh app here
+									{row.line}
 								</span>
 							) : null}
 						</span>
@@ -1980,17 +2094,6 @@ function ManualImportGuide({ steps }: { steps: readonly ManualImportStep[] }) {
 	);
 }
 
-function publishPlanCopy(plan: PublishPlan): string {
-	if (plan === "updates")
-		return "This updates the app already in this project space.";
-	if (plan === "creates")
-		return "This creates a new app in this project space.";
-	if (plan === "creates-beside") return PUBLISH_PLAN_CREATES_BESIDE;
-	if (plan === "fills-shell")
-		return "Nova made an empty app here on an earlier try. Uploading fills it in.";
-	return "Nova checks this project space before sending the app.";
-}
-
 function UploadForm({
 	availableDomains,
 	domainItems,
@@ -2000,7 +2103,7 @@ function UploadForm({
 	appName,
 	onAppNameChange,
 	status,
-	publishPlan,
+	publishPlanLine,
 }: {
 	availableDomains: Domain[];
 	domainItems: { label: string; value: string }[];
@@ -2010,8 +2113,8 @@ function UploadForm({
 	appName: string;
 	onAppNameChange: (value: string) => void;
 	status: PublishStatus;
-	/** What publishing will do to the selected project space's app. */
-	publishPlan: PublishPlan;
+	/** What publishing will do to the selected project space's app (`publishPlanCopy`). */
+	publishPlanLine: string;
 }) {
 	const uploading = status.type === "uploading";
 	return (
@@ -2082,7 +2185,7 @@ function UploadForm({
 				</Field>
 
 				<p className="text-xs leading-relaxed text-nova-text-muted">
-					{publishPlanCopy(publishPlan)}
+					{publishPlanLine}
 				</p>
 			</div>
 
@@ -2650,8 +2753,10 @@ function sameRemoteChange(
 }
 
 /**
- * What changed in CommCare HQ since Nova last published there, and the
- * only thing that lets the publish write over it.
+ * What changed in CommCare HQ since Nova last published there, brought the
+ * app in or brought changes in, and what lets the publish write over it.
+ * Where the app's own change is listed, Stop publishing here stands under
+ * its parts for an admin or owner, and an editor is told who can.
  *
  * Each change is ticked on its own and starts unticked, like a name clash:
  * publishing over one replaces what a person made in CommCare HQ with this
@@ -2662,10 +2767,23 @@ function RemoteChangeChoice({
 	changes,
 	discarded,
 	onDiscardChange,
+	stop,
 }: {
 	changes: readonly DeploymentRemoteChange[];
 	discarded: readonly RemoteChangeDiscard[];
 	onDiscardChange: (change: DeploymentRemoteChange, discard: boolean) => void;
+	/** The way to leave CommCare HQ's version as it is; null with no connection to name the target. */
+	stop: {
+		readonly canStop: boolean;
+		readonly target: {
+			readonly appId: string;
+			readonly server: CommCareServer;
+			readonly domain: string;
+		};
+		readonly onStopped: (
+			next: DeploymentView & { readonly previewProjectSpace: string | null },
+		) => void;
+	} | null;
 }) {
 	return (
 		<ul className="mt-3 flex flex-col gap-2">
@@ -2718,10 +2836,76 @@ function RemoteChangeChoice({
 								<span className="sr-only"> {change.name}</span>
 							</span>
 						</label>
+						{change.kind === "app" && stop !== null ? (
+							<DriftStop
+								canStop={stop.canStop}
+								target={stop.target}
+								onStopped={stop.onStopped}
+							/>
+						) : null}
 					</li>
 				);
 			})}
 		</ul>
+	);
+}
+
+/**
+ * The third way on from a change made in CommCare HQ to the app itself:
+ * stop publishing here, which leaves CommCare HQ's version as it is. Offered
+ * to a member who may delete the Project's apps, with the one confirmation
+ * the Publishing card uses; an editor reads who can.
+ */
+function DriftStop({
+	canStop,
+	target,
+	onStopped,
+}: {
+	canStop: boolean;
+	target: {
+		readonly appId: string;
+		readonly server: CommCareServer;
+		readonly domain: string;
+	};
+	onStopped: (
+		next: DeploymentView & { readonly previewProjectSpace: string | null },
+	) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const helperId = useId();
+	if (!canStop) {
+		return (
+			<p className="mt-2 border-t border-nova-border pt-2 text-xs leading-relaxed text-nova-text-secondary">
+				{DRIFT_STOP_EDITOR_LINE}
+			</p>
+		);
+	}
+	return (
+		<div className="mt-2 border-t border-nova-border pt-2">
+			<h4 className="text-[13px] font-medium text-nova-text">
+				{DRIFT_STOP_LEAVE_HEADING}
+			</h4>
+			<Button
+				type="button"
+				variant="ghost"
+				onClick={() => setOpen(true)}
+				aria-describedby={helperId}
+			>
+				{STOP_PUBLISHING_ACTION}
+			</Button>
+			<p
+				id={helperId}
+				className="mt-0.5 text-xs leading-relaxed text-nova-text-secondary"
+			>
+				{STOP_PUBLISHING_HELPER}
+			</p>
+			<StopPublishingDialog
+				open={open}
+				onOpenChange={setOpen}
+				target={target}
+				onStopped={onStopped}
+			/>
+		</div>
 	);
 }
 
@@ -2879,60 +3063,6 @@ function ProjectSpaceCompatibilityNotice({
 					</div>
 				</div>
 			))}
-		</div>
-	);
-}
-
-function NotConfigured({
-	isRefreshing,
-	onRefresh,
-}: {
-	isRefreshing: boolean;
-	onRefresh: () => void;
-}) {
-	return (
-		<div className="rounded-xl border border-nova-amber/20 bg-nova-amber/[0.06] p-4">
-			<div className="flex items-start gap-3">
-				<Icon
-					icon={tablerInfoCircle}
-					className="mt-0.5 size-5 shrink-0 text-nova-amber"
-				/>
-				<div className="min-w-0">
-					<h3 className="text-sm font-semibold text-nova-text">
-						Connect CommCare HQ to upload
-					</h3>
-					<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
-						You can add your CommCare HQ API key in Settings to upload directly
-						from commcare nova
-					</p>
-					<p className="mt-2 text-xs leading-relaxed text-nova-text-muted">
-						You can still choose a CommCare HQ app file or mobile app file above
-					</p>
-				</div>
-			</div>
-			<div className="mt-3 flex flex-wrap items-center gap-2 pl-8">
-				<Link
-					href="/settings"
-					target="_blank"
-					rel="noopener noreferrer"
-					className="nova-focusable inline-flex h-11 items-center gap-1 px-2 text-[15px] font-medium text-nova-violet-bright hover:underline"
-				>
-					Open Settings
-					<Icon icon={tablerExternalLink} className="size-4" />
-				</Link>
-				<Button
-					type="button"
-					variant="outline"
-					onClick={onRefresh}
-					disabled={isRefreshing}
-				>
-					<Icon
-						icon={tablerRefresh}
-						className={`size-4 ${isRefreshing ? "animate-spin" : ""}`}
-					/>
-					{isRefreshing ? "Checking connection" : "Check connection"}
-				</Button>
-			</div>
 		</div>
 	);
 }

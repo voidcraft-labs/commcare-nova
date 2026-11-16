@@ -15,6 +15,10 @@ import {
 	DEPLOYMENT_PROGRESS_STATES,
 	type DeploymentProgressState,
 	deploymentDisplaysAsReached,
+	deploymentEnding,
+	deploymentIsObservable,
+	deploymentServerLabel,
+	remoteAppReportedGone,
 } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
 import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
@@ -28,6 +32,7 @@ import type {
 	DeploymentConfirmationKey,
 	DeploymentConfirmationKind,
 	DeploymentConfirmationNeeded,
+	PreviewDeploymentAnswer,
 } from "@/lib/deployment/types";
 import {
 	type AppDeploymentNoticeEntry,
@@ -35,11 +40,16 @@ import {
 	orderNoticeEntries,
 } from "@/lib/notices/migrationNotice";
 import {
+	PUBLISHING_STOPPED_ROW,
+	STOP_PUBLISHING_FAILED,
+} from "@/lib/publish/bringInCopy";
+import {
 	isPlanFeatureId,
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
 	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
+import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
 
 /**
  * What each rung means, in the author's words. One home for the ladder,
@@ -189,9 +199,16 @@ export interface CompactTargetRow {
 	readonly domain: string;
 	/** Which CommCare HQ installation holds the record. */
 	readonly server: CommCareServer;
-	/** The furthest rung the record honestly shows, or the stopped notice. */
+	/**
+	 * The furthest rung the record honestly shows, the stopped notice, or
+	 * that publishing there stopped.
+	 */
 	readonly statusLabel: string;
-	/** True when the record is a refused publish rather than a reached rung. */
+	/**
+	 * True when the record is a refused publish rather than a reached rung.
+	 * An ended deployment is never `stopped`: its ending is the line, whatever
+	 * a later attempt there left in its state.
+	 */
 	readonly stopped: boolean;
 	/**
 	 * What publishing again does there: create an app, fill the empty one an
@@ -205,6 +222,12 @@ export interface CompactTargetRow {
 	 * dialog must not describe what publishing again "will do" to it.
 	 */
 	readonly reachable: boolean;
+	/**
+	 * The line under the domain: where the record lives when the connection
+	 * cannot reach it, else what publishing there again makes where that is
+	 * a new app, else null.
+	 */
+	readonly line: string | null;
 }
 
 export function compactTargetRows(
@@ -213,17 +236,29 @@ export function compactTargetRows(
 ): readonly CompactTargetRow[] {
 	return views.map((view) => {
 		const record = view.deployment.deployment;
-		const stopped = record.state === "incomplete";
+		const ended = cardKind(view) === "ended";
+		const stopped = !ended && record.state === "incomplete";
+		const nextPublish = nextPublishAction(view.deployment);
+		const reachable = record.server === connectionServer;
 		return {
 			key: deploymentViewKey(view),
 			domain: record.domain,
 			server: record.server,
-			statusLabel: stopped
-				? "Publish stopped partway"
-				: (furthestReachedLabel(view) ?? "Not on this project space yet"),
+			statusLabel: ended
+				? PUBLISHING_STOPPED_ROW
+				: stopped
+					? "Publish stopped partway"
+					: (furthestReachedLabel(view) ?? "Not on this project space yet"),
 			stopped,
-			nextPublish: nextPublishAction(view.deployment),
-			reachable: record.server === connectionServer,
+			nextPublish,
+			reachable,
+			line: !reachable
+				? `On CommCare HQ's ${deploymentServerLabel(record.server)} server, which this connection doesn't reach`
+				: nextPublish === "creates-beside"
+					? PUBLISH_PLAN_CREATES_BESIDE
+					: nextPublish === "creates" && !stopped
+						? "Publishing again creates a fresh app here"
+						: null,
 		};
 	});
 }
@@ -235,6 +270,142 @@ function furthestReachedLabel(view: DeploymentView): string | null {
 		if (deploymentDisplaysAsReached(record, state)) furthest = state;
 	}
 	return furthest === null ? null : DEPLOYMENT_STATE_LABELS[furthest];
+}
+
+// ── What one card draws ──────────────────────────────────────────────────
+
+/**
+ * Where a deployment's app came from, where Nova did not make it: the live
+ * `app` mapping is `adopted`, which only bringing the app in from CommCare
+ * HQ records, with who and when. Null for an app Nova made there, and for a
+ * deployment with no live app mapping.
+ */
+export function broughtInOf(
+	view: DeploymentView,
+): { readonly at: string; readonly byName: string } | null {
+	const app = activeRemoteApp(view.deployment);
+	if (app === null || app.ownership !== "adopted" || app.adoptedAt === null) {
+		return null;
+	}
+	/* The store resolves a former member's name, and sets the name exactly
+	 * where it sets who; the fallback is for a mapping built without one. */
+	return { at: app.adoptedAt, byName: app.adoptedByName ?? "Someone" };
+}
+
+/**
+ * What the card draws for a deployment: its ordinary record, or the ending
+ * it stands at. Read from the mappings (`deploymentEnding`) and never from
+ * the state: a publish after an ending that passed preflight and then
+ * stopped before it made the new app moved the state on, and the ending
+ * still stands.
+ */
+export function cardKind(view: DeploymentView): "record" | "ended" {
+	return deploymentEnding(view.deployment) === null ? "record" : "ended";
+}
+
+/**
+ * The day an app brought in from CommCare HQ was read, while Nova has not
+ * published to it yet: the deployment holds a list of what the first publish
+ * changes. Null once a publish ended that list, and for every app Nova made.
+ */
+export function readNotPublishedSince(view: DeploymentView): string | null {
+	if (view.firstPublish?.of !== "first-publish") return null;
+	return broughtInOf(view)?.at ?? null;
+}
+
+/**
+ * Whether Check status can answer for this record, so the card offers it.
+ *
+ * Only where there is a live app mapping to ask about. Never for a mapping
+ * whose HQ app another Nova app took (`releasedAt`): what CommCare HQ says
+ * of that app is about the other app's publishes, and Check status refuses
+ * it. Never for a record refused before its content reached CommCare HQ
+ * (`deploymentIsObservable`), except an app CommCare HQ reported gone,
+ * which is asked about again since HQ's own undo is how it comes back.
+ */
+export function checkStatusOffered(view: DeploymentView): boolean {
+	const remoteApp = activeRemoteApp(view.deployment);
+	return (
+		remoteApp !== null &&
+		remoteApp.releasedAt === null &&
+		(deploymentIsObservable(view.deployment.deployment) ||
+			remoteAppReportedGone(view.deployment))
+	);
+}
+
+/**
+ * Whether the card offers Stop publishing here: to a member who may delete
+ * the Project's apps, and only while the deployment has a live app mapping,
+ * since a deployment with none has nothing to stop.
+ */
+export function stopPublishingOffered(
+	view: DeploymentView,
+	canStop: boolean,
+): boolean {
+	return canStop && activeRemoteApp(view.deployment) !== null;
+}
+
+/**
+ * What a stop that did not happen says, in the confirmation. A refusal whose
+ * own sentence tells the person something true and actionable shows it: an
+ * editor told who may stop (`not_permitted`), or a deployment with nothing
+ * left to stop (`invalid_input`). Every other failure, a thrown request
+ * included (`null`), is Nova's own and says it changed nothing.
+ */
+export function stopFailureSentence(
+	failure: {
+		readonly code:
+			| "unauthenticated"
+			| "not_found"
+			| "invalid_input"
+			| "not_permitted"
+			| "unavailable";
+		readonly message: string;
+	} | null,
+): string {
+	return failure !== null &&
+		(failure.code === "not_permitted" || failure.code === "invalid_input")
+		? failure.message
+		: STOP_PUBLISHING_FAILED;
+}
+
+/**
+ * What Preview names after a stop answered. The stop answers the project
+ * space alone; the settings it keeps are kept only where Preview still
+ * names the same space, and otherwise wait for the stream's deployment
+ * lane, which the stop's write poked.
+ */
+export function previewAnswerAfterStop(
+	previewProjectSpace: string | null,
+	current: PreviewDeploymentAnswer,
+): PreviewDeploymentAnswer {
+	return {
+		projectSpace: previewProjectSpace,
+		targetFacts:
+			previewProjectSpace !== null &&
+			previewProjectSpace === current.projectSpace
+				? current.targetFacts
+				: null,
+	};
+}
+
+/**
+ * Whether some record of this app other than `target`'s has a live `app`
+ * mapping whose `ownership` is `adopted`: the app was brought in from
+ * another project space, so a publish to `target` makes a new app there
+ * beside whatever copy the team keeps.
+ */
+export function broughtInElsewhere(
+	records: readonly DeploymentView[],
+	target: { readonly server: CommCareServer; readonly domain: string },
+): boolean {
+	return records.some((view) => {
+		const record = view.deployment.deployment;
+		if (record.server === target.server && record.domain === target.domain) {
+			return false;
+		}
+		return activeRemoteApp(view.deployment)?.ownership === "adopted";
+	});
 }
 
 // ── Publish again ─────────────────────────────────────────────────────────

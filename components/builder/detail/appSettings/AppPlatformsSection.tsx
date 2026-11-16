@@ -25,6 +25,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { Uuid } from "@/lib/domain";
 import {
 	PLATFORM_DECLARATION_LABELS,
+	PLATFORM_DECLARATION_LINES,
 	PLATFORM_LABELS,
 	PLATFORMS,
 	type Platform,
@@ -53,14 +54,10 @@ type PlatformChoice = "both" | Platform;
 const CHOICES: readonly {
 	readonly choice: PlatformChoice;
 	readonly line: string;
-}[] = [
-	{
-		choice: "both",
-		line: "In a browser on CommCare HQ, and in the CommCare app on phones and tablets",
-	},
-	{ choice: "web-apps", line: "In a browser on CommCare HQ" },
-	{ choice: "android", line: "In the CommCare app on phones and tablets" },
-];
+}[] = (["both", "web-apps", "android"] as const).map((choice) => ({
+	choice,
+	line: PLATFORM_DECLARATION_LINES[choice],
+}));
 
 const ANNOUNCEMENTS: Readonly<Record<PlatformChoice, string>> = {
 	both: "This app now runs in Web Apps and on Android",

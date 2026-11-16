@@ -45,6 +45,7 @@ export const SMOKE_PROFILES = [
 	"connect-learn",
 	"identity-moves",
 	"managed-data",
+	"bring-in",
 ] as const satisfies readonly SmokeProfile[];
 
 export type SmokeScenario = {

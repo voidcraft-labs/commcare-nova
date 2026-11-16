@@ -5,7 +5,8 @@
  * `publish-placement` or a `blueprint-migration` row) above the app's
  * greatest fold baseline, or, for a target no such row names,
  * the hold that baseline's snapshot holds, since a cutover writes its holds
- * into each app's baseline rather than as mutations.
+ * into each app's baseline rather than as mutations, and an app brought in
+ * from CommCare HQ is born with them in its genesis baseline.
  *
  * Read by the commit kernel under the app lock, for the keys an editor's
  * batch needs justified, and by the builder's snapshot read, for the keys the

@@ -17,6 +17,7 @@ import type {
 	DeploymentConfirmationNeeded,
 	DeploymentRecord,
 } from "@/lib/deployment/types";
+import { ANOTHER_SPACE_NEW_APP_LINE } from "@/lib/publish/bringInCopy";
 import {
 	type PlacementMoveOfferView,
 	SAME_TYPE_CHILD_LINKS_OFFER_HEADING,
@@ -33,14 +34,17 @@ import {
 	projectSpaceCapabilityUse,
 	projectSpaceCompatibilityForTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
+import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
 	type PublishAnswers,
+	type PublishPlan,
 	type PublishResponseBody,
 	placementOfferCopy,
 	publishedViewToHold,
 	publishOutcome,
+	publishPlanCopy,
 	refusalOpensHqApp,
 	withAcceptedMoves,
 	withConfirmation,
@@ -939,5 +943,47 @@ describe("answering the Save to Case question", () => {
 				withAcceptedMoves(none, OFFER, true).acceptMoves,
 			),
 		).toStrictEqual([{ key: LOOKUP_TABLES }]);
+	});
+});
+
+describe("the plan line", () => {
+	const elsewhere = { broughtInElsewhere: true };
+	const here = { broughtInElsewhere: false };
+
+	it("says a new app beside the stopped one whatever the app came from", () => {
+		expect(publishPlanCopy("creates-beside", here)).toBe(
+			PUBLISH_PLAN_CREATES_BESIDE,
+		);
+		expect(publishPlanCopy("creates-beside", elsewhere)).toBe(
+			PUBLISH_PLAN_CREATES_BESIDE,
+		);
+	});
+
+	it("tells a second project space of an app brought in from another one that it gets a new app beside the team's copy", () => {
+		expect(publishPlanCopy("creates", elsewhere)).toBe(
+			ANOTHER_SPACE_NEW_APP_LINE,
+		);
+		expect(publishPlanCopy("creates", here)).toBe(
+			"This creates a new app in this project space.",
+		);
+	});
+
+	it("keeps every other plan's line whatever the context", () => {
+		const lines: Record<
+			Exclude<PublishPlan, "creates" | "creates-beside">,
+			string
+		> = {
+			updates: "This updates the app already in this project space.",
+			"fills-shell":
+				"Nova made an empty app here on an earlier try. Uploading fills it in.",
+			unknown: "Nova checks this project space before sending the app.",
+		};
+		for (const [plan, line] of Object.entries(lines) as [
+			keyof typeof lines,
+			string,
+		][]) {
+			expect(publishPlanCopy(plan, here)).toBe(line);
+			expect(publishPlanCopy(plan, elsewhere)).toBe(line);
+		}
 	});
 });

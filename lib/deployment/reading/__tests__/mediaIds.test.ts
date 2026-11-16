@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { HQ_MEDIA_TYPES, type HqMediaType } from "@/lib/commcare/hq/appSource";
+import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 import {
 	provisionalReadingMediaId,
 	READING_MEDIA_NAMESPACE,
@@ -94,6 +95,7 @@ describe("the two ids", () => {
 			expect(id).toMatch(
 				/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 			);
+			expect(id).toMatch(CANONICAL_UUID_PATTERN);
 		}
 	});
 

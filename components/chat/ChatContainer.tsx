@@ -35,6 +35,8 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { v4 as uuidv4 } from "uuid";
 import { createStarterApp } from "@/app/(app)/build/actions";
+import { BringInFlow } from "@/components/bring-in/BringInFlow";
+import type { BringInSeed } from "@/components/bring-in/useBringIn";
 import { triggerAssetExtraction } from "@/components/builder/media/mediaClient";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import {
@@ -84,7 +86,16 @@ import {
 	applyStreamEvent,
 	conversationEventError,
 } from "@/lib/generation/streamDispatcher";
-import { pushBuilderHistory } from "@/lib/routing/useClientPath";
+import { BRING_IN_ACTIONS } from "@/lib/publish/bringInCopy";
+import {
+	UNVERIFIED_LANDING_BODY,
+	UNVERIFIED_LANDING_TITLE,
+} from "@/lib/publish/hqReadingCopy";
+import { bringInHref, bringInLocation } from "@/lib/routing/bringInLocation";
+import {
+	pushBuilderHistory,
+	useBuilderSearchFrom,
+} from "@/lib/routing/useClientPath";
 import {
 	createDesignProgressStore,
 	type DesignProgressStoreApi,
@@ -193,10 +204,11 @@ function verifyActivationDigest(
 }
 
 /**
- * Land a validated creation receipt. Nova has two ways an app is born, the
- * design build's `data-app-materialized` frame and the blank-app action's
- * return value, and both arrive here, so a new app cannot land two different
- * ways.
+ * Land a validated creation receipt. A creation receipt reaches this tab three
+ * ways: the design build's `data-app-materialized` frame, the blank-app
+ * action's return value, and the answer of `POST /api/commcare/bring-in/create`
+ * for an app brought in from CommCare HQ. All of them arrive here, so a new
+ * app cannot land two different ways.
  *
  * The order is the contract. Identity and capability first, then the exact
  * sequence-1 blueprint under a remote-apply bracket (which is what keeps this
@@ -699,6 +711,10 @@ interface ChatContainerProps {
 	 *  plan are not seeded: they exist only in the frames a run streams, and
 	 *  inventing them would be the fake-progress §15.1 rules out. */
 	initialDesignSession?: DesignSessionSeed | null;
+	/** On a fresh `/build/new`: what the bring-in flow needs from the server,
+	 *  the validated query of the first paint and the Projects the person may
+	 *  add an app to. Absent everywhere else. */
+	bringInSeed?: BringInSeed;
 }
 
 export function ChatContainer({
@@ -709,6 +725,7 @@ export function ChatContainer({
 	appGenerating,
 	currentUserId,
 	initialDesignSession,
+	bringInSeed,
 }: ChatContainerProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
@@ -2060,6 +2077,89 @@ export function ChatContainer({
 		[addToolOutput, chat, scopeEpoch, sendMessage],
 	);
 
+	/**
+	 * Lands one raw creation receipt.
+	 * `landed`: installed in this tab. `leaving`: the tab is loading the app's
+	 * own page. `unverified`: neither could be done here, and a toast says so.
+	 *
+	 * Same strict boundary the SA's creation frame passes through, for the same
+	 * reason: identity, capability, blueprint, and cursor are one authority,
+	 * and multiplayer must never be activated from a partial one. A tab's
+	 * stores, its lookup manifest and its presence belong to its Project, so a
+	 * receipt for another Project is never installed here: a blank app is
+	 * created in the session's Project, so for it that is a fault; an app
+	 * brought in may go to any Project the person chose, so for it the tab
+	 * loads that app's own page, which takes the app's own Project.
+	 */
+	const landCreatedAppReceipt = useCallback(
+		(
+			raw: Record<string, unknown>,
+			origin: "blank" | "brought-in",
+		): "landed" | "leaving" | "unverified" => {
+			const activation = parseAppMaterializationReceipt(raw);
+			const docApi = docStoreRef.current;
+			const sessionApi = sessionStoreRef.current;
+			const current = sessionApi?.getState();
+			const unverified = (): "unverified" => {
+				if (origin === "blank") {
+					projectToast(
+						"error",
+						"Reload to finish opening this app",
+						"Nova created your app, but couldn't verify its Project scope in this tab. It's waiting in your app list.",
+						{
+							persistent: true,
+							action: {
+								label: "Reload page",
+								onPress: () => window.location.reload(),
+							},
+						},
+					);
+				} else {
+					projectToast(
+						"error",
+						UNVERIFIED_LANDING_TITLE,
+						UNVERIFIED_LANDING_BODY,
+						{
+							persistent: true,
+							action: {
+								label: BRING_IN_ACTIONS.goToYourApps,
+								onPress: () => window.location.assign("/"),
+							},
+						},
+					);
+				}
+				return "unverified";
+			};
+			if (
+				activation === null ||
+				!docApi ||
+				!sessionApi ||
+				current === undefined ||
+				current.scopeEpoch !== scopeEpoch
+			)
+				return unverified();
+			if (current.projectId !== activation.projectId) {
+				if (origin === "blank") return unverified();
+				/* The one place a creation navigates: there is no run to keep,
+				 * and the tab's stores belong to a Project the app is not in. The
+				 * id is one the strict boundary above admitted. */
+				window.location.assign(`/build/${activation.appId}`);
+				return "leaving";
+			}
+			/* No navigation: this installs the app the client was just handed,
+			 * in the tree that is already mounted. */
+			installCreatedApp(
+				activation,
+				docApi,
+				sessionApi,
+				reconcilerCtxRef.current,
+			);
+			verifyActivationDigest(activation, projectToast);
+			return "landed";
+		},
+		[projectToast, scopeEpoch],
+	);
+
 	const handleCreateStarterApp = useCallback(() => {
 		if (agentEngagedRef.current || creatingStarterAppRef.current) return;
 		const session = sessionStoreRef.current?.getState();
@@ -2086,50 +2186,13 @@ export function ChatContainer({
 					projectToast("error", "Couldn't create the app", result.error);
 					return;
 				}
-				/* Same strict boundary the SA's creation frame passes through, for
-				 * the same reason: identity, capability, blueprint, and cursor are
-				 * one authority, and multiplayer must never be activated from a
-				 * partial one. */
-				const activation = parseAppMaterializationReceipt(
+				/* The blueprint arriving is what carries the builder out of its
+				 * centered new-build state, so release the latches only after it
+				 * lands (or after the toast says it could not). */
+				landCreatedAppReceipt(
 					result.receipt as unknown as Record<string, unknown>,
+					"blank",
 				);
-				const docApi = docStoreRef.current;
-				const sessionApi = sessionStoreRef.current;
-				const current = sessionApi?.getState();
-				if (
-					activation === null ||
-					!docApi ||
-					!sessionApi ||
-					current === undefined ||
-					current.scopeEpoch !== scopeEpoch ||
-					current.projectId !== activation.projectId
-				) {
-					release();
-					projectToast(
-						"error",
-						"Reload to finish opening this app",
-						"Nova created your app, but couldn't verify its Project scope in this tab. It's waiting in your app list.",
-						{
-							persistent: true,
-							action: {
-								label: "Reload page",
-								onPress: () => window.location.reload(),
-							},
-						},
-					);
-					return;
-				}
-				/* No navigation: this installs the app the client was just handed,
-				 * in the tree that is already mounted. The blueprint arriving is
-				 * what carries the builder out of its centered new-build state, so
-				 * release the latches only after it lands. */
-				installCreatedApp(
-					activation,
-					docApi,
-					sessionApi,
-					reconcilerCtxRef.current,
-				);
-				verifyActivationDigest(activation, projectToast);
 				release();
 			},
 			/* The action itself never rejects: it returns its failures. Landing
@@ -2149,7 +2212,29 @@ export function ChatContainer({
 				);
 			},
 		);
-	}, [projectToast, scopeEpoch]);
+	}, [landCreatedAppReceipt, projectToast, scopeEpoch]);
+
+	/* The second way out of `/build/new` without describing an app: the
+	 * bring-in picker, a History-API push inside the mounted tree, so Back
+	 * returns to the composer. Inert under the same two latches as a blank
+	 * app. */
+	const handleBringIn = useCallback(() => {
+		if (agentEngagedRef.current || creatingStarterAppRef.current) return;
+		pushBuilderHistory(bringInHref({ kind: "choose" }));
+	}, []);
+
+	/* The bring-in flow takes the card where the layout is centred, the build is
+	 * no app yet, no message exists, and the address is the picker or an app.
+	 * A design in progress in the tab never loses its conversation to a typed
+	 * address. The tab's own role is no condition: an app is brought in to a
+	 * Project the person chooses, which the seed's Projects decide. */
+	const bringInSearch = useBuilderSearchFrom(bringInSeed?.initialSearch ?? "");
+	const bringInShown =
+		bringInSeed !== undefined &&
+		centered &&
+		!isExistingApp &&
+		messages.length === 0 &&
+		bringInLocation(bringInSearch).kind !== "none";
 
 	// ── Derived values ───────────────────────────────────────────────────
 
@@ -2184,6 +2269,16 @@ export function ChatContainer({
 						agentEngaged={agentEngaged}
 						creating={creatingStarterApp}
 						onCreate={handleCreateStarterApp}
+						onBringIn={handleBringIn}
+					/>
+				) : undefined
+			}
+			takeover={
+				bringInShown && bringInSeed !== undefined ? (
+					<BringInFlow
+						seed={bringInSeed}
+						landCreatedAppReceipt={landCreatedAppReceipt}
+						projectToast={projectToast}
 					/>
 				) : undefined
 			}

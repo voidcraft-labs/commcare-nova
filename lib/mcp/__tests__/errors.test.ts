@@ -18,7 +18,11 @@ import {
 	ProjectManagementError,
 	ProjectPermissionError,
 } from "@/lib/projects/manage";
-import { McpInvalidInputError, toMcpErrorResult } from "../errors";
+import {
+	BringInToolError,
+	McpInvalidInputError,
+	toMcpErrorResult,
+} from "../errors";
 import { McpAccessError } from "../ownership";
 import { McpScopeError } from "../scopes";
 
@@ -230,4 +234,58 @@ it("keeps diagnostic identities in the report without adding them to the public 
 		"project_id",
 	]);
 	expect(payload.message).not.toContain("private failure");
+});
+
+it("carries a bring-in stop's block and a refusal beside the message, and no field the error does not hold", () => {
+	const stop = toMcpErrorResult(
+		new BringInToolError("hq_read_stopped", "The body.", {
+			circumstance: "api-cut-off",
+			title: "The title",
+			next: "The next step.",
+		}),
+		{ userId: "private-actor" },
+	);
+	expect(stop).toEqual(
+		envelope({
+			error_type: "hq_read_stopped",
+			message: "The body.",
+			circumstance: "api-cut-off",
+			title: "The title",
+			next: "The next step.",
+		}),
+	);
+
+	const refused = toMcpErrorResult(
+		new BringInToolError("permission_denied", "The sentence.", {
+			refusal: "no_project_access",
+			projectId: "project-chosen",
+		}),
+		{ userId: "private-actor" },
+	);
+	expect(JSON.parse(refused.content[0].text)).toStrictEqual({
+		error_type: "permission_denied",
+		message: "The sentence.",
+		project_id: "project-chosen",
+		refusal: "no_project_access",
+	});
+
+	/* A handler's context names the Project first. */
+	const contextual = toMcpErrorResult(
+		new BringInToolError("bring_in_refused", "The sentence.", {
+			refusal: "app_unavailable",
+			projectId: "project-chosen",
+		}),
+		context,
+	);
+	expect(JSON.parse(contextual.content[0].text)).toMatchObject({
+		project_id: "project",
+		refusal: "app_unavailable",
+	});
+	expect(log.warn).toHaveBeenCalledWith("[mcp] bring-in refused", {
+		userId: "private-actor",
+		errorType: "bring_in_refused",
+		circumstance: null,
+		refusal: "app_unavailable",
+	});
+	expect(log.error).not.toHaveBeenCalled();
 });

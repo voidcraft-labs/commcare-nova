@@ -85,6 +85,13 @@ export const OAUTH_REVOKE_MAX_BYTES = 16 * 1024;
  * multi-MB bodies.
  */
 export const PRESENCE_REQUEST_MAX_BYTES = 16 * 1024;
+/**
+ * `HQ_READING_REQUEST_MAX_BYTES` — the two bring-in routes. The larger body
+ * is a create's: the app's key, the reading's id, the review's digest, a name
+ * and an answer per lookup table the review asks about, so 16 KB accepts
+ * every valid one.
+ */
+export const HQ_READING_REQUEST_MAX_BYTES = 16 * 1024;
 
 /**
  * The cheap declared-size gate shared by every body-capped route: a request

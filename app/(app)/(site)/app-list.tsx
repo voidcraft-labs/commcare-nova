@@ -14,6 +14,7 @@
  */
 
 import { Icon } from "@iconify/react/offline";
+import tablerCloudDownload from "@iconify-icons/tabler/cloud-download";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
 import { Button } from "@/components/shadcn/button";
@@ -25,6 +26,7 @@ import { listThreadMetas } from "@/lib/db/threads";
 import { log } from "@/lib/logger";
 import { listUserProjects } from "@/lib/projects/membership";
 import { canManageAppPlacement } from "@/lib/projects/moveTargets";
+import { BRING_IN_HOME_ENTRY } from "@/lib/publish/bringInCopy";
 import { AppListBody } from "./app-list-body";
 import { DesignsInProgress } from "./designs-in-progress";
 import { RefreshStaleAppList } from "./RefreshStaleAppList";
@@ -108,10 +110,20 @@ export async function AppList({ projectId, userId }: AppListProps) {
 					Your apps
 				</h1>
 				{canCreateApp ? (
-					<Button render={<Link href="/build/new" />} nativeButton={false}>
-						<Icon icon={tablerPlus} width="14" height="14" />
-						New app
-					</Button>
+					<div className="flex flex-wrap items-center justify-end gap-3">
+						<Button
+							variant="outline"
+							render={<Link href="/build/new?hq=choose" />}
+							nativeButton={false}
+						>
+							<Icon icon={tablerCloudDownload} width="14" height="14" />
+							{BRING_IN_HOME_ENTRY}
+						</Button>
+						<Button render={<Link href="/build/new" />} nativeButton={false}>
+							<Icon icon={tablerPlus} width="14" height="14" />
+							New app
+						</Button>
+					</div>
 				) : null}
 			</div>
 

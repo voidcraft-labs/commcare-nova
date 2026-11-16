@@ -61,9 +61,30 @@ export function moduleRootBlockUuids(
 	return [rootModuleUuid, ...childModuleUuids(doc, rootModuleUuid)];
 }
 
-/** Canonical one-tier depth-first preorder derived from parent identities. */
+/** Canonical one-tier depth-first preorder derived from parent identities.
+ *
+ * One pass groups each parent's children in `moduleOrder`'s order, so the
+ * preorder costs time linear in the menus: the validator asks for it once
+ * per screen, and a quadratic preorder made that cubic in the menus. */
 export function projectedModulePreorder(doc: ModuleHierarchySource): Uuid[] {
-	return moduleSiblingUuids(doc, null).flatMap((rootUuid) =>
-		moduleRootBlockUuids(doc, rootUuid),
-	);
+	const roots: Uuid[] = [];
+	const children = new Map<Uuid, Uuid[]>();
+	for (const uuid of doc.moduleOrder) {
+		const parent = moduleParent(doc, uuid);
+		if (parent === undefined) continue;
+		if (parent === null) {
+			roots.push(uuid);
+			continue;
+		}
+		const block = children.get(parent);
+		if (block === undefined) children.set(parent, [uuid]);
+		else block.push(uuid);
+	}
+	const preorder: Uuid[] = [];
+	for (const rootUuid of roots) {
+		preorder.push(rootUuid);
+		const block = children.get(rootUuid);
+		if (block !== undefined) preorder.push(...block);
+	}
+	return preorder;
 }

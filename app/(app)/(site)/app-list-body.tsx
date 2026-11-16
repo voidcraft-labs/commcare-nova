@@ -11,13 +11,18 @@
  * Per-card action state (idle → confirming → deleting / restoring →
  * unmount on success / error → idle) lives inside each card. This
  * file is deliberately small: view toggle plus a thin render branch.
+ *
+ * A restore that stopped publishing to some project spaces, because
+ * another Nova app publishes to their CommCare HQ apps now, says so in a
+ * toast that stays until it is dismissed: the card that would carry it
+ * leaves the list with the restore.
  */
 
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerArchive from "@iconify-icons/tabler/archive";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
 	TabsList,
 	Tabs as TabsRoot,
@@ -26,7 +31,32 @@ import {
 import { AppCard, type AppProjectMoveTarget } from "@/components/ui/AppCard";
 import { DeletedAppCard } from "@/components/ui/DeletedAppCard";
 import type { AppSummary, DeletedAppSummary } from "@/lib/db/apps";
-import { deleteApp, moveApp, restoreApp } from "./app-actions";
+import { RESTORED_TOAST_TITLE } from "@/lib/publish/bringInCopy";
+import { restoredStoppedPublishing } from "@/lib/publish/stopPublishing";
+import { showToast } from "@/lib/ui/toastStore";
+import {
+	deleteApp,
+	moveApp,
+	type RestoreStoppedPublishing,
+	restoreApp,
+} from "./app-actions";
+
+/**
+ * Each project space a restore stopped publishing to, as the toast names
+ * it: in curly quotes, with its server's label where the spaces it names
+ * are on more than one server.
+ */
+function stoppedSpaceNames(
+	spaces: readonly RestoreStoppedPublishing[],
+): string[] {
+	const severalServers =
+		new Set(spaces.map((space) => space.serverLabel)).size > 1;
+	return spaces.map((space) =>
+		severalServers
+			? `“${space.domain}” (${space.serverLabel})`
+			: `“${space.domain}”`,
+	);
+}
 
 interface AppListBodyProps {
 	active: AppSummary[];
@@ -69,6 +99,20 @@ export function AppListBody({
 		() => new Set(resumableErrorAppIds),
 		[resumableErrorAppIds],
 	);
+	/* The card shows a refusal in its own error line, the action's sentence
+	 * included; a restore that ended publishing somewhere is told here. */
+	const restore = useCallback(async (appId: string) => {
+		const result = await restoreApp(appId);
+		if (result.success && result.stoppedPublishing.length > 0) {
+			showToast(
+				"info",
+				RESTORED_TOAST_TITLE,
+				restoredStoppedPublishing(stoppedSpaceNames(result.stoppedPublishing)),
+				{ persistent: true },
+			);
+		}
+		return result;
+	}, []);
 
 	/* Tab strip is suppressed entirely when the user has nothing in the
 	 * trash AND isn't currently viewing it: would otherwise be a
@@ -114,7 +158,7 @@ export function AppListBody({
 							<DeletedAppCard
 								app={app}
 								index={i}
-								onRestore={canDeleteApp ? restoreApp : undefined}
+								onRestore={canDeleteApp ? restore : undefined}
 							/>
 						</li>
 					))}

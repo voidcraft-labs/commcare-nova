@@ -1,25 +1,32 @@
 /**
- * StartFromScratch: the "skip the SA, build it yourself" affordance that sits
- * under the centered chat card on `/build/new`.
+ * StartFromScratch: the two ways to start without describing an app, a blank
+ * app and an app brought in from CommCare HQ, under the centered chat card on
+ * `/build/new`.
  *
- * It shares the centered column with the hero logo and the chat card, so its
- * presence pushes the chat above true center. Sending a message is the user
- * choosing the SA instead: the card collapses (`height → 0`) and the column,
- * being `justify-center`, reflows the logo + chat back to center every frame:
- * no layout animation to coordinate, and nothing to race.
+ * It shares the centered column with the chat card, so its presence pushes
+ * the chat above true center. Sending a message is the user choosing the SA
+ * instead: the card collapses (`height → 0`) and the column, being
+ * `justify-center`, reflows the chat back to center every frame: no layout
+ * animation to coordinate, and nothing to race. Both buttons collapse
+ * together, in the one box.
  *
- * While it animates out the button stays visually enabled ON PURPOSE. The
- * click is already inert (the parent latches the moment the message is sent),
- * and flashing a disabled state mid-fade: under a chat card that is itself
- * sliding: is one visual event too many for a single user action.
+ * While it animates out the buttons stay visually enabled ON PURPOSE. The
+ * clicks are already inert (the parent latches the moment the message is
+ * sent), and flashing a disabled state mid-fade: under a chat card that is
+ * itself sliding: is one visual event too many for a single user action.
  */
 "use client";
 
 import { Icon } from "@iconify/react/offline";
+import tablerCloudDownload from "@iconify-icons/tabler/cloud-download";
 import tablerFilePlus from "@iconify-icons/tabler/file-plus";
 import tablerProgress from "@iconify-icons/tabler/progress";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/shadcn/button";
+import {
+	BRING_IN_START_BUTTON,
+	BRING_IN_START_LINE,
+} from "@/lib/publish/bringInCopy";
 
 interface StartFromScratchProps {
 	/** The user has sent a message: the SA is taking over, so this collapses away. */
@@ -28,12 +35,15 @@ interface StartFromScratchProps {
 	creating: boolean;
 	/** No-ops once the parent has latched `agentEngaged` or a create is in flight. */
 	onCreate: () => void;
+	/** Opens the bring-in picker. No-ops under the same two latches as `onCreate`. */
+	onBringIn: () => void;
 }
 
 export function StartFromScratch({
 	agentEngaged,
 	creating,
 	onCreate,
+	onBringIn,
 }: StartFromScratchProps) {
 	return (
 		<AnimatePresence>
@@ -62,13 +72,13 @@ export function StartFromScratch({
 					transition={{
 						duration: 0.4,
 						ease: [0.4, 0, 0.2, 1],
-						/* Let the hero logo and chat card land before this arrives:
-						 * it's the secondary path, and it should read that way. */
+						/* Let the chat card land before this arrives: these are the
+						 * secondary paths, and they should read that way. */
 						delay: 0.4,
 					}}
 				>
 					{/* `pt-3` matches the column's `gap-3` so the "or" divider sits
-					 *  equidistant from the chat card above and the button below. */}
+					 *  equidistant from the chat card above and the buttons below. */}
 					<div className="flex flex-col items-center gap-3 pt-3">
 						<div className="flex w-full items-center gap-3">
 							<span className="h-px flex-1 bg-nova-border" />
@@ -78,25 +88,38 @@ export function StartFromScratch({
 							<span className="h-px flex-1 bg-nova-border" />
 						</div>
 
-						{/* Deliberately never `disabled`. `onCreate` is already inert once the
-						 *  parent has latched (it latches synchronously, in the same handler
-						 *  that sends), and this is mid-fade under a chat card that is
-						 *  itself sliding: a disabled flash is one visual event too many.
-						 *  Don't try to drive attributes off `agentEngaged` here either:
-						 *  `AnimatePresence` re-renders the LEAVING child with its last
-						 *  props, so anything keyed on it can't change during the exit. */}
-						<Button
-							variant="outline"
-							onClick={onCreate}
-							aria-busy={creating || undefined}
-						>
-							<Icon icon={creating ? tablerProgress : tablerFilePlus} />
-							{creating ? "Creating blank app" : "Start with a blank app"}
-						</Button>
-
-						<p className="text-xs text-nova-text-muted">
-							Build it yourself, with Nova here whenever you want a hand
-						</p>
+						{/* Deliberately never `disabled`. Both handlers are already inert
+						 *  once the parent has latched (it latches synchronously, in the
+						 *  same handler that sends), and this is mid-fade under a chat card
+						 *  that is itself sliding: a disabled flash is one visual event too
+						 *  many. Don't try to drive attributes off `agentEngaged` here
+						 *  either: `AnimatePresence` re-renders the LEAVING child with its
+						 *  last props, so anything keyed on it can't change during the
+						 *  exit. */}
+						<div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
+							<div className="flex flex-col items-center gap-2 text-center">
+								<Button
+									variant="outline"
+									onClick={onCreate}
+									aria-busy={creating || undefined}
+								>
+									<Icon icon={creating ? tablerProgress : tablerFilePlus} />
+									{creating ? "Creating blank app" : "Start with a blank app"}
+								</Button>
+								<p className="text-xs text-nova-text-muted">
+									Build it yourself, with Nova here whenever you want a hand
+								</p>
+							</div>
+							<div className="flex flex-col items-center gap-2 text-center">
+								<Button variant="outline" onClick={onBringIn}>
+									<Icon icon={tablerCloudDownload} />
+									{BRING_IN_START_BUTTON}
+								</Button>
+								<p className="text-xs text-nova-text-muted">
+									{BRING_IN_START_LINE}
+								</p>
+							</div>
+						</div>
 					</div>
 				</motion.div>
 			)}

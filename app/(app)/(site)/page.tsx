@@ -14,8 +14,13 @@ import { userHasDesignsInProgress } from "@/lib/db/designInProgress";
 import { log } from "@/lib/logger";
 import { readKeyReaderNotices } from "@/lib/notices/store";
 import { listIncomingInvitations } from "@/lib/projects/membership";
+import {
+	BRING_IN_EMPTY_STATE_LINK,
+	BRING_IN_EMPTY_STATE_QUESTION,
+} from "@/lib/publish/bringInCopy";
 import { AppList } from "./app-list";
 import { Landing } from "./landing";
+import { RefreshStaleAppList } from "./RefreshStaleAppList";
 
 interface HomePageProps {
 	/** Next.js 16 search params arrive async. The only key consulted here is
@@ -75,6 +80,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 	if (!hasApps && !hasDesigns) {
 		return (
 			<main className="min-h-full flex flex-col items-center justify-center px-6">
+				{/* The first app a Project holds is created from here, and Back
+				    from its landing is served from the router's cache. */}
+				<RefreshStaleAppList />
 				{inviteCount > 0 && (
 					<div className="w-full max-w-md mb-8">
 						<InvitationsBanner count={inviteCount} />
@@ -163,10 +171,21 @@ function GetStarted({ canCreateApp }: { canCreateApp: boolean }) {
 					: "Someone with edit access can create the first app in this Project."}
 			</p>
 			{canCreateApp ? (
-				<Button render={<Link href="/build/new" />} nativeButton={false} glow>
-					<Icon icon={tablerSparkles} width="16" height="16" />
-					Get started
-				</Button>
+				<>
+					<Button render={<Link href="/build/new" />} nativeButton={false} glow>
+						<Icon icon={tablerSparkles} width="16" height="16" />
+						Get started
+					</Button>
+					<p className="mt-6 text-sm text-nova-text-muted">
+						{BRING_IN_EMPTY_STATE_QUESTION}{" "}
+						<Link
+							href="/build/new?hq=choose"
+							className="nova-focusable rounded-sm font-medium text-nova-violet-bright hover:underline"
+						>
+							{BRING_IN_EMPTY_STATE_LINK}
+						</Link>
+					</p>
+				</>
 			) : null}
 		</div>
 	);

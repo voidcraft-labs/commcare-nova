@@ -220,7 +220,10 @@ archive. Each app is fenced by sequence and source/target digests, active
 holders refuse, and reruns verify the durable receipt. The fenced Job runner accepts the scanner (optionally scoped by `--app`) and
 the writer with `--plan-base64`, with `--execute` only for a reviewed write.
 Apply these reviewed repairs before deployment admission: the runtime database
-probe checks every saved app with the incoming validator. After execution,
+probe checks every saved app with the incoming validator. An app brought in from CommCare HQ is a saved app
+like any other and passed this gate at its birth, so a rule that tightens ships
+its scan over saved apps first, and that scan meets shapes only CommCare HQ's
+editors author. After execution,
 verify the affected app histories and require a clean full census or runtime
 database probe before deploying the new revision.
 

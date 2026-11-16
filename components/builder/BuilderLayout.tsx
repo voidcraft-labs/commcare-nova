@@ -23,6 +23,8 @@
  *   HQ keeps published answers waits in
  * - PlacementConflictReplayRegistration: hands the reconciler the handler
  *   that offers again the edits a publish's placements overtook
+ * - BroughtInLandingToast: the one toast of an app brought in from CommCare
+ *   HQ whose landing loaded this page
  *
  * BuilderLayout subscribes to one store field: `phase`. All other store
  * subscriptions live in the child components listed above. This means
@@ -39,6 +41,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	BROUGHT_IN_MARKER_KEY,
+	type BringInSeed,
+} from "@/components/bring-in/useBringIn";
 import { BuilderAccessGate } from "@/components/builder/AccessStatus";
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
 import { BuilderHeader } from "@/components/builder/BuilderHeader";
@@ -50,16 +56,24 @@ import { useRegisterPlacementConflictReplay } from "@/components/builder/placeme
 import { IdentityMoveDialog } from "@/components/builder/shared/IdentityMoveDialog";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Spinner } from "@/components/shadcn/spinner";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { DesignSessionSeed } from "@/lib/generation/designProgressWire";
+import {
+	BRING_IN_ACTIONS,
+	BROUGHT_IN_TOAST_TITLE,
+	broughtInToastBody,
+} from "@/lib/publish/bringInCopy";
 import { useNavigate } from "@/lib/routing/hooks";
+import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { BuilderPhase } from "@/lib/session/builderTypes";
-import { useBuilderPhase } from "@/lib/session/hooks";
+import { useAppId, useBuilderPhase } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
+import { toastStore } from "@/lib/ui/toastStore";
 import type { SetPreviewing } from "./usePreviewModeTransition";
 
 /** Extra space above the scroll target so the field isn't flush with the
@@ -104,6 +118,9 @@ interface BuilderLayoutProps {
 	 *  stage the server derived from the durable orchestration, so the
 	 *  conversation opens saying where the design actually stopped. */
 	initialDesignSession?: DesignSessionSeed | null;
+	/** On a fresh `/build/new`: the bring-in flow's first-paint query and the
+	 *  Projects the person may add an app to, passed down to the conversation. */
+	bringInSeed?: BringInSeed;
 }
 
 export const BuilderLayout = memo(function BuilderLayout({
@@ -114,6 +131,7 @@ export const BuilderLayout = memo(function BuilderLayout({
 	isExistingApp,
 	commcareSettings,
 	initialDesignSession,
+	bringInSeed,
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
@@ -376,6 +394,7 @@ export const BuilderLayout = memo(function BuilderLayout({
 		return (
 			<CommCareConnectionProvider settings={commcareSettings}>
 				<BuilderShortcutRegistration onSetPreviewing={handleSetPreviewing} />
+				<BroughtInLandingToast />
 				<div className="h-full flex flex-col overflow-hidden">
 					<BuilderHeader onSetPreviewing={handleSetPreviewing} />
 					{/* Not a second lockup. The header above is already showing the mark,
@@ -392,6 +411,7 @@ export const BuilderLayout = memo(function BuilderLayout({
 	return (
 		<CommCareConnectionProvider settings={commcareSettings}>
 			<BuilderShortcutRegistration onSetPreviewing={handleSetPreviewing} />
+			<BroughtInLandingToast />
 			<BuilderReferenceProvider>
 				<CaseTargetDraftProvider>
 					{/* `data-builder-tree` marks the subtree that `BuilderProvider`'s
@@ -419,6 +439,7 @@ export const BuilderLayout = memo(function BuilderLayout({
 								appGenerating={appGenerating}
 								currentUserId={currentUserId}
 								initialDesignSession={initialDesignSession}
+								bringInSeed={bringInSeed}
 							/>
 						</BuilderAccessGate>
 						{/* One per builder: an edit, undo or redo that moves where
@@ -432,6 +453,116 @@ export const BuilderLayout = memo(function BuilderLayout({
 		</CommCareConnectionProvider>
 	);
 });
+
+/** The marker read and kept: `forgetBroughtInMarker` removes it once it has done its work. */
+function forgetBroughtInMarker(): void {
+	try {
+		window.sessionStorage.removeItem(BROUGHT_IN_MARKER_KEY);
+	} catch {
+		// A browser that refuses storage holds no marker to remove.
+	}
+}
+
+/** What the landing of an app brought into another Project wrote before the tab left for its page. */
+function readBroughtInMarker():
+	| { readonly kind: "none" }
+	| { readonly kind: "unreadable" }
+	| {
+			readonly kind: "marker";
+			readonly appId: string;
+			readonly domain: string;
+			readonly name: string;
+	  } {
+	let raw: string | null;
+	try {
+		raw = window.sessionStorage.getItem(BROUGHT_IN_MARKER_KEY);
+	} catch {
+		return { kind: "none" };
+	}
+	if (raw === null) return { kind: "none" };
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		return { kind: "unreadable" };
+	}
+	if (typeof value !== "object" || value === null || Array.isArray(value))
+		return { kind: "unreadable" };
+	const keys = Object.keys(value).sort().join(",");
+	const { appId, domain, name } = value as Record<string, unknown>;
+	if (
+		keys !== "appId,domain,name" ||
+		typeof appId !== "string" ||
+		typeof domain !== "string" ||
+		typeof name !== "string"
+	)
+		return { kind: "unreadable" };
+	return { kind: "marker", appId, domain, name };
+}
+
+/**
+ * The toast an app brought in from CommCare HQ lands with, where its landing
+ * loaded this page: the flow wrote a one-time marker before the tab left
+ * `/build/new` for another Project's app. Read on mount, never during render,
+ * and removed once the toast is shown, or at once where it is unreadable or
+ * names another app; shown only for the app this page opened. A leaf of its
+ * own, so the app id it reads re-renders only it.
+ *
+ * The toast belongs to this builder's Project scope, which the reconciler
+ * activates in its own effect, after this one on the page's first commit, and
+ * the toast store refuses a scoped toast before then. So a toast the store
+ * refused waits for the scope's activation, and the marker stays until it is
+ * shown, so a remount before then shows it too.
+ */
+function BroughtInLandingToast() {
+	const appId = useAppId();
+	const projectToast = useProjectToast();
+	useEffect(() => {
+		if (appId === undefined) return;
+		const marker = readBroughtInMarker();
+		if (marker.kind === "none") return;
+		if (marker.kind === "unreadable") {
+			forgetBroughtInMarker();
+			/* The value is the browser's to lose, and the Publishing card still
+			 * says where the app came from. */
+			console.warn("[bring-in] landing marker unreadable");
+			return;
+		}
+		if (marker.appId !== appId) {
+			forgetBroughtInMarker();
+			return;
+		}
+		let shown = false;
+		const show = () => {
+			if (shown) return;
+			const id = projectToast(
+				"info",
+				BROUGHT_IN_TOAST_TITLE,
+				broughtInToastBody(marker.name, marker.domain),
+				{
+					persistent: true,
+					action: {
+						label: BRING_IN_ACTIONS.seeWhatCameIn,
+						onPress: () =>
+							pushBuilderHistory(`/build/${appId}/setup/publishing`),
+					},
+				},
+			);
+			if (!toastStore.toasts.some((toast) => toast.id === id)) return;
+			shown = true;
+			forgetBroughtInMarker();
+		};
+		show();
+		if (shown) return;
+		const stopWaiting = toastStore.subscribeProjectScopeRetirement((scope) => {
+			if (scope !== null) show();
+		});
+		return () => {
+			stopWaiting();
+		};
+	}, [appId, projectToast]);
+	return null;
+}
 
 /**
  * Registers the placement-conflict handler with the reconciler. A leaf of

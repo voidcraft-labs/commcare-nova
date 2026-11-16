@@ -10,6 +10,11 @@ import type { DeploymentConfirmation } from "@/lib/deployment/types";
 import { asUuid } from "@/lib/domain/uuid";
 import type { AppDeploymentNoticeEntry } from "@/lib/notices/migrationNotice";
 import {
+	PUBLISHING_STOPPED_ROW,
+	STOP_PUBLISHING_FAILED,
+} from "@/lib/publish/bringInCopy";
+import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
+import {
 	COMMTRACK_OFF,
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
@@ -17,9 +22,14 @@ import {
 	PLAN_FEATURES,
 	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
+import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
 import {
 	applyRecordUpsert,
 	beginRecordsLoad,
+	broughtInElsewhere,
+	broughtInOf,
+	cardKind,
+	checkStatusOffered,
 	compactTargetRows,
 	confirmationRequests,
 	deploymentViewKey,
@@ -28,10 +38,14 @@ import {
 	liveConfirmationRows,
 	mayBePublished,
 	preseededDomainSelection,
+	previewAnswerAfterStop,
 	publishAgainDomain,
 	publishedAnywhere,
 	publishingCardNoticeEntries,
+	readNotPublishedSince,
 	resolveRecordsLoad,
+	stopFailureSentence,
+	stopPublishingOffered,
 	upsertDeploymentViews,
 	withLandedConfirmations,
 } from "../publishingSectionModel";
@@ -52,7 +66,9 @@ function view(overrides: {
 	resumePhase?: DeploymentRecord["resumePhase"];
 	phases?: Partial<DeploymentPhaseOutcomes>;
 	active?: readonly DeploymentResource[];
+	superseded?: readonly DeploymentResource[];
 	confirmations?: readonly DeploymentConfirmation[];
+	firstPublish?: FirstPublishView | null;
 }): DeploymentView {
 	const record: DeploymentRecord = {
 		id: "dep-1",
@@ -75,7 +91,7 @@ function view(overrides: {
 		deployment: {
 			deployment: record,
 			active: overrides.active ?? [],
-			superseded: [],
+			superseded: overrides.superseded ?? [],
 			confirmations: overrides.confirmations ?? [],
 		},
 		artifact: {
@@ -86,7 +102,7 @@ function view(overrides: {
 		},
 		leftBehind: [],
 		kept: null,
-		firstPublish: null,
+		firstPublish: overrides.firstPublish ?? null,
 	};
 }
 
@@ -848,5 +864,283 @@ describe("the confirmations a card lists", () => {
 		expect(
 			liveConfirmationRows(held[0].deployment.confirmations),
 		).toStrictEqual([]);
+	});
+});
+
+/** A live app mapping a bring-in recorded: `adopted`, with who and when. */
+function adoptedApp(): DeploymentResource {
+	return {
+		...appResource(),
+		ownership: "adopted",
+		adoptedAt: "2026-09-10T09:30:00Z",
+		adoptedBy: "user-7",
+		adoptedByName: "Ada Lovelace",
+	};
+}
+
+/** The app mapping a stop superseded, with who ended it and why. */
+function endedApp(
+	reason: "stopped" | "claimed-elsewhere" = "stopped",
+): DeploymentResource {
+	return {
+		...appResource(),
+		supersededAt: "2026-09-20T15:00:00Z",
+		endedReason: reason,
+		endedByName: "Grace Hopper",
+	};
+}
+
+const FIRST_PUBLISH: FirstPublishView = {
+	ids: ["forms-and-settings-rewritten"],
+	touchesWorkers: false,
+	of: "first-publish",
+};
+
+describe("where a card's app came from", () => {
+	it("names who brought the app in and when, from the live adopted mapping", () => {
+		expect(broughtInOf(view({ active: [adoptedApp()] }))).toStrictEqual({
+			at: "2026-09-10T09:30:00Z",
+			byName: "Ada Lovelace",
+		});
+	});
+
+	it("says nothing of an app Nova made there, or of a deployment with no live app mapping", () => {
+		expect(broughtInOf(view({ active: [appResource()] }))).toBeNull();
+		expect(broughtInOf(view({ superseded: [endedApp()] }))).toBeNull();
+	});
+
+	it("dates the not-yet-published rung only while the first-publish list stands", () => {
+		const broughtIn = view({ active: [adoptedApp()] });
+		expect(
+			readNotPublishedSince({ ...broughtIn, firstPublish: FIRST_PUBLISH }),
+		).toBe("2026-09-10T09:30:00Z");
+		/* A first publish ended the list. */
+		expect(readNotPublishedSince(broughtIn)).toBeNull();
+		/* A list of what the next publish changes is no first publish. */
+		expect(
+			readNotPublishedSince({
+				...broughtIn,
+				firstPublish: { ...FIRST_PUBLISH, of: "next-publish" },
+			}),
+		).toBeNull();
+	});
+});
+
+describe("an ended deployment", () => {
+	it("is ended while the ending stands, whatever the state moved to", () => {
+		expect(cardKind(view({ superseded: [endedApp()], state: "ended" }))).toBe(
+			"ended",
+		);
+		/* A publish after the ending passed preflight, then stopped before it
+		 * made the new app: the state moved on and refused, the ending stands. */
+		expect(
+			cardKind(
+				view({
+					superseded: [endedApp()],
+					state: "incomplete",
+					resumePhase: "resources",
+					phases: {
+						preflight: { status: "succeeded", at: "2026-09-21T00:00:00Z" },
+					},
+				}),
+			),
+		).toBe("ended");
+		expect(
+			cardKind(view({ superseded: [endedApp()], state: "preflight" })),
+		).toBe("ended");
+	});
+
+	it("is an ordinary record once a publish records a new app", () => {
+		expect(
+			cardKind(
+				view({
+					active: [{ ...appResource(), remoteId: "hq-app-2" }],
+					superseded: [endedApp()],
+				}),
+			),
+		).toBe("record");
+		expect(cardKind(view({ active: [appResource()] }))).toBe("record");
+	});
+
+	it("reads in the dialog's row as publishing stopped, with the new app beside it as its line", () => {
+		const [row] = compactTargetRows(
+			[
+				view({
+					superseded: [endedApp()],
+					state: "incomplete",
+					resumePhase: "resources",
+				}),
+			],
+			"production",
+		);
+		expect(row.statusLabel).toBe(PUBLISHING_STOPPED_ROW);
+		expect(row.stopped).toBe(false);
+		expect(row.nextPublish).toBe("creates-beside");
+		expect(row.line).toBe(PUBLISH_PLAN_CREATES_BESIDE);
+	});
+
+	it("keeps each other row's line", () => {
+		const rows = compactTargetRows(
+			[
+				view({ domain: "fresh" }),
+				view({ domain: "updates", active: [appResource()] }),
+				view({ domain: "far", server: "india" }),
+			],
+			"production",
+		);
+		expect(rows.map((row) => row.line)).toStrictEqual([
+			"Publishing again creates a fresh app here",
+			null,
+			"On CommCare HQ's India server, which this connection doesn't reach",
+		]);
+	});
+});
+
+describe("what a card offers", () => {
+	it("offers Check status for a live mapping checking can answer", () => {
+		expect(checkStatusOffered(view({ active: [appResource()] }))).toBe(true);
+		/* HQ reported it gone: its own undo is how it comes back. */
+		expect(
+			checkStatusOffered(
+				view({
+					state: "incomplete",
+					resumePhase: "upload",
+					active: [
+						{ ...appResource(), remoteMissingAt: "2026-08-02T00:00:00Z" },
+					],
+				}),
+			),
+		).toBe(true);
+	});
+
+	it("withholds Check status from a mapping another Nova app took, from no mapping, and from a publish refused before its content arrived", () => {
+		expect(
+			checkStatusOffered(
+				view({
+					active: [{ ...appResource(), releasedAt: "2026-09-01T00:00:00Z" }],
+				}),
+			),
+		).toBe(false);
+		expect(checkStatusOffered(view({}))).toBe(false);
+		expect(checkStatusOffered(view({ superseded: [endedApp()] }))).toBe(false);
+		expect(
+			checkStatusOffered(
+				view({
+					state: "incomplete",
+					resumePhase: "upload",
+					active: [appResource()],
+				}),
+			),
+		).toBe(false);
+	});
+
+	it("offers Stop publishing here to a member who may delete, while a live app mapping stands", () => {
+		const live = view({ active: [appResource()] });
+		expect(stopPublishingOffered(live, true)).toBe(true);
+		expect(stopPublishingOffered(live, false)).toBe(false);
+		expect(
+			stopPublishingOffered(view({ superseded: [endedApp()] }), true),
+		).toBe(false);
+		expect(stopPublishingOffered(view({}), true)).toBe(false);
+	});
+});
+
+describe("a stop's answer", () => {
+	it("shows a refusal's own sentence where it says who may or that there is nothing to stop, and Nova's own line otherwise", () => {
+		expect(
+			stopFailureSentence({
+				code: "not_permitted",
+				message: "An admin or owner can stop publishing here.",
+			}),
+		).toBe("An admin or owner can stop publishing here.");
+		expect(
+			stopFailureSentence({
+				code: "invalid_input",
+				message: "There is nothing to stop here.",
+			}),
+		).toBe("There is nothing to stop here.");
+		for (const code of [
+			"unauthenticated",
+			"not_found",
+			"unavailable",
+		] as const) {
+			expect(stopFailureSentence({ code, message: "internal" })).toBe(
+				STOP_PUBLISHING_FAILED,
+			);
+		}
+		expect(stopFailureSentence(null)).toBe(STOP_PUBLISHING_FAILED);
+	});
+
+	it("keeps Preview's settings only where it still names the same project space", () => {
+		const facts = { fuzzyListSearch: true, markRequiredQuestions: false };
+		const current = { projectSpace: "alpha", targetFacts: facts };
+		expect(previewAnswerAfterStop("alpha", current)).toStrictEqual(current);
+		expect(previewAnswerAfterStop(null, current)).toStrictEqual({
+			projectSpace: null,
+			targetFacts: null,
+		});
+		expect(
+			previewAnswerAfterStop("beta", { projectSpace: null, targetFacts: null }),
+		).toStrictEqual({ projectSpace: "beta", targetFacts: null });
+	});
+});
+
+describe("broughtInElsewhere", () => {
+	it("answers true where another project space's live mapping was brought in", () => {
+		const records = [
+			view({ domain: "origin", active: [adoptedApp()] }),
+			view({ domain: "second", active: [appResource()] }),
+		];
+		expect(
+			broughtInElsewhere(records, { server: "production", domain: "second" }),
+		).toBe(true);
+		expect(
+			broughtInElsewhere(records, { server: "production", domain: "third" }),
+		).toBe(true);
+	});
+
+	it("answers false for the project space the app came from, for apps Nova made, and for a stopped bring-in", () => {
+		expect(
+			broughtInElsewhere([view({ domain: "origin", active: [adoptedApp()] })], {
+				server: "production",
+				domain: "origin",
+			}),
+		).toBe(false);
+		expect(
+			broughtInElsewhere(
+				[view({ domain: "origin", active: [appResource()] })],
+				{
+					server: "production",
+					domain: "second",
+				},
+			),
+		).toBe(false);
+		expect(
+			broughtInElsewhere(
+				[
+					view({
+						domain: "origin",
+						superseded: [
+							{
+								...adoptedApp(),
+								supersededAt: "2026-09-20T15:00:00Z",
+								endedReason: "stopped",
+								endedByName: "Grace Hopper",
+							},
+						],
+					}),
+				],
+				{ server: "production", domain: "second" },
+			),
+		).toBe(false);
+	});
+
+	it("tells a same-named project space on another server apart from the target", () => {
+		expect(
+			broughtInElsewhere(
+				[view({ server: "india", domain: "shared", active: [adoptedApp()] })],
+				{ server: "production", domain: "shared" },
+			),
+		).toBe(true);
 	});
 });

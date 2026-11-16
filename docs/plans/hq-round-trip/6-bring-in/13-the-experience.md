@@ -382,8 +382,10 @@ takeover?: ReactNode;
 
 Where `centered` is true and `takeover` is given, the inner card (the `motion.div` that is
 `w-full max-w-2xl max-h-[min(700px,80vh)] rounded-2xl border border-nova-border bg-nova-deep`) renders
-`takeover` in place of its header, `Conversation` and `PersistentChatComposer`, and `startFromScratch`
-is not rendered. The card keeps its class, so the flow has the composer's width, radius and bounded
+`takeover` in place of its header, `Conversation`, status rows and composer, and `startFromScratch`
+is not rendered. `PersistentChatComposer` stays mounted with `hidden`, as it does in a short inspector
+dock, so a draft typed before choosing to bring an app in is still there when Back returns to the
+composer. The card keeps its class, so the flow has the composer's width, radius and bounded
 height, and "the header carries the whole lockup on `/build/new`" stays true: the flow draws no logo.
 `ChatContainer` passes `takeover` exactly when all of these hold: the layout is centred, the build is
 not an existing app, `messages.length === 0`, and `bringInLocation` reads the URL as `choose` or an
@@ -407,7 +409,7 @@ band exactly" (`components/CLAUDE.md`), and that stays so through the whole flow
 
 ```ts
 // lib/routing/bringInLocation.ts (new, client-safe, pure)
-import type { ReadingKey } from "@/lib/deployment";
+import { type ReadingKey, readingKeySchema } from "@/lib/deployment/reading/types";
 
 export type BringInLocation =
 	| { readonly kind: "none" }
@@ -478,7 +480,8 @@ export function useBuilderSearchFrom(initialSearch: string): string;
 may add an app to.
 
 ```ts
-// app/(app)/build/[id]/[[...path]]/page.tsx::freshBuildPage passes, through BuilderLayout to ChatContainer:
+// components/bring-in/useBringIn.ts. app/(app)/build/[id]/[[...path]]/page.tsx::freshBuildPage
+// builds it and passes it through BuilderLayout and BuilderContentArea to ChatContainer:
 export interface BringInSeed {
 	/** `""`, `?hq=choose` or an app's query, already validated. */
 	readonly initialSearch: string;
@@ -677,6 +680,7 @@ export function nextAct(model: BringInModel): BringInAct;
 |---|---|
 | `location` to `choose` | everything about the app cleared, and `pendingCreate`; `picker` kept, so "Choose another app" returns to the list the person left |
 | `location` to `app` with another key than the one held | everything about the app cleared, `pendingCreate` and `landing` among it; `resumeChecked` false |
+| `location` that leaves the app (to `choose`, `none` or another key), with a read in flight | `call` null as well: the hook aborts that read and dispatches nothing of it, so a `call` left at `read` would hold `nextAct`'s rule 4 at `none` for the next app. A create's `call` stays: it runs to its end |
 | `resume` | `resumeChecked` true. With an input: `pendingCreate` that input, as `create-asked` sets it. With null: nothing else, and the next act is the read |
 | `connection` | `picker.domains` set. Where it holds exactly one and none is chosen: `domain` that one and `apps: loading`, so one project space is never a choice. A picker with no Project (`projectId` null) chooses none, since it shows no fields (4.5). Where the chosen `domain` is no longer among them: `domain` null, `apps: idle`, `remoteAppId` null. Otherwise nothing else moves |
 | `picker-project` | `picker.projectId`, and nothing else: the list is the project space's, whatever the Project |
@@ -686,12 +690,12 @@ export function nextAct(model: BringInModel): BringInAct;
 | `read-asked` | everything about the app cleared. The next act is the read |
 | `create-asked` | `pendingCreate` the event's `input`; `held`, `lead`, `refusal`, `failed` and `needsChoice` cleared; `lost` 0. No request is in flight yet: the next act is `create`, which the hook posts |
 | `call` | `call` set; `stage` and `files` null; `waitingSince` set to `at` where it was null |
-| `stage` | taken only while a call is in flight: `stage` set, and `files` null where the stage counts no files |
+| `stage` | taken only while a call is in flight: `stage` set, and `files` null where the stage counts no files or is another stage than the one held (a create names `checking-media` with its count and then `bringing-in-media`, whose label takes no count until its own first `files` line) |
 | `files` | taken only while a call is in flight: `files` set |
 | `read-done` | `answer` and `answeredAt` set; `call`, `stage`, `files` and `waitingSince` null; `lost` 0. Where the answer is a review and `carried` holds answers: `answers` is what `carryAnswers` keeps of them for this review, `lead.dropped` its `dropped`, and `carried` is cleared. Otherwise `answers` and `carried` are null. `held`, `lead` and `refusal` are kept, so what a create left to say stands above what the read answers (8.10) |
 | `create-done`, `created` | `call` stays `create` and `pendingCreate` stays set until `landed`: the hook lands the receipt (9.2) |
-| `create-done`, `changed` | `answer` is `now`, `answeredAt` `at`. `lead` is by what `now` is: `changed-review`, `changed-account`, `changed-already-in-nova` for a stop whose code is `already-in-nova`, `changed-stop` for any other stop. Where `now` is a review and the model held a review with answers: `answers` is what `carryAnswers` keeps, and `lead.dropped` its `dropped`. Otherwise `answers` is null. `pendingCreate`, `held` and `refusal` cleared; `call` null; `lost` 0 |
-| `create-done`, `read-again` | `carried` the answers and the review the model held, where it held both; `answer` and `answers` null; `lead` `read-again`; `pendingCreate` cleared; `call` null; `lost` 0. The next act is the read |
+| `create-done`, `changed` | `answer` is `now`, `answeredAt` `at`. `lead` is by what `now` is: `changed-review`, `changed-account`, `changed-already-in-nova` for a stop whose code is `already-in-nova`, `changed-stop` for any other stop. Where `now` is a review and the model held a review: `answers` is what `carryAnswers` keeps of the answers the person sent against it (`answers`, or `initialAnswers` of that review where they changed nothing, which are the answers they saw and sent), and `lead.dropped` its `dropped`. Otherwise `answers` is null. `pendingCreate`, `held` and `refusal` cleared; `call` null; `lost` 0 |
+| `create-done`, `read-again` | `carried` the answers and the review the model held, where it held a review (the answers `initialAnswers` of it where the person changed nothing); `answer` and `answers` null; `lead` `read-again`; `pendingCreate` cleared; `call` null; `lost` 0. The next act is the read |
 | `create-done`, `check-failed` | `answer` an account of the one finding (`accountOfOne`, below); `lead` `check-failed`; `answers`, `pendingCreate` and `held` cleared; `call` null; `lost` 0 |
 | `create-done`, `held` | `held` the finding, `lead` `held`, `call` null, `pendingCreate` cleared, `lost` 0; `answers` kept |
 | `create-done`, `refused` | `refusal` set, `call` null, `pendingCreate` cleared, `lost` 0; `answers` kept |
@@ -706,6 +710,11 @@ export function nextAct(model: BringInModel): BringInAct;
 A create that answers `held` or a refusal of the person's answers after a reload (9.1) finds no
 review in the model. The next act is then the read (rule 8 below), and the lead, the held block or
 the refusal's sentence stands above the review it answers.
+
+A request's last line (`read-done`, `create-done`, `failed`, `lost`, `refused`) is taken only while
+`call` is that request, so a line of a request no longer in flight never paints over a newer
+screen. A create the person left (its `pendingCreate` cleared by a `location` event, its `call`
+kept) ends with `call` null and nothing else, whatever it answers, but for `created`, which lands.
 
 **`screenOf`**, first match:
 
@@ -893,8 +902,8 @@ same way from `lib/deployment/reading/types.ts`, and `components/bring-in` names
   the lines, then `create-done`, `failed`, `refused` or `lost`. It is never aborted, and an answer that
   arrives after the component unmounted is dropped (`mountedRef`): the create runs to its end on the
   server either way (part 12, 4.1: the create route is handed no signal). On `created` the hook lands
-  the receipt and dispatches `landed` (9.2). A `location` event never touches `call`, so a person who
-  goes Back from the creating screen leaves the create running: if it answers `created` it lands all
+  the receipt and dispatches `landed` (9.2). A `location` event never touches a create's `call` (it
+  ends only a read's, which the hook aborts), so a person who goes Back from the creating screen leaves the create running: if it answers `created` it lands all
   the same, since the app exists, and any other answer of it clears `call` and changes nothing else.
 
 The hook subscribes to the URL through `useBuilderSearchFrom` and dispatches `location`, and each
@@ -922,7 +931,8 @@ One card, in the order a person reads it. Strings are in "Copy" by id.
 3. **Project space** (**K5**): over `picker.domains`, which the hook keeps equal to
    `useCommCareConnection()`'s `availableDomains` (3.3, the `connection` event). One: the text
    **K6**, and its apps are listed at once, since the reducer chooses a lone project space. Two to
-   eight: a `Select`. More: `components/shadcn/combobox.tsx` with the placeholder **K7**, in
+   eight: a `Select` with the placeholder **K7a**, since a list that takes no typing invites no
+   search. More: `components/shadcn/combobox.tsx` with the placeholder **K7**, in
    uncontrolled mode, committing on item press (`components/CLAUDE.md`, "Floating elements"). This is
    `UploadForm`'s one-or-many rule with the combobox added for a key that reaches many.
 4. **App** (**K8**): a radio group of the project space's apps (4.3), with the filter input **K11**
@@ -1083,9 +1093,11 @@ export interface CommCareConnection {
 `CommCareConnectionProvider` keeps `useState<CommCareSettingsPublic | null>(null)` beside its
 `settings` prop: `refresh` fetches the route and stores the answer, and the value is built from the
 stored answer where there is one and from the prop otherwise. A new `settings` prop (a later server
-render) clears the stored answer, so the server's word wins whenever it speaks. The value stays
-memoized, so its identity changes once per refresh that answered, as it does today once per
-`router.refresh()`. `PublishPanel.tsx` drops its `useTransition` and its `router.refresh()` and
+render) clears the stored answer, so the server's word wins whenever it speaks: each answer is
+filed under the prop it was read over and used only while that prop stands. The value stays
+memoized; since it carries `isRefreshing` and `refreshFailed`, its identity changes when a refresh
+starts and when it settles, and `availableDomains`, which the dialog's domain-reset effect reads,
+changes identity once per refresh that answered, as it does today once per `router.refresh()`. `PublishPanel.tsx` drops its `useTransition` and its `router.refresh()` and
 passes the dialog the context's `refresh` as `onRefreshHqConnection`, its `isRefreshing` as
 `isRefreshingHqConnection`, and its `refreshFailed` as a new member of
 `PublishDialogBody.tsx::PublishDialogProps`, `hqConnectionRefreshFailed: boolean`.
@@ -1343,7 +1355,7 @@ export function placeGroupKey(place: HqPlace): string;
 export type AccountItem =
 	/** `prefix` is the question's path or the file's path the line begins with, else null. */
 	| { readonly kind: "finding"; readonly finding: Finding; readonly prefix: string | null }
-	/** More than twenty findings of one sentence and one standing in a group, said once. */
+	/** More than twenty findings about questions of one sentence, standing and name in a group, said once. */
 	| { readonly kind: "fold"; readonly sentence: string; readonly standing: FindingStanding;
 	    readonly findings: readonly Finding[] };
 
@@ -1392,10 +1404,14 @@ Within a group each finding is one list item:
   platform runs the whole app would otherwise read alike. Section 6.3 lists the fifteen codes this
   block draws.
 
-Where a group holds more than twenty findings of one sentence (one unsupported appearance on every
-question of a long form), `accountGroups` folds them into one `fold` item: the sentence once, "on
-{n} questions", and a `Collapsible` (`components/shadcn/collapsible.tsx`) holding the paths. Nothing
-is dropped; the copied list holds every line.
+Where a group holds more than twenty manifest findings about its questions of one sentence, one
+standing and one name in CommCare HQ (one unsupported appearance on every question of a long form),
+`accountGroups` folds them into one `fold` item, at the place of the first: the sentence once, its
+name line where it has one, "on {n} questions", and a `Collapsible`
+(`components/shadcn/collapsible.tsx`) holding the paths. Only findings about questions fold, since
+the fold says "questions" and lists paths, and the name is part of the key, since the fold shows
+one name line for all of them. A circumstance never folds: each says its own block. Nothing is
+dropped; the copied list holds every line.
 
 ### 7.3 The labels
 
@@ -1473,10 +1489,15 @@ export function accountAsText(
 
 `accountAsText` is pure and gives plain text: the heading, the project space
 and the date of the read (**A12**; the date is the model's `answeredAt`), the count line, then each
-group's heading followed by one line per finding ("- {label}: {sentence}" and, where named, " In
-CommCare HQ: {name}."; a circumstance's lines are its body, the name where `named` is not null, and
-its next step, all from `circumstanceBlock`), and it ends with `ACCOUNT_CHECK_AGAIN_LINE` on a line
-of its own, so "Copy the list" carries the line a person reads on the screen. The button writes it
+group's heading followed by one line per finding ("- {label}: {sentence}", "- {label} ({path}):
+{sentence}" where the screen's line begins with a question's or a file's path, and, where named, "
+In CommCare HQ: {name}."; a circumstance's lines are "- {label}: {title}", then its body, the name
+where `named` is not null, and its next step, all from `circumstanceBlock`), then
+`moreFindingsLine(more)` where `more > 0` and R12 where `mediaChecked` is false, as the screen
+says them, and it ends with `ACCOUNT_CHECK_AGAIN_LINE` on a line of its own, so "Copy the list"
+carries the lines a person reads on the screen. `NAMED_IN_HQ_LEAD` ("In CommCare HQ:",
+`lib/publish/bringInCopy.ts`) is the one spelling of the name's lead, which the screen and the
+copied text both read. The button writes it
 with `navigator.clipboard.writeText` and reads **Copied** for two seconds, announced through a
 `role="status"` region; where the browser refuses the clipboard the same text opens selected in a
 read-only `Textarea` under the button with the line **A10**, so the list can always be taken away.
@@ -1623,8 +1644,9 @@ R11) and its data (`ReviewTable.choice`):
   table. `{apps}` is the names of `choice.apps` in words, and its clause is dropped where there are
   none, as part 11 says;
 - two radio rows, neither chosen: **R8** ("Use CommCare HQ's table") with its lines, including the
-  retyped-columns line where its offer's `retypedColumns` is not empty and one gone-columns line for
-  each of its offer's `goneColumns` (both on `options["use-commcare-hq"]` where it is offered); and
+  retyped-columns line where its offer's `retypedColumns` is not empty and the gone-columns line,
+  which names every one of its offer's `goneColumns` in one sentence as part 11's "Copy" says (both
+  on `options["use-commcare-hq"]` where it is offered); and
   **R9** ("Use {Project}'s table") with its line;
 - an answer that is not offered is a row that cannot be chosen (`aria-disabled`, in the tab order),
   with its reason under it: **R10**'s sentence for the offer's `why`, one of `needs-admin`,
@@ -1672,8 +1694,10 @@ source on the client, which is how the kept list is shown before any baseline ex
 - **V21c**: publishing to another project space makes a new app there, and a copy the team already
   keeps there stays as it is.
 - part 10's `adoptionRecordedFeaturesLine(labels, domain)`, where the chosen row's `recordedFeatures`
-  is not empty. `labels` is `PLAN_FEATURES[key.subject].label` (`lib/publish/planFeatures.ts`) for
-  each `plan-feature` key, in words. It moves when the person chooses another row, since Web Apps is
+  holds a `plan-feature` key (`bringInModel.ts::recordedFeaturesLine`; a key of another kind names
+  no plan feature, so it gives no label and, alone, no line). `labels` is
+  `PLAN_FEATURES[key.subject].label` (`lib/publish/planFeatures.ts`) for each `plan-feature` key, in
+  words. It moves when the person chooses another row, since Web Apps is
   recorded only for a declaration that includes it (part 10, 6.5).
 
 V21b says what part 15 builds (`15-changes-made-in-commcare-hq.md`): the stop lists what changed and
@@ -1817,8 +1841,9 @@ in flight, so a page that simply read the app again would either show the stop `
 for the app the person had just made, or show a review they would answer a second time. One key in
 the tab closes that:
 
-- On `create-asked` the hook writes `sessionStorage["nova:bring-in-create"] =
-  JSON.stringify({ at: Date.now(), input })`, `input` the `BringInInput` it posts.
+- On `create-asked`, and on a `retry` after a create's `failed` line (which removed the key, below),
+  the hook writes `sessionStorage["nova:bring-in-create"] = JSON.stringify({ at: Date.now(), input })`,
+  `input` the `BringInInput` it posts.
 - It removes the key on every final answer: `created` (after the landing, 9.2), `changed`,
   `read-again`, `check-failed`, `held`, `refused`, and a `failed` line. A lost stream keeps it.
 - Each time the location becomes an app, before any read, the hook reads the key and asks the pure
@@ -1860,8 +1885,13 @@ calls. Where the answer is anything but `leaving` (a receipt that failed its par
 Project writes nothing, so the `landed` path, whose promotion keeps `BuilderLayout` mounted, can
 never show the toast twice.
 
-`BuilderLayout` reads and removes the key in a `useEffect` on mount, never during render, and shows
-the toast of 9.3 where the stored `appId` is the app the page opened. Every access to
+`BuilderLayout` reads the key in a `useEffect` on mount, never during render, and shows the toast of
+9.3 where the stored `appId` is the app the page opened, removing the key once the toast is shown
+(at once where it is unreadable or names another app). The toast is Project-scoped, and on the
+page's first commit the reconciler activates the builder's Project scope in its own effect, after
+this one, so a toast the toast store refused before then waits for that activation
+(`toastStore.subscribeProjectScopeRetirement`), and the key stays until the toast is shown, so a
+remount before then shows it too. Every access to
 `sessionStorage` (the write, the read, the two removals) is inside `try`/`catch`: a browser that
 refuses storage costs the toast and nothing else, and the Publishing card still says where the app
 came from. The key is tab-local, it names nothing a member of the Project cannot see, and a tab that
@@ -2138,8 +2168,9 @@ stays on the project space's card (11.1).
 Part 10 (5.4) makes `restoreApp` answer the project spaces it stopped publishing to. In
 `app/(app)/(site)/app-list-body.tsx`, after a restore that succeeds with `stoppedPublishing` not
 empty: `showToast("info", D11, restoredStoppedPublishing(spaces), { persistent: true })`, each
-project space as "“{domain}”" with its server's label where the app publishes to more than one
-server. A restore that met `RestoreClaimsChangedError` arrives as the action's `error`,
+project space as "“{domain}”", followed by its server's label in parentheses where the project
+spaces the answer names are on more than one server (the answer is all the home list holds of
+where the app publishes). A restore that met `RestoreClaimsChangedError` arrives as the action's `error`,
 `RESTORE_CLAIMS_CHANGED`, in the card's existing error line. The restored app's Publishing section
 then shows the ended card of 11.1 with the `claimed-elsewhere` sentence, which names no person.
 
@@ -2173,12 +2204,20 @@ renders `screenOf(model)` or a pure function of its props.
 
 `BringInFlow` takes the three members of `useBringIn`'s input as its props (`seed`,
 `landCreatedAppReceipt`, `projectToast`; 3.3) and calls the hook itself, so the hook's state lives
-exactly as long as the flow is mounted.
+exactly as long as the flow is mounted. The frame of the picker, the reading and creating screen, a
+stop and the three short screens is `components/bring-in/BringInScreenLayout.tsx` (a `section`
+labelled by its `h1`, the heading region with the screen's one `role="status"` region, the
+scrolling middle, the footer that does not scroll, its buttons stacked primary first where the card
+is under 560px wide). Where an app's address names a Project the page's `BringInSeed.projects` does
+not hold (a role granted after the page loaded), the review cannot name the Project it adds the app
+to, and the flow draws the `refused` screen with `invalid_input`'s sentence, whose reload is the way
+on.
 
 Changed, not new: `components/chat/ChatSidebar.tsx` (the `takeover` prop),
 `components/chat/ChatContainer.tsx` (mounts `BringInFlow` as `takeover`, handing it the seed, its
 `landCreatedAppReceipt` and its `projectToast`), `components/builder/BuilderLayout.tsx` (passes
-`BringInSeed` down; shows the `leaving` toast of 9.2),
+`BringInSeed` down; shows the `leaving` toast of 9.2), `components/builder/BuilderContentArea.tsx`
+(passes `BringInSeed` on to `ChatContainer`),
 `components/builder/CommCareConnectionContext.tsx` (`refresh`, `isRefreshing`, `refreshFailed`; 4.4),
 `components/builder/PublishPanel.tsx` (the context's refresh in place of its router transition),
 `components/builder/DeploymentStatus.tsx` (section 11.1, with the prop `canStop`, and part 15's C1
@@ -2203,15 +2242,24 @@ UI's radio) with that pass:
 
 - each item is a row wearing `lib/styles.ts::selectableRowCls`, the shared skin of "a control that
   holds a SELECTED state", so a chosen row has the violet tint and the hairline drawn inside and still
-  answers hover one step toward light;
+  answers hover one step toward light. The skin takes `{ focus: "inset", unavailable }`
+  (`SelectableRowOptions`), because its default ring is the outer `.nova-focusable` and its hover is
+  gated on `:disabled` alone, which an `aria-disabled` row never matches;
 - the row is the 44px floor and grows for a second and third line, with the label and its lines the
   item's content (`overflow-wrap: anywhere`, never truncated: "do not silently truncate distinct
   choices into the same-looking label");
 - focus is `.nova-focusable-inset`, since the rows sit in a scrolling middle;
 - an item that cannot be chosen is `aria-disabled`, keeps pointer events and `cursor-not-allowed`,
   stays reachable by arrow keys, and its reason is its description (`aria-describedby`);
-- no icon ships with it but the selected mark, a filled `tabler:circle-dot` beside an empty
-  `tabler:circle`, so selection is never tint alone.
+- no icon ships with it but the selected mark, `tabler:circle-dot-filled` on the chosen row and an
+  empty `tabler:circle` on the others, so selection is never tint alone. A row that cannot be chosen
+  is Base UI's `readOnly` radio beside `aria-disabled`, which keeps it focusable and refuses a press,
+  a Space and the select-on-arrow focus. Base UI 1.9.0's composite skips an `aria-disabled` item on
+  the arrow keys unless the group passes `disabledIndices`, which its `RadioGroup` does not expose
+  (`floating-ui-react/utils/composite.mjs::isListIndexDisabled`), so the group's own `onKeyDown`
+  moves focus to the next or previous row, an unavailable one included, and calls
+  `event.preventBaseUIHandler()`; the item's focus handler then moves the tab stop and chooses
+  only a row that is not read-only.
 
 ```ts
 // components/shadcn/radio-group.tsx (new; the one file that names Base UI's radio)
@@ -2411,7 +2459,7 @@ Result:
 }
 ```
 
-`next` is part 01's `alreadyInNovaNext(claim, formatDate)` with `formatDate` the UTC day, and `at`
+`next` is part 01's `alreadyInNovaNext(claim, formatDate)` with `formatDate` the UTC day (one spelling across every tool: `lib/publish/driftReference.ts::driftDate` at its default locale and zone, as in "10 November 2026"), and `at`
 is ISO text. Errors: `not-connected` is the existing `hq_not_configured` with **M5**; every stop
 whose code is `key-cannot-reach-space` or `not-a-member` is the existing `domain_not_authorized`;
 every other stop is `hq_read_stopped` (14.8).
@@ -2480,8 +2528,19 @@ export function describeReading(
 		readonly from: number;
 		/** True where the call sent a `page` and the app is no longer what that page was cut from. */
 		readonly restarted: boolean;
+		/** The name of the Project the app is added to, which the review's sentences name (R2, R4, R6 to R10). */
+		readonly project: string;
 	},
 ): ReadingProjection;
+/**
+ * Where a fresh read's page starts for a call that sent `cursor`: `{ from, restarted: false }` where
+ * the read is the account the cursor was cut from, `{ from: 0, restarted: true }` where it is not,
+ * and null where the cursor names that very account at an index past its end, which no answer gave.
+ */
+export function pageFor(
+	answer: ReadingAnswer,
+	cursor: { readonly from: number; readonly digest: string } | null,
+): { readonly from: number; readonly restarted: boolean } | null;
 /** The cursor's two halves, or null for text the schema let through and no account could give. */
 export function parseAccountPage(page: string): { readonly from: number; readonly digest: string } | null;
 /** `canonicalJsonDigest` of an account's whole listed content: its `findings` and its `more`. */
@@ -2565,7 +2624,7 @@ export interface ReadingProjection {
 				note: string;
 			};
 		}[];
-		/** Why Nova proposes the preselected choice, what the first upload will ask, and V14. */
+		/** Why Nova proposes the preselected choice, what the first upload will ask under it (V12), and V14. */
 		runs_on_notes: string[];
 		/** Each platform no choice runs on: V13's lead, its feature labels, and its files' sentence. */
 		cannot_run: { platform: "web-apps" | "android"; sentence: string; features: string[];
@@ -2635,7 +2694,12 @@ sends it back as `page`, alone beside the three key fields, so no rule pairs two
 fresh read is an account with that digest, the answer is its page from `<index>`. Where it is no
 longer an account, or its account has another digest, the tool answers the fresh read from its
 start with `restarted: true` and **M7** as `message`, so a client never stitches two versions of
-an app into one list.
+an app into one list. The tool decides this through `pageFor`. A `page` no answer could give (an
+index spelled with a leading zero, or an index past the end of the account its digest names) is
+`invalid_input` with the handler's own sentence: "That page isn't one Nova gave for this app. You
+can call read_hq_app without `page` to read it from the start." It is never answered as M7, which
+would tell the user the app changed when it did not. The review's sentences name the Project, so
+`describeReading` takes its name (`listUserProjects`, after `authorizeBringIn`).
 
 ### 14.4 `bring_in_hq_app`
 
@@ -2711,7 +2775,8 @@ Result, by part 12's `CreateAnswer`:
 ```
 
 `changed`'s `reading` is `describeReading(now, key, { from: 0, restarted: false })`, and
-`check_failed`'s is the same over `accountOfOne(finding, appName)` (3.3), the account of the one
+`check_failed`'s is the same over `accountOfOne(finding, null)` (3.3: a create knows no name of
+CommCare HQ's for the app, since `app_name` is the user's name in Nova), the account of the one
 finding. `message` is **M1** for `created` and, for the other four, the sentence of part 12's
 `CREATE_ANSWER_LEADS` the screen sets above the same answer (8.10): for `changed`, the one for what
 `now` is.
@@ -3361,7 +3426,8 @@ id's meaning. Strings owned by another part are named here by their export and n
 | | the person's own Project (`personal`) | Only you can open it. An app that reads lookup tables stays in the Project it's added to. |
 | K5 | field label | Project space |
 | K6 | one project space | {domain}, on CommCare HQ ({server}) |
-| K7 | combobox placeholder | Search project spaces |
+| K7 | combobox placeholder (more than eight project spaces) | Search project spaces |
+| K7a | select placeholder (two to eight project spaces, a list that takes no typing) | Choose a project space |
 | K8 | field label | App |
 | K9 | apps loading, status | Reading the apps in {domain} |
 | K10 | no apps | There are no apps in {domain} yet |
@@ -3426,7 +3492,7 @@ Check again · Try again · Open Settings · Open {appName} · Open your app · 
 
 | Id | Where | Text |
 |---|---|---|
-| V1 | heading | Nova can bring in {app} |
+| V1 | heading | Nova can bring in {app} (where CommCare HQ holds no name for the app: Nova can bring in this app) |
 | V2 | under it | Here's what comes in and what stays where it is. Nothing is created until you choose Bring it in. |
 | V3 | section | Your app |
 | V4 | field label | App name |
@@ -3546,7 +3612,7 @@ tools say one thing. M1 to M7 are exports of `lib/publish/bringInCopy.ts`, and G
 | `BringInAccount`, an account with no findings | `[bring-in] account with no findings` at error: "A read answered an account that holds no finding. An account is answered only where a read met one. Look at lib/deployment/reading/gather.ts::gatherReading." |
 | `chosenDeclaration`, answers that match no entry of `review.runsOn` (unreachable from the screen, which sets both answers from one entry) | "The review offers no way to run that matches the answers held (runsOnlyOn ${runsOnlyOn}, splitDatetime ${splitDatetime}). Answers are taken from one entry of review.runsOn at a time. Look at components/bring-in/bringInModel.ts::reduceBringIn, the answers event, and carryAnswers." |
 | `listHqAppsForPicker`, `getHqCredentials` answering `ambiguous` for a named project space | "listHqAppsForPicker asked for the credentials of one named project space and was told the choice is ambiguous, which a named project space cannot be. Look at lib/db/settings.ts::getHqCredentials." |
-| `BuilderLayout`, a `nova:brought-in` value that is not the three strings it writes | `log.warn("[bring-in] landing marker unreadable")`, the key removed, no toast. A warning and not an error: the value is the browser's to lose, and the Publishing card still says where the app came from |
+| `BuilderLayout`, a `nova:brought-in` value that is not the three strings it writes | `console.warn("[bring-in] landing marker unreadable")` in the browser (`lib/logger.ts` writes to the server's stdout and has no browser channel for a warning), the key removed, no toast. A warning and not an error: the value is the browser's to lose, and the Publishing card still says where the app came from |
 | `toMcpErrorResult`, a `BringInToolError` | `log.warn("[mcp] bring-in refused", { userId, errorType, circumstance, refusal })`, as 14.8 says. The message a client reads is the sentence the error carries |
 
 A stored create the tab's key holds that `resumableCreate` does not take (9.1) is logged nowhere:
@@ -3609,8 +3675,10 @@ sets) with a `landCreatedAppReceipt` that records its calls and a seed of two Pr
 `personal`. Every Nova route is answered from `page.route` with typed bodies built from the
 production types (`HqAppPicker`, `ReadingEvent`, `ReadingAnswer`, `CreateAnswer`,
 `CommCareSettingsPublic`), as `publishing.spec.ts` builds `PublishResponseBody`; the read and the
-create are answered as NDJSON bodies, one `ReadingEvent` a line. A route a journey holds open and
-answers later, or answers differently on a second post, is added through
+create are answered as NDJSON bodies, one `ReadingEvent` a line. `route.fulfill` sends a whole body
+at once, so a body a journey writes line by line, or holds open, comes from a local server the
+route continues to (`route.continue({ url })`), which the page reads as it arrives. A route a
+journey holds open and answers later, or answers differently on a second post, is added through
 `e2e/lib/routes.ts::removableRoutes` and removed with its `removeAll`, as `e2e/CLAUDE.md` requires
 of every route a test removes ("A route a test removes goes through `e2e/lib/routes.ts`"). The file
 is used and not changed.
@@ -3643,8 +3711,10 @@ answers a connection, and makes no document or RSC request.
 `e2e/lib/smokeProfiles.ts::SMOKE_PROFILES`, and its builder, written in `e2e/lib/bringInSeed.ts`, is
 registered under that name in `e2e/lib/smokeSeedFactory.ts`, as `"deep-links"` is. It seeds an owner
 with Projects A (active) and B and a CommCare connection; one brought-in app in A and one in B, each
-made by part 12's birth over the fixture its own birth tests export (no CommCare HQ is read: the
-birth takes prepared inputs), with each app's receipt in the typed scenario data; a third Project C
+made by part 12's read and birth over the controlled source its own create tests export, served
+from the retained answers by a controlled peer (no CommCare HQ is reached), each under a CommCare HQ
+app id of its own, since one HQ app is published to by one Nova app; with each app's receipt and
+the review its read answered in the typed scenario data; a third Project C
 of the owner's that holds nothing; an editor of A; and a third person who views A and edits B. It
 plants no reading, because there is none to plant. `/api/commcare/bring-in/read`,
 `/api/commcare/bring-in/create` and `/api/commcare/hq-apps` are answered from `page.route`, since
@@ -3701,7 +3771,7 @@ Each row lands with the behavior that makes it true.
 | `components/builder/CLAUDE.md`, "Publishing" | "`RemoteChangeChoice` stands beside `ResourceConflictChoice` … it lists every change made in CommCare HQ since Nova's last push and offers to discard them" | gains: "Where the app itself changed and its list of changes is drawn, an admin or owner is also offered Stop publishing here (`StopPublishingDialog`), and an editor is told who can. For an app brought in and not yet published, the review step states what the first publish changes (`FirstPublishLines`), from `DeploymentView.firstPublish`." |
 | `components/builder/CLAUDE.md`, "App setup, Publishing" | "renders one full `DeploymentStatus` card per project space the app has reached" | gains: "A card says where a brought-in app came from, offers Stop publishing here to a member who may delete, and draws an ended deployment from `deploymentEnding`, never from the state: no ladder, no Check status, no Workers panel." |
 | `components/builder/PublishDialogBody.tsx`, the comment over `RemoteChangeChoice` | "What changed in CommCare HQ since Nova last published there, and the only thing that lets the publish write over it." | "What changed in CommCare HQ since Nova last published there, brought the app in or brought changes in, and what lets the publish write over it. Where the app's change can be brought in, `HqChangesPanel` takes its item's place; otherwise Stop publishing here stands beside it." |
-| `components/builder/CommCareConnectionContext.tsx`, its header | "The value is memoized against the settings object (RSC-stable across renders), so `PublishPanel`'s memo and the dialog's domain-reset effect see one identity per page load rather than a fresh array per render." | "The value is memoized against the settings object and the last answer of `refresh`, so `PublishPanel`'s memo and the dialog's domain-reset effect see one identity until a refresh answers. `refresh` reads `GET /api/commcare/connection` and never calls the Next router: on a page whose address the History API wrote, a router refresh would write Next's own address back." |
+| `components/builder/CommCareConnectionContext.tsx`, its header | "The value is memoized against the settings object (RSC-stable across renders), so `PublishPanel`'s memo and the dialog's domain-reset effect see one identity per page load rather than a fresh array per render." | "The value is memoized against the settings object and the last answer of `refresh`, so `PublishPanel`'s memo and the dialog's domain-reset effect see one identity until a refresh answers (its in-flight and failed flags aside, which change only around a press). `refresh` reads `GET /api/commcare/connection` and never calls the Next router: on a page whose address the History API wrote, a router refresh would write Next's own address back." |
 | `components/chat/StartFromScratch.tsx`, its header comment | "the "skip the SA, build it yourself" affordance" | "the two ways to start without describing an app: a blank app, and an app brought in from CommCare HQ" |
 | `app/(app)/(site)/RefreshStaleAppList.tsx`, its header | "Refetches the app list once, when the user arrives on a list that was rendered before an app they have since created." | gains: "The empty state mounts it too, since the first app a Project holds is created from there." |
 | `lib/routing/CLAUDE.md` | no word of `/build/new`'s query | gains: "`/build/new` carries two query states, each seeded by the server for the first paint: `design`, and `hq` with the key of the app being brought in (`bringInLocation.ts`)." |
@@ -3857,10 +3927,10 @@ was weighed and not taken. Each states the evidence and the decision taken.
 
 | File | Holds |
 |---|---|
-| `components/bring-in/bringInModel.ts` | the flow's pure model (3.3): `BringInModel`, `PickerModel`, `BringInCall`, `BringInEvent`, `BringInScreen`, `BringInAct`, `CreateLead`, `initialBringInModel`, `reduceBringIn`, `screenOf`, `nextAct`; `ReviewAnswer`, `ReviewAnswers`, `initialAnswers`, `unansweredChoices`, `bringInInputOf`, `chosenDeclaration`, `carryAnswers`; `knownAppName`, `circumstanceContextOf`; `BRING_IN_RESUME_WINDOW_MS`, `resumableCreate`; `StopAction`, `STOP_ACTIONS` (6.2); `placeGroupKey`, `AccountItem`, `AccountGroup`, `accountGroups`, `accountHeading`, `countLine`, `accountAsText` (7); `DeclarationRow`, `declarationRows`, `DeclarationWhy`, `declarationWhy` (8.3) |
+| `components/bring-in/bringInModel.ts` | the flow's pure model (3.3): `BringInModel`, `PickerModel`, `BringInCall`, `BringInEvent`, `BringInScreen`, `BringInAct`, `CreateLead`, `initialBringInModel`, `reduceBringIn`, `screenOf`, `nextAct`; `ReviewAnswer`, `ReviewAnswers`, `initialAnswers`, `unansweredChoices`, `bringInInputOf`, `chosenDeclaration`, `carryAnswers`; `knownAppName`, `circumstanceContextOf`; `BRING_IN_RESUME_WINDOW_MS`, `resumableCreate`; `StopAction`, `STOP_ACTIONS`, `stopActions` (a finding's row, which refuses a code that is no stop), `pickerStopActions` (the row less Choose another app, 4.5), `stopActionLabel` (6.2); `placeGroupKey`, `AccountItem`, `AccountGroup`, `accountGroups`, `accountHeading`, `countLine`, `accountAsText` (7); `DeclarationRow`, `declarationRows`, `DeclarationWhy`, `declarationWhy` (8.3) |
 | `components/bring-in/bringInClient.ts` | `BringInAnswer`, `BringInStreamEnd`, `fetchHqApps`, `postRead`, `postCreate` (3.3) |
 | `components/bring-in/useBringIn.ts` | the hook: the reducer, the one effect over `nextAct`, the two session-storage keys (3.3, 9.1, 9.2) |
-| `components/bring-in/BringInFlow.tsx`, `BringInPicker.tsx`, `BringInReading.tsx`, `BringInStop.tsx`, `BringInAccount.tsx`, `BringInReview.tsx`, `ReviewRunsOn.tsx`, `ReviewTableChoice.tsx`, `FirstPublishLines.tsx` | the screens (12.1) |
+| `components/bring-in/BringInFlow.tsx`, `BringInScreenLayout.tsx`, `BringInPicker.tsx`, `BringInReading.tsx`, `BringInStop.tsx`, `BringInAccount.tsx`, `BringInReview.tsx`, `ReviewRunsOn.tsx`, `ReviewTableChoice.tsx`, `FirstPublishLines.tsx` | the screens and their frame (12.1) |
 | `components/builder/HqNotConnected.tsx` | the connection aside, extracted from `PublishDialogBody.tsx::NotConfigured` (4.4) |
 | `components/builder/StopPublishingDialog.tsx` | the confirmation the card and the drift stop share (11.1) |
 | `components/shadcn/radio-group.tsx` | `RadioGroup`, `RadioGroupItem` (12.2) |
@@ -3893,6 +3963,7 @@ was weighed and not taken. Each states the evidence and the decision taken.
 | `components/chat/ChatSidebar.tsx` | the `takeover` prop (3.1) |
 | `components/chat/ChatContainer.tsx` | mounts `BringInFlow` as `takeover`, handing it the seed, its `landCreatedAppReceipt` and its `projectToast` (3.1, 9.2) |
 | `components/builder/BuilderLayout.tsx` | passes `BringInSeed` down; shows the toast after a landing that loaded a page (9.2) |
+| `components/builder/BuilderContentArea.tsx` | passes `BringInSeed` on to `ChatContainer` (3.2) |
 | `components/builder/CommCareConnectionContext.tsx` | `refresh`, `isRefreshing`, `refreshFailed` (4.4) |
 | `components/builder/PublishPanel.tsx` | the context's refresh in place of its router transition (4.4) |
 | `components/builder/PublishDialogBody.tsx` | `HqNotConnected` in place of `NotConfigured`; `PublishDialogProps.hqConnectionRefreshFailed`; the first-publish section (11.2); the drift stop's block (11.3); `publishPlanCopy` and `PublishPlan` leave it |
