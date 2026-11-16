@@ -15,9 +15,18 @@ Contract: the client finds a file's address in the app's multimedia map (``formp
 ``resourceMap`` reply), so a reference with no entry has none. A question's picture is laid out only where it has
 one (``form_entry/multimedia.html``: ``visible: mediaSrc(...)``), and its sound is laid out by its path, entry or
 not (``visible: caption_audio``), a player with nothing to play; a choice's media never reaches the client
-(Formplayer's ``PromptToJson.parseSelect`` sends each choice's text alone); a menu's, a form's and the Register
-action's media and a list's image cell show nothing without an address. A reference whose entry stays has an
-address, so the client lays out ``photo``'s picture at it, and the file is gone: a broken picture.
+(Formplayer's ``PromptToJson.parseSelect`` sends each choice's text alone); a menu's and a form's icon show
+nothing without an address (``menus/views.js``: ``imageUrl`` is the reply's answer, a background image), and the
+Register action is a button with its label alone (``case_list/list.html``). A list's image cell is an ``<img>``
+whatever its value (``case_list/item.html``: ``src`` the reply's answer, which the template prints empty where
+there is none, and ``alt`` the value's alternative text). HQ's build writes that text for every value an image
+column maps, as a no-break space where the app gives none (``app_strings.py``, under ``supports_alt_text``, and
+``commcare_translations.py::dumps``), and a value that maps to no picture has none (the column's alternative text
+falls to ``''``). So a case whose status maps to the picture with no entry gets an ``<img>`` with no address and a
+no-break space for its text, which the browser draws as its stand-in for a picture it cannot show, and a case
+whose status maps to no picture an ``<img>`` with no address and no text, which it draws nothing for: the same
+cell, its counterpart. A reference whose entry stays has an address, so the client lays out ``photo``'s picture
+at it, and the file is gone: a broken picture.
 
 Plausible failures: a missing file the client draws something for where Nova reads the reference as inert, or one
 it draws nothing for where Nova refuses it; and a page that names no media at all, which ``photo``'s picture,
@@ -36,7 +45,7 @@ from proof.webapps.session import Session
 DOCUMENT = "targeted-missing-media"
 
 
-def test_web_apps_shows_a_player_for_a_missing_sound_a_broken_picture_for_a_deleted_file_and_nothing_else(
+def test_web_apps_shows_a_player_for_a_missing_sound_and_a_broken_picture_in_the_list_and_for_a_deleted_file(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     from proof.formplayer.walk import Walk
@@ -78,8 +87,17 @@ def test_web_apps_shows_a_player_for_a_missing_sound_a_broken_picture_for_a_dele
     lists = [screen["list"] for screen in screens if screen.get("list") is not None]
     patients = [shown for shown in lists if [header["text"] for header in shown["headers"]] == ["Name", "Status"]]
     assert patients, f"The client never showed the case list Patients of {DOCUMENT}: {lists}"
+    drawn = []
     for shown in patients:
         assert shown["rows"], shown
-        # Each case's image cell shows no picture, and the Register action is offered by its label alone.
-        assert all(cell["image"] is None for row in shown["rows"] for cell in row["cells"]), shown["rows"]
+        for row in shown["rows"]:
+            name, status = row["cells"]
+            # The name cell holds no picture; the status cell holds one with no address, a case whose status maps
+            # to the picture with no entry and a case whose status maps to none alike.
+            assert name["image"] is None and "drawn" not in name, row
+            assert status["image"] == "", row
+            drawn.append(status["drawn"])
+        # The Register action is offered by its label alone.
         assert "Register" in shown["actions"], shown["actions"]
+    # The browser draws its stand-in for the picture with no entry, and nothing for a status that maps to none.
+    assert set(drawn) == {True, False}, drawn

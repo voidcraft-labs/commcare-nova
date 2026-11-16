@@ -592,8 +592,10 @@ whose file it keeps): a question's screen whose image has no file shows
 Android's missing-image prompt and its sound's button, a select's screen
 shows its choice's sound button, each row of the case list lays out an image
 in its image cell, and the menus name the menu's icon and the form's sound
-with no file held for either. What a menu's or a form's tile and the
-Register action draw is not in the walk's record.
+with no file held for either. Its walks start from the forms' commands, past
+every menu, so the menus are read through the `nav` request: the app's first
+menu, and the menu "Visits" chosen from it. What a menu's or a form's tile
+and the Register action draw is not in the walk's record.
 
 `test_navigation.py` reads the corpus the same way, through the `nav`
 request. On `targeted-multi-select-destinations` home starts no screen at a

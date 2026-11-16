@@ -2146,7 +2146,11 @@ part whose check can correct a sentence here says which one under its "Written a
   icon in a case list's image column (`views/EntityView.java::setupImageLayout`, `ic_menu_archive`), and
   draws nothing on a menu's or a form's tile (`adapters/MenuAdapter.java::setupImageView`,
   `setupAudioButton`) or on the Register action (`views/EntityActionViewUtils.java::setupActionAudio`,
-  which shows its audio button only where `FileUtil.referenceFileExists`). Web Apps shows no picture, and
+  which shows its audio button only where `FileUtil.referenceFileExists`). Web Apps shows no picture but a
+  broken one in a case list's image column, whose cell is an `<img>` with no address and, for its
+  alternative text, the no-break space CommCare HQ's build writes for a value with none
+  (`cloudcare/templates/cloudcare/partials/case_list/item.html`; `commcare_translations.py::dumps`), which
+  the browser draws its stand-in for (found by check R2, whose read holds it); and it
   shows a player with nothing to play for a question's sound or video: the client binds the players'
   visibility to the paths themselves
   (`cloudcare/templates/cloudcare/partials/form_entry/multimedia.html`, `caption_audio`,

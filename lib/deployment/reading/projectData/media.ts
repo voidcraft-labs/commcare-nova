@@ -357,7 +357,11 @@ type MissingFile = "no-entry" | "no-file";
  * icon or audio, the logo or an itext form no slot holds. Web Apps never
  * receives a choice's media; it builds an address from any entry, so a
  * picture with an entry and no file shows broken; and with no entry it shows
- * nothing but a question's audio or video player.
+ * a question's audio or video player, and a list's image cell as a broken
+ * picture: the cell's `<img>` has no address and, as its alternative text,
+ * the no-break space CommCare HQ's build writes for a value that names a
+ * picture (`case_list/item.html`, `commcare_translations.py::dumps`), which
+ * the browser draws its stand-in for. It shows nothing else with no entry.
  */
 export function mediaSlotDrawnOn(
 	slot: HqMediaSlot,
@@ -368,7 +372,7 @@ export function mediaSlotDrawnOn(
 	if (platform === "android")
 		return slot === "form" || slot === "choice" || slot === "list-image";
 	if (slot === "choice" || slot === "unheld-itext") return false;
-	if (missing === "no-file") return true;
+	if (missing === "no-file" || slot === "list-image") return true;
 	return slot === "form" && (kind === "audio" || kind === "video");
 }
 
