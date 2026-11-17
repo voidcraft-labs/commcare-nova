@@ -853,7 +853,7 @@ preceded) and with what a publish never sends taken from the head (the kinds
 no reading holds, the worker setup under the slugs the published document
 gave it, where the app runs, the logo).
 
-**P0: Nova holds nothing unpublished exactly where what it would publish reads
+**Nova holds nothing unpublished exactly where what it would publish reads
 the same as what it published**, `documentDifferences(canonK(reference),
 canonK(head))` empty and no worker or location property's slug renamed since
 (`plan.ts`: a slug nothing reads is in neither, and a read CommCare HQ adds of

@@ -34,6 +34,8 @@ import {
 import {
 	expressionContextAtPath,
 	expressionRowScope,
+	scalarDataType,
+	typeOf,
 	visitAssignmentOutputs,
 } from "@/lib/domain/expression/typeChecker";
 import {
@@ -798,6 +800,179 @@ function foldedCoercions(
 	);
 }
 
+/** The branches of an `if`, `coalesce`, `switch` or `cond`, each with its
+ *  path and a way to put another in its place; undefined for any other
+ *  node. */
+function valueBranches(
+	node: Expression,
+	path: CheckPath,
+):
+	| {
+			readonly branches: readonly {
+				readonly value: Expression;
+				readonly path: CheckPath;
+			}[];
+			readonly rebuild: (branches: readonly Expression[]) => Expression;
+	  }
+	| undefined {
+	if (node.kind === "if")
+		return {
+			branches: [
+				{ value: node.then, path: [...path, "if", "then"] },
+				{ value: node.else, path: [...path, "if", "else"] },
+			],
+			rebuild: ([then, otherwise]) => ({
+				...node,
+				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+				then: then ?? node.then,
+				else: otherwise ?? node.else,
+			}),
+		};
+	if (node.kind === "coalesce")
+		return {
+			branches: node.values.map((value, index) => ({
+				value,
+				path: [...path, "values", index],
+			})),
+			rebuild: (values) => ({
+				...node,
+				values: values as typeof node.values,
+			}),
+		};
+	if (node.kind === "switch")
+		return {
+			branches: [
+				...node.cases.map((entry, index) => ({
+					value: entry.then,
+					path: [...path, "switch", "cases", index, "then"],
+				})),
+				{ value: node.fallback, path: [...path, "switch", "fallback"] },
+			],
+			rebuild: (values) => ({
+				...node,
+				cases: node.cases.map((entry, index) => {
+					const then = values[index] ?? entry.then;
+					return then === entry.then ? entry : { ...entry, then };
+				}) as unknown as typeof node.cases,
+				fallback: values[node.cases.length] ?? node.fallback,
+			}),
+		};
+	if (isCall(node, "cond") && node.args.length % 2 === 1) {
+		const indices = node.args.flatMap((_, index) =>
+			index % 2 === 1 || index === node.args.length - 1 ? [index] : [],
+		);
+		return {
+			branches: indices.map((index) => ({
+				value: node.args[index] as Expression,
+				path: [...path, "call", "args", index],
+			})),
+			rebuild: (values) => ({
+				...node,
+				args: node.args.map((arg, index) => {
+					const at = indices.indexOf(index);
+					return at === -1 ? arg : (values[at] ?? arg);
+				}),
+			}),
+		};
+	}
+	return undefined;
+}
+
+/** A record value that prints as a literal text spelled as a date or a date
+ *  and time, with that text and the type its spelling names: an untyped
+ *  literal, one typed as its spelling, or a `datetime-coerce` of a date or a
+ *  date-and-time literal, which prints as the literal's own instant text
+ *  (`instant.ts::datetimeCoerceValue`, `literalInstantText`). */
+function dateShapedLiteral(
+	node: Expression,
+): { readonly value: string; readonly type: "date" | "datetime" } | undefined {
+	if (node.kind === "datetime-coerce") {
+		const coerced = termOf(node.value);
+		if (coerced?.kind !== "literal" || typeof coerced.value !== "string")
+			return undefined;
+		const shape = coerced.data_type ?? literalShape(coerced.value)?.type;
+		const text =
+			shape === "date" || shape === "datetime"
+				? literalInstantText(coerced.value)
+				: undefined;
+		return text === undefined ? undefined : { value: text, type: "datetime" };
+	}
+	const literal = termOf(node);
+	if (literal?.kind !== "literal" || typeof literal.value !== "string")
+		return undefined;
+	const shape = literalShape(literal.value)?.type;
+	if (shape !== "date" && shape !== "datetime") return undefined;
+	return literal.data_type === undefined || literal.data_type === shape
+		? { value: literal.value, type: shape }
+		: undefined;
+}
+
+/** The types of a date or a date and time `node` gives where a reading of its
+ *  print reads it beside a literal: none for a literal spelled as one, the
+ *  types its branches give for a branch node, and its own type otherwise. */
+function readTypesGiven(
+	node: Expression,
+	path: CheckPath,
+	root: Expression,
+	context: ExpressionContext,
+): ReadonlySet<"date" | "datetime"> {
+	if (dateShapedLiteral(node) !== undefined) return new Set();
+	const branching = valueBranches(node, path);
+	if (branching !== undefined)
+		return new Set(
+			branching.branches.flatMap((branch) => [
+				...readTypesGiven(branch.value, branch.path, root, context),
+			]),
+		);
+	let type: string | undefined;
+	try {
+		const at =
+			path.length === 0
+				? context
+				: expressionContextAtPath(root, context, path);
+		type = scalarDataType(typeOf(node, at)?.data);
+	} catch {
+		return new Set();
+	}
+	return type === "date" || type === "datetime" ? new Set([type]) : new Set();
+}
+
+/** `node`, a record value at `path` of `root`, with each date or
+ *  date-and-time literal it gives typed only where `typed`, or a branch
+ *  beside it or beside a branch node around it, gives its type, as a reading
+ *  of its print reads it (`folds.ts::typedBranchLiterals`). */
+function untypedValueLiterals(
+	node: Expression,
+	path: CheckPath,
+	root: Expression,
+	context: ExpressionContext,
+	typed: ReadonlySet<string>,
+): Expression {
+	const literal = dateShapedLiteral(node);
+	if (literal !== undefined) {
+		const read: Expression = {
+			kind: "term",
+			term: typed.has(literal.type)
+				? { kind: "literal", value: literal.value, data_type: literal.type }
+				: { kind: "literal", value: literal.value },
+		};
+		return sameJson(read, node) ? node : read;
+	}
+	const branching = valueBranches(node, path);
+	if (branching === undefined) return node;
+	const inside = new Set(typed);
+	for (const type of readTypesGiven(node, path, root, context))
+		inside.add(type);
+	const branches = branching.branches.map((branch) =>
+		untypedValueLiterals(branch.value, branch.path, root, context, inside),
+	);
+	return branches.every(
+		(branch, index) => branch === branching.branches[index]?.value,
+	)
+		? node
+		: branching.rebuild(branches);
+}
+
 /** Every row, in the order of the table. */
 export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	{
@@ -997,6 +1172,47 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 				return undefined;
 			const folded = foldedCoercions(node, [], node, context, true);
 			return folded === node ? undefined : folded;
+		},
+	},
+	{
+		// A date or a date-and-time literal, or a `datetime-coerce` of one, that
+		// a record slot's whole value or a part of a `concat` gives, as itself
+		// or through the branches of an `if`, `coalesce`, `switch` or `cond`,
+		// prints as its text whether it is typed or not. The reader types that
+		// text only where a branch beside it, or beside a branch node around
+		// it, gives its type (`folds.ts::typedBranchLiterals`), or where it is
+		// the whole value of a slot that expects it (`folds.ts::slotLiteral`),
+		// which this row leaves as it is; everywhere else it returns the
+		// untyped literal.
+		id: "untyped-value-literal",
+		rewrite(node, context, at) {
+			if (context.ruleSet !== "record" || printsCsql(context)) return undefined;
+			if (node.kind === "concat") {
+				const parts = node.parts.map((part, index) =>
+					untypedValueLiterals(
+						part,
+						["parts", index],
+						node,
+						context,
+						new Set(),
+					),
+				);
+				const [first, ...rest] = parts;
+				return first === undefined ||
+					parts.every((part, index) => part === node.parts[index])
+					? undefined
+					: { kind: "concat", parts: [first, ...rest] };
+			}
+			const expectation = context.profile.expectation;
+			if (
+				!at.root ||
+				expectation.kind === "assignment" ||
+				(expectation.kind === "value" &&
+					(expectation.type === "date" || expectation.type === "datetime"))
+			)
+				return undefined;
+			const untyped = untypedValueLiterals(node, [], node, context, new Set());
+			return untyped === node ? undefined : untyped;
 		},
 	},
 	{

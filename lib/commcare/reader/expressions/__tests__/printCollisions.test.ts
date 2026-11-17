@@ -702,6 +702,83 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			canonical: lit("2026-01-01T00:00:00.000Z"),
 		},
 		{
+			// A typed literal as a column's whole value prints its text.
+			id: "untyped-value-literal",
+			slot: calculated,
+			other: () =>
+				term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00Z",
+					data_type: "datetime",
+				}),
+			canonical: lit("2026-01-01T00:00:00Z"),
+		},
+		{
+			// Branches that are all literals have no branch beside them that
+			// gives their type.
+			id: "untyped-value-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "coalesce",
+				values: [
+					term({
+						kind: "literal",
+						value: "2026-01-01T00:00:00Z",
+						data_type: "datetime",
+					}),
+					{ kind: "datetime-coerce", value: lit("2026-02-01") },
+				],
+			}),
+			canonical: {
+				kind: "coalesce",
+				values: [lit("2026-01-01T00:00:00Z"), lit("2026-02-01T00:00:00.000Z")],
+			},
+		},
+		{
+			// A branch node inside one whose other branch is a date and time
+			// keeps its literals typed.
+			id: "untyped-value-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "coalesce",
+				values: [
+					prop("seen"),
+					{
+						kind: "coalesce",
+						values: [
+							term({
+								kind: "literal",
+								value: "2026-01-01T00:00:00Z",
+								data_type: "datetime",
+							}),
+							{ kind: "datetime-coerce", value: lit("2026-02-01") },
+						],
+					},
+				],
+			}),
+			canonical: {
+				kind: "coalesce",
+				values: [
+					prop("seen"),
+					{
+						kind: "coalesce",
+						values: [
+							term({
+								kind: "literal",
+								value: "2026-01-01T00:00:00Z",
+								data_type: "datetime",
+							}),
+							term({
+								kind: "literal",
+								value: "2026-02-01T00:00:00.000Z",
+								data_type: "datetime",
+							}),
+						],
+					},
+				],
+			},
+		},
+		{
 			// A comparison of moments folds both to one count of microseconds,
 			// and the reader gives the moment's canonical text.
 			id: "coerced-instant-literal",

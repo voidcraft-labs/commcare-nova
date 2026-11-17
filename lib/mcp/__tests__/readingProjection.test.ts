@@ -1,7 +1,8 @@
 /**
  * What `read_hq_app` and `bring_in_hq_app` serve of one read, as data: the
- * three answers, every sentence the screen's copy export, the account cut
- * into pages a client can follow to the end, and every refusal with its tag.
+ * three answers, every sentence the screen's copy export, the account and a
+ * review's lookup tables cut into pages a client can follow to the end, and
+ * every refusal with its tag.
  *
  * It would catch: an answer the client truncates in silence; two versions of
  * an app stitched into one list; MCP and the screen saying different things;
@@ -491,6 +492,9 @@ describe("describeReading", () => {
 			},
 		});
 
+		expect(shown.tables_total).toBe(3);
+		expect(shown.next_page).toBeNull();
+
 		expect(shown.places).toEqual({
 			count: 12,
 			sentence: reviewManagedPlaces(12, KEY.domain),
@@ -664,6 +668,106 @@ describe("an account a page at a time", () => {
 		expect(
 			pageFor(short, { from: 5, digest: accountDigest(short) }),
 		).toBeNull();
+	});
+});
+
+describe("a review's lookup tables a page at a time", () => {
+	const LONG = "Ž".repeat(255);
+
+	/** A table whose choice names many apps at their longest. */
+	function longTable(index: number): ReviewTable {
+		const choice = CHOICE_TABLE.choice;
+		if (choice === null) throw new Error("no choice");
+		return {
+			...CHOICE_TABLE,
+			tag: `table_${index}`,
+			choice: {
+				...choice,
+				apps: Array.from({ length: 20 }, (_, app) => ({
+					appId: `app-${index}-${app}`,
+					appName: `${app}${LONG}`,
+					deleted: false,
+				})),
+			},
+		};
+	}
+
+	function manyTables(count: number, digest: string = DIGEST): ReadingAnswer {
+		return {
+			kind: "review",
+			readingId: READING_ID,
+			reviewDigest: digest,
+			review: {
+				...review(),
+				tables: Array.from({ length: count }, (_, index) => longTable(index)),
+			},
+		};
+	}
+
+	it("cuts 2,000 tables at their longest into pages under the limit that give every table once", () => {
+		const answer = manyTables(2000);
+		const seen: string[] = [];
+		let cursor: string | null = null;
+		let pages = 0;
+		do {
+			const parsed = cursor === null ? null : parseAccountPage(cursor);
+			if (cursor !== null && parsed === null)
+				throw new Error(`An unreadable cursor: ${cursor}`);
+			const start = pageFor(answer, parsed);
+			if (start === null) throw new Error("The cursor named no page.");
+			expect(start.restarted).toBe(false);
+			const projection = describeReading(answer, KEY, {
+				...start,
+				project: PROJECT,
+			});
+			expect(JSON.stringify(projection).length).toBeLessThan(PAGE_LIMIT_CHARS);
+			const shown = projection.review;
+			if (shown === undefined) throw new Error("no review");
+			expect(shown.tables_total).toBe(2000);
+			expect(shown.tables.length).toBeGreaterThan(0);
+			for (const table of shown.tables) seen.push(table.tag);
+			cursor = shown.next_page;
+			pages += 1;
+		} while (cursor !== null);
+		expect(pages).toBeGreaterThan(1);
+		expect(seen).toEqual(
+			Array.from({ length: 2000 }, (_, index) => `table_${index}`),
+		);
+	});
+
+	it("answers a page cut from another review from the fresh review's start, restarted", () => {
+		const first = describeReading(manyTables(300), KEY, FIRST_PAGE).review
+			?.next_page;
+		if (first == null) throw new Error("one page held every table");
+		const now = manyTables(300, "b".repeat(64));
+		const start = pageFor(now, parseAccountPage(first));
+		expect(start).toEqual({ from: 0, restarted: true });
+		const projection = describeReading(now, KEY, {
+			...(start as NonNullable<typeof start>),
+			project: PROJECT,
+		});
+		expect(projection).toMatchObject({
+			restarted: true,
+			message: READING_RESTARTED_MESSAGE,
+		});
+		expect(projection.review?.tables[0]?.tag).toBe("table_0");
+	});
+
+	it("answers a page against a read that is now an account with the account, restarted", () => {
+		const first = describeReading(manyTables(300), KEY, FIRST_PAGE).review
+			?.next_page;
+		if (first == null) throw new Error("one page held every table");
+		expect(
+			pageFor(account([manifest(QUESTION)]), parseAccountPage(first)),
+		).toEqual({ from: 0, restarted: true });
+	});
+
+	it("reads no cursor past the review's last table", () => {
+		expect(pageFor(reviewAnswer(), { from: 3, digest: DIGEST })).toBeNull();
+		expect(pageFor(reviewAnswer(), { from: 2, digest: DIGEST })).toEqual({
+			from: 2,
+			restarted: false,
+		});
 	});
 });
 

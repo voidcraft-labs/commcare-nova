@@ -1393,7 +1393,7 @@ export function acceptAfterSubmit(
 	)
 		return;
 	if (reading.word !== "form") {
-		// (R1): the word Nova writes for the destination read is the stored word.
+		// The word Nova writes for the destination read is the stored word.
 		if (emitted?.post_form_workflow !== reading.word)
 			ctx.accounting.circumstance("unrecognized", form.place, {
 				name: `schema:${form.docType}.post_form_workflow`,
