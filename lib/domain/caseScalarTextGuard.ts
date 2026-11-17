@@ -50,6 +50,10 @@ interface FormCaseScalarText {
 }
 
 const derived = new WeakMap<GuardDoc, Map<Uuid, FormCaseScalarText>>();
+const byPredicates = new WeakMap<
+	(operationUuid: Uuid) => boolean,
+	Map<((operationUuid: Uuid) => boolean) | undefined, FormCaseScalarText>
+>();
 
 /**
  * Which of a form's operations a basic action carries, where the caller knows
@@ -122,11 +126,31 @@ function formCaseScalarText(
 	formUuid: Uuid,
 	options: CaseScalarTextOptions,
 ): FormCaseScalarText {
-	if (options.placedBasic !== undefined || options.readsSibling !== undefined)
+	if (options.placedBasic !== undefined) {
+		// A caller's predicates are its own document's and form's, so each
+		// pair of them is worked out once.
+		let held = byPredicates.get(options.placedBasic);
+		if (held === undefined) {
+			held = new Map();
+			byPredicates.set(options.placedBasic, held);
+		}
+		let result = held.get(options.readsSibling);
+		if (result === undefined) {
+			result = deriveFormCaseScalarText(
+				doc,
+				formUuid,
+				options.placedBasic,
+				options.readsSibling,
+			);
+			held.set(options.readsSibling, result);
+		}
+		return result;
+	}
+	if (options.readsSibling !== undefined)
 		return deriveFormCaseScalarText(
 			doc,
 			formUuid,
-			options.placedBasic,
+			undefined,
 			options.readsSibling,
 		);
 	let forms = derived.get(doc);

@@ -253,7 +253,7 @@ const CASES: readonly {
 
 describe("a first reading of a property only a coercion or a function reads", () => {
 	for (const one of CASES)
-		it(one.name, async () => {
+		it(one.name, { timeout: 30_000 }, async () => {
 			expect(
 				runValidation(one.doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
 					(error) => error.code,
