@@ -13,6 +13,15 @@ import {
 	pushRowScope,
 } from "@/lib/domain/expression/context";
 import {
+	DISTANCE_UNITS,
+	type DistanceUnit,
+	METERS_PER_DISTANCE_UNIT,
+} from "@/lib/domain/expression/distance";
+import {
+	GEOPOINT_PROPERTY_PATTERN,
+	GEOPOINT_RAW_CENTER_PATTERN,
+} from "@/lib/domain/expression/geopoint";
+import {
 	instantTextOfMicros,
 	literalInstantMicros,
 	literalStoredInstantText,
@@ -68,7 +77,9 @@ export type FoldId =
 	| "when-input-present"
 	| "in"
 	| "between"
+	| "within-distance"
 	| "typed-branch-literal"
+	| "blank-branch"
 	| "switch"
 	| "relation-property"
 	| "relation-presence"
@@ -364,9 +375,10 @@ const COMPARISONS: Readonly<Record<string, ComparisonKind>> = {
 const ORDERINGS: ReadonlySet<string> = new Set([">", ">=", "<", "<="]);
 
 /** A record literal typed by its own shape, where it stands against a date
- *  or a date and time, or in an ordering against a value of no known type:
- *  a date or a date and time literal Nova stores typed prints the same bytes
- *  as the untyped one, and only the typed one passes the checker. The search
+ *  or a date and time, or in an ordering against a value of no known type,
+ *  and a time of day against a time: a literal Nova stores typed prints the
+ *  same bytes as the untyped one, and only the typed one passes the checker.
+ *  A blank in an ordering is `null`, which prints as the blank. The search
  *  row reader types a CSQL string by the same rule. */
 export function shapedLiteral(
 	value: string,
@@ -374,14 +386,20 @@ export function shapedLiteral(
 	context: ExpressionContext,
 	ordering: boolean,
 ): Literal {
+	// A blank ordered against a value is no text, which no ordering takes:
+	// it is the blank `null` prints as.
+	if (value === "" && ordering) return { kind: "literal", value: null };
 	const shape = literalShape(value);
-	if (shape === undefined || shape.type === "time")
-		return { kind: "literal", value };
+	if (shape === undefined) return { kind: "literal", value };
 	const other =
 		opposite === undefined
 			? undefined
 			: scalarDataType(typeOf(opposite, context)?.data);
 	const known = other !== undefined && other !== "_any";
+	if (shape.type === "time")
+		return other === "time"
+			? { kind: "literal", value, data_type: "time" }
+			: { kind: "literal", value };
 	if (
 		(known && (other === "date" || other === "datetime")) ||
 		(!known && ordering)
@@ -570,14 +588,16 @@ const typedLiteral: Fold = {
 			return typedBranchesCompared(node, test, context, api);
 		const literalSide = leftText !== undefined ? "left" : "right";
 		const text = (leftText ?? rightText) as string;
-		const shape = literalShape(text);
-		if (shape === undefined || shape.type === "time") return undefined;
+		const ordering = ORDERINGS.has(test.op);
+		if (literalShape(text) === undefined && !(text === "" && ordering))
+			return undefined;
 		const other = api.bind(
 			literalSide === "left" ? test.right : test.left,
 			context,
 		);
-		const literal = shapedLiteral(text, other, context, ORDERINGS.has(test.op));
-		if (literal.data_type === undefined) return undefined;
+		const literal = shapedLiteral(text, other, context, ordering);
+		if (literal.data_type === undefined && literal.value !== null)
+			return undefined;
 		const kind = COMPARISONS[test.op] as ComparisonKind;
 		const typed = api.term(
 			literal,
@@ -812,6 +832,68 @@ const typedBranchLiteral: Fold = {
 		const [first, ...rest] = branches;
 		if (first === undefined) return undefined;
 		return api.remember({ kind: "coalesce", values: [first, ...rest] }, node);
+	},
+};
+
+/** Whether `type` is a known type no text agrees with as a branch. */
+function untextualType(type: string | undefined): boolean {
+	return (
+		type !== undefined &&
+		type !== "_any" &&
+		type !== "text" &&
+		type !== "single_select" &&
+		type !== "multi_select"
+	);
+}
+
+/**
+ * A record value-giving node (an `if`'s two branches, each `coalesce` value)
+ * one branch of which is the blank `''` beside a branch of a known type text
+ * does not agree with: the blank is `null`, which prints as the blank and is
+ * the one blank such branches agree with (the checker's `branch-values`).
+ */
+const blankBranch: Fold = {
+	id: "blank-branch",
+	ruleSets: ["record"],
+	propose(node, context, api) {
+		const branchIf = call(node, "if", 3);
+		const values = call(node, "coalesce");
+		const args = (branchIf ?? values)?.args;
+		if (args === undefined) return undefined;
+		const positions = branchIf !== undefined ? [1, 2] : args.map((_, at) => at);
+		if (!positions.some((at) => stringValue(args[at]) === "")) return undefined;
+		const bound = args.map((arg) => api.bind(arg as FormSyntax, context));
+		const typed = positions.some((at) => {
+			if (stringValue(args[at]) === "") return false;
+			try {
+				return untextualType(
+					scalarDataType(typeOf(bound[at] as Expression, context)?.data),
+				);
+			} catch {
+				return false;
+			}
+		});
+		if (!typed) return undefined;
+		const branches = bound.map((one, at) =>
+			positions.includes(at) && stringValue(args[at]) === ""
+				? api.term({ kind: "literal", value: null }, args[at] as FormSyntax)
+				: one,
+		);
+		if (branchIf !== undefined)
+			return api.remember(
+				{
+					kind: "if",
+					cond: branches[0] as Expression,
+					// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+					then: branches[1] as Expression,
+					else: branches[2] as Expression,
+				},
+				node,
+			);
+		const [first, ...rest] = branches;
+		return first === undefined
+			? undefined
+			: api.remember({ kind: "coalesce", values: [first, ...rest] }, node);
 	},
 };
 
@@ -1673,6 +1755,33 @@ const instantComparison: Fold = {
  *  date and time and around a `date()` or `format-date` operand that may
  *  hold such text. The proposal is the operand `T` itself, which the print
  *  wraps again where the emitter does. */
+/** `node` with each untyped literal spelled as a date and time it gives,
+ *  through the branches of an `if` or a `coalesce`, typed. */
+function momentBranches(node: Expression): Expression {
+	if (
+		node.kind === "term" &&
+		node.term.kind === "literal" &&
+		node.term.data_type === undefined &&
+		typeof node.term.value === "string" &&
+		literalShape(node.term.value)?.type === "datetime"
+	)
+		return { kind: "term", term: { ...node.term, data_type: "datetime" } };
+	if (node.kind === "if") {
+		const then = momentBranches(node.then);
+		const otherwise = momentBranches(node.else);
+		return then === node.then && otherwise === node.else
+			? node
+			: { ...node, then, else: otherwise };
+	}
+	if (node.kind === "coalesce") {
+		const values = node.values.map(momentBranches);
+		return values.every((value, index) => value === node.values[index])
+			? node
+			: { ...node, values: values as typeof node.values };
+	}
+	return node;
+}
+
 const deviceInstantText: Fold = {
 	id: "device-instant-text",
 	ruleSets: ["form", "record"],
@@ -1691,7 +1800,21 @@ const deviceInstantText: Fold = {
 			!same(separator.args[0], operand)
 		)
 			return undefined;
-		return api.bind(operand as FormSyntax, context);
+		// A record literal is read in the device's own date only where it is
+		// a typed date and time: the text of an untyped one prints as it is.
+		// So is each literal spelled as a date and time a branch gives.
+		const text = stringValue(operand);
+		if (
+			context.ruleSet === "record" &&
+			text !== undefined &&
+			literalShape(text)?.type === "datetime"
+		)
+			return api.term(
+				{ kind: "literal", value: text, data_type: "datetime" },
+				operand as FormSyntax,
+			);
+		const bound = api.bind(operand as FormSyntax, context);
+		return context.ruleSet === "record" ? momentBranches(bound) : bound;
 	},
 };
 
@@ -1935,6 +2058,30 @@ const inFold: Fold = {
 		const tests = parts.map((part) => binary(part, "="));
 		const first = tests[0];
 		if (first === undefined) return undefined;
+		// Over moments each equality prints lowered to microseconds, which
+		// binds as that equality, clause by clause.
+		if (instantParseOperand(first.left) !== undefined) {
+			const equalities = parts.map((part) => api.bind(part, context));
+			const [head] = equalities;
+			if (
+				head?.kind !== "eq" ||
+				!equalities.every(
+					(one) => one.kind === "eq" && sameJson(one.left, head.left),
+				)
+			)
+				return undefined;
+			const literals = equalities.map((one) =>
+				one.kind === "eq" ? termOf(one.right) : undefined,
+			);
+			if (!literals.every((one) => one?.kind === "literal")) return undefined;
+			const [value, ...more] = literals as Literal[];
+			return value === undefined
+				? undefined
+				: api.remember(
+						{ kind: "in", left: head.left, values: [value, ...more] },
+						node,
+					);
+		}
 		const values: (string | number)[] = [];
 		for (const test of tests) {
 			const value = literalValue(test?.right);
@@ -1968,6 +2115,35 @@ const between: Fold = {
 			!same(lowerTest.left, upperTest.left)
 		)
 			return undefined;
+		// A range over moments prints each bound's comparison lowered to
+		// microseconds, which binds as that comparison, clause by clause.
+		if (
+			[lowerTest.left, lowerTest.right, upperTest.right].some(
+				(side) => instantParseOperand(side) !== undefined,
+			)
+		) {
+			const lowerRead = api.bind(parts[0] as FormSyntax, context);
+			const upperRead = api.bind(parts[1] as FormSyntax, context);
+			const lower = momentPair(lowerRead, upperRead);
+			const upper = momentPair(upperRead, lower);
+			if (
+				(lower.kind !== "gte" && lower.kind !== "gt") ||
+				(upper.kind !== "lte" && upper.kind !== "lt") ||
+				!sameJson(lower.left, upper.left)
+			)
+				return undefined;
+			return api.remember(
+				{
+					kind: "between",
+					left: lower.left,
+					lower: lower.right,
+					upper: upper.right,
+					lowerInclusive: lower.kind === "gte",
+					upperInclusive: upper.kind === "lte",
+				},
+				node,
+			);
+		}
 		const left = api.bind(lowerTest.left, context);
 		const bound = (side: FormSyntax): Expression => {
 			const text = stringValue(side);
@@ -1989,6 +2165,199 @@ const between: Fold = {
 	},
 };
 
+/** `bound`, a range's comparison of two moment literals, which a device
+ *  compares as the two counts of microseconds they fold to and which binds as
+ *  those numbers, with each count read as the literal it folds from, where
+ *  `other`, the range's other comparison, holds a date-and-time literal of the
+ *  first count as its operand: the range of that literal, which prints so. */
+function momentPair(bound: Expression, other: Expression): Expression {
+	if (!isComparisonNode(bound) || !isComparisonNode(other)) return bound;
+	const count = numberLiteral(bound.left);
+	const subject =
+		other.left.kind === "term" &&
+		other.left.term.kind === "literal" &&
+		other.left.term.data_type === "datetime" &&
+		typeof other.left.term.value === "string"
+			? other.left.term.value
+			: undefined;
+	const bounded = numberLiteral(bound.right);
+	if (
+		count === undefined ||
+		bounded === undefined ||
+		subject === undefined ||
+		literalInstantMicros(subject) !== count
+	)
+		return bound;
+	const text = instantTextOfMicros(bounded);
+	return text === undefined
+		? bound
+		: {
+				...bound,
+				left: other.left,
+				right: {
+					kind: "term",
+					term: { kind: "literal", value: text, data_type: "datetime" },
+				},
+			};
+}
+
+function isComparisonNode(node: Expression): node is Expression & {
+	readonly kind: "gt" | "gte" | "lt" | "lte";
+	readonly left: Expression;
+	readonly right: Expression;
+} {
+	return (
+		node.kind === "gt" ||
+		node.kind === "gte" ||
+		node.kind === "lt" ||
+		node.kind === "lte"
+	);
+}
+
+function numberLiteral(node: Expression): number | undefined {
+	return node.kind === "term" &&
+		node.term.kind === "literal" &&
+		typeof node.term.value === "number"
+		? node.term.value
+		: undefined;
+}
+
+/**
+ * A distance test as a device prints it (`fromExpression.ts`,
+ * `within-distance`): the property spelled as a location, the center a
+ * location, both inside the globe's bounds, and `distance(property, center)`
+ * at most the radius in meters. The radius is a number of meters where the
+ * distance and its unit are both fixed, which reads as that many meters (the
+ * canonical row `within-distance-in-meters`); the product of the distance and
+ * one unit's meters, or of the distance and the choice of a unit worked out on
+ * the device, otherwise.
+ */
+const withinDistance: Fold = {
+	id: "within-distance",
+	ruleSets: ["record"],
+	propose(node, context, api) {
+		// A device joins the test's clauses into an `and` around it
+		// (`wire/builders.ts::logical`), so a test stands as a run of that
+		// `and`'s clauses, each other clause its own.
+		const parts = clauses(node, "and");
+		if (!parts.some((_, at) => distanceRun(parts, at) !== undefined))
+			return undefined;
+		const read: Expression[] = [];
+		for (let at = 0; at < parts.length; ) {
+			const part = parts[at] as FormSyntax;
+			const run = distanceRun(parts, at);
+			if (run === undefined) {
+				read.push(api.bind(part, context));
+				at += 1;
+				continue;
+			}
+			const test = distanceTest(run, context, api);
+			if (test === undefined) return undefined;
+			read.push(test);
+			at = run.end + 1;
+		}
+		const [first, ...rest] = read;
+		if (first === undefined) return undefined;
+		return api.remember(
+			rest.length === 0 ? first : { kind: "and", clauses: [first, ...rest] },
+			node,
+		);
+	},
+};
+
+/** The run of `parts` from `start` that is one distance test as a device
+ *  prints it: the property's shape test, the center's, and every clause up
+ *  to the first `distance(property, …) <=` of the same property. */
+function distanceRun(
+	parts: readonly FormSyntax[],
+	start: number,
+):
+	| {
+			readonly shape: Call;
+			readonly rawTest: Call;
+			readonly radius: FormSyntax;
+			readonly end: number;
+	  }
+	| undefined {
+	const shape = call(parts[start], "regex", 2);
+	const rawTest = call(parts[start + 1], "regex", 2);
+	if (
+		shape === undefined ||
+		rawTest === undefined ||
+		stringValue(shape.args[1] as FormSyntax) !== GEOPOINT_PROPERTY_PATTERN ||
+		stringValue(rawTest.args[1] as FormSyntax) !== GEOPOINT_RAW_CENTER_PATTERN
+	)
+		return undefined;
+	for (let end = start + 2; end < parts.length; end++) {
+		const last = binary(parts[end], "<=");
+		const measured = call(last?.left, "distance", 2);
+		if (
+			last !== undefined &&
+			measured !== undefined &&
+			same(shape.args[0] as FormSyntax, measured.args[0] as FormSyntax)
+		)
+			return { shape, rawTest, radius: last.right, end };
+	}
+	return undefined;
+}
+
+/** The `within-distance` a run of clauses prints. */
+function distanceTest(
+	run: NonNullable<ReturnType<typeof distanceRun>>,
+	context: ExpressionContext,
+	api: FoldApi,
+): Expression | undefined {
+	const property = api.bind(run.shape.args[0] as FormSyntax, context);
+	if (property.kind !== "term" || property.term.kind !== "prop")
+		return undefined;
+	const radius = withinRadius(run.radius, context, api);
+	if (radius === undefined) return undefined;
+	return {
+		kind: "within-distance",
+		property: property.term,
+		center: api.bind(run.rawTest.args[0] as FormSyntax, context),
+		distance: radius.distance,
+		unit: radius.unit,
+	};
+}
+
+/** A distance test's radius in meters as its distance and unit. */
+function withinRadius(
+	node: FormSyntax,
+	context: ExpressionContext,
+	api: FoldApi,
+):
+	| {
+			readonly distance: number | Expression;
+			readonly unit: DistanceUnit | Expression;
+	  }
+	| undefined {
+	const meters = numberValue(node);
+	if (meters !== undefined) return { distance: meters, unit: "meters" };
+	const product = binary(node, "*");
+	if (product === undefined) return undefined;
+	const fixed = numberValue(product.left);
+	const read = call(product.left, "number", 1);
+	const distance =
+		fixed ??
+		(read === undefined
+			? undefined
+			: api.bind(read.args[0] as FormSyntax, context));
+	if (distance === undefined) return undefined;
+	const factor = numberValue(product.right);
+	if (factor !== undefined) {
+		const unit = DISTANCE_UNITS.find(
+			(name) => METERS_PER_DISTANCE_UNIT[name] === factor,
+		);
+		return unit === undefined ? undefined : { distance, unit };
+	}
+	const choice = call(product.right, "if", 3);
+	const test = binary(choice?.args[0], "=");
+	return test === undefined
+		? undefined
+		: { distance, unit: api.bind(test.left, context) };
+}
+
 /** A record `switch` as it prints: a chain of at least two `if`s, each
  *  testing one subject's equality with a literal, the last one's else the
  *  fallback. */
@@ -1998,6 +2367,7 @@ function switchChain(node: FormSyntax):
 			readonly tests: readonly {
 				readonly value: string | number;
 				readonly then: FormSyntax;
+				readonly test: FormSyntax;
 			}[];
 			readonly fallback: FormSyntax;
 	  }
@@ -2005,6 +2375,7 @@ function switchChain(node: FormSyntax):
 	const tests: {
 		readonly value: string | number;
 		readonly then: FormSyntax;
+		readonly test: FormSyntax;
 	}[] = [];
 	let subject: FormSyntax | undefined;
 	let at: FormSyntax = node;
@@ -2016,8 +2387,12 @@ function switchChain(node: FormSyntax):
 			break;
 		if (subject === undefined) subject = test.left;
 		else if (!same(subject, test.left)) break;
-		// biome-ignore lint/suspicious/noThenProperty: The branch is data, not a callable thenable.
-		tests.push({ value, then: branch.args[1] as FormSyntax });
+		tests.push({
+			value,
+			// biome-ignore lint/suspicious/noThenProperty: The branch is data, not a callable thenable.
+			then: branch.args[1] as FormSyntax,
+			test: branch.args[0] as FormSyntax,
+		});
 		at = branch.args[2] as FormSyntax;
 	}
 	return subject === undefined || tests.length < 2
@@ -2032,7 +2407,26 @@ const switchFold: Fold = {
 		const chain = switchChain(node);
 		if (chain === undefined) return undefined;
 		const { subject, tests, fallback: at } = chain;
-		const on = api.bind(subject, context);
+		// Over moments each case's test prints lowered to microseconds, which
+		// binds as that equality: its sides are the subject and the case.
+		const lowered =
+			instantParseOperand(subject) === undefined
+				? undefined
+				: tests.map((test) => api.bind(test.test, context));
+		const on =
+			lowered?.[0]?.kind === "eq"
+				? lowered[0].left
+				: api.bind(subject, context);
+		if (
+			lowered !== undefined &&
+			!lowered.every(
+				(one) =>
+					one.kind === "eq" &&
+					sameJson(one.left, on) &&
+					termOf(one.right)?.kind === "literal",
+			)
+		)
+			return undefined;
 		const results = typedBranchLiterals(
 			[...tests.map((test) => test.then), at].map((syntax) => ({
 				syntax,
@@ -2043,7 +2437,10 @@ const switchFold: Fold = {
 		);
 		const cases = tests.map(
 			(test, index): SwitchCase => ({
-				when: caseLiteral(test.value, on, context),
+				when:
+					lowered?.[index]?.kind === "eq"
+						? (termOf(lowered[index].right) as Literal)
+						: caseLiteral(test.value, on, context),
 				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
 				then: results[index] as Expression,
 			}),
@@ -2587,8 +2984,10 @@ export const EXPRESSION_FOLDS: readonly Fold[] = [
 	whenInputPresent,
 	inFold,
 	between,
+	withinDistance,
 	switchFold,
 	typedBranchLiteral,
+	blankBranch,
 	relationProperty,
 	relationPresence,
 	relationCount,

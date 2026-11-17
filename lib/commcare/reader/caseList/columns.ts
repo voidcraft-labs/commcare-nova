@@ -8,7 +8,12 @@
  * `projectCaseListForHq` writes the stored details back
  * (`caseList/index.ts::settleCaseLists`).
  */
-import type { CaseProperty, Column, LanguageTag } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseProperty,
+	Column,
+	LanguageTag,
+} from "@/lib/domain";
 import {
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
@@ -35,6 +40,7 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { applicationReading } from "../appShell";
+import { withCandidate } from "../candidate";
 import {
 	type Claim,
 	defineClaims,
@@ -62,6 +68,10 @@ import { pendingPlaceholder, type ReadMode } from "../pendingExpressions";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { readMediaMap } from "../xform/media";
+import {
+	ATTRIBUTE_PROPERTIES,
+	calculatedAttributeField,
+} from "./attributeColumns";
 
 const A = "menus-and-case-lists/";
 
@@ -412,7 +422,39 @@ export const HQ_PROPERTY_RENAMES: Readonly<Record<string, string>> = {
 };
 
 /** The three case attributes a Nova column reads as `@<name>`. */
-const ATTRIBUTE_PROPERTIES = new Set(["case_id", "owner_id", "status"]);
+/**
+ * A calculated column whose value is the read of one of its case's
+ * attributes (`case_id`, `owner_id`, `status`), and the plain column over that
+ * attribute: Nova writes both as the expression `@<name>` with the `plain`
+ * format, so both print one column, and the reader returns the plain one
+ * (`readDetailColumn`, an attribute field), under the identity a re-read gives
+ * the calculated one (`identityMap.ts::externalIdentityMap` keys it as that
+ * plain column).
+ */
+export function calculatedAttributeColumnsArePlain(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	const holds = doc.moduleOrder.some((uuid) => {
+		const module = doc.modules[uuid];
+		return (module?.caseListConfig?.columns ?? []).some(
+			(column) =>
+				calculatedAttributeField(column, module?.caseType) !== undefined,
+		);
+	});
+	if (!holds) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const module of Object.values(draft.modules)) {
+			const config = module.caseListConfig;
+			if (config === undefined) continue;
+			config.columns = config.columns.map((column) => {
+				const field = calculatedAttributeField(column, module.caseType);
+				if (field === undefined || column.kind !== "calculated") return column;
+				const { expression: _value, kind: _kind, ...rest } = column;
+				return { ...rest, kind: "plain", field } as Column;
+			});
+		}
+	});
+}
 
 /** The bookkeeping keys of HQ's column editor, which no build reads. */
 const BOOKKEEPING_KEYS = [

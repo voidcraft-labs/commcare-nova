@@ -183,6 +183,7 @@ export async function bringInHqChanges(
 		sourceBytes: computed.facts.sourceBytes,
 		checkMs: pieces.total,
 		longestPieceMs: pieces.longest,
+		longestPieceAt: pieces.longestAt,
 	});
 	const answered = (outcome: HqChangesOutcome): HqChangesOutcome => {
 		logAnswered(
@@ -742,7 +743,7 @@ async function takenFor(
 			outcome: hqChangesGateRefusal(boundary.violations),
 		};
 	const seeds = basis.live.ownership === "adopted" ? "target" : "nova";
-	const { ownership } = await pieces.steps(
+	const { ownership } = await pieces.at("the next publish's ownership").steps(
 		hqImportApplicationSteps({
 			prepared: boundary.prepared,
 			target,

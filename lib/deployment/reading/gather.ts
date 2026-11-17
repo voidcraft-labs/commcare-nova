@@ -201,9 +201,11 @@ export interface GatherFacts {
 	/** `Buffer.byteLength(JSON.stringify(source.raw))`: CommCare HQ's source body less its white
 	 *  space. Null where the source was not read. */
 	readonly sourceBytes: number | null;
-	/** The time the request's synchronous pieces took together, and the longest of them. */
+	/** The time the request's synchronous pieces took together, the longest of them, and what
+	 *  that one was part of. */
 	readonly checkMs: number;
 	readonly longestPieceMs: number;
+	readonly longestPieceAt: string;
 	readonly mediaTotal: number;
 	/** `ReadFacts.expressionRounds` where the reader gave a draft. */
 	readonly expressionRounds: number | null;
@@ -288,8 +290,19 @@ export function unrecognizedLogKey(name: string): string {
 export class Pieces {
 	total = 0;
 	longest = 0;
+	/** What the longest piece was part of, as `at` named it. */
+	longestAt = "";
+	/** What the pieces now running are part of. */
+	private part = "";
 	/** The emissions this request's readings share (`heldExpansions.ts`). */
 	readonly expansions = new HeldExpansions();
+
+	/** Names what the pieces that follow are part of, for the facts that
+	 *  name the longest. */
+	at(part: string): this {
+		this.part = part;
+		return this;
+	}
 
 	async run<T>(piece: () => T): Promise<T> {
 		await nextTurn();
@@ -299,7 +312,10 @@ export class Pieces {
 		} finally {
 			const took = performance.now() - started;
 			this.total += took;
-			if (took > this.longest) this.longest = took;
+			if (took > this.longest) {
+				this.longest = took;
+				this.longestAt = this.part;
+			}
 		}
 	}
 
@@ -323,6 +339,7 @@ function factsOf(pieces: Pieces, tally: Tally): GatherFacts {
 		sourceBytes: tally.sourceBytes,
 		checkMs: pieces.total,
 		longestPieceMs: pieces.longest,
+		longestPieceAt: pieces.longestAt,
 		mediaTotal: tally.mediaTotal,
 		expressionRounds: tally.expressionRounds,
 	};
@@ -534,7 +551,7 @@ async function runReader(
 	let at = "input";
 	let outcome: ReadOutcome;
 	try {
-		outcome = await pieces.steps(
+		outcome = await pieces.at("the reading").steps(
 			readHqAppSteps(input, {
 				claims,
 				heldExpansions: pieces.expansions,
@@ -787,6 +804,7 @@ const NO_FACTS: GatherFacts = {
 	sourceBytes: null,
 	checkMs: 0,
 	longestPieceMs: 0,
+	longestPieceAt: "",
 	mediaTotal: 0,
 	expressionRounds: null,
 };
@@ -926,9 +944,9 @@ export async function gatherFromHq(
 	const appName = source.name;
 
 	let saveOnlyEditedApplied: boolean | undefined;
-	const holdsEditMode = await pieces.run(() =>
-		sourceHoldsEditMode(publishedCaseBlocks(source.raw)),
-	);
+	const holdsEditMode = await pieces
+		.at("the edit mode test")
+		.run(() => sourceHoldsEditMode(publishedCaseBlocks(source.raw)));
 	if (holdsEditMode) {
 		const flag = await readHqSaveOnlyEditedAnswers(creds, key.domain, {
 			cancel,
@@ -1039,7 +1057,7 @@ export async function gatherFromHq(
 
 	const draft = first.draft;
 	tally.expressionRounds = draft.facts.expressionRounds;
-	const planned = await pieces.run(() => {
+	const planned = await pieces.at("the project data plan").run(() => {
 		const projectFindings = readingProjectDataFindingsFor(
 			data,
 			reads,
@@ -1186,7 +1204,7 @@ async function checkWith(
 			readerInputFor(appId, key, fetched, plan),
 			"counts",
 		);
-	const stage = await pieces.run(() => {
+	const stage = await pieces.at("the stage").run(() => {
 		if (read.kind === "contract")
 			return { kind: "contract" as const, broke: read.broke };
 		const outcome = read.outcome;
@@ -1284,7 +1302,7 @@ async function checkWith(
 	const lookup = readingLookupSnapshot(data, reads);
 	const mediaFiles = adoptedMediaFiles(plan);
 	const reader = readerInputFor(appId, key, fetched, plan);
-	const accepted = await pieces.steps(
+	const accepted = await pieces.at("acceptance").steps(
 		acceptReadingSteps({
 			appId,
 			target: { server: key.server, domain: key.domain },
@@ -1334,7 +1352,7 @@ async function checkWith(
 			}) as Exclude<GatherResult, { kind: "stop" }>,
 			judgedPlan.claims,
 		);
-	const review = await pieces.steps(
+	const review = await pieces.at("the review").steps(
 		reviewOf({
 			appId,
 			key,
@@ -1351,7 +1369,7 @@ async function checkWith(
 			identityRows: identityRows.rows,
 		}),
 	);
-	const reviewDigest = await pieces.run(() => {
+	const reviewDigest = await pieces.at("the review digest").run(() => {
 		const contentId = new Map<MediaAssetId, MediaAssetId>(
 			mediaFiles.map((file) => [file.assetId, reviewMediaId(file.contentHash)]),
 		);

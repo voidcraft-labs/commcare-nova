@@ -176,6 +176,8 @@ export interface HqChangesFacts {
 	readonly sourceBytes: number | null;
 	readonly checkMs: number;
 	readonly longestPieceMs: number;
+	/** What the longest piece was part of (`Pieces.at`). */
+	readonly longestPieceAt: string;
 }
 
 /**
@@ -678,6 +680,7 @@ export async function computeHqChanges(
 			sourceBytes,
 			checkMs: pieces.total,
 			longestPieceMs: pieces.longest,
+			longestPieceAt: pieces.longestAt,
 		},
 		basis,
 		checked,
@@ -754,7 +757,9 @@ export async function computeHqChanges(
 	}
 	const { source, modules } = reading;
 	sourceBytes = Buffer.byteLength(JSON.stringify(source.raw));
-	const normalized = await pieces.run(() => normalizeHqAppSource(source.raw));
+	const normalized = await pieces
+		.at("the source's normalization")
+		.run(() => normalizeHqAppSource(source.raw));
 	if ("malformed" in normalized)
 		return answer({ kind: "stop", finding: atApp("app-unreadable-in-hq") });
 	const languageNames = live.ownership === "adopted" ? "target" : "nova";
@@ -768,7 +773,7 @@ export async function computeHqChanges(
 	if (reference.kind !== "ok") {
 		/* With no reference there are no files to settle: only a recorded id
 		 * that moved says a file changed, as Refresh reads it. */
-		const parts = await pieces.run(() =>
+		const parts = await pieces.at("the source's comparison").run(() =>
 			diffHqAppSource({
 				baseline: baseline.source,
 				current: normalized.normalized,
@@ -821,7 +826,7 @@ export async function computeHqChanges(
 	}
 
 	/* 7. The publish's own comparison. */
-	const parts = await pieces.run(() =>
+	const parts = await pieces.at("the source's comparison").run(() =>
 		diffHqAppSource({
 			baseline: baseline.source,
 			current: normalized.normalized,
@@ -889,15 +894,17 @@ export async function computeHqChanges(
 	}
 
 	/* 8. The flag a write saved only if changed needs, where either source holds one. */
-	const baseSource = await pieces.run(() =>
-		sourceFromBaseline(baseline.source),
-	);
+	const baseSource = await pieces
+		.at("the base source")
+		.run(() => sourceFromBaseline(baseline.source));
 	let saveOnlyEditedApplied: boolean | undefined;
-	const holdsEditMode = await pieces.run(
-		() =>
-			sourceHoldsEditMode(publishedCaseBlocks(source.raw)) ||
-			sourceHoldsEditMode(publishedCaseBlocks(baseSource.raw)),
-	);
+	const holdsEditMode = await pieces
+		.at("the edit mode test")
+		.run(
+			() =>
+				sourceHoldsEditMode(publishedCaseBlocks(source.raw)) ||
+				sourceHoldsEditMode(publishedCaseBlocks(baseSource.raw)),
+		);
 	if (holdsEditMode) {
 		const flag = await readHqSaveOnlyEditedAnswers(creds, target.domain, {
 			cancel,
@@ -939,7 +946,9 @@ export async function computeHqChanges(
 
 	/* 10. Both readings before the files, to know which files they name. */
 	onEvent({ type: "stage", stage: "checking" });
-	let first = await pieces.steps(readingsWith(fetched, pieces, null, null));
+	let first = await pieces
+		.at("the readings")
+		.steps(readingsWith(fetched, pieces, null, null));
 	if (first.kind === "readings") {
 		const { readings } = first;
 		const readsPlaces =
@@ -959,7 +968,9 @@ export async function computeHqChanges(
 			if (again.kind === "failed") return answer(failedRead(again.failure));
 			fetched = { ...fetched, data: again.data };
 			onEvent({ type: "stage", stage: "checking" });
-			first = await pieces.steps(readingsWith(fetched, pieces, null, null));
+			first = await pieces
+				.at("the readings")
+				.steps(readingsWith(fetched, pieces, null, null));
 		}
 	}
 	if (first.kind === "no-base") {
@@ -977,7 +988,7 @@ export async function computeHqChanges(
 			]),
 		);
 	const runsOn = declaredBy(reference.doc.appSettings.runsOnlyOn);
-	const planned = await pieces.run(() => ({
+	const planned = await pieces.at("the media plan").run(() => ({
 		base: plannedMedia(
 			baseSource,
 			scope.appId,
@@ -1178,10 +1189,10 @@ export async function checkHqChanges(
 	const made: HqChangeReadingsResult =
 		known !== undefined
 			? { kind: "readings", readings: known }
-			: await pieces.steps(
-					readingsWith(fetched, pieces, media.base, media.now, data),
-				);
-	const stage = await pieces.run(() => {
+			: await pieces
+					.at("the readings")
+					.steps(readingsWith(fetched, pieces, media.base, media.now, data));
+	const stage = await pieces.at("the stage").run(() => {
 		if (made.kind === "no-base")
 			return {
 				kind: "answer" as const,
@@ -1270,7 +1281,7 @@ export async function checkHqChanges(
 	const readerNow = readings.inputs.now;
 	const rows = new Map(readingMediaRows(media.now));
 	for (const [id, row] of fetched.ownRows) rows.set(id, row);
-	const accepted = await pieces.steps(
+	const accepted = await pieces.at("acceptance").steps(
 		acceptReadingSteps({
 			appId,
 			target: fetched.target,
@@ -1312,7 +1323,7 @@ export async function checkHqChanges(
 	);
 
 	/* The plan. */
-	const plan = await pieces.steps(
+	const plan = await pieces.at("the plan").steps(
 		planHqChangesSteps({
 			reference,
 			now: fetched.head.doc,
@@ -1355,7 +1366,7 @@ export async function checkHqChanges(
 		plan.kind === "changes"
 			? await ownAssetContent(plan.target, targetFiles, scope.projectId)
 			: new Map<MediaAssetId, string>();
-	const built = await pieces.run(() => {
+	const built = await pieces.at("the next publish's body").run(() => {
 		const baseTags = new Set(
 			Object.keys(projectDataReadsOf(data, readings.base).lookupFields),
 		);
@@ -1504,6 +1515,7 @@ export function logAnswered(
 		elapsedMs: Math.round(performance.now() - started),
 		checkMs: Math.round(facts.checkMs),
 		longestPieceMs: Math.round(facts.longestPieceMs),
+		longestPieceAt: facts.longestPieceAt,
 		sourceBytes: facts.sourceBytes,
 	});
 }

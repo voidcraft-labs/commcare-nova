@@ -363,7 +363,14 @@ function compiler(bindings: QueryBindings) {
 			return result;
 		}
 		if (node.kind === "negative") {
-			if (node.value.kind === "literal" && typeof node.value.value === "number")
+			// A minus sign before a positive number is that negative number;
+			// before zero or a negative number it stays a negation, since no
+			// stored number is negative zero.
+			if (
+				node.value.kind === "literal" &&
+				typeof node.value.value === "number" &&
+				node.value.value > 0
+			)
 				return { kind: "term", term: literal(node) };
 			return { kind: "negate", value: value(node.value) };
 		}

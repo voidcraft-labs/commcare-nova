@@ -17,7 +17,9 @@
  * `datetime()` or `double()`, and the whole value of a slot that expects no
  * type each take the text as it is. (A `datetime()` of a literal that a
  * device folds prints the literal of its own instant text, which the reading
- * gives; `canonical.ts`'s `coerced-instant-literal` returns the same.)
+ * gives; `canonical.ts`'s `coerced-instant-literal` returns the same.) A
+ * membership's values are compared with its subject, so they are typed again
+ * once the subject's own literals are.
  */
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { mapExpressionChildren } from "@/lib/domain/expression/mapAst";
@@ -249,11 +251,55 @@ export function typedWhereRequired(
 				context,
 				true,
 			);
+			// The subject is ordered against each bound, as a comparison's side is.
+			const subject = new Set<Temporal>();
+			for (const [side, at] of [
+				[read.lower, "lower"],
+				[read.upper, "upper"],
+			] as const)
+				if (side !== undefined)
+					for (const type of comparedRequires(
+						side,
+						[...path, at],
+						root,
+						context,
+						true,
+					))
+						subject.add(type);
 			return children(read, path, (childPath) =>
 				childPath.at(-1) === "lower" || childPath.at(-1) === "upper"
 					? bound
-					: NONE,
+					: childPath.at(-1) === "left"
+						? subject
+						: NONE,
 			);
+		}
+		if (node.kind === "in") {
+			// Each value is compared with the subject, typed by now.
+			const read = children(node, path, () => NONE);
+			if (read.kind !== "in") return read;
+			const given = comparedRequires(
+				read.left,
+				[...path, "left"],
+				root,
+				context,
+				false,
+			);
+			const values = read.values.map((value) => {
+				if (
+					value.kind !== "literal" ||
+					value.data_type !== undefined ||
+					typeof value.value !== "string"
+				)
+					return value;
+				const shape = literalShape(value.value)?.type;
+				return (shape === "date" || shape === "datetime") && given.has(shape)
+					? { ...value, data_type: shape }
+					: value;
+			});
+			return values.some((value, index) => value !== read.values[index])
+				? { ...read, values: values as typeof read.values }
+				: read;
 		}
 		return children(node, path, () => NONE);
 	};

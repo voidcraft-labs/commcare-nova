@@ -8,6 +8,10 @@
  * or a date and time, or against a branch node whose values are all such
  * literals of one type, orders that type; a distance measured from a property
  * makes it a location, and a test of the choices it holds a list of choices.
+ * A property read where a function's signature takes a date (`format-date`'s
+ * and `date-add`'s) or a number (a sum's, a product's, a negation's) takes
+ * the first type that position admits under which the slot prints the
+ * source's text (`requiredTypes`, which the reading tries).
  *
  * A property a value-giving branch ends with (an `if`'s two branches, each
  * `coalesce` value, each `switch` result, each value a `cond` gives) is
@@ -195,6 +199,12 @@ export function comparedTypes(
 			case "between":
 				note(node.left, node.lower, true);
 				note(node.left, node.upper, true);
+				note(node.lower, node.left, true);
+				note(node.upper, node.left, true);
+				return;
+			case "in":
+				for (const one of node.values)
+					note(node.left, { kind: "term", term: one }, false);
 				return;
 			case "within-distance":
 				// A distance is measured from a location, so the property it
@@ -215,6 +225,116 @@ export function comparedTypes(
 		}
 	});
 	return found;
+}
+
+/** A property a function's signature fixes the kind of, with the types,
+ *  in the order a reading tries them, its position admits. */
+export interface RequiredType {
+	readonly caseType: string;
+	readonly property: string;
+	readonly candidates: readonly CasePropertyDataType[];
+	/** Properties the position orders this one against, which take the
+	 *  same type in the same try. */
+	readonly partners?: readonly {
+		readonly caseType: string;
+		readonly property: string;
+	}[];
+}
+
+/** The types each signature position admits: `format-date`'s and
+ *  `date-add`'s date, a whole number `quotient` reads, and a number a sum,
+ *  a product, a negation, `date-add`'s quantity or a distance test's radius
+ *  reads. A
+ *  decimal holds every whole number, so it is tried first. */
+const DATE_POSITION: readonly CasePropertyDataType[] = ["date", "datetime"];
+const NUMBER_POSITION: readonly CasePropertyDataType[] = ["decimal", "int"];
+/** `quotient`'s operands, which the record dialect reads only as whole
+ *  numbers (`queryExpressions.ts`). */
+const INTEGER_POSITION: readonly CasePropertyDataType[] = ["int"];
+/** A value `date()` reads as a moment where it prints the device's reading of
+ *  one (`fromExpression.ts::deviceTemporalValue`), and as text elsewhere. */
+const MOMENT_POSITION: readonly CasePropertyDataType[] = ["datetime"];
+
+/** Each property `tree` reads, as a value that ends a position's operand, at
+ *  a position whose signature takes a date or a number, which a property the
+ *  catalog holds untyped (read as text) cannot stand in: the types it may
+ *  take there, for the reading to try against the source's print. */
+export function requiredTypes(
+	tree: Expression,
+	context: ExpressionContext,
+	untyped: (caseType: string, property: string) => boolean,
+): RequiredType[] {
+	if (context.ruleSet !== "record") return [];
+	const found: RequiredType[] = [];
+	const need = (
+		side: Expression,
+		candidates: readonly CasePropertyDataType[],
+	): void => {
+		for (const output of outputsOf(side)) {
+			const term = comparedProperty(output);
+			if (
+				term?.kind === "prop" &&
+				term.caseType !== undefined &&
+				untyped(term.caseType, term.property)
+			)
+				found.push({
+					caseType: term.caseType,
+					property: term.property,
+					candidates,
+				});
+		}
+	};
+	walkExpressionNodes(tree, (node) => {
+		switch (node.kind) {
+			case "format-date":
+				need(node.date, DATE_POSITION);
+				return;
+			case "date-add":
+				need(node.date, DATE_POSITION);
+				need(node.quantity, NUMBER_POSITION);
+				return;
+			case "arith": {
+				const position =
+					node.op === "quotient" ? INTEGER_POSITION : NUMBER_POSITION;
+				need(node.left, position);
+				need(node.right, position);
+				return;
+			}
+			case "negate":
+				need(node.value, NUMBER_POSITION);
+				return;
+			case "date-coerce":
+				// On a device `date()` reads a date and time in the device's own
+				// date, which it reads no text in.
+				need(node.value, MOMENT_POSITION);
+				return;
+			case "within-distance":
+				if (typeof node.distance !== "number")
+					need(node.distance, NUMBER_POSITION);
+				return;
+			default:
+				return;
+		}
+	});
+	return found;
+}
+
+/** Each property the catalog holds untyped that `tree` gives as its value,
+ *  itself or through a value-giving branch, with `candidates`: a calculated
+ *  column a list orders by number gives a number. */
+export function valueProperties(
+	tree: Expression,
+	candidates: readonly CasePropertyDataType[],
+	untyped: (caseType: string, property: string) => boolean,
+): RequiredType[] {
+	return outputsOf(tree).flatMap((output) => {
+		const term = comparedProperty(output);
+		return term?.kind === "prop" &&
+			term.caseType !== undefined &&
+			untyped(term.caseType, term.property)
+			? [{ caseType: term.caseType, property: term.property, candidates }]
+			: [];
+	});
 }
 
 /** One type a property: the one every comparison gives it, or `decimal`

@@ -19,7 +19,10 @@ import {
 	translationSourceFingerprintsEqual,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
-import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import {
+	displayConditionForEmission,
+	effectiveFilterForEmission,
+} from "@/lib/domain/expression/simplify";
 import { type Expression, isExpression } from "@/lib/domain/expression/types";
 import {
 	type ExpressionCarrierRef,
@@ -68,8 +71,12 @@ function carriers(doc: BlueprintDoc): ExpressionCarrierRef[] {
 
 /**
  * Every expression slot of `doc` holding the canonical tree of what it
- * stores, and no case list filter where that tree is `match-all`, which the
- * emitter writes none for. Each slot is canonicalized in its own context over
+ * stores, and no case list filter where that tree is `match-all` and no
+ * menu's or form's display condition whose tree is `match-all`, which the
+ * emitter writes none for (`effectiveFilterForEmission`,
+ * `displayConditionForEmission`), and no Search field's requirement
+ * condition that is `match-all`, which prints as the requirement with no
+ * condition does. Each slot is canonicalized in its own context over
  * `doc`, with no Project lookup types (a slot's print collisions never read a
  * column's type) and under the identity lookup naming, which binds the same
  * questions in a Save to Case block's place as any naming does.
@@ -79,6 +86,8 @@ function canonicalSlots(doc: BlueprintDoc): BlueprintDoc {
 	const lookupTypes = new Map();
 	const replacements = new Map<string, Expression[]>();
 	const droppedFilters = new Set<Uuid>();
+	const droppedDisplayConditions = new Set<Uuid>();
+	const droppedRequirementConditions: [Uuid, Uuid][] = [];
 	let changed = false;
 	const ownerKey = (owner: ExpressionCarrierRef) =>
 		`${owner.entity}:${owner.uuid}`;
@@ -100,12 +109,33 @@ function canonicalSlots(doc: BlueprintDoc): BlueprintDoc {
 				effectiveFilterForEmission(tree) === undefined
 			)
 				droppedFilters.add(ref.uuid);
+			if (
+				(ref.slot === "module_display_condition" ||
+					ref.slot === "form_display_condition") &&
+				displayConditionForEmission(tree) === undefined
+			)
+				droppedDisplayConditions.add(ref.uuid);
+			if (
+				ref.entity === "module" &&
+				ref.slot === "search_input_required_when" &&
+				tree.kind === "match-all"
+			)
+				droppedRequirementConditions.push([
+					ref.uuid,
+					ref.member.searchInputUuid,
+				]);
 			if (!sameJson(tree, expression)) changed = true;
 			trees.push(sameJson(tree, expression) ? expression : tree);
 		}
 		if (trees.length > 0) replacements.set(ownerKey(owner), trees);
 	}
-	if (!changed && droppedFilters.size === 0) return doc;
+	if (
+		!changed &&
+		droppedFilters.size === 0 &&
+		droppedDisplayConditions.size === 0 &&
+		droppedRequirementConditions.length === 0
+	)
+		return doc;
 	return withCandidate(doc, (draft) => {
 		for (const owner of carriers(doc)) {
 			const trees = replacements.get(ownerKey(owner));
@@ -122,6 +152,19 @@ function canonicalSlots(doc: BlueprintDoc): BlueprintDoc {
 		for (const uuid of droppedFilters) {
 			const config = draft.modules[uuid]?.caseListConfig;
 			if (config !== undefined) delete config.filter;
+		}
+		for (const uuid of droppedDisplayConditions) {
+			const module = draft.modules[uuid];
+			if (module !== undefined) delete module.displayCondition;
+			const form = draft.forms[uuid];
+			if (form !== undefined) delete form.displayCondition;
+		}
+		for (const [moduleUuid, inputUuid] of droppedRequirementConditions) {
+			const input = draft.modules[
+				moduleUuid
+			]?.caseListConfig?.searchInputs.find((one) => one.uuid === inputUuid);
+			if (input !== undefined && "required" in input && input.required)
+				delete input.required.when;
 		}
 	});
 }
@@ -240,8 +283,8 @@ export const CANONICALIZATIONS: readonly Canonicalization[] = [
 	{
 		/** Two trees of one slot that print the same bytes there
 		 *  (`expressions/canonical.ts::PRINT_COLLISIONS`): the reader returns the
-		 *  canonical one, and no case list filter where that tree is `match-all`;
-		 *  and a text's read of a worker field by name where a worker property
+		 *  canonical one, and no case list filter and no menu's or form's
+		 *  display condition where that tree is `match-all`; and a text's read of a worker field by name where a worker property
 		 *  prints the same path, which the reader returns as that property's
 		 *  read (`proseNamedReadsAsProperties`). */
 		id: "expression-print-collisions",

@@ -565,12 +565,29 @@ describe("a review of changes made in CommCare HQ at the byte cap", () => {
 						([line, context]) =>
 							line === "[hq-changes] answered" &&
 							(context as { operation?: string }).operation === "bring-in",
-					)?.[1] as { readonly longestPieceMs: number } | undefined;
+					)?.[1] as
+					| {
+							readonly longestPieceMs: number;
+							readonly longestPieceAt: string;
+					  }
+					| undefined;
 
-				expect(facts.longestPieceMs).toBeLessThan(5_000);
-				expect(reviewed.heldMs).toBeLessThan(5_000);
-				expect(bringInFacts?.longestPieceMs).toBeLessThan(5_000);
-				expect(brought.heldMs).toBeLessThan(5_000);
+				expect(
+					facts.longestPieceMs,
+					`The review's longest piece, part of ${facts.longestPieceAt}, took ${Math.round(facts.longestPieceMs)} ms.`,
+				).toBeLessThan(5_000);
+				expect(
+					reviewed.heldMs,
+					`The review held the event loop ${Math.round(reviewed.heldMs)} ms at once; its longest piece, part of ${facts.longestPieceAt}, took ${Math.round(facts.longestPieceMs)} ms.`,
+				).toBeLessThan(5_000);
+				expect(
+					bringInFacts?.longestPieceMs,
+					`The bring-in's longest piece, part of ${bringInFacts?.longestPieceAt}, took ${Math.round(bringInFacts?.longestPieceMs ?? Number.NaN)} ms.`,
+				).toBeLessThan(5_000);
+				expect(
+					brought.heldMs,
+					`The bring-in held the event loop ${Math.round(brought.heldMs)} ms at once; its longest piece, part of ${bringInFacts?.longestPieceAt}, took ${Math.round(bringInFacts?.longestPieceMs ?? Number.NaN)} ms.`,
+				).toBeLessThan(5_000);
 			},
 		);
 		/* Seven whole readings of a source at the cap (the app as brought in, then
