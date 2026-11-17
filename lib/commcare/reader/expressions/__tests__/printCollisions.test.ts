@@ -2618,6 +2618,37 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 			canonical: { kind: "gte", left: visit("age"), right: lit(3) },
 		},
 		{
+			// A membership's subject prints as its equalities do: the coercion
+			// of a literal folds to the moment's count of microseconds, which
+			// beside literal moments every member prints as too.
+			id: "coerced-instant-literal",
+			slot: formDisplay,
+			other: {
+				kind: "in",
+				left: { kind: "datetime-coerce", value: typed("2024-02-29", "date") },
+				values: [
+					{
+						kind: "literal",
+						value: "2025-12-31T23:59:59.5Z",
+						data_type: "datetime",
+					},
+					{
+						kind: "literal",
+						value: "2026-02-01T10:00:00+01:00",
+						data_type: "datetime",
+					},
+				],
+			},
+			canonical: {
+				kind: "in",
+				left: lit(1709164800000000),
+				values: [
+					{ kind: "literal", value: 1767225599500000 },
+					{ kind: "literal", value: 1769936400000000 },
+				],
+			},
+		},
+		{
 			id: "boolean-literal",
 			slot: calculated,
 			other: term({ kind: "literal", value: true }),

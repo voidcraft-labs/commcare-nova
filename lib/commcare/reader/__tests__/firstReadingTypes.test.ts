@@ -14,7 +14,9 @@
  * neither is typed and the reading cannot print the source; and a property
  * compared with a branch node whose other branch a number types only once
  * the comparison types it, so the two are left of types the checker refuses
- * to compare.
+ * to compare; a property of the case a menu above chose, ordered against
+ * a moment, left text; and a read of that case in a form's display condition
+ * taken for a read of the form's own case, whose type lacks the property.
  */
 
 import { describe, expect, it } from "vitest";
@@ -32,6 +34,8 @@ import {
 	datetimeCoerce,
 	type Expression,
 	eq,
+	gt,
+	gte,
 	ifExpr,
 	isIn,
 	literal,
@@ -42,11 +46,13 @@ import {
 	switchExpr,
 	term,
 } from "@/lib/domain/expression";
+import { chosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { canonDocument } from "../canon";
 import { mintingResolver } from "../identity";
 import { readHqApp } from "../index";
 
 const COLUMN = testUuid("first-reading-types-column");
+const HOUSEHOLDS = "first-reading-types-households";
 
 /** A follow-up of `visit` cases, `seen` a date, `age` a whole number and
  *  `weight` a decimal,
@@ -84,6 +90,63 @@ function visitDoc(slot: "form" | "column", expression: Expression) {
 						name: "Check",
 						type: "followup",
 						...(slot === "form" ? { displayCondition: expression } : {}),
+						fields: [f({ kind: "text", id: "answer" })],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** Households, `last_seen` a date and time, and their visits listed after a
+ *  household is chosen, filtered by `filter`, the visit's form shown on
+ *  `display`. */
+function routedDoc(filter: Expression, display?: Expression) {
+	const config = () => caseListConfig([{ field: "case_name", header: "Name" }]);
+	return buildDoc({
+		caseTypes: [
+			{
+				name: "household",
+				properties: [
+					{
+						name: "last_seen",
+						label: proseText("Last seen"),
+						data_type: "datetime",
+					},
+				],
+			},
+			{
+				name: "visit",
+				parent_type: "household",
+				properties: [
+					{ name: "seen", label: proseText("Seen"), data_type: "date" },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: HOUSEHOLDS,
+				name: "Households",
+				caseType: "household",
+				caseListConfig: config(),
+				forms: [
+					{
+						name: "Check",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			},
+			{
+				name: "Visits",
+				caseType: "visit",
+				parentCaseModuleUuid: HOUSEHOLDS,
+				caseListConfig: { ...config(), filter },
+				forms: [
+					{
+						name: "Review",
+						type: "followup",
+						...(display === undefined ? {} : { displayCondition: display }),
 						fields: [f({ kind: "text", id: "answer" })],
 					},
 				],
@@ -142,6 +205,31 @@ const CASES: readonly {
 			eq(
 				ifExpr(isIn(term(literal("a")), literal("a")), AGE, term(literal(3))),
 				WEIGHT,
+			),
+		),
+	},
+	{
+		name: "a form shown on a property of the case a menu above chose, which the form's own type lacks",
+		doc: routedDoc(
+			{ kind: "match-all" },
+			gte(
+				datetimeCoerce(
+					term({
+						kind: "literal",
+						value: "2026-01-01T00:00:00Z",
+						data_type: "datetime",
+					}),
+				),
+				chosenCaseProperty(testUuid(HOUSEHOLDS), "household", "last_seen"),
+			),
+		),
+	},
+	{
+		name: "an ordering of a property of the case a menu above chose",
+		doc: routedDoc(
+			gt(
+				now(),
+				chosenCaseProperty(testUuid(HOUSEHOLDS), "household", "last_seen"),
 			),
 		),
 	},

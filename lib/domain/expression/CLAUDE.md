@@ -384,8 +384,9 @@ Python or Postgres.
   (reasons `condition-expected` and `value-expected`). Form logic takes Core's
   coercions instead.
 - Strings are excluded from `ORDERED_TYPES`: locale-dependent string ordering is
-  rarely meaningful for a case-list filter, so `gt`/`lt` refuse text. A `null`
-  operand of an ordering is `ordered-values` reason `blank`: a device reads it
+  rarely meaningful for a case-list filter, so `gt`/`lt` refuse text. An
+  operand of an ordering every value of which is `null` (the literal, or a
+  `coalesce` of it) is `ordered-values` reason `blank`: a device reads it
   as no number and answers no for every case, and CommCare HQ's search refuses
   to order by it (a blank branch of an `if` stays admitted).
 - A time of day is excluded too, and `time-ordering` is one rule for both rule

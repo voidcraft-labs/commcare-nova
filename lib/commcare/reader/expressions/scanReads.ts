@@ -286,12 +286,14 @@ function elementProperty(
 
 /** The type of the case a menu chose whose id `key` reads, as
  *  `instance('commcaresession')/session/data/<id>`, among the datums the
- *  menu's case list entry holds: under its own id or its id before HQ aligns
- *  a child entry with its root menu (`formLinkProjection.ts::caseListStepDatumId`). */
+ *  menu's case list entry holds, or the form's entry where `formUuid` names
+ *  one: under its own id or its id before HQ aligns a child entry with its
+ *  root menu (`formLinkProjection.ts::caseListStepDatumId`). */
 function chosenCaseType(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	key: FormSyntax | undefined,
+	formUuid?: Uuid,
 ): string | undefined {
 	const path = key === undefined ? undefined : flat(key);
 	if (instanceId(path) !== "commcaresession" || path === undefined)
@@ -310,6 +312,7 @@ function chosenCaseType(
 		doc,
 		formLinkProjectionContext(doc, { entryMetadataOnly: true }),
 		moduleUuid,
+		formUuid,
 	);
 	const row =
 		rows.find((one) => one.id === leaf.name) ??
@@ -535,15 +538,18 @@ export function scanReads(
 					? keyWalk(caseIdKey(rowStep.where[0]))
 					: undefined;
 			// In a menu's own slot, a case keyed on a session value is the
-			// case a menu above it chose.
+			// case a menu above it chose; in a form's own slot (its display
+			// condition, its case changes), a case its entry chose.
+			const key =
+				rowStep.where.length === 1 ? caseIdKey(rowStep.where[0]) : undefined;
 			const chosen =
-				registration.ref.entity === "module" && rowStep.where.length === 1
-					? chosenCaseType(
-							doc,
-							registration.ref.uuid,
-							caseIdKey(rowStep.where[0]),
-						)
-					: undefined;
+				key === undefined
+					? undefined
+					: registration.ref.entity === "module"
+						? chosenCaseType(doc, registration.ref.uuid, key)
+						: registration.ref.entity === "form" && moduleUuid !== undefined
+							? chosenCaseType(doc, moduleUuid, key, registration.ref.uuid)
+							: undefined;
 			// A search's rows are the searched menu's case type.
 			const searched =
 				results && context?.supplies.searchResults !== undefined
