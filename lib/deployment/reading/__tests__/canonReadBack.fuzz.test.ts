@@ -4,8 +4,9 @@
  *
  * Contract: for each document of the compiler's fuzz corpora (the field-tree
  * corpus, the workflow corpus, the record-expression corpus, every record
- * slot a menu, a list, a search or a form's entry evaluates holding a tree
- * drawn from the whole record rule set, and the temporal-branch corpus, the workflow
+ * slot a menu, a list, a search, a form's entry or a form's case change
+ * evaluates holding a tree drawn from the whole record rule set, and the
+ * temporal-branch corpus, the workflow
  * corpus with a value-giving branch that gives a date or a date and time, from
  * a case property or from literals alone, in the record slots that read the
  * menu's case, and the typed-literal corpus, the workflow corpus with a typed
@@ -105,7 +106,7 @@ function at(doc: BlueprintDoc, path: readonly string[]): string {
 /** The record-expression corpus's budget per property, over three times
  *  what its sixty runs take alone (a draw asks the gate of every placement
  *  it tries, so the corpus costs more a run than the others). */
-const RECORD_BUDGET = 60_000;
+const RECORD_BUDGET = 240_000;
 
 describe("a read back of a fuzz document's export", () => {
 	// Each run is one expansion, one served source, one whole reading and one

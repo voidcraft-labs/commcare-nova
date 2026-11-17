@@ -1048,6 +1048,81 @@ const PAIRS: readonly Pair[] = [
 			}),
 	},
 	{
+		id: "search-field-conditions-over-other-fields-are-the-filter-s",
+		name: "an advanced field's condition that waits for a simple field",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(9),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(8)),
+							eq(prop("patient", "notes"), term(literal("x"))),
+						),
+					},
+					simpleSearchInputDef(uuid(8), "phone", "Phone", "text", "phone"),
+				],
+				search: {},
+			}),
+	},
+	{
+		id: "search-field-conditions-reading-no-field-are-the-filter-s",
+		name: "an advanced field's condition reading no field, on a menu whose forms read the search and whose list a device reads as nothing",
+		other: () =>
+			buildDoc({
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: {
+							...caseListConfig([{ field: "case_name", header: "Name" }]),
+							filter: { kind: "is-blank", left: term(literal("x")) },
+							searchInputs: [
+								{
+									uuid: uuid(9),
+									name: "number",
+									label: "Number",
+									kind: "advanced",
+									type: "text",
+									predicate: eq(
+										term({ kind: "session-context", field: "deviceid" }),
+										term(literal("x")),
+									),
+								},
+							],
+						},
+						caseSearchConfig: { formsReadSearch: true },
+						forms: [
+							{
+								name: "Visit",
+								type: "followup" as const,
+								fields: [
+									f({
+										kind: "text",
+										id: "notes",
+										caseWrite: { caseType: "patient", property: "notes" },
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+	},
+	{
+		id: "calculated-attribute-columns-are-plain",
+		name: "a calculated column that reads the case's owner alone",
+		other: () =>
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				calculatedColumn(uuid(2), "Owner", term(prop("patient", "owner_id"))),
+			]),
+	},
+	{
 		id: "dormant-tile-cells",
 		name: "tile cells on a list that is no tile",
 		other: () => tileCells(false),
@@ -1745,8 +1820,6 @@ const NAMED_ELSEWHERE: Readonly<Record<string, string>> = {
 		"lib/commcare/__tests__/heldPlacementEmission.test.ts",
 	"expression-print-collisions":
 		"lib/commcare/reader/expressions/__tests__/printCollisions.test.ts",
-	"calculated-attribute-columns-are-plain":
-		"lib/commcare/reader/caseList/__tests__/attributeColumns.test.ts",
 };
 
 describe("each canonicalization's pair", () => {

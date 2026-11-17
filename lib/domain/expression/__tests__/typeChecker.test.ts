@@ -2482,6 +2482,14 @@ describe("checkExpression — arith arm + numeric promotion", () => {
 		},
 	);
 
+	it("quotient refuses a decimal operand, which the record dialect reads only as a whole number", () => {
+		const v = arith("quotient", term(literal(7.5)), term(literal(2)));
+		const { errors } = resolve(v);
+		expect(errors.map((error) => [error.code, error.reason])).toEqual([
+			["number-value", "whole-number-quotient"],
+		]);
+	});
+
 	it("int div int = decimal, since division is real division", () => {
 		const v = arith("div", term(literal(1)), term(literal(2)));
 		const { type, errors } = resolve(v);

@@ -1318,8 +1318,12 @@ function withComparedTypes(
  * (`requiredTypes`) typed as the first type that position admits under which
  * every slot reading it binds to a tree its checker admits and prints the
  * source's text, with the properties the position orders it against, which
- * take the same type in the same try. A property no such type holds stays as
- * it was, for the slot's own finding.
+ * take the same type in the same try. Where no type holds while the slots'
+ * other untyped properties stay text (a `date-add` of two of them, whose
+ * checker admits neither alone), the try is made again with each of those
+ * at the first type its own position admits, and only the property tried is
+ * typed. A property no such type holds stays as it was, for the slot's own
+ * finding.
  */
 function withRequiredTypes(
 	doc: BlueprintDoc,
@@ -1364,17 +1368,39 @@ function withRequiredTypes(
 		const along = [...partners.values()].filter((partner) =>
 			open(partner.caseType, partner.property),
 		);
-		for (const dataType of one.candidates) {
-			const next = withTypes(current, [
+		const judged = new Set(slots);
+		for (const partner of along)
+			for (const index of byProperty.get(
+				JSON.stringify([partner.caseType, partner.property]),
+			)?.slots ?? [])
+				judged.add(index);
+		// The other open properties the judged slots require, each at the first
+		// type its own position admits.
+		const beside = [...byProperty.values()]
+			.filter(
+				(other) =>
+					other.one !== one &&
+					!along.some(
+						(partner) =>
+							partner.caseType === other.one.caseType &&
+							partner.property === other.one.property,
+					) &&
+					open(other.one.caseType, other.one.property) &&
+					[...other.slots].some((index) => judged.has(index)),
+			)
+			.flatMap((other) => {
+				const [first] = other.one.candidates;
+				return first === undefined ? [] : [{ ...other.one, dataType: first }];
+			});
+		const tries = one.candidates.flatMap((dataType) => {
+			const own = [
 				{ ...one, dataType },
 				...along.map((partner) => ({ ...partner, dataType })),
-			]);
-			const judged = new Set(slots);
-			for (const partner of along)
-				for (const index of byProperty.get(
-					JSON.stringify([partner.caseType, partner.property]),
-				)?.slots ?? [])
-					judged.add(index);
+			];
+			return [own, ...(beside.length === 0 ? [] : [[...own, ...beside]])];
+		});
+		for (const trial of tries) {
+			const next = withTypes(current, trial);
 			const holds = [...judged].every((index) => {
 				const registration = pending[index] as PendingExpression;
 				const context = slotContext(next, registration.ref, types);
@@ -1389,8 +1415,9 @@ function withRequiredTypes(
 				return judgment.kind === "bound" && judgment.equal;
 			});
 			if (holds) {
-				current = next;
-				for (const done of [one, ...along])
+				const kept = trial.slice(0, 1 + along.length);
+				current = withTypes(current, kept);
+				for (const done of kept)
 					typed.add(JSON.stringify([done.caseType, done.property]));
 				break;
 			}

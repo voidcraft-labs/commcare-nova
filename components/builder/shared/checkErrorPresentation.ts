@@ -135,7 +135,10 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 		"Choose a connection that leads to an available kind of case",
 	"relation-ambiguous": () => "Choose which kind of related case to use",
 	"date-value": () => "Choose a date or date and time value",
-	"number-value": () => "Choose a number",
+	"number-value": (_path, reason) =>
+		reason === "whole-number-quotient"
+			? "Choose whole numbers, or use div to divide decimals"
+			: "Choose a number",
 	"text-or-date-value": () => "Choose text, a date, or a date and time value",
 	"text-or-number-value": () => "Choose text or a number",
 	"branch-values": () =>

@@ -34,6 +34,7 @@ import {
 	type PropertyRef,
 	type RelationStep,
 	type SearchInputRef,
+	type SwitchCase,
 	type Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
@@ -909,13 +910,13 @@ class CsqlBinder {
 			!sameJson(this.query(negated.args[0] as FormSyntax, rowType), cond)
 		)
 			return undefined;
-		return {
+		return switchOfChoices({
 			kind: "if",
 			cond,
 			// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
 			then: this.query(whenTrue.right.value, rowType),
 			else: this.query(whenFalse.right.value, rowType),
-		};
+		});
 	}
 
 	/** `a and b and c` as the three clauses Nova's printer joins it from. */
@@ -2337,23 +2338,49 @@ export function searchRowLevel(
 	}
 }
 
-/** One run of a row's CSQL: its parsed text and each marker's device node. */
-interface CsqlRun {
+/** `node`, a choice, as the `switch` it prints where it tests one subject
+ *  against a literal at two or more levels of its `else` chain: CSQL prints
+ *  each case of a `switch` whose subject reads the case as the choice of an
+ *  `if` on `on = when` (`csql/emitter.ts::conditionChoice`), and a nested
+ *  `if` of those tests prints the same, which the canonical form holds as the
+ *  `switch` (`canonical.ts`, row `switch`). */
+function switchOfChoices(node: Expression): Expression {
+	const cases: SwitchCase[] = [];
+	let on: Expression | undefined;
+	let at: Expression = node;
+	while (at.kind === "if" && at.cond.kind === "eq") {
+		const when = at.cond.right.kind === "term" ? at.cond.right.term : undefined;
+		if (when?.kind !== "literal") break;
+		if (on === undefined) on = at.cond.left;
+		else if (!sameJson(on, at.cond.left)) break;
+		// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+		cases.push({ when, then: at.then });
+		at = at.else;
+	}
+	const [head, ...rest] = cases;
+	return on === undefined || head === undefined || rest.length === 0
+		? node
+		: { kind: "switch", on, cases: [head, ...rest], fallback: at };
+}
+
+/** One run of a row's CSQL: its parsed text, each marker's device node, and
+ *  the runs of each choice the device makes at a marker (`choices`, by the
+ *  marker): the device sends one of a choice's runs in the marker's place,
+ *  so what a run reads it reads where the marker stands, inside a relation's
+ *  filter among them. */
+export interface CsqlRun {
 	readonly csql: FormSyntax;
 	readonly holes: ReadonlyMap<string, FormSyntax>;
+	readonly choices: ReadonlyMap<string, readonly CsqlRun[]>;
 }
 
 /** A row's CSQL as HQ's search reads it, with the holes in it: the parsed
- *  text the surface uses read, and each marker's device node, and each run
- *  of a choice the device makes in it, at any depth (`branches`): the device
- *  sends one of a choice's runs, and each reads the searched case. Undefined
- *  where the text is no CSQL the grammar reads. */
-export function searchRowCsql(wrapper: FormSyntax):
-	| (CsqlRun & {
-			readonly presence: boolean;
-			readonly branches: readonly CsqlRun[];
-	  })
-	| undefined {
+ *  text the surface uses read, each marker's device node, and the runs of
+ *  each choice the device makes in it, at any depth. Undefined where the
+ *  text is no CSQL the grammar reads. */
+export function searchRowCsql(
+	wrapper: FormSyntax,
+): (CsqlRun & { readonly presence: boolean }) | undefined {
 	let { parts } = rowSkeleton(wrapper);
 	let presence = false;
 	// A presence test inside another's body tests a second field: the CSQL is
@@ -2364,40 +2391,47 @@ export function searchRowCsql(wrapper: FormSyntax):
 		presence = true;
 		parts = only.body;
 	}
+	const run = csqlRunTree(parts);
+	return run === undefined ? undefined : { ...run, presence };
+}
+
+/** `parts` as one run, with the runs of each choice among its holes. */
+function csqlRunTree(parts: readonly SkeletonPart[]): CsqlRun | undefined {
 	const run = csqlRun(parts);
 	if (run === undefined) return undefined;
-	const branches: CsqlRun[] = [];
-	const choices = [...run.choices];
-	for (
-		let choice = choices.shift();
-		choice !== undefined;
-		choice = choices.shift()
-	)
+	const choices = new Map<string, CsqlRun[]>();
+	for (const [marker, choice] of run.choices) {
+		const runs: CsqlRun[] = [];
 		for (const branch of [choice.then, choice.otherwise]) {
-			const inner = csqlRun(branch);
-			if (inner === undefined) continue;
-			branches.push({ csql: inner.csql, holes: inner.holes });
-			choices.push(...inner.choices);
+			const inner = csqlRunTree(branch);
+			if (inner !== undefined) runs.push(inner);
 		}
-	return { csql: run.csql, holes: run.holes, presence, branches };
+		choices.set(marker, runs);
+	}
+	return { csql: run.csql, holes: run.holes, choices };
 }
 
 /** `parts` as one CSQL text, parsed, with its holes and the choices among
  *  them. */
 function csqlRun(parts: readonly SkeletonPart[]):
-	| (CsqlRun & {
-			readonly choices: readonly Extract<SkeletonPart, { kind: "choice" }>[];
-	  })
+	| {
+			readonly csql: FormSyntax;
+			readonly holes: ReadonlyMap<string, FormSyntax>;
+			readonly choices: ReadonlyMap<
+				string,
+				Extract<SkeletonPart, { kind: "choice" }>
+			>;
+	  }
 	| undefined {
 	const prefix = markerPrefix(constantTexts(parts));
 	const assembled = assemble(parts, prefix);
 	const csql = readFormSyntax(assembled.text);
 	if (!csql.ok || csql.node === undefined) return undefined;
 	const holes = new Map<string, FormSyntax>();
-	const choices: Extract<SkeletonPart, { kind: "choice" }>[] = [];
+	const choices = new Map<string, Extract<SkeletonPart, { kind: "choice" }>>();
 	for (const { marker, part } of assembled.markers) {
 		holes.set(marker, part.node);
-		if (part.kind === "choice") choices.push(part);
+		if (part.kind === "choice") choices.set(marker, part);
 	}
 	return { csql: csql.node, holes, choices };
 }

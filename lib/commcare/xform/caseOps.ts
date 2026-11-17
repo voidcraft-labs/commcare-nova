@@ -2840,6 +2840,10 @@ export function bindLookupFilterFieldPaths(
 	);
 }
 
+/** The read of a case property at a case operation's root: a property of
+ *  the menu's case type, or a standard property that names no type, which
+ *  the operation's row (the case the menu chose) types as the checker does
+ *  (`context.ts::slotContext`), reads that case from the case database. */
 export function formCasePropertyResolver(
 	moduleCaseType: string | undefined,
 	selectedCaseIdRef: WireExpr,
@@ -2848,7 +2852,7 @@ export function formCasePropertyResolver(
 		if (
 			scope !== "root" ||
 			moduleCaseType === undefined ||
-			property.caseType !== moduleCaseType
+			(property.caseType ?? moduleCaseType) !== moduleCaseType
 		)
 			return undefined;
 		return emitAnchoredProperty(property, root, selectedCaseIdRef);

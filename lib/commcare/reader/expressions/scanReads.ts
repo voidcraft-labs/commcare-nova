@@ -20,7 +20,7 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
-import { searchRowCsql } from "./csqlRead";
+import { type CsqlRun, searchRowCsql } from "./csqlRead";
 import {
 	ancestorWalk,
 	casedbRow,
@@ -128,18 +128,15 @@ export function searchRowProperties(text: string): string[] {
 	const row = searchRowCsql(read.node);
 	if (row === undefined) return [];
 	const found: string[] = [];
-	for (const run of [row, ...row.branches])
-		visitRunProperties(run.csql, run.holes, found);
+	visitRunProperties(row, found);
 	return found;
 }
 
 /** Each property a run of a row's CSQL reads of the searched case, into
- *  `found`. */
-function visitRunProperties(
-	csql: FormSyntax,
-	holes: ReadonlyMap<string, FormSyntax>,
-	found: string[],
-): void {
+ *  `found`, and those of each choice's runs standing where the run reads the
+ *  searched case. */
+function visitRunProperties(run: CsqlRun, found: string[]): void {
+	const { holes } = run;
 	const visit = (node: FormSyntax): void => {
 		const at = core(node);
 		if (at.kind === "call") {
@@ -160,9 +157,13 @@ function visitRunProperties(
 		if (path === undefined || path.root !== undefined) return;
 		if (path.steps.length !== 1) return;
 		const name = elementProperty(path.steps[0]);
-		if (name !== undefined && !holes.has(name)) found.push(name);
+		if (name === undefined) return;
+		const choice = run.choices.get(name);
+		if (choice !== undefined)
+			for (const branch of choice) visitRunProperties(branch, found);
+		else if (!holes.has(name)) found.push(name);
 	};
-	visit(csql);
+	visit(run.csql);
 }
 
 /** What a search filter row's relation functions name, from `rowType`, the
@@ -194,8 +195,8 @@ export function searchRowRelations(
 	if (!read.ok || read.node === undefined) return { links, properties };
 	const row = searchRowCsql(read.node);
 	if (row === undefined) return { links, properties };
-	// The holes of the run `visit` reads.
-	let holes = row.holes;
+	// The run `visit` reads.
+	let run: CsqlRun = row;
 	const visit = (node: FormSyntax, origin: string, related: boolean): void => {
 		const at = core(node);
 		if (at.kind === "call") {
@@ -243,18 +244,27 @@ export function searchRowRelations(
 			visit(at.value, origin, related);
 			return;
 		}
-		if (!related) return;
 		const path = flat(at);
 		if (path === undefined || path.root !== undefined) return;
 		if (path.steps.length !== 1) return;
 		const name = elementProperty(path.steps[0]);
-		if (name !== undefined && !holes.has(name))
+		if (name === undefined) return;
+		// A choice's runs read where its marker stands: of the related case
+		// inside a relation's filter, of the searched case outside one.
+		const choice = run.choices.get(name);
+		if (choice !== undefined) {
+			const outer = run;
+			for (const branch of choice) {
+				run = branch;
+				visit(branch.csql, origin, related);
+			}
+			run = outer;
+			return;
+		}
+		if (related && !run.holes.has(name))
 			properties.push({ caseType: origin, property: name });
 	};
-	for (const run of [row, ...row.branches]) {
-		holes = run.holes;
-		visit(run.csql, rowType, false);
-	}
+	visit(row.csql, rowType, false);
 	return { links, properties };
 }
 

@@ -8,13 +8,12 @@
  * value, a literal of each type, a nested call or branch), to depth three.
  *
  * The slots are the ones a document holds whose slot profile
- * (`slotContext`) is of the record rule set and that a menu, a list, a search
- * or a form's entry evaluates: a menu's and a form's display condition, a
- * case list's filter and calculated columns, the Search button's condition,
- * the excluded owners, each Search field's starting value, condition,
- * requirement and validation, and a hidden Search value. A case change's
- * values, conditions and targets are the case management reader's corpora's
- * (`drawnSlot`). A draw adds the slots a
+ * (`slotContext`) is of the record rule set (`drawnSlot`): a menu's and a
+ * form's display condition, a case list's filter and calculated columns, the
+ * Search button's condition, the excluded owners, each Search field's
+ * starting value, condition, requirement and validation, a hidden Search
+ * value, and each value, condition, name, owner and target of a form's case
+ * changes. A draw adds the slots a
  * workflow document leaves out (a calculated column, both display
  * conditions, the Search button's condition, a starting value on each
  * simple Search field) and declares a list of choices, a location and a time
@@ -659,10 +658,9 @@ export const KIND_BUILDERS: { readonly [K in Expression["kind"]]: Builder } = {
 				? whole
 				: oneOf(sub(value("int")), sub(value("decimal")));
 		if (operand === undefined || whole === undefined) return undefined;
-		// The record dialect takes `quotient` of whole numbers alone, so a
-		// read refuses one of decimals the checker admits (a question of the
-		// dialect and the checker, not of the reading): it is drawn over whole
-		// numbers.
+		// `quotient` divides whole numbers alone (the checker refuses a
+		// decimal operand, as the record dialect does), so it is drawn over
+		// whole numbers.
 		return fc
 			.constantFrom(...ARITH_OPS)
 			.chain((op) =>
@@ -899,11 +897,14 @@ const DRAWN_INSIDE: Partial<Record<Expression["kind"], Expression["kind"]>> = {
  */
 export const RECORD_KIND_COVERAGE: Partial<Record<Expression["kind"], string>> =
 	{
-		"id-of": "Only a case change's values and targets read it.",
-		"acting-user": "Only a case change's owner reads it.",
-		unowned: "Only a case change's owner reads it.",
+		"id-of":
+			"Only a case change after a create in its form reads it, and no workflow document's form holds a create before another change.",
+		"acting-user":
+			"Only a case change's owner reads it, and no workflow document's change states an owner.",
+		unowned:
+			"Only a case change's owner reads it, and no workflow document's change states an owner.",
 		project:
-			"A search reads it only in a value the device works out before the search runs, which no draw places it in.",
+			"It reads the case a menu above chose, and no workflow document holds a menu that lists cases chosen after another menu's case of the parent type.",
 		"table-lookup": "The corpus holds no lookup table.",
 		"table-rows": "The corpus holds no lookup table.",
 		locations: "No record slot reads places.",
@@ -1017,11 +1018,6 @@ function bindingsFor(
 		ref !== undefined && "member" in ref && "searchInputUuid" in ref.member
 			? ref.member.searchInputUuid
 			: undefined;
-	// A Search field's condition reads its own field alone: HQ's rows say
-	// nothing of which field a condition belongs to, and the reading gives a
-	// condition that reads another field (or one HQ matches itself) to that
-	// field or the list's filter.
-	const ownOnly = ref?.slot === "search_input_predicate";
 	const module = doc.modules[moduleUuid];
 	const caseType = module?.caseType;
 	const types = doc.caseTypes ?? [];
@@ -1049,10 +1045,7 @@ function bindingsFor(
 		[TABLE]: undefined,
 		[COLUMN]: undefined,
 		...Object.fromEntries(
-			[0, 1, 2].map((index) => [
-				inputToken(index),
-				ownOnly ? undefined : inputs[index]?.uuid,
-			]),
+			[0, 1, 2].map((index) => [inputToken(index), inputs[index]?.uuid]),
 		),
 		[OWN_INPUT]: own,
 	};
@@ -1213,19 +1206,12 @@ function owners(doc: BlueprintDoc): {
 
 /**
  * Whether a draw puts a tree in a slot: a record slot a menu, a list, a
- * search or a form's entry evaluates. A case change's values, conditions and
- * targets (scope `submission`) print into the form's Save to Case blocks and
- * basic actions, which the case management reader reads, and are drawn by
- * the corpora of that reader.
+ * search, a form's entry or a form's case change evaluates.
  */
 function drawnSlot(
 	ctx: ReturnType<typeof slotContext>,
 ): ctx is NonNullable<ReturnType<typeof slotContext>> {
-	return (
-		ctx !== undefined &&
-		ctx.profile.ruleSet === "record" &&
-		ctx.profile.scope !== "submission"
-	);
+	return ctx !== undefined && ctx.profile.ruleSet === "record";
 }
 
 /** One record slot's placement: its key and the tree it takes. */

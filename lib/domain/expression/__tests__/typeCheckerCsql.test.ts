@@ -230,6 +230,10 @@ describe("a number as a date", () => {
 			datetimeCoerce(term(literal(19000.5))),
 		);
 		expect(codes(PREDICATE, fraction)).toEqual([]);
+		for (const blank of [null, ""])
+			expect(
+				codes(FILTER(chosen.members), datetimeCoerce(term(literal(blank)))),
+			).toContain("incompatible-values");
 		expect(codes(FILTER(chosen.members), fraction)).toEqual([
 			"epoch-fraction-on-device",
 		]);
@@ -287,6 +291,19 @@ describe("a value in place of a choice", () => {
 				selected(chosenCaseProperty(chosen.households, "household", "kind")),
 			),
 		).toEqual([]);
+	});
+	it("refuses on a device a value of no type, which prints as the blank text does", () => {
+		const blank = (value: string | null): Expression => ({
+			kind: "coalesce",
+			values: [term(literal(value))],
+		});
+		expect(codes(FILTER(chosen.members), selected(blank(null)))).toEqual([
+			"runtime-selected-value-on-device",
+		]);
+		expect(codes(FILTER(chosen.members), selected(blank("")))).toEqual([
+			"runtime-selected-value-on-device",
+		]);
+		expect(codes(PREDICATE, selected(blank(null)))).toEqual([]);
 	});
 });
 

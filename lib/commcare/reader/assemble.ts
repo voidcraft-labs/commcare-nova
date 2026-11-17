@@ -97,6 +97,8 @@ import { joinedGuardsSplitAsRead } from "./search/guardSplit";
 import { exactSearchModeIsAbsent } from "./search/prompts";
 import {
 	derivedConditionsAreSimpleFields,
+	fieldConditionsOverOtherFieldsAreTheFilters,
+	fieldConditionsReadingNoFieldAreTheFilters,
 	filterConditionsOfAFieldAreItsOwn,
 	searchesThatFindNothingAsRead,
 } from "./search/rows";
@@ -617,6 +619,26 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "search-filter-conditions-of-a-field-are-its-own",
 		kind: "one-wire",
 		apply: filterConditionsOfAFieldAreItsOwn,
+	},
+	{
+		/** A conjunct of an advanced Search field's condition that reads Search fields under their
+		 *  presence tests, the first of them no advanced field, and the same conjunct as the
+		 *  searched list filter's last clause, where the search's rows come out the same: both
+		 *  print one row and no clause of the list's own filter, and the reader returns the list
+		 *  filter's (`search/rows.ts::fieldConditionsOverOtherFieldsAreTheFilters`). */
+		id: "search-field-conditions-over-other-fields-are-the-filter-s",
+		kind: "one-wire",
+		apply: fieldConditionsOverOtherFieldsAreTheFilters,
+	},
+	{
+		/** On a menu whose forms read the search, a conjunct of an advanced Search field's
+		 *  condition that reads no Search field, and the same conjunct as the list filter's last
+		 *  clause, where a device's list filter prints the same with it joined and the search's
+		 *  rows come out the same: both print one export, and the reader returns the list
+		 *  filter's (`search/rows.ts::fieldConditionsReadingNoFieldAreTheFilters`). */
+		id: "search-field-conditions-reading-no-field-are-the-filter-s",
+		kind: "one-wire",
+		apply: fieldConditionsReadingNoFieldAreTheFilters,
 	},
 	{
 		/** A tile cell no wire writes (on a list with no tile, or on a column hidden from Results
