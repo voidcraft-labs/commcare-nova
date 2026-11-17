@@ -1009,6 +1009,32 @@ export function placedBasic(
 	};
 }
 
+/**
+ * Whether the change `operationUuid` of `formUuid` reads a case name or an
+ * external id from a question's trimmed sibling: each change `placedBasic`
+ * names, but the own case's where it is a Save to Case block of its one case,
+ * which trims and checks its own values. The own case's change reads the
+ * sibling where an action carries it, and in a several-case form, whose
+ * shared update of every selected case reads it
+ * (`caseOps.ts::sharedRowSibling`). The question keeps its check wherever the
+ * own case's change is (`placedBasic`).
+ */
+export function readsTrimmedSibling(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): (operationUuid: Uuid) => boolean {
+	const placed = placedBasic(doc, formUuid);
+	const { placements } = planPlacements(doc, formUuid);
+	const f = caseSlotFacts(doc, formUuid);
+	return (operationUuid) => {
+		if (operationUuid !== f.own?.uuid) return placed(operationUuid);
+		return (
+			f.severalCases ||
+			placements.get(operationUuid)?.placement.kind !== "save-to-case"
+		);
+	};
+}
+
 /** The basic subcases of `formUuid`, in `subcases` index order; none in a
  *  form of an advanced menu, unless `moduleKind` fixes the form as basic. */
 export function planBasicSubcases(

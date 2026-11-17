@@ -3690,6 +3690,60 @@ describe("comparisons a device runs between two moments", () => {
 			"This compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can wrap both sides in date() to compare days.",
 		);
 	});
+	it("refuses an ordering against a blank, which no device and no search answers yes to", () => {
+		const blank = term(literal(null));
+		expect(codes(filterErrors(lt(blank, seen)))).toEqual([
+			"ordered-values:blank",
+		]);
+		expect(codes(filterErrors(gte(blank, now())))).toEqual([
+			"ordered-values:blank",
+		]);
+		expect(codes(filterErrors(gt(term(literal(3)), blank)))).toEqual([
+			"ordered-values:blank",
+		]);
+		// A blank branch orders the rows it is chosen for as no value.
+		expect(
+			filterErrors(
+				lt(
+					seen,
+					ifExpr(eq(term(literal("b")), term(literal("a"))), blank, now()),
+				),
+			),
+		).toEqual([]);
+	});
+	it("refuses, on a device, a coercion of a branch node that gives a day in one branch and a moment in another", () => {
+		// A device prints the coercion of each branch: `date(last_modified)`, a
+		// day, beside `now()`, as `if(c, date(x), now())`, which the checker
+		// refuses for its branches.
+		const choose = eq(term(literal("b")), term(literal("a")));
+		expect(
+			codes(
+				filterErrors(isBlank(datetimeCoerce(ifExpr(choose, changed, now())))),
+			),
+		).toEqual(["branch-values"]);
+		expect(
+			codes(
+				filterErrors(
+					isBlank(
+						datetimeCoerce(
+							switchExpr(
+								term(literal("b")),
+								[switchCase(literal("a"), changed)],
+								now(),
+							),
+						),
+					),
+				),
+			),
+		).toEqual(["branch-values"]);
+		// Two days, or two moments, agree.
+		expect(
+			filterErrors(isBlank(datetimeCoerce(ifExpr(choose, changed, opened)))),
+		).toEqual([]);
+		expect(
+			filterErrors(isBlank(datetimeCoerce(ifExpr(choose, seen, now())))),
+		).toEqual([]);
+	});
 	it("admits a casedb system date ordered against a day, and two system dates under any operator", () => {
 		expect(filterErrors(gte(opened, day))).toEqual([]);
 		expect(filterErrors(lt(datetimeCoerce(today()), changed))).toEqual([]);

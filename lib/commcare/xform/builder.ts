@@ -87,6 +87,7 @@ import {
 	caseCreateNameFields,
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
+	caseScalarTextSiblings,
 	expressionSlotValue,
 	expressionSlotValues,
 	type Field,
@@ -128,7 +129,7 @@ import {
 } from "../formLinkProjection";
 import { instanceScanCuts } from "../hqInstanceScan";
 import { lookupOptionsNodeset } from "../lookupOptions";
-import { placedBasic } from "../placement";
+import { placedBasic, readsTrimmedSibling } from "../placement";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
@@ -797,6 +798,9 @@ export function queryRepeatNodeReads(
 interface FormCaseScalarText {
 	readonly guards: ReadonlyMap<Uuid, CaseScalarTextGuard>;
 	readonly createNames: ReadonlySet<Uuid>;
+	/** The questions whose trimmed sibling a case change reads
+	 *  (`caseScalarTextGuard.ts::caseScalarTextSiblings`). */
+	readonly trimmed: ReadonlySet<Uuid>;
 	/** The data paths of the generated siblings a case change reads: a
 	 *  capture's link and a date and time's text, each written only where
 	 *  one reads it (`caseOps.ts::caseWriteSiblingPaths`). */
@@ -1019,10 +1023,14 @@ export function buildXFormSource(
 	// Every name the form's generated nodes carry, from the one allocator the
 	// case-operation emitter and `formActions.ts` read too.
 	const generatedNodes = planGeneratedNodes(doc, formUuid);
-	const basic = { placedBasic: placedBasic(doc, formUuid) };
+	const basic = {
+		placedBasic: placedBasic(doc, formUuid),
+		readsSibling: readsTrimmedSibling(doc, formUuid),
+	};
 	const caseScalarText: FormCaseScalarText = {
 		guards: caseScalarTextGuards(doc, formUuid, basic),
 		createNames: caseCreateNameFields(doc, formUuid, basic),
+		trimmed: caseScalarTextSiblings(doc, formUuid, basic),
 		siblings: caseWriteSiblingPaths(
 			doc,
 			formUuid,
@@ -1606,9 +1614,10 @@ function buildFieldParts(
 	// read; one holding the sibling in the spelling Nova wrote before
 	// `datetimeCaseValue` was CommCare HQ's is written in today's spelling at
 	// its first publish (`date-and-time-saved-as-hq-stores-it`).
+	const trimmedSibling = caseScalarText.trimmed.has(fieldUuid);
 	const datetimeSibling =
 		holds("datetime") &&
-		(scalarGuard !== undefined ||
+		(trimmedSibling ||
 			caseScalarText.siblings.has(
 				datetimeCaseValuePath(generatedNodes, fieldUuid, nodePath).toXPath(),
 			));
@@ -1650,7 +1659,7 @@ function buildFieldParts(
 	// question the worker never reaches leaves the case's value alone. An app
 	// brought in from CommCare HQ gains the sibling at its first publish,
 	// which the first-publish register declares (`case-names-checked`).
-	if (scalarGuard !== undefined) {
+	if (trimmedSibling) {
 		const valuePath = datetimeSibling
 			? datetimeCaseValuePath(generatedNodes, fieldUuid, nodePath)
 			: nodePath;

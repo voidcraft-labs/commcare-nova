@@ -2198,10 +2198,23 @@ function inferNode(
 				// A device prints the moment a literal names, which one naming
 				// none has not (`instant.ts::datetimeCoerceValue`).
 				const device = onDeviceContext(ctx);
+				const operand =
+					device === undefined ? undefined : instantOperand(expression, device);
 				const [unreadable] =
-					device === undefined
-						? []
-						: unreadableInstantLiterals(instantOperand(expression, device));
+					operand === undefined ? [] : unreadableInstantLiterals(operand);
+				// A device prints the coercion of a branch node as the coercion of
+				// each branch, and the coercion of a case's day, a value whose
+				// clock is lost or a value that names no moment as `date()` of it
+				// (`instant.ts::datetimeCoerceValue`): beside a branch it prints as
+				// a date and time, the node then gives values of two types, as
+				// `if(c, date(x), now())` does.
+				if (operand !== undefined && coercedBranchesMixDays(operand))
+					errors.push({
+						path: ["value"],
+						code: "branch-values",
+						message:
+							"On a device this gives a date in one branch and a date and time in another, because CommCare keeps only the day of some of these values. You can give every branch a date and time, or turn every branch into a date.",
+					});
 				if (unreadable !== undefined)
 					errors.push(
 						unreadableDatetimeError(unreadable.literal.value, ["value"]),
@@ -3675,6 +3688,19 @@ function checkComparison(
 			});
 			return;
 		}
+		// A blank orders before or after nothing: a device reads it as no
+		// number and answers no for every case, and CommCare HQ's search
+		// refuses to order by it (`comparison.py::case_property_range_query`).
+		if (isNullLiteral(left) || isNullLiteral(right)) {
+			errors.push({
+				path,
+				code: "ordered-values",
+				reason: "blank",
+				message:
+					"This orders a value against a blank, which is never before or after anything, so it is never true. You can check whether the value is blank instead.",
+			});
+			return;
+		}
 		const leftOrdered = leftType === ANY_TYPE || ORDERED_TYPES.has(leftType);
 		const rightOrdered = rightType === ANY_TYPE || ORDERED_TYPES.has(rightType);
 		if (!leftOrdered || !rightOrdered) {
@@ -3711,6 +3737,15 @@ function checkComparison(
 		instantOperand(right, device, { typeOf: known }),
 		errors,
 		path,
+	);
+}
+
+/** A direct `null` literal operand. */
+function isNullLiteral(expression: Expression): boolean {
+	return (
+		expression.kind === "term" &&
+		expression.term.kind === "literal" &&
+		expression.term.value === null
 	);
 }
 
@@ -3912,6 +3947,22 @@ function otherKindLeaves(operand: InstantOperand): readonly InstantLeaf[] {
  * moments are lowered: every expression of a slot a form or the suite
  * evaluates, and a value of a server search condition a device works out
  * first (`ExpressionContext.runsOnDevice`). */
+/** Whether the coercion `operand` holds is a branch node some of whose
+ *  branches a device coerces to a day (`date()` of a case's day, of a value
+ *  whose clock is lost, or of a value that names no moment) and others to a
+ *  date and time. */
+function coercedBranchesMixDays(operand: InstantOperand): boolean {
+	if (operand.kind === "leaf") return false;
+	const days = new Set(
+		instantLeaves(operand).map(
+			(leaf) =>
+				leaf.class === "not-instant" ||
+				leaf.class === "clock-lost" ||
+				(leaf.class === "day-only" && leaf.held === "date"),
+		),
+	);
+	return days.size > 1;
+}
 function onDeviceContext(ctx: TypingContext): ExpressionContext | undefined {
 	return "profile" in ctx &&
 		(ctx.runsOnDevice === true ||

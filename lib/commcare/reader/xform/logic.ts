@@ -6,8 +6,9 @@
  * not hold (a `required` on a label, a `calculate` on a shown question, any
  * `readonly`), the shape of each default's `setvalue`, and the scalar check
  * Nova's emitter conjoins onto the constraint of a question a trimmed sibling
- * stands beside, which is folded out and recorded on the field for the case
- * management stage to hold.
+ * stands beside or a Save to Case block's name or external id row reads, which
+ * is folded out and recorded on the field for the case management stage to
+ * hold.
  */
 
 import type { CaseScalarTextGuard } from "@/lib/domain/caseScalarTextGuard";
@@ -18,6 +19,7 @@ import {
 } from "@/lib/domain/questionId";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { questionScalarCheck } from "../../xform/builder";
+import { caseScalarTextValueCalculation } from "../../xform/caseOps";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { serializeWire } from "../../xpath/wire/serialize";
@@ -27,9 +29,14 @@ import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
-import { sameTree } from "./generated";
+import { dataRootName, HOLE, matchesTemplate, sameTree } from "./generated";
 import type { DraftField, NodeRole } from "./index";
-import type { BindFacts, DataNode, SetvalueFacts } from "./model";
+import {
+	type BindFacts,
+	type DataNode,
+	resolveContextPath,
+	type SetvalueFacts,
+} from "./model";
 
 const XFORM: ReadMode = { target: "xform", constraint: false };
 const CONSTRAINT: ReadMode = { target: "xform", constraint: true };
@@ -81,16 +88,61 @@ export interface PendingLogicInput {
 
 /** Pushes each field's logic as its draft expressions and reads every default's `setvalue`. */
 export function pendingLogic(input: PendingLogicInput): void {
-	const trimmedOwners = new Set<DataNode>();
+	const checkedOwners = scalarRowQuestions(input);
 	for (const role of input.roles.values())
 		if (
 			role.kind === "generated-candidate" &&
 			role.purpose === "trimmed" &&
 			role.owner !== null
 		)
-			trimmedOwners.add(role.owner);
-	for (const field of input.fields) readBindLogic(input, field, trimmedOwners);
+			checkedOwners.add(role.owner);
+	for (const field of input.fields) readBindLogic(input, field, checkedOwners);
 	readDefaults(input);
+}
+
+/** The rows of a case block that hold a case's name or its external id. */
+const SCALAR_ROWS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+	["case_name", new Set(["create", "update"])],
+	["external_id", new Set(["update"])],
+]);
+
+/**
+ * The questions a Save to Case block's name or external id row reads as they
+ * are, trimmed by the row itself (`caseOps.ts::caseScalarTextValueCalculation`
+ * of the question's path). The form's own case's block trims its own values
+ * and leaves the question its check and no trimmed sibling
+ * (`placement.ts::readsTrimmedSibling`), so a check on such a question may be
+ * Nova's; the case management stage settles whether it is
+ * (`caseManagement/index.ts::settleScalarChecks`).
+ */
+function scalarRowQuestions(input: PendingLogicInput): Set<DataNode> {
+	const out = new Set<DataNode>();
+	const trim = caseScalarTextValueCalculation(w.context([w.step(HOLE)]));
+	for (const [node, bind] of input.binds) {
+		const update = node.parent;
+		const block = update?.parent?.parent;
+		if (
+			update === null ||
+			SCALAR_ROWS.get(node.name)?.has(update.name) !== true ||
+			update.parent?.name !== "case" ||
+			block?.role !== "SaveToCase"
+		)
+			continue;
+		const calculate = bind.logic.calculate;
+		const read =
+			calculate === undefined
+				? undefined
+				: matchesTemplate(calculate, trim, HOLE);
+		const path =
+			read === undefined
+				? undefined
+				: resolveContextPath(read, node.path, dataRootName(node));
+		const question =
+			path === undefined ? undefined : input.nodes.get(path.join("/"));
+		if (question !== undefined && input.roles.get(question)?.kind === "field")
+			out.add(question);
+	}
+	return out;
 }
 
 /**
@@ -162,7 +214,7 @@ function authoredBeside(
 function readBindLogic(
 	input: PendingLogicInput,
 	field: DraftField,
-	trimmedOwners: ReadonlySet<DataNode>,
+	checkedOwners: ReadonlySet<DataNode>,
 ): void {
 	const { cursor } = input;
 	const bind = input.binds.get(field.node);
@@ -216,7 +268,7 @@ function readBindLogic(
 	}
 	if (logic.constraint !== undefined) {
 		if (fieldKindDeclaresKey(kind, "validate")) {
-			const folded = trimmedOwners.has(field.node)
+			const folded = checkedOwners.has(field.node)
 				? foldScalarCheck(logic.constraint)
 				: undefined;
 			if (folded === undefined)

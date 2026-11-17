@@ -77,6 +77,7 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	caseScalarTextGuards,
+	caseScalarTextSiblings,
 	expressionSlotValue,
 	type Field,
 	fieldKindCarriesValidation,
@@ -101,7 +102,7 @@ import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
 import { planFormCaseWire } from "../casePlacementPlan";
 import { emissionPlan } from "../emissionPlan";
-import { placedBasic } from "../placement";
+import { placedBasic, readsTrimmedSibling } from "../placement";
 import { queryRepeatNodeReads } from "./builder";
 import { type AttachmentUrlTarget, captureUrlNodePath } from "./captureUrlNode";
 import { caseWriteSiblingPaths, collectFieldLocations } from "./caseOps";
@@ -920,9 +921,12 @@ export function generatedNodePaths(
 			`Nova could not resolve the structure of form ${formUuid} while placing its generated nodes.`,
 		);
 	const locations = collectFieldLocations(wireDoc, formUuid);
-	const guards = caseScalarTextGuards(wireDoc, formUuid, {
+	const scalarText = {
 		placedBasic: placedBasic(wireDoc, formUuid),
-	});
+		readsSibling: readsTrimmedSibling(wireDoc, formUuid),
+	};
+	const guards = caseScalarTextGuards(wireDoc, formUuid, scalarText);
+	const trimmed = caseScalarTextSiblings(wireDoc, formUuid, scalarText);
 	const siblings = caseWriteSiblingPaths(
 		wireDoc,
 		formUuid,
@@ -970,12 +974,12 @@ export function generatedNodePaths(
 					node.owner,
 					fieldPath(node.owner),
 				);
-				return guards.has(node.owner) || siblings.has(path.toXPath())
+				return trimmed.has(node.owner) || siblings.has(path.toXPath())
 					? path
 					: undefined;
 			}
 			case "trimmed":
-				return guards.has(node.owner)
+				return trimmed.has(node.owner)
 					? trimmedValuePath(plan, node.owner, fieldPath(node.owner))
 					: undefined;
 			case "query-ids":

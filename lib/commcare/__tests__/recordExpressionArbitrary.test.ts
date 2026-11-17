@@ -2,7 +2,7 @@
  * The record-expression corpus draws the whole record rule set.
  *
  * Contract: in the record slots of a fixed sample of
- * `recordExpressionDocArbitrary`'s documents, the trees
+ * `recordExpressionDocArbitrary`'s documents, routed menus among them, the trees
  * `expressionArbitrary` draws for each slot's own request, bound to that
  * slot, hold among those the slot's checker admits every expression kind
  * and every choice of each operator list the domain names
@@ -32,10 +32,18 @@ it("draws every kind and operator of the record rule set where a record slot adm
 	timeout: 120_000,
 }, () => {
 	const drawn = new Set<string>();
-	const docs = fc.sample(recordExpressionDocArbitrary, {
-		seed: 20261117,
-		numRuns: 8,
-	});
+	// The first eight documents, and those of the next eight that list a
+	// menu's cases after another menu's case of the parent type, the only
+	// documents whose slots read that case (`project`).
+	const docs = fc
+		.sample(recordExpressionDocArbitrary, { seed: 20261117, numRuns: 16 })
+		.filter(
+			(doc, index) =>
+				index < 8 ||
+				Object.values(doc.modules).some(
+					(module) => module.parentCaseModuleUuid !== undefined,
+				),
+		);
 	for (const [index, doc] of docs.entries())
 		for (const slot of recordSlotsOf(doc)) {
 			const request = requestOf(slot.ctx.profile.expectation);

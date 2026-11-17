@@ -11,7 +11,10 @@
  * reading prints the coercion of text where the source prints the coercion
  * of a date; and the date and the quantity of a `date-add` over two untyped
  * properties each tried alone, which the checker admits neither of, so
- * neither is typed and the reading cannot print the source.
+ * neither is typed and the reading cannot print the source; and a property
+ * compared with a branch node whose other branch a number types only once
+ * the comparison types it, so the two are left of types the checker refuses
+ * to compare.
  */
 
 import { describe, expect, it } from "vitest";
@@ -28,6 +31,10 @@ import { type BlueprintDoc, calculatedColumn, proseText } from "@/lib/domain";
 import {
 	datetimeCoerce,
 	type Expression,
+	eq,
+	ifExpr,
+	isIn,
+	literal,
 	lte,
 	now,
 	prop,
@@ -41,7 +48,8 @@ import { readHqApp } from "../index";
 
 const COLUMN = testUuid("first-reading-types-column");
 
-/** A follow-up of `visit` cases, `seen` a date and `age` a whole number,
+/** A follow-up of `visit` cases, `seen` a date, `age` a whole number and
+ *  `weight` a decimal,
  *  holding `expression` in the form's display condition or a calculated
  *  column. */
 function visitDoc(slot: "form" | "column", expression: Expression) {
@@ -54,6 +62,7 @@ function visitDoc(slot: "form" | "column", expression: Expression) {
 				properties: [
 					{ name: "seen", label: proseText("Seen"), data_type: "date" },
 					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
 				],
 			},
 		],
@@ -85,6 +94,7 @@ function visitDoc(slot: "form" | "column", expression: Expression) {
 
 const SEEN = term(prop("visit", "seen"));
 const AGE = term(prop("visit", "age"));
+const WEIGHT = term(prop("visit", "weight"));
 
 const CASES: readonly {
 	readonly name: string;
@@ -123,6 +133,16 @@ const CASES: readonly {
 				interval: "days",
 				quantity: AGE,
 			}),
+		),
+	},
+	{
+		name: "a comparison of a property with a branch node that reads another beside a number",
+		doc: visitDoc(
+			"form",
+			eq(
+				ifExpr(isIn(term(literal("a")), literal("a")), AGE, term(literal(3))),
+				WEIGHT,
+			),
 		),
 	},
 ];

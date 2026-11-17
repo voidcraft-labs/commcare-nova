@@ -154,6 +154,15 @@ describe("PredicateCardEditor — reasons and the checker's newer codes", () => 
 		);
 	});
 
+	it("gives an ordering against a blank its own line, and other orderings the general one", () => {
+		expect(present("ordered-values", "blank")).toBe(
+			"A blank is never before or after anything. You can check whether the value is blank instead",
+		);
+		expect(present("ordered-values")).toBe(
+			"Use numbers or dates for this comparison",
+		);
+	});
+
 	it("keeps the general line for values that don't line up with no reason", () => {
 		expect(present("incompatible-values")).toBe(
 			"Choose values that use compatible kinds of information",
