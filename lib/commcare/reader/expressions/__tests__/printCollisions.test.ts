@@ -541,6 +541,30 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			},
 		},
 		{
+			// A list filter its search restates prints a clause that reads no
+			// case as what the device works out, where a date's literal inside
+			// `date()` prints its text, typed or not.
+			id: "untyped-value-literal",
+			slot: filter,
+			other: () => ({
+				kind: "lte",
+				left: {
+					kind: "date-coerce",
+					value: term({
+						kind: "literal",
+						value: "2024-02-29",
+						data_type: "date",
+					}),
+				},
+				right: { kind: "today" },
+			}),
+			canonical: {
+				kind: "lte",
+				left: { kind: "date-coerce", value: lit("2024-02-29") },
+				right: { kind: "today" },
+			},
+		},
+		{
 			id: "junction-first-clause",
 			slot: relevant,
 			other: () => ({
@@ -2646,6 +2670,54 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 					{ kind: "literal", value: 1767225599500000 },
 					{ kind: "literal", value: 1769936400000000 },
 				],
+			},
+		},
+		{
+			// A switch over a moment literal compares each case's moment as
+			// the pair of integers they fold to, as a membership does.
+			id: "instant-literal-pair",
+			slot: calculated,
+			other: {
+				kind: "switch",
+				on: typed("2025-12-31T23:59:59.5Z", "datetime"),
+				cases: [
+					{
+						when: {
+							kind: "literal",
+							value: "2025-12-31T23:59:59.5Z",
+							data_type: "datetime",
+						},
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("a"),
+					},
+					{
+						when: {
+							kind: "literal",
+							value: "2026-01-01T00:00:00Z",
+							data_type: "datetime",
+						},
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("b"),
+					},
+				],
+				fallback: lit("c"),
+			},
+			canonical: {
+				kind: "switch",
+				on: lit(1767225599500000),
+				cases: [
+					{
+						when: { kind: "literal", value: 1767225599500000 },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("a"),
+					},
+					{
+						when: { kind: "literal", value: 1767225600000000 },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("b"),
+					},
+				],
+				fallback: lit("c"),
 			},
 		},
 		{

@@ -217,7 +217,9 @@ since a device prints the moment as a value (`instant.ts::datetimeCoerceValue`),
 and one of a branch node some of whose branches a device coerces to a day
 (`date()` of a `casedb` system date, of a value whose clock is lost or of a
 value that names no moment) beside a branch it coerces to a moment is
-`branch-values`, as `if(c, date(x), now())`, which it prints, is.
+`branch-values`, and so is a branch node one of whose branches gives only such
+coercions beside a branch that gives a date and time, as
+`if(c, date(x), now())`, which both print, is.
 `dayOnlyRefusalCopy` and `systemDateWhen` are the day-only sentences every
 surface assembles, whose next step (`date()` on both sides) the checker
 admits. An unknown operand against a moment takes the row of what it holds,

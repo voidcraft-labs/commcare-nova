@@ -1331,6 +1331,53 @@ function membershipLiteralPair(
 			};
 }
 
+/** A switch over a moment literal whose every case is a moment literal: a
+ *  device compares each pair as the integers they fold to, so the subject and
+ *  the cases print as those numbers do (`membershipLiteralPair`'s switch). */
+function switchLiteralPair(
+	node: Extract<Expression, { kind: "switch" }>,
+	context: ExpressionContext,
+): Expression | undefined {
+	if (
+		context.ruleSet !== "record" ||
+		(printsCsql(context) && readsSearchRow(node))
+	)
+		return undefined;
+	const micros = (literal: Term | undefined): number | undefined => {
+		if (literal?.kind !== "literal" || typeof literal.value !== "string")
+			return undefined;
+		const value = literalInstantMicros(literal.value);
+		return value !== undefined && Number.isSafeInteger(value)
+			? value
+			: undefined;
+	};
+	const on = micros(termOf(node.on));
+	if (on === undefined) return undefined;
+	const cases: SwitchCase[] = [];
+	for (const entry of node.cases) {
+		const equality: Comparison = {
+			kind: "eq",
+			left: node.on,
+			right: { kind: "term", term: entry.when },
+		};
+		const operands = comparisonOperands(equality, context);
+		const folded = micros(entry.when);
+		if (
+			folded === undefined ||
+			operands.left.kind !== "leaf" ||
+			operands.right.kind !== "leaf" ||
+			comparisonPlan("eq", operands.left, operands.right) !== "lowered"
+		)
+			return undefined;
+		cases.push({ ...entry, when: { kind: "literal", value: folded } });
+	}
+	return {
+		...node,
+		on: { kind: "term", term: { kind: "literal", value: on } },
+		cases: cases as unknown as typeof node.cases,
+	};
+}
+
 /** Whether a range's two comparisons, joined, print as the range does where
  *  `at` stands: everywhere but a row of a search's condition (the slot's
  *  whole tree or a clause of its top-level `and`), where each clause of a
@@ -1675,6 +1722,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		id: "instant-literal-pair",
 		rewrite(node, context, at) {
 			if (node.kind === "in") return membershipLiteralPair(node, context);
+			if (node.kind === "switch") return switchLiteralPair(node, context);
 			if (node.kind === "between") {
 				const split = rangeAsComparisons(node, context, at, (comparison) =>
 					rowNamed("instant-literal-pair").rewrite(comparison, context, at),
@@ -1803,10 +1851,12 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		// (`temporalLiterals.ts::typedWhereRequired`): beside a branch that
 		// gives it, or as the whole value of a slot that expects it, which
 		// this row leaves as it is; everywhere else it returns the untyped
-		// literal.
+		// literal. A search's CSQL keeps such a literal as written, but where
+		// it stands in what the device works out (a clause that reads no case).
 		id: "untyped-value-literal",
 		rewrite(node, context, at) {
-			if (context.ruleSet !== "record" || printsCsql(context)) return undefined;
+			if (context.ruleSet !== "record" || !printsOnDevice(context, at))
+				return undefined;
 			// A typed date and time inside `date()` prints read in the device's
 			// own date (`fromExpression.ts::deviceTemporalValue`), which the
 			// untyped text does not; a typed date prints as its text.
