@@ -123,7 +123,8 @@ export type HqChangesOutcomeProjection =
 	  }
 	| {
 			readonly kind: "changed";
-			/** R2 over a list or nothing to bring in; otherwise that nothing was brought in. */
+			/** That the review moved while it was read (`hqChangesMovedLine`) over a list or nothing to
+			 *  bring in; otherwise that nothing was brought in. */
 			readonly message: string;
 			/** The member whose edit moved the app, by name, where that is what changed. */
 			readonly edited_by: string | null;
@@ -216,8 +217,8 @@ export async function describeHqChangesOutcome(
 			});
 			return {
 				kind: "changed",
-				/* R2 stands only over a list or a standing with nothing to
-				 * bring in. Over any other review (a failed read of CommCare
+				/* That the review moved stands only over a list or a standing
+				 * with nothing to bring in. Over any other review (a failed read of CommCare
 				 * HQ, an account, a held or unavailable change) nothing need
 				 * have moved, and `now` says why nothing was brought in. */
 				message:

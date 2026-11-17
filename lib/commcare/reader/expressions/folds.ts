@@ -68,6 +68,7 @@ export type FoldId =
 	| "when-input-present"
 	| "in"
 	| "between"
+	| "typed-branch-literal"
 	| "switch"
 	| "relation-property"
 	| "relation-presence"
@@ -590,6 +591,116 @@ const typedLiteral: Fold = {
 	},
 };
 
+/**
+ * The branches of a record value-giving node (an `if`'s two, each `coalesce`
+ * value, each `switch` result, each value a `cond` gives), each untyped
+ * literal spelled as a date or a date and time typed by its shape where a
+ * branch beside it gives that type. Record branches agree on one type, and a
+ * typed date or date-and-time literal a branch gives prints the same bytes as
+ * the untyped one; only the typed one agrees with its siblings.
+ */
+function typedBranchLiterals(
+	branches: readonly {
+		readonly syntax: FormSyntax;
+		readonly bound: Expression;
+	}[],
+	context: ExpressionContext,
+	api: FoldApi,
+): Expression[] {
+	const typed = new Set<string>();
+	for (const branch of branches) {
+		if (branchLiteralShape(branch) !== undefined) continue;
+		let type: string | undefined;
+		try {
+			type = scalarDataType(typeOf(branch.bound, context)?.data);
+		} catch {
+			continue;
+		}
+		if (type === "date" || type === "datetime") typed.add(type);
+	}
+	return branches.map((branch) => {
+		const shape = branchLiteralShape(branch);
+		if (shape === undefined || !typed.has(shape.type)) return branch.bound;
+		return api.term(
+			{ kind: "literal", value: shape.value, data_type: shape.type },
+			branch.syntax,
+		);
+	});
+}
+
+/** A branch that is an untyped text literal spelled as a date or a date and
+ *  time, with that type. */
+function branchLiteralShape(branch: {
+	readonly syntax: FormSyntax;
+	readonly bound: Expression;
+}): { readonly value: string; readonly type: "date" | "datetime" } | undefined {
+	const value = stringValue(branch.syntax);
+	const term = termOf(branch.bound);
+	if (
+		value === undefined ||
+		term?.kind !== "literal" ||
+		term.data_type !== undefined ||
+		term.value !== value
+	)
+		return undefined;
+	const shape = literalShape(value);
+	return shape?.type === "date" || shape?.type === "datetime"
+		? { value, type: shape.type }
+		: undefined;
+}
+
+/** An `if` or a `coalesce` whose branches include a literal spelled as a date
+ *  or a date and time, read with that literal typed where a branch beside it
+ *  gives its type (`typedBranchLiterals`). */
+const typedBranchLiteral: Fold = {
+	id: "typed-branch-literal",
+	ruleSets: ["record"],
+	propose(node, context, api) {
+		const branchIf = call(node, "if", 3);
+		const values = call(node, "coalesce");
+		const positions =
+			branchIf !== undefined
+				? [1, 2]
+				: values !== undefined && values.args.length >= 2
+					? values.args.map((_, index) => index)
+					: undefined;
+		const args = (branchIf ?? values)?.args;
+		if (positions === undefined || args === undefined) return undefined;
+		if (
+			!positions.some((index) => {
+				const shape = literalShape(stringValue(args[index]) ?? "");
+				return shape?.type === "date" || shape?.type === "datetime";
+			})
+		)
+			return undefined;
+		const bound = args.map((arg) => api.bind(arg as FormSyntax, context));
+		const branches = typedBranchLiterals(
+			positions.map((index) => ({
+				syntax: args[index] as FormSyntax,
+				bound: bound[index] as Expression,
+			})),
+			context,
+			api,
+		);
+		if (branches.every((branch, at) => branch === bound[positions[at] ?? 0]))
+			return undefined;
+		if (branchIf !== undefined)
+			return api.remember(
+				{
+					kind: "if",
+					cond: bound[0] as Expression,
+					// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+					then: branches[0] as Expression,
+					else: branches[1] as Expression,
+				},
+				node,
+			);
+		const [first, ...rest] = branches;
+		if (first === undefined) return undefined;
+		return api.remember({ kind: "coalesce", values: [first, ...rest] }, node);
+	},
+};
+
 // ── Identity leaves ──────────────────────────────────────────────────
 
 const formRead: Fold = {
@@ -1065,7 +1176,22 @@ const condFold: Fold = {
 			cond.args.length % 2 !== 1
 		)
 			return undefined;
-		const args = cond.args.map((arg) => api.bind(arg, context));
+		const bound = cond.args.map((arg) => api.bind(arg, context));
+		const values = bound.flatMap((_, index) =>
+			index % 2 === 1 || index === bound.length - 1 ? [index] : [],
+		);
+		const typed = typedBranchLiterals(
+			values.map((index) => ({
+				syntax: cond.args[index] as FormSyntax,
+				bound: bound[index] as Expression,
+			})),
+			context,
+			api,
+		);
+		const args = bound.map((arg, index) => {
+			const at = values.indexOf(index);
+			return at === -1 ? arg : (typed[at] as Expression);
+		});
 		let result = args[args.length - 1] as Expression;
 		for (let index = args.length - 3; index >= 0; index -= 2)
 			result = {
@@ -1319,6 +1445,35 @@ function instantOperandProposal(
 				api,
 				opposite,
 			);
+		const chain = record ? switchChain(text) : undefined;
+		if (chain !== undefined) {
+			// A record `switch` prints its cases' tests as written and each
+			// result as an operand text, as `if` does.
+			const on = api.bind(chain.subject, context);
+			const cases = chain.tests.map(
+				(test): SwitchCase => ({
+					when: caseLiteral(test.value, on, context),
+					// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+					then: instantOperandProposal(test.then, context, api, opposite),
+				}),
+			);
+			const [head, ...rest] = cases;
+			if (head !== undefined)
+				return api.remember(
+					{
+						kind: "switch",
+						on,
+						cases: [head, ...rest],
+						fallback: instantOperandProposal(
+							chain.fallback,
+							context,
+							api,
+							opposite,
+						),
+					},
+					text,
+				);
+		}
 		return api.remember(
 			{
 				kind: "if",
@@ -1727,35 +1882,63 @@ const between: Fold = {
 	},
 };
 
+/** A record `switch` as it prints: a chain of at least two `if`s, each
+ *  testing one subject's equality with a literal, the last one's else the
+ *  fallback. */
+function switchChain(node: FormSyntax):
+	| {
+			readonly subject: FormSyntax;
+			readonly tests: readonly {
+				readonly value: string | number;
+				readonly then: FormSyntax;
+			}[];
+			readonly fallback: FormSyntax;
+	  }
+	| undefined {
+	const tests: {
+		readonly value: string | number;
+		readonly then: FormSyntax;
+	}[] = [];
+	let subject: FormSyntax | undefined;
+	let at: FormSyntax = node;
+	for (;;) {
+		const branch = call(at, "if", 3);
+		const test = binary(branch?.args[0], "=");
+		const value = literalValue(test?.right);
+		if (branch === undefined || test === undefined || value === undefined)
+			break;
+		if (subject === undefined) subject = test.left;
+		else if (!same(subject, test.left)) break;
+		// biome-ignore lint/suspicious/noThenProperty: The branch is data, not a callable thenable.
+		tests.push({ value, then: branch.args[1] as FormSyntax });
+		at = branch.args[2] as FormSyntax;
+	}
+	return subject === undefined || tests.length < 2
+		? undefined
+		: { subject, tests, fallback: at };
+}
+
 const switchFold: Fold = {
 	id: "switch",
 	ruleSets: ["record"],
 	propose(node, context, api) {
-		const tests: {
-			readonly value: string | number;
-			readonly then: FormSyntax;
-		}[] = [];
-		let subject: FormSyntax | undefined;
-		let at: FormSyntax = node;
-		for (;;) {
-			const branch = call(at, "if", 3);
-			const test = binary(branch?.args[0], "=");
-			const value = literalValue(test?.right);
-			if (branch === undefined || test === undefined || value === undefined)
-				break;
-			if (subject === undefined) subject = test.left;
-			else if (!same(subject, test.left)) break;
-			// biome-ignore lint/suspicious/noThenProperty: The branch is data, not a callable thenable.
-			tests.push({ value, then: branch.args[1] as FormSyntax });
-			at = branch.args[2] as FormSyntax;
-		}
-		if (subject === undefined || tests.length < 2) return undefined;
+		const chain = switchChain(node);
+		if (chain === undefined) return undefined;
+		const { subject, tests, fallback: at } = chain;
 		const on = api.bind(subject, context);
+		const results = typedBranchLiterals(
+			[...tests.map((test) => test.then), at].map((syntax) => ({
+				syntax,
+				bound: api.bind(syntax, context),
+			})),
+			context,
+			api,
+		);
 		const cases = tests.map(
-			(test): SwitchCase => ({
+			(test, index): SwitchCase => ({
 				when: caseLiteral(test.value, on, context),
 				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
-				then: api.bind(test.then, context),
+				then: results[index] as Expression,
 			}),
 		);
 		const [head, ...rest] = cases;
@@ -1765,7 +1948,7 @@ const switchFold: Fold = {
 				kind: "switch",
 				on,
 				cases: [head, ...rest],
-				fallback: api.bind(at, context),
+				fallback: results[tests.length] as Expression,
 			},
 			node,
 		);
@@ -2298,6 +2481,7 @@ export const EXPRESSION_FOLDS: readonly Fold[] = [
 	inFold,
 	between,
 	switchFold,
+	typedBranchLiteral,
 	relationProperty,
 	relationPresence,
 	relationCount,

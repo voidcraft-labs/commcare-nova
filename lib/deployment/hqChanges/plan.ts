@@ -12,6 +12,9 @@
  * (`lib/deployment/reading/signature.ts::differenceSignature`).
  *
  * Pure: it reads its arguments, logs nothing and asks nothing of a store.
+ * It runs a step at a time (`planHqChangesSteps`), each diff, preparation
+ * and canonical form its own step, so a caller on a request lets the event
+ * loop turn between them.
  */
 
 import { Immer } from "immer";
@@ -23,11 +26,11 @@ import {
 } from "@/lib/commcare/reader/canon";
 import {
 	preparedCandidateHasAdmissionIssue,
-	prepareMutationCandidate,
+	prepareMutationCandidateSteps,
 } from "@/lib/doc/commitVerdicts";
 import { deepEqual } from "@/lib/doc/deepEqual";
 import {
-	diffDocsToMutations,
+	diffDocsToMutationsSteps,
 	HQ_READING_DELTA,
 	LocalizationEndpointNotRepresentableError,
 } from "@/lib/doc/diffDocsToMutations";
@@ -157,17 +160,17 @@ interface Failure {
 	readonly segments: readonly string[];
 }
 
-/** `doc` with `mutations` applied as a commit prepares them, or why they do not apply. */
-function applied(
+/** `doc` with `mutations` applied as a commit prepares them, or why they do not apply, a part
+ *  of the preparation at a time. */
+function* applied(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 	check: HqChangePlanCheck,
-): { readonly doc: BlueprintDoc } | { readonly failure: Failure } {
+): Steps<{ readonly doc: BlueprintDoc } | { readonly failure: Failure }> {
 	try {
-		const prepared = prepareMutationCandidate(
-			doc,
-			admitMutationBatch(mutations),
-		);
+		const admitted = admitMutationBatch(mutations);
+		yield;
+		const prepared = yield* prepareMutationCandidateSteps(doc, admitted);
 		if (!preparedCandidateHasAdmissionIssue(prepared))
 			return { doc: prepared.nextDoc };
 		const issue =
@@ -816,12 +819,12 @@ interface Target {
  * target does not, on a case type the target holds, after the nearest
  * property before it in the head's order that the target holds.
  */
-function targetOver(
+function* targetOver(
 	D: BlueprintDoc,
 	Hn: readonly Mutation[],
 	head: BlueprintDoc | null,
-): Target | { readonly failure: Failure } {
-	const taken = applied(D, Hn, "apply");
+): Steps<Target | { readonly failure: Failure }> {
+	const taken = yield* applied(D, Hn, "apply");
 	if (!("doc" in taken)) return taken;
 	const hqOnly = taken.doc;
 	if (head === null) return { doc: hqOnly, hqOnly };
@@ -845,7 +848,7 @@ function targetOver(
 		}
 	}
 	if (additions.length === 0) return { doc: hqOnly, hqOnly };
-	const added = applied(hqOnly, additions, "apply");
+	const added = yield* applied(hqOnly, additions, "apply");
 	return "doc" in added ? { doc: added.doc, hqOnly } : added;
 }
 
@@ -866,13 +869,12 @@ function* takeOver(
 	/** The properties that give way where a document holds one slug twice. */
 	givesWay: ReadonlySet<string>,
 ): Steps<Target | { readonly failure: Failure }> {
-	const target = targetOver(D, narrowed(H, B, T, D), head);
+	const target = yield* targetOver(D, narrowed(H, B, T, D), head);
 	if (!("doc" in target)) return target;
 	yield;
-	const read = (() => {
-		const canon = image ?? canonK(D, givesWay);
-		return applied(canon, narrowed(H, B, T, canon), "commutes");
-	})();
+	const canon = image ?? canonK(D, givesWay);
+	yield;
+	const read = yield* applied(canon, narrowed(H, B, T, canon), "commutes");
 	if (!("doc" in read)) return read;
 	yield;
 	const targetK = canonK(target.doc, givesWay);
@@ -1045,7 +1047,7 @@ function* planFromDocumentsSteps(
 	const theirs = withIdsOf(B, T);
 	let H: Mutation[];
 	try {
-		H = diffDocsToMutations(B, theirs, HQ_READING_DELTA);
+		H = yield* diffDocsToMutationsSteps(B, theirs, HQ_READING_DELTA);
 	} catch (error) {
 		if (error instanceof LocalizationEndpointNotRepresentableError)
 			return { kind: "held", reason: "languages-reordered" };
@@ -1062,10 +1064,12 @@ function* planFromDocumentsSteps(
 	const givesWay = propertiesGivingWay(ref, now);
 	const refK = canonK(ref, givesWay);
 	yield;
-	const nowK = canonK(now, givesWay);
+	/* The reference is the head itself where nothing was committed since the publish. */
+	const nowK = now === ref ? refK : canonK(now, givesWay);
 	yield;
 	const unpublished =
-		documentDifferences(refK, nowK).length > 0 || slugRenamed(ref, now);
+		(nowK !== refK && documentDifferences(refK, nowK).length > 0) ||
+		slugRenamed(ref, now);
 	const appliedTo = unpublished ? "published" : "head";
 	const D = unpublished ? ref : now;
 	const head = unpublished ? now : null;
@@ -1112,7 +1116,7 @@ function* planFromDocumentsSteps(
 	let batch: readonly Mutation[] = [];
 	if (renamedInNova.length === 0) {
 		try {
-			batch = diffDocsToMutations(now, target, HQ_READING_DELTA);
+			batch = yield* diffDocsToMutationsSteps(now, target, HQ_READING_DELTA);
 		} catch {
 			return differs({
 				check: "replay",
@@ -1120,7 +1124,7 @@ function* planFromDocumentsSteps(
 			});
 		}
 		yield;
-		const replayed = applied(now, batch, "replay");
+		const replayed = yield* applied(now, batch, "replay");
 		if (!("doc" in replayed)) return differs(replayed.failure);
 		yield;
 		if (!deepEqual(toPersistableDoc(replayed.doc), toPersistableDoc(target)))

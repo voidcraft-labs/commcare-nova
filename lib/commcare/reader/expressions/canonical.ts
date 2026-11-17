@@ -34,6 +34,7 @@ import {
 import {
 	expressionContextAtPath,
 	expressionRowScope,
+	visitAssignmentOutputs,
 } from "@/lib/domain/expression/typeChecker";
 import {
 	type CheckPath,
@@ -439,14 +440,24 @@ function instantLiteralBranches(
 	switch (operand.kind) {
 		case "leaf":
 			return stringLiteral(node) === undefined ? node : rewrite(node);
-		case "if":
+		case "if": {
 			if (node.kind !== "if") return node;
-			return {
-				...node,
-				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
-				then: instantLiteralBranches(operand.whenTrue, rewrite, node.then),
-				else: instantLiteralBranches(operand.whenFalse, rewrite, node.else),
-			};
+			const then = instantLiteralBranches(operand.whenTrue, rewrite, node.then);
+			const otherwise = instantLiteralBranches(
+				operand.whenFalse,
+				rewrite,
+				node.else,
+			);
+			// The node itself where no branch changed, so a row that rewrites
+			// nothing answers nothing.
+			return then === node.then && otherwise === node.else
+				? node
+				: {
+						...node,
+						then,
+						else: otherwise,
+					};
+		}
 		case "coalesce": {
 			if (node.kind !== "coalesce") return node;
 			const values = node.values.map((value, index) => {
@@ -455,10 +466,30 @@ function instantLiteralBranches(
 					? value
 					: instantLiteralBranches(inner, rewrite, value);
 			});
-			return { ...node, values: values as typeof node.values };
+			return values.every((value, index) => value === node.values[index])
+				? node
+				: { ...node, values: values as typeof node.values };
 		}
-		case "switch":
-			return node;
+		case "switch": {
+			if (node.kind !== "switch") return node;
+			const cases = node.cases.map((entry, index) => {
+				const inner = operand.cases[index];
+				const then =
+					inner === undefined
+						? entry.then
+						: instantLiteralBranches(inner, rewrite, entry.then);
+				return then === entry.then ? entry : { ...entry, then };
+			});
+			const fallback = instantLiteralBranches(
+				operand.fallback,
+				rewrite,
+				node.fallback,
+			);
+			return fallback === node.fallback &&
+				cases.every((entry, index) => entry === node.cases[index])
+				? node
+				: { ...node, cases: cases as typeof node.cases, fallback };
+		}
 	}
 }
 
@@ -679,6 +710,94 @@ function instantOperand(text: Expression, record: boolean): Expression {
 	return text;
 }
 
+/** `node` with each `datetime-coerce` of a literal a device folds
+ *  (`instantOperand.ts`, class `literal-instant`) as the date-and-time
+ *  literal of the text it prints, where `folds` holds: at the slot's root,
+ *  as an operand of a comparison a device does not make by day, and as a
+ *  branch of an `if`, `coalesce`, `switch` or `cond` that stands in one of
+ *  those places. */
+function foldedCoercions(
+	node: Expression,
+	path: CheckPath,
+	root: Expression,
+	context: ExpressionContext,
+	folds: boolean,
+): Expression {
+	if (folds && node.kind === "datetime-coerce") {
+		const term = termOf(node.value);
+		const literal =
+			term?.kind === "literal" && typeof term.value === "string"
+				? { value: term.value, type: term.data_type }
+				: undefined;
+		const shape =
+			literal === undefined
+				? undefined
+				: (literal.type ?? literalShape(literal.value)?.type);
+		const text =
+			literal !== undefined && (shape === "date" || shape === "datetime")
+				? literalInstantText(literal.value)
+				: undefined;
+		if (text !== undefined) {
+			// A slot's whole value is read as an untyped literal unless the
+			// slot expects a date or a date and time (`folds.ts::slotLiteral`).
+			const expectation = context.profile.expectation;
+			const typed =
+				path.length > 0 ||
+				(expectation.kind === "value" &&
+					(expectation.type === "date" || expectation.type === "datetime"));
+			return {
+				kind: "term",
+				term: typed
+					? { kind: "literal", value: text, data_type: "datetime" }
+					: { kind: "literal", value: text },
+			};
+		}
+	}
+	let childFolds: (childPath: CheckPath) => boolean;
+	if (isComparison(node)) {
+		const at =
+			path.length === 0
+				? context
+				: expressionContextAtPath(root, context, path);
+		const operands = comparisonOperands(node, at);
+		const day =
+			comparisonPlan(node.kind, operands.left, operands.right) === "day";
+		childFolds = () => !day;
+	} else if (
+		node.kind === "if" ||
+		node.kind === "coalesce" ||
+		node.kind === "switch" ||
+		isCall(node, "cond")
+	) {
+		const outputs: CheckPath[] = [];
+		visitAssignmentOutputs(node, path, (_, outputPath) => {
+			outputs.push(outputPath);
+		});
+		// A child folds where it is a branch, or holds one, of the node.
+		childFolds = (childPath) =>
+			folds &&
+			outputs.some(
+				(output) =>
+					output.length >= childPath.length &&
+					childPath.every((segment, index) => output[index] === segment),
+			);
+	} else childFolds = () => false;
+	return mapExpressionChildren(
+		node,
+		(child) =>
+			child.kind === "expression"
+				? foldedCoercions(
+						child.value,
+						child.path,
+						root,
+						context,
+						childFolds(child.path),
+					)
+				: child.value,
+		path,
+	);
+}
+
 /** Every row, in the order of the table. */
 export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	{
@@ -861,6 +980,23 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			return left === node.left && right === node.right
 				? undefined
 				: { ...node, left, right };
+		},
+	},
+	{
+		// A `datetime-coerce` of a date or a date-and-time literal is folded
+		// at emission (`instantOperand.ts`, class `literal-instant`): as a
+		// value it prints the literal's own text
+		// (`instant.ts::datetimeCoerceValue`, `literalInstantText`), and as a
+		// comparison's operand that text's microseconds, which is what the
+		// date-and-time literal of that text prints in both places. A device
+		// comparison by day prints the coercion as `date()`, and CSQL as
+		// `datetime()`, so neither is touched. The reader returns the literal.
+		id: "coerced-instant-literal",
+		rewrite(node, context, at) {
+			if (!at.root || context.ruleSet !== "record" || printsCsql(context))
+				return undefined;
+			const folded = foldedCoercions(node, [], node, context, true);
+			return folded === node ? undefined : folded;
 		},
 	},
 	{

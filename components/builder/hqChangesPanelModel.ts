@@ -173,7 +173,7 @@ export interface HqChangesPanelState {
 	 * stays as sent, so ids only grow and no id is named twice.
 	 */
 	readonly request: { readonly id: number; readonly sent: boolean };
-	/** R2: the review moved under the person, and the member whose edit moved it. */
+	/** The review moved under the person, and the member whose edit moved it. */
 	readonly moved: { readonly editedBy: string | null } | null;
 	/** Each table's answer, by tag. */
 	readonly tableChoices: Readonly<Record<string, LookupTableChoice>>;
@@ -609,21 +609,22 @@ export interface ListsView {
 	readonly hqList: ListView;
 	readonly caseData: readonly string[];
 	readonly publishChanges: readonly string[];
-	/** S2's second list, or null for S1. */
+	/** Nova's list, or null where nothing in Nova would be removed. */
 	readonly nova: {
 		readonly heading: string;
 		readonly lead: string;
 		readonly madeBy: readonly string[];
 		readonly list: ListView;
 	} | null;
-	/** S2's Copy both lists. */
+	/** Copy both lists, where Nova's list is shown. */
 	readonly copyBoth: boolean;
 	/** The tables that ask their choice. */
 	readonly tables: ChangesReview["tables"];
 	readonly projectName: string;
 	/**
-	 * G1, a refusal or a request that ended, beside the lists, with Check
-	 * again where checking again can help and R1 does not already offer it.
+	 * The gate's refusal, a refusal or a request that ended, beside the lists,
+	 * with Check again where checking again can help and `renamed` does not
+	 * already offer it.
 	 */
 	readonly notice: {
 		readonly lines: readonly string[];
@@ -632,11 +633,11 @@ export interface ListsView {
 	} | null;
 	/** The choices, or null while the bring-in runs. */
 	readonly choices: {
-		/** Bring in these changes, Use CommCare HQ's version, or null where R1 stands in its place. */
+		/** Bring in these changes, Use CommCare HQ's version, or null where `renamed` stands in its place. */
 		readonly bringIn: (ChoiceView & { readonly discard: boolean }) | null;
-		/** R1, with Check again. */
+		/** The line naming the case properties renamed in Nova, with Check again. */
 		readonly renamed: string | null;
-		/** Publish over CommCare HQ's changes, with S1's line above it in the publish dialog. */
+		/** Publish over CommCare HQ's changes, with `PUBLISH_OVER_INSTEAD_LINE` above it in the publish dialog where nothing in Nova would be removed. */
 		readonly publishOver:
 			| (ChoiceView & { readonly lead: string | null })
 			| null;
@@ -648,14 +649,14 @@ export interface ListsView {
 export type PanelBodyView =
 	| { readonly kind: "loading" }
 	| ListsView
-	/** S3: nothing to bring in. `goesAhead`: the card's line once the read is recorded. */
+	/** Nothing to bring in. `goesAhead`: the card's line once the read is recorded. */
 	| {
 			readonly kind: "nothing";
 			readonly line: string;
 			readonly publishChanges: readonly string[];
 			readonly goesAhead: boolean;
 	  }
-	/** S4. `tooLarge`: CommCare HQ's version is over the size Nova brings in, so no Check again. */
+	/** Something Nova can't hold. `tooLarge`: CommCare HQ's version is over the size Nova brings in, so no Check again. */
 	| {
 			readonly kind: "account";
 			readonly heading: string;
@@ -666,7 +667,10 @@ export type PanelBodyView =
 	  }
 	/** A stop of a CommCare HQ read: the circumstance block, with Check again. */
 	| { readonly kind: "stop"; readonly finding: CircumstanceFinding }
-	/** U1 to U7, H1, H2, and a review that ended with no answer. */
+	/**
+	 * Why Nova can't bring the changes in, a change Nova can't take, a
+	 * recorded read answered again, and a request that ended with no answer.
+	 */
 	| {
 			readonly kind: "line";
 			readonly line: string;
@@ -684,19 +688,19 @@ export interface PanelView {
 		readonly announced: string;
 		readonly startedAt: number;
 	} | null;
-	/** R2, above the panel in its new state. */
+	/** `hqChangesMovedLine` or `HQ_CHANGES_NOTHING_TAKEN_LINE`, above the panel in its new state. */
 	readonly moved: string | null;
 	readonly body: PanelBodyView;
 	/**
 	 * Whether the app's item in the publish dialog is drawn as it is without
 	 * the panel (its parts, its Publish over this and the stop block):
-	 * under S4 and every stop, never while the panel loads or offers its own
+	 * under an account of what Nova can't hold and under every stop, never while the panel loads or offers its own
 	 * choices, since those are the item's controls.
 	 */
 	readonly drawsItem: boolean;
 	/**
 	 * On the card, where the body names publishing over and stopping
-	 * publishing here as the ways on (S4, U4, U6, H1, H2), the panel draws
+	 * publishing here as the ways on (`bodyNamesWaysOn`), the panel draws
 	 * those two controls under it, since the card has no item to stand in
 	 * for them.
 	 */
@@ -839,8 +843,9 @@ function listsView(
 										discard: false,
 									},
 					renamed,
-					/* S1 on the card offers no publish over of its own, except
-					 * under G1, whose sentence names it as the other way on. */
+					/* Where nothing in Nova would be removed, the card offers no
+					 * publish over of its own, except under the gate's refusal,
+					 * whose sentence names it as the other way on. */
 					publishOver:
 						removes || (context.home === "card" && notice?.kind === "gate")
 							? {
@@ -947,7 +952,8 @@ function answeredBody(
 /**
  * Whether a body's own sentence names publishing over and stopping
  * publishing here as the ways on, with no control of the panel's for
- * either: S4, U4, U6, H1 and H2.
+ * either: an account of what Nova can't hold, a held change, and the
+ * unavailable reasons `base-too-large` and `nova-defect`.
  */
 function bodyNamesWaysOn(state: HqChangesPanelState): boolean {
 	const { phase } = state;
@@ -1024,7 +1030,7 @@ export function panelView(
 			return unplaced;
 		}
 	}
-	/* R2 stands over a list, or over a standing with nothing to bring in;
+	/* `hqChangesMovedLine` stands over a list, or over a standing with nothing to bring in;
 	 * over a stop or anything Nova can't bring in, the request took nothing,
 	 * and the new state says why. */
 	const moved =

@@ -939,7 +939,7 @@ export async function computeHqChanges(
 
 	/* 10. Both readings before the files, to know which files they name. */
 	onEvent({ type: "stage", stage: "checking" });
-	let first = await pieces.steps(readingsWith(fetched, null, null));
+	let first = await pieces.steps(readingsWith(fetched, pieces, null, null));
 	if (first.kind === "readings") {
 		const { readings } = first;
 		const readsPlaces =
@@ -959,7 +959,7 @@ export async function computeHqChanges(
 			if (again.kind === "failed") return answer(failedRead(again.failure));
 			fetched = { ...fetched, data: again.data };
 			onEvent({ type: "stage", stage: "checking" });
-			first = await pieces.steps(readingsWith(fetched, null, null));
+			first = await pieces.steps(readingsWith(fetched, pieces, null, null));
 		}
 	}
 	if (first.kind === "no-base") {
@@ -1092,9 +1092,10 @@ function resolvesAsUnjudged(
 }
 
 /** Both readings over `fetched`, with each side's judged files where they are known, one
- *  stage at a time. */
+ *  stage at a time, sharing the request's held emissions. */
 function readingsWith(
 	fetched: FetchedHqChanges,
+	pieces: Pieces,
 	base: ReadingMediaPlan | null,
 	now: ReadingMediaPlan | null,
 	data: ReadingProjectData = fetched.data,
@@ -1114,6 +1115,7 @@ function readingsWith(
 		reference: fetched.reference,
 		overrides: fetched.overrides,
 		media: { published: fetched.published, base, now },
+		heldExpansions: pieces.expansions,
 	});
 }
 
@@ -1176,7 +1178,9 @@ export async function checkHqChanges(
 	const made: HqChangeReadingsResult =
 		known !== undefined
 			? { kind: "readings", readings: known }
-			: await pieces.steps(readingsWith(fetched, media.base, media.now, data));
+			: await pieces.steps(
+					readingsWith(fetched, pieces, media.base, media.now, data),
+				);
 	const stage = await pieces.run(() => {
 		if (made.kind === "no-base")
 			return {
@@ -1303,6 +1307,7 @@ export async function checkHqChanges(
 				files: [...adoptedMediaFiles(media.now), ...ownMediaFiles(fetched)],
 				rows,
 			},
+			heldExpansions: pieces.expansions,
 		}),
 	);
 

@@ -120,7 +120,7 @@ describe("loading", () => {
 	});
 });
 
-describe("S1 and S2", () => {
+describe("the lists", () => {
 	const since = sincePhrase(PUBLISHED, "alpha");
 
 	it("says the headings and leads", () => {
@@ -163,7 +163,7 @@ describe("S1 and S2", () => {
 		expect(CHECK_AGAIN_ACTION).toBe("Check again");
 	});
 
-	it("says R1 for one rename and for several", () => {
+	it("names the case properties renamed in Nova, one and several", () => {
 		expect(
 			renamedInNovaLine([{ caseType: "mother", from: "edd", to: "due_date" }]),
 		).toBe(
@@ -255,7 +255,7 @@ describe("the next publish", () => {
 	});
 });
 
-describe("S3", () => {
+describe("nothing to bring in", () => {
 	it("says each reason against each kind of reference", () => {
 		const rows: readonly [DriftReference, string][] = [
 			[PUBLISHED, "Nova last published this app to “alpha”"],
@@ -280,7 +280,7 @@ describe("S3", () => {
 	});
 });
 
-describe("S4", () => {
+describe("something Nova can't hold", () => {
 	it("says the heading, the lead for one and several, the size lead and the other ways", () => {
 		expect(CANNOT_BRING_IN_HEADING).toBe(
 			"Nova can't bring in CommCare HQ's version",
@@ -344,7 +344,7 @@ describe("the stops", () => {
 		since: DriftReference = PUBLISHED,
 	) => hqChangesUnavailableLine(reason, { domain: "alpha", since });
 
-	it("says U8, U9 and U10, where nothing in the project space is this app's", () => {
+	it("says nothing in the project space is this app's: deleted, never published, stopped", () => {
 		expect(line("app-deleted")).toBe(
 			"This app is in recently deleted, and another Nova app took its app in “alpha” while it was there, so there's nothing there to bring in. Once this app is restored, you can check again.",
 		);
@@ -359,7 +359,7 @@ describe("the stops", () => {
 		);
 	});
 
-	it("says U1 to U7", () => {
+	it("says why Nova can't tell CommCare HQ's changes from this app's", () => {
 		expect(line("no-reference")).toBe(
 			`Nova can't tell CommCare HQ's changes from this app's here, because its record of the last publish to “alpha” doesn't hold what that takes. ${AFTER}`,
 		);
@@ -389,7 +389,7 @@ describe("the stops", () => {
 		);
 	});
 
-	it("says H1 and H2, each platform as a sentence names it", () => {
+	it("says each held change, each platform as a sentence names it", () => {
 		expect(hqChangesHeldLine("languages-reordered", null)).toBe(
 			"The language this app's own text is written in changed in CommCare HQ, and Nova can't bring that in. You can put the app's languages and its name in each language back as they were in CommCare HQ and check again, or publish over the change.",
 		);
@@ -404,7 +404,7 @@ describe("the stops", () => {
 		expect(HQ_CHANGE_HELD).toEqual(["languages-reordered", "runs-elsewhere"]);
 	});
 
-	it("says G1 and R2", () => {
+	it("says the gate's refusal and the review that moved", () => {
 		expect(HQ_CHANGES_GATE_LEAD).toBe(
 			"Bringing these changes in would leave something in this app that no longer works, so Nova changed nothing.",
 		);

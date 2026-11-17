@@ -70,6 +70,7 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import { noteProperty } from "../caseManagement/catalog";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
+import { guessKey } from "../search/dateRangeGuesses";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReaderKnownCaseTypes } from "../types";
 import type { ReadSourceNames } from "../xform";
@@ -141,6 +142,10 @@ export interface ExpressionReadEnv {
 	/** `ReaderInput.knownCaseTypes`: the type the document Nova holds declares for each
 	 *  property step 1 declares (`noteProperty`). */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** The properties the search stage typed `date` only for a date range field over them
+	 *  (`search/dateRangeGuesses.ts`), by `guessKey`, which a record slot's comparison types
+	 *  as it compares them. */
+	readonly dateRangeGuesses?: ReadonlySet<string>;
 }
 export interface GeneratedValue {
 	readonly purpose: "constraint-count";
@@ -1200,11 +1205,16 @@ function withComparedTypes(
 	const untyped = (caseType: string, property: string): boolean => {
 		const declared = (doc.caseTypes ?? [])
 			.find((type) => type.name === caseType)
-			?.properties.some((one) => one.name === property);
+			?.properties.find((one) => one.name === property);
 		const typed = effective
 			.find((type) => type.name === caseType)
 			?.properties.find((one) => one.name === property)?.data_type;
-		return declared === true && typed === undefined;
+		return (
+			declared !== undefined &&
+			(typed === undefined ||
+				(env.dateRangeGuesses?.has(guessKey(caseType, property)) === true &&
+					declared.data_type === typed))
+		);
 	};
 	const found: ComparedType[] = [];
 	pending.forEach((registration, index) => {

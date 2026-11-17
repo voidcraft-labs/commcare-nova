@@ -152,6 +152,9 @@ describe("a review of changes made in CommCare HQ", () => {
 				nova_changes: novaLines,
 				hq_changes_total: 60,
 				nova_changes_total: 45,
+				renamed_in_nova_total: 0,
+				tables_total: 0,
+				made_by_total: 5,
 				next_page: null,
 				cut_line: null,
 				restarted: false,
@@ -178,6 +181,11 @@ describe("a review of changes made in CommCare HQ", () => {
 	 */
 	function followPages(review: Extract<HqChangesReview, { kind: "changes" }>) {
 		const lists = { hq_changes: [] as string[], nova_changes: [] as string[] };
+		const rest = {
+			renamed_in_nova: [] as unknown[],
+			tables: [] as unknown[],
+			made_by: [] as string[],
+		};
 		/* The part of a cut line read so far, and which part comes next. */
 		let open: { list: keyof typeof lists; text: string; next: number } | null =
 			null;
@@ -199,9 +207,29 @@ describe("a review of changes made in CommCare HQ", () => {
 			expect(served).toMatchObject({
 				hq_changes_total: review.hqChanges.length,
 				nova_changes_total: review.novaChanges.length,
+				renamed_in_nova_total: review.renamedInNova.length,
+				tables_total: review.tables.length,
+				made_by_total: review.madeBy.length,
+				made_by_line:
+					review.madeBy.length > 0 ? madeByLine(review.madeBy) : null,
 				reading_id: READING_ID,
 				review_digest: DIGEST,
 			});
+			/* The sentence over the renames names this page's. */
+			expect(served.renamed_in_nova_line).toBe(
+				served.renamed_in_nova.length === 0
+					? null
+					: renamedInNovaLine(
+							served.renamed_in_nova.map((rename) => ({
+								caseType: rename.case_type,
+								from: rename.from,
+								to: rename.to,
+							})),
+						),
+			);
+			rest.renamed_in_nova.push(...served.renamed_in_nova);
+			rest.tables.push(...served.tables);
+			rest.made_by.push(...served.made_by);
 			if (served.cut_line === null) {
 				expect(open).toBeNull();
 				lists.hq_changes.push(...served.hq_changes);
@@ -235,7 +263,7 @@ describe("a review of changes made in CommCare HQ", () => {
 			pages += 1;
 		} while (cursor !== null);
 		expect(open).toBeNull();
-		return { ...lists, pages, cut };
+		return { ...lists, ...rest, pages, cut };
 	}
 
 	it("cuts lists longer than one answer into pages under the limit that give every line once, in order, a line longer than a page in parts, each a page of its own", () => {
@@ -296,6 +324,78 @@ describe("a review of changes made in CommCare HQ", () => {
 		expect(read.cut).toBe(2 * lineParts(line).length);
 	});
 
+	it("pages renames made in Nova, the tables the app newly reads and who made the changes with the lines, each answer under the limit", () => {
+		/* None of the three has a bound on how many there are: renames are a
+		 * member's, as many as they made since, a change in CommCare HQ can read
+		 * any number of new tables, and every member who changed the app is
+		 * named. */
+		const renamedInNova = Array.from({ length: 900 }, (_, index) => ({
+			caseType: index % 2 === 0 ? "mother" : "child",
+			from: `property_${index}_${"x".repeat(60)}`,
+			to: `renamed_${index}_${"y".repeat(60)}`,
+		}));
+		const tables = Array.from(
+			{ length: 400 },
+			(_, index): ReviewTable => ({
+				tag: `table_${index}`,
+				standing: "choice",
+				hqDigest: "d".repeat(64),
+				projectTable: null,
+				choice: {
+					differs: ["rows"],
+					apps: Array.from({ length: 6 }, (_, app) => ({
+						appId: `app-${app}`,
+						appName: `Registration ${app}`,
+						deleted: false,
+					})),
+					options: {
+						"use-commcare-hq": {
+							offered: true,
+							goneColumns: [],
+							retypedColumns: [],
+						},
+						"use-project": { offered: false, why: "needs-admin", name: null },
+					},
+				},
+			}),
+		);
+		const madeBy = Array.from(
+			{ length: 3000 },
+			(_, index) => `Member ${index} of the field team`,
+		);
+		const review = changes({
+			hqChanges: Array.from(
+				{ length: 500 },
+				(_, index) =>
+					`The form “Visit ${index}” in the menu “Mothers”: its name`,
+			),
+			renamedInNova,
+			tables,
+			madeBy,
+		});
+		expect(
+			JSON.stringify({ renamedInNova, tables, madeBy }).length,
+		).toBeGreaterThan(MAX_RESULT_SIZE_CHARS);
+		const read = followPages(review);
+		expect(read.pages).toBeGreaterThan(3);
+		expect(read.hq_changes).toEqual(review.hqChanges);
+		expect(read.renamed_in_nova).toEqual(
+			renamedInNova.map((rename) => ({
+				case_type: rename.caseType,
+				from: rename.from,
+				to: rename.to,
+			})),
+		);
+		expect(read.tables).toEqual(
+			tables.map((table) =>
+				JSON.parse(
+					JSON.stringify(tableProjection(table, "Field team", HEAD.domain)),
+				),
+			),
+		);
+		expect(read.made_by).toEqual(madeBy);
+	});
+
 	it("starts a page cut from other lists from the start, restarted, and refuses a page past the end", () => {
 		const long = (tag: string) =>
 			changes({
@@ -335,7 +435,7 @@ describe("a review of changes made in CommCare HQ", () => {
 		expect(served.publish_changes_lead).toBeNull();
 	});
 
-	it("names each case property renamed in Nova and R1's sentence", () => {
+	it("names each case property renamed in Nova and the sentence that holds the bring-in back", () => {
 		const renames = [
 			{ caseType: "mother", from: "edd", to: "due_date" },
 			{ caseType: "mother", from: "lmp", to: "last_period" },
@@ -599,7 +699,7 @@ describe("an account a page at a time", () => {
 });
 
 describe("a bring-in's answers that name no deployment", () => {
-	it("gives G1's lead, each finding in the voice MCP speaks and its next step", async () => {
+	it("gives the gate's lead, each finding in the voice MCP speaks and its next step", async () => {
 		expect(
 			await describeHqChangesOutcome(
 				{
@@ -626,7 +726,7 @@ describe("a bring-in's answers that name no deployment", () => {
 		).toEqual({ kind: "refused", message: "Not now." });
 	});
 
-	it("gives the review as it now stands, with R2 and who moved the app", async () => {
+	it("gives the review as it now stands, with the line that says it moved and who moved the app", async () => {
 		const now = changes({ novaChanges: ["The app's name"], madeBy: ["Ana"] });
 		for (const editedBy of [null, "Ana"]) {
 			expect(
@@ -675,7 +775,7 @@ describe("a bring-in's answers that name no deployment", () => {
 		});
 	});
 
-	it("says R2 over nothing to bring in, and only that nothing was brought in where the read stopped or the change can't be brought in", async () => {
+	it("says the review moved over nothing to bring in, and only that nothing was brought in where the read stopped or the change can't be brought in", async () => {
 		const stood: HqChangesReview = {
 			kind: "nothing",
 			reason: "unchanged",

@@ -7,13 +7,24 @@
  * Text is not ordered, so an ordering against a literal spelled as a date
  * or a date and time orders that type; a distance measured from a property
  * makes it a location, and a test of the choices it holds a list of choices.
+ *
+ * A property a value-giving branch ends with (an `if`'s two branches, each
+ * `coalesce` value, each `switch` result, each value a `cond` gives) is
+ * compared as the branch is: `coalesce(seen, now()) > now()` compares
+ * `seen` with `now()`. Record branches agree on one type (the checker's
+ * `branch-values`), so such a property also takes the known type of a
+ * branch beside it, and a `switch` subject the type of its cases.
  * Nothing else an app holds says so: no
  * writer types it, and HQ keeps no type of a property.
  */
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
-import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
+import {
+	scalarDataType,
+	typeOf,
+	visitAssignmentOutputs,
+} from "@/lib/domain/expression/typeChecker";
 import type { Expression, Term } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
@@ -30,6 +41,16 @@ export interface ComparedType {
 	readonly caseType: string;
 	readonly property: string;
 	readonly dataType: CasePropertyDataType;
+}
+
+/** Every value `expression` can end with: each branch of a value-giving
+ *  branch, or the expression itself (`typeChecker.ts::visitAssignmentOutputs`). */
+function outputsOf(expression: Expression): Expression[] {
+	const out: Expression[] = [];
+	visitAssignmentOutputs(expression, [], (output) => {
+		out.push(output);
+	});
+	return out;
 }
 
 /** A custom property read of the row a comparison stands in. */
@@ -56,6 +77,23 @@ export function comparedTypes(
 	if (context.ruleSet !== "record") return [];
 	const found: ComparedType[] = [];
 	const note = (
+		side: Expression | undefined,
+		other: Expression | undefined,
+		ordering: boolean,
+	): void => {
+		if (side === undefined) return;
+		for (const output of outputsOf(side)) noteOne(output, other, ordering);
+	};
+	/** A property whose type the checker reads, for a branch beside it. */
+	const untypedProperty = (expression: Expression): boolean => {
+		const term = comparedProperty(expression);
+		return (
+			term?.kind === "prop" &&
+			term.caseType !== undefined &&
+			untyped(term.caseType, term.property)
+		);
+	};
+	const noteOne = (
 		side: Expression | undefined,
 		other: Expression | undefined,
 		ordering: boolean,
@@ -101,8 +139,31 @@ export function comparedTypes(
 				dataType,
 			});
 	};
+	const noteBranches = (branches: readonly Expression[]): void => {
+		const outputs = branches.flatMap(outputsOf);
+		const others = outputs.filter((output) => !untypedProperty(output));
+		for (const output of outputs)
+			if (untypedProperty(output))
+				for (const other of others) noteOne(output, other, false);
+	};
 	walkExpressionNodes(tree, (node) => {
 		switch (node.kind) {
+			case "if":
+				noteBranches([node.then, node.else]);
+				return;
+			case "coalesce":
+				noteBranches(node.values);
+				return;
+			case "switch":
+				noteBranches([...node.cases.map((one) => one.then), node.fallback]);
+				for (const one of node.cases)
+					note(node.on, { kind: "term", term: one.when }, false);
+				return;
+			case "call": {
+				const outputs = outputsOf(node);
+				if (outputs[0] !== node) noteBranches(outputs);
+				return;
+			}
 			case "eq":
 			case "neq":
 				note(node.left, node.right, false);

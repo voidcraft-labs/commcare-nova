@@ -33,6 +33,7 @@ import { externalKey } from "../identity";
 import { pointerToken } from "../jsonCursor";
 import type { DefaultEvent, ReadMode } from "../pendingExpressions";
 import { placeKey, whereText } from "../place";
+import { dateRangeGuesses } from "../search/dateRangeGuesses";
 import type { ReadGeneratedNode } from "../types";
 import type { XmlCursor } from "../xmlCursor";
 import type { AppearanceForm } from "./appearances";
@@ -1006,6 +1007,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		operationIdPaths,
 		recordDialect: ctx.input.recordDialect,
 		entryFactsRefused: new Set(ctx.facts.entryFactsRefused),
+		dateRangeGuesses: dateRangeGuesses(ctx),
 		formPlaces,
 		computedDatums,
 		...(ctx.input.knownCaseTypes !== undefined && {

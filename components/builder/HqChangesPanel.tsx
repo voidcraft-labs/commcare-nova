@@ -127,7 +127,7 @@ export interface HqChangesPanelProps {
 	readonly onPublishOver: (discard: RemoteChangeDiscard) => void;
 	/**
 	 * On the card, under a state whose sentence names publishing over with no
-	 * digest to name it by (S4, U4, U6, H1, H2): open the Publish dialog on
+	 * digest to name it by (`PanelView.waysOn`): open the Publish dialog on
 	 * the project space, where the publish stops on the change with its own
 	 * Publish over this. Absent in the publish dialog, whose item is that.
 	 */

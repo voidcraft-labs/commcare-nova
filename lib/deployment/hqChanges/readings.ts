@@ -15,6 +15,10 @@ import "server-only";
  * it with carries Nova's UUID in both, and one CommCare HQ added is minted
  * the same in both.
  *
+ * Both passes share the request's held emissions (`ReaderOptions.heldExpansions`), so a later
+ * reading of the request that emits a document either pass emitted under the same inputs (the
+ * fixed point's re-read of the reading now) is answered with that emission.
+ *
  * Pure: it reads its arguments and nothing else.
  */
 
@@ -29,6 +33,7 @@ import {
 	type ReadOutcome,
 	readHqAppSteps,
 } from "@/lib/commcare/reader";
+import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import {
@@ -114,6 +119,8 @@ export interface HqChangeReadingsInput {
 		readonly base: ReadingMediaPlan | null;
 		readonly now: ReadingMediaPlan | null;
 	};
+	/** Nova's emissions the readings of the request share; absent, every emission is made afresh. */
+	readonly heldExpansions?: HeldExpansions;
 }
 
 const JR_FILE = "jr://file/";
@@ -309,7 +316,11 @@ export function* makeHqChangeReadingsSteps(
 		media: nowIndex(nowSource, appId, input.media.published, input.media.now),
 	};
 
-	const base = yield* readHqAppSteps(baseInput);
+	const options =
+		input.heldExpansions === undefined
+			? {}
+			: { heldExpansions: input.heldExpansions };
+	const base = yield* readHqAppSteps(baseInput, options);
 	if (base.kind === "account")
 		return {
 			kind: "no-base",
@@ -324,7 +335,7 @@ export function* makeHqChangeReadingsSteps(
 					? "base-needs-project-data"
 					: "base-unreadable",
 		};
-	const now = yield* readHqAppSteps(nowInput);
+	const now = yield* readHqAppSteps(nowInput, options);
 	yield;
 	const baseMediaLeftOut = planReadingMedia({
 		source: baseSource,

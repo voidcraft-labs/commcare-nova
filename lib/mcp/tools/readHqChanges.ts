@@ -8,10 +8,12 @@
  * the call's own cancellation signal and the call's progress for each stage.
  * There is no deadline of Nova's own. It writes nothing: the client holds the
  * `reading_id` and `review_digest` it returns and sends both to
- * `bring_in_hq_changes`. Every line of both lists is returned, and lists or
- * an account longer than one answer are paged as `read_hq_app` pages an
- * account, each page a fresh review held to the review the previous page was
- * cut from, so no host cuts an answer short in silence.
+ * `bring_in_hq_changes`. Every line of both lists is returned, with every
+ * case property renamed in Nova since, every table the changed app newly
+ * reads and every member who changed the app, and lists or an account longer
+ * than one answer are paged as `read_hq_app` pages an account, each page a
+ * fresh review held to the review the previous page was cut from, so no host
+ * cuts an answer short in silence.
  *
  * The project space is the member's connection's, as `upload_app_to_hq`
  * resolves it: `domain` can be left out where the key reaches one.
@@ -29,6 +31,7 @@ import {
 	type HqChangesReview,
 	reviewHqChanges,
 } from "@/lib/deployment/hqChanges";
+import type { ReviewTable } from "@/lib/deployment/reading/types";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import {
 	type DeploymentScope,
@@ -206,10 +209,13 @@ export type HqChangesReviewProjection = ReviewHead &
 				readonly hq_changes: readonly string[];
 				/** This page's lines of what that removes of the changes made in Nova; empty where it removes nothing. */
 				readonly nova_changes: readonly string[];
-				/** How many lines each list holds in all, across every page. */
+				/** How many each list holds in all, across every page. */
 				readonly hq_changes_total: number;
 				readonly nova_changes_total: number;
-				/** The `page` that reads the lines after this page's; null on the last page. */
+				readonly renamed_in_nova_total: number;
+				readonly tables_total: number;
+				readonly made_by_total: number;
+				/** The `page` that reads what follows this page's; null on the last page. */
 				readonly next_page: string | null;
 				/**
 				 * Where a line is too long for one answer, it is cut into parts
@@ -222,9 +228,9 @@ export type HqChangesReviewProjection = ReviewHead &
 				/** True where the call sent `page` and Nova answered the fresh review from its start. */
 				readonly restarted: boolean;
 				readonly restarted_message: string | null;
-				/** Who made the changes in Nova, by name. */
+				/** This page's names of who made the changes in Nova. */
 				readonly made_by: readonly string[];
-				/** The sentence that names them, where any is named. */
+				/** The sentence that names them all, where any is named. */
 				readonly made_by_line: string | null;
 				/** What happens to case data saved in Nova. */
 				readonly case_data: readonly string[];
@@ -232,16 +238,12 @@ export type HqChangesReviewProjection = ReviewHead &
 				readonly publish_changes_lead: string | null;
 				/** The digest a publish over this change names in `discard_hq_changes`. */
 				readonly observed_digest: string;
-				/** Case properties renamed in Nova since: while any is listed, the changes can't come in. */
-				readonly renamed_in_nova: readonly {
-					readonly case_type: string;
-					readonly from: string;
-					readonly to: string;
-				}[];
-				/** The sentence that says so, where any is listed. */
+				/** This page's case properties renamed in Nova since: while any is listed, the changes can't come in. */
+				readonly renamed_in_nova: readonly RenameProjection[];
+				/** The sentence that names this page's, where it holds any. */
 				readonly renamed_in_nova_line: string | null;
-				/** The lookup tables the changed app newly reads, as `read_hq_app` lists a review's. */
-				readonly tables: readonly ReturnType<typeof tableProjection>[];
+				/** This page's lookup tables the changed app newly reads, as `read_hq_app` lists a review's. */
+				readonly tables: readonly TableProjection[];
 				readonly reading_id: string;
 				readonly review_digest: string;
 		  }
@@ -275,6 +277,15 @@ export type HqChangesReviewProjection = ReviewHead &
 		| { readonly kind: "stop"; readonly stop: StopProjection }
 	);
 
+/** One case property renamed in Nova, as a client reads it. */
+interface RenameProjection {
+	readonly case_type: string;
+	readonly from: string;
+	readonly to: string;
+}
+
+type TableProjection = ReturnType<typeof tableProjection>;
+
 /** The lines that follow what the next publish changes, or none. */
 function publishChangesOf(lines: readonly string[]) {
 	return {
@@ -284,7 +295,7 @@ function publishChangesOf(lines: readonly string[]) {
 }
 
 /**
- * S4's lead, as the panel chooses it: where the account's one finding is that
+ * The lead over an account of what Nova can't hold, as the panel chooses it: where the account's one finding is that
  * CommCare HQ's version is too large, Nova read nothing, and the lead says so.
  */
 function cannotBringInLeadFor(
@@ -302,8 +313,8 @@ function cannotBringInLeadFor(
 
 /**
  * What a page of a review is cut from, and the digest its cursor carries: an
- * account's findings, or the lines of both lists of changes, CommCare HQ's
- * first. Null for a review no page is cut from.
+ * account's findings, or the pieces of a review of changes (`changePieces`).
+ * Null for a review no page is cut from.
  */
 function pagedOf(
 	review: HqChangesReview,
@@ -313,7 +324,11 @@ function pagedOf(
 			return { length: review.findings.length, digest: accountDigest(review) };
 		case "changes":
 			return {
-				length: changePieces(review.hqChanges, review.novaChanges).length,
+				length:
+					linePieces(review.hqChanges, review.novaChanges).length +
+					review.renamedInNova.length +
+					review.tables.length +
+					review.madeBy.length,
 				digest: review.reviewDigest,
 			};
 		default:
@@ -368,12 +383,24 @@ const LONGEST_CUT_LINE: CutLine = {
 export const LINE_PART_MAX_CHARS = 60_000;
 
 /** One line of a list, or one part of a line too long for one answer. */
-interface ChangePiece {
+interface LinePiece {
+	readonly kind: "line";
 	readonly list: CutLine["list"];
 	readonly text: string;
 	readonly part: number;
 	readonly parts: number;
 }
+
+/**
+ * What one answer of a review of changes holds a share of: a line (or a part
+ * of one), a case property renamed in Nova, a table the changed app newly
+ * reads, or the name of a member who changed the app.
+ */
+type ChangePiece =
+	| LinePiece
+	| { readonly kind: "rename"; readonly rename: RenameProjection }
+	| { readonly kind: "table"; readonly table: TableProjection }
+	| { readonly kind: "name"; readonly name: string };
 
 /** How many characters one code point takes in JSON, as `JSON.stringify` writes it. */
 function jsonCharsOf(codePoint: number): number {
@@ -417,11 +444,11 @@ export function lineParts(line: string): readonly string[] {
 }
 
 /** Every line of both lists, CommCare HQ's first, each line too long for one answer as its parts. */
-function changePieces(
+function linePieces(
 	hqLines: readonly string[],
 	novaLines: readonly string[],
-): readonly ChangePiece[] {
-	const pieces: ChangePiece[] = [];
+): readonly LinePiece[] {
+	const pieces: LinePiece[] = [];
 	for (const [list, lines] of [
 		["hq_changes", hqLines],
 		["nova_changes", novaLines],
@@ -429,54 +456,141 @@ function changePieces(
 		for (const line of lines) {
 			const parts = lineParts(line);
 			for (const [index, text] of parts.entries())
-				pieces.push({ list, text, part: index + 1, parts: parts.length });
+				pieces.push({
+					kind: "line",
+					list,
+					text,
+					part: index + 1,
+					parts: parts.length,
+				});
 		}
 	}
 	return pieces;
 }
 
+/** Everything a review of changes pages, in the order its pages give it: both lists' lines,
+ *  then the renames made in Nova, then the tables, then who made the changes. */
+function changePieces(
+	review: Extract<HqChangesReview, { readonly kind: "changes" }>,
+	table: (one: ReviewTable) => TableProjection,
+): readonly ChangePiece[] {
+	return [
+		...linePieces(review.hqChanges, review.novaChanges),
+		...review.renamedInNova.map(
+			(rename): ChangePiece => ({
+				kind: "rename",
+				rename: {
+					case_type: rename.caseType,
+					from: rename.from,
+					to: rename.to,
+				},
+			}),
+		),
+		...review.tables.map(
+			(one): ChangePiece => ({ kind: "table", table: table(one) }),
+		),
+		...review.madeBy.map((name): ChangePiece => ({ kind: "name", name })),
+	];
+}
+
+/** The sentence over some renames, in the copy the panel shows; null over none. */
+function renamesLine(renames: readonly RenameProjection[]): string | null {
+	return renames.length === 0
+		? null
+		: renamedInNovaLine(
+				renames.map((rename) => ({
+					caseType: rename.case_type,
+					from: rename.from,
+					to: rename.to,
+				})),
+			);
+}
+
+/** What one page of a review of changes holds of its pieces. */
+interface ChangesPage {
+	readonly hq_changes: readonly string[];
+	readonly nova_changes: readonly string[];
+	readonly renamed_in_nova: readonly RenameProjection[];
+	readonly renamed_in_nova_line: string | null;
+	readonly tables: readonly TableProjection[];
+	readonly made_by: readonly string[];
+	readonly next_page: string | null;
+	readonly cut_line: CutLine | null;
+}
+
 /**
- * The lines of both lists from `from`, as many as keep the whole answer
+ * The pieces from `from` (`changePieces`), as many as keep the whole answer
  * (`shell` with them) under `PAGE_LIMIT_CHARS`, and always one, so following
  * the cursors reaches the end. A line too long for one answer is cut into
  * parts (`lineParts`), each a page of its own that says which part it holds
- * (`cut_line`); the cursor counts parts, so no part is skipped or read twice.
+ * (`cut_line`); the cursor counts pieces, so none is skipped or read twice.
+ * The sentence over the renames is over this page's, so it grows with them
+ * and is measured with them.
  */
 function changesPage(
-	hqLines: readonly string[],
-	novaLines: readonly string[],
+	pieces: readonly ChangePiece[],
 	from: number,
 	digest: string,
-	measureShell: (lists: {
-		readonly hq_changes: readonly string[];
-		readonly nova_changes: readonly string[];
-		readonly next_page: string | null;
-		readonly cut_line: CutLine | null;
-	}) => number,
-) {
-	const pieces = changePieces(hqLines, novaLines);
+	measureShell: (page: ChangesPage) => number,
+): ChangesPage {
 	const hq: string[] = [];
 	const nova: string[] = [];
+	const renames: RenameProjection[] = [];
+	const tables: TableProjection[] = [];
+	const names: string[] = [];
 	let cutLine: CutLine | null = null;
 	let size = measureShell({
 		hq_changes: [],
 		nova_changes: [],
+		renamed_in_nova: [],
+		renamed_in_nova_line: null,
+		tables: [],
+		made_by: [],
 		next_page: LONGEST_CHANGES_CURSOR,
 		cut_line: LONGEST_CUT_LINE,
 	});
+	/* The JSON of a value added to an array: its own, and a comma after the first. */
+	const item = (value: unknown, into: readonly unknown[]) =>
+		JSON.stringify(value).length + (into.length > 0 ? 1 : 0);
+	/* The JSON of the sentence over some renames, where `null` is four characters. */
+	const lineChars = (over: readonly RenameProjection[]) =>
+		JSON.stringify(renamesLine(over)).length;
 	let end = from;
 	while (end < pieces.length) {
 		const piece = pieces[end] as ChangePiece;
-		const cut = piece.parts > 1;
+		const cut = piece.kind === "line" && piece.parts > 1;
 		/* A part of a cut line is a page of its own. */
 		if (end > from && cut) break;
-		const into = piece.list === "hq_changes" ? hq : nova;
-		const added = JSON.stringify(piece.text).length + (into.length > 0 ? 1 : 0);
+		let added: number;
+		let take: () => void;
+		switch (piece.kind) {
+			case "line": {
+				const into = piece.list === "hq_changes" ? hq : nova;
+				added = item(piece.text, into);
+				take = () => into.push(piece.text);
+				break;
+			}
+			case "rename":
+				added =
+					item(piece.rename, renames) +
+					lineChars([...renames, piece.rename]) -
+					lineChars(renames);
+				take = () => renames.push(piece.rename);
+				break;
+			case "table":
+				added = item(piece.table, tables);
+				take = () => tables.push(piece.table);
+				break;
+			case "name":
+				added = item(piece.name, names);
+				take = () => names.push(piece.name);
+				break;
+		}
 		if (end > from && size + added >= PAGE_LIMIT_CHARS) break;
 		size += added;
-		into.push(piece.text);
+		take();
 		end += 1;
-		if (cut) {
+		if (cut && piece.kind === "line") {
 			cutLine = { list: piece.list, part: piece.part, parts: piece.parts };
 			break;
 		}
@@ -484,6 +598,10 @@ function changesPage(
 	return {
 		hq_changes: hq,
 		nova_changes: nova,
+		renamed_in_nova: renames,
+		renamed_in_nova_line: renamesLine(renames),
+		tables,
+		made_by: names,
 		next_page: end < pieces.length ? `${end}:${digest}` : null,
 		cut_line: cutLine,
 	};
@@ -531,39 +649,33 @@ export function describeHqChangesReview(
 				),
 				hq_changes_total: review.hqChanges.length,
 				nova_changes_total: review.novaChanges.length,
+				renamed_in_nova_total: review.renamedInNova.length,
+				tables_total: review.tables.length,
+				made_by_total: review.madeBy.length,
 				restarted: options.page.restarted,
 				restarted_message: options.page.restarted
 					? CHANGES_RESTARTED_MESSAGE
 					: null,
-				made_by: review.madeBy,
+				/* At most three names, then a count. */
 				made_by_line:
 					review.madeBy.length > 0 ? madeByLine(review.madeBy) : null,
+				/* Each at most five names, then a count. */
 				case_data: review.caseData,
+				/* One sentence for each entry of a closed register. */
 				...publishChangesOf(review.publishChanges),
 				observed_digest: review.observedDigest,
-				renamed_in_nova: review.renamedInNova.map((rename) => ({
-					case_type: rename.caseType,
-					from: rename.from,
-					to: rename.to,
-				})),
-				renamed_in_nova_line:
-					review.renamedInNova.length > 0
-						? renamedInNovaLine(review.renamedInNova)
-						: null,
-				tables: review.tables.map((table) =>
-					tableProjection(table, project, head.domain),
-				),
 				reading_id: review.readingId,
 				review_digest: review.reviewDigest,
 			};
 			return {
 				...shell,
 				...changesPage(
-					review.hqChanges,
-					review.novaChanges,
+					changePieces(review, (table) =>
+						tableProjection(table, project, head.domain),
+					),
 					options.page.from,
 					review.reviewDigest,
-					(lists) => JSON.stringify({ ...shell, ...lists }).length,
+					(page) => JSON.stringify({ ...shell, ...page }).length,
 				),
 			};
 		}
@@ -671,7 +783,7 @@ export function registerReadHqChanges(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
-				"Read what changed in CommCare HQ since Nova last published this app to a project space, or brought it in or last brought in changes from it. Changes nothing. Call it when `upload_app_to_hq` answers `hq_changed` with `can_bring_in` true on the app's change, or when the user asks what changed there. `hq_changes` lists what bringing the changes in changes in this app. `nova_changes` lists what that would remove of changes made in Nova since then: it is empty when nothing would be removed. Where the lists are longer than one answer, `next_page` is not null: call again with `page` set to it until it is, and if an answer says `restarted`, the lists changed and start again. Where `cut_line` is not null, the answer's one line is part `part` of `parts` of a line too long for one answer: the next answers hold the rest, and the parts joined in order are that line. Show the user every line of both lists and `made_by` before calling `bring_in_hq_changes` with the last answer's `reading_id` and `review_digest`. A `kind` of `nothing` with a `review_digest` means CommCare HQ saved the app and there is nothing to bring in: send that `reading_id` and `review_digest` to `bring_in_hq_changes` to record it, which changes nothing in the app, and the next upload no longer stops for this app's change in CommCare HQ. A `kind` of `account`, `held`, `unavailable` or `stop` means Nova can't bring the changes in: relay its sentences, which say what the user can do instead. An `unavailable` answer whose `reason` is `not-published`, `publishing-stopped` or `app-deleted` means nothing in that project space is this app's.",
+				"Read what changed in CommCare HQ since Nova last published this app to a project space, or brought it in or last brought in changes from it. Changes nothing. Call it when `upload_app_to_hq` answers `hq_changed` with `can_bring_in` true on the app's change, or when the user asks what changed there. `hq_changes` lists what bringing the changes in changes in this app. `nova_changes` lists what that would remove of changes made in Nova since then: it is empty when nothing would be removed. Where a review is longer than one answer, `next_page` is not null: call again with `page` set to it until it is, and if an answer says `restarted`, the lists changed and start again. Each answer holds its share of `hq_changes`, then `nova_changes`, then `renamed_in_nova` (with `renamed_in_nova_line` over the renames it holds), then `tables`, then `made_by`, and `hq_changes_total`, `nova_changes_total`, `renamed_in_nova_total`, `tables_total` and `made_by_total` say how many each holds in all. Where `cut_line` is not null, the answer's one line is part `part` of `parts` of a line too long for one answer: the next answers hold the rest, and the parts joined in order are that line. Show the user every line of both lists, every rename, every table and `made_by` before calling `bring_in_hq_changes` with the last answer's `reading_id` and `review_digest`. A `kind` of `nothing` with a `review_digest` means CommCare HQ saved the app and there is nothing to bring in: send that `reading_id` and `review_digest` to `bring_in_hq_changes` to record it, which changes nothing in the app, and the next upload no longer stops for this app's change in CommCare HQ. A `kind` of `account`, `held`, `unavailable` or `stop` means Nova can't bring the changes in: relay its sentences, which say what the user can do instead. An `unavailable` answer whose `reason` is `not-published`, `publishing-stopped` or `app-deleted` means nothing in that project space is this app's.",
 			inputSchema: z.strictObject({
 				app_id: deploymentAppIdSchema.describe(
 					"The Nova app whose changes in CommCare HQ to read. Must be an app the user can edit.",

@@ -8,8 +8,10 @@
  * advances on a list CommCare HQ only reordered; a plan that hands the
  * organization's writer a place its integrity step refuses, or leaves a
  * problem unfound until the birth; a place left out at a level the app lacks
- * counted under a level the app has; and a birth the organization's integrity
- * step refuses for an owner rule with no single place to land on.
+ * counted under a level the app has; a level Nova cannot hold left unfound in
+ * an app that reads places, or found in one that reads none; and a birth the
+ * organization's integrity step refuses for an owner rule with no single place
+ * to land on.
  */
 
 import { describe, expect, it } from "vitest";
@@ -577,49 +579,73 @@ describe("managedPlacesOwnerFindings", () => {
 	});
 });
 
+const FINDINGS_APP_ID = "0b4f6a52-7c55-5a35-9d1e-3c2f8a1b4e6d";
+
+/** A level whose code Nova cannot hold: `place-not-holdable`, named "Region". */
+const UNHOLDABLE: HqLocationType = {
+	id: "1",
+	name: "Region",
+	code: "not a code!",
+	parentCode: null,
+	administrative: false,
+	sharesCases: true,
+	viewDescendants: false,
+};
+
+/**
+ * `readingProjectDataFindingsFor` over a reading that holds no table, the
+ * level Nova cannot hold, no place and the given list limit, for a reading
+ * that reads places or reads none.
+ */
+function placeFindings(
+	readsPlaces: boolean,
+	placesPastLimit: { readonly totalCount: number | null } | null,
+) {
+	return readingProjectDataFindingsFor(
+		assembleReadingProjectData({
+			origin: { server: "india", domain: "clinic" },
+			appId: FINDINGS_APP_ID,
+			readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
+			tablesReadAt: new Date("2026-11-10T09:00:00.000Z"),
+			tables: [],
+			hqTags: [],
+			project: {
+				projectId: "project-1",
+				projectRevision: "0" as LookupRevision,
+				definitions: [],
+				rowsByTable: {},
+				apps: {},
+				keptColumns: {},
+				siblings: [],
+				mayAdminister: true,
+			},
+			measured: new Map(),
+			places: {
+				hqLevels: [UNHOLDABLE],
+				hqPlaces: [],
+				placesPastLimit,
+			},
+			placesUnread: null,
+		}),
+		{ lookupFields: {}, unreadTables: [], readsPlaces },
+		null,
+		mintingResolver(FINDINGS_APP_ID),
+	);
+}
+
+describe("readingProjectDataFindingsFor, a level Nova cannot hold", () => {
+	it("is a finding where the reading reads places", () => {
+		expect(placeFindings(true, null)).toEqual([notHoldable("Region")]);
+	});
+
+	it("is no finding where the reading reads no place", () => {
+		expect(placeFindings(false, null)).toEqual([]);
+	});
+});
+
 describe("readingProjectDataFindingsFor, places past Nova's limit", () => {
-	const APP_ID = "0b4f6a52-7c55-5a35-9d1e-3c2f8a1b4e6d";
-	/** A level whose code Nova cannot hold, which would be a finding of its own. */
-	const UNHOLDABLE: HqLocationType = {
-		id: "1",
-		name: "Region",
-		code: "not a code!",
-		parentCode: null,
-		administrative: false,
-		sharesCases: true,
-		viewDescendants: false,
-	};
 	const findingsPast = (totalCount: number | null) =>
-		readingProjectDataFindingsFor(
-			assembleReadingProjectData({
-				origin: { server: "india", domain: "clinic" },
-				appId: APP_ID,
-				readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
-				tablesReadAt: new Date("2026-11-10T09:00:00.000Z"),
-				tables: [],
-				hqTags: [],
-				project: {
-					projectId: "project-1",
-					projectRevision: "0" as LookupRevision,
-					definitions: [],
-					rowsByTable: {},
-					apps: {},
-					keptColumns: {},
-					siblings: [],
-					mayAdminister: true,
-				},
-				measured: new Map(),
-				places: {
-					hqLevels: [UNHOLDABLE],
-					hqPlaces: [],
-					placesPastLimit: { totalCount },
-				},
-				placesUnread: null,
-			}),
-			{ lookupFields: {}, unreadTables: [], readsPlaces: true },
-			null,
-			mintingResolver(APP_ID),
-		);
+		placeFindings(true, { totalCount });
 
 	it("gives one places-over-nova-limit named by CommCare HQ's total, and nothing of a level or a place beside it", () => {
 		expect(findingsPast(12_400)).toEqual([

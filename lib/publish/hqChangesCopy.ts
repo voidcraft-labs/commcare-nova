@@ -82,7 +82,7 @@ export const HQ_CHANGES_STAGE_LABELS: {
 export const HQ_CHANGES_STILL_READING =
 	"Still reading. A large app can take a little while.";
 
-// ── S1 and S2: the lists ─────────────────────────────────────────────
+// ── The lists ────────────────────────────────────────────────────────
 
 export const HQ_CHANGES_HEADING = "What changed in CommCare HQ";
 export const NOVA_CHANGES_HEADING = "What changed in Nova since then";
@@ -101,7 +101,7 @@ export function hqChangesLead(since: string, removes: boolean): string {
 export const NOVA_CHANGES_LEAD =
 	"Nova doesn't combine the two, so this is a choice between them.";
 
-/** S1's button: bring the changes in where nothing in Nova would be removed. */
+/** The button where nothing in Nova would be removed: bring the changes in. */
 export const BRING_IN_CHANGES_ACTION = "Bring in these changes";
 export const USE_HQ_VERSION_ACTION = "Use CommCare HQ's version";
 export const USE_HQ_VERSION_HELPER =
@@ -109,7 +109,7 @@ export const USE_HQ_VERSION_HELPER =
 export const PUBLISH_OVER_HQ_ACTION = "Publish over CommCare HQ's changes";
 export const PUBLISH_OVER_HQ_HELPER =
 	"CommCare HQ takes this app's version. What changed there is replaced.";
-/** Under S1's button, in the publish dialog only, beside `PUBLISH_OVER_HQ_ACTION`. */
+/** Under `BRING_IN_CHANGES_ACTION`, in the publish dialog only, beside `PUBLISH_OVER_HQ_ACTION`. */
 export const PUBLISH_OVER_INSTEAD_LINE =
 	"Or you can publish over them, which replaces them with this app's version.";
 /** Under the project space's plan line, where the dialog was opened to publish over a change. */
@@ -126,8 +126,8 @@ export function showAllAction(n: number): string {
 export const CHECK_AGAIN_ACTION = "Check again";
 
 /**
- * R1: a case property renamed in Nova since then holds "Use CommCare HQ's
- * version" back. A property is a case type's, so each is named with its
+ * A case property renamed in Nova since then holds "Use CommCare HQ's
+ * version" back, and this line stands in its place. A property is a case type's, so each is named with its
  * type: two types can hold one name, and the person renames it back on the
  * type it was renamed on.
  */
@@ -196,9 +196,9 @@ export function caseTypesLine(caseTypes: readonly string[]): string {
 export const NEXT_PUBLISH_LEAD =
 	"Nova writes a few things its own way, so your next publish changes these in CommCare HQ:";
 
-// ── S3: nothing to bring in ──────────────────────────────────────────
+// ── Nothing to bring in ──────────────────────────────────────────────
 
-/** S3's line, by why there is nothing to bring in. */
+/** The line where there is nothing to bring in, by why. */
 export function nothingToBringInLine(
 	reason: "unchanged" | "reads-the-same" | "already-here",
 	since: string,
@@ -217,27 +217,27 @@ export function nothingToBringInLine(
 	}
 }
 
-/** On the card, after S3's line. */
+/** On the card, after `nothingToBringInLine`. */
 export const NEXT_PUBLISH_GOES_AHEAD =
 	"Your next publish here goes ahead as usual.";
 
-// ── S4: something Nova can't hold ────────────────────────────────────
+// ── Something Nova can't hold ────────────────────────────────────────
 
 export const CANNOT_BRING_IN_HEADING =
 	"Nova can't bring in CommCare HQ's version";
 
-/** S4's lead over an account of `n` findings. */
+/** The lead over an account of `n` findings Nova can't hold. */
 export function cannotBringInLead(n: number): string {
 	const found =
 		n === 1 ? "1 thing it can't hold" : `${count(n)} things it can't hold`;
 	return `Nova read what changed and found ${found}, so it brought nothing in. Taking part of an app would lose the rest at the next publish. Here is each one, with what you can do about it.`;
 }
 
-/** S4's lead where CommCare HQ's version is larger than Nova brings in, so Nova read nothing. */
+/** The lead where CommCare HQ's version is larger than Nova brings in, so Nova read nothing. */
 export const CANNOT_BRING_IN_TOO_LARGE_LEAD =
 	"CommCare HQ's version of this app is larger than Nova brings in, so Nova brought nothing in.";
 
-/** Under S4's account, above the two choices that stay as they are. */
+/** Under the account of what Nova can't hold, above the two choices that stay as they are. */
 export const CANNOT_BRING_IN_OTHER_WAYS =
 	"You can also publish over CommCare HQ's version, which removes these from CommCare HQ, or stop publishing here.";
 
@@ -299,8 +299,8 @@ export interface HqChangesLineContext {
 }
 
 /**
- * U1 to U10: why Nova can't bring in CommCare HQ's changes there. U8, U9
- * and U10 say nothing there is this app's (never published there,
+ * Why Nova can't bring in CommCare HQ's changes there. `not-published`,
+ * `publishing-stopped` and `app-deleted` say nothing there is this app's (never published there,
  * publishing there stopped, or the app is in recently deleted and another
  * Nova app took its CommCare HQ app); the rest say why Nova can't tell
  * CommCare HQ's changes from this app's.
@@ -342,7 +342,7 @@ export function hqChangesUnavailableLine(
 }
 
 /**
- * H1 and H2: a change Nova names and can't take. `runs` is where the app
+ * A change Nova names and can't take. `runs` is where the app
  * runs and where CommCare HQ's version runs, for `runs-elsewhere`; each
  * platform is named as a sentence names one ("in Web Apps", "on Android").
  */
@@ -370,15 +370,15 @@ export function hqChangesHeldLine(
 	}
 }
 
-/** G1's first sentence; each finding's own sentence follows it. */
+/** The gate refusal's first sentence; each finding's own sentence follows it. */
 export const HQ_CHANGES_GATE_LEAD =
 	"Bringing these changes in would leave something in this app that no longer works, so Nova changed nothing.";
-/** G1's last sentence, after the findings. */
+/** The gate refusal's last sentence, after the findings. */
 export const HQ_CHANGES_GATE_NEXT =
 	"You can change that in Nova and check again, or publish over the change.";
 
 /**
- * R2: the app or CommCare HQ moved while the person read the lists.
+ * The app or CommCare HQ moved while the person read the lists.
  * `editedBy` is another member whose edit moved the app, where that is
  * what changed.
  */
@@ -391,7 +391,7 @@ export function hqChangesMovedLine(editedBy: string | null): string {
 }
 
 /**
- * In place of R2 where a bring-in found something other than a list to show
+ * In place of `hqChangesMovedLine` where a bring-in found something other than a list to show
  * (CommCare HQ couldn't be read again, or what it holds can't be brought in):
  * the request took nothing, and the panel's new state says why.
  */
@@ -410,7 +410,7 @@ export const HQ_CHANGES_FILES_NOT_PERMITTED =
 	"You don't have edit access to this Project's files any more, so Nova brought nothing in. One of its admins can give you edit access.";
 
 /**
- * U9: a review or a bring-in of a project space where publishing stopped,
+ * `publishing-stopped`: a review or a bring-in of a project space where publishing stopped,
  * before it was asked or while it ran.
  */
 export function hqChangesPublishingStoppedLine(domain: string): string {

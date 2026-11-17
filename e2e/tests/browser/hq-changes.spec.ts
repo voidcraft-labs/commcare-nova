@@ -216,7 +216,7 @@ const LANDED = {
 	preview_project_space: DOMAIN,
 } satisfies PublishResponseBody;
 
-/** A review that found changes; S1 where `novaChanges` is empty. */
+/** A review that found changes; nothing in Nova would be removed where `novaChanges` is empty. */
 function changes(
 	overrides: Partial<Extract<HqChangesReview, { kind: "changes" }>> = {},
 ): HqChangesReview {
@@ -1479,7 +1479,8 @@ test("on the card, a bring-in the gate refuses draws the publish over its senten
 			.getByRole("button", { name: "See what changed", exact: true })
 			.click();
 		const card = cardDialog(page);
-		/* S1 on the card offers no publish over until G1 names it. */
+		/* Where nothing in Nova would be removed, the card offers no publish
+		 * over until the gate's refusal names it. */
 		await expect(
 			card.getByRole("button", { name: PUBLISH_OVER_HQ_ACTION, exact: true }),
 		).toHaveCount(0);

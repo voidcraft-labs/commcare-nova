@@ -99,7 +99,7 @@ export interface ReaderOptions {
 	 * Told which part of the reading runs next: a stage's index in `STAGES`,
 	 * then `close`. A caller that catches a throw names where it came from with
 	 * the last one it was told, never with the thrown message, which can quote
-	 * the app. (Added by the bring-in layer for its reader-fault log line.)
+	 * the app.
 	 */
 	readonly onStage?: (at: number | "close") => void;
 	/**

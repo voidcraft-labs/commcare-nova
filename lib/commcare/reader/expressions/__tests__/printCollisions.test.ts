@@ -616,6 +616,112 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			},
 		},
 		{
+			// A switch's literal result, in a comparison of moments, prints as
+			// the literal's own date, clock and offset.
+			id: "instant-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "gt",
+				left: {
+					kind: "switch",
+					on: prop("p"),
+					cases: [
+						{
+							when: { kind: "literal", value: "a" },
+							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+							then: term({
+								kind: "literal",
+								value: "2026-01-02T10:00:00+01:00",
+								data_type: "datetime",
+							}),
+						},
+						{
+							when: { kind: "literal", value: "b" },
+							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+							then: prop("seen"),
+						},
+					],
+					fallback: prop("seen"),
+				},
+				right: prop("seen"),
+			}),
+			canonical: {
+				kind: "gt",
+				left: {
+					kind: "switch",
+					on: prop("p"),
+					cases: [
+						{
+							when: { kind: "literal", value: "a" },
+							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+							then: term({
+								kind: "literal",
+								value: "2026-01-02T10:00:00.000+01:00",
+								data_type: "datetime",
+							}),
+						},
+						{
+							when: { kind: "literal", value: "b" },
+							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+							then: prop("seen"),
+						},
+					],
+					fallback: prop("seen"),
+				},
+				right: prop("seen"),
+			},
+		},
+		{
+			// A branch beside a date and time takes the literal typed.
+			id: "coerced-instant-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "coalesce",
+				values: [
+					prop("seen"),
+					{ kind: "datetime-coerce", value: lit("2026-01-01") },
+				],
+			}),
+			canonical: {
+				kind: "coalesce",
+				values: [
+					prop("seen"),
+					term({
+						kind: "literal",
+						value: "2026-01-01T00:00:00.000Z",
+						data_type: "datetime",
+					}),
+				],
+			},
+		},
+		{
+			// A column's whole value is read as text.
+			id: "coerced-instant-literal",
+			slot: calculated,
+			other: () => ({ kind: "datetime-coerce", value: lit("2026-01-01") }),
+			canonical: lit("2026-01-01T00:00:00.000Z"),
+		},
+		{
+			// A comparison of moments folds both to one count of microseconds,
+			// and the reader gives the moment's canonical text.
+			id: "coerced-instant-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "gt",
+				left: prop("seen"),
+				right: { kind: "datetime-coerce", value: lit("2026-01-01") },
+			}),
+			canonical: {
+				kind: "gt",
+				left: prop("seen"),
+				right: term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00.000Z",
+					data_type: "datetime",
+				}),
+			},
+		},
+		{
 			id: "default-current",
 			slot: ref("q2", "default_value"),
 			other: () => q1Read,
