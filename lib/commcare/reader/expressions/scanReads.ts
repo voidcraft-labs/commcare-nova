@@ -284,6 +284,29 @@ function elementProperty(
 	return step === undefined || step.attribute ? undefined : rowProperty(step);
 }
 
+/** A menu's or a form's entry datums, each worked out once in one scan. */
+type EntryRows = (
+	moduleUuid: Uuid,
+	formUuid?: Uuid,
+) => ReturnType<typeof entryDatumIds>;
+
+function entryRowsOf(doc: BlueprintDoc): EntryRows {
+	const held = new Map<string, ReturnType<typeof entryDatumIds>>();
+	let projection: ReturnType<typeof formLinkProjectionContext> | undefined;
+	return (moduleUuid, formUuid) => {
+		const key = `${moduleUuid}\u0000${formUuid ?? ""}`;
+		let rows = held.get(key);
+		if (rows === undefined) {
+			projection ??= formLinkProjectionContext(doc, {
+				entryMetadataOnly: true,
+			});
+			rows = entryDatumIds(doc, projection, moduleUuid, formUuid);
+			held.set(key, rows);
+		}
+		return rows;
+	};
+}
+
 /** The type of the case a menu chose whose id `key` reads, as
  *  `instance('commcaresession')/session/data/<id>`, among the datums the
  *  menu's case list entry holds, or the form's entry where `formUuid` names
@@ -291,6 +314,7 @@ function elementProperty(
  *  root menu (`formLinkProjection.ts::caseListStepDatumId`). */
 function chosenCaseType(
 	doc: BlueprintDoc,
+	entryRows: EntryRows,
 	moduleUuid: Uuid,
 	key: FormSyntax | undefined,
 	formUuid?: Uuid,
@@ -308,12 +332,7 @@ function chosenCaseType(
 		[session, data, leaf].some((step) => step.where.length > 0)
 	)
 		return undefined;
-	const rows = entryDatumIds(
-		doc,
-		formLinkProjectionContext(doc, { entryMetadataOnly: true }),
-		moduleUuid,
-		formUuid,
-	);
+	const rows = entryRows(moduleUuid, formUuid);
 	const row =
 		rows.find((one) => one.id === leaf.name) ??
 		rows.find((one) => one.chainId === leaf.name);
@@ -353,6 +372,7 @@ export function scanReads(
 	env: ExpressionReadEnv,
 ): ScannedReads {
 	const properties = new Map<string, { caseType: string; property: string }>();
+	const entryRows = entryRowsOf(doc);
 	const slugs = new Set<string>();
 	const tags = new Set<string>();
 	const links = new Map<string, { child: string; parent: string }>();
@@ -546,9 +566,15 @@ export function scanReads(
 				key === undefined
 					? undefined
 					: registration.ref.entity === "module"
-						? chosenCaseType(doc, registration.ref.uuid, key)
+						? chosenCaseType(doc, entryRows, registration.ref.uuid, key)
 						: registration.ref.entity === "form" && moduleUuid !== undefined
-							? chosenCaseType(doc, moduleUuid, key, registration.ref.uuid)
+							? chosenCaseType(
+									doc,
+									entryRows,
+									moduleUuid,
+									key,
+									registration.ref.uuid,
+								)
 							: undefined;
 			// A search's rows are the searched menu's case type.
 			const searched =

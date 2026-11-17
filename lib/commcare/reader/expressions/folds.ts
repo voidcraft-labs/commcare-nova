@@ -984,6 +984,27 @@ export function ownCaseWalk(
 	return inner === undefined ? undefined : [...inner, identifier.name];
 }
 
+/** Whether `datum`, a session value, binds to the case a menu other than the
+ *  form's own chose. A value the form's entry does not supply binds to no
+ *  case, which the slot's own reading refuses. */
+function choseElsewhere(
+	datum: FormSyntax,
+	context: ExpressionContext,
+	env: FoldEnv,
+): boolean {
+	let start: Term | undefined;
+	try {
+		start = termOf(env.bindPlain(datum, context));
+	} catch {
+		return false;
+	}
+	return (
+		start?.kind === "session-datum" &&
+		start.datum.kind === "selected-case" &&
+		start.datum.module !== context.form?.moduleUuid
+	);
+}
+
 /** The session value an own-case walk starts from: the key's innermost
  *  `instance('commcaresession')/session/data/<id>`. */
 function walkDatum(key: FormSyntax | undefined): FormSyntax | undefined {
@@ -1039,19 +1060,14 @@ const ownCaseRead: Fold = {
 		if (property === undefined || more.length > 0) return undefined;
 		const walk = ownCaseWalk(caseIdKey(read.row.where[0]));
 		if (walk === undefined) return undefined;
-		// The walk starts from the form's own case only where its session value
-		// is that case's: a value another menu chose is that menu's case.
-		const datum = walkDatum(caseIdKey(read.row.where[0]));
-		const start =
-			datum === undefined ? undefined : termOf(env.bindPlain(datum, context));
-		if (
-			start?.kind === "session-datum" &&
-			!(
-				(start.datum.kind === "selected-case" &&
-					start.datum.module === context.form?.moduleUuid) ||
-				start.datum.kind === "new-case"
-			)
-		)
+		// In a record slot of a form (its display condition, its case
+		// changes) the walk starts from the form's own case, but where its
+		// session value is the case another menu chose, which is that menu's.
+		const datum =
+			context.ruleSet === "record"
+				? walkDatum(caseIdKey(read.row.where[0]))
+				: undefined;
+		if (datum !== undefined && choseElsewhere(datum, context, env))
 			return undefined;
 		const moduleUuid = context.form?.moduleUuid;
 		const moduleCaseType =
