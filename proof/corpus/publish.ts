@@ -1405,6 +1405,13 @@ export type StepOutcome =
 			 */
 			readonly broughtIn?: BringInRecord;
 			/**
+			 * The document this publish sent where a review of the changes made in
+			 * CommCare HQ moved it from the update's own (`bringInOverPeer`): the
+			 * document the bring-in gave, with the placements its emission records.
+			 * It is sent under the ids `broughtIn.identities` names.
+			 */
+			readonly sent?: PublishDocument;
+			/**
 			 * The person's other choice over the same saves, publishing over the
 			 * change, where the document states the capture runs it
 			 * (`HqSideSaves.alsoPublishesOver`).
@@ -3694,7 +3701,7 @@ export async function capturePublish(
 							}
 							return broughtIn === undefined || step.status !== "sent"
 								? step
-								: { ...step, broughtIn };
+								: { ...step, broughtIn, sent: sending.source };
 						}
 						const listed = JSON.stringify(
 							step.code === "hq_changed" ? step.remoteChanges : step.conflicts,
@@ -3858,7 +3865,9 @@ function atInstant<T>(instant: number, build: () => T): T {
  * (`lib/deployment/runtimeTarget.ts::chooseDownloadTarget`) picks that one
  * reached deployment, whose HQ app is `PLACEHOLDER_APP_ID`, for the profile's
  * server properties and runtime URLs and the attachment links, with the
- * derived ids the ledger's absent overrides give. The archive embeds the
+ * menu and form ids `identity` gives: the deployment's (`targetWireIdentity`
+ * over the ids a bring-in of changes made in CommCare HQ recorded), or the
+ * derived ids the ledger's absent overrides give, the default. The archive embeds the
  * referenced lookup tables as fixtures and stamps the app's sequence. The
  * deployment is the one a publish there leaves: its HQ app was never made
  * afresh (`earlierHqApps` 0), and it holds `USH_EMPTY_CASE_LIST_TEXT` where
@@ -3882,6 +3891,7 @@ export async function localCcz(
 	options: {
 		readonly emptyCaseListText?: boolean;
 		readonly targetFacts?: TargetFacts | null;
+		readonly identity?: WireIdentity;
 	} = {},
 ): Promise<Buffer | null> {
 	const emptyCaseListText = options.emptyCaseListText === true;
@@ -3919,7 +3929,7 @@ export async function localCcz(
 			compileLocalArchive(
 				prepared,
 				{ server: target.server, domain: target.domain, appId: target.hqAppId },
-				DERIVED_WIRE_IDENTITY,
+				options.identity ?? DERIVED_WIRE_IDENTITY,
 				{
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,

@@ -74,6 +74,16 @@
  * plausible failures are a refusal that reads the setting alone, refusing a
  * document Nova publishes there, and one that never reads the verdict.
  *
+ * A document whose saves in HQ the republish brings in is written as the
+ * document that republish sends: `document.json` holds the document the
+ * bring-in gave, and its local archives install exactly the forms the
+ * republish sends, under the `xmlns` the bring-in read of HQ's app. The
+ * plausible failures are a document and an archive of D, which the lane
+ * would compare with A after the saves (an app that holds the person's
+ * change against one that does not), and an archive under the derived ids,
+ * whose added form is not the one HQ holds. The observation is the written
+ * files beside the captured republish.
+ *
  * The lane's emission holds the fixed floor's census to
  * `proof/corpus/left-out.json` (`leftOutDifferences`) and stops before
  * writing anything where they differ. The plausible failures: a rule that
@@ -103,6 +113,7 @@ import { parseXml } from "@/lib/commcare/xmlParse";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema, effectiveAppLocalization } from "@/lib/domain";
 import { commtrackAdvanced } from "../../targeted/documents/advancedModules";
+import { hqChangesForms } from "../../targeted/documents/hqChanges";
 import { hqSideState } from "../../targeted/documents/hqSideState";
 import { lookupReservedTags } from "../../targeted/documents/lookupReservedTags";
 import { sameTypeChild } from "../../targeted/documents/sameTypeChild";
@@ -203,6 +214,26 @@ function profileUniqueId(archive: Buffer): string | undefined {
 	const parsed = parseXml(profile);
 	const root = parsed.children.find(isTag);
 	return root?.attribs.uniqueid;
+}
+
+/** The `xmlns` of each form a local archive installs: its main instance's root, read from each parsed form. */
+function archiveFormXmlns(archive: Buffer): Set<string> {
+	const found = new Set<string>();
+	for (const entry of new AdmZip(archive).getEntries()) {
+		if (!/^modules-\d+\/forms-\d+\.xml$/.test(entry.entryName)) continue;
+		const pending = [...parseXml(entry.getData().toString("utf8")).children];
+		while (pending.length > 0) {
+			const node = pending.shift();
+			if (node === undefined || !isTag(node)) continue;
+			if (node.name === "instance" && node.attribs.id === undefined) {
+				const root = node.children.find(isTag);
+				if (root?.attribs.xmlns !== undefined) found.add(root.attribs.xmlns);
+				continue;
+			}
+			pending.push(...node.children);
+		}
+	}
+	return found;
 }
 
 async function emit(
@@ -703,6 +734,34 @@ describe("the corpus emitter", () => {
 		expect((await files(join(out, syncing.id))).has("hq-side.json")).toBe(
 			false,
 		);
+	});
+
+	it("writes the document a bring-in of a person's saves gave, and its local archive under the ids the bring-in read, where the republish sends it", {
+		timeout: 60_000,
+	}, async () => {
+		const forms = hqChangesForms();
+		const out = join(root, "brings-in");
+		await emit(out, [forms], []);
+		const written = await files(join(out, forms.id));
+		const document = JSON.parse(
+			written.get("document.json")?.toString("utf8") ?? "",
+		);
+		expect(document.doc).toEqual(
+			JSON.parse(JSON.stringify(forms.hqSide?.bringsIn)),
+		);
+		const republished = await importedApp(
+			join(out, forms.id, "export", "minimum"),
+			"republish",
+		);
+		const sent = new Set(
+			republished.modules.flatMap((module) =>
+				module.forms.map((form) => form.xmlns),
+			),
+		);
+		const local = written.get("local.ccz");
+		if (local === undefined) throw new Error(`${forms.id} has no local.ccz.`);
+		expect(archiveFormXmlns(local)).toEqual(sent);
+		expect(written.get("local-again.ccz")?.equals(local)).toBe(true);
 	});
 
 	it("refuses a document that turns sync on form entry on while its publish asks that it be off", async () => {

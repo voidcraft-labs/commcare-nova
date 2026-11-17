@@ -100,7 +100,18 @@ names read from the peer and judged by `judgeReadingMedia`) and records them
 beside the republish (its sidecar's `broughtIn`: the review, what was taken,
 the ids CommCare HQ holds for each menu and form, the second review, the
 summary of the app the review read, `proof/corpus/hqSummary.ts`, and the
-document taken; `proof/checks/corpus.py::BroughtIn`). The second review holds
+document taken; `proof/checks/corpus.py::BroughtIn`). A document that
+brings the saves in holds, in its `document.json`, its local archives and
+its import file, the document that republish sends, the one the bring-in
+gave, compiled under the ids the bring-in read of the app
+(`proof/corpus/entryWriter.ts::republishedDocument`): A after the saves and
+B both hold it, so the intent check and proof 3 hold A, B and the local
+archive to that document, and D is what the first publish's captured
+requests send. The bring-in names a form HQ's `new_form` added by the id
+its reading found, where the capture's reading found the one its peer drew,
+so the HQ side writes the id HQ minted in its place before it applies the
+republish (`proof/observe/publish.py::held_ids`), as it writes A's id in
+place of the peer's app id. The second review holds
 the capture's own ledger, which the publish that follows compares against,
 its files' record among it, to name the app as the peer then holds it; the
 production record's writes are held by

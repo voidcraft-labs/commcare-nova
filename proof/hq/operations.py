@@ -150,6 +150,72 @@ def with_app_id(upload: Upload, app_id: str) -> Upload:
     return Upload(delimiter.join(rebuilt), upload.content_type)
 
 
+class CapturedIdsNotHeld(HarnessRefusal):
+    """A captured update names a menu or form id the capture's peer held that the app HQ holds has no place for."""
+
+
+# The multipart field of an import that carries the application JSON (``app_import_api.py::_handle_import_app``).
+APP_FILE = "app_file"
+
+
+def _with_ids(value, ids):
+    """``value`` (parsed JSON) with every string equal to a key of ``ids`` written as its value, and every key that
+    names a form's source by its id (``<id>.xml``, ``_attachments``) written under the new id."""
+    if isinstance(value, str):
+        return ids.get(value, value)
+    if isinstance(value, list):
+        return [_with_ids(item, ids) for item in value]
+    if isinstance(value, dict):
+        renamed = {}
+        for key, item in value.items():
+            stem, dot, extension = key.rpartition(".")
+            if dot and extension == "xml" and stem in ids:
+                key = f"{ids[stem]}.xml"
+            renamed[key] = _with_ids(item, ids)
+        return renamed
+    return value
+
+
+def with_held_ids(upload: Upload, ids) -> Upload:
+    """The upload with each menu or form id of ``ids`` (``{captured id: id HQ holds}``) written as HQ holds it.
+
+    Nova's publish after a bring-in of changes made in CommCare HQ names
+    each menu and form by the id its reading of HQ's app found
+    (``lib/deployment/hqChanges/bringIn.ts``); a capture names the one its
+    peer holds, which for a form HQ's ``new_form`` added is one the peer
+    drew, where HQ minted its own. So the harness writes HQ's id wherever
+    the application JSON names the peer's, as ``with_app_id`` writes the
+    app's, and leaves every other field as captured. An id it finds again
+    after the rewrite, inside a text it does not read, refuses
+    (``CapturedIdsNotHeld``) rather than send a body naming both.
+    """
+    if not ids:
+        return upload
+    boundary = _boundary(upload.content_type)
+    preamble, parts, epilogue = _form_parts(upload.body, boundary)
+    names = [_part_name(head) for head, _ in parts]
+    if names.count(APP_FILE) != 1:
+        raise ValueError(
+            f"A captured update carries exactly one {APP_FILE} field; this one carries {names.count(APP_FILE)}."
+        )
+    delimiter = b"--" + boundary
+    rebuilt = [preamble]
+    for (head, content), name in zip(parts, names, strict=True):
+        if name == APP_FILE:
+            written = json.dumps(_with_ids(json.loads(content), ids), ensure_ascii=False, separators=(",", ":"))
+            left = sorted(captured for captured in ids if captured in written)
+            if left:
+                raise CapturedIdsNotHeld(
+                    f"The captured update still names {left} after the harness wrote the ids HQ holds in their"
+                    " place, inside a text it does not read as an id. Look at where Nova's application JSON names"
+                    " a menu or form id."
+                )
+            content = written.encode()
+        rebuilt.append(b"\r\n" + head + b"\r\n\r\n" + content + b"\r\n")
+    rebuilt.append(epilogue)
+    return Upload(delimiter.join(rebuilt), upload.content_type)
+
+
 def upload_field_names(upload: Upload):
     _, parts, _ = _form_parts(upload.body, _boundary(upload.content_type))
     return [_part_name(head) for head, _ in parts]

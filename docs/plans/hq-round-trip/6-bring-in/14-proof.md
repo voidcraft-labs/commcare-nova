@@ -1863,6 +1863,14 @@ Nova's own publish. What this part holds of them:
   publish (`proof/corpus/publish.ts`, which holds the stated outcome as it holds the other
   three). Its checks are part 15's five, and the fifth is proof 6 over the document the bring-in
   gave.
+- A `brings-in` document's `document.json`, local archives and import file are of the document
+  its republish sends (`bringsIn`, with the placements its emission records, compiled under the
+  ids the bring-in read: `proof/corpus/entryWriter.ts::republishedDocument`), since A after the
+  saves and B both hold it; D is what the first publish's captured requests send. So the intent
+  check and proof 3 hold A, B and the local archive to the same document. The bring-in names a
+  form `new_form` added by the id its reading found, which in the capture is one the peer drew,
+  so the HQ side writes the id HQ minted in its place before it applies the republish
+  (`proof/observe/publish.py::held_ids`), as it writes A's id in place of the peer's app id.
 - `_Unit.api_reads` (5.3) reads CommCare HQ for the ten after their saves, under the label
   `saved`: the source Nova's review reads. For a `brings-in` document it reads again after the
   republish, and part 15's fourth and fifth checks take that read. Proof 6 makes its claim of the

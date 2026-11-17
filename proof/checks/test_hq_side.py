@@ -24,6 +24,10 @@ them, which HQ takes only through the app settings page's one save (``views/sett
 and answers with 400 at the attribute's own URL (``views/apps.py::edit_app_attr``). A project space without
 ``BUILD_PROFILES`` is the refusal: HQ's language profiles page refuses the save, and the harness says so rather
 than going on.
+
+``targeted-hq-changes-forms`` has a form deleted and a survey added in HQ, which Nova's republish brings in: that
+republish names the added form by the id HQ minted, which the HQ side writes in place of the one the capture's peer
+drew (``proof.observe.publish.held_ids``).
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ STATE = "targeted-hq-side-state"
 LOOKUP = "targeted-hq-side-lookup"
 KEPT = "targeted-kept-values"
 RESAVE = "targeted-hq-changes-resave"
+FORMS = "targeted-hq-changes-forms"
 
 
 def _document(name):
@@ -233,3 +238,44 @@ def test_a_form_builder_save_runs_where_the_in_band_audit_can_rerun_it_in_a_fork
         held = hqside.save(unit, _ops(unit), app_id, saves, driver=editor_driver)
         assert sorted(held) == ["formResave"], held
         assert held["formResave"][0]["view"] == "patch_xform", held
+
+
+def test_novas_publish_after_a_bring_in_names_a_form_hq_added_by_the_id_hq_minted(hq, core_runner):
+    """Contract (``proof.observe.publish.held_ids``, ``proof.hq.operations.with_held_ids``): the republish after a
+    bring-in of a form a person added in HQ names that form by the id HQ's ``new_form`` minted, which is the id Nova's
+    bring-in reads of HQ's app, and not the one the capture's peer drew; a record naming a form HQ holds under no
+    ``xmlns`` refuses by name. Catches a republish that lands the peer's id over HQ's, which proof 1 reads as Nova
+    minting a form's id anew."""
+    from proof.hq import operations
+    from proof.observe import hqside, publish
+
+    document = _document(FORMS)
+    export = document.exports["minimum"]
+    record = export.brought_in
+    assert record is not None and record.taken == "brought-in", record
+    with hq_check(export.configuration.hq()) as (unit, _):
+        app_id = _created(unit, export)
+        hqside.save(unit, _ops(unit), app_id, document.hq_side)
+        added = operations.held_app(unit, app_id).get_module(0).get_form(-1)
+        ids = publish.held_ids(unit, app_id, record)
+        assert list(ids.values()) == [added.unique_id], ids
+        [peer] = ids
+        sent = operations.upload_field(operations.with_held_ids(export.republish.upload(), ids), "app_file").decode()
+        assert peer not in sent and added.unique_id in sent
+        refusal, lookups = publish.update(unit, app_id, export.republish, "B")
+        assert _landed(refusal, lookups), (refusal, lookups)
+        held = {form.xmlns: form.unique_id for form in operations.held_app(unit, app_id).get_forms()}
+        assert held[added.xmlns] == added.unique_id, held
+        stray = replace(
+            record,
+            identities=[
+                {
+                    "entityKind": "form",
+                    "novaEntityUuid": "stray",
+                    "uniqueId": peer,
+                    "xmlns": "http://openrosa.org/formdesigner/held-nowhere",
+                }
+            ],
+        )
+        with pytest.raises(operations.CapturedIdsNotHeld, match="no form under that xmlns"):
+            publish.held_ids(unit, app_id, stray)
