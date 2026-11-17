@@ -596,11 +596,33 @@ type Outcome =
 
 const WITHHOLD_ALL = new Set<EmissionRewriteId>(EMISSION_REWRITE_IDS);
 
+/** The slots `readExpressionsSteps` binds or judges between two stops. */
+const SLOTS_PER_STEP = 400;
+
 export function readExpressions(
 	doc: BlueprintDoc,
 	pending: readonly PendingExpression[],
 	env: ExpressionReadEnv,
 ): ExpressionReading {
+	const steps = readExpressionsSteps(doc, pending, env);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * `readExpressions` a part at a time: it stops between its scan, its typing,
+ * each pass of binding and judging, its leveling and its checks, and every
+ * `SLOTS_PER_STEP` slots inside each of those, until it is resumed, so the
+ * expression stage of an app at the bring-in byte cap is no one long piece
+ * of a request.
+ */
+export function* readExpressionsSteps(
+	doc: BlueprintDoc,
+	pending: readonly PendingExpression[],
+	env: ExpressionReadEnv,
+): Generator<void, ExpressionReading, void> {
 	const types = lookupTypes(env);
 	const live = pending.map(
 		(registration) => slotContext(doc, registration.ref, types) !== undefined,
@@ -642,9 +664,11 @@ export function readExpressions(
 		for (const read of missing)
 			noteProperty(catalog, read.caseType, read.property, env.knownCaseTypes);
 	});
+	yield;
 	// 1b. Type: a property the catalog holds untyped that a record slot
 	// compares with a value of a known type is of that type.
 	const base = withComparedTypes(scannedBase, pending, live, sites, env);
+	yield;
 	const declaredProperties = missing.filter((read) =>
 		(base.caseTypes ?? []).some(
 			(type) =>
@@ -762,16 +786,24 @@ export function readExpressions(
 		withdrawn.forEach((taken, index) => {
 			if (!settled.has(index)) taken.clear();
 		});
-		for (const index of bindable) bindAt(start, index);
+		for (const [at, index] of bindable.entries()) {
+			if (at > 0 && at % SLOTS_PER_STEP === 0) yield;
+			bindAt(start, index);
+		}
+		yield;
 		current = writtenAdmitted();
 		for (;;) {
+			yield;
 			rounds++;
-			judgments = new Map(
-				[...bindings].map(([index, bound]) => [
+			judgments = new Map();
+			for (const [index, bound] of bindings) {
+				if (judgments.size > 0 && judgments.size % SLOTS_PER_STEP === 0) yield;
+				judgments.set(
 					index,
 					judgeSlot(current, pending[index] as PendingExpression, env, bound),
-				]),
-			);
+				);
+			}
+			yield;
 			const withdrawing = [...judgments].flatMap(([index, judgment]) =>
 				judgment.kind === "bound" &&
 				!judgment.equal &&
@@ -787,6 +819,7 @@ export function readExpressions(
 			current = writtenAdmitted();
 		}
 
+		yield;
 		// 4. Level: a slot still unequal is compared with the print that leaves
 		// every rewrite out, then with prints that leave out the rewrite at some
 		// of its sites (`siteLevel`), and held at the level whose print is the
@@ -795,7 +828,10 @@ export function readExpressions(
 		rewrites = [];
 		leveled = new Map<number, Expression>();
 		levels = new Map<number, PrintLevel>();
+		let leveling = 0;
 		for (const [index, judgment] of judgments) {
+			if (leveling > 0 && leveling % SLOTS_PER_STEP === 0) yield;
+			leveling += 1;
 			const registration = pending[index] as PendingExpression;
 			const bound = bindings.get(index) as BoundSlot;
 			if (judgment.kind === "unprintable") continue;
@@ -885,6 +921,7 @@ export function readExpressions(
 		if (!again || rounds >= EXPRESSION_ROUND_LIMIT) break;
 		settled = leveled;
 	}
+	yield;
 	const circumstances: ExpressionReading["circumstances"][number][] = [];
 	const checked = written(
 		base,
@@ -893,9 +930,13 @@ export function readExpressions(
 		new Map([...boundTrees(), ...leveled]),
 	);
 
+	yield;
 	// 5. Check every held slot over the document that holds every bound
 	// candidate; 6. hand every held record slot to the dialect's judge.
+	let checking = 0;
 	for (const [index, judgment] of judgments) {
+		if (checking > 0 && checking % SLOTS_PER_STEP === 0) yield;
+		checking += 1;
 		const registration = pending[index] as PendingExpression;
 		const outcome = outcomes.get(index);
 		const candidate =
@@ -1015,6 +1056,7 @@ export function readExpressions(
 			resolution: { kind: "entry", ...raw },
 		});
 
+	yield;
 	// 7. Report.
 	const bound: (Expression | undefined)[] = pending.map(() => undefined);
 	const claims: ExpressionClaim[] = [];

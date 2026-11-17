@@ -31,6 +31,7 @@ import { readerDefect } from "../defects";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
 import { dotInterpolate } from "../hqInterpolation";
 import { isJsonObject, sameJson } from "../jsonCursor";
+import type { PendingExpression } from "../pendingExpressions";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
@@ -137,12 +138,26 @@ function labelShownPropertiesByType(app: DraftApp): Map<string, Set<string>> {
 /** Step 6, pass 1: every menu's case list, read from its two details, and the type each numeric
  *  sort declares written into the draft's catalog before any expression binds. */
 export function readCaseLists(ctx: ReadContext, app: DraftApp): void {
+	const steps = readCaseListsSteps(ctx, app);
+	while (!steps.next().done);
+}
+
+/** The menus `readCaseListsSteps` reads between two stops. */
+const MENUS_READ_PER_STEP = 100;
+
+/** `readCaseLists`, stopping after every `MENUS_READ_PER_STEP` menus and before the numeric
+ *  sort declarations until it is resumed. */
+export function* readCaseListsSteps(
+	ctx: ReadContext,
+	app: DraftApp,
+): Generator<void, void, void> {
 	/* Each read from the drafts before any detail is read, which writes neither a form's case
 	 * changes, a menu's case type nor its stored details. */
 	const selectsByType = selectPropertiesByType(app);
 	const shownByType = labelShownPropertiesByType(app);
 	const none: ReadonlySet<string> = new Set();
-	for (const module of app.modules) {
+	for (const [at, module] of app.modules.entries()) {
+		if (at > 0 && at % MENUS_READ_PER_STEP === 0) yield;
 		const caseType = module.module.caseType;
 		const selects =
 			caseType === undefined ? none : (selectsByType.get(caseType) ?? none);
@@ -154,6 +169,7 @@ export function readCaseLists(ctx: ReadContext, app: DraftApp): void {
 			labelShown: (property) => shown.has(property),
 		});
 	}
+	yield;
 	declareNumericSortsBeforeBinding(ctx, app);
 }
 
@@ -467,6 +483,34 @@ function caseListPlace(module: DraftModule): HqPlace {
 	};
 }
 
+/** The registrations of each menu's own slots, in registration order, worked out once per
+ *  registry and again only once it holds more: each menu's settle reads its own. */
+const registrationsByMenu = new WeakMap<
+	readonly PendingExpression[],
+	{ readonly length: number; readonly byMenu: Map<string, number[]> }
+>();
+
+function moduleRegistrations(
+	registrations: readonly PendingExpression[],
+): ReadonlyMap<string, readonly number[]> {
+	const known = registrationsByMenu.get(registrations);
+	if (known !== undefined && known.length === registrations.length)
+		return known.byMenu;
+	const byMenu = new Map<string, number[]>();
+	registrations.forEach((registration, index) => {
+		const ref = registration.ref;
+		if (ref.entity !== "module") return;
+		const indices = byMenu.get(ref.uuid);
+		if (indices === undefined) byMenu.set(ref.uuid, [index]);
+		else indices.push(index);
+	});
+	registrationsByMenu.set(registrations, {
+		length: registrations.length,
+		byMenu,
+	});
+	return byMenu;
+}
+
 /**
  * The control that prints each expression slot of a menu's details at the level the reading
  * held it (`expressions/printLevel.ts`): a calculated column's expression and the list's filter,
@@ -477,11 +521,11 @@ function caseListPlace(module: DraftModule): HqPlace {
  */
 function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 	const held = new Map<string, { tree: Expression; level: PrintLevel }>();
-	ctx.pending.list().forEach((registration, index) => {
-		const ref = registration.ref;
-		if (ref.entity !== "module" || ref.uuid !== mod.uuid) return;
+	const registrations = ctx.pending.list();
+	for (const index of moduleRegistrations(registrations).get(mod.uuid) ?? []) {
+		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
-		if (expression === undefined || level === undefined) return;
+		if (expression === undefined || level === undefined) continue;
 		const member = (ref as { readonly member?: { columnUuid?: string } })
 			.member;
 		held.set(
@@ -490,7 +534,7 @@ function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 				: `${ref.slot}/${member.columnUuid}`,
 			{ tree: expression, level },
 		);
-	});
+	}
 	if (held.size === 0) return {};
 	const at = (key: string, tree: Expression | undefined) => {
 		const one = held.get(key);

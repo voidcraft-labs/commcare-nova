@@ -728,7 +728,7 @@ export function readForms(ctx: ReadContext): void {
 }
 
 /** How many forms `readFormsSteps` reads between two stops. */
-const FORMS_PER_STEP = 200;
+const FORMS_PER_STEP = 100;
 
 /** `readForms`, stopping after every `FORMS_PER_STEP` forms until it is
  *  resumed, so a reading of an app at the byte cap is no one long piece. */

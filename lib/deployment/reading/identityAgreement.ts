@@ -58,6 +58,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import type { AcceptanceDifference } from "./acceptance";
+import { servedEmission } from "./emission";
 import { emittedGeneratedNodes } from "./firstPublishChanges";
 import { differenceSignature } from "./signature";
 import { type SourcePlaces, sourcePlaces } from "./sourcePlaces";
@@ -102,10 +103,23 @@ const CONTAINER_KEYS = [
 	"counted",
 ] as const satisfies readonly (keyof ContainerIdentity)[];
 
-/** The application JSON a source read gives, with each form's XML under `<readUniqueId>.xml`. */
+/** Each source's application JSON, made once: acceptance asks for it in more than one check,
+ *  and nothing writes to a source or to the JSON made of it. */
+const sourceApplications = new WeakMap<HqAppSource, Record<string, unknown>>();
+
+/** The application JSON a source read gives, with each form's XML under `<readUniqueId>.xml`.
+ *  One object per source, which no caller writes to. */
 export function sourceApplication(
 	source: HqAppSource,
 ): Record<string, unknown> {
+	const known = sourceApplications.get(source);
+	if (known !== undefined) return known;
+	const made = madeSourceApplication(source);
+	sourceApplications.set(source, made);
+	return made;
+}
+
+function madeSourceApplication(source: HqAppSource): Record<string, unknown> {
 	const held = source.raw._attachments;
 	const attachments: Record<string, unknown> =
 		typeof held === "object" && held !== null && !Array.isArray(held)
@@ -116,13 +130,6 @@ export function sourceApplication(
 			if (form.attachment !== null)
 				attachments[`${form.readUniqueId}.xml`] = form.attachment;
 	return { ...source.raw, _attachments: attachments };
-}
-
-/** The emission as the JSON CommCare HQ's source view serves. */
-export function servedEmission(
-	emission: HqApplication,
-): Record<string, unknown> {
-	return JSON.parse(JSON.stringify(emission)) as Record<string, unknown>;
 }
 
 /** Each `xmlns`'s first entry of `entries`. */

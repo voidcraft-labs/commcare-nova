@@ -462,11 +462,22 @@ function withInlineSearchQueries(
 	return out;
 }
 
+/** Each module sequence's first position of each module, built once per sequence: an entry's
+ *  datums ask for module positions once per form, and a sequence is never written to. */
+const modulePositions = new WeakMap<readonly Uuid[], Map<Uuid, number>>();
+
 export function moduleIndexOf(
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 ): number {
-	const index = ctx.moduleOrder.indexOf(moduleUuid);
+	let positions = modulePositions.get(ctx.moduleOrder);
+	if (positions === undefined) {
+		positions = new Map();
+		for (const [position, uuid] of ctx.moduleOrder.entries())
+			if (!positions.has(uuid)) positions.set(uuid, position);
+		modulePositions.set(ctx.moduleOrder, positions);
+	}
+	const index = positions.get(moduleUuid) ?? -1;
 	if (index < 0) {
 		throw new Error(
 			`Cannot project a form link: target module ${moduleUuid} is missing`,

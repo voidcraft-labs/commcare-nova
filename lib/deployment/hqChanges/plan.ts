@@ -22,7 +22,7 @@ import type { ReadDraft, ReadOutcome } from "@/lib/commcare/reader";
 import {
 	CANONICALIZATIONS,
 	type Canonicalization,
-	canonDocument,
+	canonDocumentSteps,
 } from "@/lib/commcare/reader/canon";
 import {
 	preparedCandidateHasAdmissionIssue,
@@ -208,14 +208,14 @@ function* applied(
 /**
  * `canonK(doc)`: the document as a reading of its export gives it, less
  * every kind no reading holds and less where the app runs, which is what a
- * read back compares.
+ * read back compares. It stops between the canonical form's rows.
  */
-function canonK(
+function* canonK(
 	doc: BlueprintDoc,
 	givesWay: ReadonlySet<string> = NO_PROPERTY,
-): BlueprintDoc {
+): Steps<BlueprintDoc> {
 	const canon = toPersistableDoc(
-		canonDocument(withSlugsBound(doc, givesWay)),
+		yield* canonDocumentSteps(withSlugsBound(doc, givesWay)),
 	) as Record<string, unknown>;
 	for (const key of KEYS_WITH_NO_EXTERNAL_KEY) delete canon[key];
 	const settings = canon.appSettings as PersistableDoc["appSettings"];
@@ -872,14 +872,14 @@ function* takeOver(
 	const target = yield* targetOver(D, narrowed(H, B, T, D), head);
 	if (!("doc" in target)) return target;
 	yield;
-	const canon = image ?? canonK(D, givesWay);
+	const canon = image ?? (yield* canonK(D, givesWay));
 	yield;
 	const read = yield* applied(canon, narrowed(H, B, T, canon), "commutes");
 	if (!("doc" in read)) return read;
 	yield;
-	const targetK = canonK(target.doc, givesWay);
+	const targetK = yield* canonK(target.doc, givesWay);
 	yield;
-	const readK = canonK(read.doc, givesWay);
+	const readK = yield* canonK(read.doc, givesWay);
 	yield;
 	const difference = firstDifference(targetK, readK);
 	return difference === null
@@ -1062,10 +1062,10 @@ function* planFromDocumentsSteps(
 	 * since the publish is a change Nova holds unpublished though nothing reads it now: a read
 	 * CommCare HQ's change adds of the published slug means that property. */
 	const givesWay = propertiesGivingWay(ref, now);
-	const refK = canonK(ref, givesWay);
+	const refK = yield* canonK(ref, givesWay);
 	yield;
 	/* The reference is the head itself where nothing was committed since the publish. */
-	const nowK = now === ref ? refK : canonK(now, givesWay);
+	const nowK = now === ref ? refK : yield* canonK(now, givesWay);
 	yield;
 	const unpublished =
 		(nowK !== refK && documentDifferences(refK, nowK).length > 0) ||
@@ -1297,6 +1297,7 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 		return { kind: "held", reason: "runs-elsewhere" };
 	const B = under(baseDraft.doc, baseChoice.mutations);
 	const T = under(nowReading.draft.doc, nowChoice.mutations);
+	yield;
 
 	/* 13. What the next publish changes that it would not have changed before. */
 	let baseIds: readonly FirstPublishChangeId[];
