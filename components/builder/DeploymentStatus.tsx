@@ -215,7 +215,9 @@ export function DeploymentStatus({
 	 * superseded answer can take away with a record that holds no list. */
 	const [keptPending, startKeptTransition] = useTransition();
 	const [keptNotice, setKeptNotice] = useState<KeptRefreshNotice | null>(null);
-	/* Whether the notice is C1, which offers See what changed beside it. */
+	/* Whether the notice is Refresh's sentence that found the app changed in
+	 * CommCare HQ (`keptChangedInHqLine`), which offers See what changed
+	 * beside it. */
 	const [keptOffersReview, setKeptOffersReview] = useState(false);
 	const [changesOpen, setChangesOpen] = useState(false);
 	/* The check when the builder opened found this project space changed:
@@ -681,7 +683,7 @@ function KeptValues({
 	pending: boolean;
 	onRefresh: () => void;
 	notice: KeptRefreshNotice | null;
-	/** C2 beside the notice, where Refresh found the app changed in CommCare HQ. */
+	/** See what changed beside the notice, where Refresh found the app changed in CommCare HQ. */
 	onSeeWhatChanged?: () => void;
 }) {
 	const leadId = useId();

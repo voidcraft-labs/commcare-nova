@@ -2223,7 +2223,7 @@ export function readSaveToCaseBlocks(
 	// answer as it is led by its presence, and the guards the own arm takes.
 	// Where the form's own case also has a basic block that writes nothing,
 	// a block that prints back as an update of the session's case as well is
-	// that update, beside the basic block (R3). The two differ by name: the
+	// that update, beside the basic block. The two differ by name: the
 	// emitter names a block by its operation's id, and the basic block's
 	// operation takes the id the own arm would.
 	const bareOwnId = basicCaseReading(form)?.bareOwnId;
@@ -2281,7 +2281,7 @@ export function readSaveToCaseBlocks(
 	// a create always takes its text guard, and the own arm takes the guards
 	// `operationGuardKinds` gives it, so the arm is read only where the
 	// guards beside the block are the arm's. Where those are a create's too
-	// (the arm writes a fixed text column), the arm is read first (R3), and
+	// (the arm writes a fixed text column), the arm is read first, and
 	// test 4 holds its guard's content to the emitter's.
 	const firstBlock = proposed[0]?.read;
 	const registrationCandidate =

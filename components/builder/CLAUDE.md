@@ -349,9 +349,10 @@ itself or returns to its review step where the next publish changes something.
 The card's publish over closes its dialog and opens the Publish dialog through
 `requestPublishDialog`'s `discard`, which the dialog sends and states under
 the plan line with **Publish over these changes** as its button. Under the
-states whose sentence names publishing over and stopping (S4, U4, U6, H1,
-H2) the card has no item to stand in for them, so the panel draws the two
-itself (`panelView`'s `waysOn`): Publish over CommCare HQ's changes opens the
+answers whose sentence names publishing over and stopping as the ways on (an
+account of what Nova can't hold, a held change, and a review unavailable as
+`base-too-large` or `nova-defect`, `bodyNamesWaysOn`) the card has no item to
+stand in for them, so the panel draws the two itself (`panelView`'s `waysOn`): Publish over CommCare HQ's changes opens the
 Publish dialog on the project space, where the publish stops on the change
 with its own Publish over this, and Stop publishing here (or the editor's
 line). Before it sends a bring-in the panel registers the batch id
@@ -367,8 +368,9 @@ again, `PublishPanel` opens the Publish dialog on that step and
 `HqChangesDialog.tsx::HqChangesBroughtInHost` (mounted with the header's
 controls) draws the card's dialog on its status line from the held answer
 until the person closes it; a close while access is not resolved is the
-reload's and keeps it. On the card, S1 draws Publish over CommCare HQ's
-changes only under G1, whose sentence names it. The panel's requests go
+reload's and keeps it. On the card, a review whose changes remove nothing in
+Nova draws Publish over CommCare HQ's changes only after a bring-in the
+commit gate refused, whose sentence names publishing over. The panel's requests go
 through `hqChangesRequester.ts`, a start/stop pair built once per panel, so a
 replayed mount (Strict Mode) sends its aborted review again; a bring-in is
 never stopped. A route that refuses before its stream (no edit access, an

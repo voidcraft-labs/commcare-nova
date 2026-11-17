@@ -4,8 +4,9 @@
  *
  * Contract: for each document of the compiler's fuzz corpora (the field-tree
  * corpus, the workflow corpus, and the temporal-branch corpus, the workflow
- * corpus with a value-giving branch around a date or a date and time in the
- * record slots that read the menu's case), its export, served on CommCare
+ * corpus with a value-giving branch that gives a date or a date and time, from
+ * a case property or from literals alone, in the record slots that read the
+ * menu's case), its export, served on CommCare
  * HQ's own shell, read by the production reader as a read back of a document
  * Nova holds is made (the document's own UUIDs through `matchingResolver`
  * over its identities, and the rest of the reader's input the document's
@@ -19,7 +20,9 @@
  * canonical list lacks, a slot the reader reads back as something else, or
  * content the reader adds or drops; a property a first reading leaves
  * untyped, or types by a guess, where it stands only in a branch a record
- * slot compares. The rule for a failure is fixed: a sample
+ * slot compares; a date or date-and-time literal a branch gives, typed in the
+ * document and read untyped where nothing beside it gives its type, or read
+ * untyped where something does. The rule for a failure is fixed: a sample
  * that reads back to another document whose emission is byte-equal is a pair
  * that joins the canonical list; one whose emission differs, or that reads to
  * an account, is a reader defect corrected in the reader module that owns the
@@ -110,7 +113,8 @@ describe("a read back of a fuzz document's export", () => {
 
 /** Whether a record slot of `doc` that reads the menu's case (a list's
  *  filter, a form's display condition, a calculated column) holds a
- *  value-giving branch with a case property among its values. */
+ *  value-giving branch with a case property, or a date or date-and-time
+ *  literal, among its values. */
 function holdsTemporalBranch(doc: BlueprintDoc): boolean {
 	const trees: Expression[] = [];
 	for (const module of Object.values(doc.modules)) {
@@ -134,7 +138,12 @@ function holdsTemporalBranch(doc: BlueprintDoc): boolean {
 							: [];
 			if (
 				values.some(
-					(value) => value.kind === "term" && value.term.kind === "prop",
+					(value) =>
+						value.kind === "datetime-coerce" ||
+						(value.kind === "term" &&
+							(value.term.kind === "prop" ||
+								(value.term.kind === "literal" &&
+									value.term.data_type !== undefined))),
 				)
 			)
 				found = true;

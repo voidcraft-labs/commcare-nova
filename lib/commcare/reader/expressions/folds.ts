@@ -566,7 +566,8 @@ const typedLiteral: Fold = {
 		if (test === undefined) return undefined;
 		const leftText = stringValue(test.left);
 		const rightText = stringValue(test.right);
-		if (leftText === undefined && rightText === undefined) return undefined;
+		if (leftText === undefined && rightText === undefined)
+			return typedBranchesCompared(node, test, context, api);
 		const literalSide = leftText !== undefined ? "left" : "right";
 		const text = (leftText ?? rightText) as string;
 		const shape = literalShape(text);
@@ -597,7 +598,10 @@ const typedLiteral: Fold = {
  * literal spelled as a date or a date and time typed by its shape where a
  * branch beside it gives that type. Record branches agree on one type, and a
  * typed date or date-and-time literal a branch gives prints the same bytes as
- * the untyped one; only the typed one agrees with its siblings.
+ * the untyped one; only the typed one agrees with its siblings. A branch that
+ * is itself an `if`, a `coalesce` or a `switch` gives the type to its own
+ * branches too: one bound alone has no typed branch where every branch it
+ * gives is such a literal, so it reads as text beside its typed siblings.
  */
 function typedBranchLiterals(
 	branches: readonly {
@@ -618,14 +622,129 @@ function typedBranchLiterals(
 		}
 		if (type === "date" || type === "datetime") typed.add(type);
 	}
-	return branches.map((branch) => {
-		const shape = branchLiteralShape(branch);
-		if (shape === undefined || !typed.has(shape.type)) return branch.bound;
-		return api.term(
-			{ kind: "literal", value: shape.value, data_type: shape.type },
-			branch.syntax,
+	return branches.map((branch) =>
+		retypedBranch(branch.syntax, branch.bound, typed, api),
+	);
+}
+
+/** A comparison of a branch node that gives a literal spelled as a date or a
+ *  date and time (`givesDateShapedLiteral`) with a value of that type, read
+ *  with each such literal typed by its shape: the comparison gives the
+ *  branches the type a branch beside them would (`typedBranchLiterals`). */
+function typedBranchesCompared(
+	node: FormSyntax,
+	test: Binary,
+	context: ExpressionContext,
+	api: FoldApi,
+): Expression | undefined {
+	const leftGives = givesDateShapedLiteral(test.left);
+	const rightGives = givesDateShapedLiteral(test.right);
+	if (leftGives === rightGives) return undefined;
+	const [branchSide, otherSide] = leftGives
+		? [test.left, test.right]
+		: [test.right, test.left];
+	const other = api.bind(otherSide, context);
+	let type: string | undefined;
+	try {
+		type = scalarDataType(typeOf(other, context)?.data);
+	} catch {
+		return undefined;
+	}
+	if (type !== "date" && type !== "datetime") return undefined;
+	const bound = api.bind(branchSide, context);
+	const typed = retypedBranch(branchSide, bound, new Set([type]), api);
+	if (typed === bound) return undefined;
+	const kind = COMPARISONS[test.op] as ComparisonKind;
+	return api.remember(
+		leftGives
+			? { kind, left: typed, right: other }
+			: { kind, left: other, right: typed },
+		node,
+	);
+}
+
+/** `bound`, the reading of `syntax`, with each untyped literal it gives
+ *  spelled as a date or a date and time of a type in `typed` typed by its
+ *  shape, through the branches of an `if`, a `coalesce` or a `switch` it is. */
+function retypedBranch(
+	syntax: FormSyntax,
+	bound: Expression,
+	typed: ReadonlySet<string>,
+	api: FoldApi,
+): Expression {
+	const shape = branchLiteralShape({ syntax, bound });
+	if (shape !== undefined)
+		return typed.has(shape.type)
+			? api.term(
+					{ kind: "literal", value: shape.value, data_type: shape.type },
+					syntax,
+				)
+			: bound;
+	const inner = (at: FormSyntax | undefined, value: Expression) =>
+		at === undefined ? value : retypedBranch(at, value, typed, api);
+	if (bound.kind === "if") {
+		const branchIf = call(syntax, "if", 3);
+		if (branchIf === undefined) return bound;
+		const then = inner(branchIf.args[1], bound.then);
+		const otherwise = inner(branchIf.args[2], bound.else);
+		return then === bound.then && otherwise === bound.else
+			? bound
+			: api.remember(
+					{
+						kind: "if",
+						cond: bound.cond,
+						then,
+						else: otherwise,
+					},
+					syntax,
+				);
+	}
+	if (bound.kind === "coalesce") {
+		const values = call(syntax, "coalesce");
+		if (values === undefined || values.args.length !== bound.values.length)
+			return bound;
+		const [first, ...rest] = bound.values.map((value, index) =>
+			inner(values.args[index], value),
 		);
-	});
+		return first === undefined ||
+			[first, ...rest].every((value, index) => value === bound.values[index])
+			? bound
+			: api.remember({ kind: "coalesce", values: [first, ...rest] }, syntax);
+	}
+	if (bound.kind === "switch") {
+		const chain = switchChain(syntax);
+		if (chain === undefined || chain.tests.length !== bound.cases.length)
+			return bound;
+		const cases = bound.cases.map((entry, index) => {
+			const then = inner(chain.tests[index]?.then, entry.then);
+			return then === entry.then ? entry : { ...entry, then };
+		});
+		const fallback = inner(chain.fallback, bound.fallback);
+		const [head, ...rest] = cases;
+		return head === undefined ||
+			(fallback === bound.fallback &&
+				cases.every((entry, index) => entry === bound.cases[index]))
+			? bound
+			: api.remember({ ...bound, cases: [head, ...rest], fallback }, syntax);
+	}
+	return bound;
+}
+
+/** Whether `syntax` gives a literal spelled as a date or a date and time: it
+ *  is one, or one of the branches of the `if`, `coalesce` or record `switch`
+ *  it is gives one. */
+function givesDateShapedLiteral(syntax: FormSyntax | undefined): boolean {
+	if (syntax === undefined) return false;
+	const shape = literalShape(stringValue(syntax) ?? "");
+	if (shape?.type === "date" || shape?.type === "datetime") return true;
+	const branchIf = call(syntax, "if", 3);
+	if (branchIf !== undefined)
+		return (
+			givesDateShapedLiteral(branchIf.args[1]) ||
+			givesDateShapedLiteral(branchIf.args[2])
+		);
+	const values = call(syntax, "coalesce");
+	return values?.args.some(givesDateShapedLiteral) === true;
 }
 
 /** A branch that is an untyped text literal spelled as a date or a date and
@@ -649,9 +768,9 @@ function branchLiteralShape(branch: {
 		: undefined;
 }
 
-/** An `if` or a `coalesce` whose branches include a literal spelled as a date
- *  or a date and time, read with that literal typed where a branch beside it
- *  gives its type (`typedBranchLiterals`). */
+/** An `if` or a `coalesce` whose branches give a literal spelled as a date
+ *  or a date and time (`givesDateShapedLiteral`), read with that literal
+ *  typed where a branch beside it gives its type (`typedBranchLiterals`). */
 const typedBranchLiteral: Fold = {
 	id: "typed-branch-literal",
 	ruleSets: ["record"],
@@ -666,12 +785,7 @@ const typedBranchLiteral: Fold = {
 					: undefined;
 		const args = (branchIf ?? values)?.args;
 		if (positions === undefined || args === undefined) return undefined;
-		if (
-			!positions.some((index) => {
-				const shape = literalShape(stringValue(args[index]) ?? "");
-				return shape?.type === "date" || shape?.type === "datetime";
-			})
-		)
+		if (!positions.some((index) => givesDateShapedLiteral(args[index])))
 			return undefined;
 		const bound = args.map((arg) => api.bind(arg as FormSyntax, context));
 		const branches = typedBranchLiterals(

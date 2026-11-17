@@ -455,6 +455,14 @@ it("serves read_hq_app as one closed object", () => {
 	expect(page(`120:${"ab".repeat(32)}`)).toBe(true);
 	expect(page("120")).toBe(false);
 	expect(page(`120:${"AB".repeat(32)}`)).toBe(false);
+	/* A review's lookup tables are paged as an account is, and the create's
+	 * answers cover every page's tables. */
+	expect(served("read_hq_app").description).toContain(
+		"Each review page holds its share of `review.tables`, and `review.tables_total` says how many there are in all; show the user every table of every page before calling `bring_in_hq_app`.",
+	);
+	expect(served("bring_in_hq_app").description).toContain(
+		"`table_choices` holds one answer for each table whose review entry has a `choice`, on every page of the review,",
+	);
 });
 
 it("serves the four other bring-in tools as closed objects", () => {

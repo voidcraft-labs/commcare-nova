@@ -143,8 +143,12 @@ known type, through each branch of an `if`, `coalesce`, `switch` or `cond` the p
 beside it, since record branches agree on one type. A simple date range Search field over such a
 property declares it `date` before any expression binds (`search/dateRangeGuesses.ts`), since its
 print is HQ's prompt alone, and a record slot's comparison overrides that guess. A literal branch
-spelled as a date or a date and time beside a branch of that type is read typed
-(`folds.ts::typedBranchLiterals`), as the typed literal prints the same bytes.
+spelled as a date or a date and time beside a branch of that type, or in a branch node beside one,
+or in a branch node compared with a value of that type, is read typed
+(`folds.ts::typedBranchLiterals`, `typedBranchesCompared`), as the typed literal prints the same
+bytes. Where nothing beside it gives its type (a calculated column whose branches are all such
+literals or `datetime-coerce`s of them, a part of a `concat`), the reading gives the untyped
+literal of the text it prints, and the canonical row `untyped-value-literal` returns the same.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted

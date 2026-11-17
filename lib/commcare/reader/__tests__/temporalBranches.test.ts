@@ -37,6 +37,7 @@ import {
 } from "@/lib/domain";
 import {
 	coalesce,
+	concat,
 	datetimeCoerce,
 	type Expression,
 	eq,
@@ -233,6 +234,76 @@ const SHAPES: readonly {
 		untypedAsValue: true,
 	},
 	{
+		name: "coalesce of two datetime-coerces of dates > now()",
+		condition: gt(
+			coalesce(
+				datetimeCoerce(dateLiteral("2026-01-01")),
+				datetimeCoerce(dateLiteral("2026-02-01")),
+			),
+			now(),
+		),
+	},
+	{
+		name: "if(blank(note), a literal, datetime-coerce of a date) > now()",
+		condition: gt(
+			ifExpr(
+				isBlank(NOTE),
+				typedLiteral("2026-01-01T00:00:00Z", "datetime"),
+				datetimeCoerce(dateLiteral("2026-02-01")),
+			),
+			now(),
+		),
+	},
+	{
+		name: "a switch whose results are all literals",
+		condition: gt(
+			switchExpr(
+				NOTE,
+				[
+					switchCase(
+						literal("a"),
+						typedLiteral("2026-01-01T00:00:00Z", "datetime"),
+					),
+					switchCase(
+						literal("b"),
+						typedLiteral("2026-01-02T10:00:00+01:00", "datetime"),
+					),
+				],
+				typedLiteral("2026-02-01T00:00:00Z", "datetime"),
+			),
+			now(),
+		),
+	},
+	{
+		name: "coalesce(seen, a coalesce of two literals) > now()",
+		condition: gt(
+			coalesce(
+				SEEN,
+				coalesce(
+					typedLiteral("2026-01-01T00:00:00Z", "datetime"),
+					datetimeCoerce(dateLiteral("2026-02-01")),
+				),
+			),
+			now(),
+		),
+		untypedAsValue: true,
+	},
+	{
+		name: "a literal > seen",
+		condition: gt(typedLiteral("2026-01-01T00:00:00Z", "datetime"), SEEN),
+	},
+	{
+		name: "coalesce of two date literals > today(), seen a date",
+		condition: gt(
+			coalesce(
+				typedLiteral("2026-01-01", "date"),
+				typedLiteral("2026-02-01", "date"),
+			),
+			today(),
+		),
+		seenType: "date",
+	},
+	{
 		name: "datetime-coerce of a date > seen",
 		condition: gt(datetimeCoerce(dateLiteral("2026-01-01")), SEEN),
 	},
@@ -351,4 +422,35 @@ describe("a date range Search field over a date and time a record slot compares"
 		expect(slotTree(first, "column")).toEqual(coalesce(SEEN, now()));
 		expect(slotTree(first, "form")).toEqual(gt(SEEN, now()));
 	});
+});
+
+describe("a date or a date and time literal inside a concat, in a calculated column", () => {
+	const VALUES: readonly (readonly [string, Expression])[] = [
+		[
+			"datetime-coerce of a date",
+			concat(datetimeCoerce(dateLiteral("2026-01-01"))),
+		],
+		[
+			"a coalesce of two literals",
+			concat(
+				coalesce(
+					typedLiteral("2026-01-01T00:00:00Z", "datetime"),
+					datetimeCoerce(dateLiteral("2026-02-01")),
+				),
+			),
+		],
+	];
+	for (const [name, expression] of VALUES)
+		it(`${name} reads back as the text it prints`, async () => {
+			const doc = visitDoc("column", expression, "datetime");
+			expect(
+				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+					(error) => error.code,
+				),
+			).toEqual([]);
+			const back = read(readHqApp(await readBackInput(doc, servedExport(doc))));
+			expect(slotTree(back, "column")).toEqual(
+				slotTree(canonDocument(doc), "column"),
+			);
+		});
 });

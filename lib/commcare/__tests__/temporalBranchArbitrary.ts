@@ -1,11 +1,14 @@
 /**
  * fast-check arbitrary over the workflow corpus (`suiteDocArbitrary`) whose
  * documents also hold a value-giving branch (`if`, `coalesce`, `switch`)
- * around a case property of a date or a date and time, in the record slots
- * that read the menu's case: a case list's filter, a form's display
- * condition and a calculated column. Every module's case type declares the
- * corpus's property pool, `last_seen` a date and time and `visit_date` a
- * date, beside `full_name`, text.
+ * that gives a date or a date and time, in the record slots that read the
+ * menu's case: a case list's filter, a form's display condition and a
+ * calculated column. Its branches are a case property of that type beside
+ * other values, or literals and `datetime-coerce`s of literals alone, with no
+ * branch of a type beside them, as the whole value, inside another branch
+ * node or inside a `concat`. Every module's case type declares the corpus's
+ * property pool, `last_seen` a date and time and `visit_date` a date, beside
+ * `full_name`, text.
  *
  * Each draw places one shape in each slot it can: the comparison in a case
  * list's filter where the menu has no search (a search restates its list's
@@ -22,8 +25,10 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { calculatedColumn } from "@/lib/domain";
 import {
 	coalesce,
+	concat,
 	datetimeCoerce,
 	type Expression,
+	eq,
 	gt,
 	ifExpr,
 	isBlank,
@@ -39,8 +44,9 @@ import {
 import type { Uuid } from "@/lib/domain/uuid";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
 
-/** A comparison whose left side is a value-giving branch around a date or a
- *  date and time property of `caseType`. */
+/** A comparison whose left side is a value that gives a date or a date and
+ *  time through a branch, or a literal of one, over `caseType`'s
+ *  properties. */
 type Shape = (caseType: string) => Expression;
 
 const seen = (caseType: string) => term(prop(caseType, "last_seen"));
@@ -48,6 +54,9 @@ const visited = (caseType: string) => term(prop(caseType, "visit_date"));
 const named = (caseType: string) => term(prop(caseType, "full_name"));
 const moment = (value: string) =>
 	term({ kind: "literal", value, data_type: "datetime" });
+const day = (value: string) =>
+	term({ kind: "literal", value, data_type: "date" });
+const coercedDay = (value: string) => datetimeCoerce(term(literal(value)));
 
 export const TEMPORAL_BRANCH_SHAPES: readonly Shape[] = [
 	(type) => gt(coalesce(seen(type), now()), now()),
@@ -73,6 +82,46 @@ export const TEMPORAL_BRANCH_SHAPES: readonly Shape[] = [
 			now(),
 		),
 	(type) => gt(coalesce(visited(type), today()), today()),
+	() => gt(coalesce(coercedDay("2026-01-01"), coercedDay("2026-02-01")), now()),
+	(type) =>
+		gt(
+			ifExpr(
+				isBlank(named(type)),
+				moment("2026-01-01T00:00:00Z"),
+				coercedDay("2026-02-01"),
+			),
+			now(),
+		),
+	(type) =>
+		gt(
+			switchExpr(
+				named(type),
+				[
+					switchCase(literal("a"), moment("2026-01-01T00:00:00Z")),
+					switchCase(literal("b"), moment("2026-01-02T10:00:00+01:00")),
+				],
+				moment("2026-02-01T00:00:00Z"),
+			),
+			now(),
+		),
+	(type) =>
+		gt(
+			coalesce(
+				seen(type),
+				coalesce(moment("2026-01-01T00:00:00Z"), coercedDay("2026-02-01")),
+			),
+			now(),
+		),
+	() => gt(coalesce(day("2026-01-01"), day("2026-02-01")), today()),
+	(type) => gt(moment("2026-01-01T00:00:00Z"), seen(type)),
+	() =>
+		eq(
+			concat(
+				coercedDay("2026-01-01"),
+				coalesce(moment("2026-01-02T00:00:00Z"), coercedDay("2026-02-01")),
+			),
+			term(literal("2026")),
+		),
 ];
 
 /** Every placement of `shape` in `doc`: each slot it can stand in. */

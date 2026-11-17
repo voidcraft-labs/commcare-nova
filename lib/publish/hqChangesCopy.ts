@@ -440,23 +440,24 @@ export const HQ_CHANGES_SIGNED_OUT_LINE =
 // ── The Publishing card and the builder's header ─────────────────────
 
 /**
- * C1: Refresh from CommCare HQ's sentence where it found a change made in
+ * Refresh from CommCare HQ's sentence where it found a change made in
  * CommCare HQ. `date` is the kept list's date, formatted for the reader.
  */
 export function keptChangedInHqLine(date: string): string {
 	return `CommCare HQ saved this app since Nova last read it, so these stay as of ${date}.`;
 }
 
-/** C2: the button beside C1. */
+/** The button beside `keptChangedInHqLine`'s sentence. */
 export const SEE_WHAT_CHANGED_ACTION = "See what changed";
 /**
  * On a Publishing card whose project space the check when the builder opens
- * found changed, beside C2, so the header's C3 lands on a card that says so.
+ * found changed, beside `SEE_WHAT_CHANGED_ACTION`, so the header's
+ * `SEE_WHAT_CHANGED_IN_HQ_ACTION` lands on a card that says so.
  */
 export function hqChangedFoundLine(since: string): string {
 	return `Something in this app changed in CommCare HQ since ${since}.`;
 }
-/** C3: the builder header's button where opening the app found a change. */
+/** The builder header's button where opening the app found a change. */
 export const SEE_WHAT_CHANGED_IN_HQ_ACTION = "See what changed in CommCare HQ";
 /** The card's dialog title. */
 export const HQ_CHANGES_DIALOG_TITLE = "Changes in CommCare HQ";

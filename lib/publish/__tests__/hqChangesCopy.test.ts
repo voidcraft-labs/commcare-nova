@@ -450,7 +450,7 @@ describe("a request that ends with no answer, or one the bring-in refuses", () =
 });
 
 describe("the other strings", () => {
-	it("says C1 to C3, the dialog's title and T1", () => {
+	it("says Refresh's changed sentence, both See what changed buttons, the dialog's title and the brought-in toast", () => {
 		expect(keptChangedInHqLine("10 November 2026")).toBe(
 			"CommCare HQ saved this app since Nova last read it, so these stay as of 10 November 2026.",
 		);
