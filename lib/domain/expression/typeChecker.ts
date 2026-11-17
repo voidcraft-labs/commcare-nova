@@ -3691,6 +3691,8 @@ function checkComparison(
 		// A blank orders before or after nothing: a device reads it as no
 		// number and answers no for every case, and CommCare HQ's search
 		// refuses to order by it (`comparison.py::case_property_range_query`).
+		// A branch node one of whose branches is blank orders the rows that
+		// branch is chosen for as no value, and stays.
 		if (isNullLiteral(left) || isNullLiteral(right)) {
 			errors.push({
 				path,
@@ -3740,13 +3742,19 @@ function checkComparison(
 	);
 }
 
-/** A direct `null` literal operand. */
+/** An operand every value of which is a `null` literal: one itself, or a
+ *  branch node (`coalesce(null)`) whose every branch ends with one. */
 function isNullLiteral(expression: Expression): boolean {
-	return (
-		expression.kind === "term" &&
-		expression.term.kind === "literal" &&
-		expression.term.value === null
-	);
+	let blank = true;
+	visitAssignmentOutputs(expression, [], (output) => {
+		if (
+			output.kind !== "term" ||
+			output.term.kind !== "literal" ||
+			output.term.value !== null
+		)
+			blank = false;
+	});
+	return blank;
 }
 
 function isCaseRowType(expression: Expression | undefined): boolean {

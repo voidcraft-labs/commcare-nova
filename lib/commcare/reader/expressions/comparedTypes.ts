@@ -24,6 +24,7 @@
  * writer types it, and HQ keeps no type of a property.
  */
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
 import {
@@ -81,12 +82,20 @@ function literalShapeGiven(
 		: undefined;
 }
 
-/** A custom property read of the row a comparison stands in. */
+/** A custom property read of the row a comparison stands in, or of the case
+ *  a menu above chose (`chosenCase.ts::readChosenCaseProperty`). */
 function comparedProperty(
 	expression: Expression | undefined,
 ): Term | undefined {
-	if (expression?.kind !== "term") return undefined;
-	const term = expression.term;
+	const term =
+		expression?.kind === "term"
+			? expression.term
+			: expression !== undefined &&
+					readChosenCaseProperty(expression) !== undefined &&
+					expression.kind === "project"
+				? expression.value
+				: undefined;
+	if (term === undefined) return undefined;
 	return term.kind === "prop" &&
 		term.caseType !== undefined &&
 		(term.via === undefined || term.via.kind === "self") &&

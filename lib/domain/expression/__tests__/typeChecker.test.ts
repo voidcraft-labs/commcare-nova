@@ -3701,6 +3701,9 @@ describe("comparisons a device runs between two moments", () => {
 		expect(codes(filterErrors(gt(term(literal(3)), blank)))).toEqual([
 			"ordered-values:blank",
 		]);
+		expect(codes(filterErrors(gt(now(), coalesce(blank))))).toEqual([
+			"ordered-values:blank",
+		]);
 		// A blank branch orders the rows it is chosen for as no value.
 		expect(
 			filterErrors(

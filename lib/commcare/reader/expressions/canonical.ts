@@ -801,6 +801,23 @@ function foldedCoercions(
 		const day =
 			comparisonPlan(node.kind, operands.left, operands.right) === "day";
 		childFolds = () => !day;
+	} else if (node.kind === "in") {
+		// A membership prints its subject as each of its equalities does, so
+		// the subject folds where the equality with its first value does.
+		const at =
+			path.length === 0
+				? context
+				: expressionContextAtPath(root, context, path);
+		const operands = comparisonOperands(
+			{
+				kind: "eq",
+				left: node.left,
+				right: { kind: "term", term: node.values[0] },
+			},
+			at,
+		);
+		const day = comparisonPlan("eq", operands.left, operands.right) === "day";
+		childFolds = (childPath) => !day && childPath.at(-1) === "left";
 	} else if (node.kind === "format-date") {
 		// `format-date` reads its date as a date and time, which the coercion
 		// of a literal and the literal of the text it prints both print as.

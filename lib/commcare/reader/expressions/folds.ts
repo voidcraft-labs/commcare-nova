@@ -984,6 +984,17 @@ export function ownCaseWalk(
 	return inner === undefined ? undefined : [...inner, identifier.name];
 }
 
+/** The session value an own-case walk starts from: the key's innermost
+ *  `instance('commcaresession')/session/data/<id>`. */
+function walkDatum(key: FormSyntax | undefined): FormSyntax | undefined {
+	if (key === undefined) return undefined;
+	if (sessionDatumRead(key)) return key;
+	const hop = casedbRow(key);
+	return hop === undefined || hop.row.where.length !== 1
+		? undefined
+		: walkDatum(caseIdKey(hop.row.where[0]));
+}
+
 const ownCaseRead: Fold = {
 	id: "own-case-read",
 	ruleSets: ["form", "record"],
@@ -1028,6 +1039,20 @@ const ownCaseRead: Fold = {
 		if (property === undefined || more.length > 0) return undefined;
 		const walk = ownCaseWalk(caseIdKey(read.row.where[0]));
 		if (walk === undefined) return undefined;
+		// The walk starts from the form's own case only where its session value
+		// is that case's: a value another menu chose is that menu's case.
+		const datum = walkDatum(caseIdKey(read.row.where[0]));
+		const start =
+			datum === undefined ? undefined : termOf(env.bindPlain(datum, context));
+		if (
+			start?.kind === "session-datum" &&
+			!(
+				(start.datum.kind === "selected-case" &&
+					start.datum.module === context.form?.moduleUuid) ||
+				start.datum.kind === "new-case"
+			)
+		)
+			return undefined;
 		const moduleUuid = context.form?.moduleUuid;
 		const moduleCaseType =
 			moduleUuid === undefined
